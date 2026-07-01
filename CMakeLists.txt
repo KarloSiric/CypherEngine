@@ -137,6 +137,13 @@ if (CYPHERENGINE_BUILD_TESTS)
     add_test(NAME cypher_common_tier0_smoke COMMAND cypher_common_tier0_smoke)
 
     if (Catch2_FOUND)
+        add_executable(cypher_common_tier0_align_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier0_Align_Tests.cpp"
+        )
+        target_include_directories(cypher_common_tier0_align_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_tier0_align_tests PRIVATE Catch2::Catch2WithMain)
+        add_test(NAME cypher_common_tier0_align_tests COMMAND cypher_common_tier0_align_tests)
+
         add_executable(cypher_common_tier0_memoryops_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier0_MemoryOps_Tests.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_MemoryOps.cpp"
@@ -218,6 +225,12 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         )
         target_include_directories(cypher_common_char_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_char_bench PRIVATE benchmark::benchmark_main)
+
+        add_executable(cypher_common_align_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon_Align_Bench.cpp"
+        )
+        target_include_directories(cypher_common_align_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_align_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_common_string_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon_String_Bench.cpp"
