@@ -160,3 +160,211 @@ TEST_CASE( "Cy_strncpy copies safely and reports required source length", "[Cyph
     REQUIRE( Cy_strncpy( pBuffer, "abc", 0u ) == 3u );
     REQUIRE( Cy_strncpy( nullptr, "abc", 8u ) == 3u );
 }
+
+TEST_CASE( "Cy_strncpy_max copies at most the requested source count", "[CypherCommon][Tier1][String]" )
+{
+    char pBuffer[8]{};
+
+    REQUIRE( Cy_strncpy_max( pBuffer, "cypher", sizeof( pBuffer ), 64u ) == 6u );
+    REQUIRE( Cy_strequal( pBuffer, "cypher" ) );
+
+    REQUIRE( Cy_strncpy_max( pBuffer, "cypherengine", sizeof( pBuffer ), 6u ) == 6u );
+    REQUIRE( Cy_strequal( pBuffer, "cypher" ) );
+
+    REQUIRE( Cy_strncpy_max( pBuffer, "cypherengine", 4u, 12u ) == 12u );
+    REQUIRE( Cy_strequal( pBuffer, "cyp" ) );
+
+    REQUIRE( Cy_strncpy_max( pBuffer, nullptr, sizeof( pBuffer ), 10u ) == 0u );
+    REQUIRE( Cy_strequal( pBuffer, "" ) );
+
+    REQUIRE( Cy_strncpy_max( pBuffer, "abc", sizeof( pBuffer ), 0u ) == 0u );
+    REQUIRE( Cy_strequal( pBuffer, "" ) );
+
+    REQUIRE( Cy_strncpy_max( pBuffer, "abc", 0u, 2u ) == 2u );
+    REQUIRE( Cy_strncpy_max( nullptr, "abc", 8u, 2u ) == 2u );
+}
+
+TEST_CASE( "Cy_strncat appends safely and reports required final length", "[CypherCommon][Tier1][String]" )
+{
+    char pBuffer[16] = "cypher";
+
+    REQUIRE( Cy_strncat( pBuffer, "engine", sizeof( pBuffer ) ) == 12u );
+    REQUIRE( Cy_strequal( pBuffer, "cypherengine" ) );
+
+    char pSmall[10] = "cypher";
+    REQUIRE( Cy_strncat( pSmall, "engine", sizeof( pSmall ) ) == 12u );
+    REQUIRE( Cy_strequal( pSmall, "cyphereng" ) );
+
+    REQUIRE( Cy_strncat( pSmall, nullptr, sizeof( pSmall ) ) == 9u );
+    REQUIRE( Cy_strequal( pSmall, "cyphereng" ) );
+
+    REQUIRE( Cy_strncat( nullptr, "abc", 8u ) == 3u );
+    REQUIRE( Cy_strncat( pSmall, "abc", 0u ) == 3u );
+
+    char pNoTerm[4] = { 'a', 'b', 'c', 'd' };
+    REQUIRE( Cy_strncat( pNoTerm, "x", sizeof( pNoTerm ) ) == 5u );
+    REQUIRE( pNoTerm[3] == '\0' );
+}
+
+TEST_CASE( "Cy_strncat_max appends at most the requested source count", "[CypherCommon][Tier1][String]" )
+{
+    char pBuffer[16] = "cypher";
+
+    REQUIRE( Cy_strncat_max( pBuffer, "engine-runtime", sizeof( pBuffer ), 6u ) == 12u );
+    REQUIRE( Cy_strequal( pBuffer, "cypherengine" ) );
+
+    char pSmall[10] = "cypher";
+    REQUIRE( Cy_strncat_max( pSmall, "engine-runtime", sizeof( pSmall ), 6u ) == 12u );
+    REQUIRE( Cy_strequal( pSmall, "cyphereng" ) );
+
+    REQUIRE( Cy_strncat_max( pSmall, "abc", sizeof( pSmall ), 0u ) == 9u );
+    REQUIRE( Cy_strequal( pSmall, "cyphereng" ) );
+
+    REQUIRE( Cy_strncat_max( nullptr, "abc", 8u, 2u ) == 2u );
+    REQUIRE( Cy_strncat_max( pSmall, "abc", 0u, 2u ) == 2u );
+}
+
+TEST_CASE( "Cy string character search helpers return pointers inside the source buffer", "[CypherCommon][Tier1][String]" )
+{
+    const char *pText = "textures/world/wall.dds";
+
+    REQUIRE( Cy_strchr( pText, '/' ) == pText + 8u );
+    REQUIRE( Cy_strchr( pText, 'z' ) == nullptr );
+    REQUIRE( Cy_strchr( pText, '\0' ) == pText + Cy_strlen( pText ) );
+
+    REQUIRE( Cy_strrchr( pText, '/' ) == pText + 14u );
+    REQUIRE( Cy_strrchr( pText, 'z' ) == nullptr );
+    REQUIRE( Cy_strrchr( pText, '\0' ) == pText + Cy_strlen( pText ) );
+
+    REQUIRE( Cy_strnchr( pText, '/', 8u ) == nullptr );
+    REQUIRE( Cy_strnchr( pText, '/', 9u ) == pText + 8u );
+    REQUIRE( Cy_strnchr( static_cast<const char *>( nullptr ), '/', 9u ) == nullptr );
+}
+
+TEST_CASE( "Cy string substring search helpers handle case and capped scans", "[CypherCommon][Tier1][String]" )
+{
+    const char *pText = "Textures/World/Wall.DDS";
+
+    REQUIRE( Cy_strstr( pText, "World" ) == pText + 9u );
+    REQUIRE( Cy_strstr( pText, "world" ) == nullptr );
+    REQUIRE( Cy_strstr( pText, "" ) == pText );
+    REQUIRE( Cy_strstr( static_cast<const char *>( nullptr ), "World" ) == nullptr );
+
+    REQUIRE( Cy_stristr( pText, "world" ) == pText + 9u );
+    REQUIRE( Cy_stristr( pText, "WALL.dds" ) == pText + 15u );
+
+    REQUIRE( Cy_strnstr( pText, "World", 14u ) == pText + 9u );
+    REQUIRE( Cy_strnstr( pText, "World", 13u ) == nullptr );
+    REQUIRE( Cy_strnistr( pText, "wall.dds", 23u ) == pText + 15u );
+    REQUIRE( Cy_strnistr( pText, "wall.dds", 18u ) == nullptr );
+}
+
+TEST_CASE( "Cy string prefix and suffix helpers support case-sensitive and insensitive checks", "[CypherCommon][Tier1][String]" )
+{
+    REQUIRE( Cy_strstarts( "textures/world/wall.dds", "textures" ) );
+    REQUIRE_FALSE( Cy_strstarts( "textures/world/wall.dds", "Textures" ) );
+    REQUIRE( Cy_stristarts( "textures/world/wall.dds", "Textures" ) );
+    REQUIRE( Cy_strstarts( "textures/world/wall.dds", "" ) );
+
+    REQUIRE( Cy_strends( "textures/world/wall.dds", ".dds" ) );
+    REQUIRE_FALSE( Cy_strends( "textures/world/wall.dds", ".DDS" ) );
+    REQUIRE( Cy_striends( "textures/world/wall.dds", ".DDS" ) );
+    REQUIRE_FALSE( Cy_strends( "wall", "longer-wall" ) );
+}
+
+TEST_CASE( "Cy string case helpers mutate ASCII text in place", "[CypherCommon][Tier1][String]" )
+{
+    char pLower[] = "Cypher123!";
+    REQUIRE( Cy_strlower( pLower ) == pLower );
+    REQUIRE( Cy_strequal( pLower, "cypher123!" ) );
+
+    char pUpper[] = "Cypher123!";
+    REQUIRE( Cy_strupper( pUpper ) == pUpper );
+    REQUIRE( Cy_strequal( pUpper, "CYPHER123!" ) );
+
+    char pPartialLower[] = "ABCDEF";
+    REQUIRE( Cy_strnlower( pPartialLower, 3u ) == pPartialLower );
+    REQUIRE( Cy_strequal( pPartialLower, "abcDEF" ) );
+
+    char pPartialUpper[] = "abcdef";
+    REQUIRE( Cy_strnupper( pPartialUpper, 3u ) == pPartialUpper );
+    REQUIRE( Cy_strequal( pPartialUpper, "ABCdef" ) );
+
+    REQUIRE( Cy_strlower( nullptr ) == nullptr );
+    REQUIRE( Cy_strislower( "abc123!" ) );
+    REQUIRE_FALSE( Cy_strislower( "abcD" ) );
+    REQUIRE( Cy_strisupper( "ABC123!" ) );
+    REQUIRE_FALSE( Cy_strisupper( "ABc" ) );
+}
+
+TEST_CASE( "Cy string whitespace and quote helpers trim in place", "[CypherCommon][Tier1][String]" )
+{
+    char pText[] = " \t  cypher engine \r\n";
+    REQUIRE( Cy_strskipwhite( pText ) == pText + 4u );
+
+    Cy_strtrimleft( pText );
+    REQUIRE( Cy_strequal( pText, "cypher engine \r\n" ) );
+
+    Cy_strtrimright( pText );
+    REQUIRE( Cy_strequal( pText, "cypher engine" ) );
+
+    char pBoth[] = "\n\t cypher \r\n";
+    Cy_strtrim( pBoth );
+    REQUIRE( Cy_strequal( pBoth, "cypher" ) );
+
+    char pQuoted[] = "\"cypher\"";
+    Cy_strstripquotes( pQuoted );
+    REQUIRE( Cy_strequal( pQuoted, "cypher" ) );
+
+    char pSingleQuoted[] = "'engine'";
+    Cy_strstripquotes( pSingleQuoted );
+    REQUIRE( Cy_strequal( pSingleQuoted, "engine" ) );
+
+    char pMismatched[] = "\"engine'";
+    Cy_strstripquotes( pMismatched );
+    REQUIRE( Cy_strequal( pMismatched, "\"engine'" ) );
+}
+
+TEST_CASE( "Cy string slice helpers copy selected ranges safely", "[CypherCommon][Tier1][String]" )
+{
+    char pBuffer[16]{};
+
+    REQUIRE( Cy_strleft( "cypherengine", pBuffer, sizeof( pBuffer ), 6u ) == 6u );
+    REQUIRE( Cy_strequal( pBuffer, "cypher" ) );
+
+    REQUIRE( Cy_strright( "cypherengine", pBuffer, sizeof( pBuffer ), 6u ) == 6u );
+    REQUIRE( Cy_strequal( pBuffer, "engine" ) );
+
+    REQUIRE( Cy_strslice( "cypherengine", pBuffer, sizeof( pBuffer ), 6u, 6u ) == 6u );
+    REQUIRE( Cy_strequal( pBuffer, "engine" ) );
+
+    REQUIRE( Cy_strslice( "cypherengine", pBuffer, sizeof( pBuffer ), 64u, 6u ) == 0u );
+    REQUIRE( Cy_strequal( pBuffer, "" ) );
+
+    REQUIRE( Cy_strleft( "cypherengine", pBuffer, 4u, 6u ) == 6u );
+    REQUIRE( Cy_strequal( pBuffer, "cyp" ) );
+}
+
+TEST_CASE( "Cy string substitution and count helpers report required output size", "[CypherCommon][Tier1][String]" )
+{
+    char pBuffer[32]{};
+
+    REQUIRE( Cy_strsubst( "materials/wall.mat", "wall", "floor", pBuffer, sizeof( pBuffer ) ) == 19u );
+    REQUIRE( Cy_strequal( pBuffer, "materials/floor.mat" ) );
+
+    REQUIRE( Cy_strsubst( "aaaa", "aa", "b", pBuffer, sizeof( pBuffer ) ) == 2u );
+    REQUIRE( Cy_strequal( pBuffer, "bb" ) );
+
+    REQUIRE( Cy_strsubst( "materials/wall.mat", "wall", "floor", pBuffer, 12u ) == 19u );
+    REQUIRE( Cy_strequal( pBuffer, "materials/f" ) );
+
+    REQUIRE( Cy_strsubst( "abc", "", "x", pBuffer, sizeof( pBuffer ) ) == 3u );
+    REQUIRE( Cy_strequal( pBuffer, "abc" ) );
+
+    REQUIRE( Cy_strcountchar( "a/b/c", '/' ) == 2u );
+    REQUIRE( Cy_strcountchar( nullptr, '/' ) == 0u );
+
+    REQUIRE( Cy_strcountstring( "aaaa", "aa" ) == 2u );
+    REQUIRE( Cy_strcountstring( "aaaa", "" ) == 0u );
+    REQUIRE( Cy_strcountstring( nullptr, "aa" ) == 0u );
+}
