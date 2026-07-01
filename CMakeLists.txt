@@ -129,11 +129,22 @@ if (CYPHERENGINE_BUILD_TESTS)
     enable_testing()
     find_package(Catch2 CONFIG QUIET)
 
-    add_executable(cypher_common_tier0_smoke "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier0_Smoke.cpp")
+    add_executable(cypher_common_tier0_smoke
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier0_Smoke.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_MemoryOps.cpp"
+    )
     target_include_directories(cypher_common_tier0_smoke PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
     add_test(NAME cypher_common_tier0_smoke COMMAND cypher_common_tier0_smoke)
 
     if (Catch2_FOUND)
+        add_executable(cypher_common_tier0_memoryops_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier0_MemoryOps_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_MemoryOps.cpp"
+        )
+        target_include_directories(cypher_common_tier0_memoryops_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_tier0_memoryops_tests PRIVATE Catch2::Catch2WithMain)
+        add_test(NAME cypher_common_tier0_memoryops_tests COMMAND cypher_common_tier0_memoryops_tests)
+
         add_executable(cypher_common_tier1_char_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier1_Char_Tests.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
@@ -210,6 +221,13 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         )
         target_include_directories(cypher_common_string_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_string_bench PRIVATE benchmark::benchmark_main)
+
+        add_executable(cypher_common_memoryops_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon_MemoryOps_Bench.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_MemoryOps.cpp"
+        )
+        target_include_directories(cypher_common_memoryops_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_memoryops_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_memory_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherMemory_Bench.cpp"
