@@ -1,5 +1,6 @@
 # Build directories
 /build/
+/build-*/
 /build-bench/
 /build-clangd/
 /bin/
@@ -75,3 +76,7 @@ __pycache__/
 /.cache/
 /tools/**/build/
 /tools/**/out/
+
+# Benchmark captures
+/benchmarks/results/*
+!/benchmarks/results/.gitkeep
