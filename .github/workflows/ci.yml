@@ -127,3 +127,68 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build-sanitize -C Debug --output-on-failure --no-tests=error --timeout 120
+
+  benchmark-build:
+    name: ${{ matrix.name }} Bench Build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu
+            os: ubuntu-latest
+          - name: Windows
+            os: windows-latest
+          - name: macOS
+            os: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf autoconf-archive automake libtool libtool-bin libltdl-dev
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install autoconf autoconf-archive automake libtool
+          if ! command -v libtoolize >/dev/null 2>&1 && command -v glibtoolize >/dev/null 2>&1; then
+            sudo ln -sf "$(command -v glibtoolize)" /usr/local/bin/libtoolize
+          fi
+
+      - name: Bootstrap vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git vcpkg
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            ./vcpkg/bootstrap-vcpkg.bat -disableMetrics
+          else
+            ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          fi
+
+      - name: Configure benchmarks
+        run: >
+          cmake -S . -B build-bench
+          -DCMAKE_BUILD_TYPE=Release
+          -DCYPHERENGINE_BUILD_BENCHMARKS=ON
+          -DCMAKE_TOOLCHAIN_FILE="$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build benchmark targets
+        run: cmake --build build-bench --config Release --target cypher_common_memoryops_bench cypher_perf_system_report --parallel
+
+      - name: Report benchmark system info
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            ./build-bench/bin/Release/cypher_perf_system_report.exe
+          else
+            ./build-bench/bin/cypher_perf_system_report
+          fi
