@@ -378,6 +378,106 @@ void BM_Cy_strncpy_Truncates( benchmark::State &state )
     }
 }
 
+void BM_Cy_strncpy_max_Capped( benchmark::State &state )
+{
+    char szBuffer[64]{};
+
+    for ( auto _ : state ) {
+        benchmark::DoNotOptimize( Cy_strncpy_max( szBuffer, kLongA, sizeof( szBuffer ), 32u ) );
+        benchmark::DoNotOptimize( szBuffer );
+        benchmark::ClobberMemory();
+    }
+}
+
+void BM_Cy_strncat_Fits( benchmark::State &state )
+{
+    char szBuffer[128]{};
+
+    for ( auto _ : state ) {
+        Cy_strncpy( szBuffer, "textures/", sizeof( szBuffer ) );
+        benchmark::DoNotOptimize( Cy_strncat( szBuffer, "world/wall.dds", sizeof( szBuffer ) ) );
+        benchmark::DoNotOptimize( szBuffer );
+        benchmark::ClobberMemory();
+    }
+}
+
+void BM_Cy_strncat_Truncates( benchmark::State &state )
+{
+    char szBuffer[24]{};
+
+    for ( auto _ : state ) {
+        Cy_strncpy( szBuffer, "textures/", sizeof( szBuffer ) );
+        benchmark::DoNotOptimize( Cy_strncat( szBuffer, "world/industrial/wall_panel_01_albedo.dds", sizeof( szBuffer ) ) );
+        benchmark::DoNotOptimize( szBuffer );
+        benchmark::ClobberMemory();
+    }
+}
+
+void BM_Cy_strncat_max_Capped( benchmark::State &state )
+{
+    char szBuffer[128]{};
+
+    for ( auto _ : state ) {
+        Cy_strncpy( szBuffer, "textures/", sizeof( szBuffer ) );
+        benchmark::DoNotOptimize( Cy_strncat_max( szBuffer, "world/industrial/wall_panel_01_albedo.dds", sizeof( szBuffer ), 16u ) );
+        benchmark::DoNotOptimize( szBuffer );
+        benchmark::ClobberMemory();
+    }
+}
+
+void BM_Cy_strstr_FoundMedium( benchmark::State &state )
+{
+    for ( auto _ : state ) {
+        benchmark::DoNotOptimize( Cy_strstr( kMediumA, "wall_panel" ) );
+    }
+}
+
+void BM_Cy_stristr_FoundMediumCase( benchmark::State &state )
+{
+    for ( auto _ : state ) {
+        benchmark::DoNotOptimize( Cy_stristr( kMediumCase, "wall_panel" ) );
+    }
+}
+
+void BM_Cy_strnstr_FoundMediumCapped( benchmark::State &state )
+{
+    for ( auto _ : state ) {
+        benchmark::DoNotOptimize( Cy_strnstr( kMediumA, "industrial", 40u ) );
+    }
+}
+
+void BM_Cy_strstarts_Medium( benchmark::State &state )
+{
+    for ( auto _ : state ) {
+        benchmark::DoNotOptimize( Cy_strstarts( kMediumA, "textures/world" ) );
+    }
+}
+
+void BM_Cy_strends_Medium( benchmark::State &state )
+{
+    for ( auto _ : state ) {
+        benchmark::DoNotOptimize( Cy_strends( kMediumA, ".dds" ) );
+    }
+}
+
+void BM_Cy_strcountchar_MediumPath( benchmark::State &state )
+{
+    for ( auto _ : state ) {
+        benchmark::DoNotOptimize( Cy_strcountchar( kMediumA, '/' ) );
+    }
+}
+
+void BM_Cy_strsubst_OneReplacement( benchmark::State &state )
+{
+    char szBuffer[128]{};
+
+    for ( auto _ : state ) {
+        benchmark::DoNotOptimize( Cy_strsubst( kMediumA, "albedo", "normal", szBuffer, sizeof( szBuffer ) ) );
+        benchmark::DoNotOptimize( szBuffer );
+        benchmark::ClobberMemory();
+    }
+}
+
 } // namespace
 
 BENCHMARK( BM_Cy_strlen_Short );
@@ -413,3 +513,14 @@ BENCHMARK( BM_Cy_striequal_EqualMediumCase );
 BENCHMARK( BM_Cy_strniequal_EqualMediumCaseCapped );
 BENCHMARK( BM_Cy_strncpy_Fits );
 BENCHMARK( BM_Cy_strncpy_Truncates );
+BENCHMARK( BM_Cy_strncpy_max_Capped );
+BENCHMARK( BM_Cy_strncat_Fits );
+BENCHMARK( BM_Cy_strncat_Truncates );
+BENCHMARK( BM_Cy_strncat_max_Capped );
+BENCHMARK( BM_Cy_strstr_FoundMedium );
+BENCHMARK( BM_Cy_stristr_FoundMediumCase );
+BENCHMARK( BM_Cy_strnstr_FoundMediumCapped );
+BENCHMARK( BM_Cy_strstarts_Medium );
+BENCHMARK( BM_Cy_strends_Medium );
+BENCHMARK( BM_Cy_strcountchar_MediumPath );
+BENCHMARK( BM_Cy_strsubst_OneReplacement );
