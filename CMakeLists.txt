@@ -207,6 +207,11 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
     find_package(benchmark CONFIG QUIET)
 
     if (benchmark_FOUND)
+        add_executable(cypher_perf_system_report
+            "${CYPHERENGINE_ROOT_DIR}/tools/perf/CypherPerf_SystemReport.cpp"
+        )
+        target_include_directories(cypher_perf_system_report PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+
         add_executable(cypher_common_char_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon_Char_Bench.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
