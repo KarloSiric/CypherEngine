@@ -1,3 +1,21 @@
+# //////////////////////////////////////////////////////////////////////////
+# //
+# //  CypherEngine Source Code
+# //  Copyright (c) 2026 Karlo Siric. All rights reserved.
+# //
+# //  File: .gitignore
+# //  Purpose: Defines ignored local, generated, and build artifacts.
+# //  Details: This file keeps generated artifacts, build outputs, local logs, and
+# //           editor noise out of version control. Do not use it to hide source files
+# //           that should be reviewed.
+# //
+# //  History:
+# //  - Created by Karlo Siric on 2026-04-18
+# //
+# //  This file is proprietary and confidential. See LICENSE for details.
+# //
+# //////////////////////////////////////////////////////////////////////////
+
 # Build directories
 /build/
 /build-*/
