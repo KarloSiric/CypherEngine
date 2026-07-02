@@ -1,3 +1,20 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: tests/CypherEngine/CypherPak/CypherPak_Smoke.cpp
+//  Purpose: Tests Pak Smoke behavior.
+//  Details: This test file guards expected behavior for the corresponding runtime
+//           module. It should prefer focused edge cases over broad demonstrations.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-07-03
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #include "CypherPak.h"
 
 #include <cstdio>
