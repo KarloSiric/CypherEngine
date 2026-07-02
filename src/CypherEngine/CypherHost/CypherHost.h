@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherHost/CypherHost.h
+//  Purpose: Declares the CypherHost Host module.
+//  Details: This file participates in engine host startup, frame flow, and shutdown
+//           ordering. Keep it thin enough that subsystem initialization remains
+//           visible and debuggable.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_HOST_H
 #define CYPHER_ENGINE_HOST_H
 
