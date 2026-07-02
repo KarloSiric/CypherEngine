@@ -1,3 +1,20 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: tests/CypherCommon/Tier0/CypherCommon_Tier0_Bits_Tests.cpp
+//  Purpose: Tests Tier0 Bits Tests behavior.
+//  Details: This test file guards expected behavior for the corresponding runtime
+//           module. It should prefer focused edge cases over broad demonstrations.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-07-03
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #include "CypherCommon_Bits.h"
 
 #include <catch2/catch_test_macros.hpp>
