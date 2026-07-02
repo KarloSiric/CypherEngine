@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherRender/CypherRender.h
+//  Purpose: Declares the CypherRender Render module.
+//  Details: This file participates in the renderer bootstrap and draw path. Keep API
+//           boundaries clear so the renderer can grow from simple OpenGL startup into
+//           a fuller rendering backend.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_RENDER_H
 #define CYPHER_ENGINE_RENDER_H
 
