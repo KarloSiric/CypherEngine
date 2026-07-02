@@ -1,3 +1,21 @@
+# //////////////////////////////////////////////////////////////////////////
+# //
+# //  CypherEngine Source Code
+# //  Copyright (c) 2026 Karlo Siric. All rights reserved.
+# //
+# //  File: .github/workflows/ci.yml
+# //  Purpose: Defines GitHub Actions continuous integration for CypherEngine.
+# //  Details: This workflow is the first automated safety net for cross-platform builds
+# //           and tests. Keep it deterministic, readable, and close to the local build
+# //           commands.
+# //
+# //  History:
+# //  - Created by Karlo Siric on 2026-06-12
+# //
+# //  This file is proprietary and confidential. See LICENSE for details.
+# //
+# //////////////////////////////////////////////////////////////////////////
+
 name: CI
 
 on:
