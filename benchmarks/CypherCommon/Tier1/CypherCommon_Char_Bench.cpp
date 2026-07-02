@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: benchmarks/CypherCommon/Tier1/CypherCommon_Char_Bench.cpp
+//  Purpose: Benchmarks Char Bench performance.
+//  Details: This benchmark measures runtime cost for the corresponding low-level
+//           path. Results should be treated as signals and compared across build
+//           modes and platforms.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-07-03
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #include "CypherCommon_Char.h"
 
 #include <benchmark/benchmark.h>
