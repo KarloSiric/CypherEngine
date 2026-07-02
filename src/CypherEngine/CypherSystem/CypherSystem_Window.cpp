@@ -1,19 +1,21 @@
-/*======================================================================
-   File: CypherSystem_Window.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-05-04 02:29:40
-   Last Modified by: ksiric
-   Last Modified: 2026-06-09 08:09:11
-   ---------------------------------------------------------------------
-   Description:
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherSystem/CypherSystem_Window.cpp
+//  Purpose: Implements the CypherSystem System Window module.
+//  Details: This file owns platform-facing system, window, and graphics context
+//           boundaries. Keep OS-specific code isolated enough that higher-level
+//           runtime code remains portable.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-05-04
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
 #include "CypherSystem_Window.h"
 #include "CypherCommon_Print.h"
 #include "CypherLog.h"
