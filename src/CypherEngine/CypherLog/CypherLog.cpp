@@ -1,19 +1,21 @@
-/*======================================================================
-   File: CypherLog.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-04-19 22:31:16
-   Last Modified by: ksiric
-   Last Modified: 2026-06-09 20:31:37
-   ---------------------------------------------------------------------
-   Description:
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherLog/CypherLog.cpp
+//  Purpose: Implements the CypherLog Log module.
+//  Details: This file participates in engine logging and formatted diagnostic output.
+//           Keep it usable from early startup and failure paths without introducing
+//           fragile dependencies.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-19
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
 #include "CypherLog.h"
 #include "CypherLog_Format.h"
 
