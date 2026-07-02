@@ -1,19 +1,21 @@
-/*======================================================================
-   File: math_plane.cpp
-   Project: rengine
-   Author: ksiric <email@example.com>
-   Created: 2026-05-25 02:41:48
-   Last Modified by: ksiric
-   Last Modified: 2026-06-02 20:51:35
-   ---------------------------------------------------------------------
-   Description:
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherMath/CypherMath_Plane.cpp
+//  Purpose: Implements the CypherMath Math Plane module.
+//  Details: This file participates in math primitives used by rendering, physics,
+//           world queries, and tools. Keep operations deterministic and benchmark
+//           important hot paths before adding clever optimizations.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-05-26
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
 #include "CypherMath_Plane.h"
 #include "CypherMath_Vec.h"
 
