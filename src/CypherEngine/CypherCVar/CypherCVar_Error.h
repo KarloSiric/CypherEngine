@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherCVar/CypherCVar_Error.h
+//  Purpose: Declares the CypherCVar CVar Error module.
+//  Details: This file participates in console variable storage and runtime tuning.
+//           Keep value ownership, defaults, and validation explicit so tools can
+//           inspect and edit them safely.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_CVAR_ERROR_H
 #define CYPHER_ENGINE_CVAR_ERROR_H
 
