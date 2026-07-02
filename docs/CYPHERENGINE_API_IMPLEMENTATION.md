@@ -1,3 +1,23 @@
+<!--
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: docs/CYPHERENGINE_API_IMPLEMENTATION.md
+//  Purpose: Documents CYPHERENGINE API IMPLEMENTATION.
+//  Details: This documentation records architecture, policy, or planning decisions
+//           for future engine work. It should explain intent and tradeoffs rather
+//           than duplicate source code.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-26
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+-->
+
 # CypherEngine - API Implementation Guide
 ## Technical Documentation for Developers
 
