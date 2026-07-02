@@ -1,3 +1,20 @@
+# //////////////////////////////////////////////////////////////////////////
+# //
+# //  CypherEngine Source Code
+# //  Copyright (c) 2026 Karlo Siric. All rights reserved.
+# //
+# //  File: .clangd
+# //  Purpose: Configures clangd include paths and compile flags.
+# //  Details: This file helps local editor tooling resolve headers and compile flags.
+# //           It should mirror the real CMake include model as closely as practical.
+# //
+# //  History:
+# //  - Created by Karlo Siric on 2026-04-30
+# //
+# //  This file is proprietary and confidential. See LICENSE for details.
+# //
+# //////////////////////////////////////////////////////////////////////////
+
 CompileFlags:
   Add:
     - -I/Users/karlosiric/Documents/MyProjects/REAP/src
