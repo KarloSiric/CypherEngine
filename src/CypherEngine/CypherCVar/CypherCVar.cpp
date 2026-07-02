@@ -1,19 +1,21 @@
-/*======================================================================
-   File: CypherCVar.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-04-22 21:04:15
-   Last Modified by: ksiric
-   Last Modified: 2026-06-12 13:35:20
-   ---------------------------------------------------------------------
-   Description:
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherCVar/CypherCVar.cpp
+//  Purpose: Implements the CypherCVar CVar module.
+//  Details: This file participates in console variable storage and runtime tuning.
+//           Keep value ownership, defaults, and validation explicit so tools can
+//           inspect and edit them safely.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-																	   */
 #include "CypherCVar.h"
 #include "CypherCVar_Error.h"
 #include "CypherLog.h"
