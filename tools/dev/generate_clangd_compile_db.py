@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+# //////////////////////////////////////////////////////////////////////////
+# //
+# //  CypherEngine Source Code
+# //  Copyright (c) 2026 Karlo Siric. All rights reserved.
+# //
+# //  File: tools/dev/generate_clangd_compile_db.py
+# //  Purpose: Provides developer tooling for generate clangd compile db.
+# //  Details: This developer helper automates a repetitive local workflow. It should
+# //           remain small, transparent, and easy to replace if the build model
+# //           changes.
+# //
+# //  History:
+# //  - Created by Karlo Siric on 2026-04-30
+# //
+# //  This file is proprietary and confidential. See LICENSE for details.
+# //
+# //////////////////////////////////////////////////////////////////////////
 
 import json
 import shutil
