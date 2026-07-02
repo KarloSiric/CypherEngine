@@ -1,19 +1,20 @@
-/*======================================================================
-   File: CypherCommon_Char.cpp
-   Project: CYPHER
-   Author: ksiric <email@example.com>
-   Created: 2026-06-21 10:31:11
-   Last Modified by: ksiric
-   Last Modified: 2026-06-27 10:20:35
-   ---------------------------------------------------------------------
-   Description:
-       
-   ---------------------------------------------------------------------
-   License: 
-   Company: 
-   Version: 0.1.0
- ======================================================================
-                                                                       */
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherCommon/Tier1/CypherCommon_Char.cpp
+//  Purpose: Implements CypherCommon Tier1 Char support.
+//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
+//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
+//           stable because many systems will depend on them.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-22
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
 #include "CypherCommon_Char.h"
 
