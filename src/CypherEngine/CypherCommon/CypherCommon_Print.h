@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherCommon/CypherCommon_Print.h
+//  Purpose: Declares the CypherCommon Print module.
+//  Details: This file holds engine-scoped common metadata or helpers used across
+//           runtime subsystems. Keep it narrow so it does not become a dumping
+//           ground.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_COMMON_PRINT_H
 #define CYPHER_ENGINE_COMMON_PRINT_H
 
