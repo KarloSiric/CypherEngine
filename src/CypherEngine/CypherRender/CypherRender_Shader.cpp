@@ -1,19 +1,20 @@
-/*======================================================================
-   File: r_shader.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-05-06 15:03:52
-   Last Modified by: ksiric
-   Last Modified: 2026-06-03 14:01:51
-   ---------------------------------------------------------------------
-   Description:
-
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherRender/CypherRender_Shader.cpp
+//  Purpose: Implements the CypherRender Render Shader module.
+//  Details: This file participates in the renderer bootstrap and draw path. Keep API
+//           boundaries clear so the renderer can grow from simple OpenGL startup into
+//           a fuller rendering backend.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
 #include "CypherRender_Shader.h"
 #include "CypherFileSystem.h"
