@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherSystem/CypherSystem_Error.h
+//  Purpose: Declares the CypherSystem System Error module.
+//  Details: This file owns platform-facing system, window, and graphics context
+//           boundaries. Keep OS-specific code isolated enough that higher-level
+//           runtime code remains portable.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_SYSTEM_ERROR_H
 #define CYPHER_ENGINE_SYSTEM_ERROR_H
 
