@@ -1,3 +1,22 @@
+<!--
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: CHANGELOG.md
+//  Purpose: Records notable CypherEngine project changes.
+//  Details: This document is the chronological project memory for engine work. Keep
+//           entries factual, dated, and separated from aspirational roadmap items.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-20
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+-->
+
 # CypherEngine Changelog
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
