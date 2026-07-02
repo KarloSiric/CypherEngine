@@ -1,3 +1,21 @@
+# //////////////////////////////////////////////////////////////////////////
+# //
+# //  CypherEngine Source Code
+# //  Copyright (c) 2026 Karlo Siric. All rights reserved.
+# //
+# //  File: CMakeLists.txt
+# //  Purpose: Defines the main CMake build graph for CypherEngine.
+# //  Details: This file wires engine, tests, benchmarks, and approved dependencies into
+# //           one build graph. Keep target ownership clear so subsystems can grow
+# //           without accidental coupling.
+# //
+# //  History:
+# //  - Created by Karlo Siric on 2026-04-18
+# //
+# //  This file is proprietary and confidential. See LICENSE for details.
+# //
+# //////////////////////////////////////////////////////////////////////////
+
 cmake_minimum_required(VERSION 3.20)
 
 project(CypherEngine
@@ -130,7 +148,7 @@ if (CYPHERENGINE_BUILD_TESTS)
     find_package(Catch2 CONFIG QUIET)
 
     add_executable(cypher_common_tier0_smoke
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier0_Smoke.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Smoke.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_MemoryOps.cpp"
     )
     target_include_directories(cypher_common_tier0_smoke PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
@@ -138,21 +156,28 @@ if (CYPHERENGINE_BUILD_TESTS)
 
     if (Catch2_FOUND)
         add_executable(cypher_common_tier0_align_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier0_Align_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Align_Tests.cpp"
         )
         target_include_directories(cypher_common_tier0_align_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_tier0_align_tests PRIVATE Catch2::Catch2WithMain)
         add_test(NAME cypher_common_tier0_align_tests COMMAND cypher_common_tier0_align_tests)
 
         add_executable(cypher_common_tier0_bits_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier0_Bits_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Bits_Tests.cpp"
         )
         target_include_directories(cypher_common_tier0_bits_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_tier0_bits_tests PRIVATE Catch2::Catch2WithMain)
         add_test(NAME cypher_common_tier0_bits_tests COMMAND cypher_common_tier0_bits_tests)
 
+        add_executable(cypher_common_tier0_endian_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Endian_Tests.cpp"
+        )
+        target_include_directories(cypher_common_tier0_endian_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_tier0_endian_tests PRIVATE Catch2::Catch2WithMain)
+        add_test(NAME cypher_common_tier0_endian_tests COMMAND cypher_common_tier0_endian_tests)
+
         add_executable(cypher_common_tier0_memoryops_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier0_MemoryOps_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_MemoryOps_Tests.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_MemoryOps.cpp"
         )
         target_include_directories(cypher_common_tier0_memoryops_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
@@ -160,7 +185,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         add_test(NAME cypher_common_tier0_memoryops_tests COMMAND cypher_common_tier0_memoryops_tests)
 
         add_executable(cypher_common_tier1_char_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier1_Char_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_Char_Tests.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
         )
         target_include_directories(cypher_common_tier1_char_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
@@ -168,7 +193,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         add_test(NAME cypher_common_tier1_char_tests COMMAND cypher_common_tier1_char_tests)
 
         add_executable(cypher_common_tier1_string_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon_Tier1_String_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_String_Tests.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_String.cpp"
         )
@@ -180,7 +205,7 @@ if (CYPHERENGINE_BUILD_TESTS)
     endif()
 
     set(CYPHERENGINE_FILESYSTEM_SMOKE_SOURCES
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherFileSystem_Smoke.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEngine/CypherFileSystem/CypherFileSystem_Smoke.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Async.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Diagnostics.cpp"
@@ -204,7 +229,7 @@ if (CYPHERENGINE_BUILD_TESTS)
     add_test(NAME cypher_filesystem_smoke COMMAND cypher_filesystem_smoke)
 
     set(CYPHERENGINE_PAK_SMOKE_SOURCES
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherPak_Smoke.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEngine/CypherPak/CypherPak_Smoke.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Compression.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Reader.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Writer.cpp"
@@ -227,26 +252,32 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         target_include_directories(cypher_perf_system_report PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
 
         add_executable(cypher_common_char_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon_Char_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_Char_Bench.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
         )
         target_include_directories(cypher_common_char_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_char_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_common_align_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon_Align_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier0/CypherCommon_Align_Bench.cpp"
         )
         target_include_directories(cypher_common_align_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_align_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_common_bits_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon_Bits_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier0/CypherCommon_Bits_Bench.cpp"
         )
         target_include_directories(cypher_common_bits_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_bits_bench PRIVATE benchmark::benchmark_main)
 
+        add_executable(cypher_common_endian_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier0/CypherCommon_Endian_Bench.cpp"
+        )
+        target_include_directories(cypher_common_endian_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_endian_bench PRIVATE benchmark::benchmark_main)
+
         add_executable(cypher_common_string_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon_String_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_String_Bench.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_String.cpp"
         )
@@ -254,14 +285,14 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         target_link_libraries(cypher_common_string_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_common_memoryops_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon_MemoryOps_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier0/CypherCommon_MemoryOps_Bench.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_MemoryOps.cpp"
         )
         target_include_directories(cypher_common_memoryops_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_memoryops_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_memory_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherMemory_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherEngine/CypherMemory/CypherMemory_Bench.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherMemory/CypherMemory_Arena.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherMemory/CypherMemory_Pool.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherLog/CypherLog.cpp"
@@ -272,14 +303,14 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         target_link_libraries(cypher_memory_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_filesystem_path_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherFileSystem_Path_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherEngine/CypherFileSystem/CypherFileSystem_Path_Bench.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Path.cpp"
         )
         target_include_directories(cypher_filesystem_path_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_filesystem_path_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_pak_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherPak_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherEngine/CypherPak/CypherPak_Bench.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Compression.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Reader.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Writer.cpp"
