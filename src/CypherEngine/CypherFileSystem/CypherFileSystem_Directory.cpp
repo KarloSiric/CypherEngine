@@ -1,19 +1,20 @@
-/*======================================================================
-   File: CypherFileSystem_Directory.cpp
-   Project: CYPHER
-   Author: ksiric <email@example.com>
-   Created: 2026-06-12 13:18:53
-   Last Modified by: ksiric
-   Last Modified: 2026-06-12 13:35:14
-   ---------------------------------------------------------------------
-   Description:
-
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherFileSystem/CypherFileSystem_Directory.cpp
+//  Purpose: Implements the CypherFileSystem FileSystem Directory module.
+//  Details: This file participates in the virtual filesystem layer that maps engine
+//           paths to mounted physical or package-backed data. Keep path validation
+//           strict because every asset pipeline will depend on it.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-12
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
 #include "CypherFileSystem_Runtime.h"
 
