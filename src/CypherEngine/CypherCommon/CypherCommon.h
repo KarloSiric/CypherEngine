@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherCommon/CypherCommon.h
+//  Purpose: Declares the CypherCommon Common module.
+//  Details: This file holds engine-scoped common metadata or helpers used across
+//           runtime subsystems. Keep it narrow so it does not become a dumping
+//           ground.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-20
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_COMMON_H
 #define CYPHER_ENGINE_COMMON_H
 
@@ -121,11 +139,11 @@ struct product_info_t {
 
 	version_t version{};
 
-	const char *szOrganizationName{ "Cypher Software" };
-	const char *szCopyrightOwner{ "Cypher Software" };
+	const char *szOrganizationName{ "CypherEngine" };
+	const char *szCopyrightOwner{ "Karlo Siric" };
 
-	const char *szLicenseName{ "GNU General Public License, Version 2, June 1991" };
-	const char *szLicenseSpdx{ "GPL-2.0-only" };
+	const char *szLicenseName{ "CypherEngine Proprietary License" };
+	const char *szLicenseSpdx{ "LicenseRef-CypherEngine-Proprietary" };
 };
 
 constexpr product_info_t COM_GAME_INFO{
@@ -133,10 +151,10 @@ constexpr product_info_t COM_GAME_INFO{
 	.szInternalName = "reap",
 	.description = "A from scratch 3D arena survival wave first person shooter inspired by Quake, powered by custom internal CypherEngine",
 	.version = { 0u, 1u, 0u, 0u },
-	.szOrganizationName = "Cypher Software",
-	.szCopyrightOwner = "Cypher Software",
-	.szLicenseName = "GNU General Public License, Version 2, June 1991",
-	.szLicenseSpdx = "GPL-2.0-only"
+	.szOrganizationName = "CypherEngine",
+	.szCopyrightOwner = "Karlo Siric",
+	.szLicenseName = "CypherEngine Proprietary License",
+	.szLicenseSpdx = "LicenseRef-CypherEngine-Proprietary"
 };
 
 constexpr product_info_t COM_ENGINE_INFO{
@@ -144,10 +162,10 @@ constexpr product_info_t COM_ENGINE_INFO{
 	.szInternalName = "CypherEngine",
 	.description = "A custom native 3D engine runtime used for powering REAP.",
 	.version = { 0u, 1u, 0u, 0u },
-	.szOrganizationName = "Cypher Software",
-	.szCopyrightOwner = "Cypher Software",
-	.szLicenseName = "GNU General Public License, Version 2, June 1991",
-	.szLicenseSpdx = "GPL-2.0-only"
+	.szOrganizationName = "CypherEngine",
+	.szCopyrightOwner = "Karlo Siric",
+	.szLicenseName = "CypherEngine Proprietary License",
+	.szLicenseSpdx = "LicenseRef-CypherEngine-Proprietary"
 };
 
 } // namespace cypher::engine::common
