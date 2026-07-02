@@ -1,4 +1,22 @@
 #!/usr/bin/env python3
+# //////////////////////////////////////////////////////////////////////////
+# //
+# //  CypherEngine Source Code
+# //  Copyright (c) 2026 Karlo Siric. All rights reserved.
+# //
+# //  File: tools/perf/compare_benchmarks.py
+# //  Purpose: Provides performance tooling for compare benchmarks.
+# //  Details: This tool supports repeatable performance inspection and benchmark
+# //           reporting. It should stay scriptable so CI and local development can use
+# //           the same path.
+# //
+# //  History:
+# //  - Created by Karlo Siric on 2026-07-01
+# //
+# //  This file is proprietary and confidential. See LICENSE for details.
+# //
+# //////////////////////////////////////////////////////////////////////////
+
 """Compare two Google Benchmark JSON files and report CPU-time deltas."""
 
 from __future__ import annotations
