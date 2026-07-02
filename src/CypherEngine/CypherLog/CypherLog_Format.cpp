@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherLog/CypherLog_Format.cpp
+//  Purpose: Implements the CypherLog Log Format module.
+//  Details: This file participates in engine logging and formatted diagnostic output.
+//           Keep it usable from early startup and failure paths without introducing
+//           fragile dependencies.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-09
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #include "CypherLog_Format.h"
 #include "CypherSystem_Platform.h"
 
