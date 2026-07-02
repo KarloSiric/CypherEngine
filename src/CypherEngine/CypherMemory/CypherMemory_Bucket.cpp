@@ -1,17 +1,20 @@
-/*======================================================================
-   File: CypherMemory_Bucket.cpp
-   Project: CYPHER
-   Author: ksiric <email@example.com>
-   Created: 2026-06-12
-   ---------------------------------------------------------------------
-   Description:
-       Small variable-size bucket allocator built from fixed-block pools.
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherMemory/CypherMemory_Bucket.cpp
+//  Purpose: Implements the CypherMemory Memory Bucket module.
+//  Details: This file participates in the engine allocation layer for arenas, pools,
+//           buckets, scratch memory, and diagnostics. Keep ownership and lifetime
+//           rules explicit because allocator bugs corrupt everything above them.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-12
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
 #include "CypherMemory_Bucket.h"
 #include "CypherLog.h"
