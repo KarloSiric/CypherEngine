@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherLog/CypherLog.h
+//  Purpose: Declares the CypherLog Log module.
+//  Details: This file participates in engine logging and formatted diagnostic output.
+//           Keep it usable from early startup and failure paths without introducing
+//           fragile dependencies.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_LOG_H
 #define CYPHER_ENGINE_LOG_H
 
