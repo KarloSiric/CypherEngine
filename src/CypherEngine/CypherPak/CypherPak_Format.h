@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherPak/CypherPak_Format.h
+//  Purpose: Declares the CypherPak Pak Format module.
+//  Details: This file participates in the CypherPak archive format and package access
+//           path. Keep binary layout, endian rules, and validation stable so shipped
+//           content remains readable.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-12
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_PAK_FORMAT_H
 #define CYPHER_ENGINE_PAK_FORMAT_H
 
