@@ -1,19 +1,21 @@
-/*======================================================================
-   File: CypherHost.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-04-19 01:23:58
-   Last Modified by: ksiric
-   Last Modified: 2026-06-09 20:12:44
-   ---------------------------------------------------------------------
-   Description:
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherHost/CypherHost.cpp
+//  Purpose: Implements the CypherHost Host module.
+//  Details: This file participates in engine host startup, frame flow, and shutdown
+//           ordering. Keep it thin enough that subsystem initialization remains
+//           visible and debuggable.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-																	   */
 #include "CypherCommand.h"
 #include "CypherCVar.h"
 #include "CypherCommon_Print.h"
