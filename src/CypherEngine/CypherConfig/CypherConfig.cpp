@@ -1,19 +1,21 @@
-/*======================================================================
-   File: CypherConfig.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-04-24 15:56:36
-   Last Modified by: ksiric
-   Last Modified: 2026-06-05 11:54:41
-   ---------------------------------------------------------------------
-   Description:
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherConfig/CypherConfig.cpp
+//  Purpose: Implements the CypherConfig Config module.
+//  Details: This file participates in configuration loading and runtime settings.
+//           Keep file format handling strict and predictable so startup failures are
+//           easy to diagnose.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-21
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-																	   */
 #include "CypherConfig.h"
 #include "CypherCommand.h"
 #include "CypherCVar.h"
