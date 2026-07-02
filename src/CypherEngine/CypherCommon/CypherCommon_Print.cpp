@@ -1,19 +1,20 @@
-/*======================================================================
-   File: CypherCommon_Print.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-04-21 13:11:03
-   Last Modified by: ksiric
-   Last Modified: 2026-06-09 20:12:03
-   ---------------------------------------------------------------------
-   Description:
-
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherCommon/CypherCommon_Print.cpp
+//  Purpose: Implements the CypherCommon Print module.
+//  Details: This file holds engine-scoped common metadata or helpers used across
+//           runtime subsystems. Keep it narrow so it does not become a dumping
+//           ground.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-21
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
 #include "CypherCommon_Print.h"
 #include "CypherLog.h"
