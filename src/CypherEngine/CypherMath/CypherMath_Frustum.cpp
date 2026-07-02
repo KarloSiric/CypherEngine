@@ -1,19 +1,21 @@
-/*======================================================================
-   File: CypherMath_Frustum.cpp
-   Project: rengine
-   Author: ksiric <email@example.com>
-   Created: 2026-05-26 19:51:53
-   Last Modified by: ksiric
-   Last Modified: 2026-06-07 16:58:50
-   ---------------------------------------------------------------------
-   Description:
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherMath/CypherMath_Frustum.cpp
+//  Purpose: Implements the CypherMath Math Frustum module.
+//  Details: This file participates in math primitives used by rendering, physics,
+//           world queries, and tools. Keep operations deterministic and benchmark
+//           important hot paths before adding clever optimizations.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
 #include "CypherMath_Bounds.h"
 #include "CypherMath_Plane.h"
 #include "CypherMath_Types.h"
