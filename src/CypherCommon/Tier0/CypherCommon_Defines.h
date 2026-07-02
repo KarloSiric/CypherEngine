@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherCommon/Tier0/CypherCommon_Defines.h
+//  Purpose: Declares CypherCommon Tier0 Defines support.
+//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
+//           tools, tests, and future editor code. Keep this layer portable,
+//           predictable, and careful about allocation.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-20
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_COMMON_TIER0_DEFINES_H
 #define CYPHER_COMMON_TIER0_DEFINES_H
 #pragma once
