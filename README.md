@@ -1,3 +1,23 @@
+<!--
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: README.md
+//  Purpose: Introduces the CypherEngine repository.
+//  Details: This top-level page stays brief and points readers to build, test,
+//           benchmark, and documentation entry points. It should describe the current
+//           project state without promising unfinished systems.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-18
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+-->
+
 # CypherEngine
 
 CypherEngine is a C++20 game engine project with C-style runtime code.
@@ -63,4 +83,4 @@ cmake --build build-bench --config Release
 
 ## License
 
-The repository currently contains a GPL-2.0 license file. The final licensing model is still under review.
+CypherEngine is proprietary software owned by Karlo Siric. See [LICENSE](LICENSE).
