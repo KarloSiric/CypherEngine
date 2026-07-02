@@ -1,3 +1,23 @@
+<!--
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: docs/architecture.md
+//  Purpose: Documents architecture.
+//  Details: This documentation records architecture, policy, or planning decisions
+//           for future engine work. It should explain intent and tradeoffs rather
+//           than duplicate source code.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-18
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+-->
+
 # CypherEngine Architecture
 
 CypherEngine is a layered project made of three connected bodies of work:
