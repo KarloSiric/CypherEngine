@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherMemory/CypherMemory.h
+//  Purpose: Declares the CypherMemory Memory module.
+//  Details: This file participates in the engine allocation layer for arenas, pools,
+//           buckets, scratch memory, and diagnostics. Keep ownership and lifetime
+//           rules explicit because allocator bugs corrupt everything above them.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-10
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_MEMORY_H
 #define CYPHER_ENGINE_MEMORY_H
 
