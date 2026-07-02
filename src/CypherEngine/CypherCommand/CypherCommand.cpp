@@ -1,19 +1,20 @@
-/*======================================================================
-   File: CypherCommand.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-04-21 22:26:01
-   Last Modified by: ksiric
-   Last Modified: 2026-06-20 18:49:17
-   ---------------------------------------------------------------------
-   Description:
-
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherCommand/CypherCommand.cpp
+//  Purpose: Implements the CypherCommand Command module.
+//  Details: This file participates in command registration and dispatch for runtime
+//           and developer workflows. Keep parsing and execution separate so commands
+//           remain testable.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
 #include "CypherCommand.h"
 #include "CypherCommand_Error.h"
