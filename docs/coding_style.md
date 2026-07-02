@@ -1,3 +1,23 @@
+<!--
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: docs/coding_style.md
+//  Purpose: Documents coding style.
+//  Details: This documentation records architecture, policy, or planning decisions
+//           for future engine work. It should explain intent and tradeoffs rather
+//           than duplicate source code.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-18
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+-->
+
 # CypherEngine Coding Style
 
 CypherEngine is written in C++20, but the code style should stay close to
