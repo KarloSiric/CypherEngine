@@ -1,19 +1,21 @@
-/*======================================================================
-   File: CypherSystem_Platform.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-04-20 17:42:16
-   Last Modified by: ksiric
-   Last Modified: 2026-06-10 10:33:03
-   ---------------------------------------------------------------------
-   Description:
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherSystem/CypherSystem_Platform.cpp
+//  Purpose: Implements the CypherSystem System Platform module.
+//  Details: This file owns platform-facing system, window, and graphics context
+//           boundaries. Keep OS-specific code isolated enough that higher-level
+//           runtime code remains portable.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-20
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
 #include "CypherSystem_Platform.h"
 #include "CypherLog.h"
 
