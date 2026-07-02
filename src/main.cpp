@@ -1,19 +1,21 @@
-/*======================================================================
-   File: main.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-04-18 23:12:08
-   Last Modified by: ksiric
-   Last Modified: 2026-05-01 21:30:06
-   ---------------------------------------------------------------------
-   Description:
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/main.cpp
+//  Purpose: Implements the CypherEngine executable entry point.
+//  Details: The executable entry point delegates startup and frame ownership to the
+//           host layer. Keep this file thin so platform and subsystem behavior stays
+//           testable elsewhere.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-19
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
 #include "CypherHost.h"
 
 #include <cstdlib>     // EXIT_SUCCESS / EXIT_FAILURE.
