@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherMath/CypherMath_Ray.h
+//  Purpose: Declares the CypherMath Math Ray module.
+//  Details: This file participates in math primitives used by rendering, physics,
+//           world queries, and tools. Keep operations deterministic and benchmark
+//           important hot paths before adding clever optimizations.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_MATH_RAY_H
 #define CYPHER_ENGINE_MATH_RAY_H
 
