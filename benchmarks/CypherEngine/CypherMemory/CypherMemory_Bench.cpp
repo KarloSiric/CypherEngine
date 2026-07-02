@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: benchmarks/CypherEngine/CypherMemory/CypherMemory_Bench.cpp
+//  Purpose: Benchmarks Memory Bench performance.
+//  Details: This benchmark measures runtime cost for the corresponding low-level
+//           path. Results should be treated as signals and compared across build
+//           modes and platforms.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-07-03
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #include "CypherMemory_Arena.h"
 #include "CypherMemory_Pool.h"
 
