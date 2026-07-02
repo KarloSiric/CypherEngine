@@ -1,7 +1,20 @@
-# @Author: ksiric
-# @Date:   2026-04-24 15:56:36
-# @Last Modified by:   ksiric
-# @Last Modified time: 2026-04-28 19:23:08
+# //////////////////////////////////////////////////////////////////////////
+# //
+# //  CypherEngine Source Code
+# //  Copyright (c) 2026 Karlo Siric. All rights reserved.
+# //
+# //  File: build.sh
+# //  Purpose: Runs the build developer workflow.
+# //  Details: This file is part of the CypherEngine owned source tree. Keep its
+# //           responsibility narrow and update this header when the file purpose
+# //           changes.
+# //
+# //  History:
+# //  - Created by Karlo Siric on 2026-04-21
+# //
+# //  This file is proprietary and confidential. See LICENSE for details.
+# //
+# //////////////////////////////////////////////////////////////////////////
 
 set -e
 
