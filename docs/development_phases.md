@@ -1,3 +1,23 @@
+<!--
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: docs/development_phases.md
+//  Purpose: Documents development phases.
+//  Details: This documentation records architecture, policy, or planning decisions
+//           for future engine work. It should explain intent and tradeoffs rather
+//           than duplicate source code.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-04-20
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+-->
+
 # CypherEngine Development Phases
 
 This is the detailed build order for CypherEngine and the REAP game direction.
