@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherCommon/Tier0/CypherCommon_Endian.h
+//  Purpose: Declares CypherCommon Tier0 Endian support.
+//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
+//           tools, tests, and future editor code. Keep this layer portable,
+//           predictable, and careful about allocation.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-21
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_COMMON_TIER0_ENDIAN_H
 #define CYPHER_COMMON_TIER0_ENDIAN_H
 #pragma once
@@ -17,136 +35,172 @@ namespace cypher::common
 {
 
 // Reverses the byte order of a 16-bit integer.
-constexpr u16 ByteSwap16( u16 value )
+constexpr u16 ByteSwap16( u16 nValue )
 {
-    return static_cast<u16>( ( value >> 8u ) | ( value << 8u ) );
+    return static_cast<u16>( ( nValue >> 8u ) | ( nValue << 8u ) );
 }
 
 // Reverses the byte order of a 32-bit integer.
-constexpr u32 ByteSwap32( u32 value )
+constexpr u32 ByteSwap32( u32 nValue )
 {
-    return ( ( value & 0x000000FFu ) << 24u ) |
-           ( ( value & 0x0000FF00u ) << 8u ) |
-           ( ( value & 0x00FF0000u ) >> 8u ) |
-           ( ( value & 0xFF000000u ) >> 24u );
+    return ( ( nValue & 0x000000FFu ) << 24u ) |
+           ( ( nValue & 0x0000FF00u ) << 8u ) |
+           ( ( nValue & 0x00FF0000u ) >> 8u ) |
+           ( ( nValue & 0xFF000000u ) >> 24u );
 }
 
 // Reverses the byte order of a 64-bit integer.
-constexpr u64 ByteSwap64( u64 value )
+constexpr u64 ByteSwap64( u64 nValue )
 {
-    return ( ( value & 0x00000000000000FFull ) << 56u ) |
-           ( ( value & 0x000000000000FF00ull ) << 40u ) |
-           ( ( value & 0x0000000000FF0000ull ) << 24u ) |
-           ( ( value & 0x00000000FF000000ull ) << 8u ) |
-           ( ( value & 0x000000FF00000000ull ) >> 8u ) |
-           ( ( value & 0x0000FF0000000000ull ) >> 24u ) |
-           ( ( value & 0x00FF000000000000ull ) >> 40u ) |
-           ( ( value & 0xFF00000000000000ull ) >> 56u );
+    return ( ( nValue & 0x00000000000000FFull ) << 56u ) |
+           ( ( nValue & 0x000000000000FF00ull ) << 40u ) |
+           ( ( nValue & 0x0000000000FF0000ull ) << 24u ) |
+           ( ( nValue & 0x00000000FF000000ull ) << 8u ) |
+           ( ( nValue & 0x000000FF00000000ull ) >> 8u ) |
+           ( ( nValue & 0x0000FF0000000000ull ) >> 24u ) |
+           ( ( nValue & 0x00FF000000000000ull ) >> 40u ) |
+           ( ( nValue & 0xFF00000000000000ull ) >> 56u );
 }
 
 // Packs four ASCII characters into a little-endian FourCC value.
-constexpr u32 MakeFourCC( char a, char b, char c, char d )
+constexpr u32 MakeFourCC( char ch0, char ch1, char ch2, char ch3 )
 {
-    return static_cast<u32>( static_cast<u8>( a ) ) |
-           ( static_cast<u32>( static_cast<u8>( b ) ) << 8u ) |
-           ( static_cast<u32>( static_cast<u8>( c ) ) << 16u ) |
-           ( static_cast<u32>( static_cast<u8>( d ) ) << 24u );
+    return static_cast<u32>( static_cast<u8>( ch0 ) ) |
+           ( static_cast<u32>( static_cast<u8>( ch1 ) ) << 8u ) |
+           ( static_cast<u32>( static_cast<u8>( ch2 ) ) << 16u ) |
+           ( static_cast<u32>( static_cast<u8>( ch3 ) ) << 24u );
+}
+
+// Extracts one character from a FourCC; invalid indices return nul.
+constexpr char FourCCChar( u32 nFourCC, u32 nIndex )
+{
+    return nIndex < 4u ? static_cast<char>( ( nFourCC >> ( nIndex * 8u ) ) & 0xFFu ) : '\0';
+}
+
+// Extracts the first byte from a FourCC.
+constexpr char FourCCChar0( u32 nFourCC )
+{
+    return FourCCChar( nFourCC, 0u );
+}
+
+// Extracts the second byte from a FourCC.
+constexpr char FourCCChar1( u32 nFourCC )
+{
+    return FourCCChar( nFourCC, 1u );
+}
+
+// Extracts the third byte from a FourCC.
+constexpr char FourCCChar2( u32 nFourCC )
+{
+    return FourCCChar( nFourCC, 2u );
+}
+
+// Extracts the fourth byte from a FourCC.
+constexpr char FourCCChar3( u32 nFourCC )
+{
+    return FourCCChar( nFourCC, 3u );
+}
+
+// Returns true when a FourCC matches four expected ASCII characters.
+constexpr bool_t FourCCMatches( u32 nFourCC, char ch0, char ch1, char ch2, char ch3 )
+{
+    return nFourCC == MakeFourCC( ch0, ch1, ch2, ch3 );
 }
 
 // Converts host byte order to little-endian 16-bit order.
-constexpr u16 HostToLittle16( u16 value )
+constexpr u16 HostToLittle16( u16 nValue )
 {
 #if CYPHER_ENDIAN_LITTLE
-    return value;
+    return nValue;
 #else
-    return ByteSwap16( value );
+    return ByteSwap16( nValue );
 #endif
 }
 
 // Converts host byte order to little-endian 32-bit order.
-constexpr u32 HostToLittle32( u32 value )
+constexpr u32 HostToLittle32( u32 nValue )
 {
 #if CYPHER_ENDIAN_LITTLE
-    return value;
+    return nValue;
 #else
-    return ByteSwap32( value );
+    return ByteSwap32( nValue );
 #endif
 }
 
 // Converts host byte order to little-endian 64-bit order.
-constexpr u64 HostToLittle64( u64 value )
+constexpr u64 HostToLittle64( u64 nValue )
 {
 #if CYPHER_ENDIAN_LITTLE
-    return value;
+    return nValue;
 #else
-    return ByteSwap64( value );
+    return ByteSwap64( nValue );
 #endif
 }
 
 // Converts little-endian 16-bit order to host byte order.
-constexpr u16 LittleToHost16( u16 value )
+constexpr u16 LittleToHost16( u16 nValue )
 {
-    return HostToLittle16( value );
+    return HostToLittle16( nValue );
 }
 
 // Converts little-endian 32-bit order to host byte order.
-constexpr u32 LittleToHost32( u32 value )
+constexpr u32 LittleToHost32( u32 nValue )
 {
-    return HostToLittle32( value );
+    return HostToLittle32( nValue );
 }
 
 // Converts little-endian 64-bit order to host byte order.
-constexpr u64 LittleToHost64( u64 value )
+constexpr u64 LittleToHost64( u64 nValue )
 {
-    return HostToLittle64( value );
+    return HostToLittle64( nValue );
 }
 
 // Converts host byte order to big-endian 16-bit order.
-constexpr u16 HostToBig16( u16 value )
+constexpr u16 HostToBig16( u16 nValue )
 {
 #if CYPHER_ENDIAN_BIG
-    return value;
+    return nValue;
 #else
-    return ByteSwap16( value );
+    return ByteSwap16( nValue );
 #endif
 }
 
 // Converts host byte order to big-endian 32-bit order.
-constexpr u32 HostToBig32( u32 value )
+constexpr u32 HostToBig32( u32 nValue )
 {
 #if CYPHER_ENDIAN_BIG
-    return value;
+    return nValue;
 #else
-    return ByteSwap32( value );
+    return ByteSwap32( nValue );
 #endif
 }
 
 // Converts host byte order to big-endian 64-bit order.
-constexpr u64 HostToBig64( u64 value )
+constexpr u64 HostToBig64( u64 nValue )
 {
 #if CYPHER_ENDIAN_BIG
-    return value;
+    return nValue;
 #else
-    return ByteSwap64( value );
+    return ByteSwap64( nValue );
 #endif
 }
 
 // Converts big-endian 16-bit order to host byte order.
-constexpr u16 BigToHost16( u16 value )
+constexpr u16 BigToHost16( u16 nValue )
 {
-    return HostToBig16( value );
+    return HostToBig16( nValue );
 }
 
 // Converts big-endian 32-bit order to host byte order.
-constexpr u32 BigToHost32( u32 value )
+constexpr u32 BigToHost32( u32 nValue )
 {
-    return HostToBig32( value );
+    return HostToBig32( nValue );
 }
 
 // Converts big-endian 64-bit order to host byte order.
-constexpr u64 BigToHost64( u64 value )
+constexpr u64 BigToHost64( u64 nValue )
 {
-    return HostToBig64( value );
+    return HostToBig64( nValue );
 }
 
 } // namespace cypher::common
