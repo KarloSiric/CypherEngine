@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherCommand/CypherCommand.h
+//  Purpose: Declares the CypherCommand Command module.
+//  Details: This file participates in command registration and dispatch for runtime
+//           and developer workflows. Keep parsing and execution separate so commands
+//           remain testable.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_COMMAND_H
 #define CYPHER_ENGINE_COMMAND_H
 
