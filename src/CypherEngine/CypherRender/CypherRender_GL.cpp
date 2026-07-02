@@ -1,19 +1,21 @@
-/*======================================================================
-   File: CypherRender_GL.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-05-05 22:02:15
-   Last Modified by: ksiric
-   Last Modified: 2026-06-20 12:59:08
-   ---------------------------------------------------------------------
-   Description:
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherRender/CypherRender_GL.cpp
+//  Purpose: Implements the CypherRender Render GL module.
+//  Details: This file participates in the renderer bootstrap and draw path. Keep API
+//           boundaries clear so the renderer can grow from simple OpenGL startup into
+//           a fuller rendering backend.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-05-06
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
 #include "CypherRender_GL.h"
 #include "CypherLog.h"
 #include "CypherSystem_OpenGL.h"
