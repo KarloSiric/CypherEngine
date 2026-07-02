@@ -1,3 +1,21 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherConfig/CypherConfig.h
+//  Purpose: Declares the CypherConfig Config module.
+//  Details: This file participates in configuration loading and runtime settings.
+//           Keep file format handling strict and predictable so startup failures are
+//           easy to diagnose.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
 #ifndef CYPHER_ENGINE_CONFIG_H
 #define CYPHER_ENGINE_CONFIG_H
 
