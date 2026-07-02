@@ -1,19 +1,20 @@
-/*======================================================================
-   File: r_draw.cpp
-   Project: CypherEngine
-   Author: ksiric <email@example.com>
-   Created: 2026-06-04 20:27:26
-   Last Modified by: ksiric
-   Last Modified: 2026-06-05 09:47:43
-   ---------------------------------------------------------------------
-   Description:
-
-   ---------------------------------------------------------------------
-   License:
-   Company:
-   Version: 0.1.0
- ======================================================================
-                                                                       */
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherEngine/CypherRender/CypherRender_Draw.cpp
+//  Purpose: Implements the CypherRender Render Draw module.
+//  Details: This file participates in the renderer bootstrap and draw path. Keep API
+//           boundaries clear so the renderer can grow from simple OpenGL startup into
+//           a fuller rendering backend.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-05
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
 
 #include "CypherRender_Draw.h"
 #include "CypherLog.h"
