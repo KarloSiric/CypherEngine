@@ -222,7 +222,7 @@ f64 Timer_ElapsedNanoseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks )
     return Timer_TicksToNanoseconds( Timer_ElapsedTicks( nStartTicks, nEndTicks ) );
 }
 
-void Timer_Begin( timer_t *pTimer )
+void Timer_Begin( cy_timer_t *pTimer )
 {
     if ( pTimer == nullptr ) {
         return;
@@ -232,7 +232,7 @@ void Timer_Begin( timer_t *pTimer )
     pTimer->nEndTicks = pTimer->nStartTicks;
 }
 
-void Timer_End( timer_t *pTimer )
+void Timer_End( cy_timer_t *pTimer )
 {
     if ( pTimer == nullptr ) {
         return;
@@ -241,12 +241,12 @@ void Timer_End( timer_t *pTimer )
     pTimer->nEndTicks = Timer_NowTicks();
 }
 
-void Timer_Reset( timer_t *pTimer )
+void Timer_Reset( cy_timer_t *pTimer )
 {
     Timer_Begin( pTimer );
 }
 
-timer_tick_t Timer_GetTicks( const timer_t *pTimer )
+timer_tick_t Timer_GetTicks( const cy_timer_t *pTimer )
 {
     if ( pTimer == nullptr ) {
         return 0;
@@ -255,22 +255,22 @@ timer_tick_t Timer_GetTicks( const timer_t *pTimer )
     return Timer_ElapsedTicks( pTimer->nStartTicks, pTimer->nEndTicks );
 }
 
-f64 Timer_GetSeconds( const timer_t *pTimer )
+f64 Timer_GetSeconds( const cy_timer_t *pTimer )
 {
     return Timer_TicksToSeconds( Timer_GetTicks( pTimer ) );
 }
 
-f64 Timer_GetMilliseconds( const timer_t *pTimer )
+f64 Timer_GetMilliseconds( const cy_timer_t *pTimer )
 {
     return Timer_TicksToMilliseconds( Timer_GetTicks( pTimer ) );
 }
 
-f64 Timer_GetMicroseconds( const timer_t *pTimer )
+f64 Timer_GetMicroseconds( const cy_timer_t *pTimer )
 {
     return Timer_TicksToMicroseconds( Timer_GetTicks( pTimer ) );
 }
 
-f64 Timer_GetNanoseconds( const timer_t *pTimer )
+f64 Timer_GetNanoseconds( const cy_timer_t *pTimer )
 {
     return Timer_TicksToNanoseconds( Timer_GetTicks( pTimer ) );
 }
