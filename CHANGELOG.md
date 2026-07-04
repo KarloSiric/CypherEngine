@@ -21,6 +21,25 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
+## [0.1.0] - 2026-07-04
+
+### Added
+- Added the CypherCommon Tier0 monotonic timer backend with native platform timing for Windows, Linux, and macOS.
+- Added Tier0 timer tests covering initialization, frequency-based conversion, monotonic tick ordering, sleep-observed elapsed time, and stopwatch-style timer helpers.
+- Added the Tier0 timer benchmark target for measuring timer tick reads and conversion overhead.
+- Added Tier0 thread and system information tests to strengthen the Common foundation before higher-level runtime work.
+
+### Changed
+- Replaced the earlier inline nanosecond-only timer helpers with an explicit `Timer_Init`, `Timer_NowTicks`, `Timer_GetFrequency`, elapsed conversion, and `cy_timer_t` stopwatch API.
+- Renamed the public stopwatch struct from `timer_t` to `cy_timer_t` to avoid collision with POSIX `timer_t` on Ubuntu/Linux builds.
+
+### Fixed
+- Fixed Ubuntu CI build failures caused by ambiguous `timer_t` resolution between CypherCommon and the POSIX system type.
+
+### Verified
+- Verified local CTest coverage with all registered tests passing.
+- Verified the Tier0 timer benchmark builds and runs locally.
+
 ## [0.1.0] - 2026-06-04 to 2026-06-18
 
 ### Added
