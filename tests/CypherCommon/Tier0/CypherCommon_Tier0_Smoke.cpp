@@ -138,8 +138,8 @@ int main()
         return Fail();
     }
 
-    const timer_tick_t start_ticks = TimerNowTicks();
-    const timer_tick_t end_ticks = TimerNowTicks();
+    const timer_tick_t start_ticks = Timer_NowTicks();
+    const timer_tick_t end_ticks = Timer_NowTicks();
     if ( end_ticks < start_ticks ) {
         return Fail();
     }
