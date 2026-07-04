@@ -87,6 +87,7 @@ jobs:
 
       - name: Bootstrap vcpkg
         run: |
+          mkdir -p "$VCPKG_DOWNLOADS"
           git clone https://github.com/microsoft/vcpkg.git vcpkg
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             ./vcpkg/bootstrap-vcpkg.bat -disableMetrics
@@ -151,6 +152,7 @@ jobs:
 
       - name: Bootstrap vcpkg
         run: |
+          mkdir -p "$VCPKG_DOWNLOADS"
           git clone https://github.com/microsoft/vcpkg.git vcpkg
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
@@ -231,6 +233,7 @@ jobs:
 
       - name: Bootstrap vcpkg
         run: |
+          mkdir -p "$VCPKG_DOWNLOADS"
           git clone https://github.com/microsoft/vcpkg.git vcpkg
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             ./vcpkg/bootstrap-vcpkg.bat -disableMetrics
