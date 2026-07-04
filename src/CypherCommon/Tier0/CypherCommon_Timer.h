@@ -39,7 +39,7 @@ namespace cypher::common
 using timer_tick_t = i64;
 using timer_frequency_t = i64;
 
-struct timer_t {
+struct cy_timer_t {
     timer_tick_t nStartTicks;
     timer_tick_t nEndTicks;
 };
@@ -64,16 +64,16 @@ f64 Timer_ElapsedMilliseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks 
 f64 Timer_ElapsedMicroseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
 f64 Timer_ElapsedNanoseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
 
-void Timer_Begin( timer_t *pTimer );
-void Timer_End( timer_t *pTimer );
-void Timer_Reset( timer_t *pTimer );
+void Timer_Begin( cy_timer_t *pTimer );
+void Timer_End( cy_timer_t *pTimer );
+void Timer_Reset( cy_timer_t *pTimer );
 
-timer_tick_t Timer_GetTicks( const timer_t *pTimer );
+timer_tick_t Timer_GetTicks( const cy_timer_t *pTimer );
 
-f64 Timer_GetSeconds( const timer_t *pTimer );
-f64 Timer_GetMilliseconds( const timer_t *pTimer );
-f64 Timer_GetMicroseconds( const timer_t *pTimer );
-f64 Timer_GetNanoseconds( const timer_t *pTimer );
+f64 Timer_GetSeconds( const cy_timer_t *pTimer );
+f64 Timer_GetMilliseconds( const cy_timer_t *pTimer );
+f64 Timer_GetMicroseconds( const cy_timer_t *pTimer );
+f64 Timer_GetNanoseconds( const cy_timer_t *pTimer );
 
 } // namespace cypher::common
 
