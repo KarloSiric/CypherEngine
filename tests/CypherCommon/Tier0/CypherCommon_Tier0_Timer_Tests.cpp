@@ -73,7 +73,7 @@ TEST_CASE( "Timer elapsed time increases after sleeping", "[CypherCommon][Tier0]
 
 TEST_CASE( "Timer object stores begin and end tick samples", "[CypherCommon][Tier0][Timer]" )
 {
-    timer_t timer = {};
+    cy_timer_t timer = {};
 
     Timer_Begin( &timer );
     ThreadSleepMs( 1u );
