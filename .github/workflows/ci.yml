@@ -27,6 +27,9 @@ on:
 permissions:
   contents: read
 
+env:
+  VCPKG_DOWNLOADS: ${{ github.workspace }}/.vcpkg-downloads
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -91,12 +94,33 @@ jobs:
             ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
           fi
 
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/vcpkg/archives
+            .vcpkg-downloads
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
       - name: Configure
-        run: >
-          cmake -S . -B build
-          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-          -DCYPHERENGINE_BUILD_TESTS=ON
-          -DCMAKE_TOOLCHAIN_FILE="$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake"
+        run: |
+          configure_command=(
+            cmake -S . -B build
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+            -DCYPHERENGINE_BUILD_TESTS=ON
+            "-DCMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          )
+          for attempt in 1 2 3; do
+            "${configure_command[@]}" && break
+            status=$?
+            if [[ "$attempt" == "3" ]]; then
+              exit "$status"
+            fi
+            echo "Configure failed; retrying in $(( attempt * 20 )) seconds..."
+            sleep $(( attempt * 20 ))
+          done
 
       - name: Build
         run: cmake --build build --config ${{ matrix.build_type }} --parallel
@@ -130,15 +154,36 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git vcpkg
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/vcpkg/archives
+            .vcpkg-downloads
+          key: vcpkg-${{ runner.os }}-sanitize-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
       - name: Configure
-        run: >
-          cmake -S . -B build-sanitize
-          -DCMAKE_BUILD_TYPE=Debug
-          -DCYPHERENGINE_BUILD_TESTS=ON
-          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
-          -DCMAKE_TOOLCHAIN_FILE="$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake"
+        run: |
+          configure_command=(
+            cmake -S . -B build-sanitize
+            -DCMAKE_BUILD_TYPE=Debug
+            -DCYPHERENGINE_BUILD_TESTS=ON
+            "-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer"
+            "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer"
+            -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
+            "-DCMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          )
+          for attempt in 1 2 3; do
+            "${configure_command[@]}" && break
+            status=$?
+            if [[ "$attempt" == "3" ]]; then
+              exit "$status"
+            fi
+            echo "Configure failed; retrying in $(( attempt * 20 )) seconds..."
+            sleep $(( attempt * 20 ))
+          done
 
       - name: Build
         run: cmake --build build-sanitize --config Debug --parallel
@@ -193,12 +238,33 @@ jobs:
             ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
           fi
 
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/vcpkg/archives
+            .vcpkg-downloads
+          key: vcpkg-${{ runner.os }}-bench-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
       - name: Configure benchmarks
-        run: >
-          cmake -S . -B build-bench
-          -DCMAKE_BUILD_TYPE=Release
-          -DCYPHERENGINE_BUILD_BENCHMARKS=ON
-          -DCMAKE_TOOLCHAIN_FILE="$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake"
+        run: |
+          configure_command=(
+            cmake -S . -B build-bench
+            -DCMAKE_BUILD_TYPE=Release
+            -DCYPHERENGINE_BUILD_BENCHMARKS=ON
+            "-DCMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          )
+          for attempt in 1 2 3; do
+            "${configure_command[@]}" && break
+            status=$?
+            if [[ "$attempt" == "3" ]]; then
+              exit "$status"
+            fi
+            echo "Configure benchmarks failed; retrying in $(( attempt * 20 )) seconds..."
+            sleep $(( attempt * 20 ))
+          done
 
       - name: Build benchmark targets
         run: cmake --build build-bench --config Release --target cypher_common_memoryops_bench cypher_perf_system_report --parallel
