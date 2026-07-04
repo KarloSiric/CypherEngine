@@ -24,45 +24,56 @@
 ================
 CypherCommon Timer
 
-Monotonic timing helpers for profiling, frame timing and timeout code.
+Low-level monotonic timer API.
+
+This timer measures elapsed time using native platform ticks. It does not own
+frame timing, gameplay timers, calendar time, sleep/yield, or profiler storage.
+Higher-level systems build those policies on top of this clock.
 ================
 */
-
 #include "CypherCommon_BaseTypes.h"
-
-#include <chrono>
 
 namespace cypher::common
 {
 
-using timer_tick_t = u64;
+using timer_tick_t = i64;
+using timer_frequency_t = i64;
 
-constexpr f64 CYPHER_TIMER_NANOSECONDS_PER_SECOND = 1000000000.0;
+struct timer_t {
+    timer_tick_t nStartTicks;
+    timer_tick_t nEndTicks;
+};
 
-// Returns monotonic timer ticks in nanoseconds.
-inline timer_tick_t TimerNowTicks()
-{
-    const auto now = std::chrono::steady_clock::now().time_since_epoch();
-    return static_cast<timer_tick_t>( std::chrono::duration_cast<std::chrono::nanoseconds>( now ).count() );
-}
+bool_t Timer_Init();
+void Timer_Shutdown();
+bool_t Timer_IsInitialized();
 
-// Converts nanosecond timer ticks to seconds.
-inline f64 TimerTicksToSeconds( timer_tick_t ticks )
-{
-    return static_cast<f64>( ticks ) / CYPHER_TIMER_NANOSECONDS_PER_SECOND;
-}
+timer_frequency_t Timer_GetFrequency();
 
-// Computes elapsed seconds between two timer tick values.
-inline f64 TimerElapsedSeconds( timer_tick_t start_ticks, timer_tick_t end_ticks )
-{
-    return TimerTicksToSeconds( end_ticks - start_ticks );
-}
+timer_tick_t Timer_NowTicks();
 
-// Returns current monotonic time in seconds.
-inline f64 TimerNowSeconds()
-{
-    return TimerTicksToSeconds( TimerNowTicks() );
-}
+timer_tick_t Timer_ElapsedTicks( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
+
+f64 Timer_TicksToSeconds( timer_tick_t nTicks );
+f64 Timer_TicksToMilliseconds( timer_tick_t nTicks );
+f64 Timer_TicksToMicroseconds( timer_tick_t nTicks );
+f64 Timer_TicksToNanoseconds( timer_tick_t nTicks );
+
+f64 Timer_ElapsedSeconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
+f64 Timer_ElapsedMilliseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
+f64 Timer_ElapsedMicroseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
+f64 Timer_ElapsedNanoseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
+
+void Timer_Begin( timer_t *pTimer );
+void Timer_End( timer_t *pTimer );
+void Timer_Reset( timer_t *pTimer );
+
+timer_tick_t Timer_GetTicks( const timer_t *pTimer );
+
+f64 Timer_GetSeconds( const timer_t *pTimer );
+f64 Timer_GetMilliseconds( const timer_t *pTimer );
+f64 Timer_GetMicroseconds( const timer_t *pTimer );
+f64 Timer_GetNanoseconds( const timer_t *pTimer );
 
 } // namespace cypher::common
 
