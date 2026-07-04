@@ -150,6 +150,7 @@ if (CYPHERENGINE_BUILD_TESTS)
     add_executable(cypher_common_tier0_smoke
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Smoke.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_MemoryOps.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Timer.cpp"
     )
     target_include_directories(cypher_common_tier0_smoke PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
     add_test(NAME cypher_common_tier0_smoke COMMAND cypher_common_tier0_smoke)
@@ -183,6 +184,29 @@ if (CYPHERENGINE_BUILD_TESTS)
         target_include_directories(cypher_common_tier0_memoryops_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_tier0_memoryops_tests PRIVATE Catch2::Catch2WithMain)
         add_test(NAME cypher_common_tier0_memoryops_tests COMMAND cypher_common_tier0_memoryops_tests)
+
+        add_executable(cypher_common_tier0_timer_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Timer_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Timer.cpp"
+        )
+        target_include_directories(cypher_common_tier0_timer_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_tier0_timer_tests PRIVATE Catch2::Catch2WithMain)
+        add_test(NAME cypher_common_tier0_timer_tests COMMAND cypher_common_tier0_timer_tests)
+
+        add_executable(cypher_common_tier0_systeminfo_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_SystemInfo_Tests.cpp"
+        )
+        target_include_directories(cypher_common_tier0_systeminfo_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_tier0_systeminfo_tests PRIVATE Catch2::Catch2WithMain)
+        add_test(NAME cypher_common_tier0_systeminfo_tests COMMAND cypher_common_tier0_systeminfo_tests)
+
+        add_executable(cypher_common_tier0_thread_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Thread_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Timer.cpp"
+        )
+        target_include_directories(cypher_common_tier0_thread_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_tier0_thread_tests PRIVATE Catch2::Catch2WithMain)
+        add_test(NAME cypher_common_tier0_thread_tests COMMAND cypher_common_tier0_thread_tests)
 
         add_executable(cypher_common_tier1_char_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_Char_Tests.cpp"
@@ -275,6 +299,13 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         )
         target_include_directories(cypher_common_endian_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_endian_bench PRIVATE benchmark::benchmark_main)
+
+        add_executable(cypher_common_timer_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier0/CypherCommon_Timer_Bench.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Timer.cpp"
+        )
+        target_include_directories(cypher_common_timer_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_timer_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_common_string_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_String_Bench.cpp"
