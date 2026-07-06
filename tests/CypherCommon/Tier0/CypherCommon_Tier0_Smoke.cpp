@@ -150,6 +150,25 @@ int main()
     const u64 thread_hash = GetCurrentThreadIdHash();
     CYPHER_UNUSED( thread_hash );
 
+    const cy_cpu_detect_info_t *pCpu = Cy_CPUDetectGetInfo();
+    if ( pCpu == nullptr ) {
+        return Fail();
+    }
+    if ( pCpu->logicalThreadCount == 0u || pCpu->cacheLineSize == 0u ) {
+        return Fail();
+    }
+
+    const cy_simd_caps_t *pSimd = Cy_SimdGetCaps();
+    if ( pSimd == nullptr ) {
+        return Fail();
+    }
+    if ( pSimd->vectorRegisterBits != pSimd->vectorRegisterBytes * 8u ) {
+        return Fail();
+    }
+    if ( pSimd->bestLevel != CY_SIMD_LEVEL_SCALAR && pSimd->vectorRegisterBytes == 0u ) {
+        return Fail();
+    }
+
     stack_trace_t trace = {};
     if ( CaptureStackTrace( trace, CYPHER_STACK_TRACE_MAX_FRAMES, 0u ) != 0u ) {
         return Fail();
@@ -158,11 +177,17 @@ int main()
         return Fail();
     }
 
-    const system_info_t info = GetSystemInfo();
-    if ( info.logical_thread_count == 0u ) {
+    if ( !Cy_SystemInfoInit() ) {
         return Fail();
     }
-    if ( info.pointer_size != sizeof( void * ) ) {
+    const cy_system_info_t *pInfo = Cy_SystemInfoGet();
+    if ( pInfo == nullptr ) {
+        return Fail();
+    }
+    if ( pInfo->cpu.logicalThreadCount == 0u ) {
+        return Fail();
+    }
+    if ( pInfo->platform.pointerSize != sizeof( void * ) ) {
         return Fail();
     }
 
