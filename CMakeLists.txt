@@ -149,8 +149,13 @@ if (CYPHERENGINE_BUILD_TESTS)
 
     add_executable(cypher_common_tier0_smoke
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Smoke.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_CPUDetect.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_MemoryOps.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Simd.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_SystemInfo.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Timer.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_String.cpp"
     )
     target_include_directories(cypher_common_tier0_smoke PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
     add_test(NAME cypher_common_tier0_smoke COMMAND cypher_common_tier0_smoke)
@@ -177,6 +182,23 @@ if (CYPHERENGINE_BUILD_TESTS)
         target_link_libraries(cypher_common_tier0_endian_tests PRIVATE Catch2::Catch2WithMain)
         add_test(NAME cypher_common_tier0_endian_tests COMMAND cypher_common_tier0_endian_tests)
 
+        add_executable(cypher_common_tier0_cpudetect_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_CPUDetect_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_CPUDetect.cpp"
+        )
+        target_include_directories(cypher_common_tier0_cpudetect_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_tier0_cpudetect_tests PRIVATE Catch2::Catch2WithMain)
+        add_test(NAME cypher_common_tier0_cpudetect_tests COMMAND cypher_common_tier0_cpudetect_tests)
+
+        add_executable(cypher_common_tier0_simd_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Simd_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_CPUDetect.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Simd.cpp"
+        )
+        target_include_directories(cypher_common_tier0_simd_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_tier0_simd_tests PRIVATE Catch2::Catch2WithMain)
+        add_test(NAME cypher_common_tier0_simd_tests COMMAND cypher_common_tier0_simd_tests)
+
         add_executable(cypher_common_tier0_memoryops_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_MemoryOps_Tests.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_MemoryOps.cpp"
@@ -195,6 +217,10 @@ if (CYPHERENGINE_BUILD_TESTS)
 
         add_executable(cypher_common_tier0_systeminfo_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_SystemInfo_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_CPUDetect.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_SystemInfo.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_String.cpp"
         )
         target_include_directories(cypher_common_tier0_systeminfo_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_tier0_systeminfo_tests PRIVATE Catch2::Catch2WithMain)
@@ -272,6 +298,10 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
     if (benchmark_FOUND)
         add_executable(cypher_perf_system_report
             "${CYPHERENGINE_ROOT_DIR}/tools/perf/CypherPerf_SystemReport.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_CPUDetect.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_SystemInfo.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_String.cpp"
         )
         target_include_directories(cypher_perf_system_report PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
 
@@ -306,6 +336,31 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         )
         target_include_directories(cypher_common_timer_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_common_timer_bench PRIVATE benchmark::benchmark_main)
+
+        add_executable(cypher_common_cpudetect_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier0/CypherCommon_CPUDetect_Bench.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_CPUDetect.cpp"
+        )
+        target_include_directories(cypher_common_cpudetect_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_cpudetect_bench PRIVATE benchmark::benchmark_main)
+
+        add_executable(cypher_common_simd_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier0/CypherCommon_Simd_Bench.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_CPUDetect.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Simd.cpp"
+        )
+        target_include_directories(cypher_common_simd_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_simd_bench PRIVATE benchmark::benchmark_main)
+
+        add_executable(cypher_common_systeminfo_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier0/CypherCommon_SystemInfo_Bench.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_CPUDetect.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_SystemInfo.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_String.cpp"
+        )
+        target_include_directories(cypher_common_systeminfo_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_systeminfo_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_common_string_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_String_Bench.cpp"
