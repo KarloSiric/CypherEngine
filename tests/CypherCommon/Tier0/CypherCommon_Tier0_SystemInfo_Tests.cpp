@@ -33,28 +33,72 @@ bool IsPowerOfTwoSize( usize nValue )
 
 TEST_CASE( "SystemInfo reports sane runtime sizing values", "[CypherCommon][Tier0][SystemInfo]" )
 {
-    const system_info_t info = GetSystemInfo();
+    REQUIRE( Cy_SystemInfoInit() );
 
-    REQUIRE( info.logical_thread_count >= 1u );
-    REQUIRE( info.pointer_size == sizeof( void * ) );
-    REQUIRE( info.cache_line_size == CY_CACHE_LINE_SIZE );
-    REQUIRE( info.default_page_size == CYPHER_DEFAULT_PAGE_SIZE );
+    const cy_system_info_t *pInfo = Cy_SystemInfoGet();
+    REQUIRE( pInfo != nullptr );
+
+    REQUIRE( pInfo->cpu.logicalThreadCount >= 1u );
+    REQUIRE( pInfo->platform.pointerSize == sizeof( void * ) );
+    REQUIRE( pInfo->cpu.cacheLineSize >= 1u );
+    REQUIRE( pInfo->memory.pageSize >= 4096u );
+    REQUIRE( pInfo->memory.allocationGranularity >= pInfo->memory.pageSize );
+    REQUIRE( pInfo->build.pszEngineName != nullptr );
+    REQUIRE( pInfo->build.pszCompilerName != nullptr );
+    REQUIRE( pInfo->os.szName[0] != '\0' );
+    REQUIRE( pInfo->process.processId != 0u );
 }
 
 TEST_CASE( "SystemInfo exposes power-of-two cache and page sizing", "[CypherCommon][Tier0][SystemInfo]" )
 {
-    const system_info_t info = GetSystemInfo();
+    const cy_system_info_t *pInfo = Cy_SystemInfoGet();
+    REQUIRE( pInfo != nullptr );
 
-    REQUIRE( IsPowerOfTwoSize( info.cache_line_size ) );
-    REQUIRE( IsPowerOfTwoSize( info.default_page_size ) );
-    REQUIRE( info.default_page_size >= 4096u );
+    REQUIRE( IsPowerOfTwoSize( pInfo->cpu.cacheLineSize ) );
+    REQUIRE( IsPowerOfTwoSize( pInfo->memory.pageSize ) );
+    REQUIRE( IsPowerOfTwoSize( pInfo->memory.allocationGranularity ) );
 }
 
 TEST_CASE( "SystemInfo mirrors compile-time endian and pointer width detection", "[CypherCommon][Tier0][SystemInfo]" )
 {
-    const system_info_t info = GetSystemInfo();
+    const cy_system_info_t *pInfo = Cy_SystemInfoGet();
+    REQUIRE( pInfo != nullptr );
 
-    REQUIRE( info.is_little_endian == ( CYPHER_ENDIAN_LITTLE != 0 ) );
-    REQUIRE( info.is_64_bit == ( CYPHER_TARGET_64BIT != 0 ) );
-    REQUIRE( info.is_64_bit == ( sizeof( void * ) == 8u ) );
+    REQUIRE( pInfo->platform.isLittleEndian == ( CYPHER_ENDIAN_LITTLE != 0 ) );
+    REQUIRE( pInfo->platform.is64Bit == ( CYPHER_TARGET_64BIT != 0 ) );
+    REQUIRE( pInfo->platform.is64Bit == ( sizeof( void * ) == 8u ) );
+}
+
+TEST_CASE( "SystemInfo dynamic queries report sane memory and disk status", "[CypherCommon][Tier0][SystemInfo]" )
+{
+    const cy_system_memory_status_t memory = Cy_SystemInfoQueryMemoryStatus();
+    REQUIRE( memory.totalPhysicalBytes >= memory.availablePhysicalBytes );
+    REQUIRE( memory.totalPhysicalBytes != 0u );
+    REQUIRE( memory.pressure != CY_SYSTEM_MEMORY_PRESSURE_UNKNOWN );
+
+    const cy_system_disk_status_t disk = Cy_SystemInfoQueryDiskStatus( "." );
+    REQUIRE( disk.totalBytes >= disk.freeBytes );
+    REQUIRE( disk.totalBytes >= disk.availableBytes );
+    REQUIRE( disk.totalBytes != 0u );
+}
+
+TEST_CASE( "SystemInfo CPU feature helpers expose stable names", "[CypherCommon][Tier0][SystemInfo]" )
+{
+    REQUIRE( Cy_SystemInfoHasCpuFeature( CY_SYSTEM_CPU_FEATURE_SSE2, CY_SYSTEM_CPU_FEATURE_SSE2 ) );
+    REQUIRE_FALSE( Cy_SystemInfoHasCpuFeature( CY_SYSTEM_CPU_FEATURE_NONE, CY_SYSTEM_CPU_FEATURE_SSE2 ) );
+    REQUIRE( Cy_SystemInfoCpuFeatureName( CY_SYSTEM_CPU_FEATURE_AVX2 )[0] != '\0' );
+    REQUIRE( Cy_SystemInfoCpuFeatureName( static_cast<cy_system_cpu_feature_flags_t>( CYPHER_BIT64( 63 ) ) )[0] != '\0' );
+}
+
+TEST_CASE( "SystemInfo report formatting is bounded and queryable", "[CypherCommon][Tier0][SystemInfo]" )
+{
+    char szReport[CY_SYSTEMINFO_REPORT_MAX] = {};
+
+    const usize cchRequired = Cy_SystemInfoFormatReport( szReport, sizeof( szReport ) );
+    REQUIRE( cchRequired > 0u );
+    REQUIRE( szReport[0] != '\0' );
+    REQUIRE( szReport[sizeof( szReport ) - 1u] == '\0' );
+
+    const usize cchProbe = Cy_SystemInfoFormatReport( nullptr, 0u );
+    REQUIRE( cchProbe == cchRequired );
 }
