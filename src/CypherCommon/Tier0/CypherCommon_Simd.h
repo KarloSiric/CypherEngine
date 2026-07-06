@@ -35,26 +35,71 @@ compiler or CPU feature checks through the engine.
 namespace cypher::common
 {
 
-enum simd_feature_flags_t : flags64_t {
-    SIMD_FEATURE_NONE = 0ull,
-    SIMD_FEATURE_SSE2 = CYPHER_BIT64( 0 ),
-    SIMD_FEATURE_SSE3 = CYPHER_BIT64( 1 ),
-    SIMD_FEATURE_SSSE3 = CYPHER_BIT64( 2 ),
-    SIMD_FEATURE_SSE41 = CYPHER_BIT64( 3 ),
-    SIMD_FEATURE_SSE42 = CYPHER_BIT64( 4 ),
-    SIMD_FEATURE_AVX = CYPHER_BIT64( 5 ),
-    SIMD_FEATURE_AVX2 = CYPHER_BIT64( 6 ),
-    SIMD_FEATURE_NEON = CYPHER_BIT64( 7 )
+constexpr u32 CY_SIMD_SCALAR_REGISTER_BYTES = 0u;
+constexpr u32 CY_SIMD_128_REGISTER_BYTES = 16u;
+constexpr u32 CY_SIMD_256_REGISTER_BYTES = 32u;
+
+enum cy_simd_level_t : u32 {
+    CY_SIMD_LEVEL_SCALAR = 0u,
+    CY_SIMD_LEVEL_SSE2,
+    CY_SIMD_LEVEL_SSE41,
+    CY_SIMD_LEVEL_AVX,
+    CY_SIMD_LEVEL_AVX2,
+    CY_SIMD_LEVEL_NEON
 };
 
-struct simd_caps_t {
-    flags64_t features;
+enum cy_simd_feature_flags_t : flags64_t {
+    CY_SIMD_FEATURE_NONE = 0ull,
+
+    CY_SIMD_FEATURE_SSE2 = CYPHER_BIT64( 0 ),
+    CY_SIMD_FEATURE_SSE3 = CYPHER_BIT64( 1 ),
+    CY_SIMD_FEATURE_SSSE3 = CYPHER_BIT64( 2 ),
+    CY_SIMD_FEATURE_SSE41 = CYPHER_BIT64( 3 ),
+    CY_SIMD_FEATURE_SSE42 = CYPHER_BIT64( 4 ),
+
+    CY_SIMD_FEATURE_AVX = CYPHER_BIT64( 5 ),
+    CY_SIMD_FEATURE_AVX2 = CYPHER_BIT64( 6 ),
+
+    CY_SIMD_FEATURE_NEON = CYPHER_BIT64( 7 )
+};
+
+struct cy_simd_caps_t {
+    flags64_t cpuFeatures;
+    flags64_t compiledFeatures;
+    flags64_t usableFeatures;
+
+    cy_simd_level_t bestLevel;
+
     u32 vectorRegisterBytes;
+    u32 vectorRegisterBits;
 };
 
-simd_caps_t Cy_Simd_GetCaps();
-bool_t Cy_Simd_HasFeature( flags64_t features, simd_feature_flags_t feature );
-const char *Cy_Simd_FeatureName( simd_feature_flags_t feature );
+// Initializes cached SIMD capabilities. Safe to call repeatedly.
+bool_t Cy_SimdInit();
+
+// Clears cached SIMD capability state during controlled shutdown.
+void Cy_SimdShutdown();
+
+// Returns cached SIMD capabilities, initializing on first use.
+const cy_simd_caps_t *Cy_SimdGetCaps();
+
+// Returns true if feature exists in the supplied SIMD feature mask.
+bool_t Cy_SimdHasFeature( flags64_t features, cy_simd_feature_flags_t feature );
+
+// Returns true if the current engine build can use this SIMD feature.
+bool_t Cy_SimdCanUse( cy_simd_feature_flags_t feature );
+
+// Returns the preferred SIMD level for this machine/build.
+cy_simd_level_t Cy_SimdGetBestLevel();
+
+// Returns the preferred vector register width in bytes.
+u32 Cy_SimdGetVectorRegisterBytes();
+
+// Returns a stable diagnostic name for a SIMD feature.
+const char *Cy_SimdFeatureName( cy_simd_feature_flags_t feature );
+
+// Returns a stable diagnostic name for a SIMD level.
+const char *Cy_SimdLevelName( cy_simd_level_t level );
 
 } // namespace cypher::common
 
