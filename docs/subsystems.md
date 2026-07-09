@@ -24,18 +24,22 @@ This file defines what the major CypherEngine modules are supposed to do.
 
 ## `CypherCommon`
 
-Shared engine foundation used by both client and server style code.
+Shared public/common foundation used by runtime, tools, editor code, tests and
+future game code.
 
 Expected contents:
 
-- primitive types
-- stable handles and IDs
-- shared error packing
-- platform-independent macros
-- common string/span/helpers when they become necessary
+- Tier0 low-level runtime foundations
+- Tier1 custom utility and standard-library replacement pieces
+- primitive types, stable handles, IDs and shared error/result types
+- platform-independent macros and compiler annotations
+- strings, spans, buffers, containers and hashing utilities
 - SIMD, endian, alignment, bit, atomic, timer and low-level performance helpers
-- public interface contracts only when editor/runtime/tools need them
-- cross-subsystem data that truly has no single owner
+- shared file format headers, magic values, chunk descriptors and version data
+- public interface contracts for engine, filesystem, renderer, material, texture,
+  input, audio, physics, networking, GUI, tools and editor boundaries
+- cross-subsystem descriptors for assets, resources, scenes, worlds, entities,
+  animation, AI, script, jobs and reflection
 
 Rule:
 
@@ -43,6 +47,7 @@ Rule:
 - implementation belongs in the owning subsystem
 - shared contracts move here only when multiple systems need them
 - scalar Common code is the correctness reference before SIMD paths are added
+- third-party APIs are wrapped before crossing into public Cypher headers
 
 ## `CypherRender`
 
