@@ -32,9 +32,11 @@ Read these in order when resuming work:
 4. [roadmap.md](roadmap.md)
 5. [project_structure.md](project_structure.md)
 6. [architecture.md](architecture.md)
-7. [subsystems.md](subsystems.md)
-8. [toolchain_plan.md](toolchain_plan.md)
-9. [reference_engine_lessons.md](reference_engine_lessons.md)
+7. [cyphercommon_architecture.md](cyphercommon_architecture.md)
+8. [function_pointer_policy.md](function_pointer_policy.md)
+9. [subsystems.md](subsystems.md)
+10. [toolchain_plan.md](toolchain_plan.md)
+11. [reference_engine_lessons.md](reference_engine_lessons.md)
 
 API docs:
 
@@ -75,6 +77,17 @@ Project memory:
 - `architecture`
   - top-level boundaries
   - ownership rules
+- `cyphercommon_architecture`
+  - Common/public layer definition
+  - custom runtime foundation direction
+  - public contract folders
+  - function pointer policy
+  - format and third-party dependency policy
+- `function_pointer_policy`
+  - C-style interface tables
+  - subsystem communication rules
+  - where direct calls, handles, command queues, event queues, and callback
+    tables belong
 - `subsystems`
   - what each module is responsible for
 - `toolchain_plan`
