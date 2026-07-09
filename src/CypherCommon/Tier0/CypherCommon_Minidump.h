@@ -24,7 +24,9 @@
 ================
 CypherCommon Minidump
 
-Crash dump declarations for supported platforms.
+Portable diagnostic dump declarations for crash and validation reporting.
+This Tier0 layer writes deterministic text diagnostics; native OS dump backends
+can be layered behind the same call later.
 ================
 */
 
