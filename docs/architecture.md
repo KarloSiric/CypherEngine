@@ -29,6 +29,17 @@ CypherEngine is a layered project made of three connected bodies of work:
 The long-term structure follows idTech/GoldSrc-style runtime discipline, with
 CryEngine-style subsystem naming adapted to modern C++.
 
+The current architectural priority is `CypherCommon`. It is the shared public
+foundation used by runtime code, tools, editor code, tests and future game code.
+It contains the custom runtime utility layer and public subsystem contracts, but
+not full subsystem implementations.
+
+The detailed Common direction is documented in
+[cyphercommon_architecture.md](cyphercommon_architecture.md).
+
+The detailed C-style service-table and callback policy is documented in
+[function_pointer_policy.md](function_pointer_policy.md).
+
 ## Top-level architecture
 
 ### `src/`
@@ -109,7 +120,7 @@ Owns:
 
 ## Boundary rules
 
-- `CypherCommon` is shared foundation
+- `CypherCommon` is the shared public/common foundation and contract layer
 - `CypherMemory` owns allocator and memory lifetime policy
 - `CypherPlatform` owns OS/window/time/platform-facing behavior and the SDL seam
 - `CypherSystem` owns high-level engine orchestration
@@ -129,14 +140,68 @@ Owns:
 - `CypherScript` is the bridge between engine runtime and `rvm`
 - `CypherEditor` owns the Qt editor application and editor-only workflows
 
+## CypherCommon contract model
+
+`CypherCommon` is intentionally larger than a small helper library. It should
+eventually contain:
+
+- low-level Tier0 runtime foundations
+- Tier1 custom utility and standard-library replacement pieces
+- shared format headers and chunk descriptors
+- public IDs, handles, descriptors and interface contracts
+- common data used by asset, resource, scene, world, entity, renderer, material,
+  texture, audio, physics, networking, GUI, tools and editor code
+
+It should not contain:
+
+- OpenGL or Vulkan renderer implementation
+- physics solver implementation
+- Qt editor widgets
+- asset cooker implementation
+- image/audio decoder implementation
+- gameplay rules
+- full network replication runtime
+
+The owning subsystem implements behavior. Common defines the shared shape.
+
+Example:
+
+```text
+CypherCommon/Renderer/ICyRenderer.h          public renderer contract
+CypherCommon/Renderer/CyRenderTypes.h        shared render descriptors
+CypherRenderer/OpenGL/CyOpenGLRenderer.cpp   renderer implementation
+```
+
+## Function pointer policy
+
+Function pointers are allowed where they form explicit C-style boundaries:
+
+- allocator interfaces
+- file stream callbacks
+- console command callbacks
+- subsystem service tables
+- renderer/platform backend dispatch
+- plugin/tool module entry points
+- VM/native bridge calls
+
+They should not be used to make ordinary local calls indirect. Direct functions
+remain the default for normal code.
+
+This keeps the codebase close to the C-style engine tradition without turning
+every helper into a virtual table.
+
+Subsystem communication should not rely on function pointers alone. Most
+communication should happen through handles, descriptors, command queues, event
+queues, direct APIs, and public service interfaces.
+
 ## Reference-derived architecture rules
 
 CypherEngine studies shipped engines for structure, not source code.
 The durable lessons are:
 
 - `CypherCommon` is the primitive foundation, not a junk drawer.
-- a later public-interface layer may be needed for tool/editor/plugin
-  boundaries, but should not be created before those boundaries are real.
+- `CypherCommon` also acts as the public contract layer when multiple systems
+  need the same stable type, descriptor, callback or interface.
 - `CypherHost` should make boot, update, render and shutdown order explicit.
 - major subsystems should have clean create/shutdown boundaries even when
   statically linked.
@@ -181,7 +246,8 @@ Today:
 - code is concentrated in `src/CypherEngine/`
 - the project has core runtime, SDL3 windowing, OpenGL bootstrap, math, shader, mesh, and camera foundations
 - command/cvar/cfg/filesystem subsystems already exist as early engine services
-- the next major missing seam is memory/resource ownership, input, material/texture runtime, and real world content
+- the next major architectural focus is completing Common before building larger runtime/editor systems
+- resource ownership, input, material/texture runtime and real world content remain future runtime seams
 
 That is acceptable for now, as long as new work follows the documented target structure from this point forward.
 
