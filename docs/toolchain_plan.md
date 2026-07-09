@@ -29,6 +29,101 @@ That means:
 - then build the offline pipeline that supports it
 - keep tools focused until real workflow pressure exists
 
+## Third-party policy
+
+CypherEngine should write its own engine systems, but use proven libraries for
+hard external formats, compression, platform glue, tests, benchmarks and tools.
+
+Rule:
+
+```text
+third-party library -> Cypher wrapper/subsystem -> engine public API
+```
+
+Third-party APIs should not leak through public runtime headers.
+
+Current and target choices:
+
+- `SDL3` for window/input/platform bootstrap
+- `glad` for OpenGL loading
+- `Catch2` for tests
+- `Google Benchmark` for performance tests
+- `OpenAL Soft` for audio backend work
+- `zstd` and `lz4` for compression
+- `xxHash` plus Cypher checksum code for fast hashes and validation
+- `libsodium` for later cryptographic signing/auth/encryption needs
+- `meshoptimizer` for mesh processing
+- `FreeType` and `HarfBuzz` for font/text tooling
+- `stb_image` and `stb_image_write` for early image import/export when added
+- `TinyEXR` later for HDR/EXR import if needed
+- `KTX/KTX2` and Basis Universal later for serious cooked texture delivery
+- `cgltf` for glTF/GLB import
+- `Assimp` only for tools-side fallback importing of many model formats
+- `MikkTSpace` for tangent generation
+- `miniaudio` or `libsndfile` for tools-side audio decoding
+- `Dear ImGui` for debug/editor prototypes
+- `Qt 6` for the long-term Mason editor
+- `GameNetworkingSockets` only as an optional transport/reference later; the
+  gameplay replication layer remains Cypher-owned
+
+Reference engines often kept third-party code near the public/tooling boundary:
+
+- Quake III had `code/jpeg-6` and common archive helpers in `qcommon`.
+- Source SDK exposed folders such as `jpeglib`, `zip`, `zlib` and used public
+  engine headers around those dependencies.
+- Doom 3 BFG kept an explicit `external` project beside engine libraries.
+
+CypherEngine should use `vcpkg` for large portable dependencies and `thirdparty/`
+for small pinned libraries that are easier to vendor.
+
+## Authoring and cooked formats
+
+Mason and command-line tools edit authoring formats. Runtime loads cooked
+formats whenever parsing source data would be too slow or allocation-heavy.
+
+Target source formats:
+
+- `.cymap` editable Mason map source
+- `.cyscene` editable scene source
+- `.cyprefab` prefab/entity template
+- `.cymat` material source
+- `.cyshader` shader source metadata
+- `.cyphys` physics setup source
+- `.cynav` navigation source
+- `.cyflow` objective/logic graph source
+
+Target cooked formats:
+
+- `.cymap_c` cooked map data
+- `.cyscene_c` cooked scene data
+- `.cybsp_c` compiled BSP/visibility/collision data
+- `.cytex_c` cooked texture
+- `.cymat_c` cooked material
+- `.cymesh_c` cooked mesh
+- `.cyskel_c` cooked skeleton
+- `.cyanim_c` cooked animation
+- `.cyphys_c` cooked collision/physics data
+- `.cysnd_c` cooked sound
+- `.cyfont_c` cooked font
+- `.cyshader_c` shader cache metadata
+- `.cynav_c` cooked navmesh
+- `.cyflow_c` cooked mission/objective graph
+- `.cypkg` packed game assets
+
+All cooked formats should share a predictable binary skeleton:
+
+```text
+magic
+version
+endian marker
+platform/backend flags
+format flags
+chunk table
+chunks
+content hash
+optional compression per chunk
+```
+
 ## Worlds and Maps
 
 Target:
