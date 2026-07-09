@@ -290,12 +290,12 @@ u32 CPUDetect_QueryPhysicalCoreCount()
 #if CYPHER_PLATFORM_WINDOWS
     DWORD cbBuffer = 0u;
     if ( ::GetLogicalProcessorInformationEx( RelationProcessorCore, nullptr, &cbBuffer ) || cbBuffer == 0u ) {
-        return GetLogicalThreadCount();
+        return Cy_ThreadGetLogicalCount();
     }
 
     void *pBuffer = std::malloc( cbBuffer );
     if ( pBuffer == nullptr ) {
-        return GetLogicalThreadCount();
+        return Cy_ThreadGetLogicalCount();
     }
 
     u32 nCoreCount = 0u;
@@ -311,7 +311,7 @@ u32 CPUDetect_QueryPhysicalCoreCount()
     }
 
     std::free( pBuffer );
-    return nCoreCount != 0u ? nCoreCount : GetLogicalThreadCount();
+    return nCoreCount != 0u ? nCoreCount : Cy_ThreadGetLogicalCount();
 #elif CYPHER_PLATFORM_MACOS
     u32 nCoreCount = 0u;
     size_t cbCoreCount = sizeof( nCoreCount );
@@ -320,11 +320,11 @@ u32 CPUDetect_QueryPhysicalCoreCount()
         return nCoreCount;
     }
 
-    return GetLogicalThreadCount();
+    return Cy_ThreadGetLogicalCount();
 #elif CYPHER_PLATFORM_LINUX
     FILE *pFile = std::fopen( "/proc/cpuinfo", "r" );
     if ( pFile == nullptr ) {
-        return GetLogicalThreadCount();
+        return Cy_ThreadGetLogicalCount();
     }
 
     constexpr u32 MAX_CPU_PAIRS = 1024u;
@@ -377,9 +377,9 @@ u32 CPUDetect_QueryPhysicalCoreCount()
     add_current_pair();
     std::fclose( pFile );
 
-    return nPairCount != 0u ? nPairCount : GetLogicalThreadCount();
+    return nPairCount != 0u ? nPairCount : Cy_ThreadGetLogicalCount();
 #else
-    return GetLogicalThreadCount();
+    return Cy_ThreadGetLogicalCount();
 #endif
 }
 
@@ -502,7 +502,7 @@ bool_t Cy_CPUDetectInit()
     CPUDetect_FillVendor( g_cpuInfo );
     CPUDetect_FillBrand( g_cpuInfo );
     CPUDetect_FillFamilyModelStepping( g_cpuInfo );
-    g_cpuInfo.logicalThreadCount = GetLogicalThreadCount();
+    g_cpuInfo.logicalThreadCount = Cy_ThreadGetLogicalCount();
     g_cpuInfo.physicalCoreCount = CPUDetect_QueryPhysicalCoreCount();
     g_cpuInfo.cacheLineSize = CPUDetect_QueryCacheLineSize();
     g_cpuInfo.hardwareFeatures = CPUDetect_QueryHardwareFeatures();
