@@ -24,49 +24,59 @@
 ================
 CypherCommon Thread
 
-Minimal thread helpers. This is not the job system.
+Low-level thread helpers shared by runtime systems. This is not the job system;
+it only exposes portable identity, sleep, yield, main-thread checks, and
+debugger/profiler naming.
 ================
 */
 
 #include "CypherCommon_BaseTypes.h"
 
-#include <atomic>
-#include <chrono>
-#include <functional>
-#include <thread>
-
 namespace cypher::common
 {
 
-template <typename type_t>
-using atomic_t = std::atomic<type_t>;
+using thread_id_t = u64;
 
-using memory_order_t = std::memory_order;
+constexpr thread_id_t CY_THREAD_INVALID_ID = 0u;
 
-// Yields the current thread's remaining time slice.
-inline void ThreadYield()
-{
-    std::this_thread::yield();
-}
+// Initializes thread state and captures the calling thread as the main thread.
+bool_t Cy_ThreadInit();
+
+// Resets captured thread state for controlled shutdown and tests.
+void Cy_ThreadShutdown();
+
+// Returns whether the thread module has captured a main thread.
+bool_t Cy_ThreadIsInitialized();
+
+// Yields the current thread's remaining scheduler time slice.
+void Cy_ThreadYield();
 
 // Sleeps the current thread for at least the requested milliseconds.
-inline void ThreadSleepMs( u32 milliseconds )
-{
-    std::this_thread::sleep_for( std::chrono::milliseconds( milliseconds ) );
-}
+void Cy_ThreadSleepMs( u32 nMilliseconds );
 
-// Returns a stable hash for the current std::thread id.
-inline u64 GetCurrentThreadIdHash()
-{
-    return static_cast<u64>( std::hash<std::thread::id>{}( std::this_thread::get_id() ) );
-}
+// Sleeps the current thread for at least the requested microseconds.
+void Cy_ThreadSleepUs( u32 nMicroseconds );
+
+// Returns a process-local stable hash for the calling thread id.
+thread_id_t Cy_ThreadGetCurrentId();
+
+// Returns a process-local stable hash for the calling thread id.
+u64 Cy_ThreadGetCurrentIdHash();
 
 // Returns detected hardware concurrency, falling back to one.
-inline u32 GetLogicalThreadCount()
-{
-    const u32 thread_count = std::thread::hardware_concurrency();
-    return thread_count != 0u ? thread_count : 1u;
-}
+u32 Cy_ThreadGetLogicalCount();
+
+// Captures the current thread as the engine main thread.
+void Cy_ThreadCaptureMainThread();
+
+// Returns the captured main thread id, or CY_THREAD_INVALID_ID if unset.
+thread_id_t Cy_ThreadGetMainThreadId();
+
+// Returns true when called from the captured main thread.
+bool_t Cy_ThreadIsMainThread();
+
+// Best-effort current-thread name for debugger and profiler views.
+void Cy_ThreadSetCurrentName( const char *pszName );
 
 } // namespace cypher::common
 
