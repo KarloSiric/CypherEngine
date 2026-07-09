@@ -30,6 +30,7 @@ renderer, VFS, tools and editor performance.
 */
 
 #include "CypherCommon_BaseTypes.h"
+#include "CypherCommon_Defines.h"
 #include "CypherCommon_SourceLocation.h"
 
 namespace cypher::common
