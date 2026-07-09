@@ -29,19 +29,19 @@ This is the intended long-term CypherEngine repository structure.
 ```text
 CypherEngine/
 ├── README.md
-├── Makefile or build wrapper
+├── CMakeLists.txt
+├── vcpkg.json
 ├── src/
+│   ├── CypherCommon/
 │   ├── CypherEngine/
 │   │   ├── CypherAI/
 │   │   ├── CypherAnimation/
 │   │   ├── CypherAudio/
-│   │   ├── CypherCommon/
 │   │   ├── CypherConsole/
 │   │   ├── CypherSystem/
 │   │   ├── CypherPlatform/
 │   │   ├── CypherFileSystem/
 │   │   ├── CypherResource/
-│   │   ├── CypherLog/
 │   │   ├── CypherCommand/
 │   │   ├── CypherCVar/
 │   │   ├── CypherConfig/
@@ -77,8 +77,8 @@ CypherEngine/
 
 - `src/CypherEngine`
   - native CypherEngine runtime
-- `src/CypherEngine/CypherCommon`
-  - shared engine contracts, primitive types, handles, errors, and public interface definitions
+- `src/CypherCommon`
+  - shared public/common foundation, custom runtime utilities, primitive types, handles, format headers, and public subsystem contracts
 - `src/CypherEngine/CypherSystem`
   - central engine lifetime orchestration; long-term replacement for host-style bootstrapping
 - `src/CypherEngine/CypherPlatform`
@@ -140,13 +140,73 @@ CypherEngine/
 - `config`
   - default cfg files
 - `thirdparty`
-  - vendored external libraries
+  - vendored external libraries when vcpkg is not the better fit
 - `docs`
   - architecture and process documentation
+
+## Target `src/CypherCommon` layout
+
+`CypherCommon` should grow as the public/common layer, not as a dump for full
+subsystem implementations.
+
+Target shape:
+
+```text
+src/CypherCommon/
+├── CypherCommon.h
+├── CypherCommon_Config.h
+├── CypherCommon_Version.h
+├── CypherCommon_Public.h
+├── Tier0/
+├── Tier1/
+├── Tier2/
+├── Tier3/
+├── Core/
+├── Sys/
+├── Utl/
+├── Memory/
+├── Text/
+├── Color/
+├── MathBase/
+├── Image/
+├── IO/
+├── Hash/
+├── Parse/
+├── Serialization/
+├── Reflection/
+├── Formats/
+├── Job/
+├── Asset/
+├── Resource/
+├── Scene/
+├── World/
+├── Entity/
+├── Animation/
+├── AI/
+├── Script/
+├── Engine/
+├── FileSystem/
+├── Renderer/
+├── Material/
+├── Texture/
+├── Input/
+├── Audio/
+├── Physics/
+├── Network/
+├── Gui/
+├── Tools/
+└── Editor/
+```
+
+These folders should be created as real files arrive. Empty folder trees should
+not be used as a substitute for working code or clear documentation.
 
 ## Important note about the current repo
 
 The current source already lives under `src/CypherEngine/`, with CryEngine-style subsystem folders such as `CypherRender`, `CypherSystem`, and `CypherFileSystem`.
+
+The newer common foundation lives under `src/CypherCommon/` with Tier0/Tier1
+work already in progress. New common/public contracts should prefer that tree.
 
 Future migrations should add new `Cypher*` modules beside the existing runtime modules instead of inventing a different architecture each time.
 
