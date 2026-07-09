@@ -64,7 +64,7 @@ TEST_CASE( "Timer elapsed conversion follows current tick samples", "[CypherComm
 TEST_CASE( "Timer elapsed time increases after sleeping", "[CypherCommon][Tier0][Timer]" )
 {
     const timer_tick_t nStartTicks = Timer_NowTicks();
-    ThreadSleepMs( 1u );
+    Cy_ThreadSleepMs( 1u );
     const timer_tick_t nEndTicks = Timer_NowTicks();
 
     REQUIRE( nEndTicks > nStartTicks );
@@ -76,7 +76,7 @@ TEST_CASE( "Timer object stores begin and end tick samples", "[CypherCommon][Tie
     cy_timer_t timer = {};
 
     Timer_Begin( &timer );
-    ThreadSleepMs( 1u );
+    Cy_ThreadSleepMs( 1u );
     Timer_End( &timer );
 
     REQUIRE( timer.nEndTicks > timer.nStartTicks );
