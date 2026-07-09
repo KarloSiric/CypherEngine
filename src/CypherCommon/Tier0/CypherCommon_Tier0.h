@@ -63,6 +63,8 @@ but it must not depend on any CypherEngine subsystem.
 #include "CypherCommon_Thread.h"
 #include "CypherCommon_Mutex.h"
 #include "CypherCommon_TLS.h"
+#include "CypherCommon_Event.h"
+#include "CypherCommon_Semaphore.h"
 #include "CypherCommon_TsList.h"
 #include "CypherCommon_TestThread.h"
 #include "CypherCommon_Timer.h"
