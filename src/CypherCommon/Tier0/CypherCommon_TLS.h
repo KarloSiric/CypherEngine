@@ -24,7 +24,8 @@
 ================
 CypherCommon TLS
 
-Thread-local storage declarations.
+Thread-local storage slots used by low-level systems that need per-thread
+context without passing a pointer through every call.
 ================
 */
 
@@ -37,10 +38,23 @@ using tls_slot_t = u32;
 
 constexpr tls_slot_t CY_TLS_INVALID_SLOT = CY_U32_MAX;
 
-tls_slot_t TLS_CreateSlot();
-void TLS_DestroySlot( tls_slot_t slot );
-void TLS_SetValue( tls_slot_t slot, void *pValue );
-void *TLS_GetValue( tls_slot_t slot );
+// Creates a generational TLS slot handle, or CY_TLS_INVALID_SLOT on failure.
+tls_slot_t Cy_TLSCreateSlot();
+
+// Destroys a TLS slot. Existing values for that old generation become invalid.
+void Cy_TLSDestroySlot( tls_slot_t slot );
+
+// Returns true when the slot currently refers to a live TLS slot generation.
+bool_t Cy_TLSIsValidSlot( tls_slot_t slot );
+
+// Stores a pointer value for the current thread and slot.
+bool_t Cy_TLSSetValue( tls_slot_t slot, void *pValue );
+
+// Reads the pointer value for the current thread and slot.
+void *Cy_TLSGetValue( tls_slot_t slot );
+
+// Clears the pointer value for the current thread and slot.
+void Cy_TLSClearValue( tls_slot_t slot );
 
 } // namespace cypher::common
 
