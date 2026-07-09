@@ -21,6 +21,23 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
+## [Unreleased] - 2026-07-09
+
+### Added
+- Added `docs/cyphercommon_architecture.md` to define CypherCommon as the shared public/common foundation and contract layer.
+- Documented the intended CypherCommon folder families for Tier0/Tier1/Tier2/Tier3, utility code, memory, text, color, IO, hashing, parsing, serialization, reflection, formats, jobs, assets, resources, scene/world/entity data, renderer/audio/physics/network contracts, GUI, tools, and editor contracts.
+- Added a function-pointer policy for C-style service tables, allocator interfaces, stream callbacks, backend dispatch, tool/plugin boundaries, command callbacks, and VM/native bridges.
+- Added `docs/function_pointer_policy.md` to document direct calls, handles, command queues, event queues, callback tables, service tables, and subsystem communication rules.
+- Added trackable `src/CypherCommon/` folder READMEs for the planned Common families, including Core, Sys, Utl, Memory, Text, Color, Image, IO, Hash, Parse, Serialization, Reflection, Formats, Job, Asset, Resource, Scene, World, Entity, Animation, AI, Script, Engine, FileSystem, Renderer, Material, Texture, Input, Audio, Physics, Network, Gui, Tools, and Editor.
+- Added a third-party dependency policy that keeps external APIs hidden behind Cypher-owned wrappers and separates vcpkg-managed dependencies from small vendored libraries.
+- Added the authoring-versus-cooked format direction for `.cymap`, `.cyscene`, `.cytex_c`, `.cymesh_c`, `.cyanim_c`, `.cybsp_c`, `.cypkg`, and related Cypher data formats.
+
+### Changed
+- Shortened the README so it acts as a concise repository entry point instead of duplicating long-form architecture documentation.
+- Updated architecture documentation to make CypherCommon the explicit public/common contract layer rather than a vague future interface layer.
+- Updated project structure documentation to reflect the top-level `src/CypherCommon/` tree and the planned Common folder families.
+- Updated the toolchain plan with concrete library, format, and wrapping rules for engine runtime, asset tools, and the future Mason editor.
+
 ## [0.1.0] - 2026-07-04
 
 ### Added
