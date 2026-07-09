@@ -24,8 +24,8 @@
 ================
 CypherCommon Stack Trace
 
-Small placeholder API for future platform stack capture.
-No allocation and no symbol loading at Tier0.
+Raw platform stack capture for diagnostics, asserts, crash reports and tools.
+Tier0 captures addresses only; symbol lookup and demangling belong above it.
 ================
 */
 
@@ -47,21 +47,28 @@ struct stack_trace_t {
 };
 
 // Resets a stack trace to an empty state.
+void Cy_StackTraceClear( stack_trace_t *pTrace );
+
+// Captures raw return addresses without resolving symbols.
+u32 Cy_StackTraceCapture( stack_trace_t *pTrace, u32 cMaxFrames, u32 cSkipFrames );
+
+// Returns the number of captured frames in the trace.
+u32 Cy_StackTraceGetFrameCount( const stack_trace_t *pTrace );
+
+// Returns a captured frame address or nullptr when the index is invalid.
+void *Cy_StackTraceGetFrameAddress( const stack_trace_t *pTrace, u32 iFrame );
+
+// Returns true when the trace has no captured frames.
+bool_t Cy_StackTraceIsEmpty( const stack_trace_t *pTrace );
+
 inline void ClearStackTrace( stack_trace_t &trace )
 {
-    trace.frame_count = 0u;
-    for ( u32 i = 0u; i < CYPHER_STACK_TRACE_MAX_FRAMES; ++i ) {
-        trace.frames[i].address = nullptr;
-    }
+    Cy_StackTraceClear( &trace );
 }
 
-// Captures stack frames when platform support is implemented.
 inline u32 CaptureStackTrace( stack_trace_t &trace, u32 max_frames, u32 skip_frames )
 {
-    CYPHER_UNUSED( max_frames );
-    CYPHER_UNUSED( skip_frames );
-    ClearStackTrace( trace );
-    return 0u;
+    return Cy_StackTraceCapture( &trace, max_frames, skip_frames );
 }
 
 } // namespace cypher::common
