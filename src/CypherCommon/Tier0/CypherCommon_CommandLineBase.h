@@ -33,7 +33,12 @@ Low-level process command line declarations.
 namespace cypher::common
 {
 
-struct command_line_base_t;
+constexpr usize CY_COMMANDLINEBASE_MAX_ARGS = 128u;
+
+struct command_line_base_t {
+    i32 argc;
+    const char *ppArgv[CY_COMMANDLINEBASE_MAX_ARGS];
+};
 
 void CommandLineBase_Set( command_line_base_t *pCommandLine, i32 argc, const char **ppArgv );
 const char *CommandLineBase_Find( const command_line_base_t *pCommandLine, const char *pName );
