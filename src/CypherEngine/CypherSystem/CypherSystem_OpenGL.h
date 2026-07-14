@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_SYSTEM_OPENGL_H
 #define CYPHER_ENGINE_SYSTEM_OPENGL_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherSystem_Platform.h"
 
