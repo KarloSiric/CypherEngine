@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_PAK_TYPES_H
 #define CYPHER_ENGINE_PAK_TYPES_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherPak_Error.h"
 #include "CypherPak_Format.h"
