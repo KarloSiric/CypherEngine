@@ -18,7 +18,9 @@
 
 #ifndef CYPHER_COMMON_TIER0_CPUDETECT_H
 #define CYPHER_COMMON_TIER0_CPUDETECT_H
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherCommon_BaseTypes.h"
 #include "CypherCommon_Defines.h"
