@@ -18,7 +18,9 @@
 
 #ifndef CYPHER_COMMON_TIER0_ENVIRONMENT_H
 #define CYPHER_COMMON_TIER0_ENVIRONMENT_H
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 /*
 ================
