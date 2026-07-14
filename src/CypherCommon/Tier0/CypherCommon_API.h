@@ -18,7 +18,9 @@
 
 #ifndef CYPHER_COMMON_TIER0_API_H
 #define CYPHER_COMMON_TIER0_API_H
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 /*
 ================
