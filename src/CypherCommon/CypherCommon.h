@@ -18,7 +18,9 @@
 
 #ifndef CYPHER_COMMON_H
 #define CYPHER_COMMON_H
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 /*
 ================
@@ -29,6 +31,6 @@ editor. Keep this independent from CypherEngine subsystem headers.
 ================
 */
 
-#include "CypherCommon_Tier0.h"
+
 
 #endif // CYPHER_COMMON_H
