@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_HOST_ERROR_H
 #define CYPHER_ENGINE_HOST_ERROR_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherCommon_Error.h"
 
