@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_SYSTEM_WINDOW_H
 #define CYPHER_ENGINE_SYSTEM_WINDOW_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherCommon.h"
 #include "CypherSystem_Error.h"
