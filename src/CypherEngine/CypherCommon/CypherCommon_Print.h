@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_COMMON_PRINT_H
 #define CYPHER_ENGINE_COMMON_PRINT_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherCommon_Error.h"
 
