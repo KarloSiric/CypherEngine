@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_RENDER_CONFIG_H
 #define CYPHER_ENGINE_RENDER_CONFIG_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherMath_Types.h"
 #include "CypherCommon.h"
