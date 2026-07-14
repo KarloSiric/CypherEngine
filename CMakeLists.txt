@@ -234,6 +234,14 @@ if (CYPHERENGINE_BUILD_TESTS)
         target_link_libraries(cypher_common_tier0_endian_tests PRIVATE Catch2::Catch2WithMain)
         add_test(NAME cypher_common_tier0_endian_tests COMMAND cypher_common_tier0_endian_tests)
 
+        add_executable(cypher_common_tier0_error_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Error_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Error.cpp"
+        )
+        target_include_directories(cypher_common_tier0_error_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_common_tier0_error_tests PRIVATE Catch2::Catch2WithMain)
+        add_test(NAME cypher_common_tier0_error_tests COMMAND cypher_common_tier0_error_tests)
+
         add_executable(cypher_common_tier0_event_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Event_Tests.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Event.cpp"
