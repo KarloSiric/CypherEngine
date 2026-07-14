@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_PAK_H
 #define CYPHER_ENGINE_PAK_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherPak_Compression.h"
 #include "CypherPak_Error.h"
