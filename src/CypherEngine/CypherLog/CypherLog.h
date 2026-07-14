@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_LOG_H
 #define CYPHER_ENGINE_LOG_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherLog_Error.h"
 #include "CypherLog_Types.h"
