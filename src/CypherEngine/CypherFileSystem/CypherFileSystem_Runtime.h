@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_FILESYSTEM_RUNTIME_H
 #define CYPHER_ENGINE_FILESYSTEM_RUNTIME_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherFileSystem.h"
 #include "CypherSystem_Platform.h"
