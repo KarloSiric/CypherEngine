@@ -18,7 +18,9 @@
 
 #ifndef CYPHER_COMMON_TIER1_CHAR_H
 #define CYPHER_COMMON_TIER1_CHAR_H
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherCommon_Tier0.h"
 
