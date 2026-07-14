@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_PAK_READER_H
 #define CYPHER_ENGINE_PAK_READER_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherPak_Types.h"
 
