@@ -18,7 +18,9 @@
 
 #ifndef CYPHER_COMMON_TIER1_FUNCTOR_H
 #define CYPHER_COMMON_TIER1_FUNCTOR_H
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 /*
 ================
