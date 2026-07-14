@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_FILESYSTEM_H
 #define CYPHER_ENGINE_FILESYSTEM_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherFileSystem_Error.h"
 #include "CypherFileSystem_Types.h"
