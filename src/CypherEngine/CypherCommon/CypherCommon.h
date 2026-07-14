@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_COMMON_H
 #define CYPHER_ENGINE_COMMON_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include <cstddef>     // std::size_t.
 #include <cstdint>     // Fixed-width integer types.
