@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_RENDER_CAMERA_H
 #define CYPHER_ENGINE_RENDER_CAMERA_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherMath_Vec.h"
 #include "CypherRender_Config.h"
