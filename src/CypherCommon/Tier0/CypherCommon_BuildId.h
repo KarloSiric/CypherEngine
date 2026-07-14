@@ -18,7 +18,9 @@
 
 #ifndef CYPHER_COMMON_TIER0_BUILDID_H
 #define CYPHER_COMMON_TIER0_BUILDID_H
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 /*
 ================
