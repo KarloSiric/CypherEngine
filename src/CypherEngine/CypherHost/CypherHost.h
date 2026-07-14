@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_HOST_H
 #define CYPHER_ENGINE_HOST_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherHost_Error.h"
 #include "CypherHost_Types.h"
