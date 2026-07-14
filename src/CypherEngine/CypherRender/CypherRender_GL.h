@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_RENDER_GL_H
 #define CYPHER_ENGINE_RENDER_GL_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherRender_Error.h"
 #include "CypherRender_Mesh.h"
