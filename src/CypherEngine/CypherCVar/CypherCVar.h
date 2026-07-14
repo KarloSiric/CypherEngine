@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_CVAR_H
 #define CYPHER_ENGINE_CVAR_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherCVar_Error.h"
 
