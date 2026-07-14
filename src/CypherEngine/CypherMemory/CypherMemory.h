@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_MEMORY_H
 #define CYPHER_ENGINE_MEMORY_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherCommon.h"
 #include "CypherMemory_Arena.h"
