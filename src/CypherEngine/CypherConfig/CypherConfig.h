@@ -20,7 +20,9 @@
 #define CYPHER_ENGINE_CONFIG_H
 
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherConfig_Error.h"
 
