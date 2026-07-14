@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_MATH_FRUSTUM_H
 #define CYPHER_ENGINE_MATH_FRUSTUM_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherMath_Types.h"
 
