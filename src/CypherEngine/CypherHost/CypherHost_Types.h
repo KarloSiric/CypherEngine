@@ -19,7 +19,9 @@
 #ifndef CYPHER_ENGINE_HOST_TYPES_H
 #define CYPHER_ENGINE_HOST_TYPES_H
 
-#pragma once
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
 
 #include "CypherCommon.h"
 #include "CypherSystem_Window.h"
