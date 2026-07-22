@@ -64,7 +64,7 @@ enum class log_channel_t : u16 {
 struct log_record_t {
     log_level_t level;
     log_channel_t channel;
-    error_t error;
+    error_code_t errorCode;
     source_location_t location;
     const char *pMessage;
 };
@@ -72,7 +72,7 @@ struct log_record_t {
 using log_callback_t = void ( * )( const log_record_t &record, void *pUserData );
 
 void Cy_LogWrite( log_level_t level, log_channel_t channel, const char *pMessage );
-void Cy_LogWriteError( log_level_t level, log_channel_t channel, error_t error, const char *pMessage );
+void Cy_LogWriteError( log_level_t level, log_channel_t channel, error_code_t errorCode, const char *pMessage );
 void Cy_LogSetCallback( log_callback_t pCallback, void *pUserData );
 const char *Cy_LogLevelName( log_level_t level );
 const char *Cy_LogChannelName( log_channel_t channel );
