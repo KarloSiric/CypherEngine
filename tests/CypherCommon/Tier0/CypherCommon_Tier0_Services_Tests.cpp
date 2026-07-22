@@ -84,14 +84,14 @@ i32 TestThreadProc( void *pUserData )
 
 TEST_CASE( "Tier0 error helpers pack domains and local codes", "[CypherCommon][Tier0][Services]" )
 {
-    const error_t error = Cy_ErrorMake( domain_t::COM_DOMAIN_FILESYSTEM, 77u );
+    const error_code_t errorCode = Cy_ErrorMake( error_domain_t::COM_DOMAIN_FILESYSTEM, 77u );
 
-    REQUIRE( Cy_ErrorDomain( error ) == domain_t::COM_DOMAIN_FILESYSTEM );
-    REQUIRE( Cy_ErrorLocalCode( error ) == 77u );
+    REQUIRE( Cy_ErrorDomain( errorCode ) == error_domain_t::COM_DOMAIN_FILESYSTEM );
+    REQUIRE( Cy_ErrorLocalCode( errorCode ) == 77u );
     REQUIRE( Cy_ErrorSucceeded( common_error_t::OK ) );
     REQUIRE( Cy_ErrorFailed( common_error_t::ERR_FAILED ) );
     REQUIRE( Cy_ErrorName( common_error_t::ERR_TIMEOUT ) != nullptr );
-    REQUIRE( Cy_ErrorDomainName( domain_t::COM_DOMAIN_TOOLS ) != nullptr );
+    REQUIRE( Cy_ErrorDomainName( error_domain_t::COM_DOMAIN_TOOLS ) != nullptr );
 }
 
 TEST_CASE( "Tier0 handle helpers pack index and generation", "[CypherCommon][Tier0][Services]" )
@@ -279,14 +279,18 @@ TEST_CASE( "Tier0 minidump writes portable diagnostic file", "[CypherCommon][Tie
     REQUIRE( Minidump_Write( info ) );
     REQUIRE( std::filesystem::exists( path ) );
 
-    std::ifstream file( path );
-    std::string contents(
-        ( std::istreambuf_iterator<char>( file ) ),
-        std::istreambuf_iterator<char>() );
+    std::string contents;
+    {
+        std::ifstream file( path );
+        REQUIRE( file.is_open() );
+        contents.assign(
+            std::istreambuf_iterator<char>( file ),
+            std::istreambuf_iterator<char>() );
+    }
     REQUIRE( contents.find( "format=cypher-text-dump" ) != std::string::npos );
     REQUIRE( contents.find( "stack_frame_count=" ) != std::string::npos );
 
-    std::filesystem::remove( path );
+    REQUIRE( std::filesystem::remove( path ) );
 }
 
 TEST_CASE( "Tier0 intrusive thread-safe list pushes and pops nodes", "[CypherCommon][Tier0][Services]" )
