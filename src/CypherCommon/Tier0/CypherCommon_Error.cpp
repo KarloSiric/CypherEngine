@@ -23,7 +23,7 @@ namespace cypher::common
 namespace
 {
 
-static const error_desc_t g_commonErrorDescs[] = {
+static const error_description_t g_commonErrorDescs[] = {
     { static_cast<u16>( common_error_t::OK ), "OK", "Operation completed successfully." },
     { static_cast<u16>( common_error_t::ERR_FAILED ), "ERR_FAILED", "Operation failed." },
     { static_cast<u16>( common_error_t::ERR_INVALID_ARGUMENT ), "ERR_INVALID_ARGUMENT", "An invalid argument was supplied." },
@@ -41,36 +41,36 @@ static const error_desc_t g_commonErrorDescs[] = {
 };
 
 static const error_table_t g_commonErrorTable = {
-    domain_t::COMMON,
+    error_domain_t::COMMON,
     g_commonErrorDescs,
     static_cast<u32>( sizeof( g_commonErrorDescs ) / sizeof( g_commonErrorDescs[0] ) )
 };
 
 } // namespace
 
-error_t Cy_ErrorMake( domain_t domain, u16 localErrorCode )
+error_code_t Cy_ErrorMake( error_domain_t domain, u16 localErrorCode )
 {
-    return ( static_cast<error_t>( domain ) << 16u ) | static_cast<error_t>( localErrorCode );
+    return ( static_cast<error_code_t>( domain ) << 16u ) | static_cast<error_code_t>( localErrorCode );
 }
 
-domain_t Cy_ErrorDomain( error_t error )
+error_domain_t Cy_ErrorDomain( error_code_t errorCode )
 {
-    return static_cast<domain_t>( static_cast<u16>( error >> 16u ) );
+    return static_cast<error_domain_t>( static_cast<u16>( errorCode >> 16u ) );
 }
 
-u16 Cy_ErrorLocalCode( error_t error )
+u16 Cy_ErrorLocalCode( error_code_t errorCode )
 {
-    return static_cast<u16>( error & 0xFFFFu );
+    return static_cast<u16>( errorCode & 0xFFFFu );
 }
 
-bool_t Cy_ErrorSucceeded( error_t error )
+bool_t Cy_ErrorSucceeded( error_code_t errorCode )
 {
-    return Cy_ErrorLocalCode( error ) == 0u;
+    return Cy_ErrorLocalCode( errorCode ) == 0u;
 }
 
-bool_t Cy_ErrorFailed( error_t error )
+bool_t Cy_ErrorFailed( error_code_t errorCode )
 {
-    return Cy_ErrorLocalCode( error ) != 0u;
+    return Cy_ErrorLocalCode( errorCode ) != 0u;
 }
 
 bool_t Cy_ErrorSucceeded( common_error_t error )
@@ -85,13 +85,13 @@ bool_t Cy_ErrorFailed( common_error_t error )
 
 const char *Cy_CommonErrorName( common_error_t error )
 {
-    const error_t packedError = Cy_ErrorMake( domain_t::COMMON, static_cast<u16>( error ) );
+    const error_code_t packedError = Cy_ErrorMake( error_domain_t::COMMON, static_cast<u16>( error ) );
     return Cy_ErrorFindName( g_commonErrorTable, packedError );
 }
 
 const char *Cy_CommonErrorDescription( common_error_t error )
 {
-    const error_t packedError = Cy_ErrorMake( domain_t::COMMON, static_cast<u16>( error ) );
+    const error_code_t packedError = Cy_ErrorMake( error_domain_t::COMMON, static_cast<u16>( error ) );
     return Cy_ErrorFindDescription( g_commonErrorTable, packedError );
 }
 
@@ -105,58 +105,58 @@ const char *Cy_ErrorDescription( common_error_t error )
     return Cy_CommonErrorDescription( error );
 }
 
-const char *Cy_ErrorDomainName( domain_t domain )
+const char *Cy_ErrorDomainName( error_domain_t domain )
 {
     switch ( domain ) {
-        case domain_t::COMMON: return "Common";
-        case domain_t::MEMORY: return "Memory";
-        case domain_t::LOG: return "Log";
-        case domain_t::SYSTEM: return "System";
-        case domain_t::HOST: return "Host";
-        case domain_t::FILESYSTEM: return "FileSystem";
-        case domain_t::PAK: return "Pak";
-        case domain_t::COMMAND: return "Command";
-        case domain_t::CVAR: return "CVar";
-        case domain_t::CONFIG: return "Config";
-        case domain_t::RENDER: return "Render";
-        case domain_t::AUDIO: return "Audio";
-        case domain_t::INPUT: return "Input";
-        case domain_t::NETWORK: return "Network";
-        case domain_t::PHYSICS: return "Physics";
-        case domain_t::GAME: return "Game";
-        case domain_t::EDITOR: return "Editor";
-        case domain_t::TOOLS: return "Tools";
-        case domain_t::ASSET: return "Asset";
-        case domain_t::RESOURCE: return "Resource";
-        case domain_t::WORLD: return "World";
-        case domain_t::ENTITY: return "Entity";
-        case domain_t::ANIMATION: return "Animation";
-        case domain_t::AI: return "AI";
-        case domain_t::SCRIPT: return "Script";
-        case domain_t::MATERIAL: return "Material";
-        case domain_t::TEXTURE: return "Texture";
-        case domain_t::GUI: return "Gui";
-        case domain_t::JOB: return "Job";
-        case domain_t::SERIALIZATION: return "Serialization";
-        case domain_t::REFLECTION: return "Reflection";
+        case error_domain_t::COMMON: return "Common";
+        case error_domain_t::MEMORY: return "Memory";
+        case error_domain_t::LOG: return "Log";
+        case error_domain_t::SYSTEM: return "System";
+        case error_domain_t::HOST: return "Host";
+        case error_domain_t::FILESYSTEM: return "FileSystem";
+        case error_domain_t::PAK: return "Pak";
+        case error_domain_t::COMMAND: return "Command";
+        case error_domain_t::CVAR: return "CVar";
+        case error_domain_t::CONFIG: return "Config";
+        case error_domain_t::RENDER: return "Render";
+        case error_domain_t::AUDIO: return "Audio";
+        case error_domain_t::INPUT: return "Input";
+        case error_domain_t::NETWORK: return "Network";
+        case error_domain_t::PHYSICS: return "Physics";
+        case error_domain_t::GAME: return "Game";
+        case error_domain_t::EDITOR: return "Editor";
+        case error_domain_t::TOOLS: return "Tools";
+        case error_domain_t::ASSET: return "Asset";
+        case error_domain_t::RESOURCE: return "Resource";
+        case error_domain_t::WORLD: return "World";
+        case error_domain_t::ENTITY: return "Entity";
+        case error_domain_t::ANIMATION: return "Animation";
+        case error_domain_t::AI: return "AI";
+        case error_domain_t::SCRIPT: return "Script";
+        case error_domain_t::MATERIAL: return "Material";
+        case error_domain_t::TEXTURE: return "Texture";
+        case error_domain_t::GUI: return "Gui";
+        case error_domain_t::JOB: return "Job";
+        case error_domain_t::SERIALIZATION: return "Serialization";
+        case error_domain_t::REFLECTION: return "Reflection";
     }
 
     return "Unknown";
 }
 
-const error_desc_t *Cy_ErrorFindDesc( const error_table_t &table, error_t error )
+const error_description_t *Cy_ErrorFindDesc( const error_table_t &table, error_code_t errorCode )
 {
     if ( table.pErrors == nullptr || table.errorCount == 0u ) {
         return nullptr;
     }
 
-    if ( Cy_ErrorDomain( error ) != table.domain ) {
+    if ( Cy_ErrorDomain( errorCode ) != table.domain ) {
         return nullptr;
     }
 
-    const u16 localCode = Cy_ErrorLocalCode( error );
+    const u16 localCode = Cy_ErrorLocalCode( errorCode );
     for ( u32 i = 0u; i < table.errorCount; ++i ) {
-        const error_desc_t &desc = table.pErrors[i];
+        const error_description_t &desc = table.pErrors[i];
         if ( desc.localCode == localCode ) {
             return &desc;
         }
@@ -165,9 +165,9 @@ const error_desc_t *Cy_ErrorFindDesc( const error_table_t &table, error_t error 
     return nullptr;
 }
 
-const char *Cy_ErrorFindName( const error_table_t &table, error_t error )
+const char *Cy_ErrorFindName( const error_table_t &table, error_code_t errorCode )
 {
-    const error_desc_t *pDesc = Cy_ErrorFindDesc( table, error );
+    const error_description_t *pDesc = Cy_ErrorFindDesc( table, errorCode );
     if ( pDesc == nullptr || pDesc->pName == nullptr ) {
         return "ERR_UNKNOWN";
     }
@@ -175,9 +175,9 @@ const char *Cy_ErrorFindName( const error_table_t &table, error_t error )
     return pDesc->pName;
 }
 
-const char *Cy_ErrorFindDescription( const error_table_t &table, error_t error )
+const char *Cy_ErrorFindDescription( const error_table_t &table, error_code_t errorCode )
 {
-    const error_desc_t *pDesc = Cy_ErrorFindDesc( table, error );
+    const error_description_t *pDesc = Cy_ErrorFindDesc( table, errorCode );
     if ( pDesc == nullptr || pDesc->pDescription == nullptr ) {
         return "Unknown error.";
     }
