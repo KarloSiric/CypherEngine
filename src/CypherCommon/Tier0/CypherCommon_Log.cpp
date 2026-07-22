@@ -36,12 +36,12 @@ void Cy_LogWrite( log_level_t level, log_channel_t channel, const char *pMessage
     Cy_LogWriteError( level, channel, 0u, pMessage );
 }
 
-void Cy_LogWriteError( log_level_t level, log_channel_t channel, error_t error, const char *pMessage )
+void Cy_LogWriteError( log_level_t level, log_channel_t channel, error_code_t errorCode, const char *pMessage )
 {
     log_record_t record{};
     record.level = level;
     record.channel = channel;
-    record.error = error;
+    record.errorCode = errorCode;
     record.location = {};
     record.pMessage = pMessage != nullptr ? pMessage : "";
 
