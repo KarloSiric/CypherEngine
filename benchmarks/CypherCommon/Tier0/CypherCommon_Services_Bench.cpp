@@ -33,7 +33,7 @@ namespace
 void BM_ErrorMakeDomainCode( benchmark::State &state )
 {
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( Cy_ErrorMake( domain_t::COM_DOMAIN_TOOLS, 42u ) );
+        benchmark::DoNotOptimize( Cy_ErrorMake( error_domain_t::COM_DOMAIN_TOOLS, 42u ) );
     }
 }
 
