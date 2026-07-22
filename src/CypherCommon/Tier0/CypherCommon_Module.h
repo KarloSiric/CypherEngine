@@ -59,7 +59,7 @@ struct module_desc_t {
     u32 apiVersion;
 };
 
-using module_init_fn_t = error_t ( * )( void *pUserData );
+using module_init_fn_t = error_code_t ( * )( void *pUserData );
 using module_shutdown_fn_t = void ( * )( void *pUserData );
 
 const char *Cy_ModuleStateName( module_state_t state );
