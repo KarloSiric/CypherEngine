@@ -36,9 +36,9 @@ error enums, but this gives logs and diagnostics one shared encoded form.
 namespace cypher::common
 {
 
-using error_t = u32;
+using error_code_t = u32;
 
-enum class domain_t : u16 {
+enum class error_domain_t : u16 {
     COMMON = 0u,
     MEMORY,
     LOG,
@@ -121,27 +121,27 @@ enum class common_error_t : u16 {
     ERR_INTERNAL_ERROR
 };
 
-struct error_desc_t {
+struct error_description_t {
     u16 localCode;
     const char *pName;
     const char *pDescription;
 };
 
 struct error_table_t {
-    domain_t domain;
-    const error_desc_t *pErrors;
+    error_domain_t domain;
+    const error_description_t *pErrors;
     u32 errorCount;
 };
 
-error_t Cy_ErrorMake( domain_t domain, u16 localErrorCode );
+error_code_t Cy_ErrorMake( error_domain_t domain, u16 localErrorCode );
 
-domain_t Cy_ErrorDomain( error_t error );
+error_domain_t Cy_ErrorDomain( error_code_t errorCode );
 
-u16 Cy_ErrorLocalCode( error_t error );
+u16 Cy_ErrorLocalCode( error_code_t errorCode );
 
-bool_t Cy_ErrorSucceeded( error_t error );
+bool_t Cy_ErrorSucceeded( error_code_t errorCode );
 
-bool_t Cy_ErrorFailed( error_t error );
+bool_t Cy_ErrorFailed( error_code_t errorCode );
 
 bool_t Cy_ErrorSucceeded( common_error_t error );
 
@@ -155,19 +155,19 @@ const char *Cy_ErrorName( common_error_t error );
 
 const char *Cy_ErrorDescription( common_error_t error );
 
-const char *Cy_ErrorDomainName( domain_t domain );
+const char *Cy_ErrorDomainName( error_domain_t domain );
 
-const error_desc_t *Cy_ErrorFindDesc(
+const error_description_t *Cy_ErrorFindDesc(
     const error_table_t &table,
-    error_t error );
+    error_code_t errorCode );
 
 const char *Cy_ErrorFindName(
     const error_table_t &table,
-    error_t error );
+    error_code_t errorCode );
 
 const char *Cy_ErrorFindDescription(
     const error_table_t &table,
-    error_t error );
+    error_code_t errorCode );
 
 const error_table_t *Cy_CommonErrorTable();
 
@@ -176,21 +176,21 @@ const error_table_t *Cy_CommonErrorTable();
 #define CY_ERROR( domain, code ) \
     CY_ERROR_##domain( code )
 
-#define CY_ERROR_DOMAIN( error ) \
-    cypher::common::Cy_ErrorDomain( error )
+#define CY_ERROR_DOMAIN( errorCode ) \
+    cypher::common::Cy_ErrorDomain( errorCode )
 
-#define CY_ERROR_CODE( error ) \
-    cypher::common::Cy_ErrorLocalCode( error )
+#define CY_ERROR_CODE( errorCode ) \
+    cypher::common::Cy_ErrorLocalCode( errorCode )
 
-#define CY_ERROR_SUCCEEDED( error ) \
-    cypher::common::Cy_ErrorSucceeded( error )
+#define CY_ERROR_SUCCEEDED( errorCode ) \
+    cypher::common::Cy_ErrorSucceeded( errorCode )
 
-#define CY_ERROR_FAILED( error ) \
-    cypher::common::Cy_ErrorFailed( error )
+#define CY_ERROR_FAILED( errorCode ) \
+    cypher::common::Cy_ErrorFailed( errorCode )
 
 #define CY_ERROR_COMMON( code ) \
     cypher::common::Cy_ErrorMake( \
-        cypher::common::domain_t::COMMON, \
+        cypher::common::error_domain_t::COMMON, \
         static_cast<cypher::common::u16>( cypher::common::common_error_t::code ) )
 
 #endif // CYPHER_COMMON_TIER0_ERROR_H
