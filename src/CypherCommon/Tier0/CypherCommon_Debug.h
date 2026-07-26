@@ -35,30 +35,31 @@ Rules:
 ================
 */
 
+#include "CypherCommon_BaseTypes.h"
 #include "CypherCommon_Platform.h"
 
-#if CYPHER_COMPILER_MSVC
-    #include <intrin.h>
-#endif
+namespace cypher::common
+{
+
+// Returns whether a debugger is currently attached to this process.
+bool_t Cy_DebuggerIsAttached();
+
+// Interrupts execution so an attached debugger can inspect the process.
+void Cy_DebugBreak();
+
+// Terminates execution immediately when continuing would be unsafe.
+[[noreturn]] void Cy_DebugTrap();
+
+} // namespace cypher::common
 
 /*
 ================
 Debugger Break / Trap
 ================
 */
-// Breaks into the debugger when available; trap terminates execution.
-#if CYPHER_COMPILER_MSVC
-    #define CYPHER_DEBUG_BREAK()            __debugbreak()
-    #define CYPHER_TRAP()                   __debugbreak()
-#elif CYPHER_COMPILER_CLANG
-    #define CYPHER_DEBUG_BREAK()            __builtin_debugtrap()
-    #define CYPHER_TRAP()                   __builtin_trap()
-#elif CYPHER_COMPILER_GCC
-    #define CYPHER_DEBUG_BREAK()            __builtin_trap()
-    #define CYPHER_TRAP()                   __builtin_trap()
-#else
-    #error "Unsupported compiler for Cypher debug helpers."
-#endif
+// Routes call sites through the platform-independent Tier0 implementation.
+#define CY_DEBUG_BREAK() ::cypher::common::Cy_DebugBreak()
+#define CY_TRAP()        ::cypher::common::Cy_DebugTrap()
 
 /*
 ================
@@ -67,11 +68,11 @@ Build Gated Code Helpers
 */
 // Emits a statement only for the selected build class.
 #if CYPHER_BUILD_DEBUG
-    #define CYPHER_DEBUG_ONLY( statement )  do { statement; } while ( 0 )
-    #define CYPHER_RELEASE_ONLY( statement ) do { } while ( 0 )
+    #define CY_DEBUG_ONLY( statement )  do { statement; } while ( 0 )
+    #define CY_RELEASE_ONLY( statement ) do { } while ( 0 )
 #else
-    #define CYPHER_DEBUG_ONLY( statement )  do { } while ( 0 )
-    #define CYPHER_RELEASE_ONLY( statement ) do { statement; } while ( 0 )
+    #define CY_DEBUG_ONLY( statement )  do { } while ( 0 )
+    #define CY_RELEASE_ONLY( statement ) do { statement; } while ( 0 )
 #endif
 
 #endif // CYPHER_COMMON_TIER0_DEBUG_H
