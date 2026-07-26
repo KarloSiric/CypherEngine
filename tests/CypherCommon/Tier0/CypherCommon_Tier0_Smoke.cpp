@@ -45,8 +45,8 @@ int main()
 {
     WarningUnusedParameterProbe( 1 );
 
-    CYPHER_STATIC_ASSERT( sizeof( u32 ) == 4u, "u32 must be 4 bytes." );
-    CYPHER_STATIC_ASSERT( is_trivially_copyable_v<smoke_struct_t>, "smoke_struct_t must be trivially copyable." );
+    CY_STATIC_ASSERT( sizeof( u32 ) == 4u, "u32 must be 4 bytes." );
+    CY_STATIC_ASSERT( is_trivially_copyable_v<smoke_struct_t>, "smoke_struct_t must be trivially copyable." );
 
     const compiler_info_t compiler = Compiler_GetInfo();
     if ( compiler.pName == nullptr || compiler.pName[0] == '\0' ) {
