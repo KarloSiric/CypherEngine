@@ -145,6 +145,7 @@ else()
 endif()
 
 set(CYPHERCOMMON_TIER0_SERVICE_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Assert.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Atomic.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_BuildId.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_CacheHints.cpp"
@@ -152,6 +153,7 @@ set(CYPHERCOMMON_TIER0_SERVICE_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_CPUMonitoring.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_CPUDetect.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Crash.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Debug.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_DynamicLibrary.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Environment.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0/CypherCommon_Error.cpp"
