@@ -15,10 +15,12 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+#include "CypherCommon/Tier0/CypherCommon_Assert.h"
 #include "CypherCommon/Tier0/CypherCommon_BuildId.h"
 #include "CypherCommon/Tier0/CypherCommon_CacheHints.h"
 #include "CypherCommon/Tier0/CypherCommon_CommandLineBase.h"
 #include "CypherCommon/Tier0/CypherCommon_CPUMonitoring.h"
+#include "CypherCommon/Tier0/CypherCommon_Debug.h"
 #include "CypherCommon/Tier0/CypherCommon_DynamicLibrary.h"
 #include "CypherCommon/Tier0/CypherCommon_Environment.h"
 #include "CypherCommon/Tier0/CypherCommon_Error.h"
@@ -56,6 +58,9 @@ namespace
 bool_t g_logCallbackCalled = CY_FALSE;
 bool_t g_validatorCallbackCalled = CY_FALSE;
 bool_t g_memoryDebugCallbackCalled = CY_FALSE;
+bool_t g_assertHandlerCalled = CY_FALSE;
+u32 g_assertHandlerCallCount = 0u;
+assert_info_t g_assertInfo{};
 
 void TestLogCallback( const log_record_t &record, void *pUserData )
 {
@@ -71,6 +76,14 @@ void TestValidatorCallback( validator_severity_t, const char *pMessage )
 void TestMemoryDebugCallback( memory_debug_event_t, void *, usize, const char * )
 {
     g_memoryDebugCallbackCalled = CY_TRUE;
+}
+
+assert_action_t TestAssertHandler( const assert_info_t &info )
+{
+    g_assertHandlerCalled = CY_TRUE;
+    ++g_assertHandlerCallCount;
+    g_assertInfo = info;
+    return assert_action_t::Continue;
 }
 
 i32 TestThreadProc( void *pUserData )
@@ -92,6 +105,77 @@ TEST_CASE( "Tier0 error helpers pack domains and local codes", "[CypherCommon][T
     REQUIRE( Cy_ErrorFailed( common_error_t::ERR_FAILED ) );
     REQUIRE( Cy_ErrorName( common_error_t::ERR_TIMEOUT ) != nullptr );
     REQUIRE( Cy_ErrorDomainName( error_domain_t::COM_DOMAIN_TOOLS ) != nullptr );
+}
+
+TEST_CASE( "Tier0 debug helpers expose debugger state and build gating", "[CypherCommon][Tier0][Services]" )
+{
+    const bool_t debuggerAttached = Cy_DebuggerIsAttached();
+    REQUIRE( ( debuggerAttached == CY_TRUE || debuggerAttached == CY_FALSE ) );
+
+    i32 debugCount = 0;
+    i32 releaseCount = 0;
+    CY_DEBUG_ONLY( ++debugCount );
+    CY_RELEASE_ONLY( ++releaseCount );
+
+    #if CYPHER_BUILD_DEBUG
+        REQUIRE( debugCount == 1 );
+        REQUIRE( releaseCount == 0 );
+    #else
+        REQUIRE( debugCount == 0 );
+        REQUIRE( releaseCount == 1 );
+    #endif
+}
+
+TEST_CASE( "Tier0 assertions dispatch records and preserve build semantics", "[CypherCommon][Tier0][Services]" )
+{
+    g_assertHandlerCalled = CY_FALSE;
+    g_assertHandlerCallCount = 0u;
+    g_assertInfo = {};
+    Cy_AssertSetHandler( TestAssertHandler );
+
+    REQUIRE( Cy_AssertGetHandler() == TestAssertHandler );
+
+    const source_location_t location{ "assert_test.cpp", "TestFunction", 42u };
+    Cy_AssertHandleFailure( "value != 0", "value must be nonzero", location );
+
+    REQUIRE( g_assertHandlerCalled );
+    REQUIRE( std::string( g_assertInfo.pExpression ) == "value != 0" );
+    REQUIRE( std::string( g_assertInfo.pMessage ) == "value must be nonzero" );
+    REQUIRE( std::string( g_assertInfo.location.pFile ) == "assert_test.cpp" );
+    REQUIRE( std::string( g_assertInfo.location.pFunction ) == "TestFunction" );
+    REQUIRE( g_assertInfo.location.line == 42u );
+    REQUIRE( g_assertHandlerCallCount == 1u );
+
+    i32 assertEvaluationCount = 0;
+    i32 assertMessageEvaluationCount = 0;
+    i32 verifyEvaluationCount = 0;
+    i32 verifyMessageEvaluationCount = 0;
+    g_assertHandlerCalled = CY_FALSE;
+    g_assertHandlerCallCount = 0u;
+
+    CY_ASSERT( ++assertEvaluationCount == 0 );
+    CY_ASSERT_MSG( ++assertMessageEvaluationCount == 0, "assert message" );
+    CY_VERIFY( ++verifyEvaluationCount == 0 );
+    CY_VERIFY_MSG( ++verifyMessageEvaluationCount == 0, "verify message" );
+
+    #if CYPHER_BUILD_DEBUG
+        REQUIRE( assertEvaluationCount == 1 );
+        REQUIRE( assertMessageEvaluationCount == 1 );
+        REQUIRE( verifyEvaluationCount == 1 );
+        REQUIRE( verifyMessageEvaluationCount == 1 );
+        REQUIRE( g_assertHandlerCalled );
+        REQUIRE( g_assertHandlerCallCount == 4u );
+    #else
+        REQUIRE( assertEvaluationCount == 0 );
+        REQUIRE( assertMessageEvaluationCount == 0 );
+        REQUIRE( verifyEvaluationCount == 1 );
+        REQUIRE( verifyMessageEvaluationCount == 1 );
+        REQUIRE_FALSE( g_assertHandlerCalled );
+        REQUIRE( g_assertHandlerCallCount == 0u );
+    #endif
+
+    Cy_AssertSetHandler( nullptr );
+    REQUIRE( Cy_AssertGetHandler() == nullptr );
 }
 
 TEST_CASE( "Tier0 handle helpers pack index and generation", "[CypherCommon][Tier0][Services]" )
