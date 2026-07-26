@@ -57,7 +57,7 @@ void Crash_ReportFatal( const char *pReason, const char *pFile, i32 line )
 void Crash_Trigger( const char *pReason )
 {
     Crash_ReportFatal( pReason, __FILE__, __LINE__ );
-    CYPHER_TRAP();
+    CY_TRAP();
 }
 
 } // namespace cypher::common
