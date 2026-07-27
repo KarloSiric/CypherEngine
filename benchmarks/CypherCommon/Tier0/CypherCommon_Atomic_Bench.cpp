@@ -40,9 +40,12 @@ void BM_AtomicStoreRelaxed( benchmark::State &state )
     u64 nCounter = 0u;
 
     for ( auto _ : state ) {
+        benchmark::DoNotOptimize( &nValue );
         Cy_AtomicStore( &nValue, ++nCounter, CY_MEMORY_ORDER_RELAXED );
         benchmark::ClobberMemory();
     }
+
+    benchmark::DoNotOptimize( Cy_AtomicLoad( &nValue, CY_MEMORY_ORDER_RELAXED ) );
 }
 
 void BM_AtomicFetchAddRelaxed( benchmark::State &state )
