@@ -20,24 +20,29 @@
 namespace cypher::common
 {
 
-void Cy_AtomicFenceAcquire()
+void Cy_AtomicFenceAcquire() noexcept
 {
     std::atomic_thread_fence( CY_MEMORY_ORDER_ACQUIRE );
 }
 
-void Cy_AtomicFenceRelease()
+void Cy_AtomicFenceRelease() noexcept
 {
     std::atomic_thread_fence( CY_MEMORY_ORDER_RELEASE );
 }
 
-void Cy_AtomicFenceAcqRel()
+void Cy_AtomicFenceAcqRel() noexcept
 {
     std::atomic_thread_fence( CY_MEMORY_ORDER_ACQ_REL );
 }
 
-void Cy_AtomicFenceSeqCst()
+void Cy_AtomicFenceSeqCst() noexcept
 {
     std::atomic_thread_fence( CY_MEMORY_ORDER_SEQ_CST );
+}
+
+void Cy_AtomicSignalFence() noexcept
+{
+    std::atomic_signal_fence( CY_MEMORY_ORDER_SEQ_CST );
 }
 
 } // namespace cypher::common
