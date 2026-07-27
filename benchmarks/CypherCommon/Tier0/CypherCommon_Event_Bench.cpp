@@ -27,32 +27,53 @@ namespace
 void BM_EventSignalResetManual( benchmark::State &state )
 {
     cy_event_t event{};
-    Cy_EventInit( &event, cy_event_reset_mode_t::Manual, CY_FALSE );
+    if ( !Cy_EventInit( &event, cy_event_reset_mode_t::Manual, CY_FALSE ) ) {
+        state.SkipWithError( "event initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
-        Cy_EventSignal( &event );
-        Cy_EventReset( &event );
+        benchmark::DoNotOptimize( Cy_EventSignal( &event ) );
+        benchmark::DoNotOptimize( Cy_EventReset( &event ) );
+    }
+
+    if ( !Cy_EventShutdown( &event ) ) {
+        state.SkipWithError( "event shutdown failed" );
     }
 }
 
 void BM_EventWaitAlreadySignaledManual( benchmark::State &state )
 {
     cy_event_t event{};
-    Cy_EventInit( &event, cy_event_reset_mode_t::Manual, CY_TRUE );
+    if ( !Cy_EventInit( &event, cy_event_reset_mode_t::Manual, CY_TRUE ) ) {
+        state.SkipWithError( "event initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
         benchmark::DoNotOptimize( Cy_EventWaitTimeoutMs( &event, 0u ) );
+    }
+
+    if ( !Cy_EventShutdown( &event ) ) {
+        state.SkipWithError( "event shutdown failed" );
     }
 }
 
 void BM_EventWaitAlreadySignaledAuto( benchmark::State &state )
 {
     cy_event_t event{};
-    Cy_EventInit( &event, cy_event_reset_mode_t::Auto, CY_FALSE );
+    if ( !Cy_EventInit( &event, cy_event_reset_mode_t::Auto, CY_FALSE ) ) {
+        state.SkipWithError( "event initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
-        Cy_EventSignal( &event );
+        benchmark::DoNotOptimize( Cy_EventSignal( &event ) );
         benchmark::DoNotOptimize( Cy_EventWaitTimeoutMs( &event, 0u ) );
+    }
+
+    if ( !Cy_EventShutdown( &event ) ) {
+        state.SkipWithError( "event shutdown failed" );
     }
 }
 
