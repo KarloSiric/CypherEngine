@@ -86,4 +86,35 @@ Common Warning Groups
     CYPHER_WARNING_DISABLE_CLANG( "-Wsign-conversion" ) \
     CYPHER_WARNING_DISABLE_GCC( "-Wsign-conversion" )
 
+#define CYPHER_WARNING_DISABLE_CONVERSION()              \
+    CYPHER_WARNING_DISABLE_MSVC( 4242 )                 \
+    CYPHER_WARNING_DISABLE_MSVC( 4244 )                 \
+    CYPHER_WARNING_DISABLE_CLANG( "-Wconversion" )      \
+    CYPHER_WARNING_DISABLE_GCC( "-Wconversion" )
+
+#define CYPHER_WARNING_DISABLE_DEPRECATED()              \
+    CYPHER_WARNING_DISABLE_MSVC( 4996 )                 \
+    CYPHER_WARNING_DISABLE_CLANG( "-Wdeprecated-declarations" ) \
+    CYPHER_WARNING_DISABLE_GCC( "-Wdeprecated-declarations" )
+
+#define CYPHER_WARNING_DISABLE_SHADOW()                  \
+    CYPHER_WARNING_DISABLE_MSVC( 4456 )                 \
+    CYPHER_WARNING_DISABLE_MSVC( 4457 )                 \
+    CYPHER_WARNING_DISABLE_MSVC( 4458 )                 \
+    CYPHER_WARNING_DISABLE_CLANG( "-Wshadow" )          \
+    CYPHER_WARNING_DISABLE_GCC( "-Wshadow" )
+
+#define CYPHER_WARNING_DISABLE_DOUBLE_PROMOTION()        \
+    CYPHER_WARNING_DISABLE_CLANG( "-Wdouble-promotion" ) \
+    CYPHER_WARNING_DISABLE_GCC( "-Wdouble-promotion" )
+
+#define CYPHER_WARNING_DISABLE_OLD_STYLE_CAST()          \
+    CYPHER_WARNING_DISABLE_CLANG( "-Wold-style-cast" )  \
+    CYPHER_WARNING_DISABLE_GCC( "-Wold-style-cast" )
+
+#define CYPHER_WARNING_DISABLE_SWITCH_ENUM()             \
+    CYPHER_WARNING_DISABLE_MSVC( 4061 )                 \
+    CYPHER_WARNING_DISABLE_CLANG( "-Wswitch-enum" )     \
+    CYPHER_WARNING_DISABLE_GCC( "-Wswitch-enum" )
+
 #endif // CYPHER_COMMON_TIER0_WARNINGS_H
