@@ -20,66 +20,108 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <thread>
+
 using namespace cypher::common;
 
 TEST_CASE( "Timer lifecycle initializes cached native frequency", "[CypherCommon][Tier0][Timer]" )
 {
-    REQUIRE( Timer_Init() == CY_TRUE );
-    REQUIRE( Timer_IsInitialized() == CY_TRUE );
-    REQUIRE( Timer_GetFrequency() > 0 );
+    Cy_TimerShutdown();
+    REQUIRE_FALSE( Cy_TimerIsInitialized() );
+    REQUIRE( Cy_TimerInit() );
+    REQUIRE( Cy_TimerIsInitialized() );
+    REQUIRE( Cy_TimerGetFrequency() > 0u );
+    REQUIRE( Cy_TimerInit() );
 }
 
 TEST_CASE( "Timer conversion helpers use native frequency", "[CypherCommon][Tier0][Timer]" )
 {
-    REQUIRE( Timer_Init() == CY_TRUE );
+    REQUIRE( Cy_TimerInit() );
 
-    const timer_frequency_t nFrequency = Timer_GetFrequency();
+    const timer_frequency_t nFrequency = Cy_TimerGetFrequency();
 
-    REQUIRE( Timer_TicksToSeconds( 0 ) == 0.0 );
-    REQUIRE( Timer_TicksToSeconds( nFrequency ) == 1.0 );
-    REQUIRE( Timer_TicksToMilliseconds( nFrequency ) == 1000.0 );
-    REQUIRE( Timer_TicksToMicroseconds( nFrequency ) == 1000000.0 );
-    REQUIRE( Timer_TicksToNanoseconds( nFrequency ) == 1000000000.0 );
-    REQUIRE( Timer_ElapsedSeconds( nFrequency, nFrequency * 3 ) == 2.0 );
+    REQUIRE( Cy_TimerTicksToSeconds( 0u ) == 0.0 );
+    REQUIRE( Cy_TimerTicksToSeconds( nFrequency ) == 1.0 );
+    REQUIRE( Cy_TimerTicksToMilliseconds( nFrequency ) == 1000.0 );
+    REQUIRE( Cy_TimerTicksToMicroseconds( nFrequency ) == 1000000.0 );
+    REQUIRE( Cy_TimerTicksToNanoseconds( nFrequency ) == 1000000000.0 );
+    REQUIRE( Cy_TimerElapsedSeconds( nFrequency, nFrequency * 3u ) == 2.0 );
+    STATIC_REQUIRE( Cy_TimerElapsedTicks( 10u, 5u ) == 0u );
 }
 
 TEST_CASE( "Timer_NowTicks returns monotonic nondecreasing ticks", "[CypherCommon][Tier0][Timer]" )
 {
-    const timer_tick_t nStartTicks = Timer_NowTicks();
-    const timer_tick_t nEndTicks = Timer_NowTicks();
+    const timer_tick_t nStartTicks = Cy_TimerNowTicks();
+    const timer_tick_t nEndTicks = Cy_TimerNowTicks();
 
     REQUIRE( nEndTicks >= nStartTicks );
 }
 
 TEST_CASE( "Timer elapsed conversion follows current tick samples", "[CypherCommon][Tier0][Timer]" )
 {
-    const timer_tick_t nBeforeTicks = Timer_NowTicks();
-    const f64 flNowSeconds = Timer_TicksToSeconds( Timer_NowTicks() );
-    const timer_tick_t nAfterTicks = Timer_NowTicks();
+    const timer_tick_t nBeforeTicks = Cy_TimerNowTicks();
+    const f64 flNowSeconds = Cy_TimerTicksToSeconds( Cy_TimerNowTicks() );
+    const timer_tick_t nAfterTicks = Cy_TimerNowTicks();
 
-    REQUIRE( flNowSeconds >= Timer_TicksToSeconds( nBeforeTicks ) );
-    REQUIRE( flNowSeconds <= Timer_TicksToSeconds( nAfterTicks ) );
+    REQUIRE( flNowSeconds >= Cy_TimerTicksToSeconds( nBeforeTicks ) );
+    REQUIRE( flNowSeconds <= Cy_TimerTicksToSeconds( nAfterTicks ) );
 }
 
 TEST_CASE( "Timer elapsed time increases after sleeping", "[CypherCommon][Tier0][Timer]" )
 {
-    const timer_tick_t nStartTicks = Timer_NowTicks();
+    const timer_tick_t nStartTicks = Cy_TimerNowTicks();
     Cy_ThreadSleepMs( 1u );
-    const timer_tick_t nEndTicks = Timer_NowTicks();
+    const timer_tick_t nEndTicks = Cy_TimerNowTicks();
 
     REQUIRE( nEndTicks > nStartTicks );
-    REQUIRE( Timer_ElapsedSeconds( nStartTicks, nEndTicks ) > 0.0 );
+    REQUIRE( Cy_TimerElapsedSeconds( nStartTicks, nEndTicks ) > 0.0 );
 }
 
 TEST_CASE( "Timer object stores begin and end tick samples", "[CypherCommon][Tier0][Timer]" )
 {
     cy_timer_t timer = {};
 
-    Timer_Begin( &timer );
+    REQUIRE_FALSE( Cy_TimerEnd( &timer ) );
+    REQUIRE( Cy_TimerBegin( &timer ) );
+    REQUIRE( timer.isRunning );
     Cy_ThreadSleepMs( 1u );
-    Timer_End( &timer );
+    REQUIRE( Cy_TimerGetTicks( &timer ) > 0u );
+    REQUIRE( Cy_TimerEnd( &timer ) );
 
     REQUIRE( timer.nEndTicks > timer.nStartTicks );
-    REQUIRE( Timer_GetTicks( &timer ) > 0 );
-    REQUIRE( Timer_GetMilliseconds( &timer ) > 0.0 );
+    REQUIRE( Cy_TimerGetTicks( &timer ) > 0u );
+    REQUIRE( Cy_TimerGetMilliseconds( &timer ) > 0.0 );
+}
+
+TEST_CASE( "Timer initialization is stable across concurrent callers", "[CypherCommon][Tier0][Timer]" )
+{
+    Cy_TimerShutdown();
+    constexpr usize nThreadCount = 8u;
+    std::array<std::thread, nThreadCount> threads;
+    std::array<bool_t, nThreadCount> results{};
+
+    for ( usize nIndex = 0u; nIndex < nThreadCount; ++nIndex ) {
+        threads[nIndex] = std::thread( [&, nIndex]() {
+            results[nIndex] = Cy_TimerInit();
+        } );
+    }
+    for ( std::thread &thread : threads ) {
+        thread.join();
+    }
+
+    for ( bool_t result : results ) {
+        REQUIRE( result );
+    }
+    REQUIRE( Cy_TimerIsInitialized() );
+    REQUIRE( Cy_TimerGetFrequency() != 0u );
+}
+
+TEST_CASE( "Timer deadlines saturate and report reached state", "[CypherCommon][Tier0][Timer]" )
+{
+    const timer_tick_t nNow = Cy_TimerNowTicks();
+    const timer_tick_t nImmediateDeadline = Cy_TimerDeadlineAfterTicks( 0u );
+    REQUIRE( nImmediateDeadline >= nNow );
+    REQUIRE( Cy_TimerHasReached( nImmediateDeadline ) );
+    REQUIRE( Cy_TimerDeadlineAfterTicks( CY_U64_MAX ) == CY_U64_MAX );
 }
