@@ -30,6 +30,7 @@ Low-level process command line declarations.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
 namespace cypher::common
@@ -38,13 +39,32 @@ namespace cypher::common
 constexpr usize CY_COMMANDLINEBASE_MAX_ARGS = 128u;
 
 struct command_line_base_t {
-    i32 argc;
-    const char *ppArgv[CY_COMMANDLINEBASE_MAX_ARGS];
+    const char *ppszArgs[CY_COMMANDLINEBASE_MAX_ARGS] = {};
+    usize nArgCount = 0u;
+    bool_t isTruncated = CY_FALSE;
 };
 
-void CommandLineBase_Set( command_line_base_t *pCommandLine, i32 argc, const char **ppArgv );
-const char *CommandLineBase_Find( const command_line_base_t *pCommandLine, const char *pName );
-bool_t CommandLineBase_Has( const command_line_base_t *pCommandLine, const char *pName );
+// Borrows argv pointers; their strings must outlive the command-line object.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_CommandLineBaseSet(
+    command_line_base_t *pCommandLine,
+    i32 nArgCount,
+    const char *const *ppszArgs ) noexcept;
+
+// Returns an inline/next-token value, "" for a valueless switch, or null if absent.
+[[nodiscard]] CYPHER_COMMON_API const char *Cy_CommandLineBaseFindValue(
+    const command_line_base_t *pCommandLine,
+    const char *pszName ) noexcept;
+
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_CommandLineBaseHasSwitch(
+    const command_line_base_t *pCommandLine,
+    const char *pszName ) noexcept;
+
+[[nodiscard]] CYPHER_COMMON_API usize Cy_CommandLineBaseGetCount(
+    const command_line_base_t *pCommandLine ) noexcept;
+
+[[nodiscard]] CYPHER_COMMON_API const char *Cy_CommandLineBaseGetArg(
+    const command_line_base_t *pCommandLine,
+    usize nIndex ) noexcept;
 
 } // namespace cypher::common
 
