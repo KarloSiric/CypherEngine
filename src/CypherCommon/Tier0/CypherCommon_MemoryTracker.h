@@ -30,6 +30,7 @@ Allocation tracking declarations.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
 namespace cypher::common
@@ -37,17 +38,45 @@ namespace cypher::common
 
 struct memory_allocation_record_t {
     void *pMemory;
-    usize cbSize;
-    usize alignment;
-    const char *pTag;
-    const char *pFile;
-    i32 line;
+    usize nByteCount;
+    usize nAlignment;
+    const char *pszTag;
+    const char *pszFile;
+    u32 nLine;
 };
 
-void MemoryTracker_RecordAlloc( const memory_allocation_record_t &record );
-void MemoryTracker_RecordFree( void *pMemory );
-usize MemoryTracker_GetLiveAllocationCount();
-usize MemoryTracker_GetLiveByteCount();
+struct memory_tracker_stats_t {
+    usize nCapacity;
+    usize nLiveAllocationCount;
+    usize nLiveByteCount;
+    usize nPeakAllocationCount;
+    usize nPeakByteCount;
+    u64 nAllocationEvents;
+    u64 nFreeEvents;
+    u64 nUnknownFreeEvents;
+    u64 nDroppedAllocationEvents;
+};
+
+constexpr usize CY_MEMORY_TRACKER_CAPACITY = 16384u;
+
+// Records a live allocation without allocating memory inside the tracker.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MemoryTrackerRecordAlloc(
+    const memory_allocation_record_t &record ) noexcept;
+
+// Removes a live allocation. Returns false for null or unknown pointers.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MemoryTrackerRecordFree(
+    void *pMemory ) noexcept;
+
+// Copies the live record for a pointer when present.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MemoryTrackerFind(
+    const void *pMemory,
+    memory_allocation_record_t &outRecord ) noexcept;
+
+// Returns a consistent snapshot of tracker counters.
+[[nodiscard]] CYPHER_COMMON_API memory_tracker_stats_t Cy_MemoryTrackerGetStats() noexcept;
+
+// Clears all records and counters. Call only when tracked allocators are quiescent.
+CYPHER_COMMON_API void Cy_MemoryTrackerReset() noexcept;
 
 } // namespace cypher::common
 
