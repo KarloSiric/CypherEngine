@@ -23,66 +23,137 @@
 namespace cypher::common
 {
 
-bool_t PageAllocator_Init( page_allocator_t *pAllocator, usize cbReserve )
+namespace
 {
-    if ( pAllocator == nullptr || cbReserve == 0u ) {
+
+bool_t PageAllocator_HasValidReservation(
+    const page_allocator_t *pAllocator ) noexcept
+{
+    if ( pAllocator == nullptr ||
+         pAllocator->pReservedBase == nullptr ||
+         pAllocator->nReservedByteCount == 0u ||
+         pAllocator->nPageSize == 0u ||
+         !Cy_AlignIsPowerOfTwo( pAllocator->nPageSize ) ||
+         pAllocator->nCommittedByteCount > pAllocator->nReservedByteCount ) {
         return CY_FALSE;
     }
 
-    *pAllocator = {};
+    return Cy_AlignIsAligned(
+               reinterpret_cast<uintptr>( pAllocator->pReservedBase ),
+               pAllocator->nPageSize ) &&
+           Cy_AlignIsAligned(
+               pAllocator->nReservedByteCount,
+               pAllocator->nPageSize ) &&
+           Cy_AlignIsAligned(
+               pAllocator->nCommittedByteCount,
+               pAllocator->nPageSize );
+}
 
-    const platform_memory_info_t info = PlatformMemory_GetInfo();
-    const usize cbAlignedReserve = AlignUp( cbReserve, info.page_size );
-    void *pMemory = PlatformMemory_Reserve( cbAlignedReserve );
+} // namespace
+
+bool_t Cy_PageAllocatorInit(
+    page_allocator_t *pAllocator,
+    usize nReserveByteCount ) noexcept
+{
+    if ( pAllocator == nullptr || nReserveByteCount == 0u ) {
+        return CY_FALSE;
+    }
+    if ( pAllocator->pReservedBase != nullptr ||
+         pAllocator->nReservedByteCount != 0u ||
+         pAllocator->nCommittedByteCount != 0u ||
+         pAllocator->nPageSize != 0u ) {
+        return CY_FALSE;
+    }
+
+    const platform_memory_info_t info = Cy_PlatformMemoryGetInfo();
+    usize nAlignedReserveByteCount = 0u;
+    if ( !Cy_AlignUpChecked(
+             nReserveByteCount,
+             info.nAllocationGranularity,
+             nAlignedReserveByteCount ) ) {
+        return CY_FALSE;
+    }
+
+    void *pMemory = Cy_PlatformMemoryReserve( nAlignedReserveByteCount );
     if ( pMemory == nullptr ) {
         return CY_FALSE;
     }
 
     pAllocator->pReservedBase = pMemory;
-    pAllocator->cbReserved = cbAlignedReserve;
-    pAllocator->cbCommitted = 0u;
-    pAllocator->page_size = info.page_size;
+    pAllocator->nReservedByteCount = nAlignedReserveByteCount;
+    pAllocator->nCommittedByteCount = 0u;
+    pAllocator->nPageSize = info.nPageSize;
     return CY_TRUE;
 }
 
-void PageAllocator_Shutdown( page_allocator_t *pAllocator )
+bool_t Cy_PageAllocatorShutdown( page_allocator_t *pAllocator ) noexcept
 {
-    if ( pAllocator == nullptr || pAllocator->pReservedBase == nullptr ) {
-        return;
+    if ( pAllocator == nullptr ) {
+        return CY_FALSE;
+    }
+    if ( pAllocator->pReservedBase == nullptr ) {
+        *pAllocator = {};
+        return CY_TRUE;
     }
 
-    PlatformMemory_Release( pAllocator->pReservedBase, pAllocator->cbReserved );
+    if ( !Cy_PlatformMemoryRelease(
+             pAllocator->pReservedBase,
+             pAllocator->nReservedByteCount ) ) {
+        return CY_FALSE;
+    }
+
     *pAllocator = {};
+    return CY_TRUE;
 }
 
-void *PageAllocator_Commit( page_allocator_t *pAllocator, usize cbSize )
+void *Cy_PageAllocatorCommit(
+    page_allocator_t *pAllocator,
+    usize nByteCount ) noexcept
 {
-    if ( pAllocator == nullptr || pAllocator->pReservedBase == nullptr || cbSize == 0u ) {
+    if ( !PageAllocator_HasValidReservation( pAllocator ) ||
+         nByteCount == 0u ) {
         return nullptr;
     }
 
-    const usize cbAlignedSize = AlignUp( cbSize, pAllocator->page_size );
-    if ( cbAlignedSize > pAllocator->cbReserved - pAllocator->cbCommitted ) {
+    usize nAlignedByteCount = 0u;
+    if ( !Cy_AlignUpChecked(
+             nByteCount,
+             pAllocator->nPageSize,
+             nAlignedByteCount ) ) {
+        return nullptr;
+    }
+    if ( nAlignedByteCount >
+         pAllocator->nReservedByteCount - pAllocator->nCommittedByteCount ) {
         return nullptr;
     }
 
-    void *pMemory = static_cast<byte *>( pAllocator->pReservedBase ) + pAllocator->cbCommitted;
-    if ( !PlatformMemory_Commit( pMemory, cbAlignedSize ) ) {
+    void *pMemory =
+        static_cast<byte *>( pAllocator->pReservedBase ) +
+        pAllocator->nCommittedByteCount;
+    if ( !Cy_PlatformMemoryCommit( pMemory, nAlignedByteCount ) ) {
         return nullptr;
     }
 
-    pAllocator->cbCommitted += cbAlignedSize;
+    pAllocator->nCommittedByteCount += nAlignedByteCount;
     return pMemory;
 }
 
-void PageAllocator_Reset( page_allocator_t *pAllocator )
+bool_t Cy_PageAllocatorReset( page_allocator_t *pAllocator ) noexcept
 {
-    if ( pAllocator == nullptr || pAllocator->pReservedBase == nullptr || pAllocator->cbCommitted == 0u ) {
-        return;
+    if ( !PageAllocator_HasValidReservation( pAllocator ) ) {
+        return CY_FALSE;
+    }
+    if ( pAllocator->nCommittedByteCount == 0u ) {
+        return CY_TRUE;
+    }
+    if ( !Cy_PlatformMemoryDecommit(
+             pAllocator->pReservedBase,
+             pAllocator->nCommittedByteCount ) ) {
+        return CY_FALSE;
     }
 
-    PlatformMemory_Decommit( pAllocator->pReservedBase, pAllocator->cbCommitted );
-    pAllocator->cbCommitted = 0u;
+    pAllocator->nCommittedByteCount = 0u;
+    return CY_TRUE;
 }
 
 } // namespace cypher::common
