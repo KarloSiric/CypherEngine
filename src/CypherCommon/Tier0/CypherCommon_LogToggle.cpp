@@ -24,23 +24,49 @@ namespace cypher::common
 namespace
 {
 
-std::atomic<log_category_mask_t> g_logCategoryMask = CY_U64_MAX;
+std::atomic<log_category_mask_t> g_logCategoryMask = CY_LOG_CATEGORY_ALL;
 
 } // namespace
 
-void LogToggle_Enable( log_category_mask_t category_mask )
+void Cy_LogToggleSetMask( log_category_mask_t categoryMask ) noexcept
 {
-    g_logCategoryMask.fetch_or( category_mask, std::memory_order_relaxed );
+    g_logCategoryMask.store( categoryMask, std::memory_order_relaxed );
 }
 
-void LogToggle_Disable( log_category_mask_t category_mask )
+log_category_mask_t Cy_LogToggleGetMask() noexcept
 {
-    g_logCategoryMask.fetch_and( ~category_mask, std::memory_order_relaxed );
+    return g_logCategoryMask.load( std::memory_order_relaxed );
 }
 
-bool_t LogToggle_IsEnabled( log_category_mask_t category_mask )
+void Cy_LogToggleEnable( log_category_mask_t categoryMask ) noexcept
 {
-    return ( g_logCategoryMask.load( std::memory_order_relaxed ) & category_mask ) != 0u;
+    g_logCategoryMask.fetch_or( categoryMask, std::memory_order_relaxed );
+}
+
+void Cy_LogToggleDisable( log_category_mask_t categoryMask ) noexcept
+{
+    g_logCategoryMask.fetch_and( ~categoryMask, std::memory_order_relaxed );
+}
+
+bool_t Cy_LogToggleAnyEnabled( log_category_mask_t categoryMask ) noexcept
+{
+    return ( Cy_LogToggleGetMask() & categoryMask ) != 0u;
+}
+
+bool_t Cy_LogToggleAllEnabled( log_category_mask_t categoryMask ) noexcept
+{
+    return ( Cy_LogToggleGetMask() & categoryMask ) == categoryMask;
+}
+
+bool_t Cy_LogToggleChannelEnabled( log_channel_t channel ) noexcept
+{
+    const log_category_mask_t channelMask = Cy_LogChannelMask( channel );
+    return channelMask != 0u && Cy_LogToggleAllEnabled( channelMask );
+}
+
+void Cy_LogToggleReset() noexcept
+{
+    Cy_LogToggleSetMask( CY_LOG_CATEGORY_ALL );
 }
 
 } // namespace cypher::common
