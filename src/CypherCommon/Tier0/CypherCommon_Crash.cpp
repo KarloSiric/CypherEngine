@@ -19,44 +19,73 @@
 
 #include "CypherCommon_Debug.h"
 
+#include <atomic>
 #include <cstdio>
-#include <mutex>
 
 namespace cypher::common
 {
 namespace
 {
 
-std::mutex g_crashMutex;
-crash_handler_t g_crashHandler = nullptr;
+std::atomic<crash_handler_t> g_crashHandler{ nullptr };
+thread_local bool_t g_crashHandlingReport = CY_FALSE;
+
+void Crash_WriteFallback( const crash_info_t &info ) noexcept
+{
+    std::fprintf( stderr,
+                  "[Fatal] %s (%s:%u:%s)\n",
+                  info.pReason,
+                  info.location.pFile,
+                  static_cast<unsigned int>( info.location.line ),
+                  info.location.pFunction );
+    std::fflush( stderr );
+}
 
 } // namespace
 
-void Crash_SetHandler( crash_handler_t handler )
+void Cy_CrashSetHandler( crash_handler_t pHandler ) noexcept
 {
-    std::lock_guard<std::mutex> lock( g_crashMutex );
-    g_crashHandler = handler;
+    g_crashHandler.store( pHandler, std::memory_order_release );
 }
 
-void Crash_ReportFatal( const char *pReason, const char *pFile, i32 line )
+crash_handler_t Cy_CrashGetHandler() noexcept
 {
-    std::lock_guard<std::mutex> lock( g_crashMutex );
+    return g_crashHandler.load( std::memory_order_acquire );
+}
 
-    if ( g_crashHandler != nullptr ) {
-        g_crashHandler( pReason, pFile, line );
+void Cy_CrashReport( const char *pReason, source_location_t location ) noexcept
+{
+    crash_info_t info{};
+    info.pReason = pReason != nullptr && pReason[0] != '\0'
+        ? pReason
+        : "Unknown fatal error";
+    info.location.pFile = location.pFile != nullptr && location.pFile[0] != '\0'
+        ? location.pFile
+        : "<unknown file>";
+    info.location.pFunction = location.pFunction != nullptr && location.pFunction[0] != '\0'
+        ? location.pFunction
+        : "<unknown function>";
+    info.location.line = location.line;
+    info.location.column = location.column;
+
+    if ( g_crashHandlingReport ) {
+        Crash_WriteFallback( info );
         return;
     }
 
-    std::fprintf( stderr,
-                  "[Fatal] %s (%s:%d)\n",
-                  pReason != nullptr ? pReason : "Unknown fatal error",
-                  pFile != nullptr ? pFile : "unknown",
-                  line );
+    g_crashHandlingReport = CY_TRUE;
+    const crash_handler_t pHandler = Cy_CrashGetHandler();
+    if ( pHandler != nullptr ) {
+        pHandler( info );
+    } else {
+        Crash_WriteFallback( info );
+    }
+    g_crashHandlingReport = CY_FALSE;
 }
 
-void Crash_Trigger( const char *pReason )
+[[noreturn]] void Cy_CrashTrigger( const char *pReason, source_location_t location ) noexcept
 {
-    Crash_ReportFatal( pReason, __FILE__, __LINE__ );
+    Cy_CrashReport( pReason, location );
     CY_TRAP();
 }
 
