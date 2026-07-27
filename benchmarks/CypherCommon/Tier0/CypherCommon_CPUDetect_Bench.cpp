@@ -26,7 +26,10 @@ namespace
 
 void BM_CPUDetectGetInfoCached( benchmark::State &state )
 {
-    Cy_CPUDetectInit();
+    if ( !Cy_CPUDetectInit() ) {
+        state.SkipWithError( "CPU detection initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
         benchmark::DoNotOptimize( Cy_CPUDetectGetInfo() );
