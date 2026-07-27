@@ -33,6 +33,11 @@ or game modules need a stable binary boundary.
 
 #include "CypherCommon_Platform.h"
 
+/*
+================
+Generic Symbol Visibility
+================
+*/
 #if CYPHER_PLATFORM_WINDOWS
     #define CYPHER_API_EXPORT __declspec( dllexport )
     #define CYPHER_API_IMPORT __declspec( dllimport )
@@ -47,7 +52,37 @@ or game modules need a stable binary boundary.
     #define CYPHER_API_LOCAL
 #endif
 
-#if defined( CYPHER_COMMON_BUILD_DLL )
+/*
+================
+C ABI And Calling Convention
+================
+*/
+#define CYPHER_EXTERN_C extern "C"
+#define CYPHER_EXTERN_C_BEGIN extern "C" {
+#define CYPHER_EXTERN_C_END }
+
+#if CYPHER_PLATFORM_WINDOWS
+    #define CYPHER_CALL __cdecl
+#else
+    #define CYPHER_CALL
+#endif
+
+/*
+================
+CypherCommon Linkage
+================
+*/
+#if defined( CYPHER_COMMON_STATIC ) && ( defined( CYPHER_COMMON_BUILD_DLL ) || defined( CYPHER_COMMON_USE_DLL ) )
+    #error "CypherCommon cannot be both static and shared."
+#endif
+
+#if defined( CYPHER_COMMON_BUILD_DLL ) && defined( CYPHER_COMMON_USE_DLL )
+    #error "CypherCommon cannot build and consume the shared library simultaneously."
+#endif
+
+#if defined( CYPHER_COMMON_STATIC )
+    #define CYPHER_COMMON_API
+#elif defined( CYPHER_COMMON_BUILD_DLL )
     #define CYPHER_COMMON_API CYPHER_API_EXPORT
 #elif defined( CYPHER_COMMON_USE_DLL )
     #define CYPHER_COMMON_API CYPHER_API_IMPORT
