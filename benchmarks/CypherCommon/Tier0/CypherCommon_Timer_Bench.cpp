@@ -54,14 +54,14 @@ const timer_bench_values_t &GetTimerValues()
 void BM_TimerNowTicks( benchmark::State &state )
 {
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( Timer_NowTicks() );
+        benchmark::DoNotOptimize( Cy_TimerNowTicks() );
     }
 }
 
 void BM_TimerNowMilliseconds( benchmark::State &state )
 {
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( Timer_TicksToMilliseconds( Timer_NowTicks() ) );
+        benchmark::DoNotOptimize( Cy_TimerTicksToMilliseconds( Cy_TimerNowTicks() ) );
     }
 }
 
@@ -72,7 +72,7 @@ void BM_TimerTicksToSeconds_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         f64 flAccum = 0.0;
         for ( timer_tick_t nTicks : values.nEndTicks ) {
-            flAccum += Timer_TicksToSeconds( nTicks );
+            flAccum += Cy_TimerTicksToSeconds( nTicks );
         }
         benchmark::DoNotOptimize( flAccum );
     }
@@ -85,7 +85,7 @@ void BM_TimerElapsedSeconds_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         f64 flAccum = 0.0;
         for ( usize i = 0u; i < kTimerValueCount; ++i ) {
-            flAccum += Timer_ElapsedSeconds( values.nStartTicks[i], values.nEndTicks[i] );
+            flAccum += Cy_TimerElapsedSeconds( values.nStartTicks[i], values.nEndTicks[i] );
         }
         benchmark::DoNotOptimize( flAccum );
     }
