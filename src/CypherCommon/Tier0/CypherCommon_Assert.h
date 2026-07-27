@@ -36,6 +36,7 @@ Rules:
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 #include "CypherCommon_Defines.h"
 #include "CypherCommon_SourceLocation.h"
@@ -47,29 +48,31 @@ namespace cypher::common
 enum class assert_action_t : u8 {
     Continue = 0u,
     Break,
-    Abort
+    Abort,
+    Count
 };
 
 // Describes one failed programmer invariant without allocating memory.
 struct assert_info_t {
-    const char *pExpression;
-    const char *pMessage;
-    source_location_t location;
+    const char *pExpression{ "" };
+    const char *pMessage{ "" };
+    source_location_t location{};
 };
 
 // Receives an assertion and chooses whether execution continues, breaks, or aborts.
-using assert_handler_t = assert_action_t ( * )( const assert_info_t &info );
+using assert_handler_t = assert_action_t ( * )( const assert_info_t &info ) noexcept;
 
 // Installs a process-wide handler; passing nullptr restores default handling.
-void Cy_AssertSetHandler( assert_handler_t pHandler );
+CYPHER_COMMON_API void Cy_AssertSetHandler( assert_handler_t pHandler ) noexcept;
 
 // Returns the currently installed process-wide handler, or nullptr for the default.
-assert_handler_t Cy_AssertGetHandler();
+[[nodiscard]] CYPHER_COMMON_API assert_handler_t Cy_AssertGetHandler() noexcept;
 
 // Reports a failed assertion and performs the action selected by its handler.
-void Cy_AssertHandleFailure( const char *pExpression,
-                             const char *pMessage,
-                             source_location_t location );
+CYPHER_COMMON_API void Cy_AssertHandleFailure(
+    const char *pExpression,
+    const char *pMessage,
+    source_location_t location ) noexcept;
 
 } // namespace cypher::common
 
@@ -80,7 +83,9 @@ Assert Macros
 */
 #define CY_STATIC_ASSERT( expression, message ) static_assert( expression, message )
 
-#if CYPHER_BUILD_DEBUG
+#define CYPHER_ASSERTS_ENABLED ( CYPHER_CONFIG_DEBUG || CYPHER_CONFIG_DEVELOPMENT )
+
+#if CYPHER_ASSERTS_ENABLED
     #define CY_ASSERT( expression )                                                             \
         do {                                                                                     \
             if ( CYPHER_UNLIKELY( !( expression ) ) ) {                                          \
