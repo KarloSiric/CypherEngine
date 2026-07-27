@@ -24,90 +24,123 @@ namespace cypher::common
 namespace
 {
 
-bool_t CommandLineBase_NameMatches( const char *pArg, const char *pName )
+const char *CommandLineBase_SkipPrefix( const char *pszValue ) noexcept
 {
-    if ( pArg == nullptr || pName == nullptr || pName[0] == '\0' ) {
-        return CY_FALSE;
+    if ( pszValue == nullptr ) {
+        return nullptr;
     }
-
-    while ( *pArg == '-' || *pArg == '/' ) {
-        ++pArg;
+    while ( *pszValue == '-' ) {
+        ++pszValue;
     }
-    while ( *pName == '-' || *pName == '/' ) {
-        ++pName;
-    }
-
-    const usize cchName = std::strlen( pName );
-    if ( std::strncmp( pArg, pName, cchName ) != 0 ) {
-        return CY_FALSE;
-    }
-
-    return pArg[cchName] == '\0' || pArg[cchName] == '=' || pArg[cchName] == ':';
+    return pszValue;
 }
 
-const char *CommandLineBase_ValueFromArg( const char *pArg )
+bool_t CommandLineBase_IsSwitchToken( const char *pszArg ) noexcept
 {
-    if ( pArg == nullptr ) {
+    return pszArg != nullptr &&
+           pszArg[0] == '-' &&
+           pszArg[1] != '\0';
+}
+
+bool_t CommandLineBase_NameMatches(
+    const char *pszArg,
+    const char *pszName ) noexcept
+{
+    if ( !CommandLineBase_IsSwitchToken( pszArg ) ||
+         pszName == nullptr ||
+         pszName[0] == '\0' ) {
+        return CY_FALSE;
+    }
+
+    pszArg = CommandLineBase_SkipPrefix( pszArg );
+    pszName = CommandLineBase_SkipPrefix( pszName );
+    if ( pszArg[0] == '\0' || pszName[0] == '\0' ) {
+        return CY_FALSE;
+    }
+
+    const usize cchName = std::strlen( pszName );
+    if ( std::strncmp( pszArg, pszName, cchName ) != 0 ) {
+        return CY_FALSE;
+    }
+
+    return pszArg[cchName] == '\0' ||
+           pszArg[cchName] == '=' ||
+           pszArg[cchName] == ':';
+}
+
+const char *CommandLineBase_ValueFromArg( const char *pszArg ) noexcept
+{
+    if ( pszArg == nullptr ) {
         return nullptr;
     }
 
-    const char *pEqual = std::strchr( pArg, '=' );
+    const char *pEqual = std::strchr( pszArg, '=' );
     if ( pEqual != nullptr ) {
         return pEqual + 1;
     }
 
-    const char *pColon = std::strchr( pArg, ':' );
+    const char *pColon = std::strchr( pszArg, ':' );
     return pColon != nullptr ? pColon + 1 : nullptr;
 }
 
 } // namespace
 
-void CommandLineBase_Set( command_line_base_t *pCommandLine, i32 argc, const char **ppArgv )
+bool_t Cy_CommandLineBaseSet(
+    command_line_base_t *pCommandLine,
+    i32 nArgCount,
+    const char *const *ppszArgs ) noexcept
 {
     if ( pCommandLine == nullptr ) {
-        return;
+        return CY_FALSE;
     }
 
-    pCommandLine->argc = 0;
-    for ( usize i = 0u; i < CY_COMMANDLINEBASE_MAX_ARGS; ++i ) {
-        pCommandLine->ppArgv[i] = nullptr;
+    *pCommandLine = {};
+    if ( nArgCount < 0 || ( nArgCount > 0 && ppszArgs == nullptr ) ) {
+        return CY_FALSE;
     }
 
-    if ( argc <= 0 || ppArgv == nullptr ) {
-        return;
-    }
+    const usize nRequestedCount = static_cast<usize>( nArgCount );
+    const usize nStoredCount =
+        nRequestedCount < CY_COMMANDLINEBASE_MAX_ARGS ?
+            nRequestedCount :
+            CY_COMMANDLINEBASE_MAX_ARGS;
 
-    const usize nCount = static_cast<usize>( argc ) < CY_COMMANDLINEBASE_MAX_ARGS ?
-                          static_cast<usize>( argc ) :
-                          CY_COMMANDLINEBASE_MAX_ARGS;
-
-    for ( usize i = 0u; i < nCount; ++i ) {
-        pCommandLine->ppArgv[i] = ppArgv[i];
+    for ( usize i = 0u; i < nStoredCount; ++i ) {
+        pCommandLine->ppszArgs[i] = ppszArgs[i];
     }
-    pCommandLine->argc = static_cast<i32>( nCount );
+    pCommandLine->nArgCount = nStoredCount;
+    pCommandLine->isTruncated = nRequestedCount > nStoredCount;
+    return CY_TRUE;
 }
 
-const char *CommandLineBase_Find( const command_line_base_t *pCommandLine, const char *pName )
+const char *Cy_CommandLineBaseFindValue(
+    const command_line_base_t *pCommandLine,
+    const char *pszName ) noexcept
 {
-    if ( pCommandLine == nullptr || pName == nullptr || pName[0] == '\0' ) {
+    if ( pCommandLine == nullptr ||
+         pszName == nullptr ||
+         CommandLineBase_SkipPrefix( pszName )[0] == '\0' ) {
         return nullptr;
     }
 
-    for ( i32 i = 0; i < pCommandLine->argc; ++i ) {
-        const char *pArg = pCommandLine->ppArgv[i];
-        if ( !CommandLineBase_NameMatches( pArg, pName ) ) {
+    for ( usize i = 1u; i < pCommandLine->nArgCount; ++i ) {
+        const char *pszArg = pCommandLine->ppszArgs[i];
+        if ( pszArg != nullptr && std::strcmp( pszArg, "--" ) == 0 ) {
+            break;
+        }
+        if ( !CommandLineBase_NameMatches( pszArg, pszName ) ) {
             continue;
         }
 
-        const char *pInlineValue = CommandLineBase_ValueFromArg( pArg );
-        if ( pInlineValue != nullptr ) {
-            return pInlineValue;
+        const char *pszInlineValue = CommandLineBase_ValueFromArg( pszArg );
+        if ( pszInlineValue != nullptr ) {
+            return pszInlineValue;
         }
 
-        if ( i + 1 < pCommandLine->argc ) {
-            const char *pNext = pCommandLine->ppArgv[i + 1];
-            if ( pNext != nullptr && pNext[0] != '-' && pNext[0] != '/' ) {
-                return pNext;
+        if ( i + 1u < pCommandLine->nArgCount ) {
+            const char *pszNext = pCommandLine->ppszArgs[i + 1u];
+            if ( !CommandLineBase_IsSwitchToken( pszNext ) ) {
+                return pszNext != nullptr ? pszNext : "";
             }
         }
 
@@ -117,9 +150,27 @@ const char *CommandLineBase_Find( const command_line_base_t *pCommandLine, const
     return nullptr;
 }
 
-bool_t CommandLineBase_Has( const command_line_base_t *pCommandLine, const char *pName )
+bool_t Cy_CommandLineBaseHasSwitch(
+    const command_line_base_t *pCommandLine,
+    const char *pszName ) noexcept
 {
-    return CommandLineBase_Find( pCommandLine, pName ) != nullptr;
+    return Cy_CommandLineBaseFindValue( pCommandLine, pszName ) != nullptr;
+}
+
+usize Cy_CommandLineBaseGetCount(
+    const command_line_base_t *pCommandLine ) noexcept
+{
+    return pCommandLine != nullptr ? pCommandLine->nArgCount : 0u;
+}
+
+const char *Cy_CommandLineBaseGetArg(
+    const command_line_base_t *pCommandLine,
+    usize nIndex ) noexcept
+{
+    if ( pCommandLine == nullptr || nIndex >= pCommandLine->nArgCount ) {
+        return nullptr;
+    }
+    return pCommandLine->ppszArgs[nIndex];
 }
 
 } // namespace cypher::common
