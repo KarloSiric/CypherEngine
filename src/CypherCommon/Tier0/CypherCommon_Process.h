@@ -30,16 +30,23 @@ Process identity and process utility declarations.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
 namespace cypher::common
 {
 
 using process_id_t = u64;
+constexpr usize CY_PROCESS_PATH_MAX = 4096u;
 
-process_id_t Process_GetCurrentId();
-const char *Process_GetExecutablePath();
-void Process_Exit( i32 exit_code );
+// Returns the host process identifier.
+[[nodiscard]] CYPHER_COMMON_API process_id_t Cy_ProcessGetCurrentId() noexcept;
+
+// Returns an immutable UTF-8 process-lifetime executable path snapshot.
+[[nodiscard]] CYPHER_COMMON_API const char *Cy_ProcessGetExecutablePath() noexcept;
+
+// Performs normal C runtime process termination.
+[[noreturn]] CYPHER_COMMON_API void Cy_ProcessExit( i32 nExitCode ) noexcept;
 
 } // namespace cypher::common
 
