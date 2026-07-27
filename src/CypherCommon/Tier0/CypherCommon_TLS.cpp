@@ -26,37 +26,64 @@ namespace cypher::common
 namespace
 {
 
-constexpr u32 CY_TLS_INDEX_BITS = 10u;
+constexpr u32 CY_TLS_INDEX_BITS = 8u;
 constexpr u32 CY_TLS_INDEX_MASK = ( 1u << CY_TLS_INDEX_BITS ) - 1u;
-constexpr u32 CY_TLS_MAX_SLOT_COUNT = 1u << CY_TLS_INDEX_BITS;
+static_assert( CY_TLS_MAX_SLOT_COUNT == ( 1u << CY_TLS_INDEX_BITS ) );
 
 struct tls_slot_record_t {
     std::atomic<u32> nGeneration{ 1u };
-    std::atomic_bool bActive{ false };
+    std::atomic_bool isActive{ false };
+    std::atomic<tls_destructor_t> pDestructor{ nullptr };
 };
 
 std::mutex g_tlsMutex;
 std::array<tls_slot_record_t, CY_TLS_MAX_SLOT_COUNT> g_tlsSlots;
+std::atomic<u32> g_tlsAllocatedSlotCount{ 0u };
 
-thread_local std::array<void *, CY_TLS_MAX_SLOT_COUNT> g_tlsThreadValues = {};
-thread_local std::array<u32, CY_TLS_MAX_SLOT_COUNT> g_tlsThreadGenerations = {};
+struct tls_thread_state_t {
+    std::array<void *, CY_TLS_MAX_SLOT_COUNT> values{};
+    std::array<u32, CY_TLS_MAX_SLOT_COUNT> generations{};
 
-u32 TLS_IndexFromSlot( tls_slot_t slot )
+    ~tls_thread_state_t() noexcept
+    {
+        for ( u32 nIndex = 0u; nIndex < CY_TLS_MAX_SLOT_COUNT; ++nIndex ) {
+            void *pValue = values[nIndex];
+            if ( pValue == nullptr ) {
+                continue;
+            }
+
+            const tls_slot_record_t &record = g_tlsSlots[nIndex];
+            if ( record.isActive.load( std::memory_order_acquire ) &&
+                 record.nGeneration.load( std::memory_order_acquire ) ==
+                     generations[nIndex] ) {
+                tls_destructor_t pDestructor =
+                    record.pDestructor.load( std::memory_order_acquire );
+                if ( pDestructor != nullptr ) {
+                    pDestructor( pValue );
+                }
+            }
+        }
+    }
+};
+
+thread_local tls_thread_state_t g_tlsThreadState;
+
+u32 TLS_IndexFromSlot( tls_slot_t slot ) noexcept
 {
     return slot & CY_TLS_INDEX_MASK;
 }
 
-u32 TLS_GenerationFromSlot( tls_slot_t slot )
+u32 TLS_GenerationFromSlot( tls_slot_t slot ) noexcept
 {
     return slot >> CY_TLS_INDEX_BITS;
 }
 
-tls_slot_t TLS_MakeSlot( u32 nIndex, u32 nGeneration )
+tls_slot_t TLS_MakeSlot( u32 nIndex, u32 nGeneration ) noexcept
 {
     return ( static_cast<tls_slot_t>( nGeneration ) << CY_TLS_INDEX_BITS ) | nIndex;
 }
 
-bool_t TLS_IsValidSlot( tls_slot_t slot )
+bool_t TLS_IsValidSlot( tls_slot_t slot ) noexcept
 {
     if ( slot == CY_TLS_INVALID_SLOT ) {
         return CY_FALSE;
@@ -70,20 +97,22 @@ bool_t TLS_IsValidSlot( tls_slot_t slot )
     }
 
     const tls_slot_record_t &record = g_tlsSlots[nIndex];
-    return record.bActive.load( std::memory_order_acquire ) &&
+    return record.isActive.load( std::memory_order_acquire ) &&
            record.nGeneration.load( std::memory_order_acquire ) == nGeneration;
 }
 
 } // namespace
 
-tls_slot_t Cy_TLSCreateSlot()
+tls_slot_t Cy_TLSCreateSlot( tls_destructor_t pDestructor ) noexcept
 {
     std::lock_guard<std::mutex> lock( g_tlsMutex );
 
     for ( u32 nIndex = 0u; nIndex < CY_TLS_MAX_SLOT_COUNT; ++nIndex ) {
         tls_slot_record_t &record = g_tlsSlots[nIndex];
-        if ( !record.bActive.load( std::memory_order_relaxed ) ) {
-            record.bActive.store( true, std::memory_order_release );
+        if ( !record.isActive.load( std::memory_order_relaxed ) ) {
+            record.pDestructor.store( pDestructor, std::memory_order_relaxed );
+            record.isActive.store( true, std::memory_order_release );
+            g_tlsAllocatedSlotCount.fetch_add( 1u, std::memory_order_relaxed );
             return TLS_MakeSlot( nIndex, record.nGeneration.load( std::memory_order_relaxed ) );
         }
     }
@@ -91,72 +120,98 @@ tls_slot_t Cy_TLSCreateSlot()
     return CY_TLS_INVALID_SLOT;
 }
 
-void Cy_TLSDestroySlot( tls_slot_t slot )
+bool_t Cy_TLSDestroySlot( tls_slot_t slot ) noexcept
 {
-    std::lock_guard<std::mutex> lock( g_tlsMutex );
+    tls_destructor_t pDestructor = nullptr;
+    void *pCurrentThreadValue = nullptr;
+    {
+        std::lock_guard<std::mutex> lock( g_tlsMutex );
 
-    if ( !TLS_IsValidSlot( slot ) ) {
-        return;
+        if ( !TLS_IsValidSlot( slot ) ) {
+            return CY_FALSE;
+        }
+
+        const u32 nIndex = TLS_IndexFromSlot( slot );
+        const u32 nGeneration = TLS_GenerationFromSlot( slot );
+        tls_slot_record_t &record = g_tlsSlots[nIndex];
+
+        if ( g_tlsThreadState.generations[nIndex] == nGeneration ) {
+            pCurrentThreadValue = g_tlsThreadState.values[nIndex];
+            g_tlsThreadState.values[nIndex] = nullptr;
+            g_tlsThreadState.generations[nIndex] = 0u;
+        }
+        pDestructor = record.pDestructor.load( std::memory_order_relaxed );
+
+        record.isActive.store( false, std::memory_order_release );
+        record.pDestructor.store( nullptr, std::memory_order_release );
+
+        u32 nNextGeneration =
+            record.nGeneration.load( std::memory_order_relaxed ) + 1u;
+        if ( nNextGeneration == 0u ||
+             nNextGeneration >= ( CY_U32_MAX >> CY_TLS_INDEX_BITS ) ) {
+            nNextGeneration = 1u;
+        }
+        record.nGeneration.store( nNextGeneration, std::memory_order_release );
+        g_tlsAllocatedSlotCount.fetch_sub( 1u, std::memory_order_relaxed );
     }
 
-    tls_slot_record_t &record = g_tlsSlots[TLS_IndexFromSlot( slot )];
-    record.bActive.store( false, std::memory_order_release );
-
-    u32 nNextGeneration = record.nGeneration.load( std::memory_order_relaxed ) + 1u;
-    if ( nNextGeneration == 0u || nNextGeneration > ( CY_U32_MAX >> CY_TLS_INDEX_BITS ) ) {
-        nNextGeneration = 1u;
+    if ( pCurrentThreadValue != nullptr && pDestructor != nullptr ) {
+        pDestructor( pCurrentThreadValue );
     }
-
-    record.nGeneration.store( nNextGeneration, std::memory_order_release );
-
-    const u32 nIndex = TLS_IndexFromSlot( slot );
-    g_tlsThreadValues[nIndex] = nullptr;
-    g_tlsThreadGenerations[nIndex] = 0u;
+    return CY_TRUE;
 }
 
-bool_t Cy_TLSIsValidSlot( tls_slot_t slot )
+bool_t Cy_TLSIsValidSlot( tls_slot_t slot ) noexcept
 {
     return TLS_IsValidSlot( slot );
 }
 
-bool_t Cy_TLSSetValue( tls_slot_t slot, void *pValue )
+bool_t Cy_TLSSetValue( tls_slot_t slot, void *pValue ) noexcept
 {
     if ( !TLS_IsValidSlot( slot ) ) {
         return CY_FALSE;
     }
 
     const u32 nIndex = TLS_IndexFromSlot( slot );
-    g_tlsThreadValues[nIndex] = pValue;
-    g_tlsThreadGenerations[nIndex] = TLS_GenerationFromSlot( slot );
+    g_tlsThreadState.values[nIndex] = pValue;
+    g_tlsThreadState.generations[nIndex] = TLS_GenerationFromSlot( slot );
 
     return CY_TRUE;
 }
 
-void *Cy_TLSGetValue( tls_slot_t slot )
+void *Cy_TLSGetValue( tls_slot_t slot ) noexcept
 {
     if ( !TLS_IsValidSlot( slot ) ) {
         return nullptr;
     }
 
     const u32 nIndex = TLS_IndexFromSlot( slot );
-    if ( g_tlsThreadGenerations[nIndex] != TLS_GenerationFromSlot( slot ) ) {
+    if ( g_tlsThreadState.generations[nIndex] !=
+         TLS_GenerationFromSlot( slot ) ) {
         return nullptr;
     }
 
-    return g_tlsThreadValues[nIndex];
+    return g_tlsThreadState.values[nIndex];
 }
 
-void Cy_TLSClearValue( tls_slot_t slot )
+bool_t Cy_TLSClearValue( tls_slot_t slot ) noexcept
 {
     if ( !TLS_IsValidSlot( slot ) ) {
-        return;
+        return CY_FALSE;
     }
 
     const u32 nIndex = TLS_IndexFromSlot( slot );
-    if ( g_tlsThreadGenerations[nIndex] == TLS_GenerationFromSlot( slot ) ) {
-        g_tlsThreadValues[nIndex] = nullptr;
-        g_tlsThreadGenerations[nIndex] = 0u;
+    if ( g_tlsThreadState.generations[nIndex] ==
+         TLS_GenerationFromSlot( slot ) ) {
+        g_tlsThreadState.values[nIndex] = nullptr;
+        g_tlsThreadState.generations[nIndex] = 0u;
     }
+    return CY_TRUE;
+}
+
+u32 Cy_TLSGetAllocatedSlotCount() noexcept
+{
+    return g_tlsAllocatedSlotCount.load( std::memory_order_acquire );
 }
 
 } // namespace cypher::common
