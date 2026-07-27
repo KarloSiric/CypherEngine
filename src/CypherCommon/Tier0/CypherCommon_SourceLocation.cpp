@@ -22,20 +22,39 @@
 namespace cypher::common
 {
 
-const char *Cy_SourceLocation_Format( const source_location_t &location, char *pDest, usize cchDest )
+usize Cy_SourceLocation_Format( const source_location_t &location, char *pDest, usize cchDest ) noexcept
 {
-    if ( pDest == nullptr || cchDest == 0u ) {
-        return "";
+    const char *pFile = location.pFile != nullptr && location.pFile[0] != '\0'
+        ? location.pFile
+        : "<unknown>";
+    const char *pFunction = location.pFunction != nullptr && location.pFunction[0] != '\0'
+        ? location.pFunction
+        : "<unknown>";
+
+    const usize cchWrite = pDest != nullptr ? cchDest : 0u;
+    int cchRequired = 0;
+    if ( location.column != 0u ) {
+        cchRequired = std::snprintf( pDest,
+                                     cchWrite,
+                                     "%s:%u:%u:%s",
+                                     pFile,
+                                     location.line,
+                                     location.column,
+                                     pFunction );
+    } else {
+        cchRequired = std::snprintf( pDest,
+                                     cchWrite,
+                                     "%s:%u:%s",
+                                     pFile,
+                                     location.line,
+                                     pFunction );
     }
 
-    std::snprintf( pDest,
-                   cchDest,
-                   "%s:%u:%s",
-                   location.pFile != nullptr ? location.pFile : "",
-                   location.line,
-                   location.pFunction != nullptr ? location.pFunction : "" );
-    pDest[cchDest - 1u] = '\0';
-    return pDest;
+    if ( pDest != nullptr && cchDest != 0u ) {
+        pDest[cchDest - 1u] = '\0';
+    }
+
+    return cchRequired > 0 ? static_cast<usize>( cchRequired ) : 0u;
 }
 
 } // namespace cypher::common
