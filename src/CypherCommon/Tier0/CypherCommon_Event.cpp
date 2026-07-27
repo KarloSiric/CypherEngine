@@ -24,73 +24,97 @@ namespace cypher::common
 namespace
 {
 
-bool_t EventConsumeSignalLocked( cy_event_t *pEvent )
+cy_wait_result_t EventConsumeSignalLocked( cy_event_t *pEvent ) noexcept
 {
-    if ( !pEvent->bInitialized || !pEvent->bSignaled ) {
-        return CY_FALSE;
+    if ( !pEvent->isInitialized ) {
+        return cy_wait_result_t::Shutdown;
+    }
+    if ( !pEvent->isSignaled ) {
+        return cy_wait_result_t::Timeout;
     }
 
     if ( pEvent->resetMode == cy_event_reset_mode_t::Auto ) {
-        pEvent->bSignaled = CY_FALSE;
+        pEvent->isSignaled = CY_FALSE;
     }
 
-    return CY_TRUE;
+    return cy_wait_result_t::Success;
+}
+
+void EventWaiterLeftLocked( cy_event_t *pEvent ) noexcept
+{
+    --pEvent->nWaiterCount;
+    if ( !pEvent->isInitialized && pEvent->nWaiterCount == 0u ) {
+        pEvent->nativeCondition.notify_all();
+    }
 }
 
 } // namespace
 
-bool_t Cy_EventInit( cy_event_t *pEvent, cy_event_reset_mode_t resetMode, bool_t bInitiallySignaled )
+bool_t Cy_EventInit(
+    cy_event_t *pEvent,
+    cy_event_reset_mode_t resetMode,
+    bool_t isInitiallySignaled ) noexcept
 {
-    if ( pEvent == nullptr ) {
+    if ( pEvent == nullptr ||
+         ( resetMode != cy_event_reset_mode_t::Auto &&
+           resetMode != cy_event_reset_mode_t::Manual ) ) {
         return CY_FALSE;
     }
 
     std::lock_guard<std::mutex> lock( pEvent->nativeMutex );
+    if ( pEvent->isInitialized || pEvent->nWaiterCount != 0u ) {
+        return CY_FALSE;
+    }
     pEvent->resetMode = resetMode;
-    pEvent->bSignaled = bInitiallySignaled;
-    pEvent->bInitialized = CY_TRUE;
+    pEvent->isSignaled = isInitiallySignaled;
+    pEvent->isInitialized = CY_TRUE;
     return CY_TRUE;
 }
 
-void Cy_EventShutdown( cy_event_t *pEvent )
+bool_t Cy_EventShutdown( cy_event_t *pEvent ) noexcept
 {
     if ( pEvent == nullptr ) {
-        return;
+        return CY_FALSE;
     }
 
-    {
-        std::lock_guard<std::mutex> lock( pEvent->nativeMutex );
-        pEvent->bInitialized = CY_FALSE;
-        pEvent->bSignaled = CY_TRUE;
+    std::unique_lock<std::mutex> lock( pEvent->nativeMutex );
+    if ( !pEvent->isInitialized ) {
+        return CY_FALSE;
     }
 
+    pEvent->isInitialized = CY_FALSE;
+    pEvent->isSignaled = CY_FALSE;
     pEvent->nativeCondition.notify_all();
+    pEvent->nativeCondition.wait( lock, [&]() {
+        return pEvent->nWaiterCount == 0u;
+    } );
+    return CY_TRUE;
 }
 
-bool_t Cy_EventIsInitialized( const cy_event_t *pEvent )
+bool_t Cy_EventIsInitialized( const cy_event_t *pEvent ) noexcept
 {
     if ( pEvent == nullptr ) {
         return CY_FALSE;
     }
 
     std::lock_guard<std::mutex> lock( pEvent->nativeMutex );
-    return pEvent->bInitialized;
+    return pEvent->isInitialized;
 }
 
-void Cy_EventSignal( cy_event_t *pEvent )
+bool_t Cy_EventSignal( cy_event_t *pEvent ) noexcept
 {
     if ( pEvent == nullptr ) {
-        return;
+        return CY_FALSE;
     }
 
     cy_event_reset_mode_t resetMode = cy_event_reset_mode_t::Manual;
     {
         std::lock_guard<std::mutex> lock( pEvent->nativeMutex );
-        if ( !pEvent->bInitialized ) {
-            return;
+        if ( !pEvent->isInitialized ) {
+            return CY_FALSE;
         }
 
-        pEvent->bSignaled = CY_TRUE;
+        pEvent->isSignaled = CY_TRUE;
         resetMode = pEvent->resetMode;
     }
 
@@ -99,50 +123,112 @@ void Cy_EventSignal( cy_event_t *pEvent )
     } else {
         pEvent->nativeCondition.notify_all();
     }
+    return CY_TRUE;
 }
 
-void Cy_EventReset( cy_event_t *pEvent )
+bool_t Cy_EventReset( cy_event_t *pEvent ) noexcept
 {
     if ( pEvent == nullptr ) {
-        return;
+        return CY_FALSE;
     }
 
     std::lock_guard<std::mutex> lock( pEvent->nativeMutex );
-    if ( pEvent->bInitialized ) {
-        pEvent->bSignaled = CY_FALSE;
+    if ( !pEvent->isInitialized ) {
+        return CY_FALSE;
     }
+    pEvent->isSignaled = CY_FALSE;
+    return CY_TRUE;
 }
 
-bool_t Cy_EventWait( cy_event_t *pEvent )
+cy_wait_result_t Cy_EventWaitResult( cy_event_t *pEvent ) noexcept
+{
+    if ( pEvent == nullptr ) {
+        return cy_wait_result_t::Invalid;
+    }
+
+    std::unique_lock<std::mutex> lock( pEvent->nativeMutex );
+    if ( !pEvent->isInitialized ) {
+        return cy_wait_result_t::Shutdown;
+    }
+
+    ++pEvent->nWaiterCount;
+    try {
+        pEvent->nativeCondition.wait( lock, [&]() {
+            return !pEvent->isInitialized || pEvent->isSignaled;
+        } );
+    } catch ( ... ) {
+        EventWaiterLeftLocked( pEvent );
+        return cy_wait_result_t::Invalid;
+    }
+
+    const cy_wait_result_t result = EventConsumeSignalLocked( pEvent );
+    EventWaiterLeftLocked( pEvent );
+    return result;
+}
+
+cy_wait_result_t Cy_EventWaitTimeoutMsResult(
+    cy_event_t *pEvent,
+    u32 nMilliseconds ) noexcept
+{
+    if ( pEvent == nullptr ) {
+        return cy_wait_result_t::Invalid;
+    }
+
+    std::unique_lock<std::mutex> lock( pEvent->nativeMutex );
+    if ( !pEvent->isInitialized ) {
+        return cy_wait_result_t::Shutdown;
+    }
+
+    ++pEvent->nWaiterCount;
+    bool_t isReady = CY_FALSE;
+    try {
+        isReady = pEvent->nativeCondition.wait_for(
+            lock,
+            std::chrono::milliseconds( nMilliseconds ),
+            [&]() {
+                return !pEvent->isInitialized || pEvent->isSignaled;
+            } );
+    } catch ( ... ) {
+        EventWaiterLeftLocked( pEvent );
+        return cy_wait_result_t::Invalid;
+    }
+
+    const cy_wait_result_t result = isReady
+        ? EventConsumeSignalLocked( pEvent )
+        : cy_wait_result_t::Timeout;
+    EventWaiterLeftLocked( pEvent );
+    return result;
+}
+
+bool_t Cy_EventWait( cy_event_t *pEvent ) noexcept
+{
+    return Cy_EventWaitResult( pEvent ) == cy_wait_result_t::Success;
+}
+
+bool_t Cy_EventWaitTimeoutMs(
+    cy_event_t *pEvent,
+    u32 nMilliseconds ) noexcept
+{
+    return Cy_EventWaitTimeoutMsResult( pEvent, nMilliseconds ) ==
+           cy_wait_result_t::Success;
+}
+
+bool_t Cy_EventIsSignaled( const cy_event_t *pEvent ) noexcept
 {
     if ( pEvent == nullptr ) {
         return CY_FALSE;
     }
-
-    std::unique_lock<std::mutex> lock( pEvent->nativeMutex );
-    pEvent->nativeCondition.wait( lock, [&]() {
-        return !pEvent->bInitialized || pEvent->bSignaled;
-    } );
-
-    return EventConsumeSignalLocked( pEvent );
+    std::lock_guard<std::mutex> lock( pEvent->nativeMutex );
+    return pEvent->isInitialized && pEvent->isSignaled;
 }
 
-bool_t Cy_EventWaitTimeoutMs( cy_event_t *pEvent, u32 nMilliseconds )
+u32 Cy_EventGetWaiterCount( const cy_event_t *pEvent ) noexcept
 {
     if ( pEvent == nullptr ) {
-        return CY_FALSE;
+        return 0u;
     }
-
-    std::unique_lock<std::mutex> lock( pEvent->nativeMutex );
-    const bool_t bReady = pEvent->nativeCondition.wait_for( lock, std::chrono::milliseconds( nMilliseconds ), [&]() {
-        return !pEvent->bInitialized || pEvent->bSignaled;
-    } );
-
-    if ( !bReady ) {
-        return CY_FALSE;
-    }
-
-    return EventConsumeSignalLocked( pEvent );
+    std::lock_guard<std::mutex> lock( pEvent->nativeMutex );
+    return pEvent->nWaiterCount;
 }
 
 } // namespace cypher::common
