@@ -34,7 +34,9 @@ TEST_CASE( "Tier0 stack trace clear resets all frames", "[CypherCommon][Tier0][S
 
     REQUIRE( Cy_StackTraceIsEmpty( &trace ) );
     REQUIRE( Cy_StackTraceGetFrameCount( &trace ) == 0u );
-    REQUIRE( Cy_StackTraceGetFrameAddress( &trace, 0u ) == nullptr );
+    for ( u32 iFrame = 0u; iFrame < CYPHER_STACK_TRACE_MAX_FRAMES; ++iFrame ) {
+        REQUIRE( trace.frames[iFrame].address == nullptr );
+    }
 }
 
 TEST_CASE( "Tier0 stack trace capture respects caller frame limit", "[CypherCommon][Tier0][StackTrace]" )
@@ -57,7 +59,18 @@ TEST_CASE( "Tier0 stack trace handles invalid arguments", "[CypherCommon][Tier0]
 
     REQUIRE( Cy_StackTraceCapture( nullptr, 8u, 0u ) == 0u );
     REQUIRE( Cy_StackTraceCapture( &trace, 0u, 0u ) == 0u );
+    REQUIRE( Cy_StackTraceCapture( &trace, 8u, CY_U32_MAX ) == 0u );
     REQUIRE( Cy_StackTraceGetFrameCount( nullptr ) == 0u );
     REQUIRE( Cy_StackTraceGetFrameAddress( nullptr, 0u ) == nullptr );
     REQUIRE( Cy_StackTraceIsEmpty( nullptr ) );
+}
+
+TEST_CASE( "Tier0 stack trace clamps output to fixed storage", "[CypherCommon][Tier0][StackTrace]" )
+{
+    stack_trace_t trace{};
+    const u32 cFrames = Cy_StackTraceCapture( &trace, CY_U32_MAX, 0u );
+
+    REQUIRE( cFrames <= CYPHER_STACK_TRACE_MAX_FRAMES );
+    REQUIRE( trace.frame_count <= CYPHER_STACK_TRACE_MAX_FRAMES );
+    REQUIRE( Cy_StackTraceGetFrameAddress( &trace, CYPHER_STACK_TRACE_MAX_FRAMES ) == nullptr );
 }
