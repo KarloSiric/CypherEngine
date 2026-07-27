@@ -30,7 +30,7 @@ namespace
 atomic_t<assert_handler_t> g_assertHandler{ nullptr };
 thread_local bool_t g_assertHandlingFailure = CY_FALSE;
 
-assert_action_t Cy_AssertDefaultHandler( const assert_info_t &info )
+assert_action_t Cy_AssertDefaultHandler( const assert_info_t &info ) noexcept
 {
     std::fprintf( stderr,
                   "[Assert] Expression: %s\n"
@@ -49,19 +49,19 @@ assert_action_t Cy_AssertDefaultHandler( const assert_info_t &info )
 
 } // namespace
 
-void Cy_AssertSetHandler( assert_handler_t pHandler )
+void Cy_AssertSetHandler( assert_handler_t pHandler ) noexcept
 {
     Cy_AtomicStore( &g_assertHandler, pHandler, CY_MEMORY_ORDER_RELEASE );
 }
 
-assert_handler_t Cy_AssertGetHandler()
+assert_handler_t Cy_AssertGetHandler() noexcept
 {
     return Cy_AtomicLoad( &g_assertHandler, CY_MEMORY_ORDER_ACQUIRE );
 }
 
 void Cy_AssertHandleFailure( const char *pExpression,
                              const char *pMessage,
-                             source_location_t location )
+                             source_location_t location ) noexcept
 {
     if ( g_assertHandlingFailure ) {
         std::fprintf( stderr, "[Assert] Recursive assertion failure.\n" );
@@ -74,9 +74,14 @@ void Cy_AssertHandleFailure( const char *pExpression,
     assert_info_t info{};
     info.pExpression = pExpression != nullptr ? pExpression : "<unknown expression>";
     info.pMessage = pMessage != nullptr ? pMessage : "";
-    info.location.pFile = location.pFile != nullptr ? location.pFile : "<unknown file>";
-    info.location.pFunction = location.pFunction != nullptr ? location.pFunction : "<unknown function>";
+    info.location.pFile = location.pFile != nullptr && location.pFile[0] != '\0'
+        ? location.pFile
+        : "<unknown file>";
+    info.location.pFunction = location.pFunction != nullptr && location.pFunction[0] != '\0'
+        ? location.pFunction
+        : "<unknown function>";
     info.location.line = location.line;
+    info.location.column = location.column;
 
     const assert_handler_t pHandler = Cy_AssertGetHandler();
     const assert_action_t action = pHandler != nullptr
@@ -89,10 +94,12 @@ void Cy_AssertHandleFailure( const char *pExpression,
         case assert_action_t::Continue:
             return;
         case assert_action_t::Break:
-            Cy_DebugBreak();
+            CYPHER_UNUSED( Cy_DebugBreakIfAttached() );
             return;
         case assert_action_t::Abort:
             Cy_DebugTrap();
+        case assert_action_t::Count:
+            break;
     }
 
     Cy_DebugTrap();
