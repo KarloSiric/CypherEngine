@@ -32,9 +32,34 @@ through subsystem code.
 ================
 */
 
+#include "CypherCommon_BaseTypes.h"
 #include "CypherCommon_Platform.h"
 
 #include <cstddef>
+
+namespace cypher::common::defines_detail
+{
+
+// Returns the compile-time element count of a native array.
+template <typename type_t, usize nCount>
+[[nodiscard]] constexpr usize ArrayCount( const type_t ( & )[nCount] ) noexcept
+{
+    return nCount;
+}
+
+// Builds a 32-bit mask without performing an invalid shift.
+[[nodiscard]] constexpr u32 Cy_Bit32( u32 nBit ) noexcept
+{
+    return nBit < 32u ? ( 1u << nBit ) : 0u;
+}
+
+// Builds a 64-bit mask without performing an invalid shift.
+[[nodiscard]] constexpr u64 Cy_Bit64( u32 nBit ) noexcept
+{
+    return nBit < 64u ? ( 1ull << nBit ) : 0ull;
+}
+
+} // namespace cypher::common::defines_detail
 
 /*
 ================
@@ -53,21 +78,27 @@ Basic Utility Macros
 ================
 */
 #define CYPHER_UNUSED( x )                  ( void )( x )
-#define CYPHER_ARRAY_COUNT( array )         ( sizeof( array ) / sizeof( ( array )[0] ) )
+#define CYPHER_ARRAY_COUNT( array )         ::cypher::common::defines_detail::ArrayCount( array )
 
-#define CYPHER_BIT32( bit )                 ( 1u << ( bit ) )
-#define CYPHER_BIT64( bit )                 ( 1ull << ( bit ) )
+#define CYPHER_BIT32( bit )                 ::cypher::common::defines_detail::Cy_Bit32( bit )
+#define CYPHER_BIT64( bit )                 ::cypher::common::defines_detail::Cy_Bit64( bit )
 
-#define CYPHER_KB( n )                      ( ( n ) * 1024ull )
-#define CYPHER_MB( n )                      ( CYPHER_KB( n ) * 1024ull )
-#define CYPHER_GB( n )                      ( CYPHER_MB( n ) * 1024ull )
+#define CYPHER_KIB( n )                     ( static_cast<::cypher::common::u64>( n ) * 1024ull )
+#define CYPHER_MIB( n )                     ( CYPHER_KIB( n ) * 1024ull )
+#define CYPHER_GIB( n )                     ( CYPHER_MIB( n ) * 1024ull )
+#define CYPHER_TIB( n )                     ( CYPHER_GIB( n ) * 1024ull )
+
+// Compatibility spellings. New code should use the explicit IEC names above.
+#define CYPHER_KB( n )                      CYPHER_KIB( n )
+#define CYPHER_MB( n )                      CYPHER_MIB( n )
+#define CYPHER_GB( n )                      CYPHER_GIB( n )
 
 /*
 ================
 Compiler Attributes
 ================
 */
-#if CYPHER_COMPILER_MSVC
+#if CYPHER_COMPILER_MSVC_ABI
     #define CYPHER_FORCE_INLINE             __forceinline
     #define CYPHER_NO_INLINE                __declspec( noinline )
     #define CYPHER_RESTRICT                 __restrict
@@ -90,7 +121,7 @@ Source Location Helpers
 #define CYPHER_FILE                         __FILE__
 #define CYPHER_LINE                         __LINE__
 
-#if CYPHER_COMPILER_MSVC
+#if CYPHER_COMPILER_MSVC_ABI
     #define CYPHER_FUNCTION_NAME            __FUNCTION__
 #else
     #define CYPHER_FUNCTION_NAME            __func__
