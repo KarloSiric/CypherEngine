@@ -56,7 +56,7 @@ void BM_AlignUp_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         usize nAccum = 0u;
         for ( usize nValue : values.nValues ) {
-            nAccum += AlignUp( nValue, 64u );
+            nAccum += Cy_AlignUp( nValue, 64u );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -69,7 +69,7 @@ void BM_AlignDown_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         usize nAccum = 0u;
         for ( usize nValue : values.nValues ) {
-            nAccum += AlignDown( nValue, 64u );
+            nAccum += Cy_AlignDown( nValue, 64u );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -82,7 +82,7 @@ void BM_AlignPadding_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         usize nAccum = 0u;
         for ( usize nValue : values.nValues ) {
-            nAccum += AlignPadding( nValue, 64u );
+            nAccum += Cy_AlignPadding( nValue, 64u );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -96,7 +96,7 @@ void BM_AlignUpChecked_1024Values( benchmark::State &state )
         usize nAccum = 0u;
         for ( usize nValue : values.nValues ) {
             usize nAligned = 0u;
-            nAccum += AlignUpChecked( nValue, 64u, nAligned ) ? nAligned : 0u;
+            nAccum += Cy_AlignUpChecked( nValue, 64u, nAligned ) ? nAligned : 0u;
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -110,7 +110,7 @@ void BM_AlignPointerPadding_1024Offsets( benchmark::State &state )
     for ( auto _ : state ) {
         usize nAccum = 0u;
         for ( usize i = 0u; i < kValueCount; ++i ) {
-            nAccum += AlignPointerPadding( pBase + ( i % values.nBytes.size() ), 64u );
+            nAccum += Cy_AlignPointerPadding( pBase + ( i % values.nBytes.size() ), 64u );
         }
         benchmark::DoNotOptimize( nAccum );
     }
