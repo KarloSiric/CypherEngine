@@ -33,7 +33,8 @@ Rules:
   __clang__ are normalized here.
 - Other Cypher code should use CYPHER_* target macros instead of raw compiler
   or operating system macros.
-- All public target macros are defined as 0 or 1.
+- All Boolean target and feature macros are always defined as 0 or 1.
+- CypherEngine currently supports 64-bit, little-endian desktop targets only.
 ================
 */
 
@@ -61,30 +62,64 @@ C++ Standard Detection
 Compiler Detection
 ================
 */
-#if defined( _MSC_VER )
-    #define CYPHER_COMPILER_MSVC 1
-    #define CYPHER_COMPILER_CLANG 0
-    #define CYPHER_COMPILER_GCC 0
-    #define CYPHER_COMPILER_NAME "MSVC"
-    #define CYPHER_COMPILER_VERSION _MSC_VER
-#elif defined( __clang__ )
+#if defined( __clang__ )
     #define CYPHER_COMPILER_MSVC 0
     #define CYPHER_COMPILER_CLANG 1
     #define CYPHER_COMPILER_GCC 0
-    #define CYPHER_COMPILER_NAME "Clang"
-    #define CYPHER_COMPILER_VERSION ( ( __clang_major__ * 10000 ) + ( __clang_minor__ * 100 ) + __clang_patchlevel__ )
+    #if defined( _MSC_VER )
+        #define CYPHER_COMPILER_CLANG_CL 1
+        #define CYPHER_COMPILER_MSVC_ABI 1
+        #define CYPHER_COMPILER_NAME "clang-cl"
+    #else
+        #define CYPHER_COMPILER_CLANG_CL 0
+        #define CYPHER_COMPILER_MSVC_ABI 0
+        #define CYPHER_COMPILER_NAME "Clang"
+    #endif
+    #define CYPHER_COMPILER_VERSION_MAJOR __clang_major__
+    #define CYPHER_COMPILER_VERSION_MINOR __clang_minor__
+    #define CYPHER_COMPILER_VERSION_PATCH __clang_patchlevel__
+#elif defined( _MSC_VER )
+    #define CYPHER_COMPILER_MSVC 1
+    #define CYPHER_COMPILER_CLANG 0
+    #define CYPHER_COMPILER_GCC 0
+    #define CYPHER_COMPILER_CLANG_CL 0
+    #define CYPHER_COMPILER_MSVC_ABI 1
+    #define CYPHER_COMPILER_NAME "MSVC"
+    #define CYPHER_COMPILER_VERSION_MAJOR ( _MSC_VER / 100 )
+    #define CYPHER_COMPILER_VERSION_MINOR ( _MSC_VER % 100 )
+    #if defined( _MSC_FULL_VER )
+        #define CYPHER_COMPILER_VERSION_PATCH ( _MSC_FULL_VER % 100000 )
+    #else
+        #define CYPHER_COMPILER_VERSION_PATCH 0
+    #endif
 #elif defined( __GNUC__ )
     #define CYPHER_COMPILER_MSVC 0
     #define CYPHER_COMPILER_CLANG 0
     #define CYPHER_COMPILER_GCC 1
+    #define CYPHER_COMPILER_CLANG_CL 0
+    #define CYPHER_COMPILER_MSVC_ABI 0
     #define CYPHER_COMPILER_NAME "GCC"
-    #define CYPHER_COMPILER_VERSION ( ( __GNUC__ * 10000 ) + ( __GNUC_MINOR__ * 100 ) + __GNUC_PATCHLEVEL__ )
+    #define CYPHER_COMPILER_VERSION_MAJOR __GNUC__
+    #define CYPHER_COMPILER_VERSION_MINOR __GNUC_MINOR__
+    #define CYPHER_COMPILER_VERSION_PATCH __GNUC_PATCHLEVEL__
 #else
     #error "Unsupported Cypher compiler."
 #endif
 
+#define CYPHER_COMPILER_VERSION                                                                                  \
+    ( ( ( CYPHER_COMPILER_VERSION_MAJOR ) << 24u ) | ( ( CYPHER_COMPILER_VERSION_MINOR ) << 16u ) |             \
+      ( ( CYPHER_COMPILER_VERSION_PATCH ) & 0xFFFFu ) )
+
 #if ( CYPHER_COMPILER_MSVC + CYPHER_COMPILER_CLANG + CYPHER_COMPILER_GCC ) != 1
     #error "Cypher compiler detection must resolve to exactly one compiler."
+#endif
+
+#if ( CYPHER_COMPILER_CLANG_CL != 0 ) && ( CYPHER_COMPILER_CLANG_CL != 1 )
+    #error "CYPHER_COMPILER_CLANG_CL must be either 0 or 1."
+#endif
+
+#if ( CYPHER_COMPILER_MSVC_ABI != 0 ) && ( CYPHER_COMPILER_MSVC_ABI != 1 )
+    #error "CYPHER_COMPILER_MSVC_ABI must be either 0 or 1."
 #endif
 
 /*
@@ -105,6 +140,10 @@ Operating System Detection
     #define CYPHER_PLATFORM_POSIX 1
     #define CYPHER_PLATFORM_NAME "Linux"
 #elif defined( __APPLE__ ) && defined( __MACH__ )
+    #include <TargetConditionals.h>
+    #if !TARGET_OS_OSX
+        #error "CypherEngine currently supports macOS desktop targets only."
+    #endif
     #define CYPHER_PLATFORM_WINDOWS 0
     #define CYPHER_PLATFORM_LINUX 0
     #define CYPHER_PLATFORM_MACOS 1
@@ -123,29 +162,40 @@ Operating System Detection
 CPU Architecture Detection
 ================
 */
-#if defined( _M_X64 ) || defined( __x86_64__ ) || defined( __amd64__ )
+#if defined( _M_ARM64EC )
+    #define CYPHER_ARCH_X64 0
+    #define CYPHER_ARCH_X86 0
+    #define CYPHER_ARCH_ARM64 1
+    #define CYPHER_ARCH_ARM32 0
+    #define CYPHER_ARCH_ARM64EC 1
+    #define CYPHER_ARCH_NAME "arm64ec"
+#elif defined( _M_X64 ) || defined( __x86_64__ ) || defined( __amd64__ )
     #define CYPHER_ARCH_X64 1
     #define CYPHER_ARCH_X86 0
     #define CYPHER_ARCH_ARM64 0
     #define CYPHER_ARCH_ARM32 0
+    #define CYPHER_ARCH_ARM64EC 0
     #define CYPHER_ARCH_NAME "x64"
 #elif defined( _M_IX86 ) || defined( __i386__ )
     #define CYPHER_ARCH_X64 0
     #define CYPHER_ARCH_X86 1
     #define CYPHER_ARCH_ARM64 0
     #define CYPHER_ARCH_ARM32 0
+    #define CYPHER_ARCH_ARM64EC 0
     #define CYPHER_ARCH_NAME "x86"
 #elif defined( _M_ARM64 ) || defined( __aarch64__ )
     #define CYPHER_ARCH_X64 0
     #define CYPHER_ARCH_X86 0
     #define CYPHER_ARCH_ARM64 1
     #define CYPHER_ARCH_ARM32 0
+    #define CYPHER_ARCH_ARM64EC 0
     #define CYPHER_ARCH_NAME "arm64"
 #elif defined( _M_ARM ) || defined( __arm__ )
     #define CYPHER_ARCH_X64 0
     #define CYPHER_ARCH_X86 0
     #define CYPHER_ARCH_ARM64 0
     #define CYPHER_ARCH_ARM32 1
+    #define CYPHER_ARCH_ARM64EC 0
     #define CYPHER_ARCH_NAME "arm32"
 #else
     #error "Unsupported Cypher CPU architecture."
@@ -153,6 +203,10 @@ CPU Architecture Detection
 
 #if ( CYPHER_ARCH_X64 + CYPHER_ARCH_X86 + CYPHER_ARCH_ARM64 + CYPHER_ARCH_ARM32 ) != 1
     #error "Cypher architecture detection must resolve to exactly one architecture."
+#endif
+
+#if CYPHER_ARCH_X86 || CYPHER_ARCH_ARM32
+    #error "CypherEngine currently requires a 64-bit x64 or ARM64 target."
 #endif
 
 #if CYPHER_ARCH_X64 || CYPHER_ARCH_X86
@@ -168,8 +222,7 @@ CPU Architecture Detection
 Pointer Width Detection
 ================
 */
-#if defined( _WIN64 ) || defined( __LP64__ ) || defined( _LP64 ) || \
-    defined( __x86_64__ ) || defined( __aarch64__ ) || defined( _M_X64 ) || defined( _M_ARM64 )
+#if CYPHER_ARCH_X64 || CYPHER_ARCH_ARM64
     #define CYPHER_TARGET_64BIT 1
     #define CYPHER_TARGET_32BIT 0
     #define CYPHER_POINTER_SIZE 8
@@ -188,7 +241,7 @@ Pointer Width Detection
 Endian Detection
 ================
 */
-#if CYPHER_COMPILER_MSVC && ( CYPHER_ARCH_X86_FAMILY || CYPHER_ARCH_ARM_FAMILY )
+#if CYPHER_PLATFORM_WINDOWS && ( CYPHER_ARCH_X86_FAMILY || CYPHER_ARCH_ARM_FAMILY )
     #define CYPHER_ENDIAN_LITTLE 1
     #define CYPHER_ENDIAN_BIG 0
 #elif defined( __BYTE_ORDER__ ) && defined( __ORDER_LITTLE_ENDIAN__ ) && ( __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ )
@@ -205,22 +258,50 @@ Endian Detection
     #error "Cypher endian detection must resolve to exactly one byte order."
 #endif
 
+#if CYPHER_ENDIAN_BIG
+    #error "CypherEngine currently requires a little-endian target."
+#endif
+
 /*
 ================
 Build Configuration Detection
 ================
 */
-#if defined( NDEBUG )
-    #define CYPHER_BUILD_DEBUG 0
-    #define CYPHER_BUILD_RELEASE 1
-#else
-    #define CYPHER_BUILD_DEBUG 1
-    #define CYPHER_BUILD_RELEASE 0
+#if !defined( CYPHER_CONFIG_DEBUG )
+    #define CYPHER_CONFIG_DEBUG 0
 #endif
 
-#if ( CYPHER_BUILD_DEBUG + CYPHER_BUILD_RELEASE ) != 1
+#if !defined( CYPHER_CONFIG_DEVELOPMENT )
+    #define CYPHER_CONFIG_DEVELOPMENT 0
+#endif
+
+#if !defined( CYPHER_CONFIG_RELEASE )
+    #define CYPHER_CONFIG_RELEASE 0
+#endif
+
+#if !defined( CYPHER_CONFIG_SHIPPING )
+    #define CYPHER_CONFIG_SHIPPING 0
+#endif
+
+#if ( CYPHER_CONFIG_DEBUG + CYPHER_CONFIG_DEVELOPMENT + CYPHER_CONFIG_RELEASE + CYPHER_CONFIG_SHIPPING ) == 0
+    #if defined( NDEBUG )
+        #undef CYPHER_CONFIG_RELEASE
+        #define CYPHER_CONFIG_RELEASE 1
+    #else
+        #undef CYPHER_CONFIG_DEBUG
+        #define CYPHER_CONFIG_DEBUG 1
+    #endif
+#endif
+
+#if ( CYPHER_CONFIG_DEBUG + CYPHER_CONFIG_DEVELOPMENT + CYPHER_CONFIG_RELEASE + CYPHER_CONFIG_SHIPPING ) != 1
     #error "Cypher build detection must resolve to exactly one configuration."
 #endif
+
+#define CYPHER_BUILD_DEBUG CYPHER_CONFIG_DEBUG
+#define CYPHER_BUILD_DEVELOPMENT CYPHER_CONFIG_DEVELOPMENT
+#define CYPHER_BUILD_RELEASE CYPHER_CONFIG_RELEASE
+#define CYPHER_BUILD_SHIPPING CYPHER_CONFIG_SHIPPING
+#define CYPHER_BUILD_OPTIMIZED ( CYPHER_CONFIG_DEVELOPMENT || CYPHER_CONFIG_RELEASE || CYPHER_CONFIG_SHIPPING )
 
 /*
 ================
