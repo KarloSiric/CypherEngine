@@ -39,7 +39,70 @@
 namespace cypher::common
 {
 
-process_id_t Process_GetCurrentId()
+namespace
+{
+
+struct process_path_t {
+    char szPath[CY_PROCESS_PATH_MAX];
+};
+
+process_path_t Process_QueryExecutablePath() noexcept
+{
+    process_path_t result = {};
+
+#if CYPHER_PLATFORM_WINDOWS
+    wchar_t wszPath[CY_PROCESS_PATH_MAX] = {};
+    const DWORD cchWritten = ::GetModuleFileNameW(
+        nullptr,
+        wszPath,
+        static_cast<DWORD>( CY_PROCESS_PATH_MAX ) );
+    if ( cchWritten == 0u || cchWritten >= CY_PROCESS_PATH_MAX ) {
+        return result;
+    }
+
+    const int cchUtf8 = ::WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        wszPath,
+        static_cast<int>( cchWritten ),
+        result.szPath,
+        static_cast<int>( CY_PROCESS_PATH_MAX - 1u ),
+        nullptr,
+        nullptr );
+    if ( cchUtf8 <= 0 ) {
+        result.szPath[0] = '\0';
+        return result;
+    }
+    result.szPath[static_cast<usize>( cchUtf8 )] = '\0';
+#elif CYPHER_PLATFORM_MACOS
+    u32 cchPath = static_cast<u32>( CY_PROCESS_PATH_MAX );
+    if ( ::_NSGetExecutablePath( result.szPath, &cchPath ) != 0 ) {
+        result.szPath[0] = '\0';
+    }
+#elif CYPHER_PLATFORM_LINUX
+    const ssize_t cchWritten = ::readlink(
+        "/proc/self/exe",
+        result.szPath,
+        CY_PROCESS_PATH_MAX - 1u );
+    if ( cchWritten > 0 ) {
+        result.szPath[static_cast<usize>( cchWritten )] = '\0';
+    } else {
+        result.szPath[0] = '\0';
+    }
+#endif
+
+    return result;
+}
+
+const process_path_t &Process_GetCachedExecutablePath() noexcept
+{
+    static const process_path_t path = Process_QueryExecutablePath();
+    return path;
+}
+
+} // namespace
+
+process_id_t Cy_ProcessGetCurrentId() noexcept
 {
 #if CYPHER_PLATFORM_WINDOWS
     return static_cast<process_id_t>( ::GetCurrentProcessId() );
@@ -48,38 +111,14 @@ process_id_t Process_GetCurrentId()
 #endif
 }
 
-const char *Process_GetExecutablePath()
+const char *Cy_ProcessGetExecutablePath() noexcept
 {
-    static char szPath[4096] = {};
-    if ( szPath[0] != '\0' ) {
-        return szPath;
-    }
-
-#if CYPHER_PLATFORM_WINDOWS
-    const DWORD cchWritten = ::GetModuleFileNameA( nullptr, szPath, static_cast<DWORD>( sizeof( szPath ) ) );
-    if ( cchWritten == 0u || cchWritten >= sizeof( szPath ) ) {
-        szPath[0] = '\0';
-    }
-#elif CYPHER_PLATFORM_MACOS
-    u32 cchPath = static_cast<u32>( sizeof( szPath ) );
-    if ( _NSGetExecutablePath( szPath, &cchPath ) != 0 ) {
-        szPath[0] = '\0';
-    }
-#elif CYPHER_PLATFORM_LINUX
-    const ssize_t cchWritten = ::readlink( "/proc/self/exe", szPath, sizeof( szPath ) - 1u );
-    if ( cchWritten > 0 ) {
-        szPath[cchWritten] = '\0';
-    } else {
-        szPath[0] = '\0';
-    }
-#endif
-
-    return szPath;
+    return Process_GetCachedExecutablePath().szPath;
 }
 
-void Process_Exit( i32 exit_code )
+[[noreturn]] void Cy_ProcessExit( i32 nExitCode ) noexcept
 {
-    std::exit( exit_code );
+    std::exit( nExitCode );
 }
 
 } // namespace cypher::common
