@@ -30,25 +30,51 @@ Thread-safe intrusive single-list declarations.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
+#include <atomic>
 #include <mutex>
 
 namespace cypher::common
 {
 
+struct tslist_t;
+
 struct tslist_node_t {
-    tslist_node_t *pNext;
+    tslist_node_t *pNext = nullptr;
+    std::atomic<tslist_t *> pOwner{ nullptr };
 };
 
 struct tslist_t {
-    std::mutex nativeMutex;
-    tslist_node_t *pHead;
+    mutable std::mutex nativeMutex;
+    tslist_node_t *pHead = nullptr;
+    usize nCount = 0u;
+    bool_t isInitialized = CY_FALSE;
 };
 
-void TsList_Init( tslist_t *pList );
-void TsList_Push( tslist_t *pList, tslist_node_t *pNode );
-tslist_node_t *TsList_Pop( tslist_t *pList );
+// Initializes an empty intrusive LIFO list.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TsListInit( tslist_t *pList ) noexcept;
+
+// Shuts down an empty list; live nodes must be popped first.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TsListShutdown( tslist_t *pList ) noexcept;
+
+// Pushes one unowned node onto the list.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TsListPush(
+    tslist_t *pList,
+    tslist_node_t *pNode ) noexcept;
+
+// Pops the most recently pushed node, or nullptr when empty/invalid.
+[[nodiscard]] CYPHER_COMMON_API tslist_node_t *Cy_TsListPop(
+    tslist_t *pList ) noexcept;
+
+// Returns a consistent node-count snapshot.
+[[nodiscard]] CYPHER_COMMON_API usize Cy_TsListGetCount(
+    const tslist_t *pList ) noexcept;
+
+// Returns whether the initialized list currently contains no nodes.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TsListIsEmpty(
+    const tslist_t *pList ) noexcept;
 
 } // namespace cypher::common
 
