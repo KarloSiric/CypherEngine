@@ -19,9 +19,7 @@
 
 #include "CypherCommon_Platform.h"
 #include "CypherCommon_Thread.h"
-
-#include <chrono>
-#include <mutex>
+#include "CypherCommon_Timer.h"
 
 #if CYPHER_PLATFORM_WINDOWS
     #ifndef WIN32_LEAN_AND_MEAN
@@ -53,17 +51,10 @@ struct cpu_time_sample_t {
 
 struct process_time_sample_t {
     u64 nProcessTime;
-    std::chrono::steady_clock::time_point wallTime;
     bool_t isValid;
 };
 
-std::mutex g_cpuMonitorMutex;
-cpu_time_sample_t g_previousCpuTime{};
-process_time_sample_t g_previousProcessTime{};
-bool_t g_hasPreviousCpuTime = CY_FALSE;
-bool_t g_hasPreviousProcessTime = CY_FALSE;
-
-f32 ClampPercent( f64 value )
+f32 ClampPercent( f64 value ) noexcept
 {
     if ( value < 0.0 ) {
         return 0.0f;
@@ -75,7 +66,7 @@ f32 ClampPercent( f64 value )
 }
 
 #if CYPHER_PLATFORM_WINDOWS
-u64 FileTimeToU64( const FILETIME &time )
+u64 FileTimeToU64( const FILETIME &time ) noexcept
 {
     ULARGE_INTEGER value{};
     value.LowPart = time.dwLowDateTime;
@@ -83,7 +74,7 @@ u64 FileTimeToU64( const FILETIME &time )
     return value.QuadPart;
 }
 
-cpu_time_sample_t QueryCpuTimeSample()
+cpu_time_sample_t QueryCpuTimeSample() noexcept
 {
     FILETIME idleTime{};
     FILETIME kernelTime{};
@@ -103,7 +94,7 @@ cpu_time_sample_t QueryCpuTimeSample()
     return sample;
 }
 
-process_time_sample_t QueryProcessTimeSample()
+process_time_sample_t QueryProcessTimeSample() noexcept
 {
     FILETIME creationTime{};
     FILETIME exitTime{};
@@ -115,12 +106,11 @@ process_time_sample_t QueryProcessTimeSample()
 
     process_time_sample_t sample{};
     sample.nProcessTime = FileTimeToU64( kernelTime ) + FileTimeToU64( userTime );
-    sample.wallTime = std::chrono::steady_clock::now();
     sample.isValid = CY_TRUE;
     return sample;
 }
 #elif CYPHER_PLATFORM_LINUX
-cpu_time_sample_t QueryCpuTimeSample()
+cpu_time_sample_t QueryCpuTimeSample() noexcept
 {
     FILE *pFile = std::fopen( "/proc/stat", "r" );
     if ( pFile == nullptr ) {
@@ -160,7 +150,7 @@ cpu_time_sample_t QueryCpuTimeSample()
     return sample;
 }
 
-process_time_sample_t QueryProcessTimeSample()
+process_time_sample_t QueryProcessTimeSample() noexcept
 {
     struct rusage usage{};
     if ( getrusage( RUSAGE_SELF, &usage ) != 0 ) {
@@ -172,12 +162,11 @@ process_time_sample_t QueryProcessTimeSample()
 
     process_time_sample_t sample{};
     sample.nProcessTime = nUserMicros + nSystemMicros;
-    sample.wallTime = std::chrono::steady_clock::now();
     sample.isValid = CY_TRUE;
     return sample;
 }
 #elif CYPHER_PLATFORM_MACOS
-cpu_time_sample_t QueryCpuTimeSample()
+cpu_time_sample_t QueryCpuTimeSample() noexcept
 {
     host_cpu_load_info_data_t cpuInfo{};
     mach_msg_type_number_t cInfo = HOST_CPU_LOAD_INFO_COUNT;
@@ -202,7 +191,7 @@ cpu_time_sample_t QueryCpuTimeSample()
     return sample;
 }
 
-process_time_sample_t QueryProcessTimeSample()
+process_time_sample_t QueryProcessTimeSample() noexcept
 {
     struct rusage usage{};
     if ( getrusage( RUSAGE_SELF, &usage ) != 0 ) {
@@ -214,43 +203,48 @@ process_time_sample_t QueryProcessTimeSample()
 
     process_time_sample_t sample{};
     sample.nProcessTime = nUserMicros + nSystemMicros;
-    sample.wallTime = std::chrono::steady_clock::now();
     sample.isValid = CY_TRUE;
     return sample;
 }
 #else
-cpu_time_sample_t QueryCpuTimeSample()
+cpu_time_sample_t QueryCpuTimeSample() noexcept
 {
     return {};
 }
 
-process_time_sample_t QueryProcessTimeSample()
+process_time_sample_t QueryProcessTimeSample() noexcept
 {
     return {};
 }
 #endif
 
-f32 CalculateCpuUsage( const cpu_time_sample_t &previous, const cpu_time_sample_t &current )
+f32 CalculateCpuUsage(
+    u64 nPreviousIdle,
+    u64 nPreviousTotal,
+    const cpu_time_sample_t &current ) noexcept
 {
-    if ( !previous.isValid || !current.isValid || current.nTotal <= previous.nTotal ) {
+    if ( !current.isValid || current.nTotal <= nPreviousTotal ) {
         return 0.0f;
     }
 
-    const u64 nTotalDelta = current.nTotal - previous.nTotal;
-    const u64 nIdleDelta = current.nIdle > previous.nIdle ? current.nIdle - previous.nIdle : 0u;
+    const u64 nTotalDelta = current.nTotal - nPreviousTotal;
+    const u64 nIdleDelta =
+        current.nIdle > nPreviousIdle ? current.nIdle - nPreviousIdle : 0u;
     const u64 nBusyDelta = nTotalDelta > nIdleDelta ? nTotalDelta - nIdleDelta : 0u;
 
     return ClampPercent( ( static_cast<f64>( nBusyDelta ) * 100.0 ) / static_cast<f64>( nTotalDelta ) );
 }
 
-f32 CalculateProcessUsage( const process_time_sample_t &previous, const process_time_sample_t &current, u32 cLogicalThreads )
+f32 CalculateProcessUsage(
+    u64 nPreviousProcessTime,
+    const process_time_sample_t &current,
+    f64 intervalSeconds,
+    u32 nLogicalThreadCount ) noexcept
 {
-    if ( !previous.isValid || !current.isValid || current.nProcessTime <= previous.nProcessTime || cLogicalThreads == 0u ) {
-        return 0.0f;
-    }
-
-    const std::chrono::duration<f64> wallDelta = current.wallTime - previous.wallTime;
-    if ( wallDelta.count() <= 0.0 ) {
+    if ( !current.isValid ||
+         current.nProcessTime <= nPreviousProcessTime ||
+         intervalSeconds <= 0.0 ||
+         nLogicalThreadCount == 0u ) {
         return 0.0f;
     }
 
@@ -260,8 +254,11 @@ f32 CalculateProcessUsage( const process_time_sample_t &previous, const process_
     constexpr f64 PROCESS_TIME_UNITS_PER_SECOND = 1000000.0;
 #endif
 
-    const f64 processDeltaSeconds = static_cast<f64>( current.nProcessTime - previous.nProcessTime ) / PROCESS_TIME_UNITS_PER_SECOND;
-    const f64 machineSeconds = wallDelta.count() * static_cast<f64>( cLogicalThreads );
+    const f64 processDeltaSeconds =
+        static_cast<f64>( current.nProcessTime - nPreviousProcessTime ) /
+        PROCESS_TIME_UNITS_PER_SECOND;
+    const f64 machineSeconds =
+        intervalSeconds * static_cast<f64>( nLogicalThreadCount );
     if ( machineSeconds <= 0.0 ) {
         return 0.0f;
     }
@@ -271,32 +268,91 @@ f32 CalculateProcessUsage( const process_time_sample_t &previous, const process_
 
 } // namespace
 
-bool_t CPUMonitoring_Sample( cpu_monitor_sample_t *pOutSample )
+bool_t Cy_CPUMonitorInit( cy_cpu_monitor_t *pMonitor ) noexcept
+{
+    if ( pMonitor == nullptr ) {
+        return CY_FALSE;
+    }
+
+    const cpu_time_sample_t currentCpuTime = QueryCpuTimeSample();
+    const process_time_sample_t currentProcessTime = QueryProcessTimeSample();
+    const timer_tick_t nWallTicks = Cy_TimerNowTicks();
+
+    *pMonitor = {};
+    pMonitor->nPreviousIdleTicks = currentCpuTime.nIdle;
+    pMonitor->nPreviousTotalTicks = currentCpuTime.nTotal;
+    pMonitor->nPreviousProcessTicks = currentProcessTime.nProcessTime;
+    pMonitor->nPreviousWallTicks = nWallTicks;
+    pMonitor->hasSystemBaseline = currentCpuTime.isValid;
+    pMonitor->hasProcessBaseline = currentProcessTime.isValid;
+    pMonitor->isInitialized =
+        currentCpuTime.isValid || currentProcessTime.isValid;
+    return pMonitor->isInitialized;
+}
+
+bool_t Cy_CPUMonitorReset( cy_cpu_monitor_t *pMonitor ) noexcept
+{
+    return Cy_CPUMonitorInit( pMonitor );
+}
+
+bool_t Cy_CPUMonitorSample(
+    cy_cpu_monitor_t *pMonitor,
+    cy_cpu_monitor_sample_t *pOutSample ) noexcept
 {
     if ( pOutSample == nullptr ) {
         return CY_FALSE;
     }
+    *pOutSample = {};
+    if ( pMonitor == nullptr || !pMonitor->isInitialized ) {
+        return CY_FALSE;
+    }
 
-    std::lock_guard<std::mutex> lock( g_cpuMonitorMutex );
-
-    const u32 cLogicalThreads = Cy_ThreadGetLogicalCount();
     const cpu_time_sample_t currentCpuTime = QueryCpuTimeSample();
     const process_time_sample_t currentProcessTime = QueryProcessTimeSample();
+    const timer_tick_t nCurrentWallTicks = Cy_TimerNowTicks();
+    const u32 nLogicalThreadCount = Cy_ThreadGetLogicalCount();
+    const f64 intervalSeconds = Cy_TimerElapsedSeconds(
+        pMonitor->nPreviousWallTicks,
+        nCurrentWallTicks );
 
-    pOutSample->logical_thread_count = cLogicalThreads;
-    pOutSample->total_usage = g_hasPreviousCpuTime ? CalculateCpuUsage( g_previousCpuTime, currentCpuTime ) : 0.0f;
-    pOutSample->process_usage = g_hasPreviousProcessTime ? CalculateProcessUsage( g_previousProcessTime, currentProcessTime, cLogicalThreads ) : 0.0f;
+    pOutSample->nLogicalThreadCount = nLogicalThreadCount;
+    pOutSample->intervalSeconds = intervalSeconds;
+    pOutSample->hasSystemUsage =
+        pMonitor->hasSystemBaseline &&
+        currentCpuTime.isValid &&
+        currentCpuTime.nTotal > pMonitor->nPreviousTotalTicks;
+    pOutSample->hasProcessUsage =
+        pMonitor->hasProcessBaseline &&
+        currentProcessTime.isValid &&
+        currentProcessTime.nProcessTime >= pMonitor->nPreviousProcessTicks &&
+        intervalSeconds > 0.0;
+
+    if ( pOutSample->hasSystemUsage ) {
+        pOutSample->totalUsagePercent = CalculateCpuUsage(
+            pMonitor->nPreviousIdleTicks,
+            pMonitor->nPreviousTotalTicks,
+            currentCpuTime );
+    }
+    if ( pOutSample->hasProcessUsage ) {
+        pOutSample->processUsagePercent = CalculateProcessUsage(
+            pMonitor->nPreviousProcessTicks,
+            currentProcessTime,
+            intervalSeconds,
+            nLogicalThreadCount );
+    }
 
     if ( currentCpuTime.isValid ) {
-        g_previousCpuTime = currentCpuTime;
-        g_hasPreviousCpuTime = CY_TRUE;
+        pMonitor->nPreviousIdleTicks = currentCpuTime.nIdle;
+        pMonitor->nPreviousTotalTicks = currentCpuTime.nTotal;
+        pMonitor->hasSystemBaseline = CY_TRUE;
     }
     if ( currentProcessTime.isValid ) {
-        g_previousProcessTime = currentProcessTime;
-        g_hasPreviousProcessTime = CY_TRUE;
+        pMonitor->nPreviousProcessTicks = currentProcessTime.nProcessTime;
+        pMonitor->hasProcessBaseline = CY_TRUE;
     }
+    pMonitor->nPreviousWallTicks = nCurrentWallTicks;
 
-    return CY_TRUE;
+    return currentCpuTime.isValid || currentProcessTime.isValid;
 }
 
 } // namespace cypher::common
