@@ -22,9 +22,12 @@
     #pragma once
 #endif
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
+#include "CypherCommon_CPUDetect.h"
 #include "CypherCommon_Defines.h"
 #include "CypherCommon_Platform.h"
+#include "CypherCommon_Process.h"
 
 namespace cypher::common
 {
@@ -52,18 +55,22 @@ enum cy_system_power_state_t : u32 {
     CY_SYSTEM_POWER_NO_BATTERY
 };
 
-// Runtime CPU feature bits used to choose optimized code paths safely.
-enum cy_system_cpu_feature_flags_t : flags64_t {
-    CY_SYSTEM_CPU_FEATURE_NONE  = 0ull,
-    CY_SYSTEM_CPU_FEATURE_SSE2  = CYPHER_BIT64( 0 ),
-    CY_SYSTEM_CPU_FEATURE_SSE3  = CYPHER_BIT64( 1 ),
-    CY_SYSTEM_CPU_FEATURE_SSSE3 = CYPHER_BIT64( 2 ),
-    CY_SYSTEM_CPU_FEATURE_SSE41 = CYPHER_BIT64( 3 ),
-    CY_SYSTEM_CPU_FEATURE_SSE42 = CYPHER_BIT64( 4 ),
-    CY_SYSTEM_CPU_FEATURE_AVX   = CYPHER_BIT64( 5 ),
-    CY_SYSTEM_CPU_FEATURE_AVX2  = CYPHER_BIT64( 6 ),
-    CY_SYSTEM_CPU_FEATURE_NEON  = CYPHER_BIT64( 7 )
-};
+// SystemInfo uses CPUDetect's canonical feature type rather than duplicating bits.
+using cy_system_cpu_feature_flags_t = cy_cpu_feature_flags_t;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_NONE = CY_CPU_FEATURE_NONE;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_SSE2 = CY_CPU_FEATURE_SSE2;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_SSE3 = CY_CPU_FEATURE_SSE3;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_SSSE3 = CY_CPU_FEATURE_SSSE3;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_SSE41 = CY_CPU_FEATURE_SSE41;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_SSE42 = CY_CPU_FEATURE_SSE42;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_AVX = CY_CPU_FEATURE_AVX;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_AVX2 = CY_CPU_FEATURE_AVX2;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_NEON = CY_CPU_FEATURE_NEON;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_AES = CY_CPU_FEATURE_AES;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_FMA = CY_CPU_FEATURE_FMA;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_BMI1 = CY_CPU_FEATURE_BMI1;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_BMI2 = CY_CPU_FEATURE_BMI2;
+constexpr cy_system_cpu_feature_flags_t CY_SYSTEM_CPU_FEATURE_POPCNT = CY_CPU_FEATURE_POPCNT;
 
 // Immutable build metadata captured into the SystemInfo snapshot.
 struct cy_system_build_info_t {
@@ -117,7 +124,7 @@ struct cy_system_memory_info_t {
 
 // Process identity and basic process paths used by logs and crash reports.
 struct cy_system_process_info_t {
-    u32 processId;
+    process_id_t processId;
 
     char szExecutablePath[CY_SYSTEMINFO_PATH_MAX];
     char szWorkingDirectory[CY_SYSTEMINFO_PATH_MAX];
@@ -142,6 +149,8 @@ struct cy_system_memory_status_t {
     u64 processVirtualBytes;
 
     cy_system_memory_pressure_t pressure;
+    bool_t hasPhysicalMemory;
+    bool_t hasProcessMemory;
 };
 
 // Live disk space query result for a path.
@@ -149,34 +158,40 @@ struct cy_system_disk_status_t {
     u64 totalBytes;
     u64 freeBytes;
     u64 availableBytes;
+    bool_t isValid;
 };
 
-// Initializes the cached SystemInfo snapshot. Safe to call more than once.
-bool_t Cy_SystemInfoInit();
-
-// Clears the cached SystemInfo snapshot. Call during controlled shutdown only.
-void Cy_SystemInfoShutdown();
+// Initializes the immutable process-lifetime SystemInfo snapshot.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SystemInfoInit() noexcept;
 
 // Returns the cached SystemInfo snapshot, initializing it on first use.
-const cy_system_info_t *Cy_SystemInfoGet();
+[[nodiscard]] CYPHER_COMMON_API const cy_system_info_t *Cy_SystemInfoGet() noexcept;
 
 // Queries current physical/process memory state.
-cy_system_memory_status_t Cy_SystemInfoQueryMemoryStatus();
+[[nodiscard]] CYPHER_COMMON_API cy_system_memory_status_t
+Cy_SystemInfoQueryMemoryStatus() noexcept;
 
 // Queries current OS power source state when supported.
-cy_system_power_state_t Cy_SystemInfoQueryPowerState();
+[[nodiscard]] CYPHER_COMMON_API cy_system_power_state_t
+Cy_SystemInfoQueryPowerState() noexcept;
 
 // Queries disk space for pszPath, or the working directory when pszPath is empty.
-cy_system_disk_status_t Cy_SystemInfoQueryDiskStatus( const char *pszPath );
+[[nodiscard]] CYPHER_COMMON_API cy_system_disk_status_t
+Cy_SystemInfoQueryDiskStatus( const char *pszPath ) noexcept;
 
 // Returns true when feature is present in a CPU feature bitfield.
-bool_t Cy_SystemInfoHasCpuFeature( flags64_t features, cy_system_cpu_feature_flags_t feature );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SystemInfoHasCpuFeature(
+    flags64_t features,
+    cy_system_cpu_feature_flags_t feature ) noexcept;
 
 // Returns a stable diagnostic name for a CPU feature flag.
-const char *Cy_SystemInfoCpuFeatureName( cy_system_cpu_feature_flags_t feature );
+[[nodiscard]] CYPHER_COMMON_API const char *Cy_SystemInfoCpuFeatureName(
+    cy_system_cpu_feature_flags_t feature ) noexcept;
 
 // Formats a human-readable report. Returns required character count excluding null.
-usize Cy_SystemInfoFormatReport( char *pszDst, usize cchDst );
+[[nodiscard]] CYPHER_COMMON_API usize Cy_SystemInfoFormatReport(
+    char *pszDst,
+    usize cchDst ) noexcept;
 
 } // namespace cypher::common
 
