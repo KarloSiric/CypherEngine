@@ -23,7 +23,7 @@
 namespace cypher::common
 {
 
-void *MemCopy( void *pDst, const void *pSrc, usize nByteCount )
+void *Cy_MemCopy( void *pDst, const void *pSrc, usize nByteCount ) noexcept
 {
     if ( nByteCount == 0u ) {
         return pDst;
@@ -31,7 +31,7 @@ void *MemCopy( void *pDst, const void *pSrc, usize nByteCount )
     return std::memcpy( pDst, pSrc, nByteCount );
 }
 
-void *MemMove( void *pDst, const void *pSrc, usize nByteCount )
+void *Cy_MemMove( void *pDst, const void *pSrc, usize nByteCount ) noexcept
 {
     if ( nByteCount == 0u ) {
         return pDst;
@@ -39,7 +39,7 @@ void *MemMove( void *pDst, const void *pSrc, usize nByteCount )
     return std::memmove( pDst, pSrc, nByteCount );
 }
 
-void *MemSet( void *pDst, i32 nValue, usize nByteCount )
+void *Cy_MemSet( void *pDst, u8 nValue, usize nByteCount ) noexcept
 {
     if ( nByteCount == 0u ) {
         return pDst;
@@ -47,12 +47,12 @@ void *MemSet( void *pDst, i32 nValue, usize nByteCount )
     return std::memset( pDst, nValue, nByteCount );
 }
 
-void *MemZero( void *pDst, usize nByteCount )
+void *Cy_MemZero( void *pDst, usize nByteCount ) noexcept
 {
-    return MemSet( pDst, 0, nByteCount );
+    return Cy_MemSet( pDst, 0, nByteCount );
 }
 
-i32 MemCompare( const void *pA, const void *pB, usize nByteCount )
+i32 Cy_MemCompare( const void *pA, const void *pB, usize nByteCount ) noexcept
 {
     if ( nByteCount == 0u ) {
         return 0;
@@ -60,14 +60,14 @@ i32 MemCompare( const void *pA, const void *pB, usize nByteCount )
     return std::memcmp( pA, pB, nByteCount );
 }
 
-bool_t MemEqual( const void *pA, const void *pB, usize nByteCount )
+bool_t Cy_MemEqual( const void *pA, const void *pB, usize nByteCount ) noexcept
 {
-    return MemCompare( pA, pB, nByteCount ) == 0;
+    return Cy_MemCompare( pA, pB, nByteCount ) == 0;
 }
 
-bool_t MemPointerInRange( const void *pPtr,
+bool_t Cy_MemPointerInRange( const void *pPtr,
                           const void *pBase,
-                          usize nRangeBytes )
+                          usize nRangeBytes ) noexcept
 {
     if ( pPtr == nullptr || pBase == nullptr || nRangeBytes == 0u ) {
         return CY_FALSE;
@@ -81,8 +81,8 @@ bool_t MemPointerInRange( const void *pPtr,
     return nOffset < nRangeBytes;
 }
 
-bool_t MemRangesOverlap( const void *pA, usize nABytes,
-                         const void *pB, usize nBBytes )
+bool_t Cy_MemRangesOverlap( const void *pA, usize nABytes,
+                         const void *pB, usize nBBytes ) noexcept
 {
     if ( pA == nullptr || pB == nullptr || nABytes == 0u || nBBytes == 0u ) {
         return CY_FALSE;
@@ -98,7 +98,7 @@ bool_t MemRangesOverlap( const void *pA, usize nABytes,
     return ( nA - nB ) < nBBytes;
 }
 
-bool_t MemIsZero( const void *pData, usize nByteCount )
+bool_t Cy_MemIsZero( const void *pData, usize nByteCount ) noexcept
 {
     static constexpr usize nZeroBlockBytes = 4096u;
     static constexpr u8 nZeroBlock[nZeroBlockBytes] = {};
