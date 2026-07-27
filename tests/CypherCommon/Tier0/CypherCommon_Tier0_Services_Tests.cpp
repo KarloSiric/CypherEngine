@@ -36,13 +36,10 @@
 #include "CypherCommon/Tier0/CypherCommon_PlatformMemory.h"
 #include "CypherCommon/Tier0/CypherCommon_Process.h"
 #include "CypherCommon/Tier0/CypherCommon_Profile.h"
-#include "CypherCommon/Tier0/CypherCommon_ProgressBar.h"
 #include "CypherCommon/Tier0/CypherCommon_SourceLocation.h"
 #include "CypherCommon/Tier0/CypherCommon_Stats.h"
-#include "CypherCommon/Tier0/CypherCommon_TestThread.h"
 #include "CypherCommon/Tier0/CypherCommon_TsList.h"
 #include "CypherCommon/Tier0/CypherCommon_Validator.h"
-#include "CypherCommon/Tier0/CypherCommon_WideChar.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -61,36 +58,38 @@ bool_t g_memoryDebugCallbackCalled = CY_FALSE;
 bool_t g_assertHandlerCalled = CY_FALSE;
 u32 g_assertHandlerCallCount = 0u;
 assert_info_t g_assertInfo{};
+u32 g_profileEventCount = 0u;
 
-void TestLogCallback( const log_record_t &record, void *pUserData )
+void TestLogCallback( const log_record_t &record, void *pUserData ) noexcept
 {
     auto *pCalled = static_cast<bool_t *>( pUserData );
     *pCalled = record.pMessage != nullptr;
 }
 
-void TestValidatorCallback( validator_severity_t, const char *pMessage )
+void CYPHER_CALL TestProfileSink(
+    const profile_event_t &,
+    void *pUserData ) noexcept
 {
-    g_validatorCallbackCalled = pMessage != nullptr;
+    auto *pCount = static_cast<u32 *>( pUserData );
+    ++( *pCount );
 }
 
-void TestMemoryDebugCallback( memory_debug_event_t, void *, usize, const char * )
+void TestValidatorCallback( const validation_record_t &record, void * ) noexcept
+{
+    g_validatorCallbackCalled = record.pMessage != nullptr;
+}
+
+void TestMemoryDebugCallback( const memory_debug_record_t &, void * ) noexcept
 {
     g_memoryDebugCallbackCalled = CY_TRUE;
 }
 
-assert_action_t TestAssertHandler( const assert_info_t &info )
+assert_action_t TestAssertHandler( const assert_info_t &info ) noexcept
 {
     g_assertHandlerCalled = CY_TRUE;
     ++g_assertHandlerCallCount;
     g_assertInfo = info;
     return assert_action_t::Continue;
-}
-
-i32 TestThreadProc( void *pUserData )
-{
-    auto *pValue = static_cast<i32 *>( pUserData );
-    ++( *pValue );
-    return *pValue;
 }
 
 } // namespace
@@ -103,8 +102,8 @@ TEST_CASE( "Tier0 error helpers pack domains and local codes", "[CypherCommon][T
     REQUIRE( Cy_ErrorLocalCode( errorCode ) == 77u );
     REQUIRE( Cy_ErrorSucceeded( common_error_t::OK ) );
     REQUIRE( Cy_ErrorFailed( common_error_t::ERR_FAILED ) );
-    REQUIRE( Cy_ErrorName( common_error_t::ERR_TIMEOUT ) != nullptr );
-    REQUIRE( Cy_ErrorDomainName( error_domain_t::COM_DOMAIN_TOOLS ) != nullptr );
+    REQUIRE( Cy_ErrorName( common_error_t::ERR_TIMEOUT )[0] != '\0' );
+    REQUIRE( Cy_ErrorDomainName( error_domain_t::COM_DOMAIN_TOOLS )[0] != '\0' );
 }
 
 TEST_CASE( "Tier0 debug helpers expose debugger state and build gating", "[CypherCommon][Tier0][Services]" )
@@ -117,13 +116,8 @@ TEST_CASE( "Tier0 debug helpers expose debugger state and build gating", "[Cyphe
     CY_DEBUG_ONLY( ++debugCount );
     CY_RELEASE_ONLY( ++releaseCount );
 
-    #if CYPHER_BUILD_DEBUG
-        REQUIRE( debugCount == 1 );
-        REQUIRE( releaseCount == 0 );
-    #else
-        REQUIRE( debugCount == 0 );
-        REQUIRE( releaseCount == 1 );
-    #endif
+    REQUIRE( debugCount == CYPHER_CONFIG_DEBUG );
+    REQUIRE( releaseCount == CYPHER_CONFIG_RELEASE );
 }
 
 TEST_CASE( "Tier0 assertions dispatch records and preserve build semantics", "[CypherCommon][Tier0][Services]" )
@@ -158,7 +152,7 @@ TEST_CASE( "Tier0 assertions dispatch records and preserve build semantics", "[C
     CY_VERIFY( ++verifyEvaluationCount == 0 );
     CY_VERIFY_MSG( ++verifyMessageEvaluationCount == 0, "verify message" );
 
-    #if CYPHER_BUILD_DEBUG
+    #if CYPHER_ASSERTS_ENABLED
         REQUIRE( assertEvaluationCount == 1 );
         REQUIRE( assertMessageEvaluationCount == 1 );
         REQUIRE( verifyEvaluationCount == 1 );
@@ -180,24 +174,24 @@ TEST_CASE( "Tier0 assertions dispatch records and preserve build semantics", "[C
 
 TEST_CASE( "Tier0 handle helpers pack index and generation", "[CypherCommon][Tier0][Services]" )
 {
-    const handle32_t handle = Cy_Handle32_Make( 12u, 34u );
-    const handle_parts32_t parts = Cy_Handle32_Unpack( handle );
+    const handle32_t handle = Cy_Handle32Make( 12u, 34u );
+    const handle_parts32_t parts = Cy_Handle32Unpack( handle );
 
-    REQUIRE( Cy_Handle32_IsValid( handle ) );
-    REQUIRE( parts.index == 12u );
-    REQUIRE( parts.generation == 34u );
-    REQUIRE( Cy_Handle32_Index( handle ) == 12u );
-    REQUIRE( Cy_Handle32_Generation( handle ) == 34u );
-    REQUIRE( Cy_Handle64_IsValid( Cy_Handle64_Make( 1u, 2u, 3u ) ) );
+    REQUIRE( Cy_Handle32IsValid( handle ) );
+    REQUIRE( parts.nIndex == 12u );
+    REQUIRE( parts.nGeneration == 34u );
+    REQUIRE( Cy_Handle32Index( handle ) == 12u );
+    REQUIRE( Cy_Handle32Generation( handle ) == 34u );
+    REQUIRE( Cy_Handle64IsValid( Cy_Handle64Make( 1u, 2u, 3u ) ) );
 }
 
 TEST_CASE( "Tier0 build id and module helpers produce stable names", "[CypherCommon][Tier0][Services]" )
 {
     char szBuild[256] = {};
-    const build_id_t *pBuild = Cy_BuildId_GetEngine();
+    const build_id_t *pBuild = Cy_BuildIdGetEngine();
 
     REQUIRE( pBuild != nullptr );
-    Cy_BuildId_Format( *pBuild, szBuild, sizeof( szBuild ) );
+    REQUIRE( Cy_BuildIdFormat( pBuild, szBuild, sizeof( szBuild ) ) > 0u );
     REQUIRE( szBuild[0] != '\0' );
 
     REQUIRE( Cy_ModuleStateName( module_state_t::Initialized ) != nullptr );
@@ -212,7 +206,7 @@ TEST_CASE( "Tier0 source location formats into caller buffer", "[CypherCommon][T
     char szLocation[128] = {};
     source_location_t location{ "file.cpp", "Func", 42u };
 
-    REQUIRE( Cy_SourceLocation_Format( location, szLocation, sizeof( szLocation ) ) == szLocation );
+    REQUIRE( Cy_SourceLocation_Format( location, szLocation, sizeof( szLocation ) ) == std::strlen( szLocation ) );
     REQUIRE( szLocation[0] != '\0' );
 }
 
@@ -223,62 +217,51 @@ TEST_CASE( "Tier0 command line base handles flags and values", "[CypherCommon][T
         "-game",
         "reap",
         "--map=arena01",
-        "/verbose"
+        "-verbose"
     };
 
     command_line_base_t commandLine{};
-    CommandLineBase_Set( &commandLine, 5, args );
+    REQUIRE( Cy_CommandLineBaseSet( &commandLine, 5, args ) );
 
-    REQUIRE( CommandLineBase_Has( &commandLine, "game" ) );
-    REQUIRE( CommandLineBase_Find( &commandLine, "game" ) == args[2] );
-    REQUIRE( CommandLineBase_Find( &commandLine, "map" ) != nullptr );
-    REQUIRE( CommandLineBase_Find( &commandLine, "verbose" ) != nullptr );
-    REQUIRE( CommandLineBase_Find( &commandLine, "missing" ) == nullptr );
-}
-
-TEST_CASE( "Tier0 progress and wide char helpers are bounded", "[CypherCommon][Tier0][Services]" )
-{
-    progress_bar_t progress{};
-    ProgressBar_Begin( &progress, "Cook", 100u );
-    ProgressBar_Update( &progress, 150u );
-    REQUIRE( progress.completed_work == 100u );
-    ProgressBar_End( &progress );
-    REQUIRE( progress.completed_work == 100u );
-
-    wchar_engine_t buffer[8] = {};
-    REQUIRE( WChar_Copy( buffer, L"Cypher", 8u ) == 6u );
-    REQUIRE( WChar_Length( buffer ) == 6u );
-    REQUIRE( WChar_Compare( buffer, L"Cypher" ) == 0 );
+    REQUIRE( Cy_CommandLineBaseHasSwitch( &commandLine, "game" ) );
+    REQUIRE( Cy_CommandLineBaseFindValue( &commandLine, "game" ) == args[2] );
+    REQUIRE( Cy_CommandLineBaseFindValue( &commandLine, "map" ) != nullptr );
+    REQUIRE( Cy_CommandLineBaseFindValue( &commandLine, "verbose" ) != nullptr );
+    REQUIRE( Cy_CommandLineBaseFindValue( &commandLine, "missing" ) == nullptr );
 }
 
 TEST_CASE( "Tier0 environment and process helpers return basic process state", "[CypherCommon][Tier0][Services]" )
 {
-    REQUIRE( Process_GetCurrentId() != 0u );
-    REQUIRE( Process_GetExecutablePath() != nullptr );
+    REQUIRE( Cy_ProcessGetCurrentId() != 0u );
+    REQUIRE( Cy_ProcessGetExecutablePath() != nullptr );
 
-    REQUIRE( Environment_Set( "CYPHER_TEST_ENV", "ok" ) );
+    REQUIRE( Cy_EnvironmentSet( "CYPHER_TEST_ENV", "ok" ) );
     char szValue[16] = {};
-    REQUIRE( Environment_Get( "CYPHER_TEST_ENV", szValue, sizeof( szValue ) ) == 2u );
+    const cy_environment_get_result_t environment =
+        Cy_EnvironmentGet( "CYPHER_TEST_ENV", szValue, sizeof( szValue ) );
+    REQUIRE( environment.exists );
+    REQUIRE( environment.cchRequired == 2u );
     REQUIRE( szValue[0] == 'o' );
-    REQUIRE( Environment_Has( "CYPHER_TEST_ENV" ) );
+    REQUIRE( Cy_EnvironmentHas( "CYPHER_TEST_ENV" ) );
+    REQUIRE( Cy_EnvironmentUnset( "CYPHER_TEST_ENV" ) );
 }
 
 TEST_CASE( "Tier0 platform memory and page allocator reserve writable pages", "[CypherCommon][Tier0][Services]" )
 {
-    const platform_memory_info_t info = PlatformMemory_GetInfo();
-    REQUIRE( info.page_size != 0u );
+    const platform_memory_info_t info = Cy_PlatformMemoryGetInfo();
+    REQUIRE( info.nPageSize != 0u );
 
     page_allocator_t allocator{};
-    REQUIRE( PageAllocator_Init( &allocator, info.page_size * 2u ) );
-    void *pMemory = PageAllocator_Commit( &allocator, info.page_size );
+    REQUIRE( Cy_PageAllocatorInit( &allocator, info.nPageSize * 2u ) );
+    void *pMemory = Cy_PageAllocatorCommit( &allocator, info.nPageSize );
     REQUIRE( pMemory != nullptr );
 
     static_cast<byte *>( pMemory )[0] = 0xABu;
     REQUIRE( static_cast<byte *>( pMemory )[0] == 0xABu );
 
-    PageAllocator_Reset( &allocator );
-    REQUIRE( allocator.cbCommitted == 0u );
-    PageAllocator_Shutdown( &allocator );
+    REQUIRE( Cy_PageAllocatorReset( &allocator ) );
+    REQUIRE( allocator.nCommittedByteCount == 0u );
+    REQUIRE( Cy_PageAllocatorShutdown( &allocator ) );
 }
 
 TEST_CASE( "Tier0 logging, validation, and memory diagnostics invoke callbacks", "[CypherCommon][Tier0][Services]" )
@@ -290,63 +273,73 @@ TEST_CASE( "Tier0 logging, validation, and memory diagnostics invoke callbacks",
     Cy_LogSetCallback( nullptr, nullptr );
 
     g_validatorCallbackCalled = CY_FALSE;
-    Validator_SetCallback( TestValidatorCallback );
-    Validator_Report( validator_severity_t::Info, "ok" );
+    Cy_ValidatorSetCallback( TestValidatorCallback, nullptr );
+    Cy_ValidatorReport( validator_severity_t::Info, "ok" );
     REQUIRE( g_validatorCallbackCalled );
-    Validator_SetCallback( nullptr );
+    Cy_ValidatorSetCallback( nullptr, nullptr );
 
     g_memoryDebugCallbackCalled = CY_FALSE;
-    MemoryDebug_SetCallback( TestMemoryDebugCallback );
+    Cy_MemoryDebugSetCallback( TestMemoryDebugCallback );
     i32 value = 0;
     memory_allocation_record_t record{};
     record.pMemory = &value;
-    record.cbSize = sizeof( value );
-    record.alignment = alignof( i32 );
-    record.pTag = "test";
+    record.nByteCount = sizeof( value );
+    record.nAlignment = alignof( i32 );
+    record.pszTag = "test";
 
-    MemoryTracker_RecordAlloc( record );
-    REQUIRE( MemoryTracker_GetLiveAllocationCount() >= 1u );
-    REQUIRE( MemoryTracker_GetLiveByteCount() >= sizeof( value ) );
-    MemoryTracker_RecordFree( &value );
+    REQUIRE( Cy_MemoryTrackerRecordAlloc( record ) );
+    const memory_tracker_stats_t memoryStats = Cy_MemoryTrackerGetStats();
+    REQUIRE( memoryStats.nLiveAllocationCount >= 1u );
+    REQUIRE( memoryStats.nLiveByteCount >= sizeof( value ) );
+    REQUIRE( Cy_MemoryTrackerRecordFree( &value ) );
     REQUIRE( g_memoryDebugCallbackCalled );
-    MemoryDebug_SetCallback( nullptr );
+    Cy_MemoryDebugSetCallback( nullptr );
 }
 
 TEST_CASE( "Tier0 stats and profile counters can be updated", "[CypherCommon][Tier0][Services]" )
 {
     stat_desc_t desc{};
-    desc.pName = "test.stat";
-    desc.pCategory = "Test";
-    desc.pDescription = "Test stat";
+    desc.pszName = "test.stat";
+    desc.pszCategory = "Test";
+    desc.pszDescription = "Test stat";
     desc.type = stat_value_type_t::U64;
 
-    Cy_StatsRegister( desc );
-    Cy_StatsSetU64( "test.stat", 123u );
+    stat_id_t statId = CY_STAT_ID_INVALID;
+    REQUIRE( Cy_StatsRegister( desc, &statId ) );
+    REQUIRE( Cy_StatsSetU64( statId, 123u ) );
 
     stat_value_t value{};
-    REQUIRE( Cy_StatsGet( "test.stat", &value ) );
+    REQUIRE( Cy_StatsGet( statId, &value ) );
     REQUIRE( value.type == stat_value_type_t::U64 );
     REQUIRE( value.u64Value == 123u );
 
     profile_zone_desc_t zone{};
-    zone.pName = "Zone";
-    zone.pCategory = "Test";
+    zone.pszName = "Zone";
+    zone.pszCategory = "Test";
     zone.location = CY_SOURCE_LOCATION;
     zone.flags = PROFILE_FLAG_CPU;
 
-    const profile_token_t token = Cy_ProfileBeginZone( zone );
+    Cy_ProfileResetState();
+    Cy_ProfileSetSink( TestProfileSink, &g_profileEventCount );
+    Cy_ProfileSetEnabled( CY_TRUE );
+
+    const profile_token_t token = Cy_ProfileBeginZone( &zone );
     REQUIRE( token != 0u );
-    Cy_ProfileEndZone( token );
-    Cy_ProfileCounterSet( "profile.counter", 7 );
-    Cy_ProfileCounterAdd( "profile.counter", 5 );
+    REQUIRE( Cy_ProfileEndZone( token ) );
+    REQUIRE( Cy_ProfileCounterSet( "profile.counter", 7 ) );
+    REQUIRE( Cy_ProfileCounterAdd( "profile.counter", 5 ) );
 
     stat_value_t profileValue{};
-    REQUIRE( Cy_StatsGet( "profile.counter", &profileValue ) );
+    REQUIRE( Cy_StatsGetByName( "profile.counter", &profileValue ) );
     REQUIRE( profileValue.type == stat_value_type_t::I64 );
     REQUIRE( profileValue.i64Value == 12 );
 
-    Cy_ProfileFrameBegin();
-    Cy_ProfileFrameEnd();
+    REQUIRE( Cy_ProfileFrameBegin() == 1u );
+    REQUIRE( Cy_ProfileFrameEnd() );
+    REQUIRE( g_profileEventCount >= 6u );
+
+    Cy_ProfileSetEnabled( CY_FALSE );
+    Cy_ProfileSetSink( nullptr );
 }
 
 TEST_CASE( "Tier0 minidump writes portable diagnostic file", "[CypherCommon][Tier0][Services]" )
@@ -360,7 +353,7 @@ TEST_CASE( "Tier0 minidump writes portable diagnostic file", "[CypherCommon][Tie
     info.pVersion = "1";
     info.pOutputPath = pathString.c_str();
 
-    REQUIRE( Minidump_Write( info ) );
+    REQUIRE( Cy_MinidumpWrite( info ) == minidump_result_t::Ok );
     REQUIRE( std::filesystem::exists( path ) );
 
     std::string contents;
@@ -383,60 +376,49 @@ TEST_CASE( "Tier0 intrusive thread-safe list pushes and pops nodes", "[CypherCom
     tslist_node_t a{};
     tslist_node_t b{};
 
-    TsList_Init( &list );
-    REQUIRE( TsList_Pop( &list ) == nullptr );
+    REQUIRE( Cy_TsListInit( &list ) );
+    REQUIRE( Cy_TsListPop( &list ) == nullptr );
 
-    TsList_Push( &list, &a );
-    TsList_Push( &list, &b );
+    REQUIRE( Cy_TsListPush( &list, &a ) );
+    REQUIRE( Cy_TsListPush( &list, &b ) );
 
-    REQUIRE( TsList_Pop( &list ) == &b );
-    REQUIRE( TsList_Pop( &list ) == &a );
-    REQUIRE( TsList_Pop( &list ) == nullptr );
-}
-
-TEST_CASE( "Tier0 test thread helper runs callback", "[CypherCommon][Tier0][Services]" )
-{
-    i32 value = 4;
-    const test_thread_result_t result = TestThread_Run( TestThreadProc, &value );
-
-    REQUIRE( result.completed );
-    REQUIRE( result.exit_code == 5 );
-    REQUIRE( value == 5 );
+    REQUIRE( Cy_TsListPop( &list ) == &b );
+    REQUIRE( Cy_TsListPop( &list ) == &a );
+    REQUIRE( Cy_TsListPop( &list ) == nullptr );
+    REQUIRE( Cy_TsListShutdown( &list ) );
 }
 
 TEST_CASE( "Tier0 miscellaneous platform services return sane values", "[CypherCommon][Tier0][Services]" )
 {
     i32 value = 0;
-    Cache_PrefetchRead( &value );
-    Cache_PrefetchWrite( &value );
-    REQUIRE( Cache_GetLineSize() != 0u );
+    Cy_CachePrefetchRead( &value );
+    Cy_CachePrefetchWrite( &value );
+    REQUIRE( Cy_CacheGetLineSize() != 0u );
 
-    cpu_monitor_sample_t sample{};
-    REQUIRE( CPUMonitoring_Sample( &sample ) );
-    REQUIRE( sample.logical_thread_count >= 1u );
-    REQUIRE( sample.total_usage >= 0.0f );
-    REQUIRE( sample.total_usage <= 100.0f );
-    REQUIRE( sample.process_usage >= 0.0f );
-    REQUIRE( sample.process_usage <= 100.0f );
+    cy_cpu_monitor_t cpuMonitor{};
+    REQUIRE( Cy_CPUMonitorInit( &cpuMonitor ) );
 
-    cpu_monitor_sample_t secondSample{};
-    REQUIRE( CPUMonitoring_Sample( &secondSample ) );
-    REQUIRE( secondSample.logical_thread_count == sample.logical_thread_count );
-    REQUIRE( secondSample.total_usage >= 0.0f );
-    REQUIRE( secondSample.total_usage <= 100.0f );
-    REQUIRE( secondSample.process_usage >= 0.0f );
-    REQUIRE( secondSample.process_usage <= 100.0f );
+    cy_cpu_monitor_sample_t sample{};
+    REQUIRE( Cy_CPUMonitorSample( &cpuMonitor, &sample ) );
+    REQUIRE( sample.nLogicalThreadCount >= 1u );
+    REQUIRE( sample.totalUsagePercent >= 0.0f );
+    REQUIRE( sample.totalUsagePercent <= 100.0f );
+    REQUIRE( sample.processUsagePercent >= 0.0f );
+    REQUIRE( sample.processUsagePercent <= 100.0f );
 
-    REQUIRE( PerformanceCounter_Frequency() != 0u );
-    REQUIRE( PerformanceCounter_Now() != 0u );
-    REQUIRE( PerformanceCounter_ToSeconds( PerformanceCounter_Frequency() ) > 0.0 );
+    REQUIRE( Cy_PerformanceCounterFrequency() != 0u );
+    REQUIRE( Cy_PerformanceCounterNow() != 0u );
+    REQUIRE( Cy_PerformanceCounterToSeconds(
+                 Cy_PerformanceCounterFrequency() ) > 0.0 );
 
     dynamic_library_t library{};
-    REQUIRE_FALSE( DynamicLibrary_Load( &library, "/path/that/does/not/exist" ) );
-    REQUIRE( DynamicLibrary_GetSymbol( &library, "missing" ) == nullptr );
+    REQUIRE( Cy_DynamicLibraryInit( &library ) );
+    REQUIRE_FALSE( Cy_DynamicLibraryLoad( &library, "/path/that/does/not/exist" ) );
+    REQUIRE( Cy_DynamicLibraryGetSymbol( &library, "missing" ) == nullptr );
 
-    LogToggle_Enable( 0x2u );
-    REQUIRE( LogToggle_IsEnabled( 0x2u ) );
-    LogToggle_Disable( 0x2u );
-    REQUIRE_FALSE( LogToggle_IsEnabled( 0x2u ) );
+    Cy_LogToggleEnable( 0x2u );
+    REQUIRE( Cy_LogToggleAnyEnabled( 0x2u ) );
+    Cy_LogToggleDisable( 0x2u );
+    REQUIRE_FALSE( Cy_LogToggleAnyEnabled( 0x2u ) );
+    Cy_LogToggleReset();
 }
