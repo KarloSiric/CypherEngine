@@ -30,23 +30,40 @@ Operating-system memory declarations.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
 namespace cypher::common
 {
 
 struct platform_memory_info_t {
-    usize page_size;
-    usize allocation_granularity;
-    u64 total_physical_memory;
-    u64 available_physical_memory;
+    usize nPageSize;
+    usize nAllocationGranularity;
+    u64 nTotalPhysicalBytes;
+    u64 nAvailablePhysicalBytes;
 };
 
-platform_memory_info_t PlatformMemory_GetInfo();
-void *PlatformMemory_Reserve( usize cbSize );
-bool_t PlatformMemory_Commit( void *pMemory, usize cbSize );
-void PlatformMemory_Decommit( void *pMemory, usize cbSize );
-void PlatformMemory_Release( void *pMemory, usize cbSize );
+// Queries page geometry and current physical-memory totals directly from the OS.
+[[nodiscard]] CYPHER_COMMON_API platform_memory_info_t Cy_PlatformMemoryGetInfo() noexcept;
+
+// Reserves inaccessible virtual address space without committing physical pages.
+[[nodiscard]] CYPHER_COMMON_API void *Cy_PlatformMemoryReserve(
+    usize nByteCount ) noexcept;
+
+// Commits read/write pages inside a reservation.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PlatformMemoryCommit(
+    void *pMemory,
+    usize nByteCount ) noexcept;
+
+// Revokes access to committed pages and requests physical-page reclamation.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PlatformMemoryDecommit(
+    void *pMemory,
+    usize nByteCount ) noexcept;
+
+// Releases a complete reservation. POSIX callers must provide its original size.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PlatformMemoryRelease(
+    void *pMemory,
+    usize nByteCount ) noexcept;
 
 } // namespace cypher::common
 
