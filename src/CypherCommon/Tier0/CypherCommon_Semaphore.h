@@ -30,7 +30,9 @@ availability tracking.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
+#include "CypherCommon_Thread.h"
 
 #include <condition_variable>
 #include <mutex>
@@ -43,32 +45,58 @@ struct cy_semaphore_t {
     std::condition_variable nativeCondition;
     u32 nCount = 0u;
     u32 nMaxCount = CY_U32_MAX;
-    bool_t bInitialized = CY_FALSE;
+    u32 nWaiterCount = 0u;
+    bool_t isInitialized = CY_FALSE;
 };
 
 // Initializes a counting semaphore.
-bool_t Cy_SemaphoreInit( cy_semaphore_t *pSemaphore, u32 nInitialCount, u32 nMaxCount );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SemaphoreInit(
+    cy_semaphore_t *pSemaphore,
+    u32 nInitialCount,
+    u32 nMaxCount ) noexcept;
 
-// Shuts down a semaphore and wakes waiters so they can leave.
-void Cy_SemaphoreShutdown( cy_semaphore_t *pSemaphore );
+// Wakes blocked waiters and waits until they leave the semaphore.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SemaphoreShutdown(
+    cy_semaphore_t *pSemaphore ) noexcept;
 
 // Returns whether the semaphore has been initialized.
-bool_t Cy_SemaphoreIsInitialized( const cy_semaphore_t *pSemaphore );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SemaphoreIsInitialized(
+    const cy_semaphore_t *pSemaphore ) noexcept;
 
 // Posts count units and wakes waiting threads.
-bool_t Cy_SemaphorePost( cy_semaphore_t *pSemaphore, u32 nCount = 1u );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SemaphorePost(
+    cy_semaphore_t *pSemaphore,
+    u32 nCount = 1u ) noexcept;
 
 // Waits until one unit is available or the semaphore is shut down.
-bool_t Cy_SemaphoreWait( cy_semaphore_t *pSemaphore );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SemaphoreWait(
+    cy_semaphore_t *pSemaphore ) noexcept;
 
 // Attempts to consume one unit without blocking.
-bool_t Cy_SemaphoreTryWait( cy_semaphore_t *pSemaphore );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SemaphoreTryWait(
+    cy_semaphore_t *pSemaphore ) noexcept;
 
 // Waits until one unit is available, shutdown happens, or timeout expires.
-bool_t Cy_SemaphoreWaitTimeoutMs( cy_semaphore_t *pSemaphore, u32 nMilliseconds );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SemaphoreWaitTimeoutMs(
+    cy_semaphore_t *pSemaphore,
+    u32 nMilliseconds ) noexcept;
+
+// Detailed wait result that distinguishes acquire, timeout, shutdown, and misuse.
+[[nodiscard]] CYPHER_COMMON_API cy_wait_result_t Cy_SemaphoreWaitResult(
+    cy_semaphore_t *pSemaphore ) noexcept;
+
+// Detailed timed wait result.
+[[nodiscard]] CYPHER_COMMON_API cy_wait_result_t Cy_SemaphoreWaitTimeoutMsResult(
+    cy_semaphore_t *pSemaphore,
+    u32 nMilliseconds ) noexcept;
 
 // Returns the current count for diagnostics.
-u32 Cy_SemaphoreGetCount( cy_semaphore_t *pSemaphore );
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_SemaphoreGetCount(
+    const cy_semaphore_t *pSemaphore ) noexcept;
+
+// Returns the number of threads currently blocked in semaphore waits.
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_SemaphoreGetWaiterCount(
+    const cy_semaphore_t *pSemaphore ) noexcept;
 
 } // namespace cypher::common
 
