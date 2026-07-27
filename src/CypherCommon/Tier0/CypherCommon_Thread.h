@@ -32,7 +32,11 @@ debugger/profiler naming.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
+
+#include <atomic>
+#include <thread>
 
 namespace cypher::common
 {
@@ -40,45 +44,84 @@ namespace cypher::common
 using thread_id_t = u64;
 
 constexpr thread_id_t CY_THREAD_INVALID_ID = 0u;
+constexpr usize CY_THREAD_NAME_CAPACITY = 64u;
+
+enum class cy_wait_result_t : u8 {
+    Success = 0u,
+    Timeout,
+    Shutdown,
+    Invalid
+};
+
+using thread_proc_t = i32 ( * )( void *pUserData ) noexcept;
+
+struct cy_thread_t {
+    std::thread native;
+    std::atomic<thread_id_t> nThreadId{ CY_THREAD_INVALID_ID };
+    std::atomic<bool_t> isRunning{ CY_FALSE };
+    i32 nResult = 0;
+    char szName[CY_THREAD_NAME_CAPACITY] = {};
+};
 
 // Initializes thread state and captures the calling thread as the main thread.
-bool_t Cy_ThreadInit();
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadInit() noexcept;
 
 // Resets captured thread state for controlled shutdown and tests.
-void Cy_ThreadShutdown();
+CYPHER_COMMON_API void Cy_ThreadShutdown() noexcept;
 
 // Returns whether the thread module has captured a main thread.
-bool_t Cy_ThreadIsInitialized();
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadIsInitialized() noexcept;
 
 // Yields the current thread's remaining scheduler time slice.
-void Cy_ThreadYield();
+CYPHER_COMMON_API void Cy_ThreadYield() noexcept;
 
 // Sleeps the current thread for at least the requested milliseconds.
-void Cy_ThreadSleepMs( u32 nMilliseconds );
+CYPHER_COMMON_API void Cy_ThreadSleepMs( u32 nMilliseconds ) noexcept;
 
 // Sleeps the current thread for at least the requested microseconds.
-void Cy_ThreadSleepUs( u32 nMicroseconds );
+CYPHER_COMMON_API void Cy_ThreadSleepUs( u32 nMicroseconds ) noexcept;
 
-// Returns a process-local stable hash for the calling thread id.
-thread_id_t Cy_ThreadGetCurrentId();
+// Returns a collision-free process-local ID assigned lazily to the calling thread.
+[[nodiscard]] CYPHER_COMMON_API thread_id_t Cy_ThreadGetCurrentId() noexcept;
 
-// Returns a process-local stable hash for the calling thread id.
-u64 Cy_ThreadGetCurrentIdHash();
+// Compatibility name for diagnostics that expect a numeric thread token.
+[[nodiscard]] CYPHER_COMMON_API u64 Cy_ThreadGetCurrentIdHash() noexcept;
 
 // Returns detected hardware concurrency, falling back to one.
-u32 Cy_ThreadGetLogicalCount();
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_ThreadGetLogicalCount() noexcept;
 
-// Captures the current thread as the engine main thread.
-void Cy_ThreadCaptureMainThread();
+// Captures the caller as main; refuses to replace a different captured thread.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadCaptureMainThread() noexcept;
 
 // Returns the captured main thread id, or CY_THREAD_INVALID_ID if unset.
-thread_id_t Cy_ThreadGetMainThreadId();
+[[nodiscard]] CYPHER_COMMON_API thread_id_t Cy_ThreadGetMainThreadId() noexcept;
 
 // Returns true when called from the captured main thread.
-bool_t Cy_ThreadIsMainThread();
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadIsMainThread() noexcept;
 
 // Best-effort current-thread name for debugger and profiler views.
-void Cy_ThreadSetCurrentName( const char *pszName );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadSetCurrentName(
+    const char *pszName ) noexcept;
+
+// Starts a joinable engine thread. The thread object must remain at a stable address.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadCreate(
+    cy_thread_t *pThread,
+    thread_proc_t pProc,
+    void *pUserData,
+    const char *pszName = nullptr ) noexcept;
+
+// Joins a thread and optionally returns its procedure result.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadJoin(
+    cy_thread_t *pThread,
+    i32 *pOutResult = nullptr ) noexcept;
+
+// Returns whether the created thread has not yet returned from its procedure.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadIsRunning(
+    const cy_thread_t *pThread ) noexcept;
+
+// Returns the assigned process-local ID, or invalid before the thread starts.
+[[nodiscard]] CYPHER_COMMON_API thread_id_t Cy_ThreadGetId(
+    const cy_thread_t *pThread ) noexcept;
 
 } // namespace cypher::common
 
