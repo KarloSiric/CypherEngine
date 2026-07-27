@@ -30,18 +30,55 @@ Runtime shared library declarations.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
+#include "CypherCommon_Defines.h"
 
 namespace cypher::common
 {
 
-struct dynamic_library_t {
-    void *pHandle;
+constexpr usize CY_DYNAMIC_LIBRARY_ERROR_MAX = 512u;
+
+enum cy_dynamic_library_flags_t : flags32_t {
+    CY_DYNAMIC_LIBRARY_NONE = 0u,
+    CY_DYNAMIC_LIBRARY_RESOLVE_LAZY = CYPHER_BIT32( 0 ),
+    CY_DYNAMIC_LIBRARY_GLOBAL_SYMBOLS = CYPHER_BIT32( 1 )
 };
 
-bool_t DynamicLibrary_Load( dynamic_library_t *pLibrary, const char *pPath );
-void DynamicLibrary_Unload( dynamic_library_t *pLibrary );
-void *DynamicLibrary_GetSymbol( dynamic_library_t *pLibrary, const char *pSymbolName );
+struct dynamic_library_t {
+    void *pHandle = nullptr;
+    char szLastError[CY_DYNAMIC_LIBRARY_ERROR_MAX] = {};
+};
+
+// Initializes an unloaded library handle.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DynamicLibraryInit(
+    dynamic_library_t *pLibrary ) noexcept;
+
+// Loads with immediate symbol resolution and local symbol visibility.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DynamicLibraryLoad(
+    dynamic_library_t *pLibrary,
+    const char *pszPath ) noexcept;
+
+// Loads with explicit resolution and symbol visibility flags.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DynamicLibraryLoadEx(
+    dynamic_library_t *pLibrary,
+    const char *pszPath,
+    flags32_t flags ) noexcept;
+
+// Unloads a library. Calling this on an unloaded initialized handle succeeds.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DynamicLibraryUnload(
+    dynamic_library_t *pLibrary ) noexcept;
+
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DynamicLibraryIsLoaded(
+    const dynamic_library_t *pLibrary ) noexcept;
+
+// Resolves one exported symbol and records platform diagnostics on failure.
+[[nodiscard]] CYPHER_COMMON_API void *Cy_DynamicLibraryGetSymbol(
+    dynamic_library_t *pLibrary,
+    const char *pszSymbolName ) noexcept;
+
+[[nodiscard]] CYPHER_COMMON_API const char *Cy_DynamicLibraryGetLastError(
+    const dynamic_library_t *pLibrary ) noexcept;
 
 } // namespace cypher::common
 
