@@ -26,20 +26,47 @@ namespace
 
 std::mutex g_memoryDebugMutex;
 memory_debug_callback_t g_memoryDebugCallback = nullptr;
+void *g_pMemoryDebugContext = nullptr;
+thread_local bool_t g_isInsideMemoryDebugCallback = CY_FALSE;
 
 } // namespace
 
-void MemoryDebug_SetCallback( memory_debug_callback_t callback )
+void Cy_MemoryDebugSetCallback(
+    memory_debug_callback_t pCallback,
+    void *pContext ) noexcept
 {
     std::lock_guard<std::mutex> lock( g_memoryDebugMutex );
-    g_memoryDebugCallback = callback;
+    g_memoryDebugCallback = pCallback;
+    g_pMemoryDebugContext = pCallback != nullptr ? pContext : nullptr;
 }
 
-void MemoryDebug_ReportEvent( memory_debug_event_t event_type, void *pMemory, usize cbSize, const char *pTag )
+memory_debug_callback_t Cy_MemoryDebugGetCallback( void **ppOutContext ) noexcept
 {
     std::lock_guard<std::mutex> lock( g_memoryDebugMutex );
-    if ( g_memoryDebugCallback != nullptr ) {
-        g_memoryDebugCallback( event_type, pMemory, cbSize, pTag );
+    if ( ppOutContext != nullptr ) {
+        *ppOutContext = g_pMemoryDebugContext;
+    }
+    return g_memoryDebugCallback;
+}
+
+void Cy_MemoryDebugReportEvent( const memory_debug_record_t &record ) noexcept
+{
+    if ( g_isInsideMemoryDebugCallback ) {
+        return;
+    }
+
+    memory_debug_callback_t pCallback = nullptr;
+    void *pContext = nullptr;
+    {
+        std::lock_guard<std::mutex> lock( g_memoryDebugMutex );
+        pCallback = g_memoryDebugCallback;
+        pContext = g_pMemoryDebugContext;
+    }
+
+    if ( pCallback != nullptr ) {
+        g_isInsideMemoryDebugCallback = CY_TRUE;
+        pCallback( record, pContext );
+        g_isInsideMemoryDebugCallback = CY_FALSE;
     }
 }
 
