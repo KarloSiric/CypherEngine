@@ -58,7 +58,7 @@ void BM_PopCount32_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         i32 nAccum = 0;
         for ( u32 nValue : values.nValues32 ) {
-            nAccum += PopCount32( nValue );
+            nAccum += Cy_PopCount32( nValue );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -71,7 +71,7 @@ void BM_PopCount64_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         i32 nAccum = 0;
         for ( u64 nValue : values.nValues64 ) {
-            nAccum += PopCount64( nValue );
+            nAccum += Cy_PopCount64( nValue );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -84,7 +84,7 @@ void BM_FindLowestSetBit32_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         i32 nAccum = 0;
         for ( u32 nValue : values.nValues32 ) {
-            nAccum += FindLowestSetBit32( nValue );
+            nAccum += Cy_FindLowestSetBit32( nValue );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -97,7 +97,7 @@ void BM_FindHighestSetBit32_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         i32 nAccum = 0;
         for ( u32 nValue : values.nValues32 ) {
-            nAccum += FindHighestSetBit32( nValue );
+            nAccum += Cy_FindHighestSetBit32( nValue );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -110,7 +110,7 @@ void BM_NextPowerOfTwo32_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         u32 nAccum = 0u;
         for ( u32 nValue : values.nValues32 ) {
-            nAccum += NextPowerOfTwo32( nValue & 0x00FFFFFFu );
+            nAccum += Cy_NextPowerOfTwo32( nValue & 0x00FFFFFFu );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -123,9 +123,9 @@ void BM_FlagHelpers32_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         u32 nAccum = 0u;
         for ( u32 nValue : values.nValues32 ) {
-            nAccum ^= SetFlags( nValue, 0x0000000Fu );
-            nAccum ^= ClearFlags( nValue, 0x000000F0u );
-            nAccum ^= ToggleFlags( nValue, 0x00000F00u );
+            nAccum ^= Cy_SetFlags( nValue, 0x0000000Fu );
+            nAccum ^= Cy_ClearFlags( nValue, 0x000000F0u );
+            nAccum ^= Cy_ToggleFlags( nValue, 0x00000F00u );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -138,7 +138,7 @@ void BM_RotateLeft32_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         u32 nAccum = 0u;
         for ( u32 nValue : values.nValues32 ) {
-            nAccum ^= RotateLeft32( nValue, 13 );
+            nAccum ^= Cy_RotateLeft32( nValue, 13 );
         }
         benchmark::DoNotOptimize( nAccum );
     }
