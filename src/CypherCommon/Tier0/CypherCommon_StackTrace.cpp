@@ -40,14 +40,14 @@ namespace
 
 constexpr u32 CYPHER_STACK_TRACE_CAPTURE_LIMIT = 128u;
 
-u32 ClampCaptureCount( u32 cMaxFrames )
+constexpr u32 ClampCaptureCount( u32 cMaxFrames ) noexcept
 {
     return cMaxFrames < CYPHER_STACK_TRACE_MAX_FRAMES ? cMaxFrames : CYPHER_STACK_TRACE_MAX_FRAMES;
 }
 
 } // namespace
 
-void Cy_StackTraceClear( stack_trace_t *pTrace )
+void Cy_StackTraceClear( stack_trace_t *pTrace ) noexcept
 {
     if ( pTrace == nullptr ) {
         return;
@@ -59,7 +59,7 @@ void Cy_StackTraceClear( stack_trace_t *pTrace )
     }
 }
 
-u32 Cy_StackTraceCapture( stack_trace_t *pTrace, u32 cMaxFrames, u32 cSkipFrames )
+u32 Cy_StackTraceCapture( stack_trace_t *pTrace, u32 cMaxFrames, u32 cSkipFrames ) noexcept
 {
     if ( pTrace == nullptr ) {
         return 0u;
@@ -72,15 +72,20 @@ u32 Cy_StackTraceCapture( stack_trace_t *pTrace, u32 cMaxFrames, u32 cSkipFrames
         return 0u;
     }
 
+    // One internal capture frame is always skipped in addition to caller input.
+    if ( cSkipFrames >= CYPHER_STACK_TRACE_CAPTURE_LIMIT - 1u ) {
+        return 0u;
+    }
+
 #if CYPHER_PLATFORM_WINDOWS
     void *pCaptured[CYPHER_STACK_TRACE_MAX_FRAMES] = {};
-    const ULONG cCaptured = CaptureStackBackTrace(
+    const USHORT cCaptured = CaptureStackBackTrace(
         static_cast<DWORD>( cSkipFrames + 1u ),
         static_cast<DWORD>( cOutputMax ),
         pCaptured,
         nullptr );
 
-    for ( ULONG iFrame = 0u; iFrame < cCaptured; ++iFrame ) {
+    for ( USHORT iFrame = 0u; iFrame < cCaptured; ++iFrame ) {
         pTrace->frames[iFrame].address = pCaptured[iFrame];
     }
 
@@ -88,10 +93,11 @@ u32 Cy_StackTraceCapture( stack_trace_t *pTrace, u32 cMaxFrames, u32 cSkipFrames
     return pTrace->frame_count;
 #elif CYPHER_PLATFORM_POSIX
     void *pCaptured[CYPHER_STACK_TRACE_CAPTURE_LIMIT] = {};
-    u32 cRequested = cOutputMax + cSkipFrames + 1u;
-    if ( cRequested > CYPHER_STACK_TRACE_CAPTURE_LIMIT ) {
-        cRequested = CYPHER_STACK_TRACE_CAPTURE_LIMIT;
-    }
+    const u32 cAvailableAfterSkip = CYPHER_STACK_TRACE_CAPTURE_LIMIT - cSkipFrames - 1u;
+    const u32 cRequestedOutput = cOutputMax < cAvailableAfterSkip
+        ? cOutputMax
+        : cAvailableAfterSkip;
+    const u32 cRequested = cRequestedOutput + cSkipFrames + 1u;
 
     const int cCaptured = ::backtrace( pCaptured, static_cast<int>( cRequested ) );
     if ( cCaptured <= 0 ) {
@@ -116,7 +122,7 @@ u32 Cy_StackTraceCapture( stack_trace_t *pTrace, u32 cMaxFrames, u32 cSkipFrames
 #endif
 }
 
-u32 Cy_StackTraceGetFrameCount( const stack_trace_t *pTrace )
+u32 Cy_StackTraceGetFrameCount( const stack_trace_t *pTrace ) noexcept
 {
     if ( pTrace == nullptr ) {
         return 0u;
@@ -125,7 +131,7 @@ u32 Cy_StackTraceGetFrameCount( const stack_trace_t *pTrace )
     return pTrace->frame_count;
 }
 
-void *Cy_StackTraceGetFrameAddress( const stack_trace_t *pTrace, u32 iFrame )
+void *Cy_StackTraceGetFrameAddress( const stack_trace_t *pTrace, u32 iFrame ) noexcept
 {
     if ( pTrace == nullptr || iFrame >= pTrace->frame_count || iFrame >= CYPHER_STACK_TRACE_MAX_FRAMES ) {
         return nullptr;
@@ -134,7 +140,7 @@ void *Cy_StackTraceGetFrameAddress( const stack_trace_t *pTrace, u32 iFrame )
     return pTrace->frames[iFrame].address;
 }
 
-bool_t Cy_StackTraceIsEmpty( const stack_trace_t *pTrace )
+bool_t Cy_StackTraceIsEmpty( const stack_trace_t *pTrace ) noexcept
 {
     return Cy_StackTraceGetFrameCount( pTrace ) == 0u;
 }
