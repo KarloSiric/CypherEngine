@@ -20,6 +20,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <thread>
+
 using namespace cypher::common;
 
 namespace
@@ -76,4 +79,40 @@ TEST_CASE( "CPUDetect exposes expected baseline architecture features", "[Cypher
     REQUIRE( Cy_CPUDetectHasFeature( pInfo->hardwareFeatures, CY_CPU_FEATURE_NEON ) );
     REQUIRE( Cy_CPUDetectHasFeature( pInfo->usableFeatures, CY_CPU_FEATURE_NEON ) );
 #endif
+}
+
+TEST_CASE( "CPUDetect publishes one immutable snapshot across threads", "[CypherCommon][Tier0][CPUDetect]" )
+{
+    constexpr usize THREAD_COUNT = 16u;
+    std::array<const cy_cpu_detect_info_t *, THREAD_COUNT> results = {};
+    std::array<std::thread, THREAD_COUNT> threads;
+
+    for ( usize i = 0u; i < THREAD_COUNT; ++i ) {
+        threads[i] = std::thread( [&results, i]() {
+            results[i] = Cy_CPUDetectGetInfo();
+        } );
+    }
+
+    for ( std::thread &thread : threads ) {
+        thread.join();
+    }
+
+    const cy_cpu_detect_info_t *pExpected = Cy_CPUDetectGetInfo();
+    for ( const cy_cpu_detect_info_t *pResult : results ) {
+        REQUIRE( pResult == pExpected );
+    }
+}
+
+TEST_CASE( "CPUDetect feature queries require every requested bit", "[CypherCommon][Tier0][CPUDetect]" )
+{
+    const flags64_t features =
+        static_cast<flags64_t>( CY_CPU_FEATURE_SSE2 ) |
+        static_cast<flags64_t>( CY_CPU_FEATURE_SSE3 );
+    const auto combined = static_cast<cy_cpu_feature_flags_t>(
+        static_cast<flags64_t>( CY_CPU_FEATURE_SSE2 ) |
+        static_cast<flags64_t>( CY_CPU_FEATURE_AVX ) );
+
+    REQUIRE_FALSE( Cy_CPUDetectHasFeature( features, CY_CPU_FEATURE_NONE ) );
+    REQUIRE( Cy_CPUDetectHasFeature( features, CY_CPU_FEATURE_SSE2 ) );
+    REQUIRE_FALSE( Cy_CPUDetectHasFeature( features, combined ) );
 }
