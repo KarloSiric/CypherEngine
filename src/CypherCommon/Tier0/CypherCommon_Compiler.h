@@ -36,34 +36,111 @@ Compiler identity and feature declarations.
 namespace cypher::common
 {
 
-struct compiler_info_t {
-    const char *pName;
-    u32 version;
-    bool_t has_exceptions;
-    bool_t has_rtti;
+enum class compiler_type_t : u8 {
+    Unknown = 0u,
+    Msvc,
+    Clang,
+    Gcc
 };
 
+struct compiler_info_t {
+    compiler_type_t type = compiler_type_t::Unknown;
+    const char *pName = "Unknown";
+
+    u32 version = 0u;
+    u32 versionMajor = 0u;
+    u32 versionMinor = 0u;
+    u32 versionPatch = 0u;
+
+    bool_t isClangCl = CY_FALSE;
+    bool_t usesMsvcAbi = CY_FALSE;
+    bool_t hasExceptions = CY_FALSE;
+    bool_t hasRtti = CY_FALSE;
+};
+
+// Returns the normalized compiler frontend selected by platform detection.
+[[nodiscard]] constexpr compiler_type_t Cy_CompilerGetType() noexcept
+{
+#if CYPHER_COMPILER_MSVC
+    return compiler_type_t::Msvc;
+#elif CYPHER_COMPILER_CLANG
+    return compiler_type_t::Clang;
+#elif CYPHER_COMPILER_GCC
+    return compiler_type_t::Gcc;
+#else
+    return compiler_type_t::Unknown;
+#endif
+}
+
 // Returns the compiler identity detected by CypherCommon_Platform.h.
-inline compiler_info_t Compiler_GetInfo()
+[[nodiscard]] constexpr compiler_info_t Cy_CompilerGetInfo() noexcept
 {
     compiler_info_t info = {};
+    info.type = Cy_CompilerGetType();
     info.pName = CYPHER_COMPILER_NAME;
     info.version = static_cast<u32>( CYPHER_COMPILER_VERSION );
-    info.has_exceptions = CYPHER_CPP_EXCEPTIONS != 0;
-    info.has_rtti = CYPHER_CPP_RTTI != 0;
+    info.versionMajor = static_cast<u32>( CYPHER_COMPILER_VERSION_MAJOR );
+    info.versionMinor = static_cast<u32>( CYPHER_COMPILER_VERSION_MINOR );
+    info.versionPatch = static_cast<u32>( CYPHER_COMPILER_VERSION_PATCH );
+    info.isClangCl = CYPHER_COMPILER_CLANG_CL != 0;
+    info.usesMsvcAbi = CYPHER_COMPILER_MSVC_ABI != 0;
+    info.hasExceptions = CYPHER_CPP_EXCEPTIONS != 0;
+    info.hasRtti = CYPHER_CPP_RTTI != 0;
     return info;
 }
 
 // Returns the normalized compiler name string.
-inline const char *Compiler_GetName()
+[[nodiscard]] constexpr const char *Cy_CompilerGetName() noexcept
 {
     return CYPHER_COMPILER_NAME;
 }
 
 // Returns a packed compiler version value.
-inline u32 Compiler_GetVersion()
+[[nodiscard]] constexpr u32 Cy_CompilerGetVersion() noexcept
 {
     return static_cast<u32>( CYPHER_COMPILER_VERSION );
+}
+
+// Returns the compiler frontend's major version component.
+[[nodiscard]] constexpr u32 Cy_CompilerGetVersionMajor() noexcept
+{
+    return static_cast<u32>( CYPHER_COMPILER_VERSION_MAJOR );
+}
+
+// Returns the compiler frontend's minor version component.
+[[nodiscard]] constexpr u32 Cy_CompilerGetVersionMinor() noexcept
+{
+    return static_cast<u32>( CYPHER_COMPILER_VERSION_MINOR );
+}
+
+// Returns the compiler frontend's patch or toolset build component.
+[[nodiscard]] constexpr u32 Cy_CompilerGetVersionPatch() noexcept
+{
+    return static_cast<u32>( CYPHER_COMPILER_VERSION_PATCH );
+}
+
+// Returns whether the frontend is Clang operating in clang-cl mode.
+[[nodiscard]] constexpr bool_t Cy_CompilerIsClangCl() noexcept
+{
+    return CYPHER_COMPILER_CLANG_CL != 0;
+}
+
+// Returns whether the compiler targets the Microsoft C++ ABI.
+[[nodiscard]] constexpr bool_t Cy_CompilerUsesMsvcAbi() noexcept
+{
+    return CYPHER_COMPILER_MSVC_ABI != 0;
+}
+
+// Returns whether language-level C++ exceptions are enabled.
+[[nodiscard]] constexpr bool_t Cy_CompilerHasExceptions() noexcept
+{
+    return CYPHER_CPP_EXCEPTIONS != 0;
+}
+
+// Returns whether C++ runtime type information is enabled.
+[[nodiscard]] constexpr bool_t Cy_CompilerHasRtti() noexcept
+{
+    return CYPHER_CPP_RTTI != 0;
 }
 
 } // namespace cypher::common
