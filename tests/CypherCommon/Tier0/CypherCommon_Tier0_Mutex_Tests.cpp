@@ -19,6 +19,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
 #include <thread>
 #include <vector>
 
@@ -30,10 +31,12 @@ TEST_CASE( "Mutex init and shutdown update initialized state", "[CypherCommon][T
 
     REQUIRE_FALSE( Cy_MutexIsInitialized( &mutex ) );
     REQUIRE( Cy_MutexInit( &mutex ) );
+    REQUIRE_FALSE( Cy_MutexInit( &mutex ) );
     REQUIRE( Cy_MutexIsInitialized( &mutex ) );
 
-    Cy_MutexShutdown( &mutex );
+    REQUIRE( Cy_MutexShutdown( &mutex ) );
     REQUIRE_FALSE( Cy_MutexIsInitialized( &mutex ) );
+    REQUIRE_FALSE( Cy_MutexShutdown( &mutex ) );
 }
 
 TEST_CASE( "Mutex try lock reports ownership availability", "[CypherCommon][Tier0][Mutex]" )
@@ -44,9 +47,10 @@ TEST_CASE( "Mutex try lock reports ownership availability", "[CypherCommon][Tier
     REQUIRE( Cy_MutexTryLock( &mutex ) );
     REQUIRE_FALSE( Cy_MutexTryLock( &mutex ) );
 
-    Cy_MutexUnlock( &mutex );
+    REQUIRE( Cy_MutexIsOwnedByCurrentThread( &mutex ) );
+    REQUIRE( Cy_MutexUnlock( &mutex ) );
     REQUIRE( Cy_MutexTryLock( &mutex ) );
-    Cy_MutexUnlock( &mutex );
+    REQUIRE( Cy_MutexUnlock( &mutex ) );
 }
 
 TEST_CASE( "Mutex protects a shared counter across worker threads", "[CypherCommon][Tier0][Mutex]" )
@@ -56,6 +60,7 @@ TEST_CASE( "Mutex protects a shared counter across worker threads", "[CypherComm
 
     cy_mutex_t mutex{};
     i32 nCounter = 0;
+    std::atomic<bool_t> allOperationsSucceeded{ CY_TRUE };
 
     REQUIRE( Cy_MutexInit( &mutex ) );
 
@@ -65,9 +70,15 @@ TEST_CASE( "Mutex protects a shared counter across worker threads", "[CypherComm
     for ( u32 nThreadIndex = 0u; nThreadIndex < kThreadCount; ++nThreadIndex ) {
         workers.emplace_back( [&]() {
             for ( u32 i = 0u; i < kIterationsPerThread; ++i ) {
-                Cy_MutexLock( &mutex );
+                if ( !Cy_MutexLock( &mutex ) ) {
+                    allOperationsSucceeded.store( CY_FALSE );
+                    return;
+                }
                 ++nCounter;
-                Cy_MutexUnlock( &mutex );
+                if ( !Cy_MutexUnlock( &mutex ) ) {
+                    allOperationsSucceeded.store( CY_FALSE );
+                    return;
+                }
             }
         } );
     }
@@ -76,7 +87,9 @@ TEST_CASE( "Mutex protects a shared counter across worker threads", "[CypherComm
         worker.join();
     }
 
+    REQUIRE( allOperationsSucceeded.load() );
     REQUIRE( nCounter == static_cast<i32>( kThreadCount * kIterationsPerThread ) );
+    REQUIRE( Cy_MutexShutdown( &mutex ) );
 }
 
 TEST_CASE( "Recursive mutex allows same thread to lock multiple times", "[CypherCommon][Tier0][Mutex]" )
@@ -86,9 +99,35 @@ TEST_CASE( "Recursive mutex allows same thread to lock multiple times", "[Cypher
     REQUIRE( Cy_RecursiveMutexInit( &mutex ) );
     REQUIRE( Cy_RecursiveMutexIsInitialized( &mutex ) );
 
-    Cy_RecursiveMutexLock( &mutex );
+    REQUIRE( Cy_RecursiveMutexLock( &mutex ) );
     REQUIRE( Cy_RecursiveMutexTryLock( &mutex ) );
+    REQUIRE( Cy_RecursiveMutexIsOwnedByCurrentThread( &mutex ) );
+    REQUIRE( mutex.nRecursionDepth.load() == 2u );
 
-    Cy_RecursiveMutexUnlock( &mutex );
-    Cy_RecursiveMutexUnlock( &mutex );
+    REQUIRE( Cy_RecursiveMutexUnlock( &mutex ) );
+    REQUIRE( Cy_RecursiveMutexUnlock( &mutex ) );
+    REQUIRE( Cy_RecursiveMutexShutdown( &mutex ) );
+}
+
+TEST_CASE( "Mutex rejects invalid lifecycle and wrong-thread unlock", "[CypherCommon][Tier0][Mutex]" )
+{
+    cy_mutex_t mutex{};
+    REQUIRE_FALSE( Cy_MutexLock( &mutex ) );
+    REQUIRE_FALSE( Cy_MutexUnlock( &mutex ) );
+    REQUIRE( Cy_MutexInit( &mutex ) );
+    REQUIRE( Cy_MutexLock( &mutex ) );
+    REQUIRE_FALSE( Cy_MutexShutdown( &mutex ) );
+
+    bool_t didWorkerUnlock = CY_TRUE;
+    bool_t didWorkerTryLock = CY_TRUE;
+    std::thread worker( [&]() {
+        didWorkerUnlock = Cy_MutexUnlock( &mutex );
+        didWorkerTryLock = Cy_MutexTryLock( &mutex );
+    } );
+    worker.join();
+
+    REQUIRE_FALSE( didWorkerUnlock );
+    REQUIRE_FALSE( didWorkerTryLock );
+    REQUIRE( Cy_MutexUnlock( &mutex ) );
+    REQUIRE( Cy_MutexShutdown( &mutex ) );
 }
