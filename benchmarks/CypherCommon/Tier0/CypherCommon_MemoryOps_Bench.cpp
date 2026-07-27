@@ -90,7 +90,7 @@ void BM_MemCopy_Bytes( benchmark::State &state )
     const usize nBytes = static_cast<usize>( state.range( 0 ) );
 
     for ( auto _ : state ) {
-        MemCopy( buffers.nDst.data(), buffers.nSrc.data(), nBytes );
+        Cy_MemCopy( buffers.nDst.data(), buffers.nSrc.data(), nBytes );
         benchmark::DoNotOptimize( buffers.nDst.data() );
         benchmark::ClobberMemory();
     }
@@ -105,7 +105,7 @@ void BM_MemCopy_Aligned4KB( benchmark::State &state )
     const u8 *pSrc = buffers.nSrc.data();
 
     for ( auto _ : state ) {
-        MemCopy( pDst, pSrc, kMediumBytes );
+        Cy_MemCopy( pDst, pSrc, kMediumBytes );
         benchmark::DoNotOptimize( pDst );
         benchmark::ClobberMemory();
     }
@@ -120,7 +120,7 @@ void BM_MemCopy_Unaligned4KB( benchmark::State &state )
     const u8 *pSrc = buffers.nSrc.data() + 3u;
 
     for ( auto _ : state ) {
-        MemCopy( pDst, pSrc, kMediumBytes );
+        Cy_MemCopy( pDst, pSrc, kMediumBytes );
         benchmark::DoNotOptimize( pDst );
         benchmark::ClobberMemory();
     }
@@ -139,7 +139,7 @@ void BM_MemCopy_Coldish4KB( benchmark::State &state )
         TouchColdBuffer( buffers );
         state.ResumeTiming();
 
-        MemCopy( pDst, pSrc, kMediumBytes );
+        Cy_MemCopy( pDst, pSrc, kMediumBytes );
         benchmark::DoNotOptimize( pDst );
         benchmark::ClobberMemory();
     }
@@ -166,7 +166,7 @@ void BM_MemMove_Overlap4KB( benchmark::State &state )
     memoryops_bench_buffers_t &buffers = GetBuffers();
 
     for ( auto _ : state ) {
-        MemMove( buffers.nDst.data() + 16u, buffers.nDst.data(), kMediumBytes );
+        Cy_MemMove( buffers.nDst.data() + 16u, buffers.nDst.data(), kMediumBytes );
         benchmark::DoNotOptimize( buffers.nDst.data() );
         benchmark::ClobberMemory();
     }
@@ -180,7 +180,7 @@ void BM_MemZero_Bytes( benchmark::State &state )
     const usize nBytes = static_cast<usize>( state.range( 0 ) );
 
     for ( auto _ : state ) {
-        MemZero( buffers.nDst.data(), nBytes );
+        Cy_MemZero( buffers.nDst.data(), nBytes );
         benchmark::DoNotOptimize( buffers.nDst.data() );
         benchmark::ClobberMemory();
     }
@@ -194,7 +194,7 @@ void BM_MemZero_Aligned4KB( benchmark::State &state )
     u8 *pDst = buffers.nDst.data();
 
     for ( auto _ : state ) {
-        MemZero( pDst, kMediumBytes );
+        Cy_MemZero( pDst, kMediumBytes );
         benchmark::DoNotOptimize( pDst );
         benchmark::ClobberMemory();
     }
@@ -208,7 +208,7 @@ void BM_MemZero_Unaligned4KB( benchmark::State &state )
     u8 *pDst = buffers.nDst.data() + 1u;
 
     for ( auto _ : state ) {
-        MemZero( pDst, kMediumBytes );
+        Cy_MemZero( pDst, kMediumBytes );
         benchmark::DoNotOptimize( pDst );
         benchmark::ClobberMemory();
     }
@@ -226,7 +226,7 @@ void BM_MemZero_Coldish4KB( benchmark::State &state )
         TouchColdBuffer( buffers );
         state.ResumeTiming();
 
-        MemZero( pDst, kMediumBytes );
+        Cy_MemZero( pDst, kMediumBytes );
         benchmark::DoNotOptimize( pDst );
         benchmark::ClobberMemory();
     }
@@ -253,7 +253,7 @@ void BM_MemCompare_Equal4KB( benchmark::State &state )
     memoryops_bench_buffers_t &buffers = GetBuffers();
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( MemCompare( buffers.nSrc.data(), buffers.nEqual.data(), kMediumBytes ) );
+        benchmark::DoNotOptimize( Cy_MemCompare( buffers.nSrc.data(), buffers.nEqual.data(), kMediumBytes ) );
     }
 
     state.SetBytesProcessed( static_cast<int64_t>( kMediumBytes ) * state.iterations() );
@@ -264,7 +264,7 @@ void BM_MemIsZero_Zero4KB( benchmark::State &state )
     memoryops_bench_buffers_t &buffers = GetBuffers();
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( MemIsZero( buffers.nZero.data(), kMediumBytes ) );
+        benchmark::DoNotOptimize( Cy_MemIsZero( buffers.nZero.data(), kMediumBytes ) );
     }
 
     state.SetBytesProcessed( static_cast<int64_t>( kMediumBytes ) * state.iterations() );
@@ -280,7 +280,7 @@ void BM_MemIsZero_ZeroColdish4KB( benchmark::State &state )
         TouchColdBuffer( buffers );
         state.ResumeTiming();
 
-        benchmark::DoNotOptimize( MemIsZero( pData, kMediumBytes ) );
+        benchmark::DoNotOptimize( Cy_MemIsZero( pData, kMediumBytes ) );
     }
 
     state.SetBytesProcessed( static_cast<int64_t>( kMediumBytes ) * state.iterations() );
@@ -291,7 +291,7 @@ void BM_MemIsZero_NonZeroFirst4KB( benchmark::State &state )
     memoryops_bench_buffers_t &buffers = GetBuffers();
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( MemIsZero( buffers.nNonZeroFirst.data(), kMediumBytes ) );
+        benchmark::DoNotOptimize( Cy_MemIsZero( buffers.nNonZeroFirst.data(), kMediumBytes ) );
     }
 }
 
@@ -300,7 +300,7 @@ void BM_MemIsZero_NonZeroLast4KB( benchmark::State &state )
     memoryops_bench_buffers_t &buffers = GetBuffers();
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( MemIsZero( buffers.nNonZeroLast.data(), kMediumBytes ) );
+        benchmark::DoNotOptimize( Cy_MemIsZero( buffers.nNonZeroLast.data(), kMediumBytes ) );
     }
 
     state.SetBytesProcessed( static_cast<int64_t>( kMediumBytes ) * state.iterations() );
@@ -312,7 +312,7 @@ void BM_MemRangesOverlap( benchmark::State &state )
     const u8 *pBase = buffers.nSrc.data();
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( MemRangesOverlap( pBase, kMediumBytes, pBase + kSmallBytes, kMediumBytes ) );
+        benchmark::DoNotOptimize( Cy_MemRangesOverlap( pBase, kMediumBytes, pBase + kSmallBytes, kMediumBytes ) );
     }
 }
 
@@ -322,7 +322,7 @@ void BM_MemPointerInRange( benchmark::State &state )
     const u8 *pBase = buffers.nSrc.data();
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( MemPointerInRange( pBase + kSmallBytes, pBase, kMediumBytes ) );
+        benchmark::DoNotOptimize( Cy_MemPointerInRange( pBase + kSmallBytes, pBase, kMediumBytes ) );
     }
 }
 
@@ -333,7 +333,7 @@ void BM_CopyArray_U32_1024( benchmark::State &state )
     const u32 *pSrc = buffers.nU32Src.data();
 
     for ( auto _ : state ) {
-        CopyArray( pDst, pSrc, 1024u );
+        Cy_CopyArray( pDst, pSrc, 1024u );
         benchmark::DoNotOptimize( pDst );
         benchmark::ClobberMemory();
     }
