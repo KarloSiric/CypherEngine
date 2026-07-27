@@ -26,11 +26,14 @@
 ================
 CypherCommon Stack Trace
 
-Raw platform stack capture for diagnostics, asserts, crash reports and tools.
+Raw synchronous stack capture for diagnostics, asserts, crash reports and tools.
 Tier0 captures addresses only; symbol lookup and demangling belong above it.
+The POSIX backend is not async-signal-safe and must not be called directly from
+an operating-system signal handler.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 #include "CypherCommon_Defines.h"
 
@@ -40,38 +43,35 @@ namespace cypher::common
 constexpr u32 CYPHER_STACK_TRACE_MAX_FRAMES = 64u;
 
 struct stack_frame_t {
-    void *address;
+    void *address{ nullptr };
 };
 
 struct stack_trace_t {
-    stack_frame_t frames[CYPHER_STACK_TRACE_MAX_FRAMES];
-    u32 frame_count;
+    stack_frame_t frames[CYPHER_STACK_TRACE_MAX_FRAMES]{};
+    u32 frame_count{ 0u };
 };
 
 // Resets a stack trace to an empty state.
-void Cy_StackTraceClear( stack_trace_t *pTrace );
+CYPHER_COMMON_API void Cy_StackTraceClear( stack_trace_t *pTrace ) noexcept;
 
 // Captures raw return addresses without resolving symbols.
-u32 Cy_StackTraceCapture( stack_trace_t *pTrace, u32 cMaxFrames, u32 cSkipFrames );
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_StackTraceCapture(
+    stack_trace_t *pTrace,
+    u32 cMaxFrames,
+    u32 cSkipFrames ) noexcept;
 
 // Returns the number of captured frames in the trace.
-u32 Cy_StackTraceGetFrameCount( const stack_trace_t *pTrace );
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_StackTraceGetFrameCount(
+    const stack_trace_t *pTrace ) noexcept;
 
 // Returns a captured frame address or nullptr when the index is invalid.
-void *Cy_StackTraceGetFrameAddress( const stack_trace_t *pTrace, u32 iFrame );
+[[nodiscard]] CYPHER_COMMON_API void *Cy_StackTraceGetFrameAddress(
+    const stack_trace_t *pTrace,
+    u32 iFrame ) noexcept;
 
 // Returns true when the trace has no captured frames.
-bool_t Cy_StackTraceIsEmpty( const stack_trace_t *pTrace );
-
-inline void ClearStackTrace( stack_trace_t &trace )
-{
-    Cy_StackTraceClear( &trace );
-}
-
-inline u32 CaptureStackTrace( stack_trace_t &trace, u32 max_frames, u32 skip_frames )
-{
-    return Cy_StackTraceCapture( &trace, max_frames, skip_frames );
-}
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StackTraceIsEmpty(
+    const stack_trace_t *pTrace ) noexcept;
 
 } // namespace cypher::common
 
