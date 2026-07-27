@@ -26,15 +26,49 @@
 ================
 CypherCommon Static Analysis
 
-Static-analysis and code-audit macro surface.
+Static-analysis and optimizer contract surface.
+
+Rules:
+- Assumptions describe facts already validated by control flow.
+- Assumption expressions must not contain side effects.
+- Debug and development builds trap when a contract is violated.
+- Release and shipping builds may optimize under the stated contract.
 ================
 */
 
 #include "CypherCommon_Debug.h"
 #include "CypherCommon_Defines.h"
 
-#define CY_ANALYSIS_ASSUME( expression )    do { CYPHER_UNUSED( expression ); } while ( 0 )
-#define CY_ANALYSIS_SUPPRESS( id )
-#define CY_ANALYSIS_UNREACHABLE()          CY_TRAP()
+#if CYPHER_CONFIG_DEBUG || CYPHER_CONFIG_DEVELOPMENT
+    #define CY_ANALYSIS_ASSUME( expression )                   \
+        do {                                                   \
+            if ( !( expression ) ) {                           \
+                CY_TRAP();                                     \
+            }                                                  \
+        } while ( 0 )
+    #define CY_ANALYSIS_UNREACHABLE() CY_TRAP()
+#elif CYPHER_COMPILER_MSVC_ABI
+    #define CY_ANALYSIS_ASSUME( expression ) __assume( expression )
+    #define CY_ANALYSIS_UNREACHABLE() __assume( 0 )
+#elif CYPHER_COMPILER_CLANG
+    #define CY_ANALYSIS_ASSUME( expression ) __builtin_assume( expression )
+    #define CY_ANALYSIS_UNREACHABLE() __builtin_unreachable()
+#elif CYPHER_COMPILER_GCC
+    #define CY_ANALYSIS_ASSUME( expression )                   \
+        do {                                                   \
+            if ( !( expression ) ) {                           \
+                __builtin_unreachable();                       \
+            }                                                  \
+        } while ( 0 )
+    #define CY_ANALYSIS_UNREACHABLE() __builtin_unreachable()
+#else
+    #error "Unsupported compiler for Cypher static-analysis helpers."
+#endif
+
+#if CYPHER_COMPILER_MSVC_ABI
+    #define CY_ANALYSIS_SUPPRESS( warningId ) __pragma( warning( suppress : warningId ) )
+#else
+    #define CY_ANALYSIS_SUPPRESS( warningId )
+#endif
 
 #endif // CYPHER_COMMON_TIER0_STATICANALYSIS_H
