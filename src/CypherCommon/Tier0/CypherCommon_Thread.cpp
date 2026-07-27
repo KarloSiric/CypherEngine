@@ -23,7 +23,6 @@
 
 #include <chrono>
 #include <atomic>
-#include <functional>
 #include <mutex>
 #include <thread>
 
@@ -46,23 +45,55 @@ namespace
 
 std::mutex g_threadStateMutex;
 std::atomic_bool g_threadInitialized = false;
-std::atomic<thread_id_t> g_mainThreadHash = CY_THREAD_INVALID_ID;
+std::atomic<thread_id_t> g_mainThreadId = CY_THREAD_INVALID_ID;
+std::atomic<thread_id_t> g_nextThreadId{ 1u };
+thread_local thread_id_t g_currentThreadId = CY_THREAD_INVALID_ID;
 
-thread_id_t ThreadHashId( const std::thread::id &id )
+thread_id_t ThreadGetOrAssignCurrentId() noexcept
 {
-    thread_id_t nHash = static_cast<thread_id_t>( std::hash<std::thread::id>{}( id ) );
-    return nHash != CY_THREAD_INVALID_ID ? nHash : 1u;
+    if ( g_currentThreadId != CY_THREAD_INVALID_ID ) {
+        return g_currentThreadId;
+    }
+
+    thread_id_t nThreadId =
+        g_nextThreadId.fetch_add( 1u, std::memory_order_relaxed );
+    if ( nThreadId == CY_THREAD_INVALID_ID ) {
+        nThreadId = g_nextThreadId.fetch_add( 1u, std::memory_order_relaxed );
+    }
+    g_currentThreadId = nThreadId;
+    return g_currentThreadId;
 }
 
-void ThreadCaptureMainThreadLocked()
+void ThreadCaptureMainThreadLocked() noexcept
 {
-    g_mainThreadHash.store( ThreadHashId( std::this_thread::get_id() ), std::memory_order_release );
+    g_mainThreadId.store(
+        ThreadGetOrAssignCurrentId(),
+        std::memory_order_release );
     g_threadInitialized.store( true, std::memory_order_release );
+}
+
+void ThreadCopyName( char *pszDst, usize nDstCapacity, const char *pszName ) noexcept
+{
+    if ( pszDst == nullptr || nDstCapacity == 0u ) {
+        return;
+    }
+
+    pszDst[0] = '\0';
+    if ( pszName == nullptr ) {
+        return;
+    }
+
+    usize nIndex = 0u;
+    while ( nIndex + 1u < nDstCapacity && pszName[nIndex] != '\0' ) {
+        pszDst[nIndex] = pszName[nIndex];
+        ++nIndex;
+    }
+    pszDst[nIndex] = '\0';
 }
 
 } // namespace
 
-bool_t Cy_ThreadInit()
+bool_t Cy_ThreadInit() noexcept
 {
     std::lock_guard<std::mutex> lock( g_threadStateMutex );
 
@@ -73,45 +104,45 @@ bool_t Cy_ThreadInit()
     return CY_TRUE;
 }
 
-void Cy_ThreadShutdown()
+void Cy_ThreadShutdown() noexcept
 {
     std::lock_guard<std::mutex> lock( g_threadStateMutex );
 
     g_threadInitialized.store( false, std::memory_order_release );
-    g_mainThreadHash.store( CY_THREAD_INVALID_ID, std::memory_order_release );
+    g_mainThreadId.store( CY_THREAD_INVALID_ID, std::memory_order_release );
 }
 
-bool_t Cy_ThreadIsInitialized()
+bool_t Cy_ThreadIsInitialized() noexcept
 {
     return g_threadInitialized.load( std::memory_order_acquire );
 }
 
-void Cy_ThreadYield()
+void Cy_ThreadYield() noexcept
 {
     std::this_thread::yield();
 }
 
-void Cy_ThreadSleepMs( u32 nMilliseconds )
+void Cy_ThreadSleepMs( u32 nMilliseconds ) noexcept
 {
     std::this_thread::sleep_for( std::chrono::milliseconds( nMilliseconds ) );
 }
 
-void Cy_ThreadSleepUs( u32 nMicroseconds )
+void Cy_ThreadSleepUs( u32 nMicroseconds ) noexcept
 {
     std::this_thread::sleep_for( std::chrono::microseconds( nMicroseconds ) );
 }
 
-thread_id_t Cy_ThreadGetCurrentId()
+thread_id_t Cy_ThreadGetCurrentId() noexcept
 {
-    return ThreadHashId( std::this_thread::get_id() );
+    return ThreadGetOrAssignCurrentId();
 }
 
-u64 Cy_ThreadGetCurrentIdHash()
+u64 Cy_ThreadGetCurrentIdHash() noexcept
 {
     return Cy_ThreadGetCurrentId();
 }
 
-u32 Cy_ThreadGetLogicalCount()
+u32 Cy_ThreadGetLogicalCount() noexcept
 {
     static const u32 nThreadCount = []() {
         const u32 nDetectedThreadCount = std::thread::hardware_concurrency();
@@ -121,50 +152,126 @@ u32 Cy_ThreadGetLogicalCount()
     return nThreadCount;
 }
 
-void Cy_ThreadCaptureMainThread()
+bool_t Cy_ThreadCaptureMainThread() noexcept
 {
     std::lock_guard<std::mutex> lock( g_threadStateMutex );
+    const thread_id_t nCurrentThreadId = ThreadGetOrAssignCurrentId();
+    if ( g_threadInitialized.load( std::memory_order_acquire ) ) {
+        return g_mainThreadId.load( std::memory_order_acquire ) ==
+               nCurrentThreadId;
+    }
     ThreadCaptureMainThreadLocked();
+    return CY_TRUE;
 }
 
-thread_id_t Cy_ThreadGetMainThreadId()
+thread_id_t Cy_ThreadGetMainThreadId() noexcept
 {
-    std::lock_guard<std::mutex> lock( g_threadStateMutex );
-    return g_mainThreadHash.load( std::memory_order_acquire );
+    return g_mainThreadId.load( std::memory_order_acquire );
 }
 
-bool_t Cy_ThreadIsMainThread()
+bool_t Cy_ThreadIsMainThread() noexcept
 {
     if ( !g_threadInitialized.load( std::memory_order_acquire ) ) {
         return CY_FALSE;
     }
 
-    return Cy_ThreadGetCurrentId() == g_mainThreadHash.load( std::memory_order_acquire );
+    return Cy_ThreadGetCurrentId() ==
+           g_mainThreadId.load( std::memory_order_acquire );
 }
 
-void Cy_ThreadSetCurrentName( const char *pszName )
+bool_t Cy_ThreadSetCurrentName( const char *pszName ) noexcept
 {
     if ( pszName == nullptr || pszName[0] == '\0' ) {
-        return;
+        return CY_FALSE;
     }
 
 #if CYPHER_PLATFORM_WINDOWS
     wchar_t wszName[64] = {};
     const int cchWritten = MultiByteToWideChar( CP_UTF8, 0, pszName, -1, wszName, static_cast<int>( CYPHER_ARRAY_COUNT( wszName ) ) );
     if ( cchWritten > 0 ) {
-        SetThreadDescription( GetCurrentThread(), wszName );
+        return SetThreadDescription( GetCurrentThread(), wszName ) >= 0;
     }
+    return CY_FALSE;
 #elif CYPHER_PLATFORM_MACOS
-    pthread_setname_np( pszName );
+    return pthread_setname_np( pszName ) == 0;
 #elif CYPHER_PLATFORM_LINUX
     char szName[16] = {};
     for ( usize i = 0u; i + 1u < CYPHER_ARRAY_COUNT( szName ) && pszName[i] != '\0'; ++i ) {
         szName[i] = pszName[i];
     }
-    pthread_setname_np( pthread_self(), szName );
+    return pthread_setname_np( pthread_self(), szName ) == 0;
 #else
     CYPHER_UNUSED( pszName );
+    return CY_FALSE;
 #endif
+}
+
+bool_t Cy_ThreadCreate(
+    cy_thread_t *pThread,
+    thread_proc_t pProc,
+    void *pUserData,
+    const char *pszName ) noexcept
+{
+    if ( pThread == nullptr || pProc == nullptr || pThread->native.joinable() ) {
+        return CY_FALSE;
+    }
+
+    pThread->nThreadId.store( CY_THREAD_INVALID_ID, std::memory_order_relaxed );
+    pThread->isRunning.store( CY_TRUE, std::memory_order_release );
+    pThread->nResult = 0;
+    ThreadCopyName( pThread->szName, CY_THREAD_NAME_CAPACITY, pszName );
+
+    try {
+        pThread->native = std::thread( [pThread, pProc, pUserData]() noexcept {
+            pThread->nThreadId.store(
+                Cy_ThreadGetCurrentId(),
+                std::memory_order_release );
+            if ( pThread->szName[0] != '\0' ) {
+                ( void )Cy_ThreadSetCurrentName( pThread->szName );
+            }
+            pThread->nResult = pProc( pUserData );
+            pThread->isRunning.store( CY_FALSE, std::memory_order_release );
+        } );
+    } catch ( ... ) {
+        pThread->nThreadId.store( CY_THREAD_INVALID_ID, std::memory_order_relaxed );
+        pThread->isRunning.store( CY_FALSE, std::memory_order_relaxed );
+        return CY_FALSE;
+    }
+
+    return CY_TRUE;
+}
+
+bool_t Cy_ThreadJoin( cy_thread_t *pThread, i32 *pOutResult ) noexcept
+{
+    if ( pThread == nullptr || !pThread->native.joinable() ||
+         pThread->native.get_id() == std::this_thread::get_id() ) {
+        return CY_FALSE;
+    }
+
+    try {
+        pThread->native.join();
+    } catch ( ... ) {
+        return CY_FALSE;
+    }
+
+    pThread->isRunning.store( CY_FALSE, std::memory_order_release );
+    if ( pOutResult != nullptr ) {
+        *pOutResult = pThread->nResult;
+    }
+    return CY_TRUE;
+}
+
+bool_t Cy_ThreadIsRunning( const cy_thread_t *pThread ) noexcept
+{
+    return pThread != nullptr &&
+           pThread->isRunning.load( std::memory_order_acquire );
+}
+
+thread_id_t Cy_ThreadGetId( const cy_thread_t *pThread ) noexcept
+{
+    return pThread != nullptr
+        ? pThread->nThreadId.load( std::memory_order_acquire )
+        : CY_THREAD_INVALID_ID;
 }
 
 } // namespace cypher::common
