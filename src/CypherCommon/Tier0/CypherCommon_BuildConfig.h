@@ -39,46 +39,88 @@ namespace cypher::common
 enum class build_config_t : u32 {
     Unknown = 0u,
     Debug,
+    Development,
     Release,
-    Retail
+    Shipping
 };
 
 // Returns the active compile configuration.
-inline build_config_t BuildConfig_GetCurrent()
+[[nodiscard]] constexpr build_config_t Cy_BuildConfigGetCurrent() noexcept
 {
-#if CYPHER_BUILD_DEBUG
+#if CYPHER_CONFIG_DEBUG
     return build_config_t::Debug;
-#else
+#elif CYPHER_CONFIG_DEVELOPMENT
+    return build_config_t::Development;
+#elif CYPHER_CONFIG_RELEASE
     return build_config_t::Release;
+#elif CYPHER_CONFIG_SHIPPING
+    return build_config_t::Shipping;
+#else
+    return build_config_t::Unknown;
 #endif
 }
 
 // Returns a stable human-readable name for a build configuration.
-inline const char *BuildConfig_GetName( build_config_t config )
+[[nodiscard]] constexpr const char *Cy_BuildConfigGetName( build_config_t config ) noexcept
 {
     switch ( config ) {
         case build_config_t::Debug:
             return "Debug";
+        case build_config_t::Development:
+            return "Development";
         case build_config_t::Release:
             return "Release";
-        case build_config_t::Retail:
-            return "Retail";
+        case build_config_t::Shipping:
+            return "Shipping";
         case build_config_t::Unknown:
         default:
             return "Unknown";
     }
 }
 
-// Returns true when this translation unit is compiled as a debug build.
-inline bool_t BuildConfig_IsDebug()
+// Returns whether the supplied build configuration is recognized.
+[[nodiscard]] constexpr bool_t Cy_BuildConfigIsKnown( build_config_t config ) noexcept
 {
-    return CYPHER_BUILD_DEBUG != 0;
+    switch ( config ) {
+        case build_config_t::Debug:
+        case build_config_t::Development:
+        case build_config_t::Release:
+        case build_config_t::Shipping:
+            return CY_TRUE;
+        case build_config_t::Unknown:
+            return CY_FALSE;
+    }
+    return CY_FALSE;
 }
 
-// Returns true when this translation unit is compiled as a release-like build.
-inline bool_t BuildConfig_IsRelease()
+// Returns true when the current translation unit is compiled as Debug.
+[[nodiscard]] constexpr bool_t Cy_BuildConfigIsDebug() noexcept
 {
-    return CYPHER_BUILD_RELEASE != 0;
+    return CYPHER_CONFIG_DEBUG != 0;
+}
+
+// Returns true when the current translation unit is compiled as Development.
+[[nodiscard]] constexpr bool_t Cy_BuildConfigIsDevelopment() noexcept
+{
+    return CYPHER_CONFIG_DEVELOPMENT != 0;
+}
+
+// Returns true when the current translation unit is compiled as Release.
+[[nodiscard]] constexpr bool_t Cy_BuildConfigIsRelease() noexcept
+{
+    return CYPHER_CONFIG_RELEASE != 0;
+}
+
+// Returns true when the current translation unit is compiled as Shipping.
+[[nodiscard]] constexpr bool_t Cy_BuildConfigIsShipping() noexcept
+{
+    return CYPHER_CONFIG_SHIPPING != 0;
+}
+
+// Returns true for any non-Debug configuration that enables optimization.
+[[nodiscard]] constexpr bool_t Cy_BuildConfigIsOptimized() noexcept
+{
+    return CYPHER_BUILD_OPTIMIZED != 0;
 }
 
 } // namespace cypher::common
