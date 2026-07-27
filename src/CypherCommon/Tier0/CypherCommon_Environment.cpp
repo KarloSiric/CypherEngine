@@ -21,6 +21,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 
 #if CYPHER_PLATFORM_WINDOWS
     #ifndef WIN32_LEAN_AND_MEAN
@@ -35,61 +36,244 @@
 namespace cypher::common
 {
 
-usize Environment_Get( const char *pName, char *pDest, usize cchDest )
+namespace
 {
-    if ( pDest != nullptr && cchDest != 0u ) {
-        pDest[0] = '\0';
-    }
 
-    if ( pName == nullptr || pName[0] == '\0' ) {
-        return 0u;
-    }
+std::mutex g_environmentMutex;
 
-#if CYPHER_PLATFORM_WINDOWS
-    const DWORD cchRequired = ::GetEnvironmentVariableA( pName, pDest, static_cast<DWORD>( cchDest ) );
-    if ( cchRequired == 0u ) {
-        return 0u;
-    }
-    if ( pDest != nullptr && cchDest != 0u ) {
-        pDest[cchDest - 1u] = '\0';
-    }
-    return static_cast<usize>( cchRequired );
-#else
-    const char *pValue = std::getenv( pName );
-    if ( pValue == nullptr ) {
-        return 0u;
-    }
-
-    const usize cchRequired = std::strlen( pValue );
-    if ( pDest != nullptr && cchDest != 0u ) {
-        usize i = 0u;
-        for ( ; i + 1u < cchDest && pValue[i] != '\0'; ++i ) {
-            pDest[i] = pValue[i];
-        }
-        pDest[i] = '\0';
-    }
-    return cchRequired;
-#endif
-}
-
-bool_t Environment_Set( const char *pName, const char *pValue )
+bool_t Environment_IsValidName( const char *pszName ) noexcept
 {
-    if ( pName == nullptr || pName[0] == '\0' ) {
+    if ( pszName == nullptr || pszName[0] == '\0' ) {
         return CY_FALSE;
     }
 
-    const char *pWriteValue = pValue != nullptr ? pValue : "";
-
-#if CYPHER_PLATFORM_WINDOWS
-    return ::SetEnvironmentVariableA( pName, pWriteValue ) != 0;
-#else
-    return ::setenv( pName, pWriteValue, 1 ) == 0;
-#endif
+    for ( const char *pszRead = pszName; *pszRead != '\0'; ++pszRead ) {
+        if ( *pszRead == '=' ) {
+            return CY_FALSE;
+        }
+    }
+    return CY_TRUE;
 }
 
-bool_t Environment_Has( const char *pName )
+#if CYPHER_PLATFORM_WINDOWS
+wchar_t *Environment_Utf8ToWide( const char *pszValue ) noexcept
 {
-    return Environment_Get( pName, nullptr, 0u ) != 0u;
+    if ( pszValue == nullptr ) {
+        return nullptr;
+    }
+
+    const int cchRequired = ::MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        pszValue,
+        -1,
+        nullptr,
+        0 );
+    if ( cchRequired <= 0 ||
+         static_cast<usize>( cchRequired ) > CY_USIZE_MAX / sizeof( wchar_t ) ) {
+        return nullptr;
+    }
+
+    auto *pWide = static_cast<wchar_t *>(
+        std::malloc( static_cast<usize>( cchRequired ) * sizeof( wchar_t ) ) );
+    if ( pWide == nullptr ) {
+        return nullptr;
+    }
+
+    if ( ::MultiByteToWideChar(
+             CP_UTF8,
+             MB_ERR_INVALID_CHARS,
+             pszValue,
+             -1,
+             pWide,
+             cchRequired ) == 0 ) {
+        std::free( pWide );
+        return nullptr;
+    }
+    return pWide;
+}
+#endif
+
+} // namespace
+
+cy_environment_get_result_t Cy_EnvironmentGet(
+    const char *pszName,
+    char *pszDst,
+    usize cchDst ) noexcept
+{
+    cy_environment_get_result_t result = {};
+    if ( pszDst != nullptr && cchDst > 0u ) {
+        pszDst[0] = '\0';
+        pszDst[cchDst - 1u] = '\0';
+    }
+    if ( !Environment_IsValidName( pszName ) ) {
+        return result;
+    }
+
+    try {
+        std::lock_guard<std::mutex> lock( g_environmentMutex );
+
+#if CYPHER_PLATFORM_WINDOWS
+        wchar_t *pWideName = Environment_Utf8ToWide( pszName );
+        if ( pWideName == nullptr ) {
+            return result;
+        }
+
+        ::SetLastError( ERROR_SUCCESS );
+        const DWORD cchWideRequired =
+            ::GetEnvironmentVariableW( pWideName, nullptr, 0u );
+        if ( cchWideRequired == 0u ) {
+            result.exists = ::GetLastError() != ERROR_ENVVAR_NOT_FOUND;
+            std::free( pWideName );
+            return result;
+        }
+
+        auto *pWideValue = static_cast<wchar_t *>(
+            std::malloc(
+                static_cast<usize>( cchWideRequired ) * sizeof( wchar_t ) ) );
+        if ( pWideValue == nullptr ) {
+            std::free( pWideName );
+            return result;
+        }
+
+        const DWORD cchWideWritten = ::GetEnvironmentVariableW(
+            pWideName,
+            pWideValue,
+            cchWideRequired );
+        std::free( pWideName );
+        if ( cchWideWritten == 0u || cchWideWritten >= cchWideRequired ) {
+            std::free( pWideValue );
+            return result;
+        }
+
+        const int cchUtf8Required = ::WideCharToMultiByte(
+            CP_UTF8,
+            WC_ERR_INVALID_CHARS,
+            pWideValue,
+            -1,
+            nullptr,
+            0,
+            nullptr,
+            nullptr );
+        if ( cchUtf8Required <= 0 ) {
+            std::free( pWideValue );
+            return result;
+        }
+
+        result.exists = CY_TRUE;
+        result.cchRequired = static_cast<usize>( cchUtf8Required - 1 );
+        if ( pszDst != nullptr && cchDst > 0u ) {
+            if ( cchDst >= static_cast<usize>( cchUtf8Required ) ) {
+                const int cchWritten = ::WideCharToMultiByte(
+                    CP_UTF8,
+                    WC_ERR_INVALID_CHARS,
+                    pWideValue,
+                    -1,
+                    pszDst,
+                    cchUtf8Required,
+                    nullptr,
+                    nullptr );
+                if ( cchWritten <= 0 ) {
+                    pszDst[0] = '\0';
+                    result.exists = CY_FALSE;
+                    result.cchRequired = 0u;
+                }
+            } else {
+                result.isTruncated = CY_TRUE;
+            }
+        }
+        std::free( pWideValue );
+#else
+        const char *pszValue = std::getenv( pszName );
+        if ( pszValue == nullptr ) {
+            return result;
+        }
+
+        result.exists = CY_TRUE;
+        result.cchRequired = std::strlen( pszValue );
+        if ( pszDst != nullptr && cchDst > 0u ) {
+            usize i = 0u;
+            while ( i + 1u < cchDst && pszValue[i] != '\0' ) {
+                pszDst[i] = pszValue[i];
+                ++i;
+            }
+            pszDst[i] = '\0';
+            result.isTruncated = i < result.cchRequired;
+        }
+#endif
+    } catch ( ... ) {
+        if ( pszDst != nullptr && cchDst > 0u ) {
+            pszDst[0] = '\0';
+        }
+        return {};
+    }
+
+    return result;
+}
+
+bool_t Cy_EnvironmentSet(
+    const char *pszName,
+    const char *pszValue ) noexcept
+{
+    if ( !Environment_IsValidName( pszName ) || pszValue == nullptr ) {
+        return CY_FALSE;
+    }
+
+    try {
+        std::lock_guard<std::mutex> lock( g_environmentMutex );
+#if CYPHER_PLATFORM_WINDOWS
+        wchar_t *pWideName = Environment_Utf8ToWide( pszName );
+        wchar_t *pWideValue = Environment_Utf8ToWide( pszValue );
+        if ( pWideName == nullptr || pWideValue == nullptr ) {
+            std::free( pWideName );
+            std::free( pWideValue );
+            return CY_FALSE;
+        }
+
+        const bool_t didSet =
+            ::SetEnvironmentVariableW( pWideName, pWideValue ) != FALSE;
+        std::free( pWideName );
+        std::free( pWideValue );
+        return didSet;
+#else
+        return ::setenv( pszName, pszValue, 1 ) == 0;
+#endif
+    } catch ( ... ) {
+        return CY_FALSE;
+    }
+}
+
+bool_t Cy_EnvironmentUnset( const char *pszName ) noexcept
+{
+    if ( !Environment_IsValidName( pszName ) ) {
+        return CY_FALSE;
+    }
+
+    try {
+        std::lock_guard<std::mutex> lock( g_environmentMutex );
+#if CYPHER_PLATFORM_WINDOWS
+        wchar_t *pWideName = Environment_Utf8ToWide( pszName );
+        if ( pWideName == nullptr ) {
+            return CY_FALSE;
+        }
+
+        ::SetLastError( ERROR_SUCCESS );
+        const bool_t didUnset =
+            ::SetEnvironmentVariableW( pWideName, nullptr ) != FALSE ||
+            ::GetLastError() == ERROR_ENVVAR_NOT_FOUND;
+        std::free( pWideName );
+        return didUnset;
+#else
+        return ::unsetenv( pszName ) == 0;
+#endif
+    } catch ( ... ) {
+        return CY_FALSE;
+    }
+}
+
+bool_t Cy_EnvironmentHas( const char *pszName ) noexcept
+{
+    return Cy_EnvironmentGet( pszName, nullptr, 0u ).exists;
 }
 
 } // namespace cypher::common
