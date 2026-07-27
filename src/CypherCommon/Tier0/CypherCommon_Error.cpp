@@ -37,75 +37,53 @@ static const error_description_t g_commonErrorDescs[] = {
     { static_cast<u16>( common_error_t::ERR_TIMEOUT ), "ERR_TIMEOUT", "The operation timed out." },
     { static_cast<u16>( common_error_t::ERR_IO_ERROR ), "ERR_IO_ERROR", "An input/output operation failed." },
     { static_cast<u16>( common_error_t::ERR_PARSE_FAILED ), "ERR_PARSE_FAILED", "Parsing failed." },
-    { static_cast<u16>( common_error_t::ERR_INTERNAL_ERROR ), "ERR_INTERNAL_ERROR", "An internal error occurred." }
+    { static_cast<u16>( common_error_t::ERR_INTERNAL_ERROR ), "ERR_INTERNAL_ERROR", "An internal error occurred." },
+    { static_cast<u16>( common_error_t::ERR_BUFFER_TOO_SMALL ), "ERR_BUFFER_TOO_SMALL", "The supplied buffer is too small." },
+    { static_cast<u16>( common_error_t::ERR_ALREADY_EXISTS ), "ERR_ALREADY_EXISTS", "The requested object already exists." },
+    { static_cast<u16>( common_error_t::ERR_BUSY ), "ERR_BUSY", "The requested resource is busy." },
+    { static_cast<u16>( common_error_t::ERR_CANCELLED ), "ERR_CANCELLED", "The operation was cancelled." },
+    { static_cast<u16>( common_error_t::ERR_OVERFLOW ), "ERR_OVERFLOW", "The operation exceeded its representable range." },
+    { static_cast<u16>( common_error_t::ERR_PERMISSION_DENIED ), "ERR_PERMISSION_DENIED", "Permission was denied." },
+    { static_cast<u16>( common_error_t::ERR_END_OF_STREAM ), "ERR_END_OF_STREAM", "The end of the input stream was reached." },
+    { static_cast<u16>( common_error_t::ERR_CORRUPT_DATA ), "ERR_CORRUPT_DATA", "The input data is corrupt." },
+    { static_cast<u16>( common_error_t::ERR_VERSION_MISMATCH ), "ERR_VERSION_MISMATCH", "The data or interface version is incompatible." }
 };
 
 static const error_table_t g_commonErrorTable = {
     error_domain_t::COMMON,
     g_commonErrorDescs,
-    static_cast<u32>( sizeof( g_commonErrorDescs ) / sizeof( g_commonErrorDescs[0] ) )
+    CYPHER_ARRAY_COUNT( g_commonErrorDescs )
 };
+
+static_assert(
+    CYPHER_ARRAY_COUNT( g_commonErrorDescs ) == static_cast<usize>( common_error_t::COUNT ),
+    "Every Common error must have a description." );
 
 } // namespace
 
-error_code_t Cy_ErrorMake( error_domain_t domain, u16 localErrorCode )
+const char *Cy_CommonErrorName( common_error_t error ) noexcept
 {
-    return ( static_cast<error_code_t>( domain ) << 16u ) | static_cast<error_code_t>( localErrorCode );
-}
-
-error_domain_t Cy_ErrorDomain( error_code_t errorCode )
-{
-    return static_cast<error_domain_t>( static_cast<u16>( errorCode >> 16u ) );
-}
-
-u16 Cy_ErrorLocalCode( error_code_t errorCode )
-{
-    return static_cast<u16>( errorCode & 0xFFFFu );
-}
-
-bool_t Cy_ErrorSucceeded( error_code_t errorCode )
-{
-    return Cy_ErrorLocalCode( errorCode ) == 0u;
-}
-
-bool_t Cy_ErrorFailed( error_code_t errorCode )
-{
-    return Cy_ErrorLocalCode( errorCode ) != 0u;
-}
-
-bool_t Cy_ErrorSucceeded( common_error_t error )
-{
-    return error == common_error_t::OK;
-}
-
-bool_t Cy_ErrorFailed( common_error_t error )
-{
-    return error != common_error_t::OK;
-}
-
-const char *Cy_CommonErrorName( common_error_t error )
-{
-    const error_code_t packedError = Cy_ErrorMake( error_domain_t::COMMON, static_cast<u16>( error ) );
+    const error_code_t packedError = Cy_ErrorMake( error );
     return Cy_ErrorFindName( g_commonErrorTable, packedError );
 }
 
-const char *Cy_CommonErrorDescription( common_error_t error )
+const char *Cy_CommonErrorDescription( common_error_t error ) noexcept
 {
-    const error_code_t packedError = Cy_ErrorMake( error_domain_t::COMMON, static_cast<u16>( error ) );
+    const error_code_t packedError = Cy_ErrorMake( error );
     return Cy_ErrorFindDescription( g_commonErrorTable, packedError );
 }
 
-const char *Cy_ErrorName( common_error_t error )
+const char *Cy_ErrorName( common_error_t error ) noexcept
 {
     return Cy_CommonErrorName( error );
 }
 
-const char *Cy_ErrorDescription( common_error_t error )
+const char *Cy_ErrorDescription( common_error_t error ) noexcept
 {
     return Cy_CommonErrorDescription( error );
 }
 
-const char *Cy_ErrorDomainName( error_domain_t domain )
+const char *Cy_ErrorDomainName( error_domain_t domain ) noexcept
 {
     switch ( domain ) {
         case error_domain_t::COMMON: return "Common";
@@ -139,12 +117,15 @@ const char *Cy_ErrorDomainName( error_domain_t domain )
         case error_domain_t::JOB: return "Job";
         case error_domain_t::SERIALIZATION: return "Serialization";
         case error_domain_t::REFLECTION: return "Reflection";
+        case error_domain_t::COUNT:
+        case error_domain_t::INVALID:
+            break;
     }
 
     return "Unknown";
 }
 
-const error_description_t *Cy_ErrorFindDesc( const error_table_t &table, error_code_t errorCode )
+const error_description_t *Cy_ErrorFindDesc( const error_table_t &table, error_code_t errorCode ) noexcept
 {
     if ( table.pErrors == nullptr || table.errorCount == 0u ) {
         return nullptr;
@@ -155,7 +136,7 @@ const error_description_t *Cy_ErrorFindDesc( const error_table_t &table, error_c
     }
 
     const u16 localCode = Cy_ErrorLocalCode( errorCode );
-    for ( u32 i = 0u; i < table.errorCount; ++i ) {
+    for ( usize i = 0u; i < table.errorCount; ++i ) {
         const error_description_t &desc = table.pErrors[i];
         if ( desc.localCode == localCode ) {
             return &desc;
@@ -165,7 +146,7 @@ const error_description_t *Cy_ErrorFindDesc( const error_table_t &table, error_c
     return nullptr;
 }
 
-const char *Cy_ErrorFindName( const error_table_t &table, error_code_t errorCode )
+const char *Cy_ErrorFindName( const error_table_t &table, error_code_t errorCode ) noexcept
 {
     const error_description_t *pDesc = Cy_ErrorFindDesc( table, errorCode );
     if ( pDesc == nullptr || pDesc->pName == nullptr ) {
@@ -175,7 +156,7 @@ const char *Cy_ErrorFindName( const error_table_t &table, error_code_t errorCode
     return pDesc->pName;
 }
 
-const char *Cy_ErrorFindDescription( const error_table_t &table, error_code_t errorCode )
+const char *Cy_ErrorFindDescription( const error_table_t &table, error_code_t errorCode ) noexcept
 {
     const error_description_t *pDesc = Cy_ErrorFindDesc( table, errorCode );
     if ( pDesc == nullptr || pDesc->pDescription == nullptr ) {
@@ -185,7 +166,7 @@ const char *Cy_ErrorFindDescription( const error_table_t &table, error_code_t er
     return pDesc->pDescription;
 }
 
-const error_table_t *Cy_CommonErrorTable()
+const error_table_t *Cy_CommonErrorTable() noexcept
 {
     return &g_commonErrorTable;
 }
