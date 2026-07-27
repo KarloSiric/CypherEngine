@@ -30,6 +30,7 @@ High-resolution counter declarations.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
 namespace cypher::common
@@ -37,9 +38,13 @@ namespace cypher::common
 
 using performance_counter_t = u64;
 
-performance_counter_t PerformanceCounter_Now();
-u64 PerformanceCounter_Frequency();
-f64 PerformanceCounter_ToSeconds( performance_counter_t ticks );
+[[nodiscard]] CYPHER_COMMON_API performance_counter_t
+Cy_PerformanceCounterNow() noexcept;
+
+[[nodiscard]] CYPHER_COMMON_API u64 Cy_PerformanceCounterFrequency() noexcept;
+
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_PerformanceCounterToSeconds(
+    performance_counter_t nTicks ) noexcept;
 
 } // namespace cypher::common
 
