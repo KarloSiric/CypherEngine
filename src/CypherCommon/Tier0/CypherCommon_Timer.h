@@ -33,49 +33,84 @@ frame timing, gameplay timers, calendar time, sleep/yield, or profiler storage.
 Higher-level systems build those policies on top of this clock.
 ================
 */
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
 namespace cypher::common
 {
 
-using timer_tick_t = i64;
-using timer_frequency_t = i64;
+using timer_tick_t = u64;
+using timer_frequency_t = u64;
 
 struct cy_timer_t {
-    timer_tick_t nStartTicks;
-    timer_tick_t nEndTicks;
+    timer_tick_t nStartTicks = 0u;
+    timer_tick_t nEndTicks = 0u;
+    bool_t isRunning = CY_FALSE;
 };
 
-bool_t Timer_Init();
-void Timer_Shutdown();
-bool_t Timer_IsInitialized();
+// Initializes the process monotonic clock baseline.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TimerInit() noexcept;
 
-timer_frequency_t Timer_GetFrequency();
+// Clears the baseline. Call only when timer users are quiescent.
+CYPHER_COMMON_API void Cy_TimerShutdown() noexcept;
 
-timer_tick_t Timer_NowTicks();
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TimerIsInitialized() noexcept;
+[[nodiscard]] CYPHER_COMMON_API timer_frequency_t Cy_TimerGetFrequency() noexcept;
+[[nodiscard]] CYPHER_COMMON_API timer_tick_t Cy_TimerNowTicks() noexcept;
 
-timer_tick_t Timer_ElapsedTicks( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
+// Returns end-start, or zero for a reversed interval.
+[[nodiscard]] constexpr timer_tick_t Cy_TimerElapsedTicks(
+    timer_tick_t nStartTicks,
+    timer_tick_t nEndTicks ) noexcept
+{
+    return nEndTicks >= nStartTicks ? nEndTicks - nStartTicks : 0u;
+}
 
-f64 Timer_TicksToSeconds( timer_tick_t nTicks );
-f64 Timer_TicksToMilliseconds( timer_tick_t nTicks );
-f64 Timer_TicksToMicroseconds( timer_tick_t nTicks );
-f64 Timer_TicksToNanoseconds( timer_tick_t nTicks );
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerTicksToSeconds(
+    timer_tick_t nTicks ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerTicksToMilliseconds(
+    timer_tick_t nTicks ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerTicksToMicroseconds(
+    timer_tick_t nTicks ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerTicksToNanoseconds(
+    timer_tick_t nTicks ) noexcept;
 
-f64 Timer_ElapsedSeconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
-f64 Timer_ElapsedMilliseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
-f64 Timer_ElapsedMicroseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
-f64 Timer_ElapsedNanoseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks );
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerElapsedSeconds(
+    timer_tick_t nStartTicks,
+    timer_tick_t nEndTicks ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerElapsedMilliseconds(
+    timer_tick_t nStartTicks,
+    timer_tick_t nEndTicks ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerElapsedMicroseconds(
+    timer_tick_t nStartTicks,
+    timer_tick_t nEndTicks ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerElapsedNanoseconds(
+    timer_tick_t nStartTicks,
+    timer_tick_t nEndTicks ) noexcept;
 
-void Timer_Begin( cy_timer_t *pTimer );
-void Timer_End( cy_timer_t *pTimer );
-void Timer_Reset( cy_timer_t *pTimer );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TimerBegin( cy_timer_t *pTimer ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TimerEnd( cy_timer_t *pTimer ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TimerReset( cy_timer_t *pTimer ) noexcept;
 
-timer_tick_t Timer_GetTicks( const cy_timer_t *pTimer );
+[[nodiscard]] CYPHER_COMMON_API timer_tick_t Cy_TimerGetTicks(
+    const cy_timer_t *pTimer ) noexcept;
 
-f64 Timer_GetSeconds( const cy_timer_t *pTimer );
-f64 Timer_GetMilliseconds( const cy_timer_t *pTimer );
-f64 Timer_GetMicroseconds( const cy_timer_t *pTimer );
-f64 Timer_GetNanoseconds( const cy_timer_t *pTimer );
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerGetSeconds(
+    const cy_timer_t *pTimer ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerGetMilliseconds(
+    const cy_timer_t *pTimer ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerGetMicroseconds(
+    const cy_timer_t *pTimer ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API f64 Cy_TimerGetNanoseconds(
+    const cy_timer_t *pTimer ) noexcept;
+
+// Adds a relative tick duration to now, saturating on overflow.
+[[nodiscard]] CYPHER_COMMON_API timer_tick_t Cy_TimerDeadlineAfterTicks(
+    timer_tick_t nDurationTicks ) noexcept;
+
+// Returns true once the monotonic clock reaches a deadline.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TimerHasReached(
+    timer_tick_t nDeadlineTicks ) noexcept;
 
 } // namespace cypher::common
 
