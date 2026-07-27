@@ -25,7 +25,12 @@ using namespace cypher::common;
 int main()
 {
     char szReport[CY_SYSTEMINFO_REPORT_MAX] = {};
-    Cy_SystemInfoFormatReport( szReport, sizeof( szReport ) );
+    const usize cchRequired =
+        Cy_SystemInfoFormatReport( szReport, sizeof( szReport ) );
+    if ( cchRequired == 0u || cchRequired >= sizeof( szReport ) ) {
+        std::fprintf( stderr, "failed to format complete system report\n" );
+        return 1;
+    }
 
     std::printf( "%s", szReport );
 
