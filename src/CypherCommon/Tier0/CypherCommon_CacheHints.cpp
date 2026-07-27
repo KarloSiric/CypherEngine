@@ -20,44 +20,95 @@
 #include "CypherCommon_Platform.h"
 #include "CypherCommon_SystemInfo.h"
 
-#if CYPHER_COMPILER_MSVC
+#if CYPHER_COMPILER_MSVC && CYPHER_ARCH_X64
     #include <intrin.h>
 #endif
 
 namespace cypher::common
 {
 
-void Cache_PrefetchRead( const void *pMemory )
+namespace
+{
+
+#if CYPHER_COMPILER_CLANG || CYPHER_COMPILER_GCC
+template <i32 nWrite>
+void Cache_BuiltinPrefetch(
+    const void *pMemory,
+    cache_prefetch_locality_t locality ) noexcept
+{
+    static_assert( nWrite == 0 || nWrite == 1, "Prefetch mode must be read or write." );
+    switch ( locality ) {
+        case cache_prefetch_locality_t::NonTemporal:
+            __builtin_prefetch( pMemory, nWrite, 0 );
+            break;
+        case cache_prefetch_locality_t::Low:
+            __builtin_prefetch( pMemory, nWrite, 1 );
+            break;
+        case cache_prefetch_locality_t::Medium:
+            __builtin_prefetch( pMemory, nWrite, 2 );
+            break;
+        case cache_prefetch_locality_t::High:
+        default:
+            __builtin_prefetch( pMemory, nWrite, 3 );
+            break;
+    }
+}
+#endif
+
+} // namespace
+
+void Cy_CachePrefetchRead(
+    const void *pMemory,
+    cache_prefetch_locality_t locality ) noexcept
 {
     if ( pMemory == nullptr ) {
         return;
     }
 
-#if CYPHER_COMPILER_MSVC
-    _mm_prefetch( static_cast<const char *>( pMemory ), _MM_HINT_T0 );
+#if CYPHER_COMPILER_MSVC && CYPHER_ARCH_X64
+    switch ( locality ) {
+        case cache_prefetch_locality_t::NonTemporal:
+            _mm_prefetch( static_cast<const char *>( pMemory ), _MM_HINT_NTA );
+            break;
+        case cache_prefetch_locality_t::Low:
+            _mm_prefetch( static_cast<const char *>( pMemory ), _MM_HINT_T2 );
+            break;
+        case cache_prefetch_locality_t::Medium:
+            _mm_prefetch( static_cast<const char *>( pMemory ), _MM_HINT_T1 );
+            break;
+        case cache_prefetch_locality_t::High:
+        default:
+            _mm_prefetch( static_cast<const char *>( pMemory ), _MM_HINT_T0 );
+            break;
+    }
 #elif CYPHER_COMPILER_CLANG || CYPHER_COMPILER_GCC
-    __builtin_prefetch( pMemory, 0, 3 );
+    Cache_BuiltinPrefetch<0>( pMemory, locality );
+#else
+    ( void )locality;
 #endif
 }
 
-void Cache_PrefetchWrite( const void *pMemory )
+void Cy_CachePrefetchWrite(
+    const void *pMemory,
+    cache_prefetch_locality_t locality ) noexcept
 {
     if ( pMemory == nullptr ) {
         return;
     }
 
 #if CYPHER_COMPILER_CLANG || CYPHER_COMPILER_GCC
-    __builtin_prefetch( pMemory, 1, 3 );
+    Cache_BuiltinPrefetch<1>( pMemory, locality );
 #else
-    Cache_PrefetchRead( pMemory );
+    Cy_CachePrefetchRead( pMemory, locality );
 #endif
 }
 
-usize Cache_GetLineSize()
+usize Cy_CacheGetLineSize() noexcept
 {
-    Cy_SystemInfoInit();
     const cy_system_info_t *pInfo = Cy_SystemInfoGet();
-    return pInfo != nullptr ? pInfo->cpu.cacheLineSize : CY_CACHE_LINE_SIZE;
+    const usize nDetectedSize =
+        pInfo != nullptr ? pInfo->cpu.cacheLineSize : 0u;
+    return nDetectedSize != 0u ? nDetectedSize : CY_DEFAULT_CACHE_LINE_SIZE;
 }
 
 } // namespace cypher::common
