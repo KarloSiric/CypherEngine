@@ -48,98 +48,104 @@ int main()
     CY_STATIC_ASSERT( sizeof( u32 ) == 4u, "u32 must be 4 bytes." );
     CY_STATIC_ASSERT( is_trivially_copyable_v<smoke_struct_t>, "smoke_struct_t must be trivially copyable." );
 
-    const compiler_info_t compiler = Compiler_GetInfo();
+    const compiler_info_t compiler = Cy_CompilerGetInfo();
     if ( compiler.pName == nullptr || compiler.pName[0] == '\0' ) {
         return Fail();
     }
-    if ( Compiler_GetName() == nullptr || Compiler_GetVersion() == 0u ) {
+    if ( Cy_CompilerGetName() == nullptr || Cy_CompilerGetVersion() == 0u ) {
         return Fail();
     }
-    if ( compiler.has_exceptions != ( CYPHER_CPP_EXCEPTIONS != 0 ) ) {
+    if ( compiler.hasExceptions != ( CYPHER_CPP_EXCEPTIONS != 0 ) ) {
         return Fail();
     }
-    if ( compiler.has_rtti != ( CYPHER_CPP_RTTI != 0 ) ) {
-        return Fail();
-    }
-
-    const build_config_t build_config = BuildConfig_GetCurrent();
-    if ( BuildConfig_GetName( build_config )[0] == '\0' ) {
-        return Fail();
-    }
-    if ( BuildConfig_IsDebug() != ( CYPHER_BUILD_DEBUG != 0 ) ) {
-        return Fail();
-    }
-    if ( BuildConfig_IsRelease() != ( CYPHER_BUILD_RELEASE != 0 ) ) {
+    if ( compiler.hasRtti != ( CYPHER_CPP_RTTI != 0 ) ) {
         return Fail();
     }
 
-    if ( !IsPowerOfTwo( 64u ) ) {
+    const build_config_t build_config = Cy_BuildConfigGetCurrent();
+    if ( Cy_BuildConfigGetName( build_config )[0] == '\0' ) {
         return Fail();
     }
-    if ( IsPowerOfTwo( 0u ) ) {
+    if ( Cy_BuildConfigIsDebug() != ( CYPHER_CONFIG_DEBUG != 0 ) ) {
         return Fail();
     }
-    if ( AlignUp( 13u, 8u ) != 16u ) {
+    if ( Cy_BuildConfigIsRelease() != ( CYPHER_CONFIG_RELEASE != 0 ) ) {
         return Fail();
     }
-    if ( AlignDown( 17u, 8u ) != 16u ) {
+    if ( Cy_BuildConfigIsDevelopment() != ( CYPHER_CONFIG_DEVELOPMENT != 0 ) ) {
         return Fail();
     }
-    if ( !IsAligned( 32u, 16u ) ) {
-        return Fail();
-    }
-
-    if ( Bit32( 3u ) != 8u ) {
-        return Fail();
-    }
-    if ( !HasAllFlags( 0x07u, 0x03u ) ) {
-        return Fail();
-    }
-    if ( ClearFlags( 0x07u, 0x02u ) != 0x05u ) {
-        return Fail();
-    }
-    if ( PopCount32( 0x0Fu ) != 4 ) {
-        return Fail();
-    }
-    if ( CountTrailingZeros32( 0x10u ) != 4 ) {
-        return Fail();
-    }
-    if ( RotateLeft32( 1u, 4 ) != 16u ) {
+    if ( Cy_BuildConfigIsShipping() != ( CYPHER_CONFIG_SHIPPING != 0 ) ) {
         return Fail();
     }
 
-    if ( ByteSwap16( 0x1122u ) != 0x2211u ) {
+    if ( !Cy_AlignIsPowerOfTwo( 64u ) ) {
         return Fail();
     }
-    if ( ByteSwap32( 0x11223344u ) != 0x44332211u ) {
+    if ( Cy_AlignIsPowerOfTwo( 0u ) ) {
         return Fail();
     }
-    if ( LittleToHost32( HostToLittle32( 0xCAFEBABEu ) ) != 0xCAFEBABEu ) {
+    if ( Cy_AlignUp( 13u, 8u ) != 16u ) {
         return Fail();
     }
-    if ( MakeFourCC( 'C', 'Y', 'P', 'K' ) != 0x4B505943u ) {
+    if ( Cy_AlignDown( 17u, 8u ) != 16u ) {
+        return Fail();
+    }
+    if ( !Cy_AlignIsAligned( 32u, 16u ) ) {
+        return Fail();
+    }
+
+    if ( Cy_Bit32( 3u ) != 8u ) {
+        return Fail();
+    }
+    if ( !Cy_HasAllFlags( 0x07u, 0x03u ) ) {
+        return Fail();
+    }
+    if ( Cy_ClearFlags( 0x07u, 0x02u ) != 0x05u ) {
+        return Fail();
+    }
+    if ( Cy_PopCount32( 0x0Fu ) != 4 ) {
+        return Fail();
+    }
+    if ( Cy_CountTrailingZeros32( 0x10u ) != 4 ) {
+        return Fail();
+    }
+    if ( Cy_RotateLeft32( 1u, 4 ) != 16u ) {
+        return Fail();
+    }
+
+    if ( Cy_ByteSwap16( 0x1122u ) != 0x2211u ) {
+        return Fail();
+    }
+    if ( Cy_ByteSwap32( 0x11223344u ) != 0x44332211u ) {
+        return Fail();
+    }
+    if ( Cy_LittleToHost32( Cy_HostToLittle32( 0xCAFEBABEu ) ) != 0xCAFEBABEu ) {
+        return Fail();
+    }
+    if ( Cy_MakeFourCC( 'C', 'Y', 'P', 'K' ) != 0x4B505943u ) {
         return Fail();
     }
 
     char src[] = { 'c', 'y', 'p', 'h', 'e', 'r', '\0' };
     char dst[sizeof( src )] = {};
-    MemCopy( dst, src, sizeof( src ) );
-    if ( !MemEqual( dst, src, sizeof( src ) ) ) {
+    Cy_MemCopy( dst, src, sizeof( src ) );
+    if ( !Cy_MemEqual( dst, src, sizeof( src ) ) ) {
         return Fail();
     }
-    MemZero( dst, sizeof( dst ) );
+    Cy_MemZero( dst, sizeof( dst ) );
     if ( dst[0] != '\0' ) {
         return Fail();
     }
 
     smoke_struct_t value = { 10u, 20u };
-    ZeroStruct( value );
+    Cy_ZeroStruct( value );
     if ( value.a != 0u || value.b != 0u ) {
         return Fail();
     }
 
-    const timer_tick_t start_ticks = Timer_NowTicks();
-    const timer_tick_t end_ticks = Timer_NowTicks();
+    const timer_tick_t start_ticks = Cy_TimerNowTicks();
+    const timer_tick_t end_ticks = Cy_TimerNowTicks();
     if ( end_ticks < start_ticks ) {
         return Fail();
     }
@@ -170,7 +176,10 @@ int main()
     }
 
     stack_trace_t trace = {};
-    const u32 cCapturedFrames = CaptureStackTrace( trace, CYPHER_STACK_TRACE_MAX_FRAMES, 0u );
+    const u32 cCapturedFrames = Cy_StackTraceCapture(
+        &trace,
+        CYPHER_STACK_TRACE_MAX_FRAMES,
+        0u );
     if ( cCapturedFrames != trace.frame_count ) {
         return Fail();
     }
