@@ -19,6 +19,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <thread>
+#include <vector>
+
 using namespace cypher::common;
 
 TEST_CASE( "Atomic load and store update scalar values", "[CypherCommon][Tier0][Atomic]" )
@@ -95,6 +98,96 @@ TEST_CASE( "Atomic pointer alias can publish and read pointer values", "[CypherC
     REQUIRE( Cy_AtomicLoad( &pValue, CY_MEMORY_ORDER_ACQUIRE ) == &nValueB );
 }
 
+TEST_CASE( "Atomic pointer arithmetic advances by elements", "[CypherCommon][Tier0][Atomic]" )
+{
+    i32 values[4] = {};
+    atomic_ptr_t<i32> pValue{ values };
+
+    REQUIRE( Cy_AtomicFetchAdd( &pValue, 2 ) == values );
+    REQUIRE( Cy_AtomicLoad( &pValue ) == values + 2 );
+    REQUIRE( Cy_AtomicFetchSub( &pValue, 1 ) == values + 2 );
+    REQUIRE( Cy_AtomicLoad( &pValue ) == values + 1 );
+}
+
+TEST_CASE( "Atomic order normalization prevents invalid standard orders", "[CypherCommon][Tier0][Atomic]" )
+{
+    STATIC_REQUIRE( Cy_AtomicNormalizeLoadOrder( CY_MEMORY_ORDER_RELEASE ) ==
+                    CY_MEMORY_ORDER_SEQ_CST );
+    STATIC_REQUIRE( Cy_AtomicNormalizeStoreOrder( CY_MEMORY_ORDER_ACQUIRE ) ==
+                    CY_MEMORY_ORDER_SEQ_CST );
+    STATIC_REQUIRE( Cy_AtomicNormalizeReadModifyWriteOrder(
+                        static_cast<memory_order_t>( 255 ) ) ==
+                    CY_MEMORY_ORDER_SEQ_CST );
+    STATIC_REQUIRE( Cy_AtomicNormalizeFailureOrder(
+                        CY_MEMORY_ORDER_RELEASE,
+                        CY_MEMORY_ORDER_ACQUIRE ) ==
+                    CY_MEMORY_ORDER_RELAXED );
+    STATIC_REQUIRE( Cy_AtomicNormalizeFailureOrder(
+                        CY_MEMORY_ORDER_ACQ_REL,
+                        CY_MEMORY_ORDER_SEQ_CST ) ==
+                    CY_MEMORY_ORDER_ACQUIRE );
+
+    atomic_u32_t nValue{ 3u };
+    const memory_order_t invalidOrder = static_cast<memory_order_t>( 255 );
+    REQUIRE( Cy_AtomicExchange( &nValue, 4u, invalidOrder ) == 3u );
+    REQUIRE( Cy_AtomicFetchAdd( &nValue, 2u, invalidOrder ) == 4u );
+    REQUIRE( Cy_AtomicLoad( &nValue ) == 6u );
+}
+
+TEST_CASE( "Atomic fetch add remains exact under contention", "[CypherCommon][Tier0][Atomic]" )
+{
+    atomic_u64_t nCounter{ 0u };
+    constexpr u32 nThreadCount = 4u;
+    constexpr u32 nIterations = 10000u;
+    std::vector<std::thread> threads;
+    threads.reserve( nThreadCount );
+
+    for ( u32 nThread = 0u; nThread < nThreadCount; ++nThread ) {
+        threads.emplace_back( [&nCounter]() {
+            for ( u32 nIteration = 0u; nIteration < nIterations; ++nIteration ) {
+                ( void )Cy_AtomicFetchAdd(
+                    &nCounter,
+                    static_cast<u64>( 1u ),
+                    CY_MEMORY_ORDER_RELAXED );
+            }
+        } );
+    }
+    for ( std::thread &thread : threads ) {
+        thread.join();
+    }
+
+    REQUIRE( Cy_AtomicLoad( &nCounter ) ==
+             static_cast<u64>( nThreadCount ) * nIterations );
+}
+
+TEST_CASE( "Atomic wait and notify publish state", "[CypherCommon][Tier0][Atomic]" )
+{
+    atomic_u32_t nState{ 0u };
+    u32 nObserved = 0u;
+    std::thread waiter( [&]() {
+        Cy_AtomicWait( &nState, 0u, CY_MEMORY_ORDER_ACQUIRE );
+        nObserved = Cy_AtomicLoad( &nState, CY_MEMORY_ORDER_ACQUIRE );
+    } );
+
+    Cy_AtomicStore( &nState, 1u, CY_MEMORY_ORDER_RELEASE );
+    Cy_AtomicNotifyOne( &nState );
+    waiter.join();
+
+    REQUIRE( nObserved == 1u );
+}
+
+TEST_CASE( "Atomic flags test set and clear", "[CypherCommon][Tier0][Atomic]" )
+{
+    atomic_flag_t flag = ATOMIC_FLAG_INIT;
+
+    REQUIRE_FALSE( Cy_AtomicFlagTest( &flag ) );
+    REQUIRE_FALSE( Cy_AtomicFlagTestAndSet( &flag ) );
+    REQUIRE( Cy_AtomicFlagTest( &flag ) );
+    REQUIRE( Cy_AtomicFlagTestAndSet( &flag ) );
+    Cy_AtomicFlagClear( &flag );
+    REQUIRE_FALSE( Cy_AtomicFlagTest( &flag ) );
+}
+
 TEST_CASE( "Atomic lock-free query and fences are callable", "[CypherCommon][Tier0][Atomic]" )
 {
     atomic_u32_t nValue{ 0u };
@@ -105,6 +198,7 @@ TEST_CASE( "Atomic lock-free query and fences are callable", "[CypherCommon][Tie
     Cy_AtomicFenceRelease();
     Cy_AtomicFenceAcqRel();
     Cy_AtomicFenceSeqCst();
+    Cy_AtomicSignalFence();
 
     SUCCEED( "Atomic fences returned." );
 }
