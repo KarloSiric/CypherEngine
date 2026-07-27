@@ -31,6 +31,7 @@ context without passing a pointer through every call.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
 namespace cypher::common
@@ -39,24 +40,35 @@ namespace cypher::common
 using tls_slot_t = u32;
 
 constexpr tls_slot_t CY_TLS_INVALID_SLOT = CY_U32_MAX;
+constexpr u32 CY_TLS_MAX_SLOT_COUNT = 256u;
+
+using tls_destructor_t = void ( * )( void *pValue ) noexcept;
 
 // Creates a generational TLS slot handle, or CY_TLS_INVALID_SLOT on failure.
-tls_slot_t Cy_TLSCreateSlot();
+[[nodiscard]] CYPHER_COMMON_API tls_slot_t Cy_TLSCreateSlot(
+    tls_destructor_t pDestructor = nullptr ) noexcept;
 
-// Destroys a TLS slot. Existing values for that old generation become invalid.
-void Cy_TLSDestroySlot( tls_slot_t slot );
+// Destroys a slot. Call only after other threads have cleared or exited.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TLSDestroySlot( tls_slot_t slot ) noexcept;
 
 // Returns true when the slot currently refers to a live TLS slot generation.
-bool_t Cy_TLSIsValidSlot( tls_slot_t slot );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TLSIsValidSlot(
+    tls_slot_t slot ) noexcept;
 
 // Stores a pointer value for the current thread and slot.
-bool_t Cy_TLSSetValue( tls_slot_t slot, void *pValue );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TLSSetValue(
+    tls_slot_t slot,
+    void *pValue ) noexcept;
 
 // Reads the pointer value for the current thread and slot.
-void *Cy_TLSGetValue( tls_slot_t slot );
+[[nodiscard]] CYPHER_COMMON_API void *Cy_TLSGetValue(
+    tls_slot_t slot ) noexcept;
 
-// Clears the pointer value for the current thread and slot.
-void Cy_TLSClearValue( tls_slot_t slot );
+// Clears the pointer without invoking the optional thread-exit destructor.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TLSClearValue( tls_slot_t slot ) noexcept;
+
+// Returns the number of currently allocated slot handles.
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_TLSGetAllocatedSlotCount() noexcept;
 
 } // namespace cypher::common
 
