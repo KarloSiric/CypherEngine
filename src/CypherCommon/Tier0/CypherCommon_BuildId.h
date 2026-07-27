@@ -31,24 +31,40 @@ and editor about dialogs.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
 namespace cypher::common
 {
 
-struct build_id_t {
-    const char *pProductName;
-    const char *pInternalName;
-    const char *pBranchName;
-    const char *pCommitHash;
-    const char *pBuildDate;
-    const char *pBuildTime;
-    version_t version;
+struct build_version_t {
+    u32 nMajor;
+    u32 nMinor;
+    u32 nPatch;
+    u32 nBuild;
 };
 
-const build_id_t *Cy_BuildId_GetEngine();
-const build_id_t *Cy_BuildId_GetGame();
-void Cy_BuildId_Format( const build_id_t &buildId, char *pDest, usize cchDest );
+struct build_id_t {
+    const char *pszProductName;
+    const char *pszInternalName;
+    const char *pszVersion;
+    const char *pszBranchName;
+    const char *pszCommitHash;
+    const char *pszBuildDate;
+    const char *pszBuildTime;
+    build_version_t version;
+};
+
+[[nodiscard]] CYPHER_COMMON_API const build_id_t *Cy_BuildIdGetEngine() noexcept;
+[[nodiscard]] CYPHER_COMMON_API const build_id_t *Cy_BuildIdGetGame() noexcept;
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_BuildIdIsValid(
+    const build_id_t *pBuildId ) noexcept;
+
+// Formats identity text and returns the required character count excluding null.
+[[nodiscard]] CYPHER_COMMON_API usize Cy_BuildIdFormat(
+    const build_id_t *pBuildId,
+    char *pszDst,
+    usize cchDst ) noexcept;
 
 } // namespace cypher::common
 
