@@ -19,6 +19,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <cstring>
+#include <filesystem>
+#include <string>
+#include <thread>
+
 using namespace cypher::common;
 
 namespace
@@ -27,6 +33,15 @@ namespace
 bool IsPowerOfTwoSize( usize nValue )
 {
     return nValue != 0u && ( nValue & ( nValue - 1u ) ) == 0u;
+}
+
+std::string PathToUtf8( const std::filesystem::path &path )
+{
+    const std::u8string utf8 = path.u8string();
+    return {
+        reinterpret_cast<const char *>( utf8.data() ),
+        utf8.size()
+    };
 }
 
 } // namespace
@@ -72,14 +87,39 @@ TEST_CASE( "SystemInfo mirrors compile-time endian and pointer width detection",
 TEST_CASE( "SystemInfo dynamic queries report sane memory and disk status", "[CypherCommon][Tier0][SystemInfo]" )
 {
     const cy_system_memory_status_t memory = Cy_SystemInfoQueryMemoryStatus();
+    REQUIRE( memory.hasPhysicalMemory );
+    REQUIRE( memory.hasProcessMemory );
     REQUIRE( memory.totalPhysicalBytes >= memory.availablePhysicalBytes );
     REQUIRE( memory.totalPhysicalBytes != 0u );
     REQUIRE( memory.pressure != CY_SYSTEM_MEMORY_PRESSURE_UNKNOWN );
 
     const cy_system_disk_status_t disk = Cy_SystemInfoQueryDiskStatus( "." );
+    REQUIRE( disk.isValid );
     REQUIRE( disk.totalBytes >= disk.freeBytes );
     REQUIRE( disk.totalBytes >= disk.availableBytes );
     REQUIRE( disk.totalBytes != 0u );
+
+    const cy_system_disk_status_t missing =
+        Cy_SystemInfoQueryDiskStatus( "./path-that-does-not-exist-cypher" );
+    REQUIRE_FALSE( missing.isValid );
+    REQUIRE( missing.totalBytes == 0u );
+}
+
+TEST_CASE( "SystemInfo disk queries accept UTF-8 paths", "[CypherCommon][Tier0][SystemInfo]" )
+{
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() /
+        std::filesystem::path( u8"CypherCommon_SystemInfo_\u017D" );
+    std::filesystem::remove_all( path );
+    REQUIRE( std::filesystem::create_directory( path ) );
+
+    const std::string pathString = PathToUtf8( path );
+    const cy_system_disk_status_t disk =
+        Cy_SystemInfoQueryDiskStatus( pathString.c_str() );
+    REQUIRE( disk.isValid );
+    REQUIRE( disk.totalBytes != 0u );
+
+    REQUIRE( std::filesystem::remove( path ) );
 }
 
 TEST_CASE( "SystemInfo CPU feature helpers expose stable names", "[CypherCommon][Tier0][SystemInfo]" )
@@ -101,4 +141,32 @@ TEST_CASE( "SystemInfo report formatting is bounded and queryable", "[CypherComm
 
     const usize cchProbe = Cy_SystemInfoFormatReport( nullptr, 0u );
     REQUIRE( cchProbe == cchRequired );
+    REQUIRE( std::strstr( szReport, "cpu_features: 0x" ) != nullptr );
+
+    char szSmall[8] = {};
+    const usize cchSmallRequired = Cy_SystemInfoFormatReport( szSmall, sizeof( szSmall ) );
+    REQUIRE( cchSmallRequired == cchRequired );
+    REQUIRE( szSmall[sizeof( szSmall ) - 1u] == '\0' );
+}
+
+TEST_CASE( "SystemInfo publishes one immutable snapshot across threads", "[CypherCommon][Tier0][SystemInfo]" )
+{
+    constexpr usize THREAD_COUNT = 16u;
+    std::array<const cy_system_info_t *, THREAD_COUNT> results = {};
+    std::array<std::thread, THREAD_COUNT> threads;
+
+    for ( usize i = 0u; i < THREAD_COUNT; ++i ) {
+        threads[i] = std::thread( [&results, i]() {
+            results[i] = Cy_SystemInfoGet();
+        } );
+    }
+
+    for ( std::thread &thread : threads ) {
+        thread.join();
+    }
+
+    const cy_system_info_t *pExpected = Cy_SystemInfoGet();
+    for ( const cy_system_info_t *pResult : results ) {
+        REQUIRE( pResult == pExpected );
+    }
 }
