@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Tier0.h
-//  Purpose: Declares CypherCommon Tier0 Tier0 support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Provides the complete public CypherCommon Tier0 interface.
+//  Details: This dependency-light umbrella exposes primitive contracts, diagnostics,
+//           memory, concurrency, timing, and host services in dependency order.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-20
@@ -32,59 +31,91 @@ but it must not depend on any CypherEngine subsystem.
 ================
 */
 
+/*
+================
+Compile-Time Foundation
+================
+*/
 #include "CypherCommon_Platform.h"
-#include "CypherCommon_BaseTypes.h"
-#include "CypherCommon_BuildConfig.h"
-#include "CypherCommon_BuildId.h"
-#include "CypherCommon_Defines.h"
 #include "CypherCommon_Compiler.h"
-#include "CypherCommon_Warnings.h"
+#include "CypherCommon_BuildConfig.h"
+#include "CypherCommon_BaseTypes.h"
+#include "CypherCommon_Defines.h"
 #include "CypherCommon_API.h"
 #include "CypherCommon_Annotations.h"
 #include "CypherCommon_StaticAnalysis.h"
+#include "CypherCommon_Warnings.h"
+#include "CypherCommon_TypeTraits.h"
 #include "CypherCommon_SourceLocation.h"
-#include "CypherCommon_Error.h"
+#include "CypherCommon_BuildId.h"
 #include "CypherCommon_Handle.h"
+
+/*
+================
+Diagnostics
+================
+*/
+#include "CypherCommon_Error.h"
+#include "CypherCommon_LogToggle.h"
+#include "CypherCommon_Log.h"
 #include "CypherCommon_Debug.h"
 #include "CypherCommon_Assert.h"
-#include "CypherCommon_Crash.h"
+#include "CypherCommon_StackTrace.h"
 #include "CypherCommon_Minidump.h"
+#include "CypherCommon_Crash.h"
 #include "CypherCommon_Validator.h"
+
+/*
+================
+Primitive And Memory Operations
+================
+*/
 #include "CypherCommon_MemoryOps.h"
-#include "CypherCommon_MemoryDebug.h"
-#include "CypherCommon_MemoryTracker.h"
-#include "CypherCommon_PlatformMemory.h"
-#include "CypherCommon_PageAllocator.h"
-#include "CypherCommon_CacheHints.h"
 #include "CypherCommon_Align.h"
 #include "CypherCommon_Bits.h"
 #include "CypherCommon_Endian.h"
-#include "CypherCommon_TypeTraits.h"
-#include "CypherCommon_WideChar.h"
+#include "CypherCommon_CacheHints.h"
 #include "CypherCommon_Atomic.h"
+#include "CypherCommon_Simd.h"
+#include "CypherCommon_PlatformMemory.h"
+#include "CypherCommon_PageAllocator.h"
+#include "CypherCommon_MemoryDebug.h"
+#include "CypherCommon_MemoryTracker.h"
+
+/*
+================
+Concurrency
+================
+*/
 #include "CypherCommon_Thread.h"
 #include "CypherCommon_Mutex.h"
 #include "CypherCommon_TLS.h"
 #include "CypherCommon_Event.h"
 #include "CypherCommon_Semaphore.h"
 #include "CypherCommon_TsList.h"
-#include "CypherCommon_TestThread.h"
+
+/*
+================
+Time, Host, And Module Services
+================
+*/
 #include "CypherCommon_Timer.h"
 #include "CypherCommon_PerformanceCounter.h"
-#include "CypherCommon_Profile.h"
-#include "CypherCommon_Stats.h"
 #include "CypherCommon_CPUDetect.h"
 #include "CypherCommon_CPUMonitoring.h"
-#include "CypherCommon_Simd.h"
-#include "CypherCommon_StackTrace.h"
 #include "CypherCommon_SystemInfo.h"
 #include "CypherCommon_CommandLineBase.h"
 #include "CypherCommon_DynamicLibrary.h"
 #include "CypherCommon_Process.h"
 #include "CypherCommon_Environment.h"
-#include "CypherCommon_ProgressBar.h"
-#include "CypherCommon_LogToggle.h"
-#include "CypherCommon_Log.h"
 #include "CypherCommon_Module.h"
+
+/*
+================
+Instrumentation
+================
+*/
+#include "CypherCommon_Stats.h"
+#include "CypherCommon_Profile.h"
 
 #endif // CYPHER_COMMON_TIER0_H
