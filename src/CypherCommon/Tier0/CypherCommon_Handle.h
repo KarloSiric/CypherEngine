@@ -31,31 +31,81 @@ Handles keep external code away from private subsystem pointers.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
 namespace cypher::common
 {
 
+constexpr u32 CY_HANDLE32_INDEX_BITS = 16u;
+constexpr u32 CY_HANDLE32_GENERATION_BITS = 16u;
+constexpr u32 CY_HANDLE32_INDEX_MAX = 0xFFFFu;
+constexpr u32 CY_HANDLE32_GENERATION_MAX = 0xFFFFu;
+
+constexpr u32 CY_HANDLE64_INDEX_BITS = 32u;
+constexpr u32 CY_HANDLE64_GENERATION_BITS = 16u;
+constexpr u32 CY_HANDLE64_TYPE_BITS = 16u;
+constexpr u32 CY_HANDLE64_GENERATION_MAX = 0xFFFFu;
+constexpr u32 CY_HANDLE64_TYPE_MAX = 0xFFFFu;
+
 struct handle32_t {
-    u32 value;
+    u32 value = 0u;
 };
 
 struct handle64_t {
-    u64 value;
+    u64 value = 0u;
 };
 
 struct handle_parts32_t {
-    u32 index;
-    u32 generation;
+    u32 nIndex;
+    u32 nGeneration;
 };
 
-handle32_t Cy_Handle32_Make( u32 index, u32 generation );
-handle64_t Cy_Handle64_Make( u32 index, u32 generation, u32 type );
-handle_parts32_t Cy_Handle32_Unpack( handle32_t handle );
-bool_t Cy_Handle32_IsValid( handle32_t handle );
-bool_t Cy_Handle64_IsValid( handle64_t handle );
-u32 Cy_Handle32_Index( handle32_t handle );
-u32 Cy_Handle32_Generation( handle32_t handle );
+struct handle_parts64_t {
+    u32 nIndex;
+    u32 nGeneration;
+    u32 nType;
+};
+
+constexpr handle32_t CY_HANDLE32_INVALID{};
+constexpr handle64_t CY_HANDLE64_INVALID{};
+
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_Handle32TryMake(
+    u32 nIndex,
+    u32 nGeneration,
+    handle32_t *pOutHandle ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_Handle64TryMake(
+    u32 nIndex,
+    u32 nGeneration,
+    u32 nType,
+    handle64_t *pOutHandle ) noexcept;
+
+[[nodiscard]] CYPHER_COMMON_API handle32_t Cy_Handle32Make(
+    u32 nIndex,
+    u32 nGeneration ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API handle64_t Cy_Handle64Make(
+    u32 nIndex,
+    u32 nGeneration,
+    u32 nType ) noexcept;
+
+[[nodiscard]] CYPHER_COMMON_API handle_parts32_t Cy_Handle32Unpack(
+    handle32_t handle ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API handle_parts64_t Cy_Handle64Unpack(
+    handle64_t handle ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_Handle32IsValid(
+    handle32_t handle ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_Handle64IsValid(
+    handle64_t handle ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_Handle32Index(
+    handle32_t handle ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_Handle32Generation(
+    handle32_t handle ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_Handle64Index(
+    handle64_t handle ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_Handle64Generation(
+    handle64_t handle ) noexcept;
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_Handle64Type(
+    handle64_t handle ) noexcept;
 
 } // namespace cypher::common
 
