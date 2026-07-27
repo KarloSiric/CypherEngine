@@ -19,7 +19,6 @@
 
 #include "CypherCommon_Align.h"
 #include "CypherCommon_Platform.h"
-#include "CypherCommon_SystemInfo.h"
 
 #if CYPHER_PLATFORM_WINDOWS
     #ifndef WIN32_LEAN_AND_MEAN
@@ -31,6 +30,7 @@
     #include <windows.h>
 #elif CYPHER_PLATFORM_POSIX
     #include <sys/mman.h>
+    #include <unistd.h>
     #if !defined( MAP_ANON ) && defined( MAP_ANONYMOUS )
         #define MAP_ANON MAP_ANONYMOUS
     #endif
@@ -39,91 +39,213 @@
 namespace cypher::common
 {
 
-platform_memory_info_t PlatformMemory_GetInfo()
+namespace
 {
-    Cy_SystemInfoInit();
 
-    const cy_system_info_t *pSystemInfo = Cy_SystemInfoGet();
-    const cy_system_memory_status_t memoryStatus = Cy_SystemInfoQueryMemoryStatus();
+usize PlatformMemory_PageSize() noexcept
+{
+#if CYPHER_PLATFORM_WINDOWS
+    SYSTEM_INFO systemInfo{};
+    ::GetSystemInfo( &systemInfo );
+    return static_cast<usize>( systemInfo.dwPageSize );
+#elif CYPHER_PLATFORM_POSIX
+    const long nPageSize = ::sysconf( _SC_PAGESIZE );
+    return nPageSize > 0 ? static_cast<usize>( nPageSize ) : 4096u;
+#else
+    return 4096u;
+#endif
+}
 
+bool_t PlatformMemory_AlignSize(
+    usize nByteCount,
+    usize nAlignment,
+    usize &nOutAlignedByteCount ) noexcept
+{
+    if ( nByteCount == 0u || nAlignment == 0u ) {
+        nOutAlignedByteCount = 0u;
+        return CY_FALSE;
+    }
+    return Cy_AlignUpChecked( nByteCount, nAlignment, nOutAlignedByteCount );
+}
+
+bool_t PlatformMemory_IsPageAligned( const void *pMemory, usize nPageSize ) noexcept
+{
+    return pMemory != nullptr &&
+           Cy_AlignIsAligned( reinterpret_cast<uintptr>( pMemory ), nPageSize );
+}
+
+u64 PlatformMemory_PageCountToBytes( long nPageCount, usize nPageSize ) noexcept
+{
+    if ( nPageCount <= 0 ) {
+        return 0u;
+    }
+
+    const u64 nCount = static_cast<u64>( nPageCount );
+    const u64 nSize = static_cast<u64>( nPageSize );
+    if ( nCount > CY_U64_MAX / nSize ) {
+        return CY_U64_MAX;
+    }
+    return nCount * nSize;
+}
+
+} // namespace
+
+platform_memory_info_t Cy_PlatformMemoryGetInfo() noexcept
+{
     platform_memory_info_t info{};
-    info.page_size = pSystemInfo != nullptr ? pSystemInfo->memory.pageSize : CY_KB * 4u;
-    info.allocation_granularity = pSystemInfo != nullptr ? pSystemInfo->memory.allocationGranularity : info.page_size;
-    info.total_physical_memory = memoryStatus.totalPhysicalBytes;
-    info.available_physical_memory = memoryStatus.availablePhysicalBytes;
+
+#if CYPHER_PLATFORM_WINDOWS
+    SYSTEM_INFO systemInfo{};
+    ::GetSystemInfo( &systemInfo );
+    info.nPageSize = static_cast<usize>( systemInfo.dwPageSize );
+    info.nAllocationGranularity =
+        static_cast<usize>( systemInfo.dwAllocationGranularity );
+
+    MEMORYSTATUSEX memoryStatus{};
+    memoryStatus.dwLength = sizeof( memoryStatus );
+    if ( ::GlobalMemoryStatusEx( &memoryStatus ) != FALSE ) {
+        info.nTotalPhysicalBytes = static_cast<u64>( memoryStatus.ullTotalPhys );
+        info.nAvailablePhysicalBytes = static_cast<u64>( memoryStatus.ullAvailPhys );
+    }
+#elif CYPHER_PLATFORM_POSIX
+    info.nPageSize = PlatformMemory_PageSize();
+    info.nAllocationGranularity = info.nPageSize;
+
+    #if defined( _SC_PHYS_PAGES )
+        info.nTotalPhysicalBytes =
+            PlatformMemory_PageCountToBytes( ::sysconf( _SC_PHYS_PAGES ), info.nPageSize );
+    #endif
+    #if defined( _SC_AVPHYS_PAGES )
+        info.nAvailablePhysicalBytes =
+            PlatformMemory_PageCountToBytes( ::sysconf( _SC_AVPHYS_PAGES ), info.nPageSize );
+    #endif
+#else
+    info.nPageSize = 4096u;
+    info.nAllocationGranularity = info.nPageSize;
+#endif
+
+    if ( info.nPageSize == 0u ) {
+        info.nPageSize = 4096u;
+    }
+    if ( info.nAllocationGranularity == 0u ) {
+        info.nAllocationGranularity = info.nPageSize;
+    }
     return info;
 }
 
-void *PlatformMemory_Reserve( usize cbSize )
+void *Cy_PlatformMemoryReserve( usize nByteCount ) noexcept
 {
-    if ( cbSize == 0u ) {
+    if ( nByteCount == 0u ) {
         return nullptr;
     }
 
-    const platform_memory_info_t info = PlatformMemory_GetInfo();
-    const usize cbAlignedSize = AlignUp( cbSize, info.page_size );
+    const platform_memory_info_t info = Cy_PlatformMemoryGetInfo();
+    usize nAlignedByteCount = 0u;
+    if ( !PlatformMemory_AlignSize(
+             nByteCount,
+             info.nAllocationGranularity,
+             nAlignedByteCount ) ) {
+        return nullptr;
+    }
 
 #if CYPHER_PLATFORM_WINDOWS
-    return ::VirtualAlloc( nullptr, cbAlignedSize, MEM_RESERVE, PAGE_READWRITE );
+    return ::VirtualAlloc( nullptr, nAlignedByteCount, MEM_RESERVE, PAGE_NOACCESS );
 #elif CYPHER_PLATFORM_POSIX
-    void *pMemory = ::mmap( nullptr, cbAlignedSize, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0 );
+    void *pMemory = ::mmap(
+        nullptr,
+        nAlignedByteCount,
+        PROT_NONE,
+        MAP_PRIVATE | MAP_ANON,
+        -1,
+        0 );
     return pMemory != MAP_FAILED ? pMemory : nullptr;
 #else
     return nullptr;
 #endif
 }
 
-bool_t PlatformMemory_Commit( void *pMemory, usize cbSize )
+bool_t Cy_PlatformMemoryCommit(
+    void *pMemory,
+    usize nByteCount ) noexcept
 {
-    if ( pMemory == nullptr || cbSize == 0u ) {
+    const usize nPageSize = PlatformMemory_PageSize();
+    if ( !PlatformMemory_IsPageAligned( pMemory, nPageSize ) ) {
         return CY_FALSE;
     }
 
-    const platform_memory_info_t info = PlatformMemory_GetInfo();
-    const usize cbAlignedSize = AlignUp( cbSize, info.page_size );
+    usize nAlignedByteCount = 0u;
+    if ( !PlatformMemory_AlignSize( nByteCount, nPageSize, nAlignedByteCount ) ) {
+        return CY_FALSE;
+    }
 
 #if CYPHER_PLATFORM_WINDOWS
-    return ::VirtualAlloc( pMemory, cbAlignedSize, MEM_COMMIT, PAGE_READWRITE ) != nullptr;
+    return ::VirtualAlloc(
+               pMemory,
+               nAlignedByteCount,
+               MEM_COMMIT,
+               PAGE_READWRITE ) != nullptr;
 #elif CYPHER_PLATFORM_POSIX
-    return ::mprotect( pMemory, cbAlignedSize, PROT_READ | PROT_WRITE ) == 0;
+    return ::mprotect(
+               pMemory,
+               nAlignedByteCount,
+               PROT_READ | PROT_WRITE ) == 0;
 #else
     return CY_FALSE;
 #endif
 }
 
-void PlatformMemory_Decommit( void *pMemory, usize cbSize )
+bool_t Cy_PlatformMemoryDecommit(
+    void *pMemory,
+    usize nByteCount ) noexcept
 {
-    if ( pMemory == nullptr || cbSize == 0u ) {
-        return;
+    const usize nPageSize = PlatformMemory_PageSize();
+    if ( !PlatformMemory_IsPageAligned( pMemory, nPageSize ) ) {
+        return CY_FALSE;
     }
 
-    const platform_memory_info_t info = PlatformMemory_GetInfo();
-    const usize cbAlignedSize = AlignUp( cbSize, info.page_size );
+    usize nAlignedByteCount = 0u;
+    if ( !PlatformMemory_AlignSize( nByteCount, nPageSize, nAlignedByteCount ) ) {
+        return CY_FALSE;
+    }
 
 #if CYPHER_PLATFORM_WINDOWS
-    ::VirtualFree( pMemory, cbAlignedSize, MEM_DECOMMIT );
+    return ::VirtualFree( pMemory, nAlignedByteCount, MEM_DECOMMIT ) != FALSE;
 #elif CYPHER_PLATFORM_POSIX
-    ::mprotect( pMemory, cbAlignedSize, PROT_NONE );
+    if ( ::mprotect( pMemory, nAlignedByteCount, PROT_NONE ) != 0 ) {
+        return CY_FALSE;
+    }
     #if defined( MADV_DONTNEED )
-        ::madvise( pMemory, cbAlignedSize, MADV_DONTNEED );
+        ( void )::madvise( pMemory, nAlignedByteCount, MADV_DONTNEED );
     #endif
+    return CY_TRUE;
+#else
+    return CY_FALSE;
 #endif
 }
 
-void PlatformMemory_Release( void *pMemory, usize cbSize )
+bool_t Cy_PlatformMemoryRelease(
+    void *pMemory,
+    usize nByteCount ) noexcept
 {
     if ( pMemory == nullptr ) {
-        return;
+        return CY_FALSE;
     }
 
 #if CYPHER_PLATFORM_WINDOWS
-    ( void )cbSize;
-    ::VirtualFree( pMemory, 0u, MEM_RELEASE );
+    ( void )nByteCount;
+    return ::VirtualFree( pMemory, 0u, MEM_RELEASE ) != FALSE;
 #elif CYPHER_PLATFORM_POSIX
-    if ( cbSize != 0u ) {
-        const platform_memory_info_t info = PlatformMemory_GetInfo();
-        ::munmap( pMemory, AlignUp( cbSize, info.page_size ) );
+    usize nAlignedByteCount = 0u;
+    if ( !PlatformMemory_AlignSize(
+             nByteCount,
+             PlatformMemory_PageSize(),
+             nAlignedByteCount ) ) {
+        return CY_FALSE;
     }
+    return ::munmap( pMemory, nAlignedByteCount ) == 0;
+#else
+    ( void )nByteCount;
+    return CY_FALSE;
 #endif
 }
 
