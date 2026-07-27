@@ -22,6 +22,7 @@
     #pragma once
 #endif
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 #include "CypherCommon_Defines.h"
 
@@ -80,23 +81,24 @@ struct cy_cpu_detect_info_t {
     flags64_t usableFeatures;
 };
 
-// Initializes and caches CPU detection. Safe to call repeatedly.
-bool_t Cy_CPUDetectInit();
+// Initializes the immutable process-lifetime CPU snapshot.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_CPUDetectInit() noexcept;
 
-// Clears cached CPU detection state during controlled shutdown.
-void Cy_CPUDetectShutdown();
-
-// Returns the cached CPU info snapshot, initializing on first use.
-const cy_cpu_detect_info_t *Cy_CPUDetectGetInfo();
+// Returns the immutable CPU snapshot, initializing it on first use.
+[[nodiscard]] CYPHER_COMMON_API const cy_cpu_detect_info_t *Cy_CPUDetectGetInfo() noexcept;
 
 // Returns true when a feature bit exists in the given feature mask.
-bool_t Cy_CPUDetectHasFeature( flags64_t features, cy_cpu_feature_flags_t feature );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_CPUDetectHasFeature(
+    flags64_t features,
+    cy_cpu_feature_flags_t feature ) noexcept;
 
 // Returns a stable human-readable feature name.
-const char *Cy_CPUDetectFeatureName( cy_cpu_feature_flags_t feature );
+[[nodiscard]] CYPHER_COMMON_API const char *Cy_CPUDetectFeatureName(
+    cy_cpu_feature_flags_t feature ) noexcept;
 
 // Returns a stable human-readable CPU vendor name.
-const char *Cy_CPUDetectVendorName( cy_cpu_vendor_t vendor );
+[[nodiscard]] CYPHER_COMMON_API const char *Cy_CPUDetectVendorName(
+    cy_cpu_vendor_t vendor ) noexcept;
 
 } // namespace cypher::common
 
