@@ -21,6 +21,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <thread>
+
 using namespace cypher::common;
 
 namespace
@@ -102,4 +105,40 @@ TEST_CASE( "SIMD compiled feature baseline matches target architecture", "[Cyphe
 #if CYPHER_ARCH_ARM64
     REQUIRE( Cy_SimdHasFeature( pCaps->compiledFeatures, CY_SIMD_FEATURE_NEON ) );
 #endif
+}
+
+TEST_CASE( "SIMD publishes one immutable snapshot across threads", "[CypherCommon][Tier0][SIMD]" )
+{
+    constexpr usize THREAD_COUNT = 16u;
+    std::array<const cy_simd_caps_t *, THREAD_COUNT> results = {};
+    std::array<std::thread, THREAD_COUNT> threads;
+
+    for ( usize i = 0u; i < THREAD_COUNT; ++i ) {
+        threads[i] = std::thread( [&results, i]() {
+            results[i] = Cy_SimdGetCaps();
+        } );
+    }
+
+    for ( std::thread &thread : threads ) {
+        thread.join();
+    }
+
+    const cy_simd_caps_t *pExpected = Cy_SimdGetCaps();
+    for ( const cy_simd_caps_t *pResult : results ) {
+        REQUIRE( pResult == pExpected );
+    }
+}
+
+TEST_CASE( "SIMD feature queries require every requested bit", "[CypherCommon][Tier0][SIMD]" )
+{
+    const flags64_t features =
+        static_cast<flags64_t>( CY_SIMD_FEATURE_SSE2 ) |
+        static_cast<flags64_t>( CY_SIMD_FEATURE_SSE3 );
+    const auto combined = static_cast<cy_simd_feature_flags_t>(
+        static_cast<flags64_t>( CY_SIMD_FEATURE_SSE2 ) |
+        static_cast<flags64_t>( CY_SIMD_FEATURE_AVX ) );
+
+    REQUIRE_FALSE( Cy_SimdHasFeature( features, CY_SIMD_FEATURE_NONE ) );
+    REQUIRE( Cy_SimdHasFeature( features, CY_SIMD_FEATURE_SSE2 ) );
+    REQUIRE_FALSE( Cy_SimdHasFeature( features, combined ) );
 }
