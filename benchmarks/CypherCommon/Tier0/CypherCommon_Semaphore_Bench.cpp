@@ -27,32 +27,53 @@ namespace
 void BM_SemaphorePostTryWait( benchmark::State &state )
 {
     cy_semaphore_t semaphore{};
-    Cy_SemaphoreInit( &semaphore, 0u, CY_U32_MAX );
+    if ( !Cy_SemaphoreInit( &semaphore, 0u, CY_U32_MAX ) ) {
+        state.SkipWithError( "semaphore initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
-        Cy_SemaphorePost( &semaphore );
+        benchmark::DoNotOptimize( Cy_SemaphorePost( &semaphore ) );
         benchmark::DoNotOptimize( Cy_SemaphoreTryWait( &semaphore ) );
+    }
+
+    if ( !Cy_SemaphoreShutdown( &semaphore ) ) {
+        state.SkipWithError( "semaphore shutdown failed" );
     }
 }
 
 void BM_SemaphoreTryWaitAvailable( benchmark::State &state )
 {
     cy_semaphore_t semaphore{};
-    Cy_SemaphoreInit( &semaphore, 1u, CY_U32_MAX );
+    if ( !Cy_SemaphoreInit( &semaphore, 1u, CY_U32_MAX ) ) {
+        state.SkipWithError( "semaphore initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
         benchmark::DoNotOptimize( Cy_SemaphoreTryWait( &semaphore ) );
-        Cy_SemaphorePost( &semaphore );
+        benchmark::DoNotOptimize( Cy_SemaphorePost( &semaphore ) );
+    }
+
+    if ( !Cy_SemaphoreShutdown( &semaphore ) ) {
+        state.SkipWithError( "semaphore shutdown failed" );
     }
 }
 
 void BM_SemaphoreGetCount( benchmark::State &state )
 {
     cy_semaphore_t semaphore{};
-    Cy_SemaphoreInit( &semaphore, 8u, CY_U32_MAX );
+    if ( !Cy_SemaphoreInit( &semaphore, 8u, CY_U32_MAX ) ) {
+        state.SkipWithError( "semaphore initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
         benchmark::DoNotOptimize( Cy_SemaphoreGetCount( &semaphore ) );
+    }
+
+    if ( !Cy_SemaphoreShutdown( &semaphore ) ) {
+        state.SkipWithError( "semaphore shutdown failed" );
     }
 }
 
