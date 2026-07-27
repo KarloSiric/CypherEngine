@@ -22,19 +22,20 @@
 namespace cypher::common
 {
 
-performance_counter_t PerformanceCounter_Now()
+performance_counter_t Cy_PerformanceCounterNow() noexcept
 {
-    return static_cast<performance_counter_t>( Timer_NowTicks() );
+    return static_cast<performance_counter_t>( Cy_TimerNowTicks() );
 }
 
-u64 PerformanceCounter_Frequency()
+u64 Cy_PerformanceCounterFrequency() noexcept
 {
-    return static_cast<u64>( Timer_GetFrequency() );
+    return static_cast<u64>( Cy_TimerGetFrequency() );
 }
 
-f64 PerformanceCounter_ToSeconds( performance_counter_t ticks )
+f64 Cy_PerformanceCounterToSeconds(
+    performance_counter_t nTicks ) noexcept
 {
-    return Timer_TicksToSeconds( static_cast<timer_tick_t>( ticks ) );
+    return Cy_TimerTicksToSeconds( static_cast<timer_tick_t>( nTicks ) );
 }
 
 } // namespace cypher::common
