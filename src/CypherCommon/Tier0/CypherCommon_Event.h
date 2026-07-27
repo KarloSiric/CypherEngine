@@ -31,7 +31,9 @@ variables for portable Tier0 waiting.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
+#include "CypherCommon_Thread.h"
 
 #include <condition_variable>
 #include <mutex>
@@ -47,31 +49,56 @@ enum class cy_event_reset_mode_t : u8 {
 struct cy_event_t {
     mutable std::mutex nativeMutex;
     std::condition_variable nativeCondition;
-    bool_t bInitialized = CY_FALSE;
-    bool_t bSignaled = CY_FALSE;
+    bool_t isInitialized = CY_FALSE;
+    bool_t isSignaled = CY_FALSE;
+    u32 nWaiterCount = 0u;
     cy_event_reset_mode_t resetMode = cy_event_reset_mode_t::Manual;
 };
 
 // Initializes an event with reset policy and initial signal state.
-bool_t Cy_EventInit( cy_event_t *pEvent, cy_event_reset_mode_t resetMode, bool_t bInitiallySignaled );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventInit(
+    cy_event_t *pEvent,
+    cy_event_reset_mode_t resetMode,
+    bool_t isInitiallySignaled ) noexcept;
 
-// Shuts down an event and wakes any waiters so they can leave.
-void Cy_EventShutdown( cy_event_t *pEvent );
+// Wakes blocked waiters and does not return until they have left this event.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventShutdown( cy_event_t *pEvent ) noexcept;
 
 // Returns whether the event is initialized.
-bool_t Cy_EventIsInitialized( const cy_event_t *pEvent );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventIsInitialized(
+    const cy_event_t *pEvent ) noexcept;
 
 // Signals the event. Manual-reset wakes all waiters; auto-reset wakes one.
-void Cy_EventSignal( cy_event_t *pEvent );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventSignal( cy_event_t *pEvent ) noexcept;
 
 // Clears the signaled state.
-void Cy_EventReset( cy_event_t *pEvent );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventReset( cy_event_t *pEvent ) noexcept;
 
 // Waits until the event is signaled or shut down.
-bool_t Cy_EventWait( cy_event_t *pEvent );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventWait(
+    cy_event_t *pEvent ) noexcept;
 
 // Waits until signaled, shut down, or timeout expires.
-bool_t Cy_EventWaitTimeoutMs( cy_event_t *pEvent, u32 nMilliseconds );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventWaitTimeoutMs(
+    cy_event_t *pEvent,
+    u32 nMilliseconds ) noexcept;
+
+// Detailed wait result that distinguishes signal, timeout, shutdown, and misuse.
+[[nodiscard]] CYPHER_COMMON_API cy_wait_result_t Cy_EventWaitResult(
+    cy_event_t *pEvent ) noexcept;
+
+// Detailed timed wait result.
+[[nodiscard]] CYPHER_COMMON_API cy_wait_result_t Cy_EventWaitTimeoutMsResult(
+    cy_event_t *pEvent,
+    u32 nMilliseconds ) noexcept;
+
+// Returns the current signal state for diagnostics.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventIsSignaled(
+    const cy_event_t *pEvent ) noexcept;
+
+// Returns the number of threads currently blocked in event waits.
+[[nodiscard]] CYPHER_COMMON_API u32 Cy_EventGetWaiterCount(
+    const cy_event_t *pEvent ) noexcept;
 
 } // namespace cypher::common
 
