@@ -27,24 +27,93 @@ namespace
 
 std::mutex g_validatorMutex;
 validator_callback_t g_validatorCallback = nullptr;
+void *g_validatorUserData = nullptr;
+thread_local u32 g_validatorCallbackDepth = 0u;
 
 } // namespace
 
-void Validator_SetCallback( validator_callback_t callback )
+void Cy_ValidatorSetCallback( validator_callback_t pCallback, void *pUserData ) noexcept
 {
     std::lock_guard<std::mutex> lock( g_validatorMutex );
-    g_validatorCallback = callback;
+    g_validatorCallback = pCallback;
+    g_validatorUserData = pUserData;
 }
 
-void Validator_Report( validator_severity_t severity, const char *pMessage )
+void Cy_ValidatorGetCallback(
+    validator_callback_t *pCallbackOut,
+    void **ppUserDataOut ) noexcept
 {
     std::lock_guard<std::mutex> lock( g_validatorMutex );
-    if ( g_validatorCallback != nullptr ) {
-        g_validatorCallback( severity, pMessage );
+    if ( pCallbackOut != nullptr ) {
+        *pCallbackOut = g_validatorCallback;
+    }
+    if ( ppUserDataOut != nullptr ) {
+        *ppUserDataOut = g_validatorUserData;
+    }
+}
+
+void Cy_ValidatorReport( validator_severity_t severity, const char *pMessage ) noexcept
+{
+    Cy_ValidatorReportAt( severity, CY_ERROR_OK, pMessage, {} );
+}
+
+void Cy_ValidatorReportAt(
+    validator_severity_t severity,
+    error_code_t errorCode,
+    const char *pMessage,
+    source_location_t location ) noexcept
+{
+    validation_record_t record{};
+    record.severity = severity;
+    record.errorCode = errorCode;
+    record.location = location;
+    record.pMessage = pMessage != nullptr ? pMessage : "";
+
+    validator_callback_t pCallback = nullptr;
+    void *pUserData = nullptr;
+    {
+        std::lock_guard<std::mutex> lock( g_validatorMutex );
+        pCallback = g_validatorCallback;
+        pUserData = g_validatorUserData;
+    }
+
+    if ( pCallback != nullptr && g_validatorCallbackDepth == 0u ) {
+        ++g_validatorCallbackDepth;
+        pCallback( record, pUserData );
+        --g_validatorCallbackDepth;
         return;
     }
 
-    std::fprintf( stderr, "[Validator:%u] %s\n", static_cast<u32>( severity ), pMessage != nullptr ? pMessage : "" );
+    if ( errorCode != CY_ERROR_OK ) {
+        std::fprintf(
+            stderr,
+            "[Validator:%s][%s:%u] %s\n",
+            Cy_ValidatorSeverityName( severity ),
+            Cy_ErrorDomainName( Cy_ErrorDomain( errorCode ) ),
+            static_cast<unsigned int>( Cy_ErrorLocalCode( errorCode ) ),
+            record.pMessage );
+    } else {
+        std::fprintf(
+            stderr,
+            "[Validator:%s] %s\n",
+            Cy_ValidatorSeverityName( severity ),
+            record.pMessage );
+    }
+    std::fflush( stderr );
+}
+
+const char *Cy_ValidatorSeverityName( validator_severity_t severity ) noexcept
+{
+    switch ( severity ) {
+        case validator_severity_t::Info: return "Info";
+        case validator_severity_t::Warning: return "Warning";
+        case validator_severity_t::Error: return "Error";
+        case validator_severity_t::Fatal: return "Fatal";
+        case validator_severity_t::Count:
+            break;
+    }
+
+    return "Unknown";
 }
 
 } // namespace cypher::common
