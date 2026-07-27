@@ -28,18 +28,28 @@ TEST_CASE( "Event initializes, resets, and times out when unsignaled", "[CypherC
 {
     cy_event_t event{};
 
+    REQUIRE_FALSE( Cy_EventInit(
+        &event,
+        static_cast<cy_event_reset_mode_t>( 255u ),
+        CY_FALSE ) );
+    REQUIRE_FALSE( Cy_EventIsInitialized( &event ) );
     REQUIRE( Cy_EventInit( &event, cy_event_reset_mode_t::Manual, CY_FALSE ) );
+    REQUIRE_FALSE( Cy_EventInit( &event, cy_event_reset_mode_t::Manual, CY_FALSE ) );
     REQUIRE( Cy_EventIsInitialized( &event ) );
-    REQUIRE_FALSE( Cy_EventWaitTimeoutMs( &event, 1u ) );
+    REQUIRE( Cy_EventWaitTimeoutMsResult( &event, 1u ) ==
+             cy_wait_result_t::Timeout );
 
-    Cy_EventSignal( &event );
+    REQUIRE( Cy_EventSignal( &event ) );
+    REQUIRE( Cy_EventIsSignaled( &event ) );
     REQUIRE( Cy_EventWaitTimeoutMs( &event, 1u ) );
 
-    Cy_EventReset( &event );
+    REQUIRE( Cy_EventReset( &event ) );
     REQUIRE_FALSE( Cy_EventWaitTimeoutMs( &event, 1u ) );
 
-    Cy_EventShutdown( &event );
+    REQUIRE( Cy_EventShutdown( &event ) );
     REQUIRE_FALSE( Cy_EventIsInitialized( &event ) );
+    REQUIRE( Cy_EventWaitResult( &event ) == cy_wait_result_t::Shutdown );
+    REQUIRE_FALSE( Cy_EventShutdown( &event ) );
 }
 
 TEST_CASE( "Auto-reset event releases one waiter per signal", "[CypherCommon][Tier0][Event]" )
@@ -50,9 +60,10 @@ TEST_CASE( "Auto-reset event releases one waiter per signal", "[CypherCommon][Ti
     REQUIRE( Cy_EventWaitTimeoutMs( &event, 1u ) );
     REQUIRE_FALSE( Cy_EventWaitTimeoutMs( &event, 1u ) );
 
-    Cy_EventSignal( &event );
+    REQUIRE( Cy_EventSignal( &event ) );
     REQUIRE( Cy_EventWaitTimeoutMs( &event, 1u ) );
     REQUIRE_FALSE( Cy_EventWaitTimeoutMs( &event, 1u ) );
+    REQUIRE( Cy_EventShutdown( &event ) );
 }
 
 TEST_CASE( "Event wakes a waiting worker thread", "[CypherCommon][Tier0][Event]" )
@@ -67,8 +78,29 @@ TEST_CASE( "Event wakes a waiting worker thread", "[CypherCommon][Tier0][Event]"
     } );
 
     Cy_ThreadSleepMs( 1u );
-    Cy_EventSignal( &event );
+    REQUIRE( Cy_EventSignal( &event ) );
     worker.join();
 
     REQUIRE( bWorkerWoke );
+    REQUIRE( Cy_EventShutdown( &event ) );
+}
+
+TEST_CASE( "Event shutdown waits for blocked workers to leave", "[CypherCommon][Tier0][Event]" )
+{
+    cy_event_t event{};
+    cy_wait_result_t workerResult = cy_wait_result_t::Invalid;
+    REQUIRE( Cy_EventInit( &event, cy_event_reset_mode_t::Manual, CY_FALSE ) );
+
+    std::thread worker( [&]() {
+        workerResult = Cy_EventWaitResult( &event );
+    } );
+    while ( Cy_EventGetWaiterCount( &event ) == 0u ) {
+        Cy_ThreadYield();
+    }
+
+    REQUIRE( Cy_EventShutdown( &event ) );
+    worker.join();
+
+    REQUIRE( workerResult == cy_wait_result_t::Shutdown );
+    REQUIRE( Cy_EventGetWaiterCount( &event ) == 0u );
 }
