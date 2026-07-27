@@ -20,6 +20,7 @@
 #include "CypherCommon_Platform.h"
 
 #include <atomic>
+#include <mutex>
 
 #if CYPHER_PLATFORM_WINDOWS
     #ifndef WIN32_LEAN_AND_MEAN
@@ -46,113 +47,151 @@ namespace
 struct timer_state_t {
     std::atomic<timer_frequency_t> nFrequency;
     std::atomic<timer_tick_t> nBaseTicks;
-    std::atomic<bool_t> bInitialized;
+    std::atomic<bool_t> isInitialized;
+    std::mutex lifecycleMutex;
 };
 
 timer_state_t g_TimerState = {};
 
-timer_frequency_t Timer_QueryNativeFrequency()
+bool_t Timer_QueryNativeFrequency(
+    timer_frequency_t &nOutFrequency ) noexcept
 {
+    nOutFrequency = 0u;
 
 #if CYPHER_PLATFORM_WINDOWS
     LARGE_INTEGER frequency = {};
     if ( QueryPerformanceFrequency( &frequency ) == 0 ) {
-        return 0;
+        return CY_FALSE;
     }
-    
-    return static_cast<timer_frequency_t>( frequency.QuadPart );
+    if ( frequency.QuadPart <= 0 ) {
+        return CY_FALSE;
+    }
+    nOutFrequency = static_cast<timer_frequency_t>( frequency.QuadPart );
     
 #elif CYPHER_PLATFORM_LINUX
-    return 1000000000LL;
+    nOutFrequency = 1000000000ull;
 
 #elif CYPHER_PLATFORM_MACOS
-    return 1000000000LL;
+    nOutFrequency = 1000000000ull;
 
 #else
-    return 1000000000LL;
+    nOutFrequency = 1000000000ull;
 #endif
+    return CY_TRUE;
 }
 
-timer_tick_t Timer_QueryNativeTicks()
+bool_t Timer_QueryNativeTicks( timer_tick_t &nOutTicks ) noexcept
 {
+    nOutTicks = 0u;
 #if CYPHER_PLATFORM_WINDOWS
     LARGE_INTEGER counter = {};
-    if ( QueryPerformanceCounter( &counter ) == 0 ) {
-        return 0;
+    if ( QueryPerformanceCounter( &counter ) == 0 || counter.QuadPart < 0 ) {
+        return CY_FALSE;
     }
-    return static_cast<timer_tick_t>( counter.QuadPart );
+    nOutTicks = static_cast<timer_tick_t>( counter.QuadPart );
 #elif CYPHER_PLATFORM_LINUX
     timespec ts = {};
     if ( clock_gettime( CLOCK_MONOTONIC, &ts ) != 0 ) {
-        return 0;
+        return CY_FALSE;
     }
-    return static_cast<timer_tick_t>( ts.tv_sec ) * 1000000000LL + static_cast<timer_tick_t>( ts.tv_nsec );
+    if ( ts.tv_sec < 0 || ts.tv_nsec < 0 ) {
+        return CY_FALSE;
+    }
+    nOutTicks =
+        static_cast<timer_tick_t>( ts.tv_sec ) * 1000000000ull +
+        static_cast<timer_tick_t>( ts.tv_nsec );
 #elif CYPHER_PLATFORM_MACOS
     static mach_timebase_info_data_t timebase = [] {
         mach_timebase_info_data_t info = {};
-        mach_timebase_info( &info );
+        if ( mach_timebase_info( &info ) != KERN_SUCCESS ) {
+            info = {};
+        }
         return info;
     }();
-    
+    if ( timebase.numer == 0u || timebase.denom == 0u ) {
+        return CY_FALSE;
+    }
+
     const u64 nRawTicks = mach_absolute_time();
     #if defined( __SIZEOF_INT128__ ) 
         const __uint128_t nNanoseconds = ( static_cast<__uint128_t>( nRawTicks ) * timebase.numer ) / timebase.denom;
-        return static_cast<timer_tick_t>( nNanoseconds );
+        if ( nNanoseconds > CY_U64_MAX ) {
+            return CY_FALSE;
+        }
+        nOutTicks = static_cast<timer_tick_t>( nNanoseconds );
     #else
-        return static_cast<timer_tick_t>( ( nRawTicks / timebase.denom ) * timebase.numer );
+        const u64 nWhole = ( nRawTicks / timebase.denom ) * timebase.numer;
+        const u64 nRemainder =
+            ( ( nRawTicks % timebase.denom ) * timebase.numer ) /
+            timebase.denom;
+        if ( nWhole > CY_U64_MAX - nRemainder ) {
+            return CY_FALSE;
+        }
+        nOutTicks = nWhole + nRemainder;
     #endif
 #else
-        const auto now = std::chrono::steady_clock::now().time_since_epoch();
-    return static_cast<timer_tick_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>( now ).count()
-    );
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    const auto nNanoseconds =
+        std::chrono::duration_cast<std::chrono::nanoseconds>( now ).count();
+    if ( nNanoseconds < 0 ) {
+        return CY_FALSE;
+    }
+    nOutTicks = static_cast<timer_tick_t>( nNanoseconds );
 #endif
+    return CY_TRUE;
 }
 
-bool_t Timer_EnsureInitialized()
+bool_t Timer_EnsureInitialized() noexcept
 {
-    if ( Timer_IsInitialized() ) {
+    if ( Cy_TimerIsInitialized() ) {
         return CY_TRUE;
     }
 
-    return Timer_Init();
+    return Cy_TimerInit();
 }
 
 }       // namespace
     
-bool_t Timer_Init()
+bool_t Cy_TimerInit() noexcept
 {
-    if ( Timer_IsInitialized() ) {
+    if ( Cy_TimerIsInitialized() ) {
         return CY_TRUE;
     }
 
-    const timer_frequency_t nFrequency = Timer_QueryNativeFrequency();
-    if ( nFrequency <= 0 ) {
+    std::lock_guard<std::mutex> lock( g_TimerState.lifecycleMutex );
+    if ( g_TimerState.isInitialized.load( std::memory_order_acquire ) ) {
+        return CY_TRUE;
+    }
+
+    timer_frequency_t nFrequency = 0u;
+    timer_tick_t nBaseTicks = 0u;
+    if ( !Timer_QueryNativeFrequency( nFrequency ) ||
+         !Timer_QueryNativeTicks( nBaseTicks ) ||
+         nFrequency == 0u ) {
         return CY_FALSE;
     }
-    
-    const timer_tick_t nBaseTicks = Timer_QueryNativeTicks();
+
     g_TimerState.nFrequency.store( nFrequency, std::memory_order_release );
     g_TimerState.nBaseTicks.store( nBaseTicks, std::memory_order_release );
-    g_TimerState.bInitialized.store( CY_TRUE, std::memory_order_release );
+    g_TimerState.isInitialized.store( CY_TRUE, std::memory_order_release );
     
     return CY_TRUE;
 }
 
-void Timer_Shutdown()
+void Cy_TimerShutdown() noexcept
 {
-    g_TimerState.bInitialized.store( CY_FALSE, std::memory_order_release );
-    g_TimerState.nFrequency.store( 0, std::memory_order_release );
-    g_TimerState.nBaseTicks.store( 0, std::memory_order_release );
-    return ;
+    std::lock_guard<std::mutex> lock( g_TimerState.lifecycleMutex );
+    g_TimerState.isInitialized.store( CY_FALSE, std::memory_order_release );
+    g_TimerState.nFrequency.store( 0u, std::memory_order_release );
+    g_TimerState.nBaseTicks.store( 0u, std::memory_order_release );
 }
 
-bool_t Timer_IsInitialized()
+bool_t Cy_TimerIsInitialized() noexcept
 {
-    return g_TimerState.bInitialized.load( std::memory_order_acquire );
+    return g_TimerState.isInitialized.load( std::memory_order_acquire );
 }
 
-timer_frequency_t Timer_GetFrequency()
+timer_frequency_t Cy_TimerGetFrequency() noexcept
 {
     if ( !Timer_EnsureInitialized() ) {
         return 0;
@@ -161,118 +200,148 @@ timer_frequency_t Timer_GetFrequency()
     return g_TimerState.nFrequency.load( std::memory_order_acquire );
 }
 
-timer_tick_t Timer_NowTicks()
+timer_tick_t Cy_TimerNowTicks() noexcept
 {
     if ( !Timer_EnsureInitialized() ) {
         return 0;
     }
 
-    const timer_tick_t nNativeTicks = Timer_QueryNativeTicks();
+    timer_tick_t nNativeTicks = 0u;
+    if ( !Timer_QueryNativeTicks( nNativeTicks ) ) {
+        return 0u;
+    }
     const timer_tick_t nBaseTicks = g_TimerState.nBaseTicks.load( std::memory_order_acquire );
 
-    return nNativeTicks - nBaseTicks;
+    return nNativeTicks >= nBaseTicks ? nNativeTicks - nBaseTicks : 0u;
 }
 
-timer_tick_t Timer_ElapsedTicks( timer_tick_t nStartTicks, timer_tick_t nEndTicks )
+f64 Cy_TimerTicksToSeconds( timer_tick_t nTicks ) noexcept
 {
-    return nEndTicks - nStartTicks;
-}
-
-f64 Timer_TicksToSeconds( timer_tick_t nTicks )
-{
-    const timer_frequency_t nFrequency = Timer_GetFrequency();
-    if ( nFrequency <= 0 ) {
+    const timer_frequency_t nFrequency = Cy_TimerGetFrequency();
+    if ( nFrequency == 0u ) {
         return 0.0;
     }
     return static_cast<f64>( nTicks ) / static_cast<f64>( nFrequency );
 }
 
-f64 Timer_TicksToMilliseconds( timer_tick_t nTicks )
+f64 Cy_TimerTicksToMilliseconds( timer_tick_t nTicks ) noexcept
 {
-    return Timer_TicksToSeconds( nTicks ) * 1000.0;
+    return Cy_TimerTicksToSeconds( nTicks ) * 1000.0;
 }
 
-f64 Timer_TicksToMicroseconds( timer_tick_t nTicks )
+f64 Cy_TimerTicksToMicroseconds( timer_tick_t nTicks ) noexcept
 {
-    return Timer_TicksToSeconds( nTicks ) * 1000000.0;
+    return Cy_TimerTicksToSeconds( nTicks ) * 1000000.0;
 }
 
-f64 Timer_TicksToNanoseconds( timer_tick_t nTicks )
+f64 Cy_TimerTicksToNanoseconds( timer_tick_t nTicks ) noexcept
 {
-    return Timer_TicksToSeconds( nTicks ) * 1000000000.0;
+    return Cy_TimerTicksToSeconds( nTicks ) * 1000000000.0;
 }
 
-f64 Timer_ElapsedSeconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks )
+f64 Cy_TimerElapsedSeconds(
+    timer_tick_t nStartTicks,
+    timer_tick_t nEndTicks ) noexcept
 {
-    return Timer_TicksToSeconds( Timer_ElapsedTicks( nStartTicks, nEndTicks ) );
+    return Cy_TimerTicksToSeconds(
+        Cy_TimerElapsedTicks( nStartTicks, nEndTicks ) );
 }
 
-f64 Timer_ElapsedMilliseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks )
+f64 Cy_TimerElapsedMilliseconds(
+    timer_tick_t nStartTicks,
+    timer_tick_t nEndTicks ) noexcept
 {
-    return Timer_TicksToMilliseconds( Timer_ElapsedTicks( nStartTicks, nEndTicks ) );
+    return Cy_TimerTicksToMilliseconds(
+        Cy_TimerElapsedTicks( nStartTicks, nEndTicks ) );
 }
 
-f64 Timer_ElapsedMicroseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks )
+f64 Cy_TimerElapsedMicroseconds(
+    timer_tick_t nStartTicks,
+    timer_tick_t nEndTicks ) noexcept
 {
-    return Timer_TicksToMicroseconds( Timer_ElapsedTicks( nStartTicks, nEndTicks ) );
+    return Cy_TimerTicksToMicroseconds(
+        Cy_TimerElapsedTicks( nStartTicks, nEndTicks ) );
 }
 
-f64 Timer_ElapsedNanoseconds( timer_tick_t nStartTicks, timer_tick_t nEndTicks )
+f64 Cy_TimerElapsedNanoseconds(
+    timer_tick_t nStartTicks,
+    timer_tick_t nEndTicks ) noexcept
 {
-    return Timer_TicksToNanoseconds( Timer_ElapsedTicks( nStartTicks, nEndTicks ) );
+    return Cy_TimerTicksToNanoseconds(
+        Cy_TimerElapsedTicks( nStartTicks, nEndTicks ) );
 }
 
-void Timer_Begin( cy_timer_t *pTimer )
+bool_t Cy_TimerBegin( cy_timer_t *pTimer ) noexcept
 {
     if ( pTimer == nullptr ) {
-        return;
+        return CY_FALSE;
     }
 
-    pTimer->nStartTicks = Timer_NowTicks();
+    pTimer->nStartTicks = Cy_TimerNowTicks();
     pTimer->nEndTicks = pTimer->nStartTicks;
+    pTimer->isRunning = CY_TRUE;
+    return CY_TRUE;
 }
 
-void Timer_End( cy_timer_t *pTimer )
+bool_t Cy_TimerEnd( cy_timer_t *pTimer ) noexcept
 {
-    if ( pTimer == nullptr ) {
-        return;
+    if ( pTimer == nullptr || !pTimer->isRunning ) {
+        return CY_FALSE;
     }
 
-    pTimer->nEndTicks = Timer_NowTicks();
+    pTimer->nEndTicks = Cy_TimerNowTicks();
+    pTimer->isRunning = CY_FALSE;
+    return CY_TRUE;
 }
 
-void Timer_Reset( cy_timer_t *pTimer )
+bool_t Cy_TimerReset( cy_timer_t *pTimer ) noexcept
 {
-    Timer_Begin( pTimer );
+    return Cy_TimerBegin( pTimer );
 }
 
-timer_tick_t Timer_GetTicks( const cy_timer_t *pTimer )
+timer_tick_t Cy_TimerGetTicks( const cy_timer_t *pTimer ) noexcept
 {
     if ( pTimer == nullptr ) {
         return 0;
     }
 
-    return Timer_ElapsedTicks( pTimer->nStartTicks, pTimer->nEndTicks );
+    const timer_tick_t nEndTicks =
+        pTimer->isRunning ? Cy_TimerNowTicks() : pTimer->nEndTicks;
+    return Cy_TimerElapsedTicks( pTimer->nStartTicks, nEndTicks );
 }
 
-f64 Timer_GetSeconds( const cy_timer_t *pTimer )
+f64 Cy_TimerGetSeconds( const cy_timer_t *pTimer ) noexcept
 {
-    return Timer_TicksToSeconds( Timer_GetTicks( pTimer ) );
+    return Cy_TimerTicksToSeconds( Cy_TimerGetTicks( pTimer ) );
 }
 
-f64 Timer_GetMilliseconds( const cy_timer_t *pTimer )
+f64 Cy_TimerGetMilliseconds( const cy_timer_t *pTimer ) noexcept
 {
-    return Timer_TicksToMilliseconds( Timer_GetTicks( pTimer ) );
+    return Cy_TimerTicksToMilliseconds( Cy_TimerGetTicks( pTimer ) );
 }
 
-f64 Timer_GetMicroseconds( const cy_timer_t *pTimer )
+f64 Cy_TimerGetMicroseconds( const cy_timer_t *pTimer ) noexcept
 {
-    return Timer_TicksToMicroseconds( Timer_GetTicks( pTimer ) );
+    return Cy_TimerTicksToMicroseconds( Cy_TimerGetTicks( pTimer ) );
 }
 
-f64 Timer_GetNanoseconds( const cy_timer_t *pTimer )
+f64 Cy_TimerGetNanoseconds( const cy_timer_t *pTimer ) noexcept
 {
-    return Timer_TicksToNanoseconds( Timer_GetTicks( pTimer ) );
+    return Cy_TimerTicksToNanoseconds( Cy_TimerGetTicks( pTimer ) );
+}
+
+timer_tick_t Cy_TimerDeadlineAfterTicks(
+    timer_tick_t nDurationTicks ) noexcept
+{
+    const timer_tick_t nNowTicks = Cy_TimerNowTicks();
+    return nDurationTicks > CY_U64_MAX - nNowTicks
+        ? CY_U64_MAX
+        : nNowTicks + nDurationTicks;
+}
+
+bool_t Cy_TimerHasReached( timer_tick_t nDeadlineTicks ) noexcept
+{
+    return Cy_TimerNowTicks() >= nDeadlineTicks;
 }
 
 }       // namespace cypher::common
