@@ -19,6 +19,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <atomic>
 #include <thread>
 
 using namespace cypher::common;
@@ -30,7 +32,7 @@ TEST_CASE( "TLS creates valid slots and destroys them", "[CypherCommon][Tier0][T
     REQUIRE( slot != CY_TLS_INVALID_SLOT );
     REQUIRE( Cy_TLSIsValidSlot( slot ) );
 
-    Cy_TLSDestroySlot( slot );
+    REQUIRE( Cy_TLSDestroySlot( slot ) );
     REQUIRE_FALSE( Cy_TLSIsValidSlot( slot ) );
     REQUIRE( Cy_TLSGetValue( slot ) == nullptr );
 }
@@ -43,14 +45,14 @@ TEST_CASE( "TLS stores and clears current thread values", "[CypherCommon][Tier0]
     REQUIRE( Cy_TLSSetValue( slot, &nValue ) );
     REQUIRE( Cy_TLSGetValue( slot ) == &nValue );
 
-    Cy_TLSClearValue( slot );
+    REQUIRE( Cy_TLSClearValue( slot ) );
     REQUIRE( Cy_TLSGetValue( slot ) == nullptr );
 
     REQUIRE( Cy_TLSSetValue( slot, &nValue ) );
     REQUIRE( Cy_TLSSetValue( slot, nullptr ) );
     REQUIRE( Cy_TLSGetValue( slot ) == nullptr );
 
-    Cy_TLSDestroySlot( slot );
+    REQUIRE( Cy_TLSDestroySlot( slot ) );
 }
 
 TEST_CASE( "TLS values are isolated between threads", "[CypherCommon][Tier0][TLS]" )
@@ -59,20 +61,23 @@ TEST_CASE( "TLS values are isolated between threads", "[CypherCommon][Tier0][TLS
     i32 nMainValue = 11;
     i32 nWorkerValue = 22;
     void *pWorkerRead = nullptr;
+    bool_t workerValueWasSet = CY_FALSE;
 
     REQUIRE( Cy_TLSSetValue( slot, &nMainValue ) );
 
     std::thread worker( [&]() {
         pWorkerRead = Cy_TLSGetValue( slot );
-        Cy_TLSSetValue( slot, &nWorkerValue );
-        REQUIRE( Cy_TLSGetValue( slot ) == &nWorkerValue );
+        workerValueWasSet =
+            Cy_TLSSetValue( slot, &nWorkerValue ) &&
+            Cy_TLSGetValue( slot ) == &nWorkerValue;
     } );
     worker.join();
 
     REQUIRE( pWorkerRead == nullptr );
+    REQUIRE( workerValueWasSet );
     REQUIRE( Cy_TLSGetValue( slot ) == &nMainValue );
 
-    Cy_TLSDestroySlot( slot );
+    REQUIRE( Cy_TLSDestroySlot( slot ) );
 }
 
 TEST_CASE( "TLS destroyed slot handles do not remain valid after reuse", "[CypherCommon][Tier0][TLS]" )
@@ -83,7 +88,7 @@ TEST_CASE( "TLS destroyed slot handles do not remain valid after reuse", "[Cyphe
     REQUIRE( Cy_TLSSetValue( oldSlot, &nValue ) );
     REQUIRE( Cy_TLSGetValue( oldSlot ) == &nValue );
 
-    Cy_TLSDestroySlot( oldSlot );
+    REQUIRE( Cy_TLSDestroySlot( oldSlot ) );
 
     const tls_slot_t newSlot = Cy_TLSCreateSlot();
 
@@ -93,7 +98,7 @@ TEST_CASE( "TLS destroyed slot handles do not remain valid after reuse", "[Cyphe
     REQUIRE( Cy_TLSGetValue( oldSlot ) == nullptr );
     REQUIRE( Cy_TLSGetValue( newSlot ) == nullptr );
 
-    Cy_TLSDestroySlot( newSlot );
+    REQUIRE( Cy_TLSDestroySlot( newSlot ) );
 }
 
 TEST_CASE( "TLS stale handles cannot clear a reused slot value", "[CypherCommon][Tier0][TLS]" )
@@ -101,7 +106,7 @@ TEST_CASE( "TLS stale handles cannot clear a reused slot value", "[CypherCommon]
     const tls_slot_t oldSlot = Cy_TLSCreateSlot();
     REQUIRE( oldSlot != CY_TLS_INVALID_SLOT );
 
-    Cy_TLSDestroySlot( oldSlot );
+    REQUIRE( Cy_TLSDestroySlot( oldSlot ) );
 
     const tls_slot_t newSlot = Cy_TLSCreateSlot();
     i32 nValue = 123;
@@ -110,9 +115,61 @@ TEST_CASE( "TLS stale handles cannot clear a reused slot value", "[CypherCommon]
     REQUIRE( newSlot != oldSlot );
     REQUIRE( Cy_TLSSetValue( newSlot, &nValue ) );
 
-    Cy_TLSClearValue( oldSlot );
+    REQUIRE_FALSE( Cy_TLSClearValue( oldSlot ) );
 
     REQUIRE( Cy_TLSGetValue( newSlot ) == &nValue );
 
-    Cy_TLSDestroySlot( newSlot );
+    REQUIRE( Cy_TLSDestroySlot( newSlot ) );
+}
+
+namespace
+{
+
+std::atomic<u32> g_tlsDestructorCallCount{ 0u };
+
+void TLSTestDestructor( void *pValue ) noexcept
+{
+    if ( pValue != nullptr ) {
+        g_tlsDestructorCallCount.fetch_add( 1u );
+    }
+}
+
+} // namespace
+
+TEST_CASE( "TLS invokes optional destructors at worker exit", "[CypherCommon][Tier0][TLS]" )
+{
+    g_tlsDestructorCallCount.store( 0u );
+    const tls_slot_t slot = Cy_TLSCreateSlot( TLSTestDestructor );
+    REQUIRE( slot != CY_TLS_INVALID_SLOT );
+
+    i32 nWorkerValue = 17;
+    bool_t workerSetValue = CY_FALSE;
+    std::thread worker( [&]() {
+        workerSetValue = Cy_TLSSetValue( slot, &nWorkerValue );
+    } );
+    worker.join();
+
+    REQUIRE( workerSetValue );
+    REQUIRE( g_tlsDestructorCallCount.load() == 1u );
+    REQUIRE( Cy_TLSDestroySlot( slot ) );
+    REQUIRE( g_tlsDestructorCallCount.load() == 1u );
+}
+
+TEST_CASE( "TLS enforces its fixed slot capacity", "[CypherCommon][Tier0][TLS]" )
+{
+    std::array<tls_slot_t, CY_TLS_MAX_SLOT_COUNT> slots{};
+    const u32 nInitialCount = Cy_TLSGetAllocatedSlotCount();
+
+    for ( tls_slot_t &slot : slots ) {
+        slot = Cy_TLSCreateSlot();
+        REQUIRE( slot != CY_TLS_INVALID_SLOT );
+    }
+    REQUIRE( Cy_TLSGetAllocatedSlotCount() ==
+             nInitialCount + CY_TLS_MAX_SLOT_COUNT );
+    REQUIRE( Cy_TLSCreateSlot() == CY_TLS_INVALID_SLOT );
+
+    for ( tls_slot_t slot : slots ) {
+        REQUIRE( Cy_TLSDestroySlot( slot ) );
+    }
+    REQUIRE( Cy_TLSGetAllocatedSlotCount() == nInitialCount );
 }
