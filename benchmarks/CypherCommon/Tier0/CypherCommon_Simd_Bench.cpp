@@ -27,7 +27,10 @@ namespace
 
 void BM_SimdGetCapsCached( benchmark::State &state )
 {
-    Cy_SimdInit();
+    if ( !Cy_SimdInit() ) {
+        state.SkipWithError( "SIMD initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
         benchmark::DoNotOptimize( Cy_SimdGetCaps() );
@@ -36,7 +39,10 @@ void BM_SimdGetCapsCached( benchmark::State &state )
 
 void BM_SimdCanUse( benchmark::State &state )
 {
-    Cy_SimdInit();
+    if ( !Cy_SimdInit() ) {
+        state.SkipWithError( "SIMD initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
         benchmark::DoNotOptimize( Cy_SimdCanUse( CY_SIMD_FEATURE_SSE2 ) );
@@ -47,7 +53,10 @@ void BM_SimdCanUse( benchmark::State &state )
 
 void BM_SimdBestLevelAndWidth( benchmark::State &state )
 {
-    Cy_SimdInit();
+    if ( !Cy_SimdInit() ) {
+        state.SkipWithError( "SIMD initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
         benchmark::DoNotOptimize( Cy_SimdGetBestLevel() );
