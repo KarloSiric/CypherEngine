@@ -30,14 +30,36 @@ Environment variable declarations.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
 namespace cypher::common
 {
 
-usize Environment_Get( const char *pName, char *pDest, usize cchDest );
-bool_t Environment_Set( const char *pName, const char *pValue );
-bool_t Environment_Has( const char *pName );
+struct cy_environment_get_result_t {
+    usize cchRequired;
+    bool_t exists;
+    bool_t isTruncated;
+};
+
+// Reads a process environment value. cchRequired excludes the null terminator.
+[[nodiscard]] CYPHER_COMMON_API cy_environment_get_result_t Cy_EnvironmentGet(
+    const char *pszName,
+    char *pszDst,
+    usize cchDst ) noexcept;
+
+// Sets an environment value. An empty string is a present, empty value.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EnvironmentSet(
+    const char *pszName,
+    const char *pszValue ) noexcept;
+
+// Removes an environment value.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EnvironmentUnset(
+    const char *pszName ) noexcept;
+
+// Returns true for present variables, including present empty values.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EnvironmentHas(
+    const char *pszName ) noexcept;
 
 } // namespace cypher::common
 
