@@ -35,6 +35,7 @@ Rules:
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 #include "CypherCommon_Platform.h"
 
@@ -42,13 +43,16 @@ namespace cypher::common
 {
 
 // Returns whether a debugger is currently attached to this process.
-bool_t Cy_DebuggerIsAttached();
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DebuggerIsAttached() noexcept;
 
 // Interrupts execution so an attached debugger can inspect the process.
-void Cy_DebugBreak();
+CYPHER_COMMON_API void Cy_DebugBreak() noexcept;
+
+// Interrupts execution only when a debugger is currently attached.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DebugBreakIfAttached() noexcept;
 
 // Terminates execution immediately when continuing would be unsafe.
-[[noreturn]] void Cy_DebugTrap();
+[[noreturn]] CYPHER_COMMON_API void Cy_DebugTrap() noexcept;
 
 } // namespace cypher::common
 
@@ -67,12 +71,40 @@ Build Gated Code Helpers
 ================
 */
 // Emits a statement only for the selected build class.
-#if CYPHER_BUILD_DEBUG
-    #define CY_DEBUG_ONLY( statement )  do { statement; } while ( 0 )
-    #define CY_RELEASE_ONLY( statement ) do { } while ( 0 )
+#if CYPHER_CONFIG_DEBUG
+    #define CY_DEBUG_ONLY( statement ) do { statement; } while ( 0 )
 #else
-    #define CY_DEBUG_ONLY( statement )  do { } while ( 0 )
+    #define CY_DEBUG_ONLY( statement ) do { } while ( 0 )
+#endif
+
+#if CYPHER_CONFIG_DEVELOPMENT
+    #define CY_DEVELOPMENT_ONLY( statement ) do { statement; } while ( 0 )
+#else
+    #define CY_DEVELOPMENT_ONLY( statement ) do { } while ( 0 )
+#endif
+
+#if CYPHER_CONFIG_RELEASE
     #define CY_RELEASE_ONLY( statement ) do { statement; } while ( 0 )
+#else
+    #define CY_RELEASE_ONLY( statement ) do { } while ( 0 )
+#endif
+
+#if CYPHER_CONFIG_SHIPPING
+    #define CY_SHIPPING_ONLY( statement ) do { statement; } while ( 0 )
+#else
+    #define CY_SHIPPING_ONLY( statement ) do { } while ( 0 )
+#endif
+
+#if CYPHER_CONFIG_DEBUG || CYPHER_CONFIG_DEVELOPMENT
+    #define CY_DIAGNOSTIC_ONLY( statement ) do { statement; } while ( 0 )
+#else
+    #define CY_DIAGNOSTIC_ONLY( statement ) do { } while ( 0 )
+#endif
+
+#if !CYPHER_CONFIG_SHIPPING
+    #define CY_NON_SHIPPING_ONLY( statement ) do { statement; } while ( 0 )
+#else
+    #define CY_NON_SHIPPING_ONLY( statement ) do { } while ( 0 )
 #endif
 
 #endif // CYPHER_COMMON_TIER0_DEBUG_H
