@@ -26,21 +26,45 @@
 ================
 CypherCommon Crash
 
-Low-level crash reporting declarations.
+Low-level synchronous fatal reporting. This API is allocation-free and separate
+from native unhandled-exception or signal installation.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
+#include "CypherCommon_SourceLocation.h"
 
 namespace cypher::common
 {
 
-using crash_handler_t = void ( * )( const char *pReason, const char *pFile, i32 line );
+struct crash_info_t {
+    const char *pReason{ "" };
+    source_location_t location{};
+};
 
-void Crash_SetHandler( crash_handler_t handler );
-void Crash_ReportFatal( const char *pReason, const char *pFile, i32 line );
-void Crash_Trigger( const char *pReason );
+using crash_handler_t = void ( * )( const crash_info_t &info ) noexcept;
+
+// Installs a process-wide synchronous crash handler.
+CYPHER_COMMON_API void Cy_CrashSetHandler( crash_handler_t pHandler ) noexcept;
+
+// Returns the current handler, or nullptr when fallback reporting is active.
+[[nodiscard]] CYPHER_COMMON_API crash_handler_t Cy_CrashGetHandler() noexcept;
+
+// Reports fatal context without terminating. Intended for tests and for callers
+// that must perform one final operation before explicitly trapping.
+CYPHER_COMMON_API void Cy_CrashReport(
+    const char *pReason,
+    source_location_t location ) noexcept;
+
+// Reports fatal context and terminates the process.
+[[noreturn]] CYPHER_COMMON_API void Cy_CrashTrigger(
+    const char *pReason,
+    source_location_t location ) noexcept;
 
 } // namespace cypher::common
+
+#define CY_CRASH( reason ) \
+    ::cypher::common::Cy_CrashTrigger( reason, CY_SOURCE_LOCATION )
 
 #endif // CYPHER_COMMON_TIER0_CRASH_H
