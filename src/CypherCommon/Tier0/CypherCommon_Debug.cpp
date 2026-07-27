@@ -17,6 +17,7 @@
 
 #include "CypherCommon_Debug.h"
 
+#include <cerrno>
 #include <cstdlib>
 
 #if CYPHER_PLATFORM_WINDOWS
@@ -41,7 +42,7 @@
 namespace cypher::common
 {
 
-bool_t Cy_DebuggerIsAttached()
+bool_t Cy_DebuggerIsAttached() noexcept
 {
     #if CYPHER_PLATFORM_WINDOWS
         return ::IsDebuggerPresent() != FALSE;
@@ -52,7 +53,10 @@ bool_t Cy_DebuggerIsAttached()
         }
 
         char status[4096];
-        const ssize_t bytesRead = ::read( fd, status, sizeof( status ) - 1u );
+        ssize_t bytesRead = -1;
+        do {
+            bytesRead = ::read( fd, status, sizeof( status ) - 1u );
+        } while ( bytesRead < 0 && errno == EINTR );
         ::close( fd );
 
         if ( bytesRead <= 0 ) {
@@ -79,7 +83,7 @@ bool_t Cy_DebuggerIsAttached()
         struct kinfo_proc processInfo = {};
         size_t processInfoSize = sizeof( processInfo );
         const int result = ::sysctl( query, 4u, &processInfo, &processInfoSize, nullptr, 0u );
-        if ( result != 0 ) {
+        if ( result != 0 || processInfoSize < sizeof( processInfo ) ) {
             return false;
         }
 
@@ -87,7 +91,7 @@ bool_t Cy_DebuggerIsAttached()
     #endif
 }
 
-void Cy_DebugBreak()
+void Cy_DebugBreak() noexcept
 {
     #if CYPHER_COMPILER_MSVC
         __debugbreak();
@@ -100,7 +104,17 @@ void Cy_DebugBreak()
     #endif
 }
 
-[[noreturn]] void Cy_DebugTrap()
+bool_t Cy_DebugBreakIfAttached() noexcept
+{
+    if ( !Cy_DebuggerIsAttached() ) {
+        return CY_FALSE;
+    }
+
+    Cy_DebugBreak();
+    return CY_TRUE;
+}
+
+[[noreturn]] void Cy_DebugTrap() noexcept
 {
     std::abort();
 }
