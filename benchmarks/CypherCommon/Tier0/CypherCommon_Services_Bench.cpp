@@ -40,8 +40,8 @@ void BM_ErrorMakeDomainCode( benchmark::State &state )
 void BM_Handle32MakeUnpack( benchmark::State &state )
 {
     for ( auto _ : state ) {
-        const handle32_t handle = Cy_Handle32_Make( 123u, 456u );
-        benchmark::DoNotOptimize( Cy_Handle32_Unpack( handle ) );
+        const handle32_t handle = Cy_Handle32Make( 123u, 456u );
+        benchmark::DoNotOptimize( Cy_Handle32Unpack( handle ) );
     }
 }
 
@@ -57,27 +57,35 @@ void BM_CommandLineFind( benchmark::State &state )
     };
 
     command_line_base_t commandLine{};
-    CommandLineBase_Set( &commandLine, 6, args );
+    if ( !Cy_CommandLineBaseSet( &commandLine, 6, args ) ) {
+        state.SkipWithError( "command line setup failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( CommandLineBase_Find( &commandLine, "threads" ) );
+        benchmark::DoNotOptimize(
+            Cy_CommandLineBaseFindValue( &commandLine, "threads" ) );
     }
 }
 
 void BM_StatsSetGetU64( benchmark::State &state )
 {
     stat_desc_t desc{};
-    desc.pName = "bench.stat";
-    desc.pCategory = "Bench";
-    desc.pDescription = "Benchmark stat";
+    desc.pszName = "bench.stat";
+    desc.pszCategory = "Bench";
+    desc.pszDescription = "Benchmark stat";
     desc.type = stat_value_type_t::U64;
-    Cy_StatsRegister( desc );
+    stat_id_t statId = CY_STAT_ID_INVALID;
+    if ( !Cy_StatsRegister( desc, &statId ) ) {
+        state.SkipWithError( "stat registration failed" );
+        return;
+    }
 
     stat_value_t value{};
     u64 nCounter = 0u;
     for ( auto _ : state ) {
-        Cy_StatsSetU64( "bench.stat", ++nCounter );
-        benchmark::DoNotOptimize( Cy_StatsGet( "bench.stat", &value ) );
+        benchmark::DoNotOptimize( Cy_StatsSetU64( statId, ++nCounter ) );
+        benchmark::DoNotOptimize( Cy_StatsGet( statId, &value ) );
     }
 }
 
@@ -86,13 +94,13 @@ void BM_MemoryTrackerRecordAllocFree( benchmark::State &state )
     i32 value = 0;
     memory_allocation_record_t record{};
     record.pMemory = &value;
-    record.cbSize = sizeof( value );
-    record.alignment = alignof( i32 );
-    record.pTag = "bench";
+    record.nByteCount = sizeof( value );
+    record.nAlignment = alignof( i32 );
+    record.pszTag = "bench";
 
     for ( auto _ : state ) {
-        MemoryTracker_RecordAlloc( record );
-        MemoryTracker_RecordFree( &value );
+        benchmark::DoNotOptimize( Cy_MemoryTrackerRecordAlloc( record ) );
+        benchmark::DoNotOptimize( Cy_MemoryTrackerRecordFree( &value ) );
     }
 }
 
@@ -100,16 +108,22 @@ void BM_CachePrefetchRead( benchmark::State &state )
 {
     i32 value = 0;
     for ( auto _ : state ) {
-        Cache_PrefetchRead( &value );
+        Cy_CachePrefetchRead( &value );
     }
 }
 
 void BM_CPUMonitoringSample( benchmark::State &state )
 {
-    cpu_monitor_sample_t sample{};
+    cy_cpu_monitor_t monitor{};
+    if ( !Cy_CPUMonitorInit( &monitor ) ) {
+        state.SkipWithError( "CPU monitoring is unavailable" );
+        return;
+    }
+
+    cy_cpu_monitor_sample_t sample{};
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( CPUMonitoring_Sample( &sample ) );
-        benchmark::DoNotOptimize( sample.total_usage );
+        benchmark::DoNotOptimize( Cy_CPUMonitorSample( &monitor, &sample ) );
+        benchmark::DoNotOptimize( sample.totalUsagePercent );
     }
 }
 
