@@ -27,40 +27,61 @@ namespace
 void BM_MutexLockUnlock( benchmark::State &state )
 {
     cy_mutex_t mutex{};
-    Cy_MutexInit( &mutex );
+    if ( !Cy_MutexInit( &mutex ) ) {
+        state.SkipWithError( "mutex initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
-        Cy_MutexLock( &mutex );
+        benchmark::DoNotOptimize( Cy_MutexLock( &mutex ) );
         benchmark::DoNotOptimize( &mutex );
-        Cy_MutexUnlock( &mutex );
+        benchmark::DoNotOptimize( Cy_MutexUnlock( &mutex ) );
+    }
+
+    if ( !Cy_MutexShutdown( &mutex ) ) {
+        state.SkipWithError( "mutex shutdown failed" );
     }
 }
 
 void BM_MutexTryLockUnlock( benchmark::State &state )
 {
     cy_mutex_t mutex{};
-    Cy_MutexInit( &mutex );
+    if ( !Cy_MutexInit( &mutex ) ) {
+        state.SkipWithError( "mutex initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
         const bool_t bLocked = Cy_MutexTryLock( &mutex );
         benchmark::DoNotOptimize( &bLocked );
         if ( bLocked ) {
-            Cy_MutexUnlock( &mutex );
+            benchmark::DoNotOptimize( Cy_MutexUnlock( &mutex ) );
         }
+    }
+
+    if ( !Cy_MutexShutdown( &mutex ) ) {
+        state.SkipWithError( "mutex shutdown failed" );
     }
 }
 
 void BM_RecursiveMutexLockUnlock( benchmark::State &state )
 {
     cy_recursive_mutex_t mutex{};
-    Cy_RecursiveMutexInit( &mutex );
+    if ( !Cy_RecursiveMutexInit( &mutex ) ) {
+        state.SkipWithError( "recursive mutex initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
-        Cy_RecursiveMutexLock( &mutex );
-        Cy_RecursiveMutexLock( &mutex );
+        benchmark::DoNotOptimize( Cy_RecursiveMutexLock( &mutex ) );
+        benchmark::DoNotOptimize( Cy_RecursiveMutexLock( &mutex ) );
         benchmark::DoNotOptimize( &mutex );
-        Cy_RecursiveMutexUnlock( &mutex );
-        Cy_RecursiveMutexUnlock( &mutex );
+        benchmark::DoNotOptimize( Cy_RecursiveMutexUnlock( &mutex ) );
+        benchmark::DoNotOptimize( Cy_RecursiveMutexUnlock( &mutex ) );
+    }
+
+    if ( !Cy_RecursiveMutexShutdown( &mutex ) ) {
+        state.SkipWithError( "recursive mutex shutdown failed" );
     }
 }
 
