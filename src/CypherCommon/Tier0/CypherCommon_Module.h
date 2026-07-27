@@ -31,6 +31,7 @@ DLLs, tools and editor plugins.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 #include "CypherCommon_Error.h"
 
@@ -45,25 +46,46 @@ enum class module_state_t : u8 {
 };
 
 struct module_version_t {
-    u32 major;
-    u32 minor;
-    u32 patch;
-    u32 build;
+    u32 nMajor;
+    u32 nMinor;
+    u32 nPatch;
+    u32 nBuild;
 };
 
 struct module_desc_t {
-    const char *pName;
-    const char *pInternalName;
-    const char *pDescription;
+    const char *pszName;
+    const char *pszInternalName;
+    const char *pszDescription;
     module_version_t version;
-    u32 apiVersion;
+    u32 nApiVersion;
 };
 
-using module_init_fn_t = error_code_t ( * )( void *pUserData );
-using module_shutdown_fn_t = void ( * )( void *pUserData );
+// Module callbacks must not allow C++ exceptions to cross binary boundaries.
+using module_init_fn_t =
+    error_code_t ( CYPHER_CALL * )( void *pUserData ) noexcept;
+using module_shutdown_fn_t =
+    void ( CYPHER_CALL * )( void *pUserData ) noexcept;
 
-const char *Cy_ModuleStateName( module_state_t state );
-bool_t Cy_ModuleVersionCompatible( const module_version_t &required, const module_version_t &provided );
+[[nodiscard]] CYPHER_COMMON_API const char *Cy_ModuleStateName(
+    module_state_t state ) noexcept;
+
+// Requires the same major version and an equal-or-newer minor/patch version.
+// Build metadata is intentionally not part of compatibility.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ModuleVersionCompatible(
+    const module_version_t &required,
+    const module_version_t &provided ) noexcept;
+
+// Binary API tables require an exact version match.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ModuleApiVersionCompatible(
+    u32 nRequiredApiVersion,
+    u32 nProvidedApiVersion ) noexcept;
+
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ModuleDescriptorIsValid(
+    const module_desc_t *pDescriptor ) noexcept;
+
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ModuleCanTransition(
+    module_state_t from,
+    module_state_t to ) noexcept;
 
 } // namespace cypher::common
 
