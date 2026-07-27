@@ -33,7 +33,10 @@ void BM_ThreadGetCurrentId( benchmark::State &state )
 
 void BM_ThreadIsMainThread( benchmark::State &state )
 {
-    Cy_ThreadCaptureMainThread();
+    if ( !Cy_ThreadCaptureMainThread() ) {
+        state.SkipWithError( "main thread capture failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
         benchmark::DoNotOptimize( Cy_ThreadIsMainThread() );
