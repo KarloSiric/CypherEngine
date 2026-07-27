@@ -21,16 +21,18 @@
 #include "CypherCommon_Platform.h"
 #include "CypherCommon_Thread.h"
 
-#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <mutex>
 
 #if CYPHER_PLATFORM_WINDOWS
     #define WIN32_LEAN_AND_MEAN
     #include <windows.h>
 #elif CYPHER_PLATFORM_LINUX
+    #if CYPHER_ARCH_ARM64
+        #include <asm/hwcap.h>
+        #include <sys/auxv.h>
+    #endif
     #include <unistd.h>
 #elif CYPHER_PLATFORM_MACOS
     #include <sys/sysctl.h>
@@ -49,18 +51,16 @@ namespace cypher::common
 namespace
 {
 
-cy_cpu_detect_info_t g_cpuInfo = {};
-std::mutex g_cpuDetectMutex;
-std::atomic_bool g_cpuDetectInitialized = false;
-
+#if CYPHER_ARCH_X86_FAMILY
 struct cpuid_regs_t {
     u32 eax;
     u32 ebx;
     u32 ecx;
     u32 edx;
 };
+#endif
 
-void CPUDetect_CopyString( char *pszDst, usize cchDst, const char *pszSrc )
+void CPUDetect_CopyString( char *pszDst, usize cchDst, const char *pszSrc ) noexcept
 {
     if ( pszDst == nullptr || cchDst == 0u ) {
         return;
@@ -75,11 +75,12 @@ void CPUDetect_CopyString( char *pszDst, usize cchDst, const char *pszSrc )
     pszDst[i] = '\0';
 }
 
-bool_t CPUDetect_Cpuid( u32 leaf, u32 subleaf, cpuid_regs_t &out )
+#if CYPHER_ARCH_X86_FAMILY
+bool_t CPUDetect_Cpuid( u32 leaf, u32 subleaf, cpuid_regs_t &out ) noexcept
 {
     out = {};
 
-#if CYPHER_ARCH_X86_FAMILY && CYPHER_COMPILER_MSVC
+#if CYPHER_COMPILER_MSVC
     int regs[4] = {};
     __cpuidex( regs, static_cast<int>( leaf ), static_cast<int>( subleaf ) );
     out.eax = static_cast<u32>( regs[0] );
@@ -87,7 +88,7 @@ bool_t CPUDetect_Cpuid( u32 leaf, u32 subleaf, cpuid_regs_t &out )
     out.ecx = static_cast<u32>( regs[2] );
     out.edx = static_cast<u32>( regs[3] );
     return CY_TRUE;
-#elif CYPHER_ARCH_X86_FAMILY && ( CYPHER_COMPILER_CLANG || CYPHER_COMPILER_GCC )
+#elif CYPHER_COMPILER_CLANG || CYPHER_COMPILER_GCC
     unsigned int eax = 0u;
     unsigned int ebx = 0u;
     unsigned int ecx = 0u;
@@ -109,11 +110,11 @@ bool_t CPUDetect_Cpuid( u32 leaf, u32 subleaf, cpuid_regs_t &out )
 #endif
 }
 
-u64 CPUDetect_XGetBV( u32 index )
+u64 CPUDetect_XGetBV( u32 index ) noexcept
 {
-#if CYPHER_ARCH_X86_FAMILY && CYPHER_COMPILER_MSVC
+#if CYPHER_COMPILER_MSVC
     return static_cast<u64>( _xgetbv( index ) );
-#elif CYPHER_ARCH_X86_FAMILY && ( CYPHER_COMPILER_CLANG || CYPHER_COMPILER_GCC )
+#elif CYPHER_COMPILER_CLANG || CYPHER_COMPILER_GCC
     u32 eax = 0u;
     u32 edx = 0u;
     __asm__ volatile( "xgetbv" : "=a"( eax ), "=d"( edx ) : "c"( index ) );
@@ -124,9 +125,8 @@ u64 CPUDetect_XGetBV( u32 index )
 #endif
 }
 
-bool_t CPUDetect_HasAvxOsSupport()
+bool_t CPUDetect_HasAvxOsSupport() noexcept
 {
-#if CYPHER_ARCH_X86_FAMILY
     cpuid_regs_t regs = {};
     if ( !CPUDetect_Cpuid( 1u, 0u, regs ) ) {
         return CY_FALSE;
@@ -143,19 +143,9 @@ bool_t CPUDetect_HasAvxOsSupport()
 
     const u64 xcr0 = CPUDetect_XGetBV( 0u );
     return ( xcr0 & ( XCR0_SSE | XCR0_AVX ) ) == ( XCR0_SSE | XCR0_AVX );
-#else
-    return CY_FALSE;
-#endif
 }
 
-void CPUDetect_AddFeature( flags64_t &features, cy_cpu_feature_flags_t feature, bool_t enabled )
-{
-    if ( enabled ) {
-        features |= static_cast<flags64_t>( feature );
-    }
-}
-
-u32 CPUDetect_QueryMaxBasicLeaf()
+u32 CPUDetect_QueryMaxBasicLeaf() noexcept
 {
     cpuid_regs_t regs = {};
     if ( CPUDetect_Cpuid( 0u, 0u, regs ) ) {
@@ -164,8 +154,19 @@ u32 CPUDetect_QueryMaxBasicLeaf()
 
     return 0u;
 }
+#endif
 
-void CPUDetect_FillVendor( cy_cpu_detect_info_t &info )
+void CPUDetect_AddFeature(
+    flags64_t &features,
+    cy_cpu_feature_flags_t feature,
+    bool_t enabled ) noexcept
+{
+    if ( enabled ) {
+        features |= static_cast<flags64_t>( feature );
+    }
+}
+
+void CPUDetect_FillVendor( cy_cpu_detect_info_t &info ) noexcept
 {
 #if CYPHER_ARCH_X86_FAMILY
     cpuid_regs_t regs = {};
@@ -200,7 +201,7 @@ void CPUDetect_FillVendor( cy_cpu_detect_info_t &info )
 #endif
 }
 
-void CPUDetect_FillBrand( cy_cpu_detect_info_t &info )
+void CPUDetect_FillBrand( cy_cpu_detect_info_t &info ) noexcept
 {
     CPUDetect_CopyString( info.szBrand, CY_CPU_BRAND_MAX, "Unknown" );
 
@@ -261,7 +262,7 @@ void CPUDetect_FillBrand( cy_cpu_detect_info_t &info )
 #endif
 }
 
-void CPUDetect_FillFamilyModelStepping( cy_cpu_detect_info_t &info )
+void CPUDetect_FillFamilyModelStepping( cy_cpu_detect_info_t &info ) noexcept
 {
 #if CYPHER_ARCH_X86_FAMILY
     cpuid_regs_t regs = {};
@@ -285,7 +286,7 @@ void CPUDetect_FillFamilyModelStepping( cy_cpu_detect_info_t &info )
 #endif
 }
 
-u32 CPUDetect_QueryPhysicalCoreCount()
+u32 CPUDetect_QueryPhysicalCoreCount() noexcept
 {
 #if CYPHER_PLATFORM_WINDOWS
     DWORD cbBuffer = 0u;
@@ -303,6 +304,9 @@ u32 CPUDetect_QueryPhysicalCoreCount()
         DWORD cbOffset = 0u;
         while ( cbOffset < cbBuffer ) {
             const auto *pInfo = reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *>( static_cast<const u8 *>( pBuffer ) + cbOffset );
+            if ( pInfo->Size == 0u || pInfo->Size > cbBuffer - cbOffset ) {
+                break;
+            }
             if ( pInfo->Relationship == RelationProcessorCore ) {
                 ++nCoreCount;
             }
@@ -383,7 +387,7 @@ u32 CPUDetect_QueryPhysicalCoreCount()
 #endif
 }
 
-usize CPUDetect_QueryCacheLineSize()
+usize CPUDetect_QueryCacheLineSize() noexcept
 {
 #if CYPHER_PLATFORM_WINDOWS
     DWORD cbBuffer = 0u;
@@ -401,6 +405,9 @@ usize CPUDetect_QueryCacheLineSize()
         DWORD cbOffset = 0u;
         while ( cbOffset < cbBuffer ) {
             const auto *pInfo = reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *>( static_cast<const u8 *>( pBuffer ) + cbOffset );
+            if ( pInfo->Size == 0u || pInfo->Size > cbBuffer - cbOffset ) {
+                break;
+            }
             if ( pInfo->Relationship == RelationCache && pInfo->Cache.Level == 1u ) {
                 nLineSize = static_cast<usize>( pInfo->Cache.LineSize );
                 break;
@@ -432,15 +439,44 @@ usize CPUDetect_QueryCacheLineSize()
 #endif
 }
 
-flags64_t CPUDetect_QueryHardwareFeatures()
+#if CYPHER_ARCH_ARM64
+bool_t CPUDetect_QueryArm64AesSupport() noexcept
+{
+#if CYPHER_PLATFORM_WINDOWS && CYPHER_ARCH_ARM64 && defined( PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE )
+    return ::IsProcessorFeaturePresent( PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE ) != FALSE;
+#elif CYPHER_PLATFORM_MACOS && CYPHER_ARCH_ARM64
+    int isSupported = 0;
+    size_t cbSupported = sizeof( isSupported );
+    if ( ::sysctlbyname( "hw.optional.arm.FEAT_AES", &isSupported, &cbSupported, nullptr, 0 ) == 0 ) {
+        return isSupported != 0;
+    }
+
+    isSupported = 0;
+    cbSupported = sizeof( isSupported );
+    if ( ::sysctlbyname( "hw.optional.armv8_2_aes", &isSupported, &cbSupported, nullptr, 0 ) == 0 ) {
+        return isSupported != 0;
+    }
+
+    return CY_FALSE;
+#elif CYPHER_PLATFORM_LINUX && CYPHER_ARCH_ARM64
+    #if defined( HWCAP_AES )
+        return ( ::getauxval( AT_HWCAP ) & HWCAP_AES ) != 0u;
+    #else
+        return CY_FALSE;
+    #endif
+#else
+    return CY_FALSE;
+#endif
+}
+#endif
+
+flags64_t CPUDetect_QueryHardwareFeatures() noexcept
 {
     flags64_t features = CY_CPU_FEATURE_NONE;
 
-#if CYPHER_ARCH_ARM_FAMILY
+#if CYPHER_ARCH_ARM64
     CPUDetect_AddFeature( features, CY_CPU_FEATURE_NEON, CY_TRUE );
-    #if defined( __ARM_FEATURE_AES )
-        CPUDetect_AddFeature( features, CY_CPU_FEATURE_AES, CY_TRUE );
-    #endif
+    CPUDetect_AddFeature( features, CY_CPU_FEATURE_AES, CPUDetect_QueryArm64AesSupport() );
 #endif
 
 #if CYPHER_ARCH_X86_FAMILY
@@ -470,7 +506,7 @@ flags64_t CPUDetect_QueryHardwareFeatures()
     return features;
 }
 
-flags64_t CPUDetect_FilterUsableFeatures( flags64_t hardwareFeatures )
+flags64_t CPUDetect_FilterUsableFeatures( flags64_t hardwareFeatures ) noexcept
 {
     flags64_t usableFeatures = hardwareFeatures;
 
@@ -485,52 +521,48 @@ flags64_t CPUDetect_FilterUsableFeatures( flags64_t hardwareFeatures )
     return usableFeatures;
 }
 
+cy_cpu_detect_info_t CPUDetect_BuildInfo() noexcept
+{
+    cy_cpu_detect_info_t info = {};
+    CPUDetect_FillVendor( info );
+    CPUDetect_FillBrand( info );
+    CPUDetect_FillFamilyModelStepping( info );
+    info.logicalThreadCount = Cy_ThreadGetLogicalCount();
+    info.physicalCoreCount = CPUDetect_QueryPhysicalCoreCount();
+    info.cacheLineSize = CPUDetect_QueryCacheLineSize();
+    info.hardwareFeatures = CPUDetect_QueryHardwareFeatures();
+    info.usableFeatures = CPUDetect_FilterUsableFeatures( info.hardwareFeatures );
+    return info;
+}
+
+const cy_cpu_detect_info_t &CPUDetect_GetCachedInfo() noexcept
+{
+    static const cy_cpu_detect_info_t info = CPUDetect_BuildInfo();
+    return info;
+}
+
 } // namespace
 
-bool_t Cy_CPUDetectInit()
+bool_t Cy_CPUDetectInit() noexcept
 {
-    if ( g_cpuDetectInitialized.load( std::memory_order_acquire ) ) {
-        return CY_TRUE;
-    }
-
-    std::lock_guard<std::mutex> lock( g_cpuDetectMutex );
-    if ( g_cpuDetectInitialized.load( std::memory_order_relaxed ) ) {
-        return CY_TRUE;
-    }
-
-    g_cpuInfo = {};
-    CPUDetect_FillVendor( g_cpuInfo );
-    CPUDetect_FillBrand( g_cpuInfo );
-    CPUDetect_FillFamilyModelStepping( g_cpuInfo );
-    g_cpuInfo.logicalThreadCount = Cy_ThreadGetLogicalCount();
-    g_cpuInfo.physicalCoreCount = CPUDetect_QueryPhysicalCoreCount();
-    g_cpuInfo.cacheLineSize = CPUDetect_QueryCacheLineSize();
-    g_cpuInfo.hardwareFeatures = CPUDetect_QueryHardwareFeatures();
-    g_cpuInfo.usableFeatures = CPUDetect_FilterUsableFeatures( g_cpuInfo.hardwareFeatures );
-
-    g_cpuDetectInitialized.store( true, std::memory_order_release );
+    CYPHER_UNUSED( CPUDetect_GetCachedInfo() );
     return CY_TRUE;
 }
 
-void Cy_CPUDetectShutdown()
+const cy_cpu_detect_info_t *Cy_CPUDetectGetInfo() noexcept
 {
-    std::lock_guard<std::mutex> lock( g_cpuDetectMutex );
-    g_cpuInfo = {};
-    g_cpuDetectInitialized.store( false, std::memory_order_release );
+    return &CPUDetect_GetCachedInfo();
 }
 
-const cy_cpu_detect_info_t *Cy_CPUDetectGetInfo()
+bool_t Cy_CPUDetectHasFeature(
+    flags64_t features,
+    cy_cpu_feature_flags_t feature ) noexcept
 {
-    Cy_CPUDetectInit();
-    return &g_cpuInfo;
+    const flags64_t featureMask = static_cast<flags64_t>( feature );
+    return featureMask != 0u && ( features & featureMask ) == featureMask;
 }
 
-bool_t Cy_CPUDetectHasFeature( flags64_t features, cy_cpu_feature_flags_t feature )
-{
-    return ( features & static_cast<flags64_t>( feature ) ) != 0u;
-}
-
-const char *Cy_CPUDetectFeatureName( cy_cpu_feature_flags_t feature )
+const char *Cy_CPUDetectFeatureName( cy_cpu_feature_flags_t feature ) noexcept
 {
     switch ( feature ) {
         case CY_CPU_FEATURE_NONE:
@@ -566,7 +598,7 @@ const char *Cy_CPUDetectFeatureName( cy_cpu_feature_flags_t feature )
     }
 }
 
-const char *Cy_CPUDetectVendorName( cy_cpu_vendor_t vendor )
+const char *Cy_CPUDetectVendorName( cy_cpu_vendor_t vendor ) noexcept
 {
     switch ( vendor ) {
         case CY_CPU_VENDOR_INTEL:
