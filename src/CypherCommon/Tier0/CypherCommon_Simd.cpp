@@ -21,27 +21,23 @@
 #include "CypherCommon_CPUDetect.h"
 #include "CypherCommon_Platform.h"
 
-#include <atomic>
-#include <mutex>
-
 namespace cypher::common
 {
 
 namespace
 {
 
-cy_simd_caps_t g_simdCaps = {};
-std::mutex g_simdMutex;
-std::atomic_bool g_simdInitialized = false;
-
-void SimdAddFeature( flags64_t &features, cy_simd_feature_flags_t feature, bool_t enabled )
+void SimdAddFeature(
+    flags64_t &features,
+    cy_simd_feature_flags_t feature,
+    bool_t enabled ) noexcept
 {
     if ( enabled ) {
         features |= static_cast<flags64_t>( feature );
     }
 }
 
-flags64_t SimdConvertCpuFeatures( flags64_t cpuFeatures )
+flags64_t SimdConvertCpuFeatures( flags64_t cpuFeatures ) noexcept
 {
     flags64_t simdFeatures = CY_SIMD_FEATURE_NONE;
 
@@ -96,7 +92,7 @@ flags64_t SimdConvertCpuFeatures( flags64_t cpuFeatures )
     return simdFeatures;
 }
 
-flags64_t SimdDetectCompiledFeatures()
+flags64_t SimdDetectCompiledFeatures() noexcept
 {
     flags64_t features = CY_SIMD_FEATURE_NONE;
 
@@ -139,7 +135,7 @@ flags64_t SimdDetectCompiledFeatures()
     return features;
 }
 
-void SimdSelectBestLevel( cy_simd_caps_t &caps )
+void SimdSelectBestLevel( cy_simd_caps_t &caps ) noexcept
 {
     caps.bestLevel = CY_SIMD_LEVEL_SCALAR;
     caps.vectorRegisterBytes = CY_SIMD_SCALAR_REGISTER_BYTES;
@@ -164,72 +160,64 @@ void SimdSelectBestLevel( cy_simd_caps_t &caps )
     caps.vectorRegisterBits = caps.vectorRegisterBytes * 8u;
 }
 
-} // namespace
-
-bool_t Cy_SimdInit()
+cy_simd_caps_t SimdBuildCaps() noexcept
 {
-    if ( g_simdInitialized.load( std::memory_order_acquire ) ) {
-        return CY_TRUE;
-    }
-
-    std::lock_guard<std::mutex> lock( g_simdMutex );
-
-    if ( g_simdInitialized.load( std::memory_order_relaxed ) ) {
-        return CY_TRUE;
-    }
-
     const cy_cpu_detect_info_t *pCpu = Cy_CPUDetectGetInfo();
 
-    g_simdCaps = {};
-    g_simdCaps.cpuFeatures = SimdConvertCpuFeatures( pCpu->usableFeatures );
-    g_simdCaps.compiledFeatures = SimdDetectCompiledFeatures();
-    g_simdCaps.usableFeatures = g_simdCaps.cpuFeatures & g_simdCaps.compiledFeatures;
+    cy_simd_caps_t caps = {};
+    caps.cpuFeatures = SimdConvertCpuFeatures( pCpu->usableFeatures );
+    caps.compiledFeatures = SimdDetectCompiledFeatures();
+    caps.usableFeatures = caps.cpuFeatures & caps.compiledFeatures;
+    SimdSelectBestLevel( caps );
+    return caps;
+}
 
-    SimdSelectBestLevel( g_simdCaps );
+const cy_simd_caps_t &SimdGetCachedCaps() noexcept
+{
+    static const cy_simd_caps_t caps = SimdBuildCaps();
+    return caps;
+}
 
-    g_simdInitialized.store( true, std::memory_order_release );
+} // namespace
+
+bool_t Cy_SimdInit() noexcept
+{
+    CYPHER_UNUSED( SimdGetCachedCaps() );
     return CY_TRUE;
 }
 
-void Cy_SimdShutdown()
+const cy_simd_caps_t *Cy_SimdGetCaps() noexcept
 {
-    std::lock_guard<std::mutex> lock( g_simdMutex );
-    g_simdCaps = {};
-    g_simdInitialized.store( false, std::memory_order_release );
+    return &SimdGetCachedCaps();
 }
 
-const cy_simd_caps_t *Cy_SimdGetCaps()
+bool_t Cy_SimdHasFeature(
+    flags64_t features,
+    cy_simd_feature_flags_t feature ) noexcept
 {
-    if ( !g_simdInitialized.load( std::memory_order_acquire ) ) {
-        Cy_SimdInit();
-    }
-    return &g_simdCaps;
+    const flags64_t featureMask = static_cast<flags64_t>( feature );
+    return featureMask != 0u && ( features & featureMask ) == featureMask;
 }
 
-bool_t Cy_SimdHasFeature( flags64_t features, cy_simd_feature_flags_t feature )
-{
-    return ( features & static_cast<flags64_t>( feature ) ) != 0u;
-}
-
-bool_t Cy_SimdCanUse( cy_simd_feature_flags_t feature )
+bool_t Cy_SimdCanUse( cy_simd_feature_flags_t feature ) noexcept
 {
     const cy_simd_caps_t *pCaps = Cy_SimdGetCaps();
     return Cy_SimdHasFeature( pCaps->usableFeatures, feature );
 }
 
-cy_simd_level_t Cy_SimdGetBestLevel()
+cy_simd_level_t Cy_SimdGetBestLevel() noexcept
 {
     const cy_simd_caps_t *pCaps = Cy_SimdGetCaps();
     return pCaps->bestLevel;
 }
 
-u32 Cy_SimdGetVectorRegisterBytes()
+u32 Cy_SimdGetVectorRegisterBytes() noexcept
 {
     const cy_simd_caps_t *pCaps = Cy_SimdGetCaps();
     return pCaps->vectorRegisterBytes;
 }
 
-const char *Cy_SimdFeatureName( cy_simd_feature_flags_t feature )
+const char *Cy_SimdFeatureName( cy_simd_feature_flags_t feature ) noexcept
 {
     switch ( feature ) {
         case CY_SIMD_FEATURE_NONE:
@@ -255,7 +243,7 @@ const char *Cy_SimdFeatureName( cy_simd_feature_flags_t feature )
     }
 }
 
-const char *Cy_SimdLevelName( cy_simd_level_t level )
+const char *Cy_SimdLevelName( cy_simd_level_t level ) noexcept
 {
     switch ( level ) {
         case CY_SIMD_LEVEL_SCALAR:
