@@ -30,6 +30,7 @@ Page-granular allocator declarations.
 ================
 */
 
+#include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
 
 namespace cypher::common
@@ -37,15 +38,28 @@ namespace cypher::common
 
 struct page_allocator_t {
     void *pReservedBase;
-    usize cbReserved;
-    usize cbCommitted;
-    usize page_size;
+    usize nReservedByteCount;
+    usize nCommittedByteCount;
+    usize nPageSize;
 };
 
-bool_t PageAllocator_Init( page_allocator_t *pAllocator, usize cbReserve );
-void PageAllocator_Shutdown( page_allocator_t *pAllocator );
-void *PageAllocator_Commit( page_allocator_t *pAllocator, usize cbSize );
-void PageAllocator_Reset( page_allocator_t *pAllocator );
+// Reserves a linear virtual-memory range. The allocator must be zero initialized.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PageAllocatorInit(
+    page_allocator_t *pAllocator,
+    usize nReserveByteCount ) noexcept;
+
+// Releases the reservation and clears the allocator.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PageAllocatorShutdown(
+    page_allocator_t *pAllocator ) noexcept;
+
+// Commits the next page-aligned portion of the linear reservation.
+[[nodiscard]] CYPHER_COMMON_API void *Cy_PageAllocatorCommit(
+    page_allocator_t *pAllocator,
+    usize nByteCount ) noexcept;
+
+// Decommits every committed page while preserving the reservation.
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PageAllocatorReset(
+    page_allocator_t *pAllocator ) noexcept;
 
 } // namespace cypher::common
 
