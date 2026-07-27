@@ -62,7 +62,7 @@ void BM_ByteSwap16_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         u16 nAccum = 0u;
         for ( u16 nValue : values.nValues16 ) {
-            nAccum ^= ByteSwap16( nValue );
+            nAccum ^= Cy_ByteSwap16( nValue );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -75,7 +75,7 @@ void BM_ByteSwap32_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         u32 nAccum = 0u;
         for ( u32 nValue : values.nValues32 ) {
-            nAccum ^= ByteSwap32( nValue );
+            nAccum ^= Cy_ByteSwap32( nValue );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -88,7 +88,7 @@ void BM_ByteSwap64_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         u64 nAccum = 0ull;
         for ( u64 nValue : values.nValues64 ) {
-            nAccum ^= ByteSwap64( nValue );
+            nAccum ^= Cy_ByteSwap64( nValue );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -101,7 +101,7 @@ void BM_HostToLittle32_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         u32 nAccum = 0u;
         for ( u32 nValue : values.nValues32 ) {
-            nAccum ^= HostToLittle32( nValue );
+            nAccum ^= Cy_HostToLittle32( nValue );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -114,7 +114,7 @@ void BM_HostToBig32_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         u32 nAccum = 0u;
         for ( u32 nValue : values.nValues32 ) {
-            nAccum ^= HostToBig32( nValue );
+            nAccum ^= Cy_HostToBig32( nValue );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -127,7 +127,7 @@ void BM_MakeFourCC_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         u32 nAccum = 0u;
         for ( usize i = 0u; i < kValueCount; i += 4u ) {
-            nAccum ^= MakeFourCC( values.chValues[i],
+            nAccum ^= Cy_MakeFourCC( values.chValues[i],
                                   values.chValues[i + 1u],
                                   values.chValues[i + 2u],
                                   values.chValues[i + 3u] );
@@ -143,14 +143,14 @@ void BM_FourCCChar_1024Values( benchmark::State &state )
     for ( auto _ : state ) {
         u32 nAccum = 0u;
         for ( usize i = 0u; i < kValueCount; i += 4u ) {
-            const u32 nFourCC = MakeFourCC( values.chValues[i],
+            const u32 nFourCC = Cy_MakeFourCC( values.chValues[i],
                                             values.chValues[i + 1u],
                                             values.chValues[i + 2u],
                                             values.chValues[i + 3u] );
-            nAccum ^= static_cast<u32>( static_cast<u8>( FourCCChar0( nFourCC ) ) );
-            nAccum ^= static_cast<u32>( static_cast<u8>( FourCCChar1( nFourCC ) ) ) << 8u;
-            nAccum ^= static_cast<u32>( static_cast<u8>( FourCCChar2( nFourCC ) ) ) << 16u;
-            nAccum ^= static_cast<u32>( static_cast<u8>( FourCCChar3( nFourCC ) ) ) << 24u;
+            nAccum ^= static_cast<u32>( static_cast<u8>( Cy_FourCCChar0( nFourCC ) ) );
+            nAccum ^= static_cast<u32>( static_cast<u8>( Cy_FourCCChar1( nFourCC ) ) ) << 8u;
+            nAccum ^= static_cast<u32>( static_cast<u8>( Cy_FourCCChar2( nFourCC ) ) ) << 16u;
+            nAccum ^= static_cast<u32>( static_cast<u8>( Cy_FourCCChar3( nFourCC ) ) ) << 24u;
         }
         benchmark::DoNotOptimize( nAccum );
     }
