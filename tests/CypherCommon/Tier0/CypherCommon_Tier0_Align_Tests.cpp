@@ -23,56 +23,72 @@ using namespace cypher::common;
 
 TEST_CASE( "Align power-of-two checks reject zero and non power-of-two values", "[CypherCommon][Tier0][Align]" )
 {
-    REQUIRE_FALSE( IsPowerOfTwo( 0u ) );
-    REQUIRE( IsPowerOfTwo( 1u ) );
-    REQUIRE( IsPowerOfTwo( 2u ) );
-    REQUIRE_FALSE( IsPowerOfTwo( 3u ) );
-    REQUIRE( IsPowerOfTwo( 64u ) );
-    REQUIRE_FALSE( IsPowerOfTwo( 96u ) );
+    STATIC_REQUIRE_FALSE( Cy_AlignIsPowerOfTwo( 0u ) );
+    STATIC_REQUIRE( Cy_AlignIsPowerOfTwo( 1u ) );
+    STATIC_REQUIRE( Cy_AlignIsPowerOfTwo( 2u ) );
+    STATIC_REQUIRE_FALSE( Cy_AlignIsPowerOfTwo( 3u ) );
+    STATIC_REQUIRE( Cy_AlignIsPowerOfTwo( 64u ) );
+    STATIC_REQUIRE_FALSE( Cy_AlignIsPowerOfTwo( 96u ) );
 }
 
 TEST_CASE( "Align value helpers round power-of-two alignments up and down", "[CypherCommon][Tier0][Align]" )
 {
-    REQUIRE( AlignUp( 0u, 8u ) == 0u );
-    REQUIRE( AlignUp( 1u, 8u ) == 8u );
-    REQUIRE( AlignUp( 8u, 8u ) == 8u );
-    REQUIRE( AlignUp( 13u, 8u ) == 16u );
-    REQUIRE( AlignUp( 17u, 8u ) == 24u );
+    REQUIRE( Cy_AlignUp( 0u, 8u ) == 0u );
+    REQUIRE( Cy_AlignUp( 1u, 8u ) == 8u );
+    REQUIRE( Cy_AlignUp( 8u, 8u ) == 8u );
+    REQUIRE( Cy_AlignUp( 13u, 8u ) == 16u );
+    REQUIRE( Cy_AlignUp( 17u, 8u ) == 24u );
 
-    REQUIRE( AlignDown( 0u, 8u ) == 0u );
-    REQUIRE( AlignDown( 1u, 8u ) == 0u );
-    REQUIRE( AlignDown( 8u, 8u ) == 8u );
-    REQUIRE( AlignDown( 17u, 8u ) == 16u );
+    REQUIRE( Cy_AlignDown( 0u, 8u ) == 0u );
+    REQUIRE( Cy_AlignDown( 1u, 8u ) == 0u );
+    REQUIRE( Cy_AlignDown( 8u, 8u ) == 8u );
+    REQUIRE( Cy_AlignDown( 17u, 8u ) == 16u );
 
-    REQUIRE( IsAligned( 0u, 8u ) );
-    REQUIRE( IsAligned( 16u, 8u ) );
-    REQUIRE_FALSE( IsAligned( 17u, 8u ) );
+    REQUIRE( Cy_AlignIsAligned( 0u, 8u ) );
+    REQUIRE( Cy_AlignIsAligned( 16u, 8u ) );
+    REQUIRE_FALSE( Cy_AlignIsAligned( 17u, 8u ) );
+    REQUIRE_FALSE( Cy_AlignIsAligned( 0u, 0u ) );
+    REQUIRE_FALSE( Cy_AlignIsAligned( 16u, 3u ) );
 }
 
 TEST_CASE( "Align padding reports bytes needed to reach the next boundary", "[CypherCommon][Tier0][Align]" )
 {
-    REQUIRE( AlignPadding( 0u, 8u ) == 0u );
-    REQUIRE( AlignPadding( 1u, 8u ) == 7u );
-    REQUIRE( AlignPadding( 8u, 8u ) == 0u );
-    REQUIRE( AlignPadding( 13u, 8u ) == 3u );
-    REQUIRE( AlignPadding( 17u, 8u ) == 7u );
+    REQUIRE( Cy_AlignPadding( 0u, 8u ) == 0u );
+    REQUIRE( Cy_AlignPadding( 1u, 8u ) == 7u );
+    REQUIRE( Cy_AlignPadding( 8u, 8u ) == 0u );
+    REQUIRE( Cy_AlignPadding( 13u, 8u ) == 3u );
+    REQUIRE( Cy_AlignPadding( 17u, 8u ) == 7u );
 }
 
 TEST_CASE( "Align checked helper rejects invalid alignment and overflow", "[CypherCommon][Tier0][Align]" )
 {
     usize nOutValue = 0u;
 
-    REQUIRE( AlignUpChecked( 13u, 8u, nOutValue ) );
+    REQUIRE( Cy_AlignUpChecked( 13u, 8u, nOutValue ) );
     REQUIRE( nOutValue == 16u );
 
-    REQUIRE_FALSE( AlignUpChecked( 13u, 0u, nOutValue ) );
+    REQUIRE_FALSE( Cy_AlignUpChecked( 13u, 0u, nOutValue ) );
     REQUIRE( nOutValue == 0u );
 
-    REQUIRE_FALSE( AlignUpChecked( 13u, 3u, nOutValue ) );
+    REQUIRE_FALSE( Cy_AlignUpChecked( 13u, 3u, nOutValue ) );
     REQUIRE( nOutValue == 0u );
 
-    REQUIRE_FALSE( AlignUpChecked( CY_INVALID_SIZE - 3u, 8u, nOutValue ) );
+    REQUIRE_FALSE( Cy_AlignUpChecked( CY_INVALID_SIZE - 3u, 8u, nOutValue ) );
     REQUIRE( nOutValue == 0u );
+
+    REQUIRE( Cy_AlignUpChecked( CY_INVALID_SIZE, 1u, nOutValue ) );
+    REQUIRE( nOutValue == CY_INVALID_SIZE );
+
+    REQUIRE( Cy_AlignDownChecked( 13u, 8u, nOutValue ) );
+    REQUIRE( nOutValue == 8u );
+    REQUIRE_FALSE( Cy_AlignDownChecked( 13u, 3u, nOutValue ) );
+    REQUIRE( nOutValue == 0u );
+
+    usize nPadding = 0u;
+    REQUIRE( Cy_AlignPaddingChecked( 13u, 8u, nPadding ) );
+    REQUIRE( nPadding == 3u );
+    REQUIRE_FALSE( Cy_AlignPaddingChecked( CY_INVALID_SIZE, 8u, nPadding ) );
+    REQUIRE( nPadding == 0u );
 }
 
 TEST_CASE( "Align pointer helpers round pointer addresses and report padding", "[CypherCommon][Tier0][Align]" )
@@ -81,17 +97,17 @@ TEST_CASE( "Align pointer helpers round pointer addresses and report padding", "
     void *pOffset = nBytes + 13u;
     const void *pConstOffset = nBytes + 17u;
 
-    REQUIRE( IsPointerAligned( nBytes, 64u ) );
-    REQUIRE_FALSE( IsPointerAligned( pOffset, 16u ) );
+    REQUIRE( Cy_AlignIsPointerAligned( nBytes, 64u ) );
+    REQUIRE_FALSE( Cy_AlignIsPointerAligned( pOffset, 16u ) );
 
-    REQUIRE( AlignPointerUp( pOffset, 16u ) == nBytes + 16u );
-    REQUIRE( AlignPointerDown( pOffset, 16u ) == nBytes );
-    REQUIRE( AlignPointerUp( pConstOffset, 16u ) == nBytes + 32u );
-    REQUIRE( AlignPointerDown( pConstOffset, 16u ) == nBytes + 16u );
+    REQUIRE( Cy_AlignPointerUp( pOffset, 16u ) == nBytes + 16u );
+    REQUIRE( Cy_AlignPointerDown( pOffset, 16u ) == nBytes );
+    REQUIRE( Cy_AlignPointerUp( pConstOffset, 16u ) == nBytes + 32u );
+    REQUIRE( Cy_AlignPointerDown( pConstOffset, 16u ) == nBytes + 16u );
 
-    REQUIRE( AlignPointerPadding( pOffset, 16u ) == 3u );
+    REQUIRE( Cy_AlignPointerPadding( pOffset, 16u ) == 3u );
 
     uintptr nOutAddress = 0u;
-    REQUIRE( AlignPointerUpChecked( pOffset, 16u, nOutAddress ) );
+    REQUIRE( Cy_AlignPointerUpChecked( pOffset, 16u, nOutAddress ) );
     REQUIRE( nOutAddress == reinterpret_cast<uintptr>( nBytes + 16u ) );
 }
