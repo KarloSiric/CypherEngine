@@ -26,7 +26,10 @@ namespace
 
 void BM_SystemInfoGetCached( benchmark::State &state )
 {
-    Cy_SystemInfoInit();
+    if ( !Cy_SystemInfoInit() ) {
+        state.SkipWithError( "system information initialization failed" );
+        return;
+    }
 
     for ( auto _ : state ) {
         benchmark::DoNotOptimize( Cy_SystemInfoGet() );
