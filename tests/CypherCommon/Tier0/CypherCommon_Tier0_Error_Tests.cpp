@@ -17,19 +17,24 @@
 
 #include "CypherCommon/Tier0/CypherCommon_Error.h"
 
+#include <string_view>
+
 #include <catch2/catch_test_macros.hpp>
 
 using namespace cypher::common;
 
 TEST_CASE( "Errors pack domains and local codes into stable u32 values", "[CypherCommon][Tier0][Error]" )
 {
-    const error_code_t filesystemError = Cy_ErrorMake( error_domain_t::FILESYSTEM, 0x1234u );
+    constexpr error_code_t filesystemError = Cy_ErrorMake( error_domain_t::FILESYSTEM, 0x1234u );
+    STATIC_REQUIRE( filesystemError == CY_ERROR( FILESYSTEM, 0x1234u ) );
     REQUIRE( Cy_ErrorDomain( filesystemError ) == error_domain_t::FILESYSTEM );
     REQUIRE( Cy_ErrorLocalCode( filesystemError ) == 0x1234u );
 
     const error_code_t maxLocalError = Cy_ErrorMake( error_domain_t::NETWORK, 0xFFFFu );
     REQUIRE( Cy_ErrorDomain( maxLocalError ) == error_domain_t::NETWORK );
     REQUIRE( Cy_ErrorLocalCode( maxLocalError ) == 0xFFFFu );
+    STATIC_REQUIRE( Cy_ErrorMake( common_error_t::OK ) == CY_ERROR_OK );
+    STATIC_REQUIRE( CY_ERROR_COMMON( ERR_TIMEOUT ) == Cy_ErrorMake( common_error_t::ERR_TIMEOUT ) );
 }
 
 TEST_CASE( "Errors treat zero local code as success for any domain", "[CypherCommon][Tier0][Error]" )
@@ -65,8 +70,22 @@ TEST_CASE( "Errors reject table lookups from the wrong domain", "[CypherCommon][
 
     REQUIRE( pTable != nullptr );
     REQUIRE( Cy_ErrorFindDesc( *pTable, filesystemError ) == nullptr );
-    REQUIRE( Cy_ErrorFindName( *pTable, filesystemError ) != nullptr );
-    REQUIRE( Cy_ErrorFindDescription( *pTable, filesystemError ) != nullptr );
+    REQUIRE( std::string_view( Cy_ErrorFindName( *pTable, filesystemError ) ) == "ERR_UNKNOWN" );
+    REQUIRE( std::string_view( Cy_ErrorFindDescription( *pTable, filesystemError ) ) == "Unknown error." );
+}
+
+TEST_CASE( "Errors reject malformed and unknown table entries", "[CypherCommon][Tier0][Error]" )
+{
+    const error_code_t unknownCommon = Cy_ErrorMake(
+        error_domain_t::COMMON,
+        static_cast<u16>( common_error_t::COUNT ) );
+    const error_table_t emptyTable{ error_domain_t::COMMON, nullptr, 0u };
+
+    REQUIRE( Cy_ErrorFindDesc( emptyTable, unknownCommon ) == nullptr );
+    REQUIRE( std::string_view( Cy_ErrorFindName( emptyTable, unknownCommon ) ) == "ERR_UNKNOWN" );
+    REQUIRE( std::string_view( Cy_ErrorFindDescription( emptyTable, unknownCommon ) ) == "Unknown error." );
+    REQUIRE( std::string_view( Cy_CommonErrorName( common_error_t::COUNT ) ) == "ERR_UNKNOWN" );
+    REQUIRE( std::string_view( Cy_ErrorDomainName( error_domain_t::INVALID ) ) == "Unknown" );
 }
 
 TEST_CASE( "Errors keep compatibility aliases mapped to their canonical domains", "[CypherCommon][Tier0][Error]" )
@@ -78,6 +97,6 @@ TEST_CASE( "Errors keep compatibility aliases mapped to their canonical domains"
     REQUIRE( error_domain_t::COM_DOMAIN_RESOURCE == error_domain_t::RESOURCE );
     REQUIRE( error_domain_t::COM_DOMAIN_REFLECTION == error_domain_t::REFLECTION );
 
-    REQUIRE( Cy_ErrorDomainName( error_domain_t::COM_DOMAIN_ASSET ) != nullptr );
-    REQUIRE( Cy_ErrorDomainName( error_domain_t::COM_DOMAIN_REFLECTION ) != nullptr );
+    REQUIRE( std::string_view( Cy_ErrorDomainName( error_domain_t::COM_DOMAIN_ASSET ) ) == "Asset" );
+    REQUIRE( std::string_view( Cy_ErrorDomainName( error_domain_t::COM_DOMAIN_REFLECTION ) ) == "Reflection" );
 }
