@@ -28,36 +28,56 @@ void BM_TLSCreateDestroySlot( benchmark::State &state )
 {
     for ( auto _ : state ) {
         const tls_slot_t slot = Cy_TLSCreateSlot();
+        if ( slot == CY_TLS_INVALID_SLOT ) {
+            state.SkipWithError( "TLS slot creation failed" );
+            break;
+        }
         benchmark::DoNotOptimize( &slot );
-        Cy_TLSDestroySlot( slot );
+        benchmark::DoNotOptimize( Cy_TLSDestroySlot( slot ) );
     }
 }
 
 void BM_TLSSetGetClearValue( benchmark::State &state )
 {
     const tls_slot_t slot = Cy_TLSCreateSlot();
+    if ( slot == CY_TLS_INVALID_SLOT ) {
+        state.SkipWithError( "TLS slot creation failed" );
+        return;
+    }
     i32 nValue = 7;
 
     for ( auto _ : state ) {
-        Cy_TLSSetValue( slot, &nValue );
+        benchmark::DoNotOptimize( Cy_TLSSetValue( slot, &nValue ) );
         benchmark::DoNotOptimize( Cy_TLSGetValue( slot ) );
-        Cy_TLSClearValue( slot );
+        benchmark::DoNotOptimize( Cy_TLSClearValue( slot ) );
     }
 
-    Cy_TLSDestroySlot( slot );
+    if ( !Cy_TLSDestroySlot( slot ) ) {
+        state.SkipWithError( "TLS slot destruction failed" );
+    }
 }
 
 void BM_TLSGetValue( benchmark::State &state )
 {
     const tls_slot_t slot = Cy_TLSCreateSlot();
+    if ( slot == CY_TLS_INVALID_SLOT ) {
+        state.SkipWithError( "TLS slot creation failed" );
+        return;
+    }
     i32 nValue = 7;
-    Cy_TLSSetValue( slot, &nValue );
+    if ( !Cy_TLSSetValue( slot, &nValue ) ) {
+        state.SkipWithError( "TLS value setup failed" );
+        benchmark::DoNotOptimize( Cy_TLSDestroySlot( slot ) );
+        return;
+    }
 
     for ( auto _ : state ) {
         benchmark::DoNotOptimize( Cy_TLSGetValue( slot ) );
     }
 
-    Cy_TLSDestroySlot( slot );
+    if ( !Cy_TLSDestroySlot( slot ) ) {
+        state.SkipWithError( "TLS slot destruction failed" );
+    }
 }
 
 } // namespace
