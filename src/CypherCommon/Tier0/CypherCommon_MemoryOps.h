@@ -31,6 +31,7 @@ Raw byte memory operations. This is not an allocator layer.
 */
 
 #include "CypherCommon_BaseTypes.h"
+#include "CypherCommon_API.h"
 
 #include <type_traits>
 
@@ -38,103 +39,138 @@ namespace cypher::common
 {
 
 // Copies byte_count bytes from src to dst; ranges must not overlap.
-void *MemCopy( void *pDst, const void *pSrc, usize nByteCount );
+CYPHER_COMMON_API void *Cy_MemCopy( void *pDst, const void *pSrc, usize nByteCount ) noexcept;
 
 // Moves byte_count bytes from src to dst; ranges may overlap.
-void *MemMove( void *pDst, const void *pSrc, usize nByteCount );
+CYPHER_COMMON_API void *Cy_MemMove( void *pDst, const void *pSrc, usize nByteCount ) noexcept;
 
-// Fills byte_count bytes at dst with value.
-void *MemSet( void *pDst, i32 nValue, usize nByteCount );
+// Fills byte_count bytes at dst with the specified byte value.
+CYPHER_COMMON_API void *Cy_MemSet( void *pDst, u8 nValue, usize nByteCount ) noexcept;
 
 // Clears byte_count bytes at dst to zero.
-void *MemZero( void *pDst, usize nByteCount );
+CYPHER_COMMON_API void *Cy_MemZero( void *pDst, usize nByteCount ) noexcept;
 
 // Compares two byte ranges like memcmp.
-i32 MemCompare( const void *pA, const void *pB, usize nByteCount );
+[[nodiscard]] CYPHER_COMMON_API i32 Cy_MemCompare(
+    const void *pA,
+    const void *pB,
+    usize nByteCount ) noexcept;
 
 // Returns true when both byte ranges are identical.
-bool_t MemEqual( const void *pA, const void *pB, usize nByteCount );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MemEqual(
+    const void *pA,
+    const void *pB,
+    usize nByteCount ) noexcept;
 
 // Returns true when two byte ranges overlap in memory.
-bool_t MemRangesOverlap( const void *pA, usize nABytes,
-                         const void *pB, usize nBBytes );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MemRangesOverlap(
+    const void *pA,
+    usize nABytes,
+    const void *pB,
+    usize nBBytes ) noexcept;
 
 // Returns true when pPtr points inside [pBase, pBase + nRangeBytes).
-bool_t MemPointerInRange( const void *pPtr,
-                          const void *pBase,
-                          usize nRangeBytes );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MemPointerInRange(
+    const void *pPtr,
+    const void *pBase,
+    usize nRangeBytes ) noexcept;
 
 // Returns true when every byte in the range is zero.
-bool_t MemIsZero( const void *pData, usize nByteCount );
+[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MemIsZero(
+    const void *pData,
+    usize nByteCount ) noexcept;
+
+// Computes element_count * sizeof(type_t) without unsigned overflow.
+template <typename type_t>
+[[nodiscard]] constexpr bool_t Cy_TryArrayByteCount(
+    usize nElementCount,
+    usize &nOutByteCount ) noexcept
+{
+    if ( nElementCount > CY_USIZE_MAX / sizeof( type_t ) ) {
+        nOutByteCount = 0u;
+        return CY_FALSE;
+    }
+
+    nOutByteCount = sizeof( type_t ) * nElementCount;
+    return CY_TRUE;
+}
 
 // Clears a trivially copyable object to zero bytes.
 template <typename type_t>
-inline void ZeroStruct( type_t &value )
+inline void Cy_ZeroStruct( type_t &value ) noexcept
 {
-    static_assert( std::is_trivially_copyable_v<type_t>, "ZeroStruct requires a trivially copyable type." );
-    MemZero( &value, sizeof( value ) );
+    static_assert( std::is_trivially_copyable_v<type_t>, "Cy_ZeroStruct requires a trivially copyable type." );
+    Cy_MemZero( &value, sizeof( value ) );
 }
 
 // Clears a fixed-size array of trivially copyable objects to zero bytes.
 template <typename type_t, usize nCount>
-inline void ZeroArray( type_t ( &values )[nCount] )
+inline void Cy_ZeroArray( type_t ( &values )[nCount] ) noexcept
 {
-    static_assert( std::is_trivially_copyable_v<type_t>, "ZeroArray requires a trivially copyable type." );
-    MemZero( values, sizeof( values ) );
+    static_assert( std::is_trivially_copyable_v<type_t>, "Cy_ZeroArray requires a trivially copyable type." );
+    Cy_MemZero( values, sizeof( values ) );
 }
 
 // Clears nCount trivially copyable objects to zero bytes.
 template <typename type_t>
-inline void ZeroArray( type_t *pValues, usize nCount )
+inline void Cy_ZeroArray( type_t *pValues, usize nCount ) noexcept
 {
-    static_assert( std::is_trivially_copyable_v<type_t>, "ZeroArray requires a trivially copyable type." );
-    if ( nCount == 0u ) {
+    static_assert( std::is_trivially_copyable_v<type_t>, "Cy_ZeroArray requires a trivially copyable type." );
+    usize nByteCount = 0u;
+    if ( nCount == 0u || !Cy_TryArrayByteCount<type_t>( nCount, nByteCount ) ) {
         return;
     }
-    MemZero( pValues, sizeof( type_t ) * nCount );
+    Cy_MemZero( pValues, nByteCount );
 }
 
 // Copies nCount trivially copyable objects; ranges must not overlap.
 template <typename type_t>
-inline void CopyArray( type_t *pDst, const type_t *pSrc, usize nCount )
+inline void Cy_CopyArray( type_t *pDst, const type_t *pSrc, usize nCount ) noexcept
 {
-    static_assert( std::is_trivially_copyable_v<type_t>, "CopyArray requires a trivially copyable type." );
-    if ( nCount == 0u ) {
+    static_assert( std::is_trivially_copyable_v<type_t>, "Cy_CopyArray requires a trivially copyable type." );
+    usize nByteCount = 0u;
+    if ( nCount == 0u || !Cy_TryArrayByteCount<type_t>( nCount, nByteCount ) ) {
         return;
     }
-    MemCopy( pDst, pSrc, sizeof( type_t ) * nCount );
+    Cy_MemCopy( pDst, pSrc, nByteCount );
 }
 
 // Moves nCount trivially copyable objects; ranges may overlap.
 template <typename type_t>
-inline void MoveArray( type_t *pDst, const type_t *pSrc, usize nCount )
+inline void Cy_MoveArray( type_t *pDst, const type_t *pSrc, usize nCount ) noexcept
 {
-    static_assert( std::is_trivially_copyable_v<type_t>, "MoveArray requires a trivially copyable type." );
-    if ( nCount == 0u ) {
+    static_assert( std::is_trivially_copyable_v<type_t>, "Cy_MoveArray requires a trivially copyable type." );
+    usize nByteCount = 0u;
+    if ( nCount == 0u || !Cy_TryArrayByteCount<type_t>( nCount, nByteCount ) ) {
         return;
     }
-    MemMove( pDst, pSrc, sizeof( type_t ) * nCount );
+    Cy_MemMove( pDst, pSrc, nByteCount );
 }
 
 // Returns true when all bytes in a trivially copyable object are zero.
 template <typename type_t>
-inline bool_t StructIsZero( const type_t &value )
+[[nodiscard]] inline bool_t Cy_StructIsZero( const type_t &value ) noexcept
 {
-    static_assert( std::is_trivially_copyable_v<type_t>, "StructIsZero requires a trivially copyable type." );
-    return MemIsZero( &value, sizeof( value ) );
+    static_assert( std::is_trivially_copyable_v<type_t>, "Cy_StructIsZero requires a trivially copyable type." );
+    return Cy_MemIsZero( &value, sizeof( value ) );
 }
 
 // Returns true when all bytes in nCount trivially copyable objects are zero.
 template <typename type_t>
-inline bool_t ArrayIsZero( const type_t *pValues, usize nCount )
+[[nodiscard]] inline bool_t Cy_ArrayIsZero( const type_t *pValues, usize nCount ) noexcept
 {
-    static_assert( std::is_trivially_copyable_v<type_t>, "ArrayIsZero requires a trivially copyable type." );
+    static_assert( std::is_trivially_copyable_v<type_t>, "Cy_ArrayIsZero requires a trivially copyable type." );
 
     if ( nCount == 0u ) {
         return CY_TRUE;
     }
 
-    return MemIsZero( pValues, sizeof( type_t ) * nCount );
+    usize nByteCount = 0u;
+    if ( !Cy_TryArrayByteCount<type_t>( nCount, nByteCount ) ) {
+        return CY_FALSE;
+    }
+
+    return Cy_MemIsZero( pValues, nByteCount );
 }
 
 } // namespace cypher::common
