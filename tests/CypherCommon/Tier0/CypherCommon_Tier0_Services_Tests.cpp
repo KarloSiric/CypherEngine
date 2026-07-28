@@ -206,7 +206,11 @@ TEST_CASE( "Tier0 source location formats into caller buffer", "[CypherCommon][T
     char szLocation[128] = {};
     source_location_t location{ "file.cpp", "Func", 42u };
 
-    REQUIRE( Cy_SourceLocation_Format( location, szLocation, sizeof( szLocation ) ) == std::strlen( szLocation ) );
+    const usize cchRequired = Cy_SourceLocation_Format(
+        location,
+        szLocation,
+        sizeof( szLocation ) );
+    REQUIRE( cchRequired == std::strlen( szLocation ) );
     REQUIRE( szLocation[0] != '\0' );
 }
 
