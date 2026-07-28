@@ -38,8 +38,8 @@
     #ifndef PSAPI_VERSION
         #define PSAPI_VERSION 2
     #endif
-    #include <psapi.h>
     #include <windows.h>
+    #include <psapi.h>
 #elif CYPHER_PLATFORM_LINUX
     #include <sys/statvfs.h>
     #include <sys/utsname.h>
