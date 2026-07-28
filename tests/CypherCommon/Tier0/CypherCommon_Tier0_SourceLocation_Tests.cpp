@@ -73,9 +73,10 @@ TEST_CASE( "SourceLocation handles empty records deterministically", "[CypherCom
     char szLocation[64] = {};
 
     REQUIRE_FALSE( Cy_SourceLocation_IsValid( location ) );
-    REQUIRE( Cy_SourceLocation_Format(
-                 location,
-                 szLocation,
-                 CYPHER_ARRAY_COUNT( szLocation ) ) == std::strlen( szLocation ) );
+    const usize cchRequired = Cy_SourceLocation_Format(
+        location,
+        szLocation,
+        CYPHER_ARRAY_COUNT( szLocation ) );
+    REQUIRE( cchRequired == std::strlen( szLocation ) );
     REQUIRE( std::strcmp( szLocation, "<unknown>:0:<unknown>" ) == 0 );
 }
