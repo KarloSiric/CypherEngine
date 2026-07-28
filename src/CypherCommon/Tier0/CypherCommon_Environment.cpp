@@ -119,11 +119,12 @@ cy_environment_get_result_t Cy_EnvironmentGet(
             return result;
         }
 
+        wchar_t wszProbe[1] = {};
         ::SetLastError( ERROR_SUCCESS );
         const DWORD cchWideRequired =
-            ::GetEnvironmentVariableW( pWideName, nullptr, 0u );
+            ::GetEnvironmentVariableW( pWideName, wszProbe, 1u );
         if ( cchWideRequired == 0u ) {
-            result.exists = ::GetLastError() != ERROR_ENVVAR_NOT_FOUND;
+            result.exists = ::GetLastError() == ERROR_SUCCESS;
             std::free( pWideName );
             return result;
         }
