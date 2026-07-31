@@ -63,7 +63,7 @@ CYPHER_COMMON_API void Cy_MemoryDebugSetCallback(
     void *pContext = nullptr ) noexcept;
 
 // Returns the installed callback and optionally its context.
-[[nodiscard]] CYPHER_COMMON_API memory_debug_callback_t Cy_MemoryDebugGetCallback(
+CYPHER_NODISCARD CYPHER_COMMON_API memory_debug_callback_t Cy_MemoryDebugGetCallback(
     void **ppOutContext = nullptr ) noexcept;
 
 // Reports one allocation event without allocating or invoking callbacks under a lock.
