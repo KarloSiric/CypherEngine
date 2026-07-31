@@ -51,33 +51,33 @@ struct dynamic_library_t {
 };
 
 // Initializes an unloaded library handle.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DynamicLibraryInit(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_DynamicLibraryInit(
     dynamic_library_t *pLibrary ) noexcept;
 
 // Loads with immediate symbol resolution and local symbol visibility.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DynamicLibraryLoad(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_DynamicLibraryLoad(
     dynamic_library_t *pLibrary,
     const char *pszPath ) noexcept;
 
 // Loads with explicit resolution and symbol visibility flags.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DynamicLibraryLoadEx(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_DynamicLibraryLoadEx(
     dynamic_library_t *pLibrary,
     const char *pszPath,
     flags32_t flags ) noexcept;
 
 // Unloads a library. Calling this on an unloaded initialized handle succeeds.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DynamicLibraryUnload(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_DynamicLibraryUnload(
     dynamic_library_t *pLibrary ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DynamicLibraryIsLoaded(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_DynamicLibraryIsLoaded(
     const dynamic_library_t *pLibrary ) noexcept;
 
 // Resolves one exported symbol and records platform diagnostics on failure.
-[[nodiscard]] CYPHER_COMMON_API void *Cy_DynamicLibraryGetSymbol(
+CYPHER_NODISCARD CYPHER_COMMON_API void *Cy_DynamicLibraryGetSymbol(
     dynamic_library_t *pLibrary,
     const char *pszSymbolName ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API const char *Cy_DynamicLibraryGetLastError(
+CYPHER_NODISCARD CYPHER_COMMON_API const char *Cy_DynamicLibraryGetLastError(
     const dynamic_library_t *pLibrary ) noexcept;
 
 } // namespace cypher::common
