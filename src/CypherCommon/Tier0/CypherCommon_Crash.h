@@ -49,7 +49,7 @@ using crash_handler_t = void ( * )( const crash_info_t &info ) noexcept;
 CYPHER_COMMON_API void Cy_CrashSetHandler( crash_handler_t pHandler ) noexcept;
 
 // Returns the current handler, or nullptr when fallback reporting is active.
-[[nodiscard]] CYPHER_COMMON_API crash_handler_t Cy_CrashGetHandler() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API crash_handler_t Cy_CrashGetHandler() noexcept;
 
 // Reports fatal context without terminating. Intended for tests and for callers
 // that must perform one final operation before explicitly trapping.
