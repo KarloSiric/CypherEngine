@@ -55,13 +55,13 @@ struct build_id_t {
     build_version_t version;
 };
 
-[[nodiscard]] CYPHER_COMMON_API const build_id_t *Cy_BuildIdGetEngine() noexcept;
-[[nodiscard]] CYPHER_COMMON_API const build_id_t *Cy_BuildIdGetGame() noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_BuildIdIsValid(
+CYPHER_NODISCARD CYPHER_COMMON_API const build_id_t *Cy_BuildIdGetEngine() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API const build_id_t *Cy_BuildIdGetGame() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_BuildIdIsValid(
     const build_id_t *pBuildId ) noexcept;
 
 // Formats identity text and returns the required character count excluding null.
-[[nodiscard]] CYPHER_COMMON_API usize Cy_BuildIdFormat(
+CYPHER_NODISCARD CYPHER_COMMON_API usize Cy_BuildIdFormat(
     const build_id_t *pBuildId,
     char *pszDst,
     usize cchDst ) noexcept;
