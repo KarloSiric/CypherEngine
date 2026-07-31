@@ -54,7 +54,7 @@ CYPHER_COMMON_API void Cy_CachePrefetchWrite(
     cache_prefetch_locality_t locality = cache_prefetch_locality_t::High ) noexcept;
 
 // Returns the detected coherency/cache-line size, or the conservative fallback.
-[[nodiscard]] CYPHER_COMMON_API usize Cy_CacheGetLineSize() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API usize Cy_CacheGetLineSize() noexcept;
 
 } // namespace cypher::common
 
