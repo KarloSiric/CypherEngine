@@ -35,6 +35,16 @@ Annotations never change runtime behavior.
 
 /*
 ================
+Standard Attributes
+================
+*/
+#define CYPHER_NODISCARD                    [[nodiscard]]
+#define CYPHER_NODISCARD_MSG( message )     [[nodiscard( message )]]
+#define CYPHER_MAYBE_UNUSED                 [[maybe_unused]]
+#define CYPHER_FALLTHROUGH                  [[fallthrough]]
+
+/*
+================
 Pointer And Buffer Contracts
 ================
 */
