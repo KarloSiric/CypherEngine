@@ -134,9 +134,9 @@ CYPHER_COMMON_API void Cy_LogGetCallback(
     log_callback_t *pCallbackOut,
     void **ppUserDataOut ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_LogLevelName(
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_LogLevelName(
     log_level_t level ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_LogChannelName(
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_LogChannelName(
     log_channel_t channel ) noexcept;
 
 } // namespace cypher::common
