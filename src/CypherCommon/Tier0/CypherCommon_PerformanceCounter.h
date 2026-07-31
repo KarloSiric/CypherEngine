@@ -38,12 +38,12 @@ namespace cypher::common
 
 using performance_counter_t = u64;
 
-[[nodiscard]] CYPHER_COMMON_API performance_counter_t
+CYPHER_NODISCARD CYPHER_COMMON_API performance_counter_t
 Cy_PerformanceCounterNow() noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API u64 Cy_PerformanceCounterFrequency() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API u64 Cy_PerformanceCounterFrequency() noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API f64 Cy_PerformanceCounterToSeconds(
+CYPHER_NODISCARD CYPHER_COMMON_API f64 Cy_PerformanceCounterToSeconds(
     performance_counter_t nTicks ) noexcept;
 
 } // namespace cypher::common
