@@ -64,7 +64,7 @@ constexpr memory_order_t CY_MEMORY_ORDER_ACQ_REL = std::memory_order_acq_rel;
 constexpr memory_order_t CY_MEMORY_ORDER_SEQ_CST = std::memory_order_seq_cst;
 
 // Returns a valid load/wait order, falling back to sequential consistency.
-[[nodiscard]] constexpr memory_order_t Cy_AtomicNormalizeLoadOrder(
+CYPHER_NODISCARD constexpr memory_order_t Cy_AtomicNormalizeLoadOrder(
     memory_order_t order ) noexcept
 {
     switch ( order ) {
@@ -80,7 +80,7 @@ constexpr memory_order_t CY_MEMORY_ORDER_SEQ_CST = std::memory_order_seq_cst;
 }
 
 // Returns a valid store order, falling back to sequential consistency.
-[[nodiscard]] constexpr memory_order_t Cy_AtomicNormalizeStoreOrder(
+CYPHER_NODISCARD constexpr memory_order_t Cy_AtomicNormalizeStoreOrder(
     memory_order_t order ) noexcept
 {
     switch ( order ) {
@@ -96,7 +96,7 @@ constexpr memory_order_t CY_MEMORY_ORDER_SEQ_CST = std::memory_order_seq_cst;
 }
 
 // Returns a valid read-modify-write order, falling back to sequential consistency.
-[[nodiscard]] constexpr memory_order_t Cy_AtomicNormalizeReadModifyWriteOrder(
+CYPHER_NODISCARD constexpr memory_order_t Cy_AtomicNormalizeReadModifyWriteOrder(
     memory_order_t order ) noexcept
 {
     switch ( order ) {
@@ -112,7 +112,7 @@ constexpr memory_order_t CY_MEMORY_ORDER_SEQ_CST = std::memory_order_seq_cst;
 }
 
 // Returns the strongest legal compare-exchange failure order for a success order.
-[[nodiscard]] constexpr memory_order_t Cy_AtomicDefaultFailureOrder(
+CYPHER_NODISCARD constexpr memory_order_t Cy_AtomicDefaultFailureOrder(
     memory_order_t successOrder ) noexcept
 {
     switch ( successOrder ) {
@@ -126,7 +126,7 @@ constexpr memory_order_t CY_MEMORY_ORDER_SEQ_CST = std::memory_order_seq_cst;
 }
 
 // Prevents an invalid or stronger-than-success CAS failure order.
-[[nodiscard]] constexpr memory_order_t Cy_AtomicNormalizeFailureOrder(
+CYPHER_NODISCARD constexpr memory_order_t Cy_AtomicNormalizeFailureOrder(
     memory_order_t successOrder,
     memory_order_t failureOrder ) noexcept
 {
@@ -158,7 +158,7 @@ constexpr memory_order_t CY_MEMORY_ORDER_SEQ_CST = std::memory_order_seq_cst;
 
 // Loads a single atomic value with explicit memory-order policy.
 template <typename type_t>
-[[nodiscard]] type_t Cy_AtomicLoad(
+CYPHER_NODISCARD type_t Cy_AtomicLoad(
     const atomic_t<type_t> *pAtomic,
     memory_order_t order = CY_MEMORY_ORDER_SEQ_CST ) noexcept
 {
@@ -177,7 +177,7 @@ void Cy_AtomicStore(
 
 // Replaces an atomic value and returns the old value.
 template <typename type_t>
-[[nodiscard]] type_t Cy_AtomicExchange(
+CYPHER_NODISCARD type_t Cy_AtomicExchange(
     atomic_t<type_t> *pAtomic,
     type_t value,
     memory_order_t order = CY_MEMORY_ORDER_SEQ_CST ) noexcept
@@ -189,7 +189,7 @@ template <typename type_t>
 
 // Strong CAS: updates expected on failure and does not fail spuriously.
 template <typename type_t>
-[[nodiscard]] bool_t Cy_AtomicCompareExchange(
+CYPHER_NODISCARD bool_t Cy_AtomicCompareExchange(
     atomic_t<type_t> *pAtomic,
     type_t *pExpected,
     type_t desired,
@@ -207,7 +207,7 @@ template <typename type_t>
 
 // Weak CAS: may fail spuriously and is intended for retry loops.
 template <typename type_t>
-[[nodiscard]] bool_t Cy_AtomicCompareExchangeWeak(
+CYPHER_NODISCARD bool_t Cy_AtomicCompareExchangeWeak(
     atomic_t<type_t> *pAtomic,
     type_t *pExpected,
     type_t desired,
@@ -226,7 +226,7 @@ template <typename type_t>
 // Adds value to an atomic integer and returns the previous value.
 template <typename type_t>
     requires( std::is_integral_v<type_t> && !std::is_same_v<type_t, bool_t> )
-[[nodiscard]] type_t Cy_AtomicFetchAdd(
+CYPHER_NODISCARD type_t Cy_AtomicFetchAdd(
     atomic_t<type_t> *pAtomic,
     type_t value,
     memory_order_t order = CY_MEMORY_ORDER_SEQ_CST ) noexcept
@@ -239,7 +239,7 @@ template <typename type_t>
 // Subtracts value from an atomic integer and returns the previous value.
 template <typename type_t>
     requires( std::is_integral_v<type_t> && !std::is_same_v<type_t, bool_t> )
-[[nodiscard]] type_t Cy_AtomicFetchSub(
+CYPHER_NODISCARD type_t Cy_AtomicFetchSub(
     atomic_t<type_t> *pAtomic,
     type_t value,
     memory_order_t order = CY_MEMORY_ORDER_SEQ_CST ) noexcept
@@ -252,7 +252,7 @@ template <typename type_t>
 // Applies a bitwise AND to an atomic integer and returns the previous value.
 template <typename type_t>
     requires( std::is_integral_v<type_t> && !std::is_same_v<type_t, bool_t> )
-[[nodiscard]] type_t Cy_AtomicFetchAnd(
+CYPHER_NODISCARD type_t Cy_AtomicFetchAnd(
     atomic_t<type_t> *pAtomic,
     type_t value,
     memory_order_t order = CY_MEMORY_ORDER_SEQ_CST ) noexcept
@@ -265,7 +265,7 @@ template <typename type_t>
 // Applies a bitwise OR to an atomic integer and returns the previous value.
 template <typename type_t>
     requires( std::is_integral_v<type_t> && !std::is_same_v<type_t, bool_t> )
-[[nodiscard]] type_t Cy_AtomicFetchOr(
+CYPHER_NODISCARD type_t Cy_AtomicFetchOr(
     atomic_t<type_t> *pAtomic,
     type_t value,
     memory_order_t order = CY_MEMORY_ORDER_SEQ_CST ) noexcept
@@ -278,7 +278,7 @@ template <typename type_t>
 // Applies a bitwise XOR to an atomic integer and returns the previous value.
 template <typename type_t>
     requires( std::is_integral_v<type_t> && !std::is_same_v<type_t, bool_t> )
-[[nodiscard]] type_t Cy_AtomicFetchXor(
+CYPHER_NODISCARD type_t Cy_AtomicFetchXor(
     atomic_t<type_t> *pAtomic,
     type_t value,
     memory_order_t order = CY_MEMORY_ORDER_SEQ_CST ) noexcept
@@ -290,7 +290,7 @@ template <typename type_t>
 
 // Advances an atomic pointer by an element count and returns the previous pointer.
 template <typename type_t>
-[[nodiscard]] type_t *Cy_AtomicFetchAdd(
+CYPHER_NODISCARD type_t *Cy_AtomicFetchAdd(
     atomic_ptr_t<type_t> *pAtomic,
     isize nElementCount,
     memory_order_t order = CY_MEMORY_ORDER_SEQ_CST ) noexcept
@@ -302,7 +302,7 @@ template <typename type_t>
 
 // Moves an atomic pointer backward by an element count and returns the old pointer.
 template <typename type_t>
-[[nodiscard]] type_t *Cy_AtomicFetchSub(
+CYPHER_NODISCARD type_t *Cy_AtomicFetchSub(
     atomic_ptr_t<type_t> *pAtomic,
     isize nElementCount,
     memory_order_t order = CY_MEMORY_ORDER_SEQ_CST ) noexcept
@@ -314,7 +314,7 @@ template <typename type_t>
 
 // Reports whether this atomic instance is lock-free on the active platform.
 template <typename type_t>
-[[nodiscard]] bool_t Cy_AtomicIsLockFree(
+CYPHER_NODISCARD bool_t Cy_AtomicIsLockFree(
     const atomic_t<type_t> *pAtomic ) noexcept
 {
     return pAtomic->is_lock_free();
@@ -345,7 +345,7 @@ void Cy_AtomicNotifyAll( atomic_t<type_t> *pAtomic ) noexcept
 }
 
 // Returns the current atomic-flag state.
-[[nodiscard]] inline bool_t Cy_AtomicFlagTest(
+CYPHER_NODISCARD inline bool_t Cy_AtomicFlagTest(
     const atomic_flag_t *pFlag,
     memory_order_t order = CY_MEMORY_ORDER_SEQ_CST ) noexcept
 {
@@ -353,7 +353,7 @@ void Cy_AtomicNotifyAll( atomic_t<type_t> *pAtomic ) noexcept
 }
 
 // Sets an atomic flag and returns its previous state.
-[[nodiscard]] inline bool_t Cy_AtomicFlagTestAndSet(
+CYPHER_NODISCARD inline bool_t Cy_AtomicFlagTestAndSet(
     atomic_flag_t *pFlag,
     memory_order_t order = CY_MEMORY_ORDER_SEQ_CST ) noexcept
 {
