@@ -60,20 +60,20 @@ struct memory_tracker_stats_t {
 constexpr usize CY_MEMORY_TRACKER_CAPACITY = 16384u;
 
 // Records a live allocation without allocating memory inside the tracker.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MemoryTrackerRecordAlloc(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MemoryTrackerRecordAlloc(
     const memory_allocation_record_t &record ) noexcept;
 
 // Removes a live allocation. Returns false for null or unknown pointers.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MemoryTrackerRecordFree(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MemoryTrackerRecordFree(
     void *pMemory ) noexcept;
 
 // Copies the live record for a pointer when present.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MemoryTrackerFind(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MemoryTrackerFind(
     const void *pMemory,
     memory_allocation_record_t &outRecord ) noexcept;
 
 // Returns a consistent snapshot of tracker counters.
-[[nodiscard]] CYPHER_COMMON_API memory_tracker_stats_t Cy_MemoryTrackerGetStats() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API memory_tracker_stats_t Cy_MemoryTrackerGetStats() noexcept;
 
 // Clears all records and counters. Call only when tracked allocators are quiescent.
 CYPHER_COMMON_API void Cy_MemoryTrackerReset() noexcept;
