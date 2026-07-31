@@ -63,20 +63,20 @@ struct minidump_info_t {
 
 // Writes one portable text diagnostic report. It returns Busy rather than
 // blocking when another thread is already writing a report.
-[[nodiscard]] CYPHER_COMMON_API minidump_result_t Cy_MinidumpWrite(
+CYPHER_NODISCARD CYPHER_COMMON_API minidump_result_t Cy_MinidumpWrite(
     const minidump_info_t &info ) noexcept;
 
 // Sets the default output path. Null or empty input restores the built-in path.
-[[nodiscard]] CYPHER_COMMON_API minidump_result_t Cy_MinidumpSetOutputPath(
+CYPHER_NODISCARD CYPHER_COMMON_API minidump_result_t Cy_MinidumpSetOutputPath(
     const char *pPath ) noexcept;
 
 // Copies the effective default path and returns its required character count,
 // excluding the null terminator. Null output performs a size query.
-[[nodiscard]] CYPHER_COMMON_API usize Cy_MinidumpGetOutputPath(
+CYPHER_NODISCARD CYPHER_COMMON_API usize Cy_MinidumpGetOutputPath(
     char *pDest,
     usize cchDest ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_MinidumpResultName(
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_MinidumpResultName(
     minidump_result_t result ) noexcept;
 
 } // namespace cypher::common
