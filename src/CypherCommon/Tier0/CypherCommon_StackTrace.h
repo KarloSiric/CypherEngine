@@ -55,22 +55,22 @@ struct stack_trace_t {
 CYPHER_COMMON_API void Cy_StackTraceClear( stack_trace_t *pTrace ) noexcept;
 
 // Captures raw return addresses without resolving symbols.
-[[nodiscard]] CYPHER_COMMON_API u32 Cy_StackTraceCapture(
+CYPHER_NODISCARD CYPHER_COMMON_API u32 Cy_StackTraceCapture(
     stack_trace_t *pTrace,
     u32 cMaxFrames,
     u32 cSkipFrames ) noexcept;
 
 // Returns the number of captured frames in the trace.
-[[nodiscard]] CYPHER_COMMON_API u32 Cy_StackTraceGetFrameCount(
+CYPHER_NODISCARD CYPHER_COMMON_API u32 Cy_StackTraceGetFrameCount(
     const stack_trace_t *pTrace ) noexcept;
 
 // Returns a captured frame address or nullptr when the index is invalid.
-[[nodiscard]] CYPHER_COMMON_API void *Cy_StackTraceGetFrameAddress(
+CYPHER_NODISCARD CYPHER_COMMON_API void *Cy_StackTraceGetFrameAddress(
     const stack_trace_t *pTrace,
     u32 iFrame ) noexcept;
 
 // Returns true when the trace has no captured frames.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StackTraceIsEmpty(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StackTraceIsEmpty(
     const stack_trace_t *pTrace ) noexcept;
 
 } // namespace cypher::common
