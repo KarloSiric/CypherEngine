@@ -37,6 +37,8 @@ Rules:
 ================
 */
 
+#include "CypherCommon_Annotations.h"
+
 #include <climits>
 #include <cstddef>
 #include <cstdint>
@@ -105,13 +107,13 @@ constexpr bool_t CY_FALSE = false;
 constexpr bool_t CY_TRUE = true;
 
 // Converts stable one-byte Boolean storage into a runtime Boolean.
-[[nodiscard]] constexpr bool_t Cy_B8ToBool( b8 value ) noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_B8ToBool( b8 value ) noexcept
 {
     return value == b8::True;
 }
 
 // Converts a runtime Boolean into stable one-byte Boolean storage.
-[[nodiscard]] constexpr b8 Cy_B8FromBool( bool_t value ) noexcept
+CYPHER_NODISCARD constexpr b8 Cy_B8FromBool( bool_t value ) noexcept
 {
     return value ? b8::True : b8::False;
 }
