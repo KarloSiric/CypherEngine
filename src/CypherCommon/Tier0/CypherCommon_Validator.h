@@ -76,7 +76,7 @@ CYPHER_COMMON_API void Cy_ValidatorReportAt(
     const char *pMessage,
     source_location_t location ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ValidatorSeverityName(
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ValidatorSeverityName(
     validator_severity_t severity ) noexcept;
 
 } // namespace cypher::common
