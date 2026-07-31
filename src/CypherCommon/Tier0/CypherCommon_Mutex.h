@@ -55,55 +55,55 @@ struct cy_recursive_mutex_t {
 };
 
 // Marks a mutex as ready for use.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MutexInit( cy_mutex_t *pMutex ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MutexInit( cy_mutex_t *pMutex ) noexcept;
 
 // Marks a mutex as shut down. Call only when no thread can own it.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MutexShutdown( cy_mutex_t *pMutex ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MutexShutdown( cy_mutex_t *pMutex ) noexcept;
 
 // Returns whether the mutex has been initialized.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MutexIsInitialized(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MutexIsInitialized(
     const cy_mutex_t *pMutex ) noexcept;
 
 // Blocks until the calling thread owns the mutex; false means invalid lifecycle use.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MutexLock( cy_mutex_t *pMutex ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MutexLock( cy_mutex_t *pMutex ) noexcept;
 
 // Attempts to lock without blocking.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MutexTryLock(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MutexTryLock(
     cy_mutex_t *pMutex ) noexcept;
 
 // Releases a mutex owned by the calling thread.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MutexUnlock( cy_mutex_t *pMutex ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MutexUnlock( cy_mutex_t *pMutex ) noexcept;
 
 // Returns true when the calling thread currently owns the mutex.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_MutexIsOwnedByCurrentThread(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MutexIsOwnedByCurrentThread(
     const cy_mutex_t *pMutex ) noexcept;
 
 // Marks a recursive mutex as ready for use.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_RecursiveMutexInit(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_RecursiveMutexInit(
     cy_recursive_mutex_t *pMutex ) noexcept;
 
 // Marks a recursive mutex as shut down. Call only when no thread can own it.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_RecursiveMutexShutdown(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_RecursiveMutexShutdown(
     cy_recursive_mutex_t *pMutex ) noexcept;
 
 // Returns whether the recursive mutex has been initialized.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_RecursiveMutexIsInitialized(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_RecursiveMutexIsInitialized(
     const cy_recursive_mutex_t *pMutex ) noexcept;
 
 // Blocks until the calling thread owns the recursive mutex.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_RecursiveMutexLock(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_RecursiveMutexLock(
     cy_recursive_mutex_t *pMutex ) noexcept;
 
 // Attempts to lock a recursive mutex without blocking.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_RecursiveMutexTryLock(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_RecursiveMutexTryLock(
     cy_recursive_mutex_t *pMutex ) noexcept;
 
 // Releases one recursive lock level owned by the calling thread.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_RecursiveMutexUnlock(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_RecursiveMutexUnlock(
     cy_recursive_mutex_t *pMutex ) noexcept;
 
 // Returns true when the calling thread owns at least one recursive lock level.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_RecursiveMutexIsOwnedByCurrentThread(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_RecursiveMutexIsOwnedByCurrentThread(
     const cy_recursive_mutex_t *pMutex ) noexcept;
 
 } // namespace cypher::common
