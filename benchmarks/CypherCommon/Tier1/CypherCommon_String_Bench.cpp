@@ -412,7 +412,7 @@ void BM_Cy_strncat_Fits( benchmark::State &state )
     char szBuffer[128]{};
 
     for ( auto _ : state ) {
-        Cy_strncpy( szBuffer, "textures/", sizeof( szBuffer ) );
+        benchmark::DoNotOptimize( Cy_strncpy( szBuffer, "textures/", sizeof( szBuffer ) ) );
         benchmark::DoNotOptimize( Cy_strncat( szBuffer, "world/wall.dds", sizeof( szBuffer ) ) );
         benchmark::DoNotOptimize( szBuffer );
         benchmark::ClobberMemory();
@@ -424,7 +424,7 @@ void BM_Cy_strncat_Truncates( benchmark::State &state )
     char szBuffer[24]{};
 
     for ( auto _ : state ) {
-        Cy_strncpy( szBuffer, "textures/", sizeof( szBuffer ) );
+        benchmark::DoNotOptimize( Cy_strncpy( szBuffer, "textures/", sizeof( szBuffer ) ) );
         benchmark::DoNotOptimize( Cy_strncat( szBuffer, "world/industrial/wall_panel_01_albedo.dds", sizeof( szBuffer ) ) );
         benchmark::DoNotOptimize( szBuffer );
         benchmark::ClobberMemory();
@@ -436,7 +436,7 @@ void BM_Cy_strncat_max_Capped( benchmark::State &state )
     char szBuffer[128]{};
 
     for ( auto _ : state ) {
-        Cy_strncpy( szBuffer, "textures/", sizeof( szBuffer ) );
+        benchmark::DoNotOptimize( Cy_strncpy( szBuffer, "textures/", sizeof( szBuffer ) ) );
         benchmark::DoNotOptimize( Cy_strncat_max( szBuffer, "world/industrial/wall_panel_01_albedo.dds", sizeof( szBuffer ), 16u ) );
         benchmark::DoNotOptimize( szBuffer );
         benchmark::ClobberMemory();
@@ -504,7 +504,7 @@ void BM_Cy_strlower_MediumBuffer( benchmark::State &state )
     char szBuffer[128]{};
 
     for ( auto _ : state ) {
-        Cy_strncpy( szBuffer, kMediumCase, sizeof( szBuffer ) );
+        benchmark::DoNotOptimize( Cy_strncpy( szBuffer, kMediumCase, sizeof( szBuffer ) ) );
         benchmark::DoNotOptimize( Cy_strlower( szBuffer ) );
         benchmark::DoNotOptimize( szBuffer );
         benchmark::ClobberMemory();
@@ -516,7 +516,7 @@ void BM_Cy_strupper_MediumBuffer( benchmark::State &state )
     char szBuffer[128]{};
 
     for ( auto _ : state ) {
-        Cy_strncpy( szBuffer, kMediumA, sizeof( szBuffer ) );
+        benchmark::DoNotOptimize( Cy_strncpy( szBuffer, kMediumA, sizeof( szBuffer ) ) );
         benchmark::DoNotOptimize( Cy_strupper( szBuffer ) );
         benchmark::DoNotOptimize( szBuffer );
         benchmark::ClobberMemory();
@@ -528,7 +528,7 @@ void BM_Cy_strnlower_CappedMediumBuffer( benchmark::State &state )
     char szBuffer[128]{};
 
     for ( auto _ : state ) {
-        Cy_strncpy( szBuffer, kMediumCase, sizeof( szBuffer ) );
+        benchmark::DoNotOptimize( Cy_strncpy( szBuffer, kMediumCase, sizeof( szBuffer ) ) );
         benchmark::DoNotOptimize( Cy_strnlower( szBuffer, 32u ) );
         benchmark::DoNotOptimize( szBuffer );
         benchmark::ClobberMemory();
@@ -540,7 +540,7 @@ void BM_Cy_strnupper_CappedMediumBuffer( benchmark::State &state )
     char szBuffer[128]{};
 
     for ( auto _ : state ) {
-        Cy_strncpy( szBuffer, kMediumA, sizeof( szBuffer ) );
+        benchmark::DoNotOptimize( Cy_strncpy( szBuffer, kMediumA, sizeof( szBuffer ) ) );
         benchmark::DoNotOptimize( Cy_strnupper( szBuffer, 32u ) );
         benchmark::DoNotOptimize( szBuffer );
         benchmark::ClobberMemory();
@@ -552,7 +552,11 @@ void BM_Cy_strtrim_BothSides( benchmark::State &state )
     char szBuffer[128]{};
 
     for ( auto _ : state ) {
-        Cy_strncpy( szBuffer, " \t textures/world/industrial/wall_panel_01_albedo.dds \r\n", sizeof( szBuffer ) );
+        benchmark::DoNotOptimize(
+            Cy_strncpy(
+                szBuffer,
+                " \t textures/world/industrial/wall_panel_01_albedo.dds \r\n",
+                sizeof( szBuffer ) ) );
         Cy_strtrim( szBuffer );
         benchmark::DoNotOptimize( szBuffer );
         benchmark::ClobberMemory();
@@ -564,7 +568,11 @@ void BM_Cy_strstripquotes_Medium( benchmark::State &state )
     char szBuffer[128]{};
 
     for ( auto _ : state ) {
-        Cy_strncpy( szBuffer, "\"textures/world/industrial/wall_panel_01_albedo.dds\"", sizeof( szBuffer ) );
+        benchmark::DoNotOptimize(
+            Cy_strncpy(
+                szBuffer,
+                "\"textures/world/industrial/wall_panel_01_albedo.dds\"",
+                sizeof( szBuffer ) ) );
         Cy_strstripquotes( szBuffer );
         benchmark::DoNotOptimize( szBuffer );
         benchmark::ClobberMemory();
