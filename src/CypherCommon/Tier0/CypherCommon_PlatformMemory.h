@@ -44,24 +44,24 @@ struct platform_memory_info_t {
 };
 
 // Queries page geometry and current physical-memory totals directly from the OS.
-[[nodiscard]] CYPHER_COMMON_API platform_memory_info_t Cy_PlatformMemoryGetInfo() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API platform_memory_info_t Cy_PlatformMemoryGetInfo() noexcept;
 
 // Reserves inaccessible virtual address space without committing physical pages.
-[[nodiscard]] CYPHER_COMMON_API void *Cy_PlatformMemoryReserve(
+CYPHER_NODISCARD CYPHER_COMMON_API void *Cy_PlatformMemoryReserve(
     usize nByteCount ) noexcept;
 
 // Commits read/write pages inside a reservation.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PlatformMemoryCommit(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_PlatformMemoryCommit(
     void *pMemory,
     usize nByteCount ) noexcept;
 
 // Revokes access to committed pages and requests physical-page reclamation.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PlatformMemoryDecommit(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_PlatformMemoryDecommit(
     void *pMemory,
     usize nByteCount ) noexcept;
 
 // Releases a complete reservation. POSIX callers must provide its original size.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PlatformMemoryRelease(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_PlatformMemoryRelease(
     void *pMemory,
     usize nByteCount ) noexcept;
 
