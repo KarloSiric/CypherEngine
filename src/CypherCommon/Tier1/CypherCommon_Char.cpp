@@ -20,130 +20,151 @@
 
 namespace cypher::common
 {
-    
-bool_t Char_IsAscii( char c )
+
+bool_t Char_IsAscii( char ch ) noexcept
 {
-    const u8 value = static_cast<u8>( c );
-    return ( value <= 0x7Fu );   
+    const u8 nValue = static_cast<u8>( ch );
+    return ( nValue <= 0x7Fu );
 }
 
-bool_t Char_IsControlAscii( char c )
+bool_t Char_IsControlAscii( char ch ) noexcept
 {
-    const u8 value = static_cast<u8>( c );
-    return ( value < 0x20u || value == 0x7Fu );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( nValue <= 0x1Fu || nValue == 0x7Fu );
 }
 
-bool_t Char_IsPrintableAscii( char c )
+bool_t Char_IsPrintableAscii( char ch ) noexcept
 {
-    const u8 value = static_cast<u8>( c );
-    return ( value >= 0x20u && value <= 0x7Eu );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( nValue >= 0x20u && nValue <= 0x7Eu );
 }
 
-bool_t Char_IsUpperAscii( char c )
+bool_t Char_IsGraphicalAscii( char ch ) noexcept
 {
-    return ( c >= 'A' && c <= 'Z' );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( nValue >= 0x21u && nValue <= 0x7Eu );
 }
 
-bool_t Char_IsLowerAscii( char c )
+bool_t Char_IsUpperAscii( char ch ) noexcept
 {
-    return ( c >= 'a' && c <= 'z' );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( nValue >= static_cast<u8>( 'A' ) &&
+             nValue <= static_cast<u8>( 'Z' ) );
 }
 
-bool_t Char_IsAlphaAscii( char c )
+bool_t Char_IsLowerAscii( char ch ) noexcept
 {
-    return ( Char_IsUpperAscii( c ) || Char_IsLowerAscii( c ) );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( nValue >= static_cast<u8>( 'a' ) &&
+             nValue <= static_cast<u8>( 'z' ) );
 }
 
-bool_t Char_IsDigitAscii( char c )
+bool_t Char_IsAlphaAscii( char ch ) noexcept
 {
-    return ( c >= '0' && c <= '9' );
+    return ( Char_IsUpperAscii( ch ) || Char_IsLowerAscii( ch ) );
 }
 
-bool_t Char_IsIdentifierStart( char c )
+bool_t Char_IsAlphaNumericAscii( char ch ) noexcept
 {
-    return ( Char_IsAlphaAscii( c ) || c == '-' );
+    return ( Char_IsAlphaAscii( ch ) || Char_IsDigitAscii( ch ) );
 }
 
-bool_t Char_IsIdentifierBody( char c )
+bool_t Char_IsPunctuationAscii( char ch ) noexcept
 {
-    return ( Char_IsIdentifierStart( c ) || Char_IsDigitAscii( c ) );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( ( nValue >= 0x21u && nValue <= 0x2Fu ) ||
+             ( nValue >= 0x3Au && nValue <= 0x40u ) ||
+             ( nValue >= 0x5Bu && nValue <= 0x60u ) ||
+             ( nValue >= 0x7Bu && nValue <= 0x7Eu ) );
 }
 
-bool_t Char_IsPathNameChar( char c )
+bool_t Char_IsDigitAscii( char ch ) noexcept
 {
-    return ( Char_IsAlphaNumericAscii( c ) ||
-           c == '_' ||
-           c == '-' ||
-           c == '.' ||
-           Char_IsPathSeparator( c ) );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( nValue >= static_cast<u8>( '0' ) &&
+             nValue <= static_cast<u8>( '9' ) );
 }
 
-bool_t Char_IsHexDigitAscii( char c )
+bool_t Char_IsBinaryDigitAscii( char ch ) noexcept
 {
-    return ( Char_IsDigitAscii( c ) || c == 'A' || c == 'B' || c == 'C' || c == 'D' || c == 'E' || c == 'F' || c == 'a' || c == 'b' || c == 'c' || c == 'd' || c == 'e' || c == 'f' );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( nValue >= static_cast<u8>( '0' ) &&
+             nValue <= static_cast<u8>( '1' ) );
 }
 
-bool_t Char_IsAlphaNumericAscii( char c )
+bool_t Char_IsOctalDigitAscii( char ch ) noexcept
 {
-    return ( Char_IsAlphaAscii( c ) || Char_IsDigitAscii( c ) );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( nValue >= static_cast<u8>( '0' ) &&
+             nValue <= static_cast<u8>( '7' ) );
 }
 
-bool_t Char_IsWhitespaceAscii( char c )
+bool_t Char_IsHexDigitAscii( char ch ) noexcept
 {
-    const u8 value = static_cast<u8>( c );
-    return ( value == 0x20u || value == 0x09u || value == 0x0Au || value == 0x0Bu || value == 0x0Cu || value == 0x0Du );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( ( nValue >= static_cast<u8>( '0' ) &&
+               nValue <= static_cast<u8>( '9' ) ) ||
+             ( nValue >= static_cast<u8>( 'A' ) &&
+               nValue <= static_cast<u8>( 'F' ) ) ||
+             ( nValue >= static_cast<u8>( 'a' ) &&
+               nValue <= static_cast<u8>( 'f' ) ) );
 }
 
-bool_t Char_IsNewLineAscii( char c )
+bool_t Char_IsBlankAscii( char ch ) noexcept
 {
-    return ( c == '\n' || c == '\r' ); 
+    const u8 nValue = static_cast<u8>( ch );
+    return ( nValue == 0x09u || nValue == 0x20u );
 }
 
-bool_t Char_IsSlash( char c )
+bool_t Char_IsWhitespaceAscii( char ch ) noexcept
 {
-    return ( c == '\\' || c == '/' );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( ( nValue >= 0x09u && nValue <= 0x0Du ) ||
+             nValue == 0x20u );
 }
 
-bool_t Char_IsPathSeparator( char c )
+bool_t Char_IsNewLineAscii( char ch ) noexcept
 {
-    return Char_IsSlash( c );
+    const u8 nValue = static_cast<u8>( ch );
+    return ( nValue == 0x0Au || nValue == 0x0Du );
 }
 
-bool_t Char_IsDriveSeparator( char c )
+char Char_ToLowerAscii( char ch ) noexcept
 {
-    return ( c == ':' );
-}
-
-char Char_ToLowerAscii( char c )
-{
-    if ( Char_IsUpperAscii( c ) ) {
-        return c + ( 'a' - 'A' );
-    } else {
-        return c;
+    if ( Char_IsUpperAscii( ch ) ) {
+        return static_cast<char>( ch + ( 'a' - 'A' ) );
     }
+    return ch;
 }
 
-char Char_ToUpperAscii( char c )
+char Char_ToUpperAscii( char ch ) noexcept
 {
-    if ( Char_IsLowerAscii( c ) ) {
-        return c - ( 'a' - 'A' );
-    } else {
-        return c;
+    if ( Char_IsLowerAscii( ch ) ) {
+        return static_cast<char>( ch - ( 'a' - 'A' ) );
     }
+    return ch;
 }
 
-u8 Char_HexValueAscii( char c )
+u8 Char_DigitValueAscii( char ch ) noexcept
 {
-    if ( c >= '0' && c <= '9' ) {
-        return static_cast<u8>( c - '0' );
+    if ( Char_IsDigitAscii( ch ) ) {
+        return static_cast<u8>( ch - '0' );
     }
-    if ( c >= 'A' && c <= 'F' ) {
-        return static_cast<u8>( c - 'A' + 10u );
-    }
-    if ( c >= 'a' && c <= 'f' ) {
-        return static_cast<u8>( c - 'a' + 10u );
-    }
-    return 0xFFu;
+    return CY_CHAR_INVALID_DIGIT_VALUE;
 }
 
-}       // namespace cypher::common
+u8 Char_HexValueAscii( char ch ) noexcept
+{
+    if ( Char_IsDigitAscii( ch ) ) {
+        return static_cast<u8>( ch - '0' );
+    }
+    if ( ch >= 'A' && ch <= 'F' ) {
+        return static_cast<u8>( ch - 'A' + 10u );
+    }
+    if ( ch >= 'a' && ch <= 'f' ) {
+        return static_cast<u8>( ch - 'a' + 10u );
+    }
+    return CY_CHAR_INVALID_DIGIT_VALUE;
+}
+
+} // namespace cypher::common
