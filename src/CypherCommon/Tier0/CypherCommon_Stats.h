@@ -80,41 +80,41 @@ struct stats_registry_info_t {
     u64 nDroppedRegistrations;
 };
 
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StatsRegister(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StatsRegister(
     const stat_desc_t &desc,
     stat_id_t *pOutId ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API stat_id_t Cy_StatsFind(
+CYPHER_NODISCARD CYPHER_COMMON_API stat_id_t Cy_StatsFind(
     const char *pszName ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StatsSetI64(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StatsSetI64(
     stat_id_t id,
     i64 value ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StatsSetU64(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StatsSetU64(
     stat_id_t id,
     u64 value ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StatsSetF64(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StatsSetF64(
     stat_id_t id,
     f64 value ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StatsAddI64(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StatsAddI64(
     stat_id_t id,
     i64 delta ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StatsAddU64(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StatsAddU64(
     stat_id_t id,
     u64 delta ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StatsAddF64(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StatsAddF64(
     stat_id_t id,
     f64 delta ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StatsGet(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StatsGet(
     stat_id_t id,
     stat_value_t *pOutValue ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StatsGetByName(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StatsGetByName(
     const char *pszName,
     stat_value_t *pOutValue ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_StatsGetSnapshot(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StatsGetSnapshot(
     usize nIndex,
     stat_snapshot_t *pOutSnapshot ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API stats_registry_info_t
+CYPHER_NODISCARD CYPHER_COMMON_API stats_registry_info_t
 Cy_StatsGetRegistryInfo() noexcept;
 
 // Zeroes values while preserving registrations and stable IDs.
