@@ -56,48 +56,48 @@ struct cy_event_t {
 };
 
 // Initializes an event with reset policy and initial signal state.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventInit(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventInit(
     cy_event_t *pEvent,
     cy_event_reset_mode_t resetMode,
     bool_t isInitiallySignaled ) noexcept;
 
 // Wakes blocked waiters and does not return until they have left this event.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventShutdown( cy_event_t *pEvent ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventShutdown( cy_event_t *pEvent ) noexcept;
 
 // Returns whether the event is initialized.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventIsInitialized(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventIsInitialized(
     const cy_event_t *pEvent ) noexcept;
 
 // Signals the event. Manual-reset wakes all waiters; auto-reset wakes one.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventSignal( cy_event_t *pEvent ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventSignal( cy_event_t *pEvent ) noexcept;
 
 // Clears the signaled state.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventReset( cy_event_t *pEvent ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventReset( cy_event_t *pEvent ) noexcept;
 
 // Waits until the event is signaled or shut down.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventWait(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventWait(
     cy_event_t *pEvent ) noexcept;
 
 // Waits until signaled, shut down, or timeout expires.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventWaitTimeoutMs(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventWaitTimeoutMs(
     cy_event_t *pEvent,
     u32 nMilliseconds ) noexcept;
 
 // Detailed wait result that distinguishes signal, timeout, shutdown, and misuse.
-[[nodiscard]] CYPHER_COMMON_API cy_wait_result_t Cy_EventWaitResult(
+CYPHER_NODISCARD CYPHER_COMMON_API cy_wait_result_t Cy_EventWaitResult(
     cy_event_t *pEvent ) noexcept;
 
 // Detailed timed wait result.
-[[nodiscard]] CYPHER_COMMON_API cy_wait_result_t Cy_EventWaitTimeoutMsResult(
+CYPHER_NODISCARD CYPHER_COMMON_API cy_wait_result_t Cy_EventWaitTimeoutMsResult(
     cy_event_t *pEvent,
     u32 nMilliseconds ) noexcept;
 
 // Returns the current signal state for diagnostics.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EventIsSignaled(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventIsSignaled(
     const cy_event_t *pEvent ) noexcept;
 
 // Returns the number of threads currently blocked in event waits.
-[[nodiscard]] CYPHER_COMMON_API u32 Cy_EventGetWaiterCount(
+CYPHER_NODISCARD CYPHER_COMMON_API u32 Cy_EventGetWaiterCount(
     const cy_event_t *pEvent ) noexcept;
 
 } // namespace cypher::common
