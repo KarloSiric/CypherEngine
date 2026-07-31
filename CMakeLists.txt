@@ -177,6 +177,7 @@ set(CYPHERCOMMON_TIER0_SOURCES
 set(CYPHERCOMMON_TIER1_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_String.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringView.cpp"
 )
 
 add_library(CypherCommonTier0 STATIC ${CYPHERCOMMON_TIER0_SOURCES})
@@ -529,6 +530,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_String_Tests.cpp"
             Cypher::CommonTier1
         )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_stringview_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_StringView_Tests.cpp"
+            Cypher::CommonTier1
+        )
     else()
         message(STATUS "Catch2 not found. Skipping Catch2-based CypherCommon tests.")
     endif()
@@ -667,6 +673,11 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         cypher_add_common_benchmark(
             cypher_common_string_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_String_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_stringview_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_StringView_Bench.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
