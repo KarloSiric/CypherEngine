@@ -48,7 +48,7 @@ struct source_location_t {
 };
 
 // Captures a source location supplied by the compiler at the caller.
-[[nodiscard]] constexpr source_location_t Cy_SourceLocation_Current(
+CYPHER_NODISCARD constexpr source_location_t Cy_SourceLocation_Current(
     const std::source_location &location = std::source_location::current() ) noexcept
 {
     return {
@@ -58,9 +58,8 @@ struct source_location_t {
         static_cast<u32>( location.column() )
     };
 }
-
 // Returns true when the record identifies a source file and line.
-[[nodiscard]] constexpr bool_t Cy_SourceLocation_IsValid( const source_location_t &location ) noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_SourceLocation_IsValid( const source_location_t &location ) noexcept
 {
     return location.pFile != nullptr && location.pFile[0] != '\0' && location.line != 0u;
 }
