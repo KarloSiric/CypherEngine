@@ -36,7 +36,7 @@ namespace cypher::common
 {
 
 // Returns true when value is a non-zero power of two.
-[[nodiscard]] constexpr bool_t Cy_AlignIsPowerOfTwo( usize value ) noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_AlignIsPowerOfTwo( usize value ) noexcept
 {
     return value != 0u && ( value & ( value - 1u ) ) == 0u;
 }
@@ -44,20 +44,20 @@ namespace cypher::common
 // Rounds value up to the next alignment boundary. Alignment must be a non-zero
 // power of two and the result must be representable; use Cy_AlignUpChecked for
 // untrusted values.
-[[nodiscard]] constexpr usize Cy_AlignUp( usize nValue, usize nAlignment ) noexcept
+CYPHER_NODISCARD constexpr usize Cy_AlignUp( usize nValue, usize nAlignment ) noexcept
 {
     return ( nValue + ( nAlignment - 1u ) ) & ~( nAlignment - 1u );
 }
 
 // Rounds value down to the previous boundary. Alignment must be a non-zero
 // power of two; use Cy_AlignDownChecked for untrusted values.
-[[nodiscard]] constexpr usize Cy_AlignDown( usize nValue, usize nAlignment ) noexcept
+CYPHER_NODISCARD constexpr usize Cy_AlignDown( usize nValue, usize nAlignment ) noexcept
 {
     return nValue & ~( nAlignment - 1u );
 }
 
 // Returns true when value already satisfies alignment.
-[[nodiscard]] constexpr bool_t Cy_AlignIsAligned( usize nValue, usize nAlignment ) noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_AlignIsAligned( usize nValue, usize nAlignment ) noexcept
 {
     return Cy_AlignIsPowerOfTwo( nAlignment ) &&
            ( nValue & ( nAlignment - 1u ) ) == 0u;
@@ -65,13 +65,13 @@ namespace cypher::common
 
 // Returns how many bytes are needed to align value upward. The same preconditions
 // as Cy_AlignUp apply.
-[[nodiscard]] constexpr usize Cy_AlignPadding( usize nValue, usize nAlignment ) noexcept
+CYPHER_NODISCARD constexpr usize Cy_AlignPadding( usize nValue, usize nAlignment ) noexcept
 {
     return Cy_AlignUp( nValue, nAlignment ) - nValue;
 }
 
 // Rounds value up and reports overflow instead of wrapping silently.
-[[nodiscard]] constexpr bool_t Cy_AlignUpChecked(
+CYPHER_NODISCARD constexpr bool_t Cy_AlignUpChecked(
     usize nValue,
     usize nAlignment,
     usize &nOutValue ) noexcept
@@ -92,7 +92,7 @@ namespace cypher::common
 }
 
 // Rounds value down and rejects invalid alignment.
-[[nodiscard]] constexpr bool_t Cy_AlignDownChecked(
+CYPHER_NODISCARD constexpr bool_t Cy_AlignDownChecked(
     usize nValue,
     usize nAlignment,
     usize &nOutValue ) noexcept
@@ -107,7 +107,7 @@ namespace cypher::common
 }
 
 // Calculates upward padding and reports invalid alignment or overflow.
-[[nodiscard]] constexpr bool_t Cy_AlignPaddingChecked(
+CYPHER_NODISCARD constexpr bool_t Cy_AlignPaddingChecked(
     usize nValue,
     usize nAlignment,
     usize &nOutPadding ) noexcept
@@ -123,43 +123,43 @@ namespace cypher::common
 }
 
 // Rounds a writable pointer up to the next alignment boundary.
-[[nodiscard]] inline void *Cy_AlignPointerUp( void *pPtr, usize nAlignment ) noexcept
+CYPHER_NODISCARD inline void *Cy_AlignPointerUp( void *pPtr, usize nAlignment ) noexcept
 {
     return reinterpret_cast<void *>( Cy_AlignUp( reinterpret_cast<uintptr>( pPtr ), nAlignment ) );
 }
 
 // Rounds a read-only pointer up to the next alignment boundary.
-[[nodiscard]] inline const void *Cy_AlignPointerUp( const void *pPtr, usize nAlignment ) noexcept
+CYPHER_NODISCARD inline const void *Cy_AlignPointerUp( const void *pPtr, usize nAlignment ) noexcept
 {
     return reinterpret_cast<const void *>( Cy_AlignUp( reinterpret_cast<uintptr>( pPtr ), nAlignment ) );
 }
 
 // Rounds a writable pointer down to the previous alignment boundary.
-[[nodiscard]] inline void *Cy_AlignPointerDown( void *pPtr, usize nAlignment ) noexcept
+CYPHER_NODISCARD inline void *Cy_AlignPointerDown( void *pPtr, usize nAlignment ) noexcept
 {
     return reinterpret_cast<void *>( Cy_AlignDown( reinterpret_cast<uintptr>( pPtr ), nAlignment ) );
 }
 
 // Rounds a read-only pointer down to the previous alignment boundary.
-[[nodiscard]] inline const void *Cy_AlignPointerDown( const void *pPtr, usize nAlignment ) noexcept
+CYPHER_NODISCARD inline const void *Cy_AlignPointerDown( const void *pPtr, usize nAlignment ) noexcept
 {
     return reinterpret_cast<const void *>( Cy_AlignDown( reinterpret_cast<uintptr>( pPtr ), nAlignment ) );
 }
 
 // Returns true when ptr satisfies alignment.
-[[nodiscard]] inline bool_t Cy_AlignIsPointerAligned( const void *pPtr, usize nAlignment ) noexcept
+CYPHER_NODISCARD inline bool_t Cy_AlignIsPointerAligned( const void *pPtr, usize nAlignment ) noexcept
 {
     return Cy_AlignIsAligned( reinterpret_cast<uintptr>( pPtr ), nAlignment );
 }
 
 // Returns how many bytes are needed to align a pointer upward.
-[[nodiscard]] inline usize Cy_AlignPointerPadding( const void *pPtr, usize nAlignment ) noexcept
+CYPHER_NODISCARD inline usize Cy_AlignPointerPadding( const void *pPtr, usize nAlignment ) noexcept
 {
     return Cy_AlignPadding( reinterpret_cast<uintptr>( pPtr ), nAlignment );
 }
 
 // Rounds a pointer address up and reports overflow instead of wrapping silently.
-[[nodiscard]] inline bool_t Cy_AlignPointerUpChecked(
+CYPHER_NODISCARD inline bool_t Cy_AlignPointerUpChecked(
     const void *pPtr,
     usize nAlignment,
     uintptr &nOutAddress ) noexcept
