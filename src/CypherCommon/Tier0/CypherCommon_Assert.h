@@ -66,7 +66,7 @@ using assert_handler_t = assert_action_t ( * )( const assert_info_t &info ) noex
 CYPHER_COMMON_API void Cy_AssertSetHandler( assert_handler_t pHandler ) noexcept;
 
 // Returns the currently installed process-wide handler, or nullptr for the default.
-[[nodiscard]] CYPHER_COMMON_API assert_handler_t Cy_AssertGetHandler() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API assert_handler_t Cy_AssertGetHandler() noexcept;
 
 // Reports a failed assertion and performs the action selected by its handler.
 CYPHER_COMMON_API void Cy_AssertHandleFailure(
