@@ -44,21 +44,21 @@ struct page_allocator_t {
 };
 
 // Reserves a linear virtual-memory range. The allocator must be zero initialized.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PageAllocatorInit(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_PageAllocatorInit(
     page_allocator_t *pAllocator,
     usize nReserveByteCount ) noexcept;
 
 // Releases the reservation and clears the allocator.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PageAllocatorShutdown(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_PageAllocatorShutdown(
     page_allocator_t *pAllocator ) noexcept;
 
 // Commits the next page-aligned portion of the linear reservation.
-[[nodiscard]] CYPHER_COMMON_API void *Cy_PageAllocatorCommit(
+CYPHER_NODISCARD CYPHER_COMMON_API void *Cy_PageAllocatorCommit(
     page_allocator_t *pAllocator,
     usize nByteCount ) noexcept;
 
 // Decommits every committed page while preserving the reservation.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_PageAllocatorReset(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_PageAllocatorReset(
     page_allocator_t *pAllocator ) noexcept;
 
 } // namespace cypher::common
