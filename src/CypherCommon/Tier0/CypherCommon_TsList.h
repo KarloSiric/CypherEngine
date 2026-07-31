@@ -54,26 +54,26 @@ struct tslist_t {
 };
 
 // Initializes an empty intrusive LIFO list.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TsListInit( tslist_t *pList ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TsListInit( tslist_t *pList ) noexcept;
 
 // Shuts down an empty list; live nodes must be popped first.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TsListShutdown( tslist_t *pList ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TsListShutdown( tslist_t *pList ) noexcept;
 
 // Pushes one unowned node onto the list.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TsListPush(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TsListPush(
     tslist_t *pList,
     tslist_node_t *pNode ) noexcept;
 
 // Pops the most recently pushed node, or nullptr when empty/invalid.
-[[nodiscard]] CYPHER_COMMON_API tslist_node_t *Cy_TsListPop(
+CYPHER_NODISCARD CYPHER_COMMON_API tslist_node_t *Cy_TsListPop(
     tslist_t *pList ) noexcept;
 
 // Returns a consistent node-count snapshot.
-[[nodiscard]] CYPHER_COMMON_API usize Cy_TsListGetCount(
+CYPHER_NODISCARD CYPHER_COMMON_API usize Cy_TsListGetCount(
     const tslist_t *pList ) noexcept;
 
 // Returns whether the initialized list currently contains no nodes.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_TsListIsEmpty(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TsListIsEmpty(
     const tslist_t *pList ) noexcept;
 
 } // namespace cypher::common
