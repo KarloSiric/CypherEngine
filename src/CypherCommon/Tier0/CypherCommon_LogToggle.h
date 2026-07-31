@@ -42,7 +42,7 @@ using log_category_mask_t = u64;
 constexpr log_category_mask_t CY_LOG_CATEGORY_ALL = CY_U64_MAX;
 
 // Converts a valid log channel into its category bit.
-[[nodiscard]] constexpr log_category_mask_t Cy_LogChannelMask( log_channel_t channel ) noexcept
+CYPHER_NODISCARD constexpr log_category_mask_t Cy_LogChannelMask( log_channel_t channel ) noexcept
 {
     const u32 nChannel = static_cast<u32>( channel );
     return nChannel < static_cast<u32>( log_channel_t::Count )
@@ -51,14 +51,14 @@ constexpr log_category_mask_t CY_LOG_CATEGORY_ALL = CY_U64_MAX;
 }
 
 CYPHER_COMMON_API void Cy_LogToggleSetMask( log_category_mask_t categoryMask ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API log_category_mask_t Cy_LogToggleGetMask() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API log_category_mask_t Cy_LogToggleGetMask() noexcept;
 CYPHER_COMMON_API void Cy_LogToggleEnable( log_category_mask_t categoryMask ) noexcept;
 CYPHER_COMMON_API void Cy_LogToggleDisable( log_category_mask_t categoryMask ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_LogToggleAnyEnabled(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_LogToggleAnyEnabled(
     log_category_mask_t categoryMask ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_LogToggleAllEnabled(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_LogToggleAllEnabled(
     log_category_mask_t categoryMask ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_LogToggleChannelEnabled(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_LogToggleChannelEnabled(
     log_channel_t channel ) noexcept;
 CYPHER_COMMON_API void Cy_LogToggleReset() noexcept;
 
