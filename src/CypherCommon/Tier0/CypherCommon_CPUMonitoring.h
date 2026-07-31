@@ -59,18 +59,18 @@ struct cy_cpu_monitor_sample_t {
 };
 
 // Captures the baseline for a caller-owned CPU monitor.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_CPUMonitorInit(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_CPUMonitorInit(
     cy_cpu_monitor_t *pMonitor ) noexcept;
 
 // Replaces a monitor's baseline with the current counters.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_CPUMonitorReset(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_CPUMonitorReset(
     cy_cpu_monitor_t *pMonitor ) noexcept;
 
 // Queries host counters, samples usage since the previous baseline, and advances
 // that baseline. A true return means at least one host counter was queried; the
 // per-value validity flags report whether a measurable delta was available.
 // Process usage is normalized so 100 percent means all logical CPUs are busy.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_CPUMonitorSample(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_CPUMonitorSample(
     cy_cpu_monitor_t *pMonitor,
     cy_cpu_monitor_sample_t *pOutSample ) noexcept;
 
