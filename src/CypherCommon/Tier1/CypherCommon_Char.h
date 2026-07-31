@@ -27,45 +27,98 @@
 namespace cypher::common
 {
 
-bool_t Char_IsAscii( char c );
+// Returned by digit conversion functions when the input is not valid.
+constexpr u8 CY_CHAR_INVALID_DIGIT_VALUE = CY_U8_MAX;
 
-bool_t Char_IsControlAscii( char c );
+/*
+================
+ASCII Layout
+================
+*/
 
-bool_t Char_IsPrintableAscii( char c );
+// Returns true when ch belongs to the 7-bit ASCII character set.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsAscii( char ch ) noexcept;
 
-bool_t Char_IsUpperAscii( char c );
+// Returns true for ASCII control bytes 0x00-0x1F and 0x7F.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsControlAscii( char ch ) noexcept;
 
-bool_t Char_IsLowerAscii( char c );
+// Returns true for printable ASCII, including the space character.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsPrintableAscii( char ch ) noexcept;
 
-bool_t Char_IsAlphaAscii( char c );
+// Returns true for visible ASCII characters, excluding the space character.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsGraphicalAscii( char ch ) noexcept;
 
-bool_t Char_IsDigitAscii( char c );
+/*
+================
+Alphabetic
+================
+*/
 
-bool_t Char_IsIdentifierStart( char c );
+// Returns true for ASCII uppercase letters A-Z.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsUpperAscii( char ch ) noexcept;
 
-bool_t Char_IsIdentifierBody( char c );
+// Returns true for ASCII lowercase letters a-z.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsLowerAscii( char ch ) noexcept;
 
-bool_t Char_IsPathNameChar( char c );
+// Returns true for ASCII letters A-Z or a-z.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsAlphaAscii( char ch ) noexcept;
 
-bool_t Char_IsHexDigitAscii( char c );
+// Returns true for ASCII letters or decimal digits.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsAlphaNumericAscii( char ch ) noexcept;
 
-bool_t Char_IsAlphaNumericAscii( char c );
+// Returns true for printable ASCII punctuation.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsPunctuationAscii( char ch ) noexcept;
 
-bool_t Char_IsWhitespaceAscii( char c );
+/*
+================
+Numeric
+================
+*/
 
-bool_t Char_IsNewLineAscii( char c );
+// Returns true for decimal digits 0-9.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsDigitAscii( char ch ) noexcept;
 
-bool_t Char_IsSlash( char c );
+// Returns true for binary digits 0-1.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsBinaryDigitAscii( char ch ) noexcept;
 
-bool_t Char_IsPathSeparator( char c );
+// Returns true for octal digits 0-7.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsOctalDigitAscii( char ch ) noexcept;
 
-bool_t Char_IsDriveSeparator( char c );
+// Returns true for hexadecimal digits 0-9, A-F, or a-f.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsHexDigitAscii( char ch ) noexcept;
 
-char Char_ToLowerAscii( char c );
+/*
+================
+Whitespace
+================
+*/
 
-char Char_ToUpperAscii( char c );
+// Returns true for ASCII space or horizontal tab.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsBlankAscii( char ch ) noexcept;
 
-u8 Char_HexValueAscii( char c );
+// Returns true for the six ASCII whitespace characters.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsWhitespaceAscii( char ch ) noexcept;
+
+// Returns true for ASCII line feed or carriage return.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Char_IsNewLineAscii( char ch ) noexcept;
+
+/*
+================
+Conversion
+================
+*/
+
+// Converts an ASCII uppercase letter to lowercase and preserves other bytes.
+CYPHER_NODISCARD CYPHER_COMMON_API char Char_ToLowerAscii( char ch ) noexcept;
+
+// Converts an ASCII lowercase letter to uppercase and preserves other bytes.
+CYPHER_NODISCARD CYPHER_COMMON_API char Char_ToUpperAscii( char ch ) noexcept;
+
+// Converts an ASCII decimal digit to 0-9, or returns the invalid sentinel.
+CYPHER_NODISCARD CYPHER_COMMON_API u8 Char_DigitValueAscii( char ch ) noexcept;
+
+// Converts an ASCII hexadecimal digit to 0-15, or returns the invalid sentinel.
+CYPHER_NODISCARD CYPHER_COMMON_API u8 Char_HexValueAscii( char ch ) noexcept;
 
 } // namespace cypher::common
 
