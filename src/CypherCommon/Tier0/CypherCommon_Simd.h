@@ -78,32 +78,32 @@ struct cy_simd_caps_t {
 };
 
 // Initializes the immutable process-lifetime SIMD capability snapshot.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SimdInit() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_SimdInit() noexcept;
 
 // Returns immutable SIMD capabilities, initializing on first use.
-[[nodiscard]] CYPHER_COMMON_API const cy_simd_caps_t *Cy_SimdGetCaps() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API const cy_simd_caps_t *Cy_SimdGetCaps() noexcept;
 
 // Returns true if feature exists in the supplied SIMD feature mask.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SimdHasFeature(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_SimdHasFeature(
     flags64_t features,
     cy_simd_feature_flags_t feature ) noexcept;
 
 // Returns true if the current engine build can use this SIMD feature.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SimdCanUse(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_SimdCanUse(
     cy_simd_feature_flags_t feature ) noexcept;
 
 // Returns the preferred SIMD level for this machine/build.
-[[nodiscard]] CYPHER_COMMON_API cy_simd_level_t Cy_SimdGetBestLevel() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API cy_simd_level_t Cy_SimdGetBestLevel() noexcept;
 
 // Returns the preferred vector register width in bytes.
-[[nodiscard]] CYPHER_COMMON_API u32 Cy_SimdGetVectorRegisterBytes() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API u32 Cy_SimdGetVectorRegisterBytes() noexcept;
 
 // Returns a stable diagnostic name for a SIMD feature.
-[[nodiscard]] CYPHER_COMMON_API const char *Cy_SimdFeatureName(
+CYPHER_NODISCARD CYPHER_COMMON_API const char *Cy_SimdFeatureName(
     cy_simd_feature_flags_t feature ) noexcept;
 
 // Returns a stable diagnostic name for a SIMD level.
-[[nodiscard]] CYPHER_COMMON_API const char *Cy_SimdLevelName(
+CYPHER_NODISCARD CYPHER_COMMON_API const char *Cy_SimdLevelName(
     cy_simd_level_t level ) noexcept;
 
 } // namespace cypher::common
