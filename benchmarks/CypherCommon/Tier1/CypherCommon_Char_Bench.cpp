@@ -18,6 +18,8 @@
 
 #include "CypherCommon_Char.h"
 
+#include <bit>
+
 #include <benchmark/benchmark.h>
 
 using namespace cypher::common;
@@ -25,61 +27,78 @@ using namespace cypher::common;
 namespace
 {
 
-constexpr const char *kPathChars = "textures/world/industrial/wall_panel_01_albedo.dds";
+constexpr const char *kMixedChars = "Textures/World/INDUSTRIAL/wall_panel_01.DDS";
+constexpr const char *kDigitChars = "0123456789xyzXYZ";
 constexpr const char *kHexChars = "0123456789ABCDEFabcdef";
 constexpr const char *kMixedHexChars = "0123456789ABCDEFabcdefxyzXYZ";
-constexpr u32 kAsciiCharCount = 128u;
+constexpr u32 kByteValueCount = 256u;
 
-void BM_Char_IsAlphaNumeric_AllAscii( benchmark::State &state )
+constexpr char ByteToChar( u32 nValue ) noexcept
+{
+    return std::bit_cast<char>( static_cast<u8>( nValue ) );
+}
+
+void BM_Char_IsAlphaNumeric_AllBytes( benchmark::State &state )
 {
     for ( auto _ : state ) {
         u32 nAccepted = 0u;
-        for ( u32 i = 0u; i < kAsciiCharCount; ++i ) {
-            nAccepted += Char_IsAlphaNumericAscii( static_cast<char>( i ) ) ? 1u : 0u;
+        for ( u32 i = 0u; i < kByteValueCount; ++i ) {
+            nAccepted += Char_IsAlphaNumericAscii( ByteToChar( i ) ) ? 1u : 0u;
         }
         benchmark::DoNotOptimize( nAccepted );
     }
 }
 
-void BM_Char_IsWhitespace_AllAscii( benchmark::State &state )
+void BM_Char_IsWhitespace_AllBytes( benchmark::State &state )
 {
     for ( auto _ : state ) {
         u32 nAccepted = 0u;
-        for ( u32 i = 0u; i < kAsciiCharCount; ++i ) {
-            nAccepted += Char_IsWhitespaceAscii( static_cast<char>( i ) ) ? 1u : 0u;
+        for ( u32 i = 0u; i < kByteValueCount; ++i ) {
+            nAccepted += Char_IsWhitespaceAscii( ByteToChar( i ) ) ? 1u : 0u;
         }
         benchmark::DoNotOptimize( nAccepted );
     }
 }
 
-void BM_Char_IsHexDigit_AllAscii( benchmark::State &state )
+void BM_Char_IsPunctuation_AllBytes( benchmark::State &state )
 {
     for ( auto _ : state ) {
         u32 nAccepted = 0u;
-        for ( u32 i = 0u; i < kAsciiCharCount; ++i ) {
-            nAccepted += Char_IsHexDigitAscii( static_cast<char>( i ) ) ? 1u : 0u;
+        for ( u32 i = 0u; i < kByteValueCount; ++i ) {
+            nAccepted += Char_IsPunctuationAscii( ByteToChar( i ) ) ? 1u : 0u;
         }
         benchmark::DoNotOptimize( nAccepted );
     }
 }
 
-void BM_Char_IsPathNameChar_TexturePath( benchmark::State &state )
+void BM_Char_IsHexDigit_AllBytes( benchmark::State &state )
 {
     for ( auto _ : state ) {
         u32 nAccepted = 0u;
-        for ( const char *pCursor = kPathChars; *pCursor != '\0'; ++pCursor ) {
-            nAccepted += Char_IsPathNameChar( *pCursor ) ? 1u : 0u;
+        for ( u32 i = 0u; i < kByteValueCount; ++i ) {
+            nAccepted += Char_IsHexDigitAscii( ByteToChar( i ) ) ? 1u : 0u;
         }
         benchmark::DoNotOptimize( nAccepted );
     }
 }
 
-void BM_Char_ToLowerAscii_TexturePath( benchmark::State &state )
+void BM_Char_ToLowerAscii_MixedInput( benchmark::State &state )
 {
     for ( auto _ : state ) {
         u32 nAccum = 0u;
-        for ( const char *pCursor = kPathChars; *pCursor != '\0'; ++pCursor ) {
+        for ( const char *pCursor = kMixedChars; *pCursor != '\0'; ++pCursor ) {
             nAccum += static_cast<u8>( Char_ToLowerAscii( *pCursor ) );
+        }
+        benchmark::DoNotOptimize( nAccum );
+    }
+}
+
+void BM_Char_DigitValueAscii_MixedInput( benchmark::State &state )
+{
+    for ( auto _ : state ) {
+        u32 nAccum = 0u;
+        for ( const char *pCursor = kDigitChars; *pCursor != '\0'; ++pCursor ) {
+            nAccum += Char_DigitValueAscii( *pCursor );
         }
         benchmark::DoNotOptimize( nAccum );
     }
@@ -109,10 +128,11 @@ void BM_Char_HexValueAscii_MixedInput( benchmark::State &state )
 
 } // namespace
 
-BENCHMARK( BM_Char_IsAlphaNumeric_AllAscii );
-BENCHMARK( BM_Char_IsWhitespace_AllAscii );
-BENCHMARK( BM_Char_IsHexDigit_AllAscii );
-BENCHMARK( BM_Char_IsPathNameChar_TexturePath );
-BENCHMARK( BM_Char_ToLowerAscii_TexturePath );
+BENCHMARK( BM_Char_IsAlphaNumeric_AllBytes );
+BENCHMARK( BM_Char_IsWhitespace_AllBytes );
+BENCHMARK( BM_Char_IsPunctuation_AllBytes );
+BENCHMARK( BM_Char_IsHexDigit_AllBytes );
+BENCHMARK( BM_Char_ToLowerAscii_MixedInput );
+BENCHMARK( BM_Char_DigitValueAscii_MixedInput );
 BENCHMARK( BM_Char_HexValueAscii_AllHexDigits );
 BENCHMARK( BM_Char_HexValueAscii_MixedInput );
