@@ -59,7 +59,7 @@ struct compiler_info_t {
 };
 
 // Returns the normalized compiler frontend selected by platform detection.
-[[nodiscard]] constexpr compiler_type_t Cy_CompilerGetType() noexcept
+CYPHER_NODISCARD constexpr compiler_type_t Cy_CompilerGetType() noexcept
 {
 #if CYPHER_COMPILER_MSVC
     return compiler_type_t::Msvc;
@@ -73,7 +73,7 @@ struct compiler_info_t {
 }
 
 // Returns the compiler identity detected by CypherCommon_Platform.h.
-[[nodiscard]] constexpr compiler_info_t Cy_CompilerGetInfo() noexcept
+CYPHER_NODISCARD constexpr compiler_info_t Cy_CompilerGetInfo() noexcept
 {
     compiler_info_t info = {};
     info.type = Cy_CompilerGetType();
@@ -90,55 +90,55 @@ struct compiler_info_t {
 }
 
 // Returns the normalized compiler name string.
-[[nodiscard]] constexpr const char *Cy_CompilerGetName() noexcept
+CYPHER_NODISCARD constexpr const char *Cy_CompilerGetName() noexcept
 {
     return CYPHER_COMPILER_NAME;
 }
 
 // Returns a packed compiler version value.
-[[nodiscard]] constexpr u32 Cy_CompilerGetVersion() noexcept
+CYPHER_NODISCARD constexpr u32 Cy_CompilerGetVersion() noexcept
 {
     return static_cast<u32>( CYPHER_COMPILER_VERSION );
 }
 
 // Returns the compiler frontend's major version component.
-[[nodiscard]] constexpr u32 Cy_CompilerGetVersionMajor() noexcept
+CYPHER_NODISCARD constexpr u32 Cy_CompilerGetVersionMajor() noexcept
 {
     return static_cast<u32>( CYPHER_COMPILER_VERSION_MAJOR );
 }
 
 // Returns the compiler frontend's minor version component.
-[[nodiscard]] constexpr u32 Cy_CompilerGetVersionMinor() noexcept
+CYPHER_NODISCARD constexpr u32 Cy_CompilerGetVersionMinor() noexcept
 {
     return static_cast<u32>( CYPHER_COMPILER_VERSION_MINOR );
 }
 
 // Returns the compiler frontend's patch or toolset build component.
-[[nodiscard]] constexpr u32 Cy_CompilerGetVersionPatch() noexcept
+CYPHER_NODISCARD constexpr u32 Cy_CompilerGetVersionPatch() noexcept
 {
     return static_cast<u32>( CYPHER_COMPILER_VERSION_PATCH );
 }
 
 // Returns whether the frontend is Clang operating in clang-cl mode.
-[[nodiscard]] constexpr bool_t Cy_CompilerIsClangCl() noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_CompilerIsClangCl() noexcept
 {
     return CYPHER_COMPILER_CLANG_CL != 0;
 }
 
 // Returns whether the compiler targets the Microsoft C++ ABI.
-[[nodiscard]] constexpr bool_t Cy_CompilerUsesMsvcAbi() noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_CompilerUsesMsvcAbi() noexcept
 {
     return CYPHER_COMPILER_MSVC_ABI != 0;
 }
 
 // Returns whether language-level C++ exceptions are enabled.
-[[nodiscard]] constexpr bool_t Cy_CompilerHasExceptions() noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_CompilerHasExceptions() noexcept
 {
     return CYPHER_CPP_EXCEPTIONS != 0;
 }
 
 // Returns whether C++ runtime type information is enabled.
-[[nodiscard]] constexpr bool_t Cy_CompilerHasRtti() noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_CompilerHasRtti() noexcept
 {
     return CYPHER_CPP_RTTI != 0;
 }
