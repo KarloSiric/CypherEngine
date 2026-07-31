@@ -45,7 +45,7 @@ enum class build_config_t : u32 {
 };
 
 // Returns the active compile configuration.
-[[nodiscard]] constexpr build_config_t Cy_BuildConfigGetCurrent() noexcept
+CYPHER_NODISCARD constexpr build_config_t Cy_BuildConfigGetCurrent() noexcept
 {
 #if CYPHER_CONFIG_DEBUG
     return build_config_t::Debug;
@@ -61,7 +61,7 @@ enum class build_config_t : u32 {
 }
 
 // Returns a stable human-readable name for a build configuration.
-[[nodiscard]] constexpr const char *Cy_BuildConfigGetName( build_config_t config ) noexcept
+CYPHER_NODISCARD constexpr const char *Cy_BuildConfigGetName( build_config_t config ) noexcept
 {
     switch ( config ) {
         case build_config_t::Debug:
@@ -79,7 +79,7 @@ enum class build_config_t : u32 {
 }
 
 // Returns whether the supplied build configuration is recognized.
-[[nodiscard]] constexpr bool_t Cy_BuildConfigIsKnown( build_config_t config ) noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsKnown( build_config_t config ) noexcept
 {
     switch ( config ) {
         case build_config_t::Debug:
@@ -94,31 +94,31 @@ enum class build_config_t : u32 {
 }
 
 // Returns true when the current translation unit is compiled as Debug.
-[[nodiscard]] constexpr bool_t Cy_BuildConfigIsDebug() noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsDebug() noexcept
 {
     return CYPHER_CONFIG_DEBUG != 0;
 }
 
 // Returns true when the current translation unit is compiled as Development.
-[[nodiscard]] constexpr bool_t Cy_BuildConfigIsDevelopment() noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsDevelopment() noexcept
 {
     return CYPHER_CONFIG_DEVELOPMENT != 0;
 }
 
 // Returns true when the current translation unit is compiled as Release.
-[[nodiscard]] constexpr bool_t Cy_BuildConfigIsRelease() noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsRelease() noexcept
 {
     return CYPHER_CONFIG_RELEASE != 0;
 }
 
 // Returns true when the current translation unit is compiled as Shipping.
-[[nodiscard]] constexpr bool_t Cy_BuildConfigIsShipping() noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsShipping() noexcept
 {
     return CYPHER_CONFIG_SHIPPING != 0;
 }
 
 // Returns true for any non-Debug configuration that enables optimization.
-[[nodiscard]] constexpr bool_t Cy_BuildConfigIsOptimized() noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsOptimized() noexcept
 {
     return CYPHER_BUILD_OPTIMIZED != 0;
 }
