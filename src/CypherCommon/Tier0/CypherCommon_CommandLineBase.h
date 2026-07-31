@@ -45,24 +45,24 @@ struct command_line_base_t {
 };
 
 // Borrows argv pointers; their strings must outlive the command-line object.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_CommandLineBaseSet(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_CommandLineBaseSet(
     command_line_base_t *pCommandLine,
     i32 nArgCount,
     const char *const *ppszArgs ) noexcept;
 
 // Returns an inline/next-token value, "" for a valueless switch, or null if absent.
-[[nodiscard]] CYPHER_COMMON_API const char *Cy_CommandLineBaseFindValue(
+CYPHER_NODISCARD CYPHER_COMMON_API const char *Cy_CommandLineBaseFindValue(
     const command_line_base_t *pCommandLine,
     const char *pszName ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_CommandLineBaseHasSwitch(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_CommandLineBaseHasSwitch(
     const command_line_base_t *pCommandLine,
     const char *pszName ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API usize Cy_CommandLineBaseGetCount(
+CYPHER_NODISCARD CYPHER_COMMON_API usize Cy_CommandLineBaseGetCount(
     const command_line_base_t *pCommandLine ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API const char *Cy_CommandLineBaseGetArg(
+CYPHER_NODISCARD CYPHER_COMMON_API const char *Cy_CommandLineBaseGetArg(
     const command_line_base_t *pCommandLine,
     usize nIndex ) noexcept;
 
