@@ -96,21 +96,21 @@ CYPHER_COMMON_API void Cy_ProfileSetSink(
     profile_sink_fn_t pSink,
     void *pUserData = nullptr ) noexcept;
 CYPHER_COMMON_API void Cy_ProfileSetEnabled( bool_t isEnabled ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ProfileIsEnabled() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ProfileIsEnabled() noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API profile_token_t Cy_ProfileBeginZone(
+CYPHER_NODISCARD CYPHER_COMMON_API profile_token_t Cy_ProfileBeginZone(
     const profile_zone_desc_t *pDesc ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ProfileEndZone(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ProfileEndZone(
     profile_token_t token ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ProfileCounterAdd(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ProfileCounterAdd(
     const char *pszName,
     i64 value ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ProfileCounterSet(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ProfileCounterSet(
     const char *pszName,
     i64 value ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API u64 Cy_ProfileFrameBegin() noexcept;
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ProfileFrameEnd() noexcept;
-[[nodiscard]] CYPHER_COMMON_API profile_state_t Cy_ProfileGetState() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API u64 Cy_ProfileFrameBegin() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ProfileFrameEnd() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API profile_state_t Cy_ProfileGetState() noexcept;
 
 // Resets counters and token generation. Call only while profiler users are quiescent.
 CYPHER_COMMON_API void Cy_ProfileResetState() noexcept;
