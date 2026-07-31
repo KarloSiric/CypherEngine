@@ -64,13 +64,13 @@ struct cy_thread_t {
 };
 
 // Initializes thread state and captures the calling thread as the main thread.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadInit() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadInit() noexcept;
 
 // Resets captured thread state for controlled shutdown and tests.
 CYPHER_COMMON_API void Cy_ThreadShutdown() noexcept;
 
 // Returns whether the thread module has captured a main thread.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadIsInitialized() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadIsInitialized() noexcept;
 
 // Yields the current thread's remaining scheduler time slice.
 CYPHER_COMMON_API void Cy_ThreadYield() noexcept;
@@ -82,45 +82,45 @@ CYPHER_COMMON_API void Cy_ThreadSleepMs( u32 nMilliseconds ) noexcept;
 CYPHER_COMMON_API void Cy_ThreadSleepUs( u32 nMicroseconds ) noexcept;
 
 // Returns a collision-free process-local ID assigned lazily to the calling thread.
-[[nodiscard]] CYPHER_COMMON_API thread_id_t Cy_ThreadGetCurrentId() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API thread_id_t Cy_ThreadGetCurrentId() noexcept;
 
 // Compatibility name for diagnostics that expect a numeric thread token.
-[[nodiscard]] CYPHER_COMMON_API u64 Cy_ThreadGetCurrentIdHash() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API u64 Cy_ThreadGetCurrentIdHash() noexcept;
 
 // Returns detected hardware concurrency, falling back to one.
-[[nodiscard]] CYPHER_COMMON_API u32 Cy_ThreadGetLogicalCount() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API u32 Cy_ThreadGetLogicalCount() noexcept;
 
 // Captures the caller as main; refuses to replace a different captured thread.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadCaptureMainThread() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadCaptureMainThread() noexcept;
 
 // Returns the captured main thread id, or CY_THREAD_INVALID_ID if unset.
-[[nodiscard]] CYPHER_COMMON_API thread_id_t Cy_ThreadGetMainThreadId() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API thread_id_t Cy_ThreadGetMainThreadId() noexcept;
 
 // Returns true when called from the captured main thread.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadIsMainThread() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadIsMainThread() noexcept;
 
 // Best-effort current-thread name for debugger and profiler views.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadSetCurrentName(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadSetCurrentName(
     const char *pszName ) noexcept;
 
 // Starts a joinable engine thread. The thread object must remain at a stable address.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadCreate(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadCreate(
     cy_thread_t *pThread,
     thread_proc_t pProc,
     void *pUserData,
     const char *pszName = nullptr ) noexcept;
 
 // Joins a thread and optionally returns its procedure result.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadJoin(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadJoin(
     cy_thread_t *pThread,
     i32 *pOutResult = nullptr ) noexcept;
 
 // Returns whether the created thread has not yet returned from its procedure.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ThreadIsRunning(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadIsRunning(
     const cy_thread_t *pThread ) noexcept;
 
 // Returns the assigned process-local ID, or invalid before the thread starts.
-[[nodiscard]] CYPHER_COMMON_API thread_id_t Cy_ThreadGetId(
+CYPHER_NODISCARD CYPHER_COMMON_API thread_id_t Cy_ThreadGetId(
     const cy_thread_t *pThread ) noexcept;
 
 } // namespace cypher::common
