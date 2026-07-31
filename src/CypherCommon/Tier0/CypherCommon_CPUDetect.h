@@ -82,22 +82,22 @@ struct cy_cpu_detect_info_t {
 };
 
 // Initializes the immutable process-lifetime CPU snapshot.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_CPUDetectInit() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_CPUDetectInit() noexcept;
 
 // Returns the immutable CPU snapshot, initializing it on first use.
-[[nodiscard]] CYPHER_COMMON_API const cy_cpu_detect_info_t *Cy_CPUDetectGetInfo() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API const cy_cpu_detect_info_t *Cy_CPUDetectGetInfo() noexcept;
 
 // Returns true when a feature bit exists in the given feature mask.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_CPUDetectHasFeature(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_CPUDetectHasFeature(
     flags64_t features,
     cy_cpu_feature_flags_t feature ) noexcept;
 
 // Returns a stable human-readable feature name.
-[[nodiscard]] CYPHER_COMMON_API const char *Cy_CPUDetectFeatureName(
+CYPHER_NODISCARD CYPHER_COMMON_API const char *Cy_CPUDetectFeatureName(
     cy_cpu_feature_flags_t feature ) noexcept;
 
 // Returns a stable human-readable CPU vendor name.
-[[nodiscard]] CYPHER_COMMON_API const char *Cy_CPUDetectVendorName(
+CYPHER_NODISCARD CYPHER_COMMON_API const char *Cy_CPUDetectVendorName(
     cy_cpu_vendor_t vendor ) noexcept;
 
 } // namespace cypher::common
