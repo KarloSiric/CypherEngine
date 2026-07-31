@@ -43,13 +43,13 @@ namespace cypher::common
 {
 
 // Returns whether a debugger is currently attached to this process.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DebuggerIsAttached() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_DebuggerIsAttached() noexcept;
 
 // Interrupts execution so an attached debugger can inspect the process.
 CYPHER_COMMON_API void Cy_DebugBreak() noexcept;
 
 // Interrupts execution only when a debugger is currently attached.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_DebugBreakIfAttached() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_DebugBreakIfAttached() noexcept;
 
 // Terminates execution immediately when continuing would be unsafe.
 [[noreturn]] CYPHER_COMMON_API void Cy_DebugTrap() noexcept;
