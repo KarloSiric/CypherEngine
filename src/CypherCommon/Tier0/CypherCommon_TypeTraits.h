@@ -30,6 +30,8 @@ Thin aliases around standard C++ traits so engine code has one vocabulary.
 ================
 */
 
+#include "CypherCommon_Annotations.h"
+
 #include <type_traits>
 
 namespace cypher::common
@@ -166,7 +168,7 @@ inline constexpr bool is_trivially_relocatable_v = is_trivially_relocatable<type
 
 // Converts an enum value to its declared underlying integer type.
 template <typename enum_t>
-[[nodiscard]] constexpr underlying_type_t<enum_t> Cy_ToUnderlying( enum_t value ) noexcept
+CYPHER_NODISCARD constexpr underlying_type_t<enum_t> Cy_ToUnderlying( enum_t value ) noexcept
 {
     static_assert( is_enum_v<enum_t>, "Cy_ToUnderlying requires an enum type." );
     return static_cast<underlying_type_t<enum_t>>( value );
