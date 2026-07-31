@@ -43,22 +43,22 @@ struct cy_environment_get_result_t {
 };
 
 // Reads a process environment value. cchRequired excludes the null terminator.
-[[nodiscard]] CYPHER_COMMON_API cy_environment_get_result_t Cy_EnvironmentGet(
+CYPHER_NODISCARD CYPHER_COMMON_API cy_environment_get_result_t Cy_EnvironmentGet(
     const char *pszName,
     char *pszDst,
     usize cchDst ) noexcept;
 
 // Sets an environment value. An empty string is a present, empty value.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EnvironmentSet(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EnvironmentSet(
     const char *pszName,
     const char *pszValue ) noexcept;
 
 // Removes an environment value.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EnvironmentUnset(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EnvironmentUnset(
     const char *pszName ) noexcept;
 
 // Returns true for present variables, including present empty values.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_EnvironmentHas(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EnvironmentHas(
     const char *pszName ) noexcept;
 
 } // namespace cypher::common
