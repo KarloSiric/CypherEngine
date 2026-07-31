@@ -66,24 +66,24 @@ using module_init_fn_t =
 using module_shutdown_fn_t =
     void ( CYPHER_CALL * )( void *pUserData ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API const char *Cy_ModuleStateName(
+CYPHER_NODISCARD CYPHER_COMMON_API const char *Cy_ModuleStateName(
     module_state_t state ) noexcept;
 
 // Requires the same major version and an equal-or-newer minor/patch version.
 // Build metadata is intentionally not part of compatibility.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ModuleVersionCompatible(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ModuleVersionCompatible(
     const module_version_t &required,
     const module_version_t &provided ) noexcept;
 
 // Binary API tables require an exact version match.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ModuleApiVersionCompatible(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ModuleApiVersionCompatible(
     u32 nRequiredApiVersion,
     u32 nProvidedApiVersion ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ModuleDescriptorIsValid(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ModuleDescriptorIsValid(
     const module_desc_t *pDescriptor ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_ModuleCanTransition(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ModuleCanTransition(
     module_state_t from,
     module_state_t to ) noexcept;
 
