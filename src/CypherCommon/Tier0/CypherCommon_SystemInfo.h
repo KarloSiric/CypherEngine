@@ -162,34 +162,34 @@ struct cy_system_disk_status_t {
 };
 
 // Initializes the immutable process-lifetime SystemInfo snapshot.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SystemInfoInit() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_SystemInfoInit() noexcept;
 
 // Returns the cached SystemInfo snapshot, initializing it on first use.
-[[nodiscard]] CYPHER_COMMON_API const cy_system_info_t *Cy_SystemInfoGet() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API const cy_system_info_t *Cy_SystemInfoGet() noexcept;
 
 // Queries current physical/process memory state.
-[[nodiscard]] CYPHER_COMMON_API cy_system_memory_status_t
+CYPHER_NODISCARD CYPHER_COMMON_API cy_system_memory_status_t
 Cy_SystemInfoQueryMemoryStatus() noexcept;
 
 // Queries current OS power source state when supported.
-[[nodiscard]] CYPHER_COMMON_API cy_system_power_state_t
+CYPHER_NODISCARD CYPHER_COMMON_API cy_system_power_state_t
 Cy_SystemInfoQueryPowerState() noexcept;
 
 // Queries disk space for pszPath, or the working directory when pszPath is empty.
-[[nodiscard]] CYPHER_COMMON_API cy_system_disk_status_t
+CYPHER_NODISCARD CYPHER_COMMON_API cy_system_disk_status_t
 Cy_SystemInfoQueryDiskStatus( const char *pszPath ) noexcept;
 
 // Returns true when feature is present in a CPU feature bitfield.
-[[nodiscard]] CYPHER_COMMON_API bool_t Cy_SystemInfoHasCpuFeature(
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_SystemInfoHasCpuFeature(
     flags64_t features,
     cy_system_cpu_feature_flags_t feature ) noexcept;
 
 // Returns a stable diagnostic name for a CPU feature flag.
-[[nodiscard]] CYPHER_COMMON_API const char *Cy_SystemInfoCpuFeatureName(
+CYPHER_NODISCARD CYPHER_COMMON_API const char *Cy_SystemInfoCpuFeatureName(
     cy_system_cpu_feature_flags_t feature ) noexcept;
 
 // Formats a human-readable report. Returns required character count excluding null.
-[[nodiscard]] CYPHER_COMMON_API usize Cy_SystemInfoFormatReport(
+CYPHER_NODISCARD CYPHER_COMMON_API usize Cy_SystemInfoFormatReport(
     char *pszDst,
     usize cchDst ) noexcept;
 
