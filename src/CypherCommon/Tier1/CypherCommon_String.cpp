@@ -32,7 +32,7 @@ CYPHER_FORCE_INLINE cypher::common::i32 CyCompareBytes( cypher::common::u8 chA, 
 namespace cypher::common
 {
 
-usize Cy_strlen( const char *pString )
+usize Cy_strlen( const char *pString ) noexcept
 {
     if ( pString == nullptr ) {
         return 0u;
@@ -48,7 +48,7 @@ usize Cy_strlen( const char *pString )
     return cchCount;
 }
 
-usize Cy_strnlen( const char *pString, usize cchMax )
+usize Cy_strnlen( const char *pString, usize cchMax ) noexcept
 {
     if ( pString == nullptr ) {
         return 0u;
@@ -56,7 +56,7 @@ usize Cy_strnlen( const char *pString, usize cchMax )
 
     usize cchCount = 0u;
     const char *pCursor = pString;
-    while ( *pCursor != '\0' && cchCount < cchMax ) {
+    while ( cchCount < cchMax && *pCursor != '\0' ) {
         ++pCursor;
         ++cchCount;
     }
@@ -64,7 +64,7 @@ usize Cy_strnlen( const char *pString, usize cchMax )
     return cchCount;
 }
 
-bool_t Cy_strisempty( const char *pString )
+bool_t Cy_strisempty( const char *pString ) noexcept
 {
     if ( pString == nullptr ) {
         return true;
@@ -73,7 +73,7 @@ bool_t Cy_strisempty( const char *pString )
     return pString[0] == '\0';
 }
 
-bool_t Cy_strisblank( const char *pString )
+bool_t Cy_strisblank( const char *pString ) noexcept
 {
     if ( pString == nullptr ) {
         return true;
@@ -90,7 +90,7 @@ bool_t Cy_strisblank( const char *pString )
     return true;
 }
 
-i32 Cy_strcmp( const char *pStringA, const char *pStringB )
+i32 Cy_strcmp( const char *pStringA, const char *pStringB ) noexcept
 {
     if ( pStringA == pStringB ) {
         return 0;
@@ -129,7 +129,7 @@ i32 Cy_strcmp( const char *pStringA, const char *pStringB )
     }
 }
 
-i32 Cy_strncmp( const char *pStringA, const char *pStringB, usize cchMax )
+i32 Cy_strncmp( const char *pStringA, const char *pStringB, usize cchMax ) noexcept
 {
     if ( cchMax == 0u || pStringA == pStringB ) {
         return 0;
@@ -184,7 +184,7 @@ i32 Cy_strncmp( const char *pStringA, const char *pStringB, usize cchMax )
     return 0;
 }
 
-i32 Cy_stricmp( const char *pStringA, const char *pStringB )
+i32 Cy_stricmp( const char *pStringA, const char *pStringB ) noexcept
 {
     const char *pA = pStringA != nullptr ? pStringA : "";
     const char *pB = pStringB != nullptr ? pStringB : "";
@@ -203,7 +203,7 @@ i32 Cy_stricmp( const char *pStringA, const char *pStringB )
     return ( 0 );
 }
 
-i32 Cy_strnicmp( const char *pStringA, const char *pStringB, usize cchMax )
+i32 Cy_strnicmp( const char *pStringA, const char *pStringB, usize cchMax ) noexcept
 {
     const char *pA = pStringA != nullptr ? pStringA : "";
     const char *pB = pStringB != nullptr ? pStringB : "";
@@ -227,27 +227,27 @@ i32 Cy_strnicmp( const char *pStringA, const char *pStringB, usize cchMax )
     return ( 0 );
 }
 
-bool_t Cy_strequal( const char *pStringA, const char *pStringB )
+bool_t Cy_strequal( const char *pStringA, const char *pStringB ) noexcept
 {
     return Cy_strcmp( pStringA, pStringB ) == 0;
 }
 
-bool_t Cy_striequal( const char *pStringA, const char *pStringB )
+bool_t Cy_striequal( const char *pStringA, const char *pStringB ) noexcept
 {
     return Cy_stricmp( pStringA, pStringB ) == 0;
 }
 
-bool_t Cy_strnequal( const char *pStringA, const char *pStringB, usize cchMax )
+bool_t Cy_strnequal( const char *pStringA, const char *pStringB, usize cchMax ) noexcept
 {
     return Cy_strncmp( pStringA, pStringB, cchMax ) == 0;
 }
 
-bool_t Cy_strniequal( const char *pStringA, const char *pStringB, usize cchMax )
+bool_t Cy_strniequal( const char *pStringA, const char *pStringB, usize cchMax ) noexcept
 {
     return Cy_strnicmp( pStringA, pStringB, cchMax ) == 0;
 }
 
-usize Cy_strncpy( char *pDest, const char *pSrc, usize cchDest )
+usize Cy_strncpy( char *pDest, const char *pSrc, usize cchDest ) noexcept
 {
     const char *pRead = pSrc != nullptr ? pSrc : "";
     usize cchSource = 0u;
@@ -272,7 +272,7 @@ usize Cy_strncpy( char *pDest, const char *pSrc, usize cchDest )
     return cchSource;
 }
 
-usize Cy_strncpy_max( char *pDest, const char *pSrc, usize cchDest, usize cchMax )
+usize Cy_strncpy_max( char *pDest, const char *pSrc, usize cchDest, usize cchMax ) noexcept
 {
     const char *pRead = pSrc != nullptr ? pSrc : "";
     usize cchSource = 0u;
@@ -297,7 +297,7 @@ usize Cy_strncpy_max( char *pDest, const char *pSrc, usize cchDest, usize cchMax
     return cchSource;
 }
 
-usize Cy_strncat( char *pDest, const char *pSrc, usize cchDest )
+usize Cy_strncat( char *pDest, const char *pSrc, usize cchDest ) noexcept
 {
     const char *pRead = pSrc != nullptr ? pSrc : "";
     usize cchDestLen = 0u;
@@ -332,7 +332,7 @@ usize Cy_strncat( char *pDest, const char *pSrc, usize cchDest )
     return cchSource;
 }
 
-usize Cy_strncat_max( char *pDest, const char *pSrc, usize cchDest, usize cchMax )
+usize Cy_strncat_max( char *pDest, const char *pSrc, usize cchDest, usize cchMax ) noexcept
 {
     const char *pRead = pSrc != nullptr ? pSrc : "";
     usize cchDestLen = 0u;
@@ -368,7 +368,7 @@ usize Cy_strncat_max( char *pDest, const char *pSrc, usize cchDest, usize cchMax
     return cchSource;
 }
 
-const char *Cy_strchr( const char *pString, char chFind )
+const char *Cy_strchr( const char *pString, char chFind ) noexcept
 {
     if ( pString == nullptr ) {
         return nullptr;
@@ -386,13 +386,13 @@ const char *Cy_strchr( const char *pString, char chFind )
     }
 }
 
-char *Cy_strchr( char *pString, char chFind )
+char *Cy_strchr( char *pString, char chFind ) noexcept
 {
     const char *pResult = Cy_strchr( static_cast<const char *>( pString ), chFind );
     return const_cast<char *>( pResult );
 }
 
-const char *Cy_strrchr( const char *pString, char chFind )
+const char *Cy_strrchr( const char *pString, char chFind ) noexcept
 {
     if ( pString == nullptr ) {
         return nullptr;
@@ -413,13 +413,13 @@ const char *Cy_strrchr( const char *pString, char chFind )
     return pLast;
 }
 
-char *Cy_strrchr( char *pString, char chFind )
+char *Cy_strrchr( char *pString, char chFind ) noexcept
 {
     const char *pResult = Cy_strrchr( static_cast<const char *>( pString ), chFind );
     return const_cast<char *>( pResult );
 }
 
-const char *Cy_strnchr( const char *pString, char chFind, usize cchMax )
+const char *Cy_strnchr( const char *pString, char chFind, usize cchMax ) noexcept
 {
     if ( pString == nullptr ) {
         return nullptr;
@@ -441,13 +441,13 @@ const char *Cy_strnchr( const char *pString, char chFind, usize cchMax )
     return nullptr;
 }
 
-char *Cy_strnchr( char *pString, char chFind, usize cchMax )
+char *Cy_strnchr( char *pString, char chFind, usize cchMax ) noexcept
 {
     const char *pResult = Cy_strnchr( static_cast<const char *>( pString ), chFind, cchMax );
     return const_cast<char *>( pResult );
 }
 
-const char *Cy_strstr( const char *pString, const char *pSearch )
+const char *Cy_strstr( const char *pString, const char *pSearch ) noexcept
 {
     if ( pString == nullptr ) {
         return nullptr;
@@ -470,13 +470,13 @@ const char *Cy_strstr( const char *pString, const char *pSearch )
     return nullptr;
 }
 
-char *Cy_strstr( char *pString, const char *pSearch )
+char *Cy_strstr( char *pString, const char *pSearch ) noexcept
 {
     const char *pResult = Cy_strstr( static_cast<const char *>( pString ), pSearch );
     return const_cast<char *>( pResult );
 }
 
-const char *Cy_stristr( const char *pString, const char *pSearch )
+const char *Cy_stristr( const char *pString, const char *pSearch ) noexcept
 {
     if ( pString == nullptr ) {
         return nullptr;
@@ -500,13 +500,13 @@ const char *Cy_stristr( const char *pString, const char *pSearch )
     return nullptr;
 }
 
-char *Cy_stristr( char *pString, const char *pSearch )
+char *Cy_stristr( char *pString, const char *pSearch ) noexcept
 {
     const char *pResult = Cy_stristr( static_cast<const char *>( pString ), pSearch );
     return const_cast<char *>( pResult );
 }
 
-const char *Cy_strnstr( const char *pString, const char *pSearch, usize cchMax )
+const char *Cy_strnstr( const char *pString, const char *pSearch, usize cchMax ) noexcept
 {
     if ( pString == nullptr ) {
         return nullptr;
@@ -532,13 +532,13 @@ const char *Cy_strnstr( const char *pString, const char *pSearch, usize cchMax )
     return nullptr;
 }
 
-char *Cy_strnstr( char *pString, const char *pSearch, usize cchMax )
+char *Cy_strnstr( char *pString, const char *pSearch, usize cchMax ) noexcept
 {
     const char *pResult = Cy_strnstr( static_cast<const char *>( pString ), pSearch, cchMax );
     return const_cast<char *>( pResult );
 }
 
-const char *Cy_strnistr( const char *pString, const char *pSearch, usize cchMax )
+const char *Cy_strnistr( const char *pString, const char *pSearch, usize cchMax ) noexcept
 {
     if ( pString == nullptr ) {
         return nullptr;
@@ -565,13 +565,13 @@ const char *Cy_strnistr( const char *pString, const char *pSearch, usize cchMax 
     return nullptr;
 }
 
-char *Cy_strnistr( char *pString, const char *pSearch, usize cchMax )
+char *Cy_strnistr( char *pString, const char *pSearch, usize cchMax ) noexcept
 {
     const char *pResult = Cy_strnistr( static_cast<const char *>( pString ), pSearch, cchMax );
     return const_cast<char *>( pResult );
 }
 
-bool_t Cy_strstarts( const char *pString, const char *pPrefix )
+bool_t Cy_strstarts( const char *pString, const char *pPrefix ) noexcept
 {
     const char *pRead = pString != nullptr ? pString : "";
     const char *pNeedle = pPrefix != nullptr ? pPrefix : "";
@@ -579,7 +579,7 @@ bool_t Cy_strstarts( const char *pString, const char *pPrefix )
     return Cy_strncmp( pRead, pNeedle, cchPrefix ) == 0;
 }
 
-bool_t Cy_stristarts( const char *pString, const char *pPrefix )
+bool_t Cy_stristarts( const char *pString, const char *pPrefix ) noexcept
 {
     const char *pRead = pString != nullptr ? pString : "";
     const char *pNeedle = pPrefix != nullptr ? pPrefix : "";
@@ -587,7 +587,7 @@ bool_t Cy_stristarts( const char *pString, const char *pPrefix )
     return Cy_strnicmp( pRead, pNeedle, cchPrefix ) == 0;
 }
 
-bool_t Cy_strends( const char *pString, const char *pSuffix )
+bool_t Cy_strends( const char *pString, const char *pSuffix ) noexcept
 {
     const char *pRead = pString != nullptr ? pString : "";
     const char *pNeedle = pSuffix != nullptr ? pSuffix : "";
@@ -600,7 +600,7 @@ bool_t Cy_strends( const char *pString, const char *pSuffix )
     return Cy_strcmp( pRead + ( cchString - cchSuffix ), pNeedle ) == 0;
 }
 
-bool_t Cy_striends( const char *pString, const char *pSuffix )
+bool_t Cy_striends( const char *pString, const char *pSuffix ) noexcept
 {
     const char *pRead = pString != nullptr ? pString : "";
     const char *pNeedle = pSuffix != nullptr ? pSuffix : "";
@@ -613,17 +613,17 @@ bool_t Cy_striends( const char *pString, const char *pSuffix )
     return Cy_stricmp( pRead + ( cchString - cchSuffix ), pNeedle ) == 0;
 }
 
-char *Cy_strlower( char *pString )
+char *Cy_strlower( char *pString ) noexcept
 {
     return Cy_strnlower( pString, Cy_strlen( pString ) );
 }
 
-char *Cy_strupper( char *pString )
+char *Cy_strupper( char *pString ) noexcept
 {
     return Cy_strnupper( pString, Cy_strlen( pString ) );
 }
 
-char *Cy_strnlower( char *pString, usize cchMax )
+char *Cy_strnlower( char *pString, usize cchMax ) noexcept
 {
     if ( pString == nullptr ) {
         return nullptr;
@@ -638,7 +638,7 @@ char *Cy_strnlower( char *pString, usize cchMax )
     return pString;
 }
 
-char *Cy_strnupper( char *pString, usize cchMax )
+char *Cy_strnupper( char *pString, usize cchMax ) noexcept
 {
     if ( pString == nullptr ) {
         return nullptr;
@@ -653,7 +653,7 @@ char *Cy_strnupper( char *pString, usize cchMax )
     return pString;
 }
 
-bool_t Cy_strislower( const char *pString )
+bool_t Cy_strislower( const char *pString ) noexcept
 {
     const char *pRead = pString != nullptr ? pString : "";
     while ( *pRead != '\0' ) {
@@ -666,7 +666,7 @@ bool_t Cy_strislower( const char *pString )
     return true;
 }
 
-bool_t Cy_strisupper( const char *pString )
+bool_t Cy_strisupper( const char *pString ) noexcept
 {
     const char *pRead = pString != nullptr ? pString : "";
     while ( *pRead != '\0' ) {
@@ -679,7 +679,7 @@ bool_t Cy_strisupper( const char *pString )
     return true;
 }
 
-const char *Cy_strskipwhite( const char *pString )
+const char *Cy_strskipwhite( const char *pString ) noexcept
 {
     if ( pString == nullptr ) {
         return nullptr;
@@ -693,13 +693,13 @@ const char *Cy_strskipwhite( const char *pString )
     return pCursor;
 }
 
-char *Cy_strskipwhite( char *pString )
+char *Cy_strskipwhite( char *pString ) noexcept
 {
     const char *pResult = Cy_strskipwhite( static_cast<const char *>( pString ) );
     return const_cast<char *>( pResult );
 }
 
-void Cy_strtrimleft( char *pString )
+void Cy_strtrimleft( char *pString ) noexcept
 {
     if ( pString == nullptr ) {
         return;
@@ -715,7 +715,7 @@ void Cy_strtrimleft( char *pString )
     *pWrite = '\0';
 }
 
-void Cy_strtrimright( char *pString )
+void Cy_strtrimright( char *pString ) noexcept
 {
     if ( pString == nullptr ) {
         return;
@@ -728,13 +728,13 @@ void Cy_strtrimright( char *pString )
     pString[cchLen] = '\0';
 }
 
-void Cy_strtrim( char *pString )
+void Cy_strtrim( char *pString ) noexcept
 {
     Cy_strtrimright( pString );
     Cy_strtrimleft( pString );
 }
 
-void Cy_strstripquotes( char *pString )
+void Cy_strstripquotes( char *pString ) noexcept
 {
     if ( pString == nullptr ) {
         return;
@@ -757,12 +757,12 @@ void Cy_strstripquotes( char *pString )
     pString[cchLen - 2u] = '\0';
 }
 
-usize Cy_strleft( const char *pString, char *pDest, usize cchDest, usize cchCount )
+usize Cy_strleft( const char *pString, char *pDest, usize cchDest, usize cchCount ) noexcept
 {
     return Cy_strncpy_max( pDest, pString, cchDest, cchCount );
 }
 
-usize Cy_strright( const char *pString, char *pDest, usize cchDest, usize cchCount )
+usize Cy_strright( const char *pString, char *pDest, usize cchDest, usize cchCount ) noexcept
 {
     const char *pRead = pString != nullptr ? pString : "";
     const usize cchLen = Cy_strlen( pRead );
@@ -770,7 +770,7 @@ usize Cy_strright( const char *pString, char *pDest, usize cchDest, usize cchCou
     return Cy_strncpy( pDest, pRead + iStart, cchDest );
 }
 
-usize Cy_strslice( const char *pString, char *pDest, usize cchDest, usize iStart, usize cchCount )
+usize Cy_strslice( const char *pString, char *pDest, usize cchDest, usize iStart, usize cchCount ) noexcept
 {
     const char *pRead = pString != nullptr ? pString : "";
     const usize cchLen = Cy_strlen( pRead );
@@ -786,7 +786,7 @@ usize Cy_strslice( const char *pString, char *pDest, usize cchDest, usize iStart
     return Cy_strncpy_max( pDest, pRead + iStart, cchDest, cchSlice );
 }
 
-usize Cy_strsubst( const char *pString, const char *pSearch, const char *pReplace, char *pDest, usize cchDest )
+usize Cy_strsubst( const char *pString, const char *pSearch, const char *pReplace, char *pDest, usize cchDest ) noexcept
 {
     const char *pRead = pString != nullptr ? pString : "";
     const char *pNeedle = pSearch != nullptr ? pSearch : "";
@@ -828,7 +828,7 @@ usize Cy_strsubst( const char *pString, const char *pSearch, const char *pReplac
     return cchRequired;
 }
 
-usize Cy_strcountchar( const char *pString, char chFind )
+usize Cy_strcountchar( const char *pString, char chFind ) noexcept
 {
     const char *pRead = pString != nullptr ? pString : "";
     usize cchCount = 0u;
@@ -842,7 +842,7 @@ usize Cy_strcountchar( const char *pString, char chFind )
     return cchCount;
 }
 
-usize Cy_strcountstring( const char *pString, const char *pSearch )
+usize Cy_strcountstring( const char *pString, const char *pSearch ) noexcept
 {
     const char *pRead = pString != nullptr ? pString : "";
     const char *pNeedle = pSearch != nullptr ? pSearch : "";
