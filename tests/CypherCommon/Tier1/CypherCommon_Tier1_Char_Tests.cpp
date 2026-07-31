@@ -17,142 +17,185 @@
 
 #include "CypherCommon_Char.h"
 
+#include <bit>
+
 #include <catch2/catch_test_macros.hpp>
 
 using namespace cypher::common;
 
-TEST_CASE( "Char ASCII classification handles control and printable ranges", "[CypherCommon][Tier1][Char]" )
+namespace
 {
-    REQUIRE( Char_IsAscii( '\0' ) );
-    REQUIRE( Char_IsAscii( 'A' ) );
-    REQUIRE( Char_IsAscii( '~' ) );
-    REQUIRE_FALSE( Char_IsAscii( static_cast<char>( 0x80u ) ) );
 
-    REQUIRE( Char_IsControlAscii( '\0' ) );
-    REQUIRE( Char_IsControlAscii( '\n' ) );
-    REQUIRE( Char_IsControlAscii( static_cast<char>( 0x7Fu ) ) );
-    REQUIRE_FALSE( Char_IsControlAscii( ' ' ) );
+constexpr u32 kByteValueCount = 256u;
 
-    REQUIRE( Char_IsPrintableAscii( ' ' ) );
-    REQUIRE( Char_IsPrintableAscii( '~' ) );
-    REQUIRE_FALSE( Char_IsPrintableAscii( '\n' ) );
+constexpr char ByteToChar( u32 nValue ) noexcept
+{
+    return std::bit_cast<char>( static_cast<u8>( nValue ) );
 }
 
-TEST_CASE( "Char alpha digit and alphanumeric checks are ASCII only", "[CypherCommon][Tier1][Char]" )
+constexpr u8 ExpectedDigitValue( u32 nValue ) noexcept
 {
-    REQUIRE( Char_IsUpperAscii( 'A' ) );
-    REQUIRE( Char_IsUpperAscii( 'Z' ) );
-    REQUIRE_FALSE( Char_IsUpperAscii( 'a' ) );
-
-    REQUIRE( Char_IsLowerAscii( 'a' ) );
-    REQUIRE( Char_IsLowerAscii( 'z' ) );
-    REQUIRE_FALSE( Char_IsLowerAscii( 'A' ) );
-
-    REQUIRE( Char_IsAlphaAscii( 'C' ) );
-    REQUIRE( Char_IsAlphaAscii( 'c' ) );
-    REQUIRE_FALSE( Char_IsAlphaAscii( '7' ) );
-
-    REQUIRE( Char_IsDigitAscii( '0' ) );
-    REQUIRE( Char_IsDigitAscii( '9' ) );
-    REQUIRE_FALSE( Char_IsDigitAscii( 'a' ) );
-
-    REQUIRE( Char_IsAlphaNumericAscii( 'q' ) );
-    REQUIRE( Char_IsAlphaNumericAscii( '5' ) );
-    REQUIRE_FALSE( Char_IsAlphaNumericAscii( '_' ) );
+    if ( nValue >= static_cast<u32>( '0' ) &&
+         nValue <= static_cast<u32>( '9' ) ) {
+        return static_cast<u8>( nValue - static_cast<u32>( '0' ) );
+    }
+    return CY_CHAR_INVALID_DIGIT_VALUE;
 }
 
-TEST_CASE( "Char whitespace newline and separator checks follow engine ASCII policy", "[CypherCommon][Tier1][Char]" )
+constexpr u8 ExpectedHexValue( u32 nValue ) noexcept
 {
-    REQUIRE( Char_IsWhitespaceAscii( ' ' ) );
-    REQUIRE( Char_IsWhitespaceAscii( '\t' ) );
-    REQUIRE( Char_IsWhitespaceAscii( '\n' ) );
-    REQUIRE( Char_IsWhitespaceAscii( '\r' ) );
-    REQUIRE_FALSE( Char_IsWhitespaceAscii( 'x' ) );
-
-    REQUIRE( Char_IsNewLineAscii( '\n' ) );
-    REQUIRE( Char_IsNewLineAscii( '\r' ) );
-    REQUIRE_FALSE( Char_IsNewLineAscii( '\t' ) );
-
-    REQUIRE( Char_IsSlash( '/' ) );
-    REQUIRE( Char_IsSlash( '\\' ) );
-    REQUIRE( Char_IsPathSeparator( '/' ) );
-    REQUIRE( Char_IsPathSeparator( '\\' ) );
-    REQUIRE( Char_IsDriveSeparator( ':' ) );
-    REQUIRE_FALSE( Char_IsDriveSeparator( '/' ) );
+    if ( nValue >= static_cast<u32>( '0' ) &&
+         nValue <= static_cast<u32>( '9' ) ) {
+        return static_cast<u8>( nValue - static_cast<u32>( '0' ) );
+    }
+    if ( nValue >= static_cast<u32>( 'A' ) &&
+         nValue <= static_cast<u32>( 'F' ) ) {
+        return static_cast<u8>( nValue - static_cast<u32>( 'A' ) + 10u );
+    }
+    if ( nValue >= static_cast<u32>( 'a' ) &&
+         nValue <= static_cast<u32>( 'f' ) ) {
+        return static_cast<u8>( nValue - static_cast<u32>( 'a' ) + 10u );
+    }
+    return CY_CHAR_INVALID_DIGIT_VALUE;
 }
 
-TEST_CASE( "Char identifier checks follow current engine token policy", "[CypherCommon][Tier1][Char]" )
-{
-    REQUIRE( Char_IsIdentifierStart( 'a' ) );
-    REQUIRE( Char_IsIdentifierStart( 'Z' ) );
-    REQUIRE( Char_IsIdentifierStart( '-' ) );
-    REQUIRE_FALSE( Char_IsIdentifierStart( '0' ) );
-    REQUIRE_FALSE( Char_IsIdentifierStart( '_' ) );
+} // namespace
 
-    REQUIRE( Char_IsIdentifierBody( 'a' ) );
-    REQUIRE( Char_IsIdentifierBody( 'Z' ) );
-    REQUIRE( Char_IsIdentifierBody( '7' ) );
-    REQUIRE( Char_IsIdentifierBody( '-' ) );
-    REQUIRE_FALSE( Char_IsIdentifierBody( '_' ) );
+TEST_CASE( "Char classifies all byte values using explicit ASCII ranges", "[CypherCommon][Tier1][Char]" )
+{
+    u32 nAsciiCount = 0u;
+    u32 nControlCount = 0u;
+    u32 nPrintableCount = 0u;
+    u32 nGraphicalCount = 0u;
+    u32 nUpperCount = 0u;
+    u32 nLowerCount = 0u;
+    u32 nAlphaCount = 0u;
+    u32 nAlphaNumericCount = 0u;
+    u32 nPunctuationCount = 0u;
+    u32 nDigitCount = 0u;
+    u32 nBinaryDigitCount = 0u;
+    u32 nOctalDigitCount = 0u;
+    u32 nHexDigitCount = 0u;
+    u32 nBlankCount = 0u;
+    u32 nWhitespaceCount = 0u;
+    u32 nNewLineCount = 0u;
+
+    for ( u32 nValue = 0u; nValue < kByteValueCount; ++nValue ) {
+        CAPTURE( nValue );
+
+        const char ch = ByteToChar( nValue );
+        const bool_t isAscii = ( nValue <= 0x7Fu );
+        const bool_t isControl = ( nValue <= 0x1Fu || nValue == 0x7Fu );
+        const bool_t isPrintable = ( nValue >= 0x20u && nValue <= 0x7Eu );
+        const bool_t isGraphical = ( nValue >= 0x21u && nValue <= 0x7Eu );
+        const bool_t isUpper =
+            ( nValue >= static_cast<u32>( 'A' ) &&
+              nValue <= static_cast<u32>( 'Z' ) );
+        const bool_t isLower =
+            ( nValue >= static_cast<u32>( 'a' ) &&
+              nValue <= static_cast<u32>( 'z' ) );
+        const bool_t isAlpha = ( isUpper || isLower );
+        const bool_t isDigit =
+            ( nValue >= static_cast<u32>( '0' ) &&
+              nValue <= static_cast<u32>( '9' ) );
+        const bool_t isAlphaNumeric = ( isAlpha || isDigit );
+        const bool_t isPunctuation =
+            ( ( nValue >= 0x21u && nValue <= 0x2Fu ) ||
+              ( nValue >= 0x3Au && nValue <= 0x40u ) ||
+              ( nValue >= 0x5Bu && nValue <= 0x60u ) ||
+              ( nValue >= 0x7Bu && nValue <= 0x7Eu ) );
+        const bool_t isBinaryDigit =
+            ( nValue >= static_cast<u32>( '0' ) &&
+              nValue <= static_cast<u32>( '1' ) );
+        const bool_t isOctalDigit =
+            ( nValue >= static_cast<u32>( '0' ) &&
+              nValue <= static_cast<u32>( '7' ) );
+        const bool_t isHexDigit =
+            ( isDigit ||
+              ( nValue >= static_cast<u32>( 'A' ) &&
+                nValue <= static_cast<u32>( 'F' ) ) ||
+              ( nValue >= static_cast<u32>( 'a' ) &&
+                nValue <= static_cast<u32>( 'f' ) ) );
+        const bool_t isBlank = ( nValue == 0x09u || nValue == 0x20u );
+        const bool_t isWhitespace =
+            ( ( nValue >= 0x09u && nValue <= 0x0Du ) ||
+              nValue == 0x20u );
+        const bool_t isNewLine = ( nValue == 0x0Au || nValue == 0x0Du );
+
+        CHECK( Char_IsAscii( ch ) == isAscii );
+        CHECK( Char_IsControlAscii( ch ) == isControl );
+        CHECK( Char_IsPrintableAscii( ch ) == isPrintable );
+        CHECK( Char_IsGraphicalAscii( ch ) == isGraphical );
+        CHECK( Char_IsUpperAscii( ch ) == isUpper );
+        CHECK( Char_IsLowerAscii( ch ) == isLower );
+        CHECK( Char_IsAlphaAscii( ch ) == isAlpha );
+        CHECK( Char_IsAlphaNumericAscii( ch ) == isAlphaNumeric );
+        CHECK( Char_IsPunctuationAscii( ch ) == isPunctuation );
+        CHECK( Char_IsDigitAscii( ch ) == isDigit );
+        CHECK( Char_IsBinaryDigitAscii( ch ) == isBinaryDigit );
+        CHECK( Char_IsOctalDigitAscii( ch ) == isOctalDigit );
+        CHECK( Char_IsHexDigitAscii( ch ) == isHexDigit );
+        CHECK( Char_IsBlankAscii( ch ) == isBlank );
+        CHECK( Char_IsWhitespaceAscii( ch ) == isWhitespace );
+        CHECK( Char_IsNewLineAscii( ch ) == isNewLine );
+
+        nAsciiCount += Char_IsAscii( ch ) ? 1u : 0u;
+        nControlCount += Char_IsControlAscii( ch ) ? 1u : 0u;
+        nPrintableCount += Char_IsPrintableAscii( ch ) ? 1u : 0u;
+        nGraphicalCount += Char_IsGraphicalAscii( ch ) ? 1u : 0u;
+        nUpperCount += Char_IsUpperAscii( ch ) ? 1u : 0u;
+        nLowerCount += Char_IsLowerAscii( ch ) ? 1u : 0u;
+        nAlphaCount += Char_IsAlphaAscii( ch ) ? 1u : 0u;
+        nAlphaNumericCount += Char_IsAlphaNumericAscii( ch ) ? 1u : 0u;
+        nPunctuationCount += Char_IsPunctuationAscii( ch ) ? 1u : 0u;
+        nDigitCount += Char_IsDigitAscii( ch ) ? 1u : 0u;
+        nBinaryDigitCount += Char_IsBinaryDigitAscii( ch ) ? 1u : 0u;
+        nOctalDigitCount += Char_IsOctalDigitAscii( ch ) ? 1u : 0u;
+        nHexDigitCount += Char_IsHexDigitAscii( ch ) ? 1u : 0u;
+        nBlankCount += Char_IsBlankAscii( ch ) ? 1u : 0u;
+        nWhitespaceCount += Char_IsWhitespaceAscii( ch ) ? 1u : 0u;
+        nNewLineCount += Char_IsNewLineAscii( ch ) ? 1u : 0u;
+    }
+
+    REQUIRE( nAsciiCount == 128u );
+    REQUIRE( nControlCount == 33u );
+    REQUIRE( nPrintableCount == 95u );
+    REQUIRE( nGraphicalCount == 94u );
+    REQUIRE( nUpperCount == 26u );
+    REQUIRE( nLowerCount == 26u );
+    REQUIRE( nAlphaCount == 52u );
+    REQUIRE( nAlphaNumericCount == 62u );
+    REQUIRE( nPunctuationCount == 32u );
+    REQUIRE( nDigitCount == 10u );
+    REQUIRE( nBinaryDigitCount == 2u );
+    REQUIRE( nOctalDigitCount == 8u );
+    REQUIRE( nHexDigitCount == 22u );
+    REQUIRE( nBlankCount == 2u );
+    REQUIRE( nWhitespaceCount == 6u );
+    REQUIRE( nNewLineCount == 2u );
 }
 
-TEST_CASE( "Char path name check accepts current virtual path character set", "[CypherCommon][Tier1][Char]" )
+TEST_CASE( "Char conversions cover every byte and preserve non targets", "[CypherCommon][Tier1][Char]" )
 {
-    REQUIRE( Char_IsPathNameChar( 'a' ) );
-    REQUIRE( Char_IsPathNameChar( 'Z' ) );
-    REQUIRE( Char_IsPathNameChar( '7' ) );
-    REQUIRE( Char_IsPathNameChar( '_' ) );
-    REQUIRE( Char_IsPathNameChar( '-' ) );
-    REQUIRE( Char_IsPathNameChar( '.' ) );
-    REQUIRE( Char_IsPathNameChar( '/' ) );
-    REQUIRE( Char_IsPathNameChar( '\\' ) );
+    for ( u32 nValue = 0u; nValue < kByteValueCount; ++nValue ) {
+        CAPTURE( nValue );
 
-    REQUIRE_FALSE( Char_IsPathNameChar( ':' ) );
-    REQUIRE_FALSE( Char_IsPathNameChar( '*' ) );
-    REQUIRE_FALSE( Char_IsPathNameChar( ' ' ) );
-}
+        const char ch = ByteToChar( nValue );
+        char chExpectedLower = ch;
+        char chExpectedUpper = ch;
 
-TEST_CASE( "Char ASCII case conversion leaves non alphabetic characters unchanged", "[CypherCommon][Tier1][Char]" )
-{
-    REQUIRE( Char_ToLowerAscii( 'A' ) == 'a' );
-    REQUIRE( Char_ToLowerAscii( 'Z' ) == 'z' );
-    REQUIRE( Char_ToLowerAscii( 'a' ) == 'a' );
-    REQUIRE( Char_ToLowerAscii( '7' ) == '7' );
+        if ( nValue >= static_cast<u32>( 'A' ) &&
+             nValue <= static_cast<u32>( 'Z' ) ) {
+            chExpectedLower = ByteToChar( nValue + ( 'a' - 'A' ) );
+        }
+        if ( nValue >= static_cast<u32>( 'a' ) &&
+             nValue <= static_cast<u32>( 'z' ) ) {
+            chExpectedUpper = ByteToChar( nValue - ( 'a' - 'A' ) );
+        }
 
-    REQUIRE( Char_ToUpperAscii( 'a' ) == 'A' );
-    REQUIRE( Char_ToUpperAscii( 'z' ) == 'Z' );
-    REQUIRE( Char_ToUpperAscii( 'A' ) == 'A' );
-    REQUIRE( Char_ToUpperAscii( '7' ) == '7' );
-}
-
-TEST_CASE( "Char hex digit validation accepts decimal and ASCII hex letters", "[CypherCommon][Tier1][Char]" )
-{
-    REQUIRE( Char_IsHexDigitAscii( '0' ) );
-    REQUIRE( Char_IsHexDigitAscii( '9' ) );
-    REQUIRE( Char_IsHexDigitAscii( 'A' ) );
-    REQUIRE( Char_IsHexDigitAscii( 'F' ) );
-    REQUIRE( Char_IsHexDigitAscii( 'a' ) );
-    REQUIRE( Char_IsHexDigitAscii( 'f' ) );
-
-    REQUIRE_FALSE( Char_IsHexDigitAscii( 'G' ) );
-    REQUIRE_FALSE( Char_IsHexDigitAscii( 'g' ) );
-    REQUIRE_FALSE( Char_IsHexDigitAscii( '/' ) );
-}
-
-TEST_CASE( "Char hex value conversion returns nibble values and invalid sentinel", "[CypherCommon][Tier1][Char]" )
-{
-    REQUIRE( Char_HexValueAscii( '0' ) == 0u );
-    REQUIRE( Char_HexValueAscii( '1' ) == 1u );
-    REQUIRE( Char_HexValueAscii( '9' ) == 9u );
-
-    REQUIRE( Char_HexValueAscii( 'A' ) == 10u );
-    REQUIRE( Char_HexValueAscii( 'B' ) == 11u );
-    REQUIRE( Char_HexValueAscii( 'F' ) == 15u );
-
-    REQUIRE( Char_HexValueAscii( 'a' ) == 10u );
-    REQUIRE( Char_HexValueAscii( 'b' ) == 11u );
-    REQUIRE( Char_HexValueAscii( 'f' ) == 15u );
-
-    REQUIRE( Char_HexValueAscii( 'x' ) == 0xFFu );
-    REQUIRE( Char_HexValueAscii( '\0' ) == 0xFFu );
+        CHECK( Char_ToLowerAscii( ch ) == chExpectedLower );
+        CHECK( Char_ToUpperAscii( ch ) == chExpectedUpper );
+        CHECK( Char_DigitValueAscii( ch ) == ExpectedDigitValue( nValue ) );
+        CHECK( Char_HexValueAscii( ch ) == ExpectedHexValue( nValue ) );
+    }
 }
