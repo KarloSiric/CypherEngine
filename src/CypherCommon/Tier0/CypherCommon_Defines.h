@@ -42,19 +42,19 @@ namespace cypher::common::defines_detail
 
 // Returns the compile-time element count of a native array.
 template <typename type_t, usize nCount>
-[[nodiscard]] constexpr usize ArrayCount( const type_t ( & )[nCount] ) noexcept
+CYPHER_NODISCARD constexpr usize ArrayCount( const type_t ( & )[nCount] ) noexcept
 {
     return nCount;
 }
 
 // Builds a 32-bit mask without performing an invalid shift.
-[[nodiscard]] constexpr u32 Cy_Bit32( u32 nBit ) noexcept
+CYPHER_NODISCARD constexpr u32 Cy_Bit32( u32 nBit ) noexcept
 {
     return nBit < 32u ? ( 1u << nBit ) : 0u;
 }
 
 // Builds a 64-bit mask without performing an invalid shift.
-[[nodiscard]] constexpr u64 Cy_Bit64( u32 nBit ) noexcept
+CYPHER_NODISCARD constexpr u64 Cy_Bit64( u32 nBit ) noexcept
 {
     return nBit < 64u ? ( 1ull << nBit ) : 0ull;
 }
@@ -139,15 +139,6 @@ Branch Prediction
     #define CYPHER_LIKELY( x )              ( x )
     #define CYPHER_UNLIKELY( x )            ( x )
 #endif
-
-/*
-================
-Standard Attributes
-================
-*/
-#define CYPHER_NODISCARD                    [[nodiscard]]
-#define CYPHER_MAYBE_UNUSED                 [[maybe_unused]]
-#define CYPHER_FALLTHROUGH                  [[fallthrough]]
 
 /*
 ================
