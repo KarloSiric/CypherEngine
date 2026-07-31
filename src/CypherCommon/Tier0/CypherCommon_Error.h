@@ -156,75 +156,75 @@ constexpr error_code_t CY_ERROR_DOMAIN_MASK = 0xFFFF0000u;
 constexpr error_code_t CY_ERROR_OK = 0u;
 
 // Packs one subsystem domain and one subsystem-local code into a stable value.
-[[nodiscard]] constexpr error_code_t Cy_ErrorMake( error_domain_t domain, u16 localErrorCode ) noexcept
+CYPHER_NODISCARD constexpr error_code_t Cy_ErrorMake( error_domain_t domain, u16 localErrorCode ) noexcept
 {
     return ( static_cast<error_code_t>( domain ) << CY_ERROR_DOMAIN_SHIFT ) |
            static_cast<error_code_t>( localErrorCode );
 }
 
 // Packs a Common-domain error.
-[[nodiscard]] constexpr error_code_t Cy_ErrorMake( common_error_t error ) noexcept
+CYPHER_NODISCARD constexpr error_code_t Cy_ErrorMake( common_error_t error ) noexcept
 {
     return Cy_ErrorMake( error_domain_t::COMMON, static_cast<u16>( error ) );
 }
 
 // Extracts the subsystem domain from a packed error.
-[[nodiscard]] constexpr error_domain_t Cy_ErrorDomain( error_code_t errorCode ) noexcept
+CYPHER_NODISCARD constexpr error_domain_t Cy_ErrorDomain( error_code_t errorCode ) noexcept
 {
     return static_cast<error_domain_t>(
         static_cast<u16>( ( errorCode & CY_ERROR_DOMAIN_MASK ) >> CY_ERROR_DOMAIN_SHIFT ) );
 }
 
 // Extracts the subsystem-local code from a packed error.
-[[nodiscard]] constexpr u16 Cy_ErrorLocalCode( error_code_t errorCode ) noexcept
+CYPHER_NODISCARD constexpr u16 Cy_ErrorLocalCode( error_code_t errorCode ) noexcept
 {
     return static_cast<u16>( errorCode & CY_ERROR_LOCAL_MASK );
 }
 
 // A zero local code means success in every registered subsystem domain.
-[[nodiscard]] constexpr bool_t Cy_ErrorSucceeded( error_code_t errorCode ) noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_ErrorSucceeded( error_code_t errorCode ) noexcept
 {
     return Cy_ErrorLocalCode( errorCode ) == 0u;
 }
 
-[[nodiscard]] constexpr bool_t Cy_ErrorFailed( error_code_t errorCode ) noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_ErrorFailed( error_code_t errorCode ) noexcept
 {
     return !Cy_ErrorSucceeded( errorCode );
 }
 
-[[nodiscard]] constexpr bool_t Cy_ErrorSucceeded( common_error_t error ) noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_ErrorSucceeded( common_error_t error ) noexcept
 {
     return error == common_error_t::OK;
 }
 
-[[nodiscard]] constexpr bool_t Cy_ErrorFailed( common_error_t error ) noexcept
+CYPHER_NODISCARD constexpr bool_t Cy_ErrorFailed( common_error_t error ) noexcept
 {
     return !Cy_ErrorSucceeded( error );
 }
 
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_CommonErrorName( common_error_t error ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_CommonErrorName( common_error_t error ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_CommonErrorDescription( common_error_t error ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_CommonErrorDescription( common_error_t error ) noexcept;
 
 // Compatibility aliases for the Common-domain lookup API.
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ErrorName( common_error_t error ) noexcept;
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ErrorDescription( common_error_t error ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ErrorName( common_error_t error ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ErrorDescription( common_error_t error ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ErrorDomainName( error_domain_t domain ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ErrorDomainName( error_domain_t domain ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API const error_description_t *Cy_ErrorFindDesc(
+CYPHER_NODISCARD CYPHER_COMMON_API const error_description_t *Cy_ErrorFindDesc(
     const error_table_t &table,
     error_code_t errorCode ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ErrorFindName(
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ErrorFindName(
     const error_table_t &table,
     error_code_t errorCode ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ErrorFindDescription(
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const char *Cy_ErrorFindDescription(
     const error_table_t &table,
     error_code_t errorCode ) noexcept;
 
-[[nodiscard]] CYPHER_COMMON_API CY_RETURNS_NONNULL const error_table_t *Cy_CommonErrorTable() noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const error_table_t *Cy_CommonErrorTable() noexcept;
 
 } // namespace cypher::common
 
