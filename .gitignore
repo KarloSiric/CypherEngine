@@ -21,6 +21,7 @@
 /build-*/
 /build-bench/
 /build-clangd/
+/.deps/
 /bin/
 /out/
 /dist/
@@ -94,6 +95,10 @@ __pycache__/
 /.cache/
 /tools/**/build/
 /tools/**/out/
+
+# Locally installed proprietary and SDK-scale dependencies
+/external/*
+!/external/README.md
 
 # Benchmark captures
 /benchmarks/results/*
