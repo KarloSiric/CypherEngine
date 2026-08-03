@@ -163,9 +163,11 @@ bool_t Cy_DynamicLibraryLoadEx(
     constexpr flags32_t VALID_FLAGS =
         CY_DYNAMIC_LIBRARY_RESOLVE_LAZY |
         CY_DYNAMIC_LIBRARY_GLOBAL_SYMBOLS;
-    if ( pLibrary == nullptr ||
-         pszPath == nullptr ||
-         pszPath[0] == '\0' ) {
+    if ( pLibrary == nullptr ) {
+        return CY_FALSE;
+    }
+    if ( pszPath == nullptr || pszPath[0] == '\0' ) {
+        DynamicLibrary_SetError( pLibrary, "invalid dynamic-library path" );
         return CY_FALSE;
     }
     if ( pLibrary->pHandle != nullptr ) {
@@ -181,7 +183,7 @@ bool_t Cy_DynamicLibraryLoadEx(
 #if CYPHER_PLATFORM_WINDOWS
     wchar_t *pWidePath = DynamicLibrary_Utf8PathToWide( pszPath );
     if ( pWidePath == nullptr ) {
-        DynamicLibrary_SetError( pLibrary, "path is not valid UTF-8" );
+        DynamicLibrary_SetError( pLibrary, "failed to convert dynamic-library path to UTF-16" );
         return CY_FALSE;
     }
 
