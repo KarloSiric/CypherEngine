@@ -155,6 +155,7 @@ Slice
 ================
 */
 // Returns a subview beginning at iStart and containing at most cchLength bytes.
+// iStart must not exceed the source length; CY_STRING_VIEW_NPOS selects the remainder.
 CYPHER_NODISCARD CYPHER_COMMON_API
 string_view_t StringView_Subview(
     string_view_t view,
@@ -243,7 +244,8 @@ string_view_t StringView_Trim( string_view_t view ) noexcept;
 Copy
 ================
 */
-// Copies view into pDest and always terminates when cchDest > 0.
+// Copies view into pDest and always terminates when pDest is valid and cchDest > 0.
+// A null destination with zero capacity performs a size query without writing.
 // Returns the full view length required, excluding the null terminator.
 CYPHER_NODISCARD_MSG( "Check the required length to detect truncation." )
 CYPHER_COMMON_API usize StringView_CopyToCString(
