@@ -35,6 +35,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dependency-manifest:
+    name: Dependency Manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Bootstrap pinned vcpkg
+        run: cmake -P cmake/CypherBootstrapVcpkg.cmake
+
+      - name: Resolve approved dependency graph
+        run: |
+          ./.deps/vcpkg/vcpkg install --dry-run \
+            --x-manifest-root=. \
+            --x-install-root=out/vcpkg-manifest-check \
+            --x-feature=archive-tools \
+            --x-feature=asset-import-fallback \
+            --x-feature=audio \
+            --x-feature=benchmarks \
+            --x-feature=compression \
+            --x-feature=editor-support \
+            --x-feature=image-import \
+            --x-feature=math \
+            --x-feature=mesh-pipeline \
+            --x-feature=networking \
+            --x-feature=profiling \
+            --x-feature=scripting \
+            --x-feature=security \
+            --x-feature=shader-tools \
+            --x-feature=tests \
+            --x-feature=text \
+            --x-feature=texture-pipeline
+
   build-and-test:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -69,6 +107,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -85,15 +125,10 @@ jobs:
             sudo ln -sf "$(command -v glibtoolize)" /usr/local/bin/libtoolize
           fi
 
-      - name: Bootstrap vcpkg
+      - name: Bootstrap pinned vcpkg
         run: |
           mkdir -p "$VCPKG_DOWNLOADS"
-          git clone https://github.com/microsoft/vcpkg.git vcpkg
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            ./vcpkg/bootstrap-vcpkg.bat -disableMetrics
-          else
-            ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
-          fi
+          cmake -P cmake/CypherBootstrapVcpkg.cmake
 
       - name: Cache vcpkg artifacts
         uses: actions/cache@v4
@@ -101,7 +136,7 @@ jobs:
           path: |
             ~/.cache/vcpkg/archives
             .vcpkg-downloads
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', '.gitmodules', 'cmake/CypherBootstrapVcpkg.cmake') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
 
@@ -111,7 +146,8 @@ jobs:
             cmake -S . -B build
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
             -DCYPHERENGINE_BUILD_TESTS=ON
-            "-DCMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake"
+            -DVCPKG_MANIFEST_FEATURES=tests
+            "-DCMAKE_TOOLCHAIN_FILE=$PWD/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake"
           )
           for attempt in 1 2 3; do
             "${configure_command[@]}" && break
@@ -144,17 +180,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y autoconf autoconf-archive automake libtool libtool-bin libltdl-dev
 
-      - name: Bootstrap vcpkg
+      - name: Bootstrap pinned vcpkg
         run: |
           mkdir -p "$VCPKG_DOWNLOADS"
-          git clone https://github.com/microsoft/vcpkg.git vcpkg
-          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          cmake -P cmake/CypherBootstrapVcpkg.cmake
 
       - name: Cache vcpkg artifacts
         uses: actions/cache@v4
@@ -162,7 +199,7 @@ jobs:
           path: |
             ~/.cache/vcpkg/archives
             .vcpkg-downloads
-          key: vcpkg-${{ runner.os }}-sanitize-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-sanitize-${{ hashFiles('vcpkg.json', '.gitmodules', 'cmake/CypherBootstrapVcpkg.cmake') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
 
@@ -172,10 +209,11 @@ jobs:
             cmake -S . -B build-sanitize
             -DCMAKE_BUILD_TYPE=Debug
             -DCYPHERENGINE_BUILD_TESTS=ON
+            -DVCPKG_MANIFEST_FEATURES=tests
             "-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer"
             "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer"
             -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
-            "-DCMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake"
+            "-DCMAKE_TOOLCHAIN_FILE=$PWD/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake"
           )
           for attempt in 1 2 3; do
             "${configure_command[@]}" && break
@@ -215,6 +253,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -231,15 +271,10 @@ jobs:
             sudo ln -sf "$(command -v glibtoolize)" /usr/local/bin/libtoolize
           fi
 
-      - name: Bootstrap vcpkg
+      - name: Bootstrap pinned vcpkg
         run: |
           mkdir -p "$VCPKG_DOWNLOADS"
-          git clone https://github.com/microsoft/vcpkg.git vcpkg
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            ./vcpkg/bootstrap-vcpkg.bat -disableMetrics
-          else
-            ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
-          fi
+          cmake -P cmake/CypherBootstrapVcpkg.cmake
 
       - name: Cache vcpkg artifacts
         uses: actions/cache@v4
@@ -247,7 +282,7 @@ jobs:
           path: |
             ~/.cache/vcpkg/archives
             .vcpkg-downloads
-          key: vcpkg-${{ runner.os }}-bench-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-bench-${{ hashFiles('vcpkg.json', '.gitmodules', 'cmake/CypherBootstrapVcpkg.cmake') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
 
@@ -257,7 +292,8 @@ jobs:
             cmake -S . -B build-bench
             -DCMAKE_BUILD_TYPE=Release
             -DCYPHERENGINE_BUILD_BENCHMARKS=ON
-            "-DCMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake"
+            -DVCPKG_MANIFEST_FEATURES=benchmarks
+            "-DCMAKE_TOOLCHAIN_FILE=$PWD/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake"
           )
           for attempt in 1 2 3; do
             "${configure_command[@]}" && break
