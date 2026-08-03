@@ -41,6 +41,7 @@ struct binary_block_t {
 };
 
 void BinaryBlock_Clear( binary_block_t *pBlock );
+
 bool_t BinaryBlock_IsEmpty( const binary_block_t *pBlock );
 
 } // namespace cypher::common
