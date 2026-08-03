@@ -32,23 +32,35 @@ path lists and editor search tools.
 */
 
 #include "CypherCommon_Tier0.h"
+
 #include "CypherCommon_StringView.h"
+#include "CypherCommon_CharacterSet.h"
 
 namespace cypher::common
 {
 
 enum string_split_flags_t : flags32_t {
-    STRING_SPLIT_FLAG_NONE = 0u,
-    STRING_SPLIT_FLAG_SKIP_EMPTY = CYPHER_BIT32( 0 ),
-    STRING_SPLIT_FLAG_TRIM_WHITESPACE = CYPHER_BIT32( 1 )
+    STRING_SPLIT_FLAG_NONE                  = 0u,
+    STRING_SPLIT_FLAG_SKIP_EMPTY            = CYPHER_BIT32( 0 ),
+    STRING_SPLIT_FLAG_TRIM_WHITESPACE       = CYPHER_BIT32( 1 )
 };
 
-using string_split_callback_t = bool_t ( * )( string_view_t token, void *pUserData );
+struct string_split_result_t {
+    usize cTokensWritten;
+    usize cTokensRequired;      
+};
 
-usize Cy_strsplit( const char *pString, char chSeparator, string_view_t *pOutTokens, usize cTokensMax, flags32_t flags );
-usize Cy_strsplitany( const char *pString, const char *pSeparators, string_view_t *pOutTokens, usize cTokensMax, flags32_t flags );
-usize Cy_strsplitlines( const char *pString, string_view_t *pOutLines, usize cLinesMax, flags32_t flags );
-bool_t Cy_strforeachsplit( const char *pString, char chSeparator, flags32_t flags, string_split_callback_t pCallback, void *pUserData );
+struct string_split_visit_result_t {
+    usize cTokensVisited;
+    bool_t bCompleted;
+};
+
+constexpr flags32_t STRING_SPLIT_VALID_FLAGS = STRING_SPLIT_FLAG_SKIP_EMPTY | STRING_SPLIT_FLAG_TRIM_WHITESPACE;
+
+using string_split_callback_t = bool_t ( * )( string_view_t token, usize iToken, void *pUserData ) noexcept;
+
+
+
 
 } // namespace cypher::common
 
