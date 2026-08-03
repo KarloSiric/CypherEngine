@@ -54,13 +54,13 @@ Current and target choices:
 - `libsodium` for later cryptographic signing/auth/encryption needs
 - `meshoptimizer` for mesh processing
 - `FreeType` and `HarfBuzz` for font/text tooling
-- `stb_image` and `stb_image_write` for early image import/export when added
+- `libpng` and `libjpeg-turbo` for PNG/JPEG source image import
 - `TinyEXR` later for HDR/EXR import if needed
 - `KTX/KTX2` and Basis Universal later for serious cooked texture delivery
 - `cgltf` for glTF/GLB import
 - `Assimp` only for tools-side fallback importing of many model formats
 - `MikkTSpace` for tangent generation
-- `miniaudio` or `libsndfile` for tools-side audio decoding
+- `Opus`, `opusfile`, and `libsndfile` for voice, streams, and tools-side audio decoding
 - `Dear ImGui` for debug/editor prototypes
 - `Qt 6` for the long-term Mason editor
 - `GameNetworkingSockets` only as an optional transport/reference later; the
@@ -75,6 +75,29 @@ Reference engines often kept third-party code near the public/tooling boundary:
 
 CypherEngine should use `vcpkg` for large portable dependencies and `thirdparty/`
 for small pinned libraries that are easier to vendor.
+
+Approved acquisition policy:
+
+- generated GLAD, Dear ImGui, cgltf, and MikkTSpace are pinned under `thirdparty/`
+- SDL3 is the required base vcpkg dependency
+- Catch2 and Google Benchmark are isolated test and benchmark features
+- GLM and Lua back the future math and scripting layers
+- LZ4, Zstd, xxHash, and libsodium support packages, caches, hashes, and security
+- libpng, libjpeg-turbo, TinyEXR, KTX, meshoptimizer, and optional Assimp support asset cooking
+- OpenAL Soft, Opus/opusfile, and libsndfile support runtime audio and source conversion
+- libzip supports ordinary ZIP interchange; `.cypkg` remains a Cypher format
+- curl supports HTTPS; GameNetworkingSockets remains an optional transport backend
+- shaderc and SPIRV-Cross support the offline shader pipeline
+- SQLite supports the editor asset database and derived-data indexes
+- Qt 6, FMOD, and the Vulkan SDK are externally installed SDKs
+
+The vcpkg registry revision is pinned by `builtin-baseline`. Optional packages are
+grouped as manifest features so a Common-only test build does not compile the
+future editor, asset pipeline, audio backend, and networking backend.
+
+FMOD is not a default CypherEngine dependency. Its normal license does not permit
+redistributing the SDK as part of a general game engine or tool set. Qt, OpenAL
+Soft, and libsndfile also require deliberate linkage and release-license review.
 
 ## Authoring and cooked formats
 
