@@ -41,7 +41,9 @@ constexpr usize CY_DYNAMIC_LIBRARY_ERROR_MAX = 512u;
 
 enum cy_dynamic_library_flags_t : flags32_t {
     CY_DYNAMIC_LIBRARY_NONE = 0u,
+    // POSIX loader policy. Accepted as a no-op on platforms without this choice.
     CY_DYNAMIC_LIBRARY_RESOLVE_LAZY = CYPHER_BIT32( 0 ),
+    // POSIX symbol visibility. Accepted as a no-op on platforms without this choice.
     CY_DYNAMIC_LIBRARY_GLOBAL_SYMBOLS = CYPHER_BIT32( 1 )
 };
 
