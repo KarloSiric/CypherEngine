@@ -36,6 +36,8 @@ Allocation tracking declarations.
 namespace cypher::common
 {
 
+// Metadata strings are borrowed. They must remain valid while the allocation is
+// tracked and while memory-debug callbacks consume the corresponding event.
 struct memory_allocation_record_t {
     void *pMemory;
     usize nByteCount;
