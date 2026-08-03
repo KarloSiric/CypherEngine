@@ -193,7 +193,9 @@ bool_t Cy_ThreadSetCurrentName( const char *pszName ) noexcept
     }
     return CY_FALSE;
 #elif CYPHER_PLATFORM_MACOS
-    return pthread_setname_np( pszName ) == 0;
+    char szName[CY_THREAD_NAME_CAPACITY] = {};
+    ThreadCopyName( szName, CYPHER_ARRAY_COUNT( szName ), pszName );
+    return pthread_setname_np( szName ) == 0;
 #elif CYPHER_PLATFORM_LINUX
     char szName[16] = {};
     for ( usize i = 0u; i + 1u < CYPHER_ARRAY_COUNT( szName ) && pszName[i] != '\0'; ++i ) {
