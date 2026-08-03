@@ -38,30 +38,32 @@ Current work is focused on the common runtime foundation: Tier0/Tier1 utilities,
 - OpenAL Soft
 - LZ4, Zstd, xxHash, libsodium
 - meshoptimizer, FreeType, HarfBuzz
-- Tracy later for profiling
+- Lua for scripting
+- Tracy for profiling
+- Qt 6 later for Mason
 
 ## Build
 
 ```bash
-cmake -S . -B build
-cmake --build build
-./build/bin/CypherEngine
+git submodule update --init --recursive
+cmake -P cmake/CypherBootstrapVcpkg.cmake
+cmake --preset debug
+cmake --build --preset debug
+./out/build/debug/bin/CypherEngine
 ```
 
 ## Tests
 
 ```bash
-cmake -S . -B build -DCYPHERENGINE_BUILD_TESTS=ON
-cmake --build build
-ctest --test-dir build --output-on-failure --no-tests=error
+ctest --preset debug
 ```
 
 ## Benchmarks
 
 ```bash
-cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DCYPHERENGINE_BUILD_BENCHMARKS=ON
-cmake --build build-bench --config Release
-./build-bench/bin/cypher_common_string_bench
+cmake --preset bench-release
+cmake --build --preset bench-release
+./out/build/bench-release/bin/cypher_common_string_bench
 ```
 
 ## Documentation
