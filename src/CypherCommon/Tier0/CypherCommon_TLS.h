@@ -55,7 +55,8 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TLSDestroySlot( tls_slot_t slot ) n
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TLSIsValidSlot(
     tls_slot_t slot ) noexcept;
 
-// Stores a pointer value for the current thread and slot.
+// Stores a pointer value for the current thread and slot. Replacing a non-null
+// value does not invoke the slot destructor; ownership remains with the caller.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TLSSetValue(
     tls_slot_t slot,
     void *pValue ) noexcept;
