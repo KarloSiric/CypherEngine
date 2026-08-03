@@ -82,7 +82,7 @@ TEST_CASE( "Environment reports bounded output truncation", "[CypherCommon][Tier
     REQUIRE( result.exists );
     REQUIRE( result.cchRequired == 8u );
     REQUIRE( result.isTruncated );
-    REQUIRE( szSmall[sizeof( szSmall ) - 1u] == '\0' );
+    REQUIRE( szSmall[0] == '\0' );
 
     REQUIRE( Cy_EnvironmentUnset( TEST_NAME ) );
 }
