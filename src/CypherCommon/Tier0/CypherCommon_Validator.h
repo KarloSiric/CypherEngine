@@ -58,6 +58,8 @@ using validator_callback_t = void ( * )(
     const validation_record_t &record,
     void *pUserData ) noexcept;
 
+// Callbacks may execute concurrently. Replacement does not drain calls already
+// in flight, so callback code and user data must outlive active producers.
 CYPHER_COMMON_API void Cy_ValidatorSetCallback(
     validator_callback_t pCallback,
     void *pUserData ) noexcept;
