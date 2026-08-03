@@ -103,7 +103,8 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadIsMainThread() noexcept;
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadSetCurrentName(
     const char *pszName ) noexcept;
 
-// Starts a joinable engine thread. The thread object must remain at a stable address.
+// Starts a joinable engine thread. The object must remain at a stable address and
+// must be joined before destruction or reuse.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadCreate(
     cy_thread_t *pThread,
     thread_proc_t pProc,
