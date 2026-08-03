@@ -35,7 +35,7 @@ namespace cypher::common
 constexpr usize CY_SYSTEMINFO_OS_NAME_MAX = 64u;
 constexpr usize CY_SYSTEMINFO_OS_VERSION_MAX = 128u;
 constexpr usize CY_SYSTEMINFO_CPU_BRAND_MAX = 128u;
-constexpr usize CY_SYSTEMINFO_PATH_MAX = 512u;
+constexpr usize CY_SYSTEMINFO_PATH_MAX = CY_PROCESS_PATH_MAX;
 constexpr usize CY_SYSTEMINFO_REPORT_MAX = 4096u;
 
 // Coarse memory pressure classification derived from available physical memory.
