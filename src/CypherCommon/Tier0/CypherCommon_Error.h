@@ -155,6 +155,12 @@ constexpr error_code_t CY_ERROR_LOCAL_MASK = 0x0000FFFFu;
 constexpr error_code_t CY_ERROR_DOMAIN_MASK = 0xFFFF0000u;
 constexpr error_code_t CY_ERROR_OK = 0u;
 
+// Returns true only for a registered subsystem domain.
+CYPHER_NODISCARD constexpr bool_t Cy_ErrorDomainIsValid( error_domain_t domain ) noexcept
+{
+    return static_cast<u16>( domain ) < static_cast<u16>( error_domain_t::COUNT );
+}
+
 // Packs one subsystem domain and one subsystem-local code into a stable value.
 CYPHER_NODISCARD constexpr error_code_t Cy_ErrorMake( error_domain_t domain, u16 localErrorCode ) noexcept
 {
@@ -181,10 +187,11 @@ CYPHER_NODISCARD constexpr u16 Cy_ErrorLocalCode( error_code_t errorCode ) noexc
     return static_cast<u16>( errorCode & CY_ERROR_LOCAL_MASK );
 }
 
-// A zero local code means success in every registered subsystem domain.
+// A zero local code means success only in a registered subsystem domain.
 CYPHER_NODISCARD constexpr bool_t Cy_ErrorSucceeded( error_code_t errorCode ) noexcept
 {
-    return Cy_ErrorLocalCode( errorCode ) == 0u;
+    return Cy_ErrorDomainIsValid( Cy_ErrorDomain( errorCode ) ) &&
+           Cy_ErrorLocalCode( errorCode ) == 0u;
 }
 
 CYPHER_NODISCARD constexpr bool_t Cy_ErrorFailed( error_code_t errorCode ) noexcept
