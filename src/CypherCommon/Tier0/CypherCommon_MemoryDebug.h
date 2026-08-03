@@ -58,6 +58,8 @@ using memory_debug_callback_t = void ( * )(
     void *pContext ) noexcept;
 
 // Installs a callback and opaque context. Passing nullptr disables callbacks.
+// Callbacks may run concurrently on producer threads. Replacing a callback does
+// not drain calls already in flight, so the caller owns context synchronization.
 CYPHER_COMMON_API void Cy_MemoryDebugSetCallback(
     memory_debug_callback_t pCallback,
     void *pContext = nullptr ) noexcept;
