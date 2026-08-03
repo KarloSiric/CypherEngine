@@ -52,8 +52,11 @@ TEST_CASE( "Timer conversion helpers use native frequency", "[CypherCommon][Tier
 
 TEST_CASE( "Timer_NowTicks returns monotonic nondecreasing ticks", "[CypherCommon][Tier0][Timer]" )
 {
-    const timer_tick_t nStartTicks = Cy_TimerNowTicks();
-    const timer_tick_t nEndTicks = Cy_TimerNowTicks();
+    timer_tick_t nStartTicks = 0u;
+    timer_tick_t nEndTicks = 0u;
+    REQUIRE_FALSE( Cy_TimerTryNowTicks( nullptr ) );
+    REQUIRE( Cy_TimerTryNowTicks( &nStartTicks ) );
+    REQUIRE( Cy_TimerTryNowTicks( &nEndTicks ) );
 
     REQUIRE( nEndTicks >= nStartTicks );
 }
