@@ -128,7 +128,7 @@ u32 Cy_StackTraceGetFrameCount( const stack_trace_t *pTrace ) noexcept
         return 0u;
     }
 
-    return pTrace->frame_count;
+    return ClampCaptureCount( pTrace->frame_count );
 }
 
 void *Cy_StackTraceGetFrameAddress( const stack_trace_t *pTrace, u32 iFrame ) noexcept
