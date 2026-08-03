@@ -56,6 +56,12 @@ CYPHER_COMMON_API void Cy_TimerShutdown() noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TimerIsInitialized() noexcept;
 CYPHER_NODISCARD CYPHER_COMMON_API timer_frequency_t Cy_TimerGetFrequency() noexcept;
+
+// Samples process-relative monotonic ticks and reports native clock failure.
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TimerTryNowTicks(
+    timer_tick_t *pOutTicks ) noexcept;
+
+// Convenience form that returns zero if the native clock cannot be sampled.
 CYPHER_NODISCARD CYPHER_COMMON_API timer_tick_t Cy_TimerNowTicks() noexcept;
 
 // Returns end-start, or zero for a reversed interval.
