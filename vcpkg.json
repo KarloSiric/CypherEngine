@@ -1,20 +1,135 @@
 {
   "name": "cypherengine",
   "version-string": "0.1.0",
+  "description": "Pinned third-party dependency graph for CypherEngine runtime, tests, and tools.",
+  "builtin-baseline": "39344dff01c5a5a0134caf2624cdd492f05d30ea",
   "dependencies": [
-    "benchmark",
-    "catch2",
-    "freetype",
-    "harfbuzz",
-    "libjpeg-turbo",
-    "libpng",
-    "libsodium",
-    "lz4",
-    "meshoptimizer",
-    "openal-soft",
-    "sdl3",
-    "tracy",
-    "xxhash",
-    "zstd"
-  ]
+    "sdl3"
+  ],
+  "features": {
+    "archive-tools": {
+      "description": "ZIP import and export support for tools; CypherPak remains the runtime archive format.",
+      "dependencies": [
+        {
+          "name": "libzip",
+          "features": [
+            "zstd"
+          ]
+        }
+      ]
+    },
+    "asset-import-fallback": {
+      "description": "Broad tools-only model import fallback when focused importers are insufficient.",
+      "dependencies": [
+        "assimp"
+      ]
+    },
+    "audio": {
+      "description": "Runtime spatial audio, Opus streams and voice, and tools-side source audio decoding.",
+      "dependencies": [
+        "libsndfile",
+        "openal-soft",
+        "opus",
+        "opusfile"
+      ]
+    },
+    "benchmarks": {
+      "description": "Performance benchmark dependencies.",
+      "dependencies": [
+        "benchmark"
+      ]
+    },
+    "compression": {
+      "description": "Runtime and cooker compression plus fast non-cryptographic content hashing.",
+      "dependencies": [
+        "lz4",
+        "xxhash",
+        "zstd"
+      ]
+    },
+    "editor-support": {
+      "description": "Database and native-dialog support for non-Qt tools and editor services.",
+      "dependencies": [
+        "nativefiledialog-extended",
+        "sqlite3"
+      ]
+    },
+    "image-import": {
+      "description": "Tools-side import of PNG, JPEG, and EXR source images.",
+      "dependencies": [
+        "libjpeg-turbo",
+        "libpng",
+        "tinyexr"
+      ]
+    },
+    "math": {
+      "description": "GLM-backed implementation support for the future CypherMath library.",
+      "dependencies": [
+        "glm"
+      ]
+    },
+    "mesh-pipeline": {
+      "description": "Mesh optimization support; cgltf and MikkTSpace are pinned source dependencies.",
+      "dependencies": [
+        "meshoptimizer"
+      ]
+    },
+    "networking": {
+      "description": "HTTPS services and an optional GameNetworkingSockets transport backend.",
+      "dependencies": [
+        {
+          "name": "curl",
+          "default-features": false,
+          "features": [
+            "ssl"
+          ]
+        },
+        "gamenetworkingsockets"
+      ]
+    },
+    "profiling": {
+      "description": "Development profiling integration.",
+      "dependencies": [
+        "tracy"
+      ]
+    },
+    "scripting": {
+      "description": "Lua gameplay and tool scripting runtime.",
+      "dependencies": [
+        "lua"
+      ]
+    },
+    "security": {
+      "description": "Cryptographic authentication, signatures, hashing, and secure transport primitives.",
+      "dependencies": [
+        "libsodium"
+      ]
+    },
+    "shader-tools": {
+      "description": "Offline GLSL-to-SPIR-V compilation, validation, optimization, and reflection support.",
+      "dependencies": [
+        "shaderc",
+        "spirv-cross"
+      ]
+    },
+    "tests": {
+      "description": "Correctness test dependencies.",
+      "dependencies": [
+        "catch2"
+      ]
+    },
+    "text": {
+      "description": "Font rasterization and international text shaping.",
+      "dependencies": [
+        "freetype",
+        "harfbuzz"
+      ]
+    },
+    "texture-pipeline": {
+      "description": "KTX2 and Basis Universal texture processing for cooked Cypher textures.",
+      "dependencies": [
+        "ktx"
+      ]
+    }
+  }
 }
