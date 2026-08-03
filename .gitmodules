@@ -1,0 +1,13 @@
+[submodule "thirdparty/imgui"]
+	path = thirdparty/imgui
+	url = https://github.com/ocornut/imgui.git
+	branch = docking
+	shallow = true
+[submodule "thirdparty/cgltf"]
+	path = thirdparty/cgltf
+	url = https://github.com/jkuhlmann/cgltf.git
+	shallow = true
+[submodule "thirdparty/mikktspace"]
+	path = thirdparty/mikktspace
+	url = https://github.com/mmikk/MikkTSpace.git
+	shallow = true
