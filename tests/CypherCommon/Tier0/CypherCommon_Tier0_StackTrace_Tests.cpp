@@ -74,3 +74,19 @@ TEST_CASE( "Tier0 stack trace clamps output to fixed storage", "[CypherCommon][T
     REQUIRE( trace.frame_count <= CYPHER_STACK_TRACE_MAX_FRAMES );
     REQUIRE( Cy_StackTraceGetFrameAddress( &trace, CYPHER_STACK_TRACE_MAX_FRAMES ) == nullptr );
 }
+
+TEST_CASE( "Tier0 stack trace contains corrupted external frame counts", "[CypherCommon][Tier0][StackTrace]" )
+{
+    stack_trace_t trace{};
+    trace.frame_count = CY_U32_MAX;
+    trace.frames[CYPHER_STACK_TRACE_MAX_FRAMES - 1u].address =
+        reinterpret_cast<void *>( static_cast<uintptr>( 0x1000u ) );
+
+    REQUIRE( Cy_StackTraceGetFrameCount( &trace ) == CYPHER_STACK_TRACE_MAX_FRAMES );
+    REQUIRE( Cy_StackTraceGetFrameAddress(
+                 &trace,
+                 CYPHER_STACK_TRACE_MAX_FRAMES - 1u ) != nullptr );
+    REQUIRE( Cy_StackTraceGetFrameAddress(
+                 &trace,
+                 CYPHER_STACK_TRACE_MAX_FRAMES ) == nullptr );
+}
