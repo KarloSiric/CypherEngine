@@ -43,6 +43,8 @@ struct cy_environment_get_result_t {
 };
 
 // Reads a process environment value. cchRequired excludes the null terminator.
+// A size query uses a null/zero destination. If a supplied buffer is too small,
+// isTruncated is true and the destination is left as an empty string.
 CYPHER_NODISCARD CYPHER_COMMON_API cy_environment_get_result_t Cy_EnvironmentGet(
     const char *pszName,
     char *pszDst,
