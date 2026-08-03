@@ -18,6 +18,13 @@
 
 cmake_minimum_required(VERSION 3.20)
 
+# Meson-based dependencies must not mix Apple's archiver with a GNU ranlib
+# injected earlier in PATH by Homebrew or MacPorts.
+if (CMAKE_HOST_APPLE)
+    set(ENV{AR} "/usr/bin/ar")
+    set(ENV{RANLIB} "/usr/bin/ranlib")
+endif()
+
 project(CypherEngine
     VERSION 0.1.0
     DESCRIPTION "CypherEngine from-scratch C++20 3D engine inspired by idTech, GoldSrc, and early CryEngine"
@@ -40,6 +47,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CYPHERENGINE_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(CYPHERENGINE_SRC_DIR "${CYPHERENGINE_ROOT_DIR}/src")
 set(CYPHERENGINE_THIRDPARTY_DIR "${CYPHERENGINE_ROOT_DIR}/thirdparty")
+list(APPEND CMAKE_MODULE_PATH "${CYPHERENGINE_ROOT_DIR}/cmake")
 set(CYPHER_BUILD_BRANCH "local" CACHE STRING "Source branch recorded in build identity")
 set(CYPHER_BUILD_COMMIT "local" CACHE STRING "Source revision recorded in build identity")
 set(CYPHER_BUILD_NUMBER "0" CACHE STRING "CI/build number recorded in build identity")
@@ -87,49 +95,8 @@ set(CYPHERENGINE_INCLUDE_DIRS
     "${CYPHERENGINE_SRC_DIR}/rengine/math"
 )
 
-# Optional dependencies: only enabled when the corresponding files exist.
-set(CYPHERENGINE_LINK_LIBS "")
-if (CMAKE_DL_LIBS)
-    list(APPEND CYPHERENGINE_LINK_LIBS ${CMAKE_DL_LIBS})
-endif()
-
-if (EXISTS "${CYPHERENGINE_THIRDPARTY_DIR}/glad/src/gl.c")
-    message(STATUS "Found vendored glad")
-    add_library(glad STATIC "${CYPHERENGINE_THIRDPARTY_DIR}/glad/src/gl.c")
-    target_include_directories(glad PUBLIC "${CYPHERENGINE_THIRDPARTY_DIR}/glad/include")
-    list(APPEND CYPHERENGINE_LINK_LIBS glad)
-else()
-    message(STATUS "No vendored glad yet. Add thirdparty/glad before enabling modern OpenGL loading.")
-endif()
-
-if (EXISTS "${CYPHERENGINE_THIRDPARTY_DIR}/raylib/CMakeLists.txt")
-    message(STATUS "Found vendored raylib")
-    add_subdirectory(${CYPHERENGINE_THIRDPARTY_DIR}/raylib raylib_build)
-    list(APPEND CYPHERENGINE_LINK_LIBS raylib)
-elseif (EXISTS "${CYPHERENGINE_THIRDPARTY_DIR}/raylib/src")
-    message(STATUS "Found raylib tree but no CMakeLists.txt; skipping raylib add_subdirectory")
-else()
-    message(STATUS "No vendored raylib. CypherEngine currently uses SDL3/OpenGL directly.")
-endif()
-
-if (EXISTS "${CYPHERENGINE_THIRDPARTY_DIR}/flecs/include/flecs.h")
-    add_library(flecs INTERFACE)
-    target_include_directories(flecs INTERFACE "${CYPHERENGINE_THIRDPARTY_DIR}/flecs/include")
-    list(APPEND CYPHERENGINE_LINK_LIBS flecs)
-else()
-    message(STATUS "No vendored Flecs headers yet. Add thirdparty/flecs/include/flecs.h.")
-endif()
-
-if (EXISTS "${CYPHERENGINE_THIRDPARTY_DIR}/glm/glm/glm.hpp")
-    add_library(glm INTERFACE)
-    target_include_directories(glm INTERFACE "${CYPHERENGINE_THIRDPARTY_DIR}/glm")
-    list(APPEND CYPHERENGINE_LINK_LIBS glm)
-else()
-    message(STATUS "No vendored GLM headers yet. Add thirdparty/glm/glm/glm.hpp.")
-endif()
-
-find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3)
-list(APPEND CYPHERENGINE_LINK_LIBS SDL3::SDL3)
+include(CypherDependencies)
+cypher_configure_runtime_dependencies(CYPHERENGINE_LINK_LIBS)
 
 find_package(Threads REQUIRED)
 
@@ -176,6 +143,7 @@ set(CYPHERCOMMON_TIER0_SOURCES
 
 set(CYPHERCOMMON_TIER1_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_CharacterSet.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_String.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringView.cpp"
 )
@@ -241,7 +209,7 @@ option(CYPHERENGINE_BUILD_TESTS "Build CypherEngine test targets" OFF)
 
 if (CYPHERENGINE_BUILD_TESTS)
     enable_testing()
-    find_package(Catch2 CONFIG QUIET)
+    cypher_require_test_dependencies()
 
     add_executable(cypher_common_tier0_smoke
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_Smoke.cpp"
@@ -526,6 +494,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
+            cypher_common_tier1_characterset_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_CharacterSet_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_string_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_String_Tests.cpp"
             Cypher::CommonTier1
@@ -578,7 +551,7 @@ endif()
 option(CYPHERENGINE_BUILD_BENCHMARKS "Build CypherEngine benchmark targets" OFF)
 
 if (CYPHERENGINE_BUILD_BENCHMARKS)
-    find_package(benchmark CONFIG QUIET)
+    cypher_require_benchmark_dependencies()
 
     if (benchmark_FOUND)
         add_executable(cypher_perf_system_report
@@ -598,6 +571,11 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         cypher_add_common_benchmark(
             cypher_common_char_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_Char_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_characterset_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_CharacterSet_Bench.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
