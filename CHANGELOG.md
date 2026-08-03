@@ -24,6 +24,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 ## [Unreleased] - 2026-07-09
 
 ### Added
+- Added a project-local vcpkg bootstrap that reads and checks out the exact registry revision pinned by `vcpkg.json`.
+- Added feature-scoped dependency groups for tests, benchmarks, math, scripting, compression, security, text, images, textures, meshes, audio, archives, networking, profiling, shader tools, and editor support.
+- Added pinned Dear ImGui, cgltf, and MikkTSpace Git submodules alongside the existing generated GLAD source.
+- Added centralized CMake dependency targets and third-party acquisition, patching, external-SDK, provenance, and distribution policies.
+- Added a CI manifest job that validates every approved vcpkg feature without forcing all optional tool dependencies into normal runtime builds.
 - Added `docs/cyphercommon_architecture.md` to define CypherCommon as the shared public/common foundation and contract layer.
 - Documented the intended CypherCommon folder families for Tier0/Tier1/Tier2/Tier3, utility code, memory, text, color, IO, hashing, parsing, serialization, reflection, formats, jobs, assets, resources, scene/world/entity data, renderer/audio/physics/network contracts, GUI, tools, and editor contracts.
 - Added a function-pointer policy for C-style service tables, allocator interfaces, stream callbacks, backend dispatch, tool/plugin boundaries, command callbacks, and VM/native bridges.
@@ -33,10 +38,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - Added the authoring-versus-cooked format direction for `.cymap`, `.cyscene`, `.cytex_c`, `.cymesh_c`, `.cyanim_c`, `.cybsp_c`, `.cypkg`, and related Cypher data formats.
 
 ### Changed
+- Changed normal build presets to acquire only their required dependency features and added a `dependencies-all` integration preset.
+- Hardened macOS dependency builds against ambient Homebrew/MacPorts include paths and mixed Apple/GNU archive tools.
 - Shortened the README so it acts as a concise repository entry point instead of duplicating long-form architecture documentation.
 - Updated architecture documentation to make CypherCommon the explicit public/common contract layer rather than a vague future interface layer.
 - Updated project structure documentation to reflect the top-level `src/CypherCommon/` tree and the planned Common folder families.
 - Updated the toolchain plan with concrete library, format, and wrapping rules for engine runtime, asset tools, and the future Mason editor.
+
+### Verified
+- Verified the complete approved dependency graph and all vendored compiled targets on Apple Silicon macOS.
+- Verified the full project build with tests and benchmarks enabled and all 59 registered tests passing.
 
 ## [0.1.0] - 2026-07-04
 
