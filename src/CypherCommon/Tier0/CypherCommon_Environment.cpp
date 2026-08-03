@@ -193,13 +193,11 @@ cy_environment_get_result_t Cy_EnvironmentGet(
         result.exists = CY_TRUE;
         result.cchRequired = std::strlen( pszValue );
         if ( pszDst != nullptr && cchDst > 0u ) {
-            usize i = 0u;
-            while ( i + 1u < cchDst && pszValue[i] != '\0' ) {
-                pszDst[i] = pszValue[i];
-                ++i;
+            if ( result.cchRequired < cchDst ) {
+                std::memmove( pszDst, pszValue, result.cchRequired + 1u );
+            } else {
+                result.isTruncated = CY_TRUE;
             }
-            pszDst[i] = '\0';
-            result.isTruncated = i < result.cchRequired;
         }
 #endif
     } catch ( ... ) {
