@@ -277,9 +277,10 @@ bool_t Cy_RecursiveMutexTryLock( cy_recursive_mutex_t *pMutex ) noexcept
 
 bool_t Cy_RecursiveMutexUnlock( cy_recursive_mutex_t *pMutex ) noexcept
 {
+    const thread_id_t nCurrentThreadId = Cy_ThreadGetCurrentId();
     if ( !Cy_RecursiveMutexIsInitialized( pMutex ) ||
          pMutex->nOwnerThreadId.load( std::memory_order_acquire ) !=
-             Cy_ThreadGetCurrentId() ) {
+             nCurrentThreadId ) {
         return CY_FALSE;
     }
 
@@ -301,6 +302,10 @@ bool_t Cy_RecursiveMutexUnlock( cy_recursive_mutex_t *pMutex ) noexcept
     try {
         pMutex->native.unlock();
     } catch ( ... ) {
+        pMutex->nOwnerThreadId.store(
+            nCurrentThreadId,
+            std::memory_order_release );
+        pMutex->nRecursionDepth.store( nDepth, std::memory_order_release );
         return CY_FALSE;
     }
     return CY_TRUE;
