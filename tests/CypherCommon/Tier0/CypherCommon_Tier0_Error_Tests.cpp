@@ -37,16 +37,24 @@ TEST_CASE( "Errors pack domains and local codes into stable u32 values", "[Cyphe
     STATIC_REQUIRE( CY_ERROR_COMMON( ERR_TIMEOUT ) == Cy_ErrorMake( common_error_t::ERR_TIMEOUT ) );
 }
 
-TEST_CASE( "Errors treat zero local code as success for any domain", "[CypherCommon][Tier0][Error]" )
+TEST_CASE( "Errors require a registered domain and zero local code for success", "[CypherCommon][Tier0][Error]" )
 {
     const error_code_t commonOk = Cy_ErrorMake( error_domain_t::COMMON, 0u );
     const error_code_t renderOk = Cy_ErrorMake( error_domain_t::RENDER, 0u );
     const error_code_t renderFailed = Cy_ErrorMake( error_domain_t::RENDER, 1u );
+    const error_code_t countDomain = Cy_ErrorMake( error_domain_t::COUNT, 0u );
+    const error_code_t invalidDomain = Cy_ErrorMake( error_domain_t::INVALID, 0u );
 
+    STATIC_REQUIRE( Cy_ErrorDomainIsValid( error_domain_t::COMMON ) );
+    STATIC_REQUIRE( Cy_ErrorDomainIsValid( error_domain_t::REFLECTION ) );
+    STATIC_REQUIRE_FALSE( Cy_ErrorDomainIsValid( error_domain_t::COUNT ) );
+    STATIC_REQUIRE_FALSE( Cy_ErrorDomainIsValid( error_domain_t::INVALID ) );
     REQUIRE( Cy_ErrorSucceeded( commonOk ) );
     REQUIRE( Cy_ErrorSucceeded( renderOk ) );
     REQUIRE_FALSE( Cy_ErrorFailed( renderOk ) );
     REQUIRE( Cy_ErrorFailed( renderFailed ) );
+    REQUIRE( Cy_ErrorFailed( countDomain ) );
+    REQUIRE( Cy_ErrorFailed( invalidDomain ) );
 }
 
 TEST_CASE( "Errors expose common names and descriptions through the common table", "[CypherCommon][Tier0][Error]" )
