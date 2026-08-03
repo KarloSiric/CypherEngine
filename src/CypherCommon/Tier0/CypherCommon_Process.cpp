@@ -84,7 +84,8 @@ process_path_t Process_QueryExecutablePath() noexcept
         "/proc/self/exe",
         result.szPath,
         CY_PROCESS_PATH_MAX - 1u );
-    if ( cchWritten > 0 ) {
+    if ( cchWritten > 0 &&
+         static_cast<usize>( cchWritten ) < CY_PROCESS_PATH_MAX - 1u ) {
         result.szPath[static_cast<usize>( cchWritten )] = '\0';
     } else {
         result.szPath[0] = '\0';
