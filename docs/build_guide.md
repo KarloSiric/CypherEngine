@@ -20,21 +20,33 @@
 
 # Build Guide
 
-## Current build path
+## Prerequisites
 
-The repository currently builds through CMake.
+- Git
+- CMake 3.20 or newer
+- Ninja
+- a C++20 compiler
 
-`CypherEngine` currently builds as the `cypherengine` executable target.
+Large dependencies are acquired through a project-local, pinned vcpkg checkout.
+Small source integrations are Git submodules. Qt, FMOD, and the Vulkan SDK remain
+external and are not required by the current runtime build.
+
+## First checkout
 
 ```bash
-cmake -S . -B build
-cmake --build build
+git submodule update --init --recursive
+cmake -P cmake/CypherBootstrapVcpkg.cmake
 ```
 
-Current executable:
+The bootstrap revision comes from `vcpkg.json`. Sources and package builds remain
+under the ignored `.deps/` and `out/` directories.
+
+## Build
 
 ```bash
-./build/bin/cypherengine
+cmake --preset debug
+cmake --build --preset debug
+./out/build/debug/bin/CypherEngine
 ```
 
 ## Planned convenience layer
@@ -66,3 +78,23 @@ That means the eventual top-level build flow must account for:
 ## Current rule
 
 Use the simplest build path that supports the current milestone.
+
+## Tests and benchmarks
+
+```bash
+ctest --preset debug
+
+cmake --preset bench-release
+cmake --build --preset bench-release
+```
+
+The presets select only their required vcpkg feature groups. To resolve and
+install every approved optional dependency for integration work:
+
+```bash
+cmake --preset dependencies-all
+```
+
+Declaring or installing a package does not make it a runtime dependency. The
+owning subsystem must still provide a Cypher wrapper, tests, and an explicit CMake
+link relationship.
