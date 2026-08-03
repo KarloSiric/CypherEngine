@@ -200,19 +200,35 @@ timer_frequency_t Cy_TimerGetFrequency() noexcept
     return g_TimerState.nFrequency.load( std::memory_order_acquire );
 }
 
-timer_tick_t Cy_TimerNowTicks() noexcept
+bool_t Cy_TimerTryNowTicks( timer_tick_t *pOutTicks ) noexcept
 {
+    if ( pOutTicks == nullptr ) {
+        return CY_FALSE;
+    }
+    *pOutTicks = 0u;
+
     if ( !Timer_EnsureInitialized() ) {
-        return 0;
+        return CY_FALSE;
     }
 
     timer_tick_t nNativeTicks = 0u;
     if ( !Timer_QueryNativeTicks( nNativeTicks ) ) {
-        return 0u;
+        return CY_FALSE;
     }
     const timer_tick_t nBaseTicks = g_TimerState.nBaseTicks.load( std::memory_order_acquire );
+    if ( nNativeTicks < nBaseTicks ) {
+        return CY_FALSE;
+    }
 
-    return nNativeTicks >= nBaseTicks ? nNativeTicks - nBaseTicks : 0u;
+    *pOutTicks = nNativeTicks - nBaseTicks;
+    return CY_TRUE;
+}
+
+timer_tick_t Cy_TimerNowTicks() noexcept
+{
+    timer_tick_t nTicks = 0u;
+    static_cast<void>( Cy_TimerTryNowTicks( &nTicks ) );
+    return nTicks;
 }
 
 f64 Cy_TimerTicksToSeconds( timer_tick_t nTicks ) noexcept
@@ -277,7 +293,13 @@ bool_t Cy_TimerBegin( cy_timer_t *pTimer ) noexcept
         return CY_FALSE;
     }
 
-    pTimer->nStartTicks = Cy_TimerNowTicks();
+    timer_tick_t nStartTicks = 0u;
+    if ( !Cy_TimerTryNowTicks( &nStartTicks ) ) {
+        *pTimer = {};
+        return CY_FALSE;
+    }
+
+    pTimer->nStartTicks = nStartTicks;
     pTimer->nEndTicks = pTimer->nStartTicks;
     pTimer->isRunning = CY_TRUE;
     return CY_TRUE;
@@ -289,7 +311,12 @@ bool_t Cy_TimerEnd( cy_timer_t *pTimer ) noexcept
         return CY_FALSE;
     }
 
-    pTimer->nEndTicks = Cy_TimerNowTicks();
+    timer_tick_t nEndTicks = 0u;
+    if ( !Cy_TimerTryNowTicks( &nEndTicks ) ) {
+        return CY_FALSE;
+    }
+
+    pTimer->nEndTicks = nEndTicks;
     pTimer->isRunning = CY_FALSE;
     return CY_TRUE;
 }
@@ -305,8 +332,10 @@ timer_tick_t Cy_TimerGetTicks( const cy_timer_t *pTimer ) noexcept
         return 0;
     }
 
-    const timer_tick_t nEndTicks =
-        pTimer->isRunning ? Cy_TimerNowTicks() : pTimer->nEndTicks;
+    timer_tick_t nEndTicks = pTimer->nEndTicks;
+    if ( pTimer->isRunning && !Cy_TimerTryNowTicks( &nEndTicks ) ) {
+        return 0u;
+    }
     return Cy_TimerElapsedTicks( pTimer->nStartTicks, nEndTicks );
 }
 
