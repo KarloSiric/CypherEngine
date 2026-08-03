@@ -47,6 +47,9 @@ TEST_CASE( "DynamicLibrary validates lifecycle and records errors", "[CypherComm
     REQUIRE( Cy_DynamicLibraryInit( &library ) );
     REQUIRE_FALSE( Cy_DynamicLibraryIsLoaded( &library ) );
     REQUIRE_FALSE( Cy_DynamicLibraryLoad( &library, "" ) );
+    REQUIRE( Cy_DynamicLibraryGetLastError( &library )[0] != '\0' );
+    REQUIRE_FALSE( Cy_DynamicLibraryLoadEx( &library, SYSTEM_LIBRARY, CY_U32_MAX ) );
+    REQUIRE( Cy_DynamicLibraryGetLastError( &library )[0] != '\0' );
     REQUIRE_FALSE(
         Cy_DynamicLibraryLoad( &library, "/cypher/path/that/does/not/exist" ) );
     REQUIRE( Cy_DynamicLibraryGetLastError( &library )[0] != '\0' );
