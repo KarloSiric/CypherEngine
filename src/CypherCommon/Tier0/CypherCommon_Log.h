@@ -123,8 +123,9 @@ CYPHER_COMMON_API void Cy_LogWriteErrorAt(
     const char *pMessage,
     source_location_t location ) noexcept;
 
-// Installs the process-wide Tier0 sink. The caller owns user-data lifetime and
-// must keep it alive while any producer may still be inside the callback.
+// Installs the process-wide Tier0 sink. Callbacks may execute concurrently on
+// producer threads. Replacement does not drain calls already in flight, so the
+// caller must keep callback code and user data alive until producers quiesce.
 CYPHER_COMMON_API void Cy_LogSetCallback(
     log_callback_t pCallback,
     void *pUserData ) noexcept;
