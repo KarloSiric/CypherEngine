@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_StringPool.h
-//  Purpose: Declares CypherCommon Tier1 StringPool support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares allocator-backed stable string interning.
+//  Details: Interned addresses remain stable until the pool is cleared or destroyed.
+//           The pool resolves hash collisions by comparing complete string bytes.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,25 +21,57 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon String Pool
-
-Interned string pool declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Allocator.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
+enum string_pool_flags_t : flags32_t {
+    STRING_POOL_FLAG_NONE                    = 0u,
+    STRING_POOL_FLAG_CASE_INSENSITIVE_ASCII  = CYPHER_BIT32( 0 )
+};
+
+struct string_pool_desc_t {
+    const allocator_t *pAllocator{ nullptr };
+    usize nInitialBuckets{ 256u };
+    usize cbInitialBlock{ 16u * CY_KIB };
+    flags32_t flags{ STRING_POOL_FLAG_NONE };
+};
+
+struct string_pool_stats_t {
+    usize nStrings{ 0u };
+    usize cbStringData{ 0u };
+    usize cbReserved{ 0u };
+    usize nCollisions{ 0u };
+};
+
 struct string_pool_t;
 
-bool_t StringPool_Init( string_pool_t *pPool, void *pMemory, usize cbMemory );
-void StringPool_Shutdown( string_pool_t *pPool );
-const char *StringPool_Intern( string_pool_t *pPool, const char *pString );
-bool_t StringPool_Contains( const string_pool_t *pPool, const char *pString );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_pool_t *StringPool_Create( const string_pool_desc_t &desc ) noexcept;
+
+CYPHER_COMMON_API void StringPool_Destroy( string_pool_t *pPool ) noexcept;
+
+CYPHER_COMMON_API void StringPool_Clear( string_pool_t *pPool ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+const char *StringPool_Intern(
+    string_pool_t *pPool,
+    string_view_t text ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+const char *StringPool_Find(
+    const string_pool_t *pPool,
+    string_view_t text ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t StringPool_Contains(
+    const string_pool_t *pPool,
+    string_view_t text ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_pool_stats_t StringPool_Stats( const string_pool_t *pPool ) noexcept;
 
 } // namespace cypher::common
 
