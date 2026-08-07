@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_ExpressionEvaluator.h
-//  Purpose: Declares CypherCommon Tier1 ExpressionEvaluator support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares a bounded numeric expression evaluator.
+//  Details: Evaluation supports arithmetic, comparison, Boolean operators, variables,
+//           and injected functions without allocation or executable code generation.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,25 +21,52 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Expression Evaluator
-
-Small expression evaluator declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Lexer.h"
 
 namespace cypher::common
 {
 
-struct expression_result_t {
-    f64 value;
-    bool_t valid;
+enum class expression_status_t : u8 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    SYNTAX_ERROR,
+    UNKNOWN_IDENTIFIER,
+    UNKNOWN_FUNCTION,
+    INVALID_ARGUMENT_COUNT,
+    DIVIDE_BY_ZERO,
+    NUMERIC_OVERFLOW,
+    DEPTH_LIMIT
 };
 
-expression_result_t ExpressionEvaluator_Evaluate( const char *pExpression );
+using expression_resolve_variable_fn_t = bool_t ( * )(
+    string_view_t name,
+    f64 *pValueOut,
+    void *pUserData ) noexcept;
+
+using expression_call_function_fn_t = bool_t ( * )(
+    string_view_t name,
+    const f64 *pArguments,
+    usize nArgumentCount,
+    f64 *pValueOut,
+    void *pUserData ) noexcept;
+
+struct expression_context_t {
+    expression_resolve_variable_fn_t pfnResolveVariable{ nullptr };
+    expression_call_function_fn_t pfnCallFunction{ nullptr };
+    void *pUserData{ nullptr };
+    u32 nMaxDepth{ 64u };
+};
+
+struct expression_result_t {
+    expression_status_t status{ expression_status_t::OK };
+    f64 value{ 0.0 };
+    text_location_t errorLocation{};
+};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+expression_result_t ExpressionEvaluator_Evaluate(
+    string_view_t expression,
+    const expression_context_t &context = {} ) noexcept;
 
 } // namespace cypher::common
 
