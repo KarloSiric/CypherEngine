@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Hash.h
-//  Purpose: Declares CypherCommon Tier1 Hash support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares engine-default non-cryptographic hash helpers.
+//  Details: These hashes support tables, tokens, and deterministic identifiers. They
+//           must not be used for passwords, signatures, authentication, or untrusted DoS defense.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,23 +21,50 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Hash
-
-General hash declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_BinaryBlock.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
-hash32_t Hash32_Data( const void *pData, usize cbData, hash32_t seed );
-hash64_t Hash64_Data( const void *pData, usize cbData, hash64_t seed );
-hash32_t Hash32_String( const char *pString );
-hash64_t Hash64_String( const char *pString );
+constexpr hash32_t CY_HASH32_DEFAULT_SEED = 0x9E3779B9u;
+constexpr hash64_t CY_HASH64_DEFAULT_SEED = 0x9E3779B97F4A7C15ull;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash32_t Hash32_Data(
+    binary_block_t data,
+    hash32_t seed = CY_HASH32_DEFAULT_SEED ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash64_t Hash64_Data(
+    binary_block_t data,
+    hash64_t seed = CY_HASH64_DEFAULT_SEED ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash32_t Hash32_String(
+    string_view_t text,
+    hash32_t seed = CY_HASH32_DEFAULT_SEED ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash64_t Hash64_String(
+    string_view_t text,
+    hash64_t seed = CY_HASH64_DEFAULT_SEED ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash32_t Hash32_StringInsensitiveAscii(
+    string_view_t text,
+    hash32_t seed = CY_HASH32_DEFAULT_SEED ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash64_t Hash64_StringInsensitiveAscii(
+    string_view_t text,
+    hash64_t seed = CY_HASH64_DEFAULT_SEED ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash32_t Hash32_Combine( hash32_t left, hash32_t right ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash64_t Hash64_Combine( hash64_t left, hash64_t right ) noexcept;
 
 } // namespace cypher::common
 
