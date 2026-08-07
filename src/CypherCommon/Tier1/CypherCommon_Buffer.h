@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Buffer.h
-//  Purpose: Declares CypherCommon Tier1 Buffer support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares non-owning bounded writable byte buffers.
+//  Details: Buffer tracks used bytes inside caller storage and never reallocates.
+//           Failed writes leave existing bytes intact.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,29 +21,45 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Buffer
-
-Mutable byte buffer declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_BinaryBlock.h"
 
 namespace cypher::common
 {
 
 struct buffer_t {
-    byte *pData;
-    usize cbSize;
-    usize cbCapacity;
+    byte *pData{ nullptr };
+    usize cbSize{ 0u };
+    usize cbCapacity{ 0u };
 };
 
-void Buffer_Init( buffer_t *pBuffer, void *pMemory, usize cbCapacity );
-bool_t Buffer_Reserve( buffer_t *pBuffer, usize cbCapacity );
-bool_t Buffer_Append( buffer_t *pBuffer, const void *pData, usize cbData );
-void Buffer_Clear( buffer_t *pBuffer );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Buffer_Init( buffer_t *pBuffer, byte_span_t storage ) noexcept;
+
+CYPHER_COMMON_API void Buffer_Clear( buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Buffer_IsValid( const buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize Buffer_Remaining( const buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Buffer_Resize( buffer_t *pBuffer, usize cbSize ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Buffer_Append(
+    buffer_t *pBuffer,
+    const void *pData,
+    usize cbData ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Buffer_AppendZero( buffer_t *pBuffer, usize cbData ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+byte_span_t Buffer_WritableSpan( buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+binary_block_t Buffer_Block( const buffer_t *pBuffer ) noexcept;
 
 } // namespace cypher::common
 
