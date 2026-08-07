@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Diff.h
-//  Purpose: Declares CypherCommon Tier1 Diff support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares deterministic binary delta generation and application.
+//  Details: Diff data owns its encoded operations through an explicit blob. Applying
+//           a diff validates source size/hash and destination capacity before mutation.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,23 +21,53 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Diff
-
-Binary/text diff declaration surface.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Blob.h"
+#include "CypherCommon_ContentHash.h"
 
 namespace cypher::common
 {
 
-struct diff_result_t;
+enum class diff_status_t : u8 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    OUT_OF_MEMORY,
+    CORRUPT_DIFF,
+    SOURCE_MISMATCH,
+    OUTPUT_TOO_SMALL,
+    OUTPUT_OVERFLOW
+};
 
-bool_t Diff_Binary( const void *pOldData, usize cbOldData, const void *pNewData, usize cbNewData, diff_result_t *pOutDiff );
-bool_t Diff_Apply( const void *pOldData, usize cbOldData, const diff_result_t *pDiff, void *pDest, usize cbDest );
+struct binary_diff_t {
+    content_hash_t sourceHash{};
+    content_hash_t targetHash{};
+    usize cbSource{ 0u };
+    usize cbTarget{ 0u };
+    blob_t encodedOps{};
+};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Diff_Init(
+    binary_diff_t *pDiff,
+    const allocator_t *pAllocator ) noexcept;
+
+CYPHER_COMMON_API void Diff_Shutdown( binary_diff_t *pDiff ) noexcept;
+CYPHER_COMMON_API void Diff_Clear( binary_diff_t *pDiff ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+diff_status_t Diff_Generate(
+    binary_block_t source,
+    binary_block_t target,
+    binary_diff_t *pDiffOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+diff_status_t Diff_Apply(
+    binary_block_t source,
+    const binary_diff_t &diff,
+    byte_span_t dest,
+    usize *pcbWrittenOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize Diff_SerializedSize( const binary_diff_t &diff ) noexcept;
 
 } // namespace cypher::common
 
