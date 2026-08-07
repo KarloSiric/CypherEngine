@@ -19,6 +19,7 @@
 #include "CypherCommon_String.h"
 #include "CypherCommon_Char.h"
 
+
 namespace
 {
 
@@ -107,6 +108,7 @@ i32 Cy_strcmp( const char *pStringA, const char *pStringB ) noexcept
         }
 
         chA = static_cast<u8>( pA[1] );
+
         chB = static_cast<u8>( pB[1] );
         if ( chA != chB || chA == 0u ) {
             return CyCompareBytes( chA, chB );
