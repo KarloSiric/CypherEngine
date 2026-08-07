@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_HeapSort.h
-//  Purpose: Declares CypherCommon Tier1 HeapSort support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares deterministic in-place heap sorting and heap primitives.
+//  Details: HeapSort guarantees O(n log n) comparisons and constant extra storage,
+//           making it useful when introsort fallback or strict memory bounds matter.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,20 +21,30 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Heap Sort
-
-Heap sort declarations.
-================
-*/
-
 #include "CypherCommon_Sort.h"
 
 namespace cypher::common
 {
 
-void HeapSort_Sort( void *pData, usize count, usize cbElement, sort_compare_t compare, void *pUserData );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t HeapSort_Raw(
+    void *pData,
+    usize nCount,
+    usize cbElement,
+    sort_compare_fn_t pCompare,
+    void *pUserData ) noexcept;
+
+template <typename type_t, typename compare_t = less_t<type_t>>
+void Heap_Make( span_t<type_t> values, compare_t compare = {} ) noexcept;
+
+template <typename type_t, typename compare_t = less_t<type_t>>
+void Heap_Push( span_t<type_t> values, compare_t compare = {} ) noexcept;
+
+template <typename type_t, typename compare_t = less_t<type_t>>
+void Heap_Pop( span_t<type_t> values, compare_t compare = {} ) noexcept;
+
+template <typename type_t, typename compare_t = less_t<type_t>>
+void HeapSort_Sort( span_t<type_t> values, compare_t compare = {} ) noexcept;
 
 } // namespace cypher::common
 
