@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Sort.h
-//  Purpose: Declares CypherCommon Tier1 Sort support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares generic raw and typed sorting algorithms.
+//  Details: Unstable sorting is in-place and allocation-free. Stable sorting requires
+//           explicit scratch storage and reports when that storage is insufficient.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,23 +21,49 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Sort
-
-Sorting declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Functor.h"
+#include "CypherCommon_Span.h"
 
 namespace cypher::common
 {
 
-using sort_compare_t = i32 ( * )( const void *pA, const void *pB, void *pUserData );
+using sort_compare_fn_t = i32 ( * )(
+    const void *pLeft,
+    const void *pRight,
+    void *pUserData ) noexcept;
 
-void Sort_Quick( void *pData, usize count, usize cbElement, sort_compare_t compare, void *pUserData );
-void Sort_Insertion( void *pData, usize count, usize cbElement, sort_compare_t compare, void *pUserData );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Sort_UnstableRaw(
+    void *pData,
+    usize nCount,
+    usize cbElement,
+    sort_compare_fn_t pCompare,
+    void *pUserData ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Sort_StableRaw(
+    void *pData,
+    usize nCount,
+    usize cbElement,
+    sort_compare_fn_t pCompare,
+    void *pUserData,
+    byte_span_t scratch ) noexcept;
+
+template <typename type_t, typename compare_t = less_t<type_t>>
+void Sort_Unstable(
+    span_t<type_t> values,
+    compare_t compare = {} ) noexcept;
+
+template <typename type_t, typename compare_t = less_t<type_t>>
+CYPHER_NODISCARD bool_t Sort_Stable(
+    span_t<type_t> values,
+    compare_t compare,
+    byte_span_t scratch ) noexcept;
+
+template <typename type_t, typename compare_t = less_t<type_t>>
+CYPHER_NODISCARD bool_t Sort_IsOrdered(
+    span_t<const type_t> values,
+    compare_t compare = {} ) noexcept;
 
 } // namespace cypher::common
 
