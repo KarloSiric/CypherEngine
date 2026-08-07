@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_ArrayView.h
-//  Purpose: Declares CypherCommon Tier1 ArrayView support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares the read-only contiguous array-view compatibility API.
+//  Details: Array views alias const spans so Tier1 has one pointer/count invariant
+//           rather than two independent non-owning range implementations.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,27 +21,22 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Array View
-
-Read-only array view declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Span.h"
 
 namespace cypher::common
 {
 
 template <typename type_t>
-struct array_view_t {
-    const type_t *pData;
-    usize count;
-};
+using array_view_t = span_t<const type_t>;
 
 template <typename type_t>
-array_view_t<type_t> ArrayView_FromPointerCount( const type_t *pData, usize count );
+CYPHER_NODISCARD array_view_t<type_t> ArrayView_Make(
+    const type_t *pData,
+    usize nCount ) noexcept;
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD array_view_t<type_t> ArrayView_FromArray(
+    const type_t ( &values )[nExtent] ) noexcept;
 
 } // namespace cypher::common
 
