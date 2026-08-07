@@ -4,10 +4,10 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Localization.h
-//  Purpose: Declares CypherCommon Tier1 Localization support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares owned locale catalogs and deterministic string lookup.
+//  Details: Tier1 provides catalog storage and named substitution only. ID lookup is
+//           fast but collision-aware; key lookup performs exact key validation. Plural
+//           rules, collation, shaping, and grammar require a dedicated higher layer.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,35 +22,71 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Localization
-
-Text lookup declarations for game UI, tools and editor strings. The actual
-localization database can stay outside Common.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Allocator.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
-using loc_string_id_t = hash32_t;
+using localized_string_id_t = u64;
 
 struct localization_entry_t {
-    loc_string_id_t id;
-    const char *pKey;
-    const char *pText;
+    string_view_t key{};
+    string_view_t text{};
 };
 
-struct localization_table_t;
+struct localization_argument_t {
+    string_view_t name{};
+    string_view_t value{};
+};
 
-bool_t Localization_Init( localization_table_t *pTable, u32 maxEntries );
-void Localization_Shutdown( localization_table_t *pTable );
-bool_t Localization_AddString( localization_table_t *pTable, const char *pKey, const char *pText );
-const char *Localization_FindText( const localization_table_t *pTable, const char *pKey );
-const char *Localization_FindTextById( const localization_table_t *pTable, loc_string_id_t id );
+struct localization_catalog_desc_t {
+    const allocator_t *pAllocator{ nullptr };
+    string_view_t localeTag{};
+    usize nInitialEntries{ 1024u };
+};
+
+struct localization_catalog_t;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+localization_catalog_t *Localization_CreateCatalog(
+    const localization_catalog_desc_t &desc ) noexcept;
+
+CYPHER_COMMON_API void Localization_DestroyCatalog(
+    localization_catalog_t *pCatalog ) noexcept;
+
+CYPHER_COMMON_API void Localization_Clear(
+    localization_catalog_t *pCatalog ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+localized_string_id_t Localization_IdFromKey( string_view_t key ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Localization_Add(
+    localization_catalog_t *pCatalog,
+    string_view_t key,
+    string_view_t text ) noexcept;
+
+// Returns empty when an ID is missing or ambiguous because of a hash collision.
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_view_t Localization_Find(
+    const localization_catalog_t *pCatalog,
+    localized_string_id_t id ) noexcept;
+
+// Resolves by full key and therefore validates any hash collision in the ID index.
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_view_t Localization_FindByKey(
+    const localization_catalog_t *pCatalog,
+    string_view_t key ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize Localization_Format(
+    const localization_catalog_t *pCatalog,
+    localized_string_id_t id,
+    const localization_argument_t *pArguments,
+    usize nArgumentCount,
+    char *pDest,
+    usize cchDest ) noexcept;
 
 } // namespace cypher::common
 
