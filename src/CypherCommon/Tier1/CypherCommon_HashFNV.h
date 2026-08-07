@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_HashFNV.h
-//  Purpose: Declares CypherCommon Tier1 HashFNV support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares deterministic FNV-1a hashes and incremental state.
+//  Details: FNV is retained for format compatibility and simple compile/runtime IDs;
+//           it is not the preferred high-throughput hash for large asset data.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,23 +21,34 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon FNV Hash
-
-FNV hash declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_BinaryBlock.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
-hash32_t HashFNV1a32_Data( const void *pData, usize cbData );
-hash64_t HashFNV1a64_Data( const void *pData, usize cbData );
-hash32_t HashFNV1a32_String( const char *pString );
-hash64_t HashFNV1a64_String( const char *pString );
+constexpr hash32_t CY_FNV1A32_OFFSET = 2166136261u;
+constexpr hash32_t CY_FNV1A32_PRIME = 16777619u;
+constexpr hash64_t CY_FNV1A64_OFFSET = 14695981039346656037ull;
+constexpr hash64_t CY_FNV1A64_PRIME = 1099511628211ull;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash32_t HashFNV1a32_Update( hash32_t state, binary_block_t data ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash64_t HashFNV1a64_Update( hash64_t state, binary_block_t data ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash32_t HashFNV1a32_Data( binary_block_t data ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash64_t HashFNV1a64_Data( binary_block_t data ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash32_t HashFNV1a32_String( string_view_t text ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash64_t HashFNV1a64_String( string_view_t text ) noexcept;
 
 } // namespace cypher::common
 
