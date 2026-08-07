@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Interface.h
-//  Purpose: Declares CypherCommon Tier1 Interface support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares instance-owned versioned interface factories.
+//  Details: InterfaceRegistry supports module boundaries without C++ virtual ABI
+//           coupling. Factories return opaque API tables whose versions are validated.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,23 +21,61 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Interface
-
-Named interface registry declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Allocator.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
-using interface_factory_t = void *( * )( const char *pName );
+struct interface_id_t {
+    string_view_t name{};
+    u32 nMajorVersion{ 0u };
+    u32 nMinorVersion{ 0u };
+};
 
-void Interface_RegisterFactory( interface_factory_t factory );
-void *Interface_Create( const char *pName );
+using interface_create_fn_t = void *( * )(
+    const interface_id_t &requested,
+    void *pUserData ) noexcept;
+
+using interface_release_fn_t = void ( * )(
+    void *pInterface,
+    void *pUserData ) noexcept;
+
+struct interface_factory_desc_t {
+    // Registry copies the name. Callbacks and pUserData remain borrowed.
+    interface_id_t provided{};
+    interface_create_fn_t pfnCreate{ nullptr };
+    interface_release_fn_t pfnRelease{ nullptr };
+    void *pUserData{ nullptr };
+};
+
+struct interface_registry_t;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+interface_registry_t *InterfaceRegistry_Create(
+    const allocator_t *pAllocator,
+    usize nInitialFactories = 32u ) noexcept;
+
+CYPHER_COMMON_API void InterfaceRegistry_Destroy(
+    interface_registry_t *pRegistry ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t InterfaceRegistry_Register(
+    interface_registry_t *pRegistry,
+    const interface_factory_desc_t &factory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t InterfaceRegistry_Unregister(
+    interface_registry_t *pRegistry,
+    string_view_t name,
+    u32 nMajorVersion ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+void *InterfaceRegistry_CreateInterface(
+    const interface_registry_t *pRegistry,
+    const interface_id_t &requested,
+    interface_release_fn_t *ppfnReleaseOut = nullptr,
+    void **ppReleaseUserDataOut = nullptr ) noexcept;
 
 } // namespace cypher::common
 
