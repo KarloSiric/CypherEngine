@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_KeyValueJson.h
-//  Purpose: Declares CypherCommon Tier1 KeyValueJson support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares strict JSON interchange for KeyValue documents.
+//  Details: JSON is an interchange adapter, not the native CYDF source format. Binary
+//           nodes are rejected unless explicit text encoding policy is selected later.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,21 +21,33 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon KeyValue JSON
-
-JSON conversion declarations for key/value data.
-================
-*/
-
-#include "CypherCommon_KeyValue.h"
+#include "CypherCommon_KeyValueParser.h"
+#include "CypherCommon_KeyValueWriter.h"
 
 namespace cypher::common
 {
 
-bool_t KeyValueJson_Parse( const char *pText, key_value_t **ppOutRoot );
-usize KeyValueJson_Write( const key_value_t *pRoot, char *pDest, usize cchDest );
+struct key_value_json_options_t {
+    bool_t bPretty{ CY_TRUE };
+    bool_t bRejectDuplicateKeys{ CY_TRUE };
+    bool_t bEscapeNonAscii{ CY_FALSE };
+    u8 nIndentSpaces{ 2u };
+    usize nMaxDepth{ 128u };
+    usize nMaxNodes{ 1u << 20u };
+};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+key_value_parse_result_t KeyValueJson_Parse(
+    string_view_t json,
+    const key_value_json_options_t &options,
+    key_value_document_t *pDocument ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+key_value_write_result_t KeyValueJson_Write(
+    const key_value_t *pRoot,
+    const key_value_json_options_t &options,
+    char *pDest,
+    usize cchDest ) noexcept;
 
 } // namespace cypher::common
 
