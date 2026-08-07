@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Span.h
-//  Purpose: Declares CypherCommon Tier1 Span support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares non-owning contiguous typed ranges.
+//  Details: Spans carry pointer and element count without allocation or ownership.
+//           They are the canonical Tier1 array-view contract.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,14 +21,6 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Span
-
-Non-owning contiguous array view declarations.
-================
-*/
-
 #include "CypherCommon_Tier0.h"
 
 namespace cypher::common
@@ -37,15 +28,77 @@ namespace cypher::common
 
 template <typename type_t>
 struct span_t {
-    type_t *pData;
-    usize count;
+    type_t *pData{ nullptr };
+    usize nCount{ 0u };
 };
 
-template <typename type_t>
-span_t<type_t> Span_FromPointerCount( type_t *pData, usize count );
+using byte_span_t = span_t<byte>;
+using const_byte_span_t = span_t<const byte>;
 
 template <typename type_t>
-bool_t Span_IsEmpty( span_t<type_t> span );
+CYPHER_NODISCARD span_t<type_t> Span_Make(
+    type_t *pData,
+    usize nCount ) noexcept;
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD span_t<type_t> Span_FromArray(
+    type_t ( &values )[nExtent] ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Span_IsValid( span_t<type_t> span ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Span_IsEmpty( span_t<type_t> span ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD usize Span_Count( span_t<type_t> span ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD usize Span_SizeBytes( span_t<type_t> span ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t *Span_Data( span_t<type_t> span ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t *Span_Begin( span_t<type_t> span ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t *Span_End( span_t<type_t> span ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t *Span_At(
+    span_t<type_t> span,
+    usize iIndex ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t *Span_Front( span_t<type_t> span ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t *Span_Back( span_t<type_t> span ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD span_t<type_t> Span_Subspan(
+    span_t<type_t> span,
+    usize iFirst,
+    usize nCount ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD span_t<type_t> Span_Prefix(
+    span_t<type_t> span,
+    usize nCount ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD span_t<type_t> Span_Suffix(
+    span_t<type_t> span,
+    usize nCount ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD const_byte_span_t Span_AsBytes(
+    span_t<type_t> span ) noexcept;
+
+template <typename type_t, enable_if_t<!std::is_const_v<type_t>, i32> = 0>
+CYPHER_NODISCARD byte_span_t Span_AsWritableBytes(
+    span_t<type_t> span ) noexcept;
 
 } // namespace cypher::common
 
