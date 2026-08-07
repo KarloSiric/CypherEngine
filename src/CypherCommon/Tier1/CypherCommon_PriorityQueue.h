@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_PriorityQueue.h
-//  Purpose: Declares CypherCommon Tier1 PriorityQueue support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares binary-heap priority queues.
+//  Details: PriorityQueue owns contiguous vector storage. The comparison policy
+//           determines which value appears at the top.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,19 +21,42 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Priority Queue
-
-Priority queue declarations.
-================
-*/
+#include "CypherCommon_Functor.h"
+#include "CypherCommon_Vector.h"
 
 namespace cypher::common
 {
 
-template <typename type_t>
-struct priority_queue_t;
+template <typename type_t, typename compare_t = less_t<type_t>>
+struct priority_queue_t {
+    vector_t<type_t> storage{};
+    compare_t compare{};
+};
+
+template <typename type_t, typename compare_t>
+CYPHER_NODISCARD bool_t PriorityQueue_Init(
+    priority_queue_t<type_t, compare_t> *pQueue,
+    const allocator_t *pAllocator,
+    usize nInitialCapacity = 0u,
+    compare_t compare = {} ) noexcept;
+
+template <typename type_t, typename compare_t>
+void PriorityQueue_Shutdown(
+    priority_queue_t<type_t, compare_t> *pQueue ) noexcept;
+
+template <typename type_t, typename compare_t>
+CYPHER_NODISCARD bool_t PriorityQueue_Push(
+    priority_queue_t<type_t, compare_t> *pQueue,
+    const type_t &value ) noexcept;
+
+template <typename type_t, typename compare_t>
+CYPHER_NODISCARD bool_t PriorityQueue_Pop(
+    priority_queue_t<type_t, compare_t> *pQueue,
+    type_t *pValueOut = nullptr ) noexcept;
+
+template <typename type_t, typename compare_t>
+CYPHER_NODISCARD type_t *PriorityQueue_Top(
+    priority_queue_t<type_t, compare_t> *pQueue ) noexcept;
 
 } // namespace cypher::common
 
