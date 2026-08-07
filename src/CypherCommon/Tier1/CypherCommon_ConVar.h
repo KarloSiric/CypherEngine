@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_ConVar.h
-//  Purpose: Declares CypherCommon Tier1 ConVar support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares typed console-variable values and descriptors.
+//  Details: Descriptors borrow static name/help/default text. Runtime string values
+//           are owned by CommandSystem, not by convar_value_t.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,64 +21,70 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon ConVar
-
-Console variable declarations used for runtime tuning, renderer flags, tools,
-debugging and persistent config values.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_StringParse.h"
+#include "CypherCommon_Variant.h"
 
 namespace cypher::common
 {
 
 enum class convar_type_t : u8 {
-    Bool = 0u,
-    I32,
-    U32,
-    F32,
-    String
+    BOOL = 0u,
+    I64,
+    U64,
+    F64,
+    STRING
 };
 
 enum convar_flags_t : flags32_t {
-    CONVAR_FLAG_NONE = 0u,
-    CONVAR_FLAG_ARCHIVE = CYPHER_BIT32( 0 ),
-    CONVAR_FLAG_READONLY = CYPHER_BIT32( 1 ),
-    CONVAR_FLAG_CHEAT = CYPHER_BIT32( 2 ),
-    CONVAR_FLAG_RENDERER = CYPHER_BIT32( 3 ),
-    CONVAR_FLAG_TOOL = CYPHER_BIT32( 4 )
+    CONVAR_FLAG_NONE          = 0u,
+    CONVAR_FLAG_ARCHIVE       = CYPHER_BIT32( 0 ),
+    CONVAR_FLAG_READ_ONLY     = CYPHER_BIT32( 1 ),
+    CONVAR_FLAG_CHEAT         = CYPHER_BIT32( 2 ),
+    CONVAR_FLAG_REPLICATED    = CYPHER_BIT32( 3 ),
+    CONVAR_FLAG_DEVELOPMENT   = CYPHER_BIT32( 4 ),
+    CONVAR_FLAG_HIDDEN        = CYPHER_BIT32( 5 ),
+    CONVAR_FLAG_NOTIFY        = CYPHER_BIT32( 6 )
 };
 
 struct convar_value_t {
-    convar_type_t type;
-    union {
-        bool_t boolValue;
-        i32 i32Value;
-        u32 u32Value;
-        f32 f32Value;
-        const char *pStringValue;
-    };
+    variant_t value{};
 };
 
-using convar_changed_fn_t = void ( * )( const char *pName, const convar_value_t &oldValue, const convar_value_t &newValue, void *pUserData );
+using convar_changed_fn_t = void ( * )(
+    string_view_t name,
+    const convar_value_t &oldValue,
+    const convar_value_t &newValue,
+    void *pUserData ) noexcept;
 
 struct convar_desc_t {
-    const char *pName;
-    const char *pHelpText;
-    convar_value_t defaultValue;
-    convar_value_t minValue;
-    convar_value_t maxValue;
-    flags32_t flags;
-    convar_changed_fn_t pChangedFn;
-    void *pUserData;
+    string_view_t name{};
+    string_view_t help{};
+    convar_type_t type{ convar_type_t::STRING };
+    string_view_t defaultValue{};
+    string_view_t minValue{};
+    string_view_t maxValue{};
+    flags32_t flags{ CONVAR_FLAG_NONE };
+    convar_changed_fn_t pfnChanged{ nullptr };
+    void *pUserData{ nullptr };
 };
 
-bool_t ConVar_IsValidName( const char *pName );
-bool_t ConVar_ValueFromString( convar_type_t type, const char *pText, convar_value_t *pOutValue );
-bool_t ConVar_ValueToString( const convar_value_t &value, char *pDest, usize cchDest );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ConVar_IsValidName( string_view_t name ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ConVar_ValidateDesc( const convar_desc_t &desc ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ConVar_ParseValue(
+    convar_type_t type,
+    string_view_t text,
+    convar_value_t *pValueOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize ConVar_FormatValue(
+    const convar_value_t &value,
+    char *pDest,
+    usize cchDest ) noexcept;
 
 } // namespace cypher::common
 
