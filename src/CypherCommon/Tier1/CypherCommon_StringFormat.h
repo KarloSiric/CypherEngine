@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_StringFormat.h
-//  Purpose: Declares CypherCommon Tier1 StringFormat support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares bounded formatted-text helpers.
+//  Details: Formatting always terminates valid output buffers and reports both the
+//           stored and required character counts.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,14 +21,6 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon String Format
-
-Safe formatted string helpers and readable number formatting.
-================
-*/
-
 #include "CypherCommon_Tier0.h"
 
 #include <cstdarg>
@@ -37,42 +28,69 @@ Safe formatted string helpers and readable number formatting.
 namespace cypher::common
 {
 
-/*
-================
-Printf-Style Formatting
-================
-*/
-// Writes formatted text into pDest and always terminates when cchDest > 0.
-i32 Cy_snprintf( char *pDest, usize cchDest, const char *pFormat, ... );
+enum class string_format_status_t : u8 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    FORMAT_ERROR,
+    OUTPUT_TRUNCATED
+};
 
-// va_list version of Cy_snprintf.
-i32 Cy_vsnprintf( char *pDest, usize cchDest, const char *pFormat, std::va_list args );
+struct string_format_result_t {
+    string_format_status_t status{ string_format_status_t::OK };
+    usize cchWritten{ 0u };
+    usize cchRequired{ 0u };
+};
 
-// Safe sprintf-style wrapper with destination capacity.
-i32 Cy_sprintf_safe( char *pDest, usize cchDest, const char *pFormat, ... );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_format_result_t StringFormat_VPrintf(
+    char *pDest,
+    usize cchDest,
+    CY_PRINTF_FORMAT_STRING const char *pFormat,
+    std::va_list args ) noexcept CY_PRINTF_LIKE( 3, 0 );
 
-// va_list version of Cy_sprintf_safe.
-i32 Cy_vsprintf_safe( char *pDest, usize cchDest, const char *pFormat, std::va_list args );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_format_result_t StringFormat_Printf(
+    char *pDest,
+    usize cchDest,
+    CY_PRINTF_FORMAT_STRING const char *pFormat,
+    ... ) noexcept CY_PRINTF_LIKE( 3, 4 );
 
-// Appends formatted text to pDest and always terminates when cchDest > 0.
-i32 Cy_sprintfcat_safe( char *pDest, usize cchDest, const char *pFormat, ... );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_format_result_t StringFormat_AppendV(
+    char *pDest,
+    usize cchDest,
+    usize *pcchLengthInOut,
+    CY_PRINTF_FORMAT_STRING const char *pFormat,
+    std::va_list args ) noexcept CY_PRINTF_LIKE( 4, 0 );
 
-// va_list version of Cy_sprintfcat_safe.
-i32 Cy_vsprintfcat_safe( char *pDest, usize cchDest, const char *pFormat, std::va_list args );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_format_result_t StringFormat_Append(
+    char *pDest,
+    usize cchDest,
+    usize *pcchLengthInOut,
+    CY_PRINTF_FORMAT_STRING const char *pFormat,
+    ... ) noexcept CY_PRINTF_LIKE( 4, 5 );
 
-/*
-================
-Readable Formatting
-================
-*/
-// Formats an integer with readable separators.
-usize Cy_pretifynum( i64 nValue, char *pDest, usize cchDest );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_format_result_t StringFormat_GroupedInteger(
+    i64 value,
+    char chSeparator,
+    char *pDest,
+    usize cchDest ) noexcept;
 
-// Formats a byte count as a readable memory string.
-usize Cy_pretifymem( u64 cbMemory, char *pDest, usize cchDest );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_format_result_t StringFormat_ByteCount(
+    u64 cbValue,
+    u32 nFractionDigits,
+    char *pDest,
+    usize cchDest ) noexcept;
 
-// Normalizes a floating-point string in place.
-void Cy_normalizefloatstring( char *pString );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_format_result_t StringFormat_Duration(
+    f64 flSeconds,
+    u32 nFractionDigits,
+    char *pDest,
+    usize cchDest ) noexcept;
 
 } // namespace cypher::common
 
