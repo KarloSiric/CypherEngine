@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_PasswordHash.h
-//  Purpose: Declares CypherCommon Tier1 PasswordHash support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares the libsodium-backed password hashing adapter.
+//  Details: Password hashing must use the audited third-party implementation. This
+//           API must never be replaced by engine hash, checksum, or custom crypto code.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,21 +21,48 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Password Hash
-
-Password hash declaration surface for future security integrations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
-bool_t PasswordHash_Create( const char *pPassword, char *pDest, usize cchDest );
-bool_t PasswordHash_Verify( const char *pPassword, const char *pHash );
+constexpr usize CY_PASSWORD_HASH_STRING_CAPACITY = 128u;
+
+enum class password_hash_profile_t : u8 {
+    INTERACTIVE = 0u,
+    MODERATE,
+    SENSITIVE
+};
+
+enum class password_hash_status_t : u8 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    BACKEND_UNAVAILABLE,
+    OUT_OF_MEMORY,
+    HASH_FAILED,
+    INVALID_HASH,
+    MISMATCH
+};
+
+struct password_hash_t {
+    char encoded[CY_PASSWORD_HASH_STRING_CAPACITY]{};
+};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+password_hash_status_t PasswordHash_Create(
+    string_view_t password,
+    password_hash_profile_t profile,
+    password_hash_t *pHashOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+password_hash_status_t PasswordHash_Verify(
+    string_view_t password,
+    const password_hash_t &hash ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t PasswordHash_NeedsRehash(
+    const password_hash_t &hash,
+    password_hash_profile_t profile ) noexcept;
 
 } // namespace cypher::common
 
