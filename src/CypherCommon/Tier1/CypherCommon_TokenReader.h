@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_TokenReader.h
-//  Purpose: Declares CypherCommon Tier1 TokenReader support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares lookahead and typed-token helpers above the Tier1 lexer.
+//  Details: TokenReader owns lexer state but not source text. It provides deterministic
+//           expect/consume behavior for CYDF, configs, commands, and tool formats.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,40 +21,114 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Token Reader
-
-Token stream reader declarations for config, tools and command parsing.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
-#include "CypherCommon_StringView.h"
+#include "CypherCommon_Lexer.h"
+#include "CypherCommon_StringParse.h"
 
 namespace cypher::common
 {
 
-enum class token_type_t : u32 {
-    End = 0u,
-    Identifier,
-    String,
-    Number,
-    Symbol
+constexpr usize CY_TOKEN_READER_LOOKAHEAD_CAPACITY = 4u;
+
+enum class token_reader_status_t : u8 {
+    OK = 0u,
+    END_OF_INPUT,
+    INVALID_ARGUMENT,
+    LEXER_ERROR,
+    UNEXPECTED_KIND,
+    UNEXPECTED_TEXT,
+    VALUE_PARSE_FAILED,
+    LOOKAHEAD_EXCEEDED
 };
 
-struct token_t {
-    token_type_t type;
-    string_view_t text;
-    u32 line;
-    u32 column;
+struct token_reader_error_t {
+    token_reader_status_t status{ token_reader_status_t::OK };
+    lexer_status_t lexerStatus{ lexer_status_t::OK };
+    string_parse_status_t parseStatus{ string_parse_status_t::OK };
+    token_kind_t expectedKind{ token_kind_t::END_OF_INPUT };
+    token_t actual{};
 };
 
-struct token_reader_t;
+struct token_reader_t {
+    lexer_t lexer{};
+    token_t lookahead[CY_TOKEN_READER_LOOKAHEAD_CAPACITY]{};
+    usize nLookahead{ 0u };
+    token_reader_error_t error{};
+};
 
-void TokenReader_Init( token_reader_t *pReader, const char *pText );
-bool_t TokenReader_Read( token_reader_t *pReader, token_t *pOutToken );
-bool_t TokenReader_Peek( token_reader_t *pReader, token_t *pOutToken );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t TokenReader_Init(
+    token_reader_t *pReader,
+    string_view_t source,
+    const lexer_rules_t &rules ) noexcept;
+
+CYPHER_COMMON_API void TokenReader_Reset( token_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+token_reader_status_t TokenReader_Peek(
+    token_reader_t *pReader,
+    usize iLookahead,
+    token_t *pTokenOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+token_reader_status_t TokenReader_Read(
+    token_reader_t *pReader,
+    token_t *pTokenOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t TokenReader_ConsumeKind(
+    token_reader_t *pReader,
+    token_kind_t kind,
+    token_t *pTokenOut = nullptr ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t TokenReader_ConsumeText(
+    token_reader_t *pReader,
+    string_view_t text,
+    bool_t bCaseInsensitiveAscii,
+    token_t *pTokenOut = nullptr ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+token_reader_status_t TokenReader_ExpectKind(
+    token_reader_t *pReader,
+    token_kind_t kind,
+    token_t *pTokenOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+token_reader_status_t TokenReader_ExpectText(
+    token_reader_t *pReader,
+    string_view_t text,
+    bool_t bCaseInsensitiveAscii,
+    token_t *pTokenOut = nullptr ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+token_reader_status_t TokenReader_ReadU64(
+    token_reader_t *pReader,
+    const string_parse_options_t &options,
+    u64 *pValueOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+token_reader_status_t TokenReader_ReadI64(
+    token_reader_t *pReader,
+    const string_parse_options_t &options,
+    i64 *pValueOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+token_reader_status_t TokenReader_ReadF64(
+    token_reader_t *pReader,
+    flags32_t parseFlags,
+    f64 *pValueOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+token_reader_status_t TokenReader_ReadBool(
+    token_reader_t *pReader,
+    flags32_t parseFlags,
+    bool_t *pValueOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+const token_reader_error_t *TokenReader_LastError(
+    const token_reader_t *pReader ) noexcept;
+
+CYPHER_COMMON_API void TokenReader_ClearError( token_reader_t *pReader ) noexcept;
 
 } // namespace cypher::common
 
