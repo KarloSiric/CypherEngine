@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_BinaryBlock.h
-//  Purpose: Declares CypherCommon Tier1 BinaryBlock support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares immutable borrowed binary blocks.
+//  Details: BinaryBlock is a semantic read-only byte view used by resources, hashes,
+//           packets, and serialized records. It owns no storage.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,27 +21,38 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Binary Block
-
-Owned or referenced binary blob declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Span.h"
 
 namespace cypher::common
 {
 
 struct binary_block_t {
-    void *pData;
-    usize cbSize;
+    const byte *pData{ nullptr };
+    usize cbSize{ 0u };
 };
 
-void BinaryBlock_Clear( binary_block_t *pBlock );
+CYPHER_NODISCARD CYPHER_COMMON_API
+binary_block_t BinaryBlock_FromData(
+    const void *pData,
+    usize cbSize ) noexcept;
 
-bool_t BinaryBlock_IsEmpty( const binary_block_t *pBlock );
+CYPHER_NODISCARD CYPHER_COMMON_API
+binary_block_t BinaryBlock_FromSpan( const_byte_span_t bytes ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BinaryBlock_IsValid( binary_block_t block ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BinaryBlock_IsEmpty( binary_block_t block ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+binary_block_t BinaryBlock_Subblock(
+    binary_block_t block,
+    usize iOffset,
+    usize cbSize ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+const_byte_span_t BinaryBlock_Span( binary_block_t block ) noexcept;
 
 } // namespace cypher::common
 
