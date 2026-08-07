@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_CompressionLZ.h
-//  Purpose: Declares CypherCommon Tier1 CompressionLZ support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares the internal deterministic Cypher LZ codec.
+//  Details: This small codec exists for learning and format-controlled use. LZ4 or
+//           Zstd should remain the default for production package and streaming data.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,22 +21,23 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Compression LZ
-
-Simple LZ compression declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Compression.h"
 
 namespace cypher::common
 {
 
-usize CompressionLZ_CompressBound( usize cbInput );
-bool_t CompressionLZ_Compress( const void *pInput, usize cbInput, void *pOutput, usize cbOutput, usize *pOutWritten );
-bool_t CompressionLZ_Decompress( const void *pInput, usize cbInput, void *pOutput, usize cbOutput, usize *pOutWritten );
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize CompressionLZ_CompressBound( usize cbInput ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+compression_result_t CompressionLZ_Compress(
+    binary_block_t input,
+    byte_span_t output ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+compression_result_t CompressionLZ_Decompress(
+    binary_block_t input,
+    byte_span_t output ) noexcept;
 
 } // namespace cypher::common
 
