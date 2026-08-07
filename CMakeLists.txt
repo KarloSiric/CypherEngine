@@ -145,6 +145,8 @@ set(CYPHERCOMMON_TIER1_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_CharacterSet.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_String.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringParse.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringSplit.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringView.cpp"
 )
 
@@ -508,6 +510,21 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_StringView_Tests.cpp"
             Cypher::CommonTier1
         )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_stringparse_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_StringParse_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_stringsplit_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_StringSplit_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_api_contract_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_ApiContract_Tests.cpp"
+            Cypher::CommonTier1
+        )
     else()
         message(STATUS "Catch2 not found. Skipping Catch2-based CypherCommon tests.")
     endif()
@@ -656,6 +673,16 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         cypher_add_common_benchmark(
             cypher_common_stringview_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_StringView_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_stringparse_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_StringParse_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_stringsplit_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_StringSplit_Bench.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
