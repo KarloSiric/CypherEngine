@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Search.h
-//  Purpose: Declares CypherCommon Tier1 Search support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares linear and ordered range-search algorithms.
+//  Details: Ordered searches require a range sorted under the same comparison policy.
+//           Missing indices return CY_INVALID_SIZE.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,22 +21,35 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Search
-
-Search helper declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
-#include "CypherCommon_Sort.h"
+#include "CypherCommon_Functor.h"
+#include "CypherCommon_Span.h"
 
 namespace cypher::common
 {
 
-void *Search_Linear( void *pData, usize count, usize cbElement, const void *pKey, sort_compare_t compare, void *pUserData );
-void *Search_Binary( void *pData, usize count, usize cbElement, const void *pKey, sort_compare_t compare, void *pUserData );
+template <typename type_t, typename equal_t = cypher::common::equal_t<type_t>>
+CYPHER_NODISCARD usize Search_Linear(
+    span_t<const type_t> values,
+    const type_t &target,
+    equal_t equal = {} ) noexcept;
+
+template <typename type_t, typename compare_t = less_t<type_t>>
+CYPHER_NODISCARD usize Search_LowerBound(
+    span_t<const type_t> values,
+    const type_t &target,
+    compare_t compare = {} ) noexcept;
+
+template <typename type_t, typename compare_t = less_t<type_t>>
+CYPHER_NODISCARD usize Search_UpperBound(
+    span_t<const type_t> values,
+    const type_t &target,
+    compare_t compare = {} ) noexcept;
+
+template <typename type_t, typename compare_t = less_t<type_t>>
+CYPHER_NODISCARD usize Search_Binary(
+    span_t<const type_t> values,
+    const type_t &target,
+    compare_t compare = {} ) noexcept;
 
 } // namespace cypher::common
 
