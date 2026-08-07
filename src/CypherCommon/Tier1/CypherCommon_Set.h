@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Set.h
-//  Purpose: Declares CypherCommon Tier1 Set support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares deterministic ordered unique-key sets.
+//  Details: Set uses the red-black tree backend. Use hash_set_t when ordering is
+//           unnecessary and average constant-time lookup is preferred.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,19 +21,47 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Set
-
-Ordered set declarations.
-================
-*/
+#include "CypherCommon_RBTree.h"
 
 namespace cypher::common
 {
 
-template <typename key_t>
-struct set_t;
+struct set_unit_t {
+};
+
+template <typename key_t, typename compare_t = less_t<key_t>>
+using set_t = rb_tree_t<key_t, set_unit_t, compare_t>;
+
+template <typename key_t, typename compare_t>
+CYPHER_NODISCARD bool_t Set_Init(
+    set_t<key_t, compare_t> *pSet,
+    const allocator_t *pAllocator,
+    compare_t compare = {} ) noexcept;
+
+template <typename key_t, typename compare_t>
+void Set_Shutdown( set_t<key_t, compare_t> *pSet ) noexcept;
+
+template <typename key_t, typename compare_t>
+void Set_Clear( set_t<key_t, compare_t> *pSet ) noexcept;
+
+template <typename key_t, typename compare_t>
+CYPHER_NODISCARD bool_t Set_Insert(
+    set_t<key_t, compare_t> *pSet,
+    const key_t &key ) noexcept;
+
+template <typename key_t, typename compare_t>
+CYPHER_NODISCARD bool_t Set_Contains(
+    const set_t<key_t, compare_t> *pSet,
+    const key_t &key ) noexcept;
+
+template <typename key_t, typename compare_t>
+CYPHER_NODISCARD bool_t Set_Erase(
+    set_t<key_t, compare_t> *pSet,
+    const key_t &key ) noexcept;
+
+template <typename key_t, typename compare_t>
+CYPHER_NODISCARD usize Set_Count(
+    const set_t<key_t, compare_t> *pSet ) noexcept;
 
 } // namespace cypher::common
 
