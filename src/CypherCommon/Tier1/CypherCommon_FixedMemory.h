@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_FixedMemory.h
-//  Purpose: Declares CypherCommon Tier1 FixedMemory support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares non-owning bounded memory regions.
+//  Details: FixedMemory centralizes pointer/range checks over caller-owned storage and
+//           performs no allocation or object construction.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,26 +21,43 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Fixed Memory
-
-Fixed buffer memory declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Span.h"
 
 namespace cypher::common
 {
 
 struct fixed_memory_t {
-    void *pMemory;
-    usize cbSize;
+    byte *pData{ nullptr };
+    usize cbSize{ 0u };
 };
 
-void FixedMemory_Init( fixed_memory_t *pMemory, void *pData, usize cbSize );
-bool_t FixedMemory_Contains( const fixed_memory_t *pMemory, const void *pAddress );
+CYPHER_NODISCARD CYPHER_COMMON_API
+fixed_memory_t FixedMemory_FromSpan( byte_span_t memory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t FixedMemory_IsValid( fixed_memory_t memory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t FixedMemory_ContainsAddress(
+    fixed_memory_t memory,
+    const void *pAddress ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t FixedMemory_ContainsRange(
+    fixed_memory_t memory,
+    const void *pAddress,
+    usize cbRange ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize FixedMemory_OffsetOf(
+    fixed_memory_t memory,
+    const void *pAddress ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+byte_span_t FixedMemory_Subspan(
+    fixed_memory_t memory,
+    usize iOffset,
+    usize cbSize ) noexcept;
 
 } // namespace cypher::common
 
