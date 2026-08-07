@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_BitWriter.h
-//  Purpose: Declares CypherCommon Tier1 BitWriter support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares bounds-checked bitstream writers.
+//  Details: BitWriter borrows fixed storage and commits no partial field when the
+//           requested write exceeds remaining capacity.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,28 +21,58 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Bit Writer
-
-Bit-level writer declarations for network and package data.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_BitReader.h"
 
 namespace cypher::common
 {
 
 struct bit_writer_t {
-    byte *pData;
-    usize cbCapacity;
-    usize bit_offset;
+    byte *pData{ nullptr };
+    usize nBitCapacity{ 0u };
+    usize iBit{ 0u };
+    usize nBitHighWater{ 0u };
+    bit_order_t bitOrder{ bit_order_t::LEAST_SIGNIFICANT_FIRST };
+    bit_cursor_status_t status{ bit_cursor_status_t::OK };
 };
 
-void BitWriter_Init( bit_writer_t *pWriter, void *pData, usize cbCapacity );
-bool_t BitWriter_WriteBits( bit_writer_t *pWriter, u64 value, u32 bit_count );
-bool_t BitWriter_WriteBool( bit_writer_t *pWriter, bool_t value );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitWriter_Init(
+    bit_writer_t *pWriter,
+    byte_span_t storage,
+    bit_order_t bitOrder = bit_order_t::LEAST_SIGNIFICANT_FIRST ) noexcept;
+
+CYPHER_COMMON_API void BitWriter_Reset( bit_writer_t *pWriter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BitWriter_Remaining( const bit_writer_t *pWriter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitWriter_Seek( bit_writer_t *pWriter, usize iBit ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitWriter_AlignToByte(
+    bit_writer_t *pWriter,
+    bool_t bFillValue = CY_FALSE ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitWriter_WriteBits(
+    bit_writer_t *pWriter,
+    u64 value,
+    u32 nBits ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitWriter_WriteSignedBits(
+    bit_writer_t *pWriter,
+    i64 value,
+    u32 nBits ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitWriter_WriteBool(
+    bit_writer_t *pWriter,
+    bool_t value ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+binary_block_t BitWriter_Block( const bit_writer_t *pWriter ) noexcept;
 
 } // namespace cypher::common
 
