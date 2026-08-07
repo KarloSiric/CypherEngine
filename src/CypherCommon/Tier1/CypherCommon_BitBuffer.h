@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_BitBuffer.h
-//  Purpose: Declares CypherCommon Tier1 BitBuffer support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares non-owning fixed-capacity bit storage.
+//  Details: BitBuffer tracks an exact logical bit count over caller-provided bytes.
+//           Bit index zero is the least-significant bit of byte zero.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,26 +21,42 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Bit Buffer
-
-Combined bit reader/writer declarations.
-================
-*/
-
-#include "CypherCommon_BitReader.h"
-#include "CypherCommon_BitWriter.h"
+#include "CypherCommon_BinaryBlock.h"
 
 namespace cypher::common
 {
 
 struct bit_buffer_t {
-    bit_reader_t reader;
-    bit_writer_t writer;
+    byte *pData{ nullptr };
+    usize nBitSize{ 0u };
+    usize nBitCapacity{ 0u };
 };
 
-void BitBuffer_Init( bit_buffer_t *pBuffer, void *pData, usize cbCapacity );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitBuffer_Init( bit_buffer_t *pBuffer, byte_span_t storage ) noexcept;
+
+CYPHER_COMMON_API void BitBuffer_Clear( bit_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitBuffer_Resize(
+    bit_buffer_t *pBuffer,
+    usize nBitSize,
+    bool_t bFillValue = CY_FALSE ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitBuffer_Get(
+    const bit_buffer_t *pBuffer,
+    usize iBit,
+    bool_t *pValueOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitBuffer_Set(
+    bit_buffer_t *pBuffer,
+    usize iBit,
+    bool_t value ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+binary_block_t BitBuffer_Block( const bit_buffer_t *pBuffer ) noexcept;
 
 } // namespace cypher::common
 
