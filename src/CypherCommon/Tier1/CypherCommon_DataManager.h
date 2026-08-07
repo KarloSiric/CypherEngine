@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_DataManager.h
-//  Purpose: Declares CypherCommon Tier1 DataManager support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares an instance-owned named pointer registry.
+//  Details: DataManager is a narrow integration utility, not a service locator. Entries
+//           state whether the registry owns destruction of each registered pointer.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,24 +21,54 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Data Manager
-
-Named data registry declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Allocator.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
+using data_destroy_fn_t = void ( * )(
+    void *pData,
+    void *pUserData ) noexcept;
+
+struct data_entry_desc_t {
+    string_view_t name{};
+    void *pData{ nullptr };
+    data_destroy_fn_t pfnDestroy{ nullptr };
+    void *pUserData{ nullptr };
+};
+
 struct data_manager_t;
 
-bool_t DataManager_Register( data_manager_t *pManager, const char *pName, void *pData );
-void *DataManager_Find( data_manager_t *pManager, const char *pName );
-bool_t DataManager_Remove( data_manager_t *pManager, const char *pName );
+CYPHER_NODISCARD CYPHER_COMMON_API
+data_manager_t *DataManager_Create(
+    const allocator_t *pAllocator,
+    usize nInitialCapacity = 64u ) noexcept;
+
+CYPHER_COMMON_API void DataManager_Destroy( data_manager_t *pManager ) noexcept;
+CYPHER_COMMON_API void DataManager_Clear( data_manager_t *pManager ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t DataManager_Register(
+    data_manager_t *pManager,
+    const data_entry_desc_t &entry ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+void *DataManager_Find(
+    const data_manager_t *pManager,
+    string_view_t name ) noexcept;
+
+// Removes an entry and invokes its destroy callback when one was registered.
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t DataManager_Remove(
+    data_manager_t *pManager,
+    string_view_t name ) noexcept;
+
+// Removes an entry without invoking its destroy callback and transfers its pointer.
+CYPHER_NODISCARD CYPHER_COMMON_API
+void *DataManager_Detach(
+    data_manager_t *pManager,
+    string_view_t name ) noexcept;
 
 } // namespace cypher::common
 
