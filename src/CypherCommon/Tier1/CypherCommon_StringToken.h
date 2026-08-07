@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_StringToken.h
-//  Purpose: Declares CypherCommon Tier1 StringToken support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares compact deterministic tokens derived from string bytes.
+//  Details: Tokens accelerate stable lookup but are not collision-proof identities or
+//           security hashes. Collision-sensitive systems must retain and compare text.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,26 +21,29 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon String Token
-
-Stable hashed string token declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
 struct string_token_t {
-    u32 hash;
+    hash64_t hash{ 0u };
+    u32 cchLength{ 0u };
 };
 
-string_token_t StringToken_FromString( const char *pString );
-bool_t StringToken_IsValid( string_token_t token );
-bool_t StringToken_Equals( string_token_t a, string_token_t b );
+constexpr string_token_t CY_STRING_TOKEN_INVALID{};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_token_t StringToken_FromView( string_view_t text ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_token_t StringToken_FromViewInsensitiveAscii( string_view_t text ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t StringToken_IsValid( string_token_t token ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t StringToken_Equals( string_token_t left, string_token_t right ) noexcept;
 
 } // namespace cypher::common
 
