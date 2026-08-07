@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Function.h
-//  Purpose: Declares CypherCommon Tier1 Function support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares allocator-aware owning type-erased callables.
+//  Details: Small callables use inline storage; larger callables use the supplied
+//           allocator. Runtime code remains exception-free and move-only by contract.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,19 +21,65 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Function
+#include "CypherCommon_Allocator.h"
 
-Small callable wrapper declarations.
-================
-*/
+#include <cstddef>
 
 namespace cypher::common
 {
 
-template <typename signature_t>
-class function_t;
+constexpr usize CY_FUNCTION_DEFAULT_INLINE_BYTES = 48u;
+
+template <typename signature_t, usize cbInline = CY_FUNCTION_DEFAULT_INLINE_BYTES>
+struct function_t;
+
+template <typename return_t, usize cbInline, typename... args_t>
+struct function_t<return_t( args_t... ), cbInline> {
+    using invoke_fn_t = return_t ( * )( void *pCallable, args_t... args ) noexcept;
+    using destroy_fn_t = void ( * )( void *pCallable ) noexcept;
+    using move_fn_t = void ( * )( void *pDest, void *pSource ) noexcept;
+
+    function_t() noexcept = default;
+    CYPHER_NO_COPY_MOVE( function_t );
+
+    alignas( std::max_align_t ) byte inlineStorage[cbInline > 0u ? cbInline : 1u]{};
+    void *pCallable{ nullptr };
+    invoke_fn_t pfnInvoke{ nullptr };
+    destroy_fn_t pfnDestroy{ nullptr };
+    move_fn_t pfnMove{ nullptr };
+    const allocator_t *pAllocator{ nullptr };
+    usize cbAllocation{ 0u };
+    usize alignment{ 0u };
+    bool_t bHeapAllocated{ CY_FALSE };
+};
+
+template <typename signature_t, usize cbInline>
+void Function_Init(
+    function_t<signature_t, cbInline> *pFunction,
+    const allocator_t *pAllocator ) noexcept;
+
+template <typename signature_t, usize cbInline>
+void Function_Reset(
+    function_t<signature_t, cbInline> *pFunction ) noexcept;
+
+template <typename signature_t, usize cbInline>
+CYPHER_NODISCARD bool_t Function_IsBound(
+    const function_t<signature_t, cbInline> &function ) noexcept;
+
+template <typename signature_t, usize cbInline, typename callable_t>
+CYPHER_NODISCARD bool_t Function_Bind(
+    function_t<signature_t, cbInline> *pFunction,
+    callable_t &&callable ) noexcept;
+
+template <typename signature_t, usize cbInline>
+void Function_Move(
+    function_t<signature_t, cbInline> *pDest,
+    function_t<signature_t, cbInline> *pSource ) noexcept;
+
+template <typename return_t, usize cbInline, typename... args_t>
+return_t Function_Invoke(
+    const function_t<return_t( args_t... ), cbInline> &function,
+    args_t... args ) noexcept;
 
 } // namespace cypher::common
 
