@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Stack.h
-//  Purpose: Declares CypherCommon Tier1 Stack support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares a last-in-first-out adapter over vector storage.
+//  Details: Stack owns elements through vector_t and preserves the same explicit
+//           allocator and failure behavior.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,27 +21,55 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Stack
-
-LIFO container declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Vector.h"
 
 namespace cypher::common
 {
 
 template <typename type_t>
-struct stack_t;
+struct stack_t {
+    vector_t<type_t> storage{};
+};
 
 template <typename type_t>
-bool_t Stack_Push( stack_t<type_t> *pStack, const type_t &value );
+CYPHER_NODISCARD bool_t Stack_Init(
+    stack_t<type_t> *pStack,
+    const allocator_t *pAllocator,
+    usize nInitialCapacity = 0u ) noexcept;
 
 template <typename type_t>
-bool_t Stack_Pop( stack_t<type_t> *pStack, type_t *pOutValue );
+void Stack_Shutdown( stack_t<type_t> *pStack ) noexcept;
+
+template <typename type_t>
+void Stack_Clear( stack_t<type_t> *pStack ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Stack_Push(
+    stack_t<type_t> *pStack,
+    const type_t &value ) noexcept;
+
+template <typename type_t, typename... args_t>
+CYPHER_NODISCARD type_t *Stack_Emplace(
+    stack_t<type_t> *pStack,
+    args_t &&... args ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Stack_Pop(
+    stack_t<type_t> *pStack,
+    type_t *pValueOut = nullptr ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t *Stack_Top( stack_t<type_t> *pStack ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD const type_t *Stack_Top(
+    const stack_t<type_t> *pStack ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD usize Stack_Count( const stack_t<type_t> *pStack ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Stack_IsEmpty( const stack_t<type_t> *pStack ) noexcept;
 
 } // namespace cypher::common
 
