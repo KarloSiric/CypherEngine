@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_NetAddress.h
-//  Purpose: Declares CypherCommon Tier1 NetAddress support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares portable resolved IPv4/IPv6 endpoint values.
+//  Details: Ports are stored in host byte order. Parsing and formatting do not perform
+//           DNS lookup; name resolution belongs to the network/platform layer.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,35 +21,60 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Net Address
-
-Network address parsing/storage declarations. Sockets live in CypherNetwork.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
-enum class net_address_type_t : u32 {
-    Invalid = 0u,
-    IPv4,
-    IPv6,
-    Loopback
+enum class net_address_family_t : u8 {
+    INVALID = 0u,
+    IPV4,
+    IPV6
 };
 
 struct net_address_t {
-    net_address_type_t type;
-    u8 bytes[16];
-    u16 port;
+    byte address[16]{};
+    u32 nScopeId{ 0u };
+    u16 nPort{ 0u };
+    net_address_family_t family{ net_address_family_t::INVALID };
 };
 
-bool_t NetAddress_Parse( const char *pString, net_address_t *pOutAddress );
-usize NetAddress_ToString( const net_address_t *pAddress, char *pDest, usize cchDest );
-bool_t NetAddress_Equals( const net_address_t *pAddressA, const net_address_t *pAddressB );
+CYPHER_NODISCARD CYPHER_COMMON_API
+net_address_t NetAddress_AnyIpv4( u16 nPort ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+net_address_t NetAddress_LoopbackIpv4( u16 nPort ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+net_address_t NetAddress_LoopbackIpv6( u16 nPort ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t NetAddress_Parse(
+    string_view_t text,
+    u16 nDefaultPort,
+    net_address_t *pAddressOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize NetAddress_Format(
+    net_address_t address,
+    bool_t bIncludePort,
+    char *pDest,
+    usize cchDest ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t NetAddress_IsValid( net_address_t address ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t NetAddress_IsLoopback( net_address_t address ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t NetAddress_IsMulticast( net_address_t address ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t NetAddress_Equals( net_address_t left, net_address_t right ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t NetAddress_HostEquals( net_address_t left, net_address_t right ) noexcept;
 
 } // namespace cypher::common
 
