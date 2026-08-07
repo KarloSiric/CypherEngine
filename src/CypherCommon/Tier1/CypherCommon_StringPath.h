@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_StringPath.h
-//  Purpose: Declares CypherCommon Tier1 StringPath support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares allocation-free lexical path manipulation.
+//  Details: These helpers inspect and compose path text only. They never access the
+//           filesystem, resolve mounts, follow links, or apply VFS security policy.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,98 +21,121 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon String Path
-
-Path-shaped string helpers. This is not the VFS policy layer.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
-/*
-================
-Slash Normalization
-================
-*/
-// Converts slash characters in place.
-void Cy_FixSlashes( char *pPath, char chSeparator );
+enum class path_style_t : u8 {
+    VIRTUAL = 0u,
+    POSIX,
+    WINDOWS,
+    NATIVE
+};
 
-// Collapses repeated slashes in place.
-void Cy_FixDoubleSlashes( char *pPath );
+enum path_normalize_flags_t : flags32_t {
+    PATH_NORMALIZE_FLAG_NONE                 = 0u,
+    PATH_NORMALIZE_FLAG_COLLAPSE_SEPARATORS  = CYPHER_BIT32( 0 ),
+    PATH_NORMALIZE_FLAG_RESOLVE_DOT          = CYPHER_BIT32( 1 ),
+    PATH_NORMALIZE_FLAG_RESOLVE_DOT_DOT      = CYPHER_BIT32( 2 ),
+    PATH_NORMALIZE_FLAG_LOWERCASE_ASCII       = CYPHER_BIT32( 3 ),
+    PATH_NORMALIZE_FLAG_KEEP_TRAILING_SLASH   = CYPHER_BIT32( 4 ),
+    PATH_NORMALIZE_FLAG_REJECT_ABSOLUTE       = CYPHER_BIT32( 5 ),
+    PATH_NORMALIZE_FLAG_REJECT_ABOVE_ROOT     = CYPHER_BIT32( 6 )
+};
 
-// Appends a trailing slash when space permits.
-usize Cy_AppendSlash( char *pPath, usize cchPath, char chSeparator );
+enum class path_status_t : u8 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    INVALID_PATH,
+    ABSOLUTE_PATH_REJECTED,
+    ABOVE_ROOT,
+    OUTPUT_TRUNCATED
+};
 
-// Removes a trailing slash in place.
-void Cy_StripTrailingSlash( char *pPath );
+struct path_write_result_t {
+    path_status_t status{ path_status_t::OK };
+    usize cchWritten{ 0u };
+    usize cchRequired{ 0u };
+    usize iError{ CY_STRING_VIEW_NPOS };
+};
 
-/*
-================
-Path Composition
-================
-*/
-// Joins pPath and pFileName into pDest.
-usize Cy_ComposeFileName( const char *pPath, const char *pFileName, char *pDest, usize cchDest );
+// Returns the separator used by a requested path style.
+CYPHER_NODISCARD CYPHER_COMMON_API
+char StringPath_Separator( path_style_t style ) noexcept;
 
-// Makes pPath absolute against pBasePath.
-usize Cy_MakeAbsolutePath( const char *pPath, const char *pBasePath, char *pDest, usize cchDest );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t StringPath_IsSeparator( char ch ) noexcept;
 
-// Makes pPath relative to pBasePath.
-usize Cy_MakeRelativePath( const char *pPath, const char *pBasePath, char *pDest, usize cchDest );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t StringPath_IsAbsolute( string_view_t path, path_style_t style ) noexcept;
 
-// Removes dot slash segments from pPath in place.
-bool_t Cy_RemoveDotSlashes( char *pPath );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t StringPath_HasRootName( string_view_t path, path_style_t style ) noexcept;
 
-/*
-================
-Path Queries
-================
-*/
-// Returns true when pPath is absolute for the active platform rules.
-bool_t Cy_IsAbsolutePath( const char *pPath );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t StringPath_HasTrailingSeparator( string_view_t path ) noexcept;
 
-// Returns the unqualified file name portion of pPath.
-const char *Cy_UnqualifiedFileName( const char *pPath );
+// Returned views borrow path storage and are not null terminated.
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_view_t StringPath_RootName( string_view_t path, path_style_t style ) noexcept;
 
-// Returns the extension without the dot, or nullptr when none exists.
-const char *Cy_GetFileExtension( const char *pPath );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_view_t StringPath_Parent( string_view_t path ) noexcept;
 
-// Returns true when pPath has pExtension.
-bool_t Cy_HasFileExtension( const char *pPath, const char *pExtension );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_view_t StringPath_FileName( string_view_t path ) noexcept;
 
-/*
-================
-Path Extraction / Mutation
-================
-*/
-// Extracts the directory portion into pDest.
-usize Cy_ExtractFilePath( const char *pPath, char *pDest, usize cchDest );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_view_t StringPath_Stem( string_view_t path ) noexcept;
 
-// Extracts the extension into pDest.
-usize Cy_ExtractFileExtension( const char *pPath, char *pDest, usize cchDest );
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_view_t StringPath_Extension( string_view_t path ) noexcept;
 
-// Extracts the base filename without extension into pDest.
-usize Cy_FileBase( const char *pPath, char *pDest, usize cchDest );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t StringPath_HasExtension(
+    string_view_t path,
+    string_view_t extension,
+    bool_t bCaseInsensitiveAscii ) noexcept;
 
-// Sets or replaces the extension.
-usize Cy_SetExtension( const char *pPath, const char *pExtension, char *pDest, usize cchDest );
+// All writers support count-only queries with pDest == nullptr and cchDest == 0.
+CYPHER_NODISCARD_MSG( "Inspect cchRequired to detect path truncation." )
+CYPHER_COMMON_API path_write_result_t StringPath_Normalize(
+    string_view_t path,
+    path_style_t style,
+    flags32_t flags,
+    char *pDest,
+    usize cchDest ) noexcept;
 
-// Applies pExtension only when pPath has no extension.
-usize Cy_DefaultExtension( const char *pPath, const char *pExtension, char *pDest, usize cchDest );
+CYPHER_NODISCARD_MSG( "Inspect cchRequired to detect path truncation." )
+CYPHER_COMMON_API path_write_result_t StringPath_Join(
+    string_view_t left,
+    string_view_t right,
+    path_style_t style,
+    char *pDest,
+    usize cchDest ) noexcept;
 
-// Strips the extension in place.
-void Cy_StripExtension( char *pPath );
+CYPHER_NODISCARD_MSG( "Inspect cchRequired to detect path truncation." )
+CYPHER_COMMON_API path_write_result_t StringPath_ReplaceExtension(
+    string_view_t path,
+    string_view_t extension,
+    char *pDest,
+    usize cchDest ) noexcept;
 
-// Strips the file name in place, leaving the directory.
-void Cy_StripFilename( char *pPath );
+CYPHER_NODISCARD_MSG( "Inspect cchRequired to detect path truncation." )
+CYPHER_COMMON_API path_write_result_t StringPath_RemoveExtension(
+    string_view_t path,
+    char *pDest,
+    usize cchDest ) noexcept;
 
-// Strips the last directory from pPath in place.
-void Cy_StripLastDir( char *pPath );
+CYPHER_NODISCARD_MSG( "Inspect cchRequired to detect path truncation." )
+CYPHER_COMMON_API path_write_result_t StringPath_MakeRelative(
+    string_view_t path,
+    string_view_t base,
+    path_style_t style,
+    bool_t bCaseInsensitiveAscii,
+    char *pDest,
+    usize cchDest ) noexcept;
 
 } // namespace cypher::common
 
