@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_ObjectPool.h
-//  Purpose: Declares CypherCommon Tier1 ObjectPool support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares typed object construction over a fixed-block pool.
+//  Details: ObjectPool owns storage and runs constructors/destructors explicitly.
+//           Destroying the pool destroys every still-live object.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,27 +21,45 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Object Pool
-
-Typed object pool declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_MemoryPool.h"
 
 namespace cypher::common
 {
 
 template <typename type_t>
-struct object_pool_t;
+struct object_pool_t {
+    object_pool_t() noexcept = default;
+    CYPHER_NO_COPY_MOVE( object_pool_t );
+
+    memory_pool_t memory{};
+    byte *pOccupied{ nullptr };
+    usize cbOccupied{ 0u };
+    usize nLiveCount{ 0u };
+};
 
 template <typename type_t>
-type_t *ObjectPool_Alloc( object_pool_t<type_t> *pPool );
+CYPHER_NODISCARD bool_t ObjectPool_Init(
+    object_pool_t<type_t> *pPool,
+    const allocator_t *pAllocator,
+    usize nObjectCount ) noexcept;
 
 template <typename type_t>
-void ObjectPool_Free( object_pool_t<type_t> *pPool, type_t *pObject );
+void ObjectPool_Shutdown( object_pool_t<type_t> *pPool ) noexcept;
+
+template <typename type_t, typename... args_t>
+CYPHER_NODISCARD type_t *ObjectPool_Create(
+    object_pool_t<type_t> *pPool,
+    args_t &&... args ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t ObjectPool_Destroy(
+    object_pool_t<type_t> *pPool,
+    type_t *pObject ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t ObjectPool_Owns(
+    const object_pool_t<type_t> *pPool,
+    const type_t *pObject ) noexcept;
 
 } // namespace cypher::common
 
