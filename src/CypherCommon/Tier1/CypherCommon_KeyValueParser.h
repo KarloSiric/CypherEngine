@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_KeyValueParser.h
-//  Purpose: Declares CypherCommon Tier1 KeyValueParser support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares bounded CYDF-style hierarchical text parsing.
+//  Details: Parsing is transactional: the destination document changes only after a
+//           complete successful parse. Limits bound hostile or malformed input cost.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,27 +21,59 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon KeyValue Parser
-
-Key/value parser declarations.
-================
-*/
-
 #include "CypherCommon_KeyValue.h"
+#include "CypherCommon_Lexer.h"
 
 namespace cypher::common
 {
 
-struct key_value_parse_result_t {
-    key_value_t *pRoot;
-    u32 error_line;
-    const char *pError;
+enum key_value_parse_flags_t : flags32_t {
+    KEY_VALUE_PARSE_FLAG_NONE                  = 0u,
+    KEY_VALUE_PARSE_FLAG_ALLOW_COMMENTS        = CYPHER_BIT32( 0 ),
+    KEY_VALUE_PARSE_FLAG_ALLOW_TRAILING_COMMA  = CYPHER_BIT32( 1 ),
+    KEY_VALUE_PARSE_FLAG_ALLOW_UNQUOTED_KEYS   = CYPHER_BIT32( 2 ),
+    KEY_VALUE_PARSE_FLAG_REJECT_DUPLICATE_KEYS = CYPHER_BIT32( 3 ),
+    KEY_VALUE_PARSE_FLAG_ALLOW_ROOT_VALUE      = CYPHER_BIT32( 4 )
 };
 
-bool_t KeyValue_ParseText( const char *pText, key_value_parse_result_t *pOutResult );
-bool_t KeyValue_ParseFileData( const void *pData, usize cbData, key_value_parse_result_t *pOutResult );
+enum class key_value_parse_status_t : u8 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    LEXER_ERROR,
+    SYNTAX_ERROR,
+    DUPLICATE_KEY,
+    DEPTH_LIMIT,
+    NODE_LIMIT,
+    STRING_LIMIT,
+    OUT_OF_MEMORY,
+    TRAILING_INPUT
+};
+
+struct key_value_parse_options_t {
+    flags32_t flags{ KEY_VALUE_PARSE_FLAG_ALLOW_COMMENTS |
+                     KEY_VALUE_PARSE_FLAG_ALLOW_TRAILING_COMMA |
+                     KEY_VALUE_PARSE_FLAG_ALLOW_UNQUOTED_KEYS };
+    usize nMaxDepth{ 128u };
+    usize nMaxNodes{ 1u << 20u };
+    usize cbMaxStringData{ 64u * CY_MIB };
+};
+
+struct key_value_parse_result_t {
+    key_value_parse_status_t status{ key_value_parse_status_t::OK };
+    text_location_t errorLocation{};
+    usize nNodesParsed{ 0u };
+    usize cbStringData{ 0u };
+};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+key_value_parse_result_t KeyValue_ParseText(
+    string_view_t text,
+    const key_value_parse_options_t &options,
+    key_value_document_t *pDocument ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const char *KeyValue_ParseStatusName(
+    key_value_parse_status_t status ) noexcept;
 
 } // namespace cypher::common
 
