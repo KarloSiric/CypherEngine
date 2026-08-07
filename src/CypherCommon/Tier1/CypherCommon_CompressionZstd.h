@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_CompressionZstd.h
-//  Purpose: Declares CypherCommon Tier1 CompressionZstd support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares the pinned Zstandard backend adapter.
+//  Details: Zstd targets package, cache, and distribution data requiring stronger
+//           compression ratios, configurable levels, checksums, and dictionaries.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,22 +21,28 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Compression Zstd
-
-Zstandard compression integration declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Compression.h"
 
 namespace cypher::common
 {
 
-usize CompressionZstd_CompressBound( usize cbInput );
-bool_t CompressionZstd_Compress( const void *pInput, usize cbInput, void *pOutput, usize cbOutput, usize *pOutWritten );
-bool_t CompressionZstd_Decompress( const void *pInput, usize cbInput, void *pOutput, usize cbOutput, usize *pOutWritten );
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize CompressionZstd_CompressBound( usize cbInput ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+compression_result_t CompressionZstd_Compress(
+    binary_block_t input,
+    byte_span_t output,
+    const compression_options_t &options ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+compression_result_t CompressionZstd_Decompress(
+    binary_block_t input,
+    byte_span_t output,
+    const compression_options_t &options ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize CompressionZstd_FrameContentSize( binary_block_t input ) noexcept;
 
 } // namespace cypher::common
 
