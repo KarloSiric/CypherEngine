@@ -4,10 +4,10 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_BlockMemory.h
-//  Purpose: Declares CypherCommon Tier1 BlockMemory support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares fixed-size free-list allocation over caller memory.
+//  Details: BlockMemory owns no backing storage. Every returned block has one fixed
+//           size/alignment and must be returned to its originating instance. Payload
+//           size and alignment must permit an internal free-list pointer per block.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,25 +22,48 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Block Memory
-
-Block-based memory declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_FixedMemory.h"
 
 namespace cypher::common
 {
 
-struct block_memory_t;
+struct block_memory_t {
+    fixed_memory_t memory{};
+    void *pFreeHead{ nullptr };
+    usize cbBlockStride{ 0u };
+    usize cbPayload{ 0u };
+    usize alignment{ 0u };
+    usize nBlockCount{ 0u };
+    usize nFreeCount{ 0u };
+};
 
-bool_t BlockMemory_Init( block_memory_t *pMemory, usize cbBlockSize, usize block_count );
-void BlockMemory_Shutdown( block_memory_t *pMemory );
-void *BlockMemory_AllocBlock( block_memory_t *pMemory );
-void BlockMemory_FreeBlock( block_memory_t *pMemory, void *pBlock );
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BlockMemory_RequiredBytes(
+    usize cbPayload,
+    usize alignment,
+    usize nBlockCount ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BlockMemory_Init(
+    block_memory_t *pMemory,
+    byte_span_t storage,
+    usize cbPayload,
+    usize alignment ) noexcept;
+
+CYPHER_COMMON_API void BlockMemory_Reset( block_memory_t *pMemory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+void *BlockMemory_Allocate( block_memory_t *pMemory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BlockMemory_Free(
+    block_memory_t *pMemory,
+    void *pBlock ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BlockMemory_Owns(
+    const block_memory_t *pMemory,
+    const void *pBlock ) noexcept;
 
 } // namespace cypher::common
 
