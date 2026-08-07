@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Pair.h
-//  Purpose: Declares CypherCommon Tier1 Pair support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares a lightweight heterogeneous pair value.
+//  Details: The aggregate stores exactly two values and introduces no allocation,
+//           ownership indirection, or hidden runtime behavior.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,22 +21,26 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Pair
-
-Small two-value aggregate declarations.
-================
-*/
+#include "CypherCommon_Tier0.h"
 
 namespace cypher::common
 {
 
 template <typename first_t, typename second_t>
 struct pair_t {
-    first_t first;
-    second_t second;
+    first_t first{};
+    second_t second{};
 };
+
+template <typename first_t, typename second_t>
+CYPHER_NODISCARD pair_t<first_t, second_t> Pair_Make(
+    const first_t &first,
+    const second_t &second ) noexcept;
+
+template <typename first_t, typename second_t>
+CYPHER_NODISCARD bool_t Pair_Equals(
+    const pair_t<first_t, second_t> &pairA,
+    const pair_t<first_t, second_t> &pairB ) noexcept;
 
 } // namespace cypher::common
 
