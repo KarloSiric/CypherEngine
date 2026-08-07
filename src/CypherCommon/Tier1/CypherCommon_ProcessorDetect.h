@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_ProcessorDetect.h
-//  Purpose: Declares CypherCommon Tier1 ProcessorDetect support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Preserves compatibility vocabulary for the Tier0 CPU detector.
+//  Details: Processor detection is a Tier0 platform service. This header deliberately
+//           defines no second detector, cache, initialization path, or feature source.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,26 +21,14 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Processor Detect
-
-Higher-level processor detection declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_CPUDetect.h"
 
 namespace cypher::common
 {
 
-struct processor_info_t {
-    char name[128];
-    u32 logical_thread_count;
-    u32 physical_core_count;
-};
-
-bool_t ProcessorDetect_GetInfo( processor_info_t *pOutInfo );
+using processor_info_t = cy_cpu_detect_info_t;
+using processor_vendor_t = cy_cpu_vendor_t;
+using processor_feature_flags_t = cy_cpu_feature_flags_t;
 
 } // namespace cypher::common
 
