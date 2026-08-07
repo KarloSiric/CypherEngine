@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_MemoryStream.h
-//  Purpose: Declares CypherCommon Tier1 MemoryStream support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares stream adapters over borrowed memory.
+//  Details: MemoryStream owns no bytes. Read-only and writable initialization expose
+//           only the capabilities supported by the supplied storage.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,30 +21,39 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Memory Stream
-
-Stream backed by memory declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_BinaryBlock.h"
+#include "CypherCommon_Stream.h"
 
 namespace cypher::common
 {
 
 struct memory_stream_t {
-    byte *pData;
-    usize cbSize;
-    usize cbCapacity;
-    usize offset;
+    const byte *pReadData{ nullptr };
+    byte *pWriteData{ nullptr };
+    usize cbSize{ 0u };
+    usize cbCapacity{ 0u };
+    usize iPosition{ 0u };
+    bool_t bWritable{ CY_FALSE };
 };
 
-void MemoryStream_Init( memory_stream_t *pStream, void *pData, usize cbCapacity );
-usize MemoryStream_Read( memory_stream_t *pStream, void *pDest, usize cbRead );
-usize MemoryStream_Write( memory_stream_t *pStream, const void *pSrc, usize cbWrite );
-bool_t MemoryStream_Seek( memory_stream_t *pStream, usize offset );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t MemoryStream_InitRead(
+    memory_stream_t *pMemoryStream,
+    binary_block_t source ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t MemoryStream_InitWrite(
+    memory_stream_t *pMemoryStream,
+    byte_span_t storage,
+    usize cbInitialSize = 0u ) noexcept;
+
+CYPHER_COMMON_API void MemoryStream_Reset( memory_stream_t *pMemoryStream ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+stream_t MemoryStream_AsStream( memory_stream_t *pMemoryStream ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+binary_block_t MemoryStream_Block( const memory_stream_t *pMemoryStream ) noexcept;
 
 } // namespace cypher::common
 
