@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_ResourceId.h
-//  Purpose: Declares CypherCommon Tier1 ResourceId support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares compact deterministic resource identifiers.
+//  Details: Resource IDs derive from normalized virtual paths plus resource type. The
+//           asset database must retain canonical text to detect theoretical hash collisions.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,43 +21,43 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Resource ID
-
-Stable resource identifier declarations for assets, renderer objects, sounds,
-materials, maps and editor references.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
-enum class resource_type_t : u16 {
-    Unknown = 0u,
-    Texture,
-    Material,
-    Mesh,
-    Shader,
-    Sound,
-    Map,
-    Script,
-    Entity,
-    Prefab
-};
+using resource_type_id_t = u32;
 
 struct resource_id_t {
-    hash64_t hash;
-    resource_type_t type;
+    u64 value{ 0u };
 };
 
-resource_id_t ResourceId_FromPath( resource_type_t type, const char *pVirtualPath );
-resource_id_t ResourceId_FromName( resource_type_t type, const char *pName );
-bool_t ResourceId_IsValid( resource_id_t id );
-bool_t ResourceId_Equals( resource_id_t a, resource_id_t b );
-void ResourceId_ToString( resource_id_t id, char *pDest, usize cchDest );
+constexpr resource_id_t CY_RESOURCE_ID_INVALID{};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+resource_type_id_t ResourceTypeId_FromName( string_view_t typeName ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+resource_id_t ResourceId_FromPath(
+    string_view_t normalizedVirtualPath,
+    resource_type_id_t type ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ResourceId_IsValid( resource_id_t id ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ResourceId_Equals( resource_id_t left, resource_id_t right ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize ResourceId_ToString(
+    resource_id_t id,
+    char *pDest,
+    usize cchDest ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ResourceId_FromString(
+    string_view_t text,
+    resource_id_t *pIdOut ) noexcept;
 
 } // namespace cypher::common
 
