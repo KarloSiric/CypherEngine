@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_UniqueId.h
-//  Purpose: Declares CypherCommon Tier1 UniqueId support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares portable 128-bit UUID values and conversion.
+//  Details: Random creation requires a secure platform random source. Parsing and
+//           formatting use canonical lowercase RFC 4122 text with hyphens.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,28 +21,48 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Unique ID
-
-Unique identifier declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Span.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
+constexpr usize CY_UNIQUE_ID_BYTE_COUNT = 16u;
+constexpr usize CY_UNIQUE_ID_STRING_LENGTH = 36u;
+
 struct unique_id_t {
-    u64 high;
-    u64 low;
+    byte bytes[CY_UNIQUE_ID_BYTE_COUNT]{};
 };
 
-unique_id_t UniqueId_Create();
-unique_id_t UniqueId_FromString( const char *pString );
-usize UniqueId_ToString( unique_id_t id, char *pDest, usize cchDest );
-bool_t UniqueId_Equals( unique_id_t a, unique_id_t b );
+constexpr unique_id_t CY_UNIQUE_ID_INVALID{};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t UniqueId_CreateRandom( unique_id_t *pIdOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t UniqueId_FromBytes(
+    const_byte_span_t bytes,
+    unique_id_t *pIdOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t UniqueId_FromString(
+    string_view_t text,
+    unique_id_t *pIdOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize UniqueId_ToString(
+    unique_id_t id,
+    char *pDest,
+    usize cchDest ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t UniqueId_IsValid( unique_id_t id ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t UniqueId_Equals( unique_id_t left, unique_id_t right ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+i32 UniqueId_Compare( unique_id_t left, unique_id_t right ) noexcept;
 
 } // namespace cypher::common
 
