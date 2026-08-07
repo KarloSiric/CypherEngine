@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_BitReader.h
-//  Purpose: Declares CypherCommon Tier1 BitReader support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares bounds-checked bitstream readers.
+//  Details: BitReader borrows immutable data and supports explicit least- or
+//           most-significant-bit-first packing within each field.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,28 +21,69 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Bit Reader
-
-Bit-level reader declarations for network and package data.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_BinaryBlock.h"
 
 namespace cypher::common
 {
 
-struct bit_reader_t {
-    const byte *pData;
-    usize cbSize;
-    usize bit_offset;
+enum class bit_order_t : u8 {
+    LEAST_SIGNIFICANT_FIRST = 0u,
+    MOST_SIGNIFICANT_FIRST
 };
 
-void BitReader_Init( bit_reader_t *pReader, const void *pData, usize cbSize );
-bool_t BitReader_ReadBits( bit_reader_t *pReader, u32 bit_count, u64 *pOutValue );
-bool_t BitReader_ReadBool( bit_reader_t *pReader, bool_t *pOutValue );
+enum class bit_cursor_status_t : u8 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    OUT_OF_BOUNDS,
+    INVALID_BIT_COUNT,
+    CURSOR_OVERFLOW
+};
+
+struct bit_reader_t {
+    const byte *pData{ nullptr };
+    usize nBitSize{ 0u };
+    usize iBit{ 0u };
+    bit_order_t bitOrder{ bit_order_t::LEAST_SIGNIFICANT_FIRST };
+    bit_cursor_status_t status{ bit_cursor_status_t::OK };
+};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitReader_Init(
+    bit_reader_t *pReader,
+    binary_block_t source,
+    usize nBitSize,
+    bit_order_t bitOrder = bit_order_t::LEAST_SIGNIFICANT_FIRST ) noexcept;
+
+CYPHER_COMMON_API void BitReader_Reset( bit_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BitReader_Remaining( const bit_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitReader_Seek( bit_reader_t *pReader, usize iBit ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitReader_Skip( bit_reader_t *pReader, usize nBits ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitReader_AlignToByte( bit_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitReader_ReadBits(
+    bit_reader_t *pReader,
+    u32 nBits,
+    u64 *pValueOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitReader_ReadSignedBits(
+    bit_reader_t *pReader,
+    u32 nBits,
+    i64 *pValueOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitReader_ReadBool(
+    bit_reader_t *pReader,
+    bool_t *pValueOut ) noexcept;
 
 } // namespace cypher::common
 
