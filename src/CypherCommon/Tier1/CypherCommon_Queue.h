@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Queue.h
-//  Purpose: Declares CypherCommon Tier1 Queue support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares an allocator-backed first-in-first-out circular queue.
+//  Details: Queue grows geometrically while preserving logical order. It provides no
+//           synchronization; concurrent producers require a dedicated queue type.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,27 +21,77 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Queue
-
-FIFO container declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Allocator.h"
 
 namespace cypher::common
 {
 
 template <typename type_t>
-struct queue_t;
+struct queue_t {
+    queue_t() noexcept = default;
+    CYPHER_NO_COPY_MOVE( queue_t );
+
+    type_t *pData{ nullptr };
+    usize nCapacity{ 0u };
+    usize nCount{ 0u };
+    usize iHead{ 0u };
+    const allocator_t *pAllocator{ nullptr };
+};
 
 template <typename type_t>
-bool_t Queue_Push( queue_t<type_t> *pQueue, const type_t &value );
+CYPHER_NODISCARD bool_t Queue_Init(
+    queue_t<type_t> *pQueue,
+    const allocator_t *pAllocator,
+    usize nInitialCapacity = 0u ) noexcept;
 
 template <typename type_t>
-bool_t Queue_Pop( queue_t<type_t> *pQueue, type_t *pOutValue );
+void Queue_Shutdown( queue_t<type_t> *pQueue ) noexcept;
+
+template <typename type_t>
+void Queue_Clear( queue_t<type_t> *pQueue ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Queue_Reserve(
+    queue_t<type_t> *pQueue,
+    usize nCapacity ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Queue_Push(
+    queue_t<type_t> *pQueue,
+    const type_t &value ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Queue_Pop(
+    queue_t<type_t> *pQueue,
+    type_t *pValueOut = nullptr ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t *Queue_Front( queue_t<type_t> *pQueue ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD const type_t *Queue_Front(
+    const queue_t<type_t> *pQueue ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t *Queue_Back( queue_t<type_t> *pQueue ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD const type_t *Queue_Back(
+    const queue_t<type_t> *pQueue ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD usize Queue_Count( const queue_t<type_t> *pQueue ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD usize Queue_Capacity( const queue_t<type_t> *pQueue ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Queue_IsEmpty( const queue_t<type_t> *pQueue ) noexcept;
+
+template <typename type_t>
+void Queue_Move(
+    queue_t<type_t> *pDest,
+    queue_t<type_t> *pSource ) noexcept;
 
 } // namespace cypher::common
 
