@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_ChecksumCRC32.h
-//  Purpose: Declares CypherCommon Tier1 ChecksumCRC32 support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares standard CRC-32 checksum helpers.
+//  Details: CRC detects accidental corruption in files and packets; it provides no
+//           authentication and must not be treated as a cryptographic integrity check.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,21 +21,21 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon CRC32
-
-CRC32 checksum declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_BinaryBlock.h"
 
 namespace cypher::common
 {
 
-crc32_t ChecksumCRC32_Data( const void *pData, usize cbData );
-crc32_t ChecksumCRC32_Update( crc32_t crc, const void *pData, usize cbData );
+constexpr crc32_t CY_CRC32_INITIAL = 0xFFFFFFFFu;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+crc32_t ChecksumCRC32_Update( crc32_t state, binary_block_t data ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+crc32_t ChecksumCRC32_Finalize( crc32_t state ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+crc32_t ChecksumCRC32_Data( binary_block_t data ) noexcept;
 
 } // namespace cypher::common
 
