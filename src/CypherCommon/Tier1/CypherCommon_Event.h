@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Event.h
-//  Purpose: Declares CypherCommon Tier1 Event support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares a synchronous application event bus.
+//  Details: This event bus is unrelated to the Tier0 thread-wait event. Emission is
+//           synchronous, callbacks run on the caller thread, and the bus is not thread-safe.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,36 +21,64 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Event
-
-Small event and callback declarations for tools, editor notifications and
-runtime message routing.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Allocator.h"
+#include "CypherCommon_BinaryBlock.h"
 
 namespace cypher::common
 {
 
-using event_id_t = u32;
+using event_id_t = u64;
+using event_subscription_t = handle32_t;
 
 struct event_payload_t {
-    const void *pData;
-    usize cbData;
+    // Borrowed bytes remain valid only for the synchronous EventBus_Emit call.
+    binary_block_t data{};
+    u64 nSenderId{ 0u };
 };
 
-using event_callback_t = void ( * )( event_id_t eventId, const event_payload_t &payload, void *pUserData );
+enum event_subscription_flags_t : flags32_t {
+    EVENT_SUBSCRIPTION_FLAG_NONE  = 0u,
+    EVENT_SUBSCRIPTION_FLAG_ONCE  = CYPHER_BIT32( 0 )
+};
+
+// Callback and user data must remain valid until unsubscribed or the bus is destroyed.
+using event_callback_t = void ( * )(
+    event_id_t eventId,
+    const event_payload_t &payload,
+    void *pUserData ) noexcept;
+
+struct event_bus_desc_t {
+    const allocator_t *pAllocator{ nullptr };
+    usize nInitialSubscriptions{ 128u };
+};
 
 struct event_bus_t;
 
-bool_t EventBus_Init( event_bus_t *pBus, u32 maxListeners );
-void EventBus_Shutdown( event_bus_t *pBus );
-bool_t EventBus_Subscribe( event_bus_t *pBus, event_id_t eventId, event_callback_t pCallback, void *pUserData );
-bool_t EventBus_Unsubscribe( event_bus_t *pBus, event_id_t eventId, event_callback_t pCallback, void *pUserData );
-bool_t EventBus_Emit( event_bus_t *pBus, event_id_t eventId, const event_payload_t &payload );
+CYPHER_NODISCARD CYPHER_COMMON_API
+event_bus_t *EventBus_Create( const event_bus_desc_t &desc ) noexcept;
+
+CYPHER_COMMON_API void EventBus_Destroy( event_bus_t *pBus ) noexcept;
+CYPHER_COMMON_API void EventBus_Clear( event_bus_t *pBus ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+event_subscription_t EventBus_Subscribe(
+    event_bus_t *pBus,
+    event_id_t eventId,
+    i32 nPriority,
+    flags32_t flags,
+    event_callback_t pfnCallback,
+    void *pUserData ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t EventBus_Unsubscribe(
+    event_bus_t *pBus,
+    event_subscription_t subscription ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize EventBus_Emit(
+    event_bus_t *pBus,
+    event_id_t eventId,
+    const event_payload_t &payload ) noexcept;
 
 } // namespace cypher::common
 
