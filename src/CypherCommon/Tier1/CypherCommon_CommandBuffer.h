@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_CommandBuffer.h
-//  Purpose: Declares CypherCommon Tier1 CommandBuffer support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares an allocator-backed FIFO buffer of command lines.
+//  Details: CommandBuffer stores text contiguously and returns borrowed line views.
+//           Returned views are invalidated by compaction, clear, or later growth.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,24 +21,46 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Command Buffer
-
-Queued text command declarations.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_TextBuffer.h"
 
 namespace cypher::common
 {
 
-struct command_buffer_t;
+struct command_buffer_t {
+    text_buffer_t text{};
+    usize iReadOffset{ 0u };
+    usize nCommandCount{ 0u };
+};
 
-bool_t CommandBuffer_AddText( command_buffer_t *pBuffer, const char *pText );
-bool_t CommandBuffer_GetNext( command_buffer_t *pBuffer, char *pDest, usize cchDest );
-void CommandBuffer_Clear( command_buffer_t *pBuffer );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t CommandBuffer_Init(
+    command_buffer_t *pBuffer,
+    const allocator_t *pAllocator,
+    usize cchInitialCapacity = 0u ) noexcept;
+
+CYPHER_COMMON_API void CommandBuffer_Shutdown(
+    command_buffer_t *pBuffer ) noexcept;
+
+CYPHER_COMMON_API void CommandBuffer_Clear(
+    command_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t CommandBuffer_Enqueue(
+    command_buffer_t *pBuffer,
+    string_view_t commandLine ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t CommandBuffer_Peek(
+    const command_buffer_t *pBuffer,
+    string_view_t *pCommandOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t CommandBuffer_Pop(
+    command_buffer_t *pBuffer,
+    string_view_t *pCommandOut ) noexcept;
+
+CYPHER_COMMON_API void CommandBuffer_Compact(
+    command_buffer_t *pBuffer ) noexcept;
 
 } // namespace cypher::common
 
