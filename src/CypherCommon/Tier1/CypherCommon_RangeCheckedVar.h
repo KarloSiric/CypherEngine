@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_RangeCheckedVar.h
-//  Purpose: Declares CypherCommon Tier1 RangeCheckedVar support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares values constrained to an inclusive range.
+//  Details: Assignment policy is explicit: reject preserves the old value, while clamp
+//           stores the nearest valid endpoint. No hidden wrapping is performed.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,19 +21,36 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Range Checked Var
-
-Range-checked variable declarations.
-================
-*/
+#include "CypherCommon_Range.h"
 
 namespace cypher::common
 {
 
 template <typename type_t>
-struct range_checked_var_t;
+struct range_checked_var_t {
+    type_t value{};
+    value_range_t<type_t> range{};
+};
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t RangeCheckedVar_Init(
+    range_checked_var_t<type_t> *pVariable,
+    type_t value,
+    value_range_t<type_t> range ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t RangeCheckedVar_TrySet(
+    range_checked_var_t<type_t> *pVariable,
+    type_t value ) noexcept;
+
+template <typename type_t>
+void RangeCheckedVar_SetClamped(
+    range_checked_var_t<type_t> *pVariable,
+    type_t value ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t RangeCheckedVar_Get(
+    const range_checked_var_t<type_t> &variable ) noexcept;
 
 } // namespace cypher::common
 
