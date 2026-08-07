@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Config.h
-//  Purpose: Declares CypherCommon Tier1 Config support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares command/ConVar configuration text import and export.
+//  Details: Config consumes caller-supplied text and emits through a writer callback.
+//           VFS reads/writes are intentionally owned by the calling subsystem.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,41 +21,52 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Config
-
-Config loading and saving declarations used by autoexec files, tools, editor
-preferences and command-system startup.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_CommandSystem.h"
 
 namespace cypher::common
 {
 
 enum config_flags_t : flags32_t {
-    CONFIG_FLAG_NONE = 0u,
-    CONFIG_FLAG_REQUIRED = CYPHER_BIT32( 0 ),
-    CONFIG_FLAG_ALLOW_COMMANDS = CYPHER_BIT32( 1 ),
-    CONFIG_FLAG_ALLOW_CVARS = CYPHER_BIT32( 2 )
+    CONFIG_FLAG_NONE                = 0u,
+    CONFIG_FLAG_ALLOW_COMMANDS      = CYPHER_BIT32( 0 ),
+    CONFIG_FLAG_ALLOW_CHEATS        = CYPHER_BIT32( 1 ),
+    CONFIG_FLAG_STOP_ON_ERROR       = CYPHER_BIT32( 2 ),
+    CONFIG_FLAG_ARCHIVED_ONLY       = CYPHER_BIT32( 3 )
 };
 
 struct config_source_t {
-    const char *pVirtualPath;
-    const char *pText;
-    usize cchText;
-    flags32_t flags;
+    string_view_t name{};
+    string_view_t text{};
+    flags32_t flags{ CONFIG_FLAG_ALLOW_COMMANDS };
 };
 
-struct config_writer_t;
-struct command_system_t;
+struct config_load_result_t {
+    error_code_t error{ CY_ERROR_OK };
+    usize nLinesRead{ 0u };
+    usize nCommandsExecuted{ 0u };
+    usize nErrors{ 0u };
+    usize iErrorByte{ CY_STRING_VIEW_NPOS };
+};
 
-bool_t Config_LoadSource( const config_source_t &source, command_system_t *pCommandSystem );
-bool_t Config_LoadFile( const char *pVirtualPath, flags32_t flags, command_system_t *pCommandSystem );
-bool_t Config_SaveFile( const char *pVirtualPath, const config_writer_t *pWriter );
-bool_t Config_WriteConVars( config_writer_t *pWriter, command_system_t *pCommandSystem );
+using config_write_fn_t = bool_t ( * )(
+    string_view_t text,
+    void *pUserData ) noexcept;
+
+struct config_writer_t {
+    config_write_fn_t pfnWrite{ nullptr };
+    void *pUserData{ nullptr };
+};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+config_load_result_t Config_Load(
+    const config_source_t &source,
+    command_system_t *pCommandSystem,
+    const command_context_t &context ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+error_code_t Config_WriteArchivedConVars(
+    const command_system_t *pCommandSystem,
+    const config_writer_t &writer ) noexcept;
 
 } // namespace cypher::common
 
