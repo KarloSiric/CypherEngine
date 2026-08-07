@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Functor.h
-//  Purpose: Declares CypherCommon Tier1 Functor support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares default comparison and hashing function objects.
+//  Details: Containers accept these stateless policies explicitly so projects can
+//           supply domain-aware ordering, equality, and hashing without virtual calls.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,25 +21,30 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Functor
-
-Functor utility declarations.
-================
-*/
+#include "CypherCommon_Tier0.h"
 
 namespace cypher::common
 {
 
 template <typename type_t>
-struct less_t;
+struct less_t {
+    CYPHER_NODISCARD bool_t operator()(
+        const type_t &left,
+        const type_t &right ) const noexcept;
+};
 
 template <typename type_t>
-struct equal_t;
+struct equal_t {
+    CYPHER_NODISCARD bool_t operator()(
+        const type_t &left,
+        const type_t &right ) const noexcept;
+};
 
 template <typename type_t>
-struct hash_functor_t;
+struct hash_functor_t {
+    CYPHER_NODISCARD hash64_t operator()(
+        const type_t &value ) const noexcept;
+};
 
 } // namespace cypher::common
 
