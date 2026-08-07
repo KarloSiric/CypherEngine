@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Color.h
-//  Purpose: Declares CypherCommon Tier1 Color support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares packed and linear floating-point color primitives.
+//  Details: color32_t stores straight-alpha sRGB bytes; colorf_t stores straight-alpha
+//           linear floats unless a function explicitly states otherwise.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,35 +21,43 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Color
-
-Color value declarations shared by tools, UI and renderer-facing data.
-================
-*/
-
 #include "CypherCommon_Tier0.h"
 
 namespace cypher::common
 {
 
 struct color32_t {
-    u8 r;
-    u8 g;
-    u8 b;
-    u8 a;
+    u8 r{ 0u };
+    u8 g{ 0u };
+    u8 b{ 0u };
+    u8 a{ 255u };
 };
 
 struct colorf_t {
-    f32 r;
-    f32 g;
-    f32 b;
-    f32 a;
+    f32 r{ 0.0f };
+    f32 g{ 0.0f };
+    f32 b{ 0.0f };
+    f32 a{ 1.0f };
 };
 
-color32_t Color32_FromRGBA( u8 r, u8 g, u8 b, u8 a );
-colorf_t ColorF_FromRGBA( f32 r, f32 g, f32 b, f32 a );
+constexpr color32_t CY_COLOR32_BLACK{ 0u, 0u, 0u, 255u };
+constexpr color32_t CY_COLOR32_WHITE{ 255u, 255u, 255u, 255u };
+constexpr color32_t CY_COLOR32_TRANSPARENT{ 0u, 0u, 0u, 0u };
+
+CYPHER_NODISCARD CYPHER_COMMON_API color32_t Color32_RGBA( u8 r, u8 g, u8 b, u8 a = 255u ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API colorf_t ColorF_RGBA( f32 r, f32 g, f32 b, f32 a = 1.0f ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API colorf_t Color_SrgbToLinear( color32_t color ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API color32_t Color_LinearToSrgb( colorf_t color ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API colorf_t Color_Clamp( colorf_t color ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API colorf_t Color_Lerp( colorf_t left, colorf_t right, f32 t ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API colorf_t Color_PremultiplyAlpha( colorf_t color ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API colorf_t Color_UnpremultiplyAlpha( colorf_t color ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API u32 Color32_PackRGBA8( color32_t color ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API u32 Color32_PackBGRA8( color32_t color ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API color32_t Color32_UnpackRGBA8( u32 packed ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API color32_t Color32_UnpackBGRA8( u32 packed ) noexcept;
 
 } // namespace cypher::common
 
