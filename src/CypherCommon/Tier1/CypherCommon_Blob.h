@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Blob.h
-//  Purpose: Declares CypherCommon Tier1 Blob support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares allocator-backed owning byte storage.
+//  Details: Blob is the owning counterpart to binary_block_t. Growth and allocation
+//           failure are explicit, and stored data remains contiguous.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,32 +21,58 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Blob
-
-Owned binary memory block declarations used by VFS reads, pak entries, tools,
-asset importers and serialized data.
-================
-*/
-
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Allocator.h"
+#include "CypherCommon_BinaryBlock.h"
 
 namespace cypher::common
 {
 
 struct blob_t {
-    void *pData;
-    usize cbSize;
-    usize cbCapacity;
+    blob_t() noexcept = default;
+    CYPHER_NO_COPY_MOVE( blob_t );
+
+    byte *pData{ nullptr };
+    usize cbSize{ 0u };
+    usize cbCapacity{ 0u };
+    const allocator_t *pAllocator{ nullptr };
 };
 
-bool_t Blob_Init( blob_t *pBlob, usize cbInitialCapacity );
-void Blob_Free( blob_t *pBlob );
-bool_t Blob_Resize( blob_t *pBlob, usize cbSize );
-bool_t Blob_Reserve( blob_t *pBlob, usize cbCapacity );
-bool_t Blob_Assign( blob_t *pBlob, const void *pData, usize cbData );
-void Blob_Clear( blob_t *pBlob );
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Blob_Init(
+    blob_t *pBlob,
+    const allocator_t *pAllocator,
+    usize cbInitialCapacity = 0u ) noexcept;
+
+CYPHER_COMMON_API void Blob_Shutdown( blob_t *pBlob ) noexcept;
+CYPHER_COMMON_API void Blob_Clear( blob_t *pBlob ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Blob_Reserve( blob_t *pBlob, usize cbCapacity ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Blob_Resize(
+    blob_t *pBlob,
+    usize cbSize,
+    byte fill = 0u ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Blob_Assign( blob_t *pBlob, binary_block_t source ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Blob_Append( blob_t *pBlob, binary_block_t source ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+binary_block_t Blob_Block( const blob_t *pBlob ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+byte_span_t Blob_WritableSpan( blob_t *pBlob ) noexcept;
+
+CYPHER_COMMON_API void Blob_Move( blob_t *pDest, blob_t *pSource ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+owned_allocation_t Blob_Release(
+    blob_t *pBlob,
+    usize *pcbLogicalSizeOut = nullptr ) noexcept;
 
 } // namespace cypher::common
 
