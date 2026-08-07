@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Result.h
-//  Purpose: Declares CypherCommon Tier1 Result support.
-//  Details: Tier1 builds practical utilities on top of Tier0 for strings, containers,
-//           parsing, data flow, and tool-facing helpers. Keep APIs explicit and
-//           stable because many systems will depend on them.
+//  Purpose: Declares generic operation and value result records.
+//  Details: Results reuse Tier0 packed error codes so diagnostics retain subsystem
+//           domains without introducing another incompatible error vocabulary.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,33 +21,44 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Result
-
-Generic result declarations.
-================
-*/
-
 #include "CypherCommon_Tier0.h"
 
 namespace cypher::common
 {
 
-enum class result_code_t : u32 {
-    Ok = 0u,
-    Failed,
-    InvalidArgument,
-    OutOfMemory,
-    NotFound
-};
-
 struct result_t {
-    result_code_t code;
+    error_code_t error{ CY_ERROR_OK };
 };
 
-bool_t Result_Succeeded( result_t result );
-bool_t Result_Failed( result_t result );
+template <typename value_t>
+struct value_result_t {
+    value_t value{};
+    error_code_t error{ CY_ERROR_OK };
+};
+
+CYPHER_NODISCARD constexpr bool_t Result_Succeeded( result_t result ) noexcept
+{
+    return Cy_ErrorSucceeded( result.error );
+}
+
+CYPHER_NODISCARD constexpr bool_t Result_Failed( result_t result ) noexcept
+{
+    return Cy_ErrorFailed( result.error );
+}
+
+template <typename value_t>
+CYPHER_NODISCARD constexpr bool_t Result_Succeeded(
+    const value_result_t<value_t> &result ) noexcept
+{
+    return Cy_ErrorSucceeded( result.error );
+}
+
+template <typename value_t>
+CYPHER_NODISCARD constexpr bool_t Result_Failed(
+    const value_result_t<value_t> &result ) noexcept
+{
+    return Cy_ErrorFailed( result.error );
+}
 
 } // namespace cypher::common
 
