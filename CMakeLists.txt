@@ -152,11 +152,19 @@ set(CYPHERCOMMON_TIER1_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Buffer.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_ByteReader.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_ByteWriter.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_CallQueue.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Char.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_CharacterSet.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_ChecksumCRC32.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_ChecksumCRC64.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Color.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_CommandBuffer.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_CommandLine.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_CommandSystem.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_ConCommand.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_ConVar.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_ContentHash.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Event.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_FixedMemory.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Hash.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_HashFNV.cpp"
@@ -168,15 +176,34 @@ set(CYPHERCOMMON_TIER1_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_MemoryStream.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Range.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_ScratchBuffer.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StableHash.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Stream.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_String.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringBuilder.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringFormat.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringParse.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringPool.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringSplit.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringToken.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_StringView.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Symbol.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_TextBuffer.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_TokenReader.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Variant.cpp"
+)
+
+set(CYPHERSECURITY_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity_AEAD.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity_Encoding.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity_Hash.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity_KDF.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity_KeyExchange.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity_PasswordHash.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity_Random.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity_SecureMemory.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity_SecretStream.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity_Signature.cpp"
 )
 
 add_library(CypherCommonTier0 STATIC ${CYPHERCOMMON_TIER0_SOURCES})
@@ -218,6 +245,21 @@ target_include_directories(CypherCommonTier1
 target_link_libraries(CypherCommonTier1
     PUBLIC Cypher::CommonTier0
     PRIVATE ${CYPHERCOMMON_TIER1_LINK_LIBS}
+)
+
+add_library(CypherSecurity STATIC ${CYPHERSECURITY_SOURCES})
+add_library(Cypher::Security ALIAS CypherSecurity)
+cypher_configure_security_dependencies(CYPHERSECURITY_LINK_LIBS)
+target_compile_features(CypherSecurity PUBLIC cxx_std_20)
+target_include_directories(CypherSecurity
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security"
+)
+target_compile_definitions(CypherSecurity PUBLIC CYPHER_SECURITY_STATIC=1)
+target_link_libraries(CypherSecurity
+    PUBLIC Cypher::CommonTier1
+    PRIVATE ${CYPHERSECURITY_LINK_LIBS}
 )
 
 file(GLOB_RECURSE CYPHERENGINE_SOURCES CONFIGURE_DEPENDS
@@ -589,6 +631,36 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
+            cypher_common_tier1_callqueue_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_CallQueue_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_commandbuffer_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_CommandBuffer_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_commandline_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_CommandLine_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_commandsystem_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_CommandSystem_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_concommand_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_ConCommand_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_convar_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_ConVar_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_characterset_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_CharacterSet_Tests.cpp"
             Cypher::CommonTier1
@@ -604,13 +676,28 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
+            cypher_common_tier1_color_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_Color_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_contenthash_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_ContentHash_Tests.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
+            cypher_common_tier1_delegate_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_Delegate_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_functor_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_Functor_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_function_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_Function_Tests.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
@@ -629,8 +716,78 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
+            cypher_common_tier1_hashtable_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_HashTable_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_handletable_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_HandleTable_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_stablehash_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_StableHash_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_security_hash_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Security/CypherSecurity_Hash_Tests.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_catch_test(
+            cypher_security_kdf_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Security/CypherSecurity_KDF_Tests.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_catch_test(
+            cypher_security_keyexchange_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Security/CypherSecurity_KeyExchange_Tests.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_catch_test(
+            cypher_security_aead_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Security/CypherSecurity_AEAD_Tests.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_catch_test(
+            cypher_security_encoding_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Security/CypherSecurity_Encoding_Tests.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_catch_test(
+            cypher_security_passwordhash_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Security/CypherSecurity_PasswordHash_Tests.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_catch_test(
+            cypher_security_random_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Security/CypherSecurity_Random_Tests.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_catch_test(
+            cypher_security_securememory_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Security/CypherSecurity_SecureMemory_Tests.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_catch_test(
+            cypher_security_secretstream_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Security/CypherSecurity_SecretStream_Tests.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_catch_test(
+            cypher_security_signature_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Security/CypherSecurity_Signature_Tests.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_fixedmemory_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_FixedMemory_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_event_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_Event_Tests.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
@@ -759,13 +916,33 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
+            cypher_common_tier1_stringpool_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_StringPool_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_stringtoken_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_StringToken_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_tokenreader_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_TokenReader_Tests.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
+            cypher_common_tier1_symbol_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_Symbol_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_textbuffer_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_TextBuffer_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_variant_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_Variant_Tests.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
@@ -899,6 +1076,36 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
+            cypher_common_callqueue_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_CallQueue_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_commandbuffer_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_CommandBuffer_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_commandline_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_CommandLine_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_commandsystem_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_CommandSystem_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_concommand_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_ConCommand_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_convar_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_ConVar_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
             cypher_common_characterset_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_CharacterSet_Bench.cpp"
             Cypher::CommonTier1
@@ -914,13 +1121,28 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
+            cypher_common_color_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_Color_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
             cypher_common_contenthash_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_ContentHash_Bench.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
+            cypher_common_delegate_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_Delegate_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
             cypher_common_functor_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_Functor_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_function_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_Function_Bench.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
@@ -939,8 +1161,48 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
+            cypher_common_hashtable_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_HashTable_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_handletable_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_HandleTable_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_stablehash_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_StableHash_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_security_hash_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Security/CypherSecurity_Hash_Bench.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_benchmark(
+            cypher_security_crypto_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Security/CypherSecurity_Crypto_Bench.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_benchmark(
+            cypher_security_random_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Security/CypherSecurity_Random_Bench.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_benchmark(
+            cypher_security_securememory_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Security/CypherSecurity_SecureMemory_Bench.cpp"
+            Cypher::Security
+        )
+        cypher_add_common_benchmark(
             cypher_common_fixedmemory_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_FixedMemory_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_tier1_event_bus_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_Event_Bench.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
@@ -1004,6 +1266,16 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
+            cypher_common_stringpool_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_StringPool_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_stringtoken_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_StringToken_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
             cypher_common_stack_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_Stack_Bench.cpp"
             Cypher::CommonTier1
@@ -1014,8 +1286,18 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
+            cypher_common_symbol_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_Symbol_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
             cypher_common_textbuffer_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_TextBuffer_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_variant_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_Variant_Bench.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
