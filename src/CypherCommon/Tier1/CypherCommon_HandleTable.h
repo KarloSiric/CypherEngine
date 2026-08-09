@@ -6,7 +6,8 @@
 //  File: src/CypherCommon/Tier1/CypherCommon_HandleTable.h
 //  Purpose: Declares typed storage addressed by generational handles.
 //  Details: Removing a value advances its slot generation so stale handles fail
-//           validation instead of resolving to a newly inserted object.
+//           validation instead of resolving to a newly inserted object. Growth
+//           preserves handles but invalidates pointers returned by HandleTable_Get.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -26,9 +27,12 @@
 namespace cypher::common
 {
 
+inline constexpr usize CY_HANDLE_TABLE_MAX_CAPACITY =
+    static_cast<usize>( CY_HANDLE32_INDEX_MAX ) + 1u;
+
 template <typename type_t>
 struct handle_table_slot_t {
-    alignas( type_t ) byte storage[sizeof( type_t )]{};
+    alignas( type_t ) byte storage[sizeof( type_t )];
     u32 nGeneration{ 1u };
     u32 iNextFree{ CY_U32_MAX };
     bool_t bOccupied{ CY_FALSE };
@@ -38,6 +42,7 @@ template <typename type_t>
 struct handle_table_t {
     handle_table_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( handle_table_t );
+    ~handle_table_t() noexcept;
 
     handle_table_slot_t<type_t> *pSlots{ nullptr };
     usize nCount{ 0u };
@@ -59,6 +64,10 @@ template <typename type_t>
 void HandleTable_Clear( handle_table_t<type_t> *pTable ) noexcept;
 
 template <typename type_t>
+CYPHER_NODISCARD bool_t HandleTable_IsValid(
+    const handle_table_t<type_t> *pTable ) noexcept;
+
+template <typename type_t>
 CYPHER_NODISCARD bool_t HandleTable_Reserve(
     handle_table_t<type_t> *pTable,
     usize nCapacity ) noexcept;
@@ -67,6 +76,11 @@ template <typename type_t>
 CYPHER_NODISCARD handle32_t HandleTable_Insert(
     handle_table_t<type_t> *pTable,
     const type_t &value ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD handle32_t HandleTable_InsertMove(
+    handle_table_t<type_t> *pTable,
+    type_t &&value ) noexcept;
 
 template <typename type_t, typename... args_t>
 CYPHER_NODISCARD handle32_t HandleTable_Emplace(
@@ -79,10 +93,48 @@ CYPHER_NODISCARD type_t *HandleTable_Get(
     handle32_t handle ) noexcept;
 
 template <typename type_t>
+CYPHER_NODISCARD const type_t *HandleTable_Get(
+    const handle_table_t<type_t> *pTable,
+    handle32_t handle ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t HandleTable_Contains(
+    const handle_table_t<type_t> *pTable,
+    handle32_t handle ) noexcept;
+
+template <typename type_t>
 CYPHER_NODISCARD bool_t HandleTable_Remove(
     handle_table_t<type_t> *pTable,
     handle32_t handle ) noexcept;
 
+// Visits live values in ascending slot order until the visitor returns false.
+// The visitor receives (handle, value) and must not structurally mutate the table.
+template <typename type_t, typename visitor_t>
+CYPHER_NODISCARD usize HandleTable_ForEach(
+    handle_table_t<type_t> *pTable,
+    visitor_t &&visitor ) noexcept;
+
+template <typename type_t, typename visitor_t>
+CYPHER_NODISCARD usize HandleTable_ForEach(
+    const handle_table_t<type_t> *pTable,
+    visitor_t &&visitor ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD usize HandleTable_Count(
+    const handle_table_t<type_t> *pTable ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD usize HandleTable_Capacity(
+    const handle_table_t<type_t> *pTable ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t HandleTable_IsEmpty(
+    const handle_table_t<type_t> *pTable ) noexcept;
+
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_HANDLETABLE_INL
+    #include "CypherCommon_HandleTable.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_HANDLETABLE_H
