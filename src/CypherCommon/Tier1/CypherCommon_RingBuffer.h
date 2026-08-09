@@ -112,6 +112,8 @@ CYPHER_NODISCARD const type_t *RingBuffer_At(
 
 } // namespace cypher::common
 
-#include "CypherCommon_RingBuffer.inl"
+#ifndef CYPHER_COMMON_TIER1_RINGBUFFER_INL
+    #include "CypherCommon_RingBuffer.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_RINGBUFFER_H
