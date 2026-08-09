@@ -21,6 +21,8 @@
 #define XXH_STATIC_LINKING_ONLY
 #include <xxhash.h>
 
+#include <new>
+
 namespace cypher::common
 {
 
@@ -42,7 +44,35 @@ CYPHER_NODISCARD bool_t HashXXH_Validate( binary_block_t data ) noexcept
     return bValidData;
 }
 
+CYPHER_NODISCARD XXH3_state_t *HashXXH_StreamState(
+    hash_xxh3_stream_t *pStream ) noexcept
+{
+    return std::launder(
+        reinterpret_cast<XXH3_state_t *>( pStream->storage ) );
+}
+
+CYPHER_NODISCARD const XXH3_state_t *HashXXH_StreamState(
+    const hash_xxh3_stream_t *pStream ) noexcept
+{
+    return std::launder(
+        reinterpret_cast<const XXH3_state_t *>( pStream->storage ) );
+}
+
+CYPHER_NODISCARD bool_t HashXXH_StreamModeIsValid(
+    hash_xxh3_stream_mode_t mode ) noexcept
+{
+    return mode == hash_xxh3_stream_mode_t::HASH_64 ||
+           mode == hash_xxh3_stream_mode_t::HASH_128;
+}
+
 } // namespace
+
+static_assert(
+    sizeof( XXH3_state_t ) <= CY_XXH3_STREAM_STORAGE_SIZE,
+    "Pinned xxHash streaming state exceeds Cypher's opaque storage." );
+static_assert(
+    alignof( XXH3_state_t ) <= CY_XXH3_STREAM_STORAGE_ALIGNMENT,
+    "Pinned xxHash streaming state exceeds Cypher's opaque alignment." );
 
 hash32_t HashXXH32_Data( binary_block_t data, hash32_t seed ) noexcept
 {
@@ -80,6 +110,121 @@ hash128_t HashXXH3_128_Data( binary_block_t data, hash64_t seed ) noexcept
     const XXH128_hash_t hash =
         XXH3_128bits_withSeed( HashXXH_Input( data ), data.cbSize, seed );
     return { hash.low64, hash.high64 };
+}
+
+bool_t HashXXH3_StreamInit(
+    hash_xxh3_stream_t *pStream,
+    hash_xxh3_stream_mode_t mode,
+    hash64_t seed ) noexcept
+{
+    const bool_t bValidStream = pStream != nullptr;
+    const bool_t bValidMode = HashXXH_StreamModeIsValid( mode );
+    CY_ASSERT_MSG( bValidStream, "xxHash stream initialization requires storage." );
+    CY_ASSERT_MSG( bValidMode, "xxHash stream initialization requires a valid mode." );
+    if ( !bValidStream || !bValidMode ) {
+        return CY_FALSE;
+    }
+
+    ::new ( static_cast<void *>( pStream->storage ) ) XXH3_state_t{};
+    pStream->mode = mode;
+    pStream->seed = seed;
+    pStream->bInitialized = CY_TRUE;
+
+    const XXH_errorcode result = mode == hash_xxh3_stream_mode_t::HASH_64
+        ? XXH3_64bits_reset_withSeed( HashXXH_StreamState( pStream ), seed )
+        : XXH3_128bits_reset_withSeed( HashXXH_StreamState( pStream ), seed );
+    if ( result != XXH_OK ) {
+        pStream->bInitialized = CY_FALSE;
+        CY_ASSERT_MSG( CY_FALSE, "xxHash stream reset failed." );
+        return CY_FALSE;
+    }
+    return CY_TRUE;
+}
+
+bool_t HashXXH3_StreamReset(
+    hash_xxh3_stream_t *pStream,
+    hash64_t seed ) noexcept
+{
+    const bool_t bValidStream = HashXXH3_StreamIsValid( pStream );
+    CY_ASSERT_MSG( bValidStream, "xxHash stream reset requires initialized state." );
+    return bValidStream
+        ? HashXXH3_StreamInit( pStream, pStream->mode, seed )
+        : CY_FALSE;
+}
+
+bool_t HashXXH3_StreamUpdate(
+    hash_xxh3_stream_t *pStream,
+    binary_block_t data ) noexcept
+{
+    const bool_t bValidStream = HashXXH3_StreamIsValid( pStream );
+    const bool_t bValidData = HashXXH_Validate( data );
+    CY_ASSERT_MSG( bValidStream, "xxHash stream update requires initialized state." );
+    if ( !bValidStream || !bValidData ) {
+        return CY_FALSE;
+    }
+
+    const XXH_errorcode result =
+        pStream->mode == hash_xxh3_stream_mode_t::HASH_64
+            ? XXH3_64bits_update(
+                  HashXXH_StreamState( pStream ),
+                  HashXXH_Input( data ),
+                  data.cbSize )
+            : XXH3_128bits_update(
+                  HashXXH_StreamState( pStream ),
+                  HashXXH_Input( data ),
+                  data.cbSize );
+    if ( result != XXH_OK ) {
+        CY_ASSERT_MSG( CY_FALSE, "xxHash stream update failed." );
+        return CY_FALSE;
+    }
+    return CY_TRUE;
+}
+
+bool_t HashXXH3_StreamDigest64(
+    const hash_xxh3_stream_t *pStream,
+    hash64_t *pHashOut ) noexcept
+{
+    const bool_t bValidStream =
+        HashXXH3_StreamIsValid( pStream ) &&
+        pStream->mode == hash_xxh3_stream_mode_t::HASH_64;
+    const bool_t bValidOutput = pHashOut != nullptr;
+    CY_ASSERT_MSG( bValidStream, "xxHash 64-bit digest requires a 64-bit stream." );
+    CY_ASSERT_MSG( bValidOutput, "xxHash digest requires output storage." );
+    if ( !bValidStream || !bValidOutput ) {
+        return CY_FALSE;
+    }
+
+    *pHashOut = static_cast<hash64_t>(
+        XXH3_64bits_digest( HashXXH_StreamState( pStream ) ) );
+    return CY_TRUE;
+}
+
+bool_t HashXXH3_StreamDigest128(
+    const hash_xxh3_stream_t *pStream,
+    hash128_t *pHashOut ) noexcept
+{
+    const bool_t bValidStream =
+        HashXXH3_StreamIsValid( pStream ) &&
+        pStream->mode == hash_xxh3_stream_mode_t::HASH_128;
+    const bool_t bValidOutput = pHashOut != nullptr;
+    CY_ASSERT_MSG( bValidStream, "xxHash 128-bit digest requires a 128-bit stream." );
+    CY_ASSERT_MSG( bValidOutput, "xxHash digest requires output storage." );
+    if ( !bValidStream || !bValidOutput ) {
+        return CY_FALSE;
+    }
+
+    const XXH128_hash_t hash =
+        XXH3_128bits_digest( HashXXH_StreamState( pStream ) );
+    *pHashOut = { hash.low64, hash.high64 };
+    return CY_TRUE;
+}
+
+bool_t HashXXH3_StreamIsValid(
+    const hash_xxh3_stream_t *pStream ) noexcept
+{
+    return pStream != nullptr &&
+           pStream->bInitialized &&
+           HashXXH_StreamModeIsValid( pStream->mode );
 }
 
 hash32_t HashXXH32_StringInsensitiveAscii(
