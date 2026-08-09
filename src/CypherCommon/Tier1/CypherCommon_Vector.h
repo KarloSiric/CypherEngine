@@ -29,8 +29,12 @@ namespace cypher::common
 
 template <typename type_t>
 struct vector_t {
+    static_assert( is_object_v<type_t>, "vector_t requires an object type." );
+    static_assert( !is_array_v<type_t>, "vector_t does not store array elements." );
+
     vector_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( vector_t );
+    ~vector_t() noexcept;
 
     type_t *pData{ nullptr };
     usize nCount{ 0u };
@@ -64,6 +68,14 @@ CYPHER_NODISCARD usize Vector_Count(
 
 template <typename type_t>
 CYPHER_NODISCARD usize Vector_Capacity(
+    const vector_t<type_t> *pVector ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t *Vector_Data(
+    vector_t<type_t> *pVector ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD const type_t *Vector_Data(
     const vector_t<type_t> *pVector ) noexcept;
 
 template <typename type_t>
@@ -160,5 +172,7 @@ void Vector_Move(
     vector_t<type_t> *pSource ) noexcept;
 
 } // namespace cypher::common
+
+#include "CypherCommon_Vector.inl"
 
 #endif // CYPHER_COMMON_TIER1_VECTOR_H
