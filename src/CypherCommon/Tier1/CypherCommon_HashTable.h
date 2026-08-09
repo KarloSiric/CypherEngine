@@ -7,6 +7,7 @@
 //  Purpose: Declares the canonical open-addressing associative table.
 //  Details: HashTable owns contiguous slots, uses explicit hash/equality policies,
 //           and invalidates slot pointers whenever insertion triggers rehashing.
+//           Keys and values are constructed only in occupied slots.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -29,16 +30,21 @@ namespace cypher::common
 
 enum class hash_slot_state_t : u8 {
     EMPTY = 0u,
-    OCCUPIED,
-    DELETED
+    OCCUPIED
 };
 
 template <typename key_t, typename value_t>
 struct hash_table_slot_t {
+    static_assert( is_object_v<key_t>, "HashTable keys must be object types." );
+    static_assert( is_object_v<value_t>, "HashTable values must be object types." );
+
+    hash_table_slot_t() noexcept = default;
+    CYPHER_NO_COPY_MOVE( hash_table_slot_t );
+
     hash64_t hash{ 0u };
     hash_slot_state_t state{ hash_slot_state_t::EMPTY };
-    key_t key{};
-    value_t value{};
+    alignas( key_t ) byte keyStorage[sizeof( key_t )];
+    alignas( value_t ) byte valueStorage[sizeof( value_t )];
 };
 
 template <
@@ -49,15 +55,14 @@ template <
 struct hash_table_t {
     hash_table_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( hash_table_t );
+    ~hash_table_t() noexcept;
 
     hash_table_slot_t<key_t, value_t> *pSlots{ nullptr };
     usize nCount{ 0u };
-    usize nDeleted{ 0u };
     usize nCapacity{ 0u };
     const allocator_t *pAllocator{ nullptr };
     hasher_t hasher{};
     equal_key_t equalKey{};
-    f32 flMaxLoadFactor{ 0.80f };
 };
 
 template <typename value_t>
@@ -65,6 +70,24 @@ struct hash_table_insert_result_t {
     value_t *pValue{ nullptr };
     bool_t bInserted{ CY_FALSE };
 };
+
+// Returns the live key stored in an occupied slot.
+template <typename key_t, typename value_t>
+CYPHER_NODISCARD key_t *HashTable_SlotKey(
+    hash_table_slot_t<key_t, value_t> *pSlot ) noexcept;
+
+template <typename key_t, typename value_t>
+CYPHER_NODISCARD const key_t *HashTable_SlotKey(
+    const hash_table_slot_t<key_t, value_t> *pSlot ) noexcept;
+
+// Returns the live value stored in an occupied slot.
+template <typename key_t, typename value_t>
+CYPHER_NODISCARD value_t *HashTable_SlotValue(
+    hash_table_slot_t<key_t, value_t> *pSlot ) noexcept;
+
+template <typename key_t, typename value_t>
+CYPHER_NODISCARD const value_t *HashTable_SlotValue(
+    const hash_table_slot_t<key_t, value_t> *pSlot ) noexcept;
 
 template <typename key_t, typename value_t, typename hasher_t, typename equal_key_t>
 CYPHER_NODISCARD bool_t HashTable_Init(
@@ -81,6 +104,10 @@ void HashTable_Shutdown(
 template <typename key_t, typename value_t, typename hasher_t, typename equal_key_t>
 void HashTable_Clear(
     hash_table_t<key_t, value_t, hasher_t, equal_key_t> *pTable ) noexcept;
+
+template <typename key_t, typename value_t, typename hasher_t, typename equal_key_t>
+CYPHER_NODISCARD bool_t HashTable_IsValid(
+    const hash_table_t<key_t, value_t, hasher_t, equal_key_t> *pTable ) noexcept;
 
 template <typename key_t, typename value_t, typename hasher_t, typename equal_key_t>
 CYPHER_NODISCARD bool_t HashTable_Reserve(
@@ -109,6 +136,11 @@ CYPHER_NODISCARD bool_t HashTable_Erase(
     const key_t &key ) noexcept;
 
 template <typename key_t, typename value_t, typename hasher_t, typename equal_key_t>
+CYPHER_NODISCARD bool_t HashTable_Contains(
+    const hash_table_t<key_t, value_t, hasher_t, equal_key_t> *pTable,
+    const key_t &key ) noexcept;
+
+template <typename key_t, typename value_t, typename hasher_t, typename equal_key_t>
 CYPHER_NODISCARD hash_table_slot_t<key_t, value_t> *HashTable_NextOccupied(
     hash_table_t<key_t, value_t, hasher_t, equal_key_t> *pTable,
     usize *pSlotIndexInOut ) noexcept;
@@ -131,5 +163,9 @@ CYPHER_NODISCARD bool_t HashTable_IsEmpty(
     const hash_table_t<key_t, value_t, hasher_t, equal_key_t> *pTable ) noexcept;
 
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_HASHTABLE_INL
+    #include "CypherCommon_HashTable.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_HASHTABLE_H
