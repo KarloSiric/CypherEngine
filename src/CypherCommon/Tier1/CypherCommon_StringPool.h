@@ -41,8 +41,11 @@ struct string_pool_desc_t {
 
 struct string_pool_stats_t {
     usize nStrings{ 0u };
+    // Includes one trailing terminator for every interned string.
     usize cbStringData{ 0u };
+    // Counts reserved string payload bytes, excluding block headers and hash slots.
     usize cbReserved{ 0u };
+    // Counts full-hash matches rejected by complete string comparison.
     usize nCollisions{ 0u };
 };
 
@@ -54,6 +57,9 @@ string_pool_t *StringPool_Create( const string_pool_desc_t &desc ) noexcept;
 CYPHER_COMMON_API void StringPool_Destroy( string_pool_t *pPool ) noexcept;
 
 CYPHER_COMMON_API void StringPool_Clear( string_pool_t *pPool ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t StringPool_IsValid( const string_pool_t *pPool ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 const char *StringPool_Intern(
