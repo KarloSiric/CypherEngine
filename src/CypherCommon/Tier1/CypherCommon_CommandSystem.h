@@ -5,8 +5,9 @@
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_CommandSystem.h
 //  Purpose: Declares an instance-owned command and ConVar registry.
-//  Details: CommandSystem has no process-global singleton. It owns registered names and
-//           runtime string values through an explicit allocator.
+//  Details: CommandSystem has no process-global singleton. It owns registered metadata
+//           and runtime string values, uses one namespace for commands and ConVars,
+//           and returns generational handles that reject stale references.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -31,8 +32,59 @@ namespace cypher::common
 using command_handle_t = handle32_t;
 using convar_handle_t = handle32_t;
 
+inline constexpr command_handle_t CY_COMMAND_HANDLE_INVALID = CY_HANDLE32_INVALID;
+inline constexpr convar_handle_t CY_CONVAR_HANDLE_INVALID = CY_HANDLE32_INVALID;
+inline constexpr usize CY_COMMAND_MAX_EXECUTION_DEPTH = 16u;
+
+enum class command_system_error_t : u16 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    OUT_OF_MEMORY,
+    PARSE_FAILED,
+    NOT_FOUND,
+    ALREADY_EXISTS,
+    PERMISSION_DENIED,
+    BUSY,
+    RECURSION_LIMIT
+};
+
+enum class convar_system_error_t : u16 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    OUT_OF_MEMORY,
+    NOT_FOUND,
+    ALREADY_EXISTS,
+    READ_ONLY,
+    PERMISSION_DENIED,
+    INVALID_VALUE,
+    BELOW_MINIMUM,
+    ABOVE_MAXIMUM,
+    BUSY
+};
+
+struct command_register_result_t {
+    error_code_t error{ CY_ERROR_OK };
+    command_handle_t handle{ CY_COMMAND_HANDLE_INVALID };
+};
+
+struct convar_register_result_t {
+    error_code_t error{ CY_ERROR_OK };
+    convar_handle_t handle{ CY_CONVAR_HANDLE_INVALID };
+};
+
 using command_output_fn_t = void ( * )(
     string_view_t text,
+    void *pUserData ) noexcept;
+
+using command_visit_fn_t = bool_t ( * )(
+    command_handle_t handle,
+    const concommand_desc_t &desc,
+    void *pUserData ) noexcept;
+
+using convar_visit_fn_t = bool_t ( * )(
+    convar_handle_t handle,
+    const convar_desc_t &desc,
+    const convar_value_t &value,
     void *pUserData ) noexcept;
 
 struct command_system_desc_t {
@@ -46,6 +98,28 @@ struct command_system_desc_t {
 
 struct command_system_t;
 
+CYPHER_NODISCARD constexpr error_code_t CommandSystem_MakeError(
+    command_system_error_t error ) noexcept
+{
+    return error == command_system_error_t::OK
+        ? CY_ERROR_OK
+        : Cy_ErrorMake( error_domain_t::COMMAND, static_cast<u16>( error ) );
+}
+
+CYPHER_NODISCARD constexpr error_code_t CommandSystem_MakeError(
+    convar_system_error_t error ) noexcept
+{
+    return error == convar_system_error_t::OK
+        ? CY_ERROR_OK
+        : Cy_ErrorMake( error_domain_t::CVAR, static_cast<u16>( error ) );
+}
+
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const char *CommandSystem_ErrorName( command_system_error_t error ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const char *CommandSystem_ErrorName( convar_system_error_t error ) noexcept;
+
 CYPHER_NODISCARD CYPHER_COMMON_API
 command_system_t *CommandSystem_Create(
     const command_system_desc_t &desc ) noexcept;
@@ -54,22 +128,31 @@ CYPHER_COMMON_API void CommandSystem_Destroy(
     command_system_t *pSystem ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
-command_handle_t CommandSystem_RegisterCommand(
+bool_t CommandSystem_IsValid( const command_system_t *pSystem ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize CommandSystem_CommandCount( const command_system_t *pSystem ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize CommandSystem_ConVarCount( const command_system_t *pSystem ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+command_register_result_t CommandSystem_RegisterCommand(
     command_system_t *pSystem,
     const concommand_desc_t &desc ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
-convar_handle_t CommandSystem_RegisterConVar(
+convar_register_result_t CommandSystem_RegisterConVar(
     command_system_t *pSystem,
     const convar_desc_t &desc ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
-bool_t CommandSystem_UnregisterCommand(
+error_code_t CommandSystem_UnregisterCommand(
     command_system_t *pSystem,
     command_handle_t handle ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
-bool_t CommandSystem_UnregisterConVar(
+error_code_t CommandSystem_UnregisterConVar(
     command_system_t *pSystem,
     convar_handle_t handle ) noexcept;
 
@@ -82,6 +165,20 @@ CYPHER_NODISCARD CYPHER_COMMON_API
 convar_handle_t CommandSystem_FindConVar(
     const command_system_t *pSystem,
     string_view_t name ) noexcept;
+
+// Copies a descriptor whose string views remain owned by pSystem. Those views stay
+// valid until the matching registration is removed or the system is destroyed.
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t CommandSystem_GetCommandDesc(
+    const command_system_t *pSystem,
+    command_handle_t handle,
+    concommand_desc_t *pDescOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t CommandSystem_GetConVarDesc(
+    const command_system_t *pSystem,
+    convar_handle_t handle,
+    convar_desc_t *pDescOut ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 error_code_t CommandSystem_ExecuteLine(
@@ -102,6 +199,28 @@ error_code_t CommandSystem_SetConVar(
     string_view_t value,
     const command_context_t &context ) noexcept;
 
+CYPHER_NODISCARD CYPHER_COMMON_API
+error_code_t CommandSystem_ResetConVar(
+    command_system_t *pSystem,
+    convar_handle_t handle,
+    const command_context_t &context ) noexcept;
+
+// Visitors execute synchronously. Registry mutation is rejected while a visitor
+// or command callback is active.
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize CommandSystem_ForEachCommand(
+    command_system_t *pSystem,
+    command_visit_fn_t pfnVisitor,
+    void *pUserData ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize CommandSystem_ForEachConVar(
+    command_system_t *pSystem,
+    convar_visit_fn_t pfnVisitor,
+    void *pUserData ) noexcept;
+
+// Returned suggestions are borrowed from the registry or completion callback.
+// Registry-owned views remain valid until unregister/destroy.
 CYPHER_NODISCARD CYPHER_COMMON_API
 usize CommandSystem_Complete(
     command_system_t *pSystem,
