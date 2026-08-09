@@ -19,16 +19,8 @@
 #include "CypherCommon_String.h"
 #include "CypherCommon_Char.h"
 
+#include <cstring>
 
-namespace
-{
-
-CYPHER_FORCE_INLINE cypher::common::i32 CyCompareBytes( cypher::common::u8 chA, cypher::common::u8 chB )
-{
-    return static_cast<cypher::common::i32>( chA ) - static_cast<cypher::common::i32>( chB );
-}
-
-} // namespace
 
 namespace cypher::common
 {
@@ -38,15 +30,7 @@ usize Cy_strlen( const char *pString ) noexcept
     if ( pString == nullptr ) {
         return 0u;
     }
-
-    usize cchCount = 0u;
-    const char *pCursor = pString;
-    while ( *pCursor != '\0' ) {
-        ++pCursor;
-        ++cchCount;
-    }
-
-    return cchCount;
+    return std::strlen( pString );
 }
 
 usize Cy_strnlen( const char *pString, usize cchMax ) noexcept
@@ -99,36 +83,7 @@ i32 Cy_strcmp( const char *pStringA, const char *pStringB ) noexcept
 
     const char *pA = pStringA != nullptr ? pStringA : "";
     const char *pB = pStringB != nullptr ? pStringB : "";
-
-    while ( true ) {
-        u8 chA = static_cast<u8>( pA[0] );
-        u8 chB = static_cast<u8>( pB[0] );
-        if ( chA != chB || chA == 0u ) {
-            return CyCompareBytes( chA, chB );
-        }
-
-        chA = static_cast<u8>( pA[1] );
-
-        chB = static_cast<u8>( pB[1] );
-        if ( chA != chB || chA == 0u ) {
-            return CyCompareBytes( chA, chB );
-        }
-
-        chA = static_cast<u8>( pA[2] );
-        chB = static_cast<u8>( pB[2] );
-        if ( chA != chB || chA == 0u ) {
-            return CyCompareBytes( chA, chB );
-        }
-
-        chA = static_cast<u8>( pA[3] );
-        chB = static_cast<u8>( pB[3] );
-        if ( chA != chB || chA == 0u ) {
-            return CyCompareBytes( chA, chB );
-        }
-
-        pA += 4u;
-        pB += 4u;
-    }
+    return std::strcmp( pA, pB );
 }
 
 i32 Cy_strncmp( const char *pStringA, const char *pStringB, usize cchMax ) noexcept
@@ -139,51 +94,7 @@ i32 Cy_strncmp( const char *pStringA, const char *pStringB, usize cchMax ) noexc
 
     const char *pA = pStringA != nullptr ? pStringA : "";
     const char *pB = pStringB != nullptr ? pStringB : "";
-
-    usize cchRemaining = cchMax;
-    while ( cchRemaining >= 4u ) {
-        u8 chA = static_cast<u8>( pA[0] );
-        u8 chB = static_cast<u8>( pB[0] );
-        if ( chA != chB || chA == 0u ) {
-            return CyCompareBytes( chA, chB );
-        }
-
-        chA = static_cast<u8>( pA[1] );
-        chB = static_cast<u8>( pB[1] );
-        if ( chA != chB || chA == 0u ) {
-            return CyCompareBytes( chA, chB );
-        }
-
-        chA = static_cast<u8>( pA[2] );
-        chB = static_cast<u8>( pB[2] );
-        if ( chA != chB || chA == 0u ) {
-            return CyCompareBytes( chA, chB );
-        }
-
-        chA = static_cast<u8>( pA[3] );
-        chB = static_cast<u8>( pB[3] );
-        if ( chA != chB || chA == 0u ) {
-            return CyCompareBytes( chA, chB );
-        }
-
-        pA += 4u;
-        pB += 4u;
-        cchRemaining -= 4u;
-    }
-
-    while ( cchRemaining > 0u ) {
-        const u8 chA = static_cast<u8>( *pA );
-        const u8 chB = static_cast<u8>( *pB );
-        if ( chA != chB || chA == 0u ) {
-            return CyCompareBytes( chA, chB );
-        }
-
-        ++pA;
-        ++pB;
-        --cchRemaining;
-    }
-
-    return 0;
+    return std::strncmp( pA, pB, cchMax );
 }
 
 i32 Cy_stricmp( const char *pStringA, const char *pStringB ) noexcept
