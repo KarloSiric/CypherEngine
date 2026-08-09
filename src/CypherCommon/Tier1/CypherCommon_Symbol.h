@@ -32,6 +32,13 @@ struct symbol_t {
 };
 
 constexpr symbol_t CY_SYMBOL_INVALID{};
+inline constexpr u32 CY_SYMBOL_INDEX_BITS = 20u;
+inline constexpr u32 CY_SYMBOL_GENERATION_BITS = 12u;
+inline constexpr u32 CY_SYMBOL_INDEX_MASK =
+    ( 1u << CY_SYMBOL_INDEX_BITS ) - 1u;
+inline constexpr u32 CY_SYMBOL_GENERATION_MASK =
+    ( 1u << CY_SYMBOL_GENERATION_BITS ) - 1u;
+inline constexpr usize CY_SYMBOL_MAX_COUNT = CY_SYMBOL_INDEX_MASK;
 
 enum symbol_table_flags_t : flags32_t {
     SYMBOL_TABLE_FLAG_NONE                    = 0u,
@@ -47,6 +54,7 @@ struct symbol_table_desc_t {
 struct symbol_table_stats_t {
     usize nSymbols{ 0u };
     usize cbStringData{ 0u };
+    // Includes string payload, symbol vector, and lookup slot reservations.
     usize cbReserved{ 0u };
 };
 
@@ -58,6 +66,9 @@ symbol_table_t *SymbolTable_Create( const symbol_table_desc_t &desc ) noexcept;
 CYPHER_COMMON_API void SymbolTable_Destroy( symbol_table_t *pTable ) noexcept;
 
 CYPHER_COMMON_API void SymbolTable_Clear( symbol_table_t *pTable ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t SymbolTable_IsValid( const symbol_table_t *pTable ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 symbol_t SymbolTable_Intern(
