@@ -27,6 +27,8 @@ namespace cypher::common
 {
 
 constexpr usize CY_COMMAND_MAX_ARGUMENTS = 64u;
+constexpr usize CY_COMMAND_MAX_NAME_BYTES = 127u;
+constexpr usize CY_COMMAND_MAX_LINE_BYTES = 4u * CY_KIB;
 
 enum concommand_flags_t : flags32_t {
     CONCOMMAND_FLAG_NONE          = 0u,
@@ -35,7 +37,37 @@ enum concommand_flags_t : flags32_t {
     CONCOMMAND_FLAG_SERVER_ONLY   = CYPHER_BIT32( 2 ),
     CONCOMMAND_FLAG_CLIENT_ONLY   = CYPHER_BIT32( 3 ),
     CONCOMMAND_FLAG_HIDDEN        = CYPHER_BIT32( 4 ),
-    CONCOMMAND_FLAG_ARCHIVE       = CYPHER_BIT32( 5 )
+    CONCOMMAND_FLAG_ARCHIVE       = CYPHER_BIT32( 5 ),
+    CONCOMMAND_FLAG_REMOTE_ALLOWED = CYPHER_BIT32( 6 )
+};
+
+constexpr flags32_t CONCOMMAND_VALID_FLAGS =
+    CONCOMMAND_FLAG_CHEAT |
+    CONCOMMAND_FLAG_DEVELOPMENT |
+    CONCOMMAND_FLAG_SERVER_ONLY |
+    CONCOMMAND_FLAG_CLIENT_ONLY |
+    CONCOMMAND_FLAG_HIDDEN |
+    CONCOMMAND_FLAG_ARCHIVE |
+    CONCOMMAND_FLAG_REMOTE_ALLOWED;
+
+enum class command_parse_status_t : u8 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    EMPTY_LINE,
+    LINE_TOO_LONG,
+    EMBEDDED_NULL,
+    LINE_BREAK,
+    INVALID_CHARACTER,
+    UNEXPECTED_QUOTE,
+    UNTERMINATED_QUOTE,
+    TRAILING_BYTES_AFTER_QUOTE,
+    TOO_MANY_ARGUMENTS,
+    INVALID_COMMAND_NAME
+};
+
+struct command_parse_result_t {
+    command_parse_status_t status{ command_parse_status_t::INVALID_ARGUMENT };
+    usize iError{ CY_STRING_VIEW_NPOS };
 };
 
 enum class command_source_t : u8 {
@@ -58,6 +90,9 @@ struct command_context_t {
     command_source_t source{ command_source_t::ENGINE };
     u64 nCallerId{ 0u };
     bool_t bCheatsAllowed{ CY_FALSE };
+    bool_t bDevelopmentAllowed{ CY_FALSE };
+    bool_t bServerContext{ CY_FALSE };
+    bool_t bClientContext{ CY_FALSE };
     void *pUserData{ nullptr };
 };
 
@@ -89,7 +124,16 @@ CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t ConCommand_ValidateDesc( const concommand_desc_t &desc ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
-bool_t ConCommand_ParseArgs(
+bool_t ConCommand_ParseSucceeded( command_parse_result_t result ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const char *ConCommand_ParseStatusName( command_parse_status_t status ) noexcept;
+
+// Splits one single command line into borrowed argument views. Quoted arguments
+// exclude their surrounding quote bytes and may contain spaces or tabs. Escapes
+// are intentionally not decoded because the result owns no writable storage.
+CYPHER_NODISCARD CYPHER_COMMON_API
+command_parse_result_t ConCommand_ParseArgs(
     string_view_t commandLine,
     command_args_t *pArgsOut ) noexcept;
 
