@@ -86,3 +86,77 @@ TEST_CASE( "xxHash adapter rejects malformed borrowed ranges",
         g_hashXXHAssertCount ==
         4u * static_cast<u32>( CYPHER_ASSERTS_ENABLED ) );
 }
+
+TEST_CASE( "xxHash streaming digests equal one-shot hashes across chunk boundaries",
+           "[CypherCommon][Tier1][HashXXH]" )
+{
+    byte bytes[1024]{};
+    for ( usize iByte = 0u; iByte < sizeof( bytes ); ++iByte ) {
+        bytes[iByte] = static_cast<byte>( ( iByte * 37u + 11u ) & 0xFFu );
+    }
+    const binary_block_t allData{ bytes, sizeof( bytes ) };
+    constexpr hash64_t nSeed = 0x0123456789ABCDEFull;
+
+    hash_xxh3_stream_t stream64{};
+    REQUIRE( HashXXH3_StreamInit(
+        &stream64,
+        hash_xxh3_stream_mode_t::HASH_64,
+        nSeed ) );
+    usize iOffset = 0u;
+    for ( usize cbChunk : { 1u, 7u, 128u, 3u, 257u, 19u, 609u } ) {
+        REQUIRE( HashXXH3_StreamUpdate(
+            &stream64,
+            { bytes + iOffset, cbChunk } ) );
+        iOffset += cbChunk;
+    }
+    REQUIRE( iOffset == sizeof( bytes ) );
+
+    hash64_t streamHash64 = 0u;
+    REQUIRE( HashXXH3_StreamDigest64( &stream64, &streamHash64 ) );
+    REQUIRE( streamHash64 == HashXXH3_64_Data( allData, nSeed ) );
+
+    hash_xxh3_stream_t stream128{};
+    REQUIRE( HashXXH3_StreamInit(
+        &stream128,
+        hash_xxh3_stream_mode_t::HASH_128,
+        nSeed ) );
+    REQUIRE( HashXXH3_StreamUpdate( &stream128, { bytes, 333u } ) );
+    REQUIRE( HashXXH3_StreamUpdate(
+        &stream128,
+        { bytes + 333u, sizeof( bytes ) - 333u } ) );
+    hash128_t streamHash128{};
+    REQUIRE( HashXXH3_StreamDigest128( &stream128, &streamHash128 ) );
+    REQUIRE( Hash128_Equals(
+        streamHash128,
+        HashXXH3_128_Data( allData, nSeed ) ) );
+}
+
+TEST_CASE( "xxHash stream reset changes seed and digest does not consume state",
+           "[CypherCommon][Tier1][HashXXH]" )
+{
+    const byte prefix[]{ 1u, 2u, 3u, 4u };
+    const byte suffix[]{ 5u, 6u, 7u };
+    hash_xxh3_stream_t stream{};
+    REQUIRE( HashXXH3_StreamInit(
+        &stream,
+        hash_xxh3_stream_mode_t::HASH_64,
+        7u ) );
+    REQUIRE( HashXXH3_StreamUpdate( &stream, { prefix, sizeof( prefix ) } ) );
+
+    hash64_t prefixHash = 0u;
+    REQUIRE( HashXXH3_StreamDigest64( &stream, &prefixHash ) );
+    REQUIRE( prefixHash == HashXXH3_64_Data( { prefix, sizeof( prefix ) }, 7u ) );
+
+    REQUIRE( HashXXH3_StreamUpdate( &stream, { suffix, sizeof( suffix ) } ) );
+    hash64_t completeHash = 0u;
+    REQUIRE( HashXXH3_StreamDigest64( &stream, &completeHash ) );
+    const byte complete[]{ 1u, 2u, 3u, 4u, 5u, 6u, 7u };
+    REQUIRE( completeHash == HashXXH3_64_Data( { complete, sizeof( complete ) }, 7u ) );
+
+    REQUIRE( HashXXH3_StreamReset( &stream, 11u ) );
+    REQUIRE( HashXXH3_StreamUpdate( &stream, { complete, sizeof( complete ) } ) );
+    hash64_t resetHash = 0u;
+    REQUIRE( HashXXH3_StreamDigest64( &stream, &resetHash ) );
+    REQUIRE( resetHash == HashXXH3_64_Data( { complete, sizeof( complete ) }, 11u ) );
+    REQUIRE( resetHash != completeHash );
+}
