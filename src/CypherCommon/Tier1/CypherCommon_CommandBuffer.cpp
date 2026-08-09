@@ -333,7 +333,7 @@ void CommandBuffer_Compact( command_buffer_t *pBuffer ) noexcept
     if ( !bValidBuffer || pBuffer->iReadOffset == 0u ) {
         return;
     }
-    
+
     if ( pBuffer->nCommandCount == 0u ) {
         TextBuffer_Clear( &pBuffer->text );
         pBuffer->iReadOffset = 0u;
