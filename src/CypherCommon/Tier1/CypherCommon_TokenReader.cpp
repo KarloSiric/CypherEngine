@@ -226,12 +226,12 @@ token_reader_status_t TokenReader_Peek(
             ? token_reader_status_t::END_OF_INPUT
             : token_reader_status_t::OK;
     }
-
     CY_ASSERT_MSG( pReader->nLookahead > 0u,
                    "TokenReader end-of-input state requires a buffered sentinel." );
     if ( pReader->nLookahead > 0u ) {
         *pTokenOut = pReader->lookahead[pReader->nLookahead - 1u];
     }
+
     return status;
 }
 
