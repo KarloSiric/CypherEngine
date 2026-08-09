@@ -21,6 +21,7 @@
     #pragma once
 #endif
 
+#include "CypherCommon_Assert.h"
 #include "CypherCommon_MemoryOps.h"
 
 #include <new>
