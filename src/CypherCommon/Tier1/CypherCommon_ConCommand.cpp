@@ -103,7 +103,7 @@ bool_t ConCommand_ValidateDesc( const concommand_desc_t &desc ) noexcept
          desc.pfnExecute == nullptr ) {
         return CY_FALSE;
     }
-    
+
     if ( ( desc.flags & ~CONCOMMAND_VALID_FLAGS ) != 0u ) {
         return CY_FALSE;
     }
@@ -197,12 +197,12 @@ command_parse_result_t ConCommand_ParseArgs(
                     command_parse_status_t::UNTERMINATED_QUOTE,
                     iQuote );
             }
-            
+
             argument = StringView_FromRange(
                 commandLine.pData + iArgument,
                 iCursor - iArgument );
             ++iCursor;
-            
+
             if ( iCursor < commandLine.cchLength ) {
                 const command_parse_result_t trailingByteResult =
                     ValidateCommandByte( commandLine.pData[iCursor], iCursor );
