@@ -22,6 +22,7 @@
 #endif
 
 #include "CypherCommon_BinaryBlock.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
@@ -42,6 +43,16 @@ hash64_t HashXXH3_64_Data( binary_block_t data, hash64_t seed = 0u ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 hash128_t HashXXH3_128_Data( binary_block_t data, hash64_t seed = 0u ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash32_t HashXXH32_StringInsensitiveAscii(
+    string_view_t text,
+    hash32_t seed = 0u ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+hash64_t HashXXH3_64_StringInsensitiveAscii(
+    string_view_t text,
+    hash64_t seed = 0u ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t Hash128_Equals( hash128_t left, hash128_t right ) noexcept;
