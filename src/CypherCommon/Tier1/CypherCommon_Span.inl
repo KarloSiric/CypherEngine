@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_SPAN_INL
 #define CYPHER_COMMON_TIER1_SPAN_INL
+
+#ifndef CYPHER_COMMON_TIER1_SPAN_H
+    #include "CypherCommon_Span.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
