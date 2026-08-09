@@ -50,6 +50,30 @@ bool_t MemoryStream_InitWrite(
 CYPHER_COMMON_API void MemoryStream_Reset( memory_stream_t *pMemoryStream ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t MemoryStream_IsValid( const memory_stream_t *pMemoryStream ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t MemoryStream_IsWritable( const memory_stream_t *pMemoryStream ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize MemoryStream_Size( const memory_stream_t *pMemoryStream ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize MemoryStream_Capacity( const memory_stream_t *pMemoryStream ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize MemoryStream_Position( const memory_stream_t *pMemoryStream ) noexcept;
+
+// Changes writable logical size. Newly exposed bytes are initialized to zero.
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t MemoryStream_SetSize(
+    memory_stream_t *pMemoryStream,
+    usize cbSize ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t MemoryStream_Clear( memory_stream_t *pMemoryStream ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 stream_t MemoryStream_AsStream( memory_stream_t *pMemoryStream ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
