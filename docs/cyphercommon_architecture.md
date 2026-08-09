@@ -414,7 +414,6 @@ Editable source formats and cooked runtime formats should be distinct.
 .cymap_c     cooked map data
 .cyscene     editable scene source
 .cyscene_c   cooked scene data
-.cybsp_c     compiled BSP/world visibility/collision data
 .cytex       texture source metadata
 .cytex_c     cooked texture
 .cymat       material source
@@ -437,8 +436,13 @@ Editable source formats and cooked runtime formats should be distinct.
 .cynav_c     cooked navmesh
 .cyflow      mission/objective/logic graph source
 .cyflow_c    cooked mission/objective/logic graph
-.cypkg       packed game assets
+.cypak       packed game assets
 ```
+
+BSP-derived data is an optional compiler intermediate or `.cymap_c` chunk. It
+is not a required standalone world format. See
+[map_authoring_and_mason.md](map_authoring_and_mason.md) for the authoritative
+map-source, compilation, runtime-world, and Mason design.
 
 All cooked formats should follow one common binary pattern:
 
