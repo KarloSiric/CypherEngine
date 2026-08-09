@@ -87,6 +87,18 @@ function(cypher_configure_runtime_dependencies out_link_libraries)
     set(${out_link_libraries} "${cypher_runtime_libraries}" PARENT_SCOPE)
 endfunction()
 
+function(cypher_configure_common_tier1_dependencies out_link_libraries)
+    find_package(xxHash CONFIG REQUIRED)
+
+    if (NOT TARGET CypherThirdPartyHash)
+        add_library(CypherThirdPartyHash INTERFACE)
+        add_library(Cypher::ThirdPartyHash ALIAS CypherThirdPartyHash)
+        target_link_libraries(CypherThirdPartyHash INTERFACE xxHash::xxhash)
+    endif()
+
+    set(${out_link_libraries} Cypher::ThirdPartyHash PARENT_SCOPE)
+endfunction()
+
 function(cypher_require_test_dependencies)
     find_package(Catch2 3 CONFIG REQUIRED)
     set(Catch2_FOUND TRUE PARENT_SCOPE)
