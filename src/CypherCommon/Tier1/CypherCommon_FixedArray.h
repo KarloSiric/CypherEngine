@@ -113,6 +113,8 @@ void FixedArray_Fill(
 
 } // namespace cypher::common
 
-#include "CypherCommon_FixedArray.inl"
+#ifndef CYPHER_COMMON_TIER1_FIXEDARRAY_INL
+    #include "CypherCommon_FixedArray.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_FIXEDARRAY_H
