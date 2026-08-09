@@ -159,10 +159,10 @@ u8 Char_HexValueAscii( char ch ) noexcept
         return static_cast<u8>( ch - '0' );
     }
     if ( ch >= 'A' && ch <= 'F' ) {
-        return static_cast<u8>( ch - 'A' + 10u );
+        return static_cast<u8>( ch - 'A' + 10 );
     }
     if ( ch >= 'a' && ch <= 'f' ) {
-        return static_cast<u8>( ch - 'a' + 10u );
+        return static_cast<u8>( ch - 'a' + 10 );
     }
     return CY_CHAR_INVALID_DIGIT_VALUE;
 }
