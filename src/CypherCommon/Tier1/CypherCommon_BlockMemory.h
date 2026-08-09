@@ -30,11 +30,14 @@ namespace cypher::common
 struct block_memory_t {
     fixed_memory_t memory{};
     void *pFreeHead{ nullptr };
+    byte *pOccupancyBits{ nullptr };
+    usize cbOccupancyBits{ 0u };
     usize cbBlockStride{ 0u };
     usize cbPayload{ 0u };
-    usize alignment{ 0u };
+    usize nAlignment{ 0u };
     usize nBlockCount{ 0u };
     usize nFreeCount{ 0u };
+    usize nHighWaterCount{ 0u };
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API
@@ -48,9 +51,17 @@ bool_t BlockMemory_Init(
     block_memory_t *pMemory,
     byte_span_t storage,
     usize cbPayload,
-    usize alignment ) noexcept;
+    usize nAlignment,
+    usize nBlockCount ) noexcept;
 
+// Returns every block to the free list without releasing caller-owned storage.
 CYPHER_COMMON_API void BlockMemory_Reset( block_memory_t *pMemory ) noexcept;
+
+// Detaches the caller-owned storage and restores the default empty state.
+CYPHER_COMMON_API void BlockMemory_Shutdown( block_memory_t *pMemory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BlockMemory_IsValid( const block_memory_t *pMemory ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 void *BlockMemory_Allocate( block_memory_t *pMemory ) noexcept;
@@ -64,6 +75,23 @@ CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t BlockMemory_Owns(
     const block_memory_t *pMemory,
     const void *pBlock ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BlockMemory_IsAllocated(
+    const block_memory_t *pMemory,
+    const void *pBlock ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BlockMemory_Capacity( const block_memory_t *pMemory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BlockMemory_FreeCount( const block_memory_t *pMemory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BlockMemory_AllocatedCount( const block_memory_t *pMemory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BlockMemory_HighWaterCount( const block_memory_t *pMemory ) noexcept;
 
 } // namespace cypher::common
 
