@@ -6,7 +6,7 @@
 //  File: src/CypherCommon/Tier1/CypherCommon_BitReader.h
 //  Purpose: Declares bounds-checked bitstream readers.
 //  Details: BitReader borrows immutable data and supports explicit least- or
-//           most-significant-bit-first packing within each field.
+//           most-significant-bit-first packing within bytes and fields.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -27,7 +27,9 @@ namespace cypher::common
 {
 
 enum class bit_order_t : u8 {
+    // Stream bit zero is byte bit zero; a field consumes value bit zero first.
     LEAST_SIGNIFICANT_FIRST = 0u,
+    // Stream bit zero is byte bit seven; a field consumes its highest bit first.
     MOST_SIGNIFICANT_FIRST
 };
 
@@ -36,6 +38,7 @@ enum class bit_cursor_status_t : u8 {
     INVALID_ARGUMENT,
     OUT_OF_BOUNDS,
     INVALID_BIT_COUNT,
+    VALUE_OUT_OF_RANGE,
     CURSOR_OVERFLOW
 };
 
@@ -55,6 +58,19 @@ bool_t BitReader_Init(
     bit_order_t bitOrder = bit_order_t::LEAST_SIGNIFICANT_FIRST ) noexcept;
 
 CYPHER_COMMON_API void BitReader_Reset( bit_reader_t *pReader ) noexcept;
+CYPHER_COMMON_API void BitReader_ClearStatus( bit_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitReader_IsValid( const bit_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bit_cursor_status_t BitReader_Status( const bit_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BitReader_Offset( const bit_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BitReader_Size( const bit_reader_t *pReader ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 usize BitReader_Remaining( const bit_reader_t *pReader ) noexcept;
