@@ -28,6 +28,8 @@ namespace cypher::common
 
 using crc64_t = u64;
 constexpr crc64_t CY_CRC64_INITIAL = 0x0000000000000000ull;
+constexpr crc64_t CY_CRC64_POLYNOMIAL = 0x42F0E1EBA9EA3693ull;
+constexpr crc64_t CY_CRC64_FINAL_XOR = 0x0000000000000000ull;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 crc64_t ChecksumCRC64_Update( crc64_t state, binary_block_t data ) noexcept;
