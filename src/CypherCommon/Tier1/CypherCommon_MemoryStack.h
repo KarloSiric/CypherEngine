@@ -39,13 +39,42 @@ bool_t MemoryStack_Init(
     memory_stack_t *pStack,
     byte_span_t memory ) noexcept;
 
+// Rewinds all allocations while retaining lifetime high-water statistics.
 CYPHER_COMMON_API void MemoryStack_Reset( memory_stack_t *pStack ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t MemoryStack_IsValid( const memory_stack_t *pStack ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 void *MemoryStack_Allocate(
     memory_stack_t *pStack,
     usize cbSize,
-    usize alignment ) noexcept;
+    usize nAlignment = alignof( std::max_align_t ) ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+void *MemoryStack_AllocateZeroed(
+    memory_stack_t *pStack,
+    usize cbSize,
+    usize nAlignment = alignof( std::max_align_t ) ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD type_t *MemoryStack_AllocateArrayStorage(
+    memory_stack_t *pStack,
+    usize nCount,
+    usize nAlignment = alignof( type_t ) ) noexcept
+{
+    usize cbSize = 0u;
+    const bool_t bValidByteCount = Cy_TryArrayByteCount<type_t>( nCount, cbSize );
+    CY_ASSERT_MSG(
+        bValidByteCount,
+        "MemoryStack array allocation byte count overflowed." );
+    if ( !bValidByteCount ) {
+        return nullptr;
+    }
+
+    return static_cast<type_t *>(
+        MemoryStack_Allocate( pStack, cbSize, nAlignment ) );
+}
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 memory_stack_marker_t MemoryStack_Mark(
@@ -57,7 +86,31 @@ bool_t MemoryStack_Restore(
     memory_stack_marker_t marker ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+usize MemoryStack_Capacity( const memory_stack_t *pStack ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize MemoryStack_Used( const memory_stack_t *pStack ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 usize MemoryStack_Remaining( const memory_stack_t *pStack ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize MemoryStack_HighWater( const memory_stack_t *pStack ) noexcept;
+
+// Restarts high-water accounting at the current live offset.
+CYPHER_COMMON_API void MemoryStack_ClearHighWater(
+    memory_stack_t *pStack ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+byte_span_t MemoryStack_AllocatedSpan( memory_stack_t *pStack ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+byte_span_t MemoryStack_RemainingSpan( memory_stack_t *pStack ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t MemoryStack_Owns(
+    const memory_stack_t *pStack,
+    const void *pAddress ) noexcept;
 
 } // namespace cypher::common
 
