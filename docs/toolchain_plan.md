@@ -286,6 +286,11 @@ Target:
 - console/CVar integration
 - play-in-editor direction
 
+The complete application, workspace, compiler, inspector, diagnostic, and build
+tool inventory is defined in [tool_suite.md](tool_suite.md). That inventory is
+the authority for product responsibilities and working tool names. This document
+remains the authority for when the toolchain should be introduced.
+
 The detailed Mason product layers, map document, geometry model, compiler stages,
 undo model, validation policy, and implementation milestones are defined in
 [map_authoring_and_mason.md](map_authoring_and_mason.md).
