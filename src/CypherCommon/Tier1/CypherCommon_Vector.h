@@ -173,6 +173,8 @@ void Vector_Move(
 
 } // namespace cypher::common
 
-#include "CypherCommon_Vector.inl"
+#ifndef CYPHER_COMMON_TIER1_VECTOR_INL
+    #include "CypherCommon_Vector.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_VECTOR_H
