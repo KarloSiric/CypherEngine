@@ -4,7 +4,8 @@
   "description": "Pinned third-party dependency graph for CypherEngine runtime, tests, and tools.",
   "builtin-baseline": "39344dff01c5a5a0134caf2624cdd492f05d30ea",
   "dependencies": [
-    "sdl3"
+    "sdl3",
+    "xxhash"
   ],
   "features": {
     "archive-tools": {
@@ -43,7 +44,6 @@
       "description": "Runtime and cooker compression plus fast non-cryptographic content hashing.",
       "dependencies": [
         "lz4",
-        "xxhash",
         "zstd"
       ]
     },
