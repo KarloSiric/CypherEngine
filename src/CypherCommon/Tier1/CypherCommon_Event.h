@@ -7,6 +7,7 @@
 //  Purpose: Declares a synchronous application event bus.
 //  Details: This event bus is unrelated to the Tier0 thread-wait event. Emission is
 //           synchronous, callbacks run on the caller thread, and the bus is not thread-safe.
+//           Higher priorities run first and equal priorities preserve subscription order.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -29,6 +30,8 @@ namespace cypher::common
 
 using event_id_t = u64;
 using event_subscription_t = handle32_t;
+inline constexpr event_subscription_t CY_EVENT_SUBSCRIPTION_INVALID =
+    CY_HANDLE32_INVALID;
 
 struct event_payload_t {
     // Borrowed bytes remain valid only for the synchronous EventBus_Emit call.
@@ -58,7 +61,13 @@ CYPHER_NODISCARD CYPHER_COMMON_API
 event_bus_t *EventBus_Create( const event_bus_desc_t &desc ) noexcept;
 
 CYPHER_COMMON_API void EventBus_Destroy( event_bus_t *pBus ) noexcept;
+
+// Clear and unsubscribe are permitted during emission and cancel matching callbacks
+// that have not yet run. Destroy and nested emission are forbidden.
 CYPHER_COMMON_API void EventBus_Clear( event_bus_t *pBus ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t EventBus_IsValid( const event_bus_t *pBus ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 event_subscription_t EventBus_Subscribe(
@@ -73,6 +82,23 @@ CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t EventBus_Unsubscribe(
     event_bus_t *pBus,
     event_subscription_t subscription ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t EventBus_IsSubscribed(
+    const event_bus_t *pBus,
+    event_subscription_t subscription ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize EventBus_SubscriptionCount( const event_bus_t *pBus ) noexcept;
+
+// Reports allocation or reentrancy failure distinctly from an event with no listeners.
+// Subscriptions created by callbacks are deferred until the next emission.
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t EventBus_TryEmit(
+    event_bus_t *pBus,
+    event_id_t eventId,
+    const event_payload_t &payload,
+    usize *pInvokedOut ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 usize EventBus_Emit(
