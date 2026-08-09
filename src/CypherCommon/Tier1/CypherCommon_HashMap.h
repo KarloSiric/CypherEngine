@@ -50,6 +50,10 @@ void HashMap_Clear(
     hash_map_t<key_t, value_t, hasher_t, equal_key_t> *pMap ) noexcept;
 
 template <typename key_t, typename value_t, typename hasher_t, typename equal_key_t>
+CYPHER_NODISCARD bool_t HashMap_IsValid(
+    const hash_map_t<key_t, value_t, hasher_t, equal_key_t> *pMap ) noexcept;
+
+template <typename key_t, typename value_t, typename hasher_t, typename equal_key_t>
 CYPHER_NODISCARD bool_t HashMap_Reserve(
     hash_map_t<key_t, value_t, hasher_t, equal_key_t> *pMap,
     usize nElementCapacity ) noexcept;
@@ -84,6 +88,18 @@ template <typename key_t, typename value_t, typename hasher_t, typename equal_ke
 CYPHER_NODISCARD usize HashMap_Count(
     const hash_map_t<key_t, value_t, hasher_t, equal_key_t> *pMap ) noexcept;
 
+template <typename key_t, typename value_t, typename hasher_t, typename equal_key_t>
+CYPHER_NODISCARD usize HashMap_Capacity(
+    const hash_map_t<key_t, value_t, hasher_t, equal_key_t> *pMap ) noexcept;
+
+template <typename key_t, typename value_t, typename hasher_t, typename equal_key_t>
+CYPHER_NODISCARD bool_t HashMap_IsEmpty(
+    const hash_map_t<key_t, value_t, hasher_t, equal_key_t> *pMap ) noexcept;
+
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_HASHMAP_INL
+    #include "CypherCommon_HashMap.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_HASHMAP_H
