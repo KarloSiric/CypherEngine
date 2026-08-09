@@ -28,6 +28,8 @@ namespace cypher::common
 
 template <typename type_t>
 struct span_t {
+    static_assert( is_object_v<type_t>, "span_t requires an object type." );
+
     type_t *pData{ nullptr };
     usize nCount{ 0u };
 };
@@ -101,5 +103,7 @@ CYPHER_NODISCARD byte_span_t Span_AsWritableBytes(
     span_t<type_t> span ) noexcept;
 
 } // namespace cypher::common
+
+#include "CypherCommon_Span.inl"
 
 #endif // CYPHER_COMMON_TIER1_SPAN_H
