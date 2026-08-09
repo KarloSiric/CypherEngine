@@ -98,12 +98,12 @@
 #include "CypherCommon_Hash.h"
 #include "CypherCommon_HashFNV.h"
 #include "CypherCommon_HashXXH.h"
+#include "CypherCommon_StableHash.h"
 #include "CypherCommon_ChecksumCRC32.h"
 #include "CypherCommon_ChecksumCRC64.h"
 #include "CypherCommon_ContentHash.h"
 #include "CypherCommon_ResourceId.h"
 #include "CypherCommon_UniqueId.h"
-#include "CypherCommon_PasswordHash.h"
 
 /* Fixed and allocator-backed memory utilities. */
 #include "CypherCommon_FixedMemory.h"
