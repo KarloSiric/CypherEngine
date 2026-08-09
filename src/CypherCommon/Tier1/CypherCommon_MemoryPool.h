@@ -32,10 +32,7 @@ struct memory_pool_t {
     CYPHER_NO_COPY_MOVE( memory_pool_t );
 
     block_memory_t blocks{};
-    const allocator_t *pAllocator{ nullptr };
-    void *pAllocation{ nullptr };
-    usize cbAllocation{ 0u };
-    usize allocationAlignment{ 0u };
+    owned_allocation_t backing{};
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API
@@ -50,10 +47,35 @@ CYPHER_COMMON_API void MemoryPool_Shutdown( memory_pool_t *pPool ) noexcept;
 CYPHER_COMMON_API void MemoryPool_Reset( memory_pool_t *pPool ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t MemoryPool_IsValid( const memory_pool_t *pPool ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 void *MemoryPool_Allocate( memory_pool_t *pPool ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t MemoryPool_Free( memory_pool_t *pPool, void *pBlock ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t MemoryPool_Owns(
+    const memory_pool_t *pPool,
+    const void *pBlock ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t MemoryPool_IsAllocated(
+    const memory_pool_t *pPool,
+    const void *pBlock ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize MemoryPool_Capacity( const memory_pool_t *pPool ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize MemoryPool_FreeCount( const memory_pool_t *pPool ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize MemoryPool_AllocatedCount( const memory_pool_t *pPool ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize MemoryPool_HighWaterCount( const memory_pool_t *pPool ) noexcept;
 
 } // namespace cypher::common
 
