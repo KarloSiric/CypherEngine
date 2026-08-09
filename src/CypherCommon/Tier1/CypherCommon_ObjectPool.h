@@ -28,13 +28,14 @@ namespace cypher::common
 
 template <typename type_t>
 struct object_pool_t {
+    static_assert( is_object_v<type_t>, "object_pool_t requires an object type." );
+    static_assert( !is_array_v<type_t>, "object_pool_t does not store array elements." );
+
     object_pool_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( object_pool_t );
+    ~object_pool_t() noexcept;
 
     memory_pool_t memory{};
-    byte *pOccupied{ nullptr };
-    usize cbOccupied{ 0u };
-    usize nLiveCount{ 0u };
 };
 
 template <typename type_t>
@@ -45,6 +46,13 @@ CYPHER_NODISCARD bool_t ObjectPool_Init(
 
 template <typename type_t>
 void ObjectPool_Shutdown( object_pool_t<type_t> *pPool ) noexcept;
+
+template <typename type_t>
+void ObjectPool_Reset( object_pool_t<type_t> *pPool ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t ObjectPool_IsValid(
+    const object_pool_t<type_t> *pPool ) noexcept;
 
 template <typename type_t, typename... args_t>
 CYPHER_NODISCARD type_t *ObjectPool_Create(
@@ -61,6 +69,25 @@ CYPHER_NODISCARD bool_t ObjectPool_Owns(
     const object_pool_t<type_t> *pPool,
     const type_t *pObject ) noexcept;
 
+template <typename type_t>
+CYPHER_NODISCARD bool_t ObjectPool_IsLive(
+    const object_pool_t<type_t> *pPool,
+    const type_t *pObject ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD usize ObjectPool_Capacity(
+    const object_pool_t<type_t> *pPool ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD usize ObjectPool_LiveCount(
+    const object_pool_t<type_t> *pPool ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD usize ObjectPool_FreeCount(
+    const object_pool_t<type_t> *pPool ) noexcept;
+
 } // namespace cypher::common
+
+#include "CypherCommon_ObjectPool.inl"
 
 #endif // CYPHER_COMMON_TIER1_OBJECTPOOL_H
