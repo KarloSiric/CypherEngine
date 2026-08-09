@@ -6,7 +6,8 @@
 //  File: src/CypherCommon/Tier1/CypherCommon_Function.h
 //  Purpose: Declares allocator-aware owning type-erased callables.
 //  Details: Small callables use inline storage; larger callables use the supplied
-//           allocator. Runtime code remains exception-free and move-only by contract.
+//           allocator. Runtime code remains exception-free and move-only by contract;
+//           failed heap rebinding preserves the previously bound callable.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -24,6 +25,7 @@
 #include "CypherCommon_Allocator.h"
 
 #include <cstddef>
+#include <type_traits>
 
 namespace cypher::common
 {
@@ -41,6 +43,7 @@ struct function_t<return_t( args_t... ), cbInline> {
 
     function_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( function_t );
+    ~function_t() noexcept;
 
     alignas( std::max_align_t ) byte inlineStorage[cbInline > 0u ? cbInline : 1u]{};
     void *pCallable{ nullptr };
@@ -54,13 +57,21 @@ struct function_t<return_t( args_t... ), cbInline> {
 };
 
 template <typename signature_t, usize cbInline>
-void Function_Init(
+CYPHER_NODISCARD bool_t Function_Init(
     function_t<signature_t, cbInline> *pFunction,
     const allocator_t *pAllocator ) noexcept;
 
 template <typename signature_t, usize cbInline>
 void Function_Reset(
     function_t<signature_t, cbInline> *pFunction ) noexcept;
+
+template <typename signature_t, usize cbInline>
+CYPHER_NODISCARD bool_t Function_IsValid(
+    const function_t<signature_t, cbInline> *pFunction ) noexcept;
+
+template <typename signature_t, usize cbInline>
+CYPHER_NODISCARD bool_t Function_IsInitialized(
+    const function_t<signature_t, cbInline> &function ) noexcept;
 
 template <typename signature_t, usize cbInline>
 CYPHER_NODISCARD bool_t Function_IsBound(
@@ -72,15 +83,23 @@ CYPHER_NODISCARD bool_t Function_Bind(
     callable_t &&callable ) noexcept;
 
 template <typename signature_t, usize cbInline>
-void Function_Move(
+CYPHER_NODISCARD bool_t Function_Move(
     function_t<signature_t, cbInline> *pDest,
     function_t<signature_t, cbInline> *pSource ) noexcept;
+
+template <typename signature_t, usize cbInline>
+CYPHER_NODISCARD bool_t Function_UsesInlineStorage(
+    const function_t<signature_t, cbInline> &function ) noexcept;
 
 template <typename return_t, usize cbInline, typename... args_t>
 return_t Function_Invoke(
     const function_t<return_t( args_t... ), cbInline> &function,
-    args_t... args ) noexcept;
+    std::type_identity_t<args_t>... args ) noexcept;
 
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_FUNCTION_INL
+    #include "CypherCommon_Function.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_FUNCTION_H
