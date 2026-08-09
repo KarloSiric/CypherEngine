@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_ARRAY_INL
 #define CYPHER_COMMON_TIER1_ARRAY_INL
+
+#ifndef CYPHER_COMMON_TIER1_ARRAY_H
+    #include "CypherCommon_Array.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
