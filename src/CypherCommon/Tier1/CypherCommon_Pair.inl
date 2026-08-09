@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_PAIR_INL
 #define CYPHER_COMMON_TIER1_PAIR_INL
+
+#ifndef CYPHER_COMMON_TIER1_PAIR_H
+    #include "CypherCommon_Pair.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
