@@ -181,6 +181,8 @@ void SmallVector_Move(
 
 } // namespace cypher::common
 
-#include "CypherCommon_SmallVector.inl"
+#ifndef CYPHER_COMMON_TIER1_SMALLVECTOR_INL
+    #include "CypherCommon_SmallVector.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_SMALLVECTOR_H
