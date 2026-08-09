@@ -174,7 +174,7 @@ bool_t TokenReader_Init(
         return CY_FALSE;
     }
 
-    *pReader = {};
+    *pReader = token_reader_t{};
     if ( !Lexer_Init( &pReader->lexer, source, rules ) ) {
         TokenReader_SetError( pReader, token_reader_status_t::INVALID_ARGUMENT );
         pReader->error.lexerStatus = pReader->lexer.status;
