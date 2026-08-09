@@ -22,21 +22,21 @@
 #endif
 
 #include "CypherCommon_Allocator.h"
-#include "CypherCommon_Span.h"
+#include "CypherCommon_BinaryBlock.h"
 
 namespace cypher::common
 {
 
 struct scratch_buffer_t {
     scratch_buffer_t() noexcept = default;
+    ~scratch_buffer_t() noexcept;
     CYPHER_NO_COPY_MOVE( scratch_buffer_t );
 
     byte *pData{ nullptr };
     usize cbSize{ 0u };
-    usize alignment{ 0u };
+    usize nAlignment{ 0u };
     byte_span_t localStorage{};
-    const allocator_t *pAllocator{ nullptr };
-    bool_t bOwnsAllocation{ CY_FALSE };
+    owned_allocation_t fallback{};
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API
@@ -45,17 +45,48 @@ bool_t ScratchBuffer_Acquire(
     byte_span_t localStorage,
     const allocator_t *pFallbackAllocator,
     usize cbSize,
-    usize alignment ) noexcept;
+    usize nAlignment = CY_ALLOCATOR_DEFAULT_ALIGNMENT ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ScratchBuffer_AcquireZeroed(
+    scratch_buffer_t *pBuffer,
+    byte_span_t localStorage,
+    const allocator_t *pFallbackAllocator,
+    usize cbSize,
+    usize nAlignment = CY_ALLOCATOR_DEFAULT_ALIGNMENT ) noexcept;
 
 CYPHER_COMMON_API void ScratchBuffer_Release(
     scratch_buffer_t *pBuffer ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ScratchBuffer_IsValid( const scratch_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+byte *ScratchBuffer_Data( scratch_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+const byte *ScratchBuffer_Data( const scratch_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize ScratchBuffer_Size( const scratch_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 byte_span_t ScratchBuffer_Span( scratch_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+binary_block_t ScratchBuffer_Block(
+    const scratch_buffer_t *pBuffer ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t ScratchBuffer_UsesLocalStorage(
     const scratch_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ScratchBuffer_UsesFallbackAllocation(
+    const scratch_buffer_t *pBuffer ) noexcept;
+
+CYPHER_COMMON_API void ScratchBuffer_Clear(
+    scratch_buffer_t *pBuffer ) noexcept;
 
 } // namespace cypher::common
 
