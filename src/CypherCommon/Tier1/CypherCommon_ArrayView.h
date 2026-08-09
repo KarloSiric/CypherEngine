@@ -40,4 +40,6 @@ CYPHER_NODISCARD array_view_t<type_t> ArrayView_FromArray(
 
 } // namespace cypher::common
 
+#include "CypherCommon_ArrayView.inl"
+
 #endif // CYPHER_COMMON_TIER1_ARRAYVIEW_H
