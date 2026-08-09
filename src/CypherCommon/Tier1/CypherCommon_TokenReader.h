@@ -43,8 +43,10 @@ enum class token_reader_status_t : u8 {
 struct token_reader_error_t {
     token_reader_status_t status{ token_reader_status_t::OK };
     lexer_status_t lexerStatus{ lexer_status_t::OK };
-    string_parse_status_t parseStatus{ string_parse_status_t::OK };
+    string_parse_result_t parseResult{};
     token_kind_t expectedKind{ token_kind_t::END_OF_INPUT };
+    string_view_t expectedText{};
+    bool_t bCaseInsensitiveAscii{ CY_FALSE };
     token_t actual{};
 };
 
@@ -129,6 +131,9 @@ const token_reader_error_t *TokenReader_LastError(
     const token_reader_t *pReader ) noexcept;
 
 CYPHER_COMMON_API void TokenReader_ClearError( token_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const char *TokenReader_StatusName( token_reader_status_t status ) noexcept;
 
 } // namespace cypher::common
 
