@@ -80,6 +80,8 @@ CYPHER_NODISCARD bool_t Optional_Take(
 
 } // namespace cypher::common
 
-#include "CypherCommon_Optional.inl"
+#ifndef CYPHER_COMMON_TIER1_OPTIONAL_INL
+    #include "CypherCommon_Optional.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_OPTIONAL_H
