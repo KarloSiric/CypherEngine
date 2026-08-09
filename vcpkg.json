@@ -4,6 +4,7 @@
   "description": "Pinned third-party dependency graph for CypherEngine runtime, tests, and tools.",
   "builtin-baseline": "39344dff01c5a5a0134caf2624cdd492f05d30ea",
   "dependencies": [
+    "libsodium",
     "sdl3",
     "xxhash"
   ],
@@ -100,10 +101,8 @@
       ]
     },
     "security": {
-      "description": "Cryptographic authentication, signatures, hashing, and secure transport primitives.",
-      "dependencies": [
-        "libsodium"
-      ]
+      "description": "Enables the core libsodium-backed CypherSecurity subsystem.",
+      "dependencies": []
     },
     "shader-tools": {
       "description": "Offline GLSL-to-SPIR-V compilation, validation, optimization, and reflection support.",
