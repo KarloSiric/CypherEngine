@@ -85,7 +85,7 @@ Approved acquisition policy:
 - LZ4, Zstd, xxHash, and libsodium support packages, caches, hashes, and security
 - libpng, libjpeg-turbo, TinyEXR, KTX, meshoptimizer, and optional Assimp support asset cooking
 - OpenAL Soft, Opus/opusfile, and libsndfile support runtime audio and source conversion
-- libzip supports ordinary ZIP interchange; `.cypkg` remains a Cypher format
+- libzip supports ordinary ZIP interchange; `.cypak` remains a Cypher format
 - curl supports HTTPS; GameNetworkingSockets remains an optional transport backend
 - shaderc and SPIRV-Cross support the offline shader pipeline
 - SQLite supports the editor asset database and derived-data indexes
@@ -104,6 +104,11 @@ Soft, and libsndfile also require deliberate linkage and release-license review.
 Mason and command-line tools edit authoring formats. Runtime loads cooked
 formats whenever parsing source data would be too slow or allocation-heavy.
 
+CYDF is the general typed source-data language. Individual source formats use
+CYDF with domain-specific schemas; they are not interchangeable merely because
+they share a parser. The complete map and Mason direction is documented in
+[map_authoring_and_mason.md](map_authoring_and_mason.md).
+
 Target source formats:
 
 - `.cymap` editable Mason map source
@@ -119,7 +124,6 @@ Target cooked formats:
 
 - `.cymap_c` cooked map data
 - `.cyscene_c` cooked scene data
-- `.cybsp_c` compiled BSP/visibility/collision data
 - `.cytex_c` cooked texture
 - `.cymat_c` cooked material
 - `.cymesh_c` cooked mesh
@@ -131,7 +135,11 @@ Target cooked formats:
 - `.cyshader_c` shader cache metadata
 - `.cynav_c` cooked navmesh
 - `.cyflow_c` cooked mission/objective graph
-- `.cypkg` packed game assets
+- `.cypak` packed game assets
+
+BSP-derived CSG, portal, visibility, or collision data may be an intermediate
+compiler artifact or an optional chunk inside `.cymap_c`. It is not a mandatory
+parallel world format.
 
 All cooked formats should share a predictable binary skeleton:
 
@@ -172,6 +180,8 @@ Important rule:
 
 - the runtime world contract comes before the editor
 - the editor edits real engine data, not a disconnected fake format
+- `.cymap` is CYDF-backed editable source; `.cymap_c` is the normal runtime map
+- brushes and BSP algorithms remain tools, not the universal world container
 
 ## Models
 
@@ -275,6 +285,10 @@ Target:
 - inspector
 - console/CVar integration
 - play-in-editor direction
+
+The detailed Mason product layers, map document, geometry model, compiler stages,
+undo model, validation policy, and implementation milestones are defined in
+[map_authoring_and_mason.md](map_authoring_and_mason.md).
 
 Recommended order:
 
