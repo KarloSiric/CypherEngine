@@ -28,6 +28,9 @@ namespace cypher::common
 
 template <typename type_t>
 struct ring_buffer_t {
+    static_assert( is_object_v<type_t>, "ring_buffer_t requires an object type." );
+    static_assert( !is_array_v<type_t>, "ring_buffer_t does not store array elements." );
+
     type_t *pData{ nullptr };
     usize nCapacity{ 0u };
     usize nCount{ 0u };
@@ -40,7 +43,14 @@ CYPHER_NODISCARD bool_t RingBuffer_Init(
     span_t<type_t> storage ) noexcept;
 
 template <typename type_t>
+void RingBuffer_Shutdown( ring_buffer_t<type_t> *pBuffer ) noexcept;
+
+template <typename type_t>
 void RingBuffer_Clear( ring_buffer_t<type_t> *pBuffer ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t RingBuffer_IsValid(
+    const ring_buffer_t<type_t> *pBuffer ) noexcept;
 
 template <typename type_t>
 CYPHER_NODISCARD bool_t RingBuffer_IsFull(
@@ -101,5 +111,7 @@ CYPHER_NODISCARD const type_t *RingBuffer_At(
     usize iLogicalIndex ) noexcept;
 
 } // namespace cypher::common
+
+#include "CypherCommon_RingBuffer.inl"
 
 #endif // CYPHER_COMMON_TIER1_RINGBUFFER_H
