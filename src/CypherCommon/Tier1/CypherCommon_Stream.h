@@ -97,6 +97,11 @@ CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t Stream_IsValid( const stream_t *pStream ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Stream_HasCapabilities(
+    const stream_t *pStream,
+    flags32_t capabilities ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 stream_io_result_t Stream_Read(
     stream_t *pStream,
     void *pDest,
