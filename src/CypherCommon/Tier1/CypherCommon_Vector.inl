@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_VECTOR_INL
 #define CYPHER_COMMON_TIER1_VECTOR_INL
+
+#ifndef CYPHER_COMMON_TIER1_VECTOR_H
+    #include "CypherCommon_Vector.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
