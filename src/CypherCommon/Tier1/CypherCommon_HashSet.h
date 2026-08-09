@@ -50,6 +50,16 @@ void HashSet_Clear(
     hash_set_t<key_t, hasher_t, equal_key_t> *pSet ) noexcept;
 
 template <typename key_t, typename hasher_t, typename equal_key_t>
+CYPHER_NODISCARD bool_t HashSet_IsValid(
+    const hash_set_t<key_t, hasher_t, equal_key_t> *pSet ) noexcept;
+
+template <typename key_t, typename hasher_t, typename equal_key_t>
+CYPHER_NODISCARD bool_t HashSet_Reserve(
+    hash_set_t<key_t, hasher_t, equal_key_t> *pSet,
+    usize nElementCapacity ) noexcept;
+
+// Returns true only when a new key is inserted; duplicates leave the set unchanged.
+template <typename key_t, typename hasher_t, typename equal_key_t>
 CYPHER_NODISCARD bool_t HashSet_Insert(
     hash_set_t<key_t, hasher_t, equal_key_t> *pSet,
     const key_t &key ) noexcept;
@@ -68,6 +78,18 @@ template <typename key_t, typename hasher_t, typename equal_key_t>
 CYPHER_NODISCARD usize HashSet_Count(
     const hash_set_t<key_t, hasher_t, equal_key_t> *pSet ) noexcept;
 
+template <typename key_t, typename hasher_t, typename equal_key_t>
+CYPHER_NODISCARD usize HashSet_Capacity(
+    const hash_set_t<key_t, hasher_t, equal_key_t> *pSet ) noexcept;
+
+template <typename key_t, typename hasher_t, typename equal_key_t>
+CYPHER_NODISCARD bool_t HashSet_IsEmpty(
+    const hash_set_t<key_t, hasher_t, equal_key_t> *pSet ) noexcept;
+
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_HASHSET_INL
+    #include "CypherCommon_HashSet.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_HASHSET_H
