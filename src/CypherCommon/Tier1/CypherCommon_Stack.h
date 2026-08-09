@@ -27,50 +27,75 @@ namespace cypher::common
 {
 
 template <typename type_t>
-struct stack_t {
+struct cy_stack_t {
     vector_t<type_t> storage{};
 };
 
 template <typename type_t>
 CYPHER_NODISCARD bool_t Stack_Init(
-    stack_t<type_t> *pStack,
+    cy_stack_t<type_t> *pStack,
     const allocator_t *pAllocator,
     usize nInitialCapacity = 0u ) noexcept;
 
 template <typename type_t>
-void Stack_Shutdown( stack_t<type_t> *pStack ) noexcept;
+void Stack_Shutdown( cy_stack_t<type_t> *pStack ) noexcept;
 
 template <typename type_t>
-void Stack_Clear( stack_t<type_t> *pStack ) noexcept;
+void Stack_Clear( cy_stack_t<type_t> *pStack ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Stack_IsValid(
+    const cy_stack_t<type_t> *pStack ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Stack_Reserve(
+    cy_stack_t<type_t> *pStack,
+    usize nCapacity ) noexcept;
 
 template <typename type_t>
 CYPHER_NODISCARD bool_t Stack_Push(
-    stack_t<type_t> *pStack,
+    cy_stack_t<type_t> *pStack,
     const type_t &value ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Stack_PushMove(
+    cy_stack_t<type_t> *pStack,
+    type_t &&value ) noexcept;
 
 template <typename type_t, typename... args_t>
 CYPHER_NODISCARD type_t *Stack_Emplace(
-    stack_t<type_t> *pStack,
+    cy_stack_t<type_t> *pStack,
     args_t &&... args ) noexcept;
 
 template <typename type_t>
 CYPHER_NODISCARD bool_t Stack_Pop(
-    stack_t<type_t> *pStack,
+    cy_stack_t<type_t> *pStack,
     type_t *pValueOut = nullptr ) noexcept;
 
 template <typename type_t>
-CYPHER_NODISCARD type_t *Stack_Top( stack_t<type_t> *pStack ) noexcept;
+CYPHER_NODISCARD type_t *Stack_Top( cy_stack_t<type_t> *pStack ) noexcept;
 
 template <typename type_t>
 CYPHER_NODISCARD const type_t *Stack_Top(
-    const stack_t<type_t> *pStack ) noexcept;
+    const cy_stack_t<type_t> *pStack ) noexcept;
 
 template <typename type_t>
-CYPHER_NODISCARD usize Stack_Count( const stack_t<type_t> *pStack ) noexcept;
+CYPHER_NODISCARD usize Stack_Count( const cy_stack_t<type_t> *pStack ) noexcept;
 
 template <typename type_t>
-CYPHER_NODISCARD bool_t Stack_IsEmpty( const stack_t<type_t> *pStack ) noexcept;
+CYPHER_NODISCARD usize Stack_Capacity(
+    const cy_stack_t<type_t> *pStack ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Stack_IsEmpty( const cy_stack_t<type_t> *pStack ) noexcept;
+
+template <typename type_t>
+void Stack_Move(
+    cy_stack_t<type_t> *pDest,
+    cy_stack_t<type_t> *pSource ) noexcept;
 
 } // namespace cypher::common
+
+#include "CypherCommon_Stack.inl"
 
 #endif // CYPHER_COMMON_TIER1_STACK_H
