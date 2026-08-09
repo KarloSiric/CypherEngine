@@ -36,8 +36,10 @@ Read these in order when resuming work:
 8. [function_pointer_policy.md](function_pointer_policy.md)
 9. [subsystems.md](subsystems.md)
 10. [toolchain_plan.md](toolchain_plan.md)
-11. [map_authoring_and_mason.md](map_authoring_and_mason.md)
-12. [reference_engine_lessons.md](reference_engine_lessons.md)
+11. [tool_suite.md](tool_suite.md)
+12. [map_authoring_and_mason.md](map_authoring_and_mason.md)
+13. [reference_engine_lessons.md](reference_engine_lessons.md)
+14. [security_model.md](security_model.md)
 
 API docs:
 
@@ -93,6 +95,11 @@ Project memory:
   - what each module is responsible for
 - `toolchain_plan`
   - how maps, models, archives, scripts, and tools should be introduced
+- `tool_suite`
+  - complete Qt 6 application and Mason workspace inventory
+  - headless compiler, validator, inspector, and build-tool inventory
+  - Source 1 capability comparison and working Cypher product names
+  - implementation gates and acceptance criteria for every tool class
 - `map_authoring_and_mason`
   - CYDF and CypherKeyValues direction
   - editable and cooked format families
@@ -103,6 +110,10 @@ Project memory:
   - architecture lessons from reference engines
   - legal boundary for study-only source trees
   - practical lessons for VFS, memory, resources, renderer, world, tools and editor
+- `security_model`
+  - cryptographic primitive choices and Cypher-owned contracts
+  - secret ownership, nonce, key lifecycle, and failure rules
+  - boundaries with networking, packages, tools, and anti-cheat policy
 - `CYPHERENGINE_API_REFERENCE`
   - the public engine-facing API surface that currently exists
 - `CYPHERENGINE_API_IMPLEMENTATION`
