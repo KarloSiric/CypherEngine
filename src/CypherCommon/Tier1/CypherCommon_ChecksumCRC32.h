@@ -27,6 +27,8 @@ namespace cypher::common
 {
 
 constexpr crc32_t CY_CRC32_INITIAL = 0xFFFFFFFFu;
+constexpr crc32_t CY_CRC32_POLYNOMIAL_REFLECTED = 0xEDB88320u;
+constexpr crc32_t CY_CRC32_FINAL_XOR = 0xFFFFFFFFu;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 crc32_t ChecksumCRC32_Update( crc32_t state, binary_block_t data ) noexcept;
