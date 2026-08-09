@@ -28,8 +28,12 @@ namespace cypher::common
 
 template <typename type_t>
 struct queue_t {
+    static_assert( is_object_v<type_t>, "queue_t requires an object type." );
+    static_assert( !is_array_v<type_t>, "queue_t does not store array elements." );
+
     queue_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( queue_t );
+    ~queue_t() noexcept;
 
     type_t *pData{ nullptr };
     usize nCapacity{ 0u };
@@ -51,14 +55,32 @@ template <typename type_t>
 void Queue_Clear( queue_t<type_t> *pQueue ) noexcept;
 
 template <typename type_t>
+CYPHER_NODISCARD bool_t Queue_IsValid(
+    const queue_t<type_t> *pQueue ) noexcept;
+
+template <typename type_t>
 CYPHER_NODISCARD bool_t Queue_Reserve(
     queue_t<type_t> *pQueue,
     usize nCapacity ) noexcept;
 
 template <typename type_t>
+CYPHER_NODISCARD bool_t Queue_ShrinkToFit(
+    queue_t<type_t> *pQueue ) noexcept;
+
+template <typename type_t>
 CYPHER_NODISCARD bool_t Queue_Push(
     queue_t<type_t> *pQueue,
     const type_t &value ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t Queue_PushMove(
+    queue_t<type_t> *pQueue,
+    type_t &&value ) noexcept;
+
+template <typename type_t, typename... args_t>
+CYPHER_NODISCARD type_t *Queue_Emplace(
+    queue_t<type_t> *pQueue,
+    args_t &&... args ) noexcept;
 
 template <typename type_t>
 CYPHER_NODISCARD bool_t Queue_Pop(
@@ -80,6 +102,16 @@ CYPHER_NODISCARD const type_t *Queue_Back(
     const queue_t<type_t> *pQueue ) noexcept;
 
 template <typename type_t>
+CYPHER_NODISCARD type_t *Queue_At(
+    queue_t<type_t> *pQueue,
+    usize iLogicalIndex ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD const type_t *Queue_At(
+    const queue_t<type_t> *pQueue,
+    usize iLogicalIndex ) noexcept;
+
+template <typename type_t>
 CYPHER_NODISCARD usize Queue_Count( const queue_t<type_t> *pQueue ) noexcept;
 
 template <typename type_t>
@@ -94,5 +126,7 @@ void Queue_Move(
     queue_t<type_t> *pSource ) noexcept;
 
 } // namespace cypher::common
+
+#include "CypherCommon_Queue.inl"
 
 #endif // CYPHER_COMMON_TIER1_QUEUE_H
