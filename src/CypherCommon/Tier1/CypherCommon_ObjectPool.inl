@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_OBJECTPOOL_INL
 #define CYPHER_COMMON_TIER1_OBJECTPOOL_INL
+
+#ifndef CYPHER_COMMON_TIER1_OBJECTPOOL_H
+    #include "CypherCommon_ObjectPool.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
