@@ -6,7 +6,8 @@
 //  File: src/CypherCommon/Tier1/CypherCommon_CommandBuffer.h
 //  Purpose: Declares an allocator-backed FIFO buffer of command lines.
 //  Details: CommandBuffer stores text contiguously and returns borrowed line views.
-//           Returned views are invalidated by compaction, clear, or later growth.
+//           Returned views are invalidated by compaction, clear, shutdown, or growth.
+//           Enqueued lines may contain tabs but not null, carriage-return, or newline.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -43,6 +44,18 @@ CYPHER_COMMON_API void CommandBuffer_Shutdown(
 
 CYPHER_COMMON_API void CommandBuffer_Clear(
     command_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t CommandBuffer_IsValid( const command_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t CommandBuffer_IsEmpty( const command_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize CommandBuffer_Count( const command_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize CommandBuffer_PendingBytes( const command_buffer_t *pBuffer ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t CommandBuffer_Enqueue(
