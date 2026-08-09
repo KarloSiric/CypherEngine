@@ -59,6 +59,16 @@ CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t StringBuilder_WasTruncated( const string_builder_t *pBuilder ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+usize StringBuilder_Length( const string_builder_t *pBuilder ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize StringBuilder_Required( const string_builder_t *pBuilder ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_builder_status_t StringBuilder_Status(
+    const string_builder_t *pBuilder ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 usize StringBuilder_Remaining( const string_builder_t *pBuilder ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
