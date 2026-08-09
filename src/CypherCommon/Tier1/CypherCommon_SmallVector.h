@@ -29,8 +29,12 @@ namespace cypher::common
 
 template <typename type_t, usize nInlineCapacity>
 struct small_vector_t {
+    static_assert( is_object_v<type_t>, "small_vector_t requires an object type." );
+    static_assert( !is_array_v<type_t>, "small_vector_t does not store array elements." );
+
     small_vector_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( small_vector_t );
+    ~small_vector_t() noexcept;
 
     alignas( type_t ) byte inlineStorage[
         ( nInlineCapacity > 0u ? nInlineCapacity : 1u ) * sizeof( type_t )]{};
@@ -54,11 +58,23 @@ void SmallVector_Clear(
     small_vector_t<type_t, nInlineCapacity> *pVector ) noexcept;
 
 template <typename type_t, usize nInlineCapacity>
+CYPHER_NODISCARD bool_t SmallVector_IsValid(
+    const small_vector_t<type_t, nInlineCapacity> *pVector ) noexcept;
+
+template <typename type_t, usize nInlineCapacity>
 CYPHER_NODISCARD usize SmallVector_Count(
     const small_vector_t<type_t, nInlineCapacity> *pVector ) noexcept;
 
 template <typename type_t, usize nInlineCapacity>
 CYPHER_NODISCARD usize SmallVector_Capacity(
+    const small_vector_t<type_t, nInlineCapacity> *pVector ) noexcept;
+
+template <typename type_t, usize nInlineCapacity>
+CYPHER_NODISCARD type_t *SmallVector_Data(
+    small_vector_t<type_t, nInlineCapacity> *pVector ) noexcept;
+
+template <typename type_t, usize nInlineCapacity>
+CYPHER_NODISCARD const type_t *SmallVector_Data(
     const small_vector_t<type_t, nInlineCapacity> *pVector ) noexcept;
 
 template <typename type_t, usize nInlineCapacity>
@@ -76,9 +92,18 @@ CYPHER_NODISCARD bool_t SmallVector_Resize(
     usize nCount ) noexcept;
 
 template <typename type_t, usize nInlineCapacity>
+CYPHER_NODISCARD bool_t SmallVector_ShrinkToFit(
+    small_vector_t<type_t, nInlineCapacity> *pVector ) noexcept;
+
+template <typename type_t, usize nInlineCapacity>
 CYPHER_NODISCARD bool_t SmallVector_PushBack(
     small_vector_t<type_t, nInlineCapacity> *pVector,
     const type_t &value ) noexcept;
+
+template <typename type_t, usize nInlineCapacity>
+CYPHER_NODISCARD bool_t SmallVector_PushBackMove(
+    small_vector_t<type_t, nInlineCapacity> *pVector,
+    type_t &&value ) noexcept;
 
 template <typename type_t, usize nInlineCapacity, typename... args_t>
 CYPHER_NODISCARD type_t *SmallVector_EmplaceBack(
@@ -86,8 +111,30 @@ CYPHER_NODISCARD type_t *SmallVector_EmplaceBack(
     args_t &&... args ) noexcept;
 
 template <typename type_t, usize nInlineCapacity>
+CYPHER_NODISCARD bool_t SmallVector_Insert(
+    small_vector_t<type_t, nInlineCapacity> *pVector,
+    usize iIndex,
+    const type_t &value ) noexcept;
+
+template <typename type_t, usize nInlineCapacity>
+CYPHER_NODISCARD bool_t SmallVector_Append(
+    small_vector_t<type_t, nInlineCapacity> *pVector,
+    span_t<const type_t> values ) noexcept;
+
+template <typename type_t, usize nInlineCapacity>
 void SmallVector_PopBack(
     small_vector_t<type_t, nInlineCapacity> *pVector ) noexcept;
+
+template <typename type_t, usize nInlineCapacity>
+void SmallVector_Erase(
+    small_vector_t<type_t, nInlineCapacity> *pVector,
+    usize iIndex,
+    usize nCount = 1u ) noexcept;
+
+template <typename type_t, usize nInlineCapacity>
+void SmallVector_EraseSwap(
+    small_vector_t<type_t, nInlineCapacity> *pVector,
+    usize iIndex ) noexcept;
 
 template <typename type_t, usize nInlineCapacity>
 CYPHER_NODISCARD type_t *SmallVector_At(
@@ -133,5 +180,7 @@ void SmallVector_Move(
     small_vector_t<type_t, nInlineCapacity> *pSource ) noexcept;
 
 } // namespace cypher::common
+
+#include "CypherCommon_SmallVector.inl"
 
 #endif // CYPHER_COMMON_TIER1_SMALLVECTOR_H
