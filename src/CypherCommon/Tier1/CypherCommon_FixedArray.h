@@ -28,6 +28,9 @@ namespace cypher::common
 
 template <typename type_t, usize nExtent>
 struct fixed_array_t {
+    static_assert( is_object_v<type_t>, "fixed_array_t requires an object type." );
+    static_assert( !is_array_v<type_t>, "fixed_array_t does not store array elements." );
+
     type_t data[nExtent > 0u ? nExtent : 1u]{};
 };
 
@@ -36,6 +39,13 @@ CYPHER_NODISCARD constexpr usize FixedArray_Count(
     const fixed_array_t<type_t, nExtent> & ) noexcept
 {
     return nExtent;
+}
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD constexpr bool_t FixedArray_IsEmpty(
+    const fixed_array_t<type_t, nExtent> & ) noexcept
+{
+    return nExtent == 0u;
 }
 
 template <typename type_t, usize nExtent>
@@ -52,8 +62,49 @@ CYPHER_NODISCARD type_t *FixedArray_At(
     usize iIndex ) noexcept;
 
 template <typename type_t, usize nExtent>
+CYPHER_NODISCARD const type_t *FixedArray_At(
+    const fixed_array_t<type_t, nExtent> *pArray,
+    usize iIndex ) noexcept;
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD type_t *FixedArray_Begin(
+    fixed_array_t<type_t, nExtent> *pArray ) noexcept;
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD const type_t *FixedArray_Begin(
+    const fixed_array_t<type_t, nExtent> *pArray ) noexcept;
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD type_t *FixedArray_End(
+    fixed_array_t<type_t, nExtent> *pArray ) noexcept;
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD const type_t *FixedArray_End(
+    const fixed_array_t<type_t, nExtent> *pArray ) noexcept;
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD type_t *FixedArray_Front(
+    fixed_array_t<type_t, nExtent> *pArray ) noexcept;
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD const type_t *FixedArray_Front(
+    const fixed_array_t<type_t, nExtent> *pArray ) noexcept;
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD type_t *FixedArray_Back(
+    fixed_array_t<type_t, nExtent> *pArray ) noexcept;
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD const type_t *FixedArray_Back(
+    const fixed_array_t<type_t, nExtent> *pArray ) noexcept;
+
+template <typename type_t, usize nExtent>
 CYPHER_NODISCARD span_t<type_t> FixedArray_Span(
     fixed_array_t<type_t, nExtent> *pArray ) noexcept;
+
+template <typename type_t, usize nExtent>
+CYPHER_NODISCARD span_t<const type_t> FixedArray_Span(
+    const fixed_array_t<type_t, nExtent> *pArray ) noexcept;
 
 template <typename type_t, usize nExtent>
 void FixedArray_Fill(
@@ -61,5 +112,7 @@ void FixedArray_Fill(
     const type_t &value ) noexcept;
 
 } // namespace cypher::common
+
+#include "CypherCommon_FixedArray.inl"
 
 #endif // CYPHER_COMMON_TIER1_FIXEDARRAY_H
