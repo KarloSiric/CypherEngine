@@ -88,6 +88,8 @@ CYPHER_NODISCARD usize ObjectPool_FreeCount(
 
 } // namespace cypher::common
 
-#include "CypherCommon_ObjectPool.inl"
+#ifndef CYPHER_COMMON_TIER1_OBJECTPOOL_INL
+    #include "CypherCommon_ObjectPool.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_OBJECTPOOL_H
