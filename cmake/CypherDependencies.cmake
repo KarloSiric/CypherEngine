@@ -99,6 +99,21 @@ function(cypher_configure_common_tier1_dependencies out_link_libraries)
     set(${out_link_libraries} Cypher::ThirdPartyHash PARENT_SCOPE)
 endfunction()
 
+function(cypher_configure_security_dependencies out_link_libraries)
+    find_package(unofficial-sodium CONFIG REQUIRED)
+
+    if (NOT TARGET CypherThirdPartySecurity)
+        add_library(CypherThirdPartySecurity INTERFACE)
+        add_library(Cypher::ThirdPartySecurity ALIAS CypherThirdPartySecurity)
+        target_link_libraries(
+            CypherThirdPartySecurity
+            INTERFACE unofficial-sodium::sodium
+        )
+    endif()
+
+    set(${out_link_libraries} Cypher::ThirdPartySecurity PARENT_SCOPE)
+endfunction()
+
 function(cypher_require_test_dependencies)
     find_package(Catch2 3 CONFIG REQUIRED)
     set(Catch2_FOUND TRUE PARENT_SCOPE)
