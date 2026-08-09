@@ -30,6 +30,7 @@ namespace cypher::common
 struct blob_t {
     blob_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( blob_t );
+    ~blob_t() noexcept;
 
     byte *pData{ nullptr };
     usize cbSize{ 0u };
@@ -45,6 +46,24 @@ bool_t Blob_Init(
 
 CYPHER_COMMON_API void Blob_Shutdown( blob_t *pBlob ) noexcept;
 CYPHER_COMMON_API void Blob_Clear( blob_t *pBlob ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Blob_IsValid( const blob_t *pBlob ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Blob_IsEmpty( const blob_t *pBlob ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+byte *Blob_Data( blob_t *pBlob ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+const byte *Blob_Data( const blob_t *pBlob ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize Blob_Size( const blob_t *pBlob ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize Blob_Capacity( const blob_t *pBlob ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t Blob_Reserve( blob_t *pBlob, usize cbCapacity ) noexcept;
