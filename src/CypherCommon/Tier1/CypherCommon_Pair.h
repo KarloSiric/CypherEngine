@@ -33,15 +33,17 @@ struct pair_t {
 };
 
 template <typename first_t, typename second_t>
-CYPHER_NODISCARD pair_t<first_t, second_t> Pair_Make(
+CYPHER_NODISCARD constexpr pair_t<first_t, second_t> Pair_Make(
     const first_t &first,
     const second_t &second ) noexcept;
 
 template <typename first_t, typename second_t>
-CYPHER_NODISCARD bool_t Pair_Equals(
+CYPHER_NODISCARD constexpr bool_t Pair_Equals(
     const pair_t<first_t, second_t> &pairA,
     const pair_t<first_t, second_t> &pairB ) noexcept;
 
 } // namespace cypher::common
+
+#include "CypherCommon_Pair.inl"
 
 #endif // CYPHER_COMMON_TIER1_PAIR_H
