@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 # //////////////////////////////////////////////////////////////////////////
 # //
 # //  CypherEngine Source Code
@@ -16,8 +18,7 @@
 # //
 # //////////////////////////////////////////////////////////////////////////
 
-set -e
+set -euo pipefail
 
-cmake -S . -B build
-cmake --build build -j
-python3 tools/dev/generate_clangd_compile_db.py
+cmake --preset debug
+cmake --build --preset debug --parallel
