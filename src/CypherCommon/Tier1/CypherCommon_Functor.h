@@ -48,6 +48,8 @@ struct hash_functor_t {
 
 } // namespace cypher::common
 
-#include "CypherCommon_Functor.inl"
+#ifndef CYPHER_COMMON_TIER1_FUNCTOR_INL
+    #include "CypherCommon_Functor.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_FUNCTOR_H
