@@ -104,6 +104,8 @@ CYPHER_NODISCARD byte_span_t Span_AsWritableBytes(
 
 } // namespace cypher::common
 
-#include "CypherCommon_Span.inl"
+#ifndef CYPHER_COMMON_TIER1_SPAN_INL
+    #include "CypherCommon_Span.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_SPAN_H
