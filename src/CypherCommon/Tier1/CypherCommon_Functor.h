@@ -21,21 +21,21 @@
     #pragma once
 #endif
 
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_StringView.h"
 
 namespace cypher::common
 {
 
 template <typename type_t>
 struct less_t {
-    CYPHER_NODISCARD bool_t operator()(
+    CYPHER_NODISCARD constexpr bool_t operator()(
         const type_t &left,
         const type_t &right ) const noexcept;
 };
 
 template <typename type_t>
 struct equal_t {
-    CYPHER_NODISCARD bool_t operator()(
+    CYPHER_NODISCARD constexpr bool_t operator()(
         const type_t &left,
         const type_t &right ) const noexcept;
 };
@@ -47,5 +47,7 @@ struct hash_functor_t {
 };
 
 } // namespace cypher::common
+
+#include "CypherCommon_Functor.inl"
 
 #endif // CYPHER_COMMON_TIER1_FUNCTOR_H
