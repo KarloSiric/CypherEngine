@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_RANGE_INL
 #define CYPHER_COMMON_TIER1_RANGE_INL
+
+#ifndef CYPHER_COMMON_TIER1_RANGE_H
+    #include "CypherCommon_Range.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
