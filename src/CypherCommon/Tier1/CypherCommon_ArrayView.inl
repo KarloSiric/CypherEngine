@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_ARRAYVIEW_INL
 #define CYPHER_COMMON_TIER1_ARRAYVIEW_INL
+
+#ifndef CYPHER_COMMON_TIER1_ARRAYVIEW_H
+    #include "CypherCommon_ArrayView.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
