@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_FIXEDSTRING_INL
 #define CYPHER_COMMON_TIER1_FIXEDSTRING_INL
+
+#ifndef CYPHER_COMMON_TIER1_FIXEDSTRING_H
+    #include "CypherCommon_FixedString.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
