@@ -17,16 +17,29 @@
 # //
 # //////////////////////////////////////////////////////////////////////////
 
+import argparse
 import json
-import shutil
-import shlex
 from pathlib import Path
 
 
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate clangd's compile database from a CMake preset."
+    )
+    parser.add_argument(
+        "--preset",
+        default="debug",
+        help="CMake configure preset whose compile database should be used.",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
+    arguments = parse_arguments()
     root_dir = Path(__file__).resolve().parents[2]
-    src_dir = root_dir / "src"
-    native_db_path = root_dir / "build" / "compile_commands.json"
+    native_db_path = (
+        root_dir / "out" / "build" / arguments.preset / "compile_commands.json"
+    )
     clangd_db_dir = root_dir / "build-clangd"
     clangd_db_path = clangd_db_dir / "compile_commands.json"
 
@@ -35,32 +48,14 @@ def main() -> int:
 
     native_entries = json.loads(native_db_path.read_text())
 
-    llvm_cxx = (
-        "/opt/homebrew/opt/llvm/bin/clang++"
-        if Path("/opt/homebrew/opt/llvm/bin/clang++").exists()
-        else (shutil.which("clang++") or "clang++")
-    )
-
-    entries = []
-    for entry in native_entries:
-        fixed_entry = dict(entry)
-        if "arguments" in fixed_entry:
-            arguments = list(fixed_entry["arguments"])
-        else:
-            arguments = shlex.split(fixed_entry["command"])
-
-        if arguments:
-            arguments[0] = llvm_cxx
-
-        fixed_entry.pop("command", None)
-        fixed_entry["arguments"] = arguments
-        entries.append(fixed_entry)
-
     clangd_db_dir.mkdir(parents=True, exist_ok=True)
-    clangd_db_path.write_text(json.dumps(entries, indent=2) + "\n")
+    temporary_db_path = clangd_db_path.with_suffix(".json.tmp")
+    temporary_db_path.write_text(json.dumps(native_entries, indent=2) + "\n")
+    temporary_db_path.replace(clangd_db_path)
 
     print(f"wrote {clangd_db_path}")
-    print(f"entries: {len(entries)}")
+    print(f"source: {native_db_path}")
+    print(f"entries: {len(native_entries)}")
     return 0
 
 
