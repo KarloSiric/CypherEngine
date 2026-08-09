@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_FIXEDARRAY_INL
 #define CYPHER_COMMON_TIER1_FIXEDARRAY_INL
+
+#ifndef CYPHER_COMMON_TIER1_FIXEDARRAY_H
+    #include "CypherCommon_FixedArray.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
