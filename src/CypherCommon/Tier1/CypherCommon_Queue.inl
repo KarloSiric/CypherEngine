@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_QUEUE_INL
 #define CYPHER_COMMON_TIER1_QUEUE_INL
+
+#ifndef CYPHER_COMMON_TIER1_QUEUE_H
+    #include "CypherCommon_Queue.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
