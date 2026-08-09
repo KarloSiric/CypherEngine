@@ -36,7 +36,8 @@ Read these in order when resuming work:
 8. [function_pointer_policy.md](function_pointer_policy.md)
 9. [subsystems.md](subsystems.md)
 10. [toolchain_plan.md](toolchain_plan.md)
-11. [reference_engine_lessons.md](reference_engine_lessons.md)
+11. [map_authoring_and_mason.md](map_authoring_and_mason.md)
+12. [reference_engine_lessons.md](reference_engine_lessons.md)
 
 API docs:
 
@@ -92,6 +93,12 @@ Project memory:
   - what each module is responsible for
 - `toolchain_plan`
   - how maps, models, archives, scripts, and tools should be introduced
+- `map_authoring_and_mason`
+  - CYDF and CypherKeyValues direction
+  - editable and cooked format families
+  - `.cymap`, `CypherMapCompiler`, and `.cymap_c` architecture
+  - hybrid brush, mesh, BSP, visibility, and world-compilation policy
+  - Mason workspaces, editing model, validation, testing, and build order
 - `reference_engine_lessons`
   - architecture lessons from reference engines
   - legal boundary for study-only source trees
