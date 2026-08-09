@@ -127,6 +127,8 @@ void Queue_Move(
 
 } // namespace cypher::common
 
-#include "CypherCommon_Queue.inl"
+#ifndef CYPHER_COMMON_TIER1_QUEUE_INL
+    #include "CypherCommon_Queue.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_QUEUE_H
