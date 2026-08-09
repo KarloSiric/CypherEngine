@@ -39,27 +39,62 @@ void SetBitUnchecked( bit_buffer_t *pBuffer, usize iBit, bool_t value ) noexcept
     }
 }
 
+void ApplyByteMask( byte *pTarget, byte mask, bool_t value ) noexcept
+{
+    if ( value ) {
+        *pTarget = static_cast<byte>( *pTarget | mask );
+    } else {
+        *pTarget = static_cast<byte>( *pTarget & static_cast<byte>( ~mask ) );
+    }
+}
+
 void FillRangeUnchecked(
     bit_buffer_t *pBuffer,
     usize iFirst,
     usize iEnd,
     bool_t value ) noexcept
 {
-    while ( iFirst < iEnd && ( iFirst % 8u ) != 0u ) {
-        SetBitUnchecked( pBuffer, iFirst++, value );
+    if ( iFirst >= iEnd ) {
+        return;
     }
 
-    const usize cbWholeBytes = ( iEnd - iFirst ) / 8u;
-    if ( cbWholeBytes > 0u ) {
+    const usize iFirstByte = iFirst / 8u;
+    const usize iLastByte = ( iEnd - 1u ) / 8u;
+    const usize iFirstBit = iFirst % 8u;
+    const usize iEndBit = iEnd % 8u;
+
+    if ( iFirstByte == iLastByte ) {
+        const usize nBitCount = iEnd - iFirst;
+        const u32 nMask = ( ( 1u << nBitCount ) - 1u ) << iFirstBit;
+        ApplyByteMask(
+            pBuffer->pData + iFirstByte,
+            static_cast<byte>( nMask ),
+            value );
+        return;
+    }
+
+    usize iWholeByteBegin = iFirstByte;
+    if ( iFirstBit != 0u ) {
+        ApplyByteMask(
+            pBuffer->pData + iFirstByte,
+            static_cast<byte>( 0xFFu << iFirstBit ),
+            value );
+        iWholeByteBegin = iFirstByte + 1u;
+    }
+
+    const usize iWholeByteEnd = iEnd / 8u;
+    if ( iWholeByteBegin < iWholeByteEnd ) {
         Cy_MemSet(
-            pBuffer->pData + ( iFirst / 8u ),
+            pBuffer->pData + iWholeByteBegin,
             value ? 0xFFu : 0x00u,
-            cbWholeBytes );
-        iFirst += cbWholeBytes * 8u;
+            iWholeByteEnd - iWholeByteBegin );
     }
 
-    while ( iFirst < iEnd ) {
-        SetBitUnchecked( pBuffer, iFirst++, value );
+    if ( iEndBit != 0u ) {
+        ApplyByteMask(
+            pBuffer->pData + iWholeByteEnd,
+            static_cast<byte>( ( 1u << iEndBit ) - 1u ),
+            value );
     }
 }
 
