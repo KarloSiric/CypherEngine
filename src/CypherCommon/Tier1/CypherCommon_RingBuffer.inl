@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_RINGBUFFER_INL
 #define CYPHER_COMMON_TIER1_RINGBUFFER_INL
+
+#ifndef CYPHER_COMMON_TIER1_RINGBUFFER_H
+    #include "CypherCommon_RingBuffer.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
