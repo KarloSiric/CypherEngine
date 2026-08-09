@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_OPTIONAL_INL
 #define CYPHER_COMMON_TIER1_OPTIONAL_INL
+
+#ifndef CYPHER_COMMON_TIER1_OPTIONAL_H
+    #include "CypherCommon_Optional.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
