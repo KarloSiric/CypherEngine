@@ -17,6 +17,11 @@
 
 #ifndef CYPHER_COMMON_TIER1_FUNCTOR_INL
 #define CYPHER_COMMON_TIER1_FUNCTOR_INL
+
+#ifndef CYPHER_COMMON_TIER1_FUNCTOR_H
+    #include "CypherCommon_Functor.h"
+#endif
+
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
