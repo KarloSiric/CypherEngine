@@ -66,7 +66,10 @@ CYPHER_NODISCARD CYPHER_COMMON_API variant_t Variant_FromString( string_view_t v
 CYPHER_NODISCARD CYPHER_COMMON_API variant_t Variant_FromBytes( const_byte_span_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_COMMON_API variant_t Variant_FromPointer( void *pValue ) noexcept;
 
+CYPHER_NODISCARD CYPHER_COMMON_API bool_t Variant_IsValid( variant_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Variant_IsEmpty( variant_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_COMMON_API variant_type_t Variant_Type( variant_t value ) noexcept;
+CYPHER_COMMON_API void Variant_Reset( variant_t *pValue ) noexcept;
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Variant_GetBool( variant_t value, bool_t *pOut ) noexcept;
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Variant_GetI64( variant_t value, i64 *pOut ) noexcept;
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Variant_GetU64( variant_t value, u64 *pOut ) noexcept;
