@@ -45,6 +45,19 @@ CYPHER_COMMON_API void ByteWriter_Reset( byte_writer_t *pWriter ) noexcept;
 CYPHER_COMMON_API void ByteWriter_ClearStatus( byte_writer_t *pWriter ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ByteWriter_IsValid( const byte_writer_t *pWriter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+byte_cursor_status_t ByteWriter_Status(
+    const byte_writer_t *pWriter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize ByteWriter_Offset( const byte_writer_t *pWriter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize ByteWriter_Capacity( const byte_writer_t *pWriter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 usize ByteWriter_Remaining( const byte_writer_t *pWriter ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
