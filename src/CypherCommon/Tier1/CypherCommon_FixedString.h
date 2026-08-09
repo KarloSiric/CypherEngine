@@ -95,6 +95,8 @@ CYPHER_NODISCARD bool_t FixedString_Equals(
 
 } // namespace cypher::common
 
-#include "CypherCommon_FixedString.inl"
+#ifndef CYPHER_COMMON_TIER1_FIXEDSTRING_INL
+    #include "CypherCommon_FixedString.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_FIXEDSTRING_H
