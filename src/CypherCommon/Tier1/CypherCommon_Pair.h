@@ -44,6 +44,8 @@ CYPHER_NODISCARD constexpr bool_t Pair_Equals(
 
 } // namespace cypher::common
 
-#include "CypherCommon_Pair.inl"
+#ifndef CYPHER_COMMON_TIER1_PAIR_INL
+    #include "CypherCommon_Pair.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_PAIR_H
