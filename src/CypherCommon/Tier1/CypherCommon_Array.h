@@ -120,6 +120,8 @@ void Array_Move(
 
 } // namespace cypher::common
 
-#include "CypherCommon_Array.inl"
+#ifndef CYPHER_COMMON_TIER1_ARRAY_INL
+    #include "CypherCommon_Array.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_ARRAY_H
