@@ -24,6 +24,18 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 ## [Unreleased] - 2026-07-09
 
 ### Added
+- Added the CypherSecurity primitive layer backed by libsodium, including guarded
+  secret memory, cryptographic randomness, BLAKE2b digests and KDF, SipHash,
+  Argon2id password records, XChaCha20-Poly1305 AEAD, Ed25519 signatures, X25519
+  directional key exchange, authenticated secret streams, and strict Hex/Base64.
+- Added security tests for standard vectors, domain separation, nonce exhaustion,
+  canonical encodings, tampering, stream ordering, invalid state, capacity limits,
+  guarded-key ownership, rejected peer keys, and concurrent read-only key use.
+- Added Release benchmarks for guarded memory, key derivation, authenticated
+  encryption, signatures, key exchange, secret streams, and text encodings.
+- Added `docs/security_model.md` to define algorithm choices, key and nonce
+  lifetimes, authentication rules, failure behavior, and boundaries with network,
+  package, tooling, and anti-cheat systems.
 - Added a project-local vcpkg bootstrap that reads and checks out the exact registry revision pinned by `vcpkg.json`.
 - Added feature-scoped dependency groups for tests, benchmarks, math, scripting, compression, security, text, images, textures, meshes, audio, archives, networking, profiling, shader tools, and editor support.
 - Added pinned Dear ImGui, cgltf, and MikkTSpace Git submodules alongside the existing generated GLAD source.
