@@ -96,6 +96,8 @@ void Stack_Move(
 
 } // namespace cypher::common
 
-#include "CypherCommon_Stack.inl"
+#ifndef CYPHER_COMMON_TIER1_STACK_INL
+    #include "CypherCommon_Stack.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_STACK_H
