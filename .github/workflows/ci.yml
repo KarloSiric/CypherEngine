@@ -48,7 +48,9 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Bootstrap pinned vcpkg
-        run: cmake -P cmake/CypherBootstrapVcpkg.cmake
+        run: |
+          mkdir -p "$VCPKG_DOWNLOADS"
+          cmake -P cmake/CypherBootstrapVcpkg.cmake
 
       - name: Resolve approved dependency graph
         run: |
