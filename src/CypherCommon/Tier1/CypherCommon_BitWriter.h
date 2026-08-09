@@ -42,9 +42,25 @@ bool_t BitWriter_Init(
     bit_order_t bitOrder = bit_order_t::LEAST_SIGNIFICANT_FIRST ) noexcept;
 
 CYPHER_COMMON_API void BitWriter_Reset( bit_writer_t *pWriter ) noexcept;
+CYPHER_COMMON_API void BitWriter_ClearStatus( bit_writer_t *pWriter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitWriter_IsValid( const bit_writer_t *pWriter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bit_cursor_status_t BitWriter_Status( const bit_writer_t *pWriter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BitWriter_Offset( const bit_writer_t *pWriter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BitWriter_Capacity( const bit_writer_t *pWriter ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 usize BitWriter_Remaining( const bit_writer_t *pWriter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BitWriter_BitsWritten( const bit_writer_t *pWriter ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t BitWriter_Seek( bit_writer_t *pWriter, usize iBit ) noexcept;
