@@ -98,6 +98,8 @@ CYPHER_NODISCARD constexpr type_t ValueRange_Clamp(
 
 } // namespace cypher::common
 
-#include "CypherCommon_Range.inl"
+#ifndef CYPHER_COMMON_TIER1_RANGE_INL
+    #include "CypherCommon_Range.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_RANGE_H
