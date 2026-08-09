@@ -43,6 +43,18 @@ bool_t PacketBuffer_Init(
 CYPHER_COMMON_API void PacketBuffer_Clear( packet_buffer_t *pPacket ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t PacketBuffer_IsValid( const packet_buffer_t *pPacket ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t PacketBuffer_IsEmpty( const packet_buffer_t *pPacket ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize PacketBuffer_Size( const packet_buffer_t *pPacket ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize PacketBuffer_Capacity( const packet_buffer_t *pPacket ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t PacketBuffer_SetSize(
     packet_buffer_t *pPacket,
     usize cbSize ) noexcept;
