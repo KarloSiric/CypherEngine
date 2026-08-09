@@ -78,3 +78,45 @@ TEST_CASE( "BitBuffer rejects capacity overflow without mutation",
     REQUIRE( BitBuffer_Size( &buffer ) == 4u );
     REQUIRE( storage[0] == 0x0Fu );
 }
+
+TEST_CASE( "BitBuffer preserves every resize boundary",
+           "[CypherCommon][Tier1][BitBuffer]" )
+{
+    constexpr usize nCapacityBits = 24u;
+
+    for ( usize nOldSize = 0u; nOldSize <= nCapacityBits; ++nOldSize ) {
+        for ( usize nNewSize = 0u; nNewSize <= nCapacityBits; ++nNewSize ) {
+            for ( const bool_t bFillValue : { CY_FALSE, CY_TRUE } ) {
+                byte storage[]{ 0xA5u, 0x5Au, 0xC3u };
+                bit_buffer_t buffer{};
+                REQUIRE( BitBuffer_Init( &buffer, Span_FromArray( storage ) ) );
+                REQUIRE( BitBuffer_Resize( &buffer, nOldSize, CY_FALSE ) );
+
+                for ( usize iBit = 0u; iBit < nOldSize; ++iBit ) {
+                    const bool_t bPatternValue = ( iBit % 3u ) == 0u;
+                    REQUIRE( BitBuffer_Set( &buffer, iBit, bPatternValue ) );
+                }
+
+                REQUIRE( BitBuffer_Resize( &buffer, nNewSize, bFillValue ) );
+                REQUIRE( BitBuffer_Size( &buffer ) == nNewSize );
+
+                for ( usize iBit = 0u; iBit < nNewSize; ++iBit ) {
+                    bool_t bActual = CY_FALSE;
+                    REQUIRE( BitBuffer_Get( &buffer, iBit, &bActual ) );
+                    const bool_t bExpected = iBit < nOldSize
+                        ? ( iBit % 3u ) == 0u
+                        : bFillValue;
+                    REQUIRE( bActual == bExpected );
+                }
+
+                const binary_block_t block = BitBuffer_Block( &buffer );
+                const usize nBitsInLastByte = nNewSize % 8u;
+                if ( nBitsInLastByte != 0u ) {
+                    const byte paddingMask = static_cast<byte>(
+                        ~static_cast<byte>( ( 1u << nBitsInLastByte ) - 1u ) );
+                    REQUIRE( ( block.pData[block.cbSize - 1u] & paddingMask ) == 0u );
+                }
+            }
+        }
+    }
+}
