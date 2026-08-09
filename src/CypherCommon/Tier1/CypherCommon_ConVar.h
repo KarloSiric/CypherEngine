@@ -21,6 +21,7 @@
     #pragma once
 #endif
 
+#include "CypherCommon_ConCommand.h"
 #include "CypherCommon_StringParse.h"
 #include "CypherCommon_Variant.h"
 
@@ -43,7 +44,33 @@ enum convar_flags_t : flags32_t {
     CONVAR_FLAG_REPLICATED    = CYPHER_BIT32( 3 ),
     CONVAR_FLAG_DEVELOPMENT   = CYPHER_BIT32( 4 ),
     CONVAR_FLAG_HIDDEN        = CYPHER_BIT32( 5 ),
-    CONVAR_FLAG_NOTIFY        = CYPHER_BIT32( 6 )
+    CONVAR_FLAG_NOTIFY        = CYPHER_BIT32( 6 ),
+    CONVAR_FLAG_REMOTE_WRITE_ALLOWED = CYPHER_BIT32( 7 )
+};
+
+constexpr flags32_t CONVAR_VALID_FLAGS =
+    CONVAR_FLAG_ARCHIVE |
+    CONVAR_FLAG_READ_ONLY |
+    CONVAR_FLAG_CHEAT |
+    CONVAR_FLAG_REPLICATED |
+    CONVAR_FLAG_DEVELOPMENT |
+    CONVAR_FLAG_HIDDEN |
+    CONVAR_FLAG_NOTIFY |
+    CONVAR_FLAG_REMOTE_WRITE_ALLOWED;
+
+enum class convar_parse_status_t : u8 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    INVALID_TYPE,
+    EMBEDDED_NULL,
+    INVALID_VALUE,
+    BELOW_MINIMUM,
+    ABOVE_MAXIMUM
+};
+
+struct convar_parse_result_t {
+    convar_parse_status_t status{ convar_parse_status_t::INVALID_ARGUMENT };
+    string_parse_result_t scalarResult{};
 };
 
 struct convar_value_t {
@@ -75,10 +102,30 @@ CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t ConVar_ValidateDesc( const convar_desc_t &desc ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
-bool_t ConVar_ParseValue(
+bool_t ConVar_ParseSucceeded( convar_parse_result_t result ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const char *ConVar_ParseStatusName( convar_parse_status_t status ) noexcept;
+
+// Parses one primitive value without applying descriptor bounds. Output remains
+// unchanged on failure; string values borrow text.
+CYPHER_NODISCARD CYPHER_COMMON_API
+convar_parse_result_t ConVar_ParseValue(
     convar_type_t type,
     string_view_t text,
     convar_value_t *pValueOut ) noexcept;
+
+// Parses one value and rejects values outside the descriptor's optional bounds.
+CYPHER_NODISCARD CYPHER_COMMON_API
+convar_parse_result_t ConVar_ParseValueForDesc(
+    const convar_desc_t &desc,
+    string_view_t text,
+    convar_value_t *pValueOut ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ConVar_ValueMatchesType(
+    convar_type_t type,
+    const convar_value_t &value ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 usize ConVar_FormatValue(
