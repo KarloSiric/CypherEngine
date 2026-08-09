@@ -59,6 +59,19 @@ CYPHER_COMMON_API void ByteReader_Reset( byte_reader_t *pReader ) noexcept;
 CYPHER_COMMON_API void ByteReader_ClearStatus( byte_reader_t *pReader ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ByteReader_IsValid( const byte_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+byte_cursor_status_t ByteReader_Status(
+    const byte_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize ByteReader_Offset( const byte_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize ByteReader_Size( const byte_reader_t *pReader ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 usize ByteReader_Remaining( const byte_reader_t *pReader ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
@@ -94,7 +107,8 @@ bool_t ByteReader_ReadVarU64( byte_reader_t *pReader, u64 *pOut ) noexcept;
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t ByteReader_ReadVarI64( byte_reader_t *pReader, i64 *pOut ) noexcept;
 
-// Reads a borrowed string view excluding its terminator.
+// Reads a borrowed string view excluding its terminator. cchMax is the maximum
+// number of characters before the required terminator.
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t ByteReader_ReadCString(
     byte_reader_t *pReader,
