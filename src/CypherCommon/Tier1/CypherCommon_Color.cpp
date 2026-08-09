@@ -126,7 +126,7 @@ colorf_t Color_UnpremultiplyAlpha( colorf_t color ) noexcept
     if ( color.a == 0.0f ) {
         return { 0.0f, 0.0f, 0.0f, 0.0f };
     }
-    
+
     const f32 inverseAlpha = 1.0f / color.a;
     return {
         color.r * inverseAlpha,
