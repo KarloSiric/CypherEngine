@@ -38,6 +38,18 @@ bool_t BitBuffer_Init( bit_buffer_t *pBuffer, byte_span_t storage ) noexcept;
 CYPHER_COMMON_API void BitBuffer_Clear( bit_buffer_t *pBuffer ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitBuffer_IsValid( const bit_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t BitBuffer_IsEmpty( const bit_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BitBuffer_Size( const bit_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize BitBuffer_Capacity( const bit_buffer_t *pBuffer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t BitBuffer_Resize(
     bit_buffer_t *pBuffer,
     usize nBitSize,
