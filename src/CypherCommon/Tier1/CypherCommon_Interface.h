@@ -51,6 +51,10 @@ struct interface_factory_desc_t {
 
 struct interface_registry_t;
 
+// A registry owns copied names but not callback state. One factory may be registered
+// per name and major version; its provided minor version must satisfy requested minor.
+// Live interfaces must be released before their factory or registry is removed.
+
 CYPHER_NODISCARD CYPHER_COMMON_API
 interface_registry_t *InterfaceRegistry_Create(
     const allocator_t *pAllocator,
