@@ -57,6 +57,17 @@ struct unicode_result_t {
     usize iError{ CY_STRING_VIEW_NPOS };
 };
 
+/*
+================
+Unicode Result Contract
+
+- Output counts exclude an optional null terminator.
+- UTF-16 counts are code units; UTF-32 counts are scalar values; UTF-8 counts bytes.
+- WRITE_TERMINATOR requires one additional output unit and never counts it as data.
+- A null output with zero capacity performs validation and required-size measurement.
+================
+*/
+
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t Unicode_IsScalarValue( unicode_code_point_t codePoint ) noexcept;
 
