@@ -6,7 +6,7 @@
 //  File: src/CypherCommon/Tier1/CypherCommon_TokenReader.h
 //  Purpose: Declares lookahead and typed-token helpers above the Tier1 lexer.
 //  Details: TokenReader owns lexer state but not source text. It provides deterministic
-//           expect/consume behavior for CYDF, configs, commands, and tool formats.
+//           expect/consume behavior for CYKV, configs, commands, and tool formats.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
