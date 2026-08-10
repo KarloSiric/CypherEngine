@@ -40,6 +40,9 @@ struct data_entry_desc_t {
 
 struct data_manager_t;
 
+// Names are copied and compared byte-for-byte. The registry is not thread-safe.
+// Clear and Destroy invoke owned callbacks in reverse registration order.
+
 CYPHER_NODISCARD CYPHER_COMMON_API
 data_manager_t *DataManager_Create(
     const allocator_t *pAllocator,
