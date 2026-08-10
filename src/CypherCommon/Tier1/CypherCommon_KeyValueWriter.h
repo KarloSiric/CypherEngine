@@ -4,7 +4,7 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_KeyValueWriter.h
-//  Purpose: Declares deterministic CYDF-style hierarchical text output.
+//  Purpose: Declares deterministic CYKV 1 hierarchical text output.
 //  Details: Output can target a bounded buffer or callback sink. Canonical mode fixes
 //           ordering and whitespace for reproducible source control and content hashing.
 //
@@ -39,6 +39,8 @@ enum class key_value_write_status_t : u8 {
     INVALID_ARGUMENT,
     INVALID_DOCUMENT,
     DEPTH_LIMIT,
+    OUT_OF_MEMORY,
+    SIZE_OVERFLOW,
     OUTPUT_TRUNCATED,
     SINK_FAILED
 };
@@ -55,6 +57,9 @@ struct key_value_write_result_t {
     usize cchWritten{ 0u };
     usize cchRequired{ 0u };
 };
+
+// Canonical mode emits compact text, sorts object members byte-wise by key,
+// and suppresses the optional final newline so one tree has one representation.
 
 using key_value_write_fn_t = bool_t ( * )(
     string_view_t text,
@@ -73,6 +78,10 @@ key_value_write_result_t KeyValue_WriteTextToSink(
     const key_value_write_options_t &options,
     key_value_write_fn_t pfnWrite,
     void *pUserData ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const char *KeyValue_WriteStatusName(
+    key_value_write_status_t status ) noexcept;
 
 } // namespace cypher::common
 
