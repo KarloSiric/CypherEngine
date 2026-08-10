@@ -65,6 +65,8 @@ bool_t StringMatch_Contains(
     flags32_t flags ) noexcept;
 
 // Supports '*', '?', and optionally ASCII character classes such as '[a-z]'.
+// Wildcards do not match path separators unless STAR_MATCHES_SEPARATOR is set.
+// Malformed character classes fail the match instead of being treated as literals.
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t StringMatch_Wildcard(
     string_view_t text,
