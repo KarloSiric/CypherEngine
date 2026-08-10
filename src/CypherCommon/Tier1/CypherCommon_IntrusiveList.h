@@ -26,9 +26,12 @@
 namespace cypher::common
 {
 
+struct intrusive_list_t;
+
 struct intrusive_list_node_t {
     intrusive_list_node_t *pPrevious{ nullptr };
     intrusive_list_node_t *pNext{ nullptr };
+    intrusive_list_t *pOwner{ nullptr };
 };
 
 struct intrusive_list_t {
@@ -39,6 +42,7 @@ struct intrusive_list_t {
 CYPHER_COMMON_API void IntrusiveList_Init( intrusive_list_t *pList ) noexcept;
 CYPHER_COMMON_API void IntrusiveList_Clear( intrusive_list_t *pList ) noexcept;
 
+// Reports whether the node currently belongs to an intrusive list.
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t IntrusiveList_IsLinked( const intrusive_list_node_t *pNode ) noexcept;
 
@@ -63,9 +67,41 @@ CYPHER_NODISCARD CYPHER_COMMON_API
 intrusive_list_node_t *IntrusiveList_Front( intrusive_list_t *pList ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+const intrusive_list_node_t *IntrusiveList_Front(
+    const intrusive_list_t *pList ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+intrusive_list_node_t *IntrusiveList_Back( intrusive_list_t *pList ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+const intrusive_list_node_t *IntrusiveList_Back(
+    const intrusive_list_t *pList ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 intrusive_list_node_t *IntrusiveList_Next(
     const intrusive_list_t *pList,
     intrusive_list_node_t *pNode ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+const intrusive_list_node_t *IntrusiveList_Next(
+    const intrusive_list_t *pList,
+    const intrusive_list_node_t *pNode ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+intrusive_list_node_t *IntrusiveList_Previous(
+    const intrusive_list_t *pList,
+    intrusive_list_node_t *pNode ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+const intrusive_list_node_t *IntrusiveList_Previous(
+    const intrusive_list_t *pList,
+    const intrusive_list_node_t *pNode ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize IntrusiveList_Count( const intrusive_list_t *pList ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t IntrusiveList_IsEmpty( const intrusive_list_t *pList ) noexcept;
 
 } // namespace cypher::common
 
