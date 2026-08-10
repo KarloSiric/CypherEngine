@@ -5,7 +5,7 @@
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_Compression.h
 //  Purpose: Declares the codec-neutral compression facade.
-//  Details: One-shot calls never allocate. Streaming contexts use an explicit
+//  Details: Callers own input and output storage. Streaming contexts use an explicit
 //           allocator and wrap pinned codec backends behind stable Cypher contracts.
 //
 //  History:
@@ -39,6 +39,7 @@ enum class compression_status_t : u8 {
     OK = 0u,
     INVALID_ARGUMENT,
     UNSUPPORTED_CODEC,
+    UNSUPPORTED_OPTION,
     BACKEND_UNAVAILABLE,
     OUTPUT_TOO_SMALL,
     CORRUPT_INPUT,
@@ -46,6 +47,8 @@ enum class compression_status_t : u8 {
     OUT_OF_MEMORY,
     INTERNAL_ERROR
 };
+
+inline constexpr usize CY_COMPRESSION_SIZE_UNKNOWN = CY_USIZE_MAX;
 
 struct compression_options_t {
     i32 nLevel{ 0 };
@@ -60,13 +63,20 @@ struct compression_result_t {
     usize cbRequired{ 0u };
 };
 
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const char *Compression_StatusName( compression_status_t status ) noexcept;
+
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t Compression_IsCodecAvailable( compression_codec_t codec ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t Compression_SupportsStreaming( compression_codec_t codec ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 usize Compression_CompressBound(
     compression_codec_t codec,
-    usize cbInput ) noexcept;
+    usize cbInput,
+    const compression_options_t &options = {} ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 compression_result_t Compression_Compress(
