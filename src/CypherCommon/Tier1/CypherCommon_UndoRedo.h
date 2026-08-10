@@ -68,6 +68,8 @@ bool_t UndoRedo_BeginTransaction(
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t UndoRedo_CommitTransaction( undo_history_t *pHistory ) noexcept;
 
+// Discards operations recorded since BeginTransaction without invoking callbacks.
+// The caller remains responsible for restoring any live edited state.
 CYPHER_COMMON_API void UndoRedo_CancelTransaction(
     undo_history_t *pHistory ) noexcept;
 
@@ -87,6 +89,19 @@ error_code_t UndoRedo_Undo( undo_history_t *pHistory ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 error_code_t UndoRedo_Redo( undo_history_t *pHistory ) noexcept;
+
+// Returns the display label for the next complete undo or redo group.
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_view_t UndoRedo_UndoLabel( const undo_history_t *pHistory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_view_t UndoRedo_RedoLabel( const undo_history_t *pHistory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize UndoRedo_OperationCount( const undo_history_t *pHistory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t UndoRedo_IsTransactionOpen( const undo_history_t *pHistory ) noexcept;
 
 } // namespace cypher::common
 
