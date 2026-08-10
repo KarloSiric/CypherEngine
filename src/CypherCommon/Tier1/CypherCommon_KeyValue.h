@@ -28,6 +28,10 @@
 namespace cypher::common
 {
 
+// Recursive CYKV operations reject deeper trees to keep stack use bounded.
+inline constexpr usize CY_KEY_VALUE_MAX_DEPTH = 512u;
+inline constexpr u32 CYKV_LANGUAGE_VERSION = 1u;
+
 enum class key_value_type_t : u8 {
     NULL_VALUE = 0u,
     BOOL,
@@ -42,6 +46,12 @@ enum class key_value_type_t : u8 {
 
 struct key_value_t;
 struct key_value_document_t;
+
+struct key_value_document_header_t {
+    u32 nLanguageVersion{ 0u };
+    string_view_t schemaId{};
+    u32 nSchemaVersion{ 0u };
+};
 
 struct key_value_document_desc_t {
     const allocator_t *pAllocator{ nullptr };
@@ -59,6 +69,17 @@ CYPHER_COMMON_API void KeyValue_DestroyDocument(
 
 CYPHER_COMMON_API void KeyValue_ClearDocument(
     key_value_document_t *pDocument ) noexcept;
+
+// Assigns owned language and schema identity to a semantic document.
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t KeyValue_SetDocumentHeader(
+    key_value_document_t *pDocument,
+    const key_value_document_header_t &header ) noexcept;
+
+// Returns an empty header when the document has no CYKV identity.
+CYPHER_NODISCARD CYPHER_COMMON_API
+key_value_document_header_t KeyValue_DocumentHeader(
+    const key_value_document_t *pDocument ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 key_value_t *KeyValue_Root( key_value_document_t *pDocument ) noexcept;
