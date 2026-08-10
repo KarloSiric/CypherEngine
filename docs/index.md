@@ -38,8 +38,9 @@ Read these in order when resuming work:
 10. [toolchain_plan.md](toolchain_plan.md)
 11. [tool_suite.md](tool_suite.md)
 12. [map_authoring_and_mason.md](map_authoring_and_mason.md)
-13. [reference_engine_lessons.md](reference_engine_lessons.md)
-14. [security_model.md](security_model.md)
+13. [formats/CYKV.md](formats/CYKV.md)
+14. [reference_engine_lessons.md](reference_engine_lessons.md)
+15. [security_model.md](security_model.md)
 
 API docs:
 
@@ -101,11 +102,18 @@ Project memory:
   - Source 1 capability comparison and working Cypher product names
   - implementation gates and acceptance criteria for every tool class
 - `map_authoring_and_mason`
-  - CYDF and CypherKeyValues direction
+  - CYKV-backed map authoring direction
   - editable and cooked format families
   - `.cymap`, `CypherMapCompiler`, and `.cymap_c` architecture
   - hybrid brush, mesh, BSP, visibility, and world-compilation policy
   - Mason workspaces, editing model, validation, testing, and build order
+- `formats/CYKV`
+  - normative CYKV 1 grammar and semantic rules
+  - document headers, comments, scalar types, canonical output, and limits
+  - boundary between Tier1 parsing and Tier2 schema validation
+- `formats/CYKV_SCHEMAS`
+  - Tier2 descriptor, registry, validation, and diagnostic contracts
+  - separate `cypher.project` and `cypher.settings` schemas with typed decoders
 - `reference_engine_lessons`
   - architecture lessons from reference engines
   - legal boundary for study-only source trees
