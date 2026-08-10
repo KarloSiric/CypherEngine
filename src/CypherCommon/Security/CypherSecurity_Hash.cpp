@@ -134,7 +134,7 @@ security_status_t SecurityDigest_Begin(
     if ( !Security_IsReady() ) {
         return security_status_t::BACKEND_UNAVAILABLE;
     }
-
+    
     ::new ( static_cast<void *>( pStream->storage ) ) crypto_generichash_state{};
     const int result = crypto_generichash_init(
         SecurityDigest_State( pStream ),
@@ -251,7 +251,7 @@ security_status_t SecurityShortHash_GenerateKey(
     if ( !Security_IsReady() ) {
         return security_status_t::BACKEND_UNAVAILABLE;
     }
-
+    
     randombytes_buf( pKeyOut->bytes, sizeof( pKeyOut->bytes ) );
     return security_status_t::OK;
 }
