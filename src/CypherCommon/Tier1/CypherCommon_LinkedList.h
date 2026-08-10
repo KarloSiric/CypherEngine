@@ -6,7 +6,7 @@
 //  File: src/CypherCommon/Tier1/CypherCommon_LinkedList.h
 //  Purpose: Declares allocator-backed doubly linked lists.
 //  Details: Nodes have stable addresses until erased, but each insertion allocates.
-//           Prefer contiguous containers unless stable nodes or constant-time splice matter.
+//           Prefer contiguous containers unless stable nodes or bulk relinking matter.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -27,9 +27,13 @@ namespace cypher::common
 {
 
 template <typename type_t>
+struct linked_list_t;
+
+template <typename type_t>
 struct linked_list_node_t {
     linked_list_node_t *pPrevious{ nullptr };
     linked_list_node_t *pNext{ nullptr };
+    linked_list_t<type_t> *pOwner{ nullptr };
     type_t value{};
 };
 
@@ -37,6 +41,7 @@ template <typename type_t>
 struct linked_list_t {
     linked_list_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( linked_list_t );
+    ~linked_list_t() noexcept;
 
     linked_list_node_t<type_t> *pHead{ nullptr };
     linked_list_node_t<type_t> *pTail{ nullptr };
@@ -54,6 +59,10 @@ void LinkedList_Shutdown( linked_list_t<type_t> *pList ) noexcept;
 
 template <typename type_t>
 void LinkedList_Clear( linked_list_t<type_t> *pList ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t LinkedList_IsValid(
+    const linked_list_t<type_t> *pList ) noexcept;
 
 template <typename type_t>
 CYPHER_NODISCARD linked_list_node_t<type_t> *LinkedList_PushFront(
@@ -81,6 +90,50 @@ void LinkedList_SpliceBack(
     linked_list_t<type_t> *pDest,
     linked_list_t<type_t> *pSource ) noexcept;
 
+template <typename type_t>
+CYPHER_NODISCARD linked_list_node_t<type_t> *LinkedList_Front(
+    linked_list_t<type_t> *pList ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD const linked_list_node_t<type_t> *LinkedList_Front(
+    const linked_list_t<type_t> *pList ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD linked_list_node_t<type_t> *LinkedList_Back(
+    linked_list_t<type_t> *pList ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD const linked_list_node_t<type_t> *LinkedList_Back(
+    const linked_list_t<type_t> *pList ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD linked_list_node_t<type_t> *LinkedList_Next(
+    linked_list_node_t<type_t> *pNode ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD const linked_list_node_t<type_t> *LinkedList_Next(
+    const linked_list_node_t<type_t> *pNode ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD linked_list_node_t<type_t> *LinkedList_Previous(
+    linked_list_node_t<type_t> *pNode ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD const linked_list_node_t<type_t> *LinkedList_Previous(
+    const linked_list_node_t<type_t> *pNode ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD usize LinkedList_Count(
+    const linked_list_t<type_t> *pList ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t LinkedList_IsEmpty(
+    const linked_list_t<type_t> *pList ) noexcept;
+
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_LINKEDLIST_INL
+    #include "CypherCommon_LinkedList.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_LINKEDLIST_H
