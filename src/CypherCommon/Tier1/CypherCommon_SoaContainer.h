@@ -43,6 +43,7 @@ struct soa_desc_t {
 struct soa_container_t {
     soa_container_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( soa_container_t );
+    ~soa_container_t() noexcept;
 
     void *pAllocation{ nullptr };
     void *pColumns[CY_SOA_MAX_COLUMNS]{};
@@ -51,6 +52,7 @@ struct soa_container_t {
     usize nCount{ 0u };
     usize nCapacity{ 0u };
     usize cbAllocation{ 0u };
+    usize nAllocationAlignment{ 0u };
     const allocator_t *pAllocator{ nullptr };
 };
 
@@ -64,6 +66,9 @@ CYPHER_COMMON_API void SoaContainer_Shutdown(
 
 CYPHER_COMMON_API void SoaContainer_Clear(
     soa_container_t *pContainer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t SoaContainer_IsValid( const soa_container_t *pContainer ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t SoaContainer_Reserve(
@@ -81,14 +86,36 @@ void *SoaContainer_Column(
     usize iColumn ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+const void *SoaContainer_Column(
+    const soa_container_t *pContainer,
+    usize iColumn ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
 void *SoaContainer_Element(
     soa_container_t *pContainer,
     usize iColumn,
     usize iElement ) noexcept;
 
+CYPHER_NODISCARD CYPHER_COMMON_API
+const void *SoaContainer_Element(
+    const soa_container_t *pContainer,
+    usize iColumn,
+    usize iElement ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize SoaContainer_Count( const soa_container_t *pContainer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize SoaContainer_Capacity( const soa_container_t *pContainer ) noexcept;
+
 CYPHER_COMMON_API void SoaContainer_EraseSwap(
     soa_container_t *pContainer,
     usize iElement ) noexcept;
+
+// Transfers storage without copying any column data. Destination must be empty.
+CYPHER_COMMON_API void SoaContainer_Move(
+    soa_container_t *pDestination,
+    soa_container_t *pSource ) noexcept;
 
 } // namespace cypher::common
 
