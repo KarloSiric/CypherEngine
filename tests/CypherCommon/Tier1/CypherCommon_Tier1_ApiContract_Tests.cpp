@@ -141,3 +141,13 @@ TEST_CASE( "Tier1 network and serialization defaults are invalid or empty",
     REQUIRE( bitReader.iBit == 0u );
     REQUIRE( bitReader.status == bit_cursor_status_t::OK );
 }
+
+TEST_CASE( "Tier1 processor vocabulary aliases the Tier0 detector",
+           "[CypherCommon][Tier1][ApiContract][ProcessorDetect]" )
+{
+    STATIC_REQUIRE( is_same_v<processor_info_t, cy_cpu_detect_info_t> );
+    STATIC_REQUIRE( is_same_v<processor_vendor_t, cy_cpu_vendor_t> );
+    STATIC_REQUIRE( is_same_v<
+        processor_feature_flags_t,
+        cy_cpu_feature_flags_t> );
+}
