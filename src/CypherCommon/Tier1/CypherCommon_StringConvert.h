@@ -73,6 +73,18 @@ struct string_convert_result_t {
     usize cchConsumed{ 0u };
 };
 
+/*
+================
+Conversion Result Contract
+
+- Text destinations include space for a trailing null terminator.
+- A null destination is valid only with zero capacity for count-only measurement.
+- cchRequired excludes the text terminator.
+- HexToBinary reports byte counts in cchWritten/cchRequired and input characters
+  in cchConsumed.
+================
+*/
+
 CYPHER_NODISCARD CYPHER_COMMON_API
 string_convert_result_t StringConvert_U64(
     u64 value,
