@@ -8,7 +8,7 @@
 //  Purpose: Defines the Cypher data, map-authoring, world-compilation, and
 //           Mason editor architecture.
 //  Details: This document separates editable source data from cooked runtime
-//           resources and records the intended workflow from CYDF through Mason,
+//           resources and records the intended workflow from CYKV through Mason,
 //           CypherMapCompiler, CypherWorld, and CypherPak delivery.
 //
 //  History:
@@ -25,7 +25,7 @@
 
 This document records the agreed long-term direction for:
 
-- `CYDF`, the general Cypher data format
+- `CYKV`, the general Cypher data format
 - editable and cooked asset formats
 - `.cymap` map source documents
 - `.cymap_c` compiled runtime worlds
@@ -50,7 +50,7 @@ CypherEngine will use a source-and-cooked content pipeline:
 Human-authored source data
         |
         v
-CYDF-backed Cypher source formats
+CYKV-backed Cypher source formats
         |
         v
 Mason and command-line tools
@@ -83,8 +83,8 @@ facility.cymap_c
 CypherWorld runtime
 ```
 
-The editable `.cymap` file will be encoded using CYDF. Mason will edit a typed
-in-memory map document and serialize that document to CYDF. It will not edit the
+The editable `.cymap` file will be encoded using CYKV. Mason will edit a typed
+in-memory map document and serialize that document to CYKV. It will not edit the
 text file through ad hoc string replacement.
 
 The runtime will normally load `.cymap_c`. Shipping builds must not repeatedly
@@ -93,30 +93,29 @@ an offline compiler.
 
 ## Terminology
 
-These terms describe different layers and must not be used interchangeably.
+The normative language rules live in [formats/CYKV.md](formats/CYKV.md). This
+document uses those names and does not define a second data language.
 
-### CYDF
+### CYKV
 
-`CYDF`, or Cypher Data Format, is the general typed hierarchical data language.
-It provides syntax, parsing, source locations, diagnostics, deterministic
-serialization, and schema-driven validation.
+`CYKV`, or Cypher KeyValues, is the general typed hierarchical data language.
+Tier1 provides its semantic document, parser, and deterministic writer. Tier2
+provides schema descriptors, registry lookup, and bounded validation.
 
-CYDF is comparable in purpose to JSON5, Valve KeyValues, KV3, or a text encoding
+CYKV is comparable in purpose to JSON5, Valve KeyValues, KV3, or a text encoding
 of a typed data model. It is not itself a map format.
 
-### CypherKeyValues
+### CYKV Semantic Document
 
-`CypherKeyValues` is the planned API and data model used to represent CYDF
-objects, arrays, keys, and typed values in memory. CYDF is the serialized
-language; CypherKeyValues is the programmatic representation and manipulation
-API.
-
-The final API name may change when the parser and ownership model are designed.
+The CYKV semantic document is the owned in-memory tree of objects, arrays, keys,
+and typed values. It intentionally discards comments and exact source spelling.
+A future Mason lossless syntax tree will preserve authoring trivia and map source
+ranges to semantic nodes.
 
 ### `.cymap`
 
 `.cymap` is an editable map source document with a map-specific schema. Its
-serialized representation uses CYDF, but its meaning comes from the CypherMap
+serialized representation uses CYKV, but its meaning comes from the CypherMap
 schema and map compiler.
 
 ### `.cymap_c`
@@ -260,9 +259,9 @@ Serialized references must use stable IDs and normalized virtual resource paths.
 Raw pointers, container indexes that change after reordering, and compiler ABI
 details must never become persistent identifiers.
 
-## CYDF Responsibilities
+## CYKV Responsibilities
 
-CYDF should eventually provide the following language-level capabilities.
+CYKV 1 provides the following language-level capabilities.
 
 ### Required Value Types
 
@@ -272,11 +271,8 @@ CYDF should eventually provide the following language-level capabilities.
 - unsigned integer
 - floating-point number
 - UTF-8 string
-- identifier or enum-like symbol
 - array
 - object/key-value collection
-- typed resource reference
-- stable object identifier or GUID
 
 Vectors, colors, transforms, paths, and asset references should normally be
 schema-level types built from these primitives rather than hard-coded lexer
@@ -294,13 +290,13 @@ tokens for every engine concept.
 - bounded nesting and token limits
 - no ambiguous implicit type coercion
 
-The final punctuation and spelling remain a separate design task. CYDF must not
-be frozen merely by copying JSON, VDF, or KV3 syntax.
+The exact punctuation and spelling are fixed by the CYKV 1 specification. A
+breaking grammar change requires a new CYKV language version.
 
 ### Includes And References
 
-CYDF may eventually support controlled document inclusion, but arbitrary textual
-inclusion is not the primary map-composition mechanism.
+CYKV 1 has no textual include directive. Arbitrary textual inclusion is not the
+map-composition mechanism.
 
 Maps should compose content through:
 
@@ -311,10 +307,10 @@ Maps should compose content through:
 
 This preserves dependency tracking and avoids hidden textual substitution.
 
-### CYDF Is Not A Gameplay Language
+### CYKV Is Not A Gameplay Language
 
-CYDF describes data. Lua or another dedicated scripting runtime handles gameplay
-behavior. CYDF may describe events, properties, graphs, and script references,
+CYKV describes data. Lua or another dedicated scripting runtime handles gameplay
+behavior. CYKV may describe events, properties, graphs, and script references,
 but it must not grow uncontrolled programming-language semantics.
 
 ### Parsing Pipeline
@@ -325,7 +321,7 @@ bytes
   -> lexer
   -> tokens with source locations
   -> parser
-  -> CypherKeyValues document
+  -> CYKV semantic document
   -> schema validation
   -> typed asset/map object
 ```
@@ -336,7 +332,7 @@ must remain distinguishable.
 
 ### Parser Safety
 
-All CYDF readers must enforce configured limits for:
+All CYKV readers must enforce configured limits for:
 
 - source byte count
 - token count
@@ -344,8 +340,8 @@ All CYDF readers must enforce configured limits for:
 - string length
 - array and object entry count
 - integer and floating-point range
-- include depth
-- total included bytes
+- total semantic node count
+- decoded string and binary byte count
 
 Malformed or hostile data must produce diagnostics, not unbounded allocation or
 stack recursion.
@@ -360,12 +356,12 @@ visibly related.
 
 | Purpose | Editable/source | Cooked/runtime |
 | --- | --- | --- |
-| Generic structured data | `.cydf` | specialized format or none |
+| Generic structured data | `.cykv` | specialized format or none |
 | Engine/user command configuration | `.cycfg` or `.cfg` | none |
 | Project definition | `.cyproject` | none |
 | Resource manifest | `.cymanifest` | compiled resource index |
 
-Command-oriented configuration should remain separate from structured CYDF
+Command-oriented configuration should remain separate from structured CYKV
 assets. A configuration file can execute a constrained sequence of console/CVar
 assignments without forcing every asset format to behave like a script.
 
@@ -378,7 +374,7 @@ assignments without forcing every asset format to behave like a script.
 | Prefab | `.cyprefab` | `.cyprefab_c` or folded into owning world |
 | Navigation authoring | `.cynav` | `.cynav_c` |
 | Mission/objective graph | `.cyflow` | `.cyflow_c` |
-| Gameplay/UI data | `.cydf` with schema | subsystem-specific cooked data |
+| Gameplay/UI data | `.cykv` with schema | subsystem-specific cooked data |
 
 ### Render And Asset Data
 
@@ -415,7 +411,7 @@ to import and cook them.
 | --- | --- |
 | Cypher package archive | `.cypak` |
 | Derived-data cache | implementation detail, not a source asset |
-| Build reports and manifests | CYDF, JSON, or text as appropriate |
+| Build reports and manifests | CYKV, JSON, or text as appropriate |
 
 `.cypak` is the existing CypherPak archive extension. The package file is a
 delivery container, not an authoring format and not a replacement for the VFS.
@@ -451,7 +447,7 @@ The exact schema must be introduced incrementally. A field should not exist only
 because another engine happens to have a similarly named field.
 
 The following is a non-normative shape example. It illustrates the relationship
-between CYDF and the map schema; it does not freeze CYDF punctuation or spelling.
+between CYKV and the map schema; it does not freeze CYKV punctuation or spelling.
 
 ```text
 cymap
@@ -546,7 +542,7 @@ editable topology is part of the map source. Imported high-density models should
 remain external resources.
 
 If map files become too large, the solution is explicit submaps, layers, and
-prefabs, not opaque untracked binary blobs inserted into CYDF.
+prefabs, not opaque untracked binary blobs inserted into CYKV.
 
 ### Personal Editor State
 
@@ -670,7 +666,7 @@ world data.
 
 ```text
 read .cymap
-  -> parse CYDF
+  -> parse CYKV
   -> validate schema and versions
   -> migrate supported older source versions
   -> resolve resource and prefab dependencies
@@ -994,7 +990,7 @@ repair and clear diagnostics.
 GUI actions should invoke shared compiler libraries or headless tools. Required
 tool directions include:
 
-- CYDF parser/formatter/validator
+- CYKV parser/formatter/validator
 - resource compiler
 - map compiler
 - package create/list/extract/verify tool
@@ -1055,7 +1051,7 @@ Cooked files are rebuildable products. Compatibility policy can be stricter:
 
 ### Deterministic Serialization
 
-The canonical CYDF writer should define:
+The canonical CYKV writer should define:
 
 - stable key ordering policy
 - stable object ordering policy where semantics allow it
@@ -1071,7 +1067,7 @@ normalize hand-edited files.
 
 Validation happens at several boundaries:
 
-1. CYDF syntax validation
+1. CYKV syntax validation
 2. generic type/schema validation
 3. asset-specific semantic validation
 4. compiler-stage geometry and dependency validation
@@ -1097,7 +1093,7 @@ valid output that crashes later.
 
 ## Testing Strategy
 
-### CYDF
+### CYKV
 
 - token and parser unit tests
 - UTF-8 and escape tests
@@ -1184,14 +1180,17 @@ representation.
 
 Exit condition: tools and runtime can share stable low-level data contracts.
 
-### Phase 1: CYDF
+### Phase 1: CYKV
 
-- complete lexer and token reader
-- design and implement parser
-- define CypherKeyValues ownership
-- implement deterministic writer
-- implement source locations and diagnostics
-- add schema validation
+- complete lexer and token reader (implemented)
+- design and implement parser (implemented for CYKV 1)
+- define semantic document ownership (implemented in Tier1)
+- implement deterministic writer (implemented)
+- implement syntax locations and diagnostics (implemented)
+- add static schema validation (implemented in Tier2)
+
+Lossless authoring trivia and semantic-node source maps remain deferred until
+Mason needs them.
 
 Exit condition: typed documents can round-trip deterministically and malformed
 input fails safely.
@@ -1276,7 +1275,7 @@ files, shaders, and game content.
 
 | Area | Approximate first-party LOC |
 | --- | ---: |
-| CYDF-backed map schema and serialization | 8k-20k |
+| CYKV-backed map schema and serialization | 8k-20k |
 | Map document, identity, references, and migration | 10k-25k |
 | Brush and editable-mesh geometry kernel | 25k-70k |
 | Map compiler | 25k-80k |
@@ -1310,7 +1309,7 @@ and are context, not targets.
 - do not copy Valve, CryEngine, id Software, or community-editor implementation
   code without explicit legal review and provenance
 - do not clone Valve branding or UI assets
-- do not make CYDF a general gameplay programming language
+- do not make CYKV a general gameplay programming language
 - do not make classic BSP mandatory for every map
 - do not make `.cymap` the shipping runtime representation
 - do not serialize raw C++ structs or pointers
@@ -1320,11 +1319,9 @@ and are context, not targets.
 
 ## Decisions Still Required
 
-Before stable format version 1, decide and document:
+Before stable map and cooked-resource version 1, decide and document:
 
-- CYDF concrete syntax and canonical writer rules
-- CypherKeyValues ownership and allocator model
-- schema and reflection integration
+- schema-to-reflection integration beyond the current static Tier2 descriptors
 - stable ID width and generation policy
 - coordinate system, units, and precision
 - brush representation and geometric tolerances
@@ -1358,8 +1355,8 @@ assets. `reference_policy.md` remains the legal and provenance policy.
 
 ## Final Direction
 
-CypherEngine will use CYDF as the typed source-data foundation. `.cymap` will be
-a CYDF-backed editable map document. Mason will visually edit a typed map model,
+CypherEngine will use CYKV as the typed source-data foundation. `.cymap` will be
+a CYKV-backed editable map document. Mason will visually edit a typed map model,
 not raw text. CypherMapCompiler will transform that source into a deterministic,
 chunked `.cymap_c` runtime world. Brushes and BSP-derived algorithms remain
 valuable tools, while arbitrary meshes, explicit runtime resources, visibility,
