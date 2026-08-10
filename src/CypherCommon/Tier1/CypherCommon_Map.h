@@ -73,4 +73,8 @@ CYPHER_NODISCARD usize Map_Count(
 
 } // namespace cypher::common
 
+#ifndef CYPHER_COMMON_TIER1_MAP_INL
+    #include "CypherCommon_Map.inl"
+#endif
+
 #endif // CYPHER_COMMON_TIER1_MAP_H
