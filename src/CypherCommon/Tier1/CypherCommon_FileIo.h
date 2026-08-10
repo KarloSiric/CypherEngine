@@ -38,6 +38,26 @@ enum file_open_flags_t : flags32_t {
     FILE_OPEN_FLAG_EXCLUSIVE  = CYPHER_BIT32( 5 )
 };
 
+/*
+================
+Native File I/O
+
+These functions are a bootstrap and tool boundary for native operating-system
+paths. They deliberately do not apply VFS mounts, package lookup, or virtual-path
+policy.
+
+Flag rules:
+- READ and/or WRITE must be present.
+- APPEND, CREATE, and TRUNCATE require WRITE.
+- EXCLUSIVE requires CREATE and means create-only-if-missing.
+- APPEND and TRUNCATE are mutually exclusive.
+- CREATE without TRUNCATE preserves an existing file.
+
+The stream returned by FileIo_AsStream borrows its native_file_t and becomes
+invalid immediately after FileIo_CloseNative.
+================
+*/
+
 struct native_file_t;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
