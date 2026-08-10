@@ -65,4 +65,8 @@ CYPHER_NODISCARD usize Set_Count(
 
 } // namespace cypher::common
 
+#ifndef CYPHER_COMMON_TIER1_SET_INL
+    #include "CypherCommon_Set.inl"
+#endif
+
 #endif // CYPHER_COMMON_TIER1_SET_H
