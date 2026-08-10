@@ -56,7 +56,9 @@ enum token_flags_t : flags32_t {
     TOKEN_FLAG_QUOTED        = CYPHER_BIT32( 0 ),
     TOKEN_FLAG_HAS_ESCAPES   = CYPHER_BIT32( 1 ),
     TOKEN_FLAG_NEGATIVE      = CYPHER_BIT32( 2 ),
-    TOKEN_FLAG_BASE_PREFIX   = CYPHER_BIT32( 3 )
+    TOKEN_FLAG_BASE_PREFIX   = CYPHER_BIT32( 3 ),
+    TOKEN_FLAG_UNSIGNED      = CYPHER_BIT32( 4 ),
+    TOKEN_FLAG_MULTILINE     = CYPHER_BIT32( 5 )
 };
 
 struct token_t {
@@ -76,7 +78,9 @@ enum lexer_flags_t : flags32_t {
     LEXER_FLAG_ALLOW_SINGLE_QUOTED_STRING = CYPHER_BIT32( 5 ),
     LEXER_FLAG_ALLOW_ESCAPE_SEQUENCES     = CYPHER_BIT32( 6 ),
     LEXER_FLAG_ALLOW_UTF8_IDENTIFIERS     = CYPHER_BIT32( 7 ),
-    LEXER_FLAG_SIGN_IS_NUMBER_PART        = CYPHER_BIT32( 8 )
+    LEXER_FLAG_SIGN_IS_NUMBER_PART        = CYPHER_BIT32( 8 ),
+    LEXER_FLAG_ALLOW_UNSIGNED_SUFFIX      = CYPHER_BIT32( 9 ),
+    LEXER_FLAG_ALLOW_MULTILINE_STRING     = CYPHER_BIT32( 10 )
 };
 
 enum class lexer_status_t : u8 {
@@ -86,8 +90,10 @@ enum class lexer_status_t : u8 {
     INVALID_BYTE,
     INVALID_NUMBER,
     INVALID_ESCAPE,
+    INVALID_MULTILINE_STRING,
     UNTERMINATED_STRING,
     UNTERMINATED_COMMENT,
+    COMMENT_DEPTH_LIMIT,
     TOKEN_TOO_LONG
 };
 
@@ -103,6 +109,7 @@ struct lexer_rules_t {
     const string_view_t *pPunctuations{ nullptr };
     usize nPunctuationCount{ 0u };
     usize cchMaxToken{ CY_INVALID_SIZE };
+    usize nMaxCommentDepth{ 64u };
 };
 
 struct lexer_checkpoint_t {
