@@ -59,6 +59,14 @@ CYPHER_NODISCARD type_t *UniquePtr_Release(
     unique_ptr_t<type_t> *pPointer ) noexcept;
 
 template <typename type_t>
+CYPHER_NODISCARD type_t *UniquePtr_Get(
+    const unique_ptr_t<type_t> *pPointer ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t UniquePtr_IsValid(
+    const unique_ptr_t<type_t> *pPointer ) noexcept;
+
+template <typename type_t>
 using intrusive_add_ref_fn_t = void ( * )( type_t *pObject ) noexcept;
 
 template <typename type_t>
@@ -91,6 +99,18 @@ template <typename type_t>
 CYPHER_NODISCARD intrusive_ptr_t<type_t> IntrusivePtr_Copy(
     const intrusive_ptr_t<type_t> &pointer ) noexcept;
 
+template <typename type_t>
+CYPHER_NODISCARD type_t *IntrusivePtr_Get(
+    const intrusive_ptr_t<type_t> *pPointer ) noexcept;
+
+template <typename type_t>
+CYPHER_NODISCARD bool_t IntrusivePtr_IsValid(
+    const intrusive_ptr_t<type_t> *pPointer ) noexcept;
+
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_SMARTPTR_INL
+    #include "CypherCommon_SmartPtr.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_SMARTPTR_H
