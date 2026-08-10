@@ -99,7 +99,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CYPHERENGINE_BUILD_BENCHMARKS": "ON",
         "CYPHERENGINE_BUILD_TESTS": "ON",
-        "VCPKG_MANIFEST_FEATURES": "archive-tools;asset-import-fallback;audio;benchmarks;compression;editor-support;image-import;math;mesh-pipeline;networking;profiling;scripting;security;shader-tools;tests;text;texture-pipeline"
+        "VCPKG_MANIFEST_FEATURES": "archive-tools;asset-import-fallback;audio;benchmarks;editor-support;image-import;math;mesh-pipeline;networking;profiling;scripting;security;shader-tools;tests;text;texture-pipeline"
       }
     }
   ],
