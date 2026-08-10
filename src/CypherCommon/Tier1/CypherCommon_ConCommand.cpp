@@ -185,6 +185,18 @@ command_parse_result_t ConCommand_ParseArgs(
 
             while ( iCursor < commandLine.cchLength &&
                     commandLine.pData[iCursor] != chQuote ) {
+                if ( commandLine.pData[iCursor] == '\\' &&
+                     iCursor + 1u < commandLine.cchLength ) {
+                    const command_parse_result_t escapedByteResult =
+                        ValidateCommandByte(
+                            commandLine.pData[iCursor + 1u],
+                            iCursor + 1u );
+                    if ( !ConCommand_ParseSucceeded( escapedByteResult ) ) {
+                        return escapedByteResult;
+                    }
+                    iCursor += 2u;
+                    continue;
+                }
                 const command_parse_result_t quotedByteResult =
                     ValidateCommandByte( commandLine.pData[iCursor], iCursor );
                 if ( !ConCommand_ParseSucceeded( quotedByteResult ) ) {
