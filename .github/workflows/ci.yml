@@ -62,7 +62,6 @@ jobs:
             --x-feature=asset-import-fallback \
             --x-feature=audio \
             --x-feature=benchmarks \
-            --x-feature=compression \
             --x-feature=editor-support \
             --x-feature=image-import \
             --x-feature=math \
