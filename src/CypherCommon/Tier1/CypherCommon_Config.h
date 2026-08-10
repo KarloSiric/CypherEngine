@@ -34,6 +34,28 @@ enum config_flags_t : flags32_t {
     CONFIG_FLAG_ARCHIVED_ONLY       = CYPHER_BIT32( 3 )
 };
 
+constexpr flags32_t CONFIG_VALID_FLAGS =
+    CONFIG_FLAG_ALLOW_COMMANDS |
+    CONFIG_FLAG_ALLOW_CHEATS |
+    CONFIG_FLAG_STOP_ON_ERROR |
+    CONFIG_FLAG_ARCHIVED_ONLY;
+
+enum class config_error_t : u16 {
+    OK = 0u,
+    INVALID_ARGUMENT,
+    PARSE_FAILED,
+    PERMISSION_DENIED,
+    WRITE_FAILED
+};
+
+CYPHER_NODISCARD constexpr error_code_t Config_MakeError(
+    config_error_t error ) noexcept
+{
+    return error == config_error_t::OK
+        ? CY_ERROR_OK
+        : Cy_ErrorMake( error_domain_t::CONFIG, static_cast<u16>( error ) );
+}
+
 struct config_source_t {
     string_view_t name{};
     string_view_t text{};
