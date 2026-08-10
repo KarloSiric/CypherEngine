@@ -34,6 +34,12 @@ enum html_text_flags_t : flags32_t {
     HTML_TEXT_FLAG_COLLAPSE_WHITESPACE   = CYPHER_BIT32( 3 )
 };
 
+constexpr flags32_t HTML_TEXT_VALID_FLAGS =
+    HTML_TEXT_FLAG_ENCODE_QUOTES |
+    HTML_TEXT_FLAG_DECODE_NUMERIC |
+    HTML_TEXT_FLAG_PRESERVE_LINE_BREAKS |
+    HTML_TEXT_FLAG_COLLAPSE_WHITESPACE;
+
 enum class html_text_status_t : u8 {
     OK = 0u,
     INVALID_ARGUMENT,
@@ -65,7 +71,9 @@ CYPHER_COMMON_API html_text_result_t StringHtml_DecodeEntities(
     char *pDest,
     usize cchDest ) noexcept;
 
-// Removes syntactically simple tags. Do not use this function as a sanitizer.
+// Removes syntactically simple tags. PRESERVE_LINE_BREAKS emits line breaks for
+// common block tags and <br>; COLLAPSE_WHITESPACE folds ASCII whitespace runs.
+// Do not use this function as a sanitizer.
 CYPHER_NODISCARD_MSG( "Inspect cchRequired to detect HTML stripping truncation." )
 CYPHER_COMMON_API html_text_result_t StringHtml_StripTags(
     string_view_t text,
