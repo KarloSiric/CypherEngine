@@ -34,6 +34,12 @@ enum path_match_flags_t : flags32_t {
     PATH_MATCH_FLAG_BASENAME_ONLY           = CYPHER_BIT32( 3 )
 };
 
+constexpr flags32_t PATH_MATCH_VALID_FLAGS =
+    PATH_MATCH_FLAG_CASE_INSENSITIVE_ASCII |
+    PATH_MATCH_FLAG_NORMALIZE_SEPARATORS |
+    PATH_MATCH_FLAG_STAR_CROSSES_SEPARATOR |
+    PATH_MATCH_FLAG_BASENAME_ONLY;
+
 struct path_filter_t {
     const string_view_t *pIncludes{ nullptr };
     usize nIncludeCount{ 0u };
@@ -47,6 +53,8 @@ bool_t PathMatch_Wildcard(
     string_view_t path,
     string_view_t pattern,
     flags32_t flags ) noexcept;
+
+// Path patterns support the generic matcher's '?', '*', and ASCII classes.
 
 // Includes default to true when none are supplied; any matching exclusion wins.
 CYPHER_NODISCARD CYPHER_COMMON_API
