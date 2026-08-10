@@ -48,6 +48,7 @@ enum class url_status_t : u8 {
     OUTPUT_TRUNCATED
 };
 
+// Bracketed IPv6 hosts are returned without the surrounding '[' and ']'.
 struct url_parts_t {
     string_view_t scheme{};
     string_view_t userInfo{};
@@ -82,6 +83,8 @@ bool_t StringUrl_HostEquals(
     const url_parts_t &parts,
     string_view_t expectedHost ) noexcept;
 
+// PercentEncode reserves one byte for a null terminator. PercentDecode writes raw
+// bytes and therefore does not append a terminator.
 CYPHER_NODISCARD_MSG( "Inspect cbRequired to detect URL encoding truncation." )
 CYPHER_COMMON_API url_result_t StringUrl_PercentEncode(
     const_byte_span_t source,
