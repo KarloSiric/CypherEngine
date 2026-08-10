@@ -34,7 +34,8 @@ enum class diff_status_t : u8 {
     CORRUPT_DIFF,
     SOURCE_MISMATCH,
     OUTPUT_TOO_SMALL,
-    OUTPUT_OVERFLOW
+    OUTPUT_OVERFLOW,
+    INTERNAL_ERROR
 };
 
 struct binary_diff_t {
@@ -67,6 +68,7 @@ diff_status_t Diff_Apply(
     usize *pcbWrittenOut ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
+// Returns the encoded operation-stream size, excluding binary_diff_t metadata.
 usize Diff_SerializedSize( const binary_diff_t &diff ) noexcept;
 
 } // namespace cypher::common
