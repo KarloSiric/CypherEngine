@@ -26,6 +26,8 @@
 namespace cypher::common
 {
 
+constexpr usize CY_EXPRESSION_MAX_FUNCTION_ARGUMENTS = 32u;
+
 enum class expression_status_t : u8 {
     OK = 0u,
     INVALID_ARGUMENT,
@@ -55,6 +57,7 @@ struct expression_context_t {
     expression_call_function_fn_t pfnCallFunction{ nullptr };
     void *pUserData{ nullptr };
     u32 nMaxDepth{ 64u };
+    usize nMaxFunctionArguments{ 16u };
 };
 
 struct expression_result_t {
