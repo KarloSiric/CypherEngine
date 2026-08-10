@@ -79,6 +79,8 @@ string_view_t Localization_FindByKey(
     const localization_catalog_t *pCatalog,
     string_view_t key ) noexcept;
 
+// Replaces {name} fields using exact argument names. Double braces emit one
+// literal brace. Unknown and malformed fields are preserved verbatim.
 CYPHER_NODISCARD CYPHER_COMMON_API
 usize Localization_Format(
     const localization_catalog_t *pCatalog,
@@ -87,6 +89,14 @@ usize Localization_Format(
     usize nArgumentCount,
     char *pDest,
     usize cchDest ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_view_t Localization_LocaleTag(
+    const localization_catalog_t *pCatalog ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize Localization_Count(
+    const localization_catalog_t *pCatalog ) noexcept;
 
 } // namespace cypher::common
 
