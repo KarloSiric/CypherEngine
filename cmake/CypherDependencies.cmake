@@ -88,7 +88,9 @@ function(cypher_configure_runtime_dependencies out_link_libraries)
 endfunction()
 
 function(cypher_configure_common_tier1_dependencies out_link_libraries)
+    find_package(lz4 CONFIG REQUIRED)
     find_package(xxHash CONFIG REQUIRED)
+    find_package(zstd CONFIG REQUIRED)
 
     if (NOT TARGET CypherThirdPartyHash)
         add_library(CypherThirdPartyHash INTERFACE)
@@ -96,7 +98,23 @@ function(cypher_configure_common_tier1_dependencies out_link_libraries)
         target_link_libraries(CypherThirdPartyHash INTERFACE xxHash::xxhash)
     endif()
 
-    set(${out_link_libraries} Cypher::ThirdPartyHash PARENT_SCOPE)
+    if (NOT TARGET CypherThirdPartyCompression)
+        add_library(CypherThirdPartyCompression INTERFACE)
+        add_library(Cypher::ThirdPartyCompression ALIAS CypherThirdPartyCompression)
+        target_link_libraries(
+            CypherThirdPartyCompression
+            INTERFACE
+                LZ4::lz4_static
+                zstd::libzstd_static
+        )
+    endif()
+
+    set(
+        ${out_link_libraries}
+        Cypher::ThirdPartyCompression
+        Cypher::ThirdPartyHash
+        PARENT_SCOPE
+    )
 endfunction()
 
 function(cypher_configure_security_dependencies out_link_libraries)
