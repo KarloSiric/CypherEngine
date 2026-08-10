@@ -34,6 +34,12 @@ enum class rb_tree_color_t : u8 {
 
 template <typename key_t, typename value_t>
 struct rb_tree_node_t {
+    rb_tree_node_t( const key_t &nodeKey, const value_t &nodeValue ) noexcept
+        : key( nodeKey ), value( nodeValue )
+    {
+    }
+    CYPHER_NO_COPY_MOVE( rb_tree_node_t );
+
     rb_tree_node_t *pParent{ nullptr };
     rb_tree_node_t *pLeft{ nullptr };
     rb_tree_node_t *pRight{ nullptr };
@@ -46,6 +52,7 @@ template <typename key_t, typename value_t, typename compare_t = less_t<key_t>>
 struct rb_tree_t {
     rb_tree_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( rb_tree_t );
+    ~rb_tree_t() noexcept;
 
     rb_tree_node_t<key_t, value_t> *pRoot{ nullptr };
     usize nCount{ 0u };
@@ -72,6 +79,10 @@ void RBTree_Shutdown(
 template <typename key_t, typename value_t, typename compare_t>
 void RBTree_Clear(
     rb_tree_t<key_t, value_t, compare_t> *pTree ) noexcept;
+
+template <typename key_t, typename value_t, typename compare_t>
+CYPHER_NODISCARD bool_t RBTree_IsValid(
+    const rb_tree_t<key_t, value_t, compare_t> *pTree ) noexcept;
 
 template <typename key_t, typename value_t, typename compare_t>
 CYPHER_NODISCARD rb_tree_insert_result_t<key_t, value_t> RBTree_Insert(
@@ -129,5 +140,9 @@ CYPHER_NODISCARD bool_t RBTree_IsEmpty(
     const rb_tree_t<key_t, value_t, compare_t> *pTree ) noexcept;
 
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_RBTREE_INL
+    #include "CypherCommon_RBTree.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_RBTREE_H
