@@ -95,7 +95,7 @@ not code or UI to copy.
 | Model Browser | Mason Asset Browser | Mason workspace | Decided | Search, filter, preview, place, and reference model and resource assets. |
 | QC Eyes | Mason Character Setup workspace | Mason workspace | Planned | Configure eye placement, gaze limits, head targeting, mouth setup, and facial metadata. |
 | Faceposer | Mason Choreography workspace | Mason/focused Qt launch | Planned | Author dialogue, phonemes, facial poses, gestures, actors, cameras, and timed gameplay events. |
-| DMXConvert/DMXEdit | CYDF Convert and Migrate tools | Headless CLI plus CypherScope | Planned | Convert, normalize, migrate, inspect, and compare structured source documents. |
+| DMXConvert/DMXEdit | CYKV Convert and Migrate tools | Headless CLI plus CypherScope | Planned | Convert, normalize, migrate, inspect, and compare structured source documents. |
 | VTEX | CypherTextureCompiler | Headless CLI/library | Decided | Import source images and cook mip chains, color space, compression, and platform variants. |
 | VTF2TGA and texture utilities | CypherImageConvert | Headless CLI/library | Planned | Convert and inspect supported source and cooked image representations. |
 | Height2Normal/Height2SSBump | Mason Texture Lab | Mason/focused Qt launch | Planned | Generate and preview normal, height, mask, and derived material textures. |
@@ -197,7 +197,7 @@ separate executable provides a proven workflow benefit.
 | Workspace | Decision | Required capabilities |
 | --- | --- | --- |
 | Script | Decided | Lua source editing integration, syntax/diagnostics, project search, native bindings, reload, breakpoints, watches, call stacks, and runtime debugging. |
-| Data and Schema | Planned | CYDF trees/text, typed schemas, defaults, validation, migrations, canonical formatting, semantic diff, and reference navigation. |
+| Data and Schema | Planned | CYKV trees/text, typed schemas, defaults, validation, migrations, canonical formatting, semantic diff, and reference navigation. |
 | Gameplay Data | Planned | Weapons, items, damage, movement, enemies, waves, difficulty, game modes, and other schema-defined game records without hard-coding one game into Mason. |
 | Input and Actions | Planned | Action maps, contexts, devices, bindings, chords, dead zones, accessibility, conflicts, glyphs, and runtime testing. |
 | Settings and CVars | Planned | Defaults, categories, ranges, persistence, platform profiles, launch settings, and developer/release visibility. |
@@ -247,7 +247,7 @@ response/config files suitable for CI.
 | `cyscenec` | Planned | `.cyscene` | Compile scene instances, dependencies, streaming partitions, and runtime records. |
 | `cyprefabc` | Planned | `.cyprefab` | Validate inheritance/overrides and produce runtime prefab/entity templates. |
 | `cypak` | Existing foundation | Cooked resources and manifests | Create, list, extract, verify, sign, diff, patch, and report package contents. |
-| `cydf` | Planned | CYDF documents | Parse, format, canonicalize, validate, query, convert, and print diagnostics. |
+| `cykv` | Planned | CYKV documents | Parse, format, canonicalize, validate, query, convert, and print diagnostics. |
 | `cyschemac` | Planned | Reflection and schema declarations | Produce schema registries, editor descriptors, validation data, and optional generated bindings. |
 | `cyvalidate` | Planned | Projects, source assets, cooked assets, or packages | Run cross-resource and release-readiness validation. |
 | `cydeps` | Planned | Asset/project graph | Print dependencies, reverse references, cycles, missing assets, and rebuild reasons. |
@@ -320,7 +320,7 @@ libraries or processes:
 - file watching and hot reload
 - source control integration boundary
 - reflection and schema registry
-- CYDF parser, writer, validator, and migration framework
+- CYKV parser, writer, validator, and migration framework
 - importer and compiler registry
 - dependency graph and incremental build scheduler
 - derived-data cache
@@ -358,7 +358,7 @@ shared foundation that prevents every editor from reimplementing the same logic.
 | Lua scripts and binding metadata | Mason Script | `cyscriptc` | Validated source or cooked bytecode plus debug metadata |
 | input/action source | Mason Input and Actions | `cyinputc` | Cooked action maps |
 | localization source | Mason Font and Localization | `cylocc`, `cycaptionc` | Cooked strings, captions, and locale metadata |
-| gameplay data schemas/documents | Mason Gameplay Data | `cydf`, `cyschemac`, `cyvalidate` | Validated/cooked gameplay records |
+| gameplay data schemas/documents | Mason Gameplay Data | `cykv`, `cyschemac`, `cyvalidate` | Validated/cooked gameplay records |
 | dialogue/choreography source | Mason Choreography | `cyanimc`, `cycaptionc`, scene compiler | Cooked sequence resources |
 | package manifest | Mason Package/Release | `cypak` | `.cypak` |
 | mod/add-on manifest | Mason Mod and Add-on | `cymod`, `cypak` | Validated mod packages and manifests |
@@ -412,10 +412,10 @@ implementation details.
 
 ### Stage 1: Data Language And Schemas
 
-- CYDF lexer, parser, writer, formatter, and diagnostics
+- CYKV lexer, parser, writer, formatter, and diagnostics
 - schema validation and reflection bridge
 - stable IDs, source locations, migrations, and deterministic round trips
-- initial `cydf`, `cyschemac`, `cyvalidate`, `cydump`, and `cydiff` tools
+- initial `cykv`, `cyschemac`, `cyvalidate`, `cydump`, and `cydiff` tools
 
 Exit condition: source documents can be authored and validated without a GUI.
 
@@ -512,5 +512,5 @@ crash isolation, remote use, startup cost, or a specialized workflow justifies
 it.
 
 The immediate project priority remains CypherCommon and the runtime foundations.
-The first toolchain implementation priority after that is CYDF plus headless
+The first toolchain implementation priority after that is CYKV plus headless
 resource compilation, not the full Mason UI.
