@@ -26,6 +26,8 @@
 namespace cypher::common
 {
 
+constexpr u32 CY_SPARSE_SET_INVALID_DENSE_INDEX = CY_U32_MAX;
+
 template <typename value_t>
 struct sparse_set_t {
     vector_t<u32> sparse{};
@@ -46,6 +48,10 @@ template <typename value_t>
 void SparseSet_Clear( sparse_set_t<value_t> *pSet ) noexcept;
 
 template <typename value_t>
+CYPHER_NODISCARD bool_t SparseSet_IsValid(
+    const sparse_set_t<value_t> *pSet ) noexcept;
+
+template <typename value_t>
 CYPHER_NODISCARD bool_t SparseSet_ReserveKeys(
     sparse_set_t<value_t> *pSet,
     usize nSparseCapacity ) noexcept;
@@ -62,6 +68,16 @@ CYPHER_NODISCARD value_t *SparseSet_Find(
     u32 key ) noexcept;
 
 template <typename value_t>
+CYPHER_NODISCARD const value_t *SparseSet_Find(
+    const sparse_set_t<value_t> *pSet,
+    u32 key ) noexcept;
+
+template <typename value_t>
+CYPHER_NODISCARD bool_t SparseSet_Contains(
+    const sparse_set_t<value_t> *pSet,
+    u32 key ) noexcept;
+
+template <typename value_t>
 CYPHER_NODISCARD bool_t SparseSet_Erase(
     sparse_set_t<value_t> *pSet,
     u32 key ) noexcept;
@@ -70,6 +86,26 @@ template <typename value_t>
 CYPHER_NODISCARD span_t<value_t> SparseSet_Values(
     sparse_set_t<value_t> *pSet ) noexcept;
 
+template <typename value_t>
+CYPHER_NODISCARD span_t<const value_t> SparseSet_Values(
+    const sparse_set_t<value_t> *pSet ) noexcept;
+
+template <typename value_t>
+CYPHER_NODISCARD span_t<const u32> SparseSet_Keys(
+    const sparse_set_t<value_t> *pSet ) noexcept;
+
+template <typename value_t>
+CYPHER_NODISCARD usize SparseSet_Count(
+    const sparse_set_t<value_t> *pSet ) noexcept;
+
+template <typename value_t>
+CYPHER_NODISCARD bool_t SparseSet_IsEmpty(
+    const sparse_set_t<value_t> *pSet ) noexcept;
+
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_SPARSESET_INL
+    #include "CypherCommon_SparseSet.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_SPARSESET_H
