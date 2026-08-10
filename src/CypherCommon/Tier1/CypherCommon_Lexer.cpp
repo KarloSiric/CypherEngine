@@ -104,6 +104,23 @@ static void Lexer_AdvanceBytes( lexer_t *pLexer, usize cBytes ) noexcept
     }
 }
 
+static void Lexer_AdvanceUtf8Sequence(
+    lexer_t *pLexer,
+    usize cBytes ) noexcept
+{
+    CY_ASSERT_MSG(
+        pLexer != nullptr,
+        "Lexer_AdvanceUtf8Sequence requires a valid lexer." );
+    if ( pLexer == nullptr ||
+         pLexer->cursor.iByte > pLexer->source.cchLength ||
+         cBytes == 0u ||
+         cBytes > pLexer->source.cchLength - pLexer->cursor.iByte ) {
+        return;
+    }
+    pLexer->cursor.iByte += cBytes;
+    ++pLexer->cursor.nColumn;
+}
+
 static string_view_t Lexer_SourceView(
     const lexer_t &lexer,
     usize iBegin,
@@ -341,6 +358,15 @@ static lexer_status_t Lexer_ScanBlockComment(
                         *pLexer,
                         pLexer->cursor.iByte,
                         pLexer->rules.blockCommentBegin ) ) {
+            if ( nDepth >= pLexer->rules.nMaxCommentDepth ) {
+                return Lexer_Fail(
+                    pLexer,
+                    lexer_status_t::COMMENT_DEPTH_LIMIT,
+                    iBegin,
+                    begin,
+                    Lexer_CurrentLocation( *pLexer ),
+                    pTokenOut );
+            }
             Lexer_AdvanceBytes( pLexer, pLexer->rules.blockCommentBegin.cchLength );
             ++nDepth;
         } else {
@@ -396,7 +422,7 @@ static lexer_status_t Lexer_ScanIdentifier(
                     errorLocation,
                     pTokenOut );
             }
-            Lexer_AdvanceBytes( pLexer, cBytes );
+            Lexer_AdvanceUtf8Sequence( pLexer, cBytes );
         } else {
             break;
         }
@@ -471,6 +497,25 @@ static lexer_status_t Lexer_ScanNumber(
                 } else {
                     break;
                 }
+            }
+
+            if ( Lexer_HasFlag(
+                     *pLexer,
+                     LEXER_FLAG_ALLOW_UNSIGNED_SUFFIX ) &&
+                 !Lexer_IsAtEndInternal( *pLexer ) &&
+                 Lexer_ByteAt( *pLexer, pLexer->cursor.iByte ) == 'u' ) {
+                const char chFirst = Lexer_ByteAt( *pLexer, iBegin );
+                if ( chFirst == '+' || chFirst == '-' ) {
+                    return Lexer_Fail(
+                        pLexer,
+                        lexer_status_t::INVALID_NUMBER,
+                        iBegin,
+                        begin,
+                        Lexer_CurrentLocation( *pLexer ),
+                        pTokenOut );
+                }
+                tokenFlags |= TOKEN_FLAG_UNSIGNED;
+                Lexer_Advance( pLexer );
             }
 
             if ( !bHasDigit || bPreviousSeparator ||
@@ -615,6 +660,24 @@ static lexer_status_t Lexer_ScanNumber(
             pTokenOut );
     }
 
+    if ( !bFloat &&
+         Lexer_HasFlag( *pLexer, LEXER_FLAG_ALLOW_UNSIGNED_SUFFIX ) &&
+         !Lexer_IsAtEndInternal( *pLexer ) &&
+         Lexer_ByteAt( *pLexer, pLexer->cursor.iByte ) == 'u' ) {
+        const char chFirst = Lexer_ByteAt( *pLexer, iBegin );
+        if ( chFirst == '+' || chFirst == '-' ) {
+            return Lexer_Fail(
+                pLexer,
+                lexer_status_t::INVALID_NUMBER,
+                iBegin,
+                begin,
+                Lexer_CurrentLocation( *pLexer ),
+                pTokenOut );
+        }
+        tokenFlags |= TOKEN_FLAG_UNSIGNED;
+        Lexer_Advance( pLexer );
+    }
+
     if ( !Lexer_IsAtEndInternal( *pLexer ) ) {
         const char chNext = Lexer_ByteAt( *pLexer, pLexer->cursor.iByte );
         if ( Lexer_IsIdentifierStartByte( *pLexer, chNext ) ||
@@ -671,6 +734,64 @@ static bool_t Lexer_IsSimpleEscape( char ch ) noexcept
     }
 }
 
+static lexer_status_t Lexer_ConsumeEscape(
+    lexer_t *pLexer,
+    token_t *pTokenOut,
+    usize iBegin,
+    text_location_t begin,
+    flags32_t &tokenFlags ) noexcept
+{
+    tokenFlags |= TOKEN_FLAG_HAS_ESCAPES;
+    const text_location_t escapeLocation = Lexer_CurrentLocation( *pLexer );
+    Lexer_Advance( pLexer );
+    if ( Lexer_IsAtEndInternal( *pLexer ) ) {
+        return Lexer_Fail(
+            pLexer,
+            lexer_status_t::INVALID_ESCAPE,
+            iBegin,
+            begin,
+            escapeLocation,
+            pTokenOut );
+    }
+
+    const char chEscape = Lexer_ByteAt( *pLexer, pLexer->cursor.iByte );
+    if ( Lexer_IsSimpleEscape( chEscape ) ) {
+        Lexer_Advance( pLexer );
+        return lexer_status_t::OK;
+    }
+
+    if ( chEscape == 'x' || chEscape == 'u' || chEscape == 'U' ) {
+        const usize cHexDigits = chEscape == 'x'
+            ? 2u
+            : ( chEscape == 'u' ? 4u : 8u );
+        Lexer_Advance( pLexer );
+        for ( usize iDigit = 0u; iDigit < cHexDigits; ++iDigit ) {
+            if ( Lexer_IsAtEndInternal( *pLexer ) ||
+                 !Char_IsHexDigitAscii(
+                     Lexer_ByteAt( *pLexer, pLexer->cursor.iByte ) ) ) {
+                return Lexer_Fail(
+                    pLexer,
+                    lexer_status_t::INVALID_ESCAPE,
+                    iBegin,
+                    begin,
+                    escapeLocation,
+                    pTokenOut );
+            }
+            Lexer_Advance( pLexer );
+        }
+        return lexer_status_t::OK;
+    }
+
+    Lexer_Advance( pLexer );
+    return Lexer_Fail(
+        pLexer,
+        lexer_status_t::INVALID_ESCAPE,
+        iBegin,
+        begin,
+        escapeLocation,
+        pTokenOut );
+}
+
 static lexer_status_t Lexer_ScanQuoted(
     lexer_t *pLexer,
     token_t *pTokenOut,
@@ -711,48 +832,32 @@ static lexer_status_t Lexer_ScanQuoted(
         }
 
         if ( ch == '\\' && Lexer_HasFlag( *pLexer, LEXER_FLAG_ALLOW_ESCAPE_SEQUENCES ) ) {
-            tokenFlags |= TOKEN_FLAG_HAS_ESCAPES;
-            const text_location_t escapeLocation = Lexer_CurrentLocation( *pLexer );
-            Lexer_Advance( pLexer );
-            if ( Lexer_IsAtEndInternal( *pLexer ) ) {
-                return Lexer_Fail(
-                    pLexer,
-                    lexer_status_t::INVALID_ESCAPE,
-                    iBegin,
-                    begin,
-                    escapeLocation,
-                    pTokenOut );
+            const lexer_status_t escapeStatus = Lexer_ConsumeEscape(
+                pLexer,
+                pTokenOut,
+                iBegin,
+                begin,
+                tokenFlags );
+            if ( escapeStatus != lexer_status_t::OK ) {
+                return escapeStatus;
             }
-
-            const char chEscape = Lexer_ByteAt( *pLexer, pLexer->cursor.iByte );
-            if ( Lexer_IsSimpleEscape( chEscape ) ) {
-                Lexer_Advance( pLexer );
-            } else if ( chEscape == 'x' || chEscape == 'u' || chEscape == 'U' ) {
-                const usize cHexDigits = chEscape == 'x' ? 2u : ( chEscape == 'u' ? 4u : 8u );
-                Lexer_Advance( pLexer );
-                for ( usize iDigit = 0u; iDigit < cHexDigits; ++iDigit ) {
-                    if ( Lexer_IsAtEndInternal( *pLexer ) ||
-                         !Char_IsHexDigitAscii( Lexer_ByteAt( *pLexer, pLexer->cursor.iByte ) ) ) {
-                        return Lexer_Fail(
-                            pLexer,
-                            lexer_status_t::INVALID_ESCAPE,
-                            iBegin,
-                            begin,
-                            escapeLocation,
-                            pTokenOut );
-                    }
-                    Lexer_Advance( pLexer );
-                }
-            } else {
+        } else if ( static_cast<u8>( ch ) >= 0x80u ) {
+            const usize cBytes = Lexer_ValidUtf8SequenceLength(
+                *pLexer,
+                pLexer->cursor.iByte );
+            if ( cBytes == 0u ) {
+                const text_location_t errorLocation =
+                    Lexer_CurrentLocation( *pLexer );
                 Lexer_Advance( pLexer );
                 return Lexer_Fail(
                     pLexer,
-                    lexer_status_t::INVALID_ESCAPE,
+                    lexer_status_t::INVALID_BYTE,
                     iBegin,
                     begin,
-                    escapeLocation,
+                    errorLocation,
                     pTokenOut );
             }
+            Lexer_AdvanceUtf8Sequence( pLexer, cBytes );
         } else {
             if ( static_cast<u8>( ch ) < 0x20u ) {
                 const text_location_t errorLocation = Lexer_CurrentLocation( *pLexer );
@@ -776,6 +881,158 @@ static lexer_status_t Lexer_ScanQuoted(
                 begin,
                 Lexer_CurrentLocation( *pLexer ),
                 pTokenOut );
+        }
+    }
+
+    return Lexer_Fail(
+        pLexer,
+        lexer_status_t::UNTERMINATED_STRING,
+        iBegin,
+        begin,
+        Lexer_CurrentLocation( *pLexer ),
+        pTokenOut );
+}
+
+static bool_t Lexer_IsTripleQuoteAt(
+    const lexer_t &lexer,
+    usize iByte ) noexcept
+{
+    constexpr string_view_t delimiter{ "\"\"\"", 3u };
+    return Lexer_MatchesAt( lexer, iByte, delimiter );
+}
+
+static lexer_status_t Lexer_ScanMultilineString(
+    lexer_t *pLexer,
+    token_t *pTokenOut ) noexcept
+{
+    const usize iBegin = pLexer->cursor.iByte;
+    const text_location_t begin = Lexer_CurrentLocation( *pLexer );
+    flags32_t tokenFlags = TOKEN_FLAG_QUOTED | TOKEN_FLAG_MULTILINE;
+    Lexer_AdvanceBytes( pLexer, 3u );
+
+    if ( Lexer_IsAtEndInternal( *pLexer ) ||
+         !Char_IsNewLineAscii(
+             Lexer_ByteAt( *pLexer, pLexer->cursor.iByte ) ) ) {
+        return Lexer_Fail(
+            pLexer,
+            lexer_status_t::INVALID_MULTILINE_STRING,
+            iBegin,
+            begin,
+            Lexer_CurrentLocation( *pLexer ),
+            pTokenOut );
+    }
+    Lexer_Advance( pLexer );
+
+    while ( !Lexer_IsAtEndInternal( *pLexer ) ) {
+        while ( !Lexer_IsAtEndInternal( *pLexer ) ) {
+            const char chIndent = Lexer_ByteAt(
+                *pLexer,
+                pLexer->cursor.iByte );
+            if ( chIndent != ' ' && chIndent != '\t' ) {
+                break;
+            }
+            Lexer_Advance( pLexer );
+        }
+
+        if ( Lexer_IsTripleQuoteAt( *pLexer, pLexer->cursor.iByte ) ) {
+            usize iAfter = pLexer->cursor.iByte + 3u;
+            while ( iAfter < pLexer->source.cchLength &&
+                    ( pLexer->source.pData[iAfter] == ' ' ||
+                      pLexer->source.pData[iAfter] == '\t' ) ) {
+                ++iAfter;
+            }
+            if ( iAfter < pLexer->source.cchLength &&
+                 !Char_IsNewLineAscii( pLexer->source.pData[iAfter] ) ) {
+                return Lexer_Fail(
+                    pLexer,
+                    lexer_status_t::INVALID_MULTILINE_STRING,
+                    iBegin,
+                    begin,
+                    { iAfter, pLexer->cursor.nLine, pLexer->cursor.nColumn + 3u },
+                    pTokenOut );
+            }
+
+            Lexer_AdvanceBytes( pLexer, 3u );
+            if ( Lexer_TokenExceedsLimit( *pLexer, iBegin ) ) {
+                return Lexer_Fail(
+                    pLexer,
+                    lexer_status_t::TOKEN_TOO_LONG,
+                    iBegin,
+                    begin,
+                    Lexer_CurrentLocation( *pLexer ),
+                    pTokenOut );
+            }
+            Lexer_WriteToken(
+                *pLexer,
+                pTokenOut,
+                token_kind_t::STRING,
+                iBegin,
+                begin,
+                tokenFlags );
+            return lexer_status_t::OK;
+        }
+
+        while ( !Lexer_IsAtEndInternal( *pLexer ) ) {
+            const char ch = Lexer_ByteAt( *pLexer, pLexer->cursor.iByte );
+            if ( Char_IsNewLineAscii( ch ) ) {
+                Lexer_Advance( pLexer );
+                break;
+            }
+            if ( ch == '\\' &&
+                 Lexer_HasFlag(
+                     *pLexer,
+                     LEXER_FLAG_ALLOW_ESCAPE_SEQUENCES ) ) {
+                const lexer_status_t escapeStatus = Lexer_ConsumeEscape(
+                    pLexer,
+                    pTokenOut,
+                    iBegin,
+                    begin,
+                    tokenFlags );
+                if ( escapeStatus != lexer_status_t::OK ) {
+                    return escapeStatus;
+                }
+            } else if ( static_cast<u8>( ch ) >= 0x80u ) {
+                const usize cBytes = Lexer_ValidUtf8SequenceLength(
+                    *pLexer,
+                    pLexer->cursor.iByte );
+                if ( cBytes == 0u ) {
+                    const text_location_t errorLocation =
+                        Lexer_CurrentLocation( *pLexer );
+                    Lexer_Advance( pLexer );
+                    return Lexer_Fail(
+                        pLexer,
+                        lexer_status_t::INVALID_BYTE,
+                        iBegin,
+                        begin,
+                        errorLocation,
+                        pTokenOut );
+                }
+                Lexer_AdvanceUtf8Sequence( pLexer, cBytes );
+            } else {
+                if ( static_cast<u8>( ch ) < 0x20u && ch != '\t' ) {
+                    const text_location_t errorLocation =
+                        Lexer_CurrentLocation( *pLexer );
+                    Lexer_Advance( pLexer );
+                    return Lexer_Fail(
+                        pLexer,
+                        lexer_status_t::INVALID_BYTE,
+                        iBegin,
+                        begin,
+                        errorLocation,
+                        pTokenOut );
+                }
+                Lexer_Advance( pLexer );
+            }
+
+            if ( Lexer_TokenExceedsLimit( *pLexer, iBegin ) ) {
+                return Lexer_Fail(
+                    pLexer,
+                    lexer_status_t::TOKEN_TOO_LONG,
+                    iBegin,
+                    begin,
+                    Lexer_CurrentLocation( *pLexer ),
+                    pTokenOut );
+            }
         }
     }
 
@@ -827,6 +1084,10 @@ static lexer_status_t Lexer_ScanPunctuation(
 
 static bool_t Lexer_RulesAreValid( const lexer_rules_t &rules ) noexcept
 {
+    if ( rules.nMaxCommentDepth == 0u ) {
+        return CY_FALSE;
+    }
+
     if ( rules.nPunctuationCount > 0u && rules.pPunctuations == nullptr ) {
         return CY_FALSE;
     }
@@ -1005,6 +1266,11 @@ lexer_status_t Lexer_Read( lexer_t *pLexer, token_t *pTokenOut ) noexcept
         return Lexer_ScanBlockComment( pLexer, pTokenOut );
     }
 
+    if ( ch == '"' &&
+         Lexer_HasFlag( *pLexer, LEXER_FLAG_ALLOW_MULTILINE_STRING ) &&
+         Lexer_IsTripleQuoteAt( *pLexer, iBegin ) ) {
+        return Lexer_ScanMultilineString( pLexer, pTokenOut );
+    }
     if ( ch == '"' ) {
         return Lexer_ScanQuoted( pLexer, pTokenOut, ch, token_kind_t::STRING );
     }
@@ -1094,8 +1360,11 @@ const char *Lexer_StatusName( lexer_status_t status ) noexcept
         case lexer_status_t::INVALID_BYTE:         return "INVALID_BYTE";
         case lexer_status_t::INVALID_NUMBER:       return "INVALID_NUMBER";
         case lexer_status_t::INVALID_ESCAPE:       return "INVALID_ESCAPE";
+        case lexer_status_t::INVALID_MULTILINE_STRING:
+            return "INVALID_MULTILINE_STRING";
         case lexer_status_t::UNTERMINATED_STRING:  return "UNTERMINATED_STRING";
         case lexer_status_t::UNTERMINATED_COMMENT: return "UNTERMINATED_COMMENT";
+        case lexer_status_t::COMMENT_DEPTH_LIMIT:  return "COMMENT_DEPTH_LIMIT";
         case lexer_status_t::TOKEN_TOO_LONG:       return "TOKEN_TOO_LONG";
     }
     return "UNKNOWN";
