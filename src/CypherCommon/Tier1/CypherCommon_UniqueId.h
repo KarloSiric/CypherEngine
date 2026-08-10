@@ -29,6 +29,7 @@ namespace cypher::common
 
 constexpr usize CY_UNIQUE_ID_BYTE_COUNT = 16u;
 constexpr usize CY_UNIQUE_ID_STRING_LENGTH = 36u;
+constexpr usize CY_UNIQUE_ID_STRING_CAPACITY = CY_UNIQUE_ID_STRING_LENGTH + 1u;
 
 struct unique_id_t {
     byte bytes[CY_UNIQUE_ID_BYTE_COUNT]{};
@@ -49,6 +50,8 @@ bool_t UniqueId_FromString(
     string_view_t text,
     unique_id_t *pIdOut ) noexcept;
 
+// Writes canonical lowercase 8-4-4-4-12 UUID text and a null terminator.
+// Returns 36 on success and zero when the destination contract is not satisfied.
 CYPHER_NODISCARD CYPHER_COMMON_API
 usize UniqueId_ToString(
     unique_id_t id,
