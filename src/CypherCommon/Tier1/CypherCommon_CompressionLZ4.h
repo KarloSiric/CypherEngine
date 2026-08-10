@@ -27,18 +27,21 @@ namespace cypher::common
 {
 
 CYPHER_NODISCARD CYPHER_COMMON_API
-usize CompressionLZ4_CompressBound( usize cbInput ) noexcept;
+usize CompressionLZ4_CompressBound(
+    usize cbInput,
+    const compression_options_t &options = {} ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 compression_result_t CompressionLZ4_Compress(
     binary_block_t input,
     byte_span_t output,
-    i32 nAcceleration = 1 ) noexcept;
+    const compression_options_t &options = {} ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 compression_result_t CompressionLZ4_Decompress(
     binary_block_t input,
-    byte_span_t output ) noexcept;
+    byte_span_t output,
+    const compression_options_t &options = {} ) noexcept;
 
 } // namespace cypher::common
 
