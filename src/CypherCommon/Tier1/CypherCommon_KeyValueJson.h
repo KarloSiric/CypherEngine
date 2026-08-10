@@ -5,7 +5,7 @@
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_KeyValueJson.h
 //  Purpose: Declares strict JSON interchange for KeyValue documents.
-//  Details: JSON is an interchange adapter, not the native CYDF source format. Binary
+//  Details: JSON is an interchange adapter, not the native CYKV source format. Binary
 //           nodes are rejected unless explicit text encoding policy is selected later.
 //
 //  History:
@@ -34,6 +34,7 @@ struct key_value_json_options_t {
     u8 nIndentSpaces{ 2u };
     usize nMaxDepth{ 128u };
     usize nMaxNodes{ 1u << 20u };
+    usize cbMaxStringData{ 64u * CY_MIB };
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API
