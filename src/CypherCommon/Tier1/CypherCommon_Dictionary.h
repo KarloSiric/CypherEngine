@@ -41,6 +41,10 @@ struct string_view_equal_t {
 
 template <typename value_t>
 struct dictionary_t {
+    dictionary_t() noexcept = default;
+    CYPHER_NO_COPY_MOVE( dictionary_t );
+    ~dictionary_t() noexcept;
+
     string_pool_t *pKeys{ nullptr };
     hash_map_t<string_view_t, value_t, string_view_hash_t, string_view_equal_t> entries{};
     const allocator_t *pAllocator{ nullptr };
@@ -61,6 +65,10 @@ template <typename value_t>
 void Dictionary_Clear( dictionary_t<value_t> *pDictionary ) noexcept;
 
 template <typename value_t>
+CYPHER_NODISCARD bool_t Dictionary_IsValid(
+    const dictionary_t<value_t> *pDictionary ) noexcept;
+
+template <typename value_t>
 CYPHER_NODISCARD hash_table_insert_result_t<value_t> Dictionary_Insert(
     dictionary_t<value_t> *pDictionary,
     string_view_t key,
@@ -72,10 +80,32 @@ CYPHER_NODISCARD value_t *Dictionary_Find(
     string_view_t key ) noexcept;
 
 template <typename value_t>
+CYPHER_NODISCARD const value_t *Dictionary_Find(
+    const dictionary_t<value_t> *pDictionary,
+    string_view_t key ) noexcept;
+
+template <typename value_t>
+CYPHER_NODISCARD bool_t Dictionary_Contains(
+    const dictionary_t<value_t> *pDictionary,
+    string_view_t key ) noexcept;
+
+template <typename value_t>
 CYPHER_NODISCARD bool_t Dictionary_Erase(
     dictionary_t<value_t> *pDictionary,
     string_view_t key ) noexcept;
 
+template <typename value_t>
+CYPHER_NODISCARD usize Dictionary_Count(
+    const dictionary_t<value_t> *pDictionary ) noexcept;
+
+template <typename value_t>
+CYPHER_NODISCARD bool_t Dictionary_IsEmpty(
+    const dictionary_t<value_t> *pDictionary ) noexcept;
+
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_DICTIONARY_INL
+    #include "CypherCommon_Dictionary.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_DICTIONARY_H
