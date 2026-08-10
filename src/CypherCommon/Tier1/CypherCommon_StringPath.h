@@ -107,6 +107,7 @@ CYPHER_COMMON_API path_write_result_t StringPath_Normalize(
     char *pDest,
     usize cchDest ) noexcept;
 
+// Joins lexical components only. An absolute or rooted right-hand path is rejected.
 CYPHER_NODISCARD_MSG( "Inspect cchRequired to detect path truncation." )
 CYPHER_COMMON_API path_write_result_t StringPath_Join(
     string_view_t left,
@@ -128,6 +129,8 @@ CYPHER_COMMON_API path_write_result_t StringPath_RemoveExtension(
     char *pDest,
     usize cchDest ) noexcept;
 
+// MakeRelative treats base as a directory and compares components lexically.
+// Normalize dot components before calling when canonical relative output is required.
 CYPHER_NODISCARD_MSG( "Inspect cchRequired to detect path truncation." )
 CYPHER_COMMON_API path_write_result_t StringPath_MakeRelative(
     string_view_t path,
