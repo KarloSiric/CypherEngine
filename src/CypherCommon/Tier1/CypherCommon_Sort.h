@@ -67,4 +67,8 @@ CYPHER_NODISCARD bool_t Sort_IsOrdered(
 
 } // namespace cypher::common
 
+#ifndef CYPHER_COMMON_TIER1_SORT_INL
+    #include "CypherCommon_Sort.inl"
+#endif
+
 #endif // CYPHER_COMMON_TIER1_SORT_H
