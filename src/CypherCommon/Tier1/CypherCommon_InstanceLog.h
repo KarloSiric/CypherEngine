@@ -40,6 +40,9 @@ struct instance_log_desc_t {
     usize cbMaxText{ 256u * CY_KIB };
 };
 
+// cbMaxText counts category and message payload bytes, excluding terminators.
+// The log is instance-owned and not internally synchronized.
+
 struct instance_log_t;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
