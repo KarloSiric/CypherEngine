@@ -6,7 +6,8 @@
 //  File: src/CypherCommon/Tier1/CypherCommon_Search.h
 //  Purpose: Declares linear and ordered range-search algorithms.
 //  Details: Ordered searches require a range sorted under the same comparison policy.
-//           Missing indices return CY_INVALID_SIZE.
+//           Exact searches return CY_INVALID_SIZE when missing; bounds return an
+//           insertion index in the inclusive range [0, values.nCount].
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -52,5 +53,9 @@ CYPHER_NODISCARD usize Search_Binary(
     compare_t compare = {} ) noexcept;
 
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_SEARCH_INL
+    #include "CypherCommon_Search.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_SEARCH_H
