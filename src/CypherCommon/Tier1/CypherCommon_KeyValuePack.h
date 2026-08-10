@@ -5,8 +5,8 @@
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_KeyValuePack.h
 //  Purpose: Declares versioned binary packing for KeyValue documents.
-//  Details: Packed data is little-endian, bounds-checked, and self-identifying. Readers
-//           validate all offsets and limits before constructing document nodes.
+//  Details: Packed data is little-endian, bounds-checked, and self-identifying. A
+//           complete validation pass precedes transactional document construction.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -66,6 +66,10 @@ key_value_pack_result_t KeyValuePack_Read(
     binary_block_t input,
     const key_value_pack_limits_t &limits,
     key_value_document_t *pDocument ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const char *KeyValuePack_StatusName(
+    key_value_pack_status_t status ) noexcept;
 
 } // namespace cypher::common
 
