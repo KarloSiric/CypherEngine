@@ -5,7 +5,7 @@
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_StringEscape.h
 //  Purpose: Declares bounded escaped-text encoding and decoding.
-//  Details: The API supports strict C/CYDF-style and JSON-style escape rules while
+//  Details: The API supports strict C/CYKV-style and JSON-style escape rules while
 //           preserving exact input and output accounting.
 //
 //  History:
@@ -54,8 +54,12 @@ struct string_escape_result_t {
     usize cchConsumed{ 0u };
     usize cchWritten{ 0u };
     usize cchRequired{ 0u };
-    usize iError{ 0u };
+    usize iError{ CY_STRING_VIEW_NPOS };
 };
+
+// Output is always null terminated when pDest is non-null and cchDest is nonzero.
+// cchRequired and cchWritten exclude that terminator. A null destination with zero
+// capacity performs a complete validation and required-length measurement pass.
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t StringEscape_NeedsEscaping(
