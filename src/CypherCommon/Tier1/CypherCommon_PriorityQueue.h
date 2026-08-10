@@ -5,8 +5,8 @@
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_PriorityQueue.h
 //  Purpose: Declares binary-heap priority queues.
-//  Details: PriorityQueue owns contiguous vector storage. The comparison policy
-//           determines which value appears at the top.
+//  Details: PriorityQueue owns contiguous vector storage. A value rises toward the
+//           top when compare(parent, value) is true, producing a max heap for less_t.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -45,6 +45,14 @@ void PriorityQueue_Shutdown(
     priority_queue_t<type_t, compare_t> *pQueue ) noexcept;
 
 template <typename type_t, typename compare_t>
+void PriorityQueue_Clear(
+    priority_queue_t<type_t, compare_t> *pQueue ) noexcept;
+
+template <typename type_t, typename compare_t>
+CYPHER_NODISCARD bool_t PriorityQueue_IsValid(
+    const priority_queue_t<type_t, compare_t> *pQueue ) noexcept;
+
+template <typename type_t, typename compare_t>
 CYPHER_NODISCARD bool_t PriorityQueue_Push(
     priority_queue_t<type_t, compare_t> *pQueue,
     const type_t &value ) noexcept;
@@ -58,6 +66,22 @@ template <typename type_t, typename compare_t>
 CYPHER_NODISCARD type_t *PriorityQueue_Top(
     priority_queue_t<type_t, compare_t> *pQueue ) noexcept;
 
+template <typename type_t, typename compare_t>
+CYPHER_NODISCARD const type_t *PriorityQueue_Top(
+    const priority_queue_t<type_t, compare_t> *pQueue ) noexcept;
+
+template <typename type_t, typename compare_t>
+CYPHER_NODISCARD usize PriorityQueue_Count(
+    const priority_queue_t<type_t, compare_t> *pQueue ) noexcept;
+
+template <typename type_t, typename compare_t>
+CYPHER_NODISCARD bool_t PriorityQueue_IsEmpty(
+    const priority_queue_t<type_t, compare_t> *pQueue ) noexcept;
+
 } // namespace cypher::common
+
+#ifndef CYPHER_COMMON_TIER1_PRIORITYQUEUE_INL
+    #include "CypherCommon_PriorityQueue.inl"
+#endif
 
 #endif // CYPHER_COMMON_TIER1_PRIORITYQUEUE_H
