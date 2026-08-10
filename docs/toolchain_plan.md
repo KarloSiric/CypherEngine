@@ -104,8 +104,8 @@ Soft, and libsndfile also require deliberate linkage and release-license review.
 Mason and command-line tools edit authoring formats. Runtime loads cooked
 formats whenever parsing source data would be too slow or allocation-heavy.
 
-CYDF is the general typed source-data language. Individual source formats use
-CYDF with domain-specific schemas; they are not interchangeable merely because
+CYKV is the general typed source-data language. Individual source formats use
+CYKV with domain-specific schemas; they are not interchangeable merely because
 they share a parser. The complete map and Mason direction is documented in
 [map_authoring_and_mason.md](map_authoring_and_mason.md).
 
@@ -180,7 +180,7 @@ Important rule:
 
 - the runtime world contract comes before the editor
 - the editor edits real engine data, not a disconnected fake format
-- `.cymap` is CYDF-backed editable source; `.cymap_c` is the normal runtime map
+- `.cymap` is CYKV-backed editable source; `.cymap_c` is the normal runtime map
 - brushes and BSP algorithms remain tools, not the universal world container
 
 ## Models
