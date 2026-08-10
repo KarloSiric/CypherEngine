@@ -48,4 +48,8 @@ void HeapSort_Sort( span_t<type_t> values, compare_t compare = {} ) noexcept;
 
 } // namespace cypher::common
 
+#ifndef CYPHER_COMMON_TIER1_HEAPSORT_INL
+    #include "CypherCommon_HeapSort.inl"
+#endif
+
 #endif // CYPHER_COMMON_TIER1_HEAPSORT_H
