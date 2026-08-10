@@ -54,4 +54,8 @@ CYPHER_NODISCARD type_t RangeCheckedVar_Get(
 
 } // namespace cypher::common
 
+#ifndef CYPHER_COMMON_TIER1_RANGECHECKEDVAR_INL
+    #include "CypherCommon_RangeCheckedVar.inl"
+#endif
+
 #endif // CYPHER_COMMON_TIER1_RANGECHECKEDVAR_H
