@@ -28,6 +28,7 @@ namespace cypher::common
 
 struct sequence_ack32_t {
     u32 nLatest{ 0u };
+    // Bit zero acknowledges nLatest - 1; bit 31 acknowledges nLatest - 32.
     u32 ackBits{ 0u };
     bool_t bInitialized{ CY_FALSE };
 };
@@ -43,6 +44,9 @@ i32 Sequence16_Distance( u16 from, u16 to ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 i64 Sequence32_Distance( u32 from, u32 to ) noexcept;
+
+// Distance returns the shortest signed modular displacement from -> to. The exact
+// half-range tie is represented as the negative half and is never considered newer.
 
 CYPHER_COMMON_API void SequenceAck32_Reset( sequence_ack32_t *pState ) noexcept;
 
