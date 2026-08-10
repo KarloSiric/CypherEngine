@@ -63,6 +63,7 @@ TEST_CASE( "Lexer default rules expose stable policy and status names",
     REQUIRE( ( rules.flags & LEXER_FLAG_ALLOW_BLOCK_COMMENTS ) != 0u );
     REQUIRE( ( rules.flags & LEXER_FLAG_ALLOW_ESCAPE_SEQUENCES ) != 0u );
     REQUIRE( rules.cchMaxToken == CY_INVALID_SIZE );
+    REQUIRE( rules.nMaxCommentDepth == 64u );
 
     REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( lexer_status_t::OK ) ), "OK" ) );
     REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( lexer_status_t::END_OF_INPUT ) ), "END_OF_INPUT" ) );
@@ -70,8 +71,10 @@ TEST_CASE( "Lexer default rules expose stable policy and status names",
     REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( lexer_status_t::INVALID_BYTE ) ), "INVALID_BYTE" ) );
     REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( lexer_status_t::INVALID_NUMBER ) ), "INVALID_NUMBER" ) );
     REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( lexer_status_t::INVALID_ESCAPE ) ), "INVALID_ESCAPE" ) );
+    REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( lexer_status_t::INVALID_MULTILINE_STRING ) ), "INVALID_MULTILINE_STRING" ) );
     REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( lexer_status_t::UNTERMINATED_STRING ) ), "UNTERMINATED_STRING" ) );
     REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( lexer_status_t::UNTERMINATED_COMMENT ) ), "UNTERMINATED_COMMENT" ) );
+    REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( lexer_status_t::COMMENT_DEPTH_LIMIT ) ), "COMMENT_DEPTH_LIMIT" ) );
     REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( lexer_status_t::TOKEN_TOO_LONG ) ), "TOKEN_TOO_LONG" ) );
     REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( static_cast<lexer_status_t>( 0xffu ) ) ), "UNKNOWN" ) );
 }
@@ -157,6 +160,21 @@ TEST_CASE( "Lexer skips comments and supports nested block comments by policy",
     REQUIRE( second.range.begin.nLine == 2u );
 }
 
+TEST_CASE( "Lexer enforces configured nested comment depth",
+           "[CypherCommon][Tier1][Lexer]" )
+{
+    lexer_rules_t rules = Lexer_DefaultRules();
+    rules.flags |= LEXER_FLAG_ALLOW_NESTED_BLOCK_COMMENT;
+    rules.nMaxCommentDepth = 1u;
+
+    token_t token{};
+    REQUIRE( ReadFirstStatus(
+        "/* outer /* inner */ */",
+        rules,
+        &token ) == lexer_status_t::COMMENT_DEPTH_LIMIT );
+    REQUIRE( token.kind == token_kind_t::ERROR );
+}
+
 TEST_CASE( "Lexer emits comments and newlines when requested",
            "[CypherCommon][Tier1][Lexer]" )
 {
@@ -223,12 +241,40 @@ TEST_CASE( "Lexer validates UTF-8 identifiers without decoding their contents",
     REQUIRE( token.kind == token_kind_t::IDENTIFIER );
     REQUIRE( token.lexeme.pData == validUtf8 );
     REQUIRE( token.lexeme.cchLength == sizeof( validUtf8 ) );
+    REQUIRE( token.range.begin.nColumn == 1u );
+    REQUIRE( token.range.end.nColumn == 5u );
 
     const char invalidUtf8[] = { static_cast<char>( 0xC3u ), 'x' };
     REQUIRE( Lexer_Init( &lexer, StringView_FromRange( invalidUtf8, sizeof( invalidUtf8 ) ), rules ) );
     REQUIRE( Lexer_Read( &lexer, &token ) == lexer_status_t::INVALID_BYTE );
     REQUIRE( token.kind == token_kind_t::ERROR );
     REQUIRE( lexer.errorLocation.iByte == 0u );
+}
+
+TEST_CASE( "Lexer counts a UTF-8 scalar as one source column",
+           "[CypherCommon][Tier1][Lexer]" )
+{
+    const char source[]{
+        static_cast<char>( 0xC3u ), static_cast<char>( 0xA9u ), ' ', 'x'
+    };
+
+    lexer_rules_t rules = Lexer_DefaultRules();
+    rules.flags |= LEXER_FLAG_ALLOW_UTF8_IDENTIFIERS;
+
+    lexer_t lexer{};
+    REQUIRE( Lexer_Init(
+        &lexer,
+        StringView_FromRange( source, sizeof( source ) ),
+        rules ) );
+
+    token_t unicode{};
+    REQUIRE( Lexer_Read( &lexer, &unicode ) == lexer_status_t::OK );
+    REQUIRE( unicode.range.begin.nColumn == 1u );
+    REQUIRE( unicode.range.end.nColumn == 2u );
+
+    const token_t ascii = ReadToken( &lexer, token_kind_t::IDENTIFIER, "x" );
+    REQUIRE( ascii.range.begin.iByte == 3u );
+    REQUIRE( ascii.range.begin.nColumn == 3u );
 }
 
 TEST_CASE( "Lexer records quoted and escaped literal policy",
@@ -265,6 +311,71 @@ TEST_CASE( "Lexer rejects malformed escapes and unterminated quoted input",
     REQUIRE( ReadFirstStatus( "\"\\u12\"", rules, &token ) == lexer_status_t::INVALID_ESCAPE );
     REQUIRE( ReadFirstStatus( "\"missing", rules, &token ) == lexer_status_t::UNTERMINATED_STRING );
     REQUIRE( ReadFirstStatus( "/* missing", rules, &token ) == lexer_status_t::UNTERMINATED_COMMENT );
+}
+
+TEST_CASE( "Lexer recognizes unsigned integer suffixes by explicit policy",
+           "[CypherCommon][Tier1][Lexer]" )
+{
+    lexer_rules_t rules = Lexer_DefaultRules();
+    rules.flags |= LEXER_FLAG_ALLOW_UNSIGNED_SUFFIX;
+
+    lexer_t lexer{};
+    REQUIRE( Lexer_Init(
+        &lexer,
+        StringView_FromCString( "42u 0xffu" ),
+        rules ) );
+
+    const token_t decimal = ReadToken( &lexer, token_kind_t::INTEGER, "42u" );
+    REQUIRE( ( decimal.flags & TOKEN_FLAG_UNSIGNED ) != 0u );
+
+    const token_t hexadecimal = ReadToken(
+        &lexer,
+        token_kind_t::INTEGER,
+        "0xffu" );
+    REQUIRE( ( hexadecimal.flags & TOKEN_FLAG_UNSIGNED ) != 0u );
+    REQUIRE( ( hexadecimal.flags & TOKEN_FLAG_BASE_PREFIX ) != 0u );
+
+    rules.flags |= LEXER_FLAG_SIGN_IS_NUMBER_PART;
+    token_t invalid{};
+    REQUIRE( ReadFirstStatus(
+        "-1u",
+        rules,
+        &invalid ) == lexer_status_t::INVALID_NUMBER );
+}
+
+TEST_CASE( "Lexer recognizes structurally valid multiline strings",
+           "[CypherCommon][Tier1][Lexer]" )
+{
+    lexer_rules_t rules = Lexer_DefaultRules();
+    rules.flags |= LEXER_FLAG_ALLOW_MULTILINE_STRING;
+
+    constexpr const char *pSource = R"cykv("""
+    first line
+      second line
+    """)cykv";
+
+    lexer_t lexer{};
+    REQUIRE( Lexer_Init(
+        &lexer,
+        StringView_FromCString( pSource ),
+        rules ) );
+
+    token_t token{};
+    REQUIRE( Lexer_Read( &lexer, &token ) == lexer_status_t::OK );
+    REQUIRE( token.kind == token_kind_t::STRING );
+    REQUIRE( ( token.flags & TOKEN_FLAG_QUOTED ) != 0u );
+    REQUIRE( ( token.flags & TOKEN_FLAG_MULTILINE ) != 0u );
+    REQUIRE( token.range.begin.nLine == 1u );
+    REQUIRE( token.range.end.nLine == 4u );
+
+    REQUIRE( ReadFirstStatus(
+        "\"\"\"same line\n\"\"\"",
+        rules,
+        &token ) == lexer_status_t::INVALID_MULTILINE_STRING );
+    REQUIRE( ReadFirstStatus(
+        "\"\"\"\nvalue\n\"\"\" trailing",
+        rules,
+        &token ) == lexer_status_t::INVALID_MULTILINE_STRING );
 }
 
 TEST_CASE( "Lexer recognizes supported numeric spellings",
