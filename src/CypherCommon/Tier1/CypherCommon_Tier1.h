@@ -49,6 +49,7 @@
 #include "CypherCommon_StringPath.h"
 #include "CypherCommon_StringUrl.h"
 #include "CypherCommon_Unicode.h"
+#include "CypherCommon_WideChar.h"
 #include "CypherCommon_FixedString.h"
 #include "CypherCommon_StringBuilder.h"
 #include "CypherCommon_TextBuffer.h"
@@ -102,7 +103,6 @@
 #include "CypherCommon_ChecksumCRC32.h"
 #include "CypherCommon_ChecksumCRC64.h"
 #include "CypherCommon_ContentHash.h"
-#include "CypherCommon_ResourceId.h"
 #include "CypherCommon_UniqueId.h"
 
 /* Fixed and allocator-backed memory utilities. */
