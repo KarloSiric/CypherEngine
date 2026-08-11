@@ -4,9 +4,9 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Asset/README.md
-//  Purpose: Documents the CypherCommon Asset folder.
-//  Details: Asset contains public asset IDs, asset types, dependency records,
+//  File: src/CypherCommon/AssetSystem/README.md
+//  Purpose: Documents the CypherCommon AssetSystem folder.
+//  Details: AssetSystem contains public asset IDs, asset types, dependency records,
 //           import flags, and metadata descriptors.
 //
 //  History:
@@ -17,9 +17,9 @@
 //////////////////////////////////////////////////////////////////////////
 -->
 
-# Asset
+# AssetSystem
 
-`Asset` is for shared asset contracts.
+`AssetSystem` is for shared authored and cooked asset contracts.
 
 Importers, cookers, and asset database implementation belong in `CypherAsset` or
 tool modules. Common defines asset IDs, types, dependencies, and descriptors.
