@@ -74,7 +74,6 @@ set(CYPHERENGINE_INCLUDE_DIRS
     "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherHost"
     "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherInput"
     "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherLog"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherMath"
     "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherMemory"
     "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherNetwork"
     "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak"
@@ -252,6 +251,39 @@ set(CYPHERSECURITY_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Security/CypherSecurity_Signature.cpp"
 )
 
+set(CYPHERMATH_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Affine3.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Angle.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Batch.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Bounds.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Brush.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Clip.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Frustum.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_FixedPoint.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Geometry2D.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Gizmo.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Intersection.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Matrix3.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Matrix4.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Numerics.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Plane.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Polygon.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Quaternion.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Quantization.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Ray.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Scalar.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Snap.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Sphere.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Spline.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Transform.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Triangle.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_UV.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Vector2.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Vector3.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Vector4.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Viewport.cpp"
+)
+
 add_library(CypherCommonTier0 STATIC ${CYPHERCOMMON_TIER0_SOURCES})
 add_library(Cypher::CommonTier0 ALIAS CypherCommonTier0)
 target_compile_features(CypherCommonTier0 PUBLIC cxx_std_20)
@@ -306,6 +338,17 @@ target_include_directories(CypherCommonTier2
 )
 target_link_libraries(CypherCommonTier2 PUBLIC Cypher::CommonTier1)
 
+add_library(CypherMath STATIC ${CYPHERMATH_SOURCES})
+add_library(Cypher::Math ALIAS CypherMath)
+target_compile_features(CypherMath PUBLIC cxx_std_20)
+target_include_directories(CypherMath
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib"
+)
+target_compile_definitions(CypherMath PUBLIC CYPHER_MATH_STATIC=1)
+target_link_libraries(CypherMath PUBLIC Cypher::CommonTier0)
+
 add_library(CypherSecurity STATIC ${CYPHERSECURITY_SOURCES})
 add_library(Cypher::Security ALIAS CypherSecurity)
 cypher_configure_security_dependencies(CYPHERSECURITY_LINK_LIBS)
@@ -329,11 +372,14 @@ file(GLOB_RECURSE CYPHERENGINE_SOURCES CONFIGURE_DEPENDS
 list(FILTER CYPHERENGINE_SOURCES
     EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherCommon/"
 )
+list(FILTER CYPHERENGINE_SOURCES
+    EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherMath/"
+)
 
 if (CYPHERENGINE_SOURCES)
     add_executable(CypherEngine ${CYPHERENGINE_SOURCES})
     target_include_directories(CypherEngine PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
-    target_link_libraries(CypherEngine PRIVATE Cypher::CommonTier1)
+    target_link_libraries(CypherEngine PRIVATE Cypher::CommonTier1 Cypher::Math)
     if (CYPHERENGINE_LINK_LIBS)
         target_link_libraries(CypherEngine PRIVATE ${CYPHERENGINE_LINK_LIBS})
     endif()
@@ -1239,6 +1285,51 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier2/CypherCommon_Tier2_Settings_Tests.cpp"
             Cypher::CommonTier2
         )
+        cypher_add_common_catch_test(
+            cypher_math_scalar_vector_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_ScalarVector_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_math_rotation_matrix_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_RotationMatrix_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_math_transform_geometry_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_TransformGeometry_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_math_intersection_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_Intersection_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_math_batch_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_Batch_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_math_editor_geometry_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_EditorGeometry_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_math_numerics_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_Numerics_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_math_viewport_authoring_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_ViewportAuthoring_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_math_quantization_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_Quantization_Tests.cpp"
+            Cypher::Math
+        )
     else()
         message(STATUS "Catch2 not found. Skipping Catch2-based CypherCommon tests.")
     endif()
@@ -1298,6 +1389,12 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
                     ${common_target}
             )
         endfunction()
+
+        cypher_add_common_benchmark(
+            cypher_math_core_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Mathlib/CypherMath_Core_Bench.cpp"
+            Cypher::Math
+        )
 
         cypher_add_common_benchmark(
             cypher_common_allocator_bench
