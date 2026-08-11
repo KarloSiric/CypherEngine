@@ -48,6 +48,45 @@ The suite targets Windows, Linux, and macOS.
 9. Every compiler must be deterministic, scriptable, and usable without Mason.
 10. No critical compiler behavior may exist only inside a Qt callback.
 
+## Tool Naming Policy
+
+Cypher tools use full descriptive names as their authoritative product and
+executable names. Abbreviations such as `cymapc`, `cyshaderc`, and `cypkgcli`
+are not canonical names. They save little typing while making logs, process
+lists, crash reports, build targets, and documentation harder to understand.
+
+The naming layers are:
+
+| Layer | Example | Rule |
+| --- | --- | --- |
+| Product | `CypherMapCompiler` | Public name used in documentation and diagnostics. |
+| Executable/CMake target | `CypherMapCompiler` | Exact cross-platform basename; Windows adds `.exe`. |
+| Reusable implementation library | `CypherMapCompilerCore` | Contains compiler behavior shared by the CLI and Mason. |
+| CMake alias | `Cypher::MapCompilerCore` | Namespaced link target for dependent code. |
+
+Compiler and processor names normally use one of these role suffixes:
+
+- `Compiler` transforms authored source into validated or cooked output.
+- `Validator` checks data without transforming it.
+- `Inspector` reads and reports without mutating the input.
+- `Converter` changes representation while preserving meaning.
+- `Manager` performs a persistent administrative workflow.
+- `Runner` orchestrates tests, benchmarks, or another bounded workload.
+- `Server` identifies a long-running service process.
+
+Do not append `CLI` merely because a product is command-line driven. The
+execution environment already establishes that fact. For example, use
+`CypherDoctor` and `CypherPak`, not `DoctorCLI` or `cypkgcli`.
+
+Distinctive names are reserved for user-facing products whose identity benefits
+from one, such as `Mason` and `CypherScope`. Community tools around Valve games
+demonstrate that memorable names can work well, but Cypher names must remain
+original and their responsibilities must still be obvious in documentation.
+
+Working names remain changeable until the corresponding target and ownership
+boundary exist. Renaming an implemented executable requires updating CMake,
+automation, package manifests, documentation, and compatibility policy together.
+
 ```text
                          Shared tool libraries
                    import, validate, compile, inspect
@@ -97,7 +136,7 @@ not code or UI to copy.
 | Faceposer | Mason Choreography workspace | Mason/focused Qt launch | Planned | Author dialogue, phonemes, facial poses, gestures, actors, cameras, and timed gameplay events. |
 | DMXConvert/DMXEdit | CYKV Convert and Migrate tools | Headless CLI plus CypherScope | Planned | Convert, normalize, migrate, inspect, and compare structured source documents. |
 | VTEX | CypherTextureCompiler | Headless CLI/library | Decided | Import source images and cook mip chains, color space, compression, and platform variants. |
-| VTF2TGA and texture utilities | CypherImageConvert | Headless CLI/library | Planned | Convert and inspect supported source and cooked image representations. |
+| VTF2TGA and texture utilities | CypherImageConverter | Headless CLI/library | Planned | Convert and inspect supported source and cooked image representations. |
 | Height2Normal/Height2SSBump | Mason Texture Lab | Mason/focused Qt launch | Planned | Generate and preview normal, height, mask, and derived material textures. |
 | Material Editor | Mason Material workspace | Mason/focused Qt launch | Decided | Author material graphs/templates, parameters, textures, render states, and previews. |
 | ShaderCompile | CypherShaderCompiler | Headless CLI/library | Decided | Compile, validate, reflect, optimize, and cache shader permutations. |
@@ -110,9 +149,9 @@ not code or UI to copy.
 | Particle/Material/Post tools | Mason VFX, Material, and PostFX workspaces | Mason/focused Qt launch | Planned | Centralize rendering-effect authoring without duplicating renderer logic. |
 | Source Filmmaker | Mason Cinematic workspace | Mason/focused Qt launch | Deferred | Author cameras, actors, animation, dialogue, lighting, sequencing, and final captures. |
 | Element Viewer | CypherScope | Qt 6 application | Decided | Inspect every editable and cooked Cypher format through schema-aware views. |
-| DemoInfo | CypherReplay Inspector | Qt 6 application mode plus CLI | Planned | Inspect replay headers, packets, commands, snapshots, events, and timing. |
+| DemoInfo | CypherReplayInspector | Qt 6 application mode plus CLI | Planned | Inspect replay headers, packets, commands, snapshots, events, and timing. |
 | VConsole | CypherConsole | Qt 6 application | Planned | Receive remote logs, commands, CVars, channels, filters, and live diagnostics. |
-| VPK | CypherPak and `cypak` | Library plus headless CLI | Existing foundation | Create, list, extract, verify, sign, diff, and inspect `.cypak` archives. |
+| VPK | CypherPak | Library plus headless CLI | Existing foundation | Create, list, extract, verify, sign, diff, and inspect `.cypak` archives. |
 | MakeGameData/FGD workflow | CypherSchemaCompiler | Headless CLI/library | Planned | Compile reflected entity/property schemas for runtime validation and Mason inspectors. |
 | VPC | CypherBuilder | Headless CLI | Planned | Generate/configure projects and orchestrate reproducible local and CI builds. |
 
@@ -135,16 +174,16 @@ separate executable provides a proven workflow benefit.
 | CypherScope | Decided | General source/cooked resource, package, schema, and dependency inspector. | Opens from Asset Browser or runs standalone. |
 | CypherConsole | Planned | External log, command, CVar, channel, and remote-session console. | Embeddable as a Mason panel, useful standalone during crashes. |
 | CypherProfiler | Planned | CPU/GPU frame, task, allocation, IO, resource, and timeline analysis. | Embeddable summary in Mason; deep traces open standalone. |
-| CypherReplay Inspector | Planned | Replay, demo, snapshot, packet, event, and deterministic-simulation inspection. | Launches from playtest and network workspaces. |
-| CypherNetwork Inspector | Planned | Connections, packet flow, channels, loss simulation, replication, and prediction diagnostics. | Embeddable during playtest; focused standalone sessions supported. |
-| CypherMemory Inspector | Planned | Allocators, pools, tags, ownership, leaks, fragmentation, and snapshots. | Receives live telemetry from engine/editor processes. |
-| CypherCrash Viewer | Planned | Crash reports, minidumps, stack traces, logs, build IDs, and attached diagnostics. | Independent so it remains usable when Mason or the engine fails. |
-| CypherBuild Monitor | Proposed | Observe local/remote cooking, shader compilation, cache activity, and worker health. | Mason build panel provides the common view. |
-| CypherPackage Manager | Proposed | Visual package composition, signing, dependency review, patch creation, and publishing. | Uses CypherScope and `cypak`; may remain a Mason workspace. |
-| CypherTest Lab | Proposed | Run visual, map, rendering, physics, replay, and asset regression suites. | Integrates test results with affected assets and scenes. |
-| CypherBenchmark Viewer | Proposed | Compare benchmark JSON, machines, builds, regressions, variance, and historical baselines. | Mason shows summaries; detailed comparison can run standalone. |
-| CypherServer Console | Planned | Administer dedicated servers, sessions, maps, players, moderation, logs, and performance. | Reuses CypherConsole and network telemetry components. |
-| CypherMod Manager | Planned | Create, validate, package, sign, install, enable, disable, and publish mods/add-ons. | Integrates with Mason projects, CypherPak, and release validation. |
+| CypherReplayInspector | Planned | Replay, demo, snapshot, packet, event, and deterministic-simulation inspection. | Launches from playtest and network workspaces. |
+| CypherNetworkInspector | Planned | Connections, packet flow, channels, loss simulation, replication, and prediction diagnostics. | Embeddable during playtest; focused standalone sessions supported. |
+| CypherMemoryInspector | Planned | Allocators, pools, tags, ownership, leaks, fragmentation, and snapshots. | Receives live telemetry from engine/editor processes. |
+| CypherCrashViewer | Planned | Crash reports, minidumps, stack traces, logs, build IDs, and attached diagnostics. | Independent so it remains usable when Mason or the engine fails. |
+| CypherBuildMonitor | Proposed | Observe local/remote cooking, shader compilation, cache activity, and worker health. | Mason build panel provides the common view. |
+| CypherPackageManager | Proposed | Visual package composition, signing, dependency review, patch creation, and publishing. | Uses CypherScope and CypherPak; may remain a Mason workspace. |
+| CypherTestLab | Proposed | Run visual, map, rendering, physics, replay, and asset regression suites. | Integrates test results with affected assets and scenes. |
+| CypherBenchmarkViewer | Proposed | Compare benchmark JSON, machines, builds, regressions, variance, and historical baselines. | Mason shows summaries; detailed comparison can run standalone. |
+| CypherServerConsole | Planned | Administer dedicated servers, sessions, maps, players, moderation, logs, and performance. | Reuses CypherConsole and network telemetry components. |
+| CypherModManager | Planned | Create, validate, package, sign, install, enable, disable, and publish mods/add-ons. | Integrates with Mason projects, CypherPak, and release validation. |
 
 ## Mason Workspace Inventory
 
@@ -226,49 +265,50 @@ response/config files suitable for CI.
 
 | Working executable | Status | Inputs | Outputs and responsibility |
 | --- | --- | --- | --- |
-| `cyresourcec` | Decided | Resource manifests and source assets | Coordinate importers/compilers, dependency graphs, caches, and platform cooking. |
-| `cymapc` | Decided | `.cymap` | Produce `.cymap_c` through geometry, entity, collision, visibility, lighting, nav, and packaging stages. |
-| `cymodelc` | Decided | glTF/GLB and model source metadata | Produce `.cymesh_c`, `.cyskel_c`, collision, LOD, sockets, and morph metadata. |
-| `cyanimc` | Planned | Animation source and skeleton mapping | Produce `.cyanim_c` with events, root motion, compression, and retarget data. |
-| `cytexc` | Decided | PNG/JPEG/EXR/KTX and `.cytex` metadata | Produce `.cytex_c` mip chains, compression, color-space metadata, and platform variants. |
-| `cymatc` | Decided | `.cymat` | Validate shader/material compatibility and produce `.cymat_c`. |
-| `cyshaderc` | Decided | GLSL and `.cyshader` metadata | Preprocess, compile, validate, optimize, reflect, and produce `.cyshader_c`. |
-| `cyvfxc` | Planned | Particle/VFX source documents | Validate modules and produce cooked effect data. |
-| `cyaudioc` | Planned | WAV/FLAC/other approved sources and sound metadata | Normalize, encode, analyze loudness, build seek/stream data, and produce `.cysnd_c`. |
-| `cyfontc` | Planned | Font sources and locale manifests | Produce `.cyfont_c`, atlases, glyph maps, fallback, and shaping metadata. |
-| `cycaptionc` | Planned | Dialogue, subtitle, and localization source | Produce validated, timed, localized caption resources. |
-| `cynavc` | Planned | Map geometry and `.cynav` overrides | Produce `.cynav_c` meshes, links, regions, costs, and debug data. |
-| `cyphysc` | Planned | Meshes and `.cyphys` source | Produce `.cyphys_c` collision shapes, materials, constraints, and mass properties. |
-| `cyflowc` | Planned | `.cyflow` | Validate and compile mission/objective/event graphs. |
-| `cyuic` | Planned | CyGUI layout/style source | Validate and compile runtime UI documents, localization references, and resources. |
-| `cyscriptc` | Planned | Lua source and binding metadata | Validate syntax/bindings, optionally produce bytecode, generate debug metadata, and build script manifests. |
-| `cyinputc` | Planned | Input/action source documents | Validate conflicts and produce platform-aware runtime action maps. |
-| `cylocc` | Planned | Localization tables and locale manifests | Validate keys, placeholders, plurals, coverage, encoding, and produce cooked string resources. |
-| `cyscenec` | Planned | `.cyscene` | Compile scene instances, dependencies, streaming partitions, and runtime records. |
-| `cyprefabc` | Planned | `.cyprefab` | Validate inheritance/overrides and produce runtime prefab/entity templates. |
-| `cypak` | Existing foundation | Cooked resources and manifests | Create, list, extract, verify, sign, diff, patch, and report package contents. |
-| `cykv` | Planned | CYKV documents | Parse, format, canonicalize, validate, query, convert, and print diagnostics. |
-| `cyschemac` | Planned | Reflection and schema declarations | Produce schema registries, editor descriptors, validation data, and optional generated bindings. |
-| `cyvalidate` | Planned | Projects, source assets, cooked assets, or packages | Run cross-resource and release-readiness validation. |
-| `cydeps` | Planned | Asset/project graph | Print dependencies, reverse references, cycles, missing assets, and rebuild reasons. |
-| `cydump` | Planned | Any supported cooked format | Print headers, chunks, IDs, offsets, hashes, dependencies, and schema-aware values. |
-| `cydiff` | Planned | Two source/cooked resources or manifests | Produce semantic and binary comparison reports. |
-| `cymigrate` | Planned | Older source documents | Apply explicit schema migrations and report lossy transformations. |
-| `cycache` | Planned | Derived-data cache | List, verify, prune, explain misses, and report storage use. |
-| `cyreplay` | Planned | Replay/demo files | Verify, summarize, extract events, compare simulations, and aid automated regression. |
-| `cyserver` | Planned | Server/game configuration | Launch a dedicated authoritative game server. |
-| `cyserverctl` | Planned | Local or remote server endpoint | Query status, send commands, rotate maps, manage sessions, and export diagnostics. |
-| `cymod` | Planned | Mod/add-on source and manifest | Create, validate, package, install, list, and inspect mods and dependency closure. |
-| `cypublish` | Deferred | Validated package/release manifest | Stage signed releases or mods for approved distribution backends. |
-| `cysymbols` | Planned | Native binaries and debug symbols | Index, verify, package, and resolve symbols for crash and profiler reports. |
-| `cytest` | Planned | Test profile or project | Orchestrate unit, integration, visual, replay, asset, and tool regression tests. |
-| `cybench` | Planned | Benchmark profile and JSON results | Run controlled benchmarks, capture machine metadata, compare baselines, and report regressions without using shared CI timing as truth. |
-| `cyproject` | Proposed | Project template or existing project | Create, validate, upgrade, and print project configuration. |
-| `cypherbuild` | Planned | Project/build profile | Configure, build, test, benchmark, package, and orchestrate supported targets. |
+| `CypherResourceCompiler` | Decided | Resource manifests and source assets | Coordinate importers/compilers, dependency graphs, caches, and platform cooking. |
+| `CypherMapCompiler` | Decided | `.cymap` | Produce `.cymap_c` through geometry, entity, collision, visibility, lighting, nav, and packaging stages. |
+| `CypherModelCompiler` | Decided | glTF/GLB and model source metadata | Produce `.cymesh_c`, `.cyskel_c`, collision, LOD, sockets, and morph metadata. |
+| `CypherAnimationCompiler` | Planned | Animation source and skeleton mapping | Produce `.cyanim_c` with events, root motion, compression, and retarget data. |
+| `CypherTextureCompiler` | Decided | PNG/JPEG/EXR/KTX and `.cytex` metadata | Produce `.cytex_c` mip chains, compression, color-space metadata, and platform variants. |
+| `CypherMaterialCompiler` | Decided | `.cymat` | Validate shader/material compatibility and produce `.cymat_c`. |
+| `CypherShaderCompiler` | Decided | GLSL and `.cyshader` metadata | Preprocess, compile, validate, optimize, reflect, and produce `.cyshader_c`. |
+| `CypherVFXCompiler` | Planned | Particle/VFX source documents | Validate modules and produce cooked effect data. |
+| `CypherAudioCompiler` | Planned | WAV/FLAC/other approved sources and sound metadata | Normalize, encode, analyze loudness, build seek/stream data, and produce `.cysnd_c`. |
+| `CypherFontCompiler` | Planned | Font sources and locale manifests | Produce `.cyfont_c`, atlases, glyph maps, fallback, and shaping metadata. |
+| `CypherCaptionCompiler` | Planned | Dialogue, subtitle, and localization source | Produce validated, timed, localized caption resources. |
+| `CypherNavigationCompiler` | Planned | Map geometry and `.cynav` overrides | Produce `.cynav_c` meshes, links, regions, costs, and debug data. |
+| `CypherPhysicsCompiler` | Planned | Meshes and `.cyphys` source | Produce `.cyphys_c` collision shapes, materials, constraints, and mass properties. |
+| `CypherFlowCompiler` | Planned | `.cyflow` | Validate and compile mission/objective/event graphs. |
+| `CypherUICompiler` | Planned | CyGUI layout/style source | Validate and compile runtime UI documents, localization references, and resources. |
+| `CypherScriptCompiler` | Planned | Lua source and binding metadata | Validate syntax/bindings, optionally produce bytecode, generate debug metadata, and build script manifests. |
+| `CypherInputCompiler` | Planned | Input/action source documents | Validate conflicts and produce platform-aware runtime action maps. |
+| `CypherLocalizationCompiler` | Planned | Localization tables and locale manifests | Validate keys, placeholders, plurals, coverage, encoding, and produce cooked string resources. |
+| `CypherSceneCompiler` | Planned | `.cyscene` | Compile scene instances, dependencies, streaming partitions, and runtime records. |
+| `CypherPrefabCompiler` | Planned | `.cyprefab` | Validate inheritance/overrides and produce runtime prefab/entity templates. |
+| `CypherPak` | Existing foundation | Cooked resources and manifests | Create, list, extract, verify, sign, diff, patch, and report package contents. |
+| `CypherKeyValues` | Planned | CYKV documents | Parse, format, canonicalize, validate, query, convert, and print diagnostics. |
+| `CypherSchemaCompiler` | Planned | Reflection and schema declarations | Produce schema registries, editor descriptors, validation data, and optional generated bindings. |
+| `CypherValidator` | Planned | Projects, source assets, cooked assets, or packages | Run cross-resource and release-readiness validation. |
+| `CypherDependencyInspector` | Planned | Asset/project graph | Print dependencies, reverse references, cycles, missing assets, and rebuild reasons. |
+| `CypherFormatInspector` | Planned | Any supported cooked format | Print headers, chunks, IDs, offsets, hashes, dependencies, and schema-aware values. |
+| `CypherDataDiff` | Planned | Two source/cooked resources or manifests | Produce semantic and binary comparison reports. |
+| `CypherDataMigrator` | Planned | Older source documents | Apply explicit schema migrations and report lossy transformations. |
+| `CypherCacheManager` | Planned | Derived-data cache | List, verify, prune, explain misses, and report storage use. |
+| `CypherReplayInspector` | Planned | Replay/demo files | Verify, summarize, extract events, compare simulations, and aid automated regression. |
+| `CypherDedicatedServer` | Planned | Server/game configuration | Launch a dedicated authoritative game server. |
+| `CypherServerControl` | Planned | Local or remote server endpoint | Query status, send commands, rotate maps, manage sessions, and export diagnostics. |
+| `CypherModManager` | Planned | Mod/add-on source and manifest | Create, validate, package, install, list, and inspect mods and dependency closure. |
+| `CypherPublisher` | Deferred | Validated package/release manifest | Stage signed releases or mods for approved distribution backends. |
+| `CypherSymbolManager` | Planned | Native binaries and debug symbols | Index, verify, package, and resolve symbols for crash and profiler reports. |
+| `CypherTestRunner` | Planned | Test profile or project | Orchestrate unit, integration, visual, replay, asset, and tool regression tests. |
+| `CypherBenchmarkRunner` | Planned | Benchmark profile and JSON results | Run controlled benchmarks, capture machine metadata, compare baselines, and report regressions without using shared CI timing as truth. |
+| `CypherProject` | Proposed | Project template or existing project | Create, validate, upgrade, and print project configuration. |
+| `CypherBuilder` | Planned | Project/build profile | Configure, build, test, benchmark, package, and orchestrate supported targets. |
+| `CypherDoctor` | Planned | Installed SDK, project, machine, and build environment | Diagnose missing dependencies, invalid configuration, stale caches, incompatible tools, and common setup failures. |
 
-Individual stage names such as `cyvis` or `cylight` should begin as internal
-`cymapc` stages. They become separate executables only if distributed builds or
-specialized debugging requires it.
+Individual visibility and lighting stages should begin as internal
+`CypherMapCompiler` stages. They become separate executables only if distributed
+builds or specialized debugging requires it.
 
 ## Importers And Interchange Tools
 
@@ -296,17 +336,17 @@ runtime overlay, or more than one view backed by the same telemetry protocol.
 | --- | --- | --- | --- |
 | Logs, channels, commands, CVars | CypherConsole/Mason | Yes | Text and structured logs |
 | CPU/GPU profiling | CypherProfiler/Mason | Summary | Trace export |
-| Memory and allocator state | CypherMemory Inspector | Summary | Snapshot/diff reports |
+| Memory and allocator state | CypherMemoryInspector | Summary | Snapshot/diff reports |
 | Renderer passes/resources | CypherScope/Mason | Yes | Capture metadata and dumps |
 | Physics shapes/contacts/queries | Mason Physics Lab | Yes | Deterministic test reports |
 | AI perception/navigation/decisions | Mason AI workspace | Yes | Scenario test reports |
-| Network packets/replication/prediction | CypherNetwork Inspector | Yes | Packet/replay analysis |
-| Filesystem mounts, packages, and IO | CypherScope | Yes | `cypak`, `cydeps`, and IO traces |
+| Network packets/replication/prediction | CypherNetworkInspector | Yes | Packet/replay analysis |
+| Filesystem mounts, packages, and IO | CypherScope | Yes | CypherPak, CypherDependencyInspector, and IO traces |
 | Entity/component/world state | Mason/CypherScope | Yes | Scene/world dumps |
-| Replay and determinism | CypherReplay Inspector | Controls | `cyreplay` reports |
-| Crash and stack diagnostics | CypherCrash Viewer | No | Crash bundle and symbols |
+| Replay and determinism | CypherReplayInspector | Controls | CypherReplayInspector reports |
+| Crash and stack diagnostics | CypherCrashViewer | No | Crash bundle and symbols |
 | Shader/material inspection | Mason/CypherScope | Yes | Compiler reflection/disassembly |
-| Asset dependencies and cook state | Mason/CypherScope | Limited | `cydeps`, `cycache`, build reports |
+| Asset dependencies and cook state | Mason/CypherScope | Limited | CypherDependencyInspector, CypherCacheManager, and build reports |
 
 ## Supporting Services
 
@@ -341,27 +381,27 @@ shared foundation that prevents every editor from reimplementing the same logic.
 
 | Source family | Primary editor | Primary compiler | Runtime product |
 | --- | --- | --- | --- |
-| `.cymap` | Mason Map | `cymapc` | `.cymap_c` |
-| `.cyscene` | Mason Scene/World | `cyscenec` | `.cyscene_c` |
-| `.cyprefab` | Mason Entity/Prefab | `cyprefabc` | Cooked prefab/entity records |
-| `.cymat` | Mason Material | `cymatc` | `.cymat_c` |
-| `.cytex` | Mason Texture Lab | `cytexc` | `.cytex_c` |
-| model source metadata | Mason Model | `cymodelc` | `.cymesh_c`, `.cyskel_c` |
-| animation source metadata | Mason Animation | `cyanimc` | `.cyanim_c` |
-| `.cyshader` | Mason Shader | `cyshaderc` | `.cyshader_c` |
-| VFX source | Mason VFX | `cyvfxc` | Cooked VFX resource |
-| audio source metadata | Mason Audio | `cyaudioc` | `.cysnd_c` |
-| `.cyphys` | Mason Physics Lab | `cyphysc` | `.cyphys_c` |
-| `.cynav` | Mason Navigation | `cynavc` | `.cynav_c` |
-| `.cyflow` | Mason Objective/Flow | `cyflowc` | `.cyflow_c` |
-| CyGUI source | Mason UI/HUD | `cyuic` | Cooked UI resource |
-| Lua scripts and binding metadata | Mason Script | `cyscriptc` | Validated source or cooked bytecode plus debug metadata |
-| input/action source | Mason Input and Actions | `cyinputc` | Cooked action maps |
-| localization source | Mason Font and Localization | `cylocc`, `cycaptionc` | Cooked strings, captions, and locale metadata |
-| gameplay data schemas/documents | Mason Gameplay Data | `cykv`, `cyschemac`, `cyvalidate` | Validated/cooked gameplay records |
-| dialogue/choreography source | Mason Choreography | `cyanimc`, `cycaptionc`, scene compiler | Cooked sequence resources |
-| package manifest | Mason Package/Release | `cypak` | `.cypak` |
-| mod/add-on manifest | Mason Mod and Add-on | `cymod`, `cypak` | Validated mod packages and manifests |
+| `.cymap` | Mason Map | CypherMapCompiler | `.cymap_c` |
+| `.cyscene` | Mason Scene/World | CypherSceneCompiler | `.cyscene_c` |
+| `.cyprefab` | Mason Entity/Prefab | CypherPrefabCompiler | Cooked prefab/entity records |
+| `.cymat` | Mason Material | CypherMaterialCompiler | `.cymat_c` |
+| `.cytex` | Mason Texture Lab | CypherTextureCompiler | `.cytex_c` |
+| model source metadata | Mason Model | CypherModelCompiler | `.cymesh_c`, `.cyskel_c` |
+| animation source metadata | Mason Animation | CypherAnimationCompiler | `.cyanim_c` |
+| `.cyshader` | Mason Shader | CypherShaderCompiler | `.cyshader_c` |
+| VFX source | Mason VFX | CypherVFXCompiler | Cooked VFX resource |
+| audio source metadata | Mason Audio | CypherAudioCompiler | `.cysnd_c` |
+| `.cyphys` | Mason Physics Lab | CypherPhysicsCompiler | `.cyphys_c` |
+| `.cynav` | Mason Navigation | CypherNavigationCompiler | `.cynav_c` |
+| `.cyflow` | Mason Objective/Flow | CypherFlowCompiler | `.cyflow_c` |
+| CyGUI source | Mason UI/HUD | CypherUICompiler | Cooked UI resource |
+| Lua scripts and binding metadata | Mason Script | CypherScriptCompiler | Validated source or cooked bytecode plus debug metadata |
+| input/action source | Mason Input and Actions | CypherInputCompiler | Cooked action maps |
+| localization source | Mason Font and Localization | CypherLocalizationCompiler and CypherCaptionCompiler | Cooked strings, captions, and locale metadata |
+| gameplay data schemas/documents | Mason Gameplay Data | CypherKeyValues, CypherSchemaCompiler, and CypherValidator | Validated/cooked gameplay records |
+| dialogue/choreography source | Mason Choreography | CypherAnimationCompiler, CypherCaptionCompiler, and CypherSceneCompiler | Cooked sequence resources |
+| package manifest | Mason Package/Release | CypherPak | `.cypak` |
+| mod/add-on manifest | Mason Mod and Add-on | CypherModManager and CypherPak | Validated mod packages and manifests |
 
 Exact extensions for VFX, UI, dialogue, replay, and some intermediate products
 remain decisions for their respective format designs. Extensions must not be
@@ -415,7 +455,8 @@ implementation details.
 - CYKV lexer, parser, writer, formatter, and diagnostics
 - schema validation and reflection bridge
 - stable IDs, source locations, migrations, and deterministic round trips
-- initial `cykv`, `cyschemac`, `cyvalidate`, `cydump`, and `cydiff` tools
+- initial CypherKeyValues, CypherSchemaCompiler, CypherValidator,
+  CypherFormatInspector, and CypherDataDiff tools
 
 Exit condition: source documents can be authored and validated without a GUI.
 
@@ -424,7 +465,7 @@ Exit condition: source documents can be authored and validated without a GUI.
 - asset registry and dependency graph
 - importer/compiler registry
 - derived-data cache
-- `cyresourcec` coordinator
+- CypherResourceCompiler coordinator
 - texture, mesh, material, and shader vertical slices
 - CypherScope first useful version
 
@@ -435,7 +476,7 @@ reloaded, and diagnosed end to end.
 
 - minimal runtime world
 - `.cymap` schema and typed document
-- `cymapc` geometry/entity/collision path
+- CypherMapCompiler geometry/entity/collision path
 - cooked world loader
 - command-line playable test room
 
