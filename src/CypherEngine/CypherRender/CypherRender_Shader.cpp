@@ -219,7 +219,10 @@ void CypherRender_ShaderUnload( shader_t &shader )
     return ;
 }
 
-render_error_t CypherRender_ShaderSetMat4( const shader_t &shader, const char *szUniformName, const math::mat4_t &matrix )
+render_error_t CypherRender_ShaderSetMat4(
+    const shader_t &shader,
+    const char *szUniformName,
+    const ::cypher::math::mat4_t &matrix )
 {
     if ( !shader.loaded || shader.nGlShaderProgramId == 0u ) {
         return render_error_t::ERR_SHADER_BIND;
