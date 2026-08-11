@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Tools/CypherCommon_ProgressBar.cpp
+//  File: src/CypherCommon/ToolFramework/CypherCommon_ProgressBar.cpp
 //  Purpose: Implements tool-facing progress state helpers.
 //  Details: CLI tools, Mason panels, and build systems can render this shared
 //           state without making progress UI part of the Tier0 runtime.
