@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Text/CypherCommon_WideChar.cpp
+//  File: src/CypherCommon/Tier1/CypherCommon_WideChar.cpp
 //  Purpose: Implements platform-wide-character text helpers.
 //  Details: These helpers support text conversion and tool integration without
 //           expanding the dependency-light Tier0 public surface.
