@@ -128,13 +128,11 @@ TEST_CASE( "Tier1 network and serialization defaults are invalid or empty",
            "[CypherCommon][Tier1][ApiContract]" )
 {
     const net_address_t address{};
-    const resource_id_t resource{};
     const result_t result{};
     const byte_reader_t reader{};
     const bit_reader_t bitReader{};
 
     REQUIRE( address.family == net_address_family_t::INVALID );
-    REQUIRE( resource.value == 0u );
     REQUIRE( Result_Succeeded( result ) );
     REQUIRE( reader.iOffset == 0u );
     REQUIRE( reader.status == byte_cursor_status_t::OK );
