@@ -167,8 +167,8 @@ The owning subsystem implements behavior. Common defines the shared shape.
 Example:
 
 ```text
-CypherCommon/Renderer/ICyRenderer.h          public renderer contract
-CypherCommon/Renderer/CyRenderTypes.h        shared render descriptors
+CypherCommon/RenderSystem/ICyRenderer.h          public renderer contract
+CypherCommon/RenderSystem/CyRenderTypes.h        shared render descriptors
 CypherRenderer/OpenGL/CyOpenGLRenderer.cpp   renderer implementation
 ```
 
