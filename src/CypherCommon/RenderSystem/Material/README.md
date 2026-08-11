@@ -4,7 +4,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Material/README.md
+//  File: src/CypherCommon/RenderSystem/Material/README.md
 //  Purpose: Documents the CypherCommon Material folder.
 //  Details: Material contains public material IDs, descriptors, parameter types,
 //           flags, and format-facing contracts.
