@@ -99,6 +99,7 @@ Project memory:
 - `tool_suite`
   - complete Qt 6 application and Mason workspace inventory
   - headless compiler, validator, inspector, and build-tool inventory
+  - authoritative product, executable, library-target, and naming rules
   - Source 1 capability comparison and working Cypher product names
   - implementation gates and acceptance criteria for every tool class
 - `map_authoring_and_mason`
