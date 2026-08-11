@@ -459,7 +459,10 @@ render_error_t CypherRenderGL_MeshDraw( const mesh_t &mesh )
     return render_error_t::OK;
 }
 
-render_error_t CypherRenderGL_SetUniformMat4( common::u32 nShaderProgramId, const char *szUniformName, const math::mat4_t &matrix )
+render_error_t CypherRenderGL_SetUniformMat4(
+    common::u32 nShaderProgramId,
+    const char *szUniformName,
+    const ::cypher::math::mat4_t &matrix )
 {
     if ( nShaderProgramId == 0u ) {
         LOG_ERROR( log::channel_t::RENDER, "set uniform mat4 failed: shader program id is zero." );
