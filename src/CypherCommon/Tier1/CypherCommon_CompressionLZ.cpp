@@ -203,7 +203,7 @@ compression_result_t CompressionLZ_Compress(
             }
         }
 
-        if ( cbMatch != 0u ) {
+        if ( cbMatch != 0u ) {   
             const usize cbLiteral = iCursor - iLiteral;
             if ( cbLiteral != 0u ) {
                 WriteLiteralRun(
