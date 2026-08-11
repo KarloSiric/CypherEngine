@@ -4,7 +4,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Texture/README.md
+//  File: src/CypherCommon/RenderSystem/Texture/README.md
 //  Purpose: Documents the CypherCommon Texture folder.
 //  Details: Texture contains public texture descriptors, texture format enums,
 //           usage flags, mip descriptors, and resource-facing contracts.
