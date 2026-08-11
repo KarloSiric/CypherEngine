@@ -4,7 +4,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Image/README.md
+//  File: src/CypherCommon/RenderSystem/Image/README.md
 //  Purpose: Documents the CypherCommon Image folder.
 //  Details: Image contains public image descriptors, pixel format declarations,
 //           and metadata contracts, not image decoder implementations.
