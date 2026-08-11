@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Text/CypherCommon_WideChar.h
+//  File: src/CypherCommon/Tier1/CypherCommon_WideChar.h
 //  Purpose: Declares platform-wide-character text helpers.
 //  Details: Public wide-string manipulation belongs to the text layer; Tier0
 //           platform services keep only private conversion code at OS boundaries.
@@ -15,8 +15,8 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
-#ifndef CYPHER_COMMON_TEXT_WIDECHAR_H
-#define CYPHER_COMMON_TEXT_WIDECHAR_H
+#ifndef CYPHER_COMMON_TIER1_WIDECHAR_H
+#define CYPHER_COMMON_TIER1_WIDECHAR_H
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
@@ -44,4 +44,4 @@ usize WChar_Copy( wchar_engine_t *pDest, const wchar_engine_t *pSrc, usize cchDe
 
 } // namespace cypher::common
 
-#endif // CYPHER_COMMON_TEXT_WIDECHAR_H
+#endif // CYPHER_COMMON_TIER1_WIDECHAR_H
