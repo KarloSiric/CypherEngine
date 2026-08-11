@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: tests/CypherCommon/Tier1/CypherCommon_Tier1_ResourceId_Tests.cpp
+//  File: tests/CypherCommon/ResourceSystem/CypherCommon_ResourceSystem_ResourceId_Tests.cpp
 //  Purpose: Tests deterministic compact resource identifiers.
 //  Details: These tests protect type-name canonicalization, path/type separation,
 //           invalid sentinels, hexadecimal conversion, and parse transactions.
@@ -22,7 +22,7 @@
 using namespace cypher::common;
 
 TEST_CASE( "Resource type IDs are stable and ASCII case-insensitive",
-           "[CypherCommon][Tier1][ResourceId]" )
+           "[CypherCommon][ResourceSystem][ResourceId]" )
 {
     const resource_type_id_t lower = ResourceTypeId_FromName(
         StringView_FromCString( "material" ) );
@@ -38,7 +38,7 @@ TEST_CASE( "Resource type IDs are stable and ASCII case-insensitive",
 }
 
 TEST_CASE( "Resource IDs separate canonical path and resource type",
-           "[CypherCommon][Tier1][ResourceId]" )
+           "[CypherCommon][ResourceSystem][ResourceId]" )
 {
     const resource_type_id_t materialType = ResourceTypeId_FromName(
         StringView_FromCString( "material" ) );
@@ -64,7 +64,7 @@ TEST_CASE( "Resource IDs separate canonical path and resource type",
 }
 
 TEST_CASE( "Resource IDs round trip fixed-width hexadecimal text",
-           "[CypherCommon][Tier1][ResourceId]" )
+           "[CypherCommon][ResourceSystem][ResourceId]" )
 {
     const resource_id_t source{ 0x0123456789ABCDEFull };
     char text[CY_RESOURCE_ID_STRING_CAPACITY]{};
