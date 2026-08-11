@@ -23,14 +23,15 @@
     #pragma once
 #endif
 
-#include "CypherMath_Types.h"
+#include "CypherMath_Scalar.h"
 #include "CypherCommon.h"
 
 namespace cypher::engine::render
 {
 
 // DEFAULT CONSTANTS FOR THE RENDERER, LATER IN THE CONFIG DEFINED
-constexpr common::f32 CYPHER_RENDER_DEFAULT_FOV_Y_RADIANS      = 70.0f * math::MATH_DEG2RAD_F;
+constexpr common::f32 CYPHER_RENDER_DEFAULT_FOV_Y_RADIANS      =
+    70.0f * ::cypher::math::CY_DEGREES_TO_RADIANS_F;
 constexpr common::f32 CYPHER_RENDER_DEFAULT_NEAR_Z             = 0.1f;
 constexpr common::f32 CYPHER_RENDER_DEFAULT_FAR_Z              = 4096.0f;
 
