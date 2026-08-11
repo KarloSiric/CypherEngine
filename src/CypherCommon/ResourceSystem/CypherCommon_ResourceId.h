@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Tier1/CypherCommon_ResourceId.h
+//  File: src/CypherCommon/ResourceSystem/CypherCommon_ResourceId.h
 //  Purpose: Declares compact deterministic resource identifiers.
 //  Details: Resource IDs derive from normalized virtual paths plus resource type. The
 //           asset database must retain canonical text to detect theoretical hash collisions.
@@ -15,8 +15,8 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
-#ifndef CYPHER_COMMON_TIER1_RESOURCEID_H
-#define CYPHER_COMMON_TIER1_RESOURCEID_H
+#ifndef CYPHER_COMMON_RESOURCESYSTEM_RESOURCEID_H
+#define CYPHER_COMMON_RESOURCESYSTEM_RESOURCEID_H
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
@@ -67,4 +67,4 @@ bool_t ResourceId_FromString(
 
 } // namespace cypher::common
 
-#endif // CYPHER_COMMON_TIER1_RESOURCEID_H
+#endif // CYPHER_COMMON_RESOURCESYSTEM_RESOURCEID_H
