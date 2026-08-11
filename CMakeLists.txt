@@ -198,7 +198,6 @@ set(CYPHERCOMMON_TIER1_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Range.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_RefCount.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_ReliableTimer.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_ResourceId.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_ScratchBuffer.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_SequenceNumber.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_SoaContainer.cpp"
@@ -226,6 +225,7 @@ set(CYPHERCOMMON_TIER1_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_UniqueId.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_UndoRedo.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Variant.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_WideChar.cpp"
 )
 
 set(CYPHERCOMMON_TIER2_SOURCES
@@ -235,6 +235,14 @@ set(CYPHERCOMMON_TIER2_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_SchemaRegistry.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_Settings.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_SettingsSchema.cpp"
+)
+
+set(CYPHERRESOURCE_CONTRACT_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem/CypherCommon_ResourceId.cpp"
+)
+
+set(CYPHERTOOLFRAMEWORK_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ProgressBar.cpp"
 )
 
 set(CYPHERSECURITY_SOURCES
@@ -337,6 +345,26 @@ target_include_directories(CypherCommonTier2
         "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2"
 )
 target_link_libraries(CypherCommonTier2 PUBLIC Cypher::CommonTier1)
+
+add_library(CypherResourceContracts STATIC ${CYPHERRESOURCE_CONTRACT_SOURCES})
+add_library(Cypher::ResourceContracts ALIAS CypherResourceContracts)
+target_compile_features(CypherResourceContracts PUBLIC cxx_std_20)
+target_include_directories(CypherResourceContracts
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem"
+)
+target_link_libraries(CypherResourceContracts PUBLIC Cypher::CommonTier1)
+
+add_library(CypherToolFramework STATIC ${CYPHERTOOLFRAMEWORK_SOURCES})
+add_library(Cypher::ToolFramework ALIAS CypherToolFramework)
+target_compile_features(CypherToolFramework PUBLIC cxx_std_20)
+target_include_directories(CypherToolFramework
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework"
+)
+target_link_libraries(CypherToolFramework PUBLIC Cypher::CommonTier0)
 
 add_library(CypherMath STATIC ${CYPHERMATH_SOURCES})
 add_library(Cypher::Math ALIAS CypherMath)
@@ -1161,14 +1189,19 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
+            cypher_common_tier1_widechar_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_WideChar_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_undoredo_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_UndoRedo_Tests.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
-            cypher_common_tier1_resourceid_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_ResourceId_Tests.cpp"
-            Cypher::CommonTier1
+            cypher_resource_id_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/ResourceSystem/CypherCommon_ResourceSystem_ResourceId_Tests.cpp"
+            Cypher::ResourceContracts
         )
         cypher_add_common_catch_test(
             cypher_common_tier1_stringparse_tests
@@ -1329,6 +1362,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             cypher_math_quantization_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_Quantization_Tests.cpp"
             Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_toolframework_progressbar_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/ToolFramework/CypherCommon_ToolFramework_ProgressBar_Tests.cpp"
+            Cypher::ToolFramework
         )
     else()
         message(STATUS "Catch2 not found. Skipping Catch2-based CypherCommon tests.")
