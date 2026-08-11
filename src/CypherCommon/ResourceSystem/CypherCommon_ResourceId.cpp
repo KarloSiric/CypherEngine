@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Tier1/CypherCommon_ResourceId.cpp
+//  File: src/CypherCommon/ResourceSystem/CypherCommon_ResourceId.cpp
 //  Purpose: Implements deterministic resource type and path identifiers.
 //  Details: Resource IDs use a versioned typed stable-hash stream. The asset database
 //           must retain canonical paths and types so the theoretical collision case
