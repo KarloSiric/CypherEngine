@@ -4,9 +4,9 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Audio/README.md
-//  Purpose: Documents the CypherCommon Audio folder.
-//  Details: Audio contains public audio format, sound, emitter, listener, bus,
+//  File: src/CypherCommon/SoundSystem/README.md
+//  Purpose: Documents the CypherCommon SoundSystem folder.
+//  Details: SoundSystem contains public audio format, sound, emitter, listener, bus,
 //           and runtime descriptor contracts.
 //
 //  History:
@@ -17,9 +17,9 @@
 //////////////////////////////////////////////////////////////////////////
 -->
 
-# Audio
+# SoundSystem
 
-`Audio` is for public audio contracts.
+`SoundSystem` is for public audio contracts.
 
 OpenAL/miniaudio backend code, mixing, decoding, and streaming implementation
 belong in audio or asset systems.
