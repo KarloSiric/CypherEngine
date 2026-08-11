@@ -23,7 +23,7 @@
     #pragma once
 #endif
 
-#include "CypherMath_Types.h"
+#include "CypherMath_Matrix4.h"
 #include "CypherRender_Camera.h"
 #include "CypherRender_Mesh.h"
 #include "CypherRender_Shader.h"
@@ -34,7 +34,7 @@ namespace cypher::engine::render
 constexpr common::u32 CYPHER_RENDER_DRAW_ITEMS_LIST_MAX = 16384u;
 
 struct draw_item_t {
-    math::mat4_t modelMatrix{};
+    ::cypher::math::mat4_t modelMatrix{ ::cypher::math::CY_MAT4_IDENTITY };
 
     mesh_t    *mesh{};
     shader_t  *shader{};
