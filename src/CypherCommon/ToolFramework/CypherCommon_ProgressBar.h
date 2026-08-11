@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Tools/CypherCommon_ProgressBar.h
+//  File: src/CypherCommon/ToolFramework/CypherCommon_ProgressBar.h
 //  Purpose: Declares tool-facing progress state.
 //  Details: Progress reporting belongs to command-line tools and editor workflows,
 //           not the dependency-light Tier0 runtime contract.
@@ -15,8 +15,8 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
-#ifndef CYPHER_COMMON_TOOLS_PROGRESSBAR_H
-#define CYPHER_COMMON_TOOLS_PROGRESSBAR_H
+#ifndef CYPHER_COMMON_TOOLFRAMEWORK_PROGRESSBAR_H
+#define CYPHER_COMMON_TOOLFRAMEWORK_PROGRESSBAR_H
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
@@ -46,4 +46,4 @@ void ProgressBar_End( progress_bar_t *pProgress );
 
 } // namespace cypher::common
 
-#endif // CYPHER_COMMON_TOOLS_PROGRESSBAR_H
+#endif // CYPHER_COMMON_TOOLFRAMEWORK_PROGRESSBAR_H
