@@ -18,7 +18,6 @@
 
 #ifndef CYPHER_ENGINE_MATH_TYPES_H
 #define CYPHER_ENGINE_MATH_TYPES_H
-
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
