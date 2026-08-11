@@ -18,20 +18,27 @@
 
 #include "CypherRender_Camera.h"
 #include "CypherLog.h"
-#include "CypherMath_Frustum.h"
-#include "CypherMath_Mat.h"
-#include "CypherMath_Quat.h"
 
 namespace cypher::engine::render
 {
+
+namespace cmath = ::cypher::math;
+
+namespace
+{
+
+constexpr common::f32 CAMERA_MINIMUM_DIRECTION_LENGTH = 1.0e-6f;
+constexpr common::f32 CAMERA_MINIMUM_PLANE_NORMAL_LENGTH = 1.0e-6f;
+
+} // namespace
 
 void CypherRender_CameraInit( camera_t &camera, const camera_desc_t &cameraDesc )
 {
     camera = camera_t{};
 
     camera.cameraDesc = cameraDesc;
-    camera.position = math::vec3_t{};
-    camera.orientation = math::CypherMath_QuatIdentity();
+    camera.position = cmath::CY_VEC3_ZERO;
+    camera.orientation = cmath::CY_QUAT_IDENTITY;
 
     CypherRender_CameraUpdateMatrices( camera );
 
@@ -40,22 +47,53 @@ void CypherRender_CameraInit( camera_t &camera, const camera_desc_t &cameraDesc 
 
 void CypherRender_CameraUpdateMatrices( camera_t &camera )
 {
-    camera.orientation = math::CypherMath_QuatNormalize( camera.orientation );
+    cmath::quat_t normalizedOrientation{};
+    if ( !cmath::Quat_TryNormalize(
+             camera.orientation,
+             CAMERA_MINIMUM_DIRECTION_LENGTH,
+             &normalizedOrientation,
+             nullptr ) ) {
+        normalizedOrientation = cmath::CY_QUAT_IDENTITY;
+        LOG_ERROR(
+            log::channel_t::RENDER,
+            "camera orientation was invalid; identity orientation selected." );
+    }
+    camera.orientation = normalizedOrientation;
 
-    const math::vec3_t forward  = math::CypherMath_QuatForwardVec3( camera.orientation );
-    const math::vec3_t up       = math::CypherMath_QuatUpVec3( camera.orientation );
+    const cmath::vec3_t forward = cmath::Quat_Forward( camera.orientation );
+    const cmath::vec3_t up = cmath::Quat_Up( camera.orientation );
+    const cmath::vec3_t target = cmath::Vec3_Add( camera.position, forward );
 
-    // we do not need right basis vector because the LookAt matrix func builds it already internally
+    if ( !cmath::Mat4_TryLookAtRH(
+             camera.position,
+             target,
+             up,
+             CAMERA_MINIMUM_DIRECTION_LENGTH,
+             &camera.view ) ) {
+        camera.view = cmath::CY_MAT4_IDENTITY;
+        LOG_ERROR( log::channel_t::RENDER, "camera view matrix construction failed." );
+    }
 
-    const math::vec3_t target   = math::CypherMath_Vec3Add( camera.position, forward );
+    if ( !cmath::Mat4_TryPerspectiveRH(
+             cmath::Angle_FromRadians( camera.cameraDesc.fovYRadians ),
+             camera.cameraDesc.aspectRatio,
+             camera.cameraDesc.nearZ,
+             camera.cameraDesc.farZ,
+             cmath::clip_depth_range_t::NEGATIVE_ONE_TO_ONE,
+             &camera.projection ) ) {
+        camera.projection = cmath::CY_MAT4_IDENTITY;
+        LOG_ERROR( log::channel_t::RENDER, "camera projection matrix construction failed." );
+    }
 
-    camera.view = math::CypherMath_Mat4LookAt( camera.position, target, up );
-    camera.projection = math::CypherMath_Mat4Perspective( camera.cameraDesc.fovYRadians,
-                                                    camera.cameraDesc.aspectRatio,
-                                                    camera.cameraDesc.nearZ,
-                                                    camera.cameraDesc.farZ );
-    camera.projectionView = math::CypherMath_Mat4Multiply( camera.projection, camera.view );
-    camera.frustum = math::CypherMath_FrustumFromProjectionView( camera.projectionView );
+    camera.projectionView = cmath::Mat4_Multiply( camera.projection, camera.view );
+    if ( !cmath::Frustum_TryFromViewProjection(
+             camera.projectionView,
+             cmath::clip_depth_range_t::NEGATIVE_ONE_TO_ONE,
+             CAMERA_MINIMUM_PLANE_NORMAL_LENGTH,
+             &camera.frustum ) ) {
+        camera.frustum = {};
+        LOG_ERROR( log::channel_t::RENDER, "camera frustum construction failed." );
+    }
 }
 
 void CypherRender_CameraSetPerspective( camera_t &camera, common::f32 fovYRadians, common::f32 aspectRatio, common::f32 nearZ, common::f32 farZ )
@@ -70,24 +108,31 @@ void CypherRender_CameraSetPerspective( camera_t &camera, common::f32 fovYRadian
     LOG_INFO( log::channel_t::RENDER, "camera perspective changed: fov_y=%f, aspect=%f, near=%f, far=%f.", fovYRadians, aspectRatio, nearZ, farZ );
 }
 
-void CypherRender_CameraSetTransform( camera_t &camera, const math::vec3_t &position, const math::quat_t &orientation )
+void CypherRender_CameraSetTransform(
+    camera_t &camera,
+    const cmath::vec3_t &position,
+    const cmath::quat_t &orientation )
 {
     camera.position = position;
-    camera.orientation = math::CypherMath_QuatNormalize( orientation );
+    camera.orientation = orientation;
 
     CypherRender_CameraUpdateMatrices( camera );
 }
 
-void CypherRender_CameraSetPosition( camera_t &camera, const math::vec3_t &position )
+void CypherRender_CameraSetPosition(
+    camera_t &camera,
+    const cmath::vec3_t &position )
 {
     camera.position = position;
 
     CypherRender_CameraUpdateMatrices( camera );
 }
 
-void CypherRender_CameraSetOrientation( camera_t &camera, const math::quat_t &orientation )
+void CypherRender_CameraSetOrientation(
+    camera_t &camera,
+    const cmath::quat_t &orientation )
 {
-    camera.orientation = math::CypherMath_QuatNormalize( orientation );
+    camera.orientation = orientation;
 
     CypherRender_CameraUpdateMatrices( camera );
 }
