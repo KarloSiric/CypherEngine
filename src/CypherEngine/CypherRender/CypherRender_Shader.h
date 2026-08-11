@@ -23,7 +23,7 @@
     #pragma once
 #endif
 
-#include "CypherMath_Types.h"
+#include "CypherMath_Matrix4.h"
 #include "CypherCommon.h"
 #include "CypherRender_Error.h"
 
@@ -77,7 +77,10 @@ render_error_t CypherRender_ShaderBind( const shader_t &shader );
 
 void CypherRender_ShaderUnload( shader_t &shader );
 
-render_error_t CypherRender_ShaderSetMat4( const shader_t &shader, const char *szUniformName, const math::mat4_t &matrix );
+render_error_t CypherRender_ShaderSetMat4(
+    const shader_t &shader,
+    const char *szUniformName,
+    const ::cypher::math::mat4_t &matrix );
 
 }       // namespace cypher::engine::render
 
