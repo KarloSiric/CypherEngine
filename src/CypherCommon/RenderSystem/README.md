@@ -4,9 +4,9 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: src/CypherCommon/Renderer/README.md
-//  Purpose: Documents the CypherCommon Renderer folder.
-//  Details: Renderer contains public render interfaces, descriptors, flags, and
+//  File: src/CypherCommon/RenderSystem/README.md
+//  Purpose: Documents the CypherCommon RenderSystem folder.
+//  Details: RenderSystem contains public render interfaces, descriptors, flags, and
 //           backend-neutral types shared by runtime, tools, and editor.
 //
 //  History:
@@ -17,9 +17,10 @@
 //////////////////////////////////////////////////////////////////////////
 -->
 
-# Renderer
+# RenderSystem
 
-`Renderer` is for public renderer contracts.
+`RenderSystem` is for backend-neutral rendering contracts.
 
 OpenGL, Vulkan, shader compilation, render graph, and GPU resource implementation
-belong in renderer modules outside Common.
+belong in renderer modules outside Common. Image, texture, and material contracts
+are grouped below this folder because they share the rendering data boundary.
