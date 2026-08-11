@@ -26,7 +26,7 @@
 #include "CypherRender_Error.h"
 #include "CypherRender_Mesh.h"
 #include "CypherSystem_Window.h"
-#include "CypherMath_Types.h"
+#include "CypherMath_Matrix4.h"
 
 namespace cypher::engine::render
 {
@@ -81,7 +81,10 @@ void CypherRenderGL_MeshDestroy( mesh_t &mesh );
 
 render_error_t CypherRenderGL_MeshDraw( const mesh_t &mesh );
 
-render_error_t CypherRenderGL_SetUniformMat4( common::u32 nShaderProgramId, const char *szUniformName, const math::mat4_t &matrix );
+render_error_t CypherRenderGL_SetUniformMat4(
+    common::u32 nShaderProgramId,
+    const char *szUniformName,
+    const ::cypher::math::mat4_t &matrix );
 
 }       // namespace cypher::engine::render
 
