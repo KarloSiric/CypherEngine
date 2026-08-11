@@ -23,7 +23,7 @@
     #pragma once
 #endif
 
-#include "CypherMath_Vec.h"
+#include "CypherMath.h"
 #include "CypherRender_Config.h"
 
 namespace cypher::engine::render
@@ -43,15 +43,15 @@ struct camera_desc_t {
 };
 
 struct camera_t {
-    math::vec3_t position{};
-    math::quat_t orientation{};
+    ::cypher::math::vec3_t position{};
+    ::cypher::math::quat_t orientation{ ::cypher::math::CY_QUAT_IDENTITY };
 
     camera_desc_t cameraDesc{};
 
-    math::mat4_t view{};
-    math::mat4_t projection{};
-    math::mat4_t projectionView{};
-    math::frustum_t frustum{};
+    ::cypher::math::mat4_t view{ ::cypher::math::CY_MAT4_IDENTITY };
+    ::cypher::math::mat4_t projection{ ::cypher::math::CY_MAT4_IDENTITY };
+    ::cypher::math::mat4_t projectionView{ ::cypher::math::CY_MAT4_IDENTITY };
+    ::cypher::math::frustum_t frustum{};
 };
 
 void CypherRender_CameraInit( camera_t &camera, const camera_desc_t &cameraDesc );
@@ -60,11 +60,18 @@ void CypherRender_CameraUpdateMatrices( camera_t &camera );
 
 void CypherRender_CameraSetPerspective( camera_t &camera, common::f32 fovYRadians, common::f32 aspectRation, common::f32 nearZ, common::f32 farZ );
 
-void CypherRender_CameraSetTransform( camera_t &camera, const math::vec3_t &position, const math::quat_t &orientation );
+void CypherRender_CameraSetTransform(
+    camera_t &camera,
+    const ::cypher::math::vec3_t &position,
+    const ::cypher::math::quat_t &orientation );
 
-void CypherRender_CameraSetPosition( camera_t &camera, const math::vec3_t &position );
+void CypherRender_CameraSetPosition(
+    camera_t &camera,
+    const ::cypher::math::vec3_t &position );
 
-void CypherRender_CameraSetOrientation( camera_t &camera, const math::quat_t &orientation );
+void CypherRender_CameraSetOrientation(
+    camera_t &camera,
+    const ::cypher::math::quat_t &orientation );
 
 void CypherRender_CameraSetPerspectiveMode( camera_t &camera, camera_projection_mode_t &mode );
 
