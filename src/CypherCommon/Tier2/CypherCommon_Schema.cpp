@@ -135,6 +135,7 @@ CYPHER_NODISCARD schema_descriptor_status_t CheckRule(
          pRule->array.nMinElements > pRule->array.nMaxElements ) {
         return schema_descriptor_status_t::INVALID_RANGE;
     }
+    
     if ( ( pRule->object.flags & ~CY_SCHEMA_OBJECT_FLAGS ) != 0u ) {
         return schema_descriptor_status_t::INVALID_RULE;
     }
