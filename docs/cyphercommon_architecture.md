@@ -77,8 +77,8 @@ The owning subsystem implements behavior. Common defines the shared contract.
 Example:
 
 ```text
-CypherCommon/Renderer/ICyRenderer.h          allowed
-CypherCommon/Renderer/CyRenderTypes.h        allowed
+CypherCommon/RenderSystem/ICyRenderer.h          allowed
+CypherCommon/RenderSystem/CyRenderTypes.h        allowed
 CypherRenderer/OpenGL/CyOpenGLRenderer.cpp   owning subsystem
 ```
 
@@ -98,24 +98,14 @@ src/CypherCommon/
     Tier2/
     Tier3/
 
-    Core/
-    Sys/
-    Utl/
-    Memory/
-    Text/
-    Color/
-    MathBase/
-    Image/
-    IO/
-    Hash/
-    Parse/
-    Serialization/
-    Reflection/
+    Mathlib/
+    Security/
+    DataModel/
     Formats/
     Job/
 
-    Asset/
-    Resource/
+    AssetSystem/
+    ResourceSystem/
     Scene/
     World/
     Entity/
@@ -125,16 +115,16 @@ src/CypherCommon/
 
     Engine/
     FileSystem/
-    Renderer/
-    Material/
-    Texture/
-    Input/
-    Audio/
+    RenderSystem/
+        Image/
+        Material/
+        Texture/
+    InputSystem/
+    SoundSystem/
     Physics/
     Network/
     Gui/
-    Tools/
-    Editor/
+    ToolFramework/
 ```
 
 Folders should be added when they receive meaningful files. Avoid tracking large empty folder trees.
@@ -473,7 +463,7 @@ Allowed pattern:
 ```text
 thirdparty/stb
 src/CypherImage/CyImageDecoder.cpp
-src/CypherCommon/Image/CyImageTypes.h
+src/CypherCommon/RenderSystem/Image/CyImageTypes.h
 ```
 
 Forbidden pattern:
