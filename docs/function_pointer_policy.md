@@ -165,15 +165,15 @@ contract.
 Examples:
 
 ```text
-CypherCommon/Memory/CyAllocator.h
-CypherCommon/IO/CyStream.h
-CypherCommon/Renderer/ICyRenderer.h
+CypherCommon/Tier1/CypherCommon_Allocator.h
+CypherCommon/Tier1/CypherCommon_Stream.h
+CypherCommon/RenderSystem/ICyRenderer.h
 CypherCommon/FileSystem/ICyFileSystem.h
-CypherCommon/Audio/ICyAudio.h
+CypherCommon/SoundSystem/ICyAudio.h
 CypherCommon/Physics/ICyPhysics.h
 CypherCommon/Network/ICyNetworkTransport.h
-CypherCommon/Tools/ICyToolModule.h
-CypherCommon/Editor/ICyEditorGame.h
+CypherCommon/ToolFramework/ICyToolModule.h
+CypherCommon/ToolFramework/ICyEditorGame.h
 ```
 
 Implementation belongs outside Common:
