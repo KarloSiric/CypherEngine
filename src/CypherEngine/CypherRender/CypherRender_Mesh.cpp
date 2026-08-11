@@ -23,6 +23,8 @@
 namespace cypher::engine::render
 {
 
+namespace cmath = ::cypher::math;
+
 /*
 ================
 CypherRender_MeshCreate
@@ -48,30 +50,12 @@ render_error_t CypherRender_MeshCreate( const vertex_t *vertices,
 
     meshOut = {};
 
-    meshOut.bounds.mins = vertices[0].position;
-    meshOut.bounds.maxs = vertices[0].position;
+    meshOut.bounds = cmath::Aabb_FromPoint( vertices[0].position );
 
     for ( common::u32 i = 1u; i < nVertexCount; ++i ) {
-        const math::vec3_t &position = vertices[i].position;
-
-        if ( position.x < meshOut.bounds.mins.x ) {
-            meshOut.bounds.mins.x = position.x;
-        }
-        if ( position.y < meshOut.bounds.mins.y ) {
-            meshOut.bounds.mins.y = position.y;
-        }
-        if ( position.z < meshOut.bounds.mins.z ) {
-            meshOut.bounds.mins.z = position.z;
-        }
-        if ( position.x > meshOut.bounds.maxs.x ) {
-            meshOut.bounds.maxs.x = position.x;
-        }
-        if ( position.y > meshOut.bounds.maxs.y ) {
-            meshOut.bounds.maxs.y = position.y;
-        }
-        if ( position.z > meshOut.bounds.maxs.z ) {
-            meshOut.bounds.maxs.z = position.z;
-        }
+        meshOut.bounds = cmath::Aabb_ExpandPoint(
+            meshOut.bounds,
+            vertices[i].position );
     }
 
     // Calling OpenGL API for creating a mesh, creating a distinction between different API's.
