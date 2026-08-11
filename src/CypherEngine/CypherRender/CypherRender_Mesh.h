@@ -23,7 +23,7 @@
     #pragma once
 #endif
 
-#include "CypherMath_Types.h"
+#include "CypherMath_Bounds.h"
 #include "CypherRender_Error.h"
 
 namespace cypher::engine::render
@@ -37,8 +37,8 @@ CPU-facing mesh description plus backend handles owned by the renderer.
 ================
 */
 struct vertex_t {
-    math::vec3_t position{};
-    math::vec3_t color{};
+    ::cypher::math::vec3_t position{};
+    ::cypher::math::vec3_t color{};
 };
 
 struct mesh_t {
@@ -49,7 +49,7 @@ struct mesh_t {
     common::u32 nGlVbo{ 0u };
     common::u32 nGlEbo{ 0u };
 
-    math::bounds_t bounds{};
+    ::cypher::math::aabb_t bounds{ ::cypher::math::CY_AABB_EMPTY };
 
     bool loaded{ false };
 };
