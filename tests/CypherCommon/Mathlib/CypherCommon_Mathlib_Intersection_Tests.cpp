@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: tests/CypherCommon/Mathlib/CypherMath_Intersection_Tests.cpp
+//  File: tests/CypherCommon/Mathlib/CypherCommon_Mathlib_Intersection_Tests.cpp
 //  Purpose: Tests ray intersections and frustum classification.
 //  Details: Coverage includes arbitrary ray magnitudes, parallel slabs, triangle
 //           culling, both clip-depth ranges, and reconstructed frustum corners.
@@ -41,7 +41,7 @@ void RequireVec3(
 } // namespace
 
 TEST_CASE( "ray-plane intersection honors the ray parameter interval",
-           "[CypherMath][Intersection][Plane]" )
+           "[CypherCommon][Mathlib][Intersection][Plane]" )
 {
     const ray_t ray = Ray_Make( CY_VEC3_ZERO, Vec3_Make( 2.0f, 0.0f, 0.0f ) );
     const plane_t plane = Plane_Make( CY_VEC3_FORWARD, -5.0f );
@@ -56,7 +56,7 @@ TEST_CASE( "ray-plane intersection honors the ray parameter interval",
 }
 
 TEST_CASE( "ray-sphere returns the clipped occupancy interval",
-           "[CypherMath][Intersection][Sphere]" )
+           "[CypherCommon][Mathlib][Intersection][Sphere]" )
 {
     const ray_t ray = Ray_Make( CY_VEC3_ZERO, CY_VEC3_FORWARD );
     const sphere_t sphere = Sphere_Make( Vec3_Make( 5.0f, 0.0f, 0.0f ), 1.0f );
@@ -75,7 +75,7 @@ TEST_CASE( "ray-sphere returns the clipped occupancy interval",
 }
 
 TEST_CASE( "ray-AABB slab query handles parallel axes",
-           "[CypherMath][Intersection][Bounds]" )
+           "[CypherCommon][Mathlib][Intersection][Bounds]" )
 {
     const aabb_t bounds = Aabb_Make(
         Vec3_Make( 4.0f, -1.0f, -1.0f ),
@@ -93,7 +93,7 @@ TEST_CASE( "ray-AABB slab query handles parallel axes",
 }
 
 TEST_CASE( "ray-triangle reports barycentrics and honors face culling",
-           "[CypherMath][Intersection][Triangle]" )
+           "[CypherCommon][Mathlib][Intersection][Triangle]" )
 {
     const triangle3_t triangle = Triangle3_Make(
         Vec3_Make( 0.0f, 0.0f, 0.0f ),
@@ -116,7 +116,7 @@ TEST_CASE( "ray-triangle reports barycentrics and honors face culling",
 }
 
 TEST_CASE( "frustum extraction classifies points, spheres, and boxes",
-           "[CypherMath][Frustum][Intersection]" )
+           "[CypherCommon][Mathlib][Frustum][Intersection]" )
 {
     mat4_t projection{};
     REQUIRE( Mat4_TryPerspectiveRH(
@@ -144,7 +144,7 @@ TEST_CASE( "frustum extraction classifies points, spheres, and boxes",
 }
 
 TEST_CASE( "frustum corners invert both depth conventions",
-           "[CypherMath][Frustum][Projection]" )
+           "[CypherCommon][Mathlib][Frustum][Projection]" )
 {
     for ( const clip_depth_range_t depthRange : {
               clip_depth_range_t::NEGATIVE_ONE_TO_ONE,
@@ -170,7 +170,7 @@ TEST_CASE( "frustum corners invert both depth conventions",
 }
 
 TEST_CASE( "orthographic projection maps the declared depth interval",
-           "[CypherMath][Matrix4][Projection]" )
+           "[CypherCommon][Mathlib][Matrix4][Projection]" )
 {
     mat4_t projection{};
     REQUIRE( Mat4_TryOrthographicRH(

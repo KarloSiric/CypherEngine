@@ -47,7 +47,28 @@ def executable_suffix() -> str:
     return ".exe" if platform.system() == "Windows" else ""
 
 
-def discover_benchmarks(build_dir: Path) -> list[Path]:
+def configured_benchmark_targets(preset: str) -> set[str]:
+    result = subprocess.run(
+        ["cmake", "--build", "--preset", preset, "--target", "help"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    targets: set[str] = set()
+    for line in result.stdout.splitlines():
+        target, separator, _ = line.partition(":")
+        target = target.strip()
+        if separator and (target.endswith("_bench") or target.endswith("_benchmark")):
+            targets.add(target)
+
+    if not targets:
+        raise RuntimeError(f"No configured benchmark targets found for preset {preset!r}")
+    return targets
+
+
+def discover_benchmarks(build_dir: Path, configured_targets: set[str]) -> list[Path]:
     bin_dir = build_dir / "bin"
     suffix = executable_suffix()
     if not bin_dir.exists():
@@ -60,12 +81,20 @@ def discover_benchmarks(build_dir: Path) -> list[Path]:
         if suffix and path.suffix != suffix:
             continue
         stem = path.stem if suffix else path.name
-        if stem.endswith("_bench") or stem.endswith("_benchmark"):
+        if stem in configured_targets:
             benchmarks.append(path)
     return benchmarks
 
 
-def write_manifest(out_dir: Path, preset: str, benchmarks: list[Path]) -> None:
+def write_manifest(
+    out_dir: Path,
+    preset: str,
+    benchmarks: list[Path],
+    benchmark_filter: str,
+    min_time: str,
+    repetitions: str,
+    aggregate_only: bool,
+) -> None:
     manifest = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "preset": preset,
@@ -75,6 +104,12 @@ def write_manifest(out_dir: Path, preset: str, benchmarks: list[Path]) -> None:
             "machine": platform.machine(),
             "processor": platform.processor(),
             "python": platform.python_version(),
+        },
+        "run": {
+            "filter": benchmark_filter,
+            "min_time": min_time,
+            "repetitions": repetitions,
+            "aggregate_only": aggregate_only,
         },
         "benchmarks": [path.name for path in benchmarks],
     }
@@ -102,12 +137,21 @@ def main() -> int:
         run_command(["cmake", "--build", "--preset", args.preset, "--parallel"])
 
     build_dir = build_dir_for_preset(args.preset)
-    benchmarks = discover_benchmarks(build_dir)
+    configured_targets = configured_benchmark_targets(args.preset)
+    benchmarks = discover_benchmarks(build_dir, configured_targets)
     if not benchmarks:
         print(f"No benchmark binaries found under {build_dir / 'bin'}", file=sys.stderr)
         return 1
 
-    write_manifest(out_dir, args.preset, benchmarks)
+    write_manifest(
+        out_dir,
+        args.preset,
+        benchmarks,
+        args.filter,
+        args.min_time,
+        args.repetitions,
+        args.aggregate_only,
+    )
 
     for benchmark_path in benchmarks:
         out_file = out_dir / f"{benchmark_path.stem}.json"

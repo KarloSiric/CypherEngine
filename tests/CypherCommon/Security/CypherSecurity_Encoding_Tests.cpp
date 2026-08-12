@@ -224,3 +224,57 @@ TEST_CASE( "CypherSecurity encodings support empty input and exact capacity",
             &cbWritten ) == security_status_t::OK );
     REQUIRE( cbWritten == 0u );
 }
+
+TEST_CASE( "CypherSecurity encoding size helpers validate complete syntax",
+           "[CypherSecurity][Encoding][Size]" )
+{
+    usize cbSize = 73u;
+    REQUIRE( SecurityHex_EncodedSize( 0u, &cbSize ) );
+    REQUIRE( cbSize == 1u );
+    REQUIRE( SecurityHex_EncodedSize( 8u, &cbSize ) );
+    REQUIRE( cbSize == 17u );
+
+    cbSize = 73u;
+    REQUIRE_FALSE(
+        SecurityHex_EncodedSize( ( CY_USIZE_MAX / 2u ) + 1u, &cbSize ) );
+    REQUIRE( cbSize == 73u );
+    REQUIRE_FALSE( SecurityHex_EncodedSize( 0u, nullptr ) );
+
+    REQUIRE(
+        SecurityHex_DecodedSize(
+            StringView_FromCString( "00ffA5" ),
+            &cbSize ) );
+    REQUIRE( cbSize == 3u );
+    REQUIRE_FALSE(
+        SecurityHex_DecodedSize(
+            StringView_FromCString( "abc" ),
+            &cbSize ) );
+    REQUIRE_FALSE(
+        SecurityHex_DecodedSize(
+            StringView_FromCString( "00xz" ),
+            &cbSize ) );
+    REQUIRE_FALSE( SecurityHex_DecodedSize( {}, nullptr ) );
+
+    REQUIRE(
+        SecurityBase64_DecodedSize(
+            StringView_FromCString( "Zm9v" ),
+            base64_variant_t::ORIGINAL,
+            &cbSize ) );
+    REQUIRE( cbSize == 3u );
+    REQUIRE(
+        SecurityBase64_DecodedSize(
+            StringView_FromCString( "Zg" ),
+            base64_variant_t::URL_SAFE_NO_PADDING,
+            &cbSize ) );
+    REQUIRE( cbSize == 1u );
+    REQUIRE_FALSE(
+        SecurityBase64_DecodedSize(
+            StringView_FromCString( "Zg" ),
+            base64_variant_t::ORIGINAL,
+            &cbSize ) );
+    REQUIRE_FALSE(
+        SecurityBase64_DecodedSize(
+            {},
+            static_cast<base64_variant_t>( 0xFFu ),
+            &cbSize ) );
+}

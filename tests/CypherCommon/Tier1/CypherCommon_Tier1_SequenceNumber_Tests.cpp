@@ -58,4 +58,8 @@ TEST_CASE( "SequenceNumber ACK history survives wraparound",
     REQUIRE( SequenceAck32_Record( &state, 0u ) );
     REQUIRE( SequenceAck32_Contains( &state, 0xFFFFFFFFu ) );
     REQUIRE_FALSE( SequenceAck32_Record( &state, 0xFFFFFFFFu ) );
+
+    SequenceAck32_Reset( &state );
+    REQUIRE_FALSE( SequenceAck32_Contains( &state, 0xFFFFFFFFu ) );
+    REQUIRE( SequenceAck32_Record( &state, 7u ) );
 }

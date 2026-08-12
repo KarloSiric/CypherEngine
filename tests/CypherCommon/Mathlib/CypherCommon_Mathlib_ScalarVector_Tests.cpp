@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: tests/CypherCommon/Mathlib/CypherMath_ScalarVector_Tests.cpp
+//  File: tests/CypherCommon/Mathlib/CypherCommon_Mathlib_ScalarVector_Tests.cpp
 //  Purpose: Tests scalar, angle, and vector numerical contracts.
 //  Details: Coverage includes wrapping boundaries, extreme magnitudes, checked
 //           failure outputs, products, projections, and homogeneous division.
@@ -49,7 +49,7 @@ void RequireVec3(
 } // namespace
 
 TEST_CASE( "scalar constants and wrapping preserve explicit angle policy",
-           "[CypherMath][Scalar][Angle]" )
+           "[CypherCommon][Mathlib][Scalar][Angle]" )
 {
     REQUIRE( Scalar_DegreesToRadians( 180.0f ) == Approx( CY_PI_F ) );
     REQUIRE( Scalar_RadiansToDegrees( CY_HALF_PI_F ) == Approx( 90.0f ) );
@@ -69,7 +69,7 @@ TEST_CASE( "scalar constants and wrapping preserve explicit angle policy",
 }
 
 TEST_CASE( "scalar comparisons handle scale, infinities, and NaN",
-           "[CypherMath][Scalar]" )
+           "[CypherCommon][Mathlib][Scalar]" )
 {
     REQUIRE( Scalar_NearlyEquals( 1.0f, 1.00001f, 0.00002f, 0.0f ) );
     REQUIRE( Scalar_NearlyEquals( 1000000.0f, 1000001.0f, 0.0f, 0.000002f ) );
@@ -83,7 +83,7 @@ TEST_CASE( "scalar comparisons handle scale, infinities, and NaN",
 }
 
 TEST_CASE( "vector arithmetic follows the engine axis convention",
-           "[CypherMath][Vector3]" )
+           "[CypherCommon][Mathlib][Vector3]" )
 {
     RequireVec3( Vec3_Cross( CY_VEC3_FORWARD, CY_VEC3_LEFT ), 0.0f, 0.0f, 1.0f );
     REQUIRE( Vec3_Dot( CY_VEC3_FORWARD, CY_VEC3_LEFT ) == 0.0f );
@@ -100,7 +100,7 @@ TEST_CASE( "vector arithmetic follows the engine axis convention",
 }
 
 TEST_CASE( "checked normalization remains stable at extreme magnitudes",
-           "[CypherMath][Vector]" )
+           "[CypherCommon][Mathlib][Vector]" )
 {
     vec3_t normalized{};
     f32 originalLength = 0.0f;
@@ -120,7 +120,7 @@ TEST_CASE( "checked normalization remains stable at extreme magnitudes",
 }
 
 TEST_CASE( "vector basis construction produces an orthonormal frame",
-           "[CypherMath][Vector3]" )
+           "[CypherCommon][Mathlib][Vector3]" )
 {
     vec3_t tangent{};
     vec3_t bitangent{};
@@ -133,7 +133,7 @@ TEST_CASE( "vector basis construction produces an orthonormal frame",
 }
 
 TEST_CASE( "Vector2 planar products and perpendiculars use counter-clockwise sign",
-           "[CypherMath][Vector2]" )
+           "[CypherCommon][Mathlib][Vector2]" )
 {
     const vec2_t x = Vec2_Make( 1.0f, 0.0f );
     const vec2_t y = Vec2_Make( 0.0f, 1.0f );
@@ -143,7 +143,7 @@ TEST_CASE( "Vector2 planar products and perpendiculars use counter-clockwise sig
 }
 
 TEST_CASE( "Vector4 perspective divide succeeds and fails deterministically",
-           "[CypherMath][Vector4]" )
+           "[CypherCommon][Mathlib][Vector4]" )
 {
     vec3_t result = CY_VEC3_ONE;
     REQUIRE( Vec4_TryPerspectiveDivide(

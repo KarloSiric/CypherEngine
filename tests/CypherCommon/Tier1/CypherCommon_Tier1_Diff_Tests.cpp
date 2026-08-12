@@ -43,6 +43,11 @@ TEST_CASE( "Diff reconstructs changed binary data",
         &cbWritten ) == diff_status_t::OK );
     REQUIRE( cbWritten == sizeof( target ) );
     REQUIRE( Cy_MemCompare( output, target, sizeof( target ) ) == 0 );
+
+    Diff_Clear( &diff );
+    REQUIRE( diff.cbSource == 0u );
+    REQUIRE( diff.cbTarget == 0u );
+    REQUIRE( Diff_SerializedSize( diff ) == 0u );
     Diff_Shutdown( &diff );
 }
 

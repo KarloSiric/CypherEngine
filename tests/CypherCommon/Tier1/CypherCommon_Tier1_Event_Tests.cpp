@@ -170,6 +170,8 @@ TEST_CASE( "EventBus dispatches by priority with stable equal-priority order",
 {
     event_bus_t *pBus = EventBus_Create( { Allocator_GetSystem(), 4u } );
     REQUIRE( pBus != nullptr );
+    REQUIRE( EventBus_IsValid( pBus ) );
+    REQUIRE_FALSE( EventBus_IsValid( nullptr ) );
 
     u32 order[6]{};
     usize nOrder = 0u;

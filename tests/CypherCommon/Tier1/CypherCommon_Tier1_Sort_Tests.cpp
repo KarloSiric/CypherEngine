@@ -99,3 +99,43 @@ TEST_CASE( "Heap primitives preserve max-heap contracts",
     REQUIRE( sorted[0] == 1 );
     REQUIRE( sorted[3] == 8 );
 }
+
+TEST_CASE( "Raw stable and heap sorting entry points honor ordering contracts",
+           "[CypherCommon][Tier1][Sort][Raw]" )
+{
+    stable_value_t stableValues[]{
+        { 2, 0 }, { 1, 1 }, { 2, 2 }, { 1, 3 }
+    };
+    byte scratch[sizeof( stableValues )]{};
+    const auto compareStable = +[](
+        const void *pLeft,
+        const void *pRight,
+        void * ) noexcept -> i32 {
+        const auto &left = *static_cast<const stable_value_t *>( pLeft );
+        const auto &right = *static_cast<const stable_value_t *>( pRight );
+        return left.key < right.key ? -1 : ( left.key > right.key ? 1 : 0 );
+    };
+    REQUIRE(
+        Sort_StableRaw(
+            stableValues,
+            4u,
+            sizeof( stable_value_t ),
+            compareStable,
+            nullptr,
+            Span_FromArray( scratch ) ) );
+    REQUIRE( stableValues[0].original == 1 );
+    REQUIRE( stableValues[1].original == 3 );
+    REQUIRE( stableValues[2].original == 0 );
+    REQUIRE( stableValues[3].original == 2 );
+
+    i32 heapValues[]{ 9, -1, 7, 0, 7 };
+    REQUIRE(
+        HeapSort_Raw(
+            heapValues,
+            5u,
+            sizeof( i32 ),
+            CompareI32,
+            nullptr ) );
+    REQUIRE( heapValues[0] == -1 );
+    REQUIRE( heapValues[4] == 9 );
+}

@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: tests/CypherCommon/Mathlib/CypherMath_RotationMatrix_Tests.cpp
+//  File: tests/CypherCommon/Mathlib/CypherCommon_Mathlib_RotationMatrix_Tests.cpp
 //  Purpose: Tests quaternion, matrix, camera, and projection conventions.
 //  Details: Cross-module round trips pin handedness, composition order, storage,
 //           inversion, view direction, and both supported clip-depth ranges.
@@ -41,7 +41,7 @@ void RequireVec3(
 } // namespace
 
 TEST_CASE( "quaternion axis-angle rotation follows right-handed engine axes",
-           "[CypherMath][Quaternion]" )
+           "[CypherCommon][Mathlib][Quaternion]" )
 {
     const quat_t quarterTurn = Quat_FromUnitAxisAngle(
         CY_VEC3_UP, Angle_FromDegrees( 90.0f ) );
@@ -59,7 +59,7 @@ TEST_CASE( "quaternion axis-angle rotation follows right-handed engine axes",
 }
 
 TEST_CASE( "quaternion multiplication applies the right operand first",
-           "[CypherMath][Quaternion]" )
+           "[CypherCommon][Mathlib][Quaternion]" )
 {
     const quat_t aroundZ = Quat_FromUnitAxisAngle(
         CY_VEC3_UP, Angle_FromDegrees( 90.0f ) );
@@ -74,7 +74,7 @@ TEST_CASE( "quaternion multiplication applies the right operand first",
 }
 
 TEST_CASE( "quaternion and Matrix3 conversions preserve rotations",
-           "[CypherMath][Quaternion][Matrix3]" )
+           "[CypherCommon][Mathlib][Quaternion][Matrix3]" )
 {
     const quat_t source = Quat_FromEulerXYZ(
         Vec3_Make( 0.3f, -0.7f, 1.1f ) );
@@ -88,7 +88,7 @@ TEST_CASE( "quaternion and Matrix3 conversions preserve rotations",
 }
 
 TEST_CASE( "Euler and matrix round trips hold over a representative angle grid",
-           "[CypherMath][Quaternion][Matrix3][Property]" )
+           "[CypherCommon][Mathlib][Quaternion][Matrix3][Property]" )
 {
     constexpr f32 angles[]{ -1.2f, -0.5f, 0.0f, 0.5f, 1.2f };
     for ( f32 x : angles ) {
@@ -118,7 +118,7 @@ TEST_CASE( "Euler and matrix round trips hold over a representative angle grid",
 }
 
 TEST_CASE( "matrix products and inverses obey column-vector composition",
-           "[CypherMath][Matrix4]" )
+           "[CypherCommon][Mathlib][Matrix4]" )
 {
     const quat_t rotation = Quat_FromUnitAxisAngle(
         CY_VEC3_UP, Angle_FromDegrees( 37.0f ) );
@@ -142,7 +142,7 @@ TEST_CASE( "matrix products and inverses obey column-vector composition",
 }
 
 TEST_CASE( "look-at maps the eye to origin and target down negative Z",
-           "[CypherMath][Matrix4][Camera]" )
+           "[CypherCommon][Mathlib][Matrix4][Camera]" )
 {
     const vec3_t eye = Vec3_Make( 5.0f, 2.0f, 3.0f );
     const vec3_t target = Vec3_Make( 1.0f, 2.0f, 3.0f );
@@ -155,7 +155,7 @@ TEST_CASE( "look-at maps the eye to origin and target down negative Z",
 }
 
 TEST_CASE( "perspective matrices map near and far depth explicitly",
-           "[CypherMath][Matrix4][Projection]" )
+           "[CypherCommon][Mathlib][Matrix4][Projection]" )
 {
     for ( const clip_depth_range_t depthRange : {
               clip_depth_range_t::NEGATIVE_ONE_TO_ONE,
@@ -183,7 +183,7 @@ TEST_CASE( "perspective matrices map near and far depth explicitly",
 }
 
 TEST_CASE( "singular matrices fail inversion with identity output",
-           "[CypherMath][Matrix]" )
+           "[CypherCommon][Mathlib][Matrix]" )
 {
     mat4_t inverse = CY_MAT4_ZERO;
     REQUIRE_FALSE( Mat4_TryInverse(
@@ -194,7 +194,7 @@ TEST_CASE( "singular matrices fail inversion with identity output",
 }
 
 TEST_CASE( "TRS matrices invert across translation, rotation, and reflection cases",
-           "[CypherMath][Matrix4][Property]" )
+           "[CypherCommon][Mathlib][Matrix4][Property]" )
 {
     constexpr vec3_t scales[]{
         { 1.0f, 1.0f, 1.0f },

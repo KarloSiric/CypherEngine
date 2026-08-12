@@ -130,3 +130,31 @@ TEST_CASE( "StableHash closes after finalization and can be restarted",
     REQUIRE( StableHash_End( &builder, &secondHash ) );
     REQUIRE( firstHash == secondHash );
 }
+
+TEST_CASE( "StableHash encodes every signed unsigned and hash-width writer",
+           "[CypherCommon][Tier1][StableHash]" )
+{
+    stable_hash_builder_t builder{};
+    REQUIRE( StableHash_Begin( &builder, 0x77u, 1u ) );
+    REQUIRE( StableHash_WriteU8( &builder, 0x12u ) );
+    REQUIRE( StableHash_WriteU32( &builder, 0x12345678u ) );
+    REQUIRE( StableHash_WriteU64( &builder, 0x0123456789ABCDEFull ) );
+    REQUIRE( StableHash_WriteI8( &builder, -8 ) );
+    REQUIRE( StableHash_WriteI16( &builder, -1600 ) );
+    REQUIRE( StableHash_WriteI32( &builder, -320000 ) );
+    REQUIRE( StableHash_WriteI64( &builder, -64000000 ) );
+    REQUIRE( StableHash_WriteHash64( &builder, 0x8877665544332211ull ) );
+    REQUIRE( StableHash_WriteHash128(
+        &builder,
+        { 0x1020304050607080ull, 0x90A0B0C0D0E0F000ull } ) );
+
+    hash64_t first = 0u;
+    REQUIRE( StableHash_End( &builder, &first ) );
+
+    stable_hash_builder_t different{};
+    REQUIRE( StableHash_Begin( &different, 0x77u, 1u ) );
+    REQUIRE( StableHash_WriteU8( &different, 0x13u ) );
+    hash64_t second = 0u;
+    REQUIRE( StableHash_End( &different, &second ) );
+    REQUIRE( first != second );
+}

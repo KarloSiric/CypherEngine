@@ -23,6 +23,17 @@
 
 using namespace cypher::common;
 
+TEST_CASE( "Config error construction preserves domain and local code",
+           "[CypherCommon][Tier1][Config][Error]" )
+{
+    REQUIRE( Cy_ErrorSucceeded( Config_MakeError( config_error_t::OK ) ) );
+    const error_code_t error =
+        Config_MakeError( config_error_t::PERMISSION_DENIED );
+    REQUIRE( Cy_ErrorDomain( error ) == error_domain_t::CONFIG );
+    REQUIRE( Cy_ErrorLocalCode( error ) ==
+             static_cast<u16>( config_error_t::PERMISSION_DENIED ) );
+}
+
 namespace
 {
 

@@ -411,3 +411,73 @@ TEST_CASE( "Tier2 schema registry resolves exact document contracts",
     SchemaRegistry_Clear( &registry );
     REQUIRE( registry.nCount == 0u );
 }
+
+TEST_CASE( "Tier2 schema utility names and type flags are stable",
+           "[CypherCommon][Tier2][Schema][Contract]" )
+{
+    REQUIRE( Schema_TypeFlag( key_value_type_t::NULL_VALUE ) ==
+             SCHEMA_TYPE_NULL );
+    REQUIRE( Schema_TypeFlag( key_value_type_t::BOOL ) == SCHEMA_TYPE_BOOL );
+    REQUIRE( Schema_TypeFlag( key_value_type_t::I64 ) == SCHEMA_TYPE_I64 );
+    REQUIRE( Schema_TypeFlag( key_value_type_t::U64 ) == SCHEMA_TYPE_U64 );
+    REQUIRE( Schema_TypeFlag( key_value_type_t::F64 ) == SCHEMA_TYPE_F64 );
+    REQUIRE( Schema_TypeFlag( key_value_type_t::STRING ) ==
+             SCHEMA_TYPE_STRING );
+    REQUIRE( Schema_TypeFlag( key_value_type_t::BINARY ) ==
+             SCHEMA_TYPE_BINARY );
+    REQUIRE( Schema_TypeFlag( key_value_type_t::OBJECT ) ==
+             SCHEMA_TYPE_OBJECT );
+    REQUIRE( Schema_TypeFlag( key_value_type_t::ARRAY ) == SCHEMA_TYPE_ARRAY );
+    REQUIRE( Schema_TypeFlag( static_cast<key_value_type_t>( 0xFFu ) ) ==
+             SCHEMA_TYPE_NONE );
+
+    REQUIRE(
+        StringView_Equals(
+            StringView_FromCString(
+                Schema_DescriptorStatusName(
+                    schema_descriptor_status_t::INVALID_RANGE ) ),
+            StringView_FromCString( "INVALID_RANGE" ) ) );
+    REQUIRE(
+        StringView_Equals(
+            StringView_FromCString(
+                Schema_ValidationStatusName(
+                    schema_validation_status_t::INVALID_DOCUMENT ) ),
+            StringView_FromCString( "INVALID_DOCUMENT" ) ) );
+    REQUIRE(
+        StringView_Equals(
+            StringView_FromCString(
+                Schema_DiagnosticCodeName(
+                    schema_diagnostic_code_t::MISSING_REQUIRED_MEMBER ) ),
+            StringView_FromCString( "MISSING_REQUIRED_MEMBER" ) ) );
+    REQUIRE(
+        StringView_Equals(
+            StringView_FromCString(
+                SchemaRegistry_StatusName(
+                    schema_registry_status_t::CAPACITY_EXCEEDED ) ),
+            StringView_FromCString( "CAPACITY_EXCEEDED" ) ) );
+
+    REQUIRE(
+        StringView_Equals(
+            StringView_FromCString(
+                Schema_DescriptorStatusName(
+                    static_cast<schema_descriptor_status_t>( 0xFFu ) ) ),
+            StringView_FromCString( "UNKNOWN" ) ) );
+    REQUIRE(
+        StringView_Equals(
+            StringView_FromCString(
+                Schema_ValidationStatusName(
+                    static_cast<schema_validation_status_t>( 0xFFu ) ) ),
+            StringView_FromCString( "UNKNOWN" ) ) );
+    REQUIRE(
+        StringView_Equals(
+            StringView_FromCString(
+                Schema_DiagnosticCodeName(
+                    static_cast<schema_diagnostic_code_t>( 0xFFu ) ) ),
+            StringView_FromCString( "UNKNOWN" ) ) );
+    REQUIRE(
+        StringView_Equals(
+            StringView_FromCString(
+                SchemaRegistry_StatusName(
+                    static_cast<schema_registry_status_t>( 0xFFu ) ) ),
+            StringView_FromCString( "UNKNOWN" ) ) );
+}

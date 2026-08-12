@@ -160,3 +160,24 @@ TEST_CASE( "xxHash stream reset changes seed and digest does not consume state",
     REQUIRE( resetHash == HashXXH3_64_Data( { complete, sizeof( complete ) }, 11u ) );
     REQUIRE( resetHash != completeHash );
 }
+
+TEST_CASE( "xxHash ASCII-insensitive helpers normalize case and validate streams",
+           "[CypherCommon][Tier1][HashXXH]" )
+{
+    const string_view_t mixed = StringView_FromCString( "Materials/WALL.CYMAT" );
+    const string_view_t lower = StringView_FromCString( "materials/wall.cymat" );
+    REQUIRE(
+        HashXXH32_StringInsensitiveAscii( mixed ) ==
+        HashXXH32_StringInsensitiveAscii( lower ) );
+    REQUIRE(
+        HashXXH3_64_StringInsensitiveAscii( mixed ) ==
+        HashXXH3_64_StringInsensitiveAscii( lower ) );
+
+    hash_xxh3_stream_t stream{};
+    REQUIRE_FALSE( HashXXH3_StreamIsValid( &stream ) );
+    REQUIRE( HashXXH3_StreamInit(
+        &stream,
+        hash_xxh3_stream_mode_t::HASH_64,
+        0u ) );
+    REQUIRE( HashXXH3_StreamIsValid( &stream ) );
+}

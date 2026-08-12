@@ -36,6 +36,15 @@ TEST_CASE( "SourceLocation captures the calling source line", "[CypherCommon][Ti
     REQUIRE( location.pFunction[0] != '\0' );
 }
 
+TEST_CASE( "SourceLocation direct capture uses its call site", "[CypherCommon][Tier0][SourceLocation]" )
+{
+    const u32 nExpectedLine = static_cast<u32>( __LINE__ + 1 );
+    const source_location_t location = Cy_SourceLocation_Current();
+
+    REQUIRE( location.line == nExpectedLine );
+    REQUIRE( Cy_SourceLocation_IsValid( location ) );
+}
+
 TEST_CASE( "SourceLocation formats complete records", "[CypherCommon][Tier0][SourceLocation]" )
 {
     const source_location_t location{ "file.cpp", "TestFunction", 42u, 7u };

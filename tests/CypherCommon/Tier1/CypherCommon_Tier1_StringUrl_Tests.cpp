@@ -122,3 +122,19 @@ TEST_CASE( "StringUrl conversion reports complete required sizes",
     REQUIRE( output[1] == '\0' );
     REQUIRE( truncated.cbRequired == 4u );
 }
+
+TEST_CASE( "StringUrl validates schemes and RFC unreserved bytes",
+           "[CypherCommon][Tier1][StringUrl]" )
+{
+    REQUIRE( StringUrl_IsValidScheme( StringView_FromCString( "https" ) ) );
+    REQUIRE( StringUrl_IsValidScheme( StringView_FromCString( "cypher+asset" ) ) );
+    REQUIRE_FALSE( StringUrl_IsValidScheme( StringView_FromCString( "1http" ) ) );
+    REQUIRE_FALSE( StringUrl_IsValidScheme( {} ) );
+
+    REQUIRE( StringUrl_IsUnreservedByte( 'A' ) );
+    REQUIRE( StringUrl_IsUnreservedByte( 'z' ) );
+    REQUIRE( StringUrl_IsUnreservedByte( '-' ) );
+    REQUIRE( StringUrl_IsUnreservedByte( '~' ) );
+    REQUIRE_FALSE( StringUrl_IsUnreservedByte( '/' ) );
+    REQUIRE_FALSE( StringUrl_IsUnreservedByte( ' ' ) );
+}

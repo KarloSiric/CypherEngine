@@ -47,6 +47,12 @@ TEST_CASE( "Timer conversion helpers use native frequency", "[CypherCommon][Tier
     REQUIRE( Cy_TimerTicksToMicroseconds( nFrequency ) == 1000000.0 );
     REQUIRE( Cy_TimerTicksToNanoseconds( nFrequency ) == 1000000000.0 );
     REQUIRE( Cy_TimerElapsedSeconds( nFrequency, nFrequency * 3u ) == 2.0 );
+    REQUIRE( Cy_TimerElapsedMilliseconds( nFrequency, nFrequency * 3u ) ==
+             2000.0 );
+    REQUIRE( Cy_TimerElapsedMicroseconds( nFrequency, nFrequency * 3u ) ==
+             2000000.0 );
+    REQUIRE( Cy_TimerElapsedNanoseconds( nFrequency, nFrequency * 3u ) ==
+             2000000000.0 );
     STATIC_REQUIRE( Cy_TimerElapsedTicks( 10u, 5u ) == 0u );
 }
 
@@ -94,7 +100,22 @@ TEST_CASE( "Timer object stores begin and end tick samples", "[CypherCommon][Tie
 
     REQUIRE( timer.nEndTicks > timer.nStartTicks );
     REQUIRE( Cy_TimerGetTicks( &timer ) > 0u );
+    REQUIRE( Cy_TimerGetSeconds( &timer ) > 0.0 );
     REQUIRE( Cy_TimerGetMilliseconds( &timer ) > 0.0 );
+    REQUIRE( Cy_TimerGetMicroseconds( &timer ) > 0.0 );
+    REQUIRE( Cy_TimerGetNanoseconds( &timer ) > 0.0 );
+
+    REQUIRE( Cy_TimerReset( &timer ) );
+    REQUIRE( timer.isRunning );
+    REQUIRE( Cy_TimerEnd( &timer ) );
+
+    REQUIRE_FALSE( Cy_TimerBegin( nullptr ) );
+    REQUIRE_FALSE( Cy_TimerReset( nullptr ) );
+    REQUIRE( Cy_TimerGetTicks( nullptr ) == 0u );
+    REQUIRE( Cy_TimerGetSeconds( nullptr ) == 0.0 );
+    REQUIRE( Cy_TimerGetMilliseconds( nullptr ) == 0.0 );
+    REQUIRE( Cy_TimerGetMicroseconds( nullptr ) == 0.0 );
+    REQUIRE( Cy_TimerGetNanoseconds( nullptr ) == 0.0 );
 }
 
 TEST_CASE( "Timer initialization is stable across concurrent callers", "[CypherCommon][Tier0][Timer]" )

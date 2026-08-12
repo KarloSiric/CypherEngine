@@ -85,3 +85,16 @@ TEST_CASE( "SparseSet clear retains sparse storage for reuse",
     SparseSet_Shutdown( &set );
     REQUIRE( SparseSet_IsValid( &set ) );
 }
+
+TEST_CASE( "SparseSet key reserve expands lookup range without adding values",
+           "[CypherCommon][Tier1][SparseSet]" )
+{
+    sparse_set_t<u32> set{};
+    REQUIRE( SparseSet_Init( &set, Allocator_GetSystem() ) );
+
+    REQUIRE( SparseSet_ReserveKeys( &set, 1024u ) );
+    REQUIRE( SparseSet_Count( &set ) == 0u );
+    REQUIRE( set.sparse.nCount >= 1024u );
+    REQUIRE( SparseSet_Insert( &set, 1000u, 77u ) != nullptr );
+    REQUIRE( *SparseSet_Find( &set, 1000u ) == 77u );
+}

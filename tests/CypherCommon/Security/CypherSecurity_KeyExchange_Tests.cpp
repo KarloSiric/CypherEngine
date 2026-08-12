@@ -168,3 +168,56 @@ TEST_CASE( "CypherSecurity key exchange supports concurrent local-key reads",
     }
     REQUIRE( bAllSucceeded.load( std::memory_order_relaxed ) );
 }
+
+TEST_CASE( "CypherSecurity key exchange imports public keys and clears ownership",
+           "[CypherSecurity][KeyExchange][Lifecycle]" )
+{
+    key_exchange_keypair_t client{};
+    key_exchange_keypair_t server{};
+    REQUIRE_FALSE( KeyExchangeKeyPair_IsValid( nullptr ) );
+    REQUIRE_FALSE( KeyExchangeKeyPair_IsValid( &client ) );
+    REQUIRE(
+        KeyExchangeKeyPair_Generate(
+            secure_memory_lock_policy_t::BEST_EFFORT,
+            &client ) == security_status_t::OK );
+    REQUIRE(
+        KeyExchangeKeyPair_Generate(
+            secure_memory_lock_policy_t::BEST_EFFORT,
+            &server ) == security_status_t::OK );
+    REQUIRE( KeyExchangeKeyPair_IsValid( &client ) );
+
+    key_exchange_public_key_t imported{};
+    REQUIRE(
+        KeyExchangePublicKey_FromBytes(
+            BinaryBlock_FromData(
+                server.publicKey.bytes,
+                sizeof( server.publicKey.bytes ) ),
+            &imported ) == security_status_t::OK );
+    REQUIRE(
+        Security_ConstantTimeEquals(
+            imported.bytes,
+            server.publicKey.bytes,
+            sizeof( imported.bytes ) ) );
+
+    key_exchange_session_keys_t session{};
+    REQUIRE(
+        KeyExchange_ClientSessionKeys(
+            &client,
+            imported,
+            secure_memory_lock_policy_t::BEST_EFFORT,
+            &session ) == security_status_t::OK );
+    REQUIRE( KeyExchangeSessionKeys_AreValid( &session ) );
+
+    KeyExchangeSessionKeys_Destroy( &session );
+    REQUIRE_FALSE( KeyExchangeSessionKeys_AreValid( &session ) );
+    KeyExchangeSessionKeys_Destroy( &session );
+    KeyExchangeSessionKeys_Destroy( nullptr );
+
+    KeyExchangeKeyPair_Destroy( &client );
+    REQUIRE_FALSE( KeyExchangeKeyPair_IsValid( &client ) );
+    for ( const byte value : client.publicKey.bytes ) {
+        REQUIRE( value == 0u );
+    }
+    KeyExchangeKeyPair_Destroy( &client );
+    KeyExchangeKeyPair_Destroy( nullptr );
+}

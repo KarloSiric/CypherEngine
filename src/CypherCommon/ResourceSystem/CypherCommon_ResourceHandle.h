@@ -1,5 +1,22 @@
-#ifndef CYPHER_COMMON_RESOURCEHANDLE_H
-#define CYPHER_COMMON_RESOURCEHANDLE_H
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherCommon/ResourceSystem/CypherCommon_ResourceHandle.h
+//  Purpose: Declares compact generation-checked runtime resource handles.
+//  Details: Handles identify a resource-manager slot, its current generation,
+//           and the registered runtime resource type without exposing pointers.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-08-11
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
+#ifndef CYPHER_COMMON_RESOURCESYSTEM_RESOURCEHANDLE_H
+#define CYPHER_COMMON_RESOURCESYSTEM_RESOURCEHANDLE_H
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
@@ -9,51 +26,55 @@
 namespace cypher::common
 {
 
-using resource_slot_t           = u32;
-using resource_generation_t     = u32;
-using resource_type_slot_t      = u32;
+using resource_slot_t = u32;
+using resource_generation_t = u32;
+using resource_type_slot_t = u32;
 
-constexpr resource_generation_t CY_RESOURCE_GENERATION_INVALID      = 0u;
-constexpr resource_generation_t CY_RESOURCE_GENERATION_FIRST        = 1u;
-constexpr resource_generation_t CY_RESOURCE_GENERATION_MAX          = CY_HANDLE64_GENERATION_MAX;
+constexpr resource_generation_t CY_RESOURCE_GENERATION_INVALID = 0u;
+constexpr resource_generation_t CY_RESOURCE_GENERATION_FIRST = 1u;
+constexpr resource_generation_t CY_RESOURCE_GENERATION_MAX =
+    CY_HANDLE64_GENERATION_MAX;
 
-constexpr resource_type_slot_t CY_RESOURCE_TYPE_SLOT_INVALID        = 0u;
-constexpr resource_type_slot_t CY_RESOURCE_TYPE_SLOT_MAX            = CY_HANDLE64_TYPE_MAX;
+constexpr resource_type_slot_t CY_RESOURCE_TYPE_SLOT_INVALID = 0u;
+constexpr resource_type_slot_t CY_RESOURCE_TYPE_SLOT_MAX =
+    CY_HANDLE64_TYPE_MAX;
 
 struct resource_handle_t {
-    handle64_t packed{};        // @NOTE since our handle64_t already uses 16 bit | 16 bit | 32 bit layout, I decided to reuse that same thing for the resource system handle.
+    handle64_t packed{};
 };
 
 struct resource_handle_parts_t {
-    resource_slot_t         iSlot{};
-    resource_generation_t   nGeneration{};
-    resource_type_slot_t    iTypeSlot{}; 
+    resource_slot_t iSlot{};
+    resource_generation_t nGeneration{};
+    resource_type_slot_t iTypeSlot{};
 };
 
 constexpr resource_handle_t CY_RESOURCE_HANDLE_INVALID{};
-static_assert( sizeof( resource_handle_t ) == sizeof( u64 ), "Resource handles must remain exactly 64 bits." ); // @NOTE We want to keep the runtime handle always exactly 64 bits.
+static_assert(
+    sizeof( resource_handle_t ) == sizeof( u64 ),
+    "Resource handles must remain exactly 64 bits." );
 
-// this creates a resource handle after careful validation of the generation number and runtime type slot number.
+// Creates a handle after validating the generation and runtime type fields.
 CYPHER_NODISCARD CYPHER_COMMON_API
-bool_t ResourceHandle_TryMake( 
+bool_t ResourceHandle_TryMake(
     resource_slot_t iSlot,
     resource_generation_t nGeneration,
     resource_type_slot_t iTypeSlot,
     resource_handle_t *pHandleOut ) noexcept;
 
-// this creates a resource handle from already trusted manager owned values.
+// Creates a handle from trusted manager-owned fields and asserts on misuse.
 CYPHER_NODISCARD CYPHER_COMMON_API
 resource_handle_t ResourceHandle_Make(
     resource_slot_t iSlot,
     resource_generation_t nGeneration,
     resource_type_slot_t iTypeSlot ) noexcept;
 
-// Checks only the packed handle structure, not whether its record is still alive.
+// Checks packed structure only; the resource manager must still verify liveness.
 CYPHER_NODISCARD CYPHER_COMMON_API
-bool_t ResourceHandle_IsValid( resource_handle_t &handle ) noexcept;
+bool_t ResourceHandle_IsValid( resource_handle_t handle ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
-bool_t ResourceHandle_Equals( 
+bool_t ResourceHandle_Equals(
     resource_handle_t left,
     resource_handle_t right ) noexcept;
 
@@ -71,7 +92,6 @@ resource_generation_t ResourceHandle_Generation(
 CYPHER_NODISCARD CYPHER_COMMON_API
 resource_type_slot_t ResourceHandle_TypeSlot(
     resource_handle_t handle ) noexcept;
-   
-}           // namespace cypher::common
+} // namespace cypher::common
 
-#endif      // CYPHER_COMMON_RESOURCEHANDLE_H
+#endif // CYPHER_COMMON_RESOURCESYSTEM_RESOURCEHANDLE_H

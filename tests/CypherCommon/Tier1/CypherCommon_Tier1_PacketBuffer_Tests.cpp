@@ -39,6 +39,9 @@ TEST_CASE( "PacketBuffer commits and reads a byte payload",
         CY_TRUE ) );
     REQUIRE( PacketBuffer_CommitByteWriter( &packet, writer ) );
     REQUIRE( PacketBuffer_Size( &packet ) == 8u );
+    const binary_block_t packetBlock = PacketBuffer_Block( &packet );
+    REQUIRE( packetBlock.pData == storage );
+    REQUIRE( packetBlock.cbSize == 8u );
 
     byte_reader_t reader = PacketBuffer_ByteReader( &packet );
     u32 value = 0u;
@@ -105,4 +108,3 @@ TEST_CASE( "PacketBuffer refuses failed and foreign writer commits",
     REQUIRE_FALSE( PacketBuffer_SetSize( &packet, 5u ) );
     REQUIRE( PacketBuffer_Size( &packet ) == 2u );
 }
-

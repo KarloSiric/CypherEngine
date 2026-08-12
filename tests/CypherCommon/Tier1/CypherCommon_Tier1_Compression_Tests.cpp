@@ -16,10 +16,14 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherCommon_Compression.h"
+#include "CypherCommon_CompressionLZ.h"
+#include "CypherCommon_CompressionLZ4.h"
+#include "CypherCommon_CompressionZstd.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <string_view>
 #include <vector>
 
 using namespace cypher::common;
@@ -252,4 +256,80 @@ TEST_CASE( "LZ4 and Zstd streams preserve data across process calls",
     REQUIRE( !Compression_SupportsStreaming( compression_codec_t::CYPHER_LZ ) );
     RequireStreamingRoundTrip( compression_codec_t::LZ4 );
     RequireStreamingRoundTrip( compression_codec_t::ZSTD );
+}
+
+TEST_CASE( "Compression backend adapters satisfy their direct contracts",
+           "[CypherCommon][Tier1][Compression][Backend]" )
+{
+    const std::vector<byte> input = MakeInput();
+
+    std::vector<byte> cypherLz( CompressionLZ_CompressBound( input.size() ) );
+    const compression_result_t cypherLzEncoded = CompressionLZ_Compress(
+        { input.data(), input.size() },
+        { cypherLz.data(), cypherLz.size() } );
+    REQUIRE( cypherLzEncoded.status == compression_status_t::OK );
+    std::vector<byte> cypherLzDecoded( input.size() );
+    REQUIRE(
+        CompressionLZ_Decompress(
+            { cypherLz.data(), cypherLzEncoded.cbWritten },
+            { cypherLzDecoded.data(), cypherLzDecoded.size() } ).status ==
+        compression_status_t::OK );
+    REQUIRE( cypherLzDecoded == input );
+
+    const compression_options_t lz4Options{ 0, {}, CY_TRUE };
+    std::vector<byte> lz4(
+        CompressionLZ4_CompressBound( input.size(), lz4Options ) );
+    const compression_result_t lz4Encoded = CompressionLZ4_Compress(
+        { input.data(), input.size() },
+        { lz4.data(), lz4.size() },
+        lz4Options );
+    REQUIRE( lz4Encoded.status == compression_status_t::OK );
+    std::vector<byte> lz4Decoded( input.size() );
+    REQUIRE(
+        CompressionLZ4_Decompress(
+            { lz4.data(), lz4Encoded.cbWritten },
+            { lz4Decoded.data(), lz4Decoded.size() },
+            lz4Options ).status == compression_status_t::OK );
+    REQUIRE( lz4Decoded == input );
+
+    const compression_options_t zstdOptions{ 3, {}, CY_TRUE };
+    std::vector<byte> zstd( CompressionZstd_CompressBound( input.size() ) );
+    const compression_result_t zstdEncoded = CompressionZstd_Compress(
+        { input.data(), input.size() },
+        { zstd.data(), zstd.size() },
+        zstdOptions );
+    REQUIRE( zstdEncoded.status == compression_status_t::OK );
+    REQUIRE(
+        CompressionZstd_FrameContentSize(
+            { zstd.data(), zstdEncoded.cbWritten } ) == input.size() );
+    std::vector<byte> zstdDecoded( input.size() );
+    REQUIRE(
+        CompressionZstd_Decompress(
+            { zstd.data(), zstdEncoded.cbWritten },
+            { zstdDecoded.data(), zstdDecoded.size() },
+            zstdOptions ).status == compression_status_t::OK );
+    REQUIRE( zstdDecoded == input );
+}
+
+TEST_CASE( "Compression capability and status reporting cover every codec",
+           "[CypherCommon][Tier1][Compression][Contract]" )
+{
+    for ( const compression_codec_t codec : {
+              compression_codec_t::NONE,
+              compression_codec_t::CYPHER_LZ,
+              compression_codec_t::LZ4,
+              compression_codec_t::ZSTD } ) {
+        REQUIRE( Compression_IsCodecAvailable( codec ) );
+    }
+    REQUIRE_FALSE(
+        Compression_IsCodecAvailable(
+            static_cast<compression_codec_t>( 0xFFu ) ) );
+    REQUIRE(
+        std::string_view(
+            Compression_StatusName( compression_status_t::OK ) ) == "OK" );
+    REQUIRE(
+        std::string_view(
+            Compression_StatusName(
+                static_cast<compression_status_t>( 0xFFu ) ) ) ==
+        "UNKNOWN_COMPRESSION_STATUS" );
 }

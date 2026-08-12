@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: tests/CypherCommon/Mathlib/CypherMath_EditorGeometry_Tests.cpp
+//  File: tests/CypherCommon/Mathlib/CypherCommon_Mathlib_EditorGeometry_Tests.cpp
 //  Purpose: Tests geometry operations shared by editor authoring tools.
 //  Details: Covers planar predicates, triangulation, convex brush recovery,
 //           deterministic snapping, and spline arc-length lookup.
@@ -52,7 +52,7 @@ f64 TriangleArea2( vec2_t a, vec2_t b, vec2_t c )
 } // namespace
 
 TEST_CASE( "2D segment intersections classify crossings and overlap",
-           "[CypherMath][Editor][Geometry2D]" )
+           "[CypherCommon][Mathlib][Editor][Geometry2D]" )
 {
     const segment2_intersection_t crossing = Geometry2D_IntersectSegments(
         { Vec2_Make( 0.0f, 0.0f ), Vec2_Make( 4.0f, 4.0f ) },
@@ -73,7 +73,7 @@ TEST_CASE( "2D segment intersections classify crossings and overlap",
 }
 
 TEST_CASE( "concave polygons triangulate without changing area",
-           "[CypherMath][Editor][Polygon2]" )
+           "[CypherCommon][Mathlib][Editor][Polygon2]" )
 {
     constexpr vec2_t polygon[]{
         { 0.0f, 0.0f },
@@ -111,7 +111,7 @@ TEST_CASE( "concave polygons triangulate without changing area",
 }
 
 TEST_CASE( "self-intersecting polygons are rejected",
-           "[CypherMath][Editor][Polygon2]" )
+           "[CypherCommon][Mathlib][Editor][Polygon2]" )
 {
     constexpr vec2_t bowTie[]{
         { 0.0f, 0.0f },
@@ -128,7 +128,7 @@ TEST_CASE( "self-intersecting polygons are rejected",
 }
 
 TEST_CASE( "planar 3D polygons derive a basis, area, and triangulation",
-           "[CypherMath][Editor][Polygon3]" )
+           "[CypherCommon][Mathlib][Editor][Polygon3]" )
 {
     constexpr vec3_t polygon[]{
         { 1.0f, 2.0f, 3.0f },
@@ -158,7 +158,7 @@ TEST_CASE( "planar 3D polygons derive a basis, area, and triangulation",
 }
 
 TEST_CASE( "convex brush planes recover a cube and each face",
-           "[CypherMath][Editor][Brush]" )
+           "[CypherCommon][Mathlib][Editor][Brush]" )
 {
     constexpr plane_t planes[]{
         { { 1.0f, 0.0f, 0.0f }, -1.0f },
@@ -193,7 +193,7 @@ TEST_CASE( "convex brush planes recover a cube and each face",
 }
 
 TEST_CASE( "grid snapping handles negative coordinates and custom origins",
-           "[CypherMath][Editor][Snap]" )
+           "[CypherCommon][Mathlib][Editor][Snap]" )
 {
     f32 snapped = 0.0f;
     REQUIRE( Snap_TryScalar(
@@ -218,7 +218,7 @@ TEST_CASE( "grid snapping handles negative coordinates and custom origins",
 }
 
 TEST_CASE( "Bezier splitting and arc tables preserve curve endpoints",
-           "[CypherMath][Editor][Spline]" )
+           "[CypherCommon][Mathlib][Editor][Spline]" )
 {
     const cubic_bezier3_t curve{
         Vec3_Make( 0.0f, 0.0f, 0.0f ),

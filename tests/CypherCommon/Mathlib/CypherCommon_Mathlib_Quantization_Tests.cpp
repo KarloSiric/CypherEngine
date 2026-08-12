@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: tests/CypherCommon/Mathlib/CypherMath_Quantization_Tests.cpp
+//  File: tests/CypherCommon/Mathlib/CypherCommon_Mathlib_Quantization_Tests.cpp
 //  Purpose: Tests fixed-point and binary quantization contracts.
 //  Details: Covers overflow, signed rounding, endpoint mappings, circular angles,
 //           bounded vectors, and smallest-three quaternion reconstruction.
@@ -24,7 +24,7 @@ using namespace cypher::math;
 using Catch::Approx;
 
 TEST_CASE( "fixed 16.16 conversion and arithmetic report overflow",
-           "[CypherMath][FixedPoint]" )
+           "[CypherCommon][Mathlib][FixedPoint]" )
 {
     fixed16_16_t a{};
     fixed16_16_t b{};
@@ -49,7 +49,7 @@ TEST_CASE( "fixed 16.16 conversion and arithmetic report overflow",
 }
 
 TEST_CASE( "fixed 16.16 integer rounding is correct for negative values",
-           "[CypherMath][FixedPoint]" )
+           "[CypherCommon][Mathlib][FixedPoint]" )
 {
     fixed16_16_t value{};
     REQUIRE( Fixed16_16_TryFromF64( -1.25, &value ) );
@@ -64,7 +64,7 @@ TEST_CASE( "fixed 16.16 integer rounding is correct for negative values",
 }
 
 TEST_CASE( "UNORM and range quantization preserve endpoints and error bounds",
-           "[CypherMath][Quantization]" )
+           "[CypherCommon][Mathlib][Quantization]" )
 {
     for ( u32 cBits : { 1u, 8u, 16u, 32u } ) {
         u32 code = 0u;
@@ -92,7 +92,7 @@ TEST_CASE( "UNORM and range quantization preserve endpoints and error bounds",
 }
 
 TEST_CASE( "vector and circular angle quantization round-trip bounded values",
-           "[CypherMath][Quantization]" )
+           "[CypherCommon][Mathlib][Quantization]" )
 {
     const vec3_t minimum = Vec3_Make( -1024.0f, -128.0f, -32.0f );
     const vec3_t maximum = Vec3_Make( 1024.0f, 128.0f, 96.0f );
@@ -135,7 +135,7 @@ TEST_CASE( "vector and circular angle quantization round-trip bounded values",
 }
 
 TEST_CASE( "smallest-three quaternion quantization preserves rotations",
-           "[CypherMath][Quantization][Quaternion]" )
+           "[CypherCommon][Mathlib][Quantization][Quaternion]" )
 {
     const quat_t rotations[]{
         CY_QUAT_IDENTITY,

@@ -58,6 +58,7 @@ TEST_CASE( "Profile disabled path emits no tokens or events", "[CypherCommon][Ti
     Cy_ProfileSetSink( CaptureProfileEvent, &capture );
     Cy_ProfileSetEnabled( CY_FALSE );
     Cy_ProfileResetState();
+    REQUIRE_FALSE( Cy_ProfileIsEnabled() );
 
     const profile_zone_desc_t zone{
         "disabled",
@@ -80,6 +81,7 @@ TEST_CASE( "Profile emits coherent zone counter and frame events", "[CypherCommo
     Cy_ProfileSetSink( CaptureProfileEvent, &capture );
     Cy_ProfileResetState();
     Cy_ProfileSetEnabled( CY_TRUE );
+    REQUIRE( Cy_ProfileIsEnabled() );
 
     const profile_zone_desc_t zone{
         "render.world",

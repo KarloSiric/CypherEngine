@@ -323,3 +323,55 @@ TEST_CASE( "CypherSecurity AEAD permits concurrent use of one read-only key",
     }
     REQUIRE( bAllSucceeded.load( std::memory_order_relaxed ) );
 }
+
+TEST_CASE( "CypherSecurity AEAD size helpers enforce tag and overflow bounds",
+           "[CypherSecurity][AEAD][Size]" )
+{
+    usize cbSize = 91u;
+    REQUIRE( Aead_CiphertextSize( 0u, &cbSize ) );
+    REQUIRE( cbSize == CY_SECURITY_AEAD_TAG_SIZE );
+
+    REQUIRE(
+        Aead_CiphertextSize(
+            CY_USIZE_MAX - CY_SECURITY_AEAD_TAG_SIZE,
+            &cbSize ) );
+    REQUIRE( cbSize == CY_USIZE_MAX );
+
+    cbSize = 91u;
+    REQUIRE_FALSE(
+        Aead_CiphertextSize(
+            CY_USIZE_MAX - CY_SECURITY_AEAD_TAG_SIZE + 1u,
+            &cbSize ) );
+    REQUIRE( cbSize == 91u );
+    REQUIRE_FALSE( Aead_CiphertextSize( 0u, nullptr ) );
+
+    REQUIRE(
+        Aead_PlaintextSize( CY_SECURITY_AEAD_TAG_SIZE, &cbSize ) );
+    REQUIRE( cbSize == 0u );
+
+    cbSize = 91u;
+    REQUIRE_FALSE(
+        Aead_PlaintextSize( CY_SECURITY_AEAD_TAG_SIZE - 1u, &cbSize ) );
+    REQUIRE( cbSize == 91u );
+    REQUIRE_FALSE(
+        Aead_PlaintextSize( CY_SECURITY_AEAD_TAG_SIZE, nullptr ) );
+}
+
+TEST_CASE( "CypherSecurity AEAD keys expose an idempotent lifecycle",
+           "[CypherSecurity][AEAD][Lifecycle]" )
+{
+    aead_key_t key{};
+    REQUIRE_FALSE( AeadKey_IsValid( nullptr ) );
+    REQUIRE_FALSE( AeadKey_IsValid( &key ) );
+
+    REQUIRE(
+        AeadKey_Generate(
+            secure_memory_lock_policy_t::BEST_EFFORT,
+            &key ) == security_status_t::OK );
+    REQUIRE( AeadKey_IsValid( &key ) );
+
+    AeadKey_Destroy( &key );
+    REQUIRE_FALSE( AeadKey_IsValid( &key ) );
+    AeadKey_Destroy( &key );
+    AeadKey_Destroy( nullptr );
+}

@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: tests/CypherCommon/Mathlib/CypherMath_Numerics_Tests.cpp
+//  File: tests/CypherCommon/Mathlib/CypherCommon_Mathlib_Numerics_Tests.cpp
 //  Purpose: Tests numerical helpers used by tools and physics.
 //  Details: Covers stable roots, degenerate closest-point queries, and explicit
 //           linear and angular integration behavior.
@@ -41,7 +41,7 @@ void RequireVec3(
 } // namespace
 
 TEST_CASE( "quadratic solving remains stable for separated roots",
-           "[CypherMath][Numerics][Quadratic]" )
+           "[CypherCommon][Mathlib][Numerics][Quadratic]" )
 {
     quadratic_solution_t solution{};
     REQUIRE( Numerics_TrySolveQuadratic(
@@ -53,7 +53,7 @@ TEST_CASE( "quadratic solving remains stable for separated roots",
 }
 
 TEST_CASE( "quadratic solving classifies repeated, linear, and absent roots",
-           "[CypherMath][Numerics][Quadratic]" )
+           "[CypherCommon][Mathlib][Numerics][Quadratic]" )
 {
     quadratic_solution_t solution{};
     REQUIRE( Numerics_TrySolveQuadratic(
@@ -76,7 +76,7 @@ TEST_CASE( "quadratic solving classifies repeated, linear, and absent roots",
 }
 
 TEST_CASE( "closest segment points cover crossing, skew, and point segments",
-           "[CypherMath][Numerics][ClosestPoint]" )
+           "[CypherCommon][Mathlib][Numerics][ClosestPoint]" )
 {
     segment_closest_points_t closest{};
     REQUIRE( Numerics_TryClosestSegmentPoints(
@@ -110,7 +110,7 @@ TEST_CASE( "closest segment points cover crossing, skew, and point segments",
 }
 
 TEST_CASE( "semi-implicit integration updates velocity before position",
-           "[CypherMath][Numerics][Integration]" )
+           "[CypherCommon][Mathlib][Numerics][Integration]" )
 {
     vec3_t position{};
     vec3_t velocity{};
@@ -124,7 +124,7 @@ TEST_CASE( "semi-implicit integration updates velocity before position",
 }
 
 TEST_CASE( "angular integration follows the right-handed axis convention",
-           "[CypherMath][Numerics][Integration]" )
+           "[CypherCommon][Mathlib][Numerics][Integration]" )
 {
     quat_t orientation{};
     REQUIRE( Numerics_TryIntegrateAngularVelocity(

@@ -64,15 +64,21 @@ TEST_CASE( "UniquePtr destroys once and transfers ownership destructively",
         REQUIRE( UniquePtr_IsValid( &first ) );
         REQUIRE( UniquePtr_Get( &first )->nValue == 7 );
 
-        second = static_cast<unique_ptr_t<owned_value_t> &&>( first );
+        UniquePtr_Reset( &second );
         REQUIRE( cDestroyed == 1u );
+        REQUIRE( UniquePtr_IsValid( &second ) );
+        REQUIRE( UniquePtr_Get( &second ) == nullptr );
+        second = UniquePtr_Make( &secondObject, CountDestroy, &cDestroyed );
+
+        second = static_cast<unique_ptr_t<owned_value_t> &&>( first );
+        REQUIRE( cDestroyed == 2u );
         REQUIRE( UniquePtr_Get( &first ) == nullptr );
         REQUIRE( UniquePtr_Get( &second ) == &firstObject );
 
         REQUIRE( UniquePtr_Release( &second ) == &firstObject );
         REQUIRE( UniquePtr_Get( &second ) == nullptr );
     }
-    REQUIRE( cDestroyed == 1u );
+    REQUIRE( cDestroyed == 2u );
 }
 
 TEST_CASE( "IntrusivePtr balances explicit copies, moves, and resets",
@@ -83,6 +89,7 @@ TEST_CASE( "IntrusivePtr balances explicit copies, moves, and resets",
         intrusive_ptr_t<referenced_value_t> first =
             IntrusivePtr_Acquire( &object, AddReference, ReleaseReference );
         REQUIRE( object.nReferences == 1u );
+        REQUIRE( IntrusivePtr_IsValid( &first ) );
 
         intrusive_ptr_t<referenced_value_t> second = IntrusivePtr_Copy( first );
         REQUIRE( object.nReferences == 2u );
@@ -94,6 +101,8 @@ TEST_CASE( "IntrusivePtr balances explicit copies, moves, and resets",
         REQUIRE( IntrusivePtr_Get( &second ) == nullptr );
         IntrusivePtr_Reset( &moved );
         REQUIRE( object.nReferences == 1u );
+        REQUIRE( IntrusivePtr_IsValid( &moved ) );
+        REQUIRE( IntrusivePtr_Get( &moved ) == nullptr );
     }
     REQUIRE( object.nReferences == 0u );
 }

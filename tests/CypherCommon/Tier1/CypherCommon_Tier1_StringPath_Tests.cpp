@@ -202,3 +202,19 @@ TEST_CASE( "StringPath replaces extensions and constructs relative paths",
         StringView_FromCString( output ),
         StringView_FromCString( "../materials/wall.cymat" ) ) );
 }
+
+TEST_CASE( "StringPath exposes separator and trailing-separator policy",
+           "[CypherCommon][Tier1][StringPath]" )
+{
+    REQUIRE( StringPath_Separator( path_style_t::VIRTUAL ) == '/' );
+    REQUIRE( StringPath_Separator( path_style_t::POSIX ) == '/' );
+    REQUIRE( StringPath_Separator( path_style_t::WINDOWS ) == '\\' );
+    REQUIRE( StringPath_IsSeparator( '/' ) );
+    REQUIRE( StringPath_IsSeparator( '\\' ) );
+    REQUIRE_FALSE( StringPath_IsSeparator( ':' ) );
+    REQUIRE( StringPath_HasTrailingSeparator(
+        StringView_FromCString( "materials/" ) ) );
+    REQUIRE_FALSE( StringPath_HasTrailingSeparator(
+        StringView_FromCString( "materials" ) ) );
+    REQUIRE_FALSE( StringPath_HasTrailingSeparator( {} ) );
+}

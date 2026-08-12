@@ -104,3 +104,28 @@ TEST_CASE( "SoaContainer rejects overflow transactionally and supports move",
     REQUIRE( SoaContainer_IsValid( &source ) );
     REQUIRE( SoaContainer_Count( &source ) == 0u );
 }
+
+TEST_CASE( "SoaContainer clear retains layout and shutdown releases ownership",
+           "[CypherCommon][Tier1][SoaContainer]" )
+{
+    const soa_column_desc_t columns[]{
+        { sizeof( u32 ), alignof( u32 ) },
+        { sizeof( f32 ), alignof( f32 ) }
+    };
+    soa_container_t container{};
+    REQUIRE( SoaContainer_Init(
+        &container,
+        { columns, 2u, Allocator_GetSystem(), 4u } ) );
+    REQUIRE( SoaContainer_Resize( &container, 3u ) );
+    const usize nCapacity = SoaContainer_Capacity( &container );
+
+    SoaContainer_Clear( &container );
+    REQUIRE( SoaContainer_IsValid( &container ) );
+    REQUIRE( SoaContainer_Count( &container ) == 0u );
+    REQUIRE( SoaContainer_Capacity( &container ) == nCapacity );
+    REQUIRE( SoaContainer_Column( &container, 0u ) != nullptr );
+
+    SoaContainer_Shutdown( &container );
+    REQUIRE( SoaContainer_IsValid( &container ) );
+    REQUIRE( SoaContainer_Capacity( &container ) == 0u );
+}

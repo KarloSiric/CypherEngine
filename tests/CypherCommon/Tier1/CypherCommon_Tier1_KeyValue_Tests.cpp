@@ -222,3 +222,34 @@ TEST_CASE( "KeyValue bounds recursive tree depth at construction",
         key_value_type_t::ARRAY ) == nullptr );
     KeyValue_DestroyDocument( pDocument );
 }
+
+TEST_CASE( "KeyValue scalar container and document reset contracts are explicit",
+           "[CypherCommon][Tier1][KeyValue]" )
+{
+    key_value_document_t *pDocument = KeyValue_CreateDocument( {} );
+    REQUIRE( pDocument != nullptr );
+    key_value_t *pRoot = KeyValue_Root( pDocument );
+
+    REQUIRE( KeyValue_SetContainerType(
+        pDocument,
+        pRoot,
+        key_value_type_t::OBJECT ) );
+    key_value_t *pEnabled = KeyValue_ObjectInsert(
+        pDocument,
+        pRoot,
+        StringView_FromCString( "enabled" ),
+        key_value_type_t::NULL_VALUE );
+    REQUIRE( pEnabled != nullptr );
+    REQUIRE( KeyValue_SetBool( pDocument, pEnabled, CY_TRUE ) );
+    bool_t bEnabled = CY_FALSE;
+    REQUIRE( KeyValue_GetBool( pEnabled, &bEnabled ) );
+    REQUIRE( bEnabled );
+    REQUIRE( KeyValue_SetNull( pDocument, pEnabled ) );
+    REQUIRE( KeyValue_Type( pEnabled ) == key_value_type_t::NULL_VALUE );
+
+    KeyValue_ClearDocument( pDocument );
+    pRoot = KeyValue_Root( pDocument );
+    REQUIRE( KeyValue_Type( pRoot ) == key_value_type_t::NULL_VALUE );
+    REQUIRE( KeyValue_ChildCount( pRoot ) == 0u );
+    KeyValue_DestroyDocument( pDocument );
+}

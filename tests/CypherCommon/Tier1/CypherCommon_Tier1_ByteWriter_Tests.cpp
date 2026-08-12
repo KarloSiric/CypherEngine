@@ -32,6 +32,9 @@ TEST_CASE( "ByteWriter emits exact little and big endian bytes",
             &writer,
             Span_FromArray( storage ),
             data_byte_order_t::LITTLE ) );
+        REQUIRE( ByteWriter_IsValid( &writer ) );
+        REQUIRE( ByteWriter_Capacity( &writer ) == sizeof( storage ) );
+        REQUIRE( ByteWriter_Remaining( &writer ) == sizeof( storage ) );
         REQUIRE( ByteWriter_WriteU16( &writer, 0x1234u ) );
         REQUIRE( ByteWriter_WriteU32( &writer, 0x89ABCDEFu ) );
 
@@ -131,3 +134,19 @@ TEST_CASE( "ByteWriter supports overlapping source and destination ranges",
     REQUIRE( block.cbSize == 4u );
 }
 
+TEST_CASE( "ByteWriter writes explicit zero ranges without changing capacity",
+           "[CypherCommon][Tier1][ByteWriter][Zero]" )
+{
+    byte storage[8]{};
+    Cy_MemSet( storage, 0xA5u, sizeof( storage ) );
+    byte_writer_t writer{};
+    REQUIRE( ByteWriter_Init( &writer, Span_FromArray( storage ) ) );
+    REQUIRE( ByteWriter_WriteZero( &writer, 5u ) );
+    REQUIRE( ByteWriter_BytesWritten( &writer ) == 5u );
+    REQUIRE( ByteWriter_Remaining( &writer ) == 3u );
+    REQUIRE( ByteWriter_Capacity( &writer ) == sizeof( storage ) );
+    for ( usize iByte = 0u; iByte < 5u; ++iByte ) {
+        REQUIRE( storage[iByte] == 0u );
+    }
+    REQUIRE( storage[5] == 0xA5u );
+}

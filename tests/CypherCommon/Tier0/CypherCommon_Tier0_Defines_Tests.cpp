@@ -56,6 +56,7 @@ TEST_CASE( "Defines counts only native array extents", "[CypherCommon][Tier0][De
     STATIC_REQUIRE( CYPHER_ARRAY_COUNT( values ) == 5u );
     STATIC_REQUIRE( CYPHER_ARRAY_COUNT( matrix ) == 3u );
     STATIC_REQUIRE( CYPHER_ARRAY_COUNT( matrix[0] ) == 4u );
+    STATIC_REQUIRE( defines_detail::ArrayCount( values ) == 5u );
 }
 
 TEST_CASE( "Defines builds bit masks without invalid shifts", "[CypherCommon][Tier0][Defines]" )
@@ -100,4 +101,3 @@ TEST_CASE( "Defines type and layout controls preserve contracts", "[CypherCommon
     STATIC_REQUIRE( CYPHER_ALIGNOF( u64 ) == alignof( u64 ) );
     STATIC_REQUIRE( CYPHER_OFFSETOF( offset_probe_t, second ) == offsetof( offset_probe_t, second ) );
 }
-

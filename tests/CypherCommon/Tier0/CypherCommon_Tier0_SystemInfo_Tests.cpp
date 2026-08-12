@@ -105,6 +105,14 @@ TEST_CASE( "SystemInfo dynamic queries report sane memory and disk status", "[Cy
     REQUIRE( missing.totalBytes == 0u );
 }
 
+TEST_CASE( "SystemInfo power query returns a declared state", "[CypherCommon][Tier0][SystemInfo]" )
+{
+    const cy_system_power_state_t state = Cy_SystemInfoQueryPowerState();
+
+    REQUIRE( state >= CY_SYSTEM_POWER_UNKNOWN );
+    REQUIRE( state <= CY_SYSTEM_POWER_NO_BATTERY );
+}
+
 TEST_CASE( "SystemInfo disk queries accept UTF-8 paths", "[CypherCommon][Tier0][SystemInfo]" )
 {
     const std::filesystem::path path =

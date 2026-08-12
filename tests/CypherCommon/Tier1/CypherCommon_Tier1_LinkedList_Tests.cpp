@@ -117,3 +117,16 @@ TEST_CASE( "LinkedList destroys every owned value",
     REQUIRE( tracked_list_value_t::cConstructed ==
              tracked_list_value_t::cDestroyed );
 }
+
+TEST_CASE( "LinkedList exposes explicit validity and shutdown contracts",
+           "[CypherCommon][Tier1][LinkedList]" )
+{
+    linked_list_t<u32> list{};
+    REQUIRE( LinkedList_IsValid( &list ) );
+    REQUIRE( LinkedList_Init( &list, Allocator_GetSystem() ) );
+    REQUIRE( LinkedList_PushBack( &list, 17u ) != nullptr );
+
+    LinkedList_Shutdown( &list );
+    REQUIRE( LinkedList_IsValid( &list ) );
+    REQUIRE( LinkedList_IsEmpty( &list ) );
+}

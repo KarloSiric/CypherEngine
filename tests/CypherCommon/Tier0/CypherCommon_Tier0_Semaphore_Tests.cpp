@@ -72,6 +72,9 @@ TEST_CASE( "Semaphore wait timeout and worker wake behavior", "[CypherCommon][Ti
     REQUIRE( Cy_SemaphoreInit( &semaphore, 0u, 2u ) );
     REQUIRE( Cy_SemaphoreWaitTimeoutMsResult( &semaphore, 1u ) ==
              cy_wait_result_t::Timeout );
+    REQUIRE_FALSE( Cy_SemaphoreWaitTimeoutMs( &semaphore, 1u ) );
+    REQUIRE( Cy_SemaphorePost( &semaphore ) );
+    REQUIRE( Cy_SemaphoreWaitTimeoutMs( &semaphore, 100u ) );
 
     std::thread worker( [&]() {
         bWorkerWoke = Cy_SemaphoreWait( &semaphore );

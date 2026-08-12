@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: tests/CypherCommon/Mathlib/CypherMath_TransformGeometry_Tests.cpp
+//  File: tests/CypherCommon/Mathlib/CypherCommon_Mathlib_TransformGeometry_Tests.cpp
 //  Purpose: Tests affine, TRS, and geometry primitive contracts.
 //  Details: Tests preserve exact affine composition, reject lossy shear
 //           decomposition, and cover bounds, planes, spheres, and triangles.
@@ -41,7 +41,7 @@ void RequireVec3(
 } // namespace
 
 TEST_CASE( "affine composition matches sequential point transformation",
-           "[CypherMath][Affine3][Transform]" )
+           "[CypherCommon][Mathlib][Affine3][Transform]" )
 {
     const transform_t parent = Transform_Make(
         Vec3_Make( 4.0f, 1.0f, -2.0f ),
@@ -61,7 +61,7 @@ TEST_CASE( "affine composition matches sequential point transformation",
 }
 
 TEST_CASE( "affine inverse restores points and directions",
-           "[CypherMath][Affine3]" )
+           "[CypherCommon][Mathlib][Affine3]" )
 {
     const affine3_t transform = Affine3_FromTRS(
         Vec3_Make( 3.0f, 4.0f, 5.0f ),
@@ -75,7 +75,7 @@ TEST_CASE( "affine inverse restores points and directions",
 }
 
 TEST_CASE( "TRS decomposition round-trips reflection and rejects shear",
-           "[CypherMath][Transform]" )
+           "[CypherCommon][Mathlib][Transform]" )
 {
     const affine3_t source = Affine3_FromTRS(
         Vec3_Make( 5.0f, -3.0f, 2.0f ),
@@ -99,7 +99,7 @@ TEST_CASE( "TRS decomposition round-trips reflection and rejects shear",
 }
 
 TEST_CASE( "TRS decomposition preserves every scale-sign parity",
-           "[CypherMath][Transform][Property]" )
+           "[CypherCommon][Mathlib][Transform][Property]" )
 {
     constexpr vec3_t scales[]{
         { 2.0f, 3.0f, 4.0f },
@@ -126,7 +126,7 @@ TEST_CASE( "TRS decomposition preserves every scale-sign parity",
 }
 
 TEST_CASE( "AABB construction and affine mapping remain conservative",
-           "[CypherMath][Bounds]" )
+           "[CypherCommon][Mathlib][Bounds]" )
 {
     aabb_t bounds = CY_AABB_EMPTY;
     bounds = Aabb_ExpandPoint( bounds, Vec3_Make( -1.0f, -2.0f, -3.0f ) );
@@ -150,7 +150,7 @@ TEST_CASE( "AABB construction and affine mapping remain conservative",
 }
 
 TEST_CASE( "sphere merge contains both inputs and identity transform is exact",
-           "[CypherMath][Sphere]" )
+           "[CypherCommon][Mathlib][Sphere]" )
 {
     const sphere_t a = Sphere_Make( Vec3_Make( 0.0f, 0.0f, 0.0f ), 1.0f );
     const sphere_t b = Sphere_Make( Vec3_Make( 4.0f, 0.0f, 0.0f ), 1.0f );
@@ -167,7 +167,7 @@ TEST_CASE( "sphere merge contains both inputs and identity transform is exact",
 }
 
 TEST_CASE( "plane affine transformation preserves transformed points",
-           "[CypherMath][Plane]" )
+           "[CypherCommon][Mathlib][Plane]" )
 {
     plane_t source{};
     REQUIRE( Plane_TryFromPointNormal(
@@ -184,7 +184,7 @@ TEST_CASE( "plane affine transformation preserves transformed points",
 }
 
 TEST_CASE( "triangle barycentrics and closest point cover face and edge regions",
-           "[CypherMath][Triangle]" )
+           "[CypherCommon][Mathlib][Triangle]" )
 {
     const triangle3_t triangle = Triangle3_Make(
         Vec3_Make( 0.0f, 0.0f, 0.0f ),
@@ -205,7 +205,7 @@ TEST_CASE( "triangle barycentrics and closest point cover face and edge regions"
 }
 
 TEST_CASE( "segment closest point clamps to finite endpoints",
-           "[CypherMath][Ray]" )
+           "[CypherCommon][Mathlib][Ray]" )
 {
     const segment_t segment = Segment_Make(
         Vec3_Make( 0.0f, 0.0f, 0.0f ),

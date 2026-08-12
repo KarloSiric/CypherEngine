@@ -88,6 +88,10 @@ TEST_CASE( "Function stores small callables inline without allocation",
     const allocator_t allocator = MakeFunctionAllocator( &state );
     function_t<i32( i32 )> function{};
     REQUIRE( Function_Init( &function, &allocator ) );
+    REQUIRE( Function_IsValid( &function ) );
+    REQUIRE_FALSE(
+        Function_IsValid(
+            static_cast<const function_t<i32( i32 )> *>( nullptr ) ) );
 
     const i32 nBias = 7;
     REQUIRE( Function_Bind(

@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: benchmarks/CypherCommon/Mathlib/CypherMath_Core_Bench.cpp
+//  File: benchmarks/CypherCommon/Mathlib/CypherCommon_Mathlib_Core_Bench.cpp
 //  Purpose: Benchmarks representative CypherMath runtime operations.
 //  Details: The suite covers runtime hot paths plus representative editor and
 //           serialization workloads without mixing allocation or I/O costs.

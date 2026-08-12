@@ -118,6 +118,27 @@ TEST_CASE( "Endian integer reads and writes support unaligned buffers", "[Cypher
     REQUIRE( Cy_ReadBig64( bytes.data() + 1u ) == 0x1122334455667788ull );
 }
 
+TEST_CASE( "Endian unaligned IO covers every integer width and byte order", "[CypherCommon][Tier0][Endian]" )
+{
+    std::array<u8, 16u> bytes{};
+
+    Cy_WriteLittle64( bytes.data() + 1u, 0x0123456789ABCDEFull );
+    REQUIRE( Cy_ReadLittle64( bytes.data() + 1u ) ==
+             0x0123456789ABCDEFull );
+
+    Cy_WriteBig16( bytes.data() + 1u, 0xA1B2u );
+    REQUIRE( bytes[1u] == 0xA1u );
+    REQUIRE( bytes[2u] == 0xB2u );
+    REQUIRE( Cy_ReadBig16( bytes.data() + 1u ) == 0xA1B2u );
+
+    Cy_WriteBig32( bytes.data() + 3u, 0xC3D4E5F6u );
+    REQUIRE( bytes[3u] == 0xC3u );
+    REQUIRE( bytes[4u] == 0xD4u );
+    REQUIRE( bytes[5u] == 0xE5u );
+    REQUIRE( bytes[6u] == 0xF6u );
+    REQUIRE( Cy_ReadBig32( bytes.data() + 3u ) == 0xC3D4E5F6u );
+}
+
 TEST_CASE( "Endian floating-point reads and writes preserve exact bits", "[CypherCommon][Tier0][Endian]" )
 {
     std::array<u8, 20u> bytes{};
@@ -142,6 +163,41 @@ TEST_CASE( "Endian floating-point reads and writes preserve exact bits", "[Cyphe
              std::bit_cast<u32>( flValue32 ) );
     REQUIRE( std::bit_cast<u64>( Cy_ReadBigF64( bytes.data() + 5u ) ) ==
              std::bit_cast<u64>( flValue64 ) );
+}
+
+TEST_CASE( "Endian floating host conversions preserve every tested bit pattern", "[CypherCommon][Tier0][Endian]" )
+{
+    constexpr std::array<u32, 6u> patterns32{
+        0x00000000u,
+        0x80000000u,
+        0x3F800000u,
+        0xBF800000u,
+        0x7F800000u,
+        0x7FC12345u
+    };
+    constexpr std::array<u64, 6u> patterns64{
+        0x0000000000000000ull,
+        0x8000000000000000ull,
+        0x3FF0000000000000ull,
+        0xBFF0000000000000ull,
+        0x7FF0000000000000ull,
+        0x7FF8123456789ABCull
+    };
+
+    for ( u32 nBits : patterns32 ) {
+        const f32 flValue = std::bit_cast<f32>( nBits );
+        REQUIRE( std::bit_cast<u32>(
+            Cy_LittleToHostF32( Cy_HostToLittleF32( flValue ) ) ) == nBits );
+        REQUIRE( std::bit_cast<u32>(
+            Cy_BigToHostF32( Cy_HostToBigF32( flValue ) ) ) == nBits );
+    }
+    for ( u64 nBits : patterns64 ) {
+        const f64 flValue = std::bit_cast<f64>( nBits );
+        REQUIRE( std::bit_cast<u64>(
+            Cy_LittleToHostF64( Cy_HostToLittleF64( flValue ) ) ) == nBits );
+        REQUIRE( std::bit_cast<u64>(
+            Cy_BigToHostF64( Cy_HostToBigF64( flValue ) ) ) == nBits );
+    }
 }
 
 TEST_CASE( "Endian FourCC has a stable serialized byte layout", "[CypherCommon][Tier0][Endian]" )

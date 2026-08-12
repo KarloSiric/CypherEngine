@@ -69,6 +69,13 @@ TEST_CASE( "Errors expose common names and descriptions through the common table
     REQUIRE( Cy_ErrorFindDesc( *pTable, timeout ) != nullptr );
     REQUIRE( Cy_ErrorFindName( *pTable, timeout ) == Cy_CommonErrorName( common_error_t::ERR_TIMEOUT ) );
     REQUIRE( Cy_ErrorFindDescription( *pTable, timeout ) == Cy_CommonErrorDescription( common_error_t::ERR_TIMEOUT ) );
+    REQUIRE( std::string_view( Cy_ErrorName( common_error_t::ERR_TIMEOUT ) ) ==
+             "ERR_TIMEOUT" );
+    REQUIRE( std::string_view(
+        Cy_ErrorDescription( common_error_t::ERR_TIMEOUT ) ) ==
+        Cy_CommonErrorDescription( common_error_t::ERR_TIMEOUT ) );
+    REQUIRE( Cy_ErrorSucceeded( common_error_t::OK ) );
+    REQUIRE( Cy_ErrorFailed( common_error_t::ERR_TIMEOUT ) );
 }
 
 TEST_CASE( "Errors reject table lookups from the wrong domain", "[CypherCommon][Tier0][Error]" )

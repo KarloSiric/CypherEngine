@@ -79,6 +79,21 @@ TEST_CASE( "Lexer default rules expose stable policy and status names",
     REQUIRE( ViewEquals( StringView_FromCString( Lexer_StatusName( static_cast<lexer_status_t>( 0xffu ) ) ), "UNKNOWN" ) );
 }
 
+TEST_CASE( "Lexer skip trivia advances to the next token boundary",
+           "[CypherCommon][Tier1][Lexer]" )
+{
+    lexer_t lexer{};
+    REQUIRE( Lexer_Init(
+        &lexer,
+        StringView_FromCString( " \t// ignored\n  identifier" ),
+        Lexer_DefaultRules() ) );
+
+    REQUIRE( Lexer_SkipTrivia( &lexer ) == lexer_status_t::OK );
+    REQUIRE( lexer.cursor.nLine == 2u );
+    REQUIRE( lexer.cursor.nColumn == 3u );
+    ReadToken( &lexer, token_kind_t::IDENTIFIER, "identifier" );
+}
+
 TEST_CASE( "Lexer reads identifiers punctuation and numeric tokens without allocation",
            "[CypherCommon][Tier1][Lexer]" )
 {

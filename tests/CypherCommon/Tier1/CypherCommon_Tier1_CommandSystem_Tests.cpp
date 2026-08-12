@@ -329,6 +329,45 @@ TEST_CASE( "CommandSystem owns metadata and applies one case-aware namespace",
     CommandSystem_Destroy( pSystem );
 }
 
+TEST_CASE( "CommandSystem exposes ConVar lookup descriptors removal and error domains",
+           "[CypherCommon][Tier1][CommandSystem]" )
+{
+    command_system_t *pSystem = CommandSystem_Create( {} );
+    REQUIRE( pSystem != nullptr );
+    const convar_register_result_t registered = CommandSystem_RegisterConVar(
+        pSystem,
+        MakeI64Desc( "test.value", "7", "0", "10" ) );
+    REQUIRE( Cy_ErrorSucceeded( registered.error ) );
+
+    const convar_handle_t found = CommandSystem_FindConVar(
+        pSystem,
+        StringView_FromCString( "TEST.VALUE" ) );
+    REQUIRE( found.value == registered.handle.value );
+
+    convar_desc_t desc{};
+    REQUIRE( CommandSystem_GetConVarDesc( pSystem, found, &desc ) );
+    REQUIRE( ToString( desc.name ) == "test.value" );
+    REQUIRE( ToString( desc.defaultValue ) == "7" );
+
+    REQUIRE( CommandSystem_MakeError( command_system_error_t::OK ) == CY_ERROR_OK );
+    REQUIRE( Cy_ErrorDomain( CommandSystem_MakeError(
+        command_system_error_t::NOT_FOUND ) ) == error_domain_t::COMMAND );
+    REQUIRE( CommandSystem_MakeError( convar_system_error_t::OK ) == CY_ERROR_OK );
+    REQUIRE( Cy_ErrorDomain( CommandSystem_MakeError(
+        convar_system_error_t::NOT_FOUND ) ) == error_domain_t::CVAR );
+
+    REQUIRE( Cy_ErrorSucceeded(
+        CommandSystem_UnregisterConVar( pSystem, registered.handle ) ) );
+    REQUIRE_FALSE( Cy_Handle32IsValid( CommandSystem_FindConVar(
+        pSystem,
+        StringView_FromCString( "test.value" ) ) ) );
+    REQUIRE_FALSE( CommandSystem_GetConVarDesc(
+        pSystem,
+        registered.handle,
+        &desc ) );
+    CommandSystem_Destroy( pSystem );
+}
+
 TEST_CASE( "CommandSystem rejects stale handles after unregister and reuse",
            "[CypherCommon][Tier1][CommandSystem]" )
 {

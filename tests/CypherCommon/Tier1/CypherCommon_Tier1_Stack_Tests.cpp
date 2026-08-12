@@ -165,3 +165,18 @@ TEST_CASE( "Stack rejects extraction into its own storage",
         g_stackAssertCount ==
         static_cast<u32>( CYPHER_ASSERTS_ENABLED ) );
 }
+
+TEST_CASE( "Stack move push and explicit shutdown preserve lifecycle invariants",
+           "[CypherCommon][Tier1][Stack]" )
+{
+    cy_stack_t<u32> stack{};
+    REQUIRE( Stack_Init( &stack, Allocator_GetSystem() ) );
+    u32 nValue = 53u;
+
+    REQUIRE( Stack_PushMove( &stack, static_cast<u32 &&>( nValue ) ) );
+    REQUIRE( *Stack_Top( &stack ) == 53u );
+
+    Stack_Shutdown( &stack );
+    REQUIRE( Stack_IsValid( &stack ) );
+    REQUIRE( Stack_IsEmpty( &stack ) );
+}

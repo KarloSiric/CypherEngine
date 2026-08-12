@@ -230,3 +230,16 @@ TEST_CASE( "Array invalid operations assert and fail safely",
         g_arrayAssertCount ==
         5u * static_cast<u32>( CYPHER_ASSERTS_ENABLED ) );
 }
+
+TEST_CASE( "Array shutdown restores the canonical empty state",
+           "[CypherCommon][Tier1][Array][Lifecycle]" )
+{
+    array_t<u32> array{};
+    REQUIRE( Array_Init( &array, Allocator_GetSystem(), 4u ) );
+    Array_Shutdown( &array );
+    REQUIRE( Array_IsValid( &array ) );
+    REQUIRE( Array_IsEmpty( &array ) );
+    REQUIRE( array.pData == nullptr );
+    REQUIRE( array.pAllocator == nullptr );
+    Array_Shutdown( &array );
+}

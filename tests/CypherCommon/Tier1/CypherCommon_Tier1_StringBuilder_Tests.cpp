@@ -20,6 +20,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdarg>
+
 using namespace cypher::common;
 
 namespace
@@ -31,6 +33,19 @@ assert_action_t CaptureStringBuilderAssert( const assert_info_t & ) noexcept
 {
     ++g_stringBuilderAssertCount;
     return assert_action_t::Continue;
+}
+
+string_builder_status_t AppendFormatV(
+    string_builder_t *pBuilder,
+    const char *pFormat,
+    ... ) noexcept
+{
+    std::va_list args;
+    va_start( args, pFormat );
+    const string_builder_status_t status =
+        StringBuilder_AppendFormatV( pBuilder, pFormat, args );
+    va_end( args );
+    return status;
 }
 
 void RequireBuilderEquals(
@@ -149,6 +164,21 @@ TEST_CASE( "StringBuilder formatting shares truncation accounting",
     REQUIRE( StringBuilder_Length( &builder ) == 15u );
     REQUIRE( StringBuilder_Required( &builder ) == 18u );
     REQUIRE( storage[15] == '\0' );
+}
+
+TEST_CASE( "StringBuilder va-list formatting follows the bounded contract",
+           "[CypherCommon][Tier1][StringBuilder]" )
+{
+    char storage[32]{};
+    string_builder_t builder{};
+    REQUIRE( StringBuilder_Init( &builder, storage, sizeof( storage ) ) );
+
+    REQUIRE( AppendFormatV(
+        &builder,
+        "%s:%d",
+        "entity",
+        17 ) == string_builder_status_t::OK );
+    RequireBuilderEquals( builder, "entity:17" );
 }
 
 TEST_CASE( "StringBuilder clear resets text required length and status",

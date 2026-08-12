@@ -240,3 +240,18 @@ TEST_CASE( "Optional invalid pointers assert and fail safely",
         g_optionalAssertCount ==
         5u * static_cast<u32>( CYPHER_ASSERTS_ENABLED ) );
 }
+
+TEST_CASE( "Optional move emplacement constructs the stored value",
+           "[CypherCommon][Tier1][Optional]" )
+{
+    optional_t<u32> optional{};
+    u32 nValue = 91u;
+
+    u32 *pStored = Optional_EmplaceMove(
+        &optional,
+        static_cast<u32 &&>( nValue ) );
+
+    REQUIRE( pStored != nullptr );
+    REQUIRE( *pStored == 91u );
+    REQUIRE( Optional_HasValue( optional ) );
+}

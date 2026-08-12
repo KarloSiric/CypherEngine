@@ -92,6 +92,35 @@ TEST_CASE( "Log normalizes null messages", "[CypherCommon][Tier0][Log]" )
     Cy_LogSetCallback( nullptr, nullptr );
 }
 
+TEST_CASE( "Log dispatches every source and error metadata form", "[CypherCommon][Tier0][Log]" )
+{
+    log_capture_t capture{};
+    Cy_LogSetCallback( CaptureLog, &capture );
+
+    const source_location_t location{ "dispatch.cpp", "Dispatch", 9u, 2u };
+    Cy_LogWriteAt(
+        log_level_t::Warning,
+        log_channel_t::System,
+        "located",
+        location );
+    REQUIRE( capture.callCount == 1u );
+    REQUIRE( capture.record.errorCode == CY_ERROR_OK );
+    REQUIRE( capture.record.location.line == 9u );
+
+    const error_code_t errorCode = CY_ERROR( SYSTEM, 3u );
+    Cy_LogWriteError(
+        log_level_t::Error,
+        log_channel_t::System,
+        errorCode,
+        "unlocated error" );
+    REQUIRE( capture.callCount == 2u );
+    REQUIRE( capture.record.errorCode == errorCode );
+    REQUIRE_FALSE( Cy_SourceLocation_IsValid( capture.record.location ) );
+
+    Cy_LogGetCallback( nullptr, nullptr );
+    Cy_LogSetCallback( nullptr, nullptr );
+}
+
 TEST_CASE( "Log callbacks may change registration without deadlocking", "[CypherCommon][Tier0][Log]" )
 {
     u32 nCallCount = 0u;

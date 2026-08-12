@@ -174,3 +174,19 @@ TEST_CASE( "StringConvert formats booleans and rejects invalid integer formats",
         sizeof( output ) ).status == string_convert_status_t::INVALID_BASE );
     REQUIRE( output[0] == '\0' );
 }
+
+TEST_CASE( "StringConvert formats the complete signed 32-bit range",
+           "[CypherCommon][Tier1][StringConvert]" )
+{
+    char output[32]{};
+    const string_convert_result_t result = StringConvert_I32(
+        CY_I32_MIN,
+        {},
+        output,
+        sizeof( output ) );
+
+    REQUIRE( result.status == string_convert_status_t::OK );
+    REQUIRE( StringView_Equals(
+        StringView_FromCString( output ),
+        StringView_FromCString( "-2147483648" ) ) );
+}

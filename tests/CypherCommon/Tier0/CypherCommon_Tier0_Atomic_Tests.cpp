@@ -19,6 +19,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <thread>
 #include <vector>
 
@@ -57,6 +58,30 @@ TEST_CASE( "Atomic compare exchange reports success and updates expected on fail
     nExpected = 12u;
     REQUIRE_FALSE( Cy_AtomicCompareExchange( &nValue, &nExpected, 40u ) );
     REQUIRE( nExpected == 30u );
+    REQUIRE( Cy_AtomicLoad( &nValue ) == 30u );
+}
+
+TEST_CASE( "Atomic weak compare exchange supports retry loops", "[CypherCommon][Tier0][Atomic]" )
+{
+    atomic_u32_t nValue{ 12u };
+
+    u32 nExpected = 7u;
+    REQUIRE_FALSE( Cy_AtomicCompareExchangeWeak(
+        &nValue,
+        &nExpected,
+        30u,
+        CY_MEMORY_ORDER_ACQ_REL,
+        CY_MEMORY_ORDER_ACQUIRE ) );
+    REQUIRE( nExpected == 12u );
+
+    while ( !Cy_AtomicCompareExchangeWeak(
+        &nValue,
+        &nExpected,
+        30u,
+        CY_MEMORY_ORDER_ACQ_REL,
+        CY_MEMORY_ORDER_ACQUIRE ) ) {
+        REQUIRE( nExpected == 12u );
+    }
     REQUIRE( Cy_AtomicLoad( &nValue ) == 30u );
 }
 
@@ -111,6 +136,12 @@ TEST_CASE( "Atomic pointer arithmetic advances by elements", "[CypherCommon][Tie
 
 TEST_CASE( "Atomic order normalization prevents invalid standard orders", "[CypherCommon][Tier0][Atomic]" )
 {
+    STATIC_REQUIRE( Cy_AtomicDefaultFailureOrder( CY_MEMORY_ORDER_RELEASE ) ==
+                    CY_MEMORY_ORDER_RELAXED );
+    STATIC_REQUIRE( Cy_AtomicDefaultFailureOrder( CY_MEMORY_ORDER_ACQ_REL ) ==
+                    CY_MEMORY_ORDER_ACQUIRE );
+    STATIC_REQUIRE( Cy_AtomicDefaultFailureOrder( CY_MEMORY_ORDER_SEQ_CST ) ==
+                    CY_MEMORY_ORDER_SEQ_CST );
     STATIC_REQUIRE( Cy_AtomicNormalizeLoadOrder( CY_MEMORY_ORDER_RELEASE ) ==
                     CY_MEMORY_ORDER_SEQ_CST );
     STATIC_REQUIRE( Cy_AtomicNormalizeStoreOrder( CY_MEMORY_ORDER_ACQUIRE ) ==
@@ -174,6 +205,41 @@ TEST_CASE( "Atomic wait and notify publish state", "[CypherCommon][Tier0][Atomic
     waiter.join();
 
     REQUIRE( nObserved == 1u );
+}
+
+TEST_CASE( "Atomic notify all releases every registered waiter", "[CypherCommon][Tier0][Atomic]" )
+{
+    constexpr u32 nWaiterCount = 4u;
+    atomic_u32_t nState{ 0u };
+    atomic_u32_t nReadyCount{ 0u };
+    atomic_u32_t nWakeCount{ 0u };
+    std::array<std::thread, nWaiterCount> waiters;
+
+    for ( std::thread &waiter : waiters ) {
+        waiter = std::thread( [&]() {
+            static_cast<void>( Cy_AtomicFetchAdd(
+                &nReadyCount,
+                1u,
+                CY_MEMORY_ORDER_RELEASE ) );
+            Cy_AtomicWait( &nState, 0u, CY_MEMORY_ORDER_ACQUIRE );
+            static_cast<void>( Cy_AtomicFetchAdd(
+                &nWakeCount,
+                1u,
+                CY_MEMORY_ORDER_RELAXED ) );
+        } );
+    }
+
+    while ( Cy_AtomicLoad( &nReadyCount, CY_MEMORY_ORDER_ACQUIRE ) !=
+            nWaiterCount ) {
+        std::this_thread::yield();
+    }
+    Cy_AtomicStore( &nState, 1u, CY_MEMORY_ORDER_RELEASE );
+    Cy_AtomicNotifyAll( &nState );
+
+    for ( std::thread &waiter : waiters ) {
+        waiter.join();
+    }
+    REQUIRE( Cy_AtomicLoad( &nWakeCount ) == nWaiterCount );
 }
 
 TEST_CASE( "Atomic flags test set and clear", "[CypherCommon][Tier0][Atomic]" )

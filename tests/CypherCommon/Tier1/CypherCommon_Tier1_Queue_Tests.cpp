@@ -216,3 +216,15 @@ TEST_CASE( "Queue rejects extraction into its own storage",
         g_queueAssertCount ==
         static_cast<u32>( CYPHER_ASSERTS_ENABLED ) );
 }
+
+TEST_CASE( "Queue move push stores the supplied value",
+           "[CypherCommon][Tier1][Queue]" )
+{
+    queue_t<u32> queue{};
+    REQUIRE( Queue_Init( &queue, Allocator_GetSystem() ) );
+    u32 nValue = 47u;
+
+    REQUIRE( Queue_PushMove( &queue, static_cast<u32 &&>( nValue ) ) );
+    REQUIRE( Queue_Count( &queue ) == 1u );
+    REQUIRE( *Queue_Front( &queue ) == 47u );
+}

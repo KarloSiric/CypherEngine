@@ -42,6 +42,8 @@ TEST_CASE( "Map exposes ordered unique key-value storage",
     REQUIRE_FALSE( Map_Contains( &map, 2u ) );
     Map_Clear( &map );
     REQUIRE( Map_Count( &map ) == 0u );
+    Map_Shutdown( &map );
+    REQUIRE( RBTree_IsValid( &map ) );
 }
 
 TEST_CASE( "Set keeps unique keys in deterministic order",

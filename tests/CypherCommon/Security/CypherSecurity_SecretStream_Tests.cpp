@@ -328,3 +328,102 @@ TEST_CASE( "CypherSecurity stream capacity failures do not consume a record",
             &tag ) == security_status_t::OK );
     REQUIRE( output == plaintext );
 }
+
+TEST_CASE( "CypherSecurity stream size helpers enforce record overhead",
+           "[CypherSecurity][SecretStream][Size]" )
+{
+    usize cbSize = 47u;
+    REQUIRE( SecretStream_CiphertextSize( 0u, &cbSize ) );
+    REQUIRE( cbSize == CY_SECURITY_SECRET_STREAM_OVERHEAD_SIZE );
+    REQUIRE( SecretStream_CiphertextSize( 128u, &cbSize ) );
+    REQUIRE( cbSize == 128u + CY_SECURITY_SECRET_STREAM_OVERHEAD_SIZE );
+    REQUIRE_FALSE( SecretStream_CiphertextSize( 0u, nullptr ) );
+
+    REQUIRE(
+        SecretStream_PlaintextSize(
+            CY_SECURITY_SECRET_STREAM_OVERHEAD_SIZE,
+            &cbSize ) );
+    REQUIRE( cbSize == 0u );
+
+    cbSize = 47u;
+    REQUIRE_FALSE(
+        SecretStream_PlaintextSize(
+            CY_SECURITY_SECRET_STREAM_OVERHEAD_SIZE - 1u,
+            &cbSize ) );
+    REQUIRE( cbSize == 47u );
+    REQUIRE_FALSE(
+        SecretStream_PlaintextSize(
+            CY_SECURITY_SECRET_STREAM_OVERHEAD_SIZE,
+            nullptr ) );
+}
+
+TEST_CASE( "CypherSecurity stream keys import, rekey, cancel, and destroy safely",
+           "[CypherSecurity][SecretStream][Lifecycle]" )
+{
+    std::array<byte, CY_SECURITY_SECRET_STREAM_KEY_SIZE> keyBytes{};
+    for ( usize iByte = 0u; iByte < keyBytes.size(); ++iByte ) {
+        keyBytes[iByte] = static_cast<byte>( iByte + 1u );
+    }
+
+    secret_stream_key_t key{};
+    REQUIRE_FALSE( SecretStreamKey_IsValid( nullptr ) );
+    REQUIRE_FALSE( SecretStreamKey_IsValid( &key ) );
+    REQUIRE(
+        SecretStreamKey_Import(
+            BinaryBlock_FromData( keyBytes.data(), keyBytes.size() ),
+            secure_memory_lock_policy_t::BEST_EFFORT,
+            &key ) == security_status_t::OK );
+    REQUIRE( SecretStreamKey_IsValid( &key ) );
+
+    secret_stream_push_t push{};
+    secret_stream_pull_t pull{};
+    secret_stream_header_t header{};
+    REQUIRE(
+        SecretStreamPush_Begin( &key, &push, &header ) ==
+        security_status_t::OK );
+    REQUIRE(
+        SecretStreamPull_Begin( &key, header, &pull ) ==
+        security_status_t::OK );
+    REQUIRE( SecretStreamPush_Rekey( &push ) == security_status_t::OK );
+    REQUIRE( SecretStreamPull_Rekey( &pull ) == security_status_t::OK );
+
+    constexpr std::array<byte, 4u> plaintext{ 1u, 2u, 3u, 4u };
+    std::array<byte, plaintext.size() + CY_SECURITY_SECRET_STREAM_OVERHEAD_SIZE>
+        ciphertext{};
+    usize cbCiphertext = 0u;
+    REQUIRE(
+        SecretStreamPush_Message(
+            &push,
+            BinaryBlock_FromData( plaintext.data(), plaintext.size() ),
+            {},
+            secret_stream_tag_t::MESSAGE,
+            ciphertext.data(),
+            ciphertext.size(),
+            &cbCiphertext ) == security_status_t::OK );
+
+    std::array<byte, plaintext.size()> output{};
+    usize cbOutput = 0u;
+    secret_stream_tag_t tag{};
+    REQUIRE(
+        SecretStreamPull_Message(
+            &pull,
+            BinaryBlock_FromData( ciphertext.data(), cbCiphertext ),
+            {},
+            output.data(),
+            output.size(),
+            &cbOutput,
+            &tag ) == security_status_t::OK );
+    REQUIRE( output == plaintext );
+
+    SecretStreamPush_Cancel( &push );
+    SecretStreamPull_Cancel( &pull );
+    REQUIRE_FALSE( push.bActive );
+    REQUIRE_FALSE( pull.bActive );
+    SecretStreamPush_Cancel( nullptr );
+    SecretStreamPull_Cancel( nullptr );
+
+    SecretStreamKey_Destroy( &key );
+    REQUIRE_FALSE( SecretStreamKey_IsValid( &key ) );
+    SecretStreamKey_Destroy( &key );
+    SecretStreamKey_Destroy( nullptr );
+}

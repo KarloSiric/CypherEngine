@@ -290,3 +290,19 @@ TEST_CASE( "Vector invalid operations assert and fail safely",
         g_vectorAssertCount ==
         6u * static_cast<u32>( CYPHER_ASSERTS_ENABLED ) );
 }
+
+TEST_CASE( "Vector move push and explicit shutdown preserve lifecycle invariants",
+           "[CypherCommon][Tier1][Vector]" )
+{
+    vector_t<u32> vector{};
+    REQUIRE( Vector_Init( &vector, Allocator_GetSystem() ) );
+    u32 nValue = 59u;
+
+    REQUIRE( Vector_PushBackMove( &vector, static_cast<u32 &&>( nValue ) ) );
+    REQUIRE( Vector_Count( &vector ) == 1u );
+    REQUIRE( *Vector_Back( &vector ) == 59u );
+
+    Vector_Shutdown( &vector );
+    REQUIRE( Vector_IsValid( &vector ) );
+    REQUIRE( Vector_IsEmpty( &vector ) );
+}

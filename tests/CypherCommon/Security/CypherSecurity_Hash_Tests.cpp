@@ -199,3 +199,23 @@ TEST_CASE( "Security helpers reject invalid ranges and clear sensitive bytes",
         g_securityAssertCount ==
         2u * static_cast<u32>( CYPHER_ASSERTS_ENABLED ) );
 }
+
+TEST_CASE( "CypherSecurity digest validity follows the public size contract",
+           "[CypherSecurity][Hash][Validity]" )
+{
+    security_digest_t digest{};
+    REQUIRE_FALSE( SecurityDigest_IsValid( digest ) );
+
+    REQUIRE(
+        SecurityDigest_Data(
+            {},
+            {},
+            CY_SECURITY_DIGEST_MIN_SIZE,
+            &digest ) == security_status_t::OK );
+    REQUIRE( SecurityDigest_IsValid( digest ) );
+
+    digest.cbSize = CY_SECURITY_DIGEST_MIN_SIZE - 1u;
+    REQUIRE_FALSE( SecurityDigest_IsValid( digest ) );
+    digest.cbSize = CY_SECURITY_DIGEST_MAX_SIZE + 1u;
+    REQUIRE_FALSE( SecurityDigest_IsValid( digest ) );
+}

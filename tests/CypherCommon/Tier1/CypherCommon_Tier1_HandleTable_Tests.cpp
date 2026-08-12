@@ -254,3 +254,28 @@ TEST_CASE( "HandleTable traversal visits live slots and honors early stop",
     REQUIRE( visitedHandle.value == first.value );
     REQUIRE( HandleTable_Contains( &table, third ) );
 }
+
+TEST_CASE( "HandleTable exposes explicit copy move and shutdown contracts",
+           "[CypherCommon][Tier1][HandleTable]" )
+{
+    handle_table_t<u32> table{};
+    REQUIRE( HandleTable_IsValid( &table ) );
+    REQUIRE( HandleTable_Init( &table, Allocator_GetSystem(), 2u ) );
+
+    const u32 nCopiedValue = 41u;
+    u32 nMovedValue = 73u;
+    const handle32_t copied = HandleTable_Insert( &table, nCopiedValue );
+    const handle32_t moved = HandleTable_InsertMove(
+        &table,
+        static_cast<u32 &&>( nMovedValue ) );
+
+    REQUIRE( Cy_Handle32IsValid( copied ) );
+    REQUIRE( Cy_Handle32IsValid( moved ) );
+    REQUIRE( *HandleTable_Get( &table, copied ) == 41u );
+    REQUIRE( *HandleTable_Get( &table, moved ) == 73u );
+
+    HandleTable_Shutdown( &table );
+    REQUIRE( HandleTable_IsValid( &table ) );
+    REQUIRE( HandleTable_IsEmpty( &table ) );
+    REQUIRE( HandleTable_Capacity( &table ) == 0u );
+}

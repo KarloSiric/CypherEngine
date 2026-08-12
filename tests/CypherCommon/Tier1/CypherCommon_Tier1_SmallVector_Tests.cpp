@@ -313,3 +313,28 @@ TEST_CASE( "SmallVector invalid operations assert and fail safely",
         g_smallVectorAssertCount ==
         6u * static_cast<u32>( CYPHER_ASSERTS_ENABLED ) );
 }
+
+TEST_CASE( "SmallVector exposes access clear move and shutdown contracts",
+           "[CypherCommon][Tier1][SmallVector]" )
+{
+    small_vector_t<u32, 4u> vector{};
+    REQUIRE( SmallVector_IsValid( &vector ) );
+    REQUIRE( SmallVector_Init( &vector, Allocator_GetSystem() ) );
+    REQUIRE( SmallVector_IsEmpty( &vector ) );
+
+    u32 nValue = 61u;
+    REQUIRE( SmallVector_PushBackMove(
+        &vector,
+        static_cast<u32 &&>( nValue ) ) );
+    REQUIRE( *SmallVector_Back( &vector ) == 61u );
+
+    span_t<u32> values = SmallVector_Span( &vector );
+    REQUIRE( values.nCount == 1u );
+    REQUIRE( values.pData[0] == 61u );
+
+    SmallVector_Clear( &vector );
+    REQUIRE( SmallVector_IsEmpty( &vector ) );
+    SmallVector_Shutdown( &vector );
+    REQUIRE( SmallVector_IsValid( &vector ) );
+    REQUIRE( SmallVector_Capacity( &vector ) == 4u );
+}

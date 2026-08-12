@@ -25,6 +25,22 @@
 using namespace cypher::common;
 using Catch::Approx;
 
+TEST_CASE( "color constructors preserve channel order and default alpha",
+           "[CypherCommon][Tier1][Color][Construction]" )
+{
+    const color32_t bytes = Color32_RGBA( 1u, 2u, 3u );
+    REQUIRE( bytes.r == 1u );
+    REQUIRE( bytes.g == 2u );
+    REQUIRE( bytes.b == 3u );
+    REQUIRE( bytes.a == 255u );
+
+    const colorf_t floats = ColorF_RGBA( 0.1f, 0.2f, 0.3f );
+    REQUIRE( floats.r == Approx( 0.1f ) );
+    REQUIRE( floats.g == Approx( 0.2f ) );
+    REQUIRE( floats.b == Approx( 0.3f ) );
+    REQUIRE( floats.a == Approx( 1.0f ) );
+}
+
 TEST_CASE( "sRGB conversion follows the transfer curve and keeps alpha linear",
            "[CypherCommon][Tier1][Color]" )
 {

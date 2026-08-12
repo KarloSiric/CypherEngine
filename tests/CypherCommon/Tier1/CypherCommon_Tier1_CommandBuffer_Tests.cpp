@@ -86,6 +86,17 @@ TEST_CASE( "CommandBuffer enqueues peeks and pops commands in FIFO order",
     CommandBuffer_Compact( &buffer );
     REQUIRE( buffer.text.cchLength == 0u );
     REQUIRE( buffer.iReadOffset == 0u );
+
+    REQUIRE( CommandBuffer_Enqueue(
+        &buffer,
+        StringView_FromCString( "echo reused" ) ) );
+    CommandBuffer_Clear( &buffer );
+    REQUIRE( CommandBuffer_IsEmpty( &buffer ) );
+    REQUIRE( CommandBuffer_IsValid( &buffer ) );
+
+    CommandBuffer_Shutdown( &buffer );
+    REQUIRE( CommandBuffer_IsValid( &buffer ) );
+    REQUIRE( CommandBuffer_IsEmpty( &buffer ) );
 }
 
 TEST_CASE( "CommandBuffer compaction removes only the consumed prefix",

@@ -191,3 +191,17 @@ TEST_CASE( "Blob invalid operations assert and fail safely",
         g_blobAssertCount ==
         6u * static_cast<u32>( CYPHER_ASSERTS_ENABLED ) );
 }
+
+TEST_CASE( "Blob shutdown restores the canonical empty state",
+           "[CypherCommon][Tier1][Blob][Lifecycle]" )
+{
+    blob_t blob{};
+    REQUIRE( Blob_Init( &blob, Allocator_GetSystem(), 32u ) );
+    REQUIRE( Blob_Resize( &blob, 8u, 0xA5u ) );
+    Blob_Shutdown( &blob );
+    REQUIRE( Blob_IsValid( &blob ) );
+    REQUIRE( Blob_IsEmpty( &blob ) );
+    REQUIRE( blob.pData == nullptr );
+    REQUIRE( blob.pAllocator == nullptr );
+    Blob_Shutdown( &blob );
+}

@@ -261,3 +261,20 @@ TEST_CASE( "TextBuffer invalid calls assert and fail safely",
         g_textBufferAssertCount ==
         7u * static_cast<u32>( CYPHER_ASSERTS_ENABLED ) );
 }
+
+TEST_CASE( "TextBuffer explicit shutdown restores canonical empty state",
+           "[CypherCommon][Tier1][TextBuffer]" )
+{
+    text_buffer_t buffer{};
+    REQUIRE( TextBuffer_Init( &buffer, Allocator_GetSystem(), 32u ) );
+    REQUIRE( TextBuffer_Assign(
+        &buffer,
+        StringView_FromCString( "temporary" ) ) );
+
+    TextBuffer_Shutdown( &buffer );
+    REQUIRE( TextBuffer_IsValid( &buffer ) );
+    REQUIRE( TextBuffer_IsEmpty( &buffer ) );
+    REQUIRE( TextBuffer_Length( &buffer ) == 0u );
+    REQUIRE( buffer.pData == nullptr );
+    REQUIRE( buffer.pAllocator == nullptr );
+}

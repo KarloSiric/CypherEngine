@@ -72,6 +72,7 @@ TEST_CASE( "RingBuffer preserves logical order across wraparound",
     REQUIRE( RingBuffer_IsValid( &buffer ) );
     REQUIRE( RingBuffer_IsEmpty( &buffer ) );
     REQUIRE_FALSE( RingBuffer_IsFull( &buffer ) );
+    REQUIRE( RingBuffer_Capacity( &buffer ) == 4u );
 
     REQUIRE( RingBuffer_Push( &buffer, 1u ) );
     REQUIRE( RingBuffer_Push( &buffer, 2u ) );

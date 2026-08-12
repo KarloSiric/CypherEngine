@@ -35,6 +35,8 @@ TEST_CASE( "Handle32 checked construction round trips boundaries", "[CypherCommo
     const handle_parts32_t parts = Cy_Handle32Unpack( handle );
     REQUIRE( parts.nIndex == CY_HANDLE32_INDEX_MAX );
     REQUIRE( parts.nGeneration == CY_HANDLE32_GENERATION_MAX );
+    REQUIRE( Cy_Handle32Index( handle ) == parts.nIndex );
+    REQUIRE( Cy_Handle32Generation( handle ) == parts.nGeneration );
 
     REQUIRE_FALSE( Cy_Handle32TryMake(
         CY_HANDLE32_INDEX_MAX + 1u,
@@ -58,6 +60,9 @@ TEST_CASE( "Handle64 checked construction preserves every field", "[CypherCommon
     REQUIRE( parts.nIndex == CY_U32_MAX );
     REQUIRE( parts.nGeneration == CY_HANDLE64_GENERATION_MAX );
     REQUIRE( parts.nType == CY_HANDLE64_TYPE_MAX );
+    REQUIRE( Cy_Handle64Index( handle ) == parts.nIndex );
+    REQUIRE( Cy_Handle64Generation( handle ) == parts.nGeneration );
+    REQUIRE( Cy_Handle64Type( handle ) == parts.nType );
 
     REQUIRE_FALSE( Cy_Handle64TryMake(
         1u,

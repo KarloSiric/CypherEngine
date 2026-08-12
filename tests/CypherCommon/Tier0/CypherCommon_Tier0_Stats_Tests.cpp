@@ -83,6 +83,36 @@ TEST_CASE( "Stats rejects type changes and arithmetic overflow", "[CypherCommon]
     REQUIRE( value.i64Value == 0 );
 }
 
+TEST_CASE( "Stats updates unsigned and floating values with strict types", "[CypherCommon][Tier0][Stats]" )
+{
+    Cy_StatsClearRegistry();
+
+    stat_id_t u64Id = CY_STAT_ID_INVALID;
+    stat_id_t f64Id = CY_STAT_ID_INVALID;
+    REQUIRE( Cy_StatsRegister(
+        { "memory.bytes", "Memory", "", stat_value_type_t::U64 },
+        &u64Id ) );
+    REQUIRE( Cy_StatsRegister(
+        { "frame.ms", "Frame", "", stat_value_type_t::F64 },
+        &f64Id ) );
+
+    REQUIRE( Cy_StatsSetU64( u64Id, CY_U64_MAX - 4u ) );
+    REQUIRE( Cy_StatsAddU64( u64Id, 4u ) );
+    REQUIRE_FALSE( Cy_StatsAddU64( u64Id, 1u ) );
+
+    REQUIRE( Cy_StatsSetF64( f64Id, 10.5 ) );
+    REQUIRE( Cy_StatsAddF64( f64Id, -2.25 ) );
+    REQUIRE_FALSE( Cy_StatsSetF64( u64Id, 1.0 ) );
+    REQUIRE_FALSE( Cy_StatsAddF64( u64Id, 1.0 ) );
+
+    stat_value_t value{};
+    REQUIRE( Cy_StatsGet( u64Id, &value ) );
+    REQUIRE( value.u64Value == CY_U64_MAX );
+    REQUIRE( Cy_StatsGetByName( "frame.ms", &value ) );
+    REQUIRE( value.type == stat_value_type_t::F64 );
+    REQUIRE( value.f64Value == 8.25 );
+}
+
 TEST_CASE( "Stats initializes each valid value type and rejects invalid types", "[CypherCommon][Tier0][Stats]" )
 {
     Cy_StatsClearRegistry();

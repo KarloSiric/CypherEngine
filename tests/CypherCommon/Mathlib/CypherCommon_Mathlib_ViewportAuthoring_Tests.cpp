@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: tests/CypherCommon/Mathlib/CypherMath_ViewportAuthoring_Tests.cpp
+//  File: tests/CypherCommon/Mathlib/CypherCommon_Mathlib_ViewportAuthoring_Tests.cpp
 //  Purpose: Tests viewport, clipping, and planar material-authoring math.
 //  Details: Tests preserve Cypher world axes through camera picking and validate
 //           allocation-free clipping and reversible face UV projection.
@@ -49,7 +49,7 @@ void RequireVec3(
 } // namespace
 
 TEST_CASE( "viewport projection and picking preserve Cypher world axes",
-           "[CypherMath][Editor][Viewport]" )
+           "[CypherCommon][Mathlib][Editor][Viewport]" )
 {
     mat4_t view{};
     mat4_t projection{};
@@ -99,7 +99,7 @@ TEST_CASE( "viewport projection and picking preserve Cypher world axes",
 }
 
 TEST_CASE( "polygon clipping retains the requested plane half-space",
-           "[CypherMath][Editor][Clip]" )
+           "[CypherCommon][Mathlib][Editor][Clip]" )
 {
     constexpr vec3_t polygon[]{
         { -2.0f, -1.0f, 0.0f },
@@ -119,7 +119,7 @@ TEST_CASE( "polygon clipping retains the requested plane half-space",
 }
 
 TEST_CASE( "segments clip against a convex brush interval",
-           "[CypherMath][Editor][Clip]" )
+           "[CypherCommon][Mathlib][Editor][Clip]" )
 {
     constexpr plane_t planes[]{
         { { 1.0f, 0.0f, 0.0f }, -1.0f },
@@ -146,7 +146,7 @@ TEST_CASE( "segments clip against a convex brush interval",
 }
 
 TEST_CASE( "planar UV projection is reversible with scale, rotation, and offset",
-           "[CypherMath][Editor][UV]" )
+           "[CypherCommon][Mathlib][Editor][UV]" )
 {
     planar_uv_mapping_t mapping{};
     REQUIRE( Uv_TryBuildPlanarMapping(
@@ -171,7 +171,7 @@ TEST_CASE( "planar UV projection is reversible with scale, rotation, and offset"
 }
 
 TEST_CASE( "transform gizmo queries hit axis, plane, and rotation handles",
-           "[CypherMath][Editor][Gizmo]" )
+           "[CypherCommon][Mathlib][Editor][Gizmo]" )
 {
     const ray_t ray = Ray_Make(
         Vec3_Make( 2.0f, 0.1f, 5.0f ),

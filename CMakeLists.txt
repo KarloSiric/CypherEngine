@@ -237,7 +237,8 @@ set(CYPHERCOMMON_TIER2_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_SettingsSchema.cpp"
 )
 
-set(CYPHERRESOURCE_CONTRACT_SOURCES
+set(CYPHERRESOURCE_SYSTEM_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem/CypherCommon_ResourceHandle.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem/CypherCommon_ResourceId.cpp"
 )
 
@@ -346,15 +347,15 @@ target_include_directories(CypherCommonTier2
 )
 target_link_libraries(CypherCommonTier2 PUBLIC Cypher::CommonTier1)
 
-add_library(CypherResourceContracts STATIC ${CYPHERRESOURCE_CONTRACT_SOURCES})
-add_library(Cypher::ResourceContracts ALIAS CypherResourceContracts)
-target_compile_features(CypherResourceContracts PUBLIC cxx_std_20)
-target_include_directories(CypherResourceContracts
+add_library(CypherResourceSystem STATIC ${CYPHERRESOURCE_SYSTEM_SOURCES})
+add_library(Cypher::ResourceSystem ALIAS CypherResourceSystem)
+target_compile_features(CypherResourceSystem PUBLIC cxx_std_20)
+target_include_directories(CypherResourceSystem
     PUBLIC
         "${CYPHERENGINE_SRC_DIR}"
         "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem"
 )
-target_link_libraries(CypherResourceContracts PUBLIC Cypher::CommonTier1)
+target_link_libraries(CypherResourceSystem PUBLIC Cypher::CommonTier1)
 
 add_library(CypherToolFramework STATIC ${CYPHERTOOLFRAMEWORK_SOURCES})
 add_library(Cypher::ToolFramework ALIAS CypherToolFramework)
@@ -426,6 +427,47 @@ if (CYPHERENGINE_BUILD_TESTS)
     )
     target_link_libraries(cypher_common_tier0_smoke PRIVATE Cypher::CommonTier0)
     add_test(NAME cypher_common_tier0_smoke COMMAND cypher_common_tier0_smoke)
+
+    add_executable(cypher_common_tier0_death_test_helper
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier0/CypherCommon_Tier0_DeathTest_Helper.cpp"
+    )
+    target_link_libraries(
+        cypher_common_tier0_death_test_helper
+        PRIVATE Cypher::CommonTier0
+    )
+
+    function(cypher_add_tier0_death_test test_name test_mode)
+        add_test(
+            NAME ${test_name}
+            COMMAND
+                "${CMAKE_COMMAND}"
+                "-DCYPHER_TEST_HELPER=$<TARGET_FILE:cypher_common_tier0_death_test_helper>"
+                "-DCYPHER_TEST_MODE=${test_mode}"
+                -P "${CYPHERENGINE_ROOT_DIR}/cmake/CypherExpectProcessResult.cmake"
+        )
+    endfunction()
+
+    cypher_add_tier0_death_test(
+        cypher_common_tier0_debug_break_death_test
+        debug-break
+    )
+    cypher_add_tier0_death_test(
+        cypher_common_tier0_debug_trap_death_test
+        debug-trap
+    )
+    cypher_add_tier0_death_test(
+        cypher_common_tier0_crash_trigger_death_test
+        crash-trigger
+    )
+    add_test(
+        NAME cypher_common_tier0_process_exit_death_test
+        COMMAND
+            "${CMAKE_COMMAND}"
+            "-DCYPHER_TEST_HELPER=$<TARGET_FILE:cypher_common_tier0_death_test_helper>"
+            -DCYPHER_TEST_MODE=process-exit
+            -DCYPHER_EXPECT_EXIT_CODE=73
+            -P "${CYPHERENGINE_ROOT_DIR}/cmake/CypherExpectProcessResult.cmake"
+    )
 
     if (Catch2_FOUND)
         function(cypher_add_common_catch_test target_name source_file common_target)
@@ -1199,9 +1241,14 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
-            cypher_resource_id_tests
+            cypher_common_resource_system_resource_id_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/ResourceSystem/CypherCommon_ResourceSystem_ResourceId_Tests.cpp"
-            Cypher::ResourceContracts
+            Cypher::ResourceSystem
+        )
+        cypher_add_common_catch_test(
+            cypher_common_resource_system_resource_handle_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/ResourceSystem/CypherCommon_ResourceSystem_ResourceHandle_Tests.cpp"
+            Cypher::ResourceSystem
         )
         cypher_add_common_catch_test(
             cypher_common_tier1_stringparse_tests
@@ -1319,48 +1366,83 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::CommonTier2
         )
         cypher_add_common_catch_test(
-            cypher_math_scalar_vector_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_ScalarVector_Tests.cpp"
+            cypher_common_mathlib_scalar_vector_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_ScalarVector_Tests.cpp"
             Cypher::Math
         )
         cypher_add_common_catch_test(
-            cypher_math_rotation_matrix_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_RotationMatrix_Tests.cpp"
+            cypher_common_mathlib_scalar_vector_api_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_ScalarVectorApi_Tests.cpp"
             Cypher::Math
         )
         cypher_add_common_catch_test(
-            cypher_math_transform_geometry_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_TransformGeometry_Tests.cpp"
+            cypher_common_mathlib_rotation_matrix_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_RotationMatrix_Tests.cpp"
             Cypher::Math
         )
         cypher_add_common_catch_test(
-            cypher_math_intersection_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_Intersection_Tests.cpp"
+            cypher_common_mathlib_matrix_transform_api_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_MatrixTransformApi_Tests.cpp"
             Cypher::Math
         )
         cypher_add_common_catch_test(
-            cypher_math_batch_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_Batch_Tests.cpp"
+            cypher_common_mathlib_transform_geometry_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_TransformGeometry_Tests.cpp"
             Cypher::Math
         )
         cypher_add_common_catch_test(
-            cypher_math_editor_geometry_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_EditorGeometry_Tests.cpp"
+            cypher_common_mathlib_spatial_api_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_SpatialApi_Tests.cpp"
             Cypher::Math
         )
         cypher_add_common_catch_test(
-            cypher_math_numerics_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_Numerics_Tests.cpp"
+            cypher_common_mathlib_intersection_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_Intersection_Tests.cpp"
             Cypher::Math
         )
         cypher_add_common_catch_test(
-            cypher_math_viewport_authoring_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_ViewportAuthoring_Tests.cpp"
+            cypher_common_mathlib_batch_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_Batch_Tests.cpp"
             Cypher::Math
         )
         cypher_add_common_catch_test(
-            cypher_math_quantization_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherMath_Quantization_Tests.cpp"
+            cypher_common_mathlib_editor_geometry_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_EditorGeometry_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_common_mathlib_authoring_api_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_AuthoringApi_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_common_mathlib_numerics_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_Numerics_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_common_mathlib_viewport_authoring_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_ViewportAuthoring_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_common_mathlib_quantization_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_Quantization_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_common_mathlib_core_properties_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_CoreProperties_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_common_mathlib_spatial_properties_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_SpatialProperties_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_common_mathlib_authoring_properties_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_AuthoringProperties_Tests.cpp"
             Cypher::Math
         )
         cypher_add_common_catch_test(
@@ -1429,9 +1511,30 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         endfunction()
 
         cypher_add_common_benchmark(
-            cypher_math_core_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Mathlib/CypherMath_Core_Bench.cpp"
+            cypher_common_mathlib_core_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Mathlib/CypherCommon_Mathlib_Core_Bench.cpp"
             Cypher::Math
+        )
+        cypher_add_common_benchmark(
+            cypher_common_mathlib_primitives_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Mathlib/CypherCommon_Mathlib_Primitives_Bench.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_benchmark(
+            cypher_common_mathlib_authoring_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Mathlib/CypherCommon_Mathlib_Authoring_Bench.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_benchmark(
+            cypher_common_mathlib_module_coverage_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Mathlib/CypherCommon_Mathlib_ModuleCoverage_Bench.cpp"
+            Cypher::Math
+        )
+
+        cypher_add_common_benchmark(
+            cypher_common_resource_system_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/ResourceSystem/CypherCommon_ResourceSystem_Bench.cpp"
+            Cypher::ResourceSystem
         )
 
         cypher_add_common_benchmark(
@@ -1780,6 +1883,11 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             Cypher::CommonTier0
         )
         cypher_add_common_benchmark(
+            cypher_common_minidump_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier0/CypherCommon_Minidump_Bench.cpp"
+            Cypher::CommonTier0
+        )
+        cypher_add_common_benchmark(
             cypher_common_cpudetect_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier0/CypherCommon_CPUDetect_Bench.cpp"
             Cypher::CommonTier0
@@ -1805,6 +1913,26 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             Cypher::CommonTier1
         )
         cypher_add_common_benchmark(
+            cypher_common_text_modules_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_TextModules_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_data_modules_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_DataModules_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_runtime_modules_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_RuntimeModules_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
+            cypher_common_fileio_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_FileIo_Bench.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_benchmark(
             cypher_common_stringparse_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier1/CypherCommon_StringParse_Bench.cpp"
             Cypher::CommonTier1
@@ -1827,6 +1955,11 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         cypher_add_common_benchmark(
             cypher_common_schema_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier2/CypherCommon_Schema_Bench.cpp"
+            Cypher::CommonTier2
+        )
+        cypher_add_common_benchmark(
+            cypher_common_project_data_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier2/CypherCommon_ProjectData_Bench.cpp"
             Cypher::CommonTier2
         )
         cypher_add_common_benchmark(
@@ -1868,6 +2001,11 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             cypher_common_mutex_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Tier0/CypherCommon_Mutex_Bench.cpp"
             Cypher::CommonTier0
+        )
+        cypher_add_common_benchmark(
+            cypher_common_progressbar_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/ToolFramework/CypherCommon_ProgressBar_Bench.cpp"
+            Cypher::ToolFramework
         )
 
         add_executable(cypher_memory_bench

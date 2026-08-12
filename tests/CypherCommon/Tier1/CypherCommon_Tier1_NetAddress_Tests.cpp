@@ -81,6 +81,17 @@ TEST_CASE( "NetAddress classifies and compares hosts",
     REQUIRE( NetAddress_Equals(
         NetAddress_LoopbackIpv6( 1u ),
         NetAddress_LoopbackIpv6( 1u ) ) );
+
+    const net_address_t loopback = NetAddress_LoopbackIpv4( 27015u );
+    REQUIRE( NetAddress_IsValid( loopback ) );
+    REQUIRE( NetAddress_IsLoopback( loopback ) );
+    REQUIRE( loopback.nPort == 27015u );
+
+    const net_address_t any = NetAddress_AnyIpv4( 27016u );
+    REQUIRE( NetAddress_IsValid( any ) );
+    REQUIRE_FALSE( NetAddress_IsLoopback( any ) );
+    REQUIRE( any.nPort == 27016u );
+    REQUIRE_FALSE( NetAddress_IsValid( {} ) );
 }
 
 TEST_CASE( "NetAddress rejects names and malformed numeric endpoints",

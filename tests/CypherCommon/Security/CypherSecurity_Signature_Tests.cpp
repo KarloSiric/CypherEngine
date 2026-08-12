@@ -256,3 +256,46 @@ TEST_CASE( "CypherSecurity signing supports concurrent read-only key use",
     }
     REQUIRE( bAllSucceeded.load( std::memory_order_relaxed ) );
 }
+
+TEST_CASE( "CypherSecurity signature public keys and owned state have explicit lifecycles",
+           "[CypherSecurity][Signature][Lifecycle]" )
+{
+    signature_keypair_t keyPair{};
+    REQUIRE(
+        SignatureKeyPair_Generate(
+            secure_memory_lock_policy_t::BEST_EFFORT,
+            &keyPair ) == security_status_t::OK );
+    REQUIRE( SignatureKeyPair_IsValid( &keyPair ) );
+
+    signature_public_key_t imported{};
+    REQUIRE(
+        SignaturePublicKey_FromBytes(
+            BinaryBlock_FromData(
+                keyPair.publicKey.bytes,
+                sizeof( keyPair.publicKey.bytes ) ),
+            &imported ) == security_status_t::OK );
+    REQUIRE(
+        Security_ConstantTimeEquals(
+            imported.bytes,
+            keyPair.publicKey.bytes,
+            sizeof( imported.bytes ) ) );
+
+    signature_stream_t stream{};
+    REQUIRE( SignatureStream_Begin( &stream ) == security_status_t::OK );
+    REQUIRE( stream.bActive );
+    SignatureStream_Cancel( &stream );
+    REQUIRE_FALSE( stream.bActive );
+    for ( const byte value : stream.storage ) {
+        REQUIRE( value == 0u );
+    }
+    SignatureStream_Cancel( &stream );
+    SignatureStream_Cancel( nullptr );
+
+    SignatureKeyPair_Destroy( &keyPair );
+    REQUIRE_FALSE( SignatureKeyPair_IsValid( &keyPair ) );
+    for ( const byte value : keyPair.publicKey.bytes ) {
+        REQUIRE( value == 0u );
+    }
+    SignatureKeyPair_Destroy( &keyPair );
+    SignatureKeyPair_Destroy( nullptr );
+}

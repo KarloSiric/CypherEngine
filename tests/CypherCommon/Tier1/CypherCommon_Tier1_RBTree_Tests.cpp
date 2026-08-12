@@ -204,3 +204,21 @@ TEST_CASE( "RBTree allocation failure leaves an empty valid tree",
 
     allocator.pfnAllocate = Allocator_GetSystem()->pfnAllocate;
 }
+
+TEST_CASE( "RBTree clear permits reuse and shutdown restores canonical state",
+           "[CypherCommon][Tier1][RBTree]" )
+{
+    rb_tree_t<u32, u32> tree{};
+    REQUIRE( RBTree_Init( &tree, Allocator_GetSystem() ) );
+    REQUIRE( RBTree_Insert( &tree, 5u, 50u ).bInserted );
+    REQUIRE( RBTree_Insert( &tree, 3u, 30u ).bInserted );
+
+    RBTree_Clear( &tree );
+    REQUIRE( RBTree_IsValid( &tree ) );
+    REQUIRE( RBTree_IsEmpty( &tree ) );
+    REQUIRE( RBTree_Insert( &tree, 7u, 70u ).bInserted );
+
+    RBTree_Shutdown( &tree );
+    REQUIRE( RBTree_IsValid( &tree ) );
+    REQUIRE( RBTree_IsEmpty( &tree ) );
+}

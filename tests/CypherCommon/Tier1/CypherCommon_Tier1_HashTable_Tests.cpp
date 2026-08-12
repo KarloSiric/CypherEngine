@@ -251,3 +251,33 @@ TEST_CASE( "HashMap and HashSet facades preserve table semantics",
     REQUIRE( HashSet_Erase( &set, 8u ) );
     REQUIRE( HashSet_Count( &set ) == 0u );
 }
+
+TEST_CASE( "Hash containers expose reserve clear count and shutdown contracts",
+           "[CypherCommon][Tier1][HashTable][HashMap][HashSet]" )
+{
+    hash_table_t<u32, u32> table{};
+    REQUIRE( HashTable_IsValid( &table ) );
+    REQUIRE( HashTable_Init( &table, Allocator_GetSystem() ) );
+    REQUIRE( HashTable_Reserve( &table, 64u ) );
+    REQUIRE( HashTable_Insert( &table, 1u, 11u ).bInserted );
+    HashTable_Shutdown( &table );
+    REQUIRE( HashTable_IsValid( &table ) );
+    REQUIRE( HashTable_IsEmpty( &table ) );
+
+    hash_map_t<u32, u32> map{};
+    REQUIRE( HashMap_Init( &map, Allocator_GetSystem() ) );
+    REQUIRE( HashMap_Insert( &map, 2u, 22u ).bInserted );
+    REQUIRE( HashMap_Count( &map ) == 1u );
+    HashMap_Clear( &map );
+    REQUIRE( HashMap_Count( &map ) == 0u );
+    HashMap_Shutdown( &map );
+    REQUIRE( HashMap_IsValid( &map ) );
+
+    hash_set_t<u32> set{};
+    REQUIRE( HashSet_Init( &set, Allocator_GetSystem() ) );
+    REQUIRE( HashSet_Insert( &set, 3u ) );
+    HashSet_Clear( &set );
+    REQUIRE( HashSet_IsEmpty( &set ) );
+    HashSet_Shutdown( &set );
+    REQUIRE( HashSet_IsValid( &set ) );
+}

@@ -85,6 +85,9 @@ TEST_CASE( "UndoRedo copies commands and invalidates redo after a new push",
     REQUIRE( UndoRedo_Undo( pHistory ) == CY_ERROR_OK );
     REQUIRE( state.value == 0 );
     REQUIRE( UndoRedo_CanRedo( pHistory ) );
+    REQUIRE( StringView_Equals(
+        UndoRedo_RedoLabel( pHistory ),
+        StringView_FromCString( "Move" ) ) );
 
     i8 replacement = 5;
     REQUIRE( UndoRedo_Push(
@@ -93,6 +96,30 @@ TEST_CASE( "UndoRedo copies commands and invalidates redo after a new push",
     state.value += replacement;
     REQUIRE_FALSE( UndoRedo_CanRedo( pHistory ) );
     REQUIRE( UndoRedo_OperationCount( pHistory ) == 1u );
+    UndoRedo_Destroy( pHistory );
+}
+
+TEST_CASE( "UndoRedo clear removes committed and redo history",
+           "[CypherCommon][Tier1][UndoRedo]" )
+{
+    undo_history_t *pHistory = UndoRedo_Create(
+        { Allocator_GetSystem(), 8u, 64u } );
+    REQUIRE( pHistory != nullptr );
+    undo_test_state_t state{};
+    i8 delta = 2;
+    REQUIRE( UndoRedo_Push(
+        pHistory,
+        Operation( 1u, &delta, &state, "Translate" ) ) );
+    state.value = 2;
+    REQUIRE( UndoRedo_Undo( pHistory ) == CY_ERROR_OK );
+    REQUIRE( UndoRedo_CanRedo( pHistory ) );
+
+    UndoRedo_Clear( pHistory );
+    REQUIRE_FALSE( UndoRedo_CanUndo( pHistory ) );
+    REQUIRE_FALSE( UndoRedo_CanRedo( pHistory ) );
+    REQUIRE( UndoRedo_OperationCount( pHistory ) == 0u );
+    REQUIRE( UndoRedo_UndoLabel( pHistory ).cchLength == 0u );
+    REQUIRE( UndoRedo_RedoLabel( pHistory ).cchLength == 0u );
     UndoRedo_Destroy( pHistory );
 }
 

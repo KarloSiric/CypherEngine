@@ -3,7 +3,7 @@
 //  CypherEngine Source Code
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
-//  File: tests/CypherCommon/Mathlib/CypherMath_Batch_Tests.cpp
+//  File: tests/CypherCommon/Mathlib/CypherCommon_Mathlib_Batch_Tests.cpp
 //  Purpose: Tests SIMD-friendly four-lane and arbitrary-count math.
 //  Details: Every batch result is checked against the scalar contract, including
 //           in-place writes and tails that do not fill a complete SIMD register.
@@ -35,7 +35,7 @@ void RequireVec3Near( vec3_t actual, vec3_t expected, f32 margin = 0.00001f )
 
 } // namespace
 
-TEST_CASE( "batch vectors retain a stable aligned layout", "[CypherMath][Batch]" )
+TEST_CASE( "batch vectors retain a stable aligned layout", "[CypherCommon][Mathlib][Batch]" )
 {
     REQUIRE( alignof( vec3_soa4_t ) == 16u );
     REQUIRE( alignof( f32_soa4_t ) == 16u );
@@ -43,7 +43,7 @@ TEST_CASE( "batch vectors retain a stable aligned layout", "[CypherMath][Batch]"
 }
 
 TEST_CASE( "batch gather arithmetic and scatter match scalar vectors",
-           "[CypherMath][Batch]" )
+           "[CypherCommon][Mathlib][Batch]" )
 {
     const vec3_t a[CY_MATH_BATCH_LANES]{
         Vec3_Make( 1.0f, 2.0f, 3.0f ),
@@ -72,7 +72,7 @@ TEST_CASE( "batch gather arithmetic and scatter match scalar vectors",
 }
 
 TEST_CASE( "batch affine transforms match scalar operations and handle tails",
-           "[CypherMath][Batch]" )
+           "[CypherCommon][Mathlib][Batch]" )
 {
     constexpr usize cValues = 7u;
     vec3_t input[cValues]{
@@ -111,7 +111,7 @@ TEST_CASE( "batch affine transforms match scalar operations and handle tails",
 }
 
 TEST_CASE( "batch dot handles complete registers and scalar tails",
-           "[CypherMath][Batch]" )
+           "[CypherCommon][Mathlib][Batch]" )
 {
     constexpr usize cValues = 9u;
     vec3_t a[cValues]{};

@@ -43,6 +43,9 @@ TEST_CASE( "MemoryStack aligns absolute addresses from misaligned storage",
     REQUIRE( MemoryStack_Init(
         &stack,
         { storage + 1u, sizeof( storage ) - 1u } ) );
+    REQUIRE( MemoryStack_IsValid( &stack ) );
+    REQUIRE_FALSE( MemoryStack_IsValid( nullptr ) );
+    REQUIRE( MemoryStack_Capacity( &stack ) == sizeof( storage ) - 1u );
 
     void *pFirst = MemoryStack_Allocate( &stack, 3u, 8u );
     void *pSecond = MemoryStack_Allocate( &stack, 17u, 32u );

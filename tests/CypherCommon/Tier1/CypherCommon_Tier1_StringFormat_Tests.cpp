@@ -50,6 +50,25 @@ string_format_result_t CallVPrintf(
     return result;
 }
 
+string_format_result_t CallAppendV(
+    char *pDest,
+    usize cchDest,
+    usize *pcchLengthInOut,
+    const char *pFormat,
+    ... ) noexcept
+{
+    std::va_list args;
+    va_start( args, pFormat );
+    const string_format_result_t result = StringFormat_AppendV(
+        pDest,
+        cchDest,
+        pcchLengthInOut,
+        pFormat,
+        args );
+    va_end( args );
+    return result;
+}
+
 void RequireCStringEquals( const char *pActual, const char *pExpected )
 {
     REQUIRE( StringView_Equals(
@@ -128,6 +147,25 @@ TEST_CASE( "StringFormat append reports complete destination totals",
     REQUIRE( truncatedResult.cchRequired == 10u );
     REQUIRE( cchLength == 7u );
     RequireCStringEquals( truncated, "path/as" );
+}
+
+TEST_CASE( "StringFormat va-list append reports complete destination totals",
+           "[CypherCommon][Tier1][StringFormat]" )
+{
+    char output[32] = "material";
+    usize cchLength = 8u;
+    const string_format_result_t result = CallAppendV(
+        output,
+        sizeof( output ),
+        &cchLength,
+        "/%s/%u",
+        "layer",
+        3u );
+
+    REQUIRE( result.status == string_format_status_t::OK );
+    REQUIRE( cchLength == 16u );
+    REQUIRE( result.cchRequired == 16u );
+    RequireCStringEquals( output, "material/layer/3" );
 }
 
 TEST_CASE( "StringFormat grouped integers handle signs and full i64 range",
