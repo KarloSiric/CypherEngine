@@ -49,11 +49,22 @@ def main() -> int:
     native_entries = json.loads(native_db_path.read_text())
 
     clangd_db_dir.mkdir(parents=True, exist_ok=True)
-    temporary_db_path = clangd_db_path.with_suffix(".json.tmp")
-    temporary_db_path.write_text(json.dumps(native_entries, indent=2) + "\n")
-    temporary_db_path.replace(clangd_db_path)
+    if clangd_db_path.exists() or clangd_db_path.is_symlink():
+        clangd_db_path.unlink()
 
-    print(f"wrote {clangd_db_path}")
+    database_mode = "linked"
+    relative_native_path = Path("..") / native_db_path.relative_to(root_dir)
+    try:
+        clangd_db_path.symlink_to(relative_native_path)
+    except OSError:
+        # Some Windows configurations do not permit user-created symlinks.
+        # Keep an atomic copy fallback so the helper remains portable.
+        database_mode = "copied"
+        temporary_db_path = clangd_db_path.with_suffix(".json.tmp")
+        temporary_db_path.write_text(json.dumps(native_entries, indent=2) + "\n")
+        temporary_db_path.replace(clangd_db_path)
+
+    print(f"{database_mode}: {clangd_db_path}")
     print(f"source: {native_db_path}")
     print(f"entries: {len(native_entries)}")
     return 0
