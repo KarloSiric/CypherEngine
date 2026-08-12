@@ -5,8 +5,8 @@
 //
 //  File: src/CypherCommon/ResourceSystem/CypherCommon_ResourceHandle.h
 //  Purpose: Declares compact generation-checked runtime resource handles.
-//  Details: Handles identify a resource-manager slot, its current generation,
-//           and the registered runtime resource type without exposing pointers.
+//  Details: Handles pack a 16-bit manager slot, 32-bit generation, and 16-bit
+//           runtime type without exposing private resource pointers.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-11
@@ -30,17 +30,28 @@ using resource_slot_t = u32;
 using resource_generation_t = u32;
 using resource_type_slot_t = u32;
 
+constexpr u32 CY_RESOURCE_SLOT_BITS = 16u;
+constexpr u32 CY_RESOURCE_GENERATION_BITS = 32u;
+constexpr u32 CY_RESOURCE_TYPE_SLOT_BITS = 16u;
+constexpr u32 CY_RESOURCE_GENERATION_SHIFT = CY_RESOURCE_SLOT_BITS;
+constexpr u32 CY_RESOURCE_TYPE_SLOT_SHIFT =
+    CY_RESOURCE_SLOT_BITS + CY_RESOURCE_GENERATION_BITS;
+constexpr resource_slot_t CY_RESOURCE_SLOT_MAX = 0xFFFFu;
 constexpr resource_generation_t CY_RESOURCE_GENERATION_INVALID = 0u;
 constexpr resource_generation_t CY_RESOURCE_GENERATION_FIRST = 1u;
-constexpr resource_generation_t CY_RESOURCE_GENERATION_MAX =
-    CY_HANDLE64_GENERATION_MAX;
+constexpr resource_generation_t CY_RESOURCE_GENERATION_MAX = CY_U32_MAX;
 
 constexpr resource_type_slot_t CY_RESOURCE_TYPE_SLOT_INVALID = 0u;
-constexpr resource_type_slot_t CY_RESOURCE_TYPE_SLOT_MAX =
-    CY_HANDLE64_TYPE_MAX;
+constexpr resource_type_slot_t CY_RESOURCE_TYPE_SLOT_MAX = 0xFFFFu;
+
+static_assert(
+    CY_RESOURCE_SLOT_BITS +
+    CY_RESOURCE_GENERATION_BITS +
+    CY_RESOURCE_TYPE_SLOT_BITS == 64u,
+    "Resource handle fields must occupy exactly 64 bits." );
 
 struct resource_handle_t {
-    handle64_t packed{};
+    u64 value{ 0u };
 };
 
 struct resource_handle_parts_t {

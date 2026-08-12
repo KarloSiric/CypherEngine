@@ -30,7 +30,7 @@ static_assert( std::is_trivially_copyable_v<resource_handle_t> );
 TEST_CASE( "Resource handles round trip every packed-field boundary",
            "[CypherCommon][ResourceSystem][ResourceHandle]" )
 {
-    constexpr resource_slot_t slots[]{ 0u, 1u, CY_U32_MAX };
+    constexpr resource_slot_t slots[]{ 0u, 1u, CY_RESOURCE_SLOT_MAX };
     constexpr resource_generation_t generations[]{
         CY_RESOURCE_GENERATION_FIRST,
         CY_RESOURCE_GENERATION_MAX
@@ -69,7 +69,7 @@ TEST_CASE( "Resource handle checked construction rejects reserved fields",
 
     output = ResourceHandle_Make( 7u, 2u, 3u );
     REQUIRE_FALSE( ResourceHandle_TryMake(
-        7u, CY_RESOURCE_GENERATION_MAX + 1u, 3u, &output ) );
+        CY_RESOURCE_SLOT_MAX + 1u, 2u, 3u, &output ) );
     REQUIRE_FALSE( ResourceHandle_IsValid( output ) );
 
     output = ResourceHandle_Make( 7u, 2u, 3u );
@@ -88,13 +88,13 @@ TEST_CASE( "Resource handle validity rejects malformed packed identities",
            "[CypherCommon][ResourceSystem][ResourceHandle]" )
 {
     resource_handle_t zeroGeneration{};
-    zeroGeneration.packed = Cy_Handle64Make( 5u, 0u, 2u );
-    REQUIRE( Cy_Handle64IsValid( zeroGeneration.packed ) );
+    zeroGeneration.value =
+        ( static_cast<u64>( 2u ) << 48u ) | 5u;
     REQUIRE_FALSE( ResourceHandle_IsValid( zeroGeneration ) );
 
     resource_handle_t zeroType{};
-    zeroType.packed = Cy_Handle64Make( 5u, 2u, 0u );
-    REQUIRE( Cy_Handle64IsValid( zeroType.packed ) );
+    zeroType.value =
+        ( static_cast<u64>( 2u ) << CY_RESOURCE_SLOT_BITS ) | 5u;
     REQUIRE_FALSE( ResourceHandle_IsValid( zeroType ) );
     REQUIRE_FALSE( ResourceHandle_IsValid( CY_RESOURCE_HANDLE_INVALID ) );
 }

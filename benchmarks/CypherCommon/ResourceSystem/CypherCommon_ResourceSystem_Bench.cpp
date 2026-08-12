@@ -84,7 +84,7 @@ static void BM_ResourceHandleMakeAndUnpack( benchmark::State &state )
         resource_handle_parts_t parts = ResourceHandle_Unpack( handle );
         benchmark::DoNotOptimize( bMade );
         benchmark::DoNotOptimize( parts );
-        ++iSlot;
+        iSlot = ( iSlot + 1u ) & CY_RESOURCE_SLOT_MAX;
     }
 }
 
