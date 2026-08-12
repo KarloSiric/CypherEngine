@@ -242,6 +242,13 @@ set(CYPHERRESOURCE_SYSTEM_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem/CypherCommon_ResourceId.cpp"
 )
 
+set(CYPHERRESOURCE_RUNTIME_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource_Access.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource_Internal.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource_Registry.cpp"
+)
+
 set(CYPHERTOOLFRAMEWORK_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ProgressBar.cpp"
 )
@@ -357,6 +364,16 @@ target_include_directories(CypherResourceSystem
 )
 target_link_libraries(CypherResourceSystem PUBLIC Cypher::CommonTier1)
 
+add_library(CypherResourceRuntime STATIC ${CYPHERRESOURCE_RUNTIME_SOURCES})
+add_library(Cypher::ResourceRuntime ALIAS CypherResourceRuntime)
+target_compile_features(CypherResourceRuntime PUBLIC cxx_std_20)
+target_include_directories(CypherResourceRuntime
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource"
+)
+target_link_libraries(CypherResourceRuntime PUBLIC Cypher::ResourceSystem)
+
 add_library(CypherToolFramework STATIC ${CYPHERTOOLFRAMEWORK_SOURCES})
 add_library(Cypher::ToolFramework ALIAS CypherToolFramework)
 target_compile_features(CypherToolFramework PUBLIC cxx_std_20)
@@ -404,11 +421,19 @@ list(FILTER CYPHERENGINE_SOURCES
 list(FILTER CYPHERENGINE_SOURCES
     EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherMath/"
 )
+list(FILTER CYPHERENGINE_SOURCES
+    EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/"
+)
 
 if (CYPHERENGINE_SOURCES)
     add_executable(CypherEngine ${CYPHERENGINE_SOURCES})
     target_include_directories(CypherEngine PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
-    target_link_libraries(CypherEngine PRIVATE Cypher::CommonTier1 Cypher::Math)
+    target_link_libraries(
+        CypherEngine
+        PRIVATE
+            Cypher::Math
+            Cypher::ResourceRuntime
+    )
     if (CYPHERENGINE_LINK_LIBS)
         target_link_libraries(CypherEngine PRIVATE ${CYPHERENGINE_LINK_LIBS})
     endif()
@@ -1251,6 +1276,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::ResourceSystem
         )
         cypher_add_common_catch_test(
+            cypher_resource_runtime_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEngine/CypherResource/CypherResource_Tests.cpp"
+            Cypher::ResourceRuntime
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_stringparse_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_StringParse_Tests.cpp"
             Cypher::CommonTier1
@@ -1535,6 +1565,11 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             cypher_common_resource_system_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/ResourceSystem/CypherCommon_ResourceSystem_Bench.cpp"
             Cypher::ResourceSystem
+        )
+        cypher_add_common_benchmark(
+            cypher_resource_runtime_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherEngine/CypherResource/CypherResource_Bench.cpp"
+            Cypher::ResourceRuntime
         )
 
         cypher_add_common_benchmark(

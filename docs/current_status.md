@@ -46,6 +46,9 @@ Current code snapshot:
 - SDL3 window creation and event polling
 - filesystem mount/read path
 - CypherPak package archive path
+- synchronous `CypherResource` runtime with type registration, generation-safe
+  handles, cache identity, reference counting, transactional load rollback, and
+  deterministic shutdown
 - OpenGL context bootstrap through GLAD
 - renderer lifecycle, shader, mesh, camera, and draw-list path
 - vector, matrix, quaternion, bounds, ray, plane, and frustum math
@@ -116,25 +119,18 @@ Current code snapshot:
 
 ## Active milestone
 
-`M6 - Common, Diagnostics, and Resource Ownership Preparation`
+`M6 - Resource Ownership And Renderer Integration`
 
-This milestone is complete only when:
-
-- `CypherCommon_String` implements its declared API with correctness tests
-- Common hot paths have benchmark coverage before SIMD work begins
-- `CypherCommon_Simd` is designed as an optimization layer above tested scalar code
-- VFS/Pak production lessons are documented for missing-file, opened-file and package diagnostics
-- `CypherResource` has a first asset-handle direction for shaders, meshes, textures and materials
-- renderer draw submission starts moving toward resource handles instead of raw pointers
+The synchronous resource ownership foundation is implemented and tested. This
+milestone is complete when one real renderer asset travels through it end to end.
 
 ## Immediate next tasks
 
-1. finish the remaining `CypherCommon_String` function groups
-2. add tests and benchmarks group by group
-3. design `CypherCommon_Simd` for SSE2/NEON after scalar String is stable
-4. add profiling/diagnostic skeletons needed to measure runtime growth
-5. introduce `CypherResource` as the asset lifetime layer
-6. return to input, fly-camera, and renderer material/texture work after Resource exists
+1. implement a VFS-backed shader resource loader
+2. replace renderer-facing raw shader ownership with resource handles
+3. prove load, cache hit, renderer use, release, and shutdown in one integration test
+4. add texture and material resource types only after the shader path is sound
+5. return to input, fly-camera, and the first playable renderer loop
 
 ## Explicitly not active yet
 
