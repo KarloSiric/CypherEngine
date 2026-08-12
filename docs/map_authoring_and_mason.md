@@ -29,7 +29,8 @@ This document records the agreed long-term direction for:
 - editable and cooked asset formats
 - `.cymap` map source documents
 - `.cymap_c` compiled runtime worlds
-- the role of brushes, meshes, BSP, visibility, collision, and lighting
+- the role of editable meshes, parametric blockout, BSP algorithms, visibility,
+  collision, and lighting
 - `CypherMapCompiler` and related command-line tools
 - `Mason`, the long-term Qt 6 editor application
 - asset validation, versioning, diagnostics, testing, and packaging
@@ -200,10 +201,12 @@ array layout, or Valve's tool assets.
 
 ### CypherEngine Lesson
 
-CypherEngine should preserve the strongest parts of both generations:
+CypherEngine should preserve the strongest parts of both generations without
+preserving Source 1's authored brush representation:
 
-- fast grid-based blockout using convex brushes
-- direct vertex, edge, and face editing
+- fast grid-based blockout using boxes and other parametric primitives that
+  produce editable mesh geometry
+- direct object, vertex, edge, and face editing
 - arbitrary imported mesh instances
 - deterministic offline compilation
 - precomputed visibility where useful
@@ -211,8 +214,9 @@ CypherEngine should preserve the strongest parts of both generations:
 - a chunked runtime world resource
 - a WYSIWYG editor using the real engine
 
-This is a hybrid world pipeline, not a rejection of BSP algorithms and not a
-commitment to a classic BSP-only engine.
+This is a mesh-first world-authoring pipeline. It does not reject BSP or CSG as
+compiler algorithms, and it does not make classic BSP brushes the persistent
+source representation.
 
 ## Design Principles
 
@@ -446,7 +450,7 @@ A map source document should be capable of representing:
 - world settings
 - object hierarchy
 - layers and shared visibility groups
-- convex brushes
+- editable world meshes and parametric blockout primitives
 - editable polygon meshes
 - entities and components
 - imported model instances
@@ -523,8 +527,8 @@ The expected object categories include:
 map root
 group
 layer
-brush
 editable mesh
+parametric primitive
 entity
 model instance
 prefab instance
@@ -585,21 +589,24 @@ The sidecar is normally excluded from source control.
 
 ## Geometry Model
 
-### Convex Brushes
+### Parametric Blockout Primitives
 
-Brushes provide the fastest workflow for rooms, corridors, stairs, walls,
-triggers, blockouts, and sealed indoor spaces.
+Boxes, wedges, cylinders, arches, and similar tools provide a fast grid-based
+workflow for rooms, corridors, stairs, walls, triggers, and blockouts. In Mason,
+these are not Source 1-style BSP brushes. A primitive either generates an
+editable polygon mesh immediately or remains a parametric object with an
+explicit conversion-to-mesh operation.
 
-An editable brush should preserve:
+This distinction matters:
 
-- defining planes or equivalent convex representation
-- per-face material assignments
-- per-face texture axes and UV settings
-- face flags
-- stable brush and face IDs where required
-
-Brushes must remain convex. Concave construction is represented by multiple
-brushes or converted to an editable mesh.
+- object creation can remain as fast as classic Hammer blockout
+- the persistent geometry model stays compatible with vertex, edge, and face
+  editing
+- concavity is represented by normal mesh topology rather than illegal brush
+  state
+- collision and visibility behavior are explicit properties or compiler inputs,
+  not implicit consequences of being a brush
+- BSP or CSG may still consume closed manifold mesh volumes during compilation
 
 ### Editable Polygon Meshes
 
@@ -633,6 +640,32 @@ A half-edge representation also imposes invariants that Mason must validate:
 Stable topology IDs used by selection, undo, diagnostics, and source control are
 an editor concern. Runtime vertex/index buffers use compiler-generated indices.
 
+### Math And Geometry Requirements For Mason
+
+CypherMath supplies representation-independent numerical operations. Mason's
+editable topology and commands belong in an editor geometry library above it.
+The mesh-first workflow requires:
+
+- point/vector, matrix, quaternion, transform, ray, plane, bounds, triangle,
+  polygon, clipping, UV, viewport, snapping, and gizmo foundations
+- robust ray-to-face, ray-to-edge, and ray-to-vertex picking with screen-space
+  selection tolerances
+- local, parent, world, view, and custom pivot transform spaces
+- grid, angle, vertex, edge, face, surface, and normal-direction snapping
+- planar projection, box projection, UV transforms, texel density, and
+  per-corner tangent-space generation
+- deterministic polygon triangulation and convex decomposition interfaces
+- geometric predicates with documented absolute/relative tolerances
+- topology validation for closed loops, winding, manifold edges, degeneracy,
+  duplicate elements, and self-intersection
+- acceleration structures for picking and dirty-region updates once profiling
+  justifies them
+
+The current scalar math library covers much of the first bullet. It does not yet
+constitute Mason's mesh topology kernel. Half-edge storage, component selection,
+extrude/inset/bevel/weld commands, topology remapping, and undo data must be
+designed as editor-owned systems rather than forced into generic math headers.
+
 ### Imported Asset Instances
 
 Reusable art should normally be authored in external DCC software, cooked into
@@ -645,7 +678,7 @@ the imported mesh inside the map.
 Terrain, foliage, water, ropes, decals, and procedural geometry should be added
 as distinct authored systems only when the game requires them. They should
 compile into the same runtime world contract where possible without forcing the
-base brush and mesh representations to absorb every specialized behavior.
+base mesh representation to absorb every specialized behavior.
 
 ### Numerical Policy
 
@@ -670,7 +703,7 @@ CypherEngine will not use `.cybsp_c` as a required parallel map product.
 
 BSP remains available as an internal technique for:
 
-- brush constructive solid geometry
+- constructive solid geometry over suitable closed meshes
 - convex-space classification
 - portal generation
 - indoor visibility
@@ -703,8 +736,8 @@ read .cymap
   -> resolve resource and prefab dependencies
   -> flatten or preserve hierarchy as required
   -> normalize transforms and coordinate data
-  -> validate brushes and mesh topology
-  -> perform brush CSG where required
+  -> validate mesh topology and closed-volume requirements
+  -> perform CSG where required
   -> remove hidden/internal surfaces where safe
   -> triangulate editable faces
   -> generate normals, tangents, UV data, and material batches
@@ -891,7 +924,7 @@ The map workspace should distinguish:
 - vertex selection
 - edge selection
 - face selection
-- brush creation and clipping
+- primitive creation, mesh cutting, and clipping
 - entity placement
 - material/UV editing
 - volume and trigger editing
@@ -908,8 +941,8 @@ predictable.
 - move, rotate, scale, and pivot editing
 - grid, surface, vertex, and angle snapping
 - duplicate, group, layer, hide, lock, and delete
-- create and reshape convex brushes
-- clip and split brushes
+- create parametric blockout primitives and convert them to meshes
+- cut and split meshes and closed volumes
 - extrude, inset, bevel, split, merge, and weld mesh elements
 - assign and align materials
 - create and override prefab instances
@@ -1116,7 +1149,7 @@ Examples include:
 - duplicate stable IDs
 - invalid references
 - cyclic prefab dependencies
-- non-convex brushes
+- invalid closed volumes and non-manifold meshes
 - non-manifold or self-intersecting geometry
 - degenerate faces and triangles
 - invalid material assignments
@@ -1152,7 +1185,7 @@ valid output that crashes later.
 
 ### Geometry And Compiler
 
-- brush clipping and CSG fixtures
+- mesh cutting, closed-volume, and CSG fixtures
 - degenerate and adversarial geometry
 - triangulation tests
 - hidden-surface tests
@@ -1246,7 +1279,7 @@ Exit condition: the game can consume a real world without Mason.
 
 - define the smallest `.cymap` schema
 - write the typed map document
-- compile one brush room, one material, one light, and one spawn point
+- compile one mesh room, one material, one light, and one spawn point
 - write and load `.cymap_c`
 - add deterministic compiler tests
 
@@ -1265,8 +1298,8 @@ Exit condition: a user can modify the test room, compile it, and play it.
 
 ### Phase 5: Production Map Editing
 
-- full brush operations
-- editable polygon meshes
+- complete object, vertex, edge, and face mesh operations
+- parametric blockout and conversion-to-mesh tools
 - material and UV tools
 - entities and connections
 - prefabs and layers
@@ -1314,7 +1347,7 @@ files, shaders, and game content.
 | --- | ---: |
 | CYKV-backed map schema and serialization | 8k-20k |
 | Map document, identity, references, and migration | 10k-25k |
-| Brush and editable-mesh geometry kernel | 25k-70k |
+| Editable-mesh topology and geometry kernel | 25k-70k |
 | Map compiler | 25k-80k |
 | Cooked world loader, reload, and streaming foundation | 10k-30k |
 | Mason application/workspace foundation | 15k-35k |
@@ -1361,7 +1394,7 @@ Before stable map and cooked-resource version 1, decide and document:
 - schema-to-reflection integration beyond the current static Tier2 descriptors
 - stable ID width and generation policy
 - coordinate system, units, and precision
-- brush representation and geometric tolerances
+- parametric primitive policy and geometric tolerances
 - editable mesh topology representation
 - map/submap/layer composition rules
 - visibility algorithm and runtime representation
@@ -1381,6 +1414,9 @@ These projects and documents are architecture references only:
 - [Quake III Arena source](https://github.com/id-Software/Quake-III-Arena)
 - [Valve Map Format](https://developer.valvesoftware.com/wiki/VMF_%28Valve_Map_Format%29)
 - [Valve Hammer Editor for Source 2](https://developer.valvesoftware.com/wiki/Valve_Hammer_Editor_%28Source_2%29)
+- [Source 2 Hammer overview](https://developer.valvesoftware.com/wiki/Source_2/Docs/Level_Design/Hammer_Overview)
+- [Source 2 basic mesh editing](https://developer.valvesoftware.com/wiki/Source_2/Docs/Level_Design/Basic_Construction/Mesh_Editing_1)
+- [Source 2 advanced mesh editing](https://developer.valvesoftware.com/wiki/Source_2/Docs/Level_Design/Basic_Construction/Mesh_Editing_4)
 - [Source 2 legacy content porting](https://developer.valvesoftware.com/wiki/Source_2/Docs/Porting_Legacy_Content)
 - [Source 2 lightmaps](https://developer.valvesoftware.com/wiki/Lightmap_%28Source_2%29)
 - [GtkRadiant](https://github.com/TTimo/GtkRadiant)
@@ -1395,9 +1431,11 @@ assets. `reference_policy.md` remains the legal and provenance policy.
 CypherEngine will use CYKV as the typed source-data foundation. `.cymap` will be
 a CYKV-backed editable map document. Mason will visually edit a typed map model,
 not raw text. CypherMapCompiler will transform that source into a deterministic,
-chunked `.cymap_c` runtime world. Brushes and BSP-derived algorithms remain
-valuable tools, while arbitrary meshes, explicit runtime resources, visibility,
-collision, lighting, navigation, and streaming remain independent systems.
+chunked `.cymap_c` runtime world. Editable meshes are the primary authored
+geometry; parametric blockout tools generate or become meshes. BSP- and
+CSG-derived algorithms remain optional compiler techniques, while explicit
+runtime resources, visibility, collision, lighting, navigation, and streaming
+remain independent systems.
 
 The first milestone is not a visually complete Hammer replacement. It is a
 complete vertical path in which one real map can be authored, validated,

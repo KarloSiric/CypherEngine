@@ -220,6 +220,10 @@ The surveyed Hammer material establishes several concrete capabilities:
 - lightmap player-space volumes and luxel-density visualization
 - in-editor and in-game inspection of compiled world products
 
+Hammer 5.x still offers rapid block/primitive creation, but the resulting world
+geometry participates in the mesh workflow. Mason should copy that usability
+lesson, not Source 1's persistent plane-defined BSP-brush data model.
+
 Cypher must therefore treat geometry, collision, visibility, lighting, and
 runtime partitioning as separate compiler stages. `.cymap_c` may coordinate or
 contain those products, but no renderer API should assume a classic BSP-only
