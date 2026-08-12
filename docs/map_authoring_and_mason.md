@@ -181,6 +181,23 @@ modern lighting data, and resource packaging. It did not replace BSP with one
 single universal algorithm. Instead, it separated the responsibilities that old
 BSP files bundled together.
 
+The public VMAP and tool documentation also exposes several useful details:
+
+- editable Hammer meshes use a half-edge-style topology with separate vertex,
+  per-corner, edge, and face data streams
+- source map records preserve stable element identities, hierarchy, groups,
+  prefabs, instances, visibility state, and editor camera/selection data
+- the compiled map coordinates world, world-node, entity, visibility, lighting,
+  and other runtime resources rather than acting as one classic BSP tree
+- visibility contribution is explicit and debuggable, and modern branches may
+  generate GPU-cullable meshlet data
+- collision representation and editor physics preview are explicit authoring
+  concerns
+- lightmap density and player-space importance are visible authoring controls
+
+These are responsibility lessons. Cypher must not reproduce VMAP's field names,
+array layout, or Valve's tool assets.
+
 ### CypherEngine Lesson
 
 CypherEngine should preserve the strongest parts of both generations:
@@ -602,6 +619,20 @@ equivalent topology structure is a strong candidate because it supports:
 The editor topology is not the runtime mesh. Compilation triangulates and packs
 the final geometry.
 
+A half-edge representation also imposes invariants that Mason must validate:
+
+- each half-edge has a valid destination, next edge, face, and optional twin
+- face loops close without repetition or runaway traversal
+- winding is consistent with Cypher's coordinate policy
+- degenerate faces and zero-length edges are rejected or repaired explicitly
+- duplicate, non-manifold, and ambiguous edge connections produce diagnostics
+- per-corner UV/normal/tangent data remains aligned with topology edits
+- imported triangle meshes are sanitized before conversion instead of silently
+  deleting unsupported topology
+
+Stable topology IDs used by selection, undo, diagnostics, and source control are
+an editor concern. Runtime vertex/index buffers use compiler-generated indices.
+
 ### Imported Asset Instances
 
 Reusable art should normally be authored in external DCC software, cooked into
@@ -690,6 +721,12 @@ read .cymap
 
 Not every stage must exist in the first usable compiler. The pipeline should
 make each stage explicit so later stages do not become hidden side effects.
+
+The first cooker may emit one chunked `.cymap_c`. The architecture must still
+treat world regions, entity records, visibility, collision, lighting, probes,
+and navigation as separate products. Once streaming or independent rebuilds
+justify it, those products may become child resources referenced by the cooked
+map descriptor without changing the editable `.cymap` model.
 
 ### Build Profiles
 

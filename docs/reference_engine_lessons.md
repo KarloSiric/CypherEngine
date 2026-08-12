@@ -272,15 +272,19 @@ A serious editor exists because the runtime has real data to edit.
 
 Toolchain should come before full editor scale:
 
-- `cypherpak`
-- `cyphermeshc`
-- `cyphertexc`
-- `cyphermatc`
-- `cypherworldc`
+- `CypherPak`
+- `CypherModelCompiler`
+- `CypherTextureCompiler`
+- `CypherMaterialCompiler`
+- `CypherMapCompiler`
 - script compiler/assembler later if the VM path survives
 
 The editor starts after memory, filesystem, resource, renderer, input, and world
 paths are stable enough to edit real engine data.
+
+The complete Source 2 capability study and the boundary between useful workflow
+lessons and blind tool parity are documented in
+[source2_tooling_reference.md](source2_tooling_reference.md).
 
 ## Performance Rules
 
@@ -304,4 +308,3 @@ Near-term performance focus:
 3. design `CypherCommon_Simd` for SSE2 and NEON
 4. add profiler scopes before making broad performance claims
 5. move asset loads toward Resource-owned lifetime
-

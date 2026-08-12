@@ -109,6 +109,31 @@ CYKV with domain-specific schemas; they are not interchangeable merely because
 they share a parser. The complete map and Mason direction is documented in
 [map_authoring_and_mason.md](map_authoring_and_mason.md).
 
+The Source 2 capability study in
+[source2_tooling_reference.md](source2_tooling_reference.md) reinforces four
+rules:
+
+1. authored source and cooked runtime data are different products
+2. one resource coordinator dispatches type-specific compiler libraries
+3. an asset type declares its schema, validator, compiler, preview, and editor
+4. a cooked map may coordinate several independently evolvable runtime products
+
+Cypher should define logical source and cooked mount roles. Their final physical
+directory names are not locked to Source 2's `content/` and `game/` names.
+
+```text
+source mount
+  -> schema and semantic validation
+  -> typed source model
+  -> dependency graph
+  -> type-specific compiler
+  -> cooked mount or package staging
+  -> runtime resource loader
+```
+
+Generated cooked output is disposable and reproducible. It must not become the
+only editable copy of a resource.
+
 Target source formats:
 
 - `.cymap` editable Mason map source
@@ -119,6 +144,13 @@ Target source formats:
 - `.cyphys` physics setup source
 - `.cynav` navigation source
 - `.cyflow` objective/logic graph source
+- animation graph source for parameters, states, blends, events, and authority
+- VFX module-graph source
+- audio event, rule-stack, and mix-graph source
+- PostFX layer, mask, LUT, exposure, and volume-profile source
+- typed generic CYKV data selected by schema identity
+- resource/preload manifests
+- CyGUI layout, style, and resource source
 
 Target cooked formats:
 
@@ -136,6 +168,17 @@ Target cooked formats:
 - `.cynav_c` cooked navmesh
 - `.cyflow_c` cooked mission/objective graph
 - `.cypak` packed game assets
+- cooked animation graph evaluator data
+- cooked VFX data
+- cooked audio event and mixer graph data
+- cooked PostFX profile and optional LUT data
+- cooked schema-selected generic data
+- cooked resource/preload manifests
+- cooked CyGUI documents and style resources
+
+Extensions for the newly listed families are deliberately not reserved yet. A
+format name becomes authoritative only when its source schema, compiler, runtime
+consumer, version policy, and tests exist.
 
 BSP-derived CSG, portal, visibility, or collision data may be an intermediate
 compiler artifact or an optional chunk inside `.cymap_c`. It is not a mandatory
@@ -232,6 +275,21 @@ Recommended order:
 3. load mesh/texture/material resources through the resource layer
 4. track dependencies
 5. add hot reload once the editor or iteration flow needs it
+
+The resource type registry should eventually describe:
+
+- source and cooked type identifiers
+- accepted source extensions
+- schema identity and versions
+- compiler and validator factories
+- preview provider and associated Mason workspace
+- dependency scanner
+- runtime loader
+- debug/inspection provider
+- target-platform support
+
+The Asset Browser and `CypherResourceCompiler` consume this registry. Neither
+should grow a separate hard-coded asset-type switch.
 
 Important rule:
 

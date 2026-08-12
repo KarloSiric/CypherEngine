@@ -33,6 +33,11 @@ architecture with shared implementation code.
 
 The suite targets Windows, Linux, and macOS.
 
+`Mason` is the authoritative product name. When a formal long form is useful,
+use **MASON: Map and Scene Operations Nexus**. Normal prose and identifiers
+should continue to use `Mason`; the backronym is descriptive, not a requirement
+to capitalize every reference.
+
 ## Product Rules
 
 1. Interactive desktop authoring and inspection products use Qt 6.
@@ -161,6 +166,37 @@ References:
 - [Faceposer](https://developer.valvesoftware.com/wiki/Face_Poser)
 - [Valve Source SDK 2013](https://github.com/ValveSoftware/source-sdk-2013)
 
+## Source 2 Capability Comparison
+
+The Source 2 comparison focuses on production responsibilities rather than
+matching Valve's executables or extensions one for one. The detailed research,
+format-family inventory, evidence limits, and architectural conclusions are in
+[source2_tooling_reference.md](source2_tooling_reference.md).
+
+| Source 2 tool or capability | Cypher equivalent | Decision | Principal lesson |
+| --- | --- | --- | --- |
+| Asset Browser | Mason Asset Browser | Decided | Asset type metadata must dispatch previews, validators, compilers, and associated editors. |
+| Hammer 5.x | Mason Map and World workspace | Decided | Geometry, entities, visibility, collision, lighting, build, and play are coordinated but independently compiled responsibilities. |
+| Material Editor | Mason Material workspace | Decided | Material source, shader compatibility, resource references, and live preview share the real renderer path. |
+| ModelDoc | Mason Model and Character Setup workspaces | Decided | Mason assembles engine-specific model data; it does not replace a general DCC application. |
+| Animgraph Editor | Mason Animation Graph workspace | Decided | Parameters, state machines, blends, events, IK, authority, and graph debugging require a compiler and runtime evaluator. |
+| Particle Editor | Mason VFX workspace | Decided | Typed phase-aware modules and preview controls must remain independent from Qt widgets. |
+| Post Processing Editor | Mason PostFX and Color workspace | Planned | Preserve editable layers and masks even when cooking bakes lower-cost LUT data. |
+| Image Subrect Editor | Mason Texture Lab atlas/subrect mode | Planned | Sprite regions, atlas rectangles, pivots, and material hotspots need explicit source data and preview. |
+| VConsole | CypherConsole | Planned | External structured logs, commands, channels, filters, and plugin telemetry remain usable when the game fails. |
+| Resource Compiler | CypherResourceCompiler | Decided | One coordinator dispatches deterministic type-specific compiler libraries and dependency-aware builds. |
+| Workshop Manager | Mason Mod/Release workspace and CypherModManager | Planned | Package validation and publishing are adapters over the normal package pipeline. |
+| CS2 Workshop Item Editor | Game-specific Cypher tool only if required | Deferred | Economy and skin workflows do not belong in the general engine by default. |
+| Source 2 Filmmaker | Mason Cinematic workspace | Deferred | Cameras, shots, actors, animation, audio, effects, recording, and output form a late production subsystem. |
+| VData-style generic assets | Mason Data and Schema workspace | Planned | Schema-selected generic source data can serve gameplay records without bespoke editors for every type. |
+| VMix/sound event workflows | Mason Audio Event and Mix Graph modes | Planned | Samples, events, rule stacks, spatial metadata, and mix graphs are separate authored products. |
+| Pulse/smart-prop workflows | Mason Flow and Procedural Object modes | Deferred | Visual logic and parametric object rules are useful only after their runtime consumers exist. |
+
+The Source2 Wiki is community-maintained and contains incomplete pages. This
+table records only publicly established responsibilities and explicit Cypher
+decisions; it is not a claim that the public pages describe Valve's complete
+internal toolchain.
+
 ## Qt 6 Desktop Products
 
 All products in this section are cross-platform Qt 6 applications. Focused tools
@@ -192,7 +228,7 @@ separate executable provides a proven workflow benefit.
 | Workspace | Decision | Required capabilities |
 | --- | --- | --- |
 | Project | Planned | Project settings, target profiles, plugin/module configuration, launch and build profiles. |
-| Asset Browser | Decided | Search, thumbnails, tags, dependency graph, references, rename/move repair, import, cook status, and source control state. |
+| Asset Browser | Decided | Search core/project/add-on content, thumbnails, tags, previews, dependency graph, references, rename/move repair, import, cook status, source control state, and associated-editor dispatch. |
 | Scene Hierarchy | Decided | Stable object IDs, parenting, layers, visibility, locking, grouping, filtering, and selection synchronization. |
 | Inspector | Decided | Schema-driven properties, validation, units, ranges, resource pickers, multi-edit, defaults, and overrides. |
 | Console and Output | Decided | Logs, commands, CVars, compiler diagnostics, filtering, links, and remote process selection. |
@@ -206,7 +242,7 @@ separate executable provides a proven workflow benefit.
 | Workspace | Decision | Required capabilities |
 | --- | --- | --- |
 | Map and World | Decided | Four-view and 3D layouts, brushes, editable meshes, instances, layers, snapping, UVs, entities, triggers, volumes, compile, and play. |
-| Entity and Prefab | Decided | Entity palettes, schemas, components, overrides, prefab creation, variants, nested instances, and reference repair. |
+| Entity and Prefab | Decided | Entity palettes, schemas, components, overrides, prefab creation, variants, nested instances, reference repair, and later parameterized/procedural object rules. |
 | Objective and Flow | Decided | Events, conditions, actions, mission state, entity connections, graph validation, and runtime debugging. |
 | Terrain and Foliage | Planned | Terrain sculpting, painting, masks, vegetation placement, density rules, collision, LOD, and streaming regions. |
 | Lighting | Decided | Light placement, probes, lightmaps, shadow settings, bake controls, diagnostics, and preview. |
@@ -219,25 +255,25 @@ separate executable provides a proven workflow benefit.
 | Workspace | Decision | Required capabilities |
 | --- | --- | --- |
 | Material | Decided | Material definitions, shader selection, parameters, textures, variants, render states, validation, and live preview. |
-| Texture Lab | Planned | Import settings, channels, color space, mipmaps, compression, normal generation, atlases, cubemaps, and platform previews. |
+| Texture Lab | Planned | Import settings, channels, color space, mipmaps, compression, normal generation, atlases, sprite subrects, pivots, hotspots, cubemaps, and platform previews. |
 | Model | Decided | Meshes, skeletons, materials, LODs, hitboxes, collision, sockets, bounds, morph targets, import, compile, and preview. |
-| Animation | Decided | Clips, skeleton mapping, blending, state/animation graphs, events, root motion, IK, retargeting, compression, and preview. |
+| Animation | Decided | Clips, skeleton mapping, blending, state/animation graphs, typed parameters, tags/events, root motion, IK, retargeting, compression, network authority, and live graph debugging. |
 | Character Setup | Planned | Eyes, gaze, head aim, mouth/jaw, flex controls, hit reactions, attachments, and character-specific metadata. |
 | Choreography and Dialogue | Planned | Actors, speech, phonemes, facial poses, gestures, animation, cameras, events, subtitles, and timeline curves. |
-| VFX | Decided | Particle graphs/modules, emitters, curves, events, ribbons, decals, preview, budgets, and platform quality levels. |
-| Audio | Decided | Waveform preview, trimming metadata, looping, emitters, attenuation, buses, effects, mixer, soundscapes, reverb, and profiling. |
+| VFX | Decided | Phase-aware particle graphs/modules, emitters, initializers, operators, renderers, curves, control points, events, ribbons, decals, preview, budgets, deterministic random streams, and platform quality levels. |
+| Audio | Decided | Waveform preview, trimming metadata, looping, samples, containers, events, rule stacks, emitters, attenuation, buses, mix graphs, effects, soundscapes, reverb, and profiling. |
 | UI and HUD | Planned | CyGUI documents, layouts, styles, fonts, localization, animation, input navigation, safe areas, and live game preview. |
 | Font and Localization | Planned | Font import, glyph coverage, fallback, shaping tests, strings, plurals, subtitles, captions, and locale validation. |
 | Shader | Planned | Shader source metadata, permutations, includes, reflection, compile errors, disassembly, resource bindings, and preview fixtures. |
-| PostFX and Color | Planned | Tone mapping, exposure, color grading, LUTs, fog, bloom, camera effects, volumes, and comparison views. |
+| PostFX and Color | Planned | Ordered source layers, masks, opacity, tone mapping, exposure, color grading, LUT baking, fog, bloom, camera effects, volumes, transitions, global preview, and render-buffer comparison views. |
 
 ### Systems And Data Workspaces
 
 | Workspace | Decision | Required capabilities |
 | --- | --- | --- |
 | Script | Decided | Lua source editing integration, syntax/diagnostics, project search, native bindings, reload, breakpoints, watches, call stacks, and runtime debugging. |
-| Data and Schema | Planned | CYKV trees/text, typed schemas, defaults, validation, migrations, canonical formatting, semantic diff, and reference navigation. |
-| Gameplay Data | Planned | Weapons, items, damage, movement, enemies, waves, difficulty, game modes, and other schema-defined game records without hard-coding one game into Mason. |
+| Data and Schema | Planned | CYKV trees/text, typed generic data assets, schemas, defaults, validation, migrations, canonical formatting, source/cooked comparison, semantic diff, and reference navigation. |
+| Gameplay Data | Planned | Weapons, items, damage, movement, enemies, waves, difficulty, game modes, response rules, and other schema-defined game records without hard-coding one game into Mason. |
 | Input and Actions | Planned | Action maps, contexts, devices, bindings, chords, dead zones, accessibility, conflicts, glyphs, and runtime testing. |
 | Settings and CVars | Planned | Defaults, categories, ranges, persistence, platform profiles, launch settings, and developer/release visibility. |
 | Plugin and Module | Planned | Discover modules, inspect contracts and versions, configure load order, validate dependencies, and diagnose compatibility. |
@@ -248,7 +284,7 @@ separate executable provides a proven workflow benefit.
 
 | Workspace | Decision | Required capabilities |
 | --- | --- | --- |
-| Cinematic | Deferred | Multi-track sequencing, cameras, actors, animation, dialogue, lighting, events, render capture, and shot management. |
+| Cinematic | Deferred | Multi-track sequencing, cameras, shots, actors, animation, puppeteering, facial controls, dialogue, sound, lighting, effects, recording, render capture, and output management. |
 | Replay | Planned | Timeline playback, camera control, entity inspection, event markers, packet/snapshot views, and export. |
 | Annotation and Review | Proposed | Comments, bookmarks, tasks, measurements, screenshots, review states, and developer commentary. |
 | Package and Release | Planned | Build manifests, packages, patch sets, signatures, dependency closure, target profiles, and release validation. |
@@ -265,15 +301,17 @@ response/config files suitable for CI.
 
 | Working executable | Status | Inputs | Outputs and responsibility |
 | --- | --- | --- | --- |
-| `CypherResourceCompiler` | Decided | Resource manifests and source assets | Coordinate importers/compilers, dependency graphs, caches, and platform cooking. |
+| `CypherResourceCompiler` | Decided | Resource manifests, file lists, and source assets | Coordinate importer/compiler dispatch, recursive and dependency-aware builds, caches, target profiles, loose output, and package updates. |
 | `CypherMapCompiler` | Decided | `.cymap` | Produce `.cymap_c` through geometry, entity, collision, visibility, lighting, nav, and packaging stages. |
 | `CypherModelCompiler` | Decided | glTF/GLB and model source metadata | Produce `.cymesh_c`, `.cyskel_c`, collision, LOD, sockets, and morph metadata. |
 | `CypherAnimationCompiler` | Planned | Animation source and skeleton mapping | Produce `.cyanim_c` with events, root motion, compression, and retarget data. |
+| `CypherAnimationGraphCompiler` | Planned | Animation graph, subgraph, parameter, tag, and authority source | Validate graph ownership and produce a compact runtime evaluator resource. |
 | `CypherTextureCompiler` | Decided | PNG/JPEG/EXR/KTX and `.cytex` metadata | Produce `.cytex_c` mip chains, compression, color-space metadata, and platform variants. |
 | `CypherMaterialCompiler` | Decided | `.cymat` | Validate shader/material compatibility and produce `.cymat_c`. |
 | `CypherShaderCompiler` | Decided | GLSL and `.cyshader` metadata | Preprocess, compile, validate, optimize, reflect, and produce `.cyshader_c`. |
 | `CypherVFXCompiler` | Planned | Particle/VFX source documents | Validate modules and produce cooked effect data. |
 | `CypherAudioCompiler` | Planned | WAV/FLAC/other approved sources and sound metadata | Normalize, encode, analyze loudness, build seek/stream data, and produce `.cysnd_c`. |
+| `CypherAudioGraphCompiler` | Planned | Sound events, containers, rule stacks, buses, and mix graphs | Validate references and produce runtime event/mixer graph resources. |
 | `CypherFontCompiler` | Planned | Font sources and locale manifests | Produce `.cyfont_c`, atlases, glyph maps, fallback, and shaping metadata. |
 | `CypherCaptionCompiler` | Planned | Dialogue, subtitle, and localization source | Produce validated, timed, localized caption resources. |
 | `CypherNavigationCompiler` | Planned | Map geometry and `.cynav` overrides | Produce `.cynav_c` meshes, links, regions, costs, and debug data. |
@@ -285,6 +323,8 @@ response/config files suitable for CI.
 | `CypherLocalizationCompiler` | Planned | Localization tables and locale manifests | Validate keys, placeholders, plurals, coverage, encoding, and produce cooked string resources. |
 | `CypherSceneCompiler` | Planned | `.cyscene` | Compile scene instances, dependencies, streaming partitions, and runtime records. |
 | `CypherPrefabCompiler` | Planned | `.cyprefab` | Validate inheritance/overrides and produce runtime prefab/entity templates. |
+| `CypherPostFXCompiler` | Planned | PostFX layers, masks, LUT sources, exposure, and volume profiles | Preserve editable source while baking target-specific LUT and runtime post-process data. |
+| `CypherDataCompiler` | Planned | Schema-selected CYKV generic data | Produce bounded typed runtime records for gameplay and project-defined data families. |
 | `CypherPak` | Existing foundation | Cooked resources and manifests | Create, list, extract, verify, sign, diff, patch, and report package contents. |
 | `CypherKeyValues` | Planned | CYKV documents | Parse, format, canonicalize, validate, query, convert, and print diagnostics. |
 | `CypherSchemaCompiler` | Planned | Reflection and schema declarations | Produce schema registries, editor descriptors, validation data, and optional generated bindings. |
@@ -388,9 +428,14 @@ shared foundation that prevents every editor from reimplementing the same logic.
 | `.cytex` | Mason Texture Lab | CypherTextureCompiler | `.cytex_c` |
 | model source metadata | Mason Model | CypherModelCompiler | `.cymesh_c`, `.cyskel_c` |
 | animation source metadata | Mason Animation | CypherAnimationCompiler | `.cyanim_c` |
+| animation graph source | Mason Animation Graph | CypherAnimationGraphCompiler | Cooked animation graph evaluator resource |
 | `.cyshader` | Mason Shader | CypherShaderCompiler | `.cyshader_c` |
 | VFX source | Mason VFX | CypherVFXCompiler | Cooked VFX resource |
 | audio source metadata | Mason Audio | CypherAudioCompiler | `.cysnd_c` |
+| audio event/mix source | Mason Audio | CypherAudioGraphCompiler | Cooked sound-event, rule-stack, and mix-graph resources |
+| PostFX/color source | Mason PostFX and Color | CypherPostFXCompiler | Cooked post-process profile and optional LUT resource |
+| typed generic CYKV data | Mason Data/Schema or Gameplay Data | CypherDataCompiler and CypherValidator | Schema-identified cooked data records |
+| resource/preload manifest | Mason Build/Cook | CypherResourceCompiler | Validated runtime resource-set manifest |
 | `.cyphys` | Mason Physics Lab | CypherPhysicsCompiler | `.cyphys_c` |
 | `.cynav` | Mason Navigation | CypherNavigationCompiler | `.cynav_c` |
 | `.cyflow` | Mason Objective/Flow | CypherFlowCompiler | `.cyflow_c` |
@@ -403,9 +448,10 @@ shared foundation that prevents every editor from reimplementing the same logic.
 | package manifest | Mason Package/Release | CypherPak | `.cypak` |
 | mod/add-on manifest | Mason Mod and Add-on | CypherModManager and CypherPak | Validated mod packages and manifests |
 
-Exact extensions for VFX, UI, dialogue, replay, and some intermediate products
-remain decisions for their respective format designs. Extensions must not be
-invented only to make the list look complete.
+Exact extensions for animation graphs, audio graphs, PostFX, generic data, VFX,
+UI, dialogue, replay, resource manifests, subrect metadata, and intermediate
+products remain decisions for their respective format designs. Extensions must
+not be invented only to make the list look complete.
 
 ## Newly Identified Additions
 
@@ -415,11 +461,19 @@ Mason lists:
 | Addition | Why it is needed | Decision |
 | --- | --- | --- |
 | Project manager/launcher | Keeps SDK, project, target, build, and launch configuration outside ad hoc scripts. | Proposed |
+| Associated-editor registry | Lets the Asset Browser resolve preview, validator, compiler, and editor ownership without hard-coded Qt dispatch. | Decided as Resource/Asset Browser responsibility |
+| Resource/preload manifest tooling | Startup groups, maps, mods, servers, and tests need validated explicit resource sets and load policy. | Planned |
+| Generic typed data compiler/editor | Weapons, enemies, waves, response rules, and project-defined records need schema-driven authoring without bespoke formats for every type. | Planned |
+| Texture subrect and hotspot editor | Sprites, atlases, pivots, UI regions, and world-material hotspots require visual region authoring. | Planned as Texture Lab mode |
 | Character setup and facial tools | Bridges model flexes, gaze, mouth, dialogue, and choreography. | Planned |
 | UI/HUD authoring | CyGUI needs a visual workflow, localization preview, and input-navigation testing. | Planned |
 | Font/localization/caption tools | Shipping text requires glyph, shaping, fallback, subtitle, and locale validation. | Planned |
 | Shader and permutation inspector | Renderer development requires reflection, compile diagnostics, disassembly, and variant control. | Planned |
 | PostFX/color-grading tools | Camera and atmosphere work need reproducible visual profiles and volume authoring. | Planned |
+| Animation graph compiler/debugger | State, blend, IK, event, authority, and parameter behavior needs deterministic compilation and live inspection. | Decided |
+| Audio event and mix graph tools | Raw samples alone cannot represent sound events, routing, rule stacks, buses, and runtime mixes. | Planned |
+| Procedural object rules | Parameterized reusable objects can reduce repetitive world work after the prefab system is proven. | Deferred |
+| Response-rule editor | Conditional dialogue and reaction selection need schema validation and simulation when game AI requires them. | Deferred |
 | Terrain/foliage tools | Larger outdoor or mixed maps require specialized world-authoring workflows. | Planned, demand-driven |
 | Replay/determinism inspector | Multiplayer, prediction, testing, and debugging require timeline and state comparison. | Planned |
 | Network inspector and simulator | Multiplayer needs packet, replication, loss, latency, and prediction diagnostics. | Planned |
@@ -463,9 +517,11 @@ Exit condition: source documents can be authored and validated without a GUI.
 ### Stage 2: Resource Pipeline
 
 - asset registry and dependency graph
+- associated-editor, preview-provider, validator, and compiler registry
 - importer/compiler registry
 - derived-data cache
 - CypherResourceCompiler coordinator
+- resource/preload manifests and generic typed data cooking
 - texture, mesh, material, and shader vertical slices
 - CypherScope first useful version
 
@@ -501,10 +557,11 @@ Exit condition: Mason can edit, compile, and play the command-line test room.
 
 ### Stage 6: Content Workspaces
 
-- model and animation
+- model, animation, and animation graphs
 - material, texture, and shader
 - VFX
-- audio
+- audio samples, events, rule stacks, and mix graphs
+- PostFX and color authoring
 - UI/HUD, fonts, localization, and captions
 - scripts, input actions, gameplay data, and settings
 - AI behavior and navigation

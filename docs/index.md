@@ -37,10 +37,11 @@ Read these in order when resuming work:
 9. [subsystems.md](subsystems.md)
 10. [toolchain_plan.md](toolchain_plan.md)
 11. [tool_suite.md](tool_suite.md)
-12. [map_authoring_and_mason.md](map_authoring_and_mason.md)
-13. [formats/CYKV.md](formats/CYKV.md)
-14. [reference_engine_lessons.md](reference_engine_lessons.md)
-15. [security_model.md](security_model.md)
+12. [source2_tooling_reference.md](source2_tooling_reference.md)
+13. [map_authoring_and_mason.md](map_authoring_and_mason.md)
+14. [formats/CYKV.md](formats/CYKV.md)
+15. [reference_engine_lessons.md](reference_engine_lessons.md)
+16. [security_model.md](security_model.md)
 
 API docs:
 
@@ -102,6 +103,11 @@ Project memory:
   - authoritative product, executable, library-target, and naming rules
   - Source 1 capability comparison and working Cypher product names
   - implementation gates and acceptance criteria for every tool class
+- `source2_tooling_reference`
+  - surveyed Source 2 authoring tools and source/cooked format families
+  - architectural lessons for Mason, compilers, previews, and diagnostics
+  - Source 2 capability-to-Cypher mapping and explicit scope exclusions
+  - MASON long-form naming and vertical implementation order
 - `map_authoring_and_mason`
   - CYKV-backed map authoring direction
   - editable and cooked format families
