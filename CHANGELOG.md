@@ -21,9 +21,18 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
-## [Unreleased] - 2026-07-09
+## [Unreleased] - 2026-08-12
 
 ### Added
+- Added the first synchronous `CypherResource` runtime, including loader-type
+  registration, stable resource identity, generation-safe handles, reference
+  counting, cache lookup, failed-load rollback, dependency-cycle detection,
+  reverse-load-order shutdown, diagnostics, tests, and Release benchmarks.
+- Added a dedicated `Cypher::ResourceRuntime` CMake target and linked the engine,
+  resource tests, and resource benchmarks through the target boundary.
+- Added the mesh-first Mason map-authoring direction, separating editable mesh
+  topology from generic CypherMath operations and treating BSP/CSG as optional
+  compiler techniques rather than the persistent authoring representation.
 - Added the CypherSecurity primitive layer backed by libsodium, including guarded
   secret memory, cryptographic randomness, BLAKE2b digests and KDF, SipHash,
   Argon2id password records, XChaCha20-Poly1305 AEAD, Ed25519 signatures, X25519
@@ -50,6 +59,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - Added the authoring-versus-cooked format direction for `.cymap`, `.cyscene`, `.cytex_c`, `.cymesh_c`, `.cyanim_c`, `.cybsp_c`, `.cypkg`, and related Cypher data formats.
 
 ### Changed
+- Changed runtime resource handles to an opaque 64-bit `16/32/16`
+  slot/generation/type layout, allowing 65,536 manager slots while making stale
+  handle aliasing substantially less likely during long editor sessions.
+- Changed the resource lookup removal path to repair linear-probe clusters
+  without accumulating tombstones during repeated load/unload workflows.
+- Changed the clangd database helper to link `build-clangd/compile_commands.json`
+  to the active CMake Debug database, with an atomic-copy fallback for platforms
+  where developer-created symbolic links are unavailable.
 - Changed normal build presets to acquire only their required dependency features and added a `dependencies-all` integration preset.
 - Hardened macOS dependency builds against ambient Homebrew/MacPorts include paths and mixed Apple/GNU archive tools.
 - Shortened the README so it acts as a concise repository entry point instead of duplicating long-form architecture documentation.
@@ -58,6 +75,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - Updated the toolchain plan with concrete library, format, and wrapping rules for engine runtime, asset tools, and the future Mason editor.
 
 ### Verified
+- Verified Debug and Release engine builds with all 202 registered tests passing.
+- Verified the resource runtime and packed-handle tests under ASan/UBSan.
+- Verified strict warning compilation for the resource implementation and stable
+  Release benchmark results for payload lookup, cached acquisition, and
+  synchronous load/unload bookkeeping.
 - Verified the complete approved dependency graph and all vendored compiled targets on Apple Silicon macOS.
 - Verified the full project build with tests and benchmarks enabled and all 59 registered tests passing.
 
