@@ -233,8 +233,8 @@ jobs:
       - name: Test
         run: ctest --test-dir build-sanitize -C Debug --output-on-failure --no-tests=error --timeout 120
 
-  shader-tools:
-    name: ${{ matrix.name }} Shader Tools
+  render-asset-tools:
+    name: ${{ matrix.name }} Render Asset Tools
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     defaults:
@@ -284,18 +284,18 @@ jobs:
           path: |
             ~/.cache/vcpkg/archives
             .vcpkg-downloads
-          key: vcpkg-${{ runner.os }}-shader-tools-${{ hashFiles('vcpkg.json', '.gitmodules', 'cmake/CypherBootstrapVcpkg.cmake') }}
+          key: vcpkg-${{ runner.os }}-render-asset-tools-${{ hashFiles('vcpkg.json', '.gitmodules', 'cmake/CypherBootstrapVcpkg.cmake') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
 
-      - name: Configure shader tools
+      - name: Configure render asset tools
         run: |
           configure_command=(
-            cmake -S . -B build-shader-tools
+            cmake -S . -B build-render-asset-tools
             -DCMAKE_BUILD_TYPE=Debug
             -DCYPHERENGINE_BUILD_TESTS=ON
             -DCYPHERENGINE_BUILD_TOOLS=ON
-            "-DVCPKG_MANIFEST_FEATURES=shader-tools;tests"
+            "-DVCPKG_MANIFEST_FEATURES=image-import;shader-tools;tests"
             "-DCMAKE_TOOLCHAIN_FILE=$PWD/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake"
           )
           for attempt in 1 2 3; do
@@ -304,27 +304,35 @@ jobs:
             if [[ "$attempt" == "3" ]]; then
               exit "$status"
             fi
-            echo "Shader-tools configure failed; retrying in $(( attempt * 20 )) seconds..."
+            echo "Render-asset-tools configure failed; retrying in $(( attempt * 20 )) seconds..."
             sleep $(( attempt * 20 ))
           done
 
       - name: Build ResourceCompiler and focused tests
         run: |
-          cmake --build build-shader-tools --config Debug --parallel --target \
+          cmake --build build-render-asset-tools --config Debug --parallel --target \
             CypherResourceCompiler \
             cypher_common_tier1_fileio_tests \
+            cypher_common_vfs_tests \
+            cypher_common_render_asset_format_tests \
+            cypher_common_cooked_resource_format_tests \
+            cypher_common_cooked_shader_format_tests \
+            cypher_common_cooked_texture_format_tests \
+            cypher_common_cooked_material_format_tests \
             cypher_toolframework_core_tests \
             cypher_toolframework_cli_tests \
             cypher_toolframework_compiler_tests \
-            cypher_shader_compiler_tests
+            cypher_shader_compiler_tests \
+            cypher_texture_compiler_tests \
+            cypher_material_compiler_tests
 
-      - name: Test shader toolchain
+      - name: Test render asset toolchain
         run: |
-          ctest --test-dir build-shader-tools -C Debug \
+          ctest --test-dir build-render-asset-tools -C Debug \
             --output-on-failure \
             --no-tests=error \
             --timeout 120 \
-            -R "^(cypher_common_tier1_fileio_tests|cypher_toolframework_core_tests|cypher_toolframework_cli_tests|cypher_toolframework_compiler_tests|cypher_shader_compiler_tests|cypher_resource_compiler_help|cypher_resource_compiler_version|cypher_resource_compiler_list_compilers|cypher_resource_compiler_describe_shader|cypher_resource_compiler_list_formats_json|cypher_resource_compiler_smoke)$"
+            -R "^(cypher_common_tier1_fileio_tests|cypher_common_vfs_tests|cypher_common_render_asset_format_tests|cypher_common_cooked_resource_format_tests|cypher_common_cooked_shader_format_tests|cypher_common_cooked_texture_format_tests|cypher_common_cooked_material_format_tests|cypher_toolframework_core_tests|cypher_toolframework_cli_tests|cypher_toolframework_compiler_tests|cypher_shader_compiler_tests|cypher_texture_compiler_tests|cypher_material_compiler_tests|cypher_resource_compiler_help|cypher_resource_compiler_version|cypher_resource_compiler_list_compilers|cypher_resource_compiler_describe_shader|cypher_resource_compiler_describe_texture|cypher_resource_compiler_describe_material|cypher_resource_compiler_list_formats_json|cypher_resource_compiler_smoke)$"
 
   benchmark-build:
     name: ${{ matrix.name }} Bench Build
