@@ -17,7 +17,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherCommon_KeyValueParser.h"
-#include "CypherCommon_RenderAsset.h"
+#include "CypherCommon_RenderFormats.h"
 #include "CypherCommon_SchemaRegistry.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -169,6 +169,33 @@ TEST_CASE( "Texture source decoding applies explicit semantic defaults",
     REQUIRE( invalid.status ==
              render_asset_decode_status_t::INVALID_COMBINATION );
     REQUIRE( ViewEquals( invalid.field, "color_space" ) );
+    KeyValue_DestroyDocument( pDocument );
+
+    pDocument = ParseAsset(
+        "@cykv 1\n@schema \"cypher.texture\" 1\n"
+        "{ source = \"textures/source/sky.exr\" }" );
+    const render_asset_decode_result_t exrDefault = RenderTextureSource_Decode(
+        pDocument,
+        {},
+        nullptr,
+        0u,
+        &texture );
+    REQUIRE( RenderAsset_DecodeSucceeded( exrDefault ) );
+    REQUIRE( texture.colorSpace == render_texture_color_space_t::LINEAR );
+    KeyValue_DestroyDocument( pDocument );
+
+    pDocument = ParseAsset(
+        "@cykv 1\n@schema \"cypher.texture\" 1\n"
+        "{ source = \"textures/source/sky.exr\" color_space = \"srgb\" }" );
+    const render_asset_decode_result_t exrSrgb = RenderTextureSource_Decode(
+        pDocument,
+        {},
+        nullptr,
+        0u,
+        &texture );
+    REQUIRE( exrSrgb.status ==
+             render_asset_decode_status_t::INVALID_COMBINATION );
+    REQUIRE( ViewEquals( exrSrgb.field, "color_space" ) );
     KeyValue_DestroyDocument( pDocument );
 }
 

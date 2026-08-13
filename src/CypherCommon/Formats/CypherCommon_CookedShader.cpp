@@ -89,6 +89,28 @@ CYPHER_NODISCARD bool_t IsCodeFormatValid(
     return format == render_shader_code_format_t::GLSL_UTF8;
 }
 
+CYPHER_NODISCARD bool_t IsLanguageProfileValid(
+    render_shader_language_profile_t profile ) noexcept
+{
+    return profile == render_shader_language_profile_t::GLSL_CORE;
+}
+
+CYPHER_NODISCARD bool_t IsGlslCoreVersionValid( u32 nVersion ) noexcept
+{
+    switch ( nVersion ) {
+        case 330u:
+        case 400u:
+        case 410u:
+        case 420u:
+        case 430u:
+        case 440u:
+        case 450u:
+            return CY_TRUE;
+        default:
+            return CY_FALSE;
+    }
+}
+
 CYPHER_NODISCARD u32 StageBit( render_shader_stage_t stage ) noexcept
 {
     return IsStageValid( stage )
@@ -123,6 +145,14 @@ CYPHER_NODISCARD cooked_shader_status_t ValidateShader(
     }
     if ( !IsProgramKindValid( shader.kind ) ) {
         return cooked_shader_status_t::INVALID_PROGRAM_KIND;
+    }
+    if ( !IsLanguageProfileValid( shader.languageProfile ) ) {
+        return cooked_shader_status_t::INVALID_LANGUAGE_PROFILE;
+    }
+    if ( shader.languageProfile ==
+             render_shader_language_profile_t::GLSL_CORE &&
+         !IsGlslCoreVersionValid( shader.nLanguageVersion ) ) {
+        return cooked_shader_status_t::INVALID_LANGUAGE_VERSION;
     }
     if ( ( shader.flags & ~CY_COOKED_SHADER_KNOWN_FLAGS ) != 0u ) {
         return cooked_shader_status_t::INVALID_FLAGS;
@@ -236,6 +266,10 @@ CYPHER_NODISCARD bool_t WriteMetadataHeader(
            ByteWriter_WriteU32(
                &writer,
                static_cast<u32>( shader.kind ) ) &&
+           ByteWriter_WriteU32(
+               &writer,
+               static_cast<u32>( shader.languageProfile ) ) &&
+           ByteWriter_WriteU32( &writer, shader.nLanguageVersion ) &&
            ByteWriter_WriteU32( &writer, shader.flags ) &&
            ByteWriter_WriteU32( &writer, nStages ) &&
            ByteWriter_WriteU32( &writer, 0u );
@@ -265,12 +299,17 @@ CYPHER_NODISCARD bool_t ReadMetadataHeader(
     u32 cbHeader = 0u;
     u32 backend = 0u;
     u32 kind = 0u;
+    u32 languageProfile = 0u;
     u32 reserved = 0u;
     if ( !ByteReader_ReadU32( &reader, &magic ) ||
          !ByteReader_ReadU32( &reader, &version ) ||
          !ByteReader_ReadU32( &reader, &cbHeader ) ||
          !ByteReader_ReadU32( &reader, &backend ) ||
          !ByteReader_ReadU32( &reader, &kind ) ||
+         !ByteReader_ReadU32( &reader, &languageProfile ) ||
+         !ByteReader_ReadU32(
+             &reader,
+             &metadata.shader.nLanguageVersion ) ||
          !ByteReader_ReadU32( &reader, &metadata.shader.flags ) ||
          !ByteReader_ReadU32( &reader, &metadata.nStages ) ||
          !ByteReader_ReadU32( &reader, &reserved ) ) {
@@ -284,6 +323,8 @@ CYPHER_NODISCARD bool_t ReadMetadataHeader(
     }
     metadata.shader.backend = static_cast<render_shader_backend_t>( backend );
     metadata.shader.kind = static_cast<render_shader_program_kind_t>( kind );
+    metadata.shader.languageProfile =
+        static_cast<render_shader_language_profile_t>( languageProfile );
     return CY_TRUE;
 }
 
@@ -790,6 +831,8 @@ cooked_shader_result_t CookedShader_Read(
     cooked_shader_view_t shader{};
     shader.backend = metadata.shader.backend;
     shader.kind = metadata.shader.kind;
+    shader.languageProfile = metadata.shader.languageProfile;
+    shader.nLanguageVersion = metadata.shader.nLanguageVersion;
     shader.flags = metadata.shader.flags;
     shader.sourceHash = header.sourceHash;
     shader.nStages = metadata.nStages;
@@ -903,6 +946,15 @@ bool_t CookedShader_Succeeded(
     return result.status == cooked_shader_status_t::OK;
 }
 
+bool_t CookedShader_SupportsLanguage(
+    render_shader_language_profile_t profile,
+    u32 nVersion ) noexcept
+{
+    return IsLanguageProfileValid( profile ) &&
+           profile == render_shader_language_profile_t::GLSL_CORE &&
+           IsGlslCoreVersionValid( nVersion );
+}
+
 const char *CookedShader_StatusName(
     cooked_shader_status_t status ) noexcept
 {
@@ -928,6 +980,10 @@ const char *CookedShader_StatusName(
             return "INVALID_BACKEND";
         case cooked_shader_status_t::INVALID_PROGRAM_KIND:
             return "INVALID_PROGRAM_KIND";
+        case cooked_shader_status_t::INVALID_LANGUAGE_PROFILE:
+            return "INVALID_LANGUAGE_PROFILE";
+        case cooked_shader_status_t::INVALID_LANGUAGE_VERSION:
+            return "INVALID_LANGUAGE_VERSION";
         case cooked_shader_status_t::INVALID_FLAGS:
             return "INVALID_FLAGS";
         case cooked_shader_status_t::STAGE_LIMIT_EXCEEDED:

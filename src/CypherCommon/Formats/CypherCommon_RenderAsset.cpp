@@ -327,9 +327,7 @@ render_asset_decode_result_t RenderTextureSource_Decode(
         AssetText( ".png" ),
         AssetText( ".jpg" ),
         AssetText( ".jpeg" ),
-        AssetText( ".exr" ),
-        AssetText( ".ktx" ),
-        AssetText( ".ktx2" )
+        AssetText( ".exr" )
     };
     if ( !IsCanonicalPathWithAnyExtension(
              texture.source,
@@ -367,10 +365,15 @@ render_asset_decode_result_t RenderTextureSource_Decode(
         return result;
     }
 
-    if ( !bHasColorSpace && texture.usage != render_texture_usage_t::COLOR ) {
+    const bool_t bExrSource = StringPath_HasExtension(
+        texture.source,
+        AssetText( ".exr" ),
+        CY_FALSE );
+    if ( !bHasColorSpace &&
+         ( texture.usage != render_texture_usage_t::COLOR || bExrSource ) ) {
         texture.colorSpace = render_texture_color_space_t::LINEAR;
     }
-    if ( texture.usage != render_texture_usage_t::COLOR &&
+    if ( ( texture.usage != render_texture_usage_t::COLOR || bExrSource ) &&
          texture.colorSpace != render_texture_color_space_t::LINEAR ) {
         SetSemanticFailure(
             result,

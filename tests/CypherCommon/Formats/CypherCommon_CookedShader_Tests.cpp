@@ -86,6 +86,9 @@ TEST_CASE( "Cooked OpenGL shaders round trip through canonical CYRS files",
     REQUIRE( read.cbRead == cbRequired );
     REQUIRE( view.backend == render_shader_backend_t::OPENGL );
     REQUIRE( view.kind == render_shader_program_kind_t::GRAPHICS );
+    REQUIRE( view.languageProfile ==
+             render_shader_language_profile_t::GLSL_CORE );
+    REQUIRE( view.nLanguageVersion == 410u );
     REQUIRE( view.nStages == 2u );
     REQUIRE( ContentHash_Equals( view.sourceHash, sourceHash ) );
 
@@ -190,6 +193,23 @@ TEST_CASE( "Cooked shader metadata enforces canonical stage sets",
                  { stages, 2u },
                  Span_FromArray( metadata ) ).status ==
              cooked_shader_status_t::INVALID_BACKEND );
+
+    cooked_shader_desc_t invalidProfile{};
+    invalidProfile.languageProfile =
+        static_cast<render_shader_language_profile_t>( 99u );
+    REQUIRE( CookedShader_WriteMetadata(
+                 invalidProfile,
+                 { stages, 2u },
+                 Span_FromArray( metadata ) ).status ==
+             cooked_shader_status_t::INVALID_LANGUAGE_PROFILE );
+
+    cooked_shader_desc_t invalidVersion{};
+    invalidVersion.nLanguageVersion = 120u;
+    REQUIRE( CookedShader_WriteMetadata(
+                 invalidVersion,
+                 { stages, 2u },
+                 Span_FromArray( metadata ) ).status ==
+             cooked_shader_status_t::INVALID_LANGUAGE_VERSION );
 }
 
 TEST_CASE( "Cooked shader readers reject damaged files transactionally",
@@ -330,7 +350,16 @@ TEST_CASE( "Cooked shader writers reject malformed OpenGL source",
                  Span_FromArray( metadataAlias ) ).status ==
              cooked_shader_status_t::INVALID_ARGUMENT );
     REQUIRE( CookedShader_MetadataSize( 0u ) == 0u );
-    REQUIRE( CookedShader_MetadataSize( 2u ) == 80u );
+    REQUIRE( CookedShader_MetadataSize( 2u ) == 88u );
+    REQUIRE( CookedShader_SupportsLanguage(
+        render_shader_language_profile_t::GLSL_CORE,
+        330u ) );
+    REQUIRE( CookedShader_SupportsLanguage(
+        render_shader_language_profile_t::GLSL_CORE,
+        450u ) );
+    REQUIRE_FALSE( CookedShader_SupportsLanguage(
+        render_shader_language_profile_t::GLSL_CORE,
+        120u ) );
     REQUIRE( StringView_Equals(
         StringView_FromCString( CookedShader_StatusName(
             cooked_shader_status_t::INVALID_STAGE_SET ) ),

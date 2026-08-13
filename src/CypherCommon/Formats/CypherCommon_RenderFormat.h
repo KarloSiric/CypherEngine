@@ -33,7 +33,7 @@ inline constexpr fourcc_t CY_RENDER_TEXTURE_RESOURCE_TYPE =
 inline constexpr fourcc_t CY_RENDER_MATERIAL_RESOURCE_TYPE =
     Cy_MakeFourCC( 'C', 'Y', 'M', 'T' );
 
-inline constexpr format_version_t CY_RENDER_SHADER_RESOURCE_VERSION = 1u;
+inline constexpr format_version_t CY_RENDER_SHADER_RESOURCE_VERSION = 2u;
 inline constexpr format_version_t CY_RENDER_TEXTURE_RESOURCE_VERSION = 1u;
 inline constexpr format_version_t CY_RENDER_MATERIAL_RESOURCE_VERSION = 1u;
 

@@ -35,8 +35,8 @@ inline constexpr fourcc_t CY_COOKED_SHADER_CODE_CHUNK =
 inline constexpr fourcc_t CY_COOKED_SHADER_METADATA_MAGIC =
     Cy_MakeFourCC( 'C', 'S', 'H', 'D' );
 
-inline constexpr format_version_t CY_COOKED_SHADER_METADATA_VERSION = 1u;
-inline constexpr usize CY_COOKED_SHADER_METADATA_HEADER_SIZE = 32u;
+inline constexpr format_version_t CY_COOKED_SHADER_METADATA_VERSION = 2u;
+inline constexpr usize CY_COOKED_SHADER_METADATA_HEADER_SIZE = 40u;
 inline constexpr usize CY_COOKED_SHADER_STAGE_RECORD_SIZE = 24u;
 inline constexpr u32 CY_COOKED_SHADER_MAX_STAGES = 2u;
 inline constexpr u64 CY_COOKED_SHADER_MAX_CODE_SIZE = 16u * CY_MIB;
@@ -61,6 +61,13 @@ enum class render_shader_code_format_t : u32 {
     GLSL_UTF8 = 1u
 };
 
+// The language profile and version are runtime compatibility requirements.
+// They are serialized independently from the backend so a loader can reject an
+// unsupported shader before asking a graphics driver to compile it.
+enum class render_shader_language_profile_t : u32 {
+    GLSL_CORE = 1u
+};
+
 enum cooked_shader_flags_t : flags32_t {
     COOKED_SHADER_FLAG_NONE = 0u
 };
@@ -74,6 +81,10 @@ struct cooked_shader_desc_t {
     render_shader_program_kind_t kind{
         render_shader_program_kind_t::GRAPHICS
     };
+    render_shader_language_profile_t languageProfile{
+        render_shader_language_profile_t::GLSL_CORE
+    };
+    u32 nLanguageVersion{ 410u };
     flags32_t flags{ COOKED_SHADER_FLAG_NONE };
 };
 
@@ -111,6 +122,10 @@ struct cooked_shader_view_t {
     render_shader_program_kind_t kind{
         render_shader_program_kind_t::GRAPHICS
     };
+    render_shader_language_profile_t languageProfile{
+        render_shader_language_profile_t::GLSL_CORE
+    };
+    u32 nLanguageVersion{ 0u };
     flags32_t flags{ COOKED_SHADER_FLAG_NONE };
     content_hash_t sourceHash{};
     cooked_shader_stage_view_t stages[CY_COOKED_SHADER_MAX_STAGES]{};
@@ -129,6 +144,8 @@ enum class cooked_shader_status_t : u8 {
     INVALID_METADATA,
     INVALID_BACKEND,
     INVALID_PROGRAM_KIND,
+    INVALID_LANGUAGE_PROFILE,
+    INVALID_LANGUAGE_VERSION,
     INVALID_FLAGS,
     STAGE_LIMIT_EXCEEDED,
     INVALID_STAGE,
@@ -157,7 +174,7 @@ CYPHER_NODISCARD CYPHER_COMMON_API
 usize CookedShader_MetadataSize( u32 nStages ) noexcept;
 
 // Returns the canonical CYRS file size for prepared stage code, or zero when
-// the stage inputs cannot be represented by cooked shader version 1.
+// the stage inputs cannot be represented by the current cooked shader version.
 CYPHER_NODISCARD CYPHER_COMMON_API
 usize CookedShader_RequiredSize(
     const cooked_shader_desc_t &shader,
@@ -195,6 +212,13 @@ const cooked_shader_stage_view_t *CookedShader_FindStage(
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t CookedShader_Succeeded(
     const cooked_shader_result_t &result ) noexcept;
+
+// Reports whether the current cooked contract can represent this source
+// language profile/version pair. Target-platform limits remain cooker policy.
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t CookedShader_SupportsLanguage(
+    render_shader_language_profile_t profile,
+    u32 nVersion ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
 const char *CookedShader_StatusName(
