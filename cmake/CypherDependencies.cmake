@@ -104,8 +104,8 @@ function(cypher_configure_common_tier1_dependencies out_link_libraries)
         target_link_libraries(
             CypherThirdPartyCompression
             INTERFACE
-                LZ4::lz4_static
-                zstd::libzstd_static
+                lz4::lz4
+                zstd::libzstd
         )
     endif()
 
