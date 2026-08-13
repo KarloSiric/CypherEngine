@@ -30,6 +30,9 @@ permissions:
 
 env:
   VCPKG_DOWNLOADS: ${{ github.workspace }}/.vcpkg-downloads
+  # Hosted runners expose enough logical CPUs to exhaust memory when every test
+  # translation unit compiles concurrently, especially under ASan/UBSan.
+  CYPHER_CI_BUILD_JOBS: 2
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -162,7 +165,7 @@ jobs:
           done
 
       - name: Build
-        run: cmake --build build --config ${{ matrix.build_type }} --parallel
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel "$CYPHER_CI_BUILD_JOBS"
 
       - name: Test
         run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure --no-tests=error --timeout 120
@@ -228,7 +231,7 @@ jobs:
           done
 
       - name: Build
-        run: cmake --build build-sanitize --config Debug --parallel
+        run: cmake --build build-sanitize --config Debug --parallel "$CYPHER_CI_BUILD_JOBS"
 
       - name: Test
         run: ctest --test-dir build-sanitize -C Debug --output-on-failure --no-tests=error --timeout 120
@@ -310,7 +313,7 @@ jobs:
 
       - name: Build ResourceCompiler and focused tests
         run: |
-          cmake --build build-render-asset-tools --config Debug --parallel --target \
+          cmake --build build-render-asset-tools --config Debug --parallel "$CYPHER_CI_BUILD_JOBS" --target \
             CypherResourceCompiler \
             cypher_common_tier1_fileio_tests \
             cypher_common_vfs_tests \
@@ -409,7 +412,7 @@ jobs:
           done
 
       - name: Build all benchmark targets
-        run: cmake --build build-bench --config Release --parallel
+        run: cmake --build build-bench --config Release --parallel "$CYPHER_CI_BUILD_JOBS"
 
       - name: Report benchmark system info
         run: |
