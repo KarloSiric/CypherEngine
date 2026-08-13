@@ -43,6 +43,13 @@ The approved direction is a dense, professional editor influenced by Valve's
 Hammer tools. It is an operational authoring surface, not a marketing page and
 not a collection of floating cards.
 
+![Approved Picasso V1 Texture workspace direction](images/picasso/picasso_v1_texture_workspace_reference.png)
+
+The image is a directional layout reference. Its visible layout guides, capture
+chrome, placeholder content, and exact pixel colors are not implementation
+requirements; the semantic rules and workspace contract in this document are
+authoritative.
+
 The palette has distinct semantic roles:
 
 | Role | Direction | Use |
