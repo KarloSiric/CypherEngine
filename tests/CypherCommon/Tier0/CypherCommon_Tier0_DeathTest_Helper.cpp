@@ -21,10 +21,31 @@
 
 #include <cstring>
 
+#if CYPHER_PLATFORM_WINDOWS
+    #include <crtdbg.h>
+#endif
+
 using namespace cypher::common;
+
+namespace
+{
+
+void DeathTest_DisableInteractiveCrashReporting() noexcept
+{
+    #if CYPHER_PLATFORM_WINDOWS
+        // The MSVC debug CRT may enter Windows Error Reporting after abort().
+        // Death tests run unattended, so suppress dialogs while preserving the
+        // abnormal process termination that the parent CTest script verifies.
+        _set_abort_behavior( 0u, _WRITE_ABORT_MSG | _CALL_REPORTFAULT );
+    #endif
+}
+
+} // namespace
 
 int main( int argc, char **argv )
 {
+    DeathTest_DisableInteractiveCrashReporting();
+
     if ( argc != 2 || argv[1] == nullptr ) {
         return 64;
     }
