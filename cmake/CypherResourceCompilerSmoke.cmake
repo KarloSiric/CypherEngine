@@ -43,11 +43,16 @@ set(CYPHER_SHADER_OUTPUT
 set(CYPHER_SECOND_SHADER_OUTPUT
     "${CYPHER_OUTPUT_ROOT}/shaders/sub/secondary.cyshader_c"
 )
+set(CYPHER_MATERIAL_OUTPUT
+    "${CYPHER_OUTPUT_ROOT}/materials/world.cymat_c"
+)
 
 file(REMOVE_RECURSE "${CYPHER_RESOURCE_COMPILER_WORK_DIR}")
 file(MAKE_DIRECTORY
+    "${CYPHER_SOURCE_ROOT}/materials"
     "${CYPHER_SOURCE_ROOT}/shaders"
     "${CYPHER_SOURCE_ROOT}/shaders/sub"
+    "${CYPHER_SOURCE_ROOT}/textures"
 )
 
 file(WRITE "${CYPHER_SOURCE_ROOT}/shaders/world.cyshader" [=[@cykv 1
@@ -87,6 +92,28 @@ file(WRITE "${CYPHER_SOURCE_ROOT}/shaders/sub/secondary.cyshader" [=[@cykv 1
     vertex = "shaders/world.vert"
     fragment = "shaders/world.frag"
     defines = ["CY_SECONDARY_PASS"]
+}
+]=])
+file(WRITE "${CYPHER_SOURCE_ROOT}/textures/world.cytex" [=[@cykv 1
+@schema "cypher.texture" 1
+{
+    source = "textures/source/world.png"
+    usage = "color"
+    color_space = "srgb"
+    generate_mips = true
+}
+]=])
+file(WRITE "${CYPHER_SOURCE_ROOT}/materials/world.cymat" [=[@cykv 1
+@schema "cypher.material" 1
+{
+    shader = "shaders/world.cyshader"
+    textures = {
+        AlbedoMap = "textures/world.cytex"
+    }
+    parameters = {
+        Roughness = 0.5
+        Tint = [1.0, 0.75, 0.5]
+    }
 }
 ]=])
 
@@ -194,11 +221,14 @@ if (NOT CYPHER_VERSION_TEXT STREQUAL "CypherResourceCompiler 1.0.0")
 endif()
 
 cypher_run_success(CYPHER_COMPILERS list-compilers --color never)
-string(FIND "${CYPHER_COMPILERS_STDOUT}" "id=cypher.shader" CYPHER_COMPILER_ID_INDEX)
-string(FIND "${CYPHER_COMPILERS_STDOUT}" "output=.cyshader_c" CYPHER_COMPILER_OUTPUT_INDEX)
-if (CYPHER_COMPILER_ID_INDEX EQUAL -1 OR CYPHER_COMPILER_OUTPUT_INDEX EQUAL -1)
+string(FIND "${CYPHER_COMPILERS_STDOUT}" "id=cypher.shader" CYPHER_SHADER_COMPILER_INDEX)
+string(FIND "${CYPHER_COMPILERS_STDOUT}" "id=cypher.texture" CYPHER_TEXTURE_COMPILER_INDEX)
+string(FIND "${CYPHER_COMPILERS_STDOUT}" "id=cypher.material" CYPHER_MATERIAL_COMPILER_INDEX)
+if (CYPHER_SHADER_COMPILER_INDEX EQUAL -1 OR
+    CYPHER_TEXTURE_COMPILER_INDEX EQUAL -1 OR
+    CYPHER_MATERIAL_COMPILER_INDEX EQUAL -1)
     message(FATAL_ERROR
-        "Compiler discovery omitted the registered shader compiler.\n"
+        "Compiler discovery omitted a registered render-asset compiler.\n"
         "stdout:\n${CYPHER_COMPILERS_STDOUT}"
     )
 endif()
@@ -235,11 +265,15 @@ string(JSON CYPHER_FORMATS_JSON_TYPE
     TYPE "${CYPHER_FORMATS_JSON_RECORD}"
 )
 string(FIND "${CYPHER_FORMATS_JSON_RECORD}" ".cyshader -> .cyshader_c" CYPHER_FORMAT_MAPPING_INDEX)
+string(FIND "${CYPHER_FORMATS_JSON_RECORD}" ".cytex -> .cytex_c" CYPHER_TEXTURE_FORMAT_INDEX)
+string(FIND "${CYPHER_FORMATS_JSON_RECORD}" ".cymat -> .cymat_c" CYPHER_MATERIAL_FORMAT_INDEX)
 string(ASCII 27 CYPHER_ESCAPE)
 string(FIND "${CYPHER_FORMATS_JSON_RECORD}" "${CYPHER_ESCAPE}" CYPHER_FORMAT_ANSI_INDEX)
 if (CYPHER_FORMATS_JSON_ERROR OR
     NOT CYPHER_FORMATS_JSON_TYPE STREQUAL "OBJECT" OR
     CYPHER_FORMAT_MAPPING_INDEX EQUAL -1 OR
+    CYPHER_TEXTURE_FORMAT_INDEX EQUAL -1 OR
+    CYPHER_MATERIAL_FORMAT_INDEX EQUAL -1 OR
     NOT CYPHER_FORMAT_ANSI_INDEX EQUAL -1)
     message(FATAL_ERROR
         "Machine-readable format discovery is invalid or contaminated.\n"
@@ -348,6 +382,31 @@ file(SHA256 "${CYPHER_SHADER_OUTPUT}" CYPHER_SECOND_HASH)
 if (NOT CYPHER_FIRST_HASH STREQUAL CYPHER_SECOND_HASH)
     message(FATAL_ERROR
         "Identical shader inputs produced different cooked file hashes."
+    )
+endif()
+
+# Material compilation is exercised through the process registry and the same
+# VFS used by command-line discovery. The material compiler validates its typed
+# shader and texture source dependencies without recursively cooking them.
+cypher_run_success(CYPHER_COMPILE_MATERIAL
+    compile
+    --source-root "${CYPHER_SOURCE_ROOT}"
+    --output-root "${CYPHER_OUTPUT_ROOT}"
+    --progress none
+    --color never
+    materials/world.cymat
+)
+if (NOT EXISTS "${CYPHER_MATERIAL_OUTPUT}")
+    message(FATAL_ERROR
+        "The material compiler did not write materials/world.cymat_c.\n"
+        "stdout:\n${CYPHER_COMPILE_MATERIAL_STDOUT}"
+    )
+endif()
+string(FIND "${CYPHER_COMPILE_MATERIAL_STDOUT}" "1 processed  |  1 succeeded" CYPHER_MATERIAL_TOTAL_INDEX)
+if (CYPHER_MATERIAL_TOTAL_INDEX EQUAL -1)
+    message(FATAL_ERROR
+        "Material process compilation omitted successful aggregate totals.\n"
+        "stdout:\n${CYPHER_COMPILE_MATERIAL_STDOUT}"
     )
 endif()
 

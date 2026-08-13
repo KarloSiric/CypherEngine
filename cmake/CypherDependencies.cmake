@@ -149,6 +149,26 @@ function(cypher_configure_shader_tool_dependencies out_link_libraries)
     set(${out_link_libraries} Cypher::ThirdPartyShaderCompiler PARENT_SCOPE)
 endfunction()
 
+function(cypher_configure_texture_tool_dependencies out_link_libraries)
+    find_package(PNG CONFIG REQUIRED)
+    find_package(libjpeg-turbo CONFIG REQUIRED)
+    find_package(tinyexr CONFIG REQUIRED)
+
+    if (NOT TARGET CypherThirdPartyImageImport)
+        add_library(CypherThirdPartyImageImport INTERFACE)
+        add_library(Cypher::ThirdPartyImageImport ALIAS CypherThirdPartyImageImport)
+        target_link_libraries(
+            CypherThirdPartyImageImport
+            INTERFACE
+                PNG::PNG
+                libjpeg-turbo::turbojpeg-static
+                unofficial::tinyexr::tinyexr
+        )
+    endif()
+
+    set(${out_link_libraries} Cypher::ThirdPartyImageImport PARENT_SCOPE)
+endfunction()
+
 function(cypher_require_test_dependencies)
     find_package(Catch2 3 CONFIG REQUIRED)
     set(Catch2_FOUND TRUE PARENT_SCOPE)

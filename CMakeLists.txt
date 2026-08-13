@@ -242,16 +242,26 @@ set(CYPHER_VFS_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/FileSystem/CypherCommon_Vfs.cpp"
 )
 
+set(CYPHER_VFS_DIRECTORY_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/FileSystem/CypherCommon_VfsDirectory.cpp"
+)
+
 set(CYPHERRESOURCE_SYSTEM_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem/CypherCommon_ResourceHandle.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem/CypherCommon_ResourceId.cpp"
 )
 
 set(CYPHER_RENDER_FORMAT_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_CookedMaterial.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_CookedTexture.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_CookedShader.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_CookedResource.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_RenderAsset.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_RenderAssetSchema.cpp"
+)
+
+set(CYPHER_RENDER_PREVIEW_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem/CypherCommon_RenderPreview.cpp"
 )
 
 set(CYPHERRESOURCE_RUNTIME_SOURCES
@@ -259,6 +269,10 @@ set(CYPHERRESOURCE_RUNTIME_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource_Access.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource_Internal.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource_Registry.cpp"
+)
+
+set(CYPHER_RENDER_RESOURCE_RUNTIME_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource_RenderAssets.cpp"
 )
 
 set(CYPHERTOOLFRAMEWORK_SOURCES
@@ -409,6 +423,16 @@ target_include_directories(CypherVirtualFileSystem
 )
 target_link_libraries(CypherVirtualFileSystem PUBLIC Cypher::CommonTier2)
 
+add_library(CypherVfsDirectory STATIC ${CYPHER_VFS_DIRECTORY_SOURCES})
+add_library(Cypher::VfsDirectory ALIAS CypherVfsDirectory)
+target_compile_features(CypherVfsDirectory PUBLIC cxx_std_20)
+target_include_directories(CypherVfsDirectory
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/FileSystem"
+)
+target_link_libraries(CypherVfsDirectory PUBLIC Cypher::VirtualFileSystem)
+
 add_library(CypherResourceSystem STATIC ${CYPHERRESOURCE_SYSTEM_SOURCES})
 add_library(Cypher::ResourceSystem ALIAS CypherResourceSystem)
 target_compile_features(CypherResourceSystem PUBLIC cxx_std_20)
@@ -429,6 +453,16 @@ target_include_directories(CypherRenderFormats
 )
 target_link_libraries(CypherRenderFormats PUBLIC Cypher::CommonTier2)
 
+add_library(CypherRenderPreview STATIC ${CYPHER_RENDER_PREVIEW_SOURCES})
+add_library(Cypher::RenderPreview ALIAS CypherRenderPreview)
+target_compile_features(CypherRenderPreview PUBLIC cxx_std_20)
+target_include_directories(CypherRenderPreview
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem"
+)
+target_link_libraries(CypherRenderPreview PUBLIC Cypher::ResourceSystem)
+
 add_library(CypherResourceRuntime STATIC ${CYPHERRESOURCE_RUNTIME_SOURCES})
 add_library(Cypher::ResourceRuntime ALIAS CypherResourceRuntime)
 target_compile_features(CypherResourceRuntime PUBLIC cxx_std_20)
@@ -438,6 +472,21 @@ target_include_directories(CypherResourceRuntime
         "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource"
 )
 target_link_libraries(CypherResourceRuntime PUBLIC Cypher::ResourceSystem)
+
+add_library(CypherRenderResourceRuntime STATIC ${CYPHER_RENDER_RESOURCE_RUNTIME_SOURCES})
+add_library(Cypher::RenderResourceRuntime ALIAS CypherRenderResourceRuntime)
+target_compile_features(CypherRenderResourceRuntime PUBLIC cxx_std_20)
+target_include_directories(CypherRenderResourceRuntime
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource"
+)
+target_link_libraries(CypherRenderResourceRuntime
+    PUBLIC
+        Cypher::ResourceRuntime
+        Cypher::VirtualFileSystem
+        Cypher::RenderFormats
+)
 
 add_library(CypherToolFramework STATIC ${CYPHERTOOLFRAMEWORK_SOURCES})
 add_library(Cypher::ToolFramework ALIAS CypherToolFramework)
@@ -500,7 +549,7 @@ if (CYPHERENGINE_SOURCES)
         CypherEngine
         PRIVATE
             Cypher::Math
-            Cypher::ResourceRuntime
+            Cypher::RenderResourceRuntime
     )
     if (CYPHERENGINE_LINK_LIBS)
         target_link_libraries(CypherEngine PRIVATE ${CYPHERENGINE_LINK_LIBS})
@@ -1316,7 +1365,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         cypher_add_common_catch_test(
             cypher_common_vfs_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/FileSystem/CypherCommon_Vfs_Tests.cpp"
-            Cypher::VirtualFileSystem
+            Cypher::VfsDirectory
         )
         cypher_add_common_catch_test(
             cypher_common_tier1_uniqueid_tests
@@ -1364,9 +1413,29 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::RenderFormats
         )
         cypher_add_common_catch_test(
+            cypher_common_cooked_material_format_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Formats/CypherCommon_CookedMaterial_Tests.cpp"
+            Cypher::RenderFormats
+        )
+        cypher_add_common_catch_test(
+            cypher_common_cooked_texture_format_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Formats/CypherCommon_CookedTexture_Tests.cpp"
+            Cypher::RenderFormats
+        )
+        cypher_add_common_catch_test(
             cypher_resource_runtime_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEngine/CypherResource/CypherResource_Tests.cpp"
             Cypher::ResourceRuntime
+        )
+        cypher_add_common_catch_test(
+            cypher_render_resource_runtime_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEngine/CypherResource/CypherResource_RenderAssets_Tests.cpp"
+            Cypher::RenderResourceRuntime
+        )
+        cypher_add_common_catch_test(
+            cypher_common_render_preview_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/CypherCommon_RenderPreview_Tests.cpp"
+            Cypher::RenderPreview
         )
         cypher_add_common_catch_test(
             cypher_common_tier1_stringparse_tests
@@ -1687,6 +1756,16 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         cypher_add_common_benchmark(
             cypher_common_cooked_shader_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Formats/CypherCommon_CookedShader_Bench.cpp"
+            Cypher::RenderFormats
+        )
+        cypher_add_common_benchmark(
+            cypher_common_cooked_texture_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Formats/CypherCommon_CookedTexture_Bench.cpp"
+            Cypher::RenderFormats
+        )
+        cypher_add_common_benchmark(
+            cypher_common_cooked_material_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Formats/CypherCommon_CookedMaterial_Bench.cpp"
             Cypher::RenderFormats
         )
 

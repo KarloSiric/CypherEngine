@@ -138,8 +138,8 @@ vfs_status_t Vfs_Exists(
     string_view_t virtualPath,
     bool_t *pExistsOut ) noexcept;
 
-// Enumeration order is provider-defined by the contract. The directory provider
-// below guarantees bytewise ascending virtual paths for reproducible tools.
+// Enumeration order is provider-defined by the contract. Deterministic providers
+// should document the ordering they guarantee to callers.
 CYPHER_NODISCARD CYPHER_COMMON_API
 vfs_status_t Vfs_Enumerate(
     const vfs_t *pVfs,
@@ -158,23 +158,6 @@ vfs_status_t Vfs_ResolveDiagnosticPath(
 
 CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
 const char *Vfs_StatusName( vfs_status_t status ) noexcept;
-
-// Read-only loose-directory provider used by authoring tools and development
-// builds. The canonical native root is owned by the provider after Init.
-struct vfs_directory_t {
-    text_buffer_t nativeRoot{};
-};
-
-CYPHER_NODISCARD CYPHER_COMMON_API
-vfs_status_t VfsDirectory_Init(
-    vfs_directory_t *pDirectory,
-    string_view_t nativeRoot ) noexcept;
-
-CYPHER_COMMON_API void VfsDirectory_Shutdown(
-    vfs_directory_t *pDirectory ) noexcept;
-
-CYPHER_NODISCARD CYPHER_COMMON_API
-vfs_t VfsDirectory_Make( vfs_directory_t *pDirectory ) noexcept;
 
 } // namespace cypher::common
 

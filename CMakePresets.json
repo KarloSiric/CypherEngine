@@ -110,7 +110,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CYPHERENGINE_BUILD_TESTS": "ON",
         "CYPHERENGINE_BUILD_TOOLS": "ON",
-        "VCPKG_MANIFEST_FEATURES": "shader-tools;tests"
+        "VCPKG_MANIFEST_FEATURES": "image-import;shader-tools;tests"
       }
     },
     {
@@ -121,7 +121,29 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CYPHERENGINE_BUILD_TESTS": "ON",
         "CYPHERENGINE_BUILD_TOOLS": "ON",
-        "VCPKG_MANIFEST_FEATURES": "shader-tools;tests"
+        "VCPKG_MANIFEST_FEATURES": "image-import;shader-tools;tests"
+      }
+    },
+    {
+      "name": "asset-tools-debug",
+      "inherits": "base",
+      "displayName": "Render Asset Tools Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CYPHERENGINE_BUILD_TESTS": "ON",
+        "CYPHERENGINE_BUILD_TOOLS": "ON",
+        "VCPKG_MANIFEST_FEATURES": "image-import;shader-tools;tests"
+      }
+    },
+    {
+      "name": "asset-tools-release",
+      "inherits": "base",
+      "displayName": "Render Asset Tools Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CYPHERENGINE_BUILD_TESTS": "ON",
+        "CYPHERENGINE_BUILD_TOOLS": "ON",
+        "VCPKG_MANIFEST_FEATURES": "image-import;shader-tools;tests"
       }
     }
   ],
@@ -161,6 +183,14 @@
     {
       "name": "shader-tools-release",
       "configurePreset": "shader-tools-release"
+    },
+    {
+      "name": "asset-tools-debug",
+      "configurePreset": "asset-tools-debug"
+    },
+    {
+      "name": "asset-tools-release",
+      "configurePreset": "asset-tools-release"
     }
   ],
   "testPresets": [
@@ -202,6 +232,20 @@
     {
       "name": "shader-tools-release",
       "configurePreset": "shader-tools-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "asset-tools-debug",
+      "configurePreset": "asset-tools-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "asset-tools-release",
+      "configurePreset": "asset-tools-release",
       "output": {
         "outputOnFailure": true
       }

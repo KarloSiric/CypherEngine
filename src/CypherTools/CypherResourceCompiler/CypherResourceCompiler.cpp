@@ -19,7 +19,9 @@
 
 #include "CypherResourceCompiler.h"
 
+#include "CypherMaterialCompiler.h"
 #include "CypherShaderCompiler.h"
+#include "CypherTextureCompiler.h"
 
 #include "CypherCommon_Allocator.h"
 #include "CypherCommon_PathMatch.h"
@@ -35,6 +37,7 @@
 #include "CypherCommon_ToolSession.h"
 #include "CypherCommon_Vector.h"
 #include "CypherCommon_Vfs.h"
+#include "CypherCommon_VfsDirectory.h"
 
 namespace cypher::tools
 {
@@ -1728,6 +1731,16 @@ tool_exit_code_t CypherResourceCompiler_Run(
         status = ToolCompilerRegistry_Register(
             &state.registry,
             CypherShaderCompiler_Descriptor() );
+    }
+    if ( ToolStatus_Succeeded( status ) ) {
+        status = ToolCompilerRegistry_Register(
+            &state.registry,
+            CypherTextureCompiler_Descriptor() );
+    }
+    if ( ToolStatus_Succeeded( status ) ) {
+        status = ToolCompilerRegistry_Register(
+            &state.registry,
+            CypherMaterialCompiler_Descriptor() );
     }
     if ( ToolStatus_Failed( status ) ) {
         return ToolStatus_ExitCode( status );

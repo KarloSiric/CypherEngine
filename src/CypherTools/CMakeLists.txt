@@ -21,6 +21,7 @@
 # reusable implementation library has a concrete source contract and tests.
 
 cypher_configure_shader_tool_dependencies(CYPHER_SHADER_TOOL_LINK_LIBS)
+cypher_configure_texture_tool_dependencies(CYPHER_TEXTURE_TOOL_LINK_LIBS)
 
 add_library(CypherShaderCompiler STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/CypherShaderCompiler/CypherShaderCompiler.cpp"
@@ -40,6 +41,40 @@ target_link_libraries(CypherShaderCompiler
         ${CYPHER_SHADER_TOOL_LINK_LIBS}
 )
 
+add_library(CypherTextureCompiler STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTextureCompiler/CypherTextureCompiler.cpp"
+)
+add_library(Cypher::TextureCompiler ALIAS CypherTextureCompiler)
+target_compile_features(CypherTextureCompiler PUBLIC cxx_std_20)
+target_include_directories(CypherTextureCompiler
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTextureCompiler"
+)
+target_link_libraries(CypherTextureCompiler
+    PUBLIC
+        Cypher::RenderFormats
+        Cypher::ToolFramework
+        Cypher::VirtualFileSystem
+    PRIVATE
+        ${CYPHER_TEXTURE_TOOL_LINK_LIBS}
+)
+
+add_library(CypherMaterialCompiler STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherMaterialCompiler/CypherMaterialCompiler.cpp"
+)
+add_library(Cypher::MaterialCompiler ALIAS CypherMaterialCompiler)
+target_compile_features(CypherMaterialCompiler PUBLIC cxx_std_20)
+target_include_directories(CypherMaterialCompiler
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherMaterialCompiler"
+)
+target_link_libraries(CypherMaterialCompiler
+    PUBLIC
+        Cypher::RenderFormats
+        Cypher::ToolFramework
+        Cypher::VirtualFileSystem
+)
+
 add_library(CypherResourceCompilerCore STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/CypherResourceCompiler/CypherResourceCompiler.cpp"
 )
@@ -51,7 +86,11 @@ target_include_directories(CypherResourceCompilerCore
 )
 target_link_libraries(CypherResourceCompilerCore
     PUBLIC
+        Cypher::MaterialCompiler
         Cypher::ShaderCompiler
+        Cypher::TextureCompiler
+    PRIVATE
+        Cypher::VfsDirectory
 )
 
 add_executable(CypherResourceCompiler
@@ -68,8 +107,32 @@ if (CYPHERENGINE_BUILD_TESTS)
         PRIVATE
             Catch2::Catch2WithMain
             Cypher::ShaderCompiler
+            Cypher::VfsDirectory
     )
     add_test(NAME cypher_shader_compiler_tests COMMAND cypher_shader_compiler_tests)
+
+    add_executable(cypher_texture_compiler_tests
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTextureCompiler/CypherTextureCompiler_Tests.cpp"
+    )
+    target_link_libraries(cypher_texture_compiler_tests
+        PRIVATE
+            Catch2::Catch2WithMain
+            Cypher::TextureCompiler
+            Cypher::ThirdPartyImageImport
+            Cypher::VfsDirectory
+    )
+    add_test(NAME cypher_texture_compiler_tests COMMAND cypher_texture_compiler_tests)
+
+    add_executable(cypher_material_compiler_tests
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherMaterialCompiler/CypherMaterialCompiler_Tests.cpp"
+    )
+    target_link_libraries(cypher_material_compiler_tests
+        PRIVATE
+            Catch2::Catch2WithMain
+            Cypher::MaterialCompiler
+            Cypher::VfsDirectory
+    )
+    add_test(NAME cypher_material_compiler_tests COMMAND cypher_material_compiler_tests)
 
     add_test(
         NAME cypher_resource_compiler_help
@@ -86,6 +149,14 @@ if (CYPHERENGINE_BUILD_TESTS)
     add_test(
         NAME cypher_resource_compiler_describe_shader
         COMMAND CypherResourceCompiler describe-compiler --color never cypher.shader
+    )
+    add_test(
+        NAME cypher_resource_compiler_describe_texture
+        COMMAND CypherResourceCompiler describe-compiler --color never cypher.texture
+    )
+    add_test(
+        NAME cypher_resource_compiler_describe_material
+        COMMAND CypherResourceCompiler describe-compiler --color never cypher.material
     )
     add_test(
         NAME cypher_resource_compiler_list_formats_json
@@ -118,6 +189,8 @@ if (CYPHERENGINE_BUILD_TESTS)
         cypher_resource_compiler_version
         cypher_resource_compiler_list_compilers
         cypher_resource_compiler_describe_shader
+        cypher_resource_compiler_describe_texture
+        cypher_resource_compiler_describe_material
         cypher_resource_compiler_list_formats_json
         cypher_resource_compiler_smoke
         cypher_resource_compiler_shader_corpus
@@ -126,7 +199,7 @@ if (CYPHERENGINE_BUILD_TESTS)
 endif()
 
 set(CYPHER_REGISTERED_TOOL_PRODUCTS
-    "CypherShaderCompiler;CypherResourceCompiler"
+    "CypherShaderCompiler;CypherTextureCompiler;CypherMaterialCompiler;CypherResourceCompiler"
     CACHE INTERNAL
     "Cypher tool products currently registered with CMake"
     FORCE
