@@ -140,11 +140,11 @@ not code or UI to copy.
 | QC Eyes | Mason Character Setup workspace | Mason workspace | Planned | Configure eye placement, gaze limits, head targeting, mouth setup, and facial metadata. |
 | Faceposer | Mason Choreography workspace | Mason/focused Qt launch | Planned | Author dialogue, phonemes, facial poses, gestures, actors, cameras, and timed gameplay events. |
 | DMXConvert/DMXEdit | CYKV Convert and Migrate tools | Headless CLI plus CypherScope | Planned | Convert, normalize, migrate, inspect, and compare structured source documents. |
-| VTEX | CypherTextureCompiler | Headless CLI/library | Decided | Import source images and cook mip chains, color space, compression, and platform variants. |
+| VTEX | CypherTextureCompiler | Headless CLI/library | Implemented v1 | Import PNG/JPEG/EXR and cook canonical mip chains and color-space metadata; compression and platform variants are later versions. |
 | VTF2TGA and texture utilities | CypherImageConverter | Headless CLI/library | Planned | Convert and inspect supported source and cooked image representations. |
 | Height2Normal/Height2SSBump | Mason Texture Lab | Mason/focused Qt launch | Planned | Generate and preview normal, height, mask, and derived material textures. |
-| Material Editor | Mason Material workspace | Mason/focused Qt launch | Decided | Author material graphs/templates, parameters, textures, render states, and previews. |
-| ShaderCompile | CypherShaderCompiler | Headless CLI/library | Decided | Compile, validate, reflect, optimize, and cache shader permutations. |
+| Material Editor | Picasso Material workspace and Mason Material workspace | Picasso Qt app plus Mason workspace | Decided | Author typed materials and previews through one shared editor core; graphs, render states, and reflection arrive with renderer contracts. |
+| ShaderCompile | CypherShaderCompiler | Headless CLI/library | Implemented v1 | Preprocess, parse, link, and deterministically cook bounded OpenGL GLSL graphics programs; reflection and permutations are later versions. |
 | Particle Editor | Mason VFX workspace | Mason/focused Qt launch | Decided | Author particle systems, emitters, curves, modules, events, and previews. |
 | VSoundEdit | Mason Audio workspace | Mason/focused Qt launch | Decided | Edit sound assets, loops, spatial properties, buses, mixers, soundscapes, and reverb zones. |
 | CaptionCompiler | CypherCaptionCompiler | Headless CLI/library | Planned | Validate and compile subtitle, closed-caption, timing, and localization data. |
@@ -177,7 +177,7 @@ format-family inventory, evidence limits, and architectural conclusions are in
 | --- | --- | --- | --- |
 | Asset Browser | Mason Asset Browser | Decided | Asset type metadata must dispatch previews, validators, compilers, and associated editors. |
 | Hammer 5.x | Mason Map and World workspace | Decided | Geometry, entities, visibility, collision, lighting, build, and play are coordinated but independently compiled responsibilities. |
-| Material Editor | Mason Material workspace | Decided | Material source, shader compatibility, resource references, and live preview share the real renderer path. |
+| Material Editor | Picasso Material workspace and Mason Material workspace | Decided | Material source, resource references, compilation, and live preview share compiler/editor-core libraries and the real renderer path. |
 | ModelDoc | Mason Model and Character Setup workspaces | Decided | Mason assembles engine-specific model data; it does not replace a general DCC application. |
 | Animgraph Editor | Mason Animation Graph workspace | Decided | Parameters, state machines, blends, events, IK, authority, and graph debugging require a compiler and runtime evaluator. |
 | Particle Editor | Mason VFX workspace | Decided | Typed phase-aware modules and preview controls must remain independent from Qt widgets. |
@@ -206,6 +206,7 @@ separate executable provides a proven workflow benefit.
 | Product | Status | Primary purpose | Relationship to Mason |
 | --- | --- | --- | --- |
 | Mason | Decided | Main engine editor and authoring shell. | Hosts all normal authoring workspaces. |
+| Picasso | V1 design approved, implementation deferred | Focused texture and material authoring, import, mip/channel inspection, typed bindings, validation, compilation, and preview. | One dense Hammer-influenced Qt 6 shell hosts separate `TextureEditorCore` and `MaterialEditorCore` workspaces; Mason later reuses both cores. The visual and workflow contract is defined in [picasso_v1_design.md](picasso_v1_design.md); implementation begins after the first real renderer preview provider. |
 | CypherProject | Proposed | Project creation, SDK discovery, build profiles, recent projects, and launch configuration. | Launches Mason, builds, games, servers, and tools. |
 | CypherScope | Decided | General source/cooked resource, package, schema, and dependency inspector. | Opens from Asset Browser or runs standalone. |
 | CypherConsole | Planned | External log, command, CVar, channel, and remote-session console. | Embeddable as a Mason panel, useful standalone during crashes. |
@@ -306,9 +307,9 @@ response/config files suitable for CI.
 | `CypherModelCompiler` | Decided | glTF/GLB and model source metadata | Produce `.cymesh_c`, `.cyskel_c`, collision, LOD, sockets, and morph metadata. |
 | `CypherAnimationCompiler` | Planned | Animation source and skeleton mapping | Produce `.cyanim_c` with events, root motion, compression, and retarget data. |
 | `CypherAnimationGraphCompiler` | Planned | Animation graph, subgraph, parameter, tag, and authority source | Validate graph ownership and produce a compact runtime evaluator resource. |
-| `CypherTextureCompiler` | Decided | PNG/JPEG/EXR/KTX and `.cytex` metadata | Produce `.cytex_c` mip chains, compression, color-space metadata, and platform variants. |
-| `CypherMaterialCompiler` | Decided | `.cymat` | Validate shader/material compatibility and produce `.cymat_c`. |
-| `CypherShaderCompiler` | Decided | GLSL and `.cyshader` metadata | Preprocess, compile, validate, optimize, reflect, and produce `.cyshader_c`. |
+| `CypherTextureCompiler` | Implemented v1 | PNG/JPEG/EXR and `.cytex` metadata | Produce deterministic `.cytex_c` RGBA8/RGBA32F mip chains and color-space metadata; compression/KTX/platform variants remain deferred. |
+| `CypherMaterialCompiler` | Implemented v1 | `.cymat` | Validate typed shader/texture recipes and produce canonical `.cymat_c`; reflected shader compatibility remains deferred. |
+| `CypherShaderCompiler` | Implemented v1 | Desktop GLSL and `.cyshader` metadata | Preprocess, parse, cross-stage link, validate, and produce deterministic `.cyshader_c`; reflection/permutations remain deferred. |
 | `CypherVFXCompiler` | Planned | Particle/VFX source documents | Validate modules and produce cooked effect data. |
 | `CypherAudioCompiler` | Planned | WAV/FLAC/other approved sources and sound metadata | Normalize, encode, analyze loudness, build seek/stream data, and produce `.cysnd_c`. |
 | `CypherAudioGraphCompiler` | Planned | Sound events, containers, rule stacks, buses, and mix graphs | Validate references and produce runtime event/mixer graph resources. |
@@ -424,8 +425,8 @@ shared foundation that prevents every editor from reimplementing the same logic.
 | `.cymap` | Mason Map | CypherMapCompiler | `.cymap_c` |
 | `.cyscene` | Mason Scene/World | CypherSceneCompiler | `.cyscene_c` |
 | `.cyprefab` | Mason Entity/Prefab | CypherPrefabCompiler | Cooked prefab/entity records |
-| `.cymat` | Mason Material | CypherMaterialCompiler | `.cymat_c` |
-| `.cytex` | Mason Texture Lab | CypherTextureCompiler | `.cytex_c` |
+| `.cymat` | Picasso Material / Mason Material | CypherMaterialCompiler | `.cymat_c` |
+| `.cytex` | Picasso Texture / Mason Texture Lab | CypherTextureCompiler | `.cytex_c` |
 | model source metadata | Mason Model | CypherModelCompiler | `.cymesh_c`, `.cyskel_c` |
 | animation source metadata | Mason Animation | CypherAnimationCompiler | `.cyanim_c` |
 | animation graph source | Mason Animation Graph | CypherAnimationGraphCompiler | Cooked animation graph evaluator resource |
@@ -609,6 +610,7 @@ capabilities as workspaces. A focused standalone executable is created only when
 crash isolation, remote use, startup cost, or a specialized workflow justifies
 it.
 
-The immediate project priority remains CypherCommon and the runtime foundations.
-The first toolchain implementation priority after that is CYKV plus headless
-resource compilation, not the full Mason UI.
+The immediate priority is preserving the completed CYKV/render-asset compiler
+slice, enforcing Common/runtime/tool build boundaries, and defining the first
+runtime resource/renderer consumer. Standalone Qt texture and material shells
+follow the reusable preview service; they do not precede the runtime.

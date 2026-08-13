@@ -40,10 +40,22 @@ authored resource
 | Source | Cooked | Compiler ID | Status |
 | --- | --- | --- | --- |
 | `.cyshader` | `.cyshader_c` | `cypher.shader` | Implemented |
+| `.cytex` | `.cytex_c` | `cypher.texture` | Implemented for PNG, JPEG, and EXR imports |
+| `.cymat` | `.cymat_c` | `cypher.material` | Implemented for typed shader/texture references and values |
 
 The shader pipeline parses CYKV, validates the exact `cypher.shader` schema,
 decodes semantic values, preprocesses GLSL, validates each stage, links graphics
 stages, and writes deterministic `CYSH` data inside the `CYRS` cooked envelope.
+It supports desktop GLSL core versions 330 through 450 as an explicit allowlist,
+requires matching stage versions, applies target-platform limits, and resolves
+bounded quoted `.glsl` includes through the source VFS.
+
+The texture pipeline decodes bounded PNG, JPEG, and EXR dependencies, generates
+semantic mip chains, and writes deterministic `CYTX` resources. The material
+pipeline validates direct shader and texture recipes, canonicalizes named
+bindings and typed values, and writes deterministic `CYMT` resources. Compiler
+modules do not recursively cook dependencies; dependency scheduling belongs to
+the future build coordinator.
 
 Version 1 mounts one loose native directory selected by `--source-root` through
 the shared read-only Common VFS contract. Inputs and dependencies remain
@@ -160,7 +172,7 @@ CypherResourceCompiler compile -s assets -o cooked 'shaders/*.cyshader'
 The concise command for the checked-in 100-shader corpus is:
 
 ```sh
-./out/build/shader-tools-debug/bin/CypherResourceCompiler compile \
+./out/build/asset-tools-debug/bin/CypherResourceCompiler compile \
   -s tests/fixtures/CypherTools/CypherResourceCompiler/ShaderCorpus/source \
   -o out/generated/shader-corpus \
   -r shaders/corpus
@@ -174,7 +186,7 @@ belong in routine commands.
 Load zsh completion for the current shell with:
 
 ```sh
-source <(./out/build/shader-tools-debug/bin/CypherResourceCompiler completion zsh)
+source <(./out/build/asset-tools-debug/bin/CypherResourceCompiler completion zsh)
 ```
 
 The generated definition completes commands, options, targets, profiles, modes,
@@ -201,7 +213,7 @@ and 16 MiB of copied argument text by default.
 Response files remain useful when a build must name an exact, reviewed input set:
 
 ```sh
-./out/build/shader-tools-debug/bin/CypherResourceCompiler validate \
+./out/build/asset-tools-debug/bin/CypherResourceCompiler validate \
   --source-root tests/fixtures/CypherTools/CypherResourceCompiler/ShaderCorpus/source \
   @tests/fixtures/CypherTools/CypherResourceCompiler/ShaderCorpus/shader_inputs.rsp
 ```
@@ -251,7 +263,7 @@ commands or switches. They must not be added as no-op options:
 8. package update and signed shipping-manifest integration
 9. remote/distributed worker dispatch
 10. Qt frontend using the same compiler registry and host callbacks
-11. texture, material, mesh, animation, audio, map, scene, and other compiler modules
+11. mesh, animation, audio, map, scene, and other compiler modules
 
 Each capability enters the executable only with a concrete data contract,
 implementation, unit coverage, and process-level integration tests.
@@ -260,17 +272,20 @@ implementation, unit coverage, and process-level integration tests.
 
 The process smoke suite verifies branded and licensed root help, banner-free
 execution, exact version output, strict target values, live compiler and format
-discovery, VFS directory and wildcard expansion, repeatable inputs, generated zsh
+discovery for shader, texture, and material modules, VFS directory and wildcard
+expansion, repeatable inputs, generated zsh
 completion, clean JSON records, plain and forced-color text, aggregate progress
 and summaries, dry-run behavior, deterministic repeated output, transactional
-cleanup, exact schema locations, invalid GLSL diagnostics, and stable failure
-exit codes. A separate integration test recursively validates all 100 checked-in
-shader recipes through the real executable.
+cleanup, exact schema locations, material dependency dispatch, invalid GLSL
+diagnostics, and stable failure exit codes. Dedicated compiler tests import real
+PNG, JPEG, and EXR data and validate cooked material dependencies. A separate
+integration test recursively validates all 100 checked-in shader recipes through
+the real executable.
 
 ```sh
-cmake --build --preset shader-tools-debug --parallel
-ctest --preset shader-tools-debug --output-on-failure
+cmake --build --preset asset-tools-debug --parallel
+ctest --preset asset-tools-debug --output-on-failure
 
-cmake --build --preset shader-tools-release --parallel
-ctest --preset shader-tools-release --output-on-failure
+cmake --build --preset asset-tools-release --parallel
+ctest --preset asset-tools-release --output-on-failure
 ```

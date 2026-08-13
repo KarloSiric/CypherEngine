@@ -24,3 +24,8 @@
 OpenGL, Vulkan, shader compilation, render graph, and GPU resource implementation
 belong in renderer modules outside Common. Image, texture, and material contracts
 are grouped below this folder because they share the rendering data boundary.
+
+`CypherCommon_RenderPreview.h` defines a synchronous preview service shared by
+Picasso, Mason, tests, and renderer hosts. It accepts a retained runtime resource
+handle or a borrowed cooked in-memory resource and writes RGBA8 sRGB pixels into
+caller-owned storage. The contract contains no Qt or graphics-backend types.

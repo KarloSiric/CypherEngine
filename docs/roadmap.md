@@ -33,20 +33,26 @@ For the full dated schedule, LOC ranges, subsystem acceptance criteria, and edit
 4. strengthen the virtual filesystem and package diagnostics
 5. build `CypherResource` as the asset lifetime layer
 6. add simple streaming/resource completion flow above VFS
-7. keep `SDL3`/`OpenGL` runtime bootstrap stable
-8. add input and camera control
-9. complete the shader, texture, material, and mesh vertical asset slices
-10. drive real renderer submission through resource handles
-11. design `CypherWorld` and the smallest playable map/world pipeline
-12. add collision, character movement, and the first custom physics slice
-13. add entity/gameplay, audio, and only the AI required by the playable loop
-14. add profiling and diagnostics across the frame
-15. start Mason as a small world inspection and authoring client, then grow it
+7. preserve the completed shader, texture, and material offline slices, then add
+   mesh against the first renderer's concrete geometry requirements
+8. finish ResourceCompiler distribution, project discovery, and reproducible
+   source-to-cooked workflows
+9. audit the Common/runtime/tool boundary and freeze the minimum renderer contract
+10. build the software renderer together as the first contract consumer
+11. add input and camera control against that first visible runtime path
+12. implement OpenGL behind the proven renderer boundary
+13. drive renderer submission through generation-safe resource handles
+14. design `CypherWorld` and the smallest playable map/world pipeline
+15. add collision, character movement, and the first custom physics slice
+16. add entity/gameplay, audio, and only the AI required by the playable loop
+17. add profiling and diagnostics across the frame
+18. start Mason as a small world inspection and authoring client, then grow it
     alongside runtime needs
-16. design honest multiplayer/client-server shape and the Lua game-script bridge
-17. add specialized compilers and Mason workspaces as their runtime consumers mature
-18. consider a Vulkan renderer only after the backend-neutral contract is proven
-19. push toward a stable product
+19. design honest multiplayer/client-server shape and the Lua game-script bridge
+20. add specialized compilers and Mason workspaces as their runtime consumers mature
+21. consider a Vulkan renderer only after the software and OpenGL backends prove
+    the shared contract
+22. push toward a stable product
 
 ## Scope reminder
 
@@ -78,9 +84,12 @@ That rule matters more than ambition.
 
 Near-term work should follow this sequence:
 
-1. build the development shader cooker on the finished source/cooked contracts
-2. load one cooked shader through VFS and `CypherResource`
-3. audit the Common renderer boundary and design the OpenGL integration together
-4. replace raw renderer shader ownership with generation-safe handles
-5. add texture and material only after the shader integration is tested
-6. build input, camera control, and a visible playable renderer loop
+1. preserve the verified shader, texture, and material offline pipelines
+2. record and enforce Common/runtime/tool target boundaries
+3. extract runtime subsystem libraries incrementally from the monolithic engine target
+4. preserve the implemented VFS-backed owned loaders for the three cooked asset types
+5. preserve the backend-neutral preview request/output contract and implement its
+   first renderer provider together
+6. add the mesh slice required by the first visible renderer path
+7. design and implement the software renderer together, file by file
+8. design and build Picasso together only after a real renderer preview provider exists

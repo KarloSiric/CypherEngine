@@ -29,6 +29,22 @@ It has two jobs:
 
 It is allowed to become large. It is not allowed to become random.
 
+## What Makes A Public API
+
+Common does not become a reusable API merely by accumulating headers in named
+folders. Each meaningful family must have:
+
+- public headers containing stable, platform-neutral contracts
+- an explicit CMake target consumers link by name
+- explicit dependencies on lower layers
+- no private subsystem, Qt, graphics-driver, or importer types in public data
+- contract tests compiled against that target
+
+Most of these targets should remain static libraries. A C ABI service table or a
+dynamic library is appropriate only where runtime backend replacement, plugins,
+or binary compatibility require it. Direct functions and concrete data remain
+the default inside one ownership boundary.
+
 ## Reference Model
 
 The direction is inspired by how older engine codebases separated shared contracts from implementation:
@@ -62,7 +78,7 @@ CypherEngine should learn from those structures without copying their implementa
 
 `CypherCommon` must not contain:
 
-- OpenGL/Vulkan renderer implementation
+- software/OpenGL/Vulkan renderer implementation
 - physics solver implementation
 - Qt editor widgets
 - asset cooker implementation
@@ -75,7 +91,8 @@ CypherEngine should learn from those structures without copying their implementa
 For renderer assets, Common owns source schemas, stable resource identities,
 explicit cooked layouts, and validated borrowed views. A cooker owns source
 preprocessing and dependency discovery; `CypherResource` owns runtime lifetime;
-the renderer owns OpenGL/Vulkan compilation, upload, and native object handles.
+the renderer owns software execution, GPU compilation/upload, and native backend
+objects.
 
 The owning subsystem implements behavior. Common defines the shared contract.
 
@@ -84,7 +101,7 @@ Example:
 ```text
 CypherCommon/RenderSystem/ICyRenderer.h          allowed
 CypherCommon/RenderSystem/CyRenderTypes.h        allowed
-CypherRenderer/OpenGL/CyOpenGLRenderer.cpp   owning subsystem
+CypherEngine/CypherRender/Backends/Software/     owning subsystem
 ```
 
 ## Target Folder Shape
@@ -178,27 +195,50 @@ Owns:
 
 `Tier2`
 
-Higher shared helper layer. Depends on Tier0 and Tier1.
+Higher data-description and validation layer. Depends on Tier1.
 
 Owns:
 
-- file utility helpers
-- render helper declarations
-- mesh helper declarations
-- sound helper declarations
-- tool helper primitives
-- config helper primitives
+- schemas and schema registries
+- bounded data validation
+- typed project manifests
+- typed project/user settings
+- composition helpers that do not own a runtime subsystem
 
 `Tier3`
 
-Tool, scene, model and editor-facing helper layer.
+Reserved. It has no source target today and should not become a generic dumping
+ground. Scene, resource, format, filesystem, render, and tool contracts belong in
+named library families once a real consumer establishes them.
 
-Owns:
+## Current Build Boundaries
 
-- model utility contracts
-- scene utility contracts
-- editor/game bridge helpers
-- tool pipeline shared helpers
+The following APIs are independently linkable now:
+
+```text
+Cypher::CommonTier0 -> Cypher::CommonTier1 -> Cypher::CommonTier2
+
+Cypher::CommonTier2 -> Cypher::VirtualFileSystem
+Cypher::CommonTier2 -> Cypher::RenderFormats
+Cypher::CommonTier1 -> Cypher::ResourceSystem
+Cypher::CommonTier1 -> Cypher::ToolFramework
+Cypher::CommonTier0 -> Cypher::Math
+Cypher::CommonTier1 -> Cypher::Security
+
+Cypher::VirtualFileSystem -> Cypher::VfsDirectory
+Cypher::ResourceSystem    -> Cypher::ResourceRuntime
+```
+
+The shader, texture, and material compiler modules consume
+`VirtualFileSystem`, `RenderFormats`, and `ToolFramework`; the ResourceCompiler
+front end only coordinates their descriptors. This is the intended Common API
+model in working code.
+
+The outstanding architecture debt is the top-level `CypherEngine` executable:
+it still uses a recursive source glob and one broad include-directory list. That
+permits accidental cross-subsystem includes. Replace it incrementally with
+explicit runtime libraries and narrow include surfaces; do not perform a risky
+whole-tree rearrangement merely to resemble another engine's folders.
 
 ## Naming Families
 
@@ -488,7 +528,7 @@ Window/input:      SDL3
 OpenGL loading:    glad
 Debug UI:          Dear ImGui later
 Editor UI:         Qt 6 later
-Image import:      stb_image, stb_image_write, TinyEXR later
+Image import:      libpng, libjpeg-turbo, TinyEXR in texture tools
 Texture pipeline:  KTX/KTX2, Basis Universal later
 Model import:      cgltf, Assimp tools-only
 Mesh processing:   meshoptimizer, MikkTSpace
@@ -506,13 +546,16 @@ Fonts:             FreeType, HarfBuzz, msdfgen later
 
 The next Common work should happen in this order:
 
-1. finish/audit Tier0
-2. finish Tier1 custom utility layer
-3. add format headers
-4. add Color, IO, Hash, Parse and Serialization foundations
-5. add Reflection and Resource public contracts
-6. add Asset, Entity, World and Scene contracts
-7. add Renderer, Material, Texture, Audio, Physics and Network contracts
-8. add Tools and Editor contracts
+1. preserve and test Tier0, Tier1, Tier2, Math, Security, VFS, Resource, Format,
+   and ToolFramework targets already in use
+2. preserve the completed shader, texture, and material offline pipelines
+3. preserve the extracted render-resource loader boundary: it owns complete cooked
+   VFS blobs and publishes validated borrowed views through `CypherResource`
+4. preserve the backend-neutral preview API and implement its first renderer provider
+5. add mesh source/cooked contracts against concrete renderer requirements
+6. add further subsystem contracts only with an owning implementation and test
+7. design Picasso together only after that preview contract has a real provider
 
-Do not jump to editor UI or gameplay implementation before the foundation can describe engine data clearly.
+Do not attempt to finish every hypothetical Common folder first. Contracts become
+sound through a consumer-producer vertical slice, not by predicting every future
+field before the runtime exists.

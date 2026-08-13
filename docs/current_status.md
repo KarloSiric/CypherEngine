@@ -30,10 +30,11 @@ Current code snapshot:
 
 - early runtime modules live under `src/CypherEngine/`
 - build succeeds through CMake
-- the executable target is `cypherengine`
+- the executable target is `CypherEngine`
 - the runtime can create a window, initialize OpenGL, load shaders, and submit a basic mesh path
 - a CryEngine-inspired future subsystem skeleton now exists for editor, tools, resources, world, input, physics, audio, AI, animation, networking, scripting, and profiling
-- `CypherCommon` has moved into a broader Tier0/Tier1 foundation with active string, char, test and benchmark work
+- Common tiers, math, security, VFS, resource contracts, render formats, and the
+  tool framework are independently linkable static libraries
 
 ## What exists now
 
@@ -55,6 +56,10 @@ Current code snapshot:
 - a versioned, explicitly serialized cooked-resource header and chunk table
 - a deterministic `CYSH` cooked shader payload with validated OpenGL GLSL stage
   views and no native graphics API objects in Common
+- a deterministic `CYTX` cooked texture payload with bounded PNG/JPEG/EXR import,
+  semantic mip generation, independently hashed mip chunks, and strict readers
+- a deterministic `CYMT` cooked material payload with canonical shader/texture
+  references, typed values, hash validation, and binary-search lookups
 - OpenGL context bootstrap through GLAD
 - renderer lifecycle, shader, mesh, camera, and draw-list path
 - vector, matrix, quaternion, bounds, ray, plane, and frustum math
@@ -68,6 +73,8 @@ Current code snapshot:
 - a deterministic `.cyshader` compiler backed by glslang, with exact CYKV/schema
   validation, dependency reporting, cross-stage interface checks, transactional
   `.cyshader_c` publication, and an embeddable compiler descriptor
+- independently linkable `.cytex` and `.cymat` compiler modules registered with
+  the same ResourceCompiler registry
 - `CypherResourceCompiler` 1.0.0 with compile/validate and live compiler/format
   discovery commands, shared VFS directory and wildcard inputs, response files,
   zsh completion, branded descriptor-driven help, text/NDJSON output,
@@ -136,28 +143,37 @@ Current code snapshot:
 
 ## Active milestone
 
-`M6 - Resource Ownership And Renderer Integration`
+`M6 - Offline Resource Pipeline Foundations`
 
-The synchronous resource ownership foundation is implemented and tested. This
-milestone is complete when one real renderer asset travels through it end to end.
+The current milestone prepares Common contracts, schemas, cooked layouts, VFS
+providers, and compiler modules before any renderer backend work begins. The
+provider-neutral VFS facade and loose-directory provider now have separate build
+targets, so compiler libraries need only the contract while source hosts opt in
+to native directory access.
 
 ## Immediate next tasks
 
-1. implement the VFS-backed `CYSH` resource loader
-2. audit the Common renderer boundary, then design the OpenGL integration
-   together before editing `CypherRender`
-3. replace renderer-facing raw shader ownership with resource handles
-4. prove source decode, cook, load, cache hit, render use, release, and shutdown
-   in one integration path
-5. add texture and material payloads only after the shader path is sound
-6. return to input, fly-camera, and the first playable renderer loop
+1. preserve the verified shader, texture, and material offline contracts
+2. replace the monolithic runtime source glob incrementally with explicit
+   subsystem targets and narrow public include surfaces
+3. preserve and extend the implemented VFS/`CypherResource` owned-load path for
+   `CYSH`, `CYTX`, and `CYMT`; validated views borrow manager-owned cooked blobs
+4. implement the first provider for the backend-neutral render-preview contract
+   while designing the renderer service/data contract together
+5. add a mesh contract only when the first visible renderer path establishes its
+   exact vertex, index, bounds, and material requirements
+6. preserve the approved dense Hammer-influenced Picasso V1 interface contract,
+   but defer its Qt 6 implementation until the renderer exposes a real preview
+   provider; Picasso will reuse both existing compiler libraries
+   and separate editor-neutral texture/material cores
 
 ## Explicitly not active yet
 
 - real custom world/map runtime implementation
+- software, OpenGL, or Vulkan renderer expansion during the foundation milestone
 - client/server networking
 - gameplay loop
-- custom model/material/archive tooling
+- custom model/archive tooling and Qt material/texture authoring products
 - additional compiler products and custom editor workflows (the shared
   ToolFramework, shader compiler, ResourceCompiler CLI, and planned product
   source roots now exist)

@@ -154,7 +154,7 @@ eventually contain:
 
 It should not contain:
 
-- OpenGL or Vulkan renderer implementation
+- software, OpenGL, or Vulkan renderer implementation
 - physics solver implementation
 - Qt editor widgets
 - asset cooker implementation
@@ -164,12 +164,45 @@ It should not contain:
 
 The owning subsystem implements behavior. Common defines the shared shape.
 
+A folder name alone does not create an API. A boundary is real only when it has:
+
+1. public headers that expose stable data and operations
+2. an owning CMake target
+3. explicit `target_link_libraries` dependencies
+4. no private implementation or third-party types leaking through its headers
+5. focused contract tests that link the public target
+
+Static linking does not weaken this model. Separate DLLs and function tables are
+needed only for true runtime replacement, plugin, or ABI requirements; most
+internal engine modules should remain ordinary statically linked libraries with
+compile-time dependency enforcement.
+
 Example:
 
 ```text
 CypherCommon/RenderSystem/ICyRenderer.h          public renderer contract
 CypherCommon/RenderSystem/CyRenderTypes.h        shared render descriptors
-CypherRenderer/OpenGL/CyOpenGLRenderer.cpp   renderer implementation
+CypherEngine/CypherRender/Backends/Software/     renderer implementation
+```
+
+The current verified resource/tool graph is:
+
+```text
+Cypher::CommonTier0
+        -> Cypher::CommonTier1
+        -> Cypher::CommonTier2
+             -> Cypher::VirtualFileSystem
+             -> Cypher::RenderFormats
+
+Cypher::VirtualFileSystem -> Cypher::VfsDirectory
+Cypher::CommonTier1       -> Cypher::ToolFramework
+
+VirtualFileSystem + RenderFormats + ToolFramework
+        -> ShaderCompiler / TextureCompiler / MaterialCompiler
+        -> ResourceCompilerCore
+        -> CypherResourceCompiler
+
+Cypher::ResourceSystem -> Cypher::ResourceRuntime
 ```
 
 ## Function pointer policy
@@ -243,13 +276,23 @@ The current repository is much earlier than the target structure.
 
 Today:
 
-- code is concentrated in `src/CypherEngine/`
-- the project has core runtime, SDL3 windowing, OpenGL bootstrap, math, shader, mesh, and camera foundations
+- Common tiers, math, security, VFS, resource contracts, render formats, the
+  tool framework, and compiler modules are already independently linkable targets
+- shader, texture, and material have tested source-to-cooked offline paths
+- the project has early SDL3 windowing, OpenGL bootstrap, shader, mesh, and camera foundations
 - command/cvar/cfg/filesystem subsystems already exist as early engine services
-- the next major architectural focus is completing Common before building larger runtime/editor systems
-- resource ownership, input, material/texture runtime and real world content remain future runtime seams
+- the top-level `CypherEngine` executable still uses a recursive runtime source
+  glob and a broad shared include-directory list; this is the principal boundary
+  weakness because one runtime subsystem can include another without declaring a
+  target dependency
+- that monolith should be split incrementally into explicit subsystem libraries,
+  beginning with the first runtime asset-loading and renderer contracts
+- material/texture runtime ownership, real world content, and the playable loop
+  remain future runtime work
 
-That is acceptable for now, as long as new work follows the documented target structure from this point forward.
+Do not copy CryEngine's historical directory tree or perform a broad rewrite.
+Extract one target at a time, make dependencies explicit, run its tests, and only
+then move the source out of the monolithic executable.
 
 ## Design philosophy
 

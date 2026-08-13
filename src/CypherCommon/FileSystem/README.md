@@ -19,7 +19,15 @@
 
 # FileSystem
 
-`FileSystem` is for public filesystem contracts.
+`FileSystem` owns the provider-neutral read-only VFS contract and reusable VFS
+providers that can be linked independently.
 
-VFS implementation, package mounts, native watches, async IO, and path resolution
-logic belong in the filesystem subsystem.
+- `Cypher::VirtualFileSystem` exposes canonical virtual paths and callback-based
+  read, stat, enumerate, and diagnostic-path operations.
+- `Cypher::VfsDirectory` adapts one native loose-file root to that contract for
+  development tools, tests, and source asset hosts.
+
+Package mounts, native file watches, asynchronous streaming, writable project
+filesystems, and runtime mount policy remain separate owning modules. A consumer
+that only needs VFS reads must not depend on the directory provider or native
+filesystem paths.

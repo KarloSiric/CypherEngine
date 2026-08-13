@@ -41,9 +41,9 @@
 
 | Purpose | Source | Cooked/runtime | Status |
 | --- | --- | --- | --- |
-| Shader recipe | `.cyshader` | `.cyshader_c` | Source/cooked contracts and deterministic cooker implemented; runtime loading pending |
-| Texture recipe | `.cytex` | `.cytex_c` | Source contract implemented |
-| Material | `.cymat` | `.cymat_c` | Source contract implemented |
+| Shader recipe | `.cyshader` | `.cyshader_c` | Source/cooked contracts and deterministic cooker implemented; runtime use deferred |
+| Texture recipe | `.cytex` | `.cytex_c` | Source/cooked contracts and deterministic PNG/JPEG/EXR cooker implemented; runtime use deferred |
+| Material | `.cymat` | `.cymat_c` | Source/cooked contracts and dependency-validating cooker implemented; reflection/runtime use deferred |
 | Mesh recipe | `.cymesh` | `.cymesh_c` | Planned |
 
 ## World And Simulation
