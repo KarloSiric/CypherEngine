@@ -7,7 +7,7 @@
 //  Purpose: Tests the complete `.cyshader` source-to-cooked compiler path.
 //  Details: Tests exercise real glslang preprocessing and cross-stage linking,
 //           deterministic CYRS output, ToolFramework records, dry runs, malformed
-//           CYKV, invalid GLSL, and the explicit version-1 include policy.
+//           CYKV, invalid GLSL, and bounded VFS-backed include resolution.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-12
@@ -24,6 +24,7 @@
 #include "CypherCommon_MemoryOps.h"
 #include "CypherCommon_ToolFramework.h"
 #include "CypherCommon_Vfs.h"
+#include "CypherCommon_VfsDirectory.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -114,6 +115,9 @@ struct host_capture_t {
     bool_t bSawRecipeDependency{ CY_FALSE };
     bool_t bSawVertexDependency{ CY_FALSE };
     bool_t bSawFragmentDependency{ CY_FALSE };
+    bool_t bSawSharedDependency{ CY_FALSE };
+    bool_t bSawNestedDependency{ CY_FALSE };
+    bool_t bSawTransitiveDependency{ CY_FALSE };
     bool_t bSawCompilerDependency{ CY_FALSE };
     bool_t bSawToolchainDependency{ CY_FALSE };
     bool_t bSawCompletedProgress{ CY_FALSE };
@@ -152,6 +156,18 @@ void CaptureDependency(
     capture.bSawFragmentDependency |= StringView_Equals(
         dependency.path,
         TestText( "shaders/world.frag" ) );
+    const bool_t bShared = StringView_Equals(
+        dependency.path,
+        TestText( "shaders/include/shared.glsl" ) );
+    const bool_t bNested = StringView_Equals(
+        dependency.path,
+        TestText( "shaders/include/nested/constants.glsl" ) );
+    capture.bSawSharedDependency |= bShared;
+    capture.bSawNestedDependency |= bNested;
+    if ( bShared || bNested ) {
+        capture.bSawTransitiveDependency |=
+            ( dependency.flags & TOOL_DEPENDENCY_FLAG_TRANSITIVE ) != 0u;
+    }
     capture.bSawCompilerDependency |= StringView_Equals(
         dependency.path,
         TestText( "toolchain/cypher-shader-compiler" ) );
@@ -391,6 +407,9 @@ TEST_CASE( "Shader compiler cooks linked OpenGL GLSL and reports its graph",
         &shader );
     REQUIRE( CookedShader_Succeeded( read ) );
     REQUIRE( shader.backend == render_shader_backend_t::OPENGL );
+    REQUIRE( shader.languageProfile ==
+             render_shader_language_profile_t::GLSL_CORE );
+    REQUIRE( shader.nLanguageVersion == 410u );
     REQUIRE( shader.nStages == 2u );
     const cooked_shader_stage_view_t *pVertex = CookedShader_FindStage(
         shader,
@@ -553,7 +572,7 @@ TEST_CASE( "Shader compiler rejects invalid GLSL and stage interface mismatches"
     }
 }
 
-TEST_CASE( "Shader compiler version 1 rejects untracked GLSL includes",
+TEST_CASE( "Shader compiler resolves nested local includes through the VFS",
            "[CypherTools][ShaderCompiler][Include]" )
 {
     temporary_project_t project{};
@@ -562,14 +581,247 @@ TEST_CASE( "Shader compiler version 1 rejects untracked GLSL includes",
         "shaders/world.vert",
         "#version 410 core\n"
         "#extension GL_GOOGLE_include_directive : require\n"
-        "#include \"shared.glsl\"\n"
-        "void main(){ gl_Position=vec4(0,0,0,1);}\n" );
-    project.Write( "shaders/shared.glsl", "const float kValue = 1.0;\n" );
+        "#include \"include/shared.glsl\"\n"
+        "layout(location=0) out vec2 vUv;\n"
+        "void main(){ vUv=CySharedUv(); gl_Position=vec4(0,0,0,1);}\n" );
+    project.Write(
+        "shaders/world.frag",
+        "#version 410 core\n"
+        "#extension GL_GOOGLE_include_directive : require\n"
+        "#include \"include/shared.glsl\"\n"
+        "layout(location=0) in vec2 vUv;\n"
+        "layout(location=0) out vec4 outColor;\n"
+        "void main(){ outColor=vec4(vUv,0,1);}\n" );
+    project.Write(
+        "shaders/include/shared.glsl",
+        "#include \"nested/constants.glsl\"\n"
+        "vec2 CySharedUv(){ return vec2(CY_SHARED_VALUE); }\n" );
+    project.Write(
+        "shaders/include/nested/constants.glsl",
+        "const float CY_SHARED_VALUE = 0.5;\n" );
     compiler_fixture_t fixture{ project };
     tool_report_t report{};
-    CHECK( fixture.Compile(
+    REQUIRE( fixture.Compile(
         TestText( "shaders/world.cyshader_c" ),
-        report ) == tool_status_t::VALIDATION_FAILED );
-    CHECK( fixture.capture.lastDiagnostic ==
-           CY_SHADER_DIAGNOSTIC_UNSUPPORTED_INCLUDE );
+        report ) == tool_status_t::OK );
+    CHECK( fixture.capture.nDependencies == 7u );
+    CHECK( fixture.capture.bSawSharedDependency );
+    CHECK( fixture.capture.bSawNestedDependency );
+    CHECK( fixture.capture.bSawTransitiveDependency );
+    CHECK( report.cbRead >
+           sizeof( g_validRecipe ) +
+               sizeof( g_validVertex ) +
+               sizeof( g_validFragment ) );
+}
+
+TEST_CASE( "Shader compiler rejects unsafe or unavailable GLSL includes",
+           "[CypherTools][ShaderCompiler][Include][Invalid]" )
+{
+    SECTION( "missing local include" )
+    {
+        temporary_project_t project{};
+        WriteValidShader( project );
+        project.Write(
+            "shaders/world.vert",
+            "#version 410 core\n"
+            "#extension GL_GOOGLE_include_directive : require\n"
+            "#include \"include/missing.glsl\"\n"
+            "layout(location=0) out vec2 vUv;\n"
+            "void main(){ vUv=vec2(0); gl_Position=vec4(0,0,0,1);}\n" );
+        compiler_fixture_t fixture{ project };
+        tool_report_t report{};
+        CHECK( fixture.Compile(
+            TestText( "shaders/world.cyshader_c" ),
+            report ) == tool_status_t::IO_ERROR );
+        CHECK( fixture.capture.lastDiagnostic ==
+               CY_SHADER_DIAGNOSTIC_INCLUDE_FAILED );
+    }
+
+    SECTION( "path escapes the source root" )
+    {
+        temporary_project_t project{};
+        WriteValidShader( project );
+        project.Write(
+            "shaders/world.vert",
+            "#version 410 core\n"
+            "#extension GL_GOOGLE_include_directive : require\n"
+            "#include \"../../outside.glsl\"\n"
+            "layout(location=0) out vec2 vUv;\n"
+            "void main(){ vUv=vec2(0); gl_Position=vec4(0,0,0,1);}\n" );
+        compiler_fixture_t fixture{ project };
+        tool_report_t report{};
+        CHECK( fixture.Compile(
+            TestText( "shaders/world.cyshader_c" ),
+            report ) == tool_status_t::VALIDATION_FAILED );
+        CHECK( fixture.capture.lastDiagnostic ==
+               CY_SHADER_DIAGNOSTIC_INCLUDE_FAILED );
+    }
+
+    SECTION( "system include is not reproducible" )
+    {
+        temporary_project_t project{};
+        WriteValidShader( project );
+        project.Write(
+            "shaders/world.vert",
+            "#version 410 core\n"
+            "#extension GL_GOOGLE_include_directive : require\n"
+            "#include <shared.glsl>\n"
+            "layout(location=0) out vec2 vUv;\n"
+            "void main(){ vUv=vec2(0); gl_Position=vec4(0,0,0,1);}\n" );
+        compiler_fixture_t fixture{ project };
+        tool_report_t report{};
+        CHECK( fixture.Compile(
+            TestText( "shaders/world.cyshader_c" ),
+            report ) == tool_status_t::VALIDATION_FAILED );
+        CHECK( fixture.capture.lastDiagnostic ==
+               CY_SHADER_DIAGNOSTIC_UNSUPPORTED_INCLUDE );
+    }
+}
+
+TEST_CASE( "Transitive include content participates in shader source identity",
+           "[CypherTools][ShaderCompiler][Include][Determinism]" )
+{
+    temporary_project_t project{};
+    WriteValidShader( project );
+    project.Write(
+        "shaders/world.vert",
+        "#version 410 core\n"
+        "#extension GL_GOOGLE_include_directive : require\n"
+        "#include \"include/value.glsl\"\n"
+        "layout(location=0) out vec2 vUv;\n"
+        "void main(){ vUv=vec2(CY_VALUE); gl_Position=vec4(0,0,0,1);}\n" );
+    project.Write(
+        "shaders/include/value.glsl",
+        "const float CY_VALUE = 0.25;\n" );
+
+    compiler_fixture_t fixture{ project };
+    tool_report_t firstReport{};
+    REQUIRE( fixture.Compile(
+        TestText( "shaders/first.cyshader_c" ),
+        firstReport ) == tool_status_t::OK );
+    blob_t first{};
+    ReadBlob( project.OutputPath( "shaders/first.cyshader_c" ), first );
+    cooked_shader_view_t firstShader{};
+    REQUIRE( CookedShader_Succeeded(
+        CookedShader_Read( Blob_Block( &first ), &firstShader ) ) );
+
+    project.Write(
+        "shaders/include/value.glsl",
+        "const float CY_VALUE = 0.75;\n" );
+    tool_report_t secondReport{};
+    REQUIRE( fixture.Compile(
+        TestText( "shaders/second.cyshader_c" ),
+        secondReport ) == tool_status_t::OK );
+    blob_t second{};
+    ReadBlob( project.OutputPath( "shaders/second.cyshader_c" ), second );
+    cooked_shader_view_t secondShader{};
+    REQUIRE( CookedShader_Succeeded(
+        CookedShader_Read( Blob_Block( &second ), &secondShader ) ) );
+
+    CHECK_FALSE( ContentHash_Equals(
+        firstShader.sourceHash,
+        secondShader.sourceHash ) );
+    CHECK_FALSE( Cy_MemEqual(
+        first.pData,
+        second.pData,
+        first.cbSize < second.cbSize ? first.cbSize : second.cbSize ) );
+}
+
+TEST_CASE( "Shader compiler supports versioned desktop GLSL core profiles",
+           "[CypherTools][ShaderCompiler][GLSL][Version]" )
+{
+    temporary_project_t project{};
+    WriteValidShader( project );
+    project.Write(
+        "shaders/world.vert",
+        "// An older supported desktop profile.\n"
+        "#version 330 core\n"
+        "out vec2 vUv;\n"
+        "void main(){ vUv=vec2(0); gl_Position=vec4(0,0,0,1);}\n" );
+    project.Write(
+        "shaders/world.frag",
+        "/* The profile may follow leading comments. */\n"
+        "#version 330 core\n"
+        "in vec2 vUv; out vec4 color;\n"
+        "void main(){ color=vec4(vUv,0,1);}\n" );
+
+    compiler_fixture_t fixture{ project };
+    tool_report_t report{};
+    REQUIRE( fixture.Compile(
+        TestText( "shaders/world.cyshader_c" ),
+        report ) == tool_status_t::OK );
+
+    blob_t cooked{};
+    ReadBlob( project.OutputPath( "shaders/world.cyshader_c" ), cooked );
+    cooked_shader_view_t shader{};
+    REQUIRE( CookedShader_Succeeded(
+        CookedShader_Read( Blob_Block( &cooked ), &shader ) ) );
+    CHECK( shader.languageProfile ==
+           render_shader_language_profile_t::GLSL_CORE );
+    CHECK( shader.nLanguageVersion == 330u );
+}
+
+TEST_CASE( "Shader compiler rejects incompatible GLSL profile contracts",
+           "[CypherTools][ShaderCompiler][GLSL][Version][Invalid]" )
+{
+    SECTION( "stage versions differ" )
+    {
+        temporary_project_t project{};
+        WriteValidShader( project );
+        project.Write(
+            "shaders/world.vert",
+            "#version 330 core\n"
+            "out vec2 value;\n"
+            "void main(){ value=vec2(0); gl_Position=vec4(0,0,0,1);}\n" );
+        compiler_fixture_t fixture{ project };
+        tool_report_t report{};
+        CHECK( fixture.Compile(
+            TestText( "shaders/world.cyshader_c" ),
+            report ) == tool_status_t::VALIDATION_FAILED );
+        CHECK( fixture.capture.lastDiagnostic ==
+               CY_SHADER_DIAGNOSTIC_GLSL_PROFILE_MISMATCH );
+    }
+
+    SECTION( "compatibility profile is outside shader version 1" )
+    {
+        temporary_project_t project{};
+        WriteValidShader( project );
+        project.Write(
+            "shaders/world.vert",
+            "#version 330 compatibility\nvoid main(){ gl_Position=vec4(0);}\n" );
+        compiler_fixture_t fixture{ project };
+        tool_report_t report{};
+        CHECK( fixture.Compile(
+            TestText( "shaders/world.cyshader_c" ),
+            report ) == tool_status_t::VALIDATION_FAILED );
+        CHECK( fixture.capture.lastDiagnostic ==
+               CY_SHADER_DIAGNOSTIC_UNSUPPORTED_GLSL_PROFILE );
+    }
+
+    SECTION( "selected platform limits the maximum version" )
+    {
+        temporary_project_t project{};
+        WriteValidShader( project );
+        project.Write(
+            "shaders/world.vert",
+            "#version 450 core\n"
+            "out vec2 value;\n"
+            "void main(){ value=vec2(0); gl_Position=vec4(0,0,0,1);}\n" );
+        project.Write(
+            "shaders/world.frag",
+            "#version 450 core\n"
+            "in vec2 value; out vec4 color;\n"
+            "void main(){ color=vec4(value,0,1);}\n" );
+        compiler_fixture_t fixture{ project };
+        fixture.context.target = {
+            tool_platform_t::MACOS,
+            tool_architecture_t::ARM64
+        };
+        tool_report_t report{};
+        CHECK( fixture.Compile(
+            TestText( "shaders/world.cyshader_c" ),
+            report ) == tool_status_t::VALIDATION_FAILED );
+        CHECK( fixture.capture.lastDiagnostic ==
+               CY_SHADER_DIAGNOSTIC_UNSUPPORTED_GLSL_PROFILE );
+    }
 }

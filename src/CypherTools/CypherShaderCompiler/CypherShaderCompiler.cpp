@@ -7,8 +7,8 @@
 //  Purpose: Implements deterministic OpenGL shader recipe compilation.
 //  Details: The compiler parses CYKV, validates the exact shader schema, loads
 //           stage dependencies, preprocesses and links GLSL with glslang, and
-//           writes the canonical CYSH/CYRS runtime resource. Version 1 rejects
-//           includes until dependency-safe include resolution is implemented.
+//           writes the canonical CYSH/CYRS runtime resource. Quoted GLSL includes
+//           resolve through the source VFS and become explicit build dependencies.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-12
@@ -26,6 +26,7 @@
 #include "CypherCommon_FileIo.h"
 #include "CypherCommon_KeyValueParser.h"
 #include "CypherCommon_RenderAsset.h"
+#include "CypherCommon_String.h"
 #include "CypherCommon_StringFormat.h"
 #include "CypherCommon_StringPath.h"
 #include "CypherCommon_TextBuffer.h"
@@ -51,6 +52,11 @@ inline constexpr usize CY_SHADER_COMPILER_MAX_STAGE_SIZE =
     static_cast<usize>( CY_COOKED_SHADER_MAX_CODE_SIZE ) - 1u;
 inline constexpr usize CY_SHADER_COMPILER_MAX_PATH = 4095u;
 inline constexpr usize CY_SHADER_COMPILER_SCHEMA_DIAGNOSTICS = 32u;
+inline constexpr usize CY_SHADER_COMPILER_MAX_INCLUDE_FILES = 128u;
+inline constexpr usize CY_SHADER_COMPILER_MAX_INCLUDE_REQUESTS = 256u;
+inline constexpr usize CY_SHADER_COMPILER_MAX_INCLUDE_DEPTH = 32u;
+inline constexpr usize CY_SHADER_COMPILER_MAX_INCLUDE_SIZE = 1u * CY_MIB;
+inline constexpr usize CY_SHADER_COMPILER_MAX_INCLUDE_BYTES = 8u * CY_MIB;
 inline constexpr u64 CY_SHADER_COMPILER_PROGRESS_STEPS = 5u;
 
 template <usize nExtent>
@@ -135,6 +141,44 @@ struct glslang_runtime_t {
     }
 };
 
+enum class shader_include_status_t : u8 {
+    OK = 0u,
+    SYSTEM_INCLUDE_UNSUPPORTED,
+    INVALID_PATH,
+    DEPTH_LIMIT,
+    FILE_LIMIT,
+    REQUEST_LIMIT,
+    TOTAL_SIZE_LIMIT,
+    READ_FAILED,
+    INVALID_TEXT,
+    OUT_OF_MEMORY
+};
+
+struct shader_include_file_t {
+    text_buffer_t virtualPath{};
+    text_buffer_t source{};
+    content_hash_t sourceHash{};
+};
+
+struct shader_include_cache_t {
+    const vfs_t *pVfs{ nullptr };
+    shader_include_file_t files[CY_SHADER_COMPILER_MAX_INCLUDE_FILES]{};
+    usize nFiles{ 0u };
+    usize cbRead{ 0u };
+};
+
+struct shader_include_context_t {
+    shader_include_cache_t *pCache{ nullptr };
+    tool_report_t *pReport{ nullptr };
+    string_view_t rootVirtualPath{};
+    glsl_include_result_t results[CY_SHADER_COMPILER_MAX_INCLUDE_REQUESTS]{};
+    usize nResults{ 0u };
+    shader_include_status_t status{ shader_include_status_t::OK };
+    shader_text_read_status_t textReadStatus{ shader_text_read_status_t::OK };
+    vfs_status_t vfsStatus{ vfs_status_t::OK };
+    text_buffer_t failurePath{};
+};
+
 struct shader_stage_work_t {
     string_view_t virtualPath{};
     text_buffer_t diagnosticPath{};
@@ -142,8 +186,12 @@ struct shader_stage_work_t {
     text_buffer_t preprocessed{};
     content_hash_t sourceHash{};
     render_shader_stage_t stage{ render_shader_stage_t::VERTEX };
+    u32 nGlslVersion{ 0u };
+    u32 nGlslDirectiveLine{ 1u };
+    u32 nGlslDirectiveColumn{ 1u };
     glslang_stage_t glslangStage{ GLSLANG_STAGE_VERTEX };
     glslang_shader_owner_t compiler{};
+    shader_include_context_t includes{};
 };
 
 struct shader_compile_work_t {
@@ -153,12 +201,9 @@ struct shader_compile_work_t {
     text_buffer_t definePreamble{};
     key_value_document_owner_t document{};
     render_shader_source_view_t recipe{};
+    shader_include_cache_t includeCache{};
     shader_stage_work_t stages[CY_COOKED_SHADER_MAX_STAGES]{};
     blob_t cooked{};
-};
-
-struct include_rejection_t {
-    bool_t bAttempted{ CY_FALSE };
 };
 
 CYPHER_NODISCARD glslang_runtime_t &GlslangRuntime() noexcept
@@ -182,17 +227,29 @@ CYPHER_NODISCARD bool_t InitTextBuffer(
 CYPHER_NODISCARD bool_t InitCompileWork(
     shader_compile_work_t &work ) noexcept
 {
-    return InitTextBuffer( work.recipeDiagnosticPath ) &&
-           InitTextBuffer( work.outputNativePath ) &&
-           InitTextBuffer( work.recipeText ) &&
-           InitTextBuffer( work.definePreamble ) &&
-           InitTextBuffer( work.stages[0].diagnosticPath ) &&
-           InitTextBuffer( work.stages[0].source ) &&
-           InitTextBuffer( work.stages[0].preprocessed ) &&
-           InitTextBuffer( work.stages[1].diagnosticPath ) &&
-           InitTextBuffer( work.stages[1].source ) &&
-           InitTextBuffer( work.stages[1].preprocessed ) &&
-           Blob_Init( &work.cooked, Allocator_GetSystem() );
+    if ( !InitTextBuffer( work.recipeDiagnosticPath ) ||
+         !InitTextBuffer( work.outputNativePath ) ||
+         !InitTextBuffer( work.recipeText ) ||
+         !InitTextBuffer( work.definePreamble ) ||
+         !Blob_Init( &work.cooked, Allocator_GetSystem() ) ) {
+        return CY_FALSE;
+    }
+    for ( shader_stage_work_t &stage : work.stages ) {
+        if ( !InitTextBuffer( stage.diagnosticPath ) ||
+             !InitTextBuffer( stage.source ) ||
+             !InitTextBuffer( stage.preprocessed ) ||
+             !InitTextBuffer( stage.includes.failurePath ) ) {
+            return CY_FALSE;
+        }
+        stage.includes.pCache = &work.includeCache;
+    }
+    for ( shader_include_file_t &file : work.includeCache.files ) {
+        if ( !InitTextBuffer( file.virtualPath ) ||
+             !InitTextBuffer( file.source ) ) {
+            return CY_FALSE;
+        }
+    }
+    return CY_TRUE;
 }
 
 CYPHER_NODISCARD bool_t JoinNativePath(
@@ -461,23 +518,549 @@ CYPHER_NODISCARD bool_t BuildDefinePreamble(
     return CY_TRUE;
 }
 
-glsl_include_result_t *RejectInclude(
+CYPHER_NODISCARD bool_t IsHorizontalWhitespace( char ch ) noexcept
+{
+    return ch == ' ' || ch == '\t' || ch == '\r';
+}
+
+enum class glsl_profile_parse_status_t : u8 {
+    OK = 0u,
+    MISSING_DIRECTIVE,
+    INVALID_DIRECTIVE,
+    UNSUPPORTED_VERSION,
+    UNSUPPORTED_PROFILE
+};
+
+struct glsl_profile_parse_result_t {
+    glsl_profile_parse_status_t status{
+        glsl_profile_parse_status_t::MISSING_DIRECTIVE
+    };
+    u32 nVersion{ 0u };
+    u32 nLine{ 1u };
+    u32 nColumn{ 1u };
+};
+
+CYPHER_NODISCARD bool_t IsSupportedGlslCoreVersion(
+    u32 nVersion ) noexcept
+{
+    return CookedShader_SupportsLanguage(
+        render_shader_language_profile_t::GLSL_CORE,
+        nVersion );
+}
+
+void AdvanceGlslLocation(
+    string_view_t source,
+    usize &iByte,
+    u32 &nLine,
+    u32 &nColumn ) noexcept
+{
+    if ( source.pData[iByte] == '\r' ) {
+        ++iByte;
+        if ( iByte < source.cchLength && source.pData[iByte] == '\n' ) {
+            ++iByte;
+        }
+        ++nLine;
+        nColumn = 1u;
+        return;
+    }
+    if ( source.pData[iByte] == '\n' ) {
+        ++iByte;
+        ++nLine;
+        nColumn = 1u;
+        return;
+    }
+    ++iByte;
+    ++nColumn;
+}
+
+template <usize nExtent>
+CYPHER_NODISCARD bool_t ConsumeGlslToken(
+    string_view_t source,
+    usize &iByte,
+    const char ( &token )[nExtent] ) noexcept
+{
+    constexpr usize cchToken = nExtent - 1u;
+    if ( iByte > source.cchLength ||
+         cchToken > source.cchLength - iByte ) {
+        return CY_FALSE;
+    }
+    for ( usize iToken = 0u; iToken < cchToken; ++iToken ) {
+        if ( source.pData[iByte + iToken] != token[iToken] ) {
+            return CY_FALSE;
+        }
+    }
+    iByte += cchToken;
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD glsl_profile_parse_result_t ParseGlslProfile(
+    string_view_t source ) noexcept
+{
+    glsl_profile_parse_result_t result{};
+    if ( !StringView_IsValid( source ) || source.cchLength == 0u ) {
+        return result;
+    }
+
+    usize iByte = 0u;
+    u32 nLine = 1u;
+    u32 nColumn = 1u;
+    if ( source.cchLength >= 3u &&
+         static_cast<u8>( source.pData[0] ) == 0xEFu &&
+         static_cast<u8>( source.pData[1] ) == 0xBBu &&
+         static_cast<u8>( source.pData[2] ) == 0xBFu ) {
+        iByte = 3u;
+    }
+
+    // GLSL permits comments and whitespace before #version. No other token may
+    // precede it, so a small bounded scanner is sufficient for this policy gate.
+    while ( iByte < source.cchLength ) {
+        const char ch = source.pData[iByte];
+        if ( ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' ) {
+            AdvanceGlslLocation( source, iByte, nLine, nColumn );
+            continue;
+        }
+        if ( ch == '/' && iByte + 1u < source.cchLength &&
+             source.pData[iByte + 1u] == '/' ) {
+            AdvanceGlslLocation( source, iByte, nLine, nColumn );
+            AdvanceGlslLocation( source, iByte, nLine, nColumn );
+            while ( iByte < source.cchLength &&
+                    source.pData[iByte] != '\n' ) {
+                AdvanceGlslLocation( source, iByte, nLine, nColumn );
+            }
+            continue;
+        }
+        if ( ch == '/' && iByte + 1u < source.cchLength &&
+             source.pData[iByte + 1u] == '*' ) {
+            AdvanceGlslLocation( source, iByte, nLine, nColumn );
+            AdvanceGlslLocation( source, iByte, nLine, nColumn );
+            bool_t bClosed = CY_FALSE;
+            while ( iByte + 1u < source.cchLength ) {
+                if ( source.pData[iByte] == '*' &&
+                     source.pData[iByte + 1u] == '/' ) {
+                    AdvanceGlslLocation( source, iByte, nLine, nColumn );
+                    AdvanceGlslLocation( source, iByte, nLine, nColumn );
+                    bClosed = CY_TRUE;
+                    break;
+                }
+                AdvanceGlslLocation( source, iByte, nLine, nColumn );
+            }
+            if ( !bClosed ) {
+                result.status = glsl_profile_parse_status_t::INVALID_DIRECTIVE;
+                result.nLine = nLine;
+                result.nColumn = nColumn;
+                return result;
+            }
+            continue;
+        }
+        break;
+    }
+
+    result.nLine = nLine;
+    result.nColumn = nColumn;
+    if ( iByte >= source.cchLength || source.pData[iByte++] != '#' ) {
+        return result;
+    }
+    while ( iByte < source.cchLength &&
+            IsHorizontalWhitespace( source.pData[iByte] ) ) {
+        ++iByte;
+    }
+    if ( !ConsumeGlslToken( source, iByte, "version" ) ) {
+        result.status = glsl_profile_parse_status_t::INVALID_DIRECTIVE;
+        return result;
+    }
+    if ( iByte >= source.cchLength ||
+         !IsHorizontalWhitespace( source.pData[iByte] ) ) {
+        result.status = glsl_profile_parse_status_t::INVALID_DIRECTIVE;
+        return result;
+    }
+    while ( iByte < source.cchLength &&
+            IsHorizontalWhitespace( source.pData[iByte] ) ) {
+        ++iByte;
+    }
+
+    usize nDigits = 0u;
+    while ( iByte < source.cchLength &&
+            source.pData[iByte] >= '0' && source.pData[iByte] <= '9' ) {
+        if ( nDigits == 3u ) {
+            result.status = glsl_profile_parse_status_t::INVALID_DIRECTIVE;
+            return result;
+        }
+        result.nVersion = result.nVersion * 10u +
+            static_cast<u32>( source.pData[iByte] - '0' );
+        ++iByte;
+        ++nDigits;
+    }
+    if ( nDigits != 3u || iByte >= source.cchLength ||
+         !IsHorizontalWhitespace( source.pData[iByte] ) ) {
+        result.status = glsl_profile_parse_status_t::INVALID_DIRECTIVE;
+        return result;
+    }
+    while ( iByte < source.cchLength &&
+            IsHorizontalWhitespace( source.pData[iByte] ) ) {
+        ++iByte;
+    }
+    if ( !ConsumeGlslToken( source, iByte, "core" ) ) {
+        result.status = glsl_profile_parse_status_t::UNSUPPORTED_PROFILE;
+        return result;
+    }
+    const bool_t bValidBoundary = iByte == source.cchLength ||
+        source.pData[iByte] == '\n' || source.pData[iByte] == '\r' ||
+        source.pData[iByte] == ' ' || source.pData[iByte] == '\t' ||
+        ( source.pData[iByte] == '/' &&
+          iByte + 1u < source.cchLength &&
+          ( source.pData[iByte + 1u] == '/' ||
+            source.pData[iByte + 1u] == '*' ) );
+    if ( !bValidBoundary ) {
+        result.status = glsl_profile_parse_status_t::UNSUPPORTED_PROFILE;
+        return result;
+    }
+    result.status = IsSupportedGlslCoreVersion( result.nVersion )
+        ? glsl_profile_parse_status_t::OK
+        : glsl_profile_parse_status_t::UNSUPPORTED_VERSION;
+    return result;
+}
+
+CYPHER_NODISCARD u32 TargetMaximumGlslCoreVersion(
+    tool_target_t target ) noexcept
+{
+    return target.platform == tool_platform_t::MACOS ? 410u : 450u;
+}
+
+CYPHER_NODISCARD string_view_t GlslProfileFailureHint(
+    glsl_profile_parse_status_t status ) noexcept
+{
+    switch ( status ) {
+        case glsl_profile_parse_status_t::MISSING_DIRECTIVE:
+            return ShaderText(
+                "Make `#version` the first non-comment directive in the stage." );
+        case glsl_profile_parse_status_t::INVALID_DIRECTIVE:
+            return ShaderText( "Use the exact form `#version NNN core`." );
+        case glsl_profile_parse_status_t::UNSUPPORTED_VERSION:
+            return ShaderText(
+                "Supported desktop core versions are 330, 400, 410, 420, 430, 440, and 450." );
+        case glsl_profile_parse_status_t::UNSUPPORTED_PROFILE:
+            return ShaderText(
+                "Shader version 1 supports the desktop `core` profile; compatibility and ES profiles are separate future contracts." );
+        case glsl_profile_parse_status_t::OK:
+            break;
+    }
+    return {};
+}
+
+void SetIncludeFailure(
+    shader_include_context_t &context,
+    shader_include_status_t status,
+    string_view_t path = {},
+    shader_text_read_status_t textReadStatus =
+        shader_text_read_status_t::OK,
+    vfs_status_t vfsStatus = vfs_status_t::OK ) noexcept
+{
+    // Preserve the first failure. It is normally the most specific cause and
+    // avoids later preprocessor cleanup replacing it with a secondary error.
+    if ( context.status != shader_include_status_t::OK ) {
+        return;
+    }
+    context.status = status;
+    context.textReadStatus = textReadStatus;
+    context.vfsStatus = vfsStatus;
+    if ( path.cchLength != 0u &&
+         !TextBuffer_Assign( &context.failurePath, path ) ) {
+        context.status = shader_include_status_t::OUT_OF_MEMORY;
+    }
+}
+
+CYPHER_NODISCARD bool_t ResolveIncludeVirtualPath(
+    shader_include_context_t &context,
+    const char *pHeaderName,
+    const char *pIncluderName,
+    char ( &pathOut )[CY_SHADER_COMPILER_MAX_PATH + 1u],
+    usize &cchPathOut ) noexcept
+{
+    cchPathOut = 0u;
+    if ( pHeaderName == nullptr ) {
+        SetIncludeFailure(
+            context,
+            shader_include_status_t::INVALID_PATH );
+        return CY_FALSE;
+    }
+
+    const usize cchHeader = Cy_strnlen(
+        pHeaderName,
+        CY_SHADER_COMPILER_MAX_PATH + 1u );
+    if ( cchHeader == 0u || cchHeader > CY_SHADER_COMPILER_MAX_PATH ) {
+        SetIncludeFailure(
+            context,
+            shader_include_status_t::INVALID_PATH );
+        return CY_FALSE;
+    }
+    const string_view_t requested{ pHeaderName, cchHeader };
+
+    string_view_t includer = context.rootVirtualPath;
+    if ( pIncluderName != nullptr ) {
+        const usize cchIncluder = Cy_strnlen(
+            pIncluderName,
+            CY_SHADER_COMPILER_MAX_PATH + 1u );
+        const string_view_t candidate{ pIncluderName, cchIncluder };
+        if ( cchIncluder <= CY_SHADER_COMPILER_MAX_PATH &&
+             Vfs_IsCanonicalPath( candidate ) &&
+             context.pCache != nullptr ) {
+            for ( usize iFile = 0u;
+                  iFile < context.pCache->nFiles;
+                  ++iFile ) {
+                if ( StringView_Equals(
+                         TextBuffer_View(
+                             &context.pCache->files[iFile].virtualPath ),
+                         candidate ) ) {
+                    includer = candidate;
+                    break;
+                }
+            }
+        }
+    }
+
+    const string_view_t parent = StringPath_Parent( includer );
+    char joined[( CY_SHADER_COMPILER_MAX_PATH * 2u ) + 2u]{};
+    const path_write_result_t joinedResult = StringPath_Join(
+        parent,
+        requested,
+        path_style_t::VIRTUAL,
+        joined,
+        sizeof( joined ) );
+    if ( joinedResult.status != path_status_t::OK ) {
+        SetIncludeFailure(
+            context,
+            shader_include_status_t::INVALID_PATH,
+            requested );
+        return CY_FALSE;
+    }
+
+    constexpr flags32_t normalizeFlags =
+        PATH_NORMALIZE_FLAG_COLLAPSE_SEPARATORS |
+        PATH_NORMALIZE_FLAG_RESOLVE_DOT |
+        PATH_NORMALIZE_FLAG_RESOLVE_DOT_DOT |
+        PATH_NORMALIZE_FLAG_LOWERCASE_ASCII |
+        PATH_NORMALIZE_FLAG_REJECT_ABSOLUTE |
+        PATH_NORMALIZE_FLAG_REJECT_ABOVE_ROOT;
+    const path_write_result_t normalized = StringPath_Normalize(
+        { joined, joinedResult.cchWritten },
+        path_style_t::VIRTUAL,
+        normalizeFlags,
+        pathOut,
+        sizeof( pathOut ) );
+    const string_view_t resolved{ pathOut, normalized.cchWritten };
+    if ( normalized.status != path_status_t::OK ||
+         !Vfs_IsCanonicalPath( resolved ) ||
+         !StringPath_HasExtension(
+             resolved,
+             ShaderText( ".glsl" ),
+             CY_FALSE ) ) {
+        SetIncludeFailure(
+            context,
+            shader_include_status_t::INVALID_PATH,
+            requested );
+        pathOut[0] = '\0';
+        return CY_FALSE;
+    }
+
+    cchPathOut = normalized.cchWritten;
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD shader_include_file_t *FindIncludeFile(
+    shader_include_cache_t &cache,
+    string_view_t virtualPath ) noexcept
+{
+    for ( usize iFile = 0u; iFile < cache.nFiles; ++iFile ) {
+        if ( StringView_Equals(
+                 TextBuffer_View( &cache.files[iFile].virtualPath ),
+                 virtualPath ) ) {
+            return &cache.files[iFile];
+        }
+    }
+    return nullptr;
+}
+
+CYPHER_NODISCARD shader_include_file_t *LoadIncludeFile(
+    shader_include_context_t &context,
+    string_view_t virtualPath ) noexcept
+{
+    shader_include_cache_t &cache = *context.pCache;
+    if ( shader_include_file_t *pExisting =
+             FindIncludeFile( cache, virtualPath ) ) {
+        return pExisting;
+    }
+    if ( cache.nFiles >= CY_SHADER_COMPILER_MAX_INCLUDE_FILES ) {
+        SetIncludeFailure(
+            context,
+            shader_include_status_t::FILE_LIMIT,
+            virtualPath );
+        return nullptr;
+    }
+
+    shader_include_file_t &file = cache.files[cache.nFiles];
+    if ( !TextBuffer_Assign( &file.virtualPath, virtualPath ) ) {
+        SetIncludeFailure(
+            context,
+            shader_include_status_t::OUT_OF_MEMORY,
+            virtualPath );
+        return nullptr;
+    }
+
+    vfs_status_t vfsStatus = vfs_status_t::OK;
+    const shader_text_read_status_t readStatus = ReadTextFile(
+        cache.pVfs,
+        virtualPath,
+        CY_SHADER_COMPILER_MAX_INCLUDE_SIZE,
+        file.source,
+        &vfsStatus );
+    if ( readStatus != shader_text_read_status_t::OK ) {
+        SetIncludeFailure(
+            context,
+            readStatus == shader_text_read_status_t::OUT_OF_MEMORY
+                ? shader_include_status_t::OUT_OF_MEMORY
+            : readStatus == shader_text_read_status_t::IO_ERROR
+                ? shader_include_status_t::READ_FAILED
+                : shader_include_status_t::INVALID_TEXT,
+            virtualPath,
+            readStatus,
+            vfsStatus );
+        return nullptr;
+    }
+    if ( file.source.cchLength >
+         CY_SHADER_COMPILER_MAX_INCLUDE_BYTES - cache.cbRead ) {
+        SetIncludeFailure(
+            context,
+            shader_include_status_t::TOTAL_SIZE_LIMIT,
+            virtualPath );
+        return nullptr;
+    }
+
+    file.sourceHash = ContentHash_String( TextBuffer_View( &file.source ) );
+    if ( !ContentHash_IsValid( file.sourceHash ) ) {
+        SetIncludeFailure(
+            context,
+            shader_include_status_t::INVALID_TEXT,
+            virtualPath );
+        return nullptr;
+    }
+    cache.cbRead += file.source.cchLength;
+    if ( context.pReport != nullptr ) {
+        context.pReport->cbRead += file.source.cchLength;
+    }
+    ++cache.nFiles;
+    return &file;
+}
+
+glsl_include_result_t *ResolveLocalInclude(
     void *pContext,
-    const char *,
+    const char *pHeaderName,
+    const char *pIncluderName,
+    size_t nIncludeDepth ) noexcept
+{
+    if ( pContext == nullptr ) {
+        return nullptr;
+    }
+    auto &context = *static_cast<shader_include_context_t *>( pContext );
+    if ( context.status != shader_include_status_t::OK ) {
+        return nullptr;
+    }
+    if ( nIncludeDepth > CY_SHADER_COMPILER_MAX_INCLUDE_DEPTH ) {
+        SetIncludeFailure(
+            context,
+            shader_include_status_t::DEPTH_LIMIT,
+            pHeaderName != nullptr
+                ? StringView_FromCString( pHeaderName )
+                : string_view_t{} );
+        return nullptr;
+    }
+    if ( context.nResults >= CY_SHADER_COMPILER_MAX_INCLUDE_REQUESTS ) {
+        SetIncludeFailure(
+            context,
+            shader_include_status_t::REQUEST_LIMIT,
+            pHeaderName != nullptr
+                ? StringView_FromCString( pHeaderName )
+                : string_view_t{} );
+        return nullptr;
+    }
+
+    char resolvedStorage[CY_SHADER_COMPILER_MAX_PATH + 1u]{};
+    usize cchResolved = 0u;
+    if ( !ResolveIncludeVirtualPath(
+             context,
+             pHeaderName,
+             pIncluderName,
+             resolvedStorage,
+             cchResolved ) ) {
+        return nullptr;
+    }
+    shader_include_file_t *pFile = LoadIncludeFile(
+        context,
+        { resolvedStorage, cchResolved } );
+    if ( pFile == nullptr ) {
+        return nullptr;
+    }
+
+    glsl_include_result_t &result = context.results[context.nResults++];
+    result.header_name = TextBuffer_CStr( &pFile->virtualPath );
+    result.header_data = TextBuffer_CStr( &pFile->source );
+    result.header_length = pFile->source.cchLength;
+    return &result;
+}
+
+glsl_include_result_t *RejectSystemInclude(
+    void *pContext,
+    const char *pHeaderName,
     const char *,
     size_t ) noexcept
 {
-    // Returning no result prevents glslang's default includer from escaping the
-    // project root. Includes are enabled only after canonical dependency tracking.
     if ( pContext != nullptr ) {
-        static_cast<include_rejection_t *>( pContext )->bAttempted = CY_TRUE;
+        auto &context = *static_cast<shader_include_context_t *>( pContext );
+        SetIncludeFailure(
+            context,
+            shader_include_status_t::SYSTEM_INCLUDE_UNSUPPORTED,
+            pHeaderName != nullptr
+                ? StringView_FromCString( pHeaderName )
+                : string_view_t{} );
     }
     return nullptr;
 }
 
 int ReleaseInclude( void *, glsl_include_result_t * ) noexcept
 {
+    // Include results borrow request-owned fixed storage. They remain alive until
+    // linking completes, so glslang release notifications require no action.
     return 0;
+}
+
+CYPHER_NODISCARD string_view_t IncludeFailureHint(
+    const shader_include_context_t &context ) noexcept
+{
+    switch ( context.status ) {
+    case shader_include_status_t::SYSTEM_INCLUDE_UNSUPPORTED:
+        return ShaderText(
+            "Use quoted project-local includes; `<system>` includes are not reproducible." );
+    case shader_include_status_t::INVALID_PATH:
+        return ShaderText(
+            "Include a relative `.glsl` path that remains inside the source VFS root." );
+    case shader_include_status_t::DEPTH_LIMIT:
+        return ShaderText( "The GLSL include nesting limit is 32." );
+    case shader_include_status_t::FILE_LIMIT:
+        return ShaderText( "One shader may depend on at most 128 unique include files." );
+    case shader_include_status_t::REQUEST_LIMIT:
+        return ShaderText( "One shader stage may issue at most 256 include requests." );
+    case shader_include_status_t::TOTAL_SIZE_LIMIT:
+        return ShaderText( "Combined unique GLSL include text may not exceed 8 MiB." );
+    case shader_include_status_t::READ_FAILED:
+        return ShaderText( "The include could not be read through the source VFS." );
+    case shader_include_status_t::INVALID_TEXT:
+        return ShaderText(
+            "GLSL includes must be non-empty UTF-8 text without embedded null bytes and at most 1 MiB each." );
+    case shader_include_status_t::OUT_OF_MEMORY:
+        return ShaderText( "Memory allocation failed while resolving GLSL includes." );
+    case shader_include_status_t::OK:
+        break;
+    }
+    return {};
 }
 
 CYPHER_NODISCARD const char *GlslangLog(
@@ -508,7 +1091,8 @@ CYPHER_NODISCARD tool_status_t CompileStage(
     const text_buffer_t &preamble,
     shader_stage_work_t &stage ) noexcept
 {
-    include_rejection_t includeRejection{};
+    stage.includes.pReport = &report;
+    stage.includes.rootVirtualPath = stage.virtualPath;
     const glslang_input_t input{
         GLSLANG_SOURCE_GLSL,
         stage.glslangStage,
@@ -517,16 +1101,16 @@ CYPHER_NODISCARD tool_status_t CompileStage(
         GLSLANG_TARGET_NONE,
         GLSLANG_TARGET_SPV_1_0,
         TextBuffer_CStr( &stage.source ),
-        450,
+        static_cast<int>( stage.nGlslVersion ),
         GLSLANG_CORE_PROFILE,
         false,
-        false,
+        true,
         static_cast<glslang_messages_t>(
             GLSLANG_MSG_DEFAULT_BIT |
             GLSLANG_MSG_DISPLAY_ERROR_COLUMN ),
         glslang_default_resource(),
-        { &RejectInclude, &RejectInclude, &ReleaseInclude },
-        &includeRejection
+        { &RejectSystemInclude, &ResolveLocalInclude, &ReleaseInclude },
+        &stage.includes
     };
 
     stage.compiler.pShader = glslang_shader_create( &input );
@@ -547,26 +1131,41 @@ CYPHER_NODISCARD tool_status_t CompileStage(
 
     if ( !glslang_shader_preprocess( stage.compiler.pShader, &input ) ) {
         const char *pLog = GlslangLog( stage.compiler.pShader );
-        const string_view_t hint = includeRejection.bAttempted
-            ? ShaderText(
-                  "Shader includes are disabled in `.cyshader` version 1." )
-            : string_view_t{};
+        const bool_t bIncludeFailure =
+            stage.includes.status != shader_include_status_t::OK;
+        const bool_t bSystemInclude = stage.includes.status ==
+            shader_include_status_t::SYSTEM_INCLUDE_UNSUPPORTED;
+        const string_view_t failurePath = TextBuffer_IsEmpty(
+            &stage.includes.failurePath )
+                ? stage.virtualPath
+                : TextBuffer_View( &stage.includes.failurePath );
         EmitDiagnostic(
             request,
             report,
-            includeRejection.bAttempted
+            bSystemInclude
                 ? CY_SHADER_DIAGNOSTIC_UNSUPPORTED_INCLUDE
+            : bIncludeFailure
+                ? CY_SHADER_DIAGNOSTIC_INCLUDE_FAILED
                 : CY_SHADER_DIAGNOSTIC_PREPROCESS_FAILED,
             tool_diagnostic_severity_t::ERROR,
-            tool_diagnostic_category_t::COMPILER,
+            bIncludeFailure &&
+                    stage.includes.status == shader_include_status_t::READ_FAILED
+                ? tool_diagnostic_category_t::FILESYSTEM
+                : tool_diagnostic_category_t::COMPILER,
             pLog != nullptr
                 ? StringView_FromCString( pLog )
                 : ShaderText( "GLSL preprocessing failed." ),
-            stage.virtualPath,
+            failurePath,
             1u,
             1u,
-            hint );
-        return tool_status_t::VALIDATION_FAILED;
+            bIncludeFailure
+                ? IncludeFailureHint( stage.includes )
+                : string_view_t{} );
+        return stage.includes.status == shader_include_status_t::OUT_OF_MEMORY
+            ? tool_status_t::OUT_OF_MEMORY
+        : stage.includes.status == shader_include_status_t::READ_FAILED
+            ? tool_status_t::IO_ERROR
+            : tool_status_t::VALIDATION_FAILED;
     }
 
     const char *pPreprocessed = glslang_shader_get_preprocessed_code(
@@ -711,7 +1310,7 @@ CYPHER_NODISCARD content_hash_t ToolchainHash() noexcept
 CYPHER_NODISCARD content_hash_t CompilerHash() noexcept
 {
     return ContentHash_String(
-        ShaderText( "cypher.shader-compiler.api1.compiler1" ) );
+        ShaderText( "cypher.shader-compiler.api1.compiler2" ) );
 }
 
 void EmitDependencies(
@@ -721,7 +1320,7 @@ void EmitDependencies(
     content_hash_t compilerHash,
     content_hash_t toolchainHash ) noexcept
 {
-    const tool_dependency_t dependencies[]{
+    const tool_dependency_t directDependencies[]{
         {
             request.input,
             tool_dependency_kind_t::SOURCE,
@@ -739,7 +1338,25 @@ void EmitDependencies(
             tool_dependency_kind_t::SOURCE,
             work.stages[1].sourceHash,
             TOOL_DEPENDENCY_FLAG_REQUIRED
-        },
+        }
+    };
+    for ( const tool_dependency_t &dependency : directDependencies ) {
+        ToolHost_EmitDependency( request.pInvocation->pHost, dependency );
+    }
+    for ( usize iFile = 0u;
+          iFile < work.includeCache.nFiles;
+          ++iFile ) {
+        const shader_include_file_t &file = work.includeCache.files[iFile];
+        const tool_dependency_t dependency{
+            TextBuffer_View( &file.virtualPath ),
+            tool_dependency_kind_t::SOURCE,
+            file.sourceHash,
+            TOOL_DEPENDENCY_FLAG_REQUIRED |
+                TOOL_DEPENDENCY_FLAG_TRANSITIVE
+        };
+        ToolHost_EmitDependency( request.pInvocation->pHost, dependency );
+    }
+    const tool_dependency_t toolchainDependencies[]{
         {
             ShaderText( "toolchain/cypher-shader-compiler" ),
             tool_dependency_kind_t::TOOLCHAIN,
@@ -753,7 +1370,7 @@ void EmitDependencies(
             TOOL_DEPENDENCY_FLAG_REQUIRED
         }
     };
-    for ( const tool_dependency_t &dependency : dependencies ) {
+    for ( const tool_dependency_t &dependency : toolchainDependencies ) {
         ToolHost_EmitDependency( request.pInvocation->pHost, dependency );
     }
 }
@@ -835,7 +1452,6 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
             nCompleted );
         return tool_status_t::OUT_OF_MEMORY;
     }
-
     const tool_context_t &context = *request.pInvocation->pContext;
     if ( !Vfs_IsValid( context.pSourceVfs ) ) {
         EmitDiagnostic(
@@ -854,6 +1470,7 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
             nCompleted );
         return tool_status_t::INVALID_CONFIGURATION;
     }
+    work.includeCache.pVfs = context.pSourceVfs;
     if ( !bDryRun &&
          !JoinNativePath(
              context.outputRoot,
@@ -1083,9 +1700,84 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
             EmitFailureProgress( request, sequence, status, nCompleted );
             return status;
         }
+        report.cbRead += stage.source.cchLength;
+        const glsl_profile_parse_result_t profile = ParseGlslProfile(
+            TextBuffer_View( &stage.source ) );
+        if ( profile.status != glsl_profile_parse_status_t::OK ) {
+            EmitDiagnostic(
+                request,
+                report,
+                CY_SHADER_DIAGNOSTIC_UNSUPPORTED_GLSL_PROFILE,
+                tool_diagnostic_severity_t::ERROR,
+                tool_diagnostic_category_t::SOURCE,
+                ShaderText(
+                    "The GLSL version/profile directive is missing, malformed, or unsupported." ),
+                stage.virtualPath,
+                profile.nLine,
+                profile.nColumn,
+                GlslProfileFailureHint( profile.status ) );
+            MarkFailed( report );
+            EmitFailureProgress(
+                request,
+                sequence,
+                tool_status_t::VALIDATION_FAILED,
+                nCompleted );
+            return tool_status_t::VALIDATION_FAILED;
+        }
+        const u32 nTargetMaximum = TargetMaximumGlslCoreVersion(
+            context.target );
+        if ( profile.nVersion > nTargetMaximum ) {
+            EmitDiagnostic(
+                request,
+                report,
+                CY_SHADER_DIAGNOSTIC_UNSUPPORTED_GLSL_PROFILE,
+                tool_diagnostic_severity_t::ERROR,
+                tool_diagnostic_category_t::SOURCE,
+                ShaderText(
+                    "The GLSL version exceeds the selected target platform capability." ),
+                stage.virtualPath,
+                profile.nLine,
+                profile.nColumn,
+                context.target.platform == tool_platform_t::MACOS
+                    ? ShaderText(
+                          "macOS OpenGL targets are capped at GLSL 410 core." )
+                    : ShaderText(
+                          "Windows and Linux OpenGL targets are capped at GLSL 450 core." ) );
+            MarkFailed( report );
+            EmitFailureProgress(
+                request,
+                sequence,
+                tool_status_t::VALIDATION_FAILED,
+                nCompleted );
+            return tool_status_t::VALIDATION_FAILED;
+        }
+        stage.nGlslVersion = profile.nVersion;
+        stage.nGlslDirectiveLine = profile.nLine;
+        stage.nGlslDirectiveColumn = profile.nColumn;
         stage.sourceHash = ContentHash_String(
             TextBuffer_View( &stage.source ) );
-        report.cbRead += stage.source.cchLength;
+    }
+    if ( work.stages[0].nGlslVersion != work.stages[1].nGlslVersion ) {
+        EmitDiagnostic(
+            request,
+            report,
+            CY_SHADER_DIAGNOSTIC_GLSL_PROFILE_MISMATCH,
+            tool_diagnostic_severity_t::ERROR,
+            tool_diagnostic_category_t::SOURCE,
+            ShaderText(
+                "Vertex and fragment stages declare different GLSL core versions." ),
+            work.stages[1].virtualPath,
+            work.stages[1].nGlslDirectiveLine,
+            work.stages[1].nGlslDirectiveColumn,
+            ShaderText(
+                "All stages in one graphics program must use the same `#version NNN core` directive." ) );
+        MarkFailed( report );
+        EmitFailureProgress(
+            request,
+            sequence,
+            tool_status_t::VALIDATION_FAILED,
+            nCompleted );
+        return tool_status_t::VALIDATION_FAILED;
     }
 
     ++nCompleted;
@@ -1162,6 +1854,15 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
     sourceHash = ContentHash_Combine(
         sourceHash,
         work.stages[1].sourceHash );
+    for ( usize iFile = 0u;
+          iFile < work.includeCache.nFiles;
+          ++iFile ) {
+        const shader_include_file_t &file = work.includeCache.files[iFile];
+        sourceHash = ContentHash_Combine(
+            sourceHash,
+            ContentHash_String( TextBuffer_View( &file.virtualPath ) ) );
+        sourceHash = ContentHash_Combine( sourceHash, file.sourceHash );
+    }
     sourceHash = ContentHash_Combine( sourceHash, toolchainHash );
     if ( !ContentHash_IsValid( recipeHash ) ||
          !ContentHash_IsValid( compilerHash ) ||
@@ -1199,7 +1900,10 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
             stage.preprocessed.cchLength + 1u
         };
     }
-    const cooked_shader_desc_t shaderDesc{};
+    cooked_shader_desc_t shaderDesc{};
+    shaderDesc.languageProfile =
+        render_shader_language_profile_t::GLSL_CORE;
+    shaderDesc.nLanguageVersion = work.stages[0].nGlslVersion;
     const span_t<const cooked_shader_stage_source_t> stageSpan{
         cookedStages,
         CY_COOKED_SHADER_MAX_STAGES
