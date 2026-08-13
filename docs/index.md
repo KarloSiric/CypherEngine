@@ -39,9 +39,10 @@ Read these in order when resuming work:
 11. [tool_suite.md](tool_suite.md)
 12. [source2_tooling_reference.md](source2_tooling_reference.md)
 13. [map_authoring_and_mason.md](map_authoring_and_mason.md)
-14. [formats/CYKV.md](formats/CYKV.md)
-15. [reference_engine_lessons.md](reference_engine_lessons.md)
-16. [security_model.md](security_model.md)
+14. [picasso_v1_design.md](picasso_v1_design.md)
+15. [formats/CYKV.md](formats/CYKV.md)
+16. [reference_engine_lessons.md](reference_engine_lessons.md)
+17. [security_model.md](security_model.md)
 
 API docs:
 
@@ -115,6 +116,11 @@ Project memory:
   - `.cymap`, `CypherMapCompiler`, and `.cymap_c` architecture
   - hybrid brush, mesh, BSP, visibility, and world-compilation policy
   - Mason workspaces, editing model, validation, testing, and build order
+- `picasso_v1_design`
+  - approved Qt 6 Texture and Material workspace composition
+  - Hammer-influenced dark visual language and semantic accent roles
+  - editor-core, compiler, resource, preview, and Qt ownership boundaries
+  - V1 implementation gate, non-goals, and acceptance criteria
 - `formats/CYKV`
   - normative CYKV 1 grammar and semantic rules
   - document headers, comments, scalar types, canonical output, and limits
