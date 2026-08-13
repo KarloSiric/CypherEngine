@@ -57,6 +57,7 @@ Rules can constrain:
 - exact allowed CYKV value types
 - required, optional, and deprecated object members
 - unknown-member policy
+- dynamic object-member values and object member-count ranges
 - array element rule and element-count range
 - string byte-length range and allowed-value set
 - binary byte-size range
@@ -77,6 +78,9 @@ Different versions of one schema may coexist.
 
 Lookup is exact. The registry never silently selects the newest version and does
 not migrate a document during validation.
+
+`SchemaRegistry_FindLatest` exists only for migration and tooling discovery.
+Runtime document validation continues to require the exact declared version.
 
 ## Validation
 
@@ -141,7 +145,7 @@ Version 1 currently defines:
 | `/name` | string | required | 1-128 UTF-8 bytes |
 | `/start_map` | string | required | canonical virtual path to `.cymap` |
 | `/search_paths` | array | optional | 1-64 strings |
-| `/search_paths/*` | string | element | unique canonical virtual path, 1-1024 bytes |
+| `/search_paths/*` | string | element | unique canonical virtual path, 1-259 bytes |
 
 Unknown root project members are rejected. This contract is deliberately small;
 new project concerns should be added only when a real consumer exists. The `id`
@@ -201,6 +205,19 @@ Structured data and command execution remain separate:
 CYKV describes typed state. A `.cfg` file executes a constrained ordered command
 stream. Neither format should absorb the other's responsibility.
 
+## Renderer Source Schemas
+
+The first domain family now uses the Tier2 foundation:
+
+- `cypher.shader` version 1 for `.cyshader`
+- `cypher.texture` version 1 for `.cytex`
+- `cypher.material` version 1 for `.cymat`
+
+Material texture and parameter maps use the generic dynamic object-member rule.
+Canonical path and identifier checks are shared through `DataValidation`; typed
+decoders apply extension, duplicate, default, and cross-field policies. See
+[RENDER_ASSETS.md](RENDER_ASSETS.md) for the exact contracts.
+
 ## Deferred Work
 
 These features are intentionally not claimed by the current Tier2 foundation:
@@ -215,6 +232,6 @@ These features are intentionally not claimed by the current Tier2 foundation:
 - lossless syntax trees and node source maps
 - a headless `cykv` or `cyschemac` executable
 
-The next schema should be added only with its first real consumer. Map, material,
-entity, and asset schemas must follow their runtime contracts rather than being
-invented in isolation.
+The next schema should be added only with its first real consumer. Map, entity,
+and remaining asset schemas must follow their runtime contracts rather than
+being invented in isolation.

@@ -49,6 +49,12 @@ Current code snapshot:
 - synchronous `CypherResource` runtime with type registration, generation-safe
   handles, cache identity, reference counting, transactional load rollback, and
   deterministic shutdown
+- Tier2 static schemas with exact version lookup, dynamic object maps, bounded
+  validation diagnostics, and shared identifier/resource-path checks
+- renderer source contracts for `.cyshader`, `.cytex`, and `.cymat`
+- a versioned, explicitly serialized cooked-resource header and chunk table
+- a deterministic `CYSH` cooked shader payload with validated OpenGL GLSL stage
+  views and no native graphics API objects in Common
 - OpenGL context bootstrap through GLAD
 - renderer lifecycle, shader, mesh, camera, and draw-list path
 - vector, matrix, quaternion, bounds, ray, plane, and frustum math
@@ -56,6 +62,17 @@ Current code snapshot:
 - cvar system backend
 - cfg loading/execution backend
 - documentation/process system
+- shared ToolFramework contracts for descriptors, invocations, compiler
+  dispatch, structured host events, reports, CLI parsing/display, response files,
+  terminal handling, and cooperative interrupt cancellation
+- a deterministic `.cyshader` compiler backed by glslang, with exact CYKV/schema
+  validation, dependency reporting, cross-stage interface checks, transactional
+  `.cyshader_c` publication, and an embeddable compiler descriptor
+- `CypherResourceCompiler` 1.0.0 with compile/validate and live compiler/format
+  discovery commands, shared VFS directory and wildcard inputs, response files,
+  zsh completion, branded descriptor-driven help, text/NDJSON output,
+  terminal-aware ANSI color, aggregate progress and reports, cancellation,
+  stable exit codes, and process integration tests
 - Catch2 tests and Google Benchmark targets for the current foundation
 
 ## What is done-for-now
@@ -126,11 +143,14 @@ milestone is complete when one real renderer asset travels through it end to end
 
 ## Immediate next tasks
 
-1. implement a VFS-backed shader resource loader
-2. replace renderer-facing raw shader ownership with resource handles
-3. prove load, cache hit, renderer use, release, and shutdown in one integration test
-4. add texture and material resource types only after the shader path is sound
-5. return to input, fly-camera, and the first playable renderer loop
+1. implement the VFS-backed `CYSH` resource loader
+2. audit the Common renderer boundary, then design the OpenGL integration
+   together before editing `CypherRender`
+3. replace renderer-facing raw shader ownership with resource handles
+4. prove source decode, cook, load, cache hit, render use, release, and shutdown
+   in one integration path
+5. add texture and material payloads only after the shader path is sound
+6. return to input, fly-camera, and the first playable renderer loop
 
 ## Explicitly not active yet
 
@@ -138,7 +158,9 @@ milestone is complete when one real renderer asset travels through it end to end
 - client/server networking
 - gameplay loop
 - custom model/material/archive tooling
-- custom editor tooling
+- additional compiler products and custom editor workflows (the shared
+  ToolFramework, shader compiler, ResourceCompiler CLI, and planned product
+  source roots now exist)
 - VM/game-script runtime
 - full SIMD string/memory/math backend
 

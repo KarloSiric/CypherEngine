@@ -72,6 +72,11 @@ CypherEngine should learn from those structures without copying their implementa
 - gameplay rules
 - map editor tool logic
 
+For renderer assets, Common owns source schemas, stable resource identities,
+explicit cooked layouts, and validated borrowed views. A cooker owns source
+preprocessing and dependency discovery; `CypherResource` owns runtime lifetime;
+the renderer owns OpenGL/Vulkan compilation, upload, and native object handles.
+
 The owning subsystem implements behavior. Common defines the shared contract.
 
 Example:
@@ -434,19 +439,20 @@ is not a required standalone world format. See
 [map_authoring_and_mason.md](map_authoring_and_mason.md) for the authoritative
 map-source, compilation, runtime-world, and Mason design.
 
-All cooked formats should follow one common binary pattern:
+Cooked formats share the implemented `CYRS` container version 1:
 
 ```text
-magic
-version
-endian marker
-platform/backend flags
-format flags
-chunk table
-chunks
-content hash
-optional compression per chunk
+fixed little-endian header
+resource FourCC and version
+ordered chunk table
+per-chunk alignment, size, codec and flags
+optional source, file and chunk content hashes
+payload chunks
 ```
+
+Domain payload layouts remain versioned independently from the container. See
+`docs/formats/FORMAT_CATALOG.md` for maturity and
+`docs/formats/RENDER_ASSETS.md` for the first implemented family.
 
 ## Third-Party Policy
 

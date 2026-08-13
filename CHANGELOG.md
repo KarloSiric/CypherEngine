@@ -24,6 +24,60 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 ## [Unreleased] - 2026-08-12
 
 ### Added
+- Added the first `CypherShaderCompiler` vertical slice: CYKV recipe decoding,
+  exact schema and semantic validation, deterministic define application,
+  glslang preprocessing/parsing/cross-stage linking, dependency fingerprints,
+  structured diagnostics, and canonical `.cyshader_c` output.
+- Added `CypherResourceCompiler` 1.0.0 with modular compiler dispatch,
+  compile/validate and registry-backed compiler/format discovery commands,
+  a shared read-only VFS provider, repeatable inputs, directory and wildcard
+  discovery, response files, generated zsh completion, stable exit classes,
+  text/NDJSON records, fixed-width aggregate progress, structured completion
+  summaries, cancellation, branded descriptor-driven help, and terminal-aware
+  ANSI color output.
+- Added shared transactional artifact publication and native recursive-directory,
+  remove, and atomic-replace helpers so failed cook operations do not damage a
+  previously published resource.
+- Added process-level ResourceCompiler coverage for product identity, command
+  help, version output, compiler/format discovery, dry-run validation, progress
+  rendering, VFS directory and wildcard discovery, repeatable inputs, generated
+  completion, exact schema locations, aggregate summaries, output tree creation,
+  deterministic repeated cooking, clean JSON records, forced ANSI output,
+  invalid GLSL failure, and temporary-file cleanup.
+- Added the host-neutral `CypherToolFramework` foundation for tool application,
+  command, option, invocation, diagnostic, progress, event, dependency, artifact,
+  report, document, workspace, session, compiler, and input-set contracts.
+- Added reusable compiler registration and dispatch with explicit ambiguity
+  rejection, validated execution reports, and synchronous host callbacks shared
+  by command-line tools, Mason, automation, and tests.
+- Added portable CLI argument parsing, generated help, owned recursive response
+  files, terminal capability detection, structured text/JSON display, Ctrl+C
+  cancellation, report serialization, and process exit-code orchestration.
+- Added explicit source roots for 58 planned Cypher tool products under
+  `src/CypherTools`, with product targets registered manually only when their
+  implementation and tests exist.
+- Added shared Tier2 semantic validation for stable identifiers, ASCII member
+  names, canonical virtual paths, and typed resource-reference extensions.
+- Added schema support for bounded dynamic object maps and latest-version lookup
+  for tooling discovery while preserving exact-version runtime validation.
+- Added version 1 CYKV source schemas and typed zero-copy decoders for shader,
+  texture, and material renderer assets.
+- Added the `CYRS` version 1 cooked-resource envelope with explicit little-endian
+  serialization, ordered chunk descriptors, per-chunk codec/alignment metadata,
+  content fingerprints, and malformed-layout rejection.
+- Added the `CYSH` version 1 cooked shader contract with deterministic `SHMD` and
+  `SHCD` chunks, canonical graphics/compute stage sets, strict UTF-8 GLSL
+  validation, borrowed stage views, and whole-file/chunk hash verification.
+- Added renderer format and cooked envelope tests covering defaults, dynamic
+  bindings, canonical references, numeric material values, binary round trips,
+  truncation, overlap, alignment, codecs, hashes, and transactional failures.
+- Added cooked shader tests covering round trips, deterministic output,
+  malformed code, invalid stage sets, noncanonical layouts, damaged hashes, and
+  transactional reads.
+- Added cooked shader write/read benchmarks for representative 4 KiB and 256 KiB
+  GLSL stages to establish cooker and load-time baselines.
+- Added renderer format documentation and a maturity catalog that separates
+  implemented contracts from provisional future formats.
 - Added the first synchronous `CypherResource` runtime, including loader-type
   registration, stable resource identity, generation-safe handles, reference
   counting, cache lookup, failed-load rollback, dependency-cycle detection,
@@ -59,6 +113,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - Added the authoring-versus-cooked format direction for `.cymap`, `.cyscene`, `.cytex_c`, `.cymesh_c`, `.cyanim_c`, `.cybsp_c`, `.cypkg`, and related Cypher data formats.
 
 ### Changed
+- Clarified ToolFramework naming so terminal-specific behavior uses `ToolCli*`,
+  while compiler, input, report, and host contracts remain frontend-neutral.
 - Changed runtime resource handles to an opaque 64-bit `16/32/16`
   slot/generation/type layout, allowing 65,536 manager slots while making stale
   handle aliasing substantially less likely during long editor sessions.
@@ -75,7 +131,19 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - Updated the toolchain plan with concrete library, format, and wrapping rules for engine runtime, asset tools, and the future Mason editor.
 
 ### Verified
-- Verified Debug and Release engine builds with all 202 registered tests passing.
+- Verified the complete shader-tools Debug and Release builds with all 219
+  registered tests passing on Apple Silicon macOS, including the VFS,
+  ResourceCompiler process integration, and recursive 100-shader corpus paths.
+- Verified the focused ToolFramework, shader compiler, and ResourceCompiler
+  eight-test set in Release and under ASan/UBSan.
+- Verified the Debug engine build with all 210 registered tests passing and the
+  Release renderer-format target.
+- Verified the ToolFramework core, CLI, response-file, and compiler suites under
+  Debug and ASan/UBSan, including nested response files, option precedence,
+  compiler ambiguity, report validation, and saturating session identifiers.
+- Verified the cooked shader reader/writer under ASan/UBSan and strict Clang
+  warnings, with Release throughput around 1.2-1.35 GiB/s on the local Apple
+  Silicon benchmark host for representative GLSL payloads.
 - Verified the resource runtime and packed-handle tests under ASan/UBSan.
 - Verified strict warning compilation for the resource implementation and stable
   Release benchmark results for payload lookup, cached acquisition, and

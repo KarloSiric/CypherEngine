@@ -47,6 +47,7 @@ API docs:
 
 - [CYPHERENGINE_API_REFERENCE.md](CYPHERENGINE_API_REFERENCE.md)
 - [CYPHERENGINE_API_IMPLEMENTATION.md](CYPHERENGINE_API_IMPLEMENTATION.md)
+- [CYPHER_RESOURCE_COMPILER.md](CYPHER_RESOURCE_COMPILER.md)
 
 Reference docs:
 
@@ -118,6 +119,10 @@ Project memory:
   - normative CYKV 1 grammar and semantic rules
   - document headers, comments, scalar types, canonical output, and limits
   - boundary between Tier1 parsing and Tier2 schema validation
+- `CYPHER_RESOURCE_COMPILER`
+  - exact version 1 commands, parameters, output modes, and exit codes
+  - source-to-cooked shader flow and response-file syntax
+  - staged command and compiler roadmap without advertising unimplemented flags
 - `formats/CYKV_SCHEMAS`
   - Tier2 descriptor, registry, validation, and diagnostic contracts
   - separate `cypher.project` and `cypher.settings` schemas with typed decoders

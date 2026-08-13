@@ -43,9 +43,9 @@ build targets and do not imply implementation completion. Add a product to
 The first registered products are `CypherShaderCompiler`, a host-neutral
 `.cyshader` compiler module, and `CypherResourceCompiler`, its command-line host.
 The CLI currently supports validation and compilation, live compiler and format
-discovery, response files, text or JSON records, terminal-aware ANSI color,
-fixed-width progress, cancellation, stable exit classes, and one-or-more
-explicit resource inputs.
+discovery, VFS-backed files/directories/wildcards, repeatable inputs, response
+files, zsh completion generation, text or JSON records, terminal-aware ANSI
+color, aggregate progress and reports, cancellation, and stable exit classes.
 
 See [the tool suite inventory](../../docs/tool_suite.md) for product status,
 delivery mode, and planned responsibility. See the

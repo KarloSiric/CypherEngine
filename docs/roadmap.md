@@ -35,14 +35,18 @@ For the full dated schedule, LOC ranges, subsystem acceptance criteria, and edit
 6. add simple streaming/resource completion flow above VFS
 7. keep `SDL3`/`OpenGL` runtime bootstrap stable
 8. add input and camera control
-9. add materials, textures, meshes, and real renderer submission through handles
-10. design `CypherWorld` and the first custom map/world source format
-11. add profiling and diagnostics across the frame
-12. add custom tools and formats for models, materials, packages, maps, and resources
-13. design honest multiplayer/client-server shape
-14. add VM/game-script path
-15. grow the Qt editor into the long-term Mason editor application
-16. push toward a stable product
+9. complete the shader, texture, material, and mesh vertical asset slices
+10. drive real renderer submission through resource handles
+11. design `CypherWorld` and the smallest playable map/world pipeline
+12. add collision, character movement, and the first custom physics slice
+13. add entity/gameplay, audio, and only the AI required by the playable loop
+14. add profiling and diagnostics across the frame
+15. start Mason as a small world inspection and authoring client, then grow it
+    alongside runtime needs
+16. design honest multiplayer/client-server shape and the Lua game-script bridge
+17. add specialized compilers and Mason workspaces as their runtime consumers mature
+18. consider a Vulkan renderer only after the backend-neutral contract is proven
+19. push toward a stable product
 
 ## Scope reminder
 
@@ -74,8 +78,9 @@ That rule matters more than ambition.
 
 Near-term work should follow this sequence:
 
-1. complete `CypherCommon_String` correctness
-2. add tests and benchmarks for each completed Common group
-3. keep scalar implementations correct and measured
-4. design `CypherCommon_Simd` after scalar String is stable
-5. return to Resource ownership before growing renderer/world/editor scale
+1. build the development shader cooker on the finished source/cooked contracts
+2. load one cooked shader through VFS and `CypherResource`
+3. audit the Common renderer boundary and design the OpenGL integration together
+4. replace raw renderer shader ownership with generation-safe handles
+5. add texture and material only after the shader integration is tested
+6. build input, camera control, and a visible playable renderer loop
