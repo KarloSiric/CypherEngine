@@ -1,0 +1,24 @@
+@cykv 1
+@schema "cypher.shader" 1
+
+// Integration corpus recipe 094: debug pipeline variant 14.
+// This authored document intentionally shares GLSL stages while changing the
+// define set, exercising deterministic preprocessing and cooked identities.
+{
+    language = "glsl"
+    vertex = "shaders/corpus/stages/debug.vert"
+    fragment = "shaders/corpus/stages/debug.frag"
+
+    defines = [
+        "CY_CORPUS",
+        "CY_DEBUG_PASS",
+        "CY_VARIANT_094",
+        "CY_FAMILY_VARIANT_14",
+        "CY_DEBUG_XRAY",
+        "CY_DEBUG_WIREFRAME",
+        "CY_DEBUG_OVERDRAW",
+        "CY_DEBUG_NORMALS",
+        "CY_DEBUG_POINTS",
+        "CY_DEBUG_DEPTH_TINT"
+    ]
+}

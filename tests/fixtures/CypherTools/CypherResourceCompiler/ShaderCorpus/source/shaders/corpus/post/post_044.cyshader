@@ -1,0 +1,24 @@
+@cykv 1
+@schema "cypher.shader" 1
+
+// Integration corpus recipe 044: post pipeline variant 04.
+// This authored document intentionally shares GLSL stages while changing the
+// define set, exercising deterministic preprocessing and cooked identities.
+{
+    language = "glsl"
+    vertex = "shaders/corpus/stages/post.vert"
+    fragment = "shaders/corpus/stages/post.frag"
+
+    defines = [
+        "CY_CORPUS",
+        "CY_POST_PASS",
+        "CY_VARIANT_044",
+        "CY_FAMILY_VARIANT_04",
+        "CY_HDR_INPUT",
+        "CY_DITHER",
+        "CY_REINHARD_TONEMAP",
+        "CY_PIXELATE",
+        "CY_SCANLINES",
+        "CY_VIGNETTE"
+    ]
+}

@@ -1,0 +1,20 @@
+@cykv 1
+@schema "cypher.shader" 1
+
+// Integration corpus recipe 030: character pipeline variant 10.
+// This authored document intentionally shares GLSL stages while changing the
+// define set, exercising deterministic preprocessing and cooked identities.
+{
+    language = "glsl"
+    vertex = "shaders/corpus/stages/character.vert"
+    fragment = "shaders/corpus/stages/character.frag"
+
+    defines = [
+        "CY_CORPUS",
+        "CY_CHARACTER_PASS",
+        "CY_VARIANT_030",
+        "CY_FAMILY_VARIANT_10",
+        "CY_SHADOW_RECEIVER",
+        "CY_MOTION_VECTORS"
+    ]
+}

@@ -229,6 +229,7 @@ set(CYPHERCOMMON_TIER1_SOURCES
 )
 
 set(CYPHERCOMMON_TIER2_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_DataValidation.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_ProjectManifest.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_ProjectSchema.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_Schema.cpp"
@@ -237,9 +238,20 @@ set(CYPHERCOMMON_TIER2_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_SettingsSchema.cpp"
 )
 
+set(CYPHER_VFS_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/FileSystem/CypherCommon_Vfs.cpp"
+)
+
 set(CYPHERRESOURCE_SYSTEM_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem/CypherCommon_ResourceHandle.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem/CypherCommon_ResourceId.cpp"
+)
+
+set(CYPHER_RENDER_FORMAT_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_CookedShader.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_CookedResource.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_RenderAsset.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_RenderAssetSchema.cpp"
 )
 
 set(CYPHERRESOURCE_RUNTIME_SOURCES
@@ -251,6 +263,39 @@ set(CYPHERRESOURCE_RUNTIME_SOURCES
 
 set(CYPHERTOOLFRAMEWORK_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ProgressBar.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolApplication.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolArtifact.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolArtifactWriter.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolCancellation.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolCliArgumentParser.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolCliDisplay.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolCliHelp.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolCliResponseFile.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolCliRunner.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolCliSignal.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolCliTerminal.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolCommand.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolCompiler.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolCompilerRegistry.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolContext.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolDependency.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolDiagnostic.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolDocument.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolEvent.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolHost.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolInvocation.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolInputSet.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolOption.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolOptionSet.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolOutput.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolProgress.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolRegistry.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolReport.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolReportWriter.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolSession.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolStatus.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolTarget.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework/CypherCommon_ToolWorkspace.cpp"
 )
 
 set(CYPHERSECURITY_SOURCES
@@ -354,6 +399,16 @@ target_include_directories(CypherCommonTier2
 )
 target_link_libraries(CypherCommonTier2 PUBLIC Cypher::CommonTier1)
 
+add_library(CypherVirtualFileSystem STATIC ${CYPHER_VFS_SOURCES})
+add_library(Cypher::VirtualFileSystem ALIAS CypherVirtualFileSystem)
+target_compile_features(CypherVirtualFileSystem PUBLIC cxx_std_20)
+target_include_directories(CypherVirtualFileSystem
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/FileSystem"
+)
+target_link_libraries(CypherVirtualFileSystem PUBLIC Cypher::CommonTier2)
+
 add_library(CypherResourceSystem STATIC ${CYPHERRESOURCE_SYSTEM_SOURCES})
 add_library(Cypher::ResourceSystem ALIAS CypherResourceSystem)
 target_compile_features(CypherResourceSystem PUBLIC cxx_std_20)
@@ -363,6 +418,16 @@ target_include_directories(CypherResourceSystem
         "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem"
 )
 target_link_libraries(CypherResourceSystem PUBLIC Cypher::CommonTier1)
+
+add_library(CypherRenderFormats STATIC ${CYPHER_RENDER_FORMAT_SOURCES})
+add_library(Cypher::RenderFormats ALIAS CypherRenderFormats)
+target_compile_features(CypherRenderFormats PUBLIC cxx_std_20)
+target_include_directories(CypherRenderFormats
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats"
+)
+target_link_libraries(CypherRenderFormats PUBLIC Cypher::CommonTier2)
 
 add_library(CypherResourceRuntime STATIC ${CYPHERRESOURCE_RUNTIME_SOURCES})
 add_library(Cypher::ResourceRuntime ALIAS CypherResourceRuntime)
@@ -382,7 +447,7 @@ target_include_directories(CypherToolFramework
         "${CYPHERENGINE_SRC_DIR}"
         "${CYPHERENGINE_SRC_DIR}/CypherCommon/ToolFramework"
 )
-target_link_libraries(CypherToolFramework PUBLIC Cypher::CommonTier0)
+target_link_libraries(CypherToolFramework PUBLIC Cypher::CommonTier1)
 
 add_library(CypherMath STATIC ${CYPHERMATH_SOURCES})
 add_library(Cypher::Math ALIAS CypherMath)
@@ -417,6 +482,9 @@ file(GLOB_RECURSE CYPHERENGINE_SOURCES CONFIGURE_DEPENDS
 )
 list(FILTER CYPHERENGINE_SOURCES
     EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherCommon/"
+)
+list(FILTER CYPHERENGINE_SOURCES
+    EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherTools/"
 )
 list(FILTER CYPHERENGINE_SOURCES
     EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherMath/"
@@ -1246,6 +1314,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
+            cypher_common_vfs_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/FileSystem/CypherCommon_Vfs_Tests.cpp"
+            Cypher::VirtualFileSystem
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_uniqueid_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_UniqueId_Tests.cpp"
             Cypher::CommonTier1
@@ -1274,6 +1347,21 @@ if (CYPHERENGINE_BUILD_TESTS)
             cypher_common_resource_system_resource_handle_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/ResourceSystem/CypherCommon_ResourceSystem_ResourceHandle_Tests.cpp"
             Cypher::ResourceSystem
+        )
+        cypher_add_common_catch_test(
+            cypher_common_render_asset_format_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Formats/CypherCommon_RenderAsset_Tests.cpp"
+            Cypher::RenderFormats
+        )
+        cypher_add_common_catch_test(
+            cypher_common_cooked_resource_format_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Formats/CypherCommon_CookedResource_Tests.cpp"
+            Cypher::RenderFormats
+        )
+        cypher_add_common_catch_test(
+            cypher_common_cooked_shader_format_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Formats/CypherCommon_CookedShader_Tests.cpp"
+            Cypher::RenderFormats
         )
         cypher_add_common_catch_test(
             cypher_resource_runtime_tests
@@ -1386,6 +1474,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::CommonTier2
         )
         cypher_add_common_catch_test(
+            cypher_common_tier2_datavalidation_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier2/CypherCommon_Tier2_DataValidation_Tests.cpp"
+            Cypher::CommonTier2
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier2_projectmanifest_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier2/CypherCommon_Tier2_ProjectManifest_Tests.cpp"
             Cypher::CommonTier2
@@ -1480,6 +1573,26 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/ToolFramework/CypherCommon_ToolFramework_ProgressBar_Tests.cpp"
             Cypher::ToolFramework
         )
+        cypher_add_common_catch_test(
+            cypher_toolframework_core_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/ToolFramework/CypherCommon_ToolFramework_Core_Tests.cpp"
+            Cypher::ToolFramework
+        )
+        cypher_add_common_catch_test(
+            cypher_toolframework_cli_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/ToolFramework/CypherCommon_ToolFramework_Cli_Tests.cpp"
+            Cypher::ToolFramework
+        )
+        cypher_add_common_catch_test(
+            cypher_toolframework_response_file_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/ToolFramework/CypherCommon_ToolFramework_ResponseFile_Tests.cpp"
+            Cypher::ToolFramework
+        )
+        cypher_add_common_catch_test(
+            cypher_toolframework_compiler_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/ToolFramework/CypherCommon_ToolFramework_Compiler_Tests.cpp"
+            Cypher::ToolFramework
+        )
     else()
         message(STATUS "Catch2 not found. Skipping Catch2-based CypherCommon tests.")
     endif()
@@ -1570,6 +1683,11 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             cypher_resource_runtime_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherEngine/CypherResource/CypherResource_Bench.cpp"
             Cypher::ResourceRuntime
+        )
+        cypher_add_common_benchmark(
+            cypher_common_cooked_shader_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Formats/CypherCommon_CookedShader_Bench.cpp"
+            Cypher::RenderFormats
         )
 
         cypher_add_common_benchmark(
@@ -2074,11 +2192,11 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
     endif()
 endif()
 
-if (EXISTS "${CYPHERENGINE_ROOT_DIR}/tools/CMakeLists.txt")
+if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherTools/CMakeLists.txt")
     option(CYPHERENGINE_BUILD_TOOLS "Build tool targets" OFF)
     if (CYPHERENGINE_BUILD_TOOLS)
-        add_subdirectory("${CYPHERENGINE_ROOT_DIR}/tools")
+        add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherTools")
     endif()
 else()
-    message(STATUS "No tools/CMakeLists.txt yet. Tool targets will be added in a later phase.")
+    message(STATUS "No src/CypherTools/CMakeLists.txt yet. Tool targets will be added in a later phase.")
 endif()

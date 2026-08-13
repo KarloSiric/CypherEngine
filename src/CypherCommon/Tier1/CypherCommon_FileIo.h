@@ -81,6 +81,22 @@ bool_t FileIo_WriteAllNative(
     string_view_t nativePath,
     binary_block_t source ) noexcept;
 
+// Creates every missing component in a native directory path. Existing
+// directories are accepted; an existing non-directory component is rejected.
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t FileIo_CreateDirectoriesNative( string_view_t nativePath ) noexcept;
+
+// Removes one native file. Directories are intentionally outside this API.
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t FileIo_RemoveNative( string_view_t nativePath ) noexcept;
+
+// Atomically publishes sourcePath at destinationPath when both paths reside on
+// the same filesystem. An existing destination file is replaced.
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t FileIo_ReplaceNative(
+    string_view_t sourcePath,
+    string_view_t destinationPath ) noexcept;
+
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t FileIo_NativeExists( string_view_t nativePath ) noexcept;
 

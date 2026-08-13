@@ -18,7 +18,7 @@
 
 #include "CypherCommon_ProjectManifest.h"
 
-#include "CypherCommon_StringPath.h"
+#include "CypherCommon_DataValidation.h"
 #include "CypherCommon_StringView.h"
 
 namespace cypher::common
@@ -33,61 +33,6 @@ CYPHER_NODISCARD constexpr string_view_t ManifestText(
 {
     static_assert( nExtent > 0u );
     return { text, nExtent - 1u };
-}
-
-CYPHER_NODISCARD bool_t IsLowerAsciiLetter( char ch ) noexcept
-{
-    return ch >= 'a' && ch <= 'z';
-}
-
-CYPHER_NODISCARD bool_t IsAsciiDigit( char ch ) noexcept
-{
-    return ch >= '0' && ch <= '9';
-}
-
-CYPHER_NODISCARD bool_t IsValidProjectId( string_view_t id ) noexcept
-{
-    // IDs are narrower than display names so they remain stable in command lines,
-    // cache keys, package metadata, and case-sensitive filesystems.
-    if ( !StringView_IsValid( id ) || id.cchLength == 0u ||
-         !IsLowerAsciiLetter( id.pData[0] ) ) {
-        return CY_FALSE;
-    }
-
-    for ( usize iByte = 1u; iByte < id.cchLength; ++iByte ) {
-        const char ch = id.pData[iByte];
-        if ( !IsLowerAsciiLetter( ch ) && !IsAsciiDigit( ch ) &&
-             ch != '_' && ch != '-' ) {
-            return CY_FALSE;
-        }
-    }
-    return CY_TRUE;
-}
-
-CYPHER_NODISCARD bool_t IsCanonicalVirtualPath(
-    string_view_t path ) noexcept
-{
-    // Normalize into bounded scratch storage, then require byte-for-byte equality.
-    // Non-canonical source is rejected rather than silently rewritten.
-    constexpr flags32_t nNormalizeFlags =
-        PATH_NORMALIZE_FLAG_COLLAPSE_SEPARATORS |
-        PATH_NORMALIZE_FLAG_RESOLVE_DOT |
-        PATH_NORMALIZE_FLAG_RESOLVE_DOT_DOT |
-        PATH_NORMALIZE_FLAG_LOWERCASE_ASCII |
-        PATH_NORMALIZE_FLAG_REJECT_ABSOLUTE |
-        PATH_NORMALIZE_FLAG_REJECT_ABOVE_ROOT;
-
-    char normalized[CY_PROJECT_PATH_MAX_LENGTH + 1u]{};
-    const path_write_result_t result = StringPath_Normalize(
-        path,
-        path_style_t::VIRTUAL,
-        nNormalizeFlags,
-        normalized,
-        sizeof( normalized ) );
-    return result.status == path_status_t::OK &&
-           StringView_Equals(
-               path,
-               { normalized, result.cchWritten } );
 }
 
 CYPHER_NODISCARD bool_t ReadStringMember(
@@ -143,15 +88,18 @@ project_manifest_decode_result_t ProjectManifest_Decode(
         return result;
     }
 
-    if ( !IsValidProjectId( manifest.id ) ) {
+    if ( !DataValidation_Succeeded(
+             DataValidation_CheckStableIdentifier(
+                 manifest.id,
+                 CY_PROJECT_ID_MAX_LENGTH ) ) ) {
         result.status = project_manifest_status_t::INVALID_PROJECT_ID;
         return result;
     }
-    if ( !IsCanonicalVirtualPath( manifest.startMap ) ||
-         !StringPath_HasExtension(
-             manifest.startMap,
-             ManifestText( ".cymap" ),
-             CY_FALSE ) ) {
+    if ( !DataValidation_Succeeded(
+             DataValidation_CheckResourcePath(
+                 manifest.startMap,
+                 ManifestText( ".cymap" ),
+                 CY_PROJECT_PATH_MAX_LENGTH ) ) ) {
         result.status = project_manifest_status_t::INVALID_START_MAP;
         return result;
     }
@@ -175,7 +123,10 @@ project_manifest_decode_result_t ProjectManifest_Decode(
                 result.status = project_manifest_status_t::INTERNAL_ERROR;
                 return result;
             }
-            if ( !IsCanonicalVirtualPath( manifest.searchPaths[iPath] ) ) {
+            if ( !DataValidation_Succeeded(
+                     DataValidation_CheckCanonicalVirtualPath(
+                         manifest.searchPaths[iPath],
+                         CY_PROJECT_PATH_MAX_LENGTH ) ) ) {
                 result.status = project_manifest_status_t::INVALID_SEARCH_PATH;
                 result.iSearchPath = iPath;
                 return result;

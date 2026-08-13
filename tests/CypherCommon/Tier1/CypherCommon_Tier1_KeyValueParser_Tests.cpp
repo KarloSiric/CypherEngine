@@ -85,6 +85,12 @@ TEST_CASE( "CYKV parser reads a complete version 1 document",
         {},
         pDocument );
     REQUIRE( result.status == key_value_parse_status_t::OK );
+    CHECK( result.languageVersionLocation.nLine == 1u );
+    CHECK( result.languageVersionLocation.nColumn == 7u );
+    CHECK( result.schemaIdLocation.nLine == 2u );
+    CHECK( result.schemaIdLocation.nColumn == 9u );
+    CHECK( result.schemaVersionLocation.nLine == 2u );
+    CHECK( result.schemaVersionLocation.nColumn == 23u );
 
     const key_value_document_header_t header =
         KeyValue_DocumentHeader( pDocument );

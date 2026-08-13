@@ -18,6 +18,7 @@
 
 #include "CypherCommon_FileIo.h"
 
+#include <cstdio>
 #include <limits>
 #include <new>
 
@@ -177,6 +178,51 @@ bool_t NativeFileIsValid( const native_file_t *pFile ) noexcept
            pFile->hFile != INVALID_HANDLE_VALUE &&
            OpenFlagsAreValid( pFile->flags ) &&
            Allocator_IsValid( pFile->pAllocator );
+}
+
+bool_t WidePathIsDirectory( const wchar_t *pPath ) noexcept
+{
+    const DWORD nAttributes = GetFileAttributesW( pPath );
+    return nAttributes != INVALID_FILE_ATTRIBUTES &&
+           ( nAttributes & FILE_ATTRIBUTE_DIRECTORY ) != 0u;
+}
+
+bool_t CreateWideDirectoryComponent( wchar_t *pPath ) noexcept
+{
+    if ( CreateDirectoryW( pPath, nullptr ) ) {
+        return CY_TRUE;
+    }
+    return GetLastError() == ERROR_ALREADY_EXISTS &&
+           WidePathIsDirectory( pPath );
+}
+
+usize WidePathRootLength( const wchar_t *pPath, usize cchPath ) noexcept
+{
+    if ( cchPath >= 3u &&
+         ( ( pPath[0] >= L'A' && pPath[0] <= L'Z' ) ||
+           ( pPath[0] >= L'a' && pPath[0] <= L'z' ) ) &&
+         pPath[1] == L':' &&
+         ( pPath[2] == L'\\' || pPath[2] == L'/' ) ) {
+        return 3u;
+    }
+    if ( cchPath >= 2u &&
+         ( pPath[0] == L'\\' || pPath[0] == L'/' ) &&
+         ( pPath[1] == L'\\' || pPath[1] == L'/' ) ) {
+        usize iCursor = 2u;
+        while ( iCursor < cchPath &&
+                pPath[iCursor] != L'\\' && pPath[iCursor] != L'/' ) {
+            ++iCursor;
+        }
+        if ( iCursor < cchPath ) {
+            ++iCursor;
+        }
+        while ( iCursor < cchPath &&
+                pPath[iCursor] != L'\\' && pPath[iCursor] != L'/' ) {
+            ++iCursor;
+        }
+        return iCursor < cchPath ? iCursor + 1u : cchPath;
+    }
+    return 0u;
 }
 
 stream_io_result_t NativeFileRead(
@@ -353,6 +399,20 @@ bool_t NativeFileIsValid( const native_file_t *pFile ) noexcept
            pFile->nFileDescriptor >= 0 &&
            OpenFlagsAreValid( pFile->flags ) &&
            Allocator_IsValid( pFile->pAllocator );
+}
+
+bool_t NarrowPathIsDirectory( const char *pPath ) noexcept
+{
+    struct stat pathInfo{};
+    return stat( pPath, &pathInfo ) == 0 && S_ISDIR( pathInfo.st_mode );
+}
+
+bool_t CreateNarrowDirectoryComponent( char *pPath ) noexcept
+{
+    if ( mkdir( pPath, 0777 ) == 0 ) {
+        return CY_TRUE;
+    }
+    return errno == EEXIST && NarrowPathIsDirectory( pPath );
 }
 
 stream_io_result_t NativeFileRead(
@@ -760,6 +820,150 @@ bool_t FileIo_WriteAllNative(
         Stream_Flush( &stream ) == stream_status_t::OK;
     FileIo_CloseNative( pFile );
     return bFlushed;
+}
+
+bool_t FileIo_CreateDirectoriesNative( string_view_t nativePath ) noexcept
+{
+    if ( !NativePathIsValid( nativePath ) ) {
+        return CY_FALSE;
+    }
+
+    const allocator_t *pAllocator = Allocator_GetSystem();
+    usize cbPathAllocation = 0u;
+    auto *pPath = CopyNativePath(
+        nativePath,
+        pAllocator,
+        cbPathAllocation );
+    if ( pPath == nullptr ) {
+        return CY_FALSE;
+    }
+
+    bool_t bCreated = CY_TRUE;
+#if CYPHER_PLATFORM_WINDOWS
+    const usize cchPath = cbPathAllocation / sizeof( wchar_t ) - 1u;
+    const usize iRootEnd = WidePathRootLength( pPath, cchPath );
+    for ( usize iChar = iRootEnd; iChar < cchPath; ++iChar ) {
+        if ( pPath[iChar] != L'\\' && pPath[iChar] != L'/' ) {
+            continue;
+        }
+        const wchar_t chSeparator = pPath[iChar];
+        pPath[iChar] = L'\0';
+        if ( iChar != 0u && !CreateWideDirectoryComponent( pPath ) ) {
+            bCreated = CY_FALSE;
+            pPath[iChar] = chSeparator;
+            break;
+        }
+        pPath[iChar] = chSeparator;
+    }
+    if ( bCreated && !WidePathIsDirectory( pPath ) ) {
+        bCreated = CreateWideDirectoryComponent( pPath );
+    }
+#else
+    const usize cchPath = cbPathAllocation - 1u;
+    const usize iRootEnd = cchPath != 0u && pPath[0] == '/' ? 1u : 0u;
+    for ( usize iChar = iRootEnd; iChar < cchPath; ++iChar ) {
+        if ( pPath[iChar] != '/' ) {
+            continue;
+        }
+        pPath[iChar] = '\0';
+        if ( iChar != 0u && !CreateNarrowDirectoryComponent( pPath ) ) {
+            bCreated = CY_FALSE;
+            pPath[iChar] = '/';
+            break;
+        }
+        pPath[iChar] = '/';
+    }
+    if ( bCreated && !NarrowPathIsDirectory( pPath ) ) {
+        bCreated = CreateNarrowDirectoryComponent( pPath );
+    }
+#endif
+
+    FreeNativePath( pPath, cbPathAllocation, pAllocator );
+    return bCreated;
+}
+
+bool_t FileIo_RemoveNative( string_view_t nativePath ) noexcept
+{
+    if ( !NativePathIsValid( nativePath ) ) {
+        return CY_FALSE;
+    }
+
+    const allocator_t *pAllocator = Allocator_GetSystem();
+    usize cbPathAllocation = 0u;
+    auto *pPath = CopyNativePath(
+        nativePath,
+        pAllocator,
+        cbPathAllocation );
+    if ( pPath == nullptr ) {
+        return CY_FALSE;
+    }
+
+#if CYPHER_PLATFORM_WINDOWS
+    const bool_t bRemoved = DeleteFileW( pPath ) ? CY_TRUE : CY_FALSE;
+#else
+    int nResult = -1;
+    do {
+        nResult = unlink( pPath );
+    } while ( nResult != 0 && errno == EINTR );
+    const bool_t bRemoved = nResult == 0 ? CY_TRUE : CY_FALSE;
+#endif
+    FreeNativePath( pPath, cbPathAllocation, pAllocator );
+    return bRemoved;
+}
+
+bool_t FileIo_ReplaceNative(
+    string_view_t sourcePath,
+    string_view_t destinationPath ) noexcept
+{
+    if ( !NativePathIsValid( sourcePath ) ||
+         !NativePathIsValid( destinationPath ) ) {
+        return CY_FALSE;
+    }
+
+    const allocator_t *pAllocator = Allocator_GetSystem();
+    usize cbSourceAllocation = 0u;
+    usize cbDestinationAllocation = 0u;
+    auto *pSource = CopyNativePath(
+        sourcePath,
+        pAllocator,
+        cbSourceAllocation );
+    auto *pDestination = CopyNativePath(
+        destinationPath,
+        pAllocator,
+        cbDestinationAllocation );
+    if ( pSource == nullptr || pDestination == nullptr ) {
+        if ( pSource != nullptr ) {
+            FreeNativePath( pSource, cbSourceAllocation, pAllocator );
+        }
+        if ( pDestination != nullptr ) {
+            FreeNativePath(
+                pDestination,
+                cbDestinationAllocation,
+                pAllocator );
+        }
+        return CY_FALSE;
+    }
+
+#if CYPHER_PLATFORM_WINDOWS
+    const bool_t bReplaced = MoveFileExW(
+        pSource,
+        pDestination,
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH )
+        ? CY_TRUE
+        : CY_FALSE;
+#else
+    int nResult = -1;
+    do {
+        nResult = std::rename( pSource, pDestination );
+    } while ( nResult != 0 && errno == EINTR );
+    const bool_t bReplaced = nResult == 0 ? CY_TRUE : CY_FALSE;
+#endif
+    FreeNativePath( pSource, cbSourceAllocation, pAllocator );
+    FreeNativePath(
+        pDestination,
+        cbDestinationAllocation,
+        pAllocator );
+    return bReplaced;
 }
 
 bool_t FileIo_NativeExists( string_view_t nativePath ) noexcept

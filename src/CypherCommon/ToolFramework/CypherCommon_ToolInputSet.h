@@ -1,0 +1,97 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherCommon/ToolFramework/CypherCommon_ToolInputSet.h
+//  Purpose: Declares input roots and filters shared by Cypher tools.
+//  Details: Input sets describe files, directories, patterns, and manifests
+//           without performing filesystem traversal. CLI and Mason hosts resolve
+//           these descriptions through their normal filesystem services.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-08-12
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
+#ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLINPUTSET_H
+#define CYPHER_COMMON_TOOLFRAMEWORK_TOOLINPUTSET_H
+#ifndef PRAGMA_ONCE
+    #pragma once
+#endif
+
+#include "CypherCommon_ToolStatus.h"
+#include "CypherCommon_PathMatch.h"
+
+namespace cypher::common
+{
+
+enum class tool_input_kind_t : u8 {
+    FILE = 0u,
+    DIRECTORY,
+    PATTERN,
+    MANIFEST
+};
+
+enum tool_input_flags_t : flags32_t {
+    TOOL_INPUT_FLAG_NONE = 0u,
+    TOOL_INPUT_FLAG_REQUIRED = CYPHER_BIT32( 0 ),
+    TOOL_INPUT_FLAG_RECURSIVE = CYPHER_BIT32( 1 ),
+    TOOL_INPUT_FLAG_FOLLOW_SYMLINKS = CYPHER_BIT32( 2 ),
+    TOOL_INPUT_FLAG_ALLOW_MISSING = CYPHER_BIT32( 3 )
+};
+
+struct tool_input_t {
+    string_view_t value{};
+    string_view_t baseDirectory{};
+    tool_input_kind_t kind{ tool_input_kind_t::FILE };
+    flags32_t flags{ TOOL_INPUT_FLAG_NONE };
+};
+
+struct tool_input_set_t {
+    tool_input_t *pInputs{ nullptr };
+    usize nCount{ 0u };
+    usize nCapacity{ 0u };
+    path_filter_t filter{};
+};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+tool_status_t ToolInput_Validate( const tool_input_t &input ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+tool_status_t ToolInputSet_Init(
+    tool_input_set_t *pSet,
+    tool_input_t *pStorage,
+    usize nCapacity ) noexcept;
+
+CYPHER_COMMON_API void ToolInputSet_Clear( tool_input_set_t *pSet ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+tool_status_t ToolInputSet_SetFilter(
+    tool_input_set_t *pSet,
+    const path_filter_t &filter ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+tool_status_t ToolInputSet_Add(
+    tool_input_set_t *pSet,
+    const tool_input_t &input ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+const tool_input_t *ToolInputSet_At(
+    const tool_input_set_t *pSet,
+    usize iInput ) noexcept;
+
+// Applies include/exclude policy to one already-resolved path.
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t ToolInputSet_AcceptsPath(
+    const tool_input_set_t *pSet,
+    string_view_t path ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const char *ToolInput_KindName( tool_input_kind_t kind ) noexcept;
+
+} // namespace cypher::common
+
+#endif // CYPHER_COMMON_TOOLFRAMEWORK_TOOLINPUTSET_H

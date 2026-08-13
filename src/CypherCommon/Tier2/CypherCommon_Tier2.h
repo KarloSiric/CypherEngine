@@ -21,6 +21,7 @@
     #pragma once
 #endif
 
+#include "CypherCommon_DataValidation.h"
 #include "CypherCommon_ProjectManifest.h"
 #include "CypherCommon_ProjectSchema.h"
 #include "CypherCommon_Schema.h"

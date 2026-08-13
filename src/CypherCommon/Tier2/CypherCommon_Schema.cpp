@@ -132,6 +132,7 @@ CYPHER_NODISCARD schema_descriptor_status_t CheckRule(
          pRule->floatingPoint.flMin > pRule->floatingPoint.flMax ||
          pRule->string.cbMinLength > pRule->string.cbMaxLength ||
          pRule->binary.cbMinSize > pRule->binary.cbMaxSize ||
+         pRule->object.nMinMembers > pRule->object.nMaxMembers ||
          pRule->array.nMinElements > pRule->array.nMaxElements ) {
         return schema_descriptor_status_t::INVALID_RANGE;
     }
@@ -149,6 +150,12 @@ CYPHER_NODISCARD schema_descriptor_status_t CheckRule(
     }
     if ( pRule->object.nMembers != 0u &&
          ( pRule->allowedTypes & SCHEMA_TYPE_OBJECT ) == 0u ) {
+        return schema_descriptor_status_t::INVALID_RULE;
+    }
+    if ( pRule->object.pAdditionalMemberRule != nullptr &&
+         ( ( pRule->allowedTypes & SCHEMA_TYPE_OBJECT ) == 0u ||
+           ( pRule->object.flags &
+             SCHEMA_OBJECT_REJECT_UNKNOWN_MEMBERS ) != 0u ) ) {
         return schema_descriptor_status_t::INVALID_RULE;
     }
     if ( pRule->array.pElementRule != nullptr &&
@@ -214,6 +221,16 @@ CYPHER_NODISCARD schema_descriptor_status_t CheckRule(
     if ( pRule->array.pElementRule != nullptr ) {
         const schema_descriptor_status_t status = CheckRule(
             pRule->array.pElementRule,
+            context );
+        if ( status != schema_descriptor_status_t::OK ) {
+            --context.nDepth;
+            return status;
+        }
+    }
+
+    if ( pRule->object.pAdditionalMemberRule != nullptr ) {
+        const schema_descriptor_status_t status = CheckRule(
+            pRule->object.pAdditionalMemberRule,
             context );
         if ( status != schema_descriptor_status_t::OK ) {
             --context.nDepth;
@@ -382,6 +399,17 @@ void ValidateObject(
     const key_value_t *pValue,
     usize nDepth ) noexcept
 {
+    const usize nChildren = KeyValue_ChildCount( pValue );
+    if ( nChildren < rule.object.nMinMembers ||
+         nChildren > rule.object.nMaxMembers ) {
+        EmitDiagnostic(
+            context,
+            schema_diagnostic_code_t::OBJECT_LENGTH,
+            schema_diagnostic_severity_t::ERROR,
+            SCHEMA_TYPE_OBJECT,
+            key_value_type_t::OBJECT );
+    }
+
     for ( usize iMember = 0u; iMember < rule.object.nMembers; ++iMember ) {
         const schema_member_t &member = rule.object.pMembers[iMember];
         if ( ( member.flags & SCHEMA_MEMBER_REQUIRED ) == 0u ||
@@ -409,7 +437,6 @@ void ValidateObject(
         RestorePath( context, cchSaved );
     }
 
-    const usize nChildren = KeyValue_ChildCount( pValue );
     for ( usize iChild = 0u; iChild < nChildren; ++iChild ) {
         const key_value_t *pChild = KeyValue_ChildAt( pValue, iChild );
         const string_view_t name = KeyValue_Name( pChild );
@@ -427,7 +454,13 @@ void ValidateObject(
         }
 
         if ( pMember == nullptr ) {
-            if ( ( rule.object.flags &
+            if ( rule.object.pAdditionalMemberRule != nullptr ) {
+                ValidateRule(
+                    context,
+                    *rule.object.pAdditionalMemberRule,
+                    pChild,
+                    nDepth + 1u );
+            } else if ( ( rule.object.flags &
                    SCHEMA_OBJECT_REJECT_UNKNOWN_MEMBERS ) != 0u ) {
                 EmitDiagnostic(
                     context,
@@ -783,6 +816,7 @@ const char *Schema_DiagnosticCodeName(
         case schema_diagnostic_code_t::STRING_VALUE: return "STRING_VALUE";
         case schema_diagnostic_code_t::BINARY_SIZE: return "BINARY_SIZE";
         case schema_diagnostic_code_t::ARRAY_LENGTH: return "ARRAY_LENGTH";
+        case schema_diagnostic_code_t::OBJECT_LENGTH: return "OBJECT_LENGTH";
         case schema_diagnostic_code_t::PATH_LIMIT: return "PATH_LIMIT";
         case schema_diagnostic_code_t::DEPTH_LIMIT: return "DEPTH_LIMIT";
         case schema_diagnostic_code_t::NODE_LIMIT: return "NODE_LIMIT";

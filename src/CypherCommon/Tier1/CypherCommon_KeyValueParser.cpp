@@ -638,6 +638,7 @@ CYPHER_NODISCARD bool_t ParseDocumentHeader(
     }
 
     u32 nLanguageVersion = 0u;
+    parser.result.languageVersionLocation = parser.token.range.begin;
     if ( !ParseHeaderVersion( parser.token, nLanguageVersion ) ) {
         FailCurrent( parser, key_value_parse_status_t::INVALID_HEADER );
         return CY_FALSE;
@@ -658,6 +659,7 @@ CYPHER_NODISCARD bool_t ParseDocumentHeader(
     }
 
     decoded_text_t decodedSchema{};
+    parser.result.schemaIdLocation = parser.token.range.begin;
     if ( !DecodeTokenText( parser, parser.token, decodedSchema ) ) {
         if ( parser.result.status == key_value_parse_status_t::OK ) {
             FailCurrent( parser, key_value_parse_status_t::INVALID_SCHEMA );
@@ -673,6 +675,7 @@ CYPHER_NODISCARD bool_t ParseDocumentHeader(
     }
 
     u32 nSchemaVersion = 0u;
+    parser.result.schemaVersionLocation = parser.token.range.begin;
     if ( !ParseHeaderVersion( parser.token, nSchemaVersion ) ) {
         ReleaseDecoded( parser, decodedSchema );
         FailCurrent( parser, key_value_parse_status_t::INVALID_SCHEMA );

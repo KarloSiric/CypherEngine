@@ -107,6 +107,29 @@ const schema_descriptor_t *SchemaRegistry_Find(
     return nullptr;
 }
 
+const schema_descriptor_t *SchemaRegistry_FindLatest(
+    const schema_registry_t *pRegistry,
+    string_view_t schemaId ) noexcept
+{
+    if ( !RegistryIsValid( pRegistry ) ||
+         ( schemaId.pData == nullptr && schemaId.cchLength != 0u ) ||
+         schemaId.cchLength == 0u ) {
+        return nullptr;
+    }
+
+    const schema_descriptor_t *pLatest = nullptr;
+    for ( usize iSchema = 0u; iSchema < pRegistry->nCount; ++iSchema ) {
+        const schema_descriptor_t *pSchema = pRegistry->ppSchemas[iSchema];
+        if ( pSchema != nullptr &&
+             StringView_Equals( pSchema->schemaId, schemaId ) &&
+             ( pLatest == nullptr ||
+               pSchema->nVersion > pLatest->nVersion ) ) {
+            pLatest = pSchema;
+        }
+    }
+    return pLatest;
+}
+
 schema_validation_result_t SchemaRegistry_ValidateDocument(
     const schema_registry_t *pRegistry,
     const key_value_document_t *pDocument,

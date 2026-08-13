@@ -69,6 +69,31 @@ struct temporary_file_t {
     std::string utf8{};
 };
 
+struct temporary_directory_t {
+    explicit temporary_directory_t( const char *pStem )
+    {
+        const auto nUnique = std::chrono::steady_clock::now()
+            .time_since_epoch()
+            .count();
+        path = std::filesystem::temp_directory_path() /
+            ( std::string( pStem ) + "_" + std::to_string( nUnique ) );
+        std::filesystem::remove_all( path );
+    }
+
+    ~temporary_directory_t()
+    {
+        std::error_code error;
+        std::filesystem::remove_all( path, error );
+    }
+
+    std::string Utf8( const std::filesystem::path &value ) const
+    {
+        return PathToUtf8( value );
+    }
+
+    std::filesystem::path path{};
+};
+
 struct native_file_guard_t {
     ~native_file_guard_t()
     {
@@ -237,4 +262,48 @@ TEST_CASE( "FileIo append and exclusive creation have deterministic semantics",
         FILE_OPEN_FLAG_EXCLUSIVE,
         Allocator_GetSystem() );
     REQUIRE( exclusiveGuard.pFile == nullptr );
+}
+
+TEST_CASE( "FileIo creates native directory trees and atomically replaces files",
+           "[CypherCommon][Tier1][FileIo]" )
+{
+    temporary_directory_t temporary( "CypherCommon_FileIo_Publish" );
+    const std::filesystem::path nested = temporary.path / "a" / "b" / "c";
+    const std::string nestedText = temporary.Utf8( nested );
+    REQUIRE( FileIo_CreateDirectoriesNative(
+        { nestedText.data(), nestedText.size() } ) );
+    REQUIRE( std::filesystem::is_directory( nested ) );
+    REQUIRE( FileIo_CreateDirectoriesNative(
+        { nestedText.data(), nestedText.size() } ) );
+
+    const std::filesystem::path source = nested / "source.tmp";
+    const std::filesystem::path destination = nested / "asset.bin";
+    const std::string sourceText = temporary.Utf8( source );
+    const std::string destinationText = temporary.Utf8( destination );
+    const byte oldContents[]{ 'o', 'l', 'd' };
+    const byte newContents[]{ 'n', 'e', 'w' };
+    REQUIRE( FileIo_WriteAllNative(
+        { destinationText.data(), destinationText.size() },
+        { oldContents, sizeof( oldContents ) } ) );
+    REQUIRE( FileIo_WriteAllNative(
+        { sourceText.data(), sourceText.size() },
+        { newContents, sizeof( newContents ) } ) );
+    REQUIRE( FileIo_ReplaceNative(
+        { sourceText.data(), sourceText.size() },
+        { destinationText.data(), destinationText.size() } ) );
+    REQUIRE_FALSE( std::filesystem::exists( source ) );
+
+    blob_t contents{};
+    REQUIRE( Blob_Init( &contents, Allocator_GetSystem() ) );
+    REQUIRE( FileIo_ReadAllNative(
+        { destinationText.data(), destinationText.size() },
+        &contents ) );
+    REQUIRE( Blob_Size( &contents ) == sizeof( newContents ) );
+    REQUIRE( Cy_MemCompare(
+        Blob_Data( &contents ),
+        newContents,
+        sizeof( newContents ) ) == 0 );
+    REQUIRE( FileIo_RemoveNative(
+        { destinationText.data(), destinationText.size() } ) );
+    REQUIRE_FALSE( std::filesystem::exists( destination ) );
 }

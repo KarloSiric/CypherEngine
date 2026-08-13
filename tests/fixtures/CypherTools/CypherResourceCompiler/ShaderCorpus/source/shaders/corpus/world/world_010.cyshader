@@ -1,0 +1,20 @@
+@cykv 1
+@schema "cypher.shader" 1
+
+// Integration corpus recipe 010: world pipeline variant 10.
+// This authored document intentionally shares GLSL stages while changing the
+// define set, exercising deterministic preprocessing and cooked identities.
+{
+    language = "glsl"
+    vertex = "shaders/corpus/stages/world.vert"
+    fragment = "shaders/corpus/stages/world.frag"
+
+    defines = [
+        "CY_CORPUS",
+        "CY_WORLD_PASS",
+        "CY_VARIANT_010",
+        "CY_FAMILY_VARIANT_10",
+        "CY_FLIP_UV",
+        "CY_UNLIT"
+    ]
+}

@@ -132,6 +132,23 @@ function(cypher_configure_security_dependencies out_link_libraries)
     set(${out_link_libraries} Cypher::ThirdPartySecurity PARENT_SCOPE)
 endfunction()
 
+function(cypher_configure_shader_tool_dependencies out_link_libraries)
+    find_package(glslang CONFIG REQUIRED)
+
+    if (NOT TARGET CypherThirdPartyShaderCompiler)
+        add_library(CypherThirdPartyShaderCompiler INTERFACE)
+        add_library(Cypher::ThirdPartyShaderCompiler ALIAS CypherThirdPartyShaderCompiler)
+        target_link_libraries(
+            CypherThirdPartyShaderCompiler
+            INTERFACE
+                glslang::glslang
+                glslang::glslang-default-resource-limits
+        )
+    endif()
+
+    set(${out_link_libraries} Cypher::ThirdPartyShaderCompiler PARENT_SCOPE)
+endfunction()
+
 function(cypher_require_test_dependencies)
     find_package(Catch2 3 CONFIG REQUIRED)
     set(Catch2_FOUND TRUE PARENT_SCOPE)

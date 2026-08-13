@@ -233,6 +233,99 @@ jobs:
       - name: Test
         run: ctest --test-dir build-sanitize -C Debug --output-on-failure --no-tests=error --timeout 120
 
+  shader-tools:
+    name: ${{ matrix.name }} Shader Tools
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu
+            os: ubuntu-latest
+          - name: Windows
+            os: windows-latest
+          - name: macOS
+            os: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf autoconf-archive automake libtool libtool-bin libltdl-dev
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install autoconf autoconf-archive automake libtool
+          if ! command -v libtoolize >/dev/null 2>&1 && command -v glibtoolize >/dev/null 2>&1; then
+            sudo ln -sf "$(command -v glibtoolize)" /usr/local/bin/libtoolize
+          fi
+
+      - name: Bootstrap pinned vcpkg
+        run: |
+          mkdir -p "$VCPKG_DOWNLOADS"
+          cmake -P cmake/CypherBootstrapVcpkg.cmake
+
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/vcpkg/archives
+            .vcpkg-downloads
+          key: vcpkg-${{ runner.os }}-shader-tools-${{ hashFiles('vcpkg.json', '.gitmodules', 'cmake/CypherBootstrapVcpkg.cmake') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Configure shader tools
+        run: |
+          configure_command=(
+            cmake -S . -B build-shader-tools
+            -DCMAKE_BUILD_TYPE=Debug
+            -DCYPHERENGINE_BUILD_TESTS=ON
+            -DCYPHERENGINE_BUILD_TOOLS=ON
+            "-DVCPKG_MANIFEST_FEATURES=shader-tools;tests"
+            "-DCMAKE_TOOLCHAIN_FILE=$PWD/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          )
+          for attempt in 1 2 3; do
+            "${configure_command[@]}" && break
+            status=$?
+            if [[ "$attempt" == "3" ]]; then
+              exit "$status"
+            fi
+            echo "Shader-tools configure failed; retrying in $(( attempt * 20 )) seconds..."
+            sleep $(( attempt * 20 ))
+          done
+
+      - name: Build ResourceCompiler and focused tests
+        run: |
+          cmake --build build-shader-tools --config Debug --parallel --target \
+            CypherResourceCompiler \
+            cypher_common_tier1_fileio_tests \
+            cypher_toolframework_core_tests \
+            cypher_toolframework_cli_tests \
+            cypher_toolframework_compiler_tests \
+            cypher_shader_compiler_tests
+
+      - name: Test shader toolchain
+        run: |
+          ctest --test-dir build-shader-tools -C Debug \
+            --output-on-failure \
+            --no-tests=error \
+            --timeout 120 \
+            -R "^(cypher_common_tier1_fileio_tests|cypher_toolframework_core_tests|cypher_toolframework_cli_tests|cypher_toolframework_compiler_tests|cypher_shader_compiler_tests|cypher_resource_compiler_help|cypher_resource_compiler_version|cypher_resource_compiler_list_compilers|cypher_resource_compiler_describe_shader|cypher_resource_compiler_list_formats_json|cypher_resource_compiler_smoke)$"
+
   benchmark-build:
     name: ${{ matrix.name }} Bench Build
     runs-on: ${{ matrix.os }}

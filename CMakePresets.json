@@ -101,6 +101,28 @@
         "CYPHERENGINE_BUILD_TESTS": "ON",
         "VCPKG_MANIFEST_FEATURES": "archive-tools;asset-import-fallback;audio;benchmarks;editor-support;image-import;math;mesh-pipeline;networking;profiling;scripting;security;shader-tools;tests;text;texture-pipeline"
       }
+    },
+    {
+      "name": "shader-tools-debug",
+      "inherits": "base",
+      "displayName": "Shader Tools Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CYPHERENGINE_BUILD_TESTS": "ON",
+        "CYPHERENGINE_BUILD_TOOLS": "ON",
+        "VCPKG_MANIFEST_FEATURES": "shader-tools;tests"
+      }
+    },
+    {
+      "name": "shader-tools-release",
+      "inherits": "base",
+      "displayName": "Shader Tools Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CYPHERENGINE_BUILD_TESTS": "ON",
+        "CYPHERENGINE_BUILD_TOOLS": "ON",
+        "VCPKG_MANIFEST_FEATURES": "shader-tools;tests"
+      }
     }
   ],
   "buildPresets": [
@@ -131,6 +153,14 @@
     {
       "name": "dependencies-all",
       "configurePreset": "dependencies-all"
+    },
+    {
+      "name": "shader-tools-debug",
+      "configurePreset": "shader-tools-debug"
+    },
+    {
+      "name": "shader-tools-release",
+      "configurePreset": "shader-tools-release"
     }
   ],
   "testPresets": [
@@ -158,6 +188,20 @@
     {
       "name": "asan-ubsan",
       "configurePreset": "asan-ubsan",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "shader-tools-debug",
+      "configurePreset": "shader-tools-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "shader-tools-release",
+      "configurePreset": "shader-tools-release",
       "output": {
         "outputOnFailure": true
       }

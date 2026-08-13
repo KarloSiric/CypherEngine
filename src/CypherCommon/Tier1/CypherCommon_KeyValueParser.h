@@ -72,6 +72,10 @@ struct key_value_parse_options_t {
 struct key_value_parse_result_t {
     key_value_parse_status_t status{ key_value_parse_status_t::OK };
     text_location_t errorLocation{};
+    // Exact source locations for semantic validation of a parsed CYKV header.
+    text_location_t languageVersionLocation{};
+    text_location_t schemaIdLocation{};
+    text_location_t schemaVersionLocation{};
     usize nNodesParsed{ 0u };
     usize cbStringData{ 0u };
 };

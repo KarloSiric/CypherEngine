@@ -370,7 +370,7 @@ TEST_CASE( "Tier2 enforces schema headers and validation traversal limits",
 TEST_CASE( "Tier2 schema registry resolves exact document contracts",
            "[CypherCommon][Tier2][Schema][Registry]" )
 {
-    const schema_descriptor_t *storage[1]{};
+    const schema_descriptor_t *storage[2]{};
     schema_registry_t registry{};
     REQUIRE( SchemaRegistry_Init(
         &registry,
@@ -388,6 +388,17 @@ TEST_CASE( "Tier2 schema registry resolves exact document contracts",
     schema_descriptor_t projectV2 = *ProjectSchema_V1();
     projectV2.nVersion = 2u;
     REQUIRE( SchemaRegistry_Register( &registry, &projectV2 ) ==
+             schema_registry_status_t::OK );
+    REQUIRE( SchemaRegistry_FindLatest(
+                 &registry,
+                 StringView_FromCString( "cypher.project" ) ) == &projectV2 );
+    REQUIRE( SchemaRegistry_FindLatest(
+                 &registry,
+                 StringView_FromCString( "cypher.unknown" ) ) == nullptr );
+
+    schema_descriptor_t projectV3 = projectV2;
+    projectV3.nVersion = 3u;
+    REQUIRE( SchemaRegistry_Register( &registry, &projectV3 ) ==
              schema_registry_status_t::CAPACITY_EXCEEDED );
 
     key_value_document_t *pDocument = ParseDocument(

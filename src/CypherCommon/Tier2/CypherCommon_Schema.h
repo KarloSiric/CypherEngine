@@ -71,6 +71,9 @@ struct schema_member_t {
 struct schema_object_rules_t {
     const schema_member_t *pMembers{ nullptr };
     usize nMembers{ 0u };
+    const schema_rule_t *pAdditionalMemberRule{ nullptr };
+    usize nMinMembers{ 0u };
+    usize nMaxMembers{ CY_INVALID_SIZE };
     flags32_t flags{ SCHEMA_OBJECT_NONE };
 };
 
@@ -159,6 +162,7 @@ enum class schema_diagnostic_code_t : u8 {
     STRING_VALUE,
     BINARY_SIZE,
     ARRAY_LENGTH,
+    OBJECT_LENGTH,
     PATH_LIMIT,
     DEPTH_LIMIT,
     NODE_LIMIT,

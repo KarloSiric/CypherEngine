@@ -61,6 +61,13 @@ const schema_descriptor_t *SchemaRegistry_Find(
     string_view_t schemaId,
     u32 nVersion ) noexcept;
 
+// Returns the highest registered version for tooling and migration discovery.
+// Validation remains exact and never treats this as an automatic fallback.
+CYPHER_NODISCARD CYPHER_COMMON_API
+const schema_descriptor_t *SchemaRegistry_FindLatest(
+    const schema_registry_t *pRegistry,
+    string_view_t schemaId ) noexcept;
+
 CYPHER_NODISCARD CYPHER_COMMON_API
 schema_validation_result_t SchemaRegistry_ValidateDocument(
     const schema_registry_t *pRegistry,
