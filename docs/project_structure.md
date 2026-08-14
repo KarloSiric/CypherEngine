@@ -33,29 +33,31 @@ CypherEngine/
 ├── vcpkg.json
 ├── src/
 │   ├── CypherCommon/
+│   │   └── Engine/
 │   ├── CypherEngine/
-│   │   ├── CypherAI/
-│   │   ├── CypherAnimation/
-│   │   ├── CypherAudio/
-│   │   ├── CypherConsole/
-│   │   ├── CypherSystem/
-│   │   ├── CypherPlatform/
-│   │   ├── CypherFileSystem/
-│   │   ├── CypherResource/
-│   │   ├── CypherCommand/
-│   │   ├── CypherCVar/
-│   │   ├── CypherConfig/
-│   │   ├── CypherHost/
-│   │   ├── CypherInput/
-│   │   ├── CypherMath/
-│   │   ├── CypherMemory/
-│   │   ├── CypherNetwork/
-│   │   ├── CypherPhysics/
-│   │   ├── CypherProfile/
-│   │   ├── CypherRender/
-│   │   ├── CypherScript/
-│   │   ├── CypherEntity/
-│   │   └── CypherWorld/
+│   │   └── CypherHost/
+│   ├── CypherAI/
+│   ├── CypherAnimation/
+│   ├── CypherAudio/
+│   ├── CypherCommand/
+│   ├── CypherConfig/
+│   ├── CypherConsole/
+│   ├── CypherCVar/
+│   ├── CypherEntity/
+│   ├── CypherFileSystem/
+│   ├── CypherInput/
+│   ├── CypherLog/
+│   ├── CypherMemory/
+│   ├── CypherNetwork/
+│   ├── CypherPak/
+│   ├── CypherPhysics/
+│   ├── CypherPlatform/
+│   ├── CypherProfile/
+│   ├── CypherRender/
+│   ├── CypherResource/
+│   ├── CypherScript/
+│   ├── CypherSystem/
+│   ├── CypherWorld/
 │   ├── CypherEditor/
 │   ├── CypherTools/
 │   ├── CypherGame/
@@ -76,48 +78,48 @@ CypherEngine/
 ## Meaning of each top-level directory
 
 - `src/CypherEngine`
-  - native CypherEngine runtime
+  - thin executable host, startup composition, frame ownership, and shutdown ordering
 - `src/CypherCommon`
   - shared public/common foundation, custom runtime utilities, primitive types, handles, format headers, and public subsystem contracts
-- `src/CypherEngine/CypherSystem`
+- `src/CypherSystem`
   - central engine lifetime orchestration; long-term replacement for host-style bootstrapping
-- `src/CypherEngine/CypherPlatform`
+- `src/CypherPlatform`
   - OS/window/platform backends; current platform code can migrate here later
-- `src/CypherEngine/CypherMemory`
+- `src/CypherMemory`
   - arenas, pools, memory stats, diagnostics, and allocator backends
-- `src/CypherEngine/CypherFileSystem`
+- `src/CypherFileSystem`
   - mounted paths, virtual paths, file handles, archive/package access
-- `src/CypherEngine/CypherConsole`
+- `src/CypherConsole`
   - developer console front-end over commands and CVars
-- `src/CypherEngine/CypherCommand`
+- `src/CypherCommand`
   - command registration and execution
-- `src/CypherEngine/CypherCVar`
+- `src/CypherCVar`
   - runtime variables, flags, and tweakable settings
-- `src/CypherEngine/CypherConfig`
+- `src/CypherConfig`
   - cfg file loading and command-line config execution
-- `src/CypherEngine/CypherResource`
+- `src/CypherResource`
   - asset handles, loading, dependencies, reload, and lifecycle tracking
-- `src/CypherEngine/CypherRender`
+- `src/CypherRender`
   - renderer front-end, cameras, draw lists, shaders, meshes, materials, backend dispatch
-- `src/CypherEngine/CypherWorld`
+- `src/CypherWorld`
   - map/world source data, object placement, scene ownership, level metadata
-- `src/CypherEngine/CypherEntity`
+- `src/CypherEntity`
   - entity identity, component ownership, and game-object runtime bridge
-- `src/CypherEngine/CypherInput`
+- `src/CypherInput`
   - keyboard, mouse, controller, input contexts, editor/game routing
-- `src/CypherEngine/CypherPhysics`
+- `src/CypherPhysics`
   - collision, traces, physics bodies, simulation, and movement helpers
-- `src/CypherEngine/CypherAudio`
+- `src/CypherAudio`
   - audio devices, mixers, sound resources, playback, and spatial audio
-- `src/CypherEngine/CypherAI`
+- `src/CypherAI`
   - navigation, perception, behavior, and combat decision systems
-- `src/CypherEngine/CypherAnimation`
+- `src/CypherAnimation`
   - skeletons, clips, blending, animation graphs, and pose evaluation
-- `src/CypherEngine/CypherNetwork`
+- `src/CypherNetwork`
   - sockets, packets, channels, replication, prediction, and sessions
-- `src/CypherEngine/CypherScript`
+- `src/CypherScript`
   - VM/native bridge and gameplay scripting integration
-- `src/CypherEngine/CypherProfile`
+- `src/CypherProfile`
   - profiling scopes, counters, telemetry, and memory/performance reporting
 - `src/CypherEditor`
   - Qt editor application, viewports, inspectors, asset browser, world editing tools
@@ -203,16 +205,34 @@ not be used as a substitute for working code or clear documentation.
 
 ## Important note about the current repo
 
-The current source already lives under `src/CypherEngine/`, with CryEngine-style subsystem folders such as `CypherRender`, `CypherSystem`, and `CypherFileSystem`.
+Runtime subsystems are top-level siblings under `src/`. This follows the useful
+part of the CryEngine 1 layout: ownership boundaries are visible in the source
+tree instead of being hidden inside an umbrella executable directory.
+
+`src/CypherEngine/` is intentionally narrow. It contains the host/composition
+layer, not renderer, resource, filesystem, memory, audio, physics, or other
+reusable subsystem implementations. Shared runtime metadata, error encoding,
+and bootstrap print contracts live under `src/CypherCommon/Engine/`.
 
 The newer common foundation lives under `src/CypherCommon/` with Tier0/Tier1
 work already in progress. New common/public contracts should prefer that tree.
 
-Future migrations should add new `Cypher*` modules beside the existing runtime modules instead of inventing a different architecture each time.
+New `Cypher*` runtime modules belong beside the existing top-level subsystem
+directories. Tests and benchmarks mirror those subsystem names outside `src/`.
+
+A top-level folder is not automatically a DLL. Each subsystem first needs a
+clean public contract, an owning CMake target, explicit dependencies, and tests.
+Most internal modules should begin as static libraries. Shared-library or
+function-table boundaries should be introduced only where runtime replacement,
+plugins, process separation, or a stable ABI requires them.
 
 `CypherSystem` currently contains some platform/window code. Long term,
 platform-specific code should migrate into `CypherPlatform`, leaving
 `CypherSystem` free to become the central engine orchestration layer.
+
+The former `src/CypherEngine/CypherMath` tree was an unbuilt legacy duplicate.
+`src/CypherCommon/Mathlib` and the `Cypher::Math` target are the canonical math
+implementation shared by the runtime and tools.
 
 Empty future folders may exist before implementation. They are architectural
 parking spaces, not a promise that those systems are complete.

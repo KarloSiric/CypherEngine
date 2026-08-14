@@ -64,7 +64,7 @@ Scope:
 - documents public headers first
 - describes types, constants, and function contracts
 - stays focused on the visible API surface
-- leaves deeper internal design and behavior to [CYPHERENGINE_API_IMPLEMENTATION.md](/Users/karlosiric/Documents/MyProjects/REAP/docs/CYPHERENGINE_API_IMPLEMENTATION.md)
+- leaves deeper internal design and behavior to [CYPHERENGINE_API_IMPLEMENTATION.md](CYPHERENGINE_API_IMPLEMENTATION.md)
 
 Naming:
 
@@ -78,7 +78,7 @@ Naming:
 
 ### com_foundation.h - Engine Foundation Types
 
-**Location:** [src/CypherEngine/CypherCommon/CypherCommon.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCommon/CypherCommon.h)
+**Location:** [src/CypherCommon/Engine/CypherCommon.h](../src/CypherCommon/Engine/CypherCommon.h)
 
 Shared engine-owned foundational types and constants.
 
@@ -109,7 +109,7 @@ Shared engine-owned foundational types and constants.
 
 ### com_error.h - Common Error Surface
 
-**Location:** [src/CypherEngine/CypherCommon/CypherCommon_Error.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCommon/CypherCommon_Error.h)
+**Location:** [src/CypherCommon/Engine/CypherCommon_Error.h](../src/CypherCommon/Engine/CypherCommon_Error.h)
 
 Packed surfaced-error API used when subsystem-local typed errors need to cross subsystem boundaries.
 
@@ -137,7 +137,7 @@ Packed surfaced-error API used when subsystem-local typed errors need to cross s
 
 ### com_print.h - Common Print and Error Output
 
-**Location:** [src/CypherEngine/CypherCommon/CypherCommon_Print.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCommon/CypherCommon_Print.h)
+**Location:** [src/CypherCommon/Engine/CypherCommon_Print.h](../src/CypherCommon/Engine/CypherCommon_Print.h)
 
 Formatted output helpers shared by subsystems.
 
@@ -163,7 +163,7 @@ Formatted output helpers shared by subsystems.
 
 ### log_types.h - Log Types and Configuration
 
-**Location:** [src/CypherEngine/CypherLog/CypherLog_Types.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherLog/CypherLog_Types.h)
+**Location:** [src/CypherLog/CypherLog_Types.h](../src/CypherLog/CypherLog_Types.h)
 
 Defines log severities, channels, records, and runtime configuration.
 
@@ -191,7 +191,7 @@ Defines log severities, channels, records, and runtime configuration.
 
 ### log_main.h - Logger Runtime API
 
-**Location:** [src/CypherEngine/CypherLog/CypherLog.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherLog/CypherLog.h)
+**Location:** [src/CypherLog/CypherLog.h](../src/CypherLog/CypherLog.h)
 
 Public logger lifecycle, configuration, and emission API.
 
@@ -227,7 +227,7 @@ Public logger lifecycle, configuration, and emission API.
 
 ### sys_platform.h - Platform and Timing API
 
-**Location:** [src/CypherEngine/CypherSystem/CypherSystem_Platform.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherSystem/CypherSystem_Platform.h)
+**Location:** [src/CypherSystem/CypherSystem_Platform.h](../src/CypherSystem/CypherSystem_Platform.h)
 
 Platform/compiler detection and timing/path utility API.
 
@@ -256,7 +256,7 @@ Platform/compiler detection and timing/path utility API.
 
 ### host_types.h - Runtime State and Configuration
 
-**Location:** [src/CypherEngine/CypherHost/CypherHost_Types.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherHost/CypherHost_Types.h)
+**Location:** [src/CypherEngine/CypherHost/CypherHost_Types.h](../src/CypherEngine/CypherHost/CypherHost_Types.h)
 
 Defines top-level runtime state and startup configuration types.
 
@@ -276,7 +276,7 @@ Defines top-level runtime state and startup configuration types.
 
 ### host_main.h - Host Lifecycle API
 
-**Location:** [src/CypherEngine/CypherHost/CypherHost.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherHost/CypherHost.h)
+**Location:** [src/CypherEngine/CypherHost/CypherHost.h](../src/CypherEngine/CypherHost/CypherHost.h)
 
 Top-level runtime lifecycle API used by the executable entry point.
 
@@ -298,7 +298,7 @@ Top-level runtime lifecycle API used by the executable entry point.
 
 ### r_main.h - Renderer Lifecycle API
 
-**Location:** [src/CypherEngine/CypherRender/CypherRender.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherRender/CypherRender.h)
+**Location:** [src/CypherRender/CypherRender.h](../src/CypherRender/CypherRender.h)
 
 Defines the current renderer lifecycle contract.
 
@@ -319,7 +319,7 @@ Defines the current renderer lifecycle contract.
 
 ### cmd_main.h - Command Registry and Dispatch
 
-**Location:** [src/CypherEngine/CypherCommand/CypherCommand.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCommand/CypherCommand.h)
+**Location:** [src/CypherCommand/CypherCommand.h](../src/CypherCommand/CypherCommand.h)
 
 Fixed-registry command backend for textual command dispatch.
 
@@ -355,7 +355,7 @@ Fixed-registry command backend for textual command dispatch.
 
 ### cvar_main.h - Console Variable Runtime
 
-**Location:** [src/CypherEngine/CypherCVar/CypherCVar.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCVar/CypherCVar.h)
+**Location:** [src/CypherCVar/CypherCVar.h](../src/CypherCVar/CypherCVar.h)
 
 Fixed-registry console variable system with cached typed views.
 
@@ -405,7 +405,7 @@ Fixed-registry console variable system with cached typed views.
 
 ### cfg_main.h - Config Loading and Execution
 
-**Location:** [src/CypherEngine/CypherConfig/CypherConfig.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherConfig/CypherConfig.h)
+**Location:** [src/CypherConfig/CypherConfig.h](../src/CypherConfig/CypherConfig.h)
 
 Config runtime used for loading startup/runtime config files and executing config-style lines.
 
@@ -442,13 +442,13 @@ Config runtime used for loading startup/runtime config files and executing confi
 
 Each major subsystem currently exposes a typed local error enum in its own header:
 
-- [src/CypherEngine/CypherLog/CypherLog_Error.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherLog/CypherLog_Error.h)
-- [src/CypherEngine/CypherHost/CypherHost_Error.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherHost/CypherHost_Error.h)
-- [src/CypherEngine/CypherSystem/CypherSystem_Error.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherSystem/CypherSystem_Error.h)
-- [src/CypherEngine/CypherRender/CypherRender_Error.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherRender/CypherRender_Error.h)
-- [src/CypherEngine/CypherCommand/CypherCommand_Error.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCommand/CypherCommand_Error.h)
-- [src/CypherEngine/CypherCVar/CypherCVar_Error.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCVar/CypherCVar_Error.h)
-- [src/CypherEngine/CypherConfig/CypherConfig_Error.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherConfig/CypherConfig_Error.h)
+- [src/CypherLog/CypherLog_Error.h](../src/CypherLog/CypherLog_Error.h)
+- [src/CypherEngine/CypherHost/CypherHost_Error.h](../src/CypherEngine/CypherHost/CypherHost_Error.h)
+- [src/CypherSystem/CypherSystem_Error.h](../src/CypherSystem/CypherSystem_Error.h)
+- [src/CypherRender/CypherRender_Error.h](../src/CypherRender/CypherRender_Error.h)
+- [src/CypherCommand/CypherCommand_Error.h](../src/CypherCommand/CypherCommand_Error.h)
+- [src/CypherCVar/CypherCVar_Error.h](../src/CypherCVar/CypherCVar_Error.h)
+- [src/CypherConfig/CypherConfig_Error.h](../src/CypherConfig/CypherConfig_Error.h)
 
 Current design rule:
 

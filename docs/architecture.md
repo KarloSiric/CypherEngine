@@ -182,7 +182,7 @@ Example:
 ```text
 CypherCommon/RenderSystem/ICyRenderer.h          public renderer contract
 CypherCommon/RenderSystem/CyRenderTypes.h        shared render descriptors
-CypherEngine/CypherRender/Backends/Software/     renderer implementation
+CypherRender/Backends/Software/     renderer implementation
 ```
 
 The current verified resource/tool graph is:

@@ -101,7 +101,7 @@ Example:
 ```text
 CypherCommon/RenderSystem/ICyRenderer.h          allowed
 CypherCommon/RenderSystem/CyRenderTypes.h        allowed
-CypherEngine/CypherRender/Backends/Software/     owning subsystem
+CypherRender/Backends/Software/     owning subsystem
 ```
 
 ## Target Folder Shape

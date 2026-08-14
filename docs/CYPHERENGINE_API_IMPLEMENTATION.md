@@ -118,7 +118,7 @@ It exists to answer:
 - which parts are solid already
 - which parts are still placeholders or early scaffolding
 
-This is the implementation-oriented companion to [CYPHERENGINE_API_REFERENCE.md](/Users/karlosiric/Documents/MyProjects/REAP/docs/CYPHERENGINE_API_REFERENCE.md).
+This is the implementation-oriented companion to [CYPHERENGINE_API_REFERENCE.md](CYPHERENGINE_API_REFERENCE.md).
 
 ### 1.2 Target Audience
 
@@ -227,7 +227,7 @@ Current implementation direction follows a few simple rules:
 
 Source:
 
-- [src/main.cpp](/Users/karlosiric/Documents/MyProjects/REAP/src/main.cpp)
+- [src/main.cpp](../src/main.cpp)
 
 Current role of `main.cpp`:
 
@@ -268,7 +268,7 @@ At the moment:
 
 Source:
 
-- [src/CypherEngine/CypherCommon/CypherCommon.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCommon/CypherCommon.h)
+- [src/CypherCommon/Engine/CypherCommon.h](../src/CypherCommon/Engine/CypherCommon.h)
 
 Implementation role:
 
@@ -281,7 +281,7 @@ Implementation role:
 
 Source:
 
-- [src/CypherEngine/CypherCommon/CypherCommon_Error.h](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCommon/CypherCommon_Error.h)
+- [src/CypherCommon/Engine/CypherCommon_Error.h](../src/CypherCommon/Engine/CypherCommon_Error.h)
 
 Implementation role:
 
@@ -296,7 +296,7 @@ Current strength:
 
 Source:
 
-- [src/CypherEngine/CypherCommon/CypherCommon_Print.cpp](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCommon/CypherCommon_Print.cpp)
+- [src/CypherCommon/Engine/CypherCommon_Print.cpp](../src/CypherCommon/Engine/CypherCommon_Print.cpp)
 
 Implementation role:
 
@@ -316,7 +316,7 @@ Current limitation:
 
 Source:
 
-- [src/CypherEngine/CypherLog/CypherLog.cpp](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherLog/CypherLog.cpp)
+- [src/CypherLog/CypherLog.cpp](../src/CypherLog/CypherLog.cpp)
 
 The logger already exposes a clean foundation-style API:
 
@@ -356,7 +356,7 @@ Current limitations:
 
 Source:
 
-- [src/CypherEngine/CypherSystem/CypherSystem_Platform.cpp](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherSystem/CypherSystem_Platform.cpp)
+- [src/CypherSystem/CypherSystem_Platform.cpp](../src/CypherSystem/CypherSystem_Platform.cpp)
 
 Current implementation provides:
 
@@ -386,7 +386,7 @@ Next stage should add:
 
 Source:
 
-- [src/CypherEngine/CypherHost/CypherHost.cpp](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherHost/CypherHost.cpp)
+- [src/CypherEngine/CypherHost/CypherHost.cpp](../src/CypherEngine/CypherHost/CypherHost.cpp)
 
 The host currently owns:
 
@@ -420,7 +420,7 @@ This is a good early shape because it gives the future engine a stable top-level
 
 Source:
 
-- [src/CypherEngine/CypherRender/CypherRender.cpp](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherRender/CypherRender.cpp)
+- [src/CypherRender/CypherRender.cpp](../src/CypherRender/CypherRender.cpp)
 
 Current renderer state is intentionally tiny:
 
@@ -456,7 +456,7 @@ Still missing:
 
 Source:
 
-- [src/CypherEngine/CypherCommand/CypherCommand.cpp](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCommand/CypherCommand.cpp)
+- [src/CypherCommand/CypherCommand.cpp](../src/CypherCommand/CypherCommand.cpp)
 
 Current command system design:
 
@@ -488,7 +488,7 @@ Current parser behavior:
 
 Source:
 
-- [src/CypherEngine/CypherCVar/CypherCVar.cpp](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherCVar/CypherCVar.cpp)
+- [src/CypherCVar/CypherCVar.cpp](../src/CypherCVar/CypherCVar.cpp)
 
 Current design:
 
@@ -522,7 +522,7 @@ This is a good early policy surface for an engine project.
 
 Source:
 
-- [src/CypherEngine/CypherConfig/CypherConfig.cpp](/Users/karlosiric/Documents/MyProjects/REAP/src/CypherEngine/CypherConfig/CypherConfig.cpp)
+- [src/CypherConfig/CypherConfig.cpp](../src/CypherConfig/CypherConfig.cpp)
 
 Current config runtime:
 
