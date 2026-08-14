@@ -154,6 +154,16 @@ function(cypher_configure_texture_tool_dependencies out_link_libraries)
     find_package(libjpeg-turbo CONFIG REQUIRED)
     find_package(tinyexr CONFIG REQUIRED)
 
+    if (TARGET libjpeg-turbo::turbojpeg)
+        set(cypher_turbojpeg_target libjpeg-turbo::turbojpeg)
+    elseif (TARGET libjpeg-turbo::turbojpeg-static)
+        set(cypher_turbojpeg_target libjpeg-turbo::turbojpeg-static)
+    else()
+        message(FATAL_ERROR
+            "libjpeg-turbo did not provide a supported TurboJPEG CMake target."
+        )
+    endif()
+
     if (NOT TARGET CypherThirdPartyImageImport)
         add_library(CypherThirdPartyImageImport INTERFACE)
         add_library(Cypher::ThirdPartyImageImport ALIAS CypherThirdPartyImageImport)
@@ -161,7 +171,7 @@ function(cypher_configure_texture_tool_dependencies out_link_libraries)
             CypherThirdPartyImageImport
             INTERFACE
                 PNG::PNG
-                libjpeg-turbo::turbojpeg-static
+                ${cypher_turbojpeg_target}
                 unofficial::tinyexr::tinyexr
         )
     endif()
