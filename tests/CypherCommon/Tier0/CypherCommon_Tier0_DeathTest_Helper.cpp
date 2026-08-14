@@ -22,7 +22,7 @@
 #include <cstring>
 
 #if CYPHER_PLATFORM_WINDOWS
-    #include <crtdbg.h>
+    #include <stdlib.h>
 #endif
 
 using namespace cypher::common;
