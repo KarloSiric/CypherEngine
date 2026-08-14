@@ -55,36 +55,35 @@ set(CYPHER_BUILD_NUMBER "0" CACHE STRING "CI/build number recorded in build iden
 set(CYPHERENGINE_INCLUDE_DIRS
     "${CYPHERENGINE_SRC_DIR}"
     "${CYPHERENGINE_SRC_DIR}/CypherEngine"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherCommon"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier0"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier3"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier4"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherAI"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherAnimation"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherAudio"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherCommand"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherConfig"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherConsole"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherCVar"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherEntity"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem"
+    "${CYPHERENGINE_SRC_DIR}/CypherAI"
+    "${CYPHERENGINE_SRC_DIR}/CypherAnimation"
+    "${CYPHERENGINE_SRC_DIR}/CypherAudio"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommand"
+    "${CYPHERENGINE_SRC_DIR}/CypherConfig"
+    "${CYPHERENGINE_SRC_DIR}/CypherConsole"
+    "${CYPHERENGINE_SRC_DIR}/CypherCVar"
+    "${CYPHERENGINE_SRC_DIR}/CypherEntity"
+    "${CYPHERENGINE_SRC_DIR}/CypherFileSystem"
     "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherHost"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherInput"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherLog"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherMemory"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherNetwork"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPhysics"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPlatform"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherProfile"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherRender"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherScript"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherSystem"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherWorld"
+    "${CYPHERENGINE_SRC_DIR}/CypherInput"
+    "${CYPHERENGINE_SRC_DIR}/CypherLog"
+    "${CYPHERENGINE_SRC_DIR}/CypherMemory"
+    "${CYPHERENGINE_SRC_DIR}/CypherNetwork"
+    "${CYPHERENGINE_SRC_DIR}/CypherPak"
+    "${CYPHERENGINE_SRC_DIR}/CypherPhysics"
+    "${CYPHERENGINE_SRC_DIR}/CypherPlatform"
+    "${CYPHERENGINE_SRC_DIR}/CypherProfile"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender"
+    "${CYPHERENGINE_SRC_DIR}/CypherResource"
+    "${CYPHERENGINE_SRC_DIR}/CypherScript"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem"
+    "${CYPHERENGINE_SRC_DIR}/CypherWorld"
     "${CYPHERENGINE_SRC_DIR}/CypherClient"
     "${CYPHERENGINE_SRC_DIR}/CypherEditor"
     "${CYPHERENGINE_SRC_DIR}/CypherGame"
@@ -265,14 +264,14 @@ set(CYPHER_RENDER_PREVIEW_SOURCES
 )
 
 set(CYPHERRESOURCE_RUNTIME_SOURCES
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource_Access.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource_Internal.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource_Registry.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherResource/CypherResource.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherResource/CypherResource_Access.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherResource/CypherResource_Internal.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherResource/CypherResource_Registry.cpp"
 )
 
 set(CYPHER_RENDER_RESOURCE_RUNTIME_SOURCES
-    "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/CypherResource_RenderAssets.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherResource/CypherResource_RenderAssets.cpp"
 )
 
 set(CYPHERTOOLFRAMEWORK_SOURCES
@@ -469,7 +468,7 @@ target_compile_features(CypherResourceRuntime PUBLIC cxx_std_20)
 target_include_directories(CypherResourceRuntime
     PUBLIC
         "${CYPHERENGINE_SRC_DIR}"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource"
+        "${CYPHERENGINE_SRC_DIR}/CypherResource"
 )
 target_link_libraries(CypherResourceRuntime PUBLIC Cypher::ResourceSystem)
 
@@ -479,7 +478,7 @@ target_compile_features(CypherRenderResourceRuntime PUBLIC cxx_std_20)
 target_include_directories(CypherRenderResourceRuntime
     PUBLIC
         "${CYPHERENGINE_SRC_DIR}"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource"
+        "${CYPHERENGINE_SRC_DIR}/CypherResource"
 )
 target_link_libraries(CypherRenderResourceRuntime
     PUBLIC
@@ -536,10 +535,10 @@ list(FILTER CYPHERENGINE_SOURCES
     EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherTools/"
 )
 list(FILTER CYPHERENGINE_SOURCES
-    EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherMath/"
+    EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherResource/"
 )
-list(FILTER CYPHERENGINE_SOURCES
-    EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherResource/"
+list(APPEND CYPHERENGINE_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Engine/CypherCommon_Print.cpp"
 )
 
 if (CYPHERENGINE_SOURCES)
@@ -1424,12 +1423,12 @@ if (CYPHERENGINE_BUILD_TESTS)
         )
         cypher_add_common_catch_test(
             cypher_resource_runtime_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEngine/CypherResource/CypherResource_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherResource/CypherResource_Tests.cpp"
             Cypher::ResourceRuntime
         )
         cypher_add_common_catch_test(
             cypher_render_resource_runtime_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEngine/CypherResource/CypherResource_RenderAssets_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherResource/CypherResource_RenderAssets_Tests.cpp"
             Cypher::RenderResourceRuntime
         )
         cypher_add_common_catch_test(
@@ -1667,23 +1666,23 @@ if (CYPHERENGINE_BUILD_TESTS)
     endif()
 
     set(CYPHERENGINE_FILESYSTEM_SMOKE_SOURCES
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEngine/CypherFileSystem/CypherFileSystem_Smoke.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Async.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Diagnostics.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Discovery.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Directory.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Mount.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Package.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Path.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Runtime.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Watch.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Compression.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Reader.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Writer.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherLog/CypherLog.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherLog/CypherLog_Format.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherSystem/CypherSystem_Platform.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherFileSystem/CypherFileSystem_Smoke.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Async.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Diagnostics.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Discovery.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Directory.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Mount.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Package.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Path.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Runtime.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Watch.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Compression.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Reader.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Writer.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Platform.cpp"
     )
 
     add_executable(cypher_filesystem_smoke ${CYPHERENGINE_FILESYSTEM_SMOKE_SOURCES})
@@ -1691,10 +1690,10 @@ if (CYPHERENGINE_BUILD_TESTS)
     add_test(NAME cypher_filesystem_smoke COMMAND cypher_filesystem_smoke)
 
     set(CYPHERENGINE_PAK_SMOKE_SOURCES
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEngine/CypherPak/CypherPak_Smoke.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Compression.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Reader.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Writer.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherPak/CypherPak_Smoke.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Compression.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Reader.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Writer.cpp"
     )
 
     add_executable(cypher_pak_smoke ${CYPHERENGINE_PAK_SMOKE_SOURCES})
@@ -1750,7 +1749,7 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         )
         cypher_add_common_benchmark(
             cypher_resource_runtime_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherEngine/CypherResource/CypherResource_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherResource/CypherResource_Bench.cpp"
             Cypher::ResourceRuntime
         )
         cypher_add_common_benchmark(
@@ -2241,28 +2240,28 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         )
 
         add_executable(cypher_memory_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherEngine/CypherMemory/CypherMemory_Bench.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherMemory/CypherMemory_Arena.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherMemory/CypherMemory_Pool.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherLog/CypherLog.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherLog/CypherLog_Format.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherSystem/CypherSystem_Platform.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherMemory/CypherMemory_Bench.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Arena.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Pool.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Platform.cpp"
         )
         target_include_directories(cypher_memory_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_memory_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_filesystem_path_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherEngine/CypherFileSystem/CypherFileSystem_Path_Bench.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherFileSystem/CypherFileSystem_Path.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherFileSystem/CypherFileSystem_Path_Bench.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Path.cpp"
         )
         target_include_directories(cypher_filesystem_path_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_filesystem_path_bench PRIVATE benchmark::benchmark_main)
 
         add_executable(cypher_pak_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherEngine/CypherPak/CypherPak_Bench.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Compression.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Reader.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherPak/CypherPak_Writer.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherPak/CypherPak_Bench.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Compression.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Reader.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Writer.cpp"
         )
         target_include_directories(cypher_pak_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
         target_link_libraries(cypher_pak_bench PRIVATE benchmark::benchmark_main)

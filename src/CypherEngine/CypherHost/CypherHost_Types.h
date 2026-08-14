@@ -23,7 +23,7 @@
     #pragma once
 #endif
 
-#include "CypherCommon.h"
+#include "Engine/CypherCommon.h"
 #include "CypherSystem_Window.h"
 
 namespace cypher::engine::host
