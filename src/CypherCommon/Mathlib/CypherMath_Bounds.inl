@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Bounds Template Definitions
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_BOUNDS_INL
 #define CYPHER_COMMON_MATH_BOUNDS_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// Bounds predicates are inclusive: touching points and faces remain contained.
 constexpr aabb_t Aabb_Make( vec3_t minimum, vec3_t maximum ) noexcept
 {
     return { minimum, maximum };
@@ -41,6 +53,7 @@ constexpr aabb_t Aabb_FromPoint( vec3_t point ) noexcept
 
 constexpr bool_t Aabb_IsEmpty( aabb_t bounds ) noexcept
 {
+    // One reversed axis is enough to represent an empty Cartesian product.
     return bounds.minimum.x > bounds.maximum.x ||
            bounds.minimum.y > bounds.maximum.y ||
            bounds.minimum.z > bounds.maximum.z;

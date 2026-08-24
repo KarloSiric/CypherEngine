@@ -51,6 +51,7 @@ CYPHER_NODISCARD bool_t Vec3_ScalarNearlyEquals(
         return false;
     }
 
+    // Relative tolerance scales with magnitude while absolute tolerance protects zero.
     const f32 scale = std::max( std::fabs( a ), std::fabs( b ) );
     const f32 tolerance = std::max(
         absoluteTolerance,
@@ -82,6 +83,7 @@ CYPHER_NODISCARD bool_t Vec3_NormalizeFinite(
 
 CYPHER_NODISCARD vec3_t Vec3_LeastAlignedAxis( vec3_t value ) noexcept
 {
+    // Crossing with the least-aligned principal axis maximizes numerical area.
     const f32 x = std::fabs( value.x );
     const f32 y = std::fabs( value.y );
     const f32 z = std::fabs( value.z );
@@ -318,6 +320,7 @@ f32 Vec3_Distance( vec3_t a, vec3_t b ) noexcept
 
 vec3_t Vec3_NormalizeUnchecked( vec3_t value ) noexcept
 {
+    // Hot path for inputs whose nonzero finite contract is already established.
     const f32 lengthSquared = Vec3_LengthSquared( value );
     CY_ASSERT_MSG(
         lengthSquared > 0.0f && std::isfinite( lengthSquared ),
@@ -340,6 +343,7 @@ bool_t Vec3_TryNormalize(
         bValidMinimum,
         "Vec3_TryNormalize requires a finite nonnegative minimum length." );
 
+    // Checked APIs initialize outputs before any failure path.
     if ( pOriginalLength != nullptr ) {
         *pOriginalLength = 0.0f;
     }
@@ -417,6 +421,7 @@ vec3_t Vec3_MoveTowards( vec3_t current, vec3_t target, f32 maximumDistance ) no
         return current;
     }
 
+    // Normalize with scaling so very large finite coordinates remain usable.
     const vec3_t displacement = Vec3_Subtract( target, current );
     vec3_t direction{};
     f32 distance = 0.0f;
@@ -482,6 +487,7 @@ bool_t Vec3_TryProjectOnto(
         return false;
     }
 
+    // Normalize once, then use the cheaper projection contract for unit axes.
     vec3_t unitDirection{};
     if ( !Vec3_TryNormalize( onto, minimumLength, &unitDirection, nullptr ) ) {
         return false;
@@ -555,6 +561,7 @@ bool_t Vec3_TryBuildUnitPerpendicular(
         return false;
     }
 
+    // The least-aligned axis avoids a near-zero cross product.
     const vec3_t axis = Vec3_LeastAlignedAxis( unitDirection );
     const vec3_t perpendicular = Vec3_Cross( unitDirection, axis );
     return Vec3_TryNormalize( perpendicular, 0.0f, pPerpendicular, nullptr );
@@ -581,6 +588,7 @@ bool_t Vec3_TryRefractUnitNormal(
         return false;
     }
 
+    // Negative discriminant means total internal reflection; no real refracted ray.
     const f32 normalDotIncident = Vec3_Dot( unitNormal, incident );
     const f32 discriminant = 1.0f - eta * eta *
         ( 1.0f - normalDotIncident * normalDotIncident );
@@ -603,6 +611,7 @@ bool_t Vec3_TryRefractUnitNormal(
 
 f32 Vec3_AngleBetweenUnit( vec3_t a, vec3_t b ) noexcept
 {
+    // Clamp accumulated floating-point error before acos.
     const f32 cosine = std::clamp( Vec3_Dot( a, b ), -1.0f, 1.0f );
     return std::acos( cosine );
 }
@@ -636,6 +645,7 @@ void Vec3_BuildOrthonormalBasis(
         return;
     }
 
+    // Cross order preserves the library's right-handed tangent basis.
     *pTangent = tangent;
     *pBitangent = Vec3_Cross( unitNormal, tangent );
 }

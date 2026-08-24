@@ -30,14 +30,15 @@ namespace cypher::math
 {
 
 struct quat_t {
-    f32 x;
-    f32 y;
-    f32 z;
-    f32 w;
+    f32 x; // X component of the imaginary/vector part.
+    f32 y; // Y component of the imaginary/vector part.
+    f32 z; // Z component of the imaginary/vector part.
+    f32 w; // Real/scalar component.
 };
 
-inline constexpr quat_t CY_QUAT_IDENTITY{ 0.0f, 0.0f, 0.0f, 1.0f };
+inline constexpr quat_t CY_QUAT_IDENTITY{ 0.0f, 0.0f, 0.0f, 1.0f }; // No rotation.
 
+// Construction and comparison ---------------------------------------------------
 CYPHER_NODISCARD constexpr quat_t Quat_Make( f32 x, f32 y, f32 z, f32 w ) noexcept;
 CYPHER_NODISCARD constexpr quat_t Quat_FromVectorScalar( vec3_t vector, f32 scalar ) noexcept;
 CYPHER_NODISCARD constexpr vec3_t Quat_VectorPart( quat_t value ) noexcept;
@@ -48,6 +49,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Quat_NearlyEquals(
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Quat_RotationEquivalent(
     quat_t a, quat_t b, f32 toleranceRadians ) noexcept;
 
+// Arithmetic and normalization --------------------------------------------------
 CYPHER_NODISCARD constexpr quat_t Quat_Add( quat_t a, quat_t b ) noexcept;
 CYPHER_NODISCARD constexpr quat_t Quat_Subtract( quat_t a, quat_t b ) noexcept;
 CYPHER_NODISCARD constexpr quat_t Quat_Scale( quat_t value, f32 scale ) noexcept;
@@ -68,6 +70,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Quat_TryInverse(
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Quat_IsUnit(
     quat_t value, f32 tolerance ) noexcept;
 
+// Vector rotation ----------------------------------------------------------------
 // The input quaternion must be unit length.
 CYPHER_NODISCARD CYPHER_MATH_API vec3_t Quat_RotateVectorUnit(
     quat_t unitRotation, vec3_t value ) noexcept;
@@ -77,6 +80,7 @@ CYPHER_NODISCARD CYPHER_MATH_API vec3_t Quat_Forward( quat_t unitRotation ) noex
 CYPHER_NODISCARD CYPHER_MATH_API vec3_t Quat_Left( quat_t unitRotation ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API vec3_t Quat_Up( quat_t unitRotation ) noexcept;
 
+// Rotation construction and decomposition --------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API quat_t Quat_FromUnitAxisAngle(
     vec3_t unitAxis, angle_t angle ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Quat_TryFromAxisAngle(
@@ -98,6 +102,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Quat_TryLookRotation(
     vec3_t forward, vec3_t upHint, f32 minimumLength,
     CY_OUT quat_t *pRotation ) noexcept;
 
+// Interpolation ------------------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API quat_t Quat_Nlerp(
     quat_t a, quat_t b, f32 t ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API quat_t Quat_Slerp(

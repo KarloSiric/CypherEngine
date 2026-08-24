@@ -22,6 +22,10 @@
 namespace cypher::math
 {
 
+//==========================================================================
+// Component access and validation
+//==========================================================================
+
 f32 Mat3_Component( mat3_t value, u32 row, u32 column ) noexcept
 {
     const bool_t bValidIndex = row < 3u && column < 3u;
@@ -94,6 +98,8 @@ bool_t Mat3_TryInverse(
     const vec3_t column2 = Mat3_Column( value, 2u );
     const vec3_t cofactor0 = Vec3_Cross( column1, column2 );
     const f32 determinant = Vec3_Dot( column0, cofactor0 );
+    // Treat values at the caller's threshold as singular. This keeps unstable
+    // reciprocal determinants from leaking infinities into editor transforms.
     if ( !Scalar_IsFinite( determinant ) ||
          Scalar_Abs( determinant ) <= minimumAbsDeterminant ) {
         return false;
@@ -113,6 +119,7 @@ bool_t Mat3_TryInverse(
 
 mat3_t Mat3_FromQuaternion( quat_t unitRotation ) noexcept
 {
+    // Expanded unit-quaternion formula; no temporary 4x4 matrix is required.
     const f32 xx = unitRotation.x * unitRotation.x;
     const f32 yy = unitRotation.y * unitRotation.y;
     const f32 zz = unitRotation.z * unitRotation.z;
@@ -148,6 +155,8 @@ bool_t Mat3_TryToQuaternion(
     *pRotation = CY_QUAT_IDENTITY;
 
     mat3_t orthonormal{};
+    // Imported bases may contain small scale or drift. Repair the basis before
+    // converting it so the quaternion represents rotation only.
     if ( !Mat3_TryOrthonormalize(
              rotation, minimumColumnLength, &orthonormal ) ) {
         return false;
@@ -200,6 +209,8 @@ bool_t Mat3_TryOrthonormalize(
     }
 
     const vec3_t sourceY = Mat3_Column( value, 1u );
+    // Gram-Schmidt removes X from Y; Z is then reconstructed to preserve a
+    // right-handed basis instead of trusting a potentially corrupted input Z.
     const vec3_t rejectedY = Vec3_RejectFromUnit( sourceY, x );
     vec3_t y{};
     if ( !Vec3_TryNormalize( rejectedY, minimumColumnLength, &y, nullptr ) ) {

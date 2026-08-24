@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Vector2 Contract
+
+Operations follow CypherMath coordinate, storage, and multiplication conventions. Inputs may
+alias only where documented, and normalization handles degenerate values explicitly.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_VECTOR2_H
 #define CYPHER_COMMON_MATH_VECTOR2_H
 #ifndef PRAGMA_ONCE
@@ -31,15 +40,16 @@ namespace cypher::math
 using common::u32;
 
 struct vec2_t {
-    f32 x;
-    f32 y;
+    f32 x; // Horizontal, U, or first planar component.
+    f32 y; // Vertical, V, or second planar component.
 };
 
-inline constexpr vec2_t CY_VEC2_ZERO{ 0.0f, 0.0f };
-inline constexpr vec2_t CY_VEC2_ONE{ 1.0f, 1.0f };
-inline constexpr vec2_t CY_VEC2_X{ 1.0f, 0.0f };
-inline constexpr vec2_t CY_VEC2_Y{ 0.0f, 1.0f };
+inline constexpr vec2_t CY_VEC2_ZERO{ 0.0f, 0.0f }; // Additive identity.
+inline constexpr vec2_t CY_VEC2_ONE{ 1.0f, 1.0f };  // Unit value on both axes.
+inline constexpr vec2_t CY_VEC2_X{ 1.0f, 0.0f };    // Positive X basis direction.
+inline constexpr vec2_t CY_VEC2_Y{ 0.0f, 1.0f };    // Positive Y basis direction.
 
+// Construction and component access ---------------------------------------------
 CYPHER_NODISCARD constexpr vec2_t Vec2_Make( f32 x, f32 y ) noexcept;
 CYPHER_NODISCARD constexpr vec2_t Vec2_Splat( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_FromArray(
@@ -51,6 +61,7 @@ CYPHER_NODISCARD CYPHER_MATH_API f32 Vec2_Component(
 CYPHER_MATH_API void Vec2_SetComponent(
     CY_INOUT vec2_t *pValue, u32 iComponent, f32 value ) noexcept;
 
+// Comparison and component arithmetic ------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2_IsFinite( vec2_t value ) noexcept;
 CYPHER_NODISCARD constexpr bool_t Vec2_EqualsExact( vec2_t a, vec2_t b ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2_NearlyEquals(
@@ -78,6 +89,7 @@ CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_Ceil( vec2_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_Round( vec2_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_Truncate( vec2_t value ) noexcept;
 
+// Geometric operations ----------------------------------------------------------
 CYPHER_NODISCARD constexpr f32 Vec2_Dot( vec2_t a, vec2_t b ) noexcept;
 CYPHER_NODISCARD constexpr f32 Vec2_Cross( vec2_t a, vec2_t b ) noexcept;
 CYPHER_NODISCARD constexpr f32 Vec2_LengthSquared( vec2_t value ) noexcept;

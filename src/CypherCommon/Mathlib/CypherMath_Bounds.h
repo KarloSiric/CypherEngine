@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Bounds Contract
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_BOUNDS_H
 #define CYPHER_COMMON_MATH_BOUNDS_H
 #ifndef PRAGMA_ONCE
@@ -29,15 +38,17 @@ namespace cypher::math
 {
 
 struct aabb_t {
-    vec3_t minimum;
-    vec3_t maximum;
+    vec3_t minimum; // Inclusive minimum on each world or local axis.
+    vec3_t maximum; // Inclusive maximum on each world or local axis.
 };
 
+// Reversed extrema let the first expanded point initialize all six bounds.
 inline constexpr aabb_t CY_AABB_EMPTY{
     { common::CY_F32_MAX, common::CY_F32_MAX, common::CY_F32_MAX },
     { -common::CY_F32_MAX, -common::CY_F32_MAX, -common::CY_F32_MAX }
 };
 
+// Construction -------------------------------------------------------------------
 CYPHER_NODISCARD constexpr aabb_t Aabb_Make(
     vec3_t minimum, vec3_t maximum ) noexcept;
 CYPHER_NODISCARD constexpr aabb_t Aabb_FromPoint( vec3_t point ) noexcept;
@@ -49,6 +60,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Aabb_IsValid(
 CYPHER_NODISCARD CYPHER_MATH_API aabb_t Aabb_FromCenterExtents(
     vec3_t center, vec3_t extents ) noexcept;
 
+// Expansion and set operations ---------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API aabb_t Aabb_ExpandPoint(
     aabb_t bounds, vec3_t point ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API aabb_t Aabb_ExpandAabb(
@@ -58,6 +70,7 @@ CYPHER_NODISCARD CYPHER_MATH_API aabb_t Aabb_Union(
 CYPHER_NODISCARD CYPHER_MATH_API aabb_t Aabb_Intersection(
     aabb_t a, aabb_t b ) noexcept;
 
+// Spatial queries ----------------------------------------------------------------
 CYPHER_NODISCARD constexpr bool_t Aabb_ContainsPoint(
     aabb_t bounds, vec3_t point ) noexcept;
 CYPHER_NODISCARD constexpr bool_t Aabb_ContainsAabb(
@@ -77,6 +90,7 @@ CYPHER_NODISCARD CYPHER_MATH_API vec3_t Aabb_ClosestPoint(
 CYPHER_NODISCARD CYPHER_MATH_API f32 Aabb_DistanceSquaredToPoint(
     aabb_t bounds, vec3_t point ) noexcept;
 
+// Eight transformed corners are enclosed conservatively by the output AABB.
 CYPHER_NODISCARD CYPHER_MATH_API aabb_t Aabb_TransformAffine(
     aabb_t bounds, affine3_t transform ) noexcept;
 

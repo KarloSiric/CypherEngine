@@ -117,6 +117,8 @@ bool_t Numerics_TrySolveQuadratic(
         return true;
     }
 
+    // Choose the sign that adds magnitudes in q. The paired q/a and c/q roots
+    // avoid catastrophic cancellation when b dominates the discriminant.
     const f64 squareRoot = std::sqrt( discriminant );
     const f64 q = -0.5 * ( b + std::copysign( squareRoot, b ) );
     f64 root0 = 0.0;
@@ -168,6 +170,8 @@ bool_t Numerics_TryClosestSegmentPoints(
 
     f64 parameterA = 0.0;
     f64 parameterB = 0.0;
+    // Degenerate segments are points. Handle those cases before solving the
+    // general two-line system so no zero-length denominator is formed.
     if ( lengthSquaredA == 0.0 && lengthSquaredB == 0.0 ) {
         parameterA = 0.0;
         parameterB = 0.0;
@@ -243,6 +247,8 @@ bool_t Numerics_TryIntegrateLinearSemiImplicit(
         return false;
     }
 
+    // Semi-implicit Euler advances velocity first and uses that new velocity
+    // for position, which is more stable than explicit Euler for simple motion.
     const vec3_t nextVelocity = Vec3_MulAdd(
         velocity, acceleration, deltaSeconds );
     const vec3_t nextPosition = Vec3_MulAdd(
@@ -294,6 +300,8 @@ bool_t Numerics_TryIntegrateAngularVelocity(
     const vec3_t axis = Vec3_Scale( angularVelocity, 1.0f / speed );
     const quat_t delta = Quat_FromUnitAxisAngle(
         axis, Angle_FromRadians( speed * deltaSeconds ) );
+    // Pre-multiplication applies angular velocity in world space;
+    // post-multiplication applies it in the orientation's local space.
     const quat_t integrated = velocitySpace == angular_velocity_space_t::WORLD
         ? Quat_Multiply( delta, unitOrientation )
         : Quat_Multiply( unitOrientation, delta );

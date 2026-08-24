@@ -29,11 +29,14 @@ namespace cypher::math
 {
 
 struct sphere_t {
-    vec3_t center;
-    f32 radius;
+    vec3_t center; // World- or local-space center chosen by the caller.
+    f32 radius;    // Nonnegative radius in the same units as center.
 };
 
-inline constexpr sphere_t CY_SPHERE_ZERO{ CY_VEC3_ZERO, 0.0f };
+inline constexpr sphere_t CY_SPHERE_ZERO{ CY_VEC3_ZERO, 0.0f }; // Degenerate sphere at the origin.
+
+#define CY_SPHERE_MAKE(center, radius) \
+    (::cypher::math::Sphere_Make((center), (radius)))
 
 CYPHER_NODISCARD constexpr sphere_t Sphere_Make(
     vec3_t center, f32 radius ) noexcept;
@@ -54,6 +57,7 @@ CYPHER_NODISCARD CYPHER_MATH_API f32 Sphere_Volume(
 CYPHER_NODISCARD CYPHER_MATH_API f32 Sphere_SurfaceArea(
     sphere_t sphere ) noexcept;
 
+// Construction and transformation ------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API sphere_t Sphere_FromAabb(
     aabb_t bounds ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API sphere_t Sphere_Merge(

@@ -24,8 +24,13 @@
 namespace cypher::math
 {
 
+//==========================================================================
+// Cubic Bezier curves
+//==========================================================================
+
 vec3_t Spline_BezierPoint( cubic_bezier3_t curve, f32 t ) noexcept
 {
+    // Bernstein basis evaluation keeps the four control-point weights explicit.
     const f32 oneMinusT = 1.0f - t;
     const f32 b0 = oneMinusT * oneMinusT * oneMinusT;
     const f32 b1 = 3.0f * oneMinusT * oneMinusT * t;
@@ -70,6 +75,7 @@ void Spline_BezierSplit(
     if ( !bValidOutputs ) {
         return;
     }
+    // de Casteljau subdivision produces two curves that meet exactly at t.
     const vec3_t p01 = Vec3_Lerp( curve.p0, curve.p1, t );
     const vec3_t p12 = Vec3_Lerp( curve.p1, curve.p2, t );
     const vec3_t p23 = Vec3_Lerp( curve.p2, curve.p3, t );
@@ -105,12 +111,17 @@ vec3_t Spline_HermiteDerivative( cubic_hermite3_t curve, f32 t ) noexcept
         Vec3_Add( Vec3_Scale( curve.p1, h01 ), Vec3_Scale( curve.tangent1, h11 ) ) );
 }
 
+//==========================================================================
+// Catmull-Rom conversion
+//==========================================================================
+
 vec3_t Spline_CatmullRomPoint(
     catmull_rom3_t curve,
     f32 t,
     f32 tension ) noexcept
 {
     const f32 tangentScale = 1.0f - tension;
+    // Convert the local Catmull-Rom span to Hermite form and reuse its evaluator.
     const cubic_hermite3_t hermite{
         curve.p1,
         Vec3_Scale( Vec3_Subtract( curve.p2, curve.p0 ), 0.5f * tangentScale ),
@@ -155,6 +166,8 @@ bool_t Spline_TryBuildBezierArcTable(
     vec3_t previous = Spline_BezierPoint( curve, 0.0f );
     pSamples[0] = { 0.0f, 0.0f };
     f32 totalLength = 0.0f;
+    // This is a chord-length approximation. Increasing cSamples trades build
+    // time and table memory for a closer distance-to-parameter mapping.
     for ( usize i = 1u; i < cSamples; ++i ) {
         const f32 parameter = static_cast<f32>( i ) /
             static_cast<f32>( cSamples - 1u );
@@ -195,6 +208,8 @@ bool_t Spline_TryArcParameterAtDistance(
 
     usize low = 0u;
     usize high = cSamples - 1u;
+    // Cumulative distances are monotonic, so locate the enclosing samples in
+    // logarithmic time and interpolate their original curve parameters.
     while ( low + 1u < high ) {
         const usize middle = low + ( high - low ) / 2u;
         if ( pSamples[middle].distance < distance ) {

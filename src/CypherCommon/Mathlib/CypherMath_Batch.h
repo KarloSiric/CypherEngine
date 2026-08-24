@@ -30,23 +30,23 @@ namespace cypher::math
 
 using common::usize;
 
-inline constexpr u32 CY_MATH_BATCH_LANES = 4u;
+inline constexpr u32 CY_MATH_BATCH_LANES = 4u; // Common width of SSE and NEON vectors.
 
 enum class math_batch_backend_t : common::u8 {
-    SCALAR = 0u,
-    SSE2,
-    NEON,
-    COUNT
+    SCALAR = 0u, // Portable four-lane fallback.
+    SSE2,        // x86/x64 128-bit implementation.
+    NEON,        // ARM 128-bit implementation.
+    COUNT        // Enum bound; not a backend.
 };
 
 struct alignas( 16 ) f32_soa4_t {
-    f32 lane[CY_MATH_BATCH_LANES];
+    f32 lane[CY_MATH_BATCH_LANES]; // Four independent scalar results.
 };
 
 struct alignas( 16 ) vec3_soa4_t {
-    f32 x[CY_MATH_BATCH_LANES];
-    f32 y[CY_MATH_BATCH_LANES];
-    f32 z[CY_MATH_BATCH_LANES];
+    f32 x[CY_MATH_BATCH_LANES]; // X components for four vectors.
+    f32 y[CY_MATH_BATCH_LANES]; // Y components for four vectors.
+    f32 z[CY_MATH_BATCH_LANES]; // Z components for four vectors.
 };
 
 // Reports the backend compiled into this translation unit.

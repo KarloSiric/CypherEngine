@@ -78,6 +78,9 @@ bool_t Frustum_TryFromViewProjection(
     const vec4_t row1 = Mat4_Row( viewProjection, 1u );
     const vec4_t row2 = Mat4_Row( viewProjection, 2u );
     const vec4_t row3 = Mat4_Row( viewProjection, 3u );
+
+    // Clip inequalities become world-space planes by adding or subtracting
+    // projection rows. Zero-to-one depth uses row2 directly for the near plane.
     const vec4_t coefficients[CY_FRUSTUM_PLANE_COUNT]{
         Vec4_Add( row3, row0 ),
         Vec4_Subtract( row3, row0 ),
@@ -130,6 +133,7 @@ bool_t Frustum_TryCorners(
     const f32 nearZ =
         depthRange == clip_depth_range_t::NEGATIVE_ONE_TO_ONE ? -1.0f : 0.0f;
     for ( u32 i = 0u; i < CY_FRUSTUM_CORNER_COUNT; ++i ) {
+        // The low three index bits select x, y, and far/near clip-space sides.
         const f32 x = ( i & 1u ) != 0u ? 1.0f : -1.0f;
         const f32 y = ( i & 2u ) != 0u ? 1.0f : -1.0f;
         const f32 z = ( i & 4u ) != 0u ? 1.0f : nearZ;
@@ -160,6 +164,7 @@ bool_t Frustum_TryTransform(
     }
     *pTransformed = {};
 
+    // Build into a temporary so one non-invertible plane leaves no partial result.
     frustum_t result{};
     for ( u32 i = 0u; i < CY_FRUSTUM_PLANE_COUNT; ++i ) {
         if ( !Plane_TryTransform(

@@ -107,6 +107,8 @@ bool_t Intersection_RaySphere(
         return false;
     }
 
+    // Do not normalize the ray: callers own its parameterization. The quadratic
+    // coefficient carries direction length so returned t values remain unchanged.
     const f32 directionLength = Vec3_Length( ray.direction );
     if ( !Scalar_IsFinite( directionLength ) ||
          directionLength <= minimumDirectionLength ) {
@@ -164,6 +166,9 @@ bool_t Intersection_RayAabb(
     const f32 maximum[3]{ bounds.maximum.x, bounds.maximum.y, bounds.maximum.z };
     f32 enter = tMinimum;
     f32 exit = tMaximum;
+
+    // Intersect the running parameter interval with one axis-aligned slab at a
+    // time. An empty interval proves the ray misses the box.
     for ( u32 axis = 0u; axis < 3u; ++axis ) {
         if ( Scalar_Abs( direction[axis] ) <= minimumAbsDirection ) {
             if ( origin[axis] < minimum[axis] || origin[axis] > maximum[axis] ) {
@@ -222,6 +227,8 @@ bool_t Intersection_RayTriangle(
         return false;
     }
 
+    // Moller-Trumbore solves ray parameter and barycentric coordinates without
+    // constructing the triangle plane explicitly.
     const vec3_t edgeAB = Vec3_Subtract( triangle.b, triangle.a );
     const vec3_t edgeAC = Vec3_Subtract( triangle.c, triangle.a );
     const vec3_t p = Vec3_Cross( ray.direction, edgeAC );
@@ -350,6 +357,8 @@ volume_relation_t Intersection_FrustumAabb(
 
     bool_t bIntersects = false;
     for ( plane_t plane : frustum.planes ) {
+        // The positive support vertex is farthest along the plane normal. If it
+        // is outside, the complete AABB is outside; the negative vertex detects overlap.
         const vec3_t positive = Vec3_Make(
             plane.normal.x >= 0.0f ? bounds.maximum.x : bounds.minimum.x,
             plane.normal.y >= 0.0f ? bounds.maximum.y : bounds.minimum.y,

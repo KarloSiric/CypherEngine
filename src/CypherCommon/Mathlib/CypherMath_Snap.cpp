@@ -60,6 +60,8 @@ bool_t SnapTryGridComponent(
          !SnapModeValid( mode ) ) {
         return false;
     }
+    // Convert into integer grid space first. Keeping this calculation in f64
+    // avoids unstable cell selection at large editor coordinates.
     const f64 coordinate = SnapRound(
         ( static_cast<f64>( value ) - origin ) / step,
         mode );
@@ -115,6 +117,8 @@ bool_t Snap_TryVec3(
     }
     *pSnapped = CY_VEC3_ZERO;
 
+    // Compute all components into a temporary so failure never publishes a
+    // partially snapped vector.
     vec3_t result{};
     if ( !Snap_TryScalar( value.x, step.x, origin.x, mode, &result.x ) ||
          !Snap_TryScalar( value.y, step.y, origin.y, mode, &result.y ) ||
@@ -217,6 +221,8 @@ vec3_t Snap_DirectionToPrincipalAxis( vec3_t direction ) noexcept
     if ( !Vec3_IsFinite( direction ) || Vec3_EqualsExact( direction, CY_VEC3_ZERO ) ) {
         return CY_VEC3_ZERO;
     }
+    // Select the signed basis vector belonging to the largest magnitude
+    // component; ties resolve X, then Y, then Z for deterministic tools.
     const vec3_t absolute = Vec3_Abs( direction );
     if ( absolute.x >= absolute.y && absolute.x >= absolute.z ) {
         return direction.x >= 0.0f ? CY_VEC3_FORWARD : CY_VEC3_BACKWARD;

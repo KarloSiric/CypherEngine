@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Ray Contract
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_RAY_H
 #define CYPHER_COMMON_MATH_RAY_H
 #ifndef PRAGMA_ONCE
@@ -29,15 +38,19 @@ namespace cypher::math
 {
 
 struct ray_t {
-    vec3_t origin;
-    vec3_t direction;
+    vec3_t origin;    // Point corresponding to parameter t = 0.
+    vec3_t direction; // Parameter step; not required to be unit length.
 };
 
 struct segment_t {
-    vec3_t start;
-    vec3_t end;
+    vec3_t start; // Point corresponding to normalized parameter t = 0.
+    vec3_t end;   // Point corresponding to normalized parameter t = 1.
 };
 
+#define CY_RAY_MAKE(origin, direction) \
+    (::cypher::math::Ray_Make((origin), (direction)))
+
+// Construction and parameter evaluation -----------------------------------------
 CYPHER_NODISCARD constexpr ray_t Ray_Make(
     vec3_t origin, vec3_t direction ) noexcept;
 CYPHER_NODISCARD constexpr segment_t Segment_Make(
@@ -56,6 +69,7 @@ CYPHER_NODISCARD CYPHER_MATH_API f32 Segment_Length(
 CYPHER_NODISCARD constexpr f32 Segment_LengthSquared(
     segment_t segment ) noexcept;
 
+// Closest-point and normalization queries ---------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Ray_TryNormalizeDirection(
     ray_t ray, f32 minimumDirectionLength,
     CY_OUT ray_t *pNormalized,

@@ -14,6 +14,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Matrix3 Template Definitions
+
+Operations follow CypherMath coordinate, storage, and multiplication conventions. Inputs may
+alias only where documented, and normalization handles degenerate values explicitly. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_MATRIX3_INL
 #define CYPHER_COMMON_MATH_MATRIX3_INL
 
@@ -28,6 +39,7 @@
 namespace cypher::math
 {
 
+// Column-major indexing matches Matrix4 and renderer-facing storage.
 constexpr u32 Mat3_Index( u32 row, u32 column ) noexcept
 {
     return column * 3u + row;
@@ -115,6 +127,7 @@ constexpr vec3_t Mat3_TransformVector( mat3_t matrix, vec3_t vector ) noexcept
 
 constexpr mat3_t Mat3_Multiply( mat3_t a, mat3_t b ) noexcept
 {
+    // Transform each column of b by a; this applies b before a.
     return Mat3_FromColumns(
         Mat3_TransformVector( a, Mat3_Column( b, 0u ) ),
         Mat3_TransformVector( a, Mat3_Column( b, 1u ) ),

@@ -30,22 +30,22 @@ namespace cypher::math
 using common::usize;
 
 enum class polygon_clip_status_t : common::u8 {
-    OK = 0u,
-    FULLY_CLIPPED,
-    INVALID_ARGUMENT,
-    INSUFFICIENT_CAPACITY,
-    COUNT
+    OK = 0u,             // One or more output vertices survived.
+    FULLY_CLIPPED,       // No point lies in the retained half-space.
+    INVALID_ARGUMENT,    // Input geometry or tolerance is invalid.
+    INSUFFICIENT_CAPACITY, // Output requires cVertices + 1 entries.
+    COUNT                // Enum bound; never returned as a result.
 };
 
 struct polygon_clip_result_t {
-    polygon_clip_status_t status;
-    usize cVerticesWritten;
+    polygon_clip_status_t status; // Completion state for the clipping pass.
+    usize cVerticesWritten;       // Valid prefix produced in the output array.
 };
 
 struct segment_clip_result_t {
-    segment_t segment;
-    f32 parameterEnter;
-    f32 parameterExit;
+    segment_t segment;  // Retained segment in world space.
+    f32 parameterEnter; // Entry parameter on the original [0, 1] segment.
+    f32 parameterExit;  // Exit parameter on the original [0, 1] segment.
 };
 
 // Input and output arrays must not overlap; maximum output is cVertices + 1.

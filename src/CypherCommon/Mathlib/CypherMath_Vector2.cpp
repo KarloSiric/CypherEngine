@@ -36,6 +36,8 @@ CYPHER_NODISCARD bool_t Vec2_NormalizeFinite(
     vec2_t *pNormalized,
     f32 *pLength ) noexcept
 {
+    // Normalize a scaled copy so squaring extreme finite components cannot
+    // overflow or underflow before the vector length is known.
     const f32 maximumComponent = Scalar_Max(
         Scalar_Abs( value.x ), Scalar_Abs( value.y ) );
     if ( maximumComponent == 0.0f ) {
@@ -270,6 +272,7 @@ vec2_t Vec2_MoveTowards( vec2_t current, vec2_t target, f32 maximumDistance ) no
     if ( !Vec2_NormalizeFinite( displacement, &direction, &distance ) ) {
         return current;
     }
+    // Clamp to the target instead of stepping past it.
     return distance <= maximumDistance
         ? target
         : Vec2_MulAdd( current, direction, maximumDistance );
@@ -359,6 +362,8 @@ bool_t Vec2_TryAngleBetween(
          !Vec2_TryNormalize( b, minimumLength, &normalizedB, nullptr ) ) {
         return false;
     }
+    // Floating-point dot products can drift just outside [-1, 1]; the clamped
+    // inverse cosine keeps parallel vectors from producing NaN.
     *pAngleRadians = Scalar_AcosClamped( Vec2_Dot( normalizedA, normalizedB ) );
     return true;
 }

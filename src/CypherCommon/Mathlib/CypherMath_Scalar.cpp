@@ -51,6 +51,8 @@ CYPHER_NODISCARD bool_t Scalar_NearlyEqualsImpl(
         return false;
     }
 
+    // Absolute tolerance protects values near zero; relative tolerance scales
+    // with the larger operand for values far from zero.
     const scalar_t difference = std::fabs( a - b );
     if ( !std::isfinite( difference ) ) {
         return false;
@@ -121,6 +123,7 @@ f64 Scalar_Saturate( f64 value ) noexcept { return Scalar_Clamp( value, 0.0, 1.0
 
 f32 Scalar_Sign( f32 value ) noexcept
 {
+    // Boolean subtraction produces -1, 0, or +1 without treating zero as positive.
     return static_cast<f32>( ( 0.0f < value ) - ( value < 0.0f ) );
 }
 
@@ -190,6 +193,8 @@ f32 Scalar_Repeat( f32 value, f32 length ) noexcept
         return 0.0f;
     }
 
+    // Floor, rather than fmod, keeps negative inputs in the canonical [0, length)
+    // interval used for angles and periodic editor values.
     const f32 repeated = value - std::floor( value / length ) * length;
     return repeated < length ? repeated : 0.0f;
 }
@@ -228,12 +233,14 @@ f32 Scalar_Remap(
 f32 Scalar_SmoothStep( f32 edge0, f32 edge1, f32 value ) noexcept
 {
     const f32 t = Scalar_Saturate( Scalar_InverseLerp( edge0, edge1, value ) );
+    // Cubic Hermite polynomial with zero first derivative at both endpoints.
     return t * t * ( 3.0f - 2.0f * t );
 }
 
 f32 Scalar_SmootherStep( f32 edge0, f32 edge1, f32 value ) noexcept
 {
     const f32 t = Scalar_Saturate( Scalar_InverseLerp( edge0, edge1, value ) );
+    // Quintic form also drives the second derivative to zero at both endpoints.
     return t * t * t * ( t * ( t * 6.0f - 15.0f ) + 10.0f );
 }
 

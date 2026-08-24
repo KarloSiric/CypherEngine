@@ -29,15 +29,15 @@ namespace cypher::math
 {
 
 struct quantized_vec3_t {
-    u32 x;
-    u32 y;
-    u32 z;
+    u32 x; // Encoded X code using the caller-selected bit width.
+    u32 y; // Encoded Y code using the caller-selected bit width.
+    u32 z; // Encoded Z code using the caller-selected bit width.
 };
 
 // The largest quaternion component is reconstructed as nonnegative.
 struct quantized_quat_t {
-    u32 largestComponent;
-    u32 components[3];
+    u32 largestComponent; // Index [0, 3] of the omitted quaternion component.
+    u32 components[3];    // Encoded remaining components in original order.
 };
 
 CYPHER_NODISCARD CYPHER_MATH_API u32 Quantization_MaxCode(

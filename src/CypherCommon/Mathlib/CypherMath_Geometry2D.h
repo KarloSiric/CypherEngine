@@ -29,41 +29,41 @@ namespace cypher::math
 using common::usize;
 
 struct segment2_t {
-    vec2_t start;
-    vec2_t end;
+    vec2_t start; // Point at normalized parameter zero.
+    vec2_t end;   // Point at normalized parameter one.
 };
 
 enum class segment2_intersection_kind_t : common::u8 {
-    NONE = 0u,
-    POINT,
-    OVERLAP,
-    COUNT
+    NONE = 0u, // Segments share no point within tolerance.
+    POINT,     // Segments meet at one point.
+    OVERLAP,   // Collinear segments share a finite interval.
+    COUNT      // Enum bound; not a query result.
 };
 
 struct segment2_intersection_t {
-    segment2_intersection_kind_t kind;
-    vec2_t point0;
-    vec2_t point1;
-    f32 parameterA0;
-    f32 parameterA1;
-    f32 parameterB0;
-    f32 parameterB1;
+    segment2_intersection_kind_t kind; // Selects which result fields are meaningful.
+    vec2_t point0;                     // Point hit or first overlap endpoint.
+    vec2_t point1;                     // Second overlap endpoint; equals point0 for POINT.
+    f32 parameterA0;                   // point0 parameter on segment A.
+    f32 parameterA1;                   // point1 parameter on segment A.
+    f32 parameterB0;                   // point0 parameter on segment B.
+    f32 parameterB1;                   // point1 parameter on segment B.
 };
 
 enum class polygon_triangulation_status_t : common::u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    DEGENERATE,
-    NOT_SIMPLE,
-    INSUFFICIENT_OUTPUT,
-    INSUFFICIENT_SCRATCH,
-    COUNT
+    OK = 0u,           // Complete triangle index list was written.
+    INVALID_ARGUMENT,  // Pointer, count, or tolerance contract failed.
+    DEGENERATE,        // Polygon has no stable signed area.
+    NOT_SIMPLE,        // Non-adjacent polygon edges intersect.
+    INSUFFICIENT_OUTPUT, // Output cannot hold 3 * (vertexCount - 2) indices.
+    INSUFFICIENT_SCRATCH, // Scratch cannot hold one index per input vertex.
+    COUNT              // Enum bound; not returned.
 };
 
 struct polygon_triangulation_result_t {
-    polygon_triangulation_status_t status;
-    usize cTriangles;
-    usize cIndicesWritten;
+    polygon_triangulation_status_t status; // Completion state.
+    usize cTriangles;                      // Number of complete triangles emitted.
+    usize cIndicesWritten;                 // Valid prefix in the output index array.
 };
 
 CYPHER_NODISCARD CYPHER_MATH_API f64 Geometry2D_Orientation(
@@ -74,6 +74,7 @@ CYPHER_NODISCARD CYPHER_MATH_API segment2_intersection_t
 Geometry2D_IntersectSegments(
     segment2_t a, segment2_t b, f32 tolerance ) noexcept;
 
+// Polygon predicates -------------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API f64 Polygon2_SignedArea(
     CY_IN_READS( cVertices ) const vec2_t *pVertices,
     usize cVertices ) noexcept;

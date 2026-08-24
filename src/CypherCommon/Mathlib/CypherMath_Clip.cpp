@@ -60,6 +60,8 @@ polygon_clip_result_t Clip_PolygonAgainstPlane(
         return result;
     }
 
+    // Sutherland-Hodgman treats the polygon as a closed edge loop, so the
+    // first examined edge runs from the final input vertex to vertex zero.
     vec3_t previous = pVertices[cVertices - 1u];
     if ( !Vec3_IsFinite( previous ) ) {
         return result;
@@ -76,6 +78,8 @@ polygon_clip_result_t Clip_PolygonAgainstPlane(
         const bool_t bCurrentInside = currentDistance <= insideTolerance;
 
         if ( bCurrentInside != bPreviousInside ) {
+            // An inside/outside transition contributes the point where the
+            // edge crosses the tolerated plane boundary.
             const f64 denominator =
                 static_cast<f64>( currentDistance ) - previousDistance;
             if ( denominator != 0.0 ) {
@@ -135,8 +139,8 @@ bool_t Clip_TrySegmentAgainstConvexPlanes(
     }
 
     const vec3_t direction = Segment_Direction( segment );
-    f64 enter = 0.0;
-    f64 exit = 1.0;
+    f64 enter = 0.0; // Earliest surviving parameter on the segment.
+    f64 exit = 1.0;  // Latest surviving parameter on the segment.
     for ( usize i = 0u; i < cPlanes; ++i ) {
         if ( !Plane_IsFinite( pPlanes[i] ) ) {
             return false;
@@ -144,6 +148,8 @@ bool_t Clip_TrySegmentAgainstConvexPlanes(
         const f64 startDistance = Plane_SignedDistance( pPlanes[i], segment.start );
         const f64 denominator = Vec3_Dot( pPlanes[i].normal, direction );
         if ( std::abs( denominator ) <= minimumAbsDenominator ) {
+            // A parallel segment is either wholly outside this half-space or
+            // imposes no additional restriction on the current interval.
             if ( startDistance > insideTolerance ) {
                 return false;
             }

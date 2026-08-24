@@ -29,9 +29,9 @@ namespace cypher::math
 {
 
 struct transform_t {
-    vec3_t position;
-    quat_t rotation;
-    vec3_t scale;
+    vec3_t position; // Translation applied after scale and rotation.
+    quat_t rotation; // Unit orientation quaternion.
+    vec3_t scale;    // Per-axis local scale; negative values encode reflection.
 };
 
 inline constexpr transform_t CY_TRANSFORM_IDENTITY{
@@ -40,6 +40,7 @@ inline constexpr transform_t CY_TRANSFORM_IDENTITY{
     CY_VEC3_ONE
 };
 
+// Queries and application --------------------------------------------------------
 CYPHER_NODISCARD constexpr transform_t Transform_Make(
     vec3_t position, quat_t rotation, vec3_t scale ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Transform_IsFinite(
@@ -62,6 +63,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Transform_TryInverseDirection(
     transform_t transform, vec3_t direction, f32 minimumAbsScale,
     CY_OUT vec3_t *pLocalDirection ) noexcept;
 
+// Conversion and composition -----------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API affine3_t Transform_ToAffine3(
     transform_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API mat4_t Transform_ToMat4(

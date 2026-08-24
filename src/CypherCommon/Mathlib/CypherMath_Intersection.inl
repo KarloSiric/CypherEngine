@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Intersection Template Definitions
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_INTERSECTION_INL
 #define CYPHER_COMMON_MATH_INTERSECTION_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// Primitive aliases retain the inclusive touching behavior of their source APIs.
 constexpr bool_t Intersection_AabbAabb( aabb_t a, aabb_t b ) noexcept
 {
     return Aabb_Overlaps( a, b );

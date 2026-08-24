@@ -22,6 +22,10 @@
 namespace cypher::math
 {
 
+//==========================================================================
+// Validation and basic measurements
+//==========================================================================
+
 bool_t Ray_IsFinite( ray_t ray ) noexcept
 {
     return Vec3_IsFinite( ray.origin ) && Vec3_IsFinite( ray.direction );
@@ -55,6 +59,8 @@ bool_t Ray_TryNormalizeDirection(
     }
     *pNormalized = Ray_Make( ray.origin, CY_VEC3_ZERO );
 
+    // The original length is returned separately because normalization changes
+    // the parameterization of PointAt while preserving the geometric ray.
     vec3_t direction{};
     if ( !Vec3_IsFinite( ray.origin ) ||
          !Vec3_TryNormalize(
@@ -96,6 +102,8 @@ bool_t Ray_TryClosestParameterToPoint(
              &unitDirection, &directionLength ) ) {
         return false;
     }
+    // Projection onto the normalized direction is measured in world units;
+    // divide by the original length to recover the source ray parameter.
     const f32 lineParameter = Vec3_Dot(
         Vec3_Subtract( point, ray.origin ), unitDirection ) /
         directionLength;
@@ -108,8 +116,10 @@ vec3_t Segment_ClosestPoint( segment_t segment, vec3_t point ) noexcept
     const vec3_t direction = Segment_Direction( segment );
     const f32 denominator = Vec3_LengthSquared( direction );
     if ( !Scalar_IsFinite( denominator ) || denominator <= 0.0f ) {
+        // A zero-length segment has one valid closest point: its shared endpoint.
         return segment.start;
     }
+    // Saturating the line projection restricts the result to the segment.
     const f32 t = Scalar_Saturate(
         Vec3_Dot( Vec3_Subtract( point, segment.start ), direction ) /
         denominator );

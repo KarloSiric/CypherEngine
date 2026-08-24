@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Angle Implementation Notes
+
+Angle helpers make degree/radian conversion explicit and normalize only when the called
+operation promises it.
+================
+*/
+
 #include "CypherMath_Angle.h"
 #include "CypherCommon_Assert.h"
 
@@ -28,16 +37,19 @@ bool_t Angle_IsFinite( angle_t angle ) noexcept
 
 angle_t Angle_NormalizePositive( angle_t angle ) noexcept
 {
+    // Canonical positive range is [0, 2*pi).
     return Angle_FromRadians( Scalar_WrapRadiansPositive( angle.radians ) );
 }
 
 angle_t Angle_NormalizeSigned( angle_t angle ) noexcept
 {
+    // Canonical signed range is [-pi, pi).
     return Angle_FromRadians( Scalar_WrapRadiansSigned( angle.radians ) );
 }
 
 angle_t Angle_ShortestDelta( angle_t from, angle_t to ) noexcept
 {
+    // Wrapping the raw difference selects the shortest signed turn.
     return Angle_NormalizeSigned( Angle_Subtract( to, from ) );
 }
 
@@ -59,6 +71,7 @@ bool_t Angle_NearlyEquivalent(
     if ( !bValidTolerance || !Angle_IsFinite( a ) || !Angle_IsFinite( b ) ) {
         return false;
     }
+    // Compare modulo a full turn rather than comparing stored radians directly.
     return Scalar_Abs( Angle_ShortestDelta( a, b ).radians ) <= toleranceRadians;
 }
 

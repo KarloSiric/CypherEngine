@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Scalar Contract
+
+Scalar helpers state their domain, clamping, and precision behavior explicitly. Callers choose
+tolerances; the library does not hide unit conversions or exceptional values.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_SCALAR_H
 #define CYPHER_COMMON_MATH_SCALAR_H
 #ifndef PRAGMA_ONCE
@@ -32,6 +41,7 @@ using common::bool_t;
 using common::f32;
 using common::f64;
 
+// Single-precision angular constants used by runtime geometry.
 inline constexpr f32 CY_PI_F = 3.14159265358979323846f;
 inline constexpr f32 CY_TAU_F = 6.28318530717958647692f;
 inline constexpr f32 CY_HALF_PI_F = 1.57079632679489661923f;
@@ -39,12 +49,14 @@ inline constexpr f32 CY_QUARTER_PI_F = 0.78539816339744830962f;
 inline constexpr f32 CY_DEGREES_TO_RADIANS_F = CY_PI_F / 180.0f;
 inline constexpr f32 CY_RADIANS_TO_DEGREES_F = 180.0f / CY_PI_F;
 
+// Double-precision counterparts used by robust authoring calculations.
 inline constexpr f64 CY_PI_D = 3.14159265358979323846264338327950288;
 inline constexpr f64 CY_TAU_D = 6.28318530717958647692528676655900576;
 inline constexpr f64 CY_HALF_PI_D = 1.57079632679489661923132169163975144;
 inline constexpr f64 CY_DEGREES_TO_RADIANS_D = CY_PI_D / 180.0;
 inline constexpr f64 CY_RADIANS_TO_DEGREES_D = 180.0 / CY_PI_D;
 
+// Trivial constexpr arithmetic ---------------------------------------------------
 CYPHER_NODISCARD constexpr f32 Scalar_Square( f32 value ) noexcept
 {
     return value * value;
@@ -85,6 +97,22 @@ CYPHER_NODISCARD constexpr f64 Scalar_Lerp( f64 a, f64 b, f64 t ) noexcept
     return a + ( b - a ) * t;
 }
 
+#define CY_MATH_DEG2RAD( value ) \
+    ( ::cypher::math::Scalar_DegreesToRadians( value ) )
+
+#define CY_MATH_RAD2DEG( value ) \
+    ( ::cypher::math::Scalar_RadiansToDegrees( value ) )
+
+#define CY_MATH_CLAMP(value, minimum, maximum) \
+    (::cypher::math::Scalar_Clamp((value), (minimum), (maximum)))
+
+#define CY_MATH_SATURATE(value) \
+    (::cypher::math::Scalar_Saturate((value)))
+
+#define CY_MATH_LERP(a, b, t) \
+    (::cypher::math::Scalar_Lerp((a), (b), (t)))
+
+// Classification and tolerance comparisons -------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Scalar_IsFinite( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Scalar_IsFinite( f64 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Scalar_IsNan( f32 value ) noexcept;
@@ -98,6 +126,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Scalar_IsNearZero(
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Scalar_IsNearZero(
     f64 value, f64 tolerance ) noexcept;
 
+// Bounded arithmetic -------------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Abs( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Abs( f64 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Min( f32 a, f32 b ) noexcept;
@@ -113,6 +142,7 @@ CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Saturate( f64 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Sign( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Sign( f64 value ) noexcept;
 
+// Transcendental wrappers --------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Sqrt( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Sqrt( f64 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_InvSqrt( f32 value ) noexcept;
@@ -126,6 +156,7 @@ CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_AsinClamped( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_AcosClamped( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Atan2( f32 y, f32 x ) noexcept;
 
+// Rounding and wrapping ----------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Floor( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Ceil( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Round( f32 value ) noexcept;
@@ -135,6 +166,7 @@ CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Repeat( f32 value, f32 length ) noex
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_WrapRadiansPositive( f32 radians ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_WrapRadiansSigned( f32 radians ) noexcept;
 
+// Mapping and smooth motion ------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_InverseLerp(
     f32 a, f32 b, f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Remap(

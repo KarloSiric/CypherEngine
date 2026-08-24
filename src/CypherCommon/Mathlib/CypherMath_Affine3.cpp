@@ -22,6 +22,10 @@
 namespace cypher::math
 {
 
+//==========================================================================
+// Component access
+//==========================================================================
+
 f32 Affine3_Component( affine3_t value, u32 row, u32 column ) noexcept
 {
     const bool_t bValidIndex = row < 3u && column < 4u;
@@ -69,6 +73,8 @@ bool_t Affine3_NearlyEquals(
     return true;
 }
 
+// Normals use the inverse transpose of the linear block. Applying the affine
+// matrix directly would produce incorrect results under non-uniform scale.
 bool_t Affine3_TryTransformNormal(
     affine3_t transform,
     vec3_t normal,
@@ -114,6 +120,7 @@ affine3_t Affine3_FromTRS(
     vec3_t scale ) noexcept
 {
     const mat3_t rotation = Mat3_FromQuaternion( unitRotation );
+    // Scale the basis columns so translation remains isolated in column three.
     return Affine3_FromColumns(
         Vec3_Scale( Mat3_Column( rotation, 0u ), scale.x ),
         Vec3_Scale( Mat3_Column( rotation, 1u ), scale.y ),
@@ -139,6 +146,7 @@ bool_t Affine3_TryInverse(
              &inverseLinear ) ) {
         return false;
     }
+    // For x' = Lx + t, the inverse translation is -(L^-1)t.
     const vec3_t inverseTranslation = Vec3_Negate(
         Mat3_TransformVector( inverseLinear, Affine3_Translation( value ) ) );
     const affine3_t inverse = Affine3_FromColumns(
@@ -164,6 +172,7 @@ bool_t Affine3_TryFromMat4(
         return false;
     }
     *pAffine = CY_AFFINE3_IDENTITY;
+    // Reject projective matrices; dropping their final row would change meaning.
     if ( !Mat4_IsAffine( value, affineTolerance ) ) {
         return false;
     }

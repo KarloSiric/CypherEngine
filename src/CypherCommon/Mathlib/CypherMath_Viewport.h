@@ -29,22 +29,22 @@ namespace cypher::math
 {
 
 enum class viewport_origin_t : common::u8 {
-    TOP_LEFT = 0u,
-    BOTTOM_LEFT,
-    COUNT
+    TOP_LEFT = 0u, // Screen Y increases downward, matching common UI coordinates.
+    BOTTOM_LEFT,   // Screen Y increases upward, matching OpenGL viewport coordinates.
+    COUNT          // Enum bound; not a valid origin policy.
 };
 
 struct viewport_rect_t {
-    f32 x;
-    f32 y;
-    f32 width;
-    f32 height;
+    f32 x;      // Screen-space left coordinate.
+    f32 y;      // Screen-space origin under viewport_origin_t.
+    f32 width;  // Positive horizontal extent.
+    f32 height; // Positive vertical extent.
 };
 
 struct viewport_projection_t {
-    vec3_t screen;
-    f32 clipW;
-    bool_t bInsideClipVolume;
+    vec3_t screen;             // Pixel X/Y and normalized [0, 1] depth.
+    f32 clipW;                 // Homogeneous W before perspective division.
+    bool_t bInsideClipVolume;  // True when all NDC coordinates are in range.
 };
 
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Viewport_IsValid(

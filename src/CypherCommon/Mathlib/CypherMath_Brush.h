@@ -28,16 +28,16 @@ namespace cypher::math
 {
 
 enum class brush_build_status_t : common::u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    DEGENERATE,
-    INSUFFICIENT_CAPACITY,
-    COUNT
+    OK = 0u,             // Complete requested geometry was written.
+    INVALID_ARGUMENT,    // Plane set, tolerance, or output contract is invalid.
+    DEGENERATE,          // Planes do not define stable finite brush geometry.
+    INSUFFICIENT_CAPACITY, // Caller output cannot hold all unique vertices.
+    COUNT                // Enum bound; not returned.
 };
 
 struct brush_vertex_result_t {
-    brush_build_status_t status;
-    usize cVerticesWritten;
+    brush_build_status_t status; // Completion state.
+    usize cVerticesWritten;      // Valid prefix in the caller output array.
 };
 
 CYPHER_NODISCARD CYPHER_MATH_API usize Brush_MaximumVertexCandidates(

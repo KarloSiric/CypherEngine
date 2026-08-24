@@ -25,8 +25,8 @@ namespace cypher::math
 namespace
 {
 
-constexpr f32 CY_QUAT_SLERP_LINEAR_THRESHOLD = 0.9995f;
-constexpr f32 CY_QUAT_OPPOSITE_DOT_THRESHOLD = -0.999999f;
+constexpr f32 CY_QUAT_SLERP_LINEAR_THRESHOLD = 0.9995f; // Avoid tiny sin(angle) division.
+constexpr f32 CY_QUAT_OPPOSITE_DOT_THRESHOLD = -0.999999f; // Treat nearly antiparallel vectors as 180 degrees.
 
 CYPHER_NODISCARD bool_t Quat_ValidTolerance( f32 tolerance ) noexcept
 {
@@ -38,6 +38,8 @@ CYPHER_NODISCARD bool_t Quat_NormalizeFinite(
     quat_t *pNormalized,
     f32 *pLength ) noexcept
 {
+    // Scale before computing length so extreme finite components do not create
+    // an infinite or zero intermediate norm.
     const f32 maximumComponent = Scalar_Max(
         Scalar_Max( Scalar_Abs( value.x ), Scalar_Abs( value.y ) ),
         Scalar_Max( Scalar_Abs( value.z ), Scalar_Abs( value.w ) ) );
@@ -70,6 +72,8 @@ CYPHER_NODISCARD quat_t Quat_FromRotationColumns(
     const f32 m22 = column2.z;
 
     quat_t result{};
+    // Choose the matrix-to-quaternion branch with the largest stable diagonal
+    // term, avoiding division by a small component near 180-degree rotations.
     const f32 trace = m00 + m11 + m22;
     if ( trace > 0.0f ) {
         const f32 scale = 2.0f * Scalar_Sqrt( trace + 1.0f );
@@ -226,6 +230,7 @@ bool_t Quat_TryInverse(
     if ( !Quat_TryNormalize( value, minimumLength, &unit, &length ) ) {
         return false;
     }
+    // conjugate(q) / |q|^2; unit is q / |q|, so one further |q| division remains.
     *pInverse = Quat_Scale( Quat_Conjugate( unit ), 1.0f / length );
     return Quat_IsFinite( *pInverse );
 }
@@ -248,6 +253,7 @@ bool_t Quat_IsUnit( quat_t value, f32 tolerance ) noexcept
 
 vec3_t Quat_RotateVectorUnit( quat_t unitRotation, vec3_t value ) noexcept
 {
+    // Expanded q * v * conjugate(q) avoids constructing two temporary quaternions.
     const vec3_t quaternionVector = Quat_VectorPart( unitRotation );
     const vec3_t doubledCross = Vec3_Scale(
         Vec3_Cross( quaternionVector, value ), 2.0f );
@@ -409,6 +415,8 @@ bool_t Quat_TryFromToRotation(
         return true;
     }
     if ( dot <= CY_QUAT_OPPOSITE_DOT_THRESHOLD ) {
+        // Antiparallel vectors have infinitely many valid axes; choose a stable
+        // perpendicular deterministically and rotate by exactly pi.
         vec3_t axis{};
         if ( !Vec3_TryBuildUnitPerpendicular( unitFrom, 0.0f, &axis ) ) {
             return false;
@@ -447,6 +455,7 @@ bool_t Quat_TryLookRotation(
              nullptr ) ) {
         return false;
     }
+    // Recompute up from the normalized forward/left pair to remove skew in the hint.
     const vec3_t unitUp = Vec3_Cross( unitForward, unitLeft );
     *pRotation = Quat_FromRotationColumns( unitForward, unitLeft, unitUp );
     return true;
@@ -484,6 +493,8 @@ quat_t Quat_Slerp( quat_t a, quat_t b, f32 t ) noexcept
 
     f32 dot = Quat_Dot( unitA, unitB );
     if ( dot < 0.0f ) {
+        // q and -q represent the same orientation. Pick the same hemisphere so
+        // interpolation follows the shortest arc.
         unitB = Quat_Negate( unitB );
         dot = -dot;
     }

@@ -77,6 +77,9 @@ bool_t Gizmo_TryHitAxis(
     const f64 denominator = 1.0 - directionDot * directionDot;
     f64 rayDistance = 0.0;
     f64 axisDistance = axisProjection;
+
+    // Solve the closest points on two infinite lines. Near-parallel lines use
+    // the ray origin as the stable fallback; picking still tests separation.
     if ( denominator > relativeParallelTolerance ) {
         rayDistance =
             ( directionDot * axisProjection - rayProjection ) / denominator;
@@ -143,6 +146,9 @@ bool_t Gizmo_TryHitPlane(
              &normal, nullptr ) ) {
         return false;
     }
+
+    // Rebuild V from the normalized plane normal so skewed caller axes become
+    // an orthonormal coordinate frame for the rectangular handle.
     unitV = Vec3_Cross( normal, unitU );
 
     plane_t plane{};
@@ -207,6 +213,8 @@ bool_t Gizmo_TryHitRing(
         return false;
     }
     
+    // Intersect the ring plane first, then accept only points in the annulus
+    // [radius - halfThickness, radius + halfThickness].
     const vec3_t radial = Vec3_Subtract( point, center );
     const f32 radialDistance = Vec3_Length( radial );
     if ( !Scalar_IsFinite( radialDistance ) ||

@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Vector2 Template Definitions
+
+Operations follow CypherMath coordinate, storage, and multiplication conventions. Inputs may
+alias only where documented, and normalization handles degenerate values explicitly. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_VECTOR2_INL
 #define CYPHER_COMMON_MATH_VECTOR2_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// Direct component operations are constexpr and leave validation to checked APIs.
 constexpr vec2_t Vec2_Make( f32 x, f32 y ) noexcept { return { x, y }; }
 constexpr vec2_t Vec2_Splat( f32 value ) noexcept { return { value, value }; }
 constexpr bool_t Vec2_EqualsExact( vec2_t a, vec2_t b ) noexcept
@@ -70,6 +82,7 @@ constexpr f32 Vec2_Dot( vec2_t a, vec2_t b ) noexcept
 }
 constexpr f32 Vec2_Cross( vec2_t a, vec2_t b ) noexcept
 {
+    // The scalar determinant is positive when b is counter-clockwise from a.
     return a.x * b.y - a.y * b.x;
 }
 constexpr f32 Vec2_LengthSquared( vec2_t value ) noexcept { return Vec2_Dot( value, value ); }

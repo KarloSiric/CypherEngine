@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Transform Template Definitions
+
+Operations follow CypherMath coordinate, storage, and multiplication conventions. Inputs may
+alias only where documented, and normalization handles degenerate values explicitly. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_TRANSFORM_INL
 #define CYPHER_COMMON_MATH_TRANSFORM_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// This constructor preserves caller values verbatim; validation is a separate query.
 constexpr transform_t Transform_Make(
     vec3_t position,
     quat_t rotation,

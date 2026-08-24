@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Angle Contract
+
+Angle helpers make degree/radian conversion explicit and normalize only when the called
+operation promises it.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_ANGLE_H
 #define CYPHER_COMMON_MATH_ANGLE_H
 #ifndef PRAGMA_ONCE
@@ -29,13 +38,13 @@ namespace cypher::math
 {
 
 struct angle_t {
-    f32 radians;
+    f32 radians; // Stored unit; conversion to degrees is always explicit.
 };
 
-inline constexpr angle_t CY_ANGLE_ZERO{ 0.0f };
-inline constexpr angle_t CY_ANGLE_QUARTER_TURN{ CY_HALF_PI_F };
-inline constexpr angle_t CY_ANGLE_HALF_TURN{ CY_PI_F };
-inline constexpr angle_t CY_ANGLE_FULL_TURN{ CY_TAU_F };
+inline constexpr angle_t CY_ANGLE_ZERO{ 0.0f };                  // 0 degrees.
+inline constexpr angle_t CY_ANGLE_QUARTER_TURN{ CY_HALF_PI_F };  // 90 degrees.
+inline constexpr angle_t CY_ANGLE_HALF_TURN{ CY_PI_F };          // 180 degrees.
+inline constexpr angle_t CY_ANGLE_FULL_TURN{ CY_TAU_F };         // 360 degrees.
 
 CYPHER_NODISCARD constexpr angle_t Angle_FromRadians( f32 radians ) noexcept
 {
@@ -77,6 +86,7 @@ CYPHER_NODISCARD constexpr angle_t Angle_Negate( angle_t angle ) noexcept
     return Angle_FromRadians( -angle.radians );
 }
 
+// Wrapped comparison and interpolation ------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Angle_IsFinite( angle_t angle ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API angle_t Angle_NormalizePositive( angle_t angle ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API angle_t Angle_NormalizeSigned( angle_t angle ) noexcept;

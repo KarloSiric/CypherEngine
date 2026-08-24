@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Bounds Implementation Notes
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state.
+================
+*/
+
 #include "CypherMath_Bounds.h"
 #include "CypherMath_Scalar.h"
 #include "CypherCommon_Assert.h"
@@ -34,6 +43,7 @@ bool_t Aabb_IsValid( aabb_t bounds ) noexcept
 
 aabb_t Aabb_FromCenterExtents( vec3_t center, vec3_t extents ) noexcept
 {
+    // Negative authored extents collapse to zero instead of reversing bounds.
     const vec3_t nonnegativeExtents = Vec3_Max( extents, CY_VEC3_ZERO );
     return Aabb_Make(
         Vec3_Subtract( center, nonnegativeExtents ),
@@ -57,6 +67,7 @@ aabb_t Aabb_ExpandAabb( aabb_t bounds, aabb_t other ) noexcept
 
 aabb_t Aabb_Union( aabb_t a, aabb_t b ) noexcept
 {
+    // Empty is the identity element for union.
     if ( Aabb_IsEmpty( a ) ) {
         return b;
     }
@@ -70,6 +81,7 @@ aabb_t Aabb_Union( aabb_t a, aabb_t b ) noexcept
 
 aabb_t Aabb_Intersection( aabb_t a, aabb_t b ) noexcept
 {
+    // Disjoint boxes return the canonical reversed-extrema sentinel.
     if ( !Aabb_Overlaps( a, b ) ) {
         return CY_AABB_EMPTY;
     }
@@ -117,6 +129,7 @@ vec3_t Aabb_Corner( aabb_t bounds, u32 iCorner ) noexcept
     if ( !bValidIndex || Aabb_IsEmpty( bounds ) ) {
         return CY_VEC3_ZERO;
     }
+    // Corner bits select maximum X, Y, and Z respectively.
     return Vec3_Make(
         ( iCorner & 1u ) != 0u ? bounds.maximum.x : bounds.minimum.x,
         ( iCorner & 2u ) != 0u ? bounds.maximum.y : bounds.minimum.y,
@@ -141,6 +154,8 @@ aabb_t Aabb_TransformAffine( aabb_t bounds, affine3_t transform ) noexcept
         return CY_AABB_EMPTY;
     }
 
+    // Transform center directly. Absolute basis columns accumulate the maximum
+    // contribution of each source extent without enumerating eight corners.
     const vec3_t center = Affine3_TransformPoint(
         transform, Aabb_Center( bounds ) );
     const vec3_t sourceExtents = Aabb_Extents( bounds );

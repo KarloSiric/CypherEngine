@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Vector4 Template Definitions
+
+Operations follow CypherMath coordinate, storage, and multiplication conventions. Inputs may
+alias only where documented, and normalization handles degenerate values explicitly. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_VECTOR4_INL
 #define CYPHER_COMMON_MATH_VECTOR4_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// Direct component operations do not guard division or normalize exceptional values.
 constexpr vec4_t Vec4_Make( f32 x, f32 y, f32 z, f32 w ) noexcept
 {
     return { x, y, z, w };

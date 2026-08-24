@@ -130,6 +130,8 @@ f32 Mat4_Determinant( mat4_t value ) noexcept
         }
     }
 
+    // Gaussian elimination with partial pivoting converts the matrix to upper
+    // triangular form; the determinant is the signed product of its pivots.
     f64 determinant = 1.0;
     f64 sign = 1.0;
     for ( u32 pivotColumn = 0u; pivotColumn < 4u; ++pivotColumn ) {
@@ -186,6 +188,8 @@ bool_t Mat4_TryInverse(
         return false;
     }
 
+    // Gauss-Jordan elimination transforms [M | I] into [I | inverse(M)].
+    // Double work storage reduces error before the final f32 conversion.
     f64 augmented[4][8]{};
     for ( u32 row = 0u; row < 4u; ++row ) {
         for ( u32 column = 0u; column < 4u; ++column ) {
@@ -278,6 +282,9 @@ mat4_t Mat4_FromTRS(
     vec3_t scale ) noexcept
 {
     const mat3_t rotation = Mat3_FromQuaternion( unitRotation );
+
+    // Column-vector convention: scale each rotation basis column and place
+    // translation in column three, producing T * R * S.
     return Mat4_FromColumns(
         Vec4_FromVec3( Vec3_Scale( Mat3_Column( rotation, 0u ), scale.x ), 0.0f ),
         Vec4_FromVec3( Vec3_Scale( Mat3_Column( rotation, 1u ), scale.y ), 0.0f ),
@@ -313,6 +320,7 @@ bool_t Mat4_TryLookAtRH(
     }
     const vec3_t cameraUp = Vec3_Cross( right, forward );
 
+    // A right-handed view looks down local -Z, hence the negated forward row.
     *pView = Mat4_FromRows(
         Vec4_Make( right.x, right.y, right.z, -Vec3_Dot( right, eye ) ),
         Vec4_Make(
@@ -356,6 +364,8 @@ bool_t Mat4_TryPerspectiveRH(
     result.m[Mat4_Index( 1u, 1u )] = focalLength;
     result.m[Mat4_Index( 3u, 2u )] = -1.0f;
 
+    // X/Y projection is shared; only Z mapping differs between OpenGL-style
+    // [-1, 1] depth and zero-to-one depth APIs.
     if ( depthRange == clip_depth_range_t::NEGATIVE_ONE_TO_ONE ) {
         result.m[Mat4_Index( 2u, 2u )] =
             ( farDistance + nearDistance ) / ( nearDistance - farDistance );

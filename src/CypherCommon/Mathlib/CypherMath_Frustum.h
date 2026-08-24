@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Frustum Contract
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_FRUSTUM_H
 #define CYPHER_COMMON_MATH_FRUSTUM_H
 #ifndef PRAGMA_ONCE
@@ -29,21 +38,21 @@ namespace cypher::math
 {
 
 enum class frustum_plane_t : common::u8 {
-    LEFT = 0u,
-    RIGHT,
-    BOTTOM,
-    TOP,
-    NEAR,
-    FAR,
-    COUNT
+    LEFT = 0u, // Inward-facing left side plane.
+    RIGHT,     // Inward-facing right side plane.
+    BOTTOM,    // Inward-facing bottom side plane.
+    TOP,       // Inward-facing top side plane.
+    NEAR,      // Near depth boundary for the selected clip convention.
+    FAR,       // Far depth boundary for the selected clip convention.
+    COUNT      // Number of planes stored by frustum_t.
 };
 
 inline constexpr u32 CY_FRUSTUM_PLANE_COUNT =
-    static_cast<u32>( frustum_plane_t::COUNT );
-inline constexpr u32 CY_FRUSTUM_CORNER_COUNT = 8u;
+    static_cast<u32>( frustum_plane_t::COUNT ); // Six inward half-spaces.
+inline constexpr u32 CY_FRUSTUM_CORNER_COUNT = 8u; // Four near and four far corners.
 
 struct frustum_t {
-    plane_t planes[CY_FRUSTUM_PLANE_COUNT];
+    plane_t planes[CY_FRUSTUM_PLANE_COUNT]; // Indexed by frustum_plane_t.
 };
 
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Frustum_IsFinite(

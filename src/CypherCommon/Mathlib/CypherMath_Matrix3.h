@@ -29,9 +29,10 @@ namespace cypher::math
 {
 
 struct mat3_t {
-    f32 m[9];
+    f32 m[9]; // Column-major: m[column * 3 + row].
 };
 
+// Constants are laid out as three contiguous columns.
 inline constexpr mat3_t CY_MAT3_ZERO{ { 0.0f, 0.0f, 0.0f,
                                         0.0f, 0.0f, 0.0f,
                                         0.0f, 0.0f, 0.0f } };
@@ -39,6 +40,7 @@ inline constexpr mat3_t CY_MAT3_IDENTITY{ { 1.0f, 0.0f, 0.0f,
                                             0.0f, 1.0f, 0.0f,
                                             0.0f, 0.0f, 1.0f } };
 
+// Construction and component access ---------------------------------------------
 CYPHER_NODISCARD constexpr u32 Mat3_Index( u32 row, u32 column ) noexcept;
 CYPHER_NODISCARD constexpr mat3_t Mat3_FromColumns(
     vec3_t column0, vec3_t column1, vec3_t column2 ) noexcept;
@@ -51,6 +53,7 @@ CYPHER_NODISCARD CYPHER_MATH_API f32 Mat3_Component(
 CYPHER_MATH_API void Mat3_SetComponent(
     CY_INOUT mat3_t *pValue, u32 row, u32 column, f32 component ) noexcept;
 
+// Arithmetic ---------------------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Mat3_IsFinite( mat3_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Mat3_NearlyEquals(
     mat3_t a, mat3_t b, f32 absoluteTolerance, f32 relativeTolerance ) noexcept;
@@ -67,6 +70,7 @@ CYPHER_NODISCARD constexpr f32 Mat3_Determinant( mat3_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Mat3_TryInverse(
     mat3_t value, f32 minimumAbsDeterminant, CY_OUT mat3_t *pInverse ) noexcept;
 
+// Rotation and basis helpers -----------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API mat3_t Mat3_FromQuaternion(
     quat_t unitRotation ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Mat3_TryToQuaternion(

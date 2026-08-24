@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Triangle Template Definitions
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_TRIANGLE_INL
 #define CYPHER_COMMON_MATH_TRIANGLE_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// These direct operations preserve winding and do not apply degeneracy policy.
 constexpr triangle3_t Triangle3_Make(
     vec3_t a,
     vec3_t b,
@@ -47,6 +59,7 @@ constexpr vec3_t Triangle3_Centroid( triangle3_t triangle ) noexcept
 constexpr vec3_t Triangle3_NormalUnnormalized(
     triangle3_t triangle ) noexcept
 {
+    // Right-handed edge order makes a->b->c define the front-facing normal.
     return Vec3_Cross(
         Vec3_Subtract( triangle.b, triangle.a ),
         Vec3_Subtract( triangle.c, triangle.a ) );

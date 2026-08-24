@@ -137,6 +137,8 @@ segment2_intersection_t Geometry2D_IntersectSegments(
     const f64 rLengthSquared = Dot2( r, r );
     const f64 sLengthSquared = Dot2( s, s );
 
+    // A zero-length segment is a point query, not a line-line intersection.
+    // Handle all point combinations before using parametric denominators.
     if ( rLengthSquared <= tolerance64 * tolerance64 &&
          sLengthSquared <= tolerance64 * tolerance64 ) {
         if ( Vec2_DistanceSquared( a.start, b.start ) <= tolerance * tolerance ) {
@@ -167,6 +169,7 @@ segment2_intersection_t Geometry2D_IntersectSegments(
             return result;
         }
 
+        // Collinear segments reduce to overlapping parameter intervals on A.
         f64 t0 = SegmentParameter( a, b.start );
         f64 t1 = SegmentParameter( a, b.end );
         if ( t0 > t1 ) {
@@ -269,6 +272,8 @@ bool_t Polygon2_ContainsPoint(
         return false;
     }
 
+    // Even-odd crossing rule: each edge crossing to the right toggles interior
+    // state. Boundary points are resolved first by the caller's policy.
     bool_t bInside = false;
     for ( usize i = 0u, j = cVertices - 1u; i < cVertices; j = i++ ) {
         const segment2_t edge{ pVertices[j], pVertices[i] };
@@ -300,6 +305,7 @@ bool_t Polygon2_IsSimple(
         return false;
     }
 
+    // Non-adjacent edge intersections make the polygon self-intersecting.
     for ( usize i = 0u; i < cVertices; ++i ) {
         const usize iNext = ( i + 1u ) % cVertices;
         if ( Vec2_DistanceSquared( pVertices[i], pVertices[iNext] ) <=
@@ -394,6 +400,9 @@ polygon_triangulation_result_t Polygon2_Triangulate(
 
     usize cRemaining = cVertices;
     usize cWritten = 0u;
+
+    // Ear clipping removes one convex corner at a time when its triangle
+    // contains no remaining polygon vertex.
     while ( cRemaining > 3u ) {
         bool_t bClippedEar = false;
         for ( usize i = 0u; i < cRemaining; ++i ) {

@@ -29,7 +29,7 @@ namespace cypher::math
 {
 
 struct affine3_t {
-    f32 m[12];
+    f32 m[12]; // Four column-major vec3 columns: linear basis then translation.
 };
 
 inline constexpr affine3_t CY_AFFINE3_IDENTITY{ {
@@ -39,6 +39,7 @@ inline constexpr affine3_t CY_AFFINE3_IDENTITY{ {
     0.0f, 0.0f, 0.0f
 } };
 
+// Construction and component access ---------------------------------------------
 CYPHER_NODISCARD constexpr u32 Affine3_Index( u32 row, u32 column ) noexcept;
 CYPHER_NODISCARD constexpr affine3_t Affine3_FromColumns(
     vec3_t column0, vec3_t column1, vec3_t column2,
@@ -52,6 +53,7 @@ CYPHER_NODISCARD constexpr vec3_t Affine3_Column(
 CYPHER_NODISCARD constexpr mat3_t Affine3_LinearPart( affine3_t value ) noexcept;
 CYPHER_NODISCARD constexpr vec3_t Affine3_Translation( affine3_t value ) noexcept;
 
+// Queries and application --------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Affine3_IsFinite(
     affine3_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Affine3_NearlyEquals(
@@ -69,6 +71,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Affine3_TryTransformNormal(
     affine3_t transform, vec3_t normal, f32 minimumAbsDeterminant,
     CY_OUT vec3_t *pTransformed ) noexcept;
 
+// Common transform construction -------------------------------------------------
 CYPHER_NODISCARD constexpr affine3_t Affine3_FromTranslation(
     vec3_t translation ) noexcept;
 CYPHER_NODISCARD constexpr affine3_t Affine3_FromScale( vec3_t scale ) noexcept;
@@ -80,6 +83,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Affine3_TryInverse(
     affine3_t value, f32 minimumAbsDeterminant,
     CY_OUT affine3_t *pInverse ) noexcept;
 
+// Full-matrix conversion ---------------------------------------------------------
 CYPHER_NODISCARD constexpr mat4_t Affine3_ToMat4( affine3_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Affine3_TryFromMat4(
     mat4_t value, f32 affineTolerance, CY_OUT affine3_t *pAffine ) noexcept;

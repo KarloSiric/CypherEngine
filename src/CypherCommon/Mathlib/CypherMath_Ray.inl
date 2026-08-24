@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Ray Template Definitions
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_RAY_INL
 #define CYPHER_COMMON_MATH_RAY_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// Ray t uses the supplied direction scale; segment t is always normalized [0, 1].
 constexpr ray_t Ray_Make( vec3_t origin, vec3_t direction ) noexcept
 {
     return { origin, direction };
@@ -63,6 +75,7 @@ constexpr ray_t Ray_TransformAffine(
     ray_t ray,
     affine3_t transform ) noexcept
 {
+    // Origins transform as points while directions intentionally omit translation.
     return Ray_Make(
         Affine3_TransformPoint( transform, ray.origin ),
         Affine3_TransformDirection( transform, ray.direction ) );

@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Affine3 Template Definitions
+
+Operations follow CypherMath coordinate, storage, and multiplication conventions. Inputs may
+alias only where documented, and normalization handles degenerate values explicitly. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_AFFINE3_INL
 #define CYPHER_COMMON_MATH_AFFINE3_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// Storage is four contiguous vec3 columns: basis X/Y/Z followed by translation.
 constexpr u32 Affine3_Index( u32 row, u32 column ) noexcept
 {
     return column * 3u + row;
@@ -91,6 +103,7 @@ constexpr vec3_t Affine3_TransformPoint(
 
 constexpr affine3_t Affine3_Multiply( affine3_t a, affine3_t b ) noexcept
 {
+    // Basis columns transform as directions; b translation transforms as a point.
     return Affine3_FromColumns(
         Affine3_TransformDirection( a, Affine3_Column( b, 0u ) ),
         Affine3_TransformDirection( a, Affine3_Column( b, 1u ) ),

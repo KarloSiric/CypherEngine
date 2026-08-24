@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Sphere Implementation Notes
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state.
+================
+*/
+
 #include "CypherMath_Sphere.h"
 #include "CypherMath_Scalar.h"
 
@@ -32,6 +41,8 @@ vec3_t Sphere_ClosestPoint(
     vec3_t point,
     f32 minimumDirectionLength ) noexcept
 {
+    // A point at the center has no unique radial direction; return the center
+    // rather than selecting an arbitrary axis.
     const vec3_t offset = Vec3_Subtract( point, sphere.center );
     vec3_t direction{};
     if ( !Vec3_TryNormalize(
@@ -62,6 +73,7 @@ sphere_t Sphere_FromAabb( aabb_t bounds ) noexcept
     if ( Aabb_IsEmpty( bounds ) ) {
         return CY_SPHERE_ZERO;
     }
+    // The half diagonal reaches every AABB corner and is therefore conservative.
     const vec3_t center = Aabb_Center( bounds );
     return Sphere_Make( center, Vec3_Distance( center, bounds.maximum ) );
 }
@@ -71,6 +83,8 @@ sphere_t Sphere_Merge(
     sphere_t b,
     f32 minimumCenterDistance ) noexcept
 {
+    // Coincident centers and complete containment avoid unstable division and
+    // preserve the existing tighter sphere exactly.
     const vec3_t offset = Vec3_Subtract( b.center, a.center );
     const f32 centerDistance = Vec3_Length( offset );
     if ( centerDistance <= minimumCenterDistance ) {
@@ -83,6 +97,8 @@ sphere_t Sphere_Merge(
         return b;
     }
 
+    // For two exposed spheres, the minimum enclosing diameter spans the two
+    // opposite extreme points along the center line.
     const f32 radius =
         ( centerDistance + a.radius + b.radius ) * 0.5f;
     const f32 shift = ( radius - a.radius ) / centerDistance;
@@ -95,6 +111,8 @@ sphere_t Sphere_TransformAffineConservative(
     sphere_t sphere,
     affine3_t transform ) noexcept
 {
+    // A general affine transform turns a sphere into an ellipsoid. Bound its
+    // spectral norm by sqrt(||A||1 * ||A||inf) to retain a safe sphere.
     const mat3_t linear = Affine3_LinearPart( transform );
     f32 maximumColumnSum = 0.0f;
     f32 maximumRowSum = 0.0f;

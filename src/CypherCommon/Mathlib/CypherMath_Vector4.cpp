@@ -35,6 +35,8 @@ CYPHER_NODISCARD bool_t Vec4_NormalizeFinite(
     vec4_t *pNormalized,
     f32 *pLength ) noexcept
 {
+    // Scale by the largest component before squaring. This avoids overflow for
+    // large finite vectors and underflow for very small finite vectors.
     const f32 maximumComponent = Scalar_Max(
         Scalar_Max( Scalar_Abs( value.x ), Scalar_Abs( value.y ) ),
         Scalar_Max( Scalar_Abs( value.z ), Scalar_Abs( value.w ) ) );
@@ -206,6 +208,9 @@ bool_t Vec4_TryNormalize(
     if ( pOriginalLength != nullptr ) {
         *pOriginalLength = length;
     }
+
+    // Report the measured length even when the caller's degeneracy threshold
+    // rejects the vector; the normalized output remains the documented zero.
     if ( length <= minimumLength ) {
         return false;
     }
@@ -238,6 +243,8 @@ bool_t Vec4_TryPerspectiveDivide(
         return false;
     }
 
+    // Homogeneous projection is undefined at w == 0 and numerically unstable
+    // near it, so the caller supplies the minimum accepted magnitude.
     const f32 inverseW = 1.0f / value.w;
     const vec3_t result = Vec3_Make(
         value.x * inverseW,

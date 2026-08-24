@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Plane Template Definitions
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_PLANE_INL
 #define CYPHER_COMMON_MATH_PLANE_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// Direct equation helpers do not normalize; callers choose that cost explicitly.
 constexpr plane_t Plane_Make( vec3_t normal, f32 d ) noexcept
 {
     return { normal, d };
@@ -48,6 +60,7 @@ constexpr vec3_t Plane_ProjectPointUnit(
     plane_t unitPlane,
     vec3_t point ) noexcept
 {
+    // Subtract the signed metric distance along the unit normal.
     return Vec3_Subtract(
         point,
         Vec3_Scale(

@@ -28,24 +28,24 @@ namespace cypher::math
 {
 
 struct gizmo_axis_hit_t {
-    vec3_t pointOnRay;
-    vec3_t pointOnAxis;
-    f32 rayDistance;
-    f32 axisDistance;
-    f32 separation;
+    vec3_t pointOnRay;  // Closest point on the picking ray.
+    vec3_t pointOnAxis; // Closest point on the infinite gizmo axis.
+    f32 rayDistance;    // Nonnegative world distance along the normalized ray.
+    f32 axisDistance;   // Signed world distance from axisOrigin.
+    f32 separation;     // Distance between the two closest points.
 };
 
 struct gizmo_plane_hit_t {
-    vec3_t point;
-    vec2_t coordinates;
-    f32 rayDistance;
+    vec3_t point;       // World-space point on the handle plane.
+    vec2_t coordinates; // Signed coordinates along uAxis and vAxis.
+    f32 rayDistance;    // Nonnegative world distance along the normalized ray.
 };
 
 struct gizmo_ring_hit_t {
-    vec3_t point;
-    vec3_t radialDirection;
-    f32 rayDistance;
-    f32 radialDistance;
+    vec3_t point;           // World-space point in the ring plane.
+    vec3_t radialDirection; // Unit direction from center to point.
+    f32 rayDistance;        // Nonnegative world distance along the normalized ray.
+    f32 radialDistance;     // Distance from center before ring tolerance testing.
 };
 
 // Ray and axis directions are normalized internally; distances are world units.

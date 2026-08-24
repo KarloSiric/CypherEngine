@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Intersection Contract
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_INTERSECTION_H
 #define CYPHER_COMMON_MATH_INTERSECTION_H
 #ifndef PRAGMA_ONCE
@@ -32,30 +41,31 @@ namespace cypher::math
 {
 
 enum class volume_relation_t : common::u8 {
-    OUTSIDE = 0u,
-    INTERSECTING,
-    INSIDE,
-    COUNT
+    OUTSIDE = 0u, // Primitive lies wholly outside at least one frustum plane.
+    INTERSECTING, // Primitive crosses or touches a frustum boundary.
+    INSIDE,       // Primitive lies wholly inside every frustum half-space.
+    COUNT         // Enum bound; not a classification result.
 };
 
 enum class triangle_cull_mode_t : common::u8 {
-    NONE = 0u,
-    BACK_FACE,
-    FRONT_FACE,
-    COUNT
+    NONE = 0u, // Accept either triangle winding.
+    BACK_FACE, // Reject rays approaching the back side.
+    FRONT_FACE, // Reject rays approaching the front side.
+    COUNT      // Enum bound; not a valid culling policy.
 };
 
 struct ray_interval_t {
-    f32 tEnter;
-    f32 tExit;
+    f32 tEnter; // First accepted parameter along the original ray.
+    f32 tExit;  // Last accepted parameter along the original ray.
 };
 
 struct ray_triangle_hit_t {
-    f32 t;
-    f32 weightB;
-    f32 weightC;
+    f32 t;       // Ray or segment parameter at the hit.
+    f32 weightB; // Barycentric weight for triangle vertex b.
+    f32 weightC; // Barycentric weight for c; weightA = 1 - B - C.
 };
 
+// Ray and segment queries --------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Intersection_RayPlane(
     ray_t ray, plane_t plane, f32 minimumAbsDenominator,
     f32 tMinimum, f32 tMaximum,
@@ -80,6 +90,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Intersection_SegmentTriangle(
     f32 minimumAbsDeterminant, f32 barycentricTolerance,
     CY_OUT ray_triangle_hit_t *pHit ) noexcept;
 
+// Primitive overlap --------------------------------------------------------------
 CYPHER_NODISCARD constexpr bool_t Intersection_AabbAabb(
     aabb_t a, aabb_t b ) noexcept;
 CYPHER_NODISCARD constexpr bool_t Intersection_SphereSphere(
@@ -87,6 +98,7 @@ CYPHER_NODISCARD constexpr bool_t Intersection_SphereSphere(
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Intersection_SphereAabb(
     sphere_t sphere, aabb_t bounds ) noexcept;
 
+// Frustum classification ---------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API volume_relation_t Intersection_FrustumPoint(
     frustum_t frustum, vec3_t point, f32 distanceTolerance ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API volume_relation_t Intersection_FrustumSphere(

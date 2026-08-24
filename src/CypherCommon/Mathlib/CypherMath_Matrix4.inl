@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Matrix4 Template Definitions
+
+Operations follow CypherMath coordinate, storage, and multiplication conventions. Inputs may
+alias only where documented, and normalization handles degenerate values explicitly. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_MATRIX4_INL
 #define CYPHER_COMMON_MATH_MATRIX4_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// Column-major indexing is shared with GPU upload and projection helpers.
 constexpr u32 Mat4_Index( u32 row, u32 column ) noexcept
 {
     return column * 4u + row;
@@ -128,6 +140,7 @@ constexpr vec4_t Mat4_TransformVector4( mat4_t matrix, vec4_t vector ) noexcept
 
 constexpr mat4_t Mat4_Multiply( mat4_t a, mat4_t b ) noexcept
 {
+    // Transform each column of b by a; under column vectors b acts first.
     return Mat4_FromColumns(
         Mat4_TransformVector4( a, Mat4_Column( b, 0u ) ),
         Mat4_TransformVector4( a, Mat4_Column( b, 1u ) ),
@@ -137,6 +150,7 @@ constexpr mat4_t Mat4_Multiply( mat4_t a, mat4_t b ) noexcept
 
 constexpr vec3_t Mat4_TransformPointAffine( mat4_t matrix, vec3_t point ) noexcept
 {
+    // Affine points use w=1, so translation contributes to the result.
     return Vec4_XYZ( Mat4_TransformVector4( matrix, Vec4_FromVec3( point, 1.0f ) ) );
 }
 

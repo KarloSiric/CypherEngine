@@ -29,21 +29,22 @@ namespace cypher::math
 {
 
 enum class plane_side_t : common::u8 {
-    NEGATIVE = 0u,
-    ON_PLANE,
-    POSITIVE,
-    COUNT
+    NEGATIVE = 0u, // Signed distance is below -tolerance.
+    ON_PLANE,      // Absolute signed distance is within tolerance.
+    POSITIVE,      // Signed distance is above +tolerance.
+    COUNT          // Enum bound; not a classification result.
 };
 
 struct plane_t {
-    vec3_t normal;
-    f32 d;
+    vec3_t normal; // Plane orientation; unit length for metric distance queries.
+    f32 d;         // Constant in dot(normal, point) + d = 0.
 };
 
-inline constexpr plane_t CY_PLANE_X{ CY_VEC3_FORWARD, 0.0f };
-inline constexpr plane_t CY_PLANE_Y{ CY_VEC3_LEFT, 0.0f };
-inline constexpr plane_t CY_PLANE_Z{ CY_VEC3_UP, 0.0f };
+inline constexpr plane_t CY_PLANE_X{ CY_VEC3_FORWARD, 0.0f }; // Plane through origin normal to X.
+inline constexpr plane_t CY_PLANE_Y{ CY_VEC3_LEFT, 0.0f };    // Plane through origin normal to Y.
+inline constexpr plane_t CY_PLANE_Z{ CY_VEC3_UP, 0.0f };      // Plane through origin normal to Z.
 
+// Construction and normalization ------------------------------------------------
 CYPHER_NODISCARD constexpr plane_t Plane_Make(
     vec3_t normal, f32 d ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Plane_IsFinite(
@@ -63,6 +64,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Plane_TryFromTriangle(
     vec3_t a, vec3_t b, vec3_t c, f32 minimumTwiceArea,
     CY_OUT plane_t *pPlane ) noexcept;
 
+// Classification and transformation ---------------------------------------------
 // Signed distance is metric only when the plane normal is unit length.
 CYPHER_NODISCARD constexpr f32 Plane_SignedDistance(
     plane_t plane, vec3_t point ) noexcept;

@@ -72,6 +72,8 @@ usize Brush_MaximumVertexCandidates( usize cPlanes ) noexcept
     if ( cPlanes < 3u ) {
         return 0u;
     }
+    // Every unique triple of planes can contribute at most one vertex: C(n, 3).
+    // Perform each product with an overflow guard before dividing by six.
     const usize maximum = std::numeric_limits<usize>::max();
     if ( cPlanes > maximum / ( cPlanes - 1u ) ) {
         return maximum;
@@ -123,6 +125,9 @@ bool_t Brush_TryIntersectPlanes(
     const vec3d_t crossBC = CrossDouble( b.normal, c.normal );
     const vec3d_t crossCA = CrossDouble( c.normal, a.normal );
     const vec3d_t crossAB = CrossDouble( a.normal, b.normal );
+
+    // Cramer's rule solves the three plane equations. A small determinant means
+    // the planes do not define a numerically stable unique point.
     const f64 determinant = DotDouble( a.normal, crossBC );
     if ( std::abs( determinant ) <= minimumAbsDeterminant ) {
         return false;
@@ -165,6 +170,9 @@ brush_vertex_result_t Brush_BuildVertices(
 }
     
     const f32 mergeToleranceSquared = mergeTolerance * mergeTolerance;
+
+    // Enumerate plane triples, then keep only intersections inside every
+    // outward-facing half-space. Spatial merging collapses shared triples.
     for ( usize i = 0u; i + 2u < cPlanes; ++i ) {
         for ( usize j = i + 1u; j + 1u < cPlanes; ++j ) {
             for ( usize k = j + 1u; k < cPlanes; ++k ) {
@@ -242,6 +250,9 @@ brush_vertex_result_t Brush_BuildFacePolygon(
     vec3_t tangent{};
     vec3_t bitangent{};
     Vec3_BuildOrthonormalBasis( face.normal, &tangent, &bitangent );
+
+    // Sort face vertices by polar angle around their centroid. The resulting
+    // winding follows the outward face basis and is ready for triangulation.
     for ( usize i = 1u; i < result.cVerticesWritten; ++i ) {
         const vec3_t value = pOutputVertices[i];
         const vec3_t relative = Vec3_Subtract( value, centroid );

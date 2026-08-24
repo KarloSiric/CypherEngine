@@ -89,6 +89,9 @@ bool_t Viewport_TryProjectPoint(
         return false;
     }
     const f32 inverseW = 1.0f / clip.w;
+
+    // Perspective division moves homogeneous clip coordinates into NDC. Keep
+    // clip W separately because its sign distinguishes points behind the camera.
     const vec3_t ndc = Vec3_Make(
         clip.x * inverseW, clip.y * inverseW, clip.z * inverseW );
     const f32 normalizedX = ndc.x * 0.5f + 0.5f;
@@ -139,6 +142,8 @@ bool_t Viewport_TryUnprojectPoint(
 
     const f32 normalizedX = ( screenPoint.x - viewport.x ) / viewport.width;
     const f32 screenNormalizedY = ( screenPoint.y - viewport.y ) / viewport.height;
+
+    // Window systems usually grow Y downward; graphics NDC grows Y upward.
     const f32 normalizedY = origin == viewport_origin_t::TOP_LEFT
         ? 1.0f - screenNormalizedY
         : screenNormalizedY;
@@ -175,6 +180,9 @@ bool_t Viewport_TryBuildPickingRay(
 
     vec3_t nearPoint{};
     vec3_t farPoint{};
+
+    // A picking ray is the normalized line through the near and far points
+    // produced by the same screen coordinate.
     if ( !Viewport_TryUnprojectPoint(
              clipToWorld, viewport, origin, depthRange,
              Vec3_Make( screenPoint.x, screenPoint.y, 0.0f ),

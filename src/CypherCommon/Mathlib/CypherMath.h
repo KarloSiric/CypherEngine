@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Math Contract
+
+CypherMath is deterministic CPU-side math shared by runtime and tools. Numeric conventions and
+tolerances are part of each public operation's contract.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_H
 #define CYPHER_COMMON_MATH_H
 #ifndef PRAGMA_ONCE

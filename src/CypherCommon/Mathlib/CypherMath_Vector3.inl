@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Vector3 Template Definitions
+
+Operations follow CypherMath coordinate, storage, and multiplication conventions. Inputs may
+alias only where documented, and normalization handles degenerate values explicitly. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 
 #ifndef CYPHER_COMMON_MATH_VECTOR3_INL
 #define CYPHER_COMMON_MATH_VECTOR3_INL
@@ -31,6 +42,7 @@
 namespace cypher::math
 {
 
+// Hot component operations stay visible for constant folding and normal inlining.
 constexpr vec3_t Vec3_Make( f32 x, f32 y, f32 z ) noexcept
 {
     return vec3_t{ x, y, z };
@@ -94,6 +106,7 @@ constexpr f32 Vec3_Dot( vec3_t a, vec3_t b ) noexcept
 
 constexpr vec3_t Vec3_Cross( vec3_t a, vec3_t b ) noexcept
 {
+    // Right-handed cross product under CypherMath's forward/left/up basis.
     return Vec3_Make(
         a.y * b.z - a.z * b.y,
         a.z * b.x - a.x * b.z,

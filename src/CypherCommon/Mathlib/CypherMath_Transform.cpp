@@ -22,6 +22,9 @@
 namespace cypher::math
 {
 
+// transform_t is a convenient TRS representation. Exact composition and inverse
+// operations return affine matrices because non-uniform scale can introduce shear.
+
 bool_t Transform_IsFinite( transform_t value ) noexcept
 {
     return Vec3_IsFinite( value.position ) &&
@@ -61,6 +64,7 @@ bool_t Transform_HasUniformScale( transform_t value, f32 tolerance ) noexcept
 
 vec3_t Transform_TransformPoint( transform_t transform, vec3_t point ) noexcept
 {
+    // Cypher applies local scale first, then rotation, then world translation.
     const vec3_t scaled = Vec3_MultiplyComponents( point, transform.scale );
     return Vec3_Add(
         transform.position,
@@ -105,6 +109,7 @@ bool_t Transform_TryInversePoint(
     const vec3_t unrotated = Quat_InverseRotateVectorUnit(
         transform.rotation,
         Vec3_Subtract( point, transform.position ) );
+    // Component division is valid only after every scale axis passes the guard.
     *pLocalPoint = Vec3_DivideComponents( unrotated, transform.scale );
     return Vec3_IsFinite( *pLocalPoint );
 }
@@ -202,6 +207,7 @@ bool_t Transform_TryFromAffine3(
         Affine3_Column( value, 2u )
     };
     f32 *const pScale[3]{ &scale.x, &scale.y, &scale.z };
+    // Column lengths are scale magnitudes; normalized columns form the rotation basis.
     for ( u32 i = 0u; i < 3u; ++i ) {
         if ( !Vec3_TryNormalize(
                  columns[i], minimumAbsScale, &basis[i], pScale[i] ) ) {
@@ -215,6 +221,8 @@ bool_t Transform_TryFromAffine3(
         return false;
     }
 
+    // A negative orientation contains one reflection. Store that sign on the
+    // largest axis to reduce sensitivity when reconstructing the rotation basis.
     const f32 orientation = Vec3_Dot( basis[0], Vec3_Cross( basis[1], basis[2] ) );
     if ( orientation < 0.0f ) {
         u32 reflectionAxis = 0u;

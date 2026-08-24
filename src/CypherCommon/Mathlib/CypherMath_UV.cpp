@@ -77,6 +77,9 @@ bool_t Uv_TryBuildPlanarMapping(
         return false;
     }
     vec3_t vAxis{};
+
+    // Remove the normal component from the hint so V lies in the surface
+    // plane. Degenerate hints fall back to a deterministic orthonormal basis.
     const vec3_t projectedUp = Vec3_RejectFromUnit( upHint, normal );
     vec3_t uAxis{};
     if ( Vec3_TryNormalize(
@@ -119,6 +122,8 @@ bool_t Uv_TryProjectPlanarPoint(
     }
 
     const vec3_t relative = Vec3_Subtract( worldPoint, mapping.origin );
+
+    // Signed world-units-per-UV values intentionally support mirrored mappings.
     const vec2_t base = Vec2_Make(
         Vec3_Dot( relative, mapping.uAxis ) / mapping.worldUnitsPerUv.x,
         Vec3_Dot( relative, mapping.vAxis ) / mapping.worldUnitsPerUv.y );
@@ -154,6 +159,9 @@ bool_t Uv_TryUnprojectPlanarPoint(
     f32 sine = 0.0f;
     f32 cosine = 0.0f;
     Scalar_SinCos( -mapping.rotation.radians, &sine, &cosine );
+
+    // Undo authored offset and rotation before rebuilding the world-space
+    // position from the planar basis.
     const vec2_t base = Rotate2D(
         Vec2_Subtract( uv, mapping.offset ), sine, cosine );
     vec3_t world = Vec3_MulAdd(

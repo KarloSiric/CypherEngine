@@ -28,31 +28,31 @@ namespace cypher::math
 {
 
 enum class polynomial_solution_count_t : common::u8 {
-    ZERO = 0u,
-    ONE,
-    TWO,
-    INFINITE,
-    COUNT
+    ZERO = 0u, // No real root satisfies the equation.
+    ONE,       // One real root, including a repeated quadratic root.
+    TWO,       // Two distinct real roots.
+    INFINITE,  // All values satisfy a degenerate zero equation.
+    COUNT      // Enum bound; not a solver result.
 };
 
 enum class angular_velocity_space_t : common::u8 {
-    LOCAL = 0u,
-    WORLD,
-    COUNT
+    LOCAL = 0u, // Angular velocity is expressed in body-local axes.
+    WORLD,      // Angular velocity is expressed in world axes.
+    COUNT       // Enum bound; not an integration policy.
 };
 
 struct quadratic_solution_t {
-    polynomial_solution_count_t count;
-    f64 root0;
-    f64 root1;
+    polynomial_solution_count_t count; // Number and interpretation of valid roots.
+    f64 root0;                         // Smaller real root when two exist.
+    f64 root1;                         // Larger real root; equals root0 for one root.
 };
 
 struct segment_closest_points_t {
-    vec3_t pointA;
-    vec3_t pointB;
-    f32 parameterA;
-    f32 parameterB;
-    f32 distanceSquared;
+    vec3_t pointA;       // Closest point on segment A.
+    vec3_t pointB;       // Closest point on segment B.
+    f32 parameterA;      // Normalized [0, 1] parameter on A.
+    f32 parameterB;      // Normalized [0, 1] parameter on B.
+    f32 distanceSquared; // Squared distance between pointA and pointB.
 };
 
 // Solves a*x^2 + b*x + c = 0 and returns sorted real roots.

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Fixed Point Contract
+
+Scalar helpers state their domain, clamping, and precision behavior explicitly. Callers choose
+tolerances; the library does not hide unit conversions or exceptional values.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_FIXEDPOINT_H
 #define CYPHER_COMMON_MATH_FIXEDPOINT_H
 #ifndef PRAGMA_ONCE
@@ -31,13 +40,13 @@ namespace cypher::math
 using common::i32;
 
 struct fixed16_16_t {
-    i32 raw;
+    i32 raw; // Signed value with sixteen integer and sixteen fractional bits.
 };
 
-inline constexpr i32 CY_FIXED16_16_FRACTION_BITS = 16;
-inline constexpr i32 CY_FIXED16_16_SCALE = 1 << CY_FIXED16_16_FRACTION_BITS;
-inline constexpr fixed16_16_t CY_FIXED16_16_ZERO{ 0 };
-inline constexpr fixed16_16_t CY_FIXED16_16_ONE{ CY_FIXED16_16_SCALE };
+inline constexpr i32 CY_FIXED16_16_FRACTION_BITS = 16; // Fractional bit count.
+inline constexpr i32 CY_FIXED16_16_SCALE = 1 << CY_FIXED16_16_FRACTION_BITS; // Raw units per integer.
+inline constexpr fixed16_16_t CY_FIXED16_16_ZERO{ 0 }; // Exact numeric zero.
+inline constexpr fixed16_16_t CY_FIXED16_16_ONE{ CY_FIXED16_16_SCALE }; // Exact numeric one.
 
 CYPHER_NODISCARD constexpr fixed16_16_t Fixed16_16_FromRaw( i32 raw ) noexcept
 {
@@ -49,6 +58,7 @@ CYPHER_NODISCARD constexpr i32 Fixed16_16_Raw( fixed16_16_t value ) noexcept
     return value.raw;
 }
 
+// Checked conversions ------------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Fixed16_16_TryFromI32(
     i32 value, CY_OUT fixed16_16_t *pResult ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Fixed16_16_TryFromF32(
@@ -66,6 +76,7 @@ CYPHER_NODISCARD constexpr f64 Fixed16_16_ToF64( fixed16_16_t value ) noexcept
            static_cast<f64>( CY_FIXED16_16_SCALE );
 }
 
+// Checked arithmetic -------------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Fixed16_16_TryAdd(
     fixed16_16_t a, fixed16_16_t b,
     CY_OUT fixed16_16_t *pResult ) noexcept;
@@ -79,6 +90,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Fixed16_16_TryDivide(
     fixed16_16_t numerator, fixed16_16_t denominator,
     CY_OUT fixed16_16_t *pResult ) noexcept;
 
+// Integral rounding --------------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API i32 Fixed16_16_FloorToI32(
     fixed16_16_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API i32 Fixed16_16_CeilToI32(

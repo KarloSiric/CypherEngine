@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+API Contract
+
+Math symbol visibility is centralized here so scalar and vector types cross library boundaries
+consistently on every supported compiler.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_API_H
 #define CYPHER_COMMON_MATH_API_H
 #ifndef PRAGMA_ONCE

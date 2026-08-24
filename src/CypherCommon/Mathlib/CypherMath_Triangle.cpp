@@ -22,6 +22,10 @@
 namespace cypher::math
 {
 
+//==========================================================================
+// Triangle measurements and coordinates
+//==========================================================================
+
 bool_t Triangle3_IsFinite( triangle3_t triangle ) noexcept
 {
     return Vec3_IsFinite( triangle.a ) &&
@@ -97,6 +101,7 @@ bool_t Triangle3_TryBarycentric(
     const f32 dot20 = Vec3_Dot( offset, edge0 );
     const f32 dot21 = Vec3_Dot( offset, edge1 );
     const f32 denominator = dot00 * dot11 - dot01 * dot01;
+    // The Gram determinant approaches zero as the triangle becomes degenerate.
     if ( !Scalar_IsFinite( denominator ) ||
          Scalar_Abs( denominator ) <= minimumAbsDenominator ) {
         return false;
@@ -127,6 +132,8 @@ bool_t Triangle3_ContainsPoint(
     }
 
     plane_t plane{};
+    // Barycentric coordinates alone describe the projected point, so first make
+    // sure the original point lies inside the plane tolerance band.
     if ( !Triangle3_TryPlane( triangle, minimumTwiceArea, &plane ) ||
          Scalar_Abs( Plane_SignedDistance( plane, point ) ) > planeTolerance ) {
         return false;
@@ -144,6 +151,8 @@ bool_t Triangle3_ContainsPoint(
 
 vec3_t Triangle3_ClosestPoint( triangle3_t triangle, vec3_t point ) noexcept
 {
+    // Test the vertex and edge Voronoi regions in order. Only points left after
+    // all six boundary tests belong to the triangle's interior face region.
     const vec3_t edgeAB = Vec3_Subtract( triangle.b, triangle.a );
     const vec3_t edgeAC = Vec3_Subtract( triangle.c, triangle.a );
     const vec3_t fromA = Vec3_Subtract( point, triangle.a );
@@ -190,6 +199,7 @@ vec3_t Triangle3_ClosestPoint( triangle3_t triangle, vec3_t point ) noexcept
 
     const f32 inverseSum =
         1.0f / ( vertexARegion + vertexBRegion + vertexCRegion );
+    // The remaining signed sub-areas form barycentric weights on the face.
     const f32 weightB = vertexBRegion * inverseSum;
     const f32 weightC = vertexCRegion * inverseSum;
     return Vec3_Add(

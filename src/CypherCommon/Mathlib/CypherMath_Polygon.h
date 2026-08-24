@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Polygon Contract
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_POLYGON_H
 #define CYPHER_COMMON_MATH_POLYGON_H
 #ifndef PRAGMA_ONCE
@@ -28,12 +37,13 @@ namespace cypher::math
 {
 
 struct polygon3_basis_t {
-    vec3_t origin;
-    vec3_t tangent;
-    vec3_t bitangent;
-    vec3_t normal;
+    vec3_t origin;    // Projection origin, normally the first polygon vertex.
+    vec3_t tangent;   // Unit local X axis in the polygon plane.
+    vec3_t bitangent; // Unit local Y axis in the polygon plane.
+    vec3_t normal;    // Unit winding normal, tangent cross bitangent.
 };
 
+// Basis and projection -----------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Polygon3_TryBasis(
     CY_IN_READS( cVertices ) const vec3_t *pVertices,
     usize cVertices,
@@ -54,6 +64,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Polygon3_TryPlane(
     usize cVertices,
     f32 minimumNormalLength,
     CY_OUT plane_t *pPlane ) noexcept;
+// Planar queries and triangulation ----------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Polygon3_TryAreaCentroid(
     CY_IN_READS( cVertices ) const vec3_t *pVertices,
     usize cVertices,

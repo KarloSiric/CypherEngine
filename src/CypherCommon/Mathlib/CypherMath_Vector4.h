@@ -29,19 +29,20 @@ namespace cypher::math
 {
 
 struct vec4_t {
-    f32 x;
-    f32 y;
-    f32 z;
-    f32 w;
+    f32 x; // First component or homogeneous X.
+    f32 y; // Second component or homogeneous Y.
+    f32 z; // Third component or homogeneous Z.
+    f32 w; // Fourth component or homogeneous weight.
 };
 
-inline constexpr vec4_t CY_VEC4_ZERO{ 0.0f, 0.0f, 0.0f, 0.0f };
-inline constexpr vec4_t CY_VEC4_ONE{ 1.0f, 1.0f, 1.0f, 1.0f };
-inline constexpr vec4_t CY_VEC4_X{ 1.0f, 0.0f, 0.0f, 0.0f };
-inline constexpr vec4_t CY_VEC4_Y{ 0.0f, 1.0f, 0.0f, 0.0f };
-inline constexpr vec4_t CY_VEC4_Z{ 0.0f, 0.0f, 1.0f, 0.0f };
-inline constexpr vec4_t CY_VEC4_W{ 0.0f, 0.0f, 0.0f, 1.0f };
+inline constexpr vec4_t CY_VEC4_ZERO{ 0.0f, 0.0f, 0.0f, 0.0f }; // Additive identity.
+inline constexpr vec4_t CY_VEC4_ONE{ 1.0f, 1.0f, 1.0f, 1.0f };  // Unit value on every lane.
+inline constexpr vec4_t CY_VEC4_X{ 1.0f, 0.0f, 0.0f, 0.0f };    // Positive X basis direction.
+inline constexpr vec4_t CY_VEC4_Y{ 0.0f, 1.0f, 0.0f, 0.0f };    // Positive Y basis direction.
+inline constexpr vec4_t CY_VEC4_Z{ 0.0f, 0.0f, 1.0f, 0.0f };    // Positive Z basis direction.
+inline constexpr vec4_t CY_VEC4_W{ 0.0f, 0.0f, 0.0f, 1.0f };    // Homogeneous W basis direction.
 
+// Construction and component access ---------------------------------------------
 CYPHER_NODISCARD constexpr vec4_t Vec4_Make( f32 x, f32 y, f32 z, f32 w ) noexcept;
 CYPHER_NODISCARD constexpr vec4_t Vec4_Splat( f32 value ) noexcept;
 CYPHER_NODISCARD constexpr vec4_t Vec4_FromVec3( vec3_t xyz, f32 w ) noexcept;
@@ -55,6 +56,7 @@ CYPHER_NODISCARD CYPHER_MATH_API f32 Vec4_Component(
 CYPHER_MATH_API void Vec4_SetComponent(
     CY_INOUT vec4_t *pValue, u32 iComponent, f32 value ) noexcept;
 
+// Comparison and arithmetic ------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec4_IsFinite( vec4_t value ) noexcept;
 CYPHER_NODISCARD constexpr bool_t Vec4_EqualsExact( vec4_t a, vec4_t b ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec4_NearlyEquals(
@@ -74,6 +76,7 @@ CYPHER_NODISCARD CYPHER_MATH_API vec4_t Vec4_Max( vec4_t a, vec4_t b ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API vec4_t Vec4_Clamp(
     vec4_t value, vec4_t minimum, vec4_t maximum ) noexcept;
 
+// Length and interpolation -------------------------------------------------------
 CYPHER_NODISCARD constexpr f32 Vec4_Dot( vec4_t a, vec4_t b ) noexcept;
 CYPHER_NODISCARD constexpr f32 Vec4_LengthSquared( vec4_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Vec4_Length( vec4_t value ) noexcept;

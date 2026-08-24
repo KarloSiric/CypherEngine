@@ -38,6 +38,8 @@ bool_t TryNarrowRaw( common::i64 raw, fixed16_16_t *pResult ) noexcept
 
 common::i64 DivideRounded( common::i64 numerator, common::i64 denominator ) noexcept
 {
+    // C++ integer division truncates toward zero. Inspect the remainder and
+    // move one unit away from zero when it reaches the half-way point.
     const common::i64 quotient = numerator / denominator;
     const common::i64 remainder = numerator % denominator;
     const common::u64 absRemainder = remainder < 0
@@ -134,6 +136,9 @@ bool_t Fixed16_16_TryMultiply(
     *pResult = CY_FIXED16_16_ZERO;
     const common::i64 product =
         static_cast<common::i64>( a.raw ) * b.raw;
+
+    // Multiplication produces 32 fractional bits; divide by 2^16 to restore
+    // the public 16.16 representation before narrowing.
     return TryNarrowRaw(
         DivideRounded( product, CY_FIXED16_16_SCALE ), pResult );
 }
@@ -154,6 +159,9 @@ bool_t Fixed16_16_TryDivide(
     }
     const common::i64 scaledNumerator =
         static_cast<common::i64>( numerator.raw ) * CY_FIXED16_16_SCALE;
+
+    // Promote the numerator before division so its original 16 fractional bits
+    // survive in the quotient.
     return TryNarrowRaw(
         DivideRounded( scaledNumerator, denominator.raw ), pResult );
 }
@@ -161,6 +169,9 @@ bool_t Fixed16_16_TryDivide(
 i32 Fixed16_16_FloorToI32( fixed16_16_t value ) noexcept
 {
     i32 result = value.raw / CY_FIXED16_16_SCALE;
+
+    // Truncation already floors positive values; negative fractions need the
+    // next lower integer.
     if ( value.raw < 0 && value.raw % CY_FIXED16_16_SCALE != 0 ) {
         --result;
     }

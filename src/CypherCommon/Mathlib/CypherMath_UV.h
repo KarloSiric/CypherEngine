@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+UV Contract
+
+UV helpers operate in texture-coordinate space and do not assume a particular image origin, wrap
+mode, or renderer backend.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_UV_H
 #define CYPHER_COMMON_MATH_UV_H
 #ifndef PRAGMA_ONCE
@@ -29,13 +38,13 @@ namespace cypher::math
 {
 
 struct planar_uv_mapping_t {
-    vec3_t origin;
-    vec3_t uAxis;
-    vec3_t vAxis;
-    vec3_t normal;
-    vec2_t worldUnitsPerUv;
-    angle_t rotation;
-    vec2_t offset;
+    vec3_t origin;           // World point corresponding to the unrotated UV origin.
+    vec3_t uAxis;            // Unit tangent defining increasing U.
+    vec3_t vAxis;            // Unit tangent defining increasing V.
+    vec3_t normal;           // Unit surface normal completing the mapping basis.
+    vec2_t worldUnitsPerUv;  // World distance represented by one UV unit per axis.
+    angle_t rotation;        // In-plane rotation applied around normal.
+    vec2_t offset;           // UV-space translation applied after projection.
 };
 
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Uv_TryBuildPlanarMapping(

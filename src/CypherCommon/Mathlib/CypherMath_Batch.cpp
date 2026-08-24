@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Batch Implementation Notes
+
+Batch operations process caller-owned contiguous ranges and permit vectorized implementations
+only when alignment and aliasing contracts are satisfied.
+================
+*/
+
 #include "CypherMath_Batch.h"
 
 #include "CypherCommon_Assert.h"
@@ -34,6 +43,7 @@ namespace
 
 bool_t BatchPointersValid( const void *pInput, const void *pOutput, usize cValues ) noexcept
 {
+    // Empty ranges permit null pointers, matching the scalar container APIs.
     return cValues == 0u || ( pInput != nullptr && pOutput != nullptr );
 }
 
@@ -42,6 +52,8 @@ vec3_soa4_t Vec3Soa4_Transform(
     vec3_soa4_t values,
     bool_t bPoint ) noexcept
 {
+    // Structure-of-arrays layout lets one 128-bit operation process the same
+    // component for four independent vectors.
     vec3_soa4_t result{};
 
 #if CYPHER_ARCH_X86_FAMILY
@@ -65,6 +77,7 @@ vec3_soa4_t Vec3Soa4_Transform(
             _mm_mul_ps( _mm_set1_ps( matrix.m[6] ), y ) ),
         _mm_mul_ps( _mm_set1_ps( matrix.m[10] ), z ) );
 
+    // Translation contributes to points (w=1) but not directions (w=0).
     if ( bPoint ) {
         outputX = _mm_add_ps( outputX, _mm_set1_ps( matrix.m[12] ) );
         outputY = _mm_add_ps( outputY, _mm_set1_ps( matrix.m[13] ) );
@@ -121,6 +134,7 @@ void Vec3Batch_TransformArm(
     usize cValues,
     bool_t bPoint ) noexcept
 {
+    // vld3/vst3 transpose tightly packed AoS vec3 data directly into NEON lanes.
     usize i = 0u;
     for ( ; i + CY_MATH_BATCH_LANES <= cValues; i += CY_MATH_BATCH_LANES ) {
         const float32x4x3_t input = vld3q_f32(
@@ -157,6 +171,7 @@ void Vec3Batch_TransformArm(
 
 math_batch_backend_t MathBatch_CompiledBackend() noexcept
 {
+    // Backend selection is compile-time; no hidden runtime dispatch occurs here.
 #if CYPHER_ARCH_X86_FAMILY
     return math_batch_backend_t::SSE2;
 #elif CYPHER_ARCH_ARM_FAMILY
@@ -174,6 +189,7 @@ vec3_soa4_t Vec3Soa4_Load( const vec3_t *pValues ) noexcept
         return {};
     }
 
+    // Gather four AoS vectors into three aligned component lanes.
     vec3_soa4_t result{};
     for ( u32 i = 0u; i < CY_MATH_BATCH_LANES; ++i ) {
         result.x[i] = pValues[i].x;
@@ -321,6 +337,7 @@ void Vec3Batch_TransformPointsAffine(
     Vec3Batch_TransformArm(
         matrix, pInput, pOutput, cValues, common::CY_TRUE );
 #else
+    // Process complete SIMD groups, then finish the non-multiple-of-four tail.
     usize i = 0u;
     for ( ; i + CY_MATH_BATCH_LANES <= cValues; i += CY_MATH_BATCH_LANES ) {
         const vec3_soa4_t input = Vec3Soa4_Load( pInput + i );
@@ -373,6 +390,7 @@ void Vec3Batch_Dot(
     }
 
 #if CYPHER_ARCH_ARM_FAMILY
+    // Interleaved NEON loads avoid a separate scalar gather for packed vec3_t.
     usize i = 0u;
     for ( ; i + CY_MATH_BATCH_LANES <= cValues; i += CY_MATH_BATCH_LANES ) {
         const float32x4x3_t a = vld3q_f32(
@@ -395,6 +413,7 @@ void Vec3Batch_Dot(
         }
     }
 #endif
+    // Scalar tail handles arrays whose length is not divisible by four.
     for ( ; i < cValues; ++i ) {
         pOutput[i] = Vec3_Dot( pA[i], pB[i] );
     }

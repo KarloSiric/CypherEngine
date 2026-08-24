@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Quaternion Template Definitions
+
+Operations follow CypherMath coordinate, storage, and multiplication conventions. Inputs may
+alias only where documented, and normalization handles degenerate values explicitly. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_QUATERNION_INL
 #define CYPHER_COMMON_MATH_QUATERNION_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// Component arithmetic is intentionally separate from rotation normalization.
 constexpr quat_t Quat_Make( f32 x, f32 y, f32 z, f32 w ) noexcept
 {
     return { x, y, z, w };
@@ -75,6 +87,7 @@ constexpr f32 Quat_LengthSquared( quat_t value ) noexcept
 }
 constexpr quat_t Quat_Multiply( quat_t a, quat_t b ) noexcept
 {
+    // Hamilton product under column-vector convention: b acts before a.
     return {
         a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
         a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,

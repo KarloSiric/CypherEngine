@@ -59,6 +59,8 @@ bool_t Polygon3_TryBasis(
         return false;
     }
 
+    // Newell's method accumulates a stable area-weighted normal from the whole
+    // boundary instead of trusting one possibly skinny triangle.
     vec3_t newell = CY_VEC3_ZERO;
     for ( usize i = 0u; i < cVertices; ++i ) {
         const vec3_t current = pVertices[i];
@@ -168,6 +170,8 @@ bool_t Polygon3_TryAreaCentroid(
         return false;
     }
 
+    // Form a triangle fan around vertex zero. Signed areas preserve winding so
+    // weighted centroids remain correct for either orientation.
     const vec3_t origin = pVertices[0];
     f64 signedAreaSum = 0.0;
     f64 weightedX = 0.0;
@@ -210,6 +214,8 @@ bool_t Polygon3_IsConvex(
          pProjectedScratch == nullptr || cProjectedScratch < cVertices ) {
         return false;
     }
+    // Once projected into the polygon's local plane, the shared 2D winding
+    // predicate handles edges and boundary tolerance consistently.
     Polygon3_ProjectToBasis( pVertices, cVertices, basis, pProjectedScratch );
     return Polygon2_IsConvex( pProjectedScratch, cVertices, orientationTolerance );
 }

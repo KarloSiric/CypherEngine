@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Sphere Template Definitions
+
+Geometry queries keep boundary policy explicit: hit ranges, parallel tolerances, and
+inside/outside tests are returned as data rather than inferred from global state. Template
+definitions remain visible at the call site so each concrete instantiation can be compiled
+without a separate registration step.
+================
+*/
+
 #ifndef CYPHER_COMMON_MATH_SPHERE_INL
 #define CYPHER_COMMON_MATH_SPHERE_INL
 
@@ -29,6 +40,7 @@
 namespace cypher::math
 {
 
+// Squared-distance tests keep these broad-phase predicates free of square roots.
 constexpr sphere_t Sphere_Make( vec3_t center, f32 radius ) noexcept
 {
     return { center, radius };
@@ -42,6 +54,7 @@ constexpr bool_t Sphere_ContainsPoint( sphere_t sphere, vec3_t point ) noexcept
 
 constexpr bool_t Sphere_ContainsSphere( sphere_t outer, sphere_t inner ) noexcept
 {
+    // The inner center may move only by the radius left inside the outer sphere.
     const f32 remainingRadius = outer.radius - inner.radius;
     return remainingRadius >= 0.0f &&
            Vec3_DistanceSquared( outer.center, inner.center ) <=

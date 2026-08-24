@@ -29,16 +29,16 @@ namespace cypher::math
 using common::i64;
 
 enum class snap_mode_t : common::u8 {
-    NEAREST = 0u,
-    FLOOR,
-    CEIL,
-    COUNT
+    NEAREST = 0u, // Choose the closest grid line.
+    FLOOR,        // Choose the grid line at or below the value.
+    CEIL,         // Choose the grid line at or above the value.
+    COUNT         // Enum bound; not a valid mode.
 };
 
 struct grid_coord3_t {
-    i64 x;
-    i64 y;
-    i64 z;
+    i64 x; // Integral X step relative to the grid origin.
+    i64 y; // Integral Y step relative to the grid origin.
+    i64 z; // Integral Z step relative to the grid origin.
 };
 
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Snap_TryScalar(

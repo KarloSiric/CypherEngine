@@ -35,19 +35,41 @@ using common::f32;
 using common::u32;
 
 struct vec3_t {
-    f32 x;
-    f32 y;
-    f32 z;
+    f32 x; // Forward-axis component under the Cypher coordinate convention.
+    f32 y; // Left-axis component under the Cypher coordinate convention.
+    f32 z; // Up-axis component under the Cypher coordinate convention.
 };
 
-inline constexpr vec3_t CY_VEC3_ZERO{ 0.0f, 0.0f, 0.0f };
-inline constexpr vec3_t CY_VEC3_ONE{ 1.0f, 1.0f, 1.0f };
-inline constexpr vec3_t CY_VEC3_FORWARD{ 1.0f, 0.0f, 0.0f };
-inline constexpr vec3_t CY_VEC3_BACKWARD{ -1.0f, 0.0f, 0.0f };
-inline constexpr vec3_t CY_VEC3_LEFT{ 0.0f, 1.0f, 0.0f };
-inline constexpr vec3_t CY_VEC3_RIGHT{ 0.0f, -1.0f, 0.0f };
-inline constexpr vec3_t CY_VEC3_UP{ 0.0f, 0.0f, 1.0f };
-inline constexpr vec3_t CY_VEC3_DOWN{ 0.0f, 0.0f, -1.0f };
+inline constexpr vec3_t CY_VEC3_ZERO{ 0.0f, 0.0f, 0.0f };       // Additive identity.
+inline constexpr vec3_t CY_VEC3_ONE{ 1.0f, 1.0f, 1.0f };        // Unit value on every axis.
+inline constexpr vec3_t CY_VEC3_FORWARD{ 1.0f, 0.0f, 0.0f };    // Positive X direction.
+inline constexpr vec3_t CY_VEC3_BACKWARD{ -1.0f, 0.0f, 0.0f }; // Negative X direction.
+inline constexpr vec3_t CY_VEC3_LEFT{ 0.0f, 1.0f, 0.0f };       // Positive Y direction.
+inline constexpr vec3_t CY_VEC3_RIGHT{ 0.0f, -1.0f, 0.0f };     // Negative Y direction.
+inline constexpr vec3_t CY_VEC3_UP{ 0.0f, 0.0f, 1.0f };         // Positive Z direction.
+inline constexpr vec3_t CY_VEC3_DOWN{ 0.0f, 0.0f, -1.0f };      // Negative Z direction.
+
+// Some useful macros that I use for convenience mostly ---------------------------------------------
+#define CY_VEC3_MAKE(x, y, z) \
+    (::cypher::math::Vec3_Make((x), (y), (z)))
+
+#define CY_VEC3_DOT(a, b) \
+    (::cypher::math::Vec3_Dot((a), (b)))
+
+#define CY_VEC3_CROSS(a, b) \
+    (::cypher::math::Vec3_Cross((a), (b)))
+
+#define CY_VEC3_LENGTH(value) \
+    (::cypher::math::Vec3_Length((value)))
+
+#define CY_VEC3_LENGTH_SQ(value) \
+    (::cypher::math::Vec3_LengthSquared((value)))
+
+#define CY_VEC3_DISTANCE(a, b) \
+    (::cypher::math::Vec3_Distance((a), (b)))
+
+#define CY_VEC3_LERP(a, b, t) \
+    (::cypher::math::Vec3_Lerp((a), (b), (t)))
 
 /* Construction and component access. */
 CYPHER_NODISCARD constexpr vec3_t Vec3_Make( f32 x, f32 y, f32 z ) noexcept;

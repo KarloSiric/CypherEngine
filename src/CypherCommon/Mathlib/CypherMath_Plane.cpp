@@ -22,6 +22,9 @@
 namespace cypher::math
 {
 
+// A plane stores n.x + d = 0. Distance queries require a unit-length normal;
+// constructors and transforms therefore normalize before publishing output.
+
 bool_t Plane_IsFinite( plane_t value ) noexcept
 {
     return Vec3_IsFinite( value.normal ) && Scalar_IsFinite( value.d );
@@ -52,6 +55,7 @@ bool_t Plane_TryNormalize(
              value.normal, minimumNormalLength, &normal, &originalLength ) ) {
         return false;
     }
+    // Dividing both n and d by the same length preserves the plane equation.
     const plane_t normalized = Plane_Make( normal, value.d / originalLength );
     if ( !Plane_IsFinite( normalized ) ) {
         return false;
@@ -119,6 +123,7 @@ plane_side_t Plane_ClassifyPoint(
         return plane_side_t::ON_PLANE;
     }
     const f32 distance = Plane_SignedDistance( unitPlane, point );
+    // The tolerance creates a stable coplanar band for editor and collision use.
     if ( distance > distanceTolerance ) {
         return plane_side_t::POSITIVE;
     }
@@ -146,6 +151,8 @@ bool_t Plane_TryTransform(
     if ( !Plane_TryNormalize( plane, minimumNormalLength, &unitPlane ) ) {
         return false;
     }
+    // Transform one known point and the normal independently, then rebuild d.
+    // This avoids assuming that translation or non-uniform scale leaves d intact.
     const vec3_t pointOnPlane = Vec3_Scale( unitPlane.normal, -unitPlane.d );
     const vec3_t transformedPoint =
         Affine3_TransformPoint( transform, pointOnPlane );

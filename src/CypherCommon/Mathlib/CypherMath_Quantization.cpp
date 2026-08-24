@@ -29,7 +29,7 @@ namespace
 {
 
 inline constexpr f64 CY_QUAT_SMALLEST_THREE_LIMIT =
-    0.707106781186547524400844362104849039;
+    0.707106781186547524400844362104849039; // 1 / sqrt( 2 ).
 
 bool_t BitCountValid( u32 cBits ) noexcept
 {
@@ -63,6 +63,7 @@ u32 Quantization_MaxCode( u32 cBits ) noexcept
     if ( !BitCountValid( cBits ) ) {
         return 0u;
     }
+    // Shifting a 32-bit one by 32 is undefined, so the full-width case is explicit.
     return cBits == 32u ? common::CY_U32_MAX : ( 1u << cBits ) - 1u;
 }
 
@@ -80,6 +81,7 @@ bool_t Quantization_TryEncodeUnorm( f32 value, u32 cBits, u32 *pCode ) noexcept
     }
     const f64 maximumCode = Quantization_MaxCode( cBits );
     const f64 normalized = std::clamp( static_cast<f64>( value ), 0.0, 1.0 );
+    // Map both endpoints exactly and round interior samples to the nearest code.
     *pCode = static_cast<u32>( std::floor( normalized * maximumCode + 0.5 ) );
     return true;
 }
@@ -247,6 +249,7 @@ bool_t Quantization_TryEncodeAngle(
     const f64 normalized = static_cast<f64>(
         Scalar_WrapRadiansPositive( angle.radians ) ) / CY_TAU_D;
     const f64 rounded = std::floor( normalized * codeCount + 0.5 );
+    // Angles are cyclic: a rounded code at one full revolution aliases code zero.
     *pCode = rounded >= codeCount
         ? 0u
         : static_cast<u32>( static_cast<common::u64>( rounded ) );
@@ -301,6 +304,8 @@ bool_t Quantization_TryEncodeQuatSmallestThree(
             largestAbs = candidate;
         }
     }
+    // q and -q encode the same rotation. Force the omitted component positive
+    // so no separate sign bit is needed in the serialized representation.
     if ( QuatComponent( unitRotation, largest ) < 0.0f ) {
         unitRotation = Quat_Negate( unitRotation );
     }
@@ -363,6 +368,8 @@ bool_t Quantization_TryDecodeQuatSmallestThree(
         SetQuatComponent( &decoded, i, component );
         sumSquared += static_cast<f64>( component ) * component;
     }
+    // Unit length determines the omitted component. Clamp accumulated error so
+    // coarse quantization cannot pass a negative value to sqrt.
     SetQuatComponent(
         &decoded,
         code.largestComponent,

@@ -30,13 +30,13 @@ namespace cypher::math
 {
 
 enum class clip_depth_range_t : common::u8 {
-    NEGATIVE_ONE_TO_ONE = 0u,
-    ZERO_TO_ONE,
-    COUNT
+    NEGATIVE_ONE_TO_ONE = 0u, // OpenGL-style normalized device depth.
+    ZERO_TO_ONE,              // Vulkan and Direct3D-style normalized device depth.
+    COUNT                     // Enum bound; not a projection policy.
 };
 
 struct mat4_t {
-    f32 m[16];
+    f32 m[16]; // Column-major: m[column * 4 + row].
 };
 
 inline constexpr mat4_t CY_MAT4_ZERO{ { 0.0f, 0.0f, 0.0f, 0.0f,
@@ -48,6 +48,7 @@ inline constexpr mat4_t CY_MAT4_IDENTITY{ { 1.0f, 0.0f, 0.0f, 0.0f,
                                             0.0f, 0.0f, 1.0f, 0.0f,
                                             0.0f, 0.0f, 0.0f, 1.0f } };
 
+// Construction and component access ---------------------------------------------
 CYPHER_NODISCARD constexpr u32 Mat4_Index( u32 row, u32 column ) noexcept;
 CYPHER_NODISCARD constexpr mat4_t Mat4_FromColumns(
     vec4_t column0, vec4_t column1, vec4_t column2, vec4_t column3 ) noexcept;
@@ -60,6 +61,7 @@ CYPHER_NODISCARD CYPHER_MATH_API f32 Mat4_Component(
 CYPHER_MATH_API void Mat4_SetComponent(
     CY_INOUT mat4_t *pValue, u32 row, u32 column, f32 component ) noexcept;
 
+// Arithmetic and application -----------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Mat4_IsFinite( mat4_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Mat4_NearlyEquals(
     mat4_t a, mat4_t b, f32 absoluteTolerance, f32 relativeTolerance ) noexcept;
@@ -80,6 +82,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Mat4_TryProjectPoint(
     mat4_t matrix, vec3_t point, f32 minimumAbsW,
     CY_OUT vec3_t *pProjected ) noexcept;
 
+// Inversion and affine construction ---------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API f32 Mat4_Determinant( mat4_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Mat4_TryInverse(
     mat4_t value, f32 minimumAbsPivot, CY_OUT mat4_t *pInverse ) noexcept;
@@ -95,6 +98,7 @@ CYPHER_NODISCARD CYPHER_MATH_API mat4_t Mat4_FromTRS(
 CYPHER_NODISCARD constexpr vec3_t Mat4_Translation( mat4_t value ) noexcept;
 CYPHER_NODISCARD constexpr mat3_t Mat4_LinearPart( mat4_t value ) noexcept;
 
+// Camera and projection ----------------------------------------------------------
 // View space is conventional right-handed camera space looking down negative Z.
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Mat4_TryLookAtRH(
     vec3_t eye, vec3_t target, vec3_t upHint, f32 minimumDirectionLength,

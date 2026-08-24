@@ -29,11 +29,12 @@ namespace cypher::math
 {
 
 struct triangle3_t {
-    vec3_t a;
-    vec3_t b;
-    vec3_t c;
+    vec3_t a; // First winding vertex.
+    vec3_t b; // Second winding vertex.
+    vec3_t c; // Third winding vertex; (b-a)x(c-a) defines the front normal.
 };
 
+// Basic geometry ------------------------------------------------------------------
 CYPHER_NODISCARD constexpr triangle3_t Triangle3_Make(
     vec3_t a, vec3_t b, vec3_t c ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Triangle3_IsFinite(
@@ -53,6 +54,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Triangle3_TryPlane(
     triangle3_t triangle, f32 minimumTwiceArea,
     CY_OUT plane_t *pPlane ) noexcept;
 
+// Point queries -------------------------------------------------------------------
 // Barycentric components correspond to vertices a, b, and c.
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Triangle3_TryBarycentric(
     triangle3_t triangle, vec3_t point, f32 minimumAbsDenominator,
