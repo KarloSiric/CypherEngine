@@ -1,0 +1,11 @@
+Material Symbols bundled for Picasso
+====================================
+
+Source: https://github.com/google/material-design-icons
+Pinned revision: e083cc60a0828fdd3b404cea0cb8a5b900e9c23e
+Variant: Material Symbols Rounded, 24 px SVG
+License: Apache License 2.0 (see APACHE_LICENSE.txt)
+
+Only the symbols used by Picasso are bundled. Runtime recoloring and state
+rendering are performed by PicassoIcons.cpp; the source vector paths are kept
+unchanged.
