@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Report Contract
+
+Reports summarize timings, counts, diagnostics, dependencies, and artifacts after a run. Writers
+serialize the same data for human or machine consumption without recomputing results.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLREPORT_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLREPORT_H
 #ifndef PRAGMA_ONCE
@@ -29,22 +38,22 @@ namespace cypher::common
 {
 
 struct tool_report_t {
-    tool_operation_id_t operationId{ CY_TOOL_INVALID_OPERATION_ID };
-    tool_status_t status{ tool_status_t::OK };
-    timer_tick_t nStartTicks{ 0u };
-    timer_tick_t nEndTicks{ 0u };
-    u64 nInputsDiscovered{ 0u };
-    u64 nInputsProcessed{ 0u };
-    u64 nSucceeded{ 0u };
-    u64 nFailed{ 0u };
-    u64 nSkipped{ 0u };
-    u64 nCacheHits{ 0u };
-    u64 nCacheMisses{ 0u };
-    u64 nWarnings{ 0u };
-    u64 nErrors{ 0u };
-    u64 nArtifacts{ 0u };
-    u64 cbRead{ 0u };
-    u64 cbWritten{ 0u };
+    tool_operation_id_t operationId{ CY_TOOL_INVALID_OPERATION_ID }; // Summarized operation.
+    tool_status_t status{ tool_status_t::OK }; // Final operation result.
+    timer_tick_t nStartTicks{ 0u }; // Monotonic start tick.
+    timer_tick_t nEndTicks{ 0u };   // Monotonic completion tick.
+    u64 nInputsDiscovered{ 0u };    // Candidate inputs found during expansion.
+    u64 nInputsProcessed{ 0u };     // Inputs for which work was attempted.
+    u64 nSucceeded{ 0u };           // Successfully processed inputs.
+    u64 nFailed{ 0u };              // Inputs ending in failure.
+    u64 nSkipped{ 0u };             // Inputs skipped by cache or policy.
+    u64 nCacheHits{ 0u };           // Reused cache entries.
+    u64 nCacheMisses{ 0u };         // Cache lookups requiring work.
+    u64 nWarnings{ 0u };            // Warning diagnostics emitted.
+    u64 nErrors{ 0u };              // Error/fatal diagnostics emitted.
+    u64 nArtifacts{ 0u };           // Durable artifacts published.
+    u64 cbRead{ 0u };               // Total source bytes read.
+    u64 cbWritten{ 0u };            // Total artifact bytes written.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

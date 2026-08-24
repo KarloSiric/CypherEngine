@@ -28,25 +28,25 @@ namespace cypher::common
 {
 
 enum class tool_cli_stream_t : u8 {
-    STANDARD_OUTPUT = 0u,
-    STANDARD_ERROR
+    STANDARD_OUTPUT = 0u, // Normal command output and machine-readable records.
+    STANDARD_ERROR        // Diagnostics and fatal host failures.
 };
 
 enum tool_cli_terminal_flags_t : flags32_t {
     TOOL_CLI_TERMINAL_FLAG_NONE = 0u,
-    TOOL_CLI_TERMINAL_FLAG_INTERACTIVE = CYPHER_BIT32( 0 ),
-    TOOL_CLI_TERMINAL_FLAG_COLOR = CYPHER_BIT32( 1 ),
-    TOOL_CLI_TERMINAL_FLAG_CURSOR_CONTROL = CYPHER_BIT32( 2 ),
-    TOOL_CLI_TERMINAL_FLAG_UNICODE = CYPHER_BIT32( 3 )
+    TOOL_CLI_TERMINAL_FLAG_INTERACTIVE = CYPHER_BIT32( 0 ),    // Stream is attached to a terminal.
+    TOOL_CLI_TERMINAL_FLAG_COLOR = CYPHER_BIT32( 1 ),          // ANSI or native color is usable.
+    TOOL_CLI_TERMINAL_FLAG_CURSOR_CONTROL = CYPHER_BIT32( 2 ), // In-place progress may move the cursor.
+    TOOL_CLI_TERMINAL_FLAG_UNICODE = CYPHER_BIT32( 3 )         // Terminal can display UTF-8 safely.
 };
 
 struct tool_cli_terminal_t {
-    uintptr nNativeHandle{ 0u };
-    tool_cli_stream_t stream{ tool_cli_stream_t::STANDARD_OUTPUT };
-    u32 nColumns{ 0u };
-    u32 nOriginalMode{ 0u };
-    flags32_t flags{ TOOL_CLI_TERMINAL_FLAG_NONE };
-    flags32_t internalFlags{ 0u };
+    uintptr nNativeHandle{ 0u }; // Borrowed HANDLE or POSIX file descriptor encoded as an integer.
+    tool_cli_stream_t stream{ tool_cli_stream_t::STANDARD_OUTPUT }; // Selected process stream.
+    u32 nColumns{ 0u };          // Width sampled during initialization; zero means unknown.
+    u32 nOriginalMode{ 0u };     // Win32 console mode restored by Shutdown.
+    flags32_t flags{ TOOL_CLI_TERMINAL_FLAG_NONE }; // Public capability bits.
+    flags32_t internalFlags{ 0u }; // Private ownership and restoration state.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

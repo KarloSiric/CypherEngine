@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Cli Display Contract
+
+Presentation is a host concern layered over structured tool events. Terminal width, ANSI color,
+and verbosity affect rendering only, never compiler decisions.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLCLIDISPLAY_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLCLIDISPLAY_H
 #ifndef PRAGMA_ONCE
@@ -30,12 +39,12 @@ namespace cypher::common
 {
 
 struct tool_cli_display_t {
-    tool_cli_terminal_t *pOutput{ nullptr };
-    tool_cli_terminal_t *pError{ nullptr };
-    tool_output_policy_t policy{};
-    tool_operation_id_t progressOperationId{ CY_TOOL_INVALID_OPERATION_ID };
-    usize cchProgressLine{ 0u };
-    bool_t bProgressVisible{ CY_FALSE };
+    tool_cli_terminal_t *pOutput{ nullptr }; // Borrowed stdout adapter.
+    tool_cli_terminal_t *pError{ nullptr };  // Borrowed stderr adapter.
+    tool_output_policy_t policy{};           // Resolved color, verbosity, progress, and format policy.
+    tool_operation_id_t progressOperationId{ CY_TOOL_INVALID_OPERATION_ID }; // Active in-place line.
+    usize cchProgressLine{ 0u };             // Previous line width used to erase stale suffixes.
+    bool_t bProgressVisible{ CY_FALSE };      // True while an unterminated progress line is visible.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

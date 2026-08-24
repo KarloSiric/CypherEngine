@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Progress Bar Implementation Notes
+
+Progress is hierarchical operation state, not terminal drawing. Producers report completed and
+total work; hosts choose animation, throttling, and text presentation.
+================
+*/
+
 #include "CypherCommon_ProgressBar.h"
 
 namespace cypher::common
@@ -26,6 +35,8 @@ void ProgressBar_Begin( progress_bar_t *pProgress, const char *pTitle, u64 total
         return;
     }
 
+    // Keep state display-neutral. A host may render this in a terminal, status
+    // bar, build monitor, or test without changing producer behavior.
     pProgress->pTitle = pTitle != nullptr ? pTitle : "";
     pProgress->total_work = total_work;
     pProgress->completed_work = 0u;
@@ -37,6 +48,7 @@ void ProgressBar_Update( progress_bar_t *pProgress, u64 completed_work )
         return;
     }
 
+    // A non-zero total is bounded; zero represents an indeterminate operation.
     if ( pProgress->total_work != 0u && completed_work > pProgress->total_work ) {
         pProgress->completed_work = pProgress->total_work;
         return;

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Diagnostic Implementation Notes
+
+Diagnostics carry severity, stable code, source location, and message as structured data. CLI
+and GUI hosts decide presentation without changing compiler behavior.
+================
+*/
+
 #include "CypherCommon_ToolDiagnostic.h"
 
 namespace cypher::common
@@ -23,6 +32,7 @@ namespace cypher::common
 tool_status_t ToolDiagnostic_Validate(
     const tool_diagnostic_t &diagnostic ) noexcept
 {
+    // Flags explicitly state which optional payloads are meaningful.
     constexpr flags32_t knownFlags =
         TOOL_DIAGNOSTIC_FLAG_HAS_SOURCE |
         TOOL_DIAGNOSTIC_FLAG_HAS_HINT |
@@ -38,6 +48,8 @@ tool_status_t ToolDiagnostic_Validate(
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Source coordinates are one-based. End coordinates are optional, but must
+    // be supplied as a complete ordered pair when present.
     const bool_t bHasSource =
         ( diagnostic.flags & TOOL_DIAGNOSTIC_FLAG_HAS_SOURCE ) != 0u;
     if ( bHasSource ) {
@@ -65,6 +77,7 @@ tool_status_t ToolDiagnostic_Validate(
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Keep the hint flag and payload synchronized for binary and JSON writers.
     const bool_t bHasHint =
         ( diagnostic.flags & TOOL_DIAGNOSTIC_FLAG_HAS_HINT ) != 0u;
     if ( bHasHint != ( diagnostic.hint.cchLength != 0u ) ) {
@@ -77,6 +90,7 @@ tool_status_t ToolDiagnostic_Validate(
 const char *ToolDiagnostic_SeverityName(
     tool_diagnostic_severity_t severity ) noexcept
 {
+    // Names are part of the stable diagnostic serialization contract.
     switch ( severity ) {
         case tool_diagnostic_severity_t::NOTE: return "note";
         case tool_diagnostic_severity_t::WARNING: return "warning";

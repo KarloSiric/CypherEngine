@@ -22,10 +22,10 @@ namespace cypher::common
 namespace
 {
 
-constexpr string_view_t VIEW_TRUE{ "true", 4u };
-constexpr string_view_t VIEW_FALSE{ "false", 5u };
-constexpr string_view_t VIEW_HELP{ "help", 4u };
-constexpr string_view_t VIEW_VERSION{ "version", 7u };
+constexpr string_view_t VIEW_TRUE{ "true", 4u };       // Implicit Boolean option value.
+constexpr string_view_t VIEW_FALSE{ "false", 5u };     // Value produced by --no-name.
+constexpr string_view_t VIEW_HELP{ "help", 4u };       // Built-in long help name.
+constexpr string_view_t VIEW_VERSION{ "version", 7u }; // Built-in long version name.
 
 bool_t ResultStorageIsValid( const tool_cli_parse_result_t *pResult ) noexcept
 {
@@ -44,6 +44,7 @@ tool_status_t SetError(
     string_view_t argument,
     const char *pMessage ) noexcept
 {
+    // Error storage is optional, but the returned status is identical either way.
     if ( pError != nullptr ) {
         *pError = {
             status,
@@ -98,6 +99,8 @@ tool_status_t ResolveDefaults(
     const tool_command_desc_t &command,
     tool_option_set_t *pOptions ) noexcept
 {
+    // Defaults enter through the same typed validator as explicit arguments and
+    // remain weaker than every later configuration source.
     for ( usize i = 0u; i < command.nOptions; ++i ) {
         const tool_option_desc_t &option = command.pOptions[i];
         if ( option.defaultValue.cchLength == 0u ) {
@@ -122,6 +125,7 @@ tool_status_t AddInput(
     if ( pResult->nInputs == pResult->nInputCapacity ) {
         return tool_status_t::CAPACITY_EXCEEDED;
     }
+    // Positional order is semantically significant for deterministic commands.
     pResult->pInputs[pResult->nInputs++] = input;
     return tool_status_t::OK;
 }
@@ -147,6 +151,7 @@ tool_status_t ParseLongOption(
     const usize iArgument = *piArgument;
     const string_view_t raw = arguments.pData[iArgument];
     string_view_t body = StringView_RemovePrefix( raw, 2u );
+    // Long options accept both --name=value and --name value forms.
     const usize iEquals = StringView_FindChar( body, '=' );
     const bool_t bHasInlineValue = iEquals != CY_STRING_VIEW_NPOS;
     string_view_t name = bHasInlineValue
@@ -159,6 +164,8 @@ tool_status_t ParseLongOption(
     bool_t bNegated = CY_FALSE;
     const tool_option_desc_t *pOption =
         ToolCommand_FindOption( *pResult->pCommand, name );
+    // --no-name is recognized only for Boolean descriptors and cannot also carry
+    // an inline value.
     if ( pOption == nullptr && !bHasInlineValue &&
          StringView_StartsWith( name, { "no-", 3u } ) ) {
         const string_view_t positiveName = StringView_RemovePrefix( name, 3u );
@@ -175,6 +182,8 @@ tool_status_t ParseLongOption(
             "unknown command option" );
     }
 
+    // Boolean presence implies true. Other types consume the next argument when
+    // no inline value follows the equals sign.
     if ( pOption->type == tool_option_type_t::BOOLEAN ) {
         if ( bNegated ) {
             value = VIEW_FALSE;
@@ -220,6 +229,8 @@ tool_status_t ParseShortOption(
             "unknown short option" );
     }
 
+    // Short options support -ovalue, -o=value, and -o value. Boolean grouping is
+    // rejected so every descriptor receives one unambiguous occurrence.
     string_view_t value{};
     if ( pOption->type == tool_option_type_t::BOOLEAN ) {
         if ( raw.cchLength != 2u ) {
@@ -310,6 +321,7 @@ void ToolCliArgumentParser_ClearResult(
     pResult->pCommand = nullptr;
     ToolOptionSet_Clear( &pResult->options );
     pResult->nInputs = 0u;
+    // Empty input intentionally defaults to application help.
     pResult->action = tool_cli_parse_action_t::SHOW_HELP;
 }
 
@@ -335,6 +347,8 @@ tool_status_t ToolCliArgumentParser_Parse(
     }
     ToolCliArgumentParser_ClearResult( pResult );
 
+    // Descriptor errors are configuration failures and must be caught before any
+    // argument is interpreted against them.
     for ( usize i = 0u; i < nCommands; ++i ) {
         const tool_status_t status = ToolCommand_CheckDescriptor( pCommands[i] );
         if ( ToolStatus_Failed( status ) ) {
@@ -394,6 +408,8 @@ tool_status_t ToolCliArgumentParser_Parse(
             "failed to resolve command defaults" );
     }
 
+    // The command name is consumed first; -- then permanently switches the rest
+    // of this invocation to positional-input parsing.
     bool_t bOptionsEnded = CY_FALSE;
     for ( usize i = 1u; i < arguments.nCount; ++i ) {
         const string_view_t argument = arguments.pData[i];
@@ -434,6 +450,8 @@ tool_status_t ToolCliArgumentParser_Parse(
         }
     }
 
+    // Cardinality is checked after parsing so diagnostics can refer to the full
+    // positional set rather than failing partway through it.
     const flags32_t commandFlags = pResult->pCommand->flags;
     if ( pResult->nInputs != 0u &&
          ( commandFlags & TOOL_COMMAND_FLAG_ACCEPTS_INPUTS ) == 0u ) {

@@ -27,9 +27,9 @@ namespace cypher::common
 {
 
 struct tool_compiler_registry_t {
-    const tool_compiler_desc_t **ppCompilers{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
+    const tool_compiler_desc_t **ppCompilers{ nullptr }; // Caller-owned pointer storage.
+    usize nCount{ 0u };      // Registered descriptors in stable order.
+    usize nCapacity{ 0u };   // Maximum pointers available in ppCompilers.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

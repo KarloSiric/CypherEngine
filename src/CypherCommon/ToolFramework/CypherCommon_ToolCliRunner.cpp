@@ -30,25 +30,25 @@ namespace cypher::common
 namespace
 {
 
-inline constexpr usize CY_TOOL_CLI_MAX_HELP_BYTES = 8u * CY_MIB;
-inline constexpr tool_diagnostic_code_t CY_TOOL_CLI_DIAGNOSTIC_SETUP = 1000u;
-inline constexpr tool_diagnostic_code_t CY_TOOL_CLI_DIAGNOSTIC_RESPONSE = 1001u;
-inline constexpr tool_diagnostic_code_t CY_TOOL_CLI_DIAGNOSTIC_ARGUMENT = 1002u;
+inline constexpr usize CY_TOOL_CLI_MAX_HELP_BYTES = 8u * CY_MIB; // Prevent unbounded descriptor output.
+inline constexpr tool_diagnostic_code_t CY_TOOL_CLI_DIAGNOSTIC_SETUP = 1000u; // Runtime setup failure.
+inline constexpr tool_diagnostic_code_t CY_TOOL_CLI_DIAGNOSTIC_RESPONSE = 1001u; // @file expansion failure.
+inline constexpr tool_diagnostic_code_t CY_TOOL_CLI_DIAGNOSTIC_ARGUMENT = 1002u; // Parse/policy failure.
 
 struct tool_cli_runtime_t {
-    tool_cli_terminal_t output{};
-    tool_cli_terminal_t error{};
-    tool_cli_display_t display{};
-    tool_cli_signal_t signal{};
-    tool_cli_response_file_result_t expanded{};
-    vector_t<string_view_t> rawArguments{};
-    vector_t<tool_option_value_t> optionStorage{};
-    vector_t<string_view_t> inputStorage{};
-    bool_t bOutputInitialized{ CY_FALSE };
-    bool_t bErrorInitialized{ CY_FALSE };
-    bool_t bDisplayInitialized{ CY_FALSE };
-    bool_t bSignalInstalled{ CY_FALSE };
-    bool_t bExpandedInitialized{ CY_FALSE };
+    tool_cli_terminal_t output{}; // Standard-output terminal facade.
+    tool_cli_terminal_t error{};  // Standard-error terminal facade.
+    tool_cli_display_t display{}; // Structured records rendered to both streams.
+    tool_cli_signal_t signal{};   // Optional process interrupt bridge.
+    tool_cli_response_file_result_t expanded{}; // Owns expanded @file text and views.
+    vector_t<string_view_t> rawArguments{};      // Borrowed argv views before expansion.
+    vector_t<tool_option_value_t> optionStorage{}; // Fixed-capacity parser storage.
+    vector_t<string_view_t> inputStorage{};        // Fixed-capacity positional storage.
+    bool_t bOutputInitialized{ CY_FALSE };  // Guards partial-startup cleanup.
+    bool_t bErrorInitialized{ CY_FALSE };   // Guards partial-startup cleanup.
+    bool_t bDisplayInitialized{ CY_FALSE }; // Guards partial-startup cleanup.
+    bool_t bSignalInstalled{ CY_FALSE };    // Requires handler restoration.
+    bool_t bExpandedInitialized{ CY_FALSE };// Owns response-file allocations.
 };
 
 void ShutdownRuntime( tool_cli_runtime_t *pRuntime ) noexcept
@@ -56,6 +56,8 @@ void ShutdownRuntime( tool_cli_runtime_t *pRuntime ) noexcept
     if ( pRuntime == nullptr ) {
         return;
     }
+    // Tear down in reverse initialization order. The state flags make every
+    // startup failure path use this same idempotent cleanup routine.
     if ( pRuntime->bSignalInstalled ) {
         ToolCliSignal_Uninstall( &pRuntime->signal );
         pRuntime->bSignalInstalled = CY_FALSE;
@@ -96,6 +98,8 @@ void EmitDiagnostic(
     if ( hint.cchLength != 0u ) {
         diagnostic.flags |= TOOL_DIAGNOSTIC_FLAG_HAS_HINT;
     }
+    // Source location is all-or-nothing; a partial location is more misleading
+    // than omitting it from the diagnostic.
     if ( path.cchLength != 0u && nLine != 0u && nColumn != 0u &&
          nLine <= CY_U32_MAX && nColumn <= CY_U32_MAX ) {
         diagnostic.source.path = path;
@@ -136,6 +140,8 @@ tool_status_t InitializeRuntime(
     }
     pRuntime->bDisplayInitialized = CY_TRUE;
 
+    // Vectors allocate once to the configured parser capacities. Parsing itself
+    // then remains bounded and does not grow storage unpredictably.
     const allocator_t *pAllocator = Allocator_GetSystem();
     if ( !Vector_Init( &pRuntime->rawArguments, pAllocator ) ||
          !Vector_Init(
@@ -174,6 +180,8 @@ tool_status_t BuildArgumentViews(
          !Vector_IsValid( pArguments ) ) {
         return tool_status_t::INVALID_ARGUMENT;
     }
+    // argv[0] identifies the executable and is intentionally not parsed as a
+    // command argument. The created views borrow process-lifetime strings.
     for ( i32 i = 1; i < argc; ++i ) {
         if ( pArgv[i] == nullptr ||
              !Vector_PushBack(
@@ -209,6 +217,8 @@ tool_status_t WriteHelp(
         }
     }
 
+    // Help writers use a measure-then-write contract so generated text receives
+    // one exact allocation and no partial output reaches the terminal.
     tool_cli_help_result_t measured = parseResult.pCommand != nullptr
         ? ToolCliHelp_WriteCommand(
               *desc.pApplication,
@@ -329,6 +339,7 @@ tool_status_t ToolCliRunner_Validate(
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Duplicate command names would make parsing order-dependent.
     for ( usize i = 0u; i < desc.nCommands; ++i ) {
         status = ToolCommand_CheckDescriptor( desc.pCommands[i] );
         if ( ToolStatus_Failed( status ) ) {
@@ -359,6 +370,7 @@ tool_exit_code_t ToolCliRunner_Run(
                 : tool_status_t::INVALID_ARGUMENT );
     }
 
+    // From this point every early return goes through ShutdownRuntime.
     tool_cli_runtime_t runtime{};
     status = InitializeRuntime( &runtime, options );
     if ( ToolStatus_Failed( status ) ) {
@@ -382,6 +394,8 @@ tool_exit_code_t ToolCliRunner_Run(
         runtime.rawArguments.nCount
     };
     if ( options.bExpandResponseFiles ) {
+        // Expanded argument views borrow storage owned by runtime.expanded and
+        // therefore remain valid through synchronous command execution.
         status = ToolCliResponseFile_Expand(
             arguments,
             options.responseFiles,
@@ -440,6 +454,8 @@ tool_exit_code_t ToolCliRunner_Run(
     }
 
     if ( desc.pfnResolveOutputPolicy != nullptr ) {
+        // Commands may select JSON or verbosity from parsed options before any
+        // startup records are emitted.
         tool_output_policy_t resolvedPolicy = runtime.display.policy;
         status = desc.pfnResolveOutputPolicy(
             parseResult,
@@ -466,6 +482,8 @@ tool_exit_code_t ToolCliRunner_Run(
         status = WriteVersion( &runtime, desc );
     } else {
         if ( options.bInstallInterruptHandler ) {
+            // Install cancellation only for real command execution; help and
+            // version paths do not alter process signal state.
             status = ToolCliSignal_Install( &runtime.signal );
             if ( ToolStatus_Failed( status ) ) {
                 EmitDiagnostic(
@@ -499,6 +517,8 @@ tool_exit_code_t ToolCliRunner_Run(
             }
         }
         if ( ToolStatus_Succeeded( status ) ) {
+            // Command callbacks are synchronous. This guarantees all borrowed
+            // argument, host, and cancellation state remains alive until return.
             status = desc.pfnExecute(
                 parseResult,
                 host,

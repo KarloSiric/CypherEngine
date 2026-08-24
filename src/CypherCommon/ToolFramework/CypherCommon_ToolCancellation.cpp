@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Cancellation Implementation Notes
+
+Cancellation is cooperative. Signal handlers request cancellation through async-safe state,
+while normal tool code observes that state at well-defined interruption points.
+================
+*/
+
 #include "CypherCommon_ToolCancellation.h"
 
 namespace cypher::common
@@ -26,12 +35,18 @@ bool_t ToolCancellation_IsRequested(
     if ( pCancellation == nullptr ) {
         return CY_FALSE;
     }
+
+    // The atomic path is signal-safe and cheap. Acquire pairs with the release
+    // store used by the requesting thread before cancellation becomes visible.
     if ( pCancellation->pRequested != nullptr &&
          Cy_AtomicLoad(
              pCancellation->pRequested,
              CY_MEMORY_ORDER_ACQUIRE ) ) {
         return CY_TRUE;
     }
+
+    // A host callback covers cancellation sources that are not represented by
+    // the shared atomic, such as an editor job or remote build controller.
     return pCancellation->pfnQuery != nullptr
         ? pCancellation->pfnQuery( pCancellation->pUserData )
         : CY_FALSE;

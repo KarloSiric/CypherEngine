@@ -30,38 +30,38 @@ namespace cypher::common
 {
 
 enum class tool_progress_state_t : u8 {
-    BEGIN = 0u,
-    UPDATE,
-    COMPLETE,
-    FAILED,
-    CANCELLED
+    BEGIN = 0u, // Announces a new progress operation.
+    UPDATE,     // Advances or describes an active operation.
+    COMPLETE,   // Operation reached successful completion.
+    FAILED,     // Operation ended unsuccessfully.
+    CANCELLED   // Operation ended by cooperative cancellation.
 };
 
 enum class tool_progress_unit_t : u8 {
-    NONE = 0u,
-    ITEMS,
-    BYTES,
-    STEPS
+    NONE = 0u, // Counters have no declared unit.
+    ITEMS,     // Files, resources, or other discrete objects.
+    BYTES,     // Data volume.
+    STEPS      // Abstract ordered phases.
 };
 
 enum tool_progress_flags_t : flags32_t {
-    TOOL_PROGRESS_FLAG_NONE = 0u,
-    TOOL_PROGRESS_FLAG_INDETERMINATE = CYPHER_BIT32( 0 )
+    TOOL_PROGRESS_FLAG_NONE = 0u, // Total is known or no optional policy.
+    TOOL_PROGRESS_FLAG_INDETERMINATE = CYPHER_BIT32( 0 ) // No fraction can be computed.
 };
 
 struct tool_progress_t {
-    tool_operation_id_t operationId{ CY_TOOL_INVALID_OPERATION_ID };
-    tool_operation_id_t parentOperationId{ CY_TOOL_INVALID_OPERATION_ID };
-    tool_sequence_t sequence{ CY_TOOL_INVALID_SEQUENCE };
-    tool_progress_state_t state{ tool_progress_state_t::BEGIN };
-    tool_progress_unit_t unit{ tool_progress_unit_t::NONE };
-    tool_status_t status{ tool_status_t::OK };
-    u64 nCompleted{ 0u };
-    u64 nTotal{ 0u };
-    timer_tick_t timestamp{ 0u };
-    string_view_t title{};
-    string_view_t detail{};
-    flags32_t flags{ TOOL_PROGRESS_FLAG_NONE };
+    tool_operation_id_t operationId{ CY_TOOL_INVALID_OPERATION_ID }; // Record owner.
+    tool_operation_id_t parentOperationId{ CY_TOOL_INVALID_OPERATION_ID }; // Optional parent.
+    tool_sequence_t sequence{ CY_TOOL_INVALID_SEQUENCE }; // Producer ordering value.
+    tool_progress_state_t state{ tool_progress_state_t::BEGIN }; // Lifecycle state.
+    tool_progress_unit_t unit{ tool_progress_unit_t::NONE }; // Counter interpretation.
+    tool_status_t status{ tool_status_t::OK }; // Terminal status for end states.
+    u64 nCompleted{ 0u };       // Completed work in the declared unit.
+    u64 nTotal{ 0u };           // Expected work; zero for indeterminate progress.
+    timer_tick_t timestamp{ 0u }; // Monotonic emission time.
+    string_view_t title{};      // Stable short operation label.
+    string_view_t detail{};     // Optional current-item detail.
+    flags32_t flags{ TOOL_PROGRESS_FLAG_NONE }; // tool_progress_flags_t bitset.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

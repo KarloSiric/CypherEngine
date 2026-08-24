@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Command Implementation Notes
+
+Commands declare accepted options and execution callbacks without depending on terminal or GUI
+presentation. Dispatch validates the invocation before entering tool-specific code.
+================
+*/
+
 #include "CypherCommon_ToolCommand.h"
 
 namespace cypher::common
@@ -23,6 +32,7 @@ namespace cypher::common
 tool_status_t ToolCommand_CheckDescriptor(
     const tool_command_desc_t &desc ) noexcept
 {
+    // Descriptor flags are a closed contract shared by CLI and GUI frontends.
     constexpr flags32_t knownFlags =
         TOOL_COMMAND_FLAG_PROJECT_REQUIRED |
         TOOL_COMMAND_FLAG_ACCEPTS_INPUTS |
@@ -39,11 +49,14 @@ tool_status_t ToolCommand_CheckDescriptor(
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Multiple inputs is a refinement of accepting inputs, never an independent mode.
     if ( ( desc.flags & TOOL_COMMAND_FLAG_ALLOW_MULTIPLE_INPUTS ) != 0u &&
          ( desc.flags & TOOL_COMMAND_FLAG_ACCEPTS_INPUTS ) == 0u ) {
         return tool_status_t::INVALID_CONFIGURATION;
     }
 
+    // Command option tables remain small. The quadratic duplicate check avoids
+    // allocating lookup state while descriptors are registered during startup.
     for ( usize i = 0u; i < desc.nOptions; ++i ) {
         const tool_option_desc_t &option = desc.pOptions[i];
         const tool_status_t status = ToolOption_CheckDescriptor( option );
@@ -70,6 +83,7 @@ const tool_option_desc_t *ToolCommand_FindOption(
          ( desc.nOptions != 0u && desc.pOptions == nullptr ) ) {
         return nullptr;
     }
+    // Returned descriptors are borrowed directly from the command table.
     for ( usize i = 0u; i < desc.nOptions; ++i ) {
         if ( StringView_Equals( desc.pOptions[i].name, name ) ) {
             return &desc.pOptions[i];

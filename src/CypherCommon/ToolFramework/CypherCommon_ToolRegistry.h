@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Registry Contract
+
+Compiler registration maps stable format identifiers and source extensions to callbacks.
+Dispatch does not transfer ownership of registry entries or invocation storage.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLREGISTRY_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLREGISTRY_H
 #ifndef PRAGMA_ONCE
@@ -27,9 +36,9 @@ namespace cypher::common
 {
 
 struct tool_registry_t {
-    const tool_application_desc_t **ppEntries{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
+    const tool_application_desc_t **ppEntries{ nullptr }; // Caller-owned array of borrowed descriptors.
+    usize nCount{ 0u };                                  // Registered entries currently in the array.
+    usize nCapacity{ 0u };                               // Maximum entries accepted without reallocation.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

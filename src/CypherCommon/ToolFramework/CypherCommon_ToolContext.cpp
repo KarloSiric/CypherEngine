@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Context Implementation Notes
+
+Workspace context resolves project, source, output, target, and profile roots once per
+invocation. Tool modules consume normalized paths rather than ambient working-directory
+assumptions.
+================
+*/
+
 #include "CypherCommon_ToolContext.h"
 
 namespace cypher::common
@@ -22,6 +32,8 @@ namespace cypher::common
 
 tool_status_t ToolContext_Validate( const tool_context_t &context ) noexcept
 {
+    // Reject unknown bits so a newer context is never interpreted silently by
+    // an older tool module with different execution semantics.
     constexpr flags32_t knownFlags =
         TOOL_CONTEXT_FLAG_INTERACTIVE |
         TOOL_CONTEXT_FLAG_AUTOMATION |
@@ -41,6 +53,8 @@ tool_status_t ToolContext_Validate( const tool_context_t &context ) noexcept
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Automation must be deterministic and non-interactive; accepting both
+    // modes would leave prompts and host behavior ambiguous.
     if ( ( context.flags & TOOL_CONTEXT_FLAG_INTERACTIVE ) != 0u &&
          ( context.flags & TOOL_CONTEXT_FLAG_AUTOMATION ) != 0u ) {
         return tool_status_t::INVALID_CONFIGURATION;

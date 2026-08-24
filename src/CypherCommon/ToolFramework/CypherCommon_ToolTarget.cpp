@@ -33,6 +33,8 @@ tool_target_t ToolTarget_Host() noexcept
 {
     tool_target_t target{};
 
+    // Platform and architecture are compile-time properties of this executable,
+    // not runtime guesses based on the current operating system.
 #if CYPHER_PLATFORM_WINDOWS
     target.platform = tool_platform_t::WINDOWS;
 #elif CYPHER_PLATFORM_LINUX
@@ -68,6 +70,8 @@ bool_t ToolTarget_Parse( string_view_t text, tool_target_t *pTargetOut ) noexcep
         return CY_FALSE;
     }
 
+    // Keep accepted spellings explicit. They are serialized into cache keys,
+    // manifests, command lines, and remote-worker requests.
     tool_target_t target{};
     if ( TextEquals( text, "host" ) ) {
         target = ToolTarget_Host();
@@ -97,6 +101,7 @@ bool_t ToolTarget_Parse( string_view_t text, tool_target_t *pTargetOut ) noexcep
         return CY_FALSE;
     }
 
+    // Publish only after the complete platform/architecture pair is valid.
     *pTargetOut = target;
     return CY_TRUE;
 }
@@ -140,6 +145,7 @@ bool_t ToolProfile_Parse( string_view_t text, tool_profile_t *pProfileOut ) noex
         return CY_FALSE;
     }
 
+    // Profiles are intentionally independent from CMake configuration names.
     tool_profile_t profile = tool_profile_t::UNKNOWN;
     if ( TextEquals( text, "development" ) ) {
         profile = tool_profile_t::DEVELOPMENT;

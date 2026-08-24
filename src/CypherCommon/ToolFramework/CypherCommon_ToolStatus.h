@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Status Contract
+
+These are stable tool-neutral contracts shared by CLI applications, future GUI hosts, tests, and
+compiler modules. They must not depend on Qt or terminal state.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLSTATUS_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLSTATUS_H
 #ifndef PRAGMA_ONCE
@@ -28,34 +37,34 @@ namespace cypher::common
 {
 
 enum class tool_status_t : u8 {
-    OK = 0u,
-    CANCELLED,
-    INVALID_ARGUMENT,
-    INVALID_STATE,
-    INVALID_COMMAND,
-    INVALID_OPTION,
-    INVALID_PROJECT,
-    INVALID_CONFIGURATION,
-    VALIDATION_FAILED,
-    OPERATION_FAILED,
-    IO_ERROR,
-    CACHE_ERROR,
-    OUT_OF_MEMORY,
-    UNSUPPORTED,
-    ALREADY_EXISTS,
-    NOT_FOUND,
-    CAPACITY_EXCEEDED,
-    INTERNAL_ERROR
+    OK = 0u,              // Operation completed successfully.
+    CANCELLED,            // Cooperative cancellation was observed.
+    INVALID_ARGUMENT,     // Direct API argument violates its contract.
+    INVALID_STATE,        // Object state cannot perform the requested operation.
+    INVALID_COMMAND,      // Command name or positional usage is invalid.
+    INVALID_OPTION,       // Option name or typed value is invalid.
+    INVALID_PROJECT,      // Project description cannot be consumed.
+    INVALID_CONFIGURATION,// Tool configuration is contradictory or incomplete.
+    VALIDATION_FAILED,    // Authored input is structurally or semantically invalid.
+    OPERATION_FAILED,     // Tool-specific work failed after valid setup.
+    IO_ERROR,             // Filesystem, stream, or transport operation failed.
+    CACHE_ERROR,          // Cache lookup, validation, or publication failed.
+    OUT_OF_MEMORY,        // Required storage could not be acquired.
+    UNSUPPORTED,          // Valid request is not implemented by this module.
+    ALREADY_EXISTS,       // Unique registration or destination already exists.
+    NOT_FOUND,            // Requested compiler, resource, or path was absent.
+    CAPACITY_EXCEEDED,    // Caller-owned bounded storage is full.
+    INTERNAL_ERROR        // Invariant or callback contract was violated.
 };
 
 enum class tool_exit_code_t : i32 {
-    SUCCESS = 0,
-    OPERATION_FAILED = 1,
-    USAGE_ERROR = 2,
-    CONFIGURATION_ERROR = 3,
-    INFRASTRUCTURE_ERROR = 4,
-    INTERNAL_ERROR = 5,
-    CANCELLED = 6
+    SUCCESS = 0,              // Successful process termination.
+    OPERATION_FAILED = 1,     // Input validation or compilation failed.
+    USAGE_ERROR = 2,          // Command-line usage was invalid.
+    CONFIGURATION_ERROR = 3,  // Project or tool configuration was invalid.
+    INFRASTRUCTURE_ERROR = 4, // I/O, cache, or allocation failure.
+    INTERNAL_ERROR = 5,       // Tool invariant or callback contract failed.
+    CANCELLED = 6             // User or host cancelled the process.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

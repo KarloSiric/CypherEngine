@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Workspace Contract
+
+Workspace context resolves project, source, output, target, and profile roots once per
+invocation. Tool modules consume normalized paths rather than ambient working-directory
+assumptions.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLWORKSPACE_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLWORKSPACE_H
 #ifndef PRAGMA_ONCE
@@ -29,21 +39,21 @@ namespace cypher::common
 
 enum tool_workspace_flags_t : flags32_t {
     TOOL_WORKSPACE_FLAG_NONE = 0u,
-    TOOL_WORKSPACE_FLAG_EMBEDDABLE = CYPHER_BIT32( 0 ),
-    TOOL_WORKSPACE_FLAG_STANDALONE = CYPHER_BIT32( 1 ),
-    TOOL_WORKSPACE_FLAG_REQUIRES_PROJECT = CYPHER_BIT32( 2 ),
-    TOOL_WORKSPACE_FLAG_REQUIRES_ENGINE = CYPHER_BIT32( 3 ),
-    TOOL_WORKSPACE_FLAG_SUPPORTS_MULTIPLE_DOCUMENTS = CYPHER_BIT32( 4 )
+    TOOL_WORKSPACE_FLAG_EMBEDDABLE = CYPHER_BIT32( 0 ), // May be hosted inside Mason.
+    TOOL_WORKSPACE_FLAG_STANDALONE = CYPHER_BIT32( 1 ), // May run as its own application.
+    TOOL_WORKSPACE_FLAG_REQUIRES_PROJECT = CYPHER_BIT32( 2 ), // Needs a resolved project context.
+    TOOL_WORKSPACE_FLAG_REQUIRES_ENGINE = CYPHER_BIT32( 3 ), // Needs live engine services.
+    TOOL_WORKSPACE_FLAG_SUPPORTS_MULTIPLE_DOCUMENTS = CYPHER_BIT32( 4 ) // More than one open document.
 };
 
 struct tool_workspace_desc_t {
-    string_view_t id{};
-    string_view_t displayName{};
-    string_view_t summary{};
-    const string_view_t *pDocumentTypes{ nullptr };
-    usize nDocumentTypes{ 0u };
-    u32 nApiVersion{ 0u };
-    flags32_t flags{ TOOL_WORKSPACE_FLAG_NONE };
+    string_view_t id{};                              // Stable machine-facing workspace identifier.
+    string_view_t displayName{};                     // Human-readable title shown by a host.
+    string_view_t summary{};                         // Short capability description.
+    const string_view_t *pDocumentTypes{ nullptr };  // Borrowed array of accepted type identifiers.
+    usize nDocumentTypes{ 0u };                      // Number of entries in pDocumentTypes.
+    u32 nApiVersion{ 0u };                           // Workspace contract version expected by the host.
+    flags32_t flags{ TOOL_WORKSPACE_FLAG_NONE };     // Combination of tool_workspace_flags_t.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

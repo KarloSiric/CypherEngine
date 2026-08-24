@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Framework Contract
+
+These are stable tool-neutral contracts shared by CLI applications, future GUI hosts, tests, and
+compiler modules. They must not depend on Qt or terminal state.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLFRAMEWORK_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLFRAMEWORK_H
 #ifndef PRAGMA_ONCE

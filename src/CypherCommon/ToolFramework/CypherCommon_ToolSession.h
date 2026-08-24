@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Session Contract
+
+A tool run owns one invocation, host callback set, cancellation state, and final report.
+Tool-specific code borrows that context only for the duration of execution.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLSESSION_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLSESSION_H
 #ifndef PRAGMA_ONCE
@@ -29,18 +38,18 @@ namespace cypher::common
 {
 
 enum class tool_session_state_t : u8 {
-    READY = 0u,
-    RUNNING,
-    SUCCEEDED,
-    FAILED,
-    CANCELLED
+    READY = 0u, // Initialized and waiting for its single run.
+    RUNNING,    // Producers may allocate operation and event identifiers.
+    SUCCEEDED,  // Terminal state for a successful run.
+    FAILED,     // Terminal state for any non-cancellation failure.
+    CANCELLED   // Terminal state selected by cooperative cancellation.
 };
 
 struct tool_session_t {
-    atomic_u64_t nNextOperationId{ 1u };
-    atomic_u64_t nNextSequence{ 1u };
-    atomic_u32_t state{ static_cast<u32>( tool_session_state_t::READY ) };
-    atomic_u32_t status{ static_cast<u32>( tool_status_t::OK ) };
+    atomic_u64_t nNextOperationId{ 1u }; // Zero remains the invalid operation sentinel.
+    atomic_u64_t nNextSequence{ 1u };    // Monotonic ordering key shared by all producers.
+    atomic_u32_t state{ static_cast<u32>( tool_session_state_t::READY ) }; // Atomic state machine.
+    atomic_u32_t status{ static_cast<u32>( tool_status_t::OK ) }; // Final tool_status_t value.
 };
 
 CYPHER_COMMON_API void ToolSession_Init( tool_session_t *pSession ) noexcept;

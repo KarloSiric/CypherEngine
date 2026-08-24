@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Host Implementation Notes
+
+A tool run owns one invocation, host callback set, cancellation state, and final report.
+Tool-specific code borrows that context only for the duration of execution.
+================
+*/
+
 #include "CypherCommon_ToolHost.h"
 
 namespace cypher::common
@@ -22,9 +31,11 @@ namespace cypher::common
 
 tool_status_t ToolHost_Validate( const tool_host_t &host ) noexcept
 {
+    // Callback thread safety is an explicit host promise; no other bits exist yet.
     if ( ( host.flags & ~TOOL_HOST_FLAG_THREAD_SAFE_CALLBACKS ) != 0u ) {
         return tool_status_t::INVALID_ARGUMENT;
     }
+    // Opaque callback state without a callback is almost certainly stale setup.
     if ( host.cancellation.pfnQuery == nullptr &&
          host.cancellation.pUserData != nullptr ) {
         return tool_status_t::INVALID_ARGUMENT;
@@ -36,6 +47,8 @@ void ToolHost_EmitDiagnostic(
     const tool_host_t *pHost,
     const tool_diagnostic_t &diagnostic ) noexcept
 {
+    // Delivery is synchronous. Invalid records are dropped at this boundary so
+    // every frontend callback can assume the public contract already holds.
     if ( pHost != nullptr && pHost->pfnDiagnostic != nullptr &&
          ToolStatus_Succeeded( ToolDiagnostic_Validate( diagnostic ) ) ) {
         pHost->pfnDiagnostic( diagnostic, pHost->pUserData );
@@ -46,6 +59,7 @@ void ToolHost_EmitProgress(
     const tool_host_t *pHost,
     const tool_progress_t &progress ) noexcept
 {
+    // Record storage remains owned by the producer for the duration of this call.
     if ( pHost != nullptr && pHost->pfnProgress != nullptr &&
          ToolStatus_Succeeded( ToolProgress_Validate( progress ) ) ) {
         pHost->pfnProgress( progress, pHost->pUserData );
@@ -100,6 +114,7 @@ tool_status_t ToolHost_WriteText(
          !StringView_IsValid( text ) ) {
         return tool_status_t::UNSUPPORTED;
     }
+    // Avoid turning an empty record into an observable sink write or flush.
     if ( text.cchLength == 0u ) {
         return tool_status_t::OK;
     }

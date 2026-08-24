@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Option Implementation Notes
+
+Options are typed descriptors resolved through explicit precedence. Parsing, defaults,
+environment values, response files, and command-line overrides remain distinguishable for
+diagnostics.
+================
+*/
+
 #include "CypherCommon_ToolOption.h"
 
 #include "CypherCommon_StringParse.h"
@@ -29,6 +39,7 @@ bool IsOptionName( string_view_t name ) noexcept
     if ( !StringView_IsValid( name ) || name.cchLength == 0u ) {
         return false;
     }
+    // Long names are portable lowercase command tokens, not user-facing text.
     for ( usize i = 0u; i < name.cchLength; ++i ) {
         const char value = name.pData[i];
         const bool_t bLetter = value >= 'a' && value <= 'z';
@@ -49,6 +60,7 @@ bool IsShortName( char value ) noexcept
 
 bool IsBoolean( string_view_t value ) noexcept
 {
+    // Keep accepted spelling intentionally narrow for reproducible invocations.
     return StringView_Equals( value, StringView_FromCString( "true" ) ) ||
            StringView_Equals( value, StringView_FromCString( "false" ) ) ||
            StringView_Equals( value, StringView_FromCString( "1" ) ) ||
@@ -60,6 +72,7 @@ bool IsBoolean( string_view_t value ) noexcept
 tool_status_t ToolOption_CheckDescriptor(
     const tool_option_desc_t &desc ) noexcept
 {
+    // Descriptors are shared with help and GUI forms, so reject unknown policy.
     constexpr flags32_t knownFlags =
         TOOL_OPTION_FLAG_REQUIRED |
         TOOL_OPTION_FLAG_REPEATABLE |
@@ -79,6 +92,8 @@ tool_status_t ToolOption_CheckDescriptor(
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Boolean switches carry their value in presence or --no-name spelling;
+    // every other type needs a visible value placeholder.
     if ( desc.type == tool_option_type_t::BOOLEAN ) {
         if ( desc.valueName.cchLength != 0u ||
              ( desc.flags & TOOL_OPTION_FLAG_REPEATABLE ) != 0u ) {
@@ -88,6 +103,7 @@ tool_status_t ToolOption_CheckDescriptor(
         return tool_status_t::INVALID_CONFIGURATION;
     }
 
+    // Enum value tables are closed, non-empty, and duplicate-free.
     if ( desc.type == tool_option_type_t::ENUM ) {
         if ( desc.nEnumValues == 0u ) {
             return tool_status_t::INVALID_CONFIGURATION;
@@ -109,6 +125,7 @@ tool_status_t ToolOption_CheckDescriptor(
         return tool_status_t::INVALID_CONFIGURATION;
     }
 
+    // Defaults pass through the same complete-value parser as user overrides.
     if ( desc.defaultValue.cchLength != 0u ) {
         return ToolOption_ValidateValue( desc, desc.defaultValue );
     }
@@ -131,6 +148,8 @@ tool_status_t ToolOption_ValidateValue(
         return tool_status_t::INVALID_OPTION;
     }
 
+    // Numeric parsers must consume the complete view. Accepting a valid prefix
+    // would make typos such as "12ms" silently alter compiler behavior.
     switch ( desc.type ) {
         case tool_option_type_t::BOOLEAN:
             return IsBoolean( value )
@@ -187,6 +206,7 @@ bool_t ToolOption_SourceOverrides(
     tool_option_source_t incoming,
     tool_option_source_t current ) noexcept
 {
+    // Enum order defines precedence from defaults through command-line values.
     return incoming >= tool_option_source_t::DEFAULT_VALUE &&
            incoming <= tool_option_source_t::COMMAND_LINE &&
            current >= tool_option_source_t::DEFAULT_VALUE &&
@@ -196,6 +216,7 @@ bool_t ToolOption_SourceOverrides(
 
 const char *ToolOption_TypeName( tool_option_type_t type ) noexcept
 {
+    // Stable names are used by generated help and structured option metadata.
     switch ( type ) {
         case tool_option_type_t::BOOLEAN: return "boolean";
         case tool_option_type_t::I64: return "i64";

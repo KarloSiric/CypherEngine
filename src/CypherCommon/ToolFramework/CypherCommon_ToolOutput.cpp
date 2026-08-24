@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Output Implementation Notes
+
+Presentation is a host concern layered over structured tool events. Terminal width, ANSI color,
+and verbosity affect rendering only, never compiler decisions.
+================
+*/
+
 #include "CypherCommon_ToolOutput.h"
 
 namespace cypher::common
@@ -23,6 +32,7 @@ namespace cypher::common
 tool_status_t ToolOutput_ValidatePolicy(
     const tool_output_policy_t &policy ) noexcept
 {
+    // Output policy is consumed by several hosts, so unknown bits cannot be ignored.
     constexpr flags32_t knownFlags =
         TOOL_OUTPUT_FLAG_COLOR |
         TOOL_OUTPUT_FLAG_TIMESTAMPS |
@@ -36,15 +46,19 @@ tool_status_t ToolOutput_ValidatePolicy(
          ( policy.flags & ~knownFlags ) != 0u ) {
         return tool_status_t::INVALID_ARGUMENT;
     }
+    // ANSI escape bytes would corrupt JSON records and redirected consumers.
     if ( policy.diagnosticsFormat == tool_output_format_t::JSON &&
          ( policy.flags &
            ( TOOL_OUTPUT_FLAG_COLOR | TOOL_OUTPUT_FLAG_FORCE_COLOR ) ) != 0u ) {
         return tool_status_t::INVALID_CONFIGURATION;
     }
+    // Force-color only overrides terminal detection; color still must be enabled.
     if ( ( policy.flags & TOOL_OUTPUT_FLAG_FORCE_COLOR ) != 0u &&
          ( policy.flags & TOOL_OUTPUT_FLAG_COLOR ) == 0u ) {
         return tool_status_t::INVALID_CONFIGURATION;
     }
+    // Structured diagnostics require structured or suppressed progress so two
+    // incompatible record formats are never interleaved on the same stream.
     if ( policy.diagnosticsFormat == tool_output_format_t::JSON &&
          policy.progressMode != tool_progress_mode_t::JSON &&
          policy.progressMode != tool_progress_mode_t::NONE ) {
@@ -68,6 +82,7 @@ tool_status_t ToolOutput_WriteText(
          !StringView_IsValid( text ) ) {
         return tool_status_t::INVALID_ARGUMENT;
     }
+    // Do not invoke host callbacks for empty records; some sinks flush per call.
     if ( text.cchLength == 0u ) {
         return tool_status_t::OK;
     }

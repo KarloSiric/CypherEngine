@@ -20,6 +20,9 @@
 namespace cypher::common
 {
 
+// The registry owns neither descriptors nor pointer storage. The host supplies a
+// fixed array so registration stays allocation-free and deterministic.
+
 tool_status_t ToolRegistry_Init(
     tool_registry_t *pRegistry,
     const tool_application_desc_t **ppStorage,
@@ -36,6 +39,7 @@ tool_status_t ToolRegistry_Init(
 void ToolRegistry_Clear( tool_registry_t *pRegistry ) noexcept
 {
     if ( pRegistry != nullptr ) {
+        // Descriptors remain alive; clearing only forgets the registered prefix.
         pRegistry->nCount = 0u;
     }
 }
@@ -63,6 +67,7 @@ tool_status_t ToolRegistry_Register(
         return tool_status_t::CAPACITY_EXCEEDED;
     }
 
+    // Entries occupy a compact prefix, preserving registration order for help UI.
     pRegistry->ppEntries[pRegistry->nCount] = pApplication;
     ++pRegistry->nCount;
     return tool_status_t::OK;

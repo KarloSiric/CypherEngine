@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Workspace Implementation Notes
+
+Workspace context resolves project, source, output, target, and profile roots once per
+invocation. Tool modules consume normalized paths rather than ambient working-directory
+assumptions.
+================
+*/
+
 #include "CypherCommon_ToolWorkspace.h"
 
 namespace cypher::common
@@ -23,6 +33,8 @@ namespace cypher::common
 tool_status_t ToolWorkspace_CheckDescriptor(
     const tool_workspace_desc_t &workspace ) noexcept
 {
+    // Unknown flags are rejected so hosts never expose capabilities that an
+    // older workspace implementation does not actually support.
     constexpr flags32_t knownFlags =
         TOOL_WORKSPACE_FLAG_EMBEDDABLE |
         TOOL_WORKSPACE_FLAG_STANDALONE |
@@ -41,12 +53,15 @@ tool_status_t ToolWorkspace_CheckDescriptor(
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // A descriptor must advertise at least one valid launch mode.
     if ( ( workspace.flags &
            ( TOOL_WORKSPACE_FLAG_EMBEDDABLE |
              TOOL_WORKSPACE_FLAG_STANDALONE ) ) == 0u ) {
         return tool_status_t::INVALID_CONFIGURATION;
     }
 
+    // Descriptor tables are deliberately small, so an allocation-free O(n^2)
+    // duplicate check is preferable to temporary hashing and ownership rules.
     for ( usize i = 0u; i < workspace.nDocumentTypes; ++i ) {
         if ( !StringView_IsValid( workspace.pDocumentTypes[i] ) ||
              workspace.pDocumentTypes[i].cchLength == 0u ) {
@@ -72,6 +87,7 @@ bool_t ToolWorkspace_SupportsDocumentType(
            workspace.pDocumentTypes == nullptr ) ) {
         return CY_FALSE;
     }
+    // Type identifiers use exact byte equality; aliases belong in registration.
     for ( usize i = 0u; i < workspace.nDocumentTypes; ++i ) {
         if ( StringView_Equals( workspace.pDocumentTypes[i], typeId ) ) {
             return CY_TRUE;

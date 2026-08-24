@@ -27,30 +27,30 @@ namespace cypher::common
 {
 
 enum class tool_platform_t : u8 {
-    UNKNOWN = 0u,
-    WINDOWS,
-    LINUX,
-    MACOS
+    UNKNOWN = 0u, // No target operating-system ABI selected.
+    WINDOWS,      // Microsoft Windows target.
+    LINUX,        // Linux target.
+    MACOS         // Apple macOS target.
 };
 
 enum class tool_architecture_t : u8 {
-    UNKNOWN = 0u,
-    X86,
-    X64,
-    ARM32,
-    ARM64
+    UNKNOWN = 0u, // No target instruction set selected.
+    X86,          // 32-bit x86.
+    X64,          // 64-bit x86-64.
+    ARM32,        // 32-bit ARM.
+    ARM64         // 64-bit AArch64.
 };
 
 enum class tool_profile_t : u8 {
-    UNKNOWN = 0u,
-    DEVELOPMENT,
-    RELEASE,
-    SHIPPING
+    UNKNOWN = 0u, // No semantic build profile selected.
+    DEVELOPMENT,  // Fast iteration and maximal diagnostics.
+    RELEASE,      // Optimized developer/test output.
+    SHIPPING      // Final distribution policy.
 };
 
 struct tool_target_t {
-    tool_platform_t platform{ tool_platform_t::UNKNOWN };
-    tool_architecture_t architecture{ tool_architecture_t::UNKNOWN };
+    tool_platform_t platform{ tool_platform_t::UNKNOWN }; // Target operating system.
+    tool_architecture_t architecture{ tool_architecture_t::UNKNOWN }; // Target CPU ISA.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Cli Help Implementation Notes
+
+Presentation is a host concern layered over structured tool events. Terminal width, ANSI color,
+and verbosity affect rendering only, never compiler decisions.
+================
+*/
+
 #include "CypherCommon_ToolCliHelp.h"
 
 #include "CypherCommon_StringBuilder.h"
@@ -24,10 +33,10 @@ namespace cypher::common
 namespace
 {
 
-constexpr string_view_t CY_HELP_COLOR_RESET{ "\x1b[0m", 4u };
-constexpr string_view_t CY_HELP_COLOR_BOLD{ "\x1b[1m", 4u };
-constexpr string_view_t CY_HELP_COLOR_CYAN{ "\x1b[36m", 5u };
-constexpr string_view_t CY_HELP_COLOR_YELLOW{ "\x1b[33m", 5u };
+constexpr string_view_t CY_HELP_COLOR_RESET{ "\x1b[0m", 4u };   // Restore terminal attributes.
+constexpr string_view_t CY_HELP_COLOR_BOLD{ "\x1b[1m", 4u };    // Product and section emphasis.
+constexpr string_view_t CY_HELP_COLOR_CYAN{ "\x1b[36m", 5u };   // Product identity accent.
+constexpr string_view_t CY_HELP_COLOR_YELLOW{ "\x1b[33m", 5u }; // Section heading accent.
 
 bool_t OptionsAreValid( const tool_cli_help_options_t &options ) noexcept
 {
@@ -39,6 +48,8 @@ bool_t OptionsAreValid( const tool_cli_help_options_t &options ) noexcept
 tool_cli_help_result_t BuilderResult(
     const string_builder_t &builder ) noexcept
 {
+    // Preserve required length when output is truncated so callers can size a
+    // second pass without maintaining a separate help-measurement path.
     switch ( builder.status ) {
         case string_builder_status_t::OK:
             return { tool_status_t::OK, builder.cchLength, builder.cchRequired };
@@ -71,6 +82,7 @@ void AppendColor(
     const tool_cli_help_options_t &options,
     string_view_t color ) noexcept
 {
+    // Color is injected only by this helper, keeping plain and colored layouts identical.
     if ( options.bUseColor ) {
         AppendView( pBuilder, color );
     }
@@ -92,6 +104,8 @@ void AppendOptionLabel(
     string_builder_t *pBuilder,
     const tool_option_desc_t &option ) noexcept
 {
+    // Labels use a fixed short-option column so descriptions align whether or
+    // not a descriptor provides a one-character alias.
     AppendText( pBuilder, "  " );
     if ( option.shortName != '\0' ) {
         (void)StringBuilder_AppendFormat(
@@ -126,6 +140,8 @@ tool_cli_help_result_t ToolCliHelp_WriteApplication(
         return { tool_status_t::INVALID_ARGUMENT, 0u, 0u };
     }
 
+    // The bounded builder continues measuring after truncation, which makes a
+    // null-destination sizing call follow the same code path as the final write.
     string_builder_t builder{};
     if ( !StringBuilder_Init( &builder, pDest, cchDest ) ) {
         return { tool_status_t::INVALID_ARGUMENT, 0u, 0u };
@@ -147,6 +163,8 @@ tool_cli_help_result_t ToolCliHelp_WriteApplication(
     AppendText( &builder, " <command> [options] [inputs]\n\n" );
     AppendHeading( &builder, options, "COMMANDS" );
 
+    // Validate every command while writing so help cannot advertise a malformed
+    // descriptor that the parser would later reject.
     for ( usize i = 0u; i < nCommands; ++i ) {
         const tool_command_desc_t &command = pCommands[i];
         if ( ToolStatus_Failed( ToolCommand_CheckDescriptor( command ) ) ) {
@@ -168,6 +186,7 @@ tool_cli_help_result_t ToolCliHelp_WriteApplication(
         &builder,
         "  -h, --help     Show application or command help.\n"
         "  -V, --version  Show the executable version.\n" );
+    // Product-owned epilogues may already contain a final newline.
     if ( options.epilogue.cchLength != 0u ) {
         AppendText( &builder, "\n" );
         AppendView( &builder, options.epilogue );
@@ -213,6 +232,7 @@ tool_cli_help_result_t ToolCliHelp_WriteCommand(
     AppendText( &builder, "  " );
     AppendView( &builder, application.displayName );
     (void)StringBuilder_AppendChar( &builder, ' ' );
+    // Explicit usage text wins; otherwise derive a safe default from the command name.
     if ( command.usage.cchLength != 0u ) {
         AppendView( &builder, command.usage );
     } else {
@@ -222,6 +242,7 @@ tool_cli_help_result_t ToolCliHelp_WriteCommand(
 
     AppendText( &builder, "\n\n" );
     AppendHeading( &builder, options, "OPTIONS" );
+    // Descriptor order is presentation order and remains deterministic across hosts.
     for ( usize i = 0u; i < command.nOptions; ++i ) {
         const tool_option_desc_t &option = command.pOptions[i];
         if ( !options.bIncludeHidden &&

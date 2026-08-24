@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Invocation Implementation Notes
+
+A tool run owns one invocation, host callback set, cancellation state, and final report.
+Tool-specific code borrows that context only for the duration of execution.
+================
+*/
+
 #include "CypherCommon_ToolInvocation.h"
 
 namespace cypher::common
@@ -23,6 +32,7 @@ namespace cypher::common
 tool_status_t ToolInvocation_Validate(
     const tool_invocation_t &invocation ) noexcept
 {
+    // Invocation flags are resolved policy, not raw command-line spelling.
     constexpr flags32_t knownFlags =
         TOOL_INVOCATION_FLAG_DRY_RUN |
         TOOL_INVOCATION_FLAG_FORCE_ROOTS |
@@ -40,6 +50,7 @@ tool_status_t ToolInvocation_Validate(
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Validate each borrowed descriptor before checking relationships between them.
     tool_status_t status =
         ToolApplication_CheckDescriptor( *invocation.pApplication );
     if ( ToolStatus_Failed( status ) ) {
@@ -62,12 +73,14 @@ tool_status_t ToolInvocation_Validate(
         return status;
     }
 
+    // Context and descriptor must identify the same executable contract.
     if ( !StringView_Equals(
              invocation.pApplication->id,
              invocation.pContext->applicationId ) ) {
         return tool_status_t::INVALID_CONFIGURATION;
     }
 
+    // Command capabilities constrain the resolved project, inputs, and run policy.
     const flags32_t commandFlags = invocation.pCommand->flags;
     if ( ( commandFlags & TOOL_COMMAND_FLAG_PROJECT_REQUIRED ) != 0u &&
          invocation.pContext->projectFile.cchLength == 0u ) {
@@ -85,11 +98,13 @@ tool_status_t ToolInvocation_Validate(
          ( commandFlags & TOOL_COMMAND_FLAG_SUPPORTS_DRY_RUN ) == 0u ) {
         return tool_status_t::INVALID_COMMAND;
     }
+    // Root-only and full-closure rebuild modes are intentionally exclusive.
     if ( ( invocation.flags & TOOL_INVOCATION_FLAG_FORCE_ROOTS ) != 0u &&
          ( invocation.flags & TOOL_INVOCATION_FLAG_FORCE_CLOSURE ) != 0u ) {
         return tool_status_t::INVALID_CONFIGURATION;
     }
 
+    // Inputs are borrowed views and must all describe non-empty stable names.
     for ( usize i = 0u; i < invocation.nInputs; ++i ) {
         if ( !StringView_IsValid( invocation.pInputs[i] ) ||
              invocation.pInputs[i].cchLength == 0u ) {

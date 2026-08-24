@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Artifact Implementation Notes
+
+Artifacts are published transactionally and recorded with their type and path. Failed work must
+not replace the last known-good output with a partial file.
+================
+*/
+
 #include "CypherCommon_ToolArtifact.h"
 
 namespace cypher::common
@@ -22,6 +31,8 @@ namespace cypher::common
 
 tool_status_t ToolArtifact_Validate( const tool_artifact_t &artifact ) noexcept
 {
+    // Keep accepted flags explicit so report readers do not mistake unknown
+    // metadata from a newer producer for a supported publication guarantee.
     constexpr flags32_t knownFlags =
         TOOL_ARTIFACT_FLAG_PRIMARY |
         TOOL_ARTIFACT_FLAG_GENERATED |
@@ -35,6 +46,8 @@ tool_status_t ToolArtifact_Validate( const tool_artifact_t &artifact ) noexcept
          ( artifact.flags & ~knownFlags ) != 0u ) {
         return tool_status_t::INVALID_ARGUMENT;
     }
+    // Published content needs an identity for cache and dependency tracking.
+    // Temporary files are exempt because they may be incomplete by design.
     if ( artifact.cbSize != 0u &&
          ( artifact.flags & TOOL_ARTIFACT_FLAG_TEMPORARY ) == 0u &&
          !ContentHash_IsValid( artifact.contentHash ) ) {
@@ -45,6 +58,7 @@ tool_status_t ToolArtifact_Validate( const tool_artifact_t &artifact ) noexcept
 
 const char *ToolArtifact_KindName( tool_artifact_kind_t kind ) noexcept
 {
+    // Spellings form part of the machine-readable report contract.
     switch ( kind ) {
         case tool_artifact_kind_t::COOKED_RESOURCE: return "cooked-resource";
         case tool_artifact_kind_t::PACKAGE: return "package";

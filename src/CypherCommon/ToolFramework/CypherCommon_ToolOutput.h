@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Output Contract
+
+Presentation is a host concern layered over structured tool events. Terminal width, ANSI color,
+and verbosity affect rendering only, never compiler decisions.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLOUTPUT_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLOUTPUT_H
 #ifndef PRAGMA_ONCE
@@ -33,43 +42,43 @@ using tool_text_write_fn_t = bool_t ( * )(
     void *pUserData ) noexcept;
 
 struct tool_text_sink_t {
-    tool_text_write_fn_t pfnWrite{ nullptr };
-    void *pUserData{ nullptr };
+    tool_text_write_fn_t pfnWrite{ nullptr }; // Synchronous complete-record writer.
+    void *pUserData{ nullptr };               // Opaque writer state.
 };
 
 enum class tool_output_format_t : u8 {
-    TEXT = 0u,
-    JSON
+    TEXT = 0u, // Human-readable terminal or file output.
+    JSON       // Newline-delimited machine-readable records.
 };
 
 enum class tool_progress_mode_t : u8 {
-    AUTO = 0u,
-    PLAIN,
-    JSON,
-    NONE
+    AUTO = 0u, // Redraw terminals and append when redirected.
+    PLAIN,     // Always append human-readable progress lines.
+    JSON,      // Append structured progress records.
+    NONE       // Suppress progress while retaining other output.
 };
 
 enum class tool_verbosity_t : u8 {
-    QUIET = 0u,
-    NORMAL,
-    VERBOSE,
-    TRACE
+    QUIET = 0u, // Suppress non-error presentation.
+    NORMAL,     // Diagnostics, progress, artifacts, and final report.
+    VERBOSE,    // Include operation and phase events.
+    TRACE       // Include dependency and detailed trace records.
 };
 
 enum tool_output_flags_t : flags32_t {
-    TOOL_OUTPUT_FLAG_NONE = 0u,
-    TOOL_OUTPUT_FLAG_COLOR = CYPHER_BIT32( 0 ),
-    TOOL_OUTPUT_FLAG_TIMESTAMPS = CYPHER_BIT32( 1 ),
-    TOOL_OUTPUT_FLAG_WARNINGS_AS_ERRORS = CYPHER_BIT32( 2 ),
-    TOOL_OUTPUT_FLAG_FLUSH_EACH_RECORD = CYPHER_BIT32( 3 ),
-    TOOL_OUTPUT_FLAG_FORCE_COLOR = CYPHER_BIT32( 4 )
+    TOOL_OUTPUT_FLAG_NONE = 0u,                        // No optional presentation policy.
+    TOOL_OUTPUT_FLAG_COLOR = CYPHER_BIT32( 0 ),        // Permit ANSI color for text.
+    TOOL_OUTPUT_FLAG_TIMESTAMPS = CYPHER_BIT32( 1 ),   // Prefix records with timestamps.
+    TOOL_OUTPUT_FLAG_WARNINGS_AS_ERRORS = CYPHER_BIT32( 2 ), // Promote warning outcome.
+    TOOL_OUTPUT_FLAG_FLUSH_EACH_RECORD = CYPHER_BIT32( 3 ),  // Flush after each complete record.
+    TOOL_OUTPUT_FLAG_FORCE_COLOR = CYPHER_BIT32( 4 )   // Color text even when redirected.
 };
 
 struct tool_output_policy_t {
-    tool_output_format_t diagnosticsFormat{ tool_output_format_t::TEXT };
-    tool_progress_mode_t progressMode{ tool_progress_mode_t::AUTO };
-    tool_verbosity_t verbosity{ tool_verbosity_t::NORMAL };
-    flags32_t flags{ TOOL_OUTPUT_FLAG_NONE };
+    tool_output_format_t diagnosticsFormat{ tool_output_format_t::TEXT }; // Record encoding.
+    tool_progress_mode_t progressMode{ tool_progress_mode_t::AUTO }; // Progress presentation.
+    tool_verbosity_t verbosity{ tool_verbosity_t::NORMAL }; // Record filtering level.
+    flags32_t flags{ TOOL_OUTPUT_FLAG_NONE }; // tool_output_flags_t bitset.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

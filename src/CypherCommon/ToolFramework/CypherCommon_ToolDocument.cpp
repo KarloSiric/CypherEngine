@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Document Implementation Notes
+
+Tool documents hold authored data and source identity independently of a GUI. Save and reload
+operations preserve transactional error reporting.
+================
+*/
+
 #include "CypherCommon_ToolDocument.h"
 
 namespace cypher::common
@@ -23,6 +32,8 @@ namespace cypher::common
 tool_status_t ToolDocument_Validate(
     const tool_document_desc_t &document ) noexcept
 {
+    // Unknown lifecycle flags are rejected at the API boundary rather than
+    // leaking unsupported state into save, reload, or conflict handling.
     constexpr flags32_t knownFlags =
         TOOL_DOCUMENT_FLAG_DIRTY |
         TOOL_DOCUMENT_FLAG_READ_ONLY |
@@ -40,11 +51,13 @@ tool_status_t ToolDocument_Validate(
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Only a newly-created untitled document may exist without a source path.
     const bool_t bUntitled =
         ( document.flags & TOOL_DOCUMENT_FLAG_UNTITLED ) != 0u;
     if ( !bUntitled && document.path.cchLength == 0u ) {
         return tool_status_t::INVALID_CONFIGURATION;
     }
+    // A read-only model cannot legally acquire unsaved authored changes.
     if ( ( document.flags & TOOL_DOCUMENT_FLAG_DIRTY ) != 0u &&
          ( document.flags & TOOL_DOCUMENT_FLAG_READ_ONLY ) != 0u ) {
         return tool_status_t::INVALID_STATE;

@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Cli Signal Contract
+
+Cancellation is cooperative. Signal handlers request cancellation through async-safe state,
+while normal tool code observes that state at well-defined interruption points.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLCLISIGNAL_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLCLISIGNAL_H
 #ifndef PRAGMA_ONCE
@@ -28,12 +37,12 @@
 namespace cypher::common
 {
 
-using tool_cli_interrupt_handler_t = void ( * )( int );
+using tool_cli_interrupt_handler_t = void ( * )( int ); // C signal-handler signature used by SIGINT.
 
 struct tool_cli_signal_t {
-    atomic_bool_t requested{ CY_FALSE };
-    tool_cli_interrupt_handler_t pPreviousInterruptHandler{ nullptr };
-    bool_t bInstalled{ CY_FALSE };
+    atomic_bool_t requested{ CY_FALSE }; // Async handler writes; normal execution polls.
+    tool_cli_interrupt_handler_t pPreviousInterruptHandler{ nullptr }; // Restored on uninstall.
+    bool_t bInstalled{ CY_FALSE }; // Guards duplicate installation and restoration.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

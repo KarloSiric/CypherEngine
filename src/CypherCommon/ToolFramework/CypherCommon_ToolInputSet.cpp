@@ -24,6 +24,7 @@ namespace
 
 bool_t InputSetIsValid( const tool_input_set_t *pSet ) noexcept
 {
+    // Input storage and all strings are caller-owned for the set's lifetime.
     return pSet != nullptr &&
            pSet->nCount <= pSet->nCapacity &&
            ( pSet->nCapacity == 0u || pSet->pInputs != nullptr );
@@ -31,6 +32,8 @@ bool_t InputSetIsValid( const tool_input_set_t *pSet ) noexcept
 
 bool_t FilterIsValid( const path_filter_t &filter ) noexcept
 {
+    // A non-zero borrowed count always requires corresponding storage, and only
+    // path-matcher flags may cross this boundary.
     if ( ( filter.nIncludeCount != 0u && filter.pIncludes == nullptr ) ||
          ( filter.nExcludeCount != 0u && filter.pExcludes == nullptr ) ||
          ( filter.flags & ~PATH_MATCH_VALID_FLAGS ) != 0u ) {
@@ -67,10 +70,12 @@ tool_status_t ToolInput_Validate( const tool_input_t &input ) noexcept
          ( input.flags & ~knownFlags ) != 0u ) {
         return tool_status_t::INVALID_ARGUMENT;
     }
+    // Required and allowed-missing describe contradictory absence policies.
     if ( ( input.flags & TOOL_INPUT_FLAG_REQUIRED ) != 0u &&
          ( input.flags & TOOL_INPUT_FLAG_ALLOW_MISSING ) != 0u ) {
         return tool_status_t::INVALID_CONFIGURATION;
     }
+    // Traversal flags apply only to input kinds that can expand into many files.
     if ( ( input.flags & TOOL_INPUT_FLAG_RECURSIVE ) != 0u &&
          input.kind != tool_input_kind_t::DIRECTORY &&
          input.kind != tool_input_kind_t::PATTERN ) {
@@ -128,6 +133,7 @@ tool_status_t ToolInputSet_Add(
     if ( pSet->nCount == pSet->nCapacity ) {
         return tool_status_t::CAPACITY_EXCEEDED;
     }
+    // Append without sorting: source order determines deterministic diagnostics.
     pSet->pInputs[pSet->nCount++] = input;
     return tool_status_t::OK;
 }

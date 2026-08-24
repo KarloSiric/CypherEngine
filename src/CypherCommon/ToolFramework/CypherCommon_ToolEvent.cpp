@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Event Implementation Notes
+
+These are stable tool-neutral contracts shared by CLI applications, future GUI hosts, tests, and
+compiler modules. They must not depend on Qt or terminal state.
+================
+*/
+
 #include "CypherCommon_ToolEvent.h"
 
 namespace cypher::common
@@ -22,6 +31,8 @@ namespace cypher::common
 
 tool_status_t ToolEvent_Validate( const tool_event_t &event ) noexcept
 {
+    // Parent and child IDs form a tree. Self-parenting would make timeline
+    // reconstruction loop forever in GUI and report consumers.
     if ( event.operationId == CY_TOOL_INVALID_OPERATION_ID ||
          event.parentOperationId == event.operationId ||
          event.sequence == CY_TOOL_INVALID_SEQUENCE ||
@@ -33,6 +44,8 @@ tool_status_t ToolEvent_Validate( const tool_event_t &event ) noexcept
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Failure status belongs on a terminal event. Begin and message records
+    // describe work that is still active and therefore cannot be failed yet.
     const bool_t bEnd = event.kind == tool_event_kind_t::OPERATION_END ||
                         event.kind == tool_event_kind_t::PHASE_END;
     if ( !bEnd && ToolStatus_Failed( event.status ) ) {
@@ -43,6 +56,7 @@ tool_status_t ToolEvent_Validate( const tool_event_t &event ) noexcept
 
 const char *ToolEvent_KindName( tool_event_kind_t kind ) noexcept
 {
+    // These spellings are stable serialized names used by logs and JSON output.
     switch ( kind ) {
         case tool_event_kind_t::OPERATION_BEGIN: return "operation-begin";
         case tool_event_kind_t::OPERATION_END: return "operation-end";

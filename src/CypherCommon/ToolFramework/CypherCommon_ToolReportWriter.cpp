@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Report Writer Implementation Notes
+
+Reports summarize timings, counts, diagnostics, dependencies, and artifacts after a run. Writers
+serialize the same data for human or machine consumption without recomputing results.
+================
+*/
+
 #include "CypherCommon_ToolReportWriter.h"
 
 #include "CypherCommon_StringBuilder.h"
@@ -24,7 +33,7 @@ namespace cypher::common
 namespace
 {
 
-constexpr usize CY_TOOL_REPORT_STACK_CAPACITY = 4096u;
+constexpr usize CY_TOOL_REPORT_STACK_CAPACITY = 4096u; // Bounded report used by sink convenience API.
 
 bool_t OptionsAreValid( const tool_report_write_options_t &options ) noexcept
 {
@@ -35,6 +44,7 @@ void AppendTextReport(
     string_builder_t *pBuilder,
     const tool_report_t &report ) noexcept
 {
+    // Text output favors compact operational units and stable field ordering.
     const f64 elapsedMs =
         Cy_TimerTicksToMilliseconds( ToolReport_ElapsedTicks( report ) );
     (void)StringBuilder_AppendFormat(
@@ -69,6 +79,7 @@ void AppendJsonReport(
     const tool_report_t &report,
     bool_t bPretty ) noexcept
 {
+    // Pretty and compact forms carry identical fields in identical order.
     const char *pNewline = bPretty ? "\n" : "";
     const char *pIndent = bPretty ? "  " : "";
     const char *pSpace = bPretty ? " " : "";
@@ -119,6 +130,7 @@ void AppendJsonReport(
 tool_report_write_result_t BuilderResult(
     const string_builder_t &builder ) noexcept
 {
+    // Translate the generic bounded builder result into the tool status domain.
     switch ( builder.status ) {
         case string_builder_status_t::OK:
             return { tool_status_t::OK, builder.cchLength, builder.cchRequired };
@@ -150,6 +162,8 @@ tool_report_write_result_t ToolReportWriter_Write(
         return { tool_status_t::INVALID_ARGUMENT, 0u, 0u };
     }
 
+    // StringBuilder tracks required length even when destination capacity is
+    // insufficient, enabling a deterministic caller-sized second pass.
     string_builder_t builder{};
     if ( !StringBuilder_Init( &builder, pDest, cchDest ) ) {
         return { tool_status_t::INVALID_ARGUMENT, 0u, 0u };
@@ -173,6 +187,8 @@ tool_status_t ToolReportWriter_WriteToSink(
     if ( ToolStatus_Failed( ToolOutput_ValidateSink( sink ) ) ) {
         return tool_status_t::INVALID_ARGUMENT;
     }
+    // This helper deliberately avoids heap allocation. Large future reports
+    // should use the sizing form above and caller-owned storage.
     char buffer[CY_TOOL_REPORT_STACK_CAPACITY]{};
     const tool_report_write_result_t result = ToolReportWriter_Write(
         report,

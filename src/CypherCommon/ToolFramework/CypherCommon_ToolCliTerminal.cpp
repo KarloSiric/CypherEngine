@@ -40,10 +40,10 @@ namespace
 {
 
 inline constexpr flags32_t CY_TOOL_TERMINAL_INTERNAL_INITIALIZED =
-    CYPHER_BIT32( 0 );
+    CYPHER_BIT32( 0 ); // Native stream discovery completed.
 inline constexpr flags32_t CY_TOOL_TERMINAL_INTERNAL_MODE_CHANGED =
-    CYPHER_BIT32( 1 );
-inline constexpr u32 CY_TOOL_TERMINAL_DEFAULT_COLUMNS = 80u;
+    CYPHER_BIT32( 1 ); // Windows console mode must be restored at shutdown.
+inline constexpr u32 CY_TOOL_TERMINAL_DEFAULT_COLUMNS = 80u; // Redirected/unknown-width fallback.
 
 bool_t TerminalIsValid( const tool_cli_terminal_t *pTerminal ) noexcept
 {
@@ -55,6 +55,7 @@ bool_t TerminalIsValid( const tool_cli_terminal_t *pTerminal ) noexcept
 
 bool_t EnvironmentDisablesColor() noexcept
 {
+    // NO_COLOR is a de-facto cross-platform convention used by CLI tooling.
     return Cy_EnvironmentHas( "NO_COLOR" );
 }
 
@@ -100,6 +101,8 @@ tool_status_t ToolCliTerminal_Init(
     pTerminal->nColumns = CY_TOOL_TERMINAL_DEFAULT_COLUMNS;
 
 #if CYPHER_PLATFORM_WINDOWS
+    // A Windows console and a redirected file share the same HANDLE write path.
+    // Console-mode queries distinguish interactive capabilities.
     const HANDLE handle = NativeHandle( stream );
     if ( handle == nullptr || handle == INVALID_HANDLE_VALUE ) {
         return tool_status_t::IO_ERROR;
@@ -112,6 +115,8 @@ tool_status_t ToolCliTerminal_Init(
             TOOL_CLI_TERMINAL_FLAG_UNICODE;
         pTerminal->nOriginalMode = mode;
 
+        // Virtual terminal processing gives Windows the same ANSI rendering path
+        // as POSIX terminals. Preserve the original mode for exact restoration.
         const DWORD desiredMode = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
         if ( SetConsoleMode( handle, desiredMode ) ) {
             pTerminal->flags |=
@@ -133,6 +138,8 @@ tool_status_t ToolCliTerminal_Init(
 #else
     const int descriptor = NativeDescriptor( stream );
     pTerminal->nNativeHandle = static_cast<uintptr>( descriptor );
+    // Redirected descriptors remain valid output sinks but receive no cursor or
+    // color control sequences.
     if ( isatty( descriptor ) == 1 ) {
         pTerminal->flags |=
             TOOL_CLI_TERMINAL_FLAG_INTERACTIVE |
@@ -159,6 +166,8 @@ void ToolCliTerminal_Shutdown( tool_cli_terminal_t *pTerminal ) noexcept
         return;
     }
 #if CYPHER_PLATFORM_WINDOWS
+    // Restore only modes changed by this instance; redirected handles have no
+    // console state to restore.
     if ( ( pTerminal->internalFlags &
            CY_TOOL_TERMINAL_INTERNAL_MODE_CHANGED ) != 0u ) {
         (void)SetConsoleMode(
@@ -197,6 +206,8 @@ tool_status_t ToolCliTerminal_Write(
     if ( !TerminalIsValid( pTerminal ) || !StringView_IsValid( text ) ) {
         return tool_status_t::INVALID_ARGUMENT;
     }
+    // Native writes may complete partially. Loop until the entire record has
+    // reached the stream or a permanent I/O error occurs.
     usize cbWritten = 0u;
 #if CYPHER_PLATFORM_WINDOWS
     HANDLE handle = reinterpret_cast<HANDLE>( pTerminal->nNativeHandle );
@@ -226,6 +237,7 @@ tool_status_t ToolCliTerminal_Write(
             text.pData + cbWritten,
             text.cchLength - cbWritten );
         if ( cbCurrent < 0 ) {
+            // Signals may interrupt POSIX writes without consuming any bytes.
             if ( errno == EINTR ) {
                 continue;
             }
@@ -267,6 +279,7 @@ tool_status_t ToolCliTerminal_ClearCurrentLine(
            TOOL_CLI_TERMINAL_FLAG_CURSOR_CONTROL ) == 0u ) {
         return tool_status_t::OK;
     }
+    // Carriage return plus ANSI erase-line keeps interactive progress on one row.
     return ToolCliTerminal_Write( pTerminal, { "\r\x1b[2K", 5u } );
 }
 

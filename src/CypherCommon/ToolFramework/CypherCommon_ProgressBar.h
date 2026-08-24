@@ -35,9 +35,9 @@ namespace cypher::common
 {
 
 struct progress_bar_t {
-    const char *pTitle;
-    u64 total_work;
-    u64 completed_work;
+    const char *pTitle; // Borrowed label; the caller keeps it alive until ProgressBar_End.
+    u64 total_work;     // Work units representing one complete operation.
+    u64 completed_work; // Last reported value, clamped to total_work by the implementation.
 };
 
 void ProgressBar_Begin( progress_bar_t *pProgress, const char *pTitle, u64 total_work );

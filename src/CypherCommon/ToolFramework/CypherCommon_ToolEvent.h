@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Event Contract
+
+These are stable tool-neutral contracts shared by CLI applications, future GUI hosts, tests, and
+compiler modules. They must not depend on Qt or terminal state.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLEVENT_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLEVENT_H
 #ifndef PRAGMA_ONCE
@@ -29,22 +38,22 @@ namespace cypher::common
 {
 
 enum class tool_event_kind_t : u8 {
-    OPERATION_BEGIN = 0u,
-    OPERATION_END,
-    PHASE_BEGIN,
-    PHASE_END,
-    MESSAGE
+    OPERATION_BEGIN = 0u, // Starts a top-level or nested operation.
+    OPERATION_END,        // Completes the matching operation.
+    PHASE_BEGIN,          // Starts one named phase within an operation.
+    PHASE_END,            // Completes the matching phase.
+    MESSAGE               // Informational event without lifetime semantics.
 };
 
 struct tool_event_t {
-    tool_operation_id_t operationId{ CY_TOOL_INVALID_OPERATION_ID };
-    tool_operation_id_t parentOperationId{ CY_TOOL_INVALID_OPERATION_ID };
-    tool_sequence_t sequence{ CY_TOOL_INVALID_SEQUENCE };
-    tool_event_kind_t kind{ tool_event_kind_t::MESSAGE };
-    tool_status_t status{ tool_status_t::OK };
-    timer_tick_t timestamp{ 0u };
-    string_view_t name{};
-    string_view_t message{};
+    tool_operation_id_t operationId{ CY_TOOL_INVALID_OPERATION_ID }; // Record owner.
+    tool_operation_id_t parentOperationId{ CY_TOOL_INVALID_OPERATION_ID }; // Optional parent.
+    tool_sequence_t sequence{ CY_TOOL_INVALID_SEQUENCE }; // Producer ordering value.
+    tool_event_kind_t kind{ tool_event_kind_t::MESSAGE };  // Lifecycle transition.
+    tool_status_t status{ tool_status_t::OK };             // End-state status where applicable.
+    timer_tick_t timestamp{ 0u };                          // Monotonic emission time.
+    string_view_t name{};                                 // Stable operation/phase label.
+    string_view_t message{};                              // Optional human detail.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

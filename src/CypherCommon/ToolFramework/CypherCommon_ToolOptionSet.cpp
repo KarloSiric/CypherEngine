@@ -25,6 +25,7 @@ namespace
 
 bool_t OptionSetIsStructurallyValid( const tool_option_set_t *pSet ) noexcept
 {
+    // Values and every referenced descriptor/string remain caller-owned.
     return pSet != nullptr &&
            pSet->nCount <= pSet->nCapacity &&
            ( pSet->nCapacity == 0u || pSet->pValues != nullptr );
@@ -42,6 +43,7 @@ void RemoveNamedValues(
     tool_option_set_t *pSet,
     string_view_t name ) noexcept
 {
+    // Compact in place while preserving the relative order of unrelated values.
     usize iWrite = 0u;
     for ( usize iRead = 0u; iRead < pSet->nCount; ++iRead ) {
         if ( OptionValueMatches( pSet->pValues[iRead], name ) ) {
@@ -65,6 +67,7 @@ tool_status_t AppendValue(
     if ( pSet->nCount == pSet->nCapacity ) {
         return tool_status_t::CAPACITY_EXCEEDED;
     }
+    // nOccurrence is one-based and records order among values at one source.
     pSet->pValues[pSet->nCount] = {
         pDescriptor,
         value,
@@ -120,6 +123,8 @@ tool_status_t ToolOptionSet_Resolve(
         return valueStatus;
     }
 
+    // All existing occurrences of a repeatable option must come from one source.
+    // Mixed-source storage indicates state corruption rather than precedence.
     tool_option_value_t *pFirst = nullptr;
     tool_option_source_t strongestSource = tool_option_source_t::DEFAULT_VALUE;
     usize nMatching = 0u;
@@ -144,12 +149,14 @@ tool_status_t ToolOptionSet_Resolve(
     }
 
     if ( source < strongestSource ) {
+        // A weaker layer cannot override an already resolved explicit value.
         return tool_status_t::OK;
     }
 
     const bool_t bRepeatable =
         ( pDescriptor->flags & TOOL_OPTION_FLAG_REPEATABLE ) != 0u;
     if ( !bRepeatable ) {
+        // Scalars replace in place so descriptor order remains stable.
         pFirst->value = value;
         pFirst->source = source;
         pFirst->nOccurrence = 1u;
@@ -158,6 +165,8 @@ tool_status_t ToolOptionSet_Resolve(
     }
 
     if ( source > strongestSource ) {
+        // A stronger repeatable source replaces the entire weaker list; merging
+        // defaults with command-line lists produces surprising tool invocations.
         RemoveNamedValues( pSet, pDescriptor->name );
         return AppendValue( pSet, pDescriptor, value, source, 1u );
     }

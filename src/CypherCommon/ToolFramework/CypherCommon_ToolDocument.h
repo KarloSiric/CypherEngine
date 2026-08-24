@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Document Contract
+
+Tool documents hold authored data and source identity independently of a GUI. Save and reload
+operations preserve transactional error reporting.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLDOCUMENT_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLDOCUMENT_H
 #ifndef PRAGMA_ONCE
@@ -28,29 +37,29 @@ namespace cypher::common
 {
 
 enum class tool_document_state_t : u8 {
-    CLOSED = 0u,
-    LOADING,
-    READY,
-    SAVING,
-    CONFLICTED,
-    FAILED
+    CLOSED = 0u, // No authored payload is attached.
+    LOADING,     // Source data is being decoded into the document model.
+    READY,       // Document may be inspected or edited.
+    SAVING,      // An authored representation is being published.
+    CONFLICTED,  // The source changed externally and needs user resolution.
+    FAILED       // The last lifecycle operation left the document unusable.
 };
 
 enum tool_document_flags_t : flags32_t {
     TOOL_DOCUMENT_FLAG_NONE = 0u,
-    TOOL_DOCUMENT_FLAG_DIRTY = CYPHER_BIT32( 0 ),
-    TOOL_DOCUMENT_FLAG_READ_ONLY = CYPHER_BIT32( 1 ),
-    TOOL_DOCUMENT_FLAG_UNTITLED = CYPHER_BIT32( 2 ),
-    TOOL_DOCUMENT_FLAG_EXTERNAL_CHANGE = CYPHER_BIT32( 3 )
+    TOOL_DOCUMENT_FLAG_DIRTY = CYPHER_BIT32( 0 ),          // In-memory state differs from disk.
+    TOOL_DOCUMENT_FLAG_READ_ONLY = CYPHER_BIT32( 1 ),      // Save must not replace the source.
+    TOOL_DOCUMENT_FLAG_UNTITLED = CYPHER_BIT32( 2 ),       // No persistent source path exists yet.
+    TOOL_DOCUMENT_FLAG_EXTERNAL_CHANGE = CYPHER_BIT32( 3 ) // A watcher observed a source update.
 };
 
 struct tool_document_desc_t {
-    unique_id_t id{};
-    string_view_t typeId{};
-    string_view_t path{};
-    string_view_t displayName{};
-    tool_document_state_t state{ tool_document_state_t::CLOSED };
-    flags32_t flags{ TOOL_DOCUMENT_FLAG_NONE };
+    unique_id_t id{};                                     // Session-unique document identity.
+    string_view_t typeId{};                               // Stable resource or editor document type.
+    string_view_t path{};                                 // Borrowed normalized source path, if any.
+    string_view_t displayName{};                          // Label used by tabs and recent-file lists.
+    tool_document_state_t state{ tool_document_state_t::CLOSED }; // Current lifecycle state.
+    flags32_t flags{ TOOL_DOCUMENT_FLAG_NONE };            // Combination of tool_document_flags_t.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

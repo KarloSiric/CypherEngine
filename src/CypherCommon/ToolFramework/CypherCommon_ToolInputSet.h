@@ -29,32 +29,32 @@ namespace cypher::common
 {
 
 enum class tool_input_kind_t : u8 {
-    FILE = 0u,
-    DIRECTORY,
-    PATTERN,
-    MANIFEST
+    FILE = 0u, // One explicit source file.
+    DIRECTORY, // Directory root resolved by the host.
+    PATTERN,   // Wildcard or matcher expression.
+    MANIFEST   // File containing another declared input list.
 };
 
 enum tool_input_flags_t : flags32_t {
-    TOOL_INPUT_FLAG_NONE = 0u,
-    TOOL_INPUT_FLAG_REQUIRED = CYPHER_BIT32( 0 ),
-    TOOL_INPUT_FLAG_RECURSIVE = CYPHER_BIT32( 1 ),
-    TOOL_INPUT_FLAG_FOLLOW_SYMLINKS = CYPHER_BIT32( 2 ),
-    TOOL_INPUT_FLAG_ALLOW_MISSING = CYPHER_BIT32( 3 )
+    TOOL_INPUT_FLAG_NONE = 0u,                       // No optional traversal policy.
+    TOOL_INPUT_FLAG_REQUIRED = CYPHER_BIT32( 0 ),    // Missing input is an error.
+    TOOL_INPUT_FLAG_RECURSIVE = CYPHER_BIT32( 1 ),   // Descend below directory/pattern root.
+    TOOL_INPUT_FLAG_FOLLOW_SYMLINKS = CYPHER_BIT32( 2 ), // Directory traversal follows links.
+    TOOL_INPUT_FLAG_ALLOW_MISSING = CYPHER_BIT32( 3 )    // Missing input is accepted.
 };
 
 struct tool_input_t {
-    string_view_t value{};
-    string_view_t baseDirectory{};
-    tool_input_kind_t kind{ tool_input_kind_t::FILE };
-    flags32_t flags{ TOOL_INPUT_FLAG_NONE };
+    string_view_t value{};         // Path, directory, pattern, or manifest text.
+    string_view_t baseDirectory{}; // Optional resolution base.
+    tool_input_kind_t kind{ tool_input_kind_t::FILE }; // Interpretation of value.
+    flags32_t flags{ TOOL_INPUT_FLAG_NONE }; // tool_input_flags_t bitset.
 };
 
 struct tool_input_set_t {
-    tool_input_t *pInputs{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
-    path_filter_t filter{};
+    tool_input_t *pInputs{ nullptr }; // Caller-owned descriptor storage.
+    usize nCount{ 0u };               // Active inputs in source order.
+    usize nCapacity{ 0u };            // Maximum entries in pInputs.
+    path_filter_t filter{};           // Borrowed include/exclude policy.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

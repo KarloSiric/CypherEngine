@@ -30,27 +30,27 @@ namespace cypher::common
 struct vfs_t;
 
 enum tool_context_flags_t : flags32_t {
-    TOOL_CONTEXT_FLAG_NONE = 0u,
-    TOOL_CONTEXT_FLAG_INTERACTIVE = CYPHER_BIT32( 0 ),
-    TOOL_CONTEXT_FLAG_AUTOMATION = CYPHER_BIT32( 1 ),
-    TOOL_CONTEXT_FLAG_OFFLINE = CYPHER_BIT32( 2 ),
-    TOOL_CONTEXT_FLAG_REPRODUCIBLE = CYPHER_BIT32( 3 )
+    TOOL_CONTEXT_FLAG_NONE = 0u,                     // No optional host policy.
+    TOOL_CONTEXT_FLAG_INTERACTIVE = CYPHER_BIT32( 0 ), // Human is supervising work.
+    TOOL_CONTEXT_FLAG_AUTOMATION = CYPHER_BIT32( 1 ),  // Invocation runs under CI/build automation.
+    TOOL_CONTEXT_FLAG_OFFLINE = CYPHER_BIT32( 2 ),     // Network access is forbidden.
+    TOOL_CONTEXT_FLAG_REPRODUCIBLE = CYPHER_BIT32( 3 ) // Output must avoid host-specific variation.
 };
 
 struct tool_context_t {
-    string_view_t applicationId{};
-    string_view_t projectFile{};
-    string_view_t workingDirectory{};
-    string_view_t sourceRoot{};
-    string_view_t outputRoot{};
-    string_view_t cacheRoot{};
+    string_view_t applicationId{};      // Stable ID of the invoking tool.
+    string_view_t projectFile{};        // Canonical project manifest path, if any.
+    string_view_t workingDirectory{};   // Host working directory at invocation.
+    string_view_t sourceRoot{};         // Authored-resource root identity.
+    string_view_t outputRoot{};         // Cooked-artifact publication root.
+    string_view_t cacheRoot{};          // Intermediate/cache storage root.
     // Borrowed source view supplied by the host. Compilers resolve authored
     // resource identities through this boundary instead of native path joins.
-    const vfs_t *pSourceVfs{ nullptr };
-    tool_target_t target{};
-    tool_profile_t profile{ tool_profile_t::UNKNOWN };
-    u32 nWorkerCount{ 0u };
-    flags32_t flags{ TOOL_CONTEXT_FLAG_NONE };
+    const vfs_t *pSourceVfs{ nullptr }; // Optional borrowed authored-resource VFS.
+    tool_target_t target{};             // Platform/architecture being cooked.
+    tool_profile_t profile{ tool_profile_t::UNKNOWN }; // Development/release policy.
+    u32 nWorkerCount{ 0u };             // Maximum host-approved worker count.
+    flags32_t flags{ TOOL_CONTEXT_FLAG_NONE }; // tool_context_flags_t bitset.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

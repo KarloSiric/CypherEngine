@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Artifact Writer Implementation Notes
+
+Artifacts are published transactionally and recorded with their type and path. Failed work must
+not replace the last known-good output with a partial file.
+================
+*/
+
 #include "CypherCommon_ToolArtifactWriter.h"
 
 #include "CypherCommon_Atomic.h"
@@ -31,15 +40,17 @@ namespace cypher::common
 namespace
 {
 
-constexpr usize CY_TOOL_ARTIFACT_TEMP_ATTEMPTS = 64u;
+constexpr usize CY_TOOL_ARTIFACT_TEMP_ATTEMPTS = 64u; // Bounded collision retries per publication.
 
-atomic_u64_t g_nArtifactSequence{ 0u };
+atomic_u64_t g_nArtifactSequence{ 0u }; // Process-local suffix source; uniqueness also includes PID.
 
 bool_t MakeTemporaryPath(
     string_view_t destination,
     text_buffer_t *pTemporaryPath ) noexcept
 {
     char suffix[96]{};
+    // Relaxed ordering is sufficient: the counter supplies uniqueness, not
+    // synchronization with artifact contents.
     const u64 nSequence = Cy_AtomicFetchAdd(
         &g_nArtifactSequence,
         static_cast<u64>( 1u ),
@@ -61,6 +72,8 @@ tool_status_t WriteTemporaryFile(
     string_view_t path,
     binary_block_t contents ) noexcept
 {
+    // Exclusive creation prevents two workers from publishing through the same
+    // temporary pathname after a rare PID/sequence collision.
     native_file_t *pFile = FileIo_OpenNative(
         path,
         FILE_OPEN_FLAG_WRITE |
@@ -74,6 +87,7 @@ tool_status_t WriteTemporaryFile(
     }
 
     stream_t stream = FileIo_AsStream( pFile );
+    // Flush before rename so a successful publication never names a partial stream.
     const bool_t bWritten = Stream_WriteExact(
         &stream,
         contents.pData,
@@ -96,6 +110,8 @@ tool_status_t ToolArtifactWriter_WriteNative(
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // The temporary file lives beside the destination so the final replacement
+    // stays on one filesystem and can use the host's atomic rename behavior.
     const string_view_t parent = StringPath_Parent( nativePath );
     if ( parent.cchLength != 0u &&
          !FileIo_CreateDirectoriesNative( parent ) ) {
@@ -107,6 +123,8 @@ tool_status_t ToolArtifactWriter_WriteNative(
         return tool_status_t::OUT_OF_MEMORY;
     }
 
+    // A stale temporary file is harmless. Generate another suffix rather than
+    // deleting a path that may belong to a concurrent compiler process.
     for ( usize iAttempt = 0u;
           iAttempt < CY_TOOL_ARTIFACT_TEMP_ATTEMPTS;
           ++iAttempt ) {
@@ -123,6 +141,8 @@ tool_status_t ToolArtifactWriter_WriteNative(
             (void)FileIo_RemoveNative( TextBuffer_View( &temporaryPath ) );
             return writeStatus;
         }
+        // Replacement is the commit point. Before it succeeds, the previous
+        // destination remains intact and the new bytes are still disposable.
         if ( FileIo_ReplaceNative(
                  TextBuffer_View( &temporaryPath ),
                  nativePath ) ) {

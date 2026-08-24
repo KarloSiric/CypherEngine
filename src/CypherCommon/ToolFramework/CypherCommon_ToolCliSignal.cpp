@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Cli Signal Implementation Notes
+
+Cancellation is cooperative. Signal handlers request cancellation through async-safe state,
+while normal tool code observes that state at well-defined interruption points.
+================
+*/
+
 #include "CypherCommon_ToolCliSignal.h"
 
 #include <csignal>
@@ -31,10 +40,13 @@ namespace cypher::common
 namespace
 {
 
+// Signal handling is process-global, so only one runner may own Ctrl+C at once.
 atomic_ptr_t<tool_cli_signal_t> g_pActiveSignal{ nullptr };
 
 void RequestCancellation() noexcept
 {
+    // The handler performs only relaxed atomic operations. It does not allocate,
+    // lock, log, or invoke ordinary tool code from signal context.
     tool_cli_signal_t *pSignal = g_pActiveSignal.load(
         std::memory_order_relaxed );
     if ( pSignal != nullptr ) {
@@ -46,6 +58,7 @@ void RequestCancellation() noexcept
 
 BOOL WINAPI ConsoleControlHandler( DWORD nControlType ) noexcept
 {
+    // Handle user cancellation only; shutdown and session events remain OS-owned.
     if ( nControlType == CTRL_C_EVENT || nControlType == CTRL_BREAK_EVENT ) {
         RequestCancellation();
         return TRUE;
@@ -69,6 +82,7 @@ tool_status_t ToolCliSignal_Install( tool_cli_signal_t *pSignal ) noexcept
     if ( pSignal == nullptr || pSignal->bInstalled ) {
         return tool_status_t::INVALID_ARGUMENT;
     }
+    // Claim the single process slot before altering native handler state.
     tool_cli_signal_t *pExpected = nullptr;
     if ( !g_pActiveSignal.compare_exchange_strong(
              pExpected,
@@ -85,6 +99,7 @@ tool_status_t ToolCliSignal_Install( tool_cli_signal_t *pSignal ) noexcept
         return tool_status_t::OPERATION_FAILED;
     }
 #else
+    // Preserve the embedding application's handler for exact restoration.
     const tool_cli_interrupt_handler_t previous =
         std::signal( SIGINT, &InterruptHandler );
     if ( previous == SIG_ERR ) {
@@ -110,6 +125,7 @@ void ToolCliSignal_Uninstall( tool_cli_signal_t *pSignal ) noexcept
         SIGINT,
         pSignal->pPreviousInterruptHandler );
 #endif
+    // Release only the slot owned by this scope; never clear a replacement.
     tool_cli_signal_t *pExpected = pSignal;
     (void)g_pActiveSignal.compare_exchange_strong(
         pExpected,

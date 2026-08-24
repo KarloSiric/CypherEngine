@@ -30,25 +30,25 @@ namespace cypher::common
 {
 
 enum class tool_cli_parse_action_t : u8 {
-    EXECUTE = 0u,
-    SHOW_HELP,
-    SHOW_VERSION
+    EXECUTE = 0u, // Invoke the selected command after validation.
+    SHOW_HELP,    // Print application or command help without executing work.
+    SHOW_VERSION // Print version metadata without selecting a command.
 };
 
 struct tool_cli_parse_error_t {
-    tool_status_t status{ tool_status_t::OK };
-    usize iArgument{ CY_INVALID_SIZE };
-    string_view_t argument{};
-    string_view_t message{};
+    tool_status_t status{ tool_status_t::OK }; // Stable failure category returned by Parse.
+    usize iArgument{ CY_INVALID_SIZE };        // Index in the argv[1..] view, if applicable.
+    string_view_t argument{};                  // Borrowed spelling of the offending argument.
+    string_view_t message{};                   // Static human-readable explanation.
 };
 
 struct tool_cli_parse_result_t {
-    const tool_command_desc_t *pCommand{ nullptr };
-    tool_option_set_t options{};
-    string_view_t *pInputs{ nullptr };
-    usize nInputs{ 0u };
-    usize nInputCapacity{ 0u };
-    tool_cli_parse_action_t action{ tool_cli_parse_action_t::SHOW_HELP };
+    const tool_command_desc_t *pCommand{ nullptr }; // Borrowed descriptor selected by the first token.
+    tool_option_set_t options{};                    // Values written into caller-provided storage.
+    string_view_t *pInputs{ nullptr };              // Caller-owned positional-input array.
+    usize nInputs{ 0u };                            // Positional inputs written by the parser.
+    usize nInputCapacity{ 0u };                     // Maximum entries available in pInputs.
+    tool_cli_parse_action_t action{ tool_cli_parse_action_t::SHOW_HELP }; // Requested host action.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

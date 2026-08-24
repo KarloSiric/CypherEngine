@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Progress Implementation Notes
+
+Progress is hierarchical operation state, not terminal drawing. Producers report completed and
+total work; hosts choose animation, throttling, and text presentation.
+================
+*/
+
 #include "CypherCommon_ToolProgress.h"
 
 namespace cypher::common
@@ -22,6 +31,7 @@ namespace cypher::common
 
 tool_status_t ToolProgress_Validate( const tool_progress_t &progress ) noexcept
 {
+    // Operation IDs and parent IDs form the same hierarchy as tool events.
     if ( progress.operationId == CY_TOOL_INVALID_OPERATION_ID ||
          progress.parentOperationId == progress.operationId ||
          progress.sequence == CY_TOOL_INVALID_SEQUENCE ||
@@ -35,6 +45,8 @@ tool_status_t ToolProgress_Validate( const tool_progress_t &progress ) noexcept
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // An indeterminate operation has no denominator. A determinate operation
+    // must supply a non-zero total and cannot advance beyond it.
     const bool_t bIndeterminate =
         ( progress.flags & TOOL_PROGRESS_FLAG_INDETERMINATE ) != 0u;
     if ( bIndeterminate ) {
@@ -45,6 +57,7 @@ tool_status_t ToolProgress_Validate( const tool_progress_t &progress ) noexcept
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Terminal state, status, and counters must describe the same outcome.
     if ( progress.state == tool_progress_state_t::COMPLETE &&
          ( ToolStatus_Failed( progress.status ) ||
            ( !bIndeterminate && progress.nCompleted != progress.nTotal ) ) ) {
@@ -64,6 +77,7 @@ tool_status_t ToolProgress_Validate( const tool_progress_t &progress ) noexcept
 
 f64 ToolProgress_Fraction( const tool_progress_t &progress ) noexcept
 {
+    // Negative one is the explicit sentinel consumed by host progress widgets.
     if ( ( progress.flags & TOOL_PROGRESS_FLAG_INDETERMINATE ) != 0u ||
          progress.nTotal == 0u ) {
         return -1.0;
@@ -74,6 +88,7 @@ f64 ToolProgress_Fraction( const tool_progress_t &progress ) noexcept
 
 const char *ToolProgress_StateName( tool_progress_state_t state ) noexcept
 {
+    // These spellings are stable machine-readable values.
     switch ( state ) {
         case tool_progress_state_t::BEGIN: return "begin";
         case tool_progress_state_t::UPDATE: return "update";

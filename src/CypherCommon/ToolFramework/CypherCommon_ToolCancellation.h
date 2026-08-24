@@ -29,9 +29,9 @@ namespace cypher::common
 using tool_cancel_query_t = bool_t ( * )( void *pUserData ) noexcept;
 
 struct tool_cancellation_t {
-    const atomic_bool_t *pRequested{ nullptr };
-    tool_cancel_query_t pfnQuery{ nullptr };
-    void *pUserData{ nullptr };
+    const atomic_bool_t *pRequested{ nullptr }; // Optional borrowed fast-path flag.
+    tool_cancel_query_t pfnQuery{ nullptr };    // Optional host-specific query.
+    void *pUserData{ nullptr };                 // Opaque callback state.
 };
 
 // Cancellation is cooperative. Long operations must query at bounded intervals.

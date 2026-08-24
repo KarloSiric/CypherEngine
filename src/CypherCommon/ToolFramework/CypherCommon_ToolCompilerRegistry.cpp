@@ -25,6 +25,8 @@ namespace
 
 bool_t RegistryIsValid( const tool_compiler_registry_t *pRegistry ) noexcept
 {
+    // The registry borrows both the pointer array and every descriptor it stores.
+    // Structural validation prevents a corrupted count from escaping capacity.
     return pRegistry != nullptr &&
            pRegistry->nCount <= pRegistry->nCapacity &&
            ( pRegistry->nCapacity == 0u || pRegistry->ppCompilers != nullptr );
@@ -47,6 +49,7 @@ tool_status_t ToolCompilerRegistry_Init(
 void ToolCompilerRegistry_Clear( tool_compiler_registry_t *pRegistry ) noexcept
 {
     if ( pRegistry != nullptr ) {
+        // Descriptors are borrowed; clearing never destroys compiler modules.
         pRegistry->nCount = 0u;
     }
 }
@@ -68,6 +71,7 @@ tool_status_t ToolCompilerRegistry_Register(
     if ( pRegistry->nCount == pRegistry->nCapacity ) {
         return tool_status_t::CAPACITY_EXCEEDED;
     }
+    // Preserve registration order for deterministic help and diagnostic output.
     pRegistry->ppCompilers[pRegistry->nCount++] = pCompiler;
     return tool_status_t::OK;
 }
@@ -102,6 +106,8 @@ tool_status_t ToolCompilerRegistry_FindForInput(
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Automatic dispatch must produce exactly one match. Silently selecting the
+    // first match would make behavior depend on registration order.
     const tool_compiler_desc_t *pMatch = nullptr;
     for ( usize i = 0u; i < pRegistry->nCount; ++i ) {
         const tool_compiler_desc_t *pCompiler = pRegistry->ppCompilers[i];

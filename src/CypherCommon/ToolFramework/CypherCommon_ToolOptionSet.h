@@ -27,9 +27,9 @@ namespace cypher::common
 {
 
 struct tool_option_set_t {
-    tool_option_value_t *pValues{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
+    tool_option_value_t *pValues{ nullptr }; // Caller-owned effective-value storage.
+    usize nCount{ 0u };    // Active scalar and repeated occurrences.
+    usize nCapacity{ 0u }; // Maximum entries in pValues.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

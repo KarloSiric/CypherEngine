@@ -63,21 +63,21 @@ using tool_text_callback_t = bool_t ( * )(
     void *pUserData ) noexcept;
 
 enum tool_host_flags_t : flags32_t {
-    TOOL_HOST_FLAG_NONE = 0u,
-    TOOL_HOST_FLAG_THREAD_SAFE_CALLBACKS = CYPHER_BIT32( 0 )
+    TOOL_HOST_FLAG_NONE = 0u, // Callbacks have no optional guarantees.
+    TOOL_HOST_FLAG_THREAD_SAFE_CALLBACKS = CYPHER_BIT32( 0 ) // Producers may emit concurrently.
 };
 
 struct tool_host_t {
-    tool_diagnostic_callback_t pfnDiagnostic{ nullptr };
-    tool_progress_callback_t pfnProgress{ nullptr };
-    tool_event_callback_t pfnEvent{ nullptr };
-    tool_dependency_callback_t pfnDependency{ nullptr };
-    tool_artifact_callback_t pfnArtifact{ nullptr };
-    tool_report_callback_t pfnReport{ nullptr };
-    tool_text_callback_t pfnText{ nullptr };
-    tool_cancellation_t cancellation{};
-    void *pUserData{ nullptr };
-    flags32_t flags{ TOOL_HOST_FLAG_NONE };
+    tool_diagnostic_callback_t pfnDiagnostic{ nullptr }; // Errors, warnings, and notes.
+    tool_progress_callback_t pfnProgress{ nullptr };     // Hierarchical progress state.
+    tool_event_callback_t pfnEvent{ nullptr };           // Operation/phase lifecycle records.
+    tool_dependency_callback_t pfnDependency{ nullptr }; // Discovered source dependencies.
+    tool_artifact_callback_t pfnArtifact{ nullptr };     // Produced output artifacts.
+    tool_report_callback_t pfnReport{ nullptr };         // Final operation summary.
+    tool_text_callback_t pfnText{ nullptr };             // Command-owned unstructured text.
+    tool_cancellation_t cancellation{};                  // Cooperative host cancellation source.
+    void *pUserData{ nullptr };                          // Opaque state passed to every callback.
+    flags32_t flags{ TOOL_HOST_FLAG_NONE };              // tool_host_flags_t bitset.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Invocation Contract
+
+A tool run owns one invocation, host callback set, cancellation state, and final report.
+Tool-specific code borrows that context only for the duration of execution.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLINVOCATION_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLINVOCATION_H
 #ifndef PRAGMA_ONCE
@@ -32,24 +41,24 @@ namespace cypher::common
 {
 
 enum tool_invocation_flags_t : flags32_t {
-    TOOL_INVOCATION_FLAG_NONE = 0u,
-    TOOL_INVOCATION_FLAG_DRY_RUN = CYPHER_BIT32( 0 ),
-    TOOL_INVOCATION_FLAG_FORCE_ROOTS = CYPHER_BIT32( 1 ),
-    TOOL_INVOCATION_FLAG_FORCE_CLOSURE = CYPHER_BIT32( 2 ),
-    TOOL_INVOCATION_FLAG_KEEP_GOING = CYPHER_BIT32( 3 ),
-    TOOL_INVOCATION_FLAG_NO_CACHE = CYPHER_BIT32( 4 )
+    TOOL_INVOCATION_FLAG_NONE = 0u,                       // No optional execution policy.
+    TOOL_INVOCATION_FLAG_DRY_RUN = CYPHER_BIT32( 0 ),     // Validate without publishing outputs.
+    TOOL_INVOCATION_FLAG_FORCE_ROOTS = CYPHER_BIT32( 1 ), // Rebuild explicitly named roots.
+    TOOL_INVOCATION_FLAG_FORCE_CLOSURE = CYPHER_BIT32( 2 ), // Rebuild dependency closure too.
+    TOOL_INVOCATION_FLAG_KEEP_GOING = CYPHER_BIT32( 3 ),  // Continue independent work after errors.
+    TOOL_INVOCATION_FLAG_NO_CACHE = CYPHER_BIT32( 4 )     // Bypass cache reads and writes.
 };
 
 struct tool_invocation_t {
-    const tool_application_desc_t *pApplication{ nullptr };
-    const tool_command_desc_t *pCommand{ nullptr };
-    const tool_context_t *pContext{ nullptr };
-    const tool_option_set_t *pOptions{ nullptr };
-    const string_view_t *pInputs{ nullptr };
-    usize nInputs{ 0u };
-    const tool_host_t *pHost{ nullptr };
-    tool_output_policy_t output{};
-    flags32_t flags{ TOOL_INVOCATION_FLAG_NONE };
+    const tool_application_desc_t *pApplication{ nullptr }; // Borrowed product descriptor.
+    const tool_command_desc_t *pCommand{ nullptr };         // Borrowed selected command.
+    const tool_context_t *pContext{ nullptr };              // Borrowed resolved environment.
+    const tool_option_set_t *pOptions{ nullptr };            // Borrowed effective options.
+    const string_view_t *pInputs{ nullptr };                 // Borrowed positional inputs.
+    usize nInputs{ 0u };                                     // Number of entries in pInputs.
+    const tool_host_t *pHost{ nullptr };                     // Borrowed output/cancellation host.
+    tool_output_policy_t output{};                           // Presentation policy for this run.
+    flags32_t flags{ TOOL_INVOCATION_FLAG_NONE };            // tool_invocation_flags_t bitset.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

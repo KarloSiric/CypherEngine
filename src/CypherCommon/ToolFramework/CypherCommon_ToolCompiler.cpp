@@ -29,6 +29,7 @@ bool_t IsCompilerId( string_view_t id ) noexcept
     if ( !StringView_IsValid( id ) || id.cchLength == 0u ) {
         return CY_FALSE;
     }
+    // Restrict IDs to a portable cache-key and command-line alphabet.
     for ( usize i = 0u; i < id.cchLength; ++i ) {
         const char ch = id.pData[i];
         const bool_t bLetter = ch >= 'a' && ch <= 'z';
@@ -42,6 +43,8 @@ bool_t IsCompilerId( string_view_t id ) noexcept
 
 bool_t IsSourceExtension( string_view_t extension ) noexcept
 {
+    // Extensions are suffixes, not paths; directory separators would make
+    // dispatch dependent on source layout.
     return StringView_IsValid( extension ) && extension.cchLength > 1u &&
            extension.pData[0] == '.' &&
            StringView_FindChar( extension, '/', 0u ) == CY_STRING_VIEW_NPOS &&
@@ -74,6 +77,8 @@ tool_status_t ToolCompiler_CheckDescriptor(
         return tool_status_t::INVALID_ARGUMENT;
     }
 
+    // Duplicate extensions within one compiler are configuration errors even
+    // when their ASCII case differs.
     for ( usize i = 0u; i < compiler.nSourceExtensions; ++i ) {
         if ( !IsSourceExtension( compiler.pSourceExtensions[i] ) ) {
             return tool_status_t::INVALID_CONFIGURATION;
@@ -97,6 +102,8 @@ bool_t ToolCompiler_SupportsInput(
          !StringView_IsValid( input ) || input.cchLength == 0u ) {
         return CY_FALSE;
     }
+    // A compiler-specific probe may recognize containers whose extension is not
+    // sufficient. Extension matching remains the deterministic fallback.
     if ( compiler.pfnProbe != nullptr &&
          compiler.pfnProbe( input, compiler.pUserData ) ) {
         return CY_TRUE;
@@ -141,11 +148,15 @@ tool_status_t ToolCompiler_Execute(
         return tool_status_t::UNSUPPORTED;
     }
 
+    // The wrapper owns operation timing and final status. The compiler callback
+    // fills counters, diagnostics, dependencies, and artifacts only.
     *pReport = {};
     const timer_tick_t nStartTicks = Cy_TimerNowTicks();
     tool_status_t status =
         compiler.pfnExecute( request, pReport, compiler.pUserData );
     if ( !ToolStatus_IsKnown( status ) ) {
+        // Do not allow arbitrary callback integers to enter machine-readable
+        // reports or process exit-code mapping.
         status = tool_status_t::INTERNAL_ERROR;
     }
     pReport->operationId = request.operationId;
@@ -156,6 +167,7 @@ tool_status_t ToolCompiler_Execute(
         pReport->nEndTicks = pReport->nStartTicks;
     }
 
+    // Validate callback output before forwarding it to a host boundary.
     const tool_status_t reportStatus = ToolReport_Validate( *pReport );
     if ( ToolStatus_Failed( reportStatus ) ) {
         return tool_status_t::INTERNAL_ERROR;

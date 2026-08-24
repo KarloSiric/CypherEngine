@@ -25,7 +25,7 @@ namespace cypher::common
 namespace
 {
 
-constexpr usize CY_TOOL_DISPLAY_LINE_CAPACITY = 4096u;
+constexpr usize CY_TOOL_DISPLAY_LINE_CAPACITY = 4096u; // Bounded record scratch buffer.
 
 constexpr string_view_t CY_TOOL_COLOR_RESET{ "\x1b[0m", 4u };
 constexpr string_view_t CY_TOOL_COLOR_BOLD{ "\x1b[1m", 4u };
@@ -35,7 +35,7 @@ constexpr string_view_t CY_TOOL_COLOR_GREEN{ "\x1b[32m", 5u };
 constexpr string_view_t CY_TOOL_COLOR_YELLOW{ "\x1b[33m", 5u };
 constexpr string_view_t CY_TOOL_COLOR_RED{ "\x1b[31m", 5u };
 constexpr string_view_t CY_TOOL_COLOR_BOLD_RED{ "\x1b[1;31m", 7u };
-constexpr u32 CY_TOOL_PROGRESS_BAR_WIDTH = 32u;
+constexpr u32 CY_TOOL_PROGRESS_BAR_WIDTH = 32u; // Stable width for logs and redraws.
 
 bool_t DisplayIsValid( const tool_cli_display_t *pDisplay ) noexcept
 {
@@ -52,6 +52,8 @@ bool_t DisplayUsesColor(
          ( pDisplay->policy.flags & TOOL_OUTPUT_FLAG_COLOR ) == 0u ) {
         return CY_FALSE;
     }
+    // Machine-readable output never receives ANSI escapes. Forced color applies
+    // only to text and permits colored output through a pipe when requested.
     return ( pDisplay->policy.flags & TOOL_OUTPUT_FLAG_FORCE_COLOR ) != 0u ||
            ToolCliTerminal_SupportsColor( pTerminal );
 }
@@ -84,6 +86,8 @@ void AppendProgressBar(
     string_builder_t *pBuilder,
     f64 fraction ) noexcept
 {
+    // Progress validation guarantees a bounded fraction; clamp defensively for
+    // callbacks supplied by external tool modules.
     u32 nFilled = static_cast<u32>(
         fraction * static_cast<f64>( CY_TOOL_PROGRESS_BAR_WIDTH ) );
     if ( nFilled > CY_TOOL_PROGRESS_BAR_WIDTH ) {
@@ -105,6 +109,8 @@ void AppendJsonEscaped(
     string_builder_t *pBuilder,
     string_view_t text ) noexcept
 {
+    // Emit one JSON object per line. Control bytes must be escaped so records
+    // remain parseable by streaming consumers.
     for ( usize i = 0u; i < text.cchLength; ++i ) {
         const char ch = text.pData[i];
         switch ( ch ) {
@@ -152,6 +158,7 @@ tool_status_t WriteBuilder(
 void FinishInteractiveProgress( tool_cli_display_t *pDisplay ) noexcept
 {
     if ( pDisplay->bProgressVisible ) {
+        // Any non-progress record first terminates the transient redraw line.
         (void)ToolCliTerminal_Write( pDisplay->pOutput, { "\n", 1u } );
         pDisplay->bProgressVisible = CY_FALSE;
         pDisplay->cchProgressLine = 0u;
@@ -174,6 +181,8 @@ void DiagnosticCallback(
     if ( !StringBuilder_Init( &builder, buffer, CY_TOOL_DISPLAY_LINE_CAPACITY ) ) {
         return;
     }
+    // JSON diagnostics are append-only records. Text diagnostics select stderr
+    // for errors/fatals and stdout for notes/warnings.
     if ( pDisplay->policy.diagnosticsFormat == tool_output_format_t::JSON ) {
         (void)StringBuilder_AppendFormat(
             &builder,
@@ -256,6 +265,8 @@ void ProgressCallback(
          pDisplay->policy.progressMode == tool_progress_mode_t::NONE ) {
         return;
     }
+    // AUTO redraws an interactive terminal; plain and JSON modes append records
+    // so redirected build logs retain every update.
     const bool_t bJson =
         pDisplay->policy.progressMode == tool_progress_mode_t::JSON;
     const bool_t bInteractive =
@@ -317,6 +328,7 @@ void ProgressCallback(
     }
 
     if ( bInteractive ) {
+        // Erase and replace the current line without emitting log spam.
         (void)ToolCliTerminal_ClearCurrentLine( pDisplay->pOutput );
         (void)WriteBuilder( pDisplay, pDisplay->pOutput, builder );
         pDisplay->bProgressVisible = CY_TRUE;
@@ -344,6 +356,7 @@ void EventCallback( const tool_event_t &event, void *pUserData ) noexcept
            pDisplay->policy.verbosity < tool_verbosity_t::VERBOSE ) ) {
         return;
     }
+    // Events are durable records and cannot share the transient progress line.
     FinishInteractiveProgress( pDisplay );
     char buffer[CY_TOOL_DISPLAY_LINE_CAPACITY]{};
     string_builder_t builder{};
@@ -398,6 +411,7 @@ void DependencyCallback(
     void *pUserData ) noexcept
 {
     auto *pDisplay = static_cast<tool_cli_display_t *>( pUserData );
+    // Dependency lists are noisy and are reserved for trace output or JSON logs.
     if ( !DisplayIsValid( pDisplay ) ||
          pDisplay->policy.verbosity < tool_verbosity_t::TRACE ) {
         return;
@@ -468,6 +482,8 @@ void ReportCallback( const tool_report_t &report, void *pUserData ) noexcept
         return;
     }
     FinishInteractiveProgress( pDisplay );
+    // Human text receives a compact summary. Structured formats delegate to the
+    // report writer so CLI and file output share one schema.
     if ( pDisplay->policy.diagnosticsFormat == tool_output_format_t::TEXT ) {
         char buffer[CY_TOOL_DISPLAY_LINE_CAPACITY]{};
         string_builder_t builder{};
@@ -680,6 +696,7 @@ tool_host_t ToolCliDisplay_MakeHost(
     if ( !DisplayIsValid( pDisplay ) ) {
         return {};
     }
+    // The returned function table borrows pDisplay and must not outlive it.
     return {
         &DiagnosticCallback,
         &ProgressCallback,

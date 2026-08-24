@@ -29,23 +29,23 @@
 namespace cypher::common
 {
 
-inline constexpr usize CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_DEPTH = 16u;
-inline constexpr usize CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_ARGUMENTS = 65536u;
-inline constexpr usize CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_BYTES = 16u * CY_MIB;
+inline constexpr usize CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_DEPTH = 16u; // Nested @file include limit.
+inline constexpr usize CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_ARGUMENTS = 65536u; // Expanded argv limit.
+inline constexpr usize CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_BYTES = 16u * CY_MIB; // Owned text limit.
 
 struct tool_cli_response_file_options_t {
-    usize nMaxDepth{ CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_DEPTH };
-    usize nMaxArguments{ CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_ARGUMENTS };
-    usize cbMaxExpandedText{ CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_BYTES };
-    bool_t bAllowComments{ CY_TRUE };
+    usize nMaxDepth{ CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_DEPTH }; // Zero rejects all @file expansion.
+    usize nMaxArguments{ CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_ARGUMENTS }; // Includes direct arguments.
+    usize cbMaxExpandedText{ CY_TOOL_RESPONSE_FILE_DEFAULT_MAX_BYTES }; // Sum of copied argument bytes.
+    bool_t bAllowComments{ CY_TRUE }; // Enables response-file line comments outside quoted text.
 };
 
 struct tool_cli_response_file_result_t {
-    vector_t<owned_allocation_t> ownedArguments{};
-    vector_t<string_view_t> arguments{};
-    text_buffer_t errorPath{};
-    usize nErrorLine{ 0u };
-    usize nErrorColumn{ 0u };
+    vector_t<owned_allocation_t> ownedArguments{}; // Owns every copied argument string.
+    vector_t<string_view_t> arguments{};           // Views into ownedArguments in argv order.
+    text_buffer_t errorPath{};                     // Path of the response file that failed.
+    usize nErrorLine{ 0u };                        // One-based source line; zero when unavailable.
+    usize nErrorColumn{ 0u };                      // One-based source column; zero when unavailable.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

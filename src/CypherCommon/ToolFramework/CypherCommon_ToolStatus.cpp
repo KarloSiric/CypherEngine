@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Status Implementation Notes
+
+These are stable tool-neutral contracts shared by CLI applications, future GUI hosts, tests, and
+compiler modules. They must not depend on Qt or terminal state.
+================
+*/
+
 #include "CypherCommon_ToolStatus.h"
 
 namespace cypher::common
@@ -38,6 +47,7 @@ bool_t ToolStatus_Failed( tool_status_t status ) noexcept
 
 const char *ToolStatus_Name( tool_status_t status ) noexcept
 {
+    // Names are stable protocol text for logs, reports, and editor output.
     switch ( status ) {
         case tool_status_t::OK: return "OK";
         case tool_status_t::CANCELLED: return "CANCELLED";
@@ -63,6 +73,8 @@ const char *ToolStatus_Name( tool_status_t status ) noexcept
 
 tool_exit_code_t ToolStatus_ExitCode( tool_status_t status ) noexcept
 {
+    // Many detailed statuses collapse into a small process-exit vocabulary so
+    // scripts can distinguish usage, configuration, infrastructure, and work failures.
     switch ( status ) {
         case tool_status_t::OK:
             return tool_exit_code_t::SUCCESS;

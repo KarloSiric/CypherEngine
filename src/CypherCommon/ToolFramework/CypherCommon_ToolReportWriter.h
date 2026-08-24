@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Report Writer Contract
+
+Reports summarize timings, counts, diagnostics, dependencies, and artifacts after a run. Writers
+serialize the same data for human or machine consumption without recomputing results.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLREPORTWRITER_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLREPORTWRITER_H
 #ifndef PRAGMA_ONCE
@@ -28,15 +37,15 @@ namespace cypher::common
 {
 
 struct tool_report_write_options_t {
-    tool_output_format_t format{ tool_output_format_t::TEXT };
-    bool_t bPretty{ CY_TRUE };
-    bool_t bFinalNewline{ CY_TRUE };
+    tool_output_format_t format{ tool_output_format_t::TEXT }; // Selected serialization.
+    bool_t bPretty{ CY_TRUE };        // Add human-friendly whitespace where supported.
+    bool_t bFinalNewline{ CY_TRUE };  // Terminate the complete record with '\n'.
 };
 
 struct tool_report_write_result_t {
-    tool_status_t status{ tool_status_t::OK };
-    usize cchWritten{ 0u };
-    usize cchRequired{ 0u };
+    tool_status_t status{ tool_status_t::OK }; // Serialization/capacity result.
+    usize cchWritten{ 0u };  // Characters initialized in destination storage.
+    usize cchRequired{ 0u }; // Characters required excluding the terminator.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

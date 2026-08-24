@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tool Compiler Contract
+
+Compiler registration maps stable format identifiers and source extensions to callbacks.
+Dispatch does not transfer ownership of registry entries or invocation storage.
+================
+*/
+
 #ifndef CYPHER_COMMON_TOOLFRAMEWORK_TOOLCOMPILER_H
 #define CYPHER_COMMON_TOOLFRAMEWORK_TOOLCOMPILER_H
 #ifndef PRAGMA_ONCE
@@ -28,20 +37,20 @@ namespace cypher::common
 {
 
 enum tool_compiler_flags_t : flags32_t {
-    TOOL_COMPILER_FLAG_NONE = 0u,
-    TOOL_COMPILER_FLAG_DETERMINISTIC = CYPHER_BIT32( 0 ),
-    TOOL_COMPILER_FLAG_THREAD_SAFE = CYPHER_BIT32( 1 ),
-    TOOL_COMPILER_FLAG_INCREMENTAL = CYPHER_BIT32( 2 ),
-    TOOL_COMPILER_FLAG_SUPPORTS_VALIDATE = CYPHER_BIT32( 3 ),
-    TOOL_COMPILER_FLAG_SUPPORTS_DRY_RUN = CYPHER_BIT32( 4 )
+    TOOL_COMPILER_FLAG_NONE = 0u,                        // No optional compiler guarantees.
+    TOOL_COMPILER_FLAG_DETERMINISTIC = CYPHER_BIT32( 0 ),// Same inputs produce identical bytes.
+    TOOL_COMPILER_FLAG_THREAD_SAFE = CYPHER_BIT32( 1 ),  // Execute callback may run concurrently.
+    TOOL_COMPILER_FLAG_INCREMENTAL = CYPHER_BIT32( 2 ),  // Can reuse previous dependency state.
+    TOOL_COMPILER_FLAG_SUPPORTS_VALIDATE = CYPHER_BIT32( 3 ), // Validation-only operation exists.
+    TOOL_COMPILER_FLAG_SUPPORTS_DRY_RUN = CYPHER_BIT32( 4 )   // Full pipeline can avoid publication.
 };
 
 struct tool_compile_request_t {
-    const tool_invocation_t *pInvocation{ nullptr };
-    tool_operation_id_t operationId{ CY_TOOL_INVALID_OPERATION_ID };
-    string_view_t input{};
-    string_view_t output{};
-    string_view_t resourceType{};
+    const tool_invocation_t *pInvocation{ nullptr }; // Borrowed resolved run context.
+    tool_operation_id_t operationId{ CY_TOOL_INVALID_OPERATION_ID }; // Record correlation ID.
+    string_view_t input{};        // Canonical authored-resource identity.
+    string_view_t output{};       // Canonical output identity or empty for validation.
+    string_view_t resourceType{}; // Stable schema/resource type expected by compiler.
 };
 
 using tool_compiler_probe_fn_t = bool_t ( * )(
@@ -54,18 +63,18 @@ using tool_compiler_execute_fn_t = tool_status_t ( * )(
     void *pUserData ) noexcept;
 
 struct tool_compiler_desc_t {
-    string_view_t id{};
-    string_view_t displayName{};
-    string_view_t resourceType{};
-    string_view_t cookedExtension{};
-    const string_view_t *pSourceExtensions{ nullptr };
-    usize nSourceExtensions{ 0u };
-    u32 nApiVersion{ 0u };
-    u32 nCompilerVersion{ 0u };
-    flags32_t flags{ TOOL_COMPILER_FLAG_NONE };
-    tool_compiler_probe_fn_t pfnProbe{ nullptr };
-    tool_compiler_execute_fn_t pfnExecute{ nullptr };
-    void *pUserData{ nullptr };
+    string_view_t id{};              // Unique stable compiler identifier.
+    string_view_t displayName{};     // Human-readable compiler name.
+    string_view_t resourceType{};    // Schema/resource type produced.
+    string_view_t cookedExtension{}; // Dot-prefixed output extension.
+    const string_view_t *pSourceExtensions{ nullptr }; // Borrowed accepted-extension array.
+    usize nSourceExtensions{ 0u };   // Number of entries above.
+    u32 nApiVersion{ 0u };           // ToolCompiler callback contract version.
+    u32 nCompilerVersion{ 0u };      // Cache-invalidating implementation version.
+    flags32_t flags{ TOOL_COMPILER_FLAG_NONE }; // tool_compiler_flags_t bitset.
+    tool_compiler_probe_fn_t pfnProbe{ nullptr }; // Optional content/path probe.
+    tool_compiler_execute_fn_t pfnExecute{ nullptr }; // Required synchronous compiler callback.
+    void *pUserData{ nullptr };      // Opaque state passed to both callbacks.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API
