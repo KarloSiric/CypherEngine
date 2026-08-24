@@ -23,6 +23,87 @@
 cypher_configure_shader_tool_dependencies(CYPHER_SHADER_TOOL_LINK_LIBS)
 cypher_configure_texture_tool_dependencies(CYPHER_TEXTURE_TOOL_LINK_LIBS)
 
+# File codecs are an authoring dependency rather than a runtime image concern.
+# Keeping them in a separate target lets compilers and GUI tools share imports
+# without forcing PNG/JPEG/EXR libraries into every engine executable.
+add_library(CypherImageCodec STATIC
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem/Image/CypherCommon_ImageCodec.cpp"
+)
+add_library(Cypher::ImageCodec ALIAS CypherImageCodec)
+target_compile_features(CypherImageCodec PUBLIC cxx_std_20)
+target_include_directories(CypherImageCodec
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem/Image"
+)
+target_link_libraries(CypherImageCodec
+    PUBLIC
+        Cypher::Image
+    PRIVATE
+        ${CYPHER_TEXTURE_TOOL_LINK_LIBS}
+)
+
+add_library(PicassoCore STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Core/PicassoChannel.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Core/PicassoMaterialImport.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Core/PicassoPaint.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Core/PicassoPaintMaterial.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Core/PicassoTextureDocument.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Core/PicassoTextureSet.cpp"
+)
+add_library(Cypher::PicassoCore ALIAS PicassoCore)
+target_compile_features(PicassoCore PUBLIC cxx_std_20)
+target_include_directories(PicassoCore
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Core"
+)
+target_link_libraries(PicassoCore
+    PUBLIC
+        Cypher::ImageCodec
+        Cypher::RenderFormats
+    PRIVATE
+        Cypher::CommonTier2
+)
+
+option(CYPHERENGINE_BUILD_PICASSO "Build the Qt6 Picasso authoring tool" OFF)
+if (CYPHERENGINE_BUILD_PICASSO)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Svg Widgets)
+
+    add_library(PicassoGui STATIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/PicassoResources.qrc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Gui/PicassoCanvas.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Gui/PicassoConsole.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Gui/PicassoIcons.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Gui/PicassoMainWindow.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Gui/PicassoTheme.cpp"
+    )
+    add_library(Cypher::PicassoGui ALIAS PicassoGui)
+    target_compile_features(PicassoGui PUBLIC cxx_std_20)
+    target_include_directories(PicassoGui
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/Picasso"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Gui"
+    )
+    target_link_libraries(PicassoGui
+        PUBLIC
+            Cypher::PicassoCore
+            Qt6::Core
+            Qt6::Gui
+            Qt6::Svg
+            Qt6::Widgets
+    )
+    set_target_properties(PicassoGui PROPERTIES AUTORCC ON)
+
+    add_executable(Picasso
+        "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/main.cpp"
+    )
+    add_executable(Cypher::Picasso ALIAS Picasso)
+    target_compile_features(Picasso PRIVATE cxx_std_20)
+    target_link_libraries(Picasso
+        PRIVATE
+            Cypher::PicassoGui
+    )
+endif()
+
 add_library(CypherShaderCompiler STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/CypherShaderCompiler/CypherShaderCompiler.cpp"
 )
@@ -55,6 +136,7 @@ target_link_libraries(CypherTextureCompiler
         Cypher::RenderFormats
         Cypher::ToolFramework
         Cypher::VirtualFileSystem
+        Cypher::ImageCodec
     PRIVATE
         ${CYPHER_TEXTURE_TOOL_LINK_LIBS}
 )
@@ -123,6 +205,61 @@ if (CYPHERENGINE_BUILD_TESTS)
     )
     add_test(NAME cypher_texture_compiler_tests COMMAND cypher_texture_compiler_tests)
 
+    add_executable(cypher_common_image_codec_tests
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/Image/CypherCommon_ImageCodec_Tests.cpp"
+    )
+    target_link_libraries(cypher_common_image_codec_tests
+        PRIVATE
+            Catch2::Catch2WithMain
+            Cypher::ImageCodec
+            Cypher::ThirdPartyImageImport
+    )
+    add_test(NAME cypher_common_image_codec_tests COMMAND cypher_common_image_codec_tests)
+
+    add_executable(cypher_picasso_texture_document_tests
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/Picasso/PicassoTextureDocument_Tests.cpp"
+    )
+    target_link_libraries(cypher_picasso_texture_document_tests
+        PRIVATE
+            Catch2::Catch2WithMain
+            Cypher::PicassoCore
+    )
+    add_test(
+        NAME cypher_picasso_texture_document_tests
+        COMMAND cypher_picasso_texture_document_tests
+    )
+
+    add_executable(cypher_picasso_authoring_core_tests
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/Picasso/PicassoAuthoringCore_Tests.cpp"
+    )
+    target_link_libraries(cypher_picasso_authoring_core_tests
+        PRIVATE
+            Catch2::Catch2WithMain
+            Cypher::PicassoCore
+    )
+    add_test(
+        NAME cypher_picasso_authoring_core_tests
+        COMMAND cypher_picasso_authoring_core_tests
+    )
+
+    if (CYPHERENGINE_BUILD_PICASSO)
+        add_executable(cypher_picasso_console_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/Picasso/PicassoConsole_Tests.cpp"
+        )
+        target_link_libraries(cypher_picasso_console_tests
+            PRIVATE
+                Catch2::Catch2WithMain
+                Cypher::PicassoGui
+        )
+        add_test(
+            NAME cypher_picasso_console_tests
+            COMMAND cypher_picasso_console_tests
+        )
+        set_tests_properties(cypher_picasso_console_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        )
+    endif()
+
     add_executable(cypher_material_compiler_tests
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherMaterialCompiler/CypherMaterialCompiler_Tests.cpp"
     )
@@ -171,6 +308,13 @@ if (CYPHERENGINE_BUILD_TESTS)
             -P "${CYPHERENGINE_ROOT_DIR}/cmake/CypherResourceCompilerSmoke.cmake"
     )
     add_test(
+        NAME cypher_resource_compiler_output_contract
+        COMMAND
+            "${CMAKE_COMMAND}"
+            "-DCYPHER_RESOURCE_COMPILER=$<TARGET_FILE:CypherResourceCompiler>"
+            -P "${CYPHERENGINE_ROOT_DIR}/cmake/CypherResourceCompilerOutputContract.cmake"
+    )
+    add_test(
         NAME cypher_resource_compiler_shader_corpus
         COMMAND
             CypherResourceCompiler
@@ -193,13 +337,20 @@ if (CYPHERENGINE_BUILD_TESTS)
         cypher_resource_compiler_describe_material
         cypher_resource_compiler_list_formats_json
         cypher_resource_compiler_smoke
+        cypher_resource_compiler_output_contract
         cypher_resource_compiler_shader_corpus
         PROPERTIES LABELS "CypherTools;Integration"
     )
 endif()
 
-set(CYPHER_REGISTERED_TOOL_PRODUCTS
+set(CYPHER_REGISTERED_TOOL_PRODUCTS_VALUE
     "CypherShaderCompiler;CypherTextureCompiler;CypherMaterialCompiler;CypherResourceCompiler"
+)
+if (CYPHERENGINE_BUILD_PICASSO)
+    list(APPEND CYPHER_REGISTERED_TOOL_PRODUCTS_VALUE "Picasso")
+endif()
+set(CYPHER_REGISTERED_TOOL_PRODUCTS
+    "${CYPHER_REGISTERED_TOOL_PRODUCTS_VALUE}"
     CACHE INTERNAL
     "Cypher tool products currently registered with CMake"
     FORCE

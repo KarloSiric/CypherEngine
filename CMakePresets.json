@@ -145,6 +145,18 @@
         "CYPHERENGINE_BUILD_TOOLS": "ON",
         "VCPKG_MANIFEST_FEATURES": "image-import;shader-tools;tests"
       }
+    },
+    {
+      "name": "picasso-debug",
+      "inherits": "base",
+      "displayName": "Picasso Qt6 Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CYPHERENGINE_BUILD_TESTS": "ON",
+        "CYPHERENGINE_BUILD_TOOLS": "ON",
+        "CYPHERENGINE_BUILD_PICASSO": "ON",
+        "VCPKG_MANIFEST_FEATURES": "image-import;shader-tools;tests"
+      }
     }
   ],
   "buildPresets": [
@@ -191,6 +203,10 @@
     {
       "name": "asset-tools-release",
       "configurePreset": "asset-tools-release"
+    },
+    {
+      "name": "picasso-debug",
+      "configurePreset": "picasso-debug"
     }
   ],
   "testPresets": [
@@ -246,6 +262,13 @@
     {
       "name": "asset-tools-release",
       "configurePreset": "asset-tools-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "picasso-debug",
+      "configurePreset": "picasso-debug",
       "output": {
         "outputOnFailure": true
       }

@@ -22,6 +22,10 @@
 
 This file defines what the major CypherEngine modules are supposed to do.
 
+The concrete planned implementation-unit inventory lives in
+[subsystem_source_catalog.md](subsystem_source_catalog.md). That catalog records
+future filenames without bulk-creating empty source files.
+
 ## `CypherCommon`
 
 Shared public/common foundation used by runtime, tools, editor code, tests and

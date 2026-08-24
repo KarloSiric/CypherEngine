@@ -335,7 +335,7 @@ jobs:
             --output-on-failure \
             --no-tests=error \
             --timeout 120 \
-            -R "^(cypher_common_tier1_fileio_tests|cypher_common_vfs_tests|cypher_common_render_asset_format_tests|cypher_common_cooked_resource_format_tests|cypher_common_cooked_shader_format_tests|cypher_common_cooked_texture_format_tests|cypher_common_cooked_material_format_tests|cypher_toolframework_core_tests|cypher_toolframework_cli_tests|cypher_toolframework_compiler_tests|cypher_shader_compiler_tests|cypher_texture_compiler_tests|cypher_material_compiler_tests|cypher_resource_compiler_help|cypher_resource_compiler_version|cypher_resource_compiler_list_compilers|cypher_resource_compiler_describe_shader|cypher_resource_compiler_describe_texture|cypher_resource_compiler_describe_material|cypher_resource_compiler_list_formats_json|cypher_resource_compiler_smoke)$"
+            -R "^(cypher_common_tier1_fileio_tests|cypher_common_vfs_tests|cypher_common_render_asset_format_tests|cypher_common_cooked_resource_format_tests|cypher_common_cooked_shader_format_tests|cypher_common_cooked_texture_format_tests|cypher_common_cooked_material_format_tests|cypher_toolframework_core_tests|cypher_toolframework_cli_tests|cypher_toolframework_compiler_tests|cypher_shader_compiler_tests|cypher_texture_compiler_tests|cypher_material_compiler_tests|cypher_resource_compiler_help|cypher_resource_compiler_version|cypher_resource_compiler_list_compilers|cypher_resource_compiler_describe_shader|cypher_resource_compiler_describe_texture|cypher_resource_compiler_describe_material|cypher_resource_compiler_list_formats_json|cypher_resource_compiler_smoke|cypher_resource_compiler_output_contract)$"
 
   benchmark-build:
     name: ${{ matrix.name }} Bench Build

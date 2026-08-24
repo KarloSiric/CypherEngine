@@ -35,14 +35,15 @@ Read these in order when resuming work:
 7. [cyphercommon_architecture.md](cyphercommon_architecture.md)
 8. [function_pointer_policy.md](function_pointer_policy.md)
 9. [subsystems.md](subsystems.md)
-10. [toolchain_plan.md](toolchain_plan.md)
-11. [tool_suite.md](tool_suite.md)
-12. [source2_tooling_reference.md](source2_tooling_reference.md)
-13. [map_authoring_and_mason.md](map_authoring_and_mason.md)
-14. [picasso_v1_design.md](picasso_v1_design.md)
-15. [formats/CYKV.md](formats/CYKV.md)
-16. [reference_engine_lessons.md](reference_engine_lessons.md)
-17. [security_model.md](security_model.md)
+10. [subsystem_source_catalog.md](subsystem_source_catalog.md)
+11. [toolchain_plan.md](toolchain_plan.md)
+12. [tool_suite.md](tool_suite.md)
+13. [source2_tooling_reference.md](source2_tooling_reference.md)
+14. [map_authoring_and_mason.md](map_authoring_and_mason.md)
+15. [picasso_v1_design.md](picasso_v1_design.md)
+16. [formats/CYKV.md](formats/CYKV.md)
+17. [reference_engine_lessons.md](reference_engine_lessons.md)
+18. [security_model.md](security_model.md)
 
 API docs:
 
@@ -62,6 +63,8 @@ Project memory:
 - [../CHANGELOG.md](../CHANGELOG.md)
 - [devlog/2026-04.md](devlog/2026-04.md)
 - [adr/0001-coop-first-listen-server-architecture.md](adr/0001-coop-first-listen-server-architecture.md)
+- [adr/0002-common-runtime-tool-boundaries.md](adr/0002-common-runtime-tool-boundaries.md)
+- [adr/0003-runtime-naming-and-target-ownership.md](adr/0003-runtime-naming-and-target-ownership.md)
 
 ## What each document is for
 
@@ -97,6 +100,10 @@ Project memory:
     tables belong
 - `subsystems`
   - what each module is responsible for
+- `subsystem_source_catalog`
+  - concrete planned implementation-unit names for every top-level subsystem
+  - source-file creation gates and dependency ownership rules
+  - vertical-slice order without empty placeholder compilation units
 - `toolchain_plan`
   - how maps, models, archives, scripts, and tools should be introduced
 - `tool_suite`

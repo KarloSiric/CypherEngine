@@ -250,6 +250,16 @@ set(CYPHERRESOURCE_SYSTEM_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/ResourceSystem/CypherCommon_ResourceId.cpp"
 )
 
+set(CYPHER_IMAGE_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem/Image/CypherCommon_ImageConvert.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem/Image/CypherCommon_ImageFormat.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem/Image/CypherCommon_ImageMip.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem/Image/CypherCommon_ImageProcess.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem/Image/CypherCommon_ImageResize.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem/Image/CypherCommon_ImageSurface.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem/Image/CypherCommon_ImageView.cpp"
+)
+
 set(CYPHER_RENDER_FORMAT_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_CookedMaterial.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Formats/CypherCommon_CookedTexture.cpp"
@@ -272,6 +282,12 @@ set(CYPHERRESOURCE_RUNTIME_SOURCES
 
 set(CYPHER_RENDER_RESOURCE_RUNTIME_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherResource/CypherResource_RenderAssets.cpp"
+)
+
+set(CYPHER_PAK_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Compression.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Reader.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Writer.cpp"
 )
 
 set(CYPHERTOOLFRAMEWORK_SOURCES
@@ -442,6 +458,16 @@ target_include_directories(CypherResourceSystem
 )
 target_link_libraries(CypherResourceSystem PUBLIC Cypher::CommonTier1)
 
+add_library(CypherImage STATIC ${CYPHER_IMAGE_SOURCES})
+add_library(Cypher::Image ALIAS CypherImage)
+target_compile_features(CypherImage PUBLIC cxx_std_20)
+target_include_directories(CypherImage
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/RenderSystem/Image"
+)
+target_link_libraries(CypherImage PUBLIC Cypher::CommonTier1)
+
 add_library(CypherRenderFormats STATIC ${CYPHER_RENDER_FORMAT_SOURCES})
 add_library(Cypher::RenderFormats ALIAS CypherRenderFormats)
 target_compile_features(CypherRenderFormats PUBLIC cxx_std_20)
@@ -486,6 +512,16 @@ target_link_libraries(CypherRenderResourceRuntime
         Cypher::VirtualFileSystem
         Cypher::RenderFormats
 )
+
+add_library(CypherPak STATIC ${CYPHER_PAK_SOURCES})
+add_library(Cypher::Pak ALIAS CypherPak)
+target_compile_features(CypherPak PUBLIC cxx_std_20)
+target_include_directories(CypherPak
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherPak"
+)
+target_link_libraries(CypherPak PUBLIC Cypher::CommonTier0)
 
 add_library(CypherToolFramework STATIC ${CYPHERTOOLFRAMEWORK_SOURCES})
 add_library(Cypher::ToolFramework ALIAS CypherToolFramework)
@@ -537,6 +573,9 @@ list(FILTER CYPHERENGINE_SOURCES
 list(FILTER CYPHERENGINE_SOURCES
     EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherResource/"
 )
+list(FILTER CYPHERENGINE_SOURCES
+    EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherPak/"
+)
 list(APPEND CYPHERENGINE_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Engine/CypherCommon_Print.cpp"
 )
@@ -548,6 +587,7 @@ if (CYPHERENGINE_SOURCES)
         CypherEngine
         PRIVATE
             Cypher::Math
+            Cypher::Pak
             Cypher::RenderResourceRuntime
     )
     if (CYPHERENGINE_LINK_LIBS)
@@ -1437,6 +1477,41 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::RenderPreview
         )
         cypher_add_common_catch_test(
+            cypher_common_image_convert_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/Image/CypherCommon_ImageConvert_Tests.cpp"
+            Cypher::Image
+        )
+        cypher_add_common_catch_test(
+            cypher_common_image_format_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/Image/CypherCommon_ImageFormat_Tests.cpp"
+            Cypher::Image
+        )
+        cypher_add_common_catch_test(
+            cypher_common_image_mip_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/Image/CypherCommon_ImageMip_Tests.cpp"
+            Cypher::Image
+        )
+        cypher_add_common_catch_test(
+            cypher_common_image_process_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/Image/CypherCommon_ImageProcess_Tests.cpp"
+            Cypher::Image
+        )
+        cypher_add_common_catch_test(
+            cypher_common_image_resize_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/Image/CypherCommon_ImageResize_Tests.cpp"
+            Cypher::Image
+        )
+        cypher_add_common_catch_test(
+            cypher_common_image_surface_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/Image/CypherCommon_ImageSurface_Tests.cpp"
+            Cypher::Image
+        )
+        cypher_add_common_catch_test(
+            cypher_common_image_view_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/Image/CypherCommon_ImageView_Tests.cpp"
+            Cypher::Image
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_stringparse_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_StringParse_Tests.cpp"
             Cypher::CommonTier1
@@ -1677,9 +1752,6 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Path.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Runtime.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Watch.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Compression.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Reader.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Writer.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Platform.cpp"
@@ -1687,17 +1759,13 @@ if (CYPHERENGINE_BUILD_TESTS)
 
     add_executable(cypher_filesystem_smoke ${CYPHERENGINE_FILESYSTEM_SMOKE_SOURCES})
     target_include_directories(cypher_filesystem_smoke PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+    target_link_libraries(cypher_filesystem_smoke PRIVATE Cypher::Pak)
     add_test(NAME cypher_filesystem_smoke COMMAND cypher_filesystem_smoke)
 
-    set(CYPHERENGINE_PAK_SMOKE_SOURCES
+    add_executable(cypher_pak_smoke
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherPak/CypherPak_Smoke.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Compression.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Reader.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Writer.cpp"
     )
-
-    add_executable(cypher_pak_smoke ${CYPHERENGINE_PAK_SMOKE_SOURCES})
-    target_include_directories(cypher_pak_smoke PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+    target_link_libraries(cypher_pak_smoke PRIVATE Cypher::Pak)
     add_test(NAME cypher_pak_smoke COMMAND cypher_pak_smoke)
 endif()
 
@@ -1766,6 +1834,31 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             cypher_common_cooked_material_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/Formats/CypherCommon_CookedMaterial_Bench.cpp"
             Cypher::RenderFormats
+        )
+        cypher_add_common_benchmark(
+            cypher_common_image_convert_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/RenderSystem/Image/CypherCommon_ImageConvert_Bench.cpp"
+            Cypher::Image
+        )
+        cypher_add_common_benchmark(
+            cypher_common_image_mip_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/RenderSystem/Image/CypherCommon_ImageMip_Bench.cpp"
+            Cypher::Image
+        )
+        cypher_add_common_benchmark(
+            cypher_common_image_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/RenderSystem/Image/CypherCommon_Image_Bench.cpp"
+            Cypher::Image
+        )
+        cypher_add_common_benchmark(
+            cypher_common_image_process_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/RenderSystem/Image/CypherCommon_ImageProcess_Bench.cpp"
+            Cypher::Image
+        )
+        cypher_add_common_benchmark(
+            cypher_common_image_resize_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/RenderSystem/Image/CypherCommon_ImageResize_Bench.cpp"
+            Cypher::Image
         )
 
         cypher_add_common_benchmark(
@@ -2259,12 +2352,8 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
 
         add_executable(cypher_pak_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherPak/CypherPak_Bench.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Compression.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Reader.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Writer.cpp"
         )
-        target_include_directories(cypher_pak_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
-        target_link_libraries(cypher_pak_bench PRIVATE benchmark::benchmark_main)
+        target_link_libraries(cypher_pak_bench PRIVATE benchmark::benchmark_main Cypher::Pak)
     else()
         message(STATUS "Google Benchmark not found. Skipping CypherEngine benchmark targets.")
     endif()
