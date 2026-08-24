@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Set Contract
+
+Set reuses the red-black tree with an empty mapped value. Keys therefore have the same stable-node
+and ordered-traversal rules as Map without paying for a second container implementation.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SET_H
 #define CYPHER_COMMON_TIER1_SET_H
 #ifndef PRAGMA_ONCE
@@ -26,7 +35,7 @@
 namespace cypher::common
 {
 
-struct set_unit_t {
+struct set_unit_t { // Zero-state placeholder used where the underlying tree expects a mapped value.
 };
 
 template <typename key_t, typename compare_t = less_t<key_t>>

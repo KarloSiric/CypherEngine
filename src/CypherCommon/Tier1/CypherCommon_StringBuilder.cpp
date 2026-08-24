@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+String Builder Implementation Notes
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+================
+*/
+
 #include "CypherCommon_StringBuilder.h"
 
 namespace cypher::common
@@ -45,6 +54,8 @@ string_builder_status_t AppendRequiredLength(
     string_builder_t *pBuilder,
     usize cchAdditional ) noexcept
 {
+    // Required length is maintained even after truncation, enabling an exact
+    // measurement pass without a separate formatting implementation.
     if ( cchAdditional > CY_USIZE_MAX - pBuilder->cchRequired ) {
         CY_ASSERT_MSG( CY_FALSE, "StringBuilder required length overflowed." );
         pBuilder->status = string_builder_status_t::FORMAT_ERROR;
@@ -224,6 +235,7 @@ string_builder_status_t StringBuilder_Append(
     const usize cchCopy = text.cchLength < cchRemaining
         ? text.cchLength
         : cchRemaining;
+    // MemMove permits appending a view that aliases the builder's own storage.
     if ( cchCopy > 0u ) {
         Cy_MemMove(
             pBuilder->pData + pBuilder->cchLength,
@@ -309,6 +321,8 @@ string_builder_status_t StringBuilder_AppendFormatV(
         return pBuilder->status;
     }
 
+    // Formatting writes directly into the unoccupied tail while preserving the
+    // preexisting truncation state and complete required-length accounting.
     const string_builder_status_t previousStatus = pBuilder->status;
     const usize cchPreviousLength = pBuilder->cchLength;
     const usize cchRemaining = StringBuilder_Remaining( pBuilder );
@@ -330,6 +344,8 @@ string_builder_status_t StringBuilder_AppendFormatV(
     }
     if ( AppendRequiredLength( pBuilder, result.cchRequired ) ==
          string_builder_status_t::FORMAT_ERROR ) {
+        // Restore the original terminator if required-length arithmetic failed
+        // after the formatter had already touched the tail.
         if ( pBuilder->pData != nullptr ) {
             pBuilder->pData[cchPreviousLength] = '\0';
         }

@@ -48,19 +48,19 @@ namespace cypher::common
 {
 
 enum string_split_flags_t : flags32_t {
-    STRING_SPLIT_FLAG_NONE                  = 0u,
-    STRING_SPLIT_FLAG_SKIP_EMPTY            = CYPHER_BIT32( 0 ),
-    STRING_SPLIT_FLAG_TRIM_WHITESPACE       = CYPHER_BIT32( 1 )
+    STRING_SPLIT_FLAG_NONE                  = 0u,                // Preserve source fields exactly.
+    STRING_SPLIT_FLAG_SKIP_EMPTY            = CYPHER_BIT32( 0 ), // Do not emit zero-length fields.
+    STRING_SPLIT_FLAG_TRIM_WHITESPACE       = CYPHER_BIT32( 1 )  // Trim ASCII space around each field.
 };
 
 struct string_split_result_t {
-    usize cTokensWritten{ 0u };
-    usize cTokensRequired{ 0u };
+    usize cTokensWritten{ 0u };  // Views actually stored in the caller's array.
+    usize cTokensRequired{ 0u }; // Total fields found, including truncated output.
 };
 
 struct string_split_visit_result_t {
-    usize cTokensVisited{ 0u };
-    bool_t bCompleted{ CY_FALSE };
+    usize cTokensVisited{ 0u };     // Number of callbacks completed.
+    bool_t bCompleted{ CY_FALSE };  // False when the callback stopped traversal.
 };
 
 constexpr flags32_t STRING_SPLIT_VALID_FLAGS =
@@ -68,9 +68,9 @@ constexpr flags32_t STRING_SPLIT_VALID_FLAGS =
     STRING_SPLIT_FLAG_TRIM_WHITESPACE;
 
 using string_split_callback_t = bool_t ( * )(
-    string_view_t token,
-    usize iToken,
-    void *pUserData ) noexcept;
+    string_view_t token, // Borrowed field inside the original source view.
+    usize iToken,        // Zero-based emitted-token index.
+    void *pUserData ) noexcept; // Opaque state supplied by the caller.
 
 /*
 ================

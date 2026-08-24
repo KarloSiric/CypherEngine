@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Sparse Set Template Definitions
+
+Container mutations must preserve structural invariants and element lifetime. Iterators or
+handles are invalidated only according to the rules stated by the public API. Template
+definitions remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SPARSESET_INL
 #define CYPHER_COMMON_TIER1_SPARSESET_INL
 
@@ -50,6 +60,7 @@ usize SparseSet_FindDenseIndex(
         return CY_INVALID_SIZE;
     }
 
+    // Sparse key entries point into parallel dense key/value arrays.
     const u32 iDense32 = pSet->sparse.pData[key];
     if ( iDense32 == CY_SPARSE_SET_INVALID_DENSE_INDEX ) {
         return CY_INVALID_SIZE;
@@ -79,6 +90,7 @@ bool_t SparseSet_Init(
         return CY_FALSE;
     }
 
+    // Initialize transactionally; each failed stage tears down earlier vectors.
     if ( !Vector_Init( &pSet->sparse, pAllocator ) ) {
         return CY_FALSE;
     }
@@ -170,6 +182,7 @@ bool_t SparseSet_ReserveKeys(
     if ( !Vector_Resize( &pSet->sparse, nSparseCapacity ) ) {
         return CY_FALSE;
     }
+    // New sparse slots begin as explicit holes, never zero aliases.
     for ( usize iKey = nPreviousCount; iKey < nSparseCapacity; ++iKey ) {
         pSet->sparse.pData[iKey] = CY_SPARSE_SET_INVALID_DENSE_INDEX;
     }
@@ -203,6 +216,7 @@ value_t *SparseSet_Insert(
         return nullptr;
     }
 
+    // Append key then value; roll the key back if value construction fails.
     const u32 iDense = static_cast<u32>( pSet->denseKeys.nCount );
     if ( !Vector_PushBack( &pSet->denseKeys, key ) ) {
         return nullptr;
@@ -259,6 +273,7 @@ bool_t SparseSet_Erase(
         return CY_FALSE;
     }
 
+    // Swap-remove keeps dense iteration compact and repairs the moved key's sparse index.
     const usize iLast = pSet->denseKeys.nCount - 1u;
     if ( iDense != iLast ) {
         const u32 movedKey = pSet->denseKeys.pData[iLast];

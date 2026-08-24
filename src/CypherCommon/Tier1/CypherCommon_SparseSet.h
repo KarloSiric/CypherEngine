@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Sparse Set Contract
+
+sparse[key] stores a dense index, while denseKeys[index] proves which key occupies that index.
+That reverse check prevents uninitialized sparse entries from becoming false hits. Erase swaps the
+last dense element into the hole, so dense order and all value pointers are unstable.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SPARSESET_H
 #define CYPHER_COMMON_TIER1_SPARSESET_H
 #ifndef PRAGMA_ONCE
@@ -26,13 +36,13 @@
 namespace cypher::common
 {
 
-constexpr u32 CY_SPARSE_SET_INVALID_DENSE_INDEX = CY_U32_MAX;
+constexpr u32 CY_SPARSE_SET_INVALID_DENSE_INDEX = CY_U32_MAX; // Empty sparse entry sentinel.
 
 template <typename value_t>
 struct sparse_set_t {
-    vector_t<u32> sparse{};
-    vector_t<u32> denseKeys{};
-    vector_t<value_t> denseValues{};
+    vector_t<u32> sparse{};          // Key-indexed dense positions or the invalid sentinel.
+    vector_t<u32> denseKeys{};       // Dense position back to its owning sparse key.
+    vector_t<value_t> denseValues{}; // Packed live values parallel to denseKeys.
 };
 
 template <typename value_t>

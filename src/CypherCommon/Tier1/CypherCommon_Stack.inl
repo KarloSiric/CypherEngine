@@ -44,6 +44,8 @@ bool_t Stack_OutputIsInternal(
         return CY_FALSE;
     }
 
+    // Check the complete allocation, not only live elements. Writing into spare
+    // capacity would still alias storage whose lifetime the pop operation controls.
     usize cbStorage = 0u;
     if ( !Cy_TryArrayByteCount<type_t>(
              stack.storage.nCapacity,
@@ -168,6 +170,7 @@ bool_t Stack_Pop(
         return CY_FALSE;
     }
 
+    // Extract before Vector_PopBack destroys the top object.
     type_t *pTop = Vector_Back( &pStack->storage );
     if ( pValueOut != nullptr ) {
         if constexpr ( std::is_nothrow_move_assignable_v<type_t> ) {
@@ -234,6 +237,7 @@ void Stack_Move(
     CY_ASSERT_MSG(
         bValidStacks,
         "Stack_Move requires source and destination stack objects." );
+    // The adapter owns no state beyond its vector, so ownership transfer is delegated.
     if ( bValidStacks ) {
         Vector_Move( &pDest->storage, &pSource->storage );
     }

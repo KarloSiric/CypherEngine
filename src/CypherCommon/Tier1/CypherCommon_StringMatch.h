@@ -27,11 +27,11 @@ namespace cypher::common
 {
 
 enum string_match_flags_t : flags32_t {
-    STRING_MATCH_FLAG_NONE                    = 0u,
-    STRING_MATCH_FLAG_CASE_INSENSITIVE_ASCII  = CYPHER_BIT32( 0 ),
-    STRING_MATCH_FLAG_PATH_SEPARATORS_EQUAL   = CYPHER_BIT32( 1 ),
-    STRING_MATCH_FLAG_STAR_MATCHES_SEPARATOR  = CYPHER_BIT32( 2 ),
-    STRING_MATCH_FLAG_ALLOW_CHARACTER_CLASS   = CYPHER_BIT32( 3 )
+    STRING_MATCH_FLAG_NONE                    = 0u,                // Exact byte comparison.
+    STRING_MATCH_FLAG_CASE_INSENSITIVE_ASCII  = CYPHER_BIT32( 0 ), // Fold ASCII letters only.
+    STRING_MATCH_FLAG_PATH_SEPARATORS_EQUAL   = CYPHER_BIT32( 1 ), // Treat '/' and '\\' equally.
+    STRING_MATCH_FLAG_STAR_MATCHES_SEPARATOR  = CYPHER_BIT32( 2 ), // Permit '*' to cross path components.
+    STRING_MATCH_FLAG_ALLOW_CHARACTER_CLASS   = CYPHER_BIT32( 3 )  // Enable bracket expressions such as [a-z].
 };
 
 constexpr flags32_t STRING_MATCH_VALID_FLAGS =

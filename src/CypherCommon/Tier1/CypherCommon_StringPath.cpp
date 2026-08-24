@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+String Path Implementation Notes
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+================
+*/
+
 #include "CypherCommon_StringPath.h"
 
 #include "CypherCommon_Char.h"
@@ -32,27 +41,27 @@ constexpr flags32_t CY_PATH_NORMALIZE_FLAG_MASK =
     PATH_NORMALIZE_FLAG_LOWERCASE_ASCII |
     PATH_NORMALIZE_FLAG_KEEP_TRAILING_SLASH |
     PATH_NORMALIZE_FLAG_REJECT_ABSOLUTE |
-    PATH_NORMALIZE_FLAG_REJECT_ABOVE_ROOT;
+    PATH_NORMALIZE_FLAG_REJECT_ABOVE_ROOT; // Publicly accepted normalization option bits.
 
 struct path_root_t {
-    usize iRootNameEnd{ 0u };
-    usize iComponentStart{ 0u };
-    usize cRootSeparators{ 0u };
-    bool_t bAbsolute{ CY_FALSE };
+    usize iRootNameEnd{ 0u };    // End of a drive or UNC root name.
+    usize iComponentStart{ 0u };// First byte after root separators.
+    usize cRootSeparators{ 0u };// Separators following the root name.
+    bool_t bAbsolute{ CY_FALSE };// Root anchors traversal to a filesystem root.
 };
 
 struct path_component_t {
-    usize iStart{ 0u };
-    usize cchLength{ 0u };
-    usize cPrecedingSeparators{ 0u };
+    usize iStart{ 0u };              // First non-separator byte.
+    usize cchLength{ 0u };           // Component bytes excluding separators.
+    usize cPrecedingSeparators{ 0u };// Separator run immediately before this component.
 };
 
 struct path_writer_t {
-    char *pDest{ nullptr };
-    usize cchCapacity{ 0u };
-    usize cchWritten{ 0u };
-    usize cchRequired{ 0u };
-    bool_t bOverflow{ CY_FALSE };
+    char *pDest{ nullptr };         // Optional destination for write or measure mode.
+    usize cchCapacity{ 0u };        // Writable characters, reserving one byte for NUL.
+    usize cchWritten{ 0u };         // Characters physically stored.
+    usize cchRequired{ 0u };        // Full result length regardless of capacity.
+    bool_t bOverflow{ CY_FALSE };   // Required-length arithmetic exceeded usize.
 };
 
 path_style_t ResolvePathStyle( path_style_t style ) noexcept
@@ -102,6 +111,7 @@ path_root_t AnalyzePathRoot( string_view_t path, path_style_t requestedStyle ) n
     path_root_t root{};
     const path_style_t style = ResolvePathStyle( requestedStyle );
 
+    // A drive prefix is a root name; it becomes absolute only with a separator.
     if ( style == path_style_t::WINDOWS && IsAsciiDrivePrefix( path ) ) {
         root.iRootNameEnd = 2u;
         root.iComponentStart = 2u;
@@ -114,6 +124,7 @@ path_root_t AnalyzePathRoot( string_view_t path, path_style_t requestedStyle ) n
         return root;
     }
 
+    // UNC roots include both server and share so neither can be traversed above.
     if ( style == path_style_t::WINDOWS && path.cchLength >= 2u &&
          StringPath_IsSeparator( path.pData[0] ) &&
          StringPath_IsSeparator( path.pData[1] ) ) {
@@ -167,6 +178,7 @@ bool_t NextPathComponent(
     usize &iCursor,
     path_component_t &componentOut ) noexcept
 {
+    // Cursor exits at the separator after the component or at the end of input.
     const usize iSeparatorStart = iCursor;
     while ( iCursor < path.cchLength &&
             StringPath_IsSeparator( path.pData[iCursor] ) ) {
@@ -232,6 +244,7 @@ bool_t ComponentIsCanceledByFutureParent(
         return CY_FALSE;
     }
 
+    // A bounded forward scan avoids an allocation-backed component stack.
     usize nPendingComponents = 0u;
     usize iCursor = iAfterComponent;
     path_component_t component{};
@@ -261,6 +274,7 @@ path_status_t ValidateParentTraversal(
         return path_status_t::OK;
     }
 
+    // Validate escape attempts before writing so a rejected path emits no prefix.
     usize nDepth = 0u;
     usize iCursor = root.iComponentStart;
     path_component_t component{};
@@ -284,6 +298,7 @@ path_status_t ValidateParentTraversal(
 
 void PathWriter_WriteByte( path_writer_t &writer, char ch ) noexcept
 {
+    // Saturate required-size accounting instead of allowing wraparound.
     if ( writer.cchRequired == CY_USIZE_MAX ) {
         writer.bOverflow = CY_TRUE;
         return;
@@ -334,6 +349,7 @@ void PathWriter_WriteSeparators(
 
 path_writer_t MakePathWriter( char *pDest, usize cchDest ) noexcept
 {
+    // Capacity excludes the mandatory terminator; measure-only calls use zero capacity.
     return {
         pDest,
         cchDest > 0u ? cchDest - 1u : 0u,
@@ -359,6 +375,7 @@ path_write_result_t FinishPathWrite(
             iError
         };
     }
+    // A short destination is reported separately from malformed input.
     const path_status_t status = failure != path_status_t::OK
         ? failure
         : ( writer.cchWritten == writer.cchRequired
@@ -669,6 +686,7 @@ path_write_result_t StringPath_Normalize(
             chSeparator );
     }
 
+    // Components canceled by later ".." entries are skipped during this forward pass.
     usize nDepth = 0u;
     usize iCursor = root.iComponentStart;
     path_component_t component{};
@@ -750,6 +768,7 @@ path_write_result_t StringPath_Join(
             cchDest,
             iLeftNul != CY_STRING_VIEW_NPOS ? iLeftNul : iRightNul );
     }
+    // Joining a rooted right operand would silently discard the left root.
     if ( StringPath_IsAbsolute( right, style ) ||
          StringPath_HasRootName( right, style ) ) {
         return InvalidPathWrite( path_status_t::INVALID_PATH, pDest, cchDest, 0u );
@@ -861,6 +880,7 @@ path_write_result_t StringPath_MakeRelative(
     path_component_t pathComponent{};
     path_component_t baseComponent{};
 
+    // Advance both paths until their common component prefix ends.
     for ( ;; ) {
         const usize iPathBefore = iPathCursor;
         const usize iBaseBefore = iBaseCursor;
@@ -881,6 +901,7 @@ path_write_result_t StringPath_MakeRelative(
         iBaseRemaining = iBaseCursor;
     }
 
+    // Each remaining base component contributes one parent traversal.
     usize cBaseComponents = 0u;
     usize iCountCursor = iBaseRemaining;
     while ( NextPathComponent( base, iCountCursor, baseComponent ) ) {

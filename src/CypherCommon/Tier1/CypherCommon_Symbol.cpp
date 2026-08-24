@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Symbol Implementation Notes
+
+This dependency-light Tier1 utility keeps ownership, capacity, and failure behavior explicit so
+higher engine systems can use it without hidden allocation or platform state.
+================
+*/
+
 #include "CypherCommon_Symbol.h"
 
 #include "CypherCommon_HashMap.h"
@@ -36,6 +45,7 @@ using symbol_lookup_t = hash_map_t<const char *, symbol_t>;
 
 u32 Symbol_NextGeneration( u32 nGeneration ) noexcept
 {
+    // Generation zero is reserved by CY_SYMBOL_INVALID. Wrap directly to one.
     nGeneration = ( nGeneration + 1u ) & CY_SYMBOL_GENERATION_MASK;
     return nGeneration != 0u ? nGeneration : 1u;
 }
@@ -62,12 +72,12 @@ usize Symbol_Index( symbol_t symbol ) noexcept
 } // namespace
 
 struct symbol_table_t {
-    string_pool_t *pStringPool{ nullptr };
-    vector_t<string_view_t> symbols{};
-    symbol_lookup_t lookup{};
-    const allocator_t *pAllocator{ nullptr };
-    u32 nGeneration{ 1u };
-    flags32_t flags{ SYMBOL_TABLE_FLAG_NONE };
+    string_pool_t *pStringPool{ nullptr }; // Owns stable NUL-terminated spellings.
+    vector_t<string_view_t> symbols{};     // Dense index-to-spelling resolution table.
+    symbol_lookup_t lookup{};              // Interned pointer-to-symbol reverse lookup.
+    const allocator_t *pAllocator{ nullptr }; // Allocator used for this table and children.
+    u32 nGeneration{ 1u };                 // Invalidates every handle after Clear.
+    flags32_t flags{ SYMBOL_TABLE_FLAG_NONE }; // Comparison and interning policy.
 };
 
 namespace
@@ -209,7 +219,7 @@ void SymbolTable_Clear( symbol_table_t *pTable ) noexcept
     HashMap_Clear( &pTable->lookup );
     Vector_Clear( &pTable->symbols );
     StringPool_Clear( pTable->pStringPool );
-    pTable->nGeneration = Symbol_NextGeneration( pTable->nGeneration );
+    pTable->nGeneration = Symbol_NextGeneration( pTable->nGeneration ); // Reject all pre-clear symbols.
 }
 
 bool_t SymbolTable_IsValid( const symbol_table_t *pTable ) noexcept
@@ -256,6 +266,8 @@ symbol_t SymbolTable_Intern(
         CY_ASSERT_MSG( CY_FALSE, "SymbolTable exhausted its symbol index space." );
         return CY_SYMBOL_INVALID;
     }
+    // Secure capacities before interning so the common success path cannot fail
+    // halfway through because either index structure needs to grow.
     if ( !Vector_Reserve( &pTable->symbols, nCount + 1u ) ||
          !HashMap_Reserve( &pTable->lookup, nCount + 1u ) ) {
         return CY_SYMBOL_INVALID;
@@ -283,6 +295,7 @@ symbol_t SymbolTable_Intern(
     CY_ASSERT_MSG(
         inserted.pValue != nullptr,
         "SymbolTable lookup insertion failed after capacity was secured." );
+    // Roll back the dense side if reverse lookup publication fails.
     if ( inserted.pValue == nullptr ) {
         Vector_PopBack( &pTable->symbols );
         return CY_SYMBOL_INVALID;
@@ -353,6 +366,7 @@ bool_t SymbolTable_Contains(
     CY_ASSERT_MSG(
         bValidTable,
         "SymbolTable_Contains requires a valid table." );
+    // A valid bit pattern from another generation must not resolve into a reused index.
     return bValidTable && Symbol_IsValid( symbol ) &&
            Symbol_Generation( symbol ) == pTable->nGeneration &&
            Symbol_Index( symbol ) < Vector_Count( &pTable->symbols );

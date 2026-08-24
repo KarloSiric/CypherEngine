@@ -27,11 +27,11 @@ namespace cypher::common
 {
 
 enum html_text_flags_t : flags32_t {
-    HTML_TEXT_FLAG_NONE                  = 0u,
-    HTML_TEXT_FLAG_ENCODE_QUOTES         = CYPHER_BIT32( 0 ),
-    HTML_TEXT_FLAG_DECODE_NUMERIC        = CYPHER_BIT32( 1 ),
-    HTML_TEXT_FLAG_PRESERVE_LINE_BREAKS  = CYPHER_BIT32( 2 ),
-    HTML_TEXT_FLAG_COLLAPSE_WHITESPACE   = CYPHER_BIT32( 3 )
+    HTML_TEXT_FLAG_NONE                  = 0u,                // Default named-entity behavior.
+    HTML_TEXT_FLAG_ENCODE_QUOTES         = CYPHER_BIT32( 0 ), // Escape single and double quotes.
+    HTML_TEXT_FLAG_DECODE_NUMERIC        = CYPHER_BIT32( 1 ), // Accept decimal and hexadecimal entities.
+    HTML_TEXT_FLAG_PRESERVE_LINE_BREAKS  = CYPHER_BIT32( 2 ), // Convert simple block tags to newlines.
+    HTML_TEXT_FLAG_COLLAPSE_WHITESPACE   = CYPHER_BIT32( 3 )  // Fold ASCII whitespace runs to one space.
 };
 
 constexpr flags32_t HTML_TEXT_VALID_FLAGS =
@@ -41,20 +41,20 @@ constexpr flags32_t HTML_TEXT_VALID_FLAGS =
     HTML_TEXT_FLAG_COLLAPSE_WHITESPACE;
 
 enum class html_text_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    INVALID_ENTITY,
-    INVALID_CODE_POINT,
-    UNTERMINATED_TAG,
-    OUTPUT_TRUNCATED
+    OK = 0u,           // Complete source was converted.
+    INVALID_ARGUMENT,  // Input, destination, or policy is invalid.
+    INVALID_ENTITY,    // Named or numeric entity is malformed.
+    INVALID_CODE_POINT, // Entity resolves outside valid Unicode scalar range.
+    UNTERMINATED_TAG,  // Sanitizer reached source end inside markup.
+    OUTPUT_TRUNCATED   // Destination contains only a valid prefix.
 };
 
 struct html_text_result_t {
-    html_text_status_t status{ html_text_status_t::OK };
-    usize cchConsumed{ 0u };
-    usize cchWritten{ 0u };
-    usize cchRequired{ 0u };
-    usize iError{ CY_STRING_VIEW_NPOS };
+    html_text_status_t status{ html_text_status_t::OK }; // Final conversion state.
+    usize cchConsumed{ 0u };  // Input bytes accepted before termination.
+    usize cchWritten{ 0u };   // Output characters physically stored.
+    usize cchRequired{ 0u };  // Complete output size excluding NUL.
+    usize iError{ CY_STRING_VIEW_NPOS }; // Input byte responsible for failure.
 };
 
 CYPHER_NODISCARD_MSG( "Inspect cchRequired to detect HTML encoding truncation." )

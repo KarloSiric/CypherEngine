@@ -41,6 +41,7 @@ type_t *SmallVector_InlineData(
     if constexpr ( nInlineCapacity == 0u ) {
         return nullptr;
     } else {
+        // Inline storage is raw bytes until element construction begins.
         return reinterpret_cast<type_t *>( pVector->inlineStorage );
     }
 }
@@ -104,6 +105,7 @@ bool_t SmallVector_CalculateGrowth(
         ? nMinimumCapacity
         : nCurrentCapacity;
     if ( nCandidate < nRequiredCapacity ) {
+        // A 1.5x growth factor limits relocations without doubling every spill.
         const usize nHalf = nCandidate / 2u;
         nCandidate = nCandidate > nMaximumCapacity - nHalf
             ? nMaximumCapacity
@@ -218,6 +220,8 @@ bool_t SmallVector_RebaseAppendSource(
         return CY_FALSE;
     }
 
+    // Preserve an index, not a pointer: reserve may move either inline or heap
+    // storage before the append copies its source elements.
     bInternalOut = CY_TRUE;
     iSourceOut = ( nSourceBegin - nStorageBegin ) / sizeof( type_t );
     return CY_TRUE;
@@ -395,6 +399,8 @@ bool_t SmallVector_Reserve(
         return CY_FALSE;
     }
 
+    // Allocate first so failure leaves the original inline/heap representation
+    // and every live object unchanged.
     Container_RelocateConstructRange(
         pNewData,
         pVector->pData,
@@ -472,6 +478,8 @@ bool_t SmallVector_ShrinkToFit(
     }
 
     if ( pVector->nCount <= nInlineCapacity ) {
+        // A spilled vector may return to its embedded buffer once all live
+        // elements fit there again.
         type_t *pInlineData = detail::SmallVector_InlineData( pVector );
         Container_RelocateConstructRange(
             pInlineData,
@@ -529,6 +537,7 @@ bool_t SmallVector_PushBack(
     const bool_t bInternalValue =
         detail::SmallVector_ElementIsInternal( *pVector, &value );
     if ( bMustGrow && bInternalValue ) {
+        // Copy an aliased element before reserve invalidates its address.
         type_t temporary( value );
         if ( !detail::SmallVector_EnsureAdditional( pVector, 1u ) ) {
             return CY_FALSE;
@@ -568,6 +577,7 @@ bool_t SmallVector_PushBackMove(
     const bool_t bInternalValue =
         detail::SmallVector_ElementIsInternal( *pVector, &value );
     if ( bMustGrow && bInternalValue ) {
+        // Move an aliased element into temporary lifetime before storage moves.
         type_t temporary( static_cast<type_t &&>( value ) );
         if ( !detail::SmallVector_EnsureAdditional( pVector, 1u ) ) {
             return CY_FALSE;
@@ -606,6 +616,8 @@ type_t *SmallVector_EmplaceBack(
         return nullptr;
     }
 
+    // Constructor arguments may point into this vector, so materialize the new
+    // value before a possible inline-to-heap transition.
     type_t temporary( static_cast<args_t &&>( args )... );
     if ( !detail::SmallVector_EnsureAdditional( pVector, 1u ) ) {
         return nullptr;
@@ -644,6 +656,7 @@ bool_t SmallVector_Insert(
         return CY_FALSE;
     }
 
+    // The insertion source may alias an element that will be shifted or moved.
     type_t temporary( value );
     if ( !detail::SmallVector_EnsureAdditional( pVector, 1u ) ) {
         return CY_FALSE;
@@ -909,6 +922,7 @@ void SmallVector_Move(
     pDest->pAllocator = pSource->pAllocator;
     if ( pSource->pData != nullptr &&
          !detail::SmallVector_UsesInlineUnchecked( *pSource ) ) {
+        // Heap storage can transfer ownership in constant time.
         pDest->pData = pSource->pData;
         pDest->nCount = pSource->nCount;
         pDest->nCapacity = pSource->nCapacity;
@@ -916,6 +930,8 @@ void SmallVector_Move(
         return;
     }
 
+    // Embedded storage belongs to the source object, so inline elements must be
+    // relocated into the destination's own embedded buffer.
     pDest->pData = detail::SmallVector_InlineData( pDest );
     pDest->nCount = pSource->nCount;
     pDest->nCapacity = nInlineCapacity;

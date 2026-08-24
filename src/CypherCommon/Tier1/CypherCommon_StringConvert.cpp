@@ -54,6 +54,8 @@ string_convert_result_t CopyTextResult(
         return { string_convert_status_t::INVALID_ARGUMENT, 0u, 0u, 0u };
     }
 
+    // Required length is independent of destination capacity, allowing a size
+    // query followed by one exact allocation.
     const usize cchWritable = cchDest > 0u ? cchDest - 1u : 0u;
     const usize cchCopy = cchSource < cchWritable ? cchSource : cchWritable;
     if ( cchCopy > 0u ) {
@@ -117,6 +119,8 @@ string_convert_result_t ConvertUnsignedInteger(
         ? "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         : "0123456789abcdefghijklmnopqrstuvwxyz";
 
+    // Division produces least-significant digits first; reverse them only after
+    // minimum-width zero padding has been applied.
     char reverse[256]{};
     usize cchDigits = 0u;
     do {
@@ -176,6 +180,7 @@ std::chars_format ToCharsFormat( string_float_style_t style ) noexcept
 
 usize TrimFloatTrailingZeros( char *pText, usize cchText ) noexcept
 {
+    // Trim only the mantissa. Scientific exponent digits must remain untouched.
     usize iExponent = cchText;
     for ( usize iChar = 0u; iChar < cchText; ++iChar ) {
         if ( pText[iChar] == 'e' || pText[iChar] == 'E' ) {
@@ -281,6 +286,7 @@ string_convert_result_t StringConvert_I64(
     usize cchDest ) noexcept
 {
     const bool_t bNegative = value < 0;
+    // Compute the magnitude without overflowing when value is INT64_MIN.
     const u64 magnitude = bNegative
         ? static_cast<u64>( -( value + 1 ) ) + 1u
         : static_cast<u64>( value );
@@ -361,7 +367,7 @@ string_convert_result_t StringConvert_BinaryToHex(
     const char *pDigits = bUppercase
         ? "0123456789ABCDEF"
         : "0123456789abcdef";
-    const usize cchRequired = cbData * 2u;
+    const usize cchRequired = cbData * 2u; // Every input byte produces two nibbles.
     const usize cchWritable = cchDest > 0u ? cchDest - 1u : 0u;
     const usize cchWritten = cchRequired < cchWritable ? cchRequired : cchWritable;
     const auto *pBytes = static_cast<const byte *>( pData );
@@ -402,6 +408,8 @@ string_convert_result_t StringConvert_HexToBinary(
         return { string_convert_status_t::INVALID_TEXT, 0u, 0u, 0u };
     }
 
+    // Validate the complete source before touching destination bytes. Malformed
+    // text therefore cannot leave a partially decoded secret or identifier.
     for ( usize iChar = 0u; iChar < text.cchLength; ++iChar ) {
         if ( Char_HexValueAscii( text.pData[iChar] ) ==
              CY_CHAR_INVALID_DIGIT_VALUE ) {

@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Scratch Buffer Implementation Notes
+
+The cursor and capacity form one invariant: no operation may advance beyond the supplied
+storage. Failed writes report the condition without publishing a cursor that claims unwritten
+bytes.
+================
+*/
+
 #include "CypherCommon_ScratchBuffer.h"
 
 #include "CypherCommon_FixedMemory.h"
@@ -55,6 +65,8 @@ byte *FindLocalStorage(
 
     const usize cbPadding = static_cast<usize>(
         nAlignedAddress - reinterpret_cast<uintptr>( storage.pData ) );
+    // Alignment padding consumes part of the caller's local span and must be
+    // included when deciding whether the requested payload still fits.
     if ( cbPadding > storage.nCount || cbSize > storage.nCount - cbPadding ) {
         return nullptr;
     }
@@ -97,6 +109,7 @@ bool_t ScratchBuffer_Acquire(
         return CY_TRUE;
     }
 
+    // Prefer borrowed local storage; ownership remains empty on this fast path.
     byte *pLocalData = FindLocalStorage(
         localStorage,
         cbSize,
@@ -109,6 +122,8 @@ bool_t ScratchBuffer_Acquire(
         return CY_TRUE;
     }
 
+    // The fallback record captures allocator, size, and alignment so Release
+    // does not need the original acquisition arguments.
     const bool_t bValidFallback = Allocator_IsValid( pFallbackAllocator );
     CY_ASSERT_MSG(
         bValidFallback,
@@ -161,7 +176,7 @@ void ScratchBuffer_Release( scratch_buffer_t *pBuffer ) noexcept
         return;
     }
 
-    Allocator_FreeOwned( &pBuffer->fallback );
+    Allocator_FreeOwned( &pBuffer->fallback ); // No-op for buffers backed by local storage.
     pBuffer->pData = nullptr;
     pBuffer->cbSize = 0u;
     pBuffer->nAlignment = 0u;

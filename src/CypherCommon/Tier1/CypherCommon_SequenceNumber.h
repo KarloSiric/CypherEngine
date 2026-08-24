@@ -27,10 +27,10 @@ namespace cypher::common
 {
 
 struct sequence_ack32_t {
-    u32 nLatest{ 0u };
+    u32 nLatest{ 0u }; // Newest sequence represented by this acknowledgement window.
     // Bit zero acknowledges nLatest - 1; bit 31 acknowledges nLatest - 32.
-    u32 ackBits{ 0u };
-    bool_t bInitialized{ CY_FALSE };
+    u32 ackBits{ 0u };           // Previous 32 sequence acknowledgements.
+    bool_t bInitialized{ CY_FALSE }; // nLatest has been established by a record.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

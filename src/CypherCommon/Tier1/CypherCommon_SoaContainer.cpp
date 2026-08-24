@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Soa Container Implementation Notes
+
+Container mutations must preserve structural invariants and element lifetime. Iterators or
+handles are invalidated only according to the rules stated by the public API.
+================
+*/
+
 #include "CypherCommon_SoaContainer.h"
 
 namespace cypher::common
@@ -87,6 +96,8 @@ bool_t CalculateLayout(
 {
     cbAllocationOut = 0u;
     nAlignmentOut = 1u;
+    // Every column occupies one aligned contiguous slice of the same allocation.
+    // Checked arithmetic rejects layouts that cannot be represented by usize.
     for ( usize iColumn = 0u; iColumn < nColumnCount; ++iColumn ) {
         const soa_column_desc_t &column = pColumns[iColumn];
         usize iOffset = 0u;
@@ -146,6 +157,7 @@ bool_t SoaContainer_Init(
         return CY_FALSE;
     }
 
+    // Copy descriptions because callers may build them on the stack.
     for ( usize iColumn = 0u; iColumn < desc.nColumnCount; ++iColumn ) {
         pContainer->columns[iColumn] = desc.pColumns[iColumn];
     }
@@ -254,6 +266,8 @@ bool_t SoaContainer_Reserve(
         return CY_FALSE;
     }
 
+    // Allocate and populate the complete replacement before releasing the old
+    // block. A failed reserve therefore leaves every existing column untouched.
     void *pNewAllocation = Allocator_Allocate(
         pContainer->pAllocator,
         cbNewAllocation,
@@ -321,6 +335,7 @@ bool_t SoaContainer_Resize(
     }
 
     if ( nCount > pContainer->nCount ) {
+        // SoA stores raw trivial records; new rows begin in a deterministic zero state.
         const usize nAdded = nCount - pContainer->nCount;
         for ( usize iColumn = 0u; iColumn < pContainer->nColumnCount; ++iColumn ) {
             const usize cbElement = pContainer->columns[iColumn].cbElement;
@@ -399,6 +414,8 @@ void SoaContainer_EraseSwap(
         return;
     }
 
+    // Swap removal preserves dense columns at the cost of row ordering. Each
+    // column must move the same last index to keep the logical record coherent.
     const usize iLast = pContainer->nCount - 1u;
     for ( usize iColumn = 0u; iColumn < pContainer->nColumnCount; ++iColumn ) {
         const usize cbElement = pContainer->columns[iColumn].cbElement;
@@ -429,6 +446,7 @@ void SoaContainer_Move(
         return;
     }
 
+    // Transfer the single allocation and every derived column pointer together.
     pDestination->pAllocation = pSource->pAllocation;
     for ( usize iColumn = 0u; iColumn < CY_SOA_MAX_COLUMNS; ++iColumn ) {
         pDestination->pColumns[iColumn] = pSource->pColumns[iColumn];

@@ -27,15 +27,15 @@
 namespace cypher::common
 {
 
-constexpr usize CY_UNIQUE_ID_BYTE_COUNT = 16u;
-constexpr usize CY_UNIQUE_ID_STRING_LENGTH = 36u;
-constexpr usize CY_UNIQUE_ID_STRING_CAPACITY = CY_UNIQUE_ID_STRING_LENGTH + 1u;
+constexpr usize CY_UNIQUE_ID_BYTE_COUNT = 16u;      // Binary UUID width.
+constexpr usize CY_UNIQUE_ID_STRING_LENGTH = 36u;   // Canonical text without terminator.
+constexpr usize CY_UNIQUE_ID_STRING_CAPACITY = CY_UNIQUE_ID_STRING_LENGTH + 1u; // With null.
 
 struct unique_id_t {
-    byte bytes[CY_UNIQUE_ID_BYTE_COUNT]{};
+    byte bytes[CY_UNIQUE_ID_BYTE_COUNT]{}; // UUID bytes in canonical network field order.
 };
 
-constexpr unique_id_t CY_UNIQUE_ID_INVALID{};
+constexpr unique_id_t CY_UNIQUE_ID_INVALID{}; // All-zero sentinel, never randomly generated.
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t UniqueId_CreateRandom( unique_id_t *pIdOut ) noexcept;

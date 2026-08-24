@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+String Token Implementation Notes
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+================
+*/
+
 #include "CypherCommon_StringToken.h"
 
 #include "CypherCommon_Hash.h"
@@ -45,6 +54,7 @@ string_token_t StringToken_Make(
     hash64_t hash = bCaseInsensitiveAscii
         ? Hash64_StringInsensitiveAscii( text )
         : Hash64_String( text );
+    // Zero is reserved for the invalid token, so remap the one colliding digest.
     if ( hash == 0u ) {
         hash = 1u;
     }
@@ -73,6 +83,8 @@ bool_t StringToken_Equals(
     string_token_t left,
     string_token_t right ) noexcept
 {
+    // Tokens are fast candidates, not collision-proof text identity. Callers
+    // requiring adversarial equality must compare the original strings as well.
     return left.hash == right.hash &&
            left.cchLength == right.cchLength;
 }

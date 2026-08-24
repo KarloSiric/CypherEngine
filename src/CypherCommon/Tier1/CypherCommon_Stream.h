@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Stream Contract
+
+stream_t is a borrowed interface pair: pOps supplies behavior and pUserData identifies one backend
+instance. Capability bits are promises made by the backend, not inferred from null callbacks.
+ReadExact and WriteExact loop over partial transfers but stop on the first non-progress result.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_STREAM_H
 #define CYPHER_COMMON_TIER1_STREAM_H
 #ifndef PRAGMA_ONCE
@@ -27,33 +37,33 @@ namespace cypher::common
 {
 
 enum stream_capability_flags_t : flags32_t {
-    STREAM_CAPABILITY_NONE       = 0u,
-    STREAM_CAPABILITY_READ       = CYPHER_BIT32( 0 ),
-    STREAM_CAPABILITY_WRITE      = CYPHER_BIT32( 1 ),
-    STREAM_CAPABILITY_SEEK       = CYPHER_BIT32( 2 ),
-    STREAM_CAPABILITY_SIZE       = CYPHER_BIT32( 3 ),
-    STREAM_CAPABILITY_FLUSH      = CYPHER_BIT32( 4 )
+    STREAM_CAPABILITY_NONE       = 0u,               // No operations are promised.
+    STREAM_CAPABILITY_READ       = CYPHER_BIT32( 0 ),// pfnRead is callable.
+    STREAM_CAPABILITY_WRITE      = CYPHER_BIT32( 1 ),// pfnWrite is callable.
+    STREAM_CAPABILITY_SEEK       = CYPHER_BIT32( 2 ),// Random positioning is supported.
+    STREAM_CAPABILITY_SIZE       = CYPHER_BIT32( 3 ),// Total-size query is supported.
+    STREAM_CAPABILITY_FLUSH      = CYPHER_BIT32( 4 ) // Buffered writes can be committed.
 };
 
 enum class stream_seek_origin_t : u8 {
-    BEGIN = 0u,
-    CURRENT,
-    END
+    BEGIN = 0u, // Offset is relative to byte zero.
+    CURRENT,    // Offset is relative to the current cursor.
+    END         // Offset is relative to the current stream length.
 };
 
 enum class stream_status_t : u8 {
-    OK = 0u,
-    END_OF_STREAM,
-    INVALID_ARGUMENT,
-    UNSUPPORTED,
-    IO_ERROR,
-    OUT_OF_RANGE,
-    CLOSED
+    OK = 0u,       // Operation completed without a terminal condition.
+    END_OF_STREAM, // Read reached logical end before filling the request.
+    INVALID_ARGUMENT, // Stream state, range, or output pointer is invalid.
+    UNSUPPORTED,   // Backend does not implement the requested operation.
+    IO_ERROR,      // Underlying device or file operation failed.
+    OUT_OF_RANGE,  // Seek or size conversion lies outside representable bounds.
+    CLOSED         // Backend handle is no longer open.
 };
 
 struct stream_io_result_t {
-    stream_status_t status{ stream_status_t::OK };
-    usize cbTransferred{ 0u };
+    stream_status_t status{ stream_status_t::OK }; // Result of this transfer attempt.
+    usize cbTransferred{ 0u };                     // Bytes actually consumed or produced.
 };
 
 using stream_read_fn_t = stream_io_result_t ( * )(
@@ -79,18 +89,18 @@ using stream_query_u64_fn_t = stream_status_t ( * )(
 using stream_flush_fn_t = stream_status_t ( * )( void *pUserData ) noexcept;
 
 struct stream_ops_t {
-    stream_read_fn_t pfnRead{ nullptr };
-    stream_write_fn_t pfnWrite{ nullptr };
-    stream_seek_fn_t pfnSeek{ nullptr };
-    stream_query_u64_fn_t pfnTell{ nullptr };
-    stream_query_u64_fn_t pfnSize{ nullptr };
-    stream_flush_fn_t pfnFlush{ nullptr };
+    stream_read_fn_t pfnRead{ nullptr };       // Pull bytes from the backend.
+    stream_write_fn_t pfnWrite{ nullptr };     // Push bytes to the backend.
+    stream_seek_fn_t pfnSeek{ nullptr };       // Change and optionally report position.
+    stream_query_u64_fn_t pfnTell{ nullptr };  // Report current byte position.
+    stream_query_u64_fn_t pfnSize{ nullptr };  // Report total byte size.
+    stream_flush_fn_t pfnFlush{ nullptr };     // Commit backend buffering.
 };
 
 struct stream_t {
-    const stream_ops_t *pOps{ nullptr };
-    void *pUserData{ nullptr };
-    flags32_t capabilities{ STREAM_CAPABILITY_NONE };
+    const stream_ops_t *pOps{ nullptr };                 // Process-lifetime operation table.
+    void *pUserData{ nullptr };                          // Borrowed backend instance state.
+    flags32_t capabilities{ STREAM_CAPABILITY_NONE };   // Explicit subset callable on this stream.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

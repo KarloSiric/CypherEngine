@@ -20,6 +20,9 @@
 namespace cypher::common
 {
 
+// variant_t is a tagged value, not a conversion system. Getters require an exact
+// tag match, and string/byte alternatives borrow the caller's storage.
+
 variant_t Variant_Empty() noexcept
 {
     return {};
@@ -69,6 +72,7 @@ variant_t Variant_FromString( string_view_t value ) noexcept
 
     variant_t result{};
     result.type = variant_type_t::STRING_VIEW;
+    // Copy only the range descriptor; the characters remain externally owned.
     result.data.stringValue = { value.pData, value.cchLength };
     return result;
 }
@@ -99,6 +103,7 @@ variant_t Variant_FromPointer( void *pValue ) noexcept
 
 bool_t Variant_IsValid( variant_t value ) noexcept
 {
+    // Scalar alternatives have no structural invariant beyond a recognized tag.
     switch ( value.type ) {
     case variant_type_t::EMPTY:
     case variant_type_t::BOOL:
@@ -154,6 +159,10 @@ bool_t Variant_GetBool( variant_t value, bool_t *pOut ) noexcept
     *pOut = value.data.bValue;
     return CY_TRUE;
 }
+
+//==========================================================================
+// Exact typed access
+//==========================================================================
 
 bool_t Variant_GetI64( variant_t value, i64 *pOut ) noexcept
 {
@@ -248,6 +257,8 @@ bool_t Variant_Equals( variant_t left, variant_t right ) noexcept
         return CY_FALSE;
     }
 
+    // Equality never coerces numeric types. BYTE_VIEW compares contents rather
+    // than addresses, while POINTER intentionally compares identity.
     switch ( left.type ) {
     case variant_type_t::EMPTY:
         return CY_TRUE;

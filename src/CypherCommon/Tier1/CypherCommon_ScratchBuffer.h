@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Scratch Buffer Contract
+
+The caller offers cheap local storage first. Acquire uses it only when both size and alignment can
+be satisfied; otherwise it obtains one fallback allocation. pData always identifies the selected
+storage, while fallback alone records ownership that must be released.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SCRATCHBUFFER_H
 #define CYPHER_COMMON_TIER1_SCRATCHBUFFER_H
 #ifndef PRAGMA_ONCE
@@ -32,11 +42,11 @@ struct scratch_buffer_t {
     ~scratch_buffer_t() noexcept;
     CYPHER_NO_COPY_MOVE( scratch_buffer_t );
 
-    byte *pData{ nullptr };
-    usize cbSize{ 0u };
-    usize nAlignment{ 0u };
-    byte_span_t localStorage{};
-    owned_allocation_t fallback{};
+    byte *pData{ nullptr };               // Selected local or fallback address.
+    usize cbSize{ 0u };                   // Requested usable byte count.
+    usize nAlignment{ 0u };               // Alignment guaranteed for pData.
+    byte_span_t localStorage{};           // Borrowed candidate storage supplied by the caller.
+    owned_allocation_t fallback{};        // Non-empty only when local storage could not be used.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

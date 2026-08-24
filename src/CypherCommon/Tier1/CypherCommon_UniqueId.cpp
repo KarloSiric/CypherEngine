@@ -59,6 +59,8 @@ bool_t FillSecureRandom( void *pDest, usize cbDest ) noexcept
             : CY_FALSE;
 #elif CYPHER_PLATFORM_LINUX
     usize cbWritten = 0u;
+    // getrandom may be interrupted or legally return a short count; complete
+    // the request before exposing any UUID bytes to the caller.
     while ( cbWritten < cbDest ) {
         const ssize_t cbResult = getrandom(
             static_cast<byte *>( pDest ) + cbWritten,
@@ -97,6 +99,7 @@ bool_t UniqueId_CreateRandom( unique_id_t *pIdOut ) noexcept
         return CY_FALSE;
     }
 
+    // Parse into a temporary so malformed text never partially changes pIdOut.
     unique_id_t id{};
     if ( !FillSecureRandom( id.bytes, sizeof( id.bytes ) ) ) {
         return CY_FALSE;
@@ -186,6 +189,7 @@ usize UniqueId_ToString(
         return 0u;
     }
 
+    // Canonical lower-case 8-4-4-4-12 spelling; output size was checked above.
     usize iDest = 0u;
     for ( usize iByte = 0u; iByte < sizeof( id.bytes ); ++iByte ) {
         if ( iByte == 4u || iByte == 6u || iByte == 8u || iByte == 10u ) {

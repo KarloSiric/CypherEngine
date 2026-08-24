@@ -35,11 +35,11 @@ constexpr flags32_t CY_URL_DECODE_FLAG_MASK =
     URL_DECODE_FLAG_REJECT_NUL;
 
 struct url_text_writer_t {
-    char *pDest{ nullptr };
-    usize cchCapacity{ 0u };
-    usize cchWritten{ 0u };
-    usize cchRequired{ 0u };
-    bool_t bOverflow{ CY_FALSE };
+    char *pDest{ nullptr };            // Optional output buffer used after validation.
+    usize cchCapacity{ 0u };           // Payload bytes available, excluding NUL.
+    usize cchWritten{ 0u };            // Complete encoded bytes actually stored.
+    usize cchRequired{ 0u };           // Complete encoded size regardless of truncation.
+    bool_t bOverflow{ CY_FALSE };       // Required-size arithmetic exceeded usize.
 };
 
 bool_t IsUrlDelimiter( char ch ) noexcept
@@ -167,6 +167,7 @@ url_result_t StringUrl_Parse( string_view_t url, url_parts_t *pPartsOut ) noexce
         return InvalidUrlResult( url_status_t::INVALID_URL, iError, iError );
     }
 
+    // Parse in RFC component order. Every part is a non-owning slice of url.
     usize iCursor = 0u;
     usize iSchemeEnd = CY_STRING_VIEW_NPOS;
     for ( usize iByte = 0u; iByte < url.cchLength; ++iByte ) {
@@ -201,6 +202,7 @@ url_result_t StringUrl_Parse( string_view_t url, url_parts_t *pPartsOut ) noexce
         }
 
         usize iHostStart = iAuthorityStart;
+        // The final '@' separates user-info so earlier '@' bytes remain part of it.
         for ( usize iByte = iAuthorityStart; iByte < iAuthorityEnd; ++iByte ) {
             if ( url.pData[iByte] == '@' ) {
                 pPartsOut->userInfo = {
@@ -212,6 +214,7 @@ url_result_t StringUrl_Parse( string_view_t url, url_parts_t *pPartsOut ) noexce
         }
 
         if ( iHostStart < iAuthorityEnd && url.pData[iHostStart] == '[' ) {
+            // Brackets disambiguate IPv6 colons from the optional port separator.
             usize iClose = iHostStart + 1u;
             while ( iClose < iAuthorityEnd && url.pData[iClose] != ']' ) {
                 ++iClose;
@@ -342,6 +345,8 @@ url_result_t StringUrl_PercentEncode(
         return InvalidUrlResult( url_status_t::INVALID_ARGUMENT, CY_STRING_VIEW_NPOS );
     }
 
+    // Encoding is a size-query-capable streaming pass. A short destination
+    // receives only complete one- or three-byte encoded units.
     url_text_writer_t writer{
         pDest,
         cchDest > 0u ? cchDest - 1u : 0u,
@@ -392,6 +397,7 @@ url_result_t StringUrl_PercentDecode(
         const usize iSourceByte = iByte;
         u8 value = static_cast<u8>( source.pData[iByte] );
         if ( source.pData[iByte] == '%' ) {
+            // A percent escape always consumes exactly two following hex digits.
             if ( iByte + 2u >= source.cchLength ||
                  !Char_IsHexDigitAscii( source.pData[iByte + 1u] ) ||
                  !Char_IsHexDigitAscii( source.pData[iByte + 2u] ) ) {

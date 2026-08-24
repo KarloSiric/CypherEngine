@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Vector Contract
+
+Elements in [0, nCount) are live objects. Storage in [nCount, nCapacity) is raw memory and must
+not be read or destroyed. Growth is transactional: allocation failure leaves the old vector and
+its elements unchanged. EraseSwap is the explicit unordered fast path; Erase preserves order.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_VECTOR_H
 #define CYPHER_COMMON_TIER1_VECTOR_H
 #ifndef PRAGMA_ONCE
@@ -36,10 +46,10 @@ struct vector_t {
     CYPHER_NO_COPY_MOVE( vector_t );
     ~vector_t() noexcept;
 
-    type_t *pData{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
-    const allocator_t *pAllocator{ nullptr };
+    type_t *pData{ nullptr };                     // First element of the active heap allocation.
+    usize nCount{ 0u };                           // Number of constructed objects in pData.
+    usize nCapacity{ 0u };                        // Object slots reserved in the allocation.
+    const allocator_t *pAllocator{ nullptr };     // Allocator fixed at Vector_Init time.
 };
 
 template <typename type_t>

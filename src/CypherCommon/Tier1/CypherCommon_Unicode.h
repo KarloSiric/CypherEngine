@@ -30,31 +30,31 @@ namespace cypher::common
 using utf16_unit_t = u16;
 using unicode_code_point_t = u32;
 
-constexpr unicode_code_point_t CY_UNICODE_REPLACEMENT = 0x0000FFFDu;
-constexpr unicode_code_point_t CY_UNICODE_MAX = 0x0010FFFFu;
+constexpr unicode_code_point_t CY_UNICODE_REPLACEMENT = 0x0000FFFDu; // Standard replacement scalar.
+constexpr unicode_code_point_t CY_UNICODE_MAX = 0x0010FFFFu;         // Highest legal Unicode scalar.
 
 enum unicode_flags_t : flags32_t {
-    UNICODE_FLAG_NONE                 = 0u,
-    UNICODE_FLAG_REPLACE_INVALID      = CYPHER_BIT32( 0 ),
-    UNICODE_FLAG_REJECT_NUL           = CYPHER_BIT32( 1 ),
-    UNICODE_FLAG_WRITE_TERMINATOR     = CYPHER_BIT32( 2 )
+    UNICODE_FLAG_NONE                 = 0u,                // Stop on malformed input and write data only.
+    UNICODE_FLAG_REPLACE_INVALID      = CYPHER_BIT32( 0 ), // Substitute U+FFFD and continue transcoding.
+    UNICODE_FLAG_REJECT_NUL           = CYPHER_BIT32( 1 ), // Treat embedded U+0000 as invalid input.
+    UNICODE_FLAG_WRITE_TERMINATOR     = CYPHER_BIT32( 2 )  // Append a terminator when capacity permits.
 };
 
 enum class unicode_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    INVALID_SEQUENCE,
-    INVALID_CODE_POINT,
-    TRUNCATED_SEQUENCE,
-    OUTPUT_TRUNCATED
+    OK = 0u,           // Validation or transcoding completed successfully.
+    INVALID_ARGUMENT, // Pointer, capacity, or source-view contract was invalid.
+    INVALID_SEQUENCE, // Encoded units violate the selected Unicode encoding.
+    INVALID_CODE_POINT,// Decoded value is not a legal Unicode scalar.
+    TRUNCATED_SEQUENCE,// Input ended before the current encoded value completed.
+    OUTPUT_TRUNCATED  // Destination received only a prefix of the required output.
 };
 
 struct unicode_result_t {
-    unicode_status_t status{ unicode_status_t::OK };
-    usize nInputConsumed{ 0u };
-    usize nOutputWritten{ 0u };
-    usize nOutputRequired{ 0u };
-    usize iError{ CY_STRING_VIEW_NPOS };
+    unicode_status_t status{ unicode_status_t::OK }; // Final validation/transcode state.
+    usize nInputConsumed{ 0u };  // Input units consumed; unit depends on source encoding.
+    usize nOutputWritten{ 0u };  // Output units physically stored.
+    usize nOutputRequired{ 0u }; // Complete output units, excluding optional terminator.
+    usize iError{ CY_STRING_VIEW_NPOS }; // Input-unit index responsible for failure.
 };
 
 /*

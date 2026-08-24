@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+String Html Implementation Notes
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+================
+*/
+
 #include "CypherCommon_StringHtml.h"
 
 #include "CypherCommon_Char.h"
@@ -27,11 +36,11 @@ namespace
 {
 
 struct html_writer_t {
-    char *pDest{ nullptr };
-    usize cchCapacity{ 0u };
-    usize cchWritten{ 0u };
-    usize cchRequired{ 0u };
-    bool_t bOverflow{ CY_FALSE };
+    char *pDest{ nullptr };             // Optional destination; null selects measurement mode.
+    usize cchCapacity{ 0u };            // Writable bytes excluding the final NUL.
+    usize cchWritten{ 0u };             // Complete output units copied so far.
+    usize cchRequired{ 0u };            // Full length required for an untruncated result.
+    bool_t bOverflow{ CY_FALSE };        // Required-length arithmetic exceeded usize.
 };
 
 bool_t HtmlDestinationIsValid( char *pDest, usize cchDest ) noexcept
@@ -49,6 +58,8 @@ void HtmlWriter_Write(
         return;
     }
     writer.cchRequired += cchText;
+    // Never emit a partial entity or UTF-8 sequence. The required count still
+    // advances so callers can size a second pass exactly.
     if ( cchText <= writer.cchCapacity - writer.cchWritten ) {
         for ( usize iByte = 0u; iByte < cchText; ++iByte ) {
             writer.pDest[writer.cchWritten + iByte] = pText[iByte];
@@ -105,7 +116,7 @@ html_writer_t MakeHtmlWriter( char *pDest, usize cchDest ) noexcept
 {
     return {
         pDest,
-        cchDest > 0u ? cchDest - 1u : 0u,
+        cchDest > 0u ? cchDest - 1u : 0u, // Reserve one byte for a stable C-string terminator.
         0u,
         0u,
         CY_FALSE
@@ -147,6 +158,8 @@ bool_t ParseNumericEntity(
     }
 
     unicode_code_point_t value = 0u;
+    // Accumulate with a pre-multiply bound check; entities must resolve to a
+    // Unicode scalar and may not smuggle an embedded NUL into engine text.
     for ( ; iCursor < entity.cchLength; ++iCursor ) {
         const u8 digit = nBase == 16u
             ? Char_HexValueAscii( entity.pData[iCursor] )
@@ -293,6 +306,8 @@ html_text_result_t StringHtml_DecodeEntities(
         }
 
         const usize iEntityStart = iCursor;
+        // HTML entities are bounded by their semicolon. This utility intentionally
+        // accepts only the small deterministic entity vocabulary listed below.
         usize iSemicolon = iCursor + 1u;
         while ( iSemicolon < text.cchLength && text.pData[iSemicolon] != ';' ) {
             ++iSemicolon;
@@ -383,6 +398,8 @@ html_text_result_t StringHtml_StripTags(
     while ( iCursor < text.cchLength ) {
         if ( text.pData[iCursor] == '<' ) {
             const usize iTagStart = iCursor;
+            // Quote tracking prevents a '>' inside an attribute value from ending
+            // the tag early. This is tag stripping, not a general HTML parser.
             char chQuote = '\0';
             ++iCursor;
             while ( iCursor < text.cchLength ) {

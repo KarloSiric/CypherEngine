@@ -28,25 +28,22 @@ namespace cypher::common
 {
 
 enum string_pool_flags_t : flags32_t {
-    STRING_POOL_FLAG_NONE                    = 0u,
-    STRING_POOL_FLAG_CASE_INSENSITIVE_ASCII  = CYPHER_BIT32( 0 )
+    STRING_POOL_FLAG_NONE                    = 0u,                // Preserve byte-sensitive identity.
+    STRING_POOL_FLAG_CASE_INSENSITIVE_ASCII  = CYPHER_BIT32( 0 )  // Fold ASCII during hash and equality.
 };
 
 struct string_pool_desc_t {
-    const allocator_t *pAllocator{ nullptr };
-    usize nInitialBuckets{ 256u };
-    usize cbInitialBlock{ 16u * CY_KIB };
-    flags32_t flags{ STRING_POOL_FLAG_NONE };
+    const allocator_t *pAllocator{ nullptr }; // Owns all pool blocks and hash storage.
+    usize nInitialBuckets{ 256u };            // Initial hash-table slot count.
+    usize cbInitialBlock{ 16u * CY_KIB };     // Minimum first character-data block.
+    flags32_t flags{ STRING_POOL_FLAG_NONE }; // Identity policy fixed at creation.
 };
 
 struct string_pool_stats_t {
-    usize nStrings{ 0u };
-    // Includes one trailing terminator for every interned string.
-    usize cbStringData{ 0u };
-    // Counts reserved string payload bytes, excluding block headers and hash slots.
-    usize cbReserved{ 0u };
-    // Counts full-hash matches rejected by complete string comparison.
-    usize nCollisions{ 0u };
+    usize nStrings{ 0u };    // Distinct interned values.
+    usize cbStringData{ 0u };// Payload bytes, including one NUL per string.
+    usize cbReserved{ 0u };  // Reserved payload bytes; excludes headers and hash slots.
+    usize nCollisions{ 0u }; // Equal hashes rejected by complete byte comparison.
 };
 
 struct string_pool_t;

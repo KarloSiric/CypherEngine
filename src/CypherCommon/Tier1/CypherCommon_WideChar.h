@@ -34,6 +34,8 @@ Wide character declarations for platform boundaries.
 namespace cypher::common
 {
 
+// wchar_t is 16 bits on Windows and 32 bits on POSIX hosts; this alias is for OS
+// boundaries only and must not be used as a portable serialized text encoding.
 using wchar_engine_t = wchar_t;
 
 usize WChar_Length( const wchar_engine_t *pString );

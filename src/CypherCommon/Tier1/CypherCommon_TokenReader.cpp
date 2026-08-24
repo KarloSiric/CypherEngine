@@ -99,7 +99,10 @@ static token_reader_status_t TokenReader_FillLookahead(
         return token_reader_status_t::LOOKAHEAD_EXCEEDED;
     }
 
+    // Fill only as far as requested. The fixed array keeps speculative parsing
+    // allocation-free and imposes an explicit grammar lookahead limit.
     while ( pReader->nLookahead <= iLookahead ) {
+        // Keep one END_OF_INPUT token buffered as a stable sentinel.
         if ( pReader->nLookahead > 0u &&
              pReader->lookahead[pReader->nLookahead - 1u].kind == token_kind_t::END_OF_INPUT ) {
             return token_reader_status_t::END_OF_INPUT;
@@ -134,6 +137,8 @@ static void TokenReader_PopFront( token_reader_t *pReader ) noexcept
         return;
     }
 
+    // Capacity is intentionally small, so shifting preserves simple ordered
+    // lookahead semantics without maintaining another circular cursor.
     for ( usize iToken = 1u; iToken < pReader->nLookahead; ++iToken ) {
         pReader->lookahead[iToken - 1u] = pReader->lookahead[iToken];
     }
@@ -275,6 +280,8 @@ bool_t TokenReader_ConsumeKind(
     token_kind_t kind,
     token_t *pTokenOut ) noexcept
 {
+    // Expectations inspect first and commit second. A mismatch leaves the token
+    // available for diagnostics or parser recovery.
     token_t token{};
     const token_reader_status_t status = TokenReader_Peek( pReader, 0u, &token );
     if ( ( status != token_reader_status_t::OK &&
@@ -437,6 +444,8 @@ token_reader_status_t TokenReader_ReadU64(
         return token_reader_status_t::UNEXPECTED_KIND;
     }
 
+    // Conversion operates directly on the borrowed token lexeme. Commit only
+    // after range and syntax validation have both succeeded.
     const string_parse_result_t parseResult =
         StringParse_U64( token.lexeme, options, pValueOut );
     if ( !StringParse_Succeeded( parseResult ) ) {

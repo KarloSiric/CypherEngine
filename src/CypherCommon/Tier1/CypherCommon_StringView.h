@@ -43,11 +43,11 @@ namespace cypher::common
 {
 
 struct string_view_t {
-    const char *pData { nullptr };
-    usize cchLength { 0u };
+    const char *pData { nullptr }; // First borrowed byte; may be null only when empty.
+    usize cchLength { 0u };        // Number of addressable bytes, excluding any terminator.
 };
 
-constexpr usize CY_STRING_VIEW_NPOS = CY_INVALID_SIZE;
+constexpr usize CY_STRING_VIEW_NPOS = CY_INVALID_SIZE; // Sentinel returned by failed searches.
 
 /*
 ================

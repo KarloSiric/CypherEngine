@@ -30,11 +30,11 @@ constexpr flags32_t CY_UNICODE_FLAG_MASK =
     UNICODE_FLAG_WRITE_TERMINATOR;
 
 struct utf8_decode_t {
-    unicode_status_t status{ unicode_status_t::OK };
-    unicode_code_point_t codePoint{ 0u };
-    usize cbConsumed{ 0u };
-    usize cbReplacementAdvance{ 0u };
-    usize iError{ 0u };
+    unicode_status_t status{ unicode_status_t::OK }; // Result for this sequence only.
+    unicode_code_point_t codePoint{ 0u };             // Decoded Unicode scalar value.
+    usize cbConsumed{ 0u };                           // Bytes consumed on success.
+    usize cbReplacementAdvance{ 0u };                 // Bytes skipped in replacement mode.
+    usize iError{ 0u };                               // Absolute offending byte offset.
 };
 
 bool_t IsContinuationByte( byte value ) noexcept
@@ -62,7 +62,7 @@ utf8_decode_t DecodeUtf8At( string_view_t text, usize iStart ) noexcept
 
     usize cbSequence = 0u;
     unicode_code_point_t codePoint = 0u;
-    unicode_code_point_t nMinimum = 0u;
+    unicode_code_point_t nMinimum = 0u; // Lowest scalar legal for this byte count.
     if ( first >= 0xC2u && first <= 0xDFu ) {
         cbSequence = 2u;
         codePoint = first & 0x1Fu;
@@ -96,6 +96,7 @@ utf8_decode_t DecodeUtf8At( string_view_t text, usize iStart ) noexcept
         };
     }
 
+    // Rebuild the scalar six payload bits at a time from each continuation byte.
     for ( usize iByte = 1u; iByte < cbSequence; ++iByte ) {
         const byte continuation = pBytes[iStart + iByte];
         if ( !IsContinuationByte( continuation ) ) {
@@ -110,6 +111,8 @@ utf8_decode_t DecodeUtf8At( string_view_t text, usize iStart ) noexcept
         codePoint = ( codePoint << 6u ) | ( continuation & 0x3Fu );
     }
 
+    // The minimum rejects overlong encodings; scalar validation rejects UTF-16
+    // surrogates and values beyond U+10FFFF.
     if ( codePoint < nMinimum || !Unicode_IsScalarValue( codePoint ) ) {
         return {
             unicode_status_t::INVALID_CODE_POINT,
@@ -173,6 +176,7 @@ bool_t UnicodeFlagsAreValid( flags32_t flags ) noexcept
 
 usize DataCapacity( usize nCapacity, flags32_t flags ) noexcept
 {
+    // A requested terminator consumes one destination unit but is not payload.
     return ( flags & UNICODE_FLAG_WRITE_TERMINATOR ) != 0u
         ? ( nCapacity > 0u ? nCapacity - 1u : 0u )
         : nCapacity;
@@ -407,6 +411,8 @@ unicode_result_t Unicode_Utf8ToUtf16(
         }
 
         const usize nUnits = decoded.codePoint <= 0xFFFFu ? 1u : 2u;
+        // Write a complete scalar or no units at all. Required size continues to
+        // accumulate after truncation so callers can allocate exactly and retry.
         if ( nWritten <= nDataCapacity && nUnits <= nDataCapacity - nWritten ) {
             if ( nUnits == 1u ) {
                 dest.pData[nWritten] = static_cast<utf16_unit_t>( decoded.codePoint );
@@ -459,6 +465,7 @@ unicode_result_t Unicode_Utf16ToUtf8(
         unicode_status_t sequenceStatus = unicode_status_t::OK;
         usize iError = iUnit;
         if ( codePoint >= 0xD800u && codePoint <= 0xDBFFu ) {
+            // A high surrogate must be immediately followed by one low surrogate.
             if ( iUnit + 1u >= source.nCount ) {
                 sequenceStatus = unicode_status_t::TRUNCATED_SEQUENCE;
                 iError = source.nCount;
@@ -468,6 +475,7 @@ unicode_result_t Unicode_Utf16ToUtf8(
                     sequenceStatus = unicode_status_t::INVALID_SEQUENCE;
                     iError = iUnit + 1u;
                 } else {
+                    // Merge the pair's two ten-bit payloads into one scalar.
                     codePoint = 0x10000u +
                         ( ( codePoint - 0xD800u ) << 10u ) +
                         ( low - 0xDC00u );
@@ -504,6 +512,7 @@ unicode_result_t Unicode_Utf16ToUtf8(
         }
 
         const usize cchCodePoint = Utf8EncodedLength( codePoint );
+        // Never emit a partial UTF-8 sequence at the end of a short buffer.
         if ( cchWritten <= cchDataCapacity &&
              cchCodePoint <= cchDataCapacity - cchWritten ) {
             EncodeUtf8Unchecked( codePoint, pDest + cchWritten );

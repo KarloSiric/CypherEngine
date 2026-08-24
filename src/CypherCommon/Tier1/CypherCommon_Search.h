@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Search Contract
+
+Algorithms operate only on the supplied range and callback contracts. Comparators must define a
+consistent ordering; the implementation performs no hidden allocation unless explicitly
+documented.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SEARCH_H
 #define CYPHER_COMMON_TIER1_SEARCH_H
 #ifndef PRAGMA_ONCE

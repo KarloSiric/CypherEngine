@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+String Match Implementation Notes
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+================
+*/
+
 #include "CypherCommon_StringMatch.h"
 
 #include "CypherCommon_Char.h"
@@ -26,9 +35,9 @@ namespace
 {
 
 struct character_class_result_t {
-    bool_t bValid{ CY_FALSE };
-    bool_t bMatched{ CY_FALSE };
-    usize iNextPattern{ 0u };
+    bool_t bValid{ CY_FALSE };      // Brackets and every range formed valid syntax.
+    bool_t bMatched{ CY_FALSE };    // Text byte belongs to the class after negation.
+    usize iNextPattern{ 0u };       // First pattern byte following the closing bracket.
 };
 
 bool_t MatchFlagsAreValid( flags32_t flags ) noexcept
@@ -81,7 +90,7 @@ character_class_result_t MatchCharacterClass(
         return result;
     }
 
-    bool_t bNegated = CY_FALSE;
+    bool_t bNegated = CY_FALSE; // Both shell-style '!' and regex-style '^' are accepted.
     if ( pattern.pData[iCursor] == '!' || pattern.pData[iCursor] == '^' ) {
         bNegated = CY_TRUE;
         ++iCursor;
@@ -227,8 +236,8 @@ bool_t StringMatch_Wildcard(
 
     usize iText = 0u;
     usize iPattern = 0u;
-    usize iStarPattern = CY_STRING_VIEW_NPOS;
-    usize iStarText = CY_STRING_VIEW_NPOS;
+    usize iStarPattern = CY_STRING_VIEW_NPOS; // Pattern position immediately after last '*'.
+    usize iStarText = CY_STRING_VIEW_NPOS;    // Next text byte assigned to that '*'.
 
     while ( iText < text.cchLength ) {
         if ( iPattern < pattern.cchLength && pattern.pData[iPattern] == '*' ) {
@@ -279,6 +288,8 @@ bool_t StringMatch_Wildcard(
             return CY_FALSE;
         }
 
+        // A mismatch retries only the latest star with one additional byte.
+        // This iterative backtracking keeps stack usage constant.
         ++iStarText;
         iText = iStarText;
         iPattern = iStarPattern;

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+String Builder Contract
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_STRINGBUILDER_H
 #define CYPHER_COMMON_TIER1_STRINGBUILDER_H
 #ifndef PRAGMA_ONCE
@@ -30,18 +39,18 @@ namespace cypher::common
 {
 
 enum class string_builder_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    OUTPUT_TRUNCATED,
-    FORMAT_ERROR
+    OK = 0u,          // Every requested character fit.
+    INVALID_ARGUMENT,// Builder state or input range is invalid.
+    OUTPUT_TRUNCATED, // Required output exceeded caller capacity.
+    FORMAT_ERROR      // printf-style formatting rejected its format or arguments.
 };
 
 struct string_builder_t {
-    char *pData{ nullptr };
-    usize cchLength{ 0u };
-    usize cchCapacity{ 0u };
-    usize cchRequired{ 0u };
-    string_builder_status_t status{ string_builder_status_t::OK };
+    char *pData{ nullptr };       // Caller-owned destination, including NUL space.
+    usize cchLength{ 0u };        // Characters physically written, excluding NUL.
+    usize cchCapacity{ 0u };      // Total destination bytes, including NUL space.
+    usize cchRequired{ 0u };      // Characters requested, even after truncation.
+    string_builder_status_t status{ string_builder_status_t::OK }; // Sticky result.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

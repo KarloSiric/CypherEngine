@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Span Contract
+
+This is a non-owning range. A valid empty span may use nullptr, but a non-empty span must point to
+nCount live contiguous objects. The caller owns the storage and keeps it alive for every use of
+the span. Slices refer into the same storage and never extend its lifetime.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SPAN_H
 #define CYPHER_COMMON_TIER1_SPAN_H
 #ifndef PRAGMA_ONCE
@@ -30,12 +40,12 @@ template <typename type_t>
 struct span_t {
     static_assert( is_object_v<type_t>, "span_t requires an object type." );
 
-    type_t *pData{ nullptr };
-    usize nCount{ 0u };
+    type_t *pData{ nullptr };     // Borrowed first element; nullptr is valid only when nCount is zero.
+    usize nCount{ 0u };           // Number of addressable elements, not a byte count.
 };
 
-using byte_span_t = span_t<byte>;
-using const_byte_span_t = span_t<const byte>;
+using byte_span_t = span_t<byte>;                 // Mutable view used for byte-oriented output.
+using const_byte_span_t = span_t<const byte>;     // Read-only view used for serialized input.
 
 template <typename type_t>
 CYPHER_NODISCARD span_t<type_t> Span_Make(

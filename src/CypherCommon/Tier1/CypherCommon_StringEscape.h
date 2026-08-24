@@ -27,34 +27,34 @@ namespace cypher::common
 {
 
 enum class string_escape_style_t : u8 {
-    CYPHER = 0u,
-    C,
-    JSON
+    CYPHER = 0u, // CYKV/Cypher authored-text escape rules.
+    C,           // C/C++ string-literal escape rules.
+    JSON         // Strict JSON string escape rules.
 };
 
 enum string_escape_flags_t : flags32_t {
-    STRING_ESCAPE_FLAG_NONE              = 0u,
-    STRING_ESCAPE_FLAG_QUOTES            = CYPHER_BIT32( 0 ),
-    STRING_ESCAPE_FLAG_BACKSLASH         = CYPHER_BIT32( 1 ),
-    STRING_ESCAPE_FLAG_CONTROL_CHARS     = CYPHER_BIT32( 2 ),
-    STRING_ESCAPE_FLAG_NON_ASCII         = CYPHER_BIT32( 3 ),
-    STRING_ESCAPE_FLAG_PATH_SLASHES      = CYPHER_BIT32( 4 )
+    STRING_ESCAPE_FLAG_NONE = 0u, // Copy bytes where the style permits.
+    STRING_ESCAPE_FLAG_QUOTES = CYPHER_BIT32( 0 ), // Escape quote delimiters.
+    STRING_ESCAPE_FLAG_BACKSLASH = CYPHER_BIT32( 1 ), // Escape backslashes.
+    STRING_ESCAPE_FLAG_CONTROL_CHARS = CYPHER_BIT32( 2 ), // Escape control bytes.
+    STRING_ESCAPE_FLAG_NON_ASCII = CYPHER_BIT32( 3 ), // Emit Unicode escapes.
+    STRING_ESCAPE_FLAG_PATH_SLASHES = CYPHER_BIT32( 4 ) // Escape forward slashes.
 };
 
 enum class string_escape_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    INVALID_ESCAPE,
-    INVALID_CODE_POINT,
-    OUTPUT_TRUNCATED
+    OK = 0u,          // Complete source was converted.
+    INVALID_ARGUMENT, // View, destination, style, or flags are invalid.
+    INVALID_ESCAPE,   // Escape spelling is malformed or unsupported.
+    INVALID_CODE_POINT, // Unicode scalar is invalid for the selected style.
+    OUTPUT_TRUNCATED  // Destination contains only a valid prefix.
 };
 
 struct string_escape_result_t {
-    string_escape_status_t status{ string_escape_status_t::OK };
-    usize cchConsumed{ 0u };
-    usize cchWritten{ 0u };
-    usize cchRequired{ 0u };
-    usize iError{ CY_STRING_VIEW_NPOS };
+    string_escape_status_t status{ string_escape_status_t::OK }; // Final operation state.
+    usize cchConsumed{ 0u };  // Source bytes consumed before success or failure.
+    usize cchWritten{ 0u };   // Destination characters physically stored.
+    usize cchRequired{ 0u };  // Complete destination size excluding NUL.
+    usize iError{ CY_STRING_VIEW_NPOS }; // Source byte responsible for failure.
 };
 
 // Output is always null terminated when pDest is non-null and cchDest is nonzero.

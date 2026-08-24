@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+String Token Contract
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_STRINGTOKEN_H
 #define CYPHER_COMMON_TIER1_STRINGTOKEN_H
 #ifndef PRAGMA_ONCE
@@ -27,11 +36,11 @@ namespace cypher::common
 {
 
 struct string_token_t {
-    hash64_t hash{ 0u };
-    u32 cchLength{ 0u };
+    hash64_t hash{ 0u };  // Stable non-cryptographic hash of token bytes.
+    u32 cchLength{ 0u };  // Byte length mixed into identity and collision checks.
 };
 
-constexpr string_token_t CY_STRING_TOKEN_INVALID{};
+constexpr string_token_t CY_STRING_TOKEN_INVALID{}; // Empty all-zero sentinel.
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 string_token_t StringToken_FromView( string_view_t text ) noexcept;

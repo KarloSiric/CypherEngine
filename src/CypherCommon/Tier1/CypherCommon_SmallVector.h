@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Small Vector Contract
+
+The first nInlineCapacity objects can live inside the record. Once spilled, pData addresses an
+allocator-owned block and inlineStorage contains no live objects. ShrinkToFit may move a small
+heap-backed sequence home again, so callers must treat every mutating operation as pointer-invalidating.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SMALLVECTOR_H
 #define CYPHER_COMMON_TIER1_SMALLVECTOR_H
 #ifndef PRAGMA_ONCE
@@ -37,11 +47,11 @@ struct small_vector_t {
     ~small_vector_t() noexcept;
 
     alignas( type_t ) byte inlineStorage[
-        ( nInlineCapacity > 0u ? nInlineCapacity : 1u ) * sizeof( type_t )]{};
-    type_t *pData{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ nInlineCapacity };
-    const allocator_t *pAllocator{ nullptr };
+        ( nInlineCapacity > 0u ? nInlineCapacity : 1u ) * sizeof( type_t )]{}; // Raw local object storage.
+    type_t *pData{ nullptr };                     // Inline storage or the current heap block.
+    usize nCount{ 0u };                           // Number of constructed elements.
+    usize nCapacity{ nInlineCapacity };            // Slots available at the current storage address.
+    const allocator_t *pAllocator{ nullptr };     // Used only when the sequence spills to the heap.
 };
 
 template <typename type_t, usize nInlineCapacity>

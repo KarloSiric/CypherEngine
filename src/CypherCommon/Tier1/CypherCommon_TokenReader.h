@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Token Reader Contract
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_TOKENREADER_H
 #define CYPHER_COMMON_TIER1_TOKENREADER_H
 #ifndef PRAGMA_ONCE
@@ -27,34 +36,34 @@
 namespace cypher::common
 {
 
-constexpr usize CY_TOKEN_READER_LOOKAHEAD_CAPACITY = 4u;
+constexpr usize CY_TOKEN_READER_LOOKAHEAD_CAPACITY = 4u; // Fixed allocation-free token queue.
 
 enum class token_reader_status_t : u8 {
-    OK = 0u,
-    END_OF_INPUT,
-    INVALID_ARGUMENT,
-    LEXER_ERROR,
-    UNEXPECTED_KIND,
-    UNEXPECTED_TEXT,
-    VALUE_PARSE_FAILED,
-    LOOKAHEAD_EXCEEDED
+    OK = 0u,          // Requested token operation completed successfully.
+    END_OF_INPUT,     // Reader reached the lexer's terminal token.
+    INVALID_ARGUMENT,// Reader or output storage violates the API contract.
+    LEXER_ERROR,     // Underlying lexer rejected the source stream.
+    UNEXPECTED_KIND, // Actual token kind differs from the required kind.
+    UNEXPECTED_TEXT, // Actual token spelling differs from the required text.
+    VALUE_PARSE_FAILED,// Token text could not be converted to the requested value.
+    LOOKAHEAD_EXCEEDED // Requested lookahead exceeds the fixed queue capacity.
 };
 
 struct token_reader_error_t {
-    token_reader_status_t status{ token_reader_status_t::OK };
-    lexer_status_t lexerStatus{ lexer_status_t::OK };
-    string_parse_result_t parseResult{};
-    token_kind_t expectedKind{ token_kind_t::END_OF_INPUT };
-    string_view_t expectedText{};
-    bool_t bCaseInsensitiveAscii{ CY_FALSE };
-    token_t actual{};
+    token_reader_status_t status{ token_reader_status_t::OK }; // Reader-level failure.
+    lexer_status_t lexerStatus{ lexer_status_t::OK };          // Nested lexer failure, if any.
+    string_parse_result_t parseResult{};                       // Nested conversion failure.
+    token_kind_t expectedKind{ token_kind_t::END_OF_INPUT };   // Required kind for ExpectKind.
+    string_view_t expectedText{};                              // Required bytes for ExpectText.
+    bool_t bCaseInsensitiveAscii{ CY_FALSE };                  // Comparison policy used.
+    token_t actual{};                                          // Token observed at failure.
 };
 
 struct token_reader_t {
-    lexer_t lexer{};
-    token_t lookahead[CY_TOKEN_READER_LOOKAHEAD_CAPACITY]{};
-    usize nLookahead{ 0u };
-    token_reader_error_t error{};
+    lexer_t lexer{}; // Owned cursor state over borrowed source text.
+    token_t lookahead[CY_TOKEN_READER_LOOKAHEAD_CAPACITY]{}; // Oldest token at index zero.
+    usize nLookahead{ 0u };        // Valid prefix of lookahead[].
+    token_reader_error_t error{};  // Last failed reader operation.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

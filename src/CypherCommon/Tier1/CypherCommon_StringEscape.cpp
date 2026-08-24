@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+String Escape Implementation Notes
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+================
+*/
+
 #include "CypherCommon_StringEscape.h"
 
 #include "CypherCommon_Char.h"
@@ -32,17 +41,17 @@ constexpr flags32_t CY_STRING_ESCAPE_FLAG_MASK =
     STRING_ESCAPE_FLAG_BACKSLASH |
     STRING_ESCAPE_FLAG_CONTROL_CHARS |
     STRING_ESCAPE_FLAG_NON_ASCII |
-    STRING_ESCAPE_FLAG_PATH_SLASHES;
+    STRING_ESCAPE_FLAG_PATH_SLASHES; // Reject unknown escape-policy bits.
 
-constexpr char g_escapeHexDigits[] = "0123456789abcdef";
+constexpr char g_escapeHexDigits[] = "0123456789abcdef"; // Canonical lowercase escape spelling.
 
 struct escape_writer_t {
-    char *pDest{ nullptr };
-    usize cchCapacity{ 0u };
-    usize cchWritten{ 0u };
-    usize cchRequired{ 0u };
-    bool_t bTruncated{ CY_FALSE };
-    bool_t bOverflow{ CY_FALSE };
+    char *pDest{ nullptr };       // Optional output used for write or measure mode.
+    usize cchCapacity{ 0u };      // Data bytes available after reserving a terminator.
+    usize cchWritten{ 0u };       // Complete code units physically stored.
+    usize cchRequired{ 0u };      // Full encoded result length.
+    bool_t bTruncated{ CY_FALSE };// A complete unit did not fit in the destination.
+    bool_t bOverflow{ CY_FALSE }; // Required-length arithmetic exceeded usize.
 };
 
 bool_t EscapeStyleIsValid( string_escape_style_t style ) noexcept
@@ -62,6 +71,7 @@ void EscapeWriter_Write(
     const char *pText,
     usize cchText ) noexcept
 {
+    // Whole escape/code-point units are written atomically; no partial unit escapes.
     if ( cchText > CY_USIZE_MAX - writer.cchRequired ) {
         writer.bOverflow = CY_TRUE;
         return;
@@ -143,6 +153,7 @@ usize EncodeCodePointEscape(
     string_escape_style_t style,
     char *pEscape ) noexcept
 {
+    // JSON represents non-BMP scalars as a UTF-16 surrogate pair.
     if ( style == string_escape_style_t::JSON && codePoint > 0xFFFFu ) {
         const unicode_code_point_t adjusted = codePoint - 0x10000u;
         const u16 high = static_cast<u16>( 0xD800u + ( adjusted >> 10u ) );
@@ -267,6 +278,7 @@ bool_t StringEscape_NeedsEscaping(
         return CY_FALSE;
     }
 
+    // Decode first so non-ASCII policy operates on scalar values, not UTF-8 bytes.
     usize iByte = 0u;
     while ( iByte < text.cchLength ) {
         unicode_code_point_t codePoint = 0u;
@@ -323,6 +335,7 @@ string_escape_result_t StringEscape_Encode(
                 string_escape_status_t::INVALID_CODE_POINT );
         }
 
+        // Twelve bytes is the longest spelling: two JSON \uXXXX escapes.
         char escaped[12]{};
         usize cchEscaped = 0u;
         if ( codePoint == '"' && ( flags & STRING_ESCAPE_FLAG_QUOTES ) != 0u ) {
@@ -401,6 +414,7 @@ string_escape_result_t StringEscape_Decode(
             continue;
         }
 
+        // Keep the leading slash offset for precise invalid-escape diagnostics.
         const usize iEscape = iByte;
         if ( iByte + 1u >= text.cchLength ) {
             return FinishEscapeResult(
@@ -464,6 +478,7 @@ string_escape_result_t StringEscape_Decode(
                 }
                 cchEscape = 6u;
                 if ( codePoint >= 0xD800u && codePoint <= 0xDBFFu ) {
+                    // A high surrogate is valid only when immediately paired with a low one.
                     if ( iByte + 12u > text.cchLength ||
                          text.pData[iByte + 6u] != '\\' ||
                          text.pData[iByte + 7u] != 'u' ) {
@@ -536,6 +551,7 @@ string_escape_result_t StringEscape_Decode(
                 string_escape_status_t::INVALID_CODE_POINT );
         }
 
+        // Convert the validated scalar back to canonical UTF-8 output.
         char encoded[4]{};
         const unicode_result_t encodedResult = Unicode_EncodeUtf8(
             codePoint,

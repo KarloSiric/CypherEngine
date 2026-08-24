@@ -28,14 +28,14 @@ namespace cypher::common
 
 using stable_hash_domain_t = u64;
 
-inline constexpr u32 CY_STABLE_HASH_CONTRACT_VERSION = 1u;
+inline constexpr u32 CY_STABLE_HASH_CONTRACT_VERSION = 1u; // Canonical type-tag encoding revision.
 
 struct stable_hash_builder_t {
     stable_hash_builder_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( stable_hash_builder_t );
 
-    hash_xxh3_stream_t stream{};
-    bool_t bActive{ CY_FALSE };
+    hash_xxh3_stream_t stream{}; // Underlying deterministic XXH3 byte stream.
+    bool_t bActive{ CY_FALSE };  // Begin succeeded and End has not consumed state.
 };
 
 // Starts a canonical stream for one semantic domain and schema version.

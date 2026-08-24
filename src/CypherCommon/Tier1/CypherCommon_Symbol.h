@@ -28,12 +28,12 @@ namespace cypher::common
 {
 
 struct symbol_t {
-    u32 value{ 0u };
+    u32 value{ 0u }; // Packed generation and one-based table index.
 };
 
-constexpr symbol_t CY_SYMBOL_INVALID{};
-inline constexpr u32 CY_SYMBOL_INDEX_BITS = 20u;
-inline constexpr u32 CY_SYMBOL_GENERATION_BITS = 12u;
+constexpr symbol_t CY_SYMBOL_INVALID{};                // Zero never names a live symbol.
+inline constexpr u32 CY_SYMBOL_INDEX_BITS = 20u;       // Capacity portion of packed value.
+inline constexpr u32 CY_SYMBOL_GENERATION_BITS = 12u;  // Stale-handle rejection portion.
 inline constexpr u32 CY_SYMBOL_INDEX_MASK =
     ( 1u << CY_SYMBOL_INDEX_BITS ) - 1u;
 inline constexpr u32 CY_SYMBOL_GENERATION_MASK =
@@ -41,21 +41,21 @@ inline constexpr u32 CY_SYMBOL_GENERATION_MASK =
 inline constexpr usize CY_SYMBOL_MAX_COUNT = CY_SYMBOL_INDEX_MASK;
 
 enum symbol_table_flags_t : flags32_t {
-    SYMBOL_TABLE_FLAG_NONE                    = 0u,
-    SYMBOL_TABLE_FLAG_CASE_INSENSITIVE_ASCII  = CYPHER_BIT32( 0 )
+    SYMBOL_TABLE_FLAG_NONE = 0u, // Intern strings by exact bytes.
+    SYMBOL_TABLE_FLAG_CASE_INSENSITIVE_ASCII = CYPHER_BIT32( 0 ) // Fold ASCII during interning.
 };
 
 struct symbol_table_desc_t {
-    const allocator_t *pAllocator{ nullptr };
-    usize nInitialCapacity{ 256u };
-    flags32_t flags{ SYMBOL_TABLE_FLAG_NONE };
+    const allocator_t *pAllocator{ nullptr }; // Owns strings, entries, and lookup slots.
+    usize nInitialCapacity{ 256u };            // Initial symbol and hash-table reservation.
+    flags32_t flags{ SYMBOL_TABLE_FLAG_NONE }; // symbol_table_flags_t comparison policy.
 };
 
 struct symbol_table_stats_t {
-    usize nSymbols{ 0u };
-    usize cbStringData{ 0u };
+    usize nSymbols{ 0u };     // Live interned symbol count.
+    usize cbStringData{ 0u }; // Live string payload bytes, excluding terminators.
     // Includes string payload, symbol vector, and lookup slot reservations.
-    usize cbReserved{ 0u };
+    usize cbReserved{ 0u };   // Total backing storage reserved by the table.
 };
 
 struct symbol_table_t;

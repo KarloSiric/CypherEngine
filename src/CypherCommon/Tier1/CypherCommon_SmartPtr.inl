@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Smart Ptr Template Definitions
+
+This dependency-light Tier1 utility keeps ownership, capacity, and failure behavior explicit so
+higher engine systems can use it without hidden allocation or platform state. Template
+definitions remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SMARTPTR_INL
 #define CYPHER_COMMON_TIER1_SMARTPTR_INL
 
@@ -93,6 +103,8 @@ void UniquePtr_Reset( unique_ptr_t<type_t> *pPointer ) noexcept
         return;
     }
 
+    // Clear ownership before entering user code so a re-entrant destroy callback
+    // cannot observe or release the same object twice through this wrapper.
     type_t *pObject = pPointer->pObject;
     pointer_destroy_fn_t<type_t> pfnDestroy = pPointer->pfnDestroy;
     void *pUserData = pPointer->pUserData;
@@ -104,7 +116,7 @@ void UniquePtr_Reset( unique_ptr_t<type_t> *pPointer ) noexcept
             pfnDestroy != nullptr,
             "A live unique pointer must retain its destroy callback." );
         if ( pfnDestroy != nullptr ) {
-            pfnDestroy( pObject, pUserData );
+            pfnDestroy( pObject, pUserData ); // The callback owns the concrete destruction policy.
         }
     }
 }
@@ -117,7 +129,7 @@ type_t *UniquePtr_Release( unique_ptr_t<type_t> *pPointer ) noexcept
         return nullptr;
     }
 
-    type_t *pObject = pPointer->pObject;
+    type_t *pObject = pPointer->pObject; // Ownership transfers without invoking destruction.
     pPointer->pObject = nullptr;
     pPointer->pfnDestroy = nullptr;
     pPointer->pUserData = nullptr;
@@ -205,6 +217,8 @@ void IntrusivePtr_Reset( intrusive_ptr_t<type_t> *pPointer ) noexcept
         return;
     }
 
+    // Detach first for the same re-entrancy reason as UniquePtr_Reset. The object's
+    // release callback decides whether the reference count reaches final destruction.
     type_t *pObject = pPointer->pObject;
     intrusive_release_fn_t<type_t> pfnRelease = pPointer->pfnRelease;
     pPointer->pObject = nullptr;
@@ -232,7 +246,7 @@ intrusive_ptr_t<type_t> IntrusivePtr_Copy(
         return {};
     }
 
-    pointer.pfnAddRef( pointer.pObject );
+    pointer.pfnAddRef( pointer.pObject ); // Acquire the new reference before publishing the copy.
     intrusive_ptr_t<type_t> result{};
     result.pObject = pointer.pObject;
     result.pfnAddRef = pointer.pfnAddRef;

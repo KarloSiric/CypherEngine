@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Sort Template Definitions
+
+Algorithms operate only on the supplied range and callback contracts. Comparators must define a
+consistent ordering; the implementation performs no hidden allocation unless explicitly
+documented. Template definitions remain in this file so each concrete instantiation is compiled
+at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SORT_INL
 #define CYPHER_COMMON_TIER1_SORT_INL
 
@@ -50,6 +61,7 @@ void Sort_SiftDown(
     compare_t &compare ) noexcept
 {
     for ( ;; ) {
+        // Nodes in the lower half of a binary heap are leaves and require no work.
         if ( iRoot >= nCount / 2u ) {
             return;
         }
@@ -73,6 +85,8 @@ i32 Sort_TypedCompare(
     const void *pRight,
     void *pUserData ) noexcept
 {
+    // Adapt a typed strict ordering to the three-way raw callback used by the
+    // byte-oriented stable merge-sort implementation.
     auto &compare = *static_cast<compare_t *>( pUserData );
     const auto &left = *static_cast<const type_t *>( pLeft );
     const auto &right = *static_cast<const type_t *>( pRight );
@@ -98,6 +112,7 @@ void Sort_Unstable(
         return;
     }
 
+    // Heapify bottom-up, then move the current maximum to the shrinking tail.
     for ( usize iRoot = values.nCount / 2u; iRoot > 0u; --iRoot ) {
         detail::Sort_SiftDown(
             values.pData,
@@ -123,6 +138,8 @@ bool_t Sort_Stable(
     if ( !Span_IsValid( values ) || !Span_IsValid( scratch ) ) {
         return CY_FALSE;
     }
+    // The raw sorter keeps stability by merging through caller-owned scratch;
+    // this adapter prevents a hidden allocation in the typed convenience API.
     return Sort_StableRaw(
         values.pData,
         values.nCount,

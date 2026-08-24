@@ -28,44 +28,44 @@ namespace cypher::common
 {
 
 enum url_encode_flags_t : flags32_t {
-    URL_ENCODE_FLAG_NONE             = 0u,
-    URL_ENCODE_FLAG_SPACE_AS_PLUS    = CYPHER_BIT32( 0 ),
-    URL_ENCODE_FLAG_PRESERVE_SLASH   = CYPHER_BIT32( 1 ),
-    URL_ENCODE_FLAG_UPPERCASE_HEX    = CYPHER_BIT32( 2 )
+    URL_ENCODE_FLAG_NONE             = 0u,                // Apply strict percent encoding only.
+    URL_ENCODE_FLAG_SPACE_AS_PLUS    = CYPHER_BIT32( 0 ), // Emit form-style '+' for an ASCII space.
+    URL_ENCODE_FLAG_PRESERVE_SLASH   = CYPHER_BIT32( 1 ), // Keep path separators readable.
+    URL_ENCODE_FLAG_UPPERCASE_HEX    = CYPHER_BIT32( 2 )  // Use uppercase digits in percent escapes.
 };
 
 enum url_decode_flags_t : flags32_t {
-    URL_DECODE_FLAG_NONE             = 0u,
-    URL_DECODE_FLAG_PLUS_AS_SPACE    = CYPHER_BIT32( 0 ),
-    URL_DECODE_FLAG_REJECT_NUL       = CYPHER_BIT32( 1 )
+    URL_DECODE_FLAG_NONE             = 0u,                // Decode percent escapes without form rules.
+    URL_DECODE_FLAG_PLUS_AS_SPACE    = CYPHER_BIT32( 0 ), // Interpret '+' as an ASCII space.
+    URL_DECODE_FLAG_REJECT_NUL       = CYPHER_BIT32( 1 )  // Reject escapes that would inject a NUL byte.
 };
 
 enum class url_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    INVALID_URL,
-    INVALID_ESCAPE,
-    OUTPUT_TRUNCATED
+    OK = 0u,          // Parse or conversion completed successfully.
+    INVALID_ARGUMENT,// Pointer, capacity, or input contract was invalid.
+    INVALID_URL,     // URL structure is malformed.
+    INVALID_ESCAPE,  // Percent escape is incomplete or contains a non-hex digit.
+    OUTPUT_TRUNCATED // Destination received only a prefix of the required output.
 };
 
 // Bracketed IPv6 hosts are returned without the surrounding '[' and ']'.
 struct url_parts_t {
-    string_view_t scheme{};
-    string_view_t userInfo{};
-    string_view_t host{};
-    string_view_t port{};
-    string_view_t path{};
-    string_view_t query{};
-    string_view_t fragment{};
-    bool_t bHasAuthority{ CY_FALSE };
+    string_view_t scheme{};   // Text before ':', excluding the delimiter.
+    string_view_t userInfo{}; // Optional authority user-info before '@'.
+    string_view_t host{};     // Host text; IPv6 brackets are removed.
+    string_view_t port{};     // Optional decimal port text after ':'.
+    string_view_t path{};     // Hierarchical path, still percent encoded.
+    string_view_t query{};    // Optional text after '?', excluding delimiter.
+    string_view_t fragment{}; // Optional text after '#', excluding delimiter.
+    bool_t bHasAuthority{ CY_FALSE }; // True when URL contains a leading "//" authority.
 };
 
 struct url_result_t {
-    url_status_t status{ url_status_t::OK };
-    usize cchConsumed{ 0u };
-    usize cbWritten{ 0u };
-    usize cbRequired{ 0u };
-    usize iError{ CY_STRING_VIEW_NPOS };
+    url_status_t status{ url_status_t::OK }; // Final parse or conversion state.
+    usize cchConsumed{ 0u }; // Source characters accepted.
+    usize cbWritten{ 0u };   // Destination bytes physically stored.
+    usize cbRequired{ 0u };  // Complete destination byte count.
+    usize iError{ CY_STRING_VIEW_NPOS }; // Source byte responsible for failure.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

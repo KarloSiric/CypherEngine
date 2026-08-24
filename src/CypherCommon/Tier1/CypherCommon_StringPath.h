@@ -27,37 +27,37 @@ namespace cypher::common
 {
 
 enum class path_style_t : u8 {
-    VIRTUAL = 0u,
-    POSIX,
-    WINDOWS,
-    NATIVE
+    VIRTUAL = 0u, // Engine path: relative, slash-separated, host independent.
+    POSIX,        // POSIX roots and '/' separators.
+    WINDOWS,      // Drive/UNC roots and '\\' separators.
+    NATIVE        // POSIX or Windows according to the build host.
 };
 
 enum path_normalize_flags_t : flags32_t {
-    PATH_NORMALIZE_FLAG_NONE                 = 0u,
-    PATH_NORMALIZE_FLAG_COLLAPSE_SEPARATORS  = CYPHER_BIT32( 0 ),
-    PATH_NORMALIZE_FLAG_RESOLVE_DOT          = CYPHER_BIT32( 1 ),
-    PATH_NORMALIZE_FLAG_RESOLVE_DOT_DOT      = CYPHER_BIT32( 2 ),
-    PATH_NORMALIZE_FLAG_LOWERCASE_ASCII       = CYPHER_BIT32( 3 ),
-    PATH_NORMALIZE_FLAG_KEEP_TRAILING_SLASH   = CYPHER_BIT32( 4 ),
-    PATH_NORMALIZE_FLAG_REJECT_ABSOLUTE       = CYPHER_BIT32( 5 ),
-    PATH_NORMALIZE_FLAG_REJECT_ABOVE_ROOT     = CYPHER_BIT32( 6 )
+    PATH_NORMALIZE_FLAG_NONE                 = 0u,                // Preserve the spelling supplied by the caller.
+    PATH_NORMALIZE_FLAG_COLLAPSE_SEPARATORS  = CYPHER_BIT32( 0 ), // Coalesce adjacent directory separators.
+    PATH_NORMALIZE_FLAG_RESOLVE_DOT          = CYPHER_BIT32( 1 ), // Remove lexical "." path components.
+    PATH_NORMALIZE_FLAG_RESOLVE_DOT_DOT      = CYPHER_BIT32( 2 ), // Fold "name/.." without touching the filesystem.
+    PATH_NORMALIZE_FLAG_LOWERCASE_ASCII       = CYPHER_BIT32( 3 ), // Fold ASCII letters for case-neutral asset keys.
+    PATH_NORMALIZE_FLAG_KEEP_TRAILING_SLASH   = CYPHER_BIT32( 4 ), // Retain one final separator when present.
+    PATH_NORMALIZE_FLAG_REJECT_ABSOLUTE       = CYPHER_BIT32( 5 ), // Refuse rooted paths at the VFS boundary.
+    PATH_NORMALIZE_FLAG_REJECT_ABOVE_ROOT     = CYPHER_BIT32( 6 )  // Refuse unresolved ".." components above root.
 };
 
 enum class path_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    INVALID_PATH,
-    ABSOLUTE_PATH_REJECTED,
-    ABOVE_ROOT,
-    OUTPUT_TRUNCATED
+    OK = 0u,                 // Operation completed and the complete result fits.
+    INVALID_ARGUMENT,       // Pointer, capacity, style, or option contract was invalid.
+    INVALID_PATH,           // Input contains a malformed root or path component.
+    ABSOLUTE_PATH_REJECTED, // Policy disallows the absolute path supplied by the caller.
+    ABOVE_ROOT,             // Lexical parent traversal would escape the allowed root.
+    OUTPUT_TRUNCATED        // Destination received only a prefix of the required output.
 };
 
 struct path_write_result_t {
-    path_status_t status{ path_status_t::OK };
-    usize cchWritten{ 0u };
-    usize cchRequired{ 0u };
-    usize iError{ CY_STRING_VIEW_NPOS };
+    path_status_t status{ path_status_t::OK }; // Final lexical operation state.
+    usize cchWritten{ 0u };  // Characters physically stored, excluding NUL.
+    usize cchRequired{ 0u }; // Complete path length, excluding NUL.
+    usize iError{ CY_STRING_VIEW_NPOS }; // Source byte responsible for rejection.
 };
 
 // Returns the separator used by a requested path style.

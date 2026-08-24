@@ -28,7 +28,7 @@
 namespace cypher::common
 {
 
-using undo_operation_id_t = u64;
+using undo_operation_id_t = u64; // Stable caller-assigned operation identifier.
 
 using undo_apply_fn_t = error_code_t ( * )(
     binary_block_t payload,
@@ -36,19 +36,19 @@ using undo_apply_fn_t = error_code_t ( * )(
 
 // History copies label and payload. Callbacks and pUserData must outlive the entry.
 struct undo_operation_desc_t {
-    undo_operation_id_t id{ 0u };
-    u64 nMergeKey{ 0u };
-    string_view_t label{};
-    binary_block_t payload{};
-    undo_apply_fn_t pfnUndo{ nullptr };
-    undo_apply_fn_t pfnRedo{ nullptr };
-    void *pUserData{ nullptr };
+    undo_operation_id_t id{ 0u };       // Nonzero identity used by tools and diagnostics.
+    u64 nMergeKey{ 0u };                // Adjacent equal nonzero keys form one undo group.
+    string_view_t label{};              // Human-readable label copied into the history.
+    binary_block_t payload{};           // Opaque callback payload copied into the history.
+    undo_apply_fn_t pfnUndo{ nullptr }; // Applies the inverse operation.
+    undo_apply_fn_t pfnRedo{ nullptr }; // Reapplies the original operation.
+    void *pUserData{ nullptr };          // Borrowed callback context; never owned here.
 };
 
 struct undo_history_desc_t {
-    const allocator_t *pAllocator{ nullptr };
-    usize nMaxOperations{ 1024u };
-    usize cbMaxPayloads{ 64u * CY_MIB };
+    const allocator_t *pAllocator{ nullptr }; // Allocator for history, labels, and payloads.
+    usize nMaxOperations{ 1024u };             // Hard limit before oldest groups are evicted.
+    usize cbMaxPayloads{ 64u * CY_MIB };       // Aggregate payload-byte budget.
 };
 
 struct undo_history_t;

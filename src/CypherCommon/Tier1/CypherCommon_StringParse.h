@@ -27,30 +27,30 @@ namespace cypher::common
 {
 
 enum class string_parse_status_t : u8 {
-    OK = 0u,
-    EMPTY_INPUT,
-    INVALID_ARGUMENT,
-    INVALID_BASE,
-    INVALID_CHARACTER,
-    NUMERIC_OVERFLOW,
-    NUMERIC_UNDERFLOW,
-    TRAILING_CHARACTERS,
-    NON_FINITE_VALUE
+    OK = 0u,             // A value was parsed and committed to output.
+    EMPTY_INPUT,         // No token remains after optional trimming.
+    INVALID_ARGUMENT,    // Output, view, or flag contract is invalid.
+    INVALID_BASE,        // Integer base lies outside [2, 36].
+    INVALID_CHARACTER,   // A byte cannot participate in the requested value.
+    NUMERIC_OVERFLOW,    // Magnitude exceeds the positive destination limit.
+    NUMERIC_UNDERFLOW,   // Negative magnitude exceeds the signed lower limit.
+    TRAILING_CHARACTERS, // A valid prefix was followed by disallowed bytes.
+    NON_FINITE_VALUE     // NaN or infinity was rejected by policy.
 };
 
 enum string_parse_flags_t : flags32_t {
-    STRING_PARSE_FLAG_NONE                       = 0u,
-    STRING_PARSE_FLAG_TRIM_WHITESPACE            = CYPHER_BIT32( 0 ),
-    STRING_PARSE_FLAG_ALLOW_PLUS_SIGN            = CYPHER_BIT32( 1 ),
+    STRING_PARSE_FLAG_NONE = 0u, // Strict whole-view parsing.
+    STRING_PARSE_FLAG_TRIM_WHITESPACE = CYPHER_BIT32( 0 ), // Ignore outer ASCII whitespace.
+    STRING_PARSE_FLAG_ALLOW_PLUS_SIGN = CYPHER_BIT32( 1 ), // Accept leading '+'.
     // Base prefixes and digit separators apply to integer parsers.
-    STRING_PARSE_FLAG_ALLOW_BASE_PREFIX          = CYPHER_BIT32( 2 ),
-    STRING_PARSE_FLAG_ALLOW_DIGIT_SEPARATOR      = CYPHER_BIT32( 3 ),
-    STRING_PARSE_FLAG_ALLOW_TRAILING_CHARACTERS  = CYPHER_BIT32( 4 ),
+    STRING_PARSE_FLAG_ALLOW_BASE_PREFIX = CYPHER_BIT32( 2 ), // Accept 0x/0o/0b prefixes.
+    STRING_PARSE_FLAG_ALLOW_DIGIT_SEPARATOR = CYPHER_BIT32( 3 ), // Accept '_' between digits.
+    STRING_PARSE_FLAG_ALLOW_TRAILING_CHARACTERS = CYPHER_BIT32( 4 ), // Parse a valid prefix.
     // Boolean policy flags apply only to StringParse_Bool.
-    STRING_PARSE_FLAG_CASE_INSENSITIVE_BOOL      = CYPHER_BIT32( 5 ),
-    STRING_PARSE_FLAG_ALLOW_NUMERIC_BOOL         = CYPHER_BIT32( 6 ),
+    STRING_PARSE_FLAG_CASE_INSENSITIVE_BOOL = CYPHER_BIT32( 5 ), // Fold true/false case.
+    STRING_PARSE_FLAG_ALLOW_NUMERIC_BOOL = CYPHER_BIT32( 6 ), // Accept zero/one boolean text.
     // Non-finite values are rejected by floating-point parsers unless enabled.
-    STRING_PARSE_FLAG_ALLOW_NON_FINITE_FLOAT     = CYPHER_BIT32( 7 )
+    STRING_PARSE_FLAG_ALLOW_NON_FINITE_FLOAT = CYPHER_BIT32( 7 ) // Accept NaN and infinity.
 };
 
 constexpr flags32_t STRING_PARSE_VALID_FLAGS =
@@ -65,14 +65,14 @@ constexpr flags32_t STRING_PARSE_VALID_FLAGS =
 
 struct string_parse_options_t {
     // Integer base in [2, 36]. Zero selects prefix-aware automatic detection.
-    u8 nBase{ 10u };
-    flags32_t flags{ STRING_PARSE_FLAG_NONE };
+    u8 nBase{ 10u }; // Integer radix: zero for auto-detect, otherwise 2 through 36.
+    flags32_t flags{ STRING_PARSE_FLAG_NONE }; // Combination of STRING_PARSE_FLAG_*.
 };
 
 struct string_parse_result_t {
-    string_parse_status_t status{ string_parse_status_t::EMPTY_INPUT };
-    usize cchConsumed{ 0u };
-    usize iError{ 0u };
+    string_parse_status_t status{ string_parse_status_t::EMPTY_INPUT }; // Final parse state.
+    usize cchConsumed{ 0u }; // Bytes accepted from the original, untrimmed view.
+    usize iError{ 0u };      // Source byte index responsible for failure.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

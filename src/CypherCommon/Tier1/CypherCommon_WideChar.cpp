@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Wide Char Implementation Notes
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+================
+*/
+
 #include "CypherCommon_WideChar.h"
 
 namespace cypher::common
@@ -36,6 +45,7 @@ usize WChar_Length( const wchar_engine_t *pString )
 
 i32 WChar_Compare( const wchar_engine_t *pStringA, const wchar_engine_t *pStringB )
 {
+    // Null input follows the empty-string convention used by the narrow helpers.
     const wchar_engine_t *pA = pStringA != nullptr ? pStringA : L"";
     const wchar_engine_t *pB = pStringB != nullptr ? pStringB : L"";
 
@@ -67,6 +77,7 @@ usize WChar_Copy( wchar_engine_t *pDest, const wchar_engine_t *pSrc, usize cchDe
     }
     pDest[i] = L'\0';
 
+    // Report the full source length even if the destination truncated the copy.
     return WChar_Length( pRead );
 }
 

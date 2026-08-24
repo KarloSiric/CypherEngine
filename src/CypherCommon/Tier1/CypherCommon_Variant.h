@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Variant Contract
+
+This dependency-light Tier1 utility keeps ownership, capacity, and failure behavior explicit so
+higher engine systems can use it without hidden allocation or platform state.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_VARIANT_H
 #define CYPHER_COMMON_TIER1_VARIANT_H
 #ifndef PRAGMA_ONCE
@@ -28,33 +37,33 @@ namespace cypher::common
 {
 
 enum class variant_type_t : u8 {
-    EMPTY = 0u,
-    BOOL,
-    I64,
-    U64,
-    F64,
-    STRING_VIEW,
-    BYTE_VIEW,
-    POINTER
+    EMPTY = 0u, // No payload is active.
+    BOOL,       // Boolean payload.
+    I64,        // Signed integer payload.
+    U64,        // Unsigned integer payload.
+    F64,        // Double-precision payload.
+    STRING_VIEW, // Borrowed character range.
+    BYTE_VIEW,   // Borrowed arbitrary byte range.
+    POINTER      // Opaque non-owning pointer.
 };
 
 struct variant_t {
-    variant_type_t type{ variant_type_t::EMPTY };
+    variant_type_t type{ variant_type_t::EMPTY }; // Selects the active union member.
     union {
-        bool_t bValue;
-        i64 iValue;
-        u64 uValue;
-        f64 flValue;
+        bool_t bValue; // BOOL payload.
+        i64 iValue;    // I64 payload.
+        u64 uValue;    // U64 payload.
+        f64 flValue;   // F64 payload.
         struct {
-            const char *pData;
-            usize cchLength;
-        } stringValue;
+            const char *pData; // Borrowed UTF-8 bytes.
+            usize cchLength;   // Character bytes; no terminator required.
+        } stringValue;         // STRING_VIEW payload.
         struct {
-            const byte *pData;
-            usize cbSize;
-        } byteValue;
-        void *pValue;
-    } data{};
+            const byte *pData; // Borrowed arbitrary bytes.
+            usize cbSize;      // Number of bytes in the view.
+        } byteValue;           // BYTE_VIEW payload.
+        void *pValue;          // POINTER payload.
+    } data{};                  // Storage selected by type.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API variant_t Variant_Empty() noexcept;

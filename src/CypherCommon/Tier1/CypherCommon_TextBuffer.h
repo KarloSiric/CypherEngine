@@ -32,10 +32,10 @@ struct text_buffer_t {
     CYPHER_NO_COPY_MOVE( text_buffer_t );
     ~text_buffer_t() noexcept;
 
-    char *pData{ nullptr };
-    usize cchLength{ 0u };
-    usize cchCapacity{ 0u };
-    const allocator_t *pAllocator{ nullptr };
+    char *pData{ nullptr };       // Owned allocation; pData[cchLength] is always NUL.
+    usize cchLength{ 0u };        // Live UTF-8 bytes, excluding the terminator.
+    usize cchCapacity{ 0u };      // Allocation bytes, including terminator space.
+    const allocator_t *pAllocator{ nullptr }; // Allocator that must release pData.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

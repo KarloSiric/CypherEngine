@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Sort Implementation Notes
+
+Algorithms operate only on the supplied range and callback contracts. Comparators must define a
+consistent ordering; the implementation performs no hidden allocation unless explicitly
+documented.
+================
+*/
+
 #include "CypherCommon_Sort.h"
 
 #include "CypherCommon_HeapSort.h"
@@ -50,6 +60,8 @@ bool_t MemoryRangesOverlap(
     const uintptr nLeft = reinterpret_cast<uintptr>( pLeft );
     const uintptr nRight = reinterpret_cast<uintptr>( pRight );
     constexpr uintptr nMaximumAddress = std::numeric_limits<uintptr>::max();
+    // Treat a wrapped endpoint as overlap: rejecting suspicious scratch is safer
+    // than allowing the merge pass to overwrite its unread source.
     if ( nLeft > nMaximumAddress - cbLeft || nRight > nMaximumAddress - cbRight ) {
         return CY_TRUE;
     }
@@ -93,6 +105,8 @@ bool_t Sort_StableRaw(
         return CY_FALSE;
     }
 
+    // Bottom-up merge sort alternates source and destination buffers each pass.
+    // Taking the left element on equality is the operation that preserves stability.
     byte *pSource = pBytes;
     byte *pDest = scratch.pData;
     for ( usize nWidth = 1u; nWidth < nCount; ) {
@@ -139,11 +153,13 @@ bool_t Sort_StableRaw(
         byte *pTemporary = pSource;
         pSource = pDest;
         pDest = pTemporary;
+        // Guard width doubling independently of usize overflow.
         if ( nWidth > nCount / 2u ) {
             break;
         }
         nWidth *= 2u;
     }
+    // Odd pass counts leave the final sequence in scratch; publish it back once.
     if ( pSource != pBytes ) {
         Cy_MemCopy( pBytes, pSource, cbRequired );
     }

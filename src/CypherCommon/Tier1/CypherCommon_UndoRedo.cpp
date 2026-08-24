@@ -26,16 +26,16 @@ namespace
 {
 
 struct owned_undo_operation_t {
-    undo_operation_id_t id{ 0u };
-    u64 nMergeKey{ 0u };
-    u64 nGroup{ 0u };
-    char *pLabel{ nullptr };
-    usize cchLabel{ 0u };
-    byte *pPayload{ nullptr };
-    usize cbPayload{ 0u };
-    undo_apply_fn_t pfnUndo{ nullptr };
-    undo_apply_fn_t pfnRedo{ nullptr };
-    void *pUserData{ nullptr };
+    undo_operation_id_t id{ 0u };       // Caller identity retained for diagnostics.
+    u64 nMergeKey{ 0u };                // Nonzero key used to coalesce adjacent pushes.
+    u64 nGroup{ 0u };                   // Atomic undo/redo group identifier.
+    char *pLabel{ nullptr };             // Owned NUL-terminated display label.
+    usize cchLabel{ 0u };                // Label length excluding the terminator.
+    byte *pPayload{ nullptr };           // Owned opaque bytes passed to callbacks.
+    usize cbPayload{ 0u };               // Payload allocation size and budget charge.
+    undo_apply_fn_t pfnUndo{ nullptr };  // Inverse callback supplied by the caller.
+    undo_apply_fn_t pfnRedo{ nullptr };  // Forward callback supplied by the caller.
+    void *pUserData{ nullptr };          // Borrowed callback context.
 };
 
 error_code_t CommonError( common_error_t error ) noexcept
@@ -49,6 +49,7 @@ bool_t CopyBytes(
     usize cbSize,
     void **ppCopyOut ) noexcept
 {
+    // Every recorded operation owns a stable payload independent of caller storage.
     *ppCopyOut = nullptr;
     if ( cbSize == 0u ) {
         return CY_TRUE;
@@ -68,22 +69,22 @@ bool_t CopyBytes(
 } // namespace
 
 struct undo_history_t {
-    owned_undo_operation_t *pOperations{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
-    usize iCursor{ 0u };
-    usize cbPayloads{ 0u };
-    usize nMaxOperations{ 0u };
-    usize cbMaxPayloads{ 0u };
-    const allocator_t *pAllocator{ nullptr };
-    u64 nNextGroup{ 1u };
-    bool_t bTransactionOpen{ CY_FALSE };
-    bool_t bApplying{ CY_FALSE };
-    usize iTransactionStart{ 0u };
-    u64 nTransactionGroup{ 0u };
-    char *pTransactionLabel{ nullptr };
-    usize cchTransactionLabel{ 0u };
-    bool_t bTransactionLabelTransferred{ CY_FALSE };
+    owned_undo_operation_t *pOperations{ nullptr }; // Contiguous operation journal.
+    usize nCount{ 0u };                             // Total undo and redo entries.
+    usize nCapacity{ 0u };                          // Allocated operation slots.
+    usize iCursor{ 0u };                            // Applied entries are [0, iCursor).
+    usize cbPayloads{ 0u };                         // Bytes owned by all entry payloads.
+    usize nMaxOperations{ 0u };                     // Hard entry budget.
+    usize cbMaxPayloads{ 0u };                      // Hard payload-byte budget.
+    const allocator_t *pAllocator{ nullptr };       // Borrowed allocator contract.
+    u64 nNextGroup{ 1u };                           // Next nonzero atomic group ID.
+    bool_t bTransactionOpen{ CY_FALSE };             // Pushes currently share one group.
+    bool_t bApplying{ CY_FALSE };                    // Guards callback re-entry.
+    usize iTransactionStart{ 0u };                  // First entry recorded by transaction.
+    u64 nTransactionGroup{ 0u };                    // Group assigned at begin time.
+    char *pTransactionLabel{ nullptr };              // Owned label until first push.
+    usize cchTransactionLabel{ 0u };                // Transaction label byte count.
+    bool_t bTransactionLabelTransferred{ CY_FALSE }; // First entry now owns label copy.
 };
 
 namespace
@@ -165,6 +166,7 @@ bool_t ReserveOperations(
     }
     const usize cbOld = history.nCapacity * sizeof( owned_undo_operation_t );
     const usize cbNew = nCapacity * sizeof( owned_undo_operation_t );
+    // Reallocate first so allocation failure leaves the original journal intact.
     void *pMemory = Allocator_Reallocate(
         history.pAllocator,
         history.pOperations,
@@ -190,6 +192,7 @@ void RemoveRange(
     if ( iFirst >= iEnd || iEnd > history.nCount ) {
         return;
     }
+    // Destroy owned fields before compacting the trivially stored entry records.
     usize cbRemoved = 0u;
     for ( usize iOperation = iFirst; iOperation < iEnd; ++iOperation ) {
         cbRemoved += history.pOperations[iOperation].cbPayload;
@@ -206,6 +209,7 @@ void RemoveRange(
         history.pOperations + iFirst + nTail,
         ( iEnd - iFirst ) * sizeof( owned_undo_operation_t ) );
     history.nCount -= iEnd - iFirst;
+    // Removing old or redo entries must rebase every index into the journal.
     if ( history.bTransactionOpen ) {
         history.iTransactionStart = history.iTransactionStart <= iFirst
             ? history.iTransactionStart
@@ -228,6 +232,7 @@ void RemoveRedo( undo_history_t &history ) noexcept
 
 bool_t RebaseGroups( undo_history_t &history ) noexcept
 {
+    // Group IDs carry ordering only; compact them before the 64-bit counter wraps.
     u64 nGroup = 0u;
     u64 nPrevious = 0u;
     for ( usize iOperation = 0u; iOperation < history.nCount; ++iOperation ) {
@@ -269,6 +274,7 @@ usize FirstOperationInGroup(
 
 void EvictOldestGroups( undo_history_t &history ) noexcept
 {
+    // A group is atomic: budget enforcement never leaves half a transaction behind.
     while ( history.nCount > history.nMaxOperations ||
             history.cbPayloads > history.cbMaxPayloads ) {
         if ( history.nCount == 0u ) {
@@ -289,6 +295,7 @@ bool_t MakeRoomForOperation(
     usize cbPayload,
     u64 nProtectedGroup ) noexcept
 {
+    // The group being extended cannot be evicted while its new entry is prepared.
     while ( history.nCount >= history.nMaxOperations ||
             cbPayload > history.cbMaxPayloads - history.cbPayloads ) {
         if ( history.nCount == 0u ) {
@@ -413,6 +420,7 @@ bool_t UndoRedo_BeginTransaction(
     if ( !CopyLabel( *pHistory, label, &pLabel ) ) {
         return CY_FALSE;
     }
+    // Reserve the group before any operation is pushed into the transaction.
     const u64 nGroup = AllocateGroup( *pHistory );
     if ( nGroup == 0u ) {
         FreeLabel( *pHistory, pLabel, label.cchLength );
@@ -457,6 +465,7 @@ void UndoRedo_CancelTransaction(
          !pHistory->bTransactionOpen ) {
         return;
     }
+    // Cancelling removes journal records only; it does not invoke inverse callbacks.
     RemoveRange( *pHistory, pHistory->iTransactionStart, pHistory->nCount );
     if ( !pHistory->bTransactionLabelTransferred ) {
         FreeLabel(
@@ -487,6 +496,7 @@ bool_t UndoRedo_Push(
         return CY_FALSE;
     }
 
+    // Verify the complete group can fit before copying or mutating history state.
     usize nActiveGroupCount = 1u;
     usize cbActiveGroup = operation.payload.cbSize;
     u64 nProtectedGroup = 0u;
@@ -523,6 +533,7 @@ bool_t UndoRedo_Push(
         return CY_FALSE;
     }
 
+    // Copy caller-owned data before dropping redo entries or evicting old groups.
     char *pLabel = nullptr;
     byte *pPayload = nullptr;
     string_view_t displayLabel = operation.label;
@@ -545,6 +556,7 @@ bool_t UndoRedo_Push(
     }
     pPayload = static_cast<byte *>( pPayloadCopy );
 
+    // A new branch invalidates every redo operation after the current cursor.
     if ( pHistory->iCursor < pHistory->nCount ) {
         RemoveRedo( *pHistory );
     }
@@ -580,6 +592,7 @@ bool_t UndoRedo_Push(
         }
     }
 
+    // Transactions and equal merge keys reuse a group; ordinary pushes allocate one.
     u64 nGroup = 0u;
     if ( pHistory->bTransactionOpen ) {
         nGroup = pHistory->nTransactionGroup;
@@ -614,6 +627,7 @@ bool_t UndoRedo_Push(
     };
     pHistory->iCursor = pHistory->nCount;
     pHistory->cbPayloads += operation.payload.cbSize;
+    // Only the first transaction entry carries the group display label.
     if ( pHistory->bTransactionOpen &&
          !pHistory->bTransactionLabelTransferred ) {
         FreeLabel(
@@ -657,6 +671,7 @@ error_code_t UndoRedo_Undo( undo_history_t *pHistory ) noexcept
 
     const u64 nGroup = pHistory->pOperations[pHistory->iCursor - 1u].nGroup;
     pHistory->bApplying = CY_TRUE;
+    // Undo runs newest to oldest so dependent edits are reversed correctly.
     while ( pHistory->iCursor != 0u ) {
         owned_undo_operation_t &operation =
             pHistory->pOperations[pHistory->iCursor - 1u];
@@ -667,6 +682,7 @@ error_code_t UndoRedo_Undo( undo_history_t *pHistory ) noexcept
             { operation.pPayload, operation.cbPayload },
             operation.pUserData );
         if ( Cy_ErrorFailed( error ) ) {
+            // The cursor records callbacks already completed before the failure.
             pHistory->bApplying = CY_FALSE;
             return error;
         }
@@ -689,6 +705,7 @@ error_code_t UndoRedo_Redo( undo_history_t *pHistory ) noexcept
 
     const u64 nGroup = pHistory->pOperations[pHistory->iCursor].nGroup;
     pHistory->bApplying = CY_TRUE;
+    // Redo runs oldest to newest, matching the original transaction order.
     while ( pHistory->iCursor < pHistory->nCount ) {
         owned_undo_operation_t &operation =
             pHistory->pOperations[pHistory->iCursor];

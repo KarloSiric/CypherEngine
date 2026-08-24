@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Search Template Definitions
+
+Algorithms operate only on the supplied range and callback contracts. Comparators must define a
+consistent ordering; the implementation performs no hidden allocation unless explicitly
+documented. Template definitions remain in this file so each concrete instantiation is compiled
+at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SEARCH_INL
 #define CYPHER_COMMON_TIER1_SEARCH_INL
 
@@ -61,6 +72,8 @@ usize Search_LowerBound(
         return CY_INVALID_SIZE;
     }
 
+    // The candidate range is [iFirst, iFirst + nRemaining). Elements before
+    // it are known to compare less than target; no pointer sentinel is needed.
     usize iFirst = 0u;
     usize nRemaining = values.nCount;
     while ( nRemaining > 0u ) {
@@ -88,6 +101,8 @@ usize Search_UpperBound(
         return CY_INVALID_SIZE;
     }
 
+    // This is the same half-open search as LowerBound, but equality advances
+    // the lower edge so the result is the first element strictly after target.
     usize iFirst = 0u;
     usize nRemaining = values.nCount;
     while ( nRemaining > 0u ) {
@@ -109,12 +124,14 @@ usize Search_Binary(
     const type_t &target,
     compare_t compare ) noexcept
 {
+    // LowerBound gives the only position at which an equivalent value can occur.
     const usize iCandidate = Search_LowerBound( values, target, compare );
     if ( iCandidate == CY_INVALID_SIZE || iCandidate >= values.nCount ) {
         return CY_INVALID_SIZE;
     }
 
     const type_t &candidate = values.pData[iCandidate];
+    // Strict-order comparators express equality when neither direction is less.
     return !compare( candidate, target ) && !compare( target, candidate )
         ? iCandidate
         : CY_INVALID_SIZE;

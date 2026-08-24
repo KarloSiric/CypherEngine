@@ -66,6 +66,7 @@ bool_t Vector_CalculateGrowth(
         return CY_FALSE;
     }
 
+    // Grow by 1.5x to limit relocation waste without creating frequent tiny allocations.
     usize nCandidate = nCurrentCapacity < nMinimumCapacity
         ? nMinimumCapacity
         : nCurrentCapacity;
@@ -164,6 +165,7 @@ bool_t Vector_RebaseAppendSource(
         return CY_FALSE;
     }
     const uintptr nSourceEnd = nSourceBegin + cbSourceSize;
+    // Self-append is legal only when the source covers currently constructed elements.
     const bool_t bOverlapsStorage =
         nSourceBegin < nStorageEnd && nStorageBegin < nSourceEnd;
     if ( !bOverlapsStorage ) {
@@ -350,6 +352,7 @@ bool_t Vector_Reserve(
         return CY_TRUE;
     }
 
+    // Allocate before relocation so allocation failure preserves the original vector.
     type_t *pNewData = Allocator_AllocateArrayStorage<type_t>(
         pVector->pAllocator,
         nCapacity );
@@ -441,6 +444,7 @@ bool_t Vector_ShrinkToFit( vector_t<type_t> *pVector ) noexcept
         return CY_TRUE;
     }
 
+    // Shrinking is also transactional; the old allocation survives a failed request.
     type_t *pNewData = Allocator_AllocateArrayStorage<type_t>(
         pVector->pAllocator,
         pVector->nCount );
@@ -477,6 +481,7 @@ bool_t Vector_PushBack(
         return CY_FALSE;
     }
 
+    // Copy an internal argument before growth invalidates its address.
     const bool_t bMustGrow = pVector->nCount == pVector->nCapacity;
     const bool_t bInternalValue =
         detail::Vector_ElementIsInternal( *pVector, &value );
@@ -514,6 +519,7 @@ bool_t Vector_PushBackMove(
         return CY_FALSE;
     }
 
+    // Move an internal argument into temporary storage before its allocation moves.
     const bool_t bMustGrow = pVector->nCount == pVector->nCapacity;
     const bool_t bInternalValue =
         detail::Vector_ElementIsInternal( *pVector, &value );
@@ -592,6 +598,7 @@ bool_t Vector_Insert(
         return CY_FALSE;
     }
 
+    // Materialize first so insertion remains correct when value aliases this vector.
     type_t temporary( value );
     if ( !detail::Vector_EnsureAdditional( pVector, 1u ) ) {
         return CY_FALSE;
@@ -636,6 +643,7 @@ bool_t Vector_Append(
         return CY_TRUE;
     }
 
+    // Record an index, not a pointer, so self-append survives a reserve operation.
     bool_t bInternalSource = CY_FALSE;
     usize iSource = 0u;
     if ( !detail::Vector_RebaseAppendSource(
@@ -691,6 +699,7 @@ void Vector_Erase(
         return;
     }
 
+    // Shift the surviving tail left, then destroy duplicate objects at the old end.
     const usize nTailCount = pVector->nCount - iIndex - nCount;
     Container_MoveAssignRangeForward(
         pVector->pData + iIndex,
@@ -722,6 +731,7 @@ void Vector_EraseSwap(
         return;
     }
 
+    // Order is intentionally not preserved; moving the last element makes removal O(1).
     const usize iLast = pVector->nCount - 1u;
     if ( iIndex != iLast ) {
         pVector->pData[iIndex] =
@@ -824,6 +834,7 @@ void Vector_Move(
         return;
     }
 
+    // Ownership transfer is pointer-only; no element construction or allocation occurs.
     pDest->pData = pSource->pData;
     pDest->nCount = pSource->nCount;
     pDest->nCapacity = pSource->nCapacity;

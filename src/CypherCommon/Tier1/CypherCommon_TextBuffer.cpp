@@ -26,7 +26,7 @@ namespace cypher::common
 namespace
 {
 
-constexpr usize CY_TEXT_BUFFER_MAX_CAPACITY = CY_USIZE_MAX - 1u;
+constexpr usize CY_TEXT_BUFFER_MAX_CAPACITY = CY_USIZE_MAX - 1u; // Reserve one byte for NUL.
 
 bool_t TextBufferIsCanonicalEmpty( const text_buffer_t &buffer ) noexcept
 {
@@ -58,6 +58,7 @@ bool_t CalculateTextBufferGrowth(
         ? cchMinimumCapacity
         : cchCurrentCapacity;
     if ( cchCandidate < cchRequiredCapacity ) {
+        // Grow by roughly 1.5x to amortize append cost without doubling large text.
         const usize cchHalf = cchCandidate / 2u;
         cchCandidate = cchCandidate > CY_TEXT_BUFFER_MAX_CAPACITY - cchHalf
             ? CY_TEXT_BUFFER_MAX_CAPACITY
@@ -130,6 +131,7 @@ bool_t RebaseTextBufferSource(
         return CY_FALSE;
     }
 
+    // Save an offset because capacity growth may invalidate an internal source pointer.
     bInternalOut = CY_TRUE;
     iSourceOffsetOut = nSourceBegin - nStorageBegin;
     return CY_TRUE;
@@ -391,6 +393,8 @@ bool_t TextBuffer_Resize(
 
     const usize cchOldLength = pBuffer->cchLength;
     if ( cchLength > cchOldLength ) {
+        // Length is a byte count. This layer stores UTF-8 but does not invent or
+        // split code points while resizing raw mutable storage.
         if ( !EnsureTextBufferCapacity( pBuffer, cchLength ) ) {
             return CY_FALSE;
         }
@@ -590,6 +594,8 @@ bool_t TextBuffer_Replace(
     char *pTemporary = nullptr;
     const char *pReplacement = replacement.pData;
     if ( bInternalSource && replacement.cchLength > 0u ) {
+        // Replacement can overlap both the erased range and the tail shift.
+        // Preserve aliased bytes before either mutation takes place.
         pTemporary = static_cast<char *>( Allocator_Allocate(
             pBuffer->pAllocator,
             replacement.cchLength,
@@ -680,6 +686,8 @@ owned_allocation_t TextBuffer_Release(
         return {};
     }
 
+    // Transfer allocator, size, and alignment together so the receiver can free
+    // the buffer correctly without knowing how TextBuffer acquired it.
     owned_allocation_t allocation{};
     if ( pBuffer->pData != nullptr ) {
         const bool_t bAdopted = Allocator_AdoptOwned(

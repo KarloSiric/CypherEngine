@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Stack Contract
+
+Stack deliberately exposes only the back of its vector storage. Push may reallocate and invalidate
+the current Top pointer; Pop destroys exactly the last live element.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_STACK_H
 #define CYPHER_COMMON_TIER1_STACK_H
 #ifndef PRAGMA_ONCE
@@ -28,7 +37,7 @@ namespace cypher::common
 
 template <typename type_t>
 struct cy_stack_t {
-    vector_t<type_t> storage{};
+    vector_t<type_t> storage{}; // Bottom at index zero, top at nCount - 1.
 };
 
 template <typename type_t>

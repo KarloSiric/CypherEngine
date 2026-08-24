@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Stable Hash Implementation Notes
+
+This algorithm is deterministic over an explicit byte range. It is suitable for lookup, change
+detection, or corruption checks, but must not be used as a cryptographic authenticator.
+================
+*/
+
 #include "CypherCommon_StableHash.h"
 
 #include <bit>
@@ -26,21 +35,21 @@ namespace
 {
 
 enum class stable_hash_value_kind_t : u8 {
-    BOOL = 1u,
-    U8,
-    U16,
-    U32,
-    U64,
-    I8,
-    I16,
-    I32,
-    I64,
-    F32,
-    F64,
-    BYTES,
-    STRING,
-    HASH64,
-    HASH128
+    BOOL = 1u, // Canonical one-byte boolean.
+    U8,        // Unsigned 8-bit integer.
+    U16,       // Unsigned 16-bit integer.
+    U32,       // Unsigned 32-bit integer.
+    U64,       // Unsigned 64-bit integer.
+    I8,        // Signed 8-bit integer bit pattern.
+    I16,       // Signed 16-bit integer bit pattern.
+    I32,       // Signed 32-bit integer bit pattern.
+    I64,       // Signed 64-bit integer bit pattern.
+    F32,       // Canonical IEEE-754 binary32 value.
+    F64,       // Canonical IEEE-754 binary64 value.
+    BYTES,     // Length-delimited arbitrary bytes.
+    STRING,    // Length-delimited text bytes.
+    HASH64,    // Nested 64-bit content hash.
+    HASH128    // Nested 128-bit content hash.
 };
 
 CYPHER_NODISCARD bool_t StableHash_WriteRaw(
@@ -75,6 +84,7 @@ CYPHER_NODISCARD bool_t StableHash_WriteUnsigned(
     stable_hash_value_kind_t kind,
     unsigned_t value ) noexcept
 {
+    // A type tag prevents equal byte patterns of different logical types from colliding.
     byte canonical[1u + sizeof( unsigned_t )]{};
     canonical[0] = static_cast<byte>( kind );
     StableHash_StoreLittle( canonical + 1u, value );
@@ -87,6 +97,8 @@ CYPHER_NODISCARD bool_t StableHash_WriteRange(
     const void *pData,
     usize cbData ) noexcept
 {
+    // Prefix variable-length data with both kind and length so concatenated
+    // fields remain unambiguous without separators or native object layout.
     byte header[9]{};
     header[0] = static_cast<byte>( kind );
     StableHash_StoreLittle( header + 1u, static_cast<u64>( cbData ) );
@@ -96,6 +108,8 @@ CYPHER_NODISCARD bool_t StableHash_WriteRange(
 
 CYPHER_NODISCARD u32 StableHash_CanonicalF32Bits( f32 value ) noexcept
 {
+    // Collapse -0 to +0 and every NaN payload to one spelling. Stable hashes
+    // describe semantic values, not platform-specific floating-point payloads.
     u32 nBits = value == 0.0f ? 0u : std::bit_cast<u32>( value );
     const bool_t bNan =
         ( nBits & 0x7F800000u ) == 0x7F800000u &&
@@ -140,6 +154,8 @@ bool_t StableHash_Begin(
     }
     pBuilder->bActive = CY_TRUE;
 
+    // Contract magic, contract version, caller domain, and schema version make
+    // hashes intentionally incompatible when their interpretation changes.
     byte header[24]{
         static_cast<byte>( 'C' ),
         static_cast<byte>( 'Y' ),
@@ -340,7 +356,7 @@ bool_t StableHash_End(
     if ( !HashXXH3_StreamDigest64( &pBuilder->stream, pHashOut ) ) {
         return CY_FALSE;
     }
-    pBuilder->bActive = CY_FALSE;
+    pBuilder->bActive = CY_FALSE; // A finalized stream cannot accept more fields.
     return CY_TRUE;
 }
 

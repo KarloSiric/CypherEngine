@@ -68,6 +68,8 @@ stream_status_t StreamContractStatus( const stream_t *pStream ) noexcept
     if ( ( pStream->capabilities & ~CY_STREAM_CAPABILITY_MASK ) != 0u ) {
         return stream_status_t::INVALID_ARGUMENT;
     }
+    // A capability bit is a promise that the corresponding backend entry point
+    // exists. Validate the table once at every public boundary before dispatch.
     if ( ( pStream->capabilities & STREAM_CAPABILITY_READ ) != 0u &&
          pStream->pOps->pfnRead == nullptr ) {
         return stream_status_t::INVALID_ARGUMENT;
@@ -96,6 +98,8 @@ stream_io_result_t ValidateIoResult(
     stream_io_result_t result,
     usize cbRequested ) noexcept
 {
+    // Backends are untrusted at this boundary: impossible status values or byte
+    // counts are converted into a deterministic engine-level I/O failure.
     if ( !IsStreamStatusValid( result.status ) ||
          result.cbTransferred > cbRequested ) {
         return { stream_status_t::IO_ERROR, 0u };
@@ -166,6 +170,8 @@ stream_status_t Stream_ReadExact(
         if ( result.status != stream_status_t::OK ) {
             return result.status;
         }
+        // OK without progress violates the stream contract and would otherwise
+        // leave an exact transfer spinning forever.
         if ( result.cbTransferred == 0u ) {
             return stream_status_t::IO_ERROR;
         }
@@ -218,6 +224,7 @@ stream_status_t Stream_WriteExact(
         if ( result.status != stream_status_t::OK ) {
             return result.status;
         }
+        // Treat a zero-progress success as a broken backend, not a retry signal.
         if ( result.cbTransferred == 0u ) {
             return stream_status_t::IO_ERROR;
         }
@@ -324,4 +331,3 @@ stream_status_t Stream_Flush( stream_t *pStream ) noexcept
 }
 
 } // namespace cypher::common
-

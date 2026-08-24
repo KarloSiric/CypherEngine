@@ -20,6 +20,9 @@
 namespace cypher::common
 {
 
+// Sequence comparisons use a half-range rule. A wrapped value is considered
+// newer only when its forward modular distance is less than half the domain.
+
 bool_t Sequence16_IsNewer( u16 left, u16 right ) noexcept
 {
     return Sequence16_Distance( right, left ) > 0;
@@ -33,6 +36,8 @@ bool_t Sequence32_IsNewer( u32 left, u32 right ) noexcept
 i32 Sequence16_Distance( u16 from, u16 to ) noexcept
 {
     const u16 nForward = static_cast<u16>( to - from );
+    // The exact half-range value is assigned to the negative side because its
+    // direction is fundamentally ambiguous.
     if ( nForward < 0x8000u ) {
         return static_cast<i32>( nForward );
     }
@@ -65,6 +70,7 @@ bool_t SequenceAck32_Record(
         return CY_FALSE;
     }
     if ( !pState->bInitialized ) {
+        // The first packet establishes a reference point but no prior history.
         pState->nLatest = nSequence;
         pState->ackBits = 0u;
         pState->bInitialized = CY_TRUE;
@@ -77,6 +83,8 @@ bool_t SequenceAck32_Record(
     const i64 nForward = Sequence32_Distance( pState->nLatest, nSequence );
     if ( nForward > 0 ) {
         const u64 nAdvance = static_cast<u64>( nForward );
+        // Bit zero describes nLatest - 1. Shift old history by the advance and
+        // mark the former latest packet at its new distance behind the head.
         if ( nAdvance > 32u ) {
             pState->ackBits = 0u;
         } else {
@@ -88,6 +96,7 @@ bool_t SequenceAck32_Record(
     }
 
     const i64 nAge = Sequence32_Distance( nSequence, pState->nLatest );
+    // Packets older than 32 positions fall outside the acknowledgement window.
     if ( nAge <= 0 || nAge > 32 ) {
         return CY_FALSE;
     }

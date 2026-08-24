@@ -26,7 +26,7 @@ namespace cypher::common
 namespace
 {
 
-constexpr u32 CY_STRING_FORMAT_MAX_FRACTION_DIGITS = 9u;
+constexpr u32 CY_STRING_FORMAT_MAX_FRACTION_DIGITS = 9u; // Keeps fixed scratch/output practical.
 
 string_format_result_t CopyFormattedBytes(
     const char *pSource,
@@ -42,6 +42,7 @@ string_format_result_t CopyFormattedBytes(
         return { string_format_status_t::INVALID_ARGUMENT, 0u, 0u };
     }
 
+    // cchRequired reports the complete result even when only a terminated prefix fits.
     const usize cchWritable = cchDest > 0u ? cchDest - 1u : 0u;
     const usize cchCopy = cchSource < cchWritable ? cchSource : cchWritable;
     if ( cchCopy > 0u ) {
@@ -84,6 +85,8 @@ string_format_result_t StringFormat_VPrintf(
         return { string_format_status_t::INVALID_ARGUMENT, 0u, 0u };
     }
 
+    // A va_list is consumable state. Copy it so callers may retain ownership of
+    // the original list according to the platform ABI.
     std::va_list argsCopy;
     va_copy( argsCopy, args );
     const int cchResult = std::vsnprintf(
@@ -227,9 +230,12 @@ string_format_result_t StringFormat_GroupedInteger(
         return { string_format_status_t::INVALID_ARGUMENT, 0u, 0u };
     }
 
+    // Emit least-significant digits first, inserting one separator after each
+    // completed group, then reverse the bounded local buffer once.
     char reverse[32]{};
     usize cchReverse = 0u;
     const bool_t bNegative = value < 0;
+    // Avoid signed overflow when formatting INT64_MIN.
     u64 nMagnitude = bNegative
         ? static_cast<u64>( -( value + 1 ) ) + 1u
         : static_cast<u64>( value );
@@ -275,6 +281,7 @@ string_format_result_t StringFormat_ByteCount(
         return { string_format_status_t::INVALID_ARGUMENT, 0u, 0u };
     }
 
+    // IEC units deliberately use powers of 1024 rather than decimal SI units.
     constexpr const char *pUnits[] = {
         "B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"
     };
@@ -317,6 +324,7 @@ string_format_result_t StringFormat_Duration(
         return { string_format_status_t::INVALID_ARGUMENT, 0u, 0u };
     }
 
+    // Choose a readable unit from magnitude while preserving the original sign.
     const f64 flMagnitude = std::fabs( flSeconds );
     f64 flDisplay = flSeconds;
     const char *pUnit = "s";

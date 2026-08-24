@@ -26,18 +26,21 @@
 namespace cypher::common
 {
 
-constexpr usize CY_SOA_MAX_COLUMNS = 16u;
+constexpr usize CY_SOA_MAX_COLUMNS = 16u; // Fixed descriptor ceiling keeps the record allocation-free.
+
+// All columns share one allocation but begin at independently aligned offsets. The container
+// stores bytes only; callers own construction rules for non-trivial element types.
 
 struct soa_column_desc_t {
-    usize cbElement{ 0u };
-    usize alignment{ 1u };
+    usize cbElement{ 0u }; // Byte stride of one element in this column.
+    usize alignment{ 1u }; // Required base alignment for this column.
 };
 
 struct soa_desc_t {
-    const soa_column_desc_t *pColumns{ nullptr };
-    usize nColumnCount{ 0u };
-    const allocator_t *pAllocator{ nullptr };
-    usize nInitialCapacity{ 0u };
+    const soa_column_desc_t *pColumns{ nullptr }; // Borrowed descriptors consumed during Init.
+    usize nColumnCount{ 0u };                     // Descriptor count, at most CY_SOA_MAX_COLUMNS.
+    const allocator_t *pAllocator{ nullptr };     // Owns the combined column allocation.
+    usize nInitialCapacity{ 0u };                 // Initial row capacity.
 };
 
 struct soa_container_t {
@@ -45,15 +48,15 @@ struct soa_container_t {
     CYPHER_NO_COPY_MOVE( soa_container_t );
     ~soa_container_t() noexcept;
 
-    void *pAllocation{ nullptr };
-    void *pColumns[CY_SOA_MAX_COLUMNS]{};
-    soa_column_desc_t columns[CY_SOA_MAX_COLUMNS]{};
-    usize nColumnCount{ 0u };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
-    usize cbAllocation{ 0u };
-    usize nAllocationAlignment{ 0u };
-    const allocator_t *pAllocator{ nullptr };
+    void *pAllocation{ nullptr };                    // Base address released by pAllocator.
+    void *pColumns[CY_SOA_MAX_COLUMNS]{};            // Aligned base of each active column.
+    soa_column_desc_t columns[CY_SOA_MAX_COLUMNS]{}; // Owned copy of active descriptors.
+    usize nColumnCount{ 0u };                        // Number of valid entries in both arrays.
+    usize nCount{ 0u };                              // Logical rows exposed to callers.
+    usize nCapacity{ 0u };                           // Rows reserved in every column.
+    usize cbAllocation{ 0u };                        // Exact combined allocation byte count.
+    usize nAllocationAlignment{ 0u };                // Alignment used to release pAllocation.
+    const allocator_t *pAllocator{ nullptr };        // Allocator fixed at initialization.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

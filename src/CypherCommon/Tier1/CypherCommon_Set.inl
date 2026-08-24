@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Set Template Definitions
+
+Container mutations must preserve structural invariants and element lifetime. Iterators or
+handles are invalidated only according to the rules stated by the public API. Template
+definitions remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SET_INL
 #define CYPHER_COMMON_TIER1_SET_INL
 
@@ -35,6 +45,7 @@ bool_t Set_Init(
     const allocator_t *pAllocator,
     compare_t compare ) noexcept
 {
+    // Set is an RBTree whose values are intentionally empty markers.
     return RBTree_Init(
         pSet,
         pAllocator,
@@ -58,7 +69,7 @@ bool_t Set_Insert(
     set_t<key_t, compare_t> *pSet,
     const key_t &key ) noexcept
 {
-    return RBTree_Insert( pSet, key, set_unit_t{} ).bInserted;
+    return RBTree_Insert( pSet, key, set_unit_t{} ).bInserted; // Duplicate keys report false.
 }
 
 template <typename key_t, typename compare_t>

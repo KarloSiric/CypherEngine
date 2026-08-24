@@ -25,6 +25,14 @@
 namespace cypher::common
 {
 
+// These helpers deliberately treat a null input string as empty. Destination
+// pointers still require explicit capacity, and every write is NUL terminated
+// when cchDest is nonzero.
+
+//==========================================================================
+// Length, state, and comparison
+//==========================================================================
+
 usize Cy_strlen( const char *pString ) noexcept
 {
     if ( pString == nullptr ) {
@@ -175,6 +183,7 @@ usize Cy_strncpy( char *pDest, const char *pSrc, usize cchDest ) noexcept
             ++cchSource;
         }
         pDest[cchWrite] = '\0';
+        // Return the complete source length so callers can detect truncation.
         return cchSource;
     }
 
@@ -280,6 +289,10 @@ usize Cy_strncat_max( char *pDest, const char *pSrc, usize cchDest, usize cchMax
 
     return cchSource;
 }
+
+//==========================================================================
+// Character and substring search
+//==========================================================================
 
 const char *Cy_strchr( const char *pString, char chFind ) noexcept
 {
@@ -526,6 +539,10 @@ bool_t Cy_striends( const char *pString, const char *pSuffix ) noexcept
     return Cy_stricmp( pRead + ( cchString - cchSuffix ), pNeedle ) == 0;
 }
 
+//==========================================================================
+// Case conversion and whitespace cleanup
+//==========================================================================
+
 char *Cy_strlower( char *pString ) noexcept
 {
     return Cy_strnlower( pString, Cy_strlen( pString ) );
@@ -618,6 +635,8 @@ void Cy_strtrimleft( char *pString ) noexcept
         return;
     }
 
+    // The read pointer can only be at or after the destination, so this forward
+    // overlapping copy cannot overwrite unread characters.
     const char *pRead = Cy_strskipwhite( pString );
     char *pWrite = pString;
     while ( *pRead != '\0' ) {
@@ -670,6 +689,10 @@ void Cy_strstripquotes( char *pString ) noexcept
     pString[cchLen - 2u] = '\0';
 }
 
+//==========================================================================
+// Extraction, substitution, and counting
+//==========================================================================
+
 usize Cy_strleft( const char *pString, char *pDest, usize cchDest, usize cchCount ) noexcept
 {
     return Cy_strncpy_max( pDest, pString, cchDest, cchCount );
@@ -714,6 +737,8 @@ usize Cy_strsubst( const char *pString, const char *pSearch, const char *pReplac
     usize cchRequired = 0u;
     usize cchWrite = 0u;
 
+    // Continue scanning after the destination fills so cchRequired remains the
+    // exact allocation size needed for an untruncated result.
     while ( *pRead != '\0' ) {
         if ( Cy_strncmp( pRead, pNeedle, cchNeedle ) == 0 ) {
             for ( usize i = 0u; i < cchReplacement; ++i ) {

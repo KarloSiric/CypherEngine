@@ -32,7 +32,7 @@ constexpr flags32_t CY_STRING_POOL_VALID_FLAGS =
     STRING_POOL_FLAG_CASE_INSENSITIVE_ASCII;
 
 struct string_pool_hasher_t {
-    bool_t bCaseInsensitiveAscii{ CY_FALSE };
+    bool_t bCaseInsensitiveAscii{ CY_FALSE }; // Must match equality policy exactly.
 
     hash64_t operator()( string_view_t text ) const noexcept
     {
@@ -43,8 +43,8 @@ struct string_pool_hasher_t {
 };
 
 struct string_pool_equal_t {
-    bool_t bCaseInsensitiveAscii{ CY_FALSE };
-    usize *pCollisionCount{ nullptr };
+    bool_t bCaseInsensitiveAscii{ CY_FALSE }; // Locale-independent ASCII folding mode.
+    usize *pCollisionCount{ nullptr };        // Optional unequal-key comparison counter.
 
     bool_t operator()(
         string_view_t left,
@@ -68,9 +68,9 @@ using string_pool_map_t = hash_map_t<
     string_pool_equal_t>;
 
 struct string_pool_block_t {
-    string_pool_block_t *pNext{ nullptr };
-    usize cbCapacity{ 0u };
-    usize cbUsed{ 0u };
+    string_pool_block_t *pNext{ nullptr }; // Older stable-storage block.
+    usize cbCapacity{ 0u };                // Bytes immediately following this header.
+    usize cbUsed{ 0u };                    // Prefix occupied by terminated interned strings.
 };
 
 char *StringPool_BlockData( string_pool_block_t *pBlock ) noexcept
@@ -94,13 +94,13 @@ bool_t StringPool_BlockAllocationSize(
 } // namespace
 
 struct string_pool_t {
-    string_pool_map_t strings{};
-    string_pool_block_t *pBlocks{ nullptr };
-    const allocator_t *pAllocator{ nullptr };
-    usize cbInitialBlock{ 0u };
-    usize cbNextBlock{ 0u };
-    string_pool_stats_t stats{};
-    flags32_t flags{ STRING_POOL_FLAG_NONE };
+    string_pool_map_t strings{};              // Text key to stable canonical address.
+    string_pool_block_t *pBlocks{ nullptr };   // Newest geometric storage block.
+    const allocator_t *pAllocator{ nullptr };  // Owns map, blocks, and pool object.
+    usize cbInitialBlock{ 0u };                // Growth baseline restored by Clear.
+    usize cbNextBlock{ 0u };                   // Target capacity for the next block.
+    string_pool_stats_t stats{};               // Validated accounting exposed to callers.
+    flags32_t flags{ STRING_POOL_FLAG_NONE };  // Interning/equality policy.
 };
 
 namespace
@@ -182,6 +182,8 @@ string_pool_block_t *StringPool_AllocateBlock(
     pPool->pBlocks = pBlock;
     pPool->stats.cbReserved += cbCapacity;
 
+    // Blocks never move, so all previously returned pointers remain stable.
+    // Geometric growth reduces allocation frequency for large symbol sets.
     pPool->cbNextBlock = cbCapacity <= CY_USIZE_MAX / 2u
         ? cbCapacity * 2u
         : cbCapacity;
@@ -394,6 +396,8 @@ const char *StringPool_Intern(
     const char *pStoredValue = pStored;
     const hash_table_insert_result_t<const char *> inserted =
         HashMap_Insert( &pPool->strings, storedView, pStoredValue );
+    // Storage and index insertion form one transaction. If map insertion fails,
+    // restore the previous block cursor or free a block allocated for this string.
     if ( inserted.pValue == nullptr || !inserted.bInserted ) {
         StringPool_RollbackBlockWrite(
             pPool,

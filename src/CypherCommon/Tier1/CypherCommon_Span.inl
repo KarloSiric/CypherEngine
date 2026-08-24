@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Span Template Definitions
+
+This is a non-owning range. The caller keeps the referenced storage alive, and all slicing or
+indexing operations validate the reported extent before pointer arithmetic. Template definitions
+remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SPAN_INL
 #define CYPHER_COMMON_TIER1_SPAN_INL
 
@@ -79,6 +89,8 @@ usize Span_SizeBytes( span_t<type_t> span ) noexcept
         return 0u;
     }
 
+    // Keep the multiplication checked: a wrapped byte count would make later
+    // serialization or memory operations address a smaller range than advertised.
     usize cbSize = 0u;
     const bool_t bValidByteCount =
         Cy_TryArrayByteCount<type_t>( span.nCount, cbSize );
@@ -183,6 +195,8 @@ span_t<type_t> Span_Subspan(
     }
 
     const usize nAvailable = span.nCount - iFirst;
+    // Slices are deliberately clamped to the remaining extent. Callers can ask
+    // for "the rest" without first duplicating the subtraction above.
     const usize nSubspan = nCount < nAvailable ? nCount : nAvailable;
     return { span.pData + iFirst, nSubspan };
 }

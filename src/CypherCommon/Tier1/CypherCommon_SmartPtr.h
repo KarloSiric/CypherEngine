@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Smart Ptr Contract
+
+This dependency-light Tier1 utility keeps ownership, capacity, and failure behavior explicit so
+higher engine systems can use it without hidden allocation or platform state.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_SMARTPTR_H
 #define CYPHER_COMMON_TIER1_SMARTPTR_H
 #ifndef PRAGMA_ONCE
@@ -40,9 +49,9 @@ struct unique_ptr_t {
     unique_ptr_t( unique_ptr_t &&other ) noexcept;
     unique_ptr_t &operator=( unique_ptr_t &&other ) noexcept;
 
-    type_t *pObject{ nullptr };
-    pointer_destroy_fn_t<type_t> pfnDestroy{ nullptr };
-    void *pUserData{ nullptr };
+    type_t *pObject{ nullptr };                         // Exclusively owned object.
+    pointer_destroy_fn_t<type_t> pfnDestroy{ nullptr }; // Required release procedure.
+    void *pUserData{ nullptr };                         // Opaque destroy-procedure state.
 };
 
 template <typename type_t>
@@ -81,9 +90,9 @@ struct intrusive_ptr_t {
     intrusive_ptr_t( intrusive_ptr_t &&other ) noexcept;
     intrusive_ptr_t &operator=( intrusive_ptr_t &&other ) noexcept;
 
-    type_t *pObject{ nullptr };
-    intrusive_add_ref_fn_t<type_t> pfnAddRef{ nullptr };
-    intrusive_release_fn_t<type_t> pfnRelease{ nullptr };
+    type_t *pObject{ nullptr };                         // Shared intrusive object.
+    intrusive_add_ref_fn_t<type_t> pfnAddRef{ nullptr }; // Increments embedded ownership.
+    intrusive_release_fn_t<type_t> pfnRelease{ nullptr }; // Decrements embedded ownership.
 };
 
 template <typename type_t>

@@ -29,16 +29,16 @@ namespace cypher::common
 {
 
 enum class string_format_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    FORMAT_ERROR,
-    OUTPUT_TRUNCATED
+    OK = 0u,          // Complete formatted text was stored.
+    INVALID_ARGUMENT,// Destination or format contract is invalid.
+    FORMAT_ERROR,    // Host formatter rejected the format operation.
+    OUTPUT_TRUNCATED // Required text exceeded destination capacity.
 };
 
 struct string_format_result_t {
-    string_format_status_t status{ string_format_status_t::OK };
-    usize cchWritten{ 0u };
-    usize cchRequired{ 0u };
+    string_format_status_t status{ string_format_status_t::OK }; // Final result.
+    usize cchWritten{ 0u };  // Characters physically stored, excluding NUL.
+    usize cchRequired{ 0u }; // Complete formatted length, excluding NUL.
 };
 
 // Formats one complete string. cchDest includes the trailing terminator; a null
