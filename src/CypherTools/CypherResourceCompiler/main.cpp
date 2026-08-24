@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+main Implementation Notes
+
+The executable entry point only adapts process arguments and exit codes to the shared tool
+application. Compiler registration and resource behavior remain in testable library code.
+================
+*/
+
 #include "CypherResourceCompiler.h"
 
 int main( int argc, char **pArgv )

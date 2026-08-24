@@ -23,6 +23,8 @@
 #include "CypherCommon_CookedTexture.h"
 #include "CypherCommon_DataValidation.h"
 #include "CypherCommon_Endian.h"
+#include "CypherCommon_ImageCodec.h"
+#include "CypherCommon_ImageView.h"
 #include "CypherCommon_KeyValueParser.h"
 #include "CypherCommon_MemoryOps.h"
 #include "CypherCommon_RenderAsset.h"
@@ -35,11 +37,9 @@
 #include "CypherCommon_Vfs.h"
 
 #include <png.h>
-#include <tinyexr.h>
 #include <turbojpeg.h>
 
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 
 namespace cypher::tools
@@ -75,32 +75,6 @@ struct key_value_document_owner_t {
         if ( pDocument != nullptr ) {
             KeyValue_DestroyDocument( pDocument );
         }
-    }
-};
-
-struct turbojpeg_owner_t {
-    tjhandle handle{ nullptr };
-
-    turbojpeg_owner_t() noexcept = default;
-    CYPHER_NO_COPY_MOVE( turbojpeg_owner_t );
-
-    ~turbojpeg_owner_t() noexcept
-    {
-        if ( handle != nullptr ) {
-            tj3Destroy( handle );
-        }
-    }
-};
-
-struct exr_pixels_owner_t {
-    float *pPixels{ nullptr };
-
-    exr_pixels_owner_t() noexcept = default;
-    CYPHER_NO_COPY_MOVE( exr_pixels_owner_t );
-
-    ~exr_pixels_owner_t() noexcept
-    {
-        std::free( pPixels );
     }
 };
 
@@ -352,175 +326,72 @@ CYPHER_NODISCARD bool_t ReadTextFile(
            TextBuffer_Assign( &textOut, text );
 }
 
-CYPHER_NODISCARD bool_t IsImageExtentValid(
-    u32 nWidth,
-    u32 nHeight,
-    u32 cbPixel,
-    usize &cbImageOut ) noexcept
-{
-    if ( nWidth == 0u || nHeight == 0u ||
-         nWidth > CY_COOKED_TEXTURE_MAX_DIMENSION ||
-         nHeight > CY_COOKED_TEXTURE_MAX_DIMENSION || cbPixel == 0u ) {
-        return CY_FALSE;
-    }
-    const u64 cbImage = static_cast<u64>( nWidth ) * nHeight * cbPixel;
-    if ( cbImage == 0u || cbImage > CY_TEXTURE_COMPILER_MAX_IMAGE_SIZE ||
-         cbImage > CY_USIZE_MAX ) {
-        return CY_FALSE;
-    }
-    cbImageOut = static_cast<usize>( cbImage );
-    return CY_TRUE;
-}
-
-CYPHER_NODISCARD bool_t DecodePng(
-    binary_block_t source,
-    decoded_image_t &image ) noexcept
-{
-    png_image png{};
-    png.version = PNG_IMAGE_VERSION;
-    if ( !png_image_begin_read_from_memory(
-             &png,
-             source.pData,
-             source.cbSize ) ) {
-        return CY_FALSE;
-    }
-    png.format = PNG_FORMAT_RGBA;
-    usize cbImage = 0u;
-    const bool_t bValid = IsImageExtentValid(
-        png.width,
-        png.height,
-        4u,
-        cbImage );
-    if ( !bValid || !Blob_Resize( &image.pixels, cbImage ) ) {
-        png_image_free( &png );
-        return CY_FALSE;
-    }
-    if ( !png_image_finish_read(
-             &png,
-             nullptr,
-             image.pixels.pData,
-             0,
-             nullptr ) ) {
-        png_image_free( &png );
-        return CY_FALSE;
-    }
-    const u32 nWidth = png.width;
-    const u32 nHeight = png.height;
-    png_image_free( &png );
-    image.nWidth = nWidth;
-    image.nHeight = nHeight;
-    image.cbRowPitch = nWidth * 4u;
-    return CY_TRUE;
-}
-
-CYPHER_NODISCARD bool_t DecodeJpeg(
-    binary_block_t source,
-    decoded_image_t &image ) noexcept
-{
-    turbojpeg_owner_t decoder{};
-    decoder.handle = tj3Init( TJINIT_DECOMPRESS );
-    if ( decoder.handle == nullptr ||
-         tj3DecompressHeader(
-             decoder.handle,
-             source.pData,
-             source.cbSize ) != 0 ) {
-        return CY_FALSE;
-    }
-    const int nWidth = tj3Get( decoder.handle, TJPARAM_JPEGWIDTH );
-    const int nHeight = tj3Get( decoder.handle, TJPARAM_JPEGHEIGHT );
-    const int nPrecision = tj3Get( decoder.handle, TJPARAM_PRECISION );
-    usize cbImage = 0u;
-    if ( nPrecision != 8 || nWidth <= 0 || nHeight <= 0 ||
-         !IsImageExtentValid(
-             static_cast<u32>( nWidth ),
-             static_cast<u32>( nHeight ),
-             4u,
-             cbImage ) ||
-         !Blob_Resize( &image.pixels, cbImage ) ) {
-        return CY_FALSE;
-    }
-    if ( tj3Decompress8(
-             decoder.handle,
-             source.pData,
-             source.cbSize,
-             image.pixels.pData,
-             0,
-             TJPF_RGBA ) != 0 ) {
-        return CY_FALSE;
-    }
-    image.nWidth = static_cast<u32>( nWidth );
-    image.nHeight = static_cast<u32>( nHeight );
-    image.cbRowPitch = image.nWidth * 4u;
-    return CY_TRUE;
-}
-
-CYPHER_NODISCARD bool_t DecodeExr(
-    binary_block_t source,
-    decoded_image_t &image ) noexcept
-{
-    exr_pixels_owner_t decoded{};
-    int nWidth = 0;
-    int nHeight = 0;
-    const char *pError = nullptr;
-    const int status = LoadEXRFromMemory(
-        &decoded.pPixels,
-        &nWidth,
-        &nHeight,
-        source.pData,
-        source.cbSize,
-        &pError );
-    if ( status != TINYEXR_SUCCESS ) {
-        if ( pError != nullptr ) {
-            FreeEXRErrorMessage( pError );
-        }
-        return CY_FALSE;
-    }
-    usize cbImage = 0u;
-    if ( nWidth <= 0 || nHeight <= 0 ||
-         !IsImageExtentValid(
-             static_cast<u32>( nWidth ),
-             static_cast<u32>( nHeight ),
-             16u,
-             cbImage ) ||
-         !Blob_Resize( &image.pixels, cbImage ) ) {
-        return CY_FALSE;
-    }
-
-    const usize nComponents = cbImage / sizeof( f32 );
-    for ( usize iComponent = 0u; iComponent < nComponents; ++iComponent ) {
-        const f32 value = decoded.pPixels[iComponent];
-        if ( !std::isfinite( value ) ) {
-            return CY_FALSE;
-        }
-        const f32 little = Cy_HostToLittleF32( value );
-        Cy_MemCopy(
-            image.pixels.pData + iComponent * sizeof( f32 ),
-            &little,
-            sizeof( little ) );
-    }
-    image.pixelFormat = render_texture_pixel_format_t::RGBA32_FLOAT;
-    image.nWidth = static_cast<u32>( nWidth );
-    image.nHeight = static_cast<u32>( nHeight );
-    image.cbRowPitch = image.nWidth * 16u;
-    return CY_TRUE;
-}
-
 CYPHER_NODISCARD bool_t DecodeImage(
     string_view_t path,
     binary_block_t source,
     decoded_image_t &image ) noexcept
 {
-    if ( StringPath_HasExtension( path, TextureText( ".png" ), CY_TRUE ) ) {
-        return DecodePng( source, image );
+    image_decode_options_t options{};
+    options.formatHint = ImageCodec_FormatFromPath( path );
+    options.nMaximumDimension = CY_COOKED_TEXTURE_MAX_DIMENSION;
+    options.cbMaximumDecodedSize = CY_TEXTURE_COMPILER_MAX_IMAGE_SIZE;
+
+    image_surface_t decoded{};
+    const image_decode_result_t result = ImageCodec_Decode(
+        source,
+        Allocator_GetSystem(),
+        options,
+        &decoded );
+    if ( result.status != image_codec_status_t::OK ) {
+        return CY_FALSE;
     }
-    if ( StringPath_HasExtension( path, TextureText( ".jpg" ), CY_TRUE ) ||
-         StringPath_HasExtension( path, TextureText( ".jpeg" ), CY_TRUE ) ) {
-        return DecodeJpeg( source, image );
+
+    const image_format_info_t *pFormatInfo = ImageFormat_GetInfo(
+        decoded.desc.pixelFormat );
+    if ( pFormatInfo == nullptr ||
+         ( decoded.desc.pixelFormat != image_pixel_format_t::RGBA8_UNORM &&
+           decoded.desc.pixelFormat != image_pixel_format_t::RGBA32_FLOAT ) ) {
+        return CY_FALSE;
     }
-    if ( StringPath_HasExtension( path, TextureText( ".exr" ), CY_TRUE ) ) {
-        return DecodeExr( source, image );
+
+    image.nWidth = decoded.desc.extent.nWidth;
+    image.nHeight = decoded.desc.extent.nHeight;
+    image.cbRowPitch = image.nWidth * pFormatInfo->cbPixel;
+    const usize cbImage =
+        static_cast<usize>( image.cbRowPitch ) * image.nHeight;
+    if ( !Blob_Resize( &image.pixels, cbImage ) ) {
+        return CY_FALSE;
     }
-    return CY_FALSE;
+
+    const const_image_view_t decodedView = ImageSurface_GetView(
+        static_cast<const image_surface_t *>( &decoded ) );
+    if ( decoded.desc.pixelFormat == image_pixel_format_t::RGBA8_UNORM ) {
+        for ( u32 iRow = 0u; iRow < image.nHeight; ++iRow ) {
+            const binary_block_t row = ImageView_GetRow(
+                decodedView, iRow, 0u );
+            Cy_MemCopy(
+                image.pixels.pData +
+                    static_cast<usize>( iRow ) * image.cbRowPitch,
+                row.pData,
+                image.cbRowPitch );
+        }
+        return CY_TRUE;
+    }
+
+    // Cooked FLOAT32 payloads are little-endian even though decoded authoring
+    // surfaces deliberately use native in-memory floating-point representation.
+    image.pixelFormat = render_texture_pixel_format_t::RGBA32_FLOAT;
+    const usize nComponents = cbImage / sizeof( f32 );
+    const auto *pComponents = static_cast<const f32 *>(
+        decoded.allocation.pData );
+    for ( usize iComponent = 0u; iComponent < nComponents; ++iComponent ) {
+        const f32 little = Cy_HostToLittleF32( pComponents[iComponent] );
+        Cy_MemCopy(
+            image.pixels.pData + iComponent * sizeof( f32 ),
+            &little,
+            sizeof( little ) );
+    }
+    return CY_TRUE;
 }
 
 CYPHER_NODISCARD f32 SrgbToLinear( f32 value ) noexcept
@@ -1065,7 +936,7 @@ CYPHER_NODISCARD tool_status_t ExecuteTextureCompiler(
             tool_diagnostic_category_t::COMPILER,
             TextureText( "Texture source image is malformed or unsupported." ),
             work.recipe.source,
-            TextureText( "Version 1 accepts 8-bit PNG/JPEG and finite RGBA EXR images." ) );
+            TextureText( "Version 1 accepts PNG, JPEG, TGA, and finite RGBA EXR images." ) );
     }
     if ( !BuildMipChain( work ) ) {
         return Fail(

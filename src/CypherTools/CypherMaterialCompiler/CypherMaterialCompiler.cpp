@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Material Compiler Implementation Notes
+
+Material compilation validates authored CYKV, resolves every referenced shader or texture
+through the VFS, and publishes deterministic cooked output only after all dependencies succeed.
+================
+*/
+
 #include "CypherMaterialCompiler.h"
 
 #include "CypherCommon_Allocator.h"

@@ -110,25 +110,27 @@ inline constexpr string_view_t g_targetValues[]{
 };
 
 inline constexpr char g_resourceCompilerBanner[] = R"banner(
-========================================================================================
-   ______  __     __  ______   __    __  ______   ______
-  / ____/  \ \   / / |  __  \ |  |  |  ||  ____| |  __  \
- | |        \ \_/ /  | |__) / |  |__|  || |__    | |__) |
- | |         \   /   |  ___/  |   __   ||  __|   |  _  /
- | |____      | |    | |      |  |  |  || |____  | | \ \
-  \_____|     |_|    |_|      |__|  |__||______| |_|  \_\
+====================================================================================================
+              ________      ___    ___ ________  ___  ___  _______   ________
+             |\   ____\    |\  \  /  /|\   __  \|\  \|\  \|\  ___ \ |\   __  \
+             \ \  \___|    \ \  \/  / | \  \|\  \ \  \\\  \ \   __/|\ \  \|\  \
+              \ \  \        \ \    / / \ \   ____\ \   __  \ \  \_|/_\ \   _  _\
+               \ \  \____    \/   / /   \ \  \___|\ \  \ \  \ \  \_|\ \ \  \\  \|
+                \ \_______\__/   / /     \ \__\    \ \__\ \__\ \_______\ \__\\ _\
+                 \|_______|\____/ /       \|__|     \|__|\|__|\|_______|\|__|\|__|
+                          \|____|/
 
-              C Y P H E R   R E S O U R C E   C O M P I L E R
-                     OFFLINE ASSET TOOLCHAIN  |  1.0.0
+                         R E S O U R C E   C O M P I L E R
+                            OFFLINE ASSET TOOLCHAIN  1.0.0
 
-                         A COMPONENT OF CYPHERENGINE
-              Copyright (c) 2026 Karlo Siric. All rights reserved.
-                Proprietary and confidential. See LICENSE for terms.
-========================================================================================
+                                A COMPONENT OF CYPHERENGINE
+                    Copyright (c) 2026 Karlo Siric. All rights reserved.
+                      Proprietary and confidential. See LICENSE for terms.
+====================================================================================================
 
 )banner";
 
-inline constexpr char g_applicationDetails[] = R"details(CAPABILITIES
+inline constexpr char g_applicationDetailsPrefix[] = R"details(CAPABILITIES
   - Validates authored resources without publishing output.
   - Dispatches inputs through a deterministic compiler registry.
   - Cooks explicit files, VFS directories, and quoted wildcard patterns.
@@ -139,11 +141,13 @@ inline constexpr char g_applicationDetails[] = R"details(CAPABILITIES
   - Expands recursive @response files for long or repeatable invocations.
 
 REGISTERED RESOURCE TYPES
-  .cyshader  ->  .cyshader_c    Cypher Shader Compiler
+)details";
 
-CURRENT SHADER PIPELINE
-  CYKV parse -> exact schema -> semantic decode -> GLSL preprocess
-  -> stage validation -> cross-stage link -> deterministic CYSH/CYRS output
+inline constexpr char g_applicationDetailsSuffix[] = R"details(
+COMPILER PIPELINES
+  Shader:   CYKV -> schema -> GLSL preprocess/validate/link -> CYSH/CYRS
+  Texture:  CYKV -> schema -> PNG/JPEG/EXR decode -> mip chain -> CYTX/CYRS
+  Material: CYKV -> schema -> dependency validation -> CYMT/CYRS
 
 EXAMPLES
   CypherResourceCompiler validate -s assets shaders/world.cyshader
@@ -219,7 +223,7 @@ _cypher_resource_compiler() {
                 '*:virtual resource:_files -W "$source_root"'
             ;;
         describe-compiler)
-            _arguments '1:compiler:(cypher.shader)'
+            _arguments '1:compiler:(cypher.shader cypher.texture cypher.material)'
             ;;
         completion)
             _arguments '1:shell:(zsh)'
@@ -229,14 +233,6 @@ _cypher_resource_compiler() {
 
 compdef _cypher_resource_compiler CypherResourceCompiler
 )completion";
-
-inline constexpr tool_cli_presentation_t g_presentation{
-    ResourceCompilerText( g_resourceCompilerBanner ),
-    ResourceCompilerText(
-        "Deterministic validation and cooking for CypherEngine resources." ),
-    ResourceCompilerText( g_applicationDetails ),
-    CY_FALSE
-};
 
 inline constexpr tool_option_desc_t g_compileOptions[]{
     {
@@ -526,7 +522,81 @@ inline constexpr tool_application_desc_t g_application{
 struct resource_compiler_state_t {
     tool_compiler_registry_t registry{};
     const tool_compiler_desc_t *pCompilerStorage[32]{};
+    char applicationDetails[16u * CY_KIB]{};
+    tool_cli_presentation_t presentation{};
 };
+
+CYPHER_NODISCARD tool_status_t BuildApplicationPresentation(
+    resource_compiler_state_t *pState ) noexcept
+{
+    if ( pState == nullptr ) {
+        return tool_status_t::INVALID_ARGUMENT;
+    }
+
+    string_builder_t builder{};
+    if ( !StringBuilder_Init(
+             &builder,
+             pState->applicationDetails,
+             sizeof( pState->applicationDetails ) ) ) {
+        return tool_status_t::INTERNAL_ERROR;
+    }
+
+    (void)StringBuilder_Append(
+        &builder,
+        ResourceCompilerText( g_applicationDetailsPrefix ) );
+
+    usize nFormats = 0u;
+    for ( usize iCompiler = 0u;
+          iCompiler < pState->registry.nCount;
+          ++iCompiler ) {
+        const tool_compiler_desc_t *pCompiler =
+            ToolCompilerRegistry_At( &pState->registry, iCompiler );
+        if ( pCompiler == nullptr ) {
+            return tool_status_t::INTERNAL_ERROR;
+        }
+        for ( usize iExtension = 0u;
+              iExtension < pCompiler->nSourceExtensions;
+              ++iExtension ) {
+            const string_view_t sourceExtension =
+                pCompiler->pSourceExtensions[iExtension];
+            (void)StringBuilder_AppendFormat(
+                &builder,
+                "  %-12.*s -> %-14.*s  %-18.*s  %.*s\n",
+                static_cast<int>( sourceExtension.cchLength ),
+                sourceExtension.pData,
+                static_cast<int>( pCompiler->cookedExtension.cchLength ),
+                pCompiler->cookedExtension.pData,
+                static_cast<int>( pCompiler->id.cchLength ),
+                pCompiler->id.pData,
+                static_cast<int>( pCompiler->displayName.cchLength ),
+                pCompiler->displayName.pData );
+            ++nFormats;
+        }
+    }
+    (void)StringBuilder_AppendFormat(
+        &builder,
+        "\n  %zu compiler modules, %zu source formats\n",
+        pState->registry.nCount,
+        nFormats );
+    (void)StringBuilder_Append(
+        &builder,
+        ResourceCompilerText( g_applicationDetailsSuffix ) );
+
+    if ( builder.status != string_builder_status_t::OK ) {
+        return builder.status == string_builder_status_t::OUTPUT_TRUNCATED
+            ? tool_status_t::CAPACITY_EXCEEDED
+            : tool_status_t::INTERNAL_ERROR;
+    }
+
+    pState->presentation = {
+        ResourceCompilerText( g_resourceCompilerBanner ),
+        ResourceCompilerText(
+            "Deterministic validation and cooking for CypherEngine resources." ),
+        StringBuilder_View( &builder ),
+        CY_FALSE
+    };
+    return tool_status_t::OK;
+}
 
 CYPHER_NODISCARD const tool_option_value_t *FindOption(
     const tool_cli_parse_result_t &arguments,
@@ -1185,36 +1255,26 @@ void EmitMessage(
 
 CYPHER_NODISCARD tool_status_t EmitCompilerDescription(
     const tool_compiler_desc_t &compiler,
-    const tool_host_t &host ) noexcept
+    const tool_host_t &host,
+    tool_sequence_t sequence ) noexcept
 {
-    char details[1024]{};
-    const string_format_result_t formatted = StringFormat_Printf(
-        details,
-        sizeof( details ),
-        "id=%.*s  type=%.*s  api=%u  version=%u  output=%.*s",
-        static_cast<int>( compiler.id.cchLength ),
-        compiler.id.pData,
+    char details[2048]{};
+    string_builder_t builder{};
+    if ( !StringBuilder_Init( &builder, details, sizeof( details ) ) ) {
+        return tool_status_t::INTERNAL_ERROR;
+    }
+
+    (void)StringBuilder_AppendFormat(
+        &builder,
+        "name=%.*s\n"
+        "      resource=%.*s  api=%u  version=%u\n"
+        "      source=",
+        static_cast<int>( compiler.displayName.cchLength ),
+        compiler.displayName.pData,
         static_cast<int>( compiler.resourceType.cchLength ),
         compiler.resourceType.pData,
         compiler.nApiVersion,
-        compiler.nCompilerVersion,
-        static_cast<int>( compiler.cookedExtension.cchLength ),
-        compiler.cookedExtension.pData );
-    if ( formatted.status != string_format_status_t::OK ) {
-        return tool_status_t::INTERNAL_ERROR;
-    }
-    EmitMessage(
-        host,
-        1u,
-        compiler.displayName,
-        { details, formatted.cchWritten } );
-
-    char extensions[1024]{};
-    usize cchExtensions = 0u;
-    string_builder_t builder{};
-    if ( !StringBuilder_Init( &builder, extensions, sizeof( extensions ) ) ) {
-        return tool_status_t::INTERNAL_ERROR;
-    }
+        compiler.nCompilerVersion );
     for ( usize iExtension = 0u;
           iExtension < compiler.nSourceExtensions;
           ++iExtension ) {
@@ -1225,15 +1285,12 @@ CYPHER_NODISCARD tool_status_t EmitCompilerDescription(
             &builder,
             compiler.pSourceExtensions[iExtension] );
     }
-    cchExtensions = builder.cchLength;
-    if ( builder.status != string_builder_status_t::OK ) {
-        return tool_status_t::CAPACITY_EXCEEDED;
-    }
-    EmitMessage(
-        host,
-        2u,
-        ResourceCompilerText( "source-extensions" ),
-        { extensions, cchExtensions } );
+
+    (void)StringBuilder_AppendFormat(
+        &builder,
+        "  cooked=%.*s\n",
+        static_cast<int>( compiler.cookedExtension.cchLength ),
+        compiler.cookedExtension.pData );
 
     const bool_t bDeterministic =
         ( compiler.flags & TOOL_COMPILER_FLAG_DETERMINISTIC ) != 0u;
@@ -1245,23 +1302,26 @@ CYPHER_NODISCARD tool_status_t EmitCompilerDescription(
         ( compiler.flags & TOOL_COMPILER_FLAG_SUPPORTS_VALIDATE ) != 0u;
     const bool_t bDryRun =
         ( compiler.flags & TOOL_COMPILER_FLAG_SUPPORTS_DRY_RUN ) != 0u;
-    const string_format_result_t capabilityFormat = StringFormat_Printf(
-        details,
-        sizeof( details ),
-        "deterministic=%s  thread-safe=%s  incremental=%s  validate=%s  dry-run=%s",
+    (void)StringBuilder_AppendFormat(
+        &builder,
+        "      capabilities: deterministic=%s  thread-safe=%s  "
+        "incremental=%s  validate=%s  dry-run=%s",
         bDeterministic ? "yes" : "no",
         bThreadSafe ? "yes" : "no",
         bIncremental ? "yes" : "no",
         bValidate ? "yes" : "no",
         bDryRun ? "yes" : "no" );
-    if ( capabilityFormat.status != string_format_status_t::OK ) {
-        return tool_status_t::INTERNAL_ERROR;
+
+    if ( builder.status != string_builder_status_t::OK ) {
+        return builder.status == string_builder_status_t::OUTPUT_TRUNCATED
+            ? tool_status_t::CAPACITY_EXCEEDED
+            : tool_status_t::INTERNAL_ERROR;
     }
     EmitMessage(
         host,
-        3u,
-        ResourceCompilerText( "capabilities" ),
-        { details, capabilityFormat.cchWritten } );
+        sequence,
+        compiler.id,
+        StringBuilder_View( &builder ) );
     return tool_status_t::OK;
 }
 
@@ -1294,6 +1354,7 @@ CYPHER_NODISCARD tool_status_t ExecuteInspection(
     if ( StringView_Equals(
              arguments.pCommand->name,
              ResourceCompilerText( "list-compilers" ) ) ) {
+        usize nFormats = 0u;
         for ( usize iCompiler = 0u;
               iCompiler < pState->registry.nCount;
               ++iCompiler ) {
@@ -1302,26 +1363,41 @@ CYPHER_NODISCARD tool_status_t ExecuteInspection(
             if ( pCompiler == nullptr ) {
                 return tool_status_t::INTERNAL_ERROR;
             }
-            char details[512]{};
-            const string_format_result_t formatted = StringFormat_Printf(
-                details,
-                sizeof( details ),
-                "id=%.*s  type=%.*s  version=%u  output=%.*s",
-                static_cast<int>( pCompiler->id.cchLength ),
-                pCompiler->id.pData,
-                static_cast<int>( pCompiler->resourceType.cchLength ),
-                pCompiler->resourceType.pData,
-                pCompiler->nCompilerVersion,
-                static_cast<int>( pCompiler->cookedExtension.cchLength ),
-                pCompiler->cookedExtension.pData );
-            if ( formatted.status != string_format_status_t::OK ) {
+            nFormats += pCompiler->nSourceExtensions;
+        }
+
+        char heading[128]{};
+        const string_format_result_t headingFormat = StringFormat_Printf(
+            heading,
+            sizeof( heading ),
+            "%zu compiler modules, %zu source formats",
+            pState->registry.nCount,
+            nFormats );
+        if ( headingFormat.status != string_format_status_t::OK ) {
+            return tool_status_t::INTERNAL_ERROR;
+        }
+        EmitMessage(
+            host,
+            1u,
+            ResourceCompilerText( "REGISTERED COMPILERS" ),
+            { heading, headingFormat.cchWritten } );
+
+        for ( usize iCompiler = 0u;
+              iCompiler < pState->registry.nCount;
+              ++iCompiler ) {
+            const tool_compiler_desc_t *pCompiler =
+                ToolCompilerRegistry_At( &pState->registry, iCompiler );
+            if ( pCompiler == nullptr ) {
                 return tool_status_t::INTERNAL_ERROR;
             }
-            EmitMessage(
-                host,
-                iCompiler + 1u,
-                pCompiler->displayName,
-                { details, formatted.cchWritten } );
+            const tool_status_t descriptionStatus =
+                EmitCompilerDescription(
+                    *pCompiler,
+                    host,
+                    iCompiler + 2u );
+            if ( ToolStatus_Failed( descriptionStatus ) ) {
+                return descriptionStatus;
+            }
         }
         return tool_status_t::OK;
     }
@@ -1353,13 +1429,41 @@ CYPHER_NODISCARD tool_status_t ExecuteInspection(
                 arguments.pInputs[0] );
             return tool_status_t::NOT_FOUND;
         }
-        return EmitCompilerDescription( *pCompiler, host );
+        return EmitCompilerDescription( *pCompiler, host, 1u );
     }
 
     if ( StringView_Equals(
              arguments.pCommand->name,
              ResourceCompilerText( "list-formats" ) ) ) {
-        tool_sequence_t sequence = 1u;
+        usize nFormats = 0u;
+        for ( usize iCompiler = 0u;
+              iCompiler < pState->registry.nCount;
+              ++iCompiler ) {
+            const tool_compiler_desc_t *pCompiler =
+                ToolCompilerRegistry_At( &pState->registry, iCompiler );
+            if ( pCompiler == nullptr ) {
+                return tool_status_t::INTERNAL_ERROR;
+            }
+            nFormats += pCompiler->nSourceExtensions;
+        }
+
+        char heading[128]{};
+        const string_format_result_t headingFormat = StringFormat_Printf(
+            heading,
+            sizeof( heading ),
+            "%zu source formats backed by %zu compiler modules",
+            nFormats,
+            pState->registry.nCount );
+        if ( headingFormat.status != string_format_status_t::OK ) {
+            return tool_status_t::INTERNAL_ERROR;
+        }
+        EmitMessage(
+            host,
+            1u,
+            ResourceCompilerText( "REGISTERED FORMATS" ),
+            { heading, headingFormat.cchWritten } );
+
+        tool_sequence_t sequence = 2u;
         for ( usize iCompiler = 0u;
               iCompiler < pState->registry.nCount;
               ++iCompiler ) {
@@ -1371,27 +1475,37 @@ CYPHER_NODISCARD tool_status_t ExecuteInspection(
             for ( usize iExtension = 0u;
                   iExtension < pCompiler->nSourceExtensions;
                   ++iExtension ) {
-                char details[512]{};
-                const string_format_result_t formatted = StringFormat_Printf(
-                    details,
-                    sizeof( details ),
-                    "%.*s -> %.*s  compiler=%.*s  resource=%.*s",
+                char mapping[128]{};
+                const string_format_result_t mappingFormat = StringFormat_Printf(
+                    mapping,
+                    sizeof( mapping ),
+                    "%.*s -> %.*s",
                     static_cast<int>(
                         pCompiler->pSourceExtensions[iExtension].cchLength ),
                     pCompiler->pSourceExtensions[iExtension].pData,
                     static_cast<int>( pCompiler->cookedExtension.cchLength ),
-                    pCompiler->cookedExtension.pData,
+                    pCompiler->cookedExtension.pData );
+                if ( mappingFormat.status != string_format_status_t::OK ) {
+                    return tool_status_t::INTERNAL_ERROR;
+                }
+                char details[512]{};
+                const string_format_result_t formatted = StringFormat_Printf(
+                    details,
+                    sizeof( details ),
+                    "compiler=%.*s  resource=%.*s  api=%u  version=%u",
                     static_cast<int>( pCompiler->id.cchLength ),
                     pCompiler->id.pData,
                     static_cast<int>( pCompiler->resourceType.cchLength ),
-                    pCompiler->resourceType.pData );
+                    pCompiler->resourceType.pData,
+                    pCompiler->nApiVersion,
+                    pCompiler->nCompilerVersion );
                 if ( formatted.status != string_format_status_t::OK ) {
                     return tool_status_t::INTERNAL_ERROR;
                 }
                 EmitMessage(
                     host,
                     sequence++,
-                    ResourceCompilerText( "format" ),
+                    { mapping, mappingFormat.cchWritten },
                     { details, formatted.cchWritten } );
             }
         }
@@ -1742,6 +1856,9 @@ tool_exit_code_t CypherResourceCompiler_Run(
             &state.registry,
             CypherMaterialCompiler_Descriptor() );
     }
+    if ( ToolStatus_Succeeded( status ) ) {
+        status = BuildApplicationPresentation( &state );
+    }
     if ( ToolStatus_Failed( status ) ) {
         return ToolStatus_ExitCode( status );
     }
@@ -1754,11 +1871,11 @@ tool_exit_code_t CypherResourceCompiler_Run(
         &ResolveOutputPolicy,
         &Execute,
         &state,
-        &g_presentation
+        &state.presentation
     };
     tool_cli_run_options_t options{};
     options.output.flags = TOOL_OUTPUT_FLAG_COLOR;
-    options.bWriteStartup = CY_FALSE;
+    options.bWriteStartup = CY_TRUE;
     return ToolCliRunner_Run( runDesc, argc, pArgv, options );
 }
 

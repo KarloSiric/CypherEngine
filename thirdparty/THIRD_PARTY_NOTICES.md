@@ -28,6 +28,8 @@
 | Dear ImGui | `b48d1afbe8ee8b238e2961dc363a949dd7304e23` | `imgui/LICENSE.txt` |
 | cgltf | `85cd62382dfea638278962690cf515023f33ed00` | `cgltf/LICENSE` |
 | MikkTSpace | `3e895b49d05ea07e4c2133156cfa94369e19e409` | Notice in `mikktspace.h` |
+| Lucide icon subset | `86eb89c794cb941bf24eb16d5ef432faabaac7be` | `../src/CypherTools/Picasso/Resources/Icons/LUCIDE_LICENSE.txt` |
+| Material Symbols Rounded subset | `e083cc60a0828fdd3b404cea0cb8a5b900e9c23e` | `../src/CypherTools/Picasso/Resources/Icons/material/APACHE_LICENSE.txt` |
 
 ## vcpkg-managed inventory
 

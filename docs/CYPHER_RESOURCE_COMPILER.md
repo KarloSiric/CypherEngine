@@ -121,10 +121,11 @@ reported as if they worked.
 
 ## Terminal Presentation
 
-Root help contains the Cypher Engine ASCII identity, product version, copyright,
-and proprietary-license notice. Normal compilation omits the banner so repeated
-build logs begin directly with useful work. Help also contains commands,
-capabilities, the current format pipeline, examples, and the exit-code table.
+Root help contains the large Cypher Engine ASCII identity, product version,
+copyright, and proprietary-license notice. Normal compilation omits the banner
+so repeated build logs begin directly with useful work. Help builds its registered
+resource-type table from the live compiler registry, then presents commands,
+capabilities, current format pipelines, examples, and the exit-code table.
 Execution uses a fixed 32-cell progress bar with completed/total item counts,
 linked diagnostics, artifact paths, and one aggregate result summary with total
 time, succeeded, failed, skipped, diagnostic, cache, artifact, and I/O counters.
@@ -273,14 +274,16 @@ implementation, unit coverage, and process-level integration tests.
 The process smoke suite verifies branded and licensed root help, banner-free
 execution, exact version output, strict target values, live compiler and format
 discovery for shader, texture, and material modules, VFS directory and wildcard
-expansion, repeatable inputs, generated zsh
-completion, clean JSON records, plain and forced-color text, aggregate progress
+expansion, repeatable inputs, generated zsh completion, clean JSON records,
+plain and forced-color text, aggregate progress
 and summaries, dry-run behavior, deterministic repeated output, transactional
 cleanup, exact schema locations, material dependency dispatch, invalid GLSL
 diagnostics, and stable failure exit codes. Dedicated compiler tests import real
 PNG, JPEG, and EXR data and validate cooked material dependencies. A separate
 integration test recursively validates all 100 checked-in shader recipes through
-the real executable.
+the real executable. A focused output-contract test prevents help, compiler
+inspection, format inspection, and shell completion from drifting away from the
+live registry.
 
 ```sh
 cmake --build --preset asset-tools-debug --parallel

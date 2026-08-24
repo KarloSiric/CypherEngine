@@ -139,8 +139,8 @@ endfunction()
 # Product identity and discovery are process contracts, not decoration. Keep
 # these checks ahead of compilation so registry/help failures remain isolated.
 cypher_run_success(CYPHER_HELP --help)
-string(FIND "${CYPHER_HELP_STDOUT}" "C Y P H E R   R E S O U R C E" CYPHER_BANNER_INDEX)
-string(FIND "${CYPHER_HELP_STDOUT}" "OFFLINE ASSET TOOLCHAIN  |  1.0.0" CYPHER_BANNER_VERSION_INDEX)
+string(FIND "${CYPHER_HELP_STDOUT}" "________      ___    ___" CYPHER_BANNER_INDEX)
+string(FIND "${CYPHER_HELP_STDOUT}" "OFFLINE ASSET TOOLCHAIN  1.0.0" CYPHER_BANNER_VERSION_INDEX)
 string(FIND "${CYPHER_HELP_STDOUT}" "Copyright (c) 2026 Karlo Siric" CYPHER_COPYRIGHT_INDEX)
 string(FIND "${CYPHER_HELP_STDOUT}" "Proprietary and confidential" CYPHER_LICENSE_INDEX)
 string(FIND "${CYPHER_HELP_STDOUT}" "list-compilers" CYPHER_HELP_COMPILERS_INDEX)
@@ -221,9 +221,9 @@ if (NOT CYPHER_VERSION_TEXT STREQUAL "CypherResourceCompiler 1.0.0")
 endif()
 
 cypher_run_success(CYPHER_COMPILERS list-compilers --color never)
-string(FIND "${CYPHER_COMPILERS_STDOUT}" "id=cypher.shader" CYPHER_SHADER_COMPILER_INDEX)
-string(FIND "${CYPHER_COMPILERS_STDOUT}" "id=cypher.texture" CYPHER_TEXTURE_COMPILER_INDEX)
-string(FIND "${CYPHER_COMPILERS_STDOUT}" "id=cypher.material" CYPHER_MATERIAL_COMPILER_INDEX)
+string(FIND "${CYPHER_COMPILERS_STDOUT}" "cypher.shader" CYPHER_SHADER_COMPILER_INDEX)
+string(FIND "${CYPHER_COMPILERS_STDOUT}" "cypher.texture" CYPHER_TEXTURE_COMPILER_INDEX)
+string(FIND "${CYPHER_COMPILERS_STDOUT}" "cypher.material" CYPHER_MATERIAL_COMPILER_INDEX)
 if (CYPHER_SHADER_COMPILER_INDEX EQUAL -1 OR
     CYPHER_TEXTURE_COMPILER_INDEX EQUAL -1 OR
     CYPHER_MATERIAL_COMPILER_INDEX EQUAL -1)
@@ -250,7 +250,7 @@ cypher_run_success(CYPHER_COMPILER_DESCRIPTION
     describe-compiler --color never cypher.shader
 )
 string(FIND "${CYPHER_COMPILER_DESCRIPTION_STDOUT}" "deterministic=yes" CYPHER_DETERMINISTIC_INDEX)
-string(FIND "${CYPHER_COMPILER_DESCRIPTION_STDOUT}" "source-extensions" CYPHER_SOURCE_EXTENSIONS_INDEX)
+string(FIND "${CYPHER_COMPILER_DESCRIPTION_STDOUT}" "source=.cyshader" CYPHER_SOURCE_EXTENSIONS_INDEX)
 if (CYPHER_DETERMINISTIC_INDEX EQUAL -1 OR CYPHER_SOURCE_EXTENSIONS_INDEX EQUAL -1)
     message(FATAL_ERROR
         "Compiler description omitted capabilities or source extensions.\n"
@@ -343,11 +343,13 @@ string(FIND "${CYPHER_COMPILE_FIRST_STDOUT}" "[================================]
 string(FIND "${CYPHER_COMPILE_FIRST_STDOUT}" "RESULT  OK" CYPHER_RESULT_INDEX)
 string(FIND "${CYPHER_COMPILE_FIRST_STDOUT}" "Diagnostics" CYPHER_SUMMARY_INDEX)
 string(FIND "${CYPHER_COMPILE_FIRST_STDOUT}" "2 processed  |  2 succeeded  |  0 failed  |  0 skipped" CYPHER_TOTALS_INDEX)
-string(FIND "${CYPHER_COMPILE_FIRST_STDOUT}" "C Y P H E R   R E S O U R C E" CYPHER_EXECUTION_BANNER_INDEX)
+string(FIND "${CYPHER_COMPILE_FIRST_STDOUT}" "CypherResourceCompiler 1.0.0" CYPHER_EXECUTION_IDENTITY_INDEX)
+string(FIND "${CYPHER_COMPILE_FIRST_STDOUT}" "________      ___    ___" CYPHER_EXECUTION_BANNER_INDEX)
 if (CYPHER_PROGRESS_BAR_INDEX EQUAL -1 OR
     CYPHER_RESULT_INDEX EQUAL -1 OR
     CYPHER_SUMMARY_INDEX EQUAL -1 OR
     CYPHER_TOTALS_INDEX EQUAL -1 OR
+    CYPHER_EXECUTION_IDENTITY_INDEX EQUAL -1 OR
     NOT CYPHER_EXECUTION_BANNER_INDEX EQUAL -1)
     message(FATAL_ERROR
         "Text mode presentation, aggregate totals, or banner policy regressed.\n"

@@ -5,7 +5,7 @@
 //
 //  File: src/CypherTools/CypherTextureCompiler/CypherTextureCompiler.h
 //  Purpose: Declares the reusable compiler module for Cypher texture recipes.
-//  Details: The module imports PNG, JPEG, or EXR source images and emits one
+//  Details: The module imports PNG, JPEG, TGA, or EXR source images and emits one
 //           deterministic `.cytex_c` resource. It has no terminal, Qt, Mason,
 //           renderer, or native graphics API dependency.
 //
