@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Pair Template Definitions
+
+The pair stores two values directly and follows their copy, move, and destruction semantics
+without additional allocation. Template definitions remain in this file so each concrete
+instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_PAIR_INL
 #define CYPHER_COMMON_TIER1_PAIR_INL
 

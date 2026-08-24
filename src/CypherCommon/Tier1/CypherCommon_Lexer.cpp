@@ -68,6 +68,7 @@ static void Lexer_Advance( lexer_t *pLexer ) noexcept
 
     const char chCurrent = Lexer_ByteAt( *pLexer, pLexer->cursor.iByte );
     if ( chCurrent == '\r' ) {
+        // Treat CRLF as one logical newline while consuming both source bytes.
         ++pLexer->cursor.iByte;
         if ( Lexer_HasValidByteAt( *pLexer, pLexer->cursor.iByte ) &&
              Lexer_ByteAt( *pLexer, pLexer->cursor.iByte ) == '\n' ) {
@@ -118,6 +119,7 @@ static void Lexer_AdvanceUtf8Sequence(
         return;
     }
     pLexer->cursor.iByte += cBytes;
+    // Columns count user-visible code points here, not UTF-8 storage bytes.
     ++pLexer->cursor.nColumn;
 }
 
@@ -150,6 +152,7 @@ static void Lexer_WriteToken(
     }
 
     pTokenOut->kind = kind;
+    // Tokens borrow the original source; no scanner path allocates or decodes text.
     pTokenOut->lexeme = Lexer_SourceView( lexer, iBegin, lexer.cursor.iByte );
     pTokenOut->range = { begin, Lexer_CurrentLocation( lexer ) };
     pTokenOut->flags = flags;
@@ -169,6 +172,8 @@ static lexer_status_t Lexer_Fail(
     text_location_t errorLocation,
     token_t *pTokenOut ) noexcept
 {
+    // Lexical failures are sticky until Reset or Restore. This prevents callers
+    // from accidentally continuing with a cursor already inside malformed input.
     pLexer->status = status;
     pLexer->errorLocation = errorLocation;
     if ( pTokenOut != nullptr ) {
@@ -254,6 +259,8 @@ static usize Lexer_ValidUtf8SequenceLength( const lexer_t &lexer, usize iByte ) 
         }
     }
 
+    // Lead-specific second-byte bounds reject overlong forms, UTF-16 surrogates,
+    // and scalar values above U+10FFFF without constructing the full code point.
     const u8 second = static_cast<u8>( lexer.source.pData[iByte + 1u] );
     if ( ( lead == 0xE0u && second < 0xA0u ) ||
          ( lead == 0xEDu && second > 0x9Fu ) ||
@@ -337,7 +344,7 @@ static lexer_status_t Lexer_ScanBlockComment(
 {
     const usize iBegin = pLexer->cursor.iByte;
     const text_location_t begin = Lexer_CurrentLocation( *pLexer );
-    usize nDepth = 1u;
+    usize nDepth = 1u; // The opening delimiter establishes the first active level.
     Lexer_AdvanceBytes( pLexer, pLexer->rules.blockCommentBegin.cchLength );
 
     while ( !Lexer_IsAtEndInternal( *pLexer ) ) {
@@ -453,6 +460,8 @@ static lexer_status_t Lexer_ScanNumber(
     flags32_t tokenFlags = TOKEN_FLAG_NONE;
     bool_t bFloat = CY_FALSE;
 
+    // Scan lexical shape only. Numeric range and conversion are handled later by
+    // StringParse so this routine never performs floating-point arithmetic.
     if ( !Lexer_IsAtEndInternal( *pLexer ) ) {
         const char chSign = Lexer_ByteAt( *pLexer, pLexer->cursor.iByte );
         if ( chSign == '+' || chSign == '-' ) {
@@ -518,6 +527,8 @@ static lexer_status_t Lexer_ScanNumber(
                 Lexer_Advance( pLexer );
             }
 
+            // Prefixes require at least one base-valid digit. Separators may
+            // appear only between digits, never at either edge.
             if ( !bHasDigit || bPreviousSeparator ||
                  ( !Lexer_IsAtEndInternal( *pLexer ) &&
                    ( Char_IsAlphaNumericAscii( Lexer_ByteAt( *pLexer, pLexer->cursor.iByte ) ) ||
@@ -910,6 +921,8 @@ static lexer_status_t Lexer_ScanMultilineString(
     flags32_t tokenFlags = TOKEN_FLAG_QUOTED | TOKEN_FLAG_MULTILINE;
     Lexer_AdvanceBytes( pLexer, 3u );
 
+    // Multiline text begins on the line after the opening delimiter. Requiring
+    // this layout keeps indentation and closing-delimiter rules deterministic.
     if ( Lexer_IsAtEndInternal( *pLexer ) ||
          !Char_IsNewLineAscii(
              Lexer_ByteAt( *pLexer, pLexer->cursor.iByte ) ) ) {
@@ -935,6 +948,7 @@ static lexer_status_t Lexer_ScanMultilineString(
         }
 
         if ( Lexer_IsTripleQuoteAt( *pLexer, pLexer->cursor.iByte ) ) {
+            // A closing delimiter may be indented but must otherwise end its line.
             usize iAfter = pLexer->cursor.iByte + 3u;
             while ( iAfter < pLexer->source.cchLength &&
                     ( pLexer->source.pData[iAfter] == ' ' ||
@@ -1063,6 +1077,8 @@ static lexer_status_t Lexer_ScanPunctuation(
         }
     }
 
+    // Prefer the longest registered punctuation so "==" does not become two
+    // "=" tokens. Unregistered ASCII punctuation remains a one-byte token.
     if ( cBestMatch == 0u ) {
         cBestMatch = 1u;
     }
@@ -1346,6 +1362,8 @@ void Lexer_Restore( lexer_t *pLexer, lexer_checkpoint_t checkpoint ) noexcept
         return;
     }
 
+    // Restoring a checkpoint is also the explicit recovery operation for a
+    // sticky lexer error encountered during speculative parsing.
     pLexer->cursor = checkpoint;
     pLexer->status = lexer_status_t::OK;
     pLexer->errorLocation = Lexer_CurrentLocation( *pLexer );

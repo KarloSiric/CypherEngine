@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Memory Pool Implementation Notes
+
+Storage ownership remains with the configured backing allocator or buffer. Reset and release
+operations invalidate outstanding allocations according to the lifetime documented by the public
+API.
+================
+*/
+
 #include "CypherCommon_MemoryPool.h"
 
 namespace cypher::common
@@ -71,6 +81,8 @@ bool_t MemoryPool_Init(
         return CY_FALSE;
     }
 
+    // Free-list links live in each block, so backing alignment must satisfy both
+    // the requested payload and pointer-sized internal metadata.
     const usize nBackingAlignment = nAlignment < alignof( void * )
         ? alignof( void * )
         : nAlignment;
@@ -82,6 +94,7 @@ bool_t MemoryPool_Init(
         return CY_FALSE;
     }
 
+    // BlockMemory borrows this span; backing retains sole ownership for shutdown.
     const byte_span_t storage{
         static_cast<byte *>( pPool->backing.pData ),
         pPool->backing.cbSize
@@ -139,6 +152,7 @@ bool_t MemoryPool_IsValid( const memory_pool_t *pPool ) noexcept
         static_cast<byte *>( pPool->backing.pData ),
         pPool->backing.cbSize
     };
+    // Both bookkeeping and block payload must remain inside the owned allocation.
     return FixedMemory_ContainsRange(
                backingMemory,
                pPool->blocks.pOccupancyBits,

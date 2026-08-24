@@ -33,31 +33,31 @@ inline constexpr usize CY_KEY_VALUE_MAX_DEPTH = 512u;
 inline constexpr u32 CYKV_LANGUAGE_VERSION = 1u;
 
 enum class key_value_type_t : u8 {
-    NULL_VALUE = 0u,
-    BOOL,
-    I64,
-    U64,
-    F64,
-    STRING,
-    BINARY,
-    OBJECT,
-    ARRAY
+    NULL_VALUE = 0u, // Explicit null scalar.
+    BOOL,            // Boolean scalar.
+    I64,             // Signed integer scalar.
+    U64,             // Unsigned integer scalar.
+    F64,             // Double-precision scalar.
+    STRING,          // Owned UTF-8 byte string.
+    BINARY,          // Owned arbitrary byte range.
+    OBJECT,          // Named child collection.
+    ARRAY            // Ordered unnamed child collection.
 };
 
 struct key_value_t;
 struct key_value_document_t;
 
 struct key_value_document_header_t {
-    u32 nLanguageVersion{ 0u };
-    string_view_t schemaId{};
-    u32 nSchemaVersion{ 0u };
+    u32 nLanguageVersion{ 0u }; // CYKV grammar revision.
+    string_view_t schemaId{};   // Logical schema family identifier.
+    u32 nSchemaVersion{ 0u };   // Schema contract revision.
 };
 
 struct key_value_document_desc_t {
-    const allocator_t *pAllocator{ nullptr };
-    usize nInitialNodes{ 128u };
-    usize cbInitialStrings{ 8u * CY_KIB };
-    bool_t bCaseInsensitiveKeys{ CY_FALSE };
+    const allocator_t *pAllocator{ nullptr }; // Owns nodes and copied data.
+    usize nInitialNodes{ 128u };               // First node-arena capacity.
+    usize cbInitialStrings{ 8u * CY_KIB };     // First data-arena capacity.
+    bool_t bCaseInsensitiveKeys{ CY_FALSE };   // Fold ASCII object keys during lookup.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

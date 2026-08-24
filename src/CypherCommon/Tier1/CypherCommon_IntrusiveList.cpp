@@ -45,6 +45,8 @@ void InsertBetween(
     intrusive_list_node_t *pNext,
     intrusive_list_node_t *pNode ) noexcept
 {
+    // Nodes carry their links and owner; insertion performs no allocation and
+    // ownership prevents one node from being linked into two lists at once.
     pNode->pPrevious = pPrevious;
     pNode->pNext = pNext;
     pNode->pOwner = pList;
@@ -64,6 +66,7 @@ void IntrusiveList_Init( intrusive_list_t *pList ) noexcept
     if ( ListIsInitialized( pList ) ) {
         IntrusiveList_Clear( pList );
     }
+    // The sentinel points to itself when empty, eliminating null endpoint cases.
     pList->root.pPrevious = &pList->root;
     pList->root.pNext = &pList->root;
     pList->root.pOwner = pList;
@@ -81,6 +84,7 @@ void IntrusiveList_Clear( intrusive_list_t *pList ) noexcept
     intrusive_list_node_t *pNode = pList->root.pNext;
     while ( pNode != &pList->root ) {
         intrusive_list_node_t *pNext = pNode->pNext;
+        // Clearing detaches nodes but never destroys their containing objects.
         *pNode = {};
         pNode = pNext;
     }
@@ -152,6 +156,7 @@ void IntrusiveList_Remove(
         return;
     }
 
+    // Repair neighbors before clearing the node's own links.
     pNode->pPrevious->pNext = pNode->pNext;
     pNode->pNext->pPrevious = pNode->pPrevious;
     *pNode = {};

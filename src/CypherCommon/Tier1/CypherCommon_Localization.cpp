@@ -26,20 +26,20 @@ namespace
 {
 
 struct owned_localization_entry_t {
-    localized_string_id_t id{ 0u };
-    char *pKey{ nullptr };
-    usize cchKey{ 0u };
-    char *pText{ nullptr };
-    usize cchText{ 0u };
+    localized_string_id_t id{ 0u }; // Stable FNV key handle; collisions remain possible.
+    char *pKey{ nullptr };           // Catalog-owned exact collision-check key.
+    usize cchKey{ 0u };              // Key bytes excluding NUL.
+    char *pText{ nullptr };          // Catalog-owned localized format text.
+    usize cchText{ 0u };             // Text bytes excluding NUL.
 };
 
 struct localization_catalog_storage_t {
-    const allocator_t *pAllocator{ nullptr };
-    char *pLocaleTag{ nullptr };
-    usize cchLocaleTag{ 0u };
-    owned_localization_entry_t *pEntries{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
+    const allocator_t *pAllocator{ nullptr }; // Owns catalog, entries, keys, and text.
+    char *pLocaleTag{ nullptr };              // Owned BCP 47-style locale label.
+    usize cchLocaleTag{ 0u };                 // Locale bytes excluding NUL.
+    owned_localization_entry_t *pEntries{ nullptr }; // Dense insertion-order table.
+    usize nCount{ 0u };                       // Initialized entries.
+    usize nCapacity{ 0u };                    // Allocated entry slots.
 };
 
 static_assert(
@@ -292,6 +292,7 @@ bool_t Localization_Add(
     localization_catalog_storage_t &catalog = *CatalogStorage( pCatalog );
     const usize iExisting = FindKeyIndex( catalog, key );
     if ( iExisting != CY_INVALID_SIZE ) {
+        // Copy first so allocation failure leaves the existing translation intact.
         char *pNewText = nullptr;
         if ( !CopyView( catalog.pAllocator, text, &pNewText ) ) {
             return CY_FALSE;
@@ -349,6 +350,8 @@ string_view_t Localization_Find(
     const owned_localization_entry_t *pMatch = nullptr;
     for ( usize iEntry = 0u; iEntry < catalog.nCount; ++iEntry ) {
         if ( catalog.pEntries[iEntry].id == id ) {
+            // IDs are hashes, not proof of identity. An ambiguous collision must
+            // be resolved by key lookup instead of returning arbitrary text.
             if ( pMatch != nullptr ) {
                 return {};
             }
@@ -406,9 +409,13 @@ usize Localization_Format(
         return 0u;
     }
 
+    // Formatting is one bounded pass. cchRequired keeps growing after output
+    // truncation so callers can query and allocate the exact result size.
     usize cchRequired = 0u;
     usize cchWritten = 0u;
     for ( usize iByte = 0u; iByte < format.cchLength; ) {
+        // Doubled braces escape a literal delimiter; a single {name} performs
+        // exact named substitution when that argument exists.
         if ( format.pData[iByte] == '{' &&
              iByte + 1u < format.cchLength &&
              format.pData[iByte + 1u] == '{' ) {

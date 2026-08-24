@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Range Contract
+
+This is a non-owning range. The caller keeps the referenced storage alive, and all slicing or
+indexing operations validate the reported extent before pointer arithmetic.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_RANGE_H
 #define CYPHER_COMMON_TIER1_RANGE_H
 #ifndef PRAGMA_ONCE
@@ -27,19 +36,19 @@ namespace cypher::common
 {
 
 struct index_range_t {
-    usize iFirst{ 0u };
-    usize nCount{ 0u };
+    usize iFirst{ 0u }; // Inclusive first element index.
+    usize nCount{ 0u }; // Number of elements in the half-open range.
 };
 
 struct byte_range_t {
-    usize iOffset{ 0u };
-    usize cbSize{ 0u };
+    usize iOffset{ 0u }; // Inclusive first byte offset.
+    usize cbSize{ 0u };  // Number of bytes in the half-open range.
 };
 
 template <typename type_t>
 struct value_range_t {
-    type_t minValue{};
-    type_t maxValue{};
+    type_t minValue{}; // Inclusive lower bound.
+    type_t maxValue{}; // Inclusive upper bound.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

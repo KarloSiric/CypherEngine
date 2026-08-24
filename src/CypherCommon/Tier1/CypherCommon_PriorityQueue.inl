@@ -52,6 +52,8 @@ void PriorityQueue_SiftUp(
     priority_queue_t<type_t, compare_t> *pQueue,
     usize iChild ) noexcept
 {
+    // compare(parent, child) means the child has higher priority. Swap upward
+    // until the parent already dominates or the root is reached.
     while ( iChild > 0u ) {
         const usize iParent = ( iChild - 1u ) / 2u;
         if ( !pQueue->compare(
@@ -75,6 +77,8 @@ void PriorityQueue_SiftDown(
     while ( iParent < nCount / 2u ) {
         const usize iLeft = iParent * 2u + 1u;
         const usize iRight = iLeft + 1u;
+        // Select the higher-priority child before comparing it with the parent;
+        // restoring only one branch is sufficient after removing the root.
         usize iPreferred = iLeft;
         if ( iRight < nCount &&
              pQueue->compare(
@@ -156,6 +160,7 @@ bool_t PriorityQueue_Push(
 {
     const bool_t bValidQueue = PriorityQueue_IsValid( pQueue );
     CY_ASSERT_MSG( bValidQueue, "PriorityQueue_Push requires a valid queue." );
+    // Grow and construct first. Allocation failure leaves the existing heap untouched.
     if ( !bValidQueue || !Vector_PushBack( &pQueue->storage, value ) ) {
         return CY_FALSE;
     }
@@ -188,6 +193,8 @@ bool_t PriorityQueue_Pop(
         return CY_TRUE;
     }
 
+    // Move the final leaf into the root hole, remove the duplicate tail object,
+    // then restore heap order downward.
     pQueue->storage.pData[0] =
         static_cast<type_t &&>( pQueue->storage.pData[iLast] );
     Vector_PopBack( &pQueue->storage );

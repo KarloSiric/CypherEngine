@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Range Template Definitions
+
+This is a non-owning range. The caller keeps the referenced storage alive, and all slicing or
+indexing operations validate the reported extent before pointer arithmetic. Template definitions
+remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_RANGE_INL
 #define CYPHER_COMMON_TIER1_RANGE_INL
 
@@ -47,6 +57,7 @@ constexpr bool_t ValueRange_Contains(
         return CY_FALSE;
     }
 
+    // Value ranges are closed at both endpoints, unlike index/byte ranges.
     return value >= range.minValue &&
            value <= range.maxValue;
 }

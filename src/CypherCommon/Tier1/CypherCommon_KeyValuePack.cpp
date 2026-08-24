@@ -37,27 +37,27 @@ inline constexpr u32 CY_KEY_VALUE_PACK_RECORD_SIZE = 32u;
 inline constexpr u32 CY_KEY_VALUE_PACK_FLAGS = 0u;
 
 struct pack_totals_t {
-    usize nNodes{ 0u };
-    usize cbData{ 0u };
-    usize cbRequired{ 0u };
+    usize nNodes{ 0u };     // Number of preorder records in the packed tree.
+    usize cbData{ 0u };     // Aggregate bytes occupied by names and byte values.
+    usize cbRequired{ 0u }; // Complete header, record, and payload byte count.
 };
 
 struct packed_record_t {
-    key_value_type_t type{ key_value_type_t::NULL_VALUE };
-    u32 nChildren{ 0u };
-    usize cchName{ 0u };
-    usize cbValue{ 0u };
-    u64 nScalarBits{ 0u };
-    binary_block_t name{};
-    binary_block_t value{};
+    key_value_type_t type{ key_value_type_t::NULL_VALUE }; // Serialized value tag.
+    u32 nChildren{ 0u };       // Immediate child count for preorder reconstruction.
+    usize cchName{ 0u };       // Object member name bytes following the record.
+    usize cbValue{ 0u };       // String or binary payload bytes following the name.
+    u64 nScalarBits{ 0u };     // Exact bool, integer, or floating-point bit pattern.
+    binary_block_t name{};     // Borrowed view into the packed input buffer.
+    binary_block_t value{};    // Borrowed view into the packed input buffer.
 };
 
 struct validate_context_t {
-    byte_reader_t reader{};
-    key_value_pack_limits_t limits{};
-    usize nNodes{ 0u };
-    usize cbData{ 0u };
-    bool_t bLimitExceeded{ CY_FALSE };
+    byte_reader_t reader{};                 // Independent first-pass stream cursor.
+    key_value_pack_limits_t limits{};       // Caller-enforced denial-of-service bounds.
+    usize nNodes{ 0u };                     // Records accepted during validation.
+    usize cbData{ 0u };                     // Name and payload bytes accepted so far.
+    bool_t bLimitExceeded{ CY_FALSE };       // Distinguishes policy rejection from corruption.
 };
 
 CYPHER_NODISCARD bool_t IsValidType( key_value_type_t type ) noexcept
@@ -86,6 +86,8 @@ CYPHER_NODISCARD bool_t CollectTotals(
     pack_totals_t &totals ) noexcept
 {
     if ( !KeyValue_InternalTreeIsValid( pRoot ) ) return CY_FALSE;
+    // Records use depth-first preorder. nChildren is sufficient to reconstruct
+    // the exact tree, so no native pointers or byte offsets enter the format.
     const key_value_t *pNode = pRoot;
     while ( pNode != nullptr ) {
         if ( totals.nNodes == CY_USIZE_MAX ||
@@ -187,6 +189,7 @@ CYPHER_NODISCARD bool_t ReadRecord(
          cchName > CY_USIZE_MAX || cbValue > CY_USIZE_MAX ) {
         return CY_FALSE;
     }
+    // Fixed-width fields are validated before narrowing them to host usize.
     record.type = static_cast<key_value_type_t>( nType );
     record.nChildren = nChildren;
     record.cchName = static_cast<usize>( cchName );
@@ -216,6 +219,8 @@ CYPHER_NODISCARD bool_t RecordShapeIsValid(
            record.cchName != 0u ) ) {
         return CY_FALSE;
     }
+    // Each type has one legal payload shape. Rejecting unused bits keeps the
+    // format canonical and catches malformed or future-version records early.
     if ( IsContainer( record.type ) ) {
         return record.cbValue == 0u && record.nScalarBits == 0u;
     }
@@ -264,6 +269,7 @@ CYPHER_NODISCARD bool_t ValidateNode(
         context.bLimitExceeded = CY_TRUE;
         return CY_FALSE;
     }
+    // Recursion follows the preorder child count without allocating any nodes.
     for ( u32 iChild = 0u; iChild < record.nChildren; ++iChild ) {
         if ( !ValidateNode(
                  context,
@@ -338,6 +344,7 @@ CYPHER_NODISCARD bool_t ConstructNode(
     packed_record_t record{};
     if ( !ReadRecord( reader, record ) ) return CY_FALSE;
 
+    // The second pass now operates on a stream already proven structurally safe.
     key_value_t *pValue = nullptr;
     if ( bRoot ) {
         pValue = KeyValue_Root( pDocument );
@@ -401,6 +408,8 @@ key_value_pack_result_t KeyValuePack_Write(
         return result;
     }
 
+    // The header carries enough totals for a reader to reject hostile sizes
+    // before it allocates the destination document.
     byte_writer_t writer{};
     if ( !ByteWriter_Init(
              &writer,
@@ -502,6 +511,8 @@ key_value_pack_result_t KeyValuePack_Read(
         return result;
     }
 
+    // Pass one consumes the complete stream and validates limits without
+    // changing pDocument. Only a fully valid stream reaches construction.
     validate_context_t validation{};
     validation.reader = headerReader;
     validation.limits = limits;
@@ -520,6 +531,8 @@ key_value_pack_result_t KeyValuePack_Read(
         return result;
     }
 
+    // Build into a sibling document and commit by moving its contents. Allocation
+    // failure therefore leaves the caller's previous document untouched.
     key_value_document_t *pTemporary = KeyValue_InternalCreateLike( pDocument );
     if ( pTemporary == nullptr ) {
         result.status = key_value_pack_status_t::OUT_OF_MEMORY;

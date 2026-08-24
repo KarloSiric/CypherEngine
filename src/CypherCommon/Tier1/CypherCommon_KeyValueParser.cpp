@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Key Value Parser Implementation Notes
+
+Parses bounded UTF-8 source into caller-owned CYKV storage. Source offsets and diagnostics must
+continue to refer to the original input, and malformed text must not escape as a usable partial
+document.
+================
+*/
+
 #include "CypherCommon_KeyValueParserInternal.h"
 
 #include "CypherCommon_Char.h"
@@ -35,31 +45,31 @@ constexpr flags32_t CY_KEY_VALUE_PARSE_VALID_FLAGS =
     KEY_VALUE_PARSE_FLAG_ALLOW_TRAILING_COMMA |
     KEY_VALUE_PARSE_FLAG_ALLOW_UNQUOTED_KEYS |
     KEY_VALUE_PARSE_FLAG_REJECT_DUPLICATE_KEYS |
-    KEY_VALUE_PARSE_FLAG_ALLOW_ROOT_VALUE;
+    KEY_VALUE_PARSE_FLAG_ALLOW_ROOT_VALUE; // Reject unknown option bits at the public boundary.
 
 constexpr flags32_t CY_KEY_VALUE_ESCAPE_FLAGS =
     STRING_ESCAPE_FLAG_QUOTES |
     STRING_ESCAPE_FLAG_BACKSLASH |
     STRING_ESCAPE_FLAG_CONTROL_CHARS |
     STRING_ESCAPE_FLAG_NON_ASCII |
-    STRING_ESCAPE_FLAG_PATH_SLASHES;
+    STRING_ESCAPE_FLAG_PATH_SLASHES; // Complete escape vocabulary accepted by CYKV strings.
 
 struct decoded_text_t {
-    string_view_t text{};
-    char *pAllocation{ nullptr };
-    usize cbAllocation{ 0u };
+    string_view_t text{};         // Decoded view; may borrow the token or pAllocation.
+    char *pAllocation{ nullptr }; // Temporary allocator-owned decoding storage.
+    usize cbAllocation{ 0u };     // Exact byte count needed when releasing storage.
 };
 
 struct parser_t {
-    lexer_t lexer{};
-    token_t token{};
-    key_value_parse_options_t options{};
-    key_value_document_t *pDocument{ nullptr };
-    key_value_parse_result_t result{};
-    usize iPreviousTokenEnd{ 0u };
-    bool_t bStrictJson{ CY_FALSE };
-    bool_t bAtEnd{ CY_FALSE };
-    bool_t bHasToken{ CY_FALSE };
+    lexer_t lexer{};                       // Lexer and source cursor owned by this parse.
+    token_t token{};                       // Current token supplied to recursive productions.
+    key_value_parse_options_t options{};   // Caller limits and accepted syntax extensions.
+    key_value_document_t *pDocument{ nullptr }; // Temporary document under construction.
+    key_value_parse_result_t result{};     // Sticky first error plus resource counters.
+    usize iPreviousTokenEnd{ 0u };         // Detects required CYKV whitespace between members.
+    bool_t bStrictJson{ CY_FALSE };         // Selects JSON grammar instead of CYKV grammar.
+    bool_t bAtEnd{ CY_FALSE };              // Lexer has emitted its terminal state.
+    bool_t bHasToken{ CY_FALSE };           // token contains a current lexical item.
 };
 
 CYPHER_NODISCARD bool_t HasFlag(
@@ -74,6 +84,7 @@ void Fail(
     key_value_parse_status_t status,
     text_location_t location ) noexcept
 {
+    // Diagnostics are first-failure wins; later cleanup must not hide the cause.
     if ( parser.result.status == key_value_parse_status_t::OK ) {
         parser.result.status = status;
         parser.result.errorLocation = location;
@@ -89,6 +100,7 @@ void FailCurrent(
 
 CYPHER_NODISCARD bool_t Advance( parser_t &parser ) noexcept
 {
+    // Preserve the end of the previous token before replacing the current one.
     if ( parser.bHasToken ) {
         parser.iPreviousTokenEnd = parser.token.range.end.iByte;
     }
@@ -156,6 +168,7 @@ CYPHER_NODISCARD text_location_t SourceLocationAt(
     location.nLine = 1u;
     location.nColumn = 1u;
 
+    // Columns count decoded scalars, while iByte remains an exact source offset.
     usize iByte = 0u;
     while ( iByte < iTarget && iByte < text.cchLength ) {
         const char ch = text.pData[iByte];
@@ -193,6 +206,7 @@ CYPHER_NODISCARD bool_t ValidateSourceEncoding(
     parser_t &parser,
     string_view_t text ) noexcept
 {
+    // CYKV is normalized UTF-8 text: embedded NUL and lone CR are forbidden.
     const unicode_result_t utf8 = Unicode_ValidateUtf8( text );
     if ( utf8.status != unicode_status_t::OK ) {
         Fail(
@@ -227,6 +241,7 @@ CYPHER_NODISCARD bool_t IsSchemaId( string_view_t schemaId ) noexcept
         return CY_FALSE;
     }
 
+    // Schema IDs use lower-case dotted components: "cypher.shader", for example.
     bool_t bAtComponentStart = CY_TRUE;
     bool_t bSawDot = CY_FALSE;
     for ( usize iByte = 0u; iByte < schemaId.cchLength; ++iByte ) {
@@ -280,6 +295,7 @@ CYPHER_NODISCARD bool_t IsStrictJsonNumber( string_view_t text ) noexcept
     if ( !StringView_IsValid( text ) || text.cchLength == 0u ) {
         return CY_FALSE;
     }
+    // Validate JSON's decimal grammar directly; the generic parser accepts CYKV extensions.
     usize iByte = 0u;
     if ( text.pData[iByte] == '-' ) {
         if ( ++iByte == text.cchLength ) return CY_FALSE;
@@ -317,6 +333,7 @@ CYPHER_NODISCARD bool_t IsStrictJsonNumber( string_view_t text ) noexcept
 CYPHER_NODISCARD bool_t CykvEscapeSpellingIsValid(
     string_view_t encoded ) noexcept
 {
+    // Reject unknown escapes before the shared decoder normalizes their spelling.
     usize iByte = 0u;
     while ( iByte < encoded.cchLength ) {
         if ( encoded.pData[iByte] != '\\' ) {
@@ -386,6 +403,7 @@ CYPHER_NODISCARD bool_t NormalizeMultilineText(
         return CY_FALSE;
     }
 
+    // Triple-quoted content starts on the line after the opening delimiter.
     const string_view_t raw{
         token.lexeme.pData + 3u,
         token.lexeme.cchLength - 6u
@@ -400,6 +418,7 @@ CYPHER_NODISCARD bool_t NormalizeMultilineText(
         return CY_FALSE;
     }
 
+    // The indentation before the closing delimiter defines the common margin.
     usize iClosingLine = iContentBegin;
     for ( usize iByte = iContentBegin; iByte < raw.cchLength; ++iByte ) {
         if ( raw.pData[iByte] == '\n' ) {
@@ -442,6 +461,7 @@ CYPHER_NODISCARD bool_t NormalizeMultilineText(
         return CY_FALSE;
     }
 
+    // Strip that margin line-by-line and canonicalize every newline to '\n'.
     usize cchWritten = 0u;
     usize iLine = iContentBegin;
     while ( iLine < iContentEnd ) {
@@ -547,6 +567,7 @@ CYPHER_NODISCARD bool_t DecodeTokenText(
     const string_escape_style_t style = parser.bStrictJson
         ? string_escape_style_t::JSON
         : string_escape_style_t::CYPHER;
+    // Decode in two passes so allocation is exact and failure leaves no partial value.
     const string_escape_result_t measured = StringEscape_Decode(
         encoded,
         style,
@@ -621,6 +642,7 @@ CYPHER_NODISCARD bool_t ParseDocumentHeader(
     parser_t &parser,
     string_view_t source ) noexcept
 {
+    // Every authored CYKV document starts with language and schema directives.
     if ( source.cchLength == 0u || source.pData[0] != '@' ||
          !Advance( parser ) || !IsPunctuation( parser, '@' ) ) {
         if ( parser.result.status == key_value_parse_status_t::OK ) {
@@ -701,6 +723,7 @@ CYPHER_NODISCARD bool_t ParseDocumentHeader(
         return CY_FALSE;
     }
 
+    // Newlines are grammar tokens only while parsing the two-line header.
     parser.lexer.rules.flags &= ~static_cast<flags32_t>(
         LEXER_FLAG_EMIT_NEWLINES );
     if ( HasFlag( parser, KEY_VALUE_PARSE_FLAG_ALLOW_COMMENTS ) ) {
@@ -713,6 +736,7 @@ CYPHER_NODISCARD bool_t ParseDocumentHeader(
 
 CYPHER_NODISCARD bool_t CheckLimits( parser_t &parser ) noexcept
 {
+    // Limits are rechecked after every mutation because strings and nodes are cumulative.
     parser.result.nNodesParsed = KeyValue_InternalNodeCount( parser.pDocument );
     parser.result.cbStringData = KeyValue_InternalDataSize( parser.pDocument );
     if ( parser.result.nNodesParsed > parser.options.nMaxNodes ) {
@@ -752,6 +776,7 @@ CYPHER_NODISCARD bool_t ParseObject(
         return Advance( parser );
     }
 
+    // Each pass consumes one name/value pair and leaves token at '}' or the next name.
     while ( !parser.bAtEnd ) {
         decoded_text_t decodedName{};
         string_view_t name{};
@@ -771,6 +796,7 @@ CYPHER_NODISCARD bool_t ParseObject(
             return CY_FALSE;
         }
 
+        // Duplicate rejection happens before insertion so the object remains unchanged.
         if ( ( !parser.bStrictJson ||
                HasFlag(
                    parser,
@@ -820,6 +846,7 @@ CYPHER_NODISCARD bool_t ParseObject(
         if ( IsPunctuation( parser, '}' ) ) {
             return Advance( parser );
         }
+        // CYKV separates members with trivia; strict JSON requires an explicit comma.
         if ( !parser.bStrictJson ) {
             if ( !HasTriviaBeforeCurrent( parser ) ) {
                 FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
@@ -865,6 +892,7 @@ CYPHER_NODISCARD bool_t ParseArray(
     }
     if ( IsPunctuation( parser, ']' ) ) return Advance( parser );
 
+    // Arrays always use commas, including CYKV; the option only permits a final comma.
     while ( !parser.bAtEnd ) {
         if ( KeyValue_InternalNodeCount( parser.pDocument ) >=
              parser.options.nMaxNodes ) {
@@ -943,6 +971,7 @@ CYPHER_NODISCARD bool_t ParseBinaryValue(
             FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
         return CY_FALSE;
     }
+    // Binary literals are decoded into temporary bytes, then copied into document storage.
     const string_convert_result_t measured = StringConvert_HexToBinary(
         decoded.text,
         nullptr,
@@ -1003,6 +1032,7 @@ CYPHER_NODISCARD bool_t CykvNumberSyntaxIsValid(
         return CY_FALSE;
     }
 
+    // CYKV uses a trailing 'u'; strip it before validating the numeric body.
     if ( ( token.flags & TOKEN_FLAG_UNSIGNED ) != 0u ) {
         if ( text.pData[text.cchLength - 1u] != 'u' ) {
             return CY_FALSE;
@@ -1022,6 +1052,7 @@ CYPHER_NODISCARD bool_t CykvNumberSyntaxIsValid(
         return CY_FALSE;
     }
 
+    // Integer and floating spellings have different leading-zero and suffix rules.
     if ( token.kind == token_kind_t::INTEGER ) {
         if ( ( token.flags & TOKEN_FLAG_BASE_PREFIX ) != 0u ) {
             return iByte + 2u < text.cchLength &&
@@ -1176,6 +1207,7 @@ CYPHER_NODISCARD bool_t ParseNumber(
         return CY_FALSE;
     }
 
+    // Token flags select the narrowest lossless scalar representation in the document.
     bool_t bSet = CY_FALSE;
     if ( parser.token.kind == token_kind_t::FLOAT ) {
         decoded_text_t normalized{};
@@ -1255,6 +1287,7 @@ bool_t ParseValue(
     key_value_t *pValue,
     usize nDepth ) noexcept
 {
+    // Recursive descent dispatches on punctuation first, then scalar token spelling.
     if ( parser.bAtEnd ) {
         FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
         return CY_FALSE;
@@ -1339,6 +1372,7 @@ key_value_parse_result_t KeyValue_InternalParseText(
         return invalid;
     }
 
+    // Build transactionally: only a fully valid temporary tree replaces the destination.
     key_value_document_t *pTemporary = KeyValue_InternalCreateLike( pDocument );
     if ( pTemporary == nullptr ) {
         invalid.status = key_value_parse_status_t::OUT_OF_MEMORY;

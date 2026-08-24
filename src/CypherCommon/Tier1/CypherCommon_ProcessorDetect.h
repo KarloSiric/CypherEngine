@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Processor Detect Contract
+
+Processor facts are descriptive capabilities, not permission to execute an instruction. Runtime
+dispatch must also respect operating-system support and the compiled code path.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_PROCESSORDETECT_H
 #define CYPHER_COMMON_TIER1_PROCESSORDETECT_H
 #ifndef PRAGMA_ONCE

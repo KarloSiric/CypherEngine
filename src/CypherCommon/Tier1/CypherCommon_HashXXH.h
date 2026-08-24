@@ -28,8 +28,8 @@ namespace cypher::common
 {
 
 struct hash128_t {
-    u64 low{ 0u };
-    u64 high{ 0u };
+    u64 low{ 0u };  // Low half in xxHash's canonical numeric order.
+    u64 high{ 0u }; // High half in xxHash's canonical numeric order.
 };
 
 // Opaque storage for the pinned xxHash streaming state. Third-party types remain
@@ -38,8 +38,8 @@ inline constexpr usize CY_XXH3_STREAM_STORAGE_SIZE = 640u;
 inline constexpr usize CY_XXH3_STREAM_STORAGE_ALIGNMENT = 64u;
 
 enum class hash_xxh3_stream_mode_t : u8 {
-    HASH_64 = 0u,
-    HASH_128
+    HASH_64 = 0u, // Produce an XXH3 64-bit digest.
+    HASH_128      // Produce an XXH3 128-bit digest.
 };
 
 struct hash_xxh3_stream_t {
@@ -47,10 +47,10 @@ struct hash_xxh3_stream_t {
     CYPHER_NO_COPY_MOVE( hash_xxh3_stream_t );
 
     alignas( CY_XXH3_STREAM_STORAGE_ALIGNMENT )
-        byte storage[CY_XXH3_STREAM_STORAGE_SIZE]{};
-    hash64_t seed{ 0u };
-    hash_xxh3_stream_mode_t mode{ hash_xxh3_stream_mode_t::HASH_64 };
-    bool_t bInitialized{ CY_FALSE };
+        byte storage[CY_XXH3_STREAM_STORAGE_SIZE]{}; // Opaque pinned xxHash state.
+    hash64_t seed{ 0u };                            // Seed restored by StreamReset.
+    hash_xxh3_stream_mode_t mode{ hash_xxh3_stream_mode_t::HASH_64 }; // Digest width.
+    bool_t bInitialized{ CY_FALSE };                 // State has accepted initialization.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

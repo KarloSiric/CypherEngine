@@ -39,7 +39,7 @@ namespace cypher::common
 namespace detail
 {
 
-inline constexpr usize CY_HASH_TABLE_MIN_CAPACITY = 8u;
+inline constexpr usize CY_HASH_TABLE_MIN_CAPACITY = 8u; // First power-of-two table size.
 
 template <typename key_t, typename value_t>
 CYPHER_NODISCARD key_t *HashTable_SlotKeyUnchecked(
@@ -138,6 +138,7 @@ CYPHER_NODISCARD constexpr usize HashTable_ProbeDistance(
     hash64_t hash,
     usize nCapacity ) noexcept
 {
+    // Power-of-two capacity permits both home placement and wrap with a mask.
     const usize iHome = static_cast<usize>( hash ) & ( nCapacity - 1u );
     return ( iSlot - iHome ) & ( nCapacity - 1u );
 }
@@ -145,6 +146,7 @@ CYPHER_NODISCARD constexpr usize HashTable_ProbeDistance(
 CYPHER_NODISCARD constexpr usize HashTable_MaxElementCount(
     usize nCapacity ) noexcept
 {
+    // Keep at least 20 percent of slots empty to bound Robin Hood probe chains.
     return ( nCapacity / 5u ) * 4u +
            ( ( nCapacity % 5u ) * 4u ) / 5u;
 }
@@ -235,6 +237,8 @@ CYPHER_NODISCARD value_t *HashTable_InsertPrepared(
         std::is_nothrow_swappable_v<value_t>,
         "HashTable values must support nothrow movement and swapping." );
 
+    // The pending pair walks forward until it finds an empty slot. Robin Hood
+    // swaps let the entry farther from home take the earlier position.
     key_t pendingKey( static_cast<key_t &&>( key ) );
     value_t pendingValue( static_cast<value_t &&>( value ) );
     hash64_t pendingHash = hash;
@@ -296,6 +300,8 @@ CYPHER_NODISCARD usize HashTable_FindSlotIndex(
 
         const usize nResidentDistance =
             HashTable_ProbeDistance( iSlot, pSlot->hash, table.nCapacity );
+        // Probe distances cannot decrease past the key's possible position in
+        // a Robin Hood cluster; this permits an early unsuccessful lookup.
         if ( nResidentDistance < nProbeDistance ) {
             return CY_USIZE_MAX;
         }
@@ -324,6 +330,7 @@ CYPHER_NODISCARD bool_t HashTable_Rehash(
         return CY_FALSE;
     }
 
+    // Reinsert because every element's home slot depends on the capacity mask.
     for ( usize iSlot = 0u; iSlot < pTable->nCapacity; ++iSlot ) {
         slot_t *pOldSlot = pTable->pSlots + iSlot;
         if ( pOldSlot->state != hash_slot_state_t::OCCUPIED ) {
@@ -586,6 +593,8 @@ hash_table_insert_result_t<value_t> HashTable_Insert(
         };
     }
 
+    // Materialize arguments before reserve because either reference may alias
+    // an object stored in the table that rehashing will move.
     key_t keyCopy( key );
     value_t valueCopy( value );
     if ( !detail::HashTable_EnsureInsertCapacity( pTable ) ) {
@@ -669,6 +678,8 @@ bool_t HashTable_Erase(
     }
 
     detail::HashTable_DestroySlot( pTable->pSlots + iVacant );
+    // Pull the remainder of this cluster backward until an empty slot or an
+    // entry already in its home slot is reached. This avoids tombstones.
     usize iNext = ( iVacant + 1u ) & ( pTable->nCapacity - 1u );
     while ( pTable->pSlots[iNext].state == hash_slot_state_t::OCCUPIED ) {
         const usize nDistance = detail::HashTable_ProbeDistance(

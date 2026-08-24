@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Name Service Address Contract
+
+Address values remain independent of native socket structures. Parsing and formatting are
+bounded, while DNS or transport ownership belongs to the higher networking layer.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_NAMESERVICEADDRESS_H
 #define CYPHER_COMMON_TIER1_NAMESERVICEADDRESS_H
 #ifndef PRAGMA_ONCE
@@ -26,13 +35,13 @@
 namespace cypher::common
 {
 
-constexpr usize CY_NET_HOST_NAME_CAPACITY = 253u;
-constexpr usize CY_NET_SERVICE_NAME_CAPACITY = 31u;
+constexpr usize CY_NET_HOST_NAME_CAPACITY = 253u; // DNS host bytes excluding terminator.
+constexpr usize CY_NET_SERVICE_NAME_CAPACITY = 31u; // Service name or decimal port bytes.
 
 struct name_service_address_t {
-    fixed_string_t<CY_NET_HOST_NAME_CAPACITY> host{};
-    fixed_string_t<CY_NET_SERVICE_NAME_CAPACITY> service{};
-    u16 nDefaultPort{ 0u };
+    fixed_string_t<CY_NET_HOST_NAME_CAPACITY> host{};       // Host name or numeric literal.
+    fixed_string_t<CY_NET_SERVICE_NAME_CAPACITY> service{}; // Optional service or port text.
+    u16 nDefaultPort{ 0u };                                 // Port used when service is empty.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

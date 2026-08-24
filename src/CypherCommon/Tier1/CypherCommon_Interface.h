@@ -28,9 +28,9 @@ namespace cypher::common
 {
 
 struct interface_id_t {
-    string_view_t name{};
-    u32 nMajorVersion{ 0u };
-    u32 nMinorVersion{ 0u };
+    string_view_t name{};       // Stable interface family name.
+    u32 nMajorVersion{ 0u };    // Breaking contract revision.
+    u32 nMinorVersion{ 0u };    // Backward-compatible capability revision.
 };
 
 using interface_create_fn_t = void *( * )(
@@ -43,10 +43,10 @@ using interface_release_fn_t = void ( * )(
 
 struct interface_factory_desc_t {
     // Registry copies the name. Callbacks and pUserData remain borrowed.
-    interface_id_t provided{};
-    interface_create_fn_t pfnCreate{ nullptr };
-    interface_release_fn_t pfnRelease{ nullptr };
-    void *pUserData{ nullptr };
+    interface_id_t provided{};                 // Highest contract this factory provides.
+    interface_create_fn_t pfnCreate{ nullptr }; // Creates one requested interface instance.
+    interface_release_fn_t pfnRelease{ nullptr }; // Releases instances from this factory.
+    void *pUserData{ nullptr };                 // Opaque factory state.
 };
 
 struct interface_registry_t;

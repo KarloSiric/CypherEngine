@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Hash FNV Contract
+
+This algorithm is deterministic over an explicit byte range. It is suitable for lookup, change
+detection, or corruption checks, but must not be used as a cryptographic authenticator.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_HASHFNV_H
 #define CYPHER_COMMON_TIER1_HASHFNV_H
 #ifndef PRAGMA_ONCE

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Queue Contract
+
+Container mutations must preserve structural invariants and element lifetime. Iterators or
+handles are invalidated only according to the rules stated by the public API.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_QUEUE_H
 #define CYPHER_COMMON_TIER1_QUEUE_H
 #ifndef PRAGMA_ONCE
@@ -26,6 +35,10 @@
 namespace cypher::common
 {
 
+// Queue stores live objects in a circular allocation. Logical index zero is iHead; the physical
+// tail is (iHead + nCount) modulo nCapacity. Growth linearizes the sequence and invalidates every
+// pointer previously returned by Front, Back, or At.
+
 template <typename type_t>
 struct queue_t {
     static_assert( is_object_v<type_t>, "queue_t requires an object type." );
@@ -35,11 +48,11 @@ struct queue_t {
     CYPHER_NO_COPY_MOVE( queue_t );
     ~queue_t() noexcept;
 
-    type_t *pData{ nullptr };
-    usize nCapacity{ 0u };
-    usize nCount{ 0u };
-    usize iHead{ 0u };
-    const allocator_t *pAllocator{ nullptr };
+    type_t *pData{ nullptr };                 // Circular raw storage for nCapacity objects.
+    usize nCapacity{ 0u };                    // Total physical slots in pData.
+    usize nCount{ 0u };                       // Number of constructed queue elements.
+    usize iHead{ 0u };                        // Physical slot of the logical front.
+    const allocator_t *pAllocator{ nullptr }; // Allocator fixed at Queue_Init.
 };
 
 template <typename type_t>

@@ -27,13 +27,13 @@ namespace cypher::common
 {
 
 struct result_t {
-    error_code_t error{ CY_ERROR_OK };
+    error_code_t error{ CY_ERROR_OK }; // Packed domain/code status; zero means success.
 };
 
 template <typename value_t>
 struct value_result_t {
-    value_t value{};
-    error_code_t error{ CY_ERROR_OK };
+    value_t value{};                    // Meaningful only when error reports success.
+    error_code_t error{ CY_ERROR_OK };  // Packed domain/code status for the operation.
 };
 
 // Creates a successful operation result.

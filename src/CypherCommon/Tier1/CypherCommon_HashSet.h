@@ -27,6 +27,9 @@
 namespace cypher::common
 {
 
+// HashSet stores a zero-state marker as the mapped value so all probe, growth, and erase rules
+// remain identical to HashTable. As with HashMap, table order is deliberately not stable.
+
 template <
     typename key_t,
     typename hasher_t = hash_functor_t<key_t>,

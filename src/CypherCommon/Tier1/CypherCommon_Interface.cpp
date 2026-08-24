@@ -24,13 +24,13 @@ namespace
 {
 
 struct interface_factory_t {
-    char *pName{ nullptr };
-    usize cchName{ 0u };
-    u32 nMajorVersion{ 0u };
-    u32 nMinorVersion{ 0u };
-    interface_create_fn_t pfnCreate{ nullptr };
-    interface_release_fn_t pfnRelease{ nullptr };
-    void *pUserData{ nullptr };
+    char *pName{ nullptr };                    // Registry-owned interface family name.
+    usize cchName{ 0u };                       // Name bytes excluding the terminator.
+    u32 nMajorVersion{ 0u };                   // Exact ABI-breaking version key.
+    u32 nMinorVersion{ 0u };                   // Highest backward-compatible contract supplied.
+    interface_create_fn_t pfnCreate{ nullptr };// Factory entry point owned by provider code.
+    interface_release_fn_t pfnRelease{ nullptr };// Optional matching release entry point.
+    void *pUserData{ nullptr };                // Provider context passed to both callbacks.
 };
 
 bool_t InterfaceNameIsValid( string_view_t name ) noexcept
@@ -64,10 +64,10 @@ bool_t InterfaceNameEquals(
 } // namespace
 
 struct interface_registry_t {
-    const allocator_t *pAllocator{ nullptr };
-    interface_factory_t *pFactories{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
+    const allocator_t *pAllocator{ nullptr };  // Owns registry storage and copied names.
+    interface_factory_t *pFactories{ nullptr };// Dense registered factory array.
+    usize nCount{ 0u };                        // Initialized factory records.
+    usize nCapacity{ 0u };                     // Allocated factory slots.
 };
 
 namespace
@@ -271,6 +271,8 @@ void *InterfaceRegistry_CreateInterface(
     }
 
     const interface_factory_t &factory = pRegistry->pFactories[iFactory];
+    // Major versions must match exactly. A provider with a newer minor version
+    // promises backward compatibility with the requested minor contract.
     if ( factory.nMinorVersion < requested.nMinorVersion ) {
         return nullptr;
     }
@@ -278,6 +280,8 @@ void *InterfaceRegistry_CreateInterface(
     if ( pInterface == nullptr ) {
         return nullptr;
     }
+    // Return release metadata only after object construction succeeds; callers
+    // can then destroy the instance through the same provider boundary.
     if ( ppfnReleaseOut != nullptr ) {
         *ppfnReleaseOut = factory.pfnRelease;
     }

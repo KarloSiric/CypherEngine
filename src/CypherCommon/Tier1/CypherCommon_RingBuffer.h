@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Ring Buffer Contract
+
+RingBuffer borrows fixed storage and never allocates. Push rejects a full buffer; PushOverwrite
+explicitly destroys or returns the oldest element before reusing its slot. Clear destroys live
+objects but leaves the caller's storage attached.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_RINGBUFFER_H
 #define CYPHER_COMMON_TIER1_RINGBUFFER_H
 #ifndef PRAGMA_ONCE
@@ -31,10 +41,10 @@ struct ring_buffer_t {
     static_assert( is_object_v<type_t>, "ring_buffer_t requires an object type." );
     static_assert( !is_array_v<type_t>, "ring_buffer_t does not store array elements." );
 
-    type_t *pData{ nullptr };
-    usize nCapacity{ 0u };
-    usize nCount{ 0u };
-    usize iHead{ 0u };
+    type_t *pData{ nullptr }; // Borrowed raw storage supplied at initialization.
+    usize nCapacity{ 0u };    // Physical object slots in pData.
+    usize nCount{ 0u };       // Constructed elements currently in the ring.
+    usize iHead{ 0u };        // Physical slot of the oldest element.
 };
 
 template <typename type_t>

@@ -31,19 +31,19 @@ namespace cypher::common
 using localized_string_id_t = u64;
 
 struct localization_entry_t {
-    string_view_t key{};
-    string_view_t text{};
+    string_view_t key{};  // Stable source-language lookup key.
+    string_view_t text{}; // Localized UTF-8 template text.
 };
 
 struct localization_argument_t {
-    string_view_t name{};
-    string_view_t value{};
+    string_view_t name{};  // Placeholder name without braces.
+    string_view_t value{}; // Replacement text inserted verbatim.
 };
 
 struct localization_catalog_desc_t {
-    const allocator_t *pAllocator{ nullptr };
-    string_view_t localeTag{};
-    usize nInitialEntries{ 1024u };
+    const allocator_t *pAllocator{ nullptr }; // Owns copied keys and translations.
+    string_view_t localeTag{};                // BCP 47-style catalog identity.
+    usize nInitialEntries{ 1024u };            // Initial hash-table reservation.
 };
 
 struct localization_catalog_t;

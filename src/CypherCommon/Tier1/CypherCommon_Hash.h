@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Hash Contract
+
+Hash operations use explicit byte spans and stable seeds where persistence matters. Table
+placement may change, but externally stored content hashes must remain deterministic.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_HASH_H
 #define CYPHER_COMMON_TIER1_HASH_H
 #ifndef PRAGMA_ONCE

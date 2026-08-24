@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Hash Implementation Notes
+
+Hash operations use explicit byte spans and stable seeds where persistence matters. Table
+placement may change, but externally stored content hashes must remain deterministic.
+================
+*/
+
 #include "CypherCommon_Hash.h"
 #include "CypherCommon_HashXXH.h"
 
@@ -90,6 +99,7 @@ hash64_t Hash64_StringInsensitiveAscii(
 
 hash32_t Hash32_Combine( hash32_t left, hash32_t right ) noexcept
 {
+    // Combination is ordered: Combine(a, b) intentionally differs from Combine(b, a).
     const hash32_t combined =
         left ^ ( right + 0x9E3779B9u + ( left << 6u ) + ( left >> 2u ) );
     return Hash32_Avalanche( combined );
@@ -97,6 +107,7 @@ hash32_t Hash32_Combine( hash32_t left, hash32_t right ) noexcept
 
 hash64_t Hash64_Combine( hash64_t left, hash64_t right ) noexcept
 {
+    // Final avalanche spreads structured child hashes across every output bit.
     const hash64_t combined =
         left ^ ( right + 0x9E3779B97F4A7C15ull +
                  ( left << 6u ) + ( left >> 2u ) );

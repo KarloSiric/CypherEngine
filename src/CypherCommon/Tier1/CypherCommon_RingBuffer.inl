@@ -40,6 +40,7 @@ inline usize RingBuffer_PhysicalIndex(
     usize iLogicalIndex,
     usize nCapacity ) noexcept
 {
+    // Logical index zero is the oldest value even when storage has wrapped.
     const usize nUntilWrap = nCapacity - iHead;
     return iLogicalIndex < nUntilWrap
         ? iHead + iLogicalIndex
@@ -234,6 +235,8 @@ bool_t RingBuffer_Push(
         return CY_FALSE;
     }
 
+    // The caller owns already-constructed slots; pushing assigns a value and
+    // never starts or ends an element lifetime.
     const usize iTail = detail::RingBuffer_PhysicalIndex(
         pBuffer->iHead,
         pBuffer->nCount,
@@ -280,6 +283,8 @@ bool_t RingBuffer_PushOverwrite(
     if ( &value != &oldest ) {
         oldest = value;
     }
+    // A full ring keeps its count. Replacing the head and then advancing it
+    // makes the newly assigned slot the logical tail.
     pBuffer->iHead = detail::RingBuffer_PhysicalIndex(
         pBuffer->iHead,
         1u,
@@ -312,6 +317,7 @@ bool_t RingBuffer_Pop(
         return CY_FALSE;
     }
     --pBuffer->nCount;
+    // Canonicalize an empty buffer to head zero for simple validity checks.
     pBuffer->iHead = pBuffer->nCount > 0u
         ? detail::RingBuffer_PhysicalIndex(
             pBuffer->iHead,

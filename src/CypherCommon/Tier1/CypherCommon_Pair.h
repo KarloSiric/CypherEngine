@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Pair Contract
+
+The pair stores two values directly and follows their copy, move, and destruction semantics
+without additional allocation.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_PAIR_H
 #define CYPHER_COMMON_TIER1_PAIR_H
 #ifndef PRAGMA_ONCE
@@ -28,8 +37,8 @@ namespace cypher::common
 
 template <typename first_t, typename second_t>
 struct pair_t {
-    first_t first{};
-    second_t second{};
+    first_t first{};       // First value; often a key or lower bound.
+    second_t second{};     // Second value; often a mapped value or upper bound.
 };
 
 template <typename first_t, typename second_t>

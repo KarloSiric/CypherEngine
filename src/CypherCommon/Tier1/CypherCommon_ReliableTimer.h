@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Reliable Timer Contract
+
+Timer comparisons use wrap-safe integer differences so long-running sessions do not fail when
+the underlying counter rolls over.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_RELIABLETIMER_H
 #define CYPHER_COMMON_TIER1_RELIABLETIMER_H
 #ifndef PRAGMA_ONCE
@@ -27,21 +36,21 @@ namespace cypher::common
 {
 
 struct reliable_timer_config_t {
-    f64 flInitialRtoSeconds{ 1.0 };
-    f64 flMinRtoSeconds{ 0.050 };
-    f64 flMaxRtoSeconds{ 10.0 };
-    f64 flClockGranularitySeconds{ 0.001 };
+    f64 flInitialRtoSeconds{ 1.0 };        // RTO before the first RTT sample.
+    f64 flMinRtoSeconds{ 0.050 };          // Inclusive lower clamp for computed RTO.
+    f64 flMaxRtoSeconds{ 10.0 };           // Inclusive upper clamp for computed RTO.
+    f64 flClockGranularitySeconds{ 0.001 }; // Minimum measurable timing variation.
 };
 
 struct reliable_timer_t {
-    reliable_timer_config_t config{};
-    f64 flSmoothedRttSeconds{ 0.0 };
-    f64 flRttVariationSeconds{ 0.0 };
-    f64 flRtoSeconds{ 1.0 };
-    f64 flDeadlineSeconds{ 0.0 };
-    u32 nBackoffCount{ 0u };
-    bool_t bHasSample{ CY_FALSE };
-    bool_t bArmed{ CY_FALSE };
+    reliable_timer_config_t config{};       // Validated policy snapshot.
+    f64 flSmoothedRttSeconds{ 0.0 };         // RFC-style smoothed round-trip time.
+    f64 flRttVariationSeconds{ 0.0 };        // Smoothed absolute RTT deviation.
+    f64 flRtoSeconds{ 1.0 };                 // Current retransmission timeout.
+    f64 flDeadlineSeconds{ 0.0 };            // Absolute deadline while armed.
+    u32 nBackoffCount{ 0u };                 // Consecutive timeout exponent count.
+    bool_t bHasSample{ CY_FALSE };            // At least one RTT sample was accepted.
+    bool_t bArmed{ CY_FALSE };                // Deadline is currently active.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

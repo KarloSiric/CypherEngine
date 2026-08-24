@@ -38,6 +38,7 @@ stream_io_result_t MemoryStreamRead(
         return {};
     }
 
+    // Reads stop at the logical high-water mark, not at writable capacity.
     const usize cbRemaining = pMemoryStream->cbSize - pMemoryStream->iPosition;
     const usize cbTransfer = cbRequested < cbRemaining
         ? cbRequested
@@ -74,6 +75,8 @@ stream_io_result_t MemoryStreamWrite(
         return {};
     }
 
+    // A short write is allowed at the end of borrowed storage and reports the
+    // exact number of bytes committed before returning OUT_OF_RANGE.
     const usize cbRemaining =
         pMemoryStream->cbCapacity - pMemoryStream->iPosition;
     const usize cbTransfer = cbRequested < cbRemaining
@@ -108,7 +111,7 @@ stream_status_t MemoryStreamSeek(
         return stream_status_t::INVALID_ARGUMENT;
     }
 
-    usize iBase = 0u;
+    usize iBase = 0u; // Origin is converted to one unsigned base before offset math.
     switch ( origin ) {
         case stream_seek_origin_t::BEGIN:
             break;
@@ -131,6 +134,7 @@ stream_status_t MemoryStreamSeek(
         }
         iPosition = iBase + static_cast<usize>( nPositiveOffset );
     } else {
+        // This form obtains abs(INT64_MIN) without overflowing signed arithmetic.
         const u64 nMagnitude =
             static_cast<u64>( -( nOffset + 1 ) ) + 1u;
         if ( nMagnitude > iBase ) {
@@ -176,6 +180,8 @@ stream_status_t MemoryStreamFlush( void *pUserData ) noexcept
             : stream_status_t::INVALID_ARGUMENT;
 }
 
+// Generic stream calls dispatch through this table while the memory object
+// itself remains caller-owned and allocation-free.
 const stream_ops_t MEMORY_STREAM_OPS{
     &MemoryStreamRead,
     &MemoryStreamWrite,
@@ -297,6 +303,8 @@ bool_t MemoryStream_SetSize(
     }
 
     if ( cbSize > pMemoryStream->cbSize ) {
+        // Newly exposed bytes must never reveal stale contents from the backing
+        // store. Shrinking leaves capacity intact but growing initializes it.
         Cy_MemZero(
             pMemoryStream->pWriteData + pMemoryStream->cbSize,
             cbSize - pMemoryStream->cbSize );
@@ -343,4 +351,3 @@ binary_block_t MemoryStream_Block(
 }
 
 } // namespace cypher::common
-

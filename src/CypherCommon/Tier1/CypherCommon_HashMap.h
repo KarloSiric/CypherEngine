@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Hash Map Contract
+
+HashMap is the named key/value facade over hash_table_t. Iteration order and slot placement are
+implementation details and must never be serialized. Keys that require persisted identity need a
+separate StableHash value; the table hash exists only to distribute entries in memory.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_HASHMAP_H
 #define CYPHER_COMMON_TIER1_HASHMAP_H
 #ifndef PRAGMA_ONCE

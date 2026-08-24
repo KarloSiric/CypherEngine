@@ -27,7 +27,7 @@ namespace cypher::common
 {
 
 struct ref_count_t {
-    atomic_u32_t nReferences{ 0u };
+    atomic_u32_t nReferences{ 0u }; // Live intrusive owners; zero transfers destruction duty.
 };
 
 CYPHER_COMMON_API void RefCount_Init(

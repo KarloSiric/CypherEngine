@@ -24,11 +24,11 @@ namespace
 {
 
 struct instance_log_entry_t {
-    char *pText{ nullptr };
-    usize cchCategory{ 0u };
-    usize cchMessage{ 0u };
-    u64 nTimestampTicks{ 0u };
-    log_level_t level{ log_level_t::Info };
+    char *pText{ nullptr };                    // One allocation: category\0message\0.
+    usize cchCategory{ 0u };                   // Category bytes, excluding its terminator.
+    usize cchMessage{ 0u };                    // Message bytes, excluding its terminator.
+    u64 nTimestampTicks{ 0u };                 // Monotonic timer sample captured on insertion.
+    log_level_t level{ log_level_t::Info };    // Severity recorded with this message.
 };
 
 bool_t LogTextIsValid( string_view_t text ) noexcept
@@ -47,13 +47,13 @@ bool_t LogTextIsValid( string_view_t text ) noexcept
 } // namespace
 
 struct instance_log_t {
-    const allocator_t *pAllocator{ nullptr };
-    instance_log_entry_t *pEntries{ nullptr };
-    usize nCapacity{ 0u };
-    usize nCount{ 0u };
-    usize iHead{ 0u };
-    usize cbText{ 0u };
-    usize cbMaxText{ 0u };
+    const allocator_t *pAllocator{ nullptr };  // Allocator owns the log and every text record.
+    instance_log_entry_t *pEntries{ nullptr }; // Fixed-size ring allocated when the log is created.
+    usize nCapacity{ 0u };                     // Maximum number of resident records.
+    usize nCount{ 0u };                        // Number of live entries in the ring.
+    usize iHead{ 0u };                         // Physical index of the oldest live record.
+    usize cbText{ 0u };                        // Payload bytes currently charged to the text budget.
+    usize cbMaxText{ 0u };                     // Maximum combined category and message bytes.
 };
 
 namespace
@@ -66,7 +66,7 @@ void InstanceLog_EvictOldest( instance_log_t *pLog ) noexcept
     }
     instance_log_entry_t &entry = pLog->pEntries[pLog->iHead];
     const usize cbPayload = entry.cchCategory + entry.cchMessage;
-    const usize cbAllocation = cbPayload + 2u;
+    const usize cbAllocation = cbPayload + 2u; // Account for both stored NUL terminators.
     Allocator_Free(
         pLog->pAllocator,
         entry.pText,
@@ -187,6 +187,8 @@ bool_t InstanceLog_Add(
     }
     pText[cbPayload + 1u] = '\0';
 
+    // A new record must satisfy both independent limits. Eviction always starts
+    // at the head, preserving chronological order for every surviving record.
     while ( pLog->nCount == pLog->nCapacity ||
             pLog->cbText > pLog->cbMaxText - cbPayload ) {
         InstanceLog_EvictOldest( pLog );
@@ -221,6 +223,8 @@ bool_t InstanceLog_Record(
     if ( pLog == nullptr || iRecord >= pLog->nCount ) {
         return CY_FALSE;
     }
+    // Public record indices are chronological; translate them into the ring's
+    // wrapped physical storage before exposing non-owning string views.
     const usize iEntry = ( pLog->iHead + iRecord ) % pLog->nCapacity;
     const instance_log_entry_t &entry = pLog->pEntries[iEntry];
     pRecordOut->nTimestampTicks = entry.nTimestampTicks;

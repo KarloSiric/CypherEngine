@@ -89,6 +89,8 @@ bool_t NameServiceAddress_Parse(
     string_view_t host = text;
     string_view_t service{};
     if ( text.pData[0] == '[' ) {
+        // Brackets make an IPv6 literal unambiguous when a service follows it:
+        // [2001:db8::1]:27015.
         usize iClose = 1u;
         while ( iClose < text.cchLength && text.pData[iClose] != ']' ) {
             ++iClose;
@@ -115,6 +117,8 @@ bool_t NameServiceAddress_Parse(
                 iColon = iByte;
             }
         }
+        // An unbracketed single colon separates host and service. Multiple
+        // colons are retained as a bare IPv6 host with no explicit service.
         if ( cColons == 1u ) {
             if ( iColon == 0u || iColon + 1u >= text.cchLength ) {
                 return CY_FALSE;
@@ -171,6 +175,8 @@ usize NameServiceAddress_Format(
     const usize cchSuffix = service.cchLength > 0u
         ? service.cchLength + 1u
         : ( cchPort > 0u ? cchPort + 1u : 0u );
+    // Return the complete required length even when destination storage
+    // truncates, matching the common formatting/query convention.
     const usize cchRequired = host.cchLength + cchSuffix +
         ( bHostNeedsBrackets ? 2u : 0u );
     const usize cchCapacity = cchDest > 0u ? cchDest - 1u : 0u;

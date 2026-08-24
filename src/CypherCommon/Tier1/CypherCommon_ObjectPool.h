@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Object Pool Contract
+
+ObjectPool constructs type_t in fixed-size MemoryPool blocks. Destroy validates ownership and live
+state before running the destructor. Reset destroys every live object before rebuilding the free
+list; pointers to any pooled object become invalid immediately.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_OBJECTPOOL_H
 #define CYPHER_COMMON_TIER1_OBJECTPOOL_H
 #ifndef PRAGMA_ONCE
@@ -35,7 +45,7 @@ struct object_pool_t {
     CYPHER_NO_COPY_MOVE( object_pool_t );
     ~object_pool_t() noexcept;
 
-    memory_pool_t memory{};
+    memory_pool_t memory{}; // Raw fixed-block storage plus occupancy bookkeeping.
 };
 
 template <typename type_t>

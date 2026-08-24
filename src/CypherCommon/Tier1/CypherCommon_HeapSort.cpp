@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Heap Sort Implementation Notes
+
+Algorithms operate only on the supplied range and callback contracts. Comparators must define a
+consistent ordering; the implementation performs no hidden allocation unless explicitly
+documented.
+================
+*/
+
 #include "CypherCommon_HeapSort.h"
 
 namespace cypher::common
@@ -28,6 +38,8 @@ void RawSwap( byte *pLeft, byte *pRight, usize cbElement ) noexcept
     if ( pLeft == pRight ) {
         return;
     }
+    // Raw sorting cannot assume a maximum record size, so swap in place one byte
+    // at a time and keep the algorithm allocation-free.
     for ( usize iByte = 0u; iByte < cbElement; ++iByte ) {
         const byte temporary = pLeft[iByte];
         pLeft[iByte] = pRight[iByte];
@@ -90,6 +102,7 @@ bool_t HeapSort_Raw(
     }
 
     auto *pBytes = static_cast<byte *>( pData );
+    // First build a max heap, then repeatedly place its root at the sorted tail.
     for ( usize iRoot = nCount / 2u; iRoot > 0u; --iRoot ) {
         RawSiftDown(
             pBytes,

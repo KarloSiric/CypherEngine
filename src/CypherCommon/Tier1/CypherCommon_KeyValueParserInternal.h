@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Key Value Parser Internal Contract
+
+Parses bounded UTF-8 source into caller-owned CYKV storage. Source offsets and diagnostics must
+continue to refer to the original input, and malformed text must not escape as a usable partial
+document.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_KEYVALUEPARSERINTERNAL_H
 #define CYPHER_COMMON_TIER1_KEYVALUEPARSERINTERNAL_H
 #ifndef PRAGMA_ONCE

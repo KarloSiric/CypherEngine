@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Packet Buffer Contract
+
+The cursor and capacity form one invariant: no operation may advance beyond the supplied
+storage. Failed writes report the condition without publishing a cursor that claims unwritten
+bytes.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_PACKETBUFFER_H
 #define CYPHER_COMMON_TIER1_PACKETBUFFER_H
 #ifndef PRAGMA_ONCE
@@ -30,9 +40,9 @@ namespace cypher::common
 {
 
 struct packet_buffer_t {
-    byte *pData{ nullptr };
-    usize cbSize{ 0u };
-    usize cbCapacity{ 0u };
+    byte *pData{ nullptr };  // Borrowed packet storage.
+    usize cbSize{ 0u };      // Bytes currently committed as packet payload.
+    usize cbCapacity{ 0u };  // Writable bytes available at pData.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

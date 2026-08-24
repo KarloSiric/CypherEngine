@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Key Value Writer Implementation Notes
+
+Writes CYKV data deterministically into caller-controlled output. Escaping, indentation, and key
+order must not depend on pointer values, locale, or process state.
+================
+*/
+
 #include "CypherCommon_KeyValueWriterInternal.h"
 
 #include "CypherCommon_KeyValueInternal.h"
@@ -33,33 +42,33 @@ constexpr flags32_t CY_KEY_VALUE_WRITE_VALID_FLAGS =
     KEY_VALUE_WRITE_FLAG_PRETTY |
     KEY_VALUE_WRITE_FLAG_CANONICAL |
     KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE |
-    KEY_VALUE_WRITE_FLAG_ASCII_ONLY;
+    KEY_VALUE_WRITE_FLAG_ASCII_ONLY; // Reject unknown output policy bits.
 
 constexpr flags32_t CY_KEY_VALUE_ESCAPE_FLAGS =
     STRING_ESCAPE_FLAG_QUOTES |
     STRING_ESCAPE_FLAG_BACKSLASH |
-    STRING_ESCAPE_FLAG_CONTROL_CHARS;
+    STRING_ESCAPE_FLAG_CONTROL_CHARS; // Minimum escaping needed for quoted CYKV/JSON text.
 
 struct writer_t {
-    key_value_write_fn_t pfnWrite{ nullptr };
-    void *pUserData{ nullptr };
-    key_value_write_options_t options{};
-    key_value_write_result_t result{};
-    const allocator_t *pAllocator{ nullptr };
-    bool_t bStrictJson{ CY_FALSE };
-    bool_t bPretty{ CY_FALSE };
-    bool_t bCanonical{ CY_FALSE };
+    key_value_write_fn_t pfnWrite{ nullptr }; // Caller sink receiving serialized chunks.
+    void *pUserData{ nullptr };               // Opaque context forwarded to pfnWrite.
+    key_value_write_options_t options{};      // Formatting policy and recursion limit.
+    key_value_write_result_t result{};        // Sticky first failure and output counters.
+    const allocator_t *pAllocator{ nullptr }; // Temporary escaping/sorting allocations.
+    bool_t bStrictJson{ CY_FALSE };            // Select JSON syntax instead of CYKV syntax.
+    bool_t bPretty{ CY_FALSE };                // Emit indentation and line breaks.
+    bool_t bCanonical{ CY_FALSE };             // Sort keys and suppress optional whitespace.
 };
 
 struct buffer_sink_t {
-    char *pDest{ nullptr };
-    usize cchCapacity{ 0u };
-    usize cchWritten{ 0u };
+    char *pDest{ nullptr };   // Optional caller buffer for write or measure mode.
+    usize cchCapacity{ 0u };  // Characters available after reserving the terminator.
+    usize cchWritten{ 0u };   // Prefix physically copied into pDest.
 };
 
 struct canonical_child_t {
-    const key_value_t *pValue{ nullptr };
-    usize iOriginal{ 0u };
+    const key_value_t *pValue{ nullptr }; // Borrowed child selected for output.
+    usize iOriginal{ 0u };                // Stable tie-breaker for duplicate-name corruption.
 };
 
 struct canonical_child_less_t {
@@ -106,6 +115,7 @@ CYPHER_NODISCARD bool_t Emit(
     const char *pText,
     usize cchText ) noexcept
 {
+    // Required size advances even when a bounded buffer sink stores only a prefix.
     if ( writer.result.status != key_value_write_status_t::OK ) {
         return CY_FALSE;
     }
@@ -181,6 +191,7 @@ CYPHER_NODISCARD bool_t EmitEscapedString(
         flags |= STRING_ESCAPE_FLAG_NON_ASCII;
     }
     const string_escape_style_t style = string_escape_style_t::JSON;
+    // Measure then encode into exact temporary storage; sinks never see partial escapes.
     const string_escape_result_t measured = StringEscape_Encode(
         text,
         style,
@@ -304,6 +315,7 @@ CYPHER_NODISCARD bool_t EmitBinary(
         Fail( writer, key_value_write_status_t::INVALID_DOCUMENT );
         return CY_FALSE;
     }
+    // Encode bounded chunks to avoid allocating a second full-size binary representation.
     constexpr char digits[] = "0123456789abcdef";
     char encoded[512]{};
     usize iByte = 0u;
@@ -341,6 +353,7 @@ CYPHER_NODISCARD canonical_child_t *BuildCanonicalOrder(
         Fail( writer, key_value_write_status_t::OUT_OF_MEMORY );
         return nullptr;
     }
+    // Sort an auxiliary pointer array; never mutate document insertion order.
     usize iChild = 0u;
     for ( const key_value_t *pChild = pObject->pFirstChild;
           pChild != nullptr;
@@ -371,6 +384,7 @@ CYPHER_NODISCARD bool_t WriteObject(
         Fail( writer, key_value_write_status_t::DEPTH_LIMIT );
         return CY_FALSE;
     }
+    // Canonical mode supplies deterministic object order for hashing and cooked output.
     canonical_child_t *pCanonical = writer.bCanonical
         ? BuildCanonicalOrder( writer, pObject )
         : nullptr;
@@ -457,6 +471,7 @@ bool_t WriteValue(
     const key_value_t *pValue,
     usize nDepth ) noexcept
 {
+    // The type tag is the sole dispatch key; malformed tags fail closed.
     if ( pValue == nullptr || nDepth > writer.options.nMaxDepth ) {
         Fail(
             writer,
@@ -528,6 +543,7 @@ CYPHER_NODISCARD bool_t WriteDocumentHeader(
         return CY_FALSE;
     }
 
+    // Keep the required two-line header byte-stable across hosts.
     return EmitLiteral( writer, "@cykv " ) &&
            Emit(
                writer,
@@ -574,6 +590,7 @@ CYPHER_NODISCARD key_value_write_result_t WriteToSink(
     writer.bStrictJson = bStrictJson;
     writer.bCanonical =
         ( options.flags & KEY_VALUE_WRITE_FLAG_CANONICAL ) != 0u;
+    // Canonical output deliberately overrides pretty formatting.
     writer.bPretty = !writer.bCanonical &&
         ( options.flags & KEY_VALUE_WRITE_FLAG_PRETTY ) != 0u;
 
@@ -605,6 +622,7 @@ key_value_write_result_t KeyValue_InternalWriteText(
     if ( pDest == nullptr && cchDest != 0u ) {
         return { key_value_write_status_t::INVALID_ARGUMENT, 0u, 0u };
     }
+    // Reserve one byte for NUL while still measuring the complete serialized length.
     buffer_sink_t sink{
         pDest,
         cchDest > 0u ? cchDest - 1u : 0u,

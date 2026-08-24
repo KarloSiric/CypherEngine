@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Memory Pool Contract
+
+The pool owns one backing allocation and divides it into equal-sized blocks. Individual blocks do
+not run constructors or destructors; ObjectPool adds that typed lifetime layer. Reset invalidates
+every outstanding block at once and must be used only when no borrower can retain a pointer.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_MEMORYPOOL_H
 #define CYPHER_COMMON_TIER1_MEMORYPOOL_H
 #ifndef PRAGMA_ONCE
@@ -31,8 +41,8 @@ struct memory_pool_t {
     memory_pool_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( memory_pool_t );
 
-    block_memory_t blocks{};
-    owned_allocation_t backing{};
+    block_memory_t blocks{};          // Free-list and occupancy state over backing.pData.
+    owned_allocation_t backing{};     // One allocation containing metadata and all block payloads.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

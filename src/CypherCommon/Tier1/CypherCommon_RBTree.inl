@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+RB Tree Template Definitions
+
+Container mutations must preserve structural invariants and element lifetime. Iterators or
+handles are invalidated only according to the rules stated by the public API. Template
+definitions remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_RBTREE_INL
 #define CYPHER_COMMON_TIER1_RBTREE_INL
 
@@ -48,6 +58,7 @@ template <typename key_t, typename value_t>
 rb_tree_color_t RBTree_Color(
     const rb_tree_node_t<key_t, value_t> *pNode ) noexcept
 {
+    // Null leaves are implicit black sentinels in every balancing case.
     return pNode != nullptr ? pNode->color : rb_tree_color_t::BLACK;
 }
 
@@ -66,6 +77,7 @@ void RBTree_RotateLeft(
     rb_tree_t<key_t, value_t, compare_t> *pTree,
     rb_tree_node_t<key_t, value_t> *pPivot ) noexcept
 {
+    // Rotations preserve in-order key order while changing local tree height.
     rb_tree_node_t<key_t, value_t> *pRight = pPivot->pRight;
     CY_ASSERT_MSG( pRight != nullptr, "RBTree left rotation requires a right child." );
     if ( pRight == nullptr ) {
@@ -93,6 +105,7 @@ void RBTree_RotateRight(
     rb_tree_t<key_t, value_t, compare_t> *pTree,
     rb_tree_node_t<key_t, value_t> *pPivot ) noexcept
 {
+    // This is the mirror image of the left rotation above.
     rb_tree_node_t<key_t, value_t> *pLeft = pPivot->pLeft;
     CY_ASSERT_MSG( pLeft != nullptr, "RBTree right rotation requires a left child." );
     if ( pLeft == nullptr ) {
@@ -120,6 +133,7 @@ void RBTree_FixInsertion(
     rb_tree_t<key_t, value_t, compare_t> *pTree,
     rb_tree_node_t<key_t, value_t> *pNode ) noexcept
 {
+    // Repair red-parent violations and always finish with a black root.
     while ( pNode->pParent != nullptr &&
             pNode->pParent->color == rb_tree_color_t::RED ) {
         rb_tree_node_t<key_t, value_t> *pParent = pNode->pParent;
@@ -198,6 +212,7 @@ void RBTree_FixErasure(
     rb_tree_node_t<key_t, value_t> *pNode,
     rb_tree_node_t<key_t, value_t> *pParent ) noexcept
 {
+    // Erasing a black node introduces one missing black level that moves upward.
     while ( pNode != pTree->pRoot &&
             RBTree_Color( pNode ) == rb_tree_color_t::BLACK ) {
         if ( pParent == nullptr ) {
@@ -410,6 +425,7 @@ rb_tree_insert_result_t<key_t, value_t> RBTree_Insert(
         return {};
     }
 
+    // Comparator equivalence identifies an existing key; duplicate nodes are not allocated.
     rb_tree_node_t<key_t, value_t> *pParent = nullptr;
     rb_tree_node_t<key_t, value_t> *pNode = pTree->pRoot;
     while ( pNode != nullptr ) {
@@ -519,6 +535,7 @@ bool_t RBTree_Erase(
         return CY_FALSE;
     }
 
+    // Track the color physically removed; only removing black requires fix-up.
     rb_tree_node_t<key_t, value_t> *pMoved = pRemoved;
     rb_tree_color_t removedColor = pMoved->color;
     rb_tree_node_t<key_t, value_t> *pFixNode = nullptr;
@@ -533,6 +550,7 @@ bool_t RBTree_Erase(
         pFixParent = pRemoved->pParent;
         detail::RBTree_Transplant( pTree, pRemoved, pRemoved->pLeft );
     } else {
+        // Replace a two-child node with its in-order successor.
         pMoved = RBTree_First( pRemoved->pRight );
         removedColor = pMoved->color;
         pFixNode = pMoved->pRight;
@@ -608,6 +626,7 @@ const rb_tree_node_t<key_t, value_t> *RBTree_Next(
         return RBTree_First( pNode->pRight );
     }
 
+    // Without a right subtree, walk up until leaving a left-child edge.
     const rb_tree_node_t<key_t, value_t> *pCurrent = pNode;
     const rb_tree_node_t<key_t, value_t> *pParent = pCurrent->pParent;
     while ( pParent != nullptr && pCurrent == pParent->pRight ) {

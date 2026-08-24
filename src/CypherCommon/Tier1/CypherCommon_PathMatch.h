@@ -27,11 +27,11 @@ namespace cypher::common
 {
 
 enum path_match_flags_t : flags32_t {
-    PATH_MATCH_FLAG_NONE                    = 0u,
-    PATH_MATCH_FLAG_CASE_INSENSITIVE_ASCII  = CYPHER_BIT32( 0 ),
-    PATH_MATCH_FLAG_NORMALIZE_SEPARATORS    = CYPHER_BIT32( 1 ),
-    PATH_MATCH_FLAG_STAR_CROSSES_SEPARATOR  = CYPHER_BIT32( 2 ),
-    PATH_MATCH_FLAG_BASENAME_ONLY           = CYPHER_BIT32( 3 )
+    PATH_MATCH_FLAG_NONE = 0u, // Exact byte-oriented path matching.
+    PATH_MATCH_FLAG_CASE_INSENSITIVE_ASCII = CYPHER_BIT32( 0 ), // Fold ASCII case.
+    PATH_MATCH_FLAG_NORMALIZE_SEPARATORS = CYPHER_BIT32( 1 ), // Treat '\\' as '/'.
+    PATH_MATCH_FLAG_STAR_CROSSES_SEPARATOR = CYPHER_BIT32( 2 ), // '*' may consume '/'.
+    PATH_MATCH_FLAG_BASENAME_ONLY = CYPHER_BIT32( 3 ) // Match only bytes after final '/'.
 };
 
 constexpr flags32_t PATH_MATCH_VALID_FLAGS =
@@ -41,11 +41,11 @@ constexpr flags32_t PATH_MATCH_VALID_FLAGS =
     PATH_MATCH_FLAG_BASENAME_ONLY;
 
 struct path_filter_t {
-    const string_view_t *pIncludes{ nullptr };
-    usize nIncludeCount{ 0u };
-    const string_view_t *pExcludes{ nullptr };
-    usize nExcludeCount{ 0u };
-    flags32_t flags{ PATH_MATCH_FLAG_NONE };
+    const string_view_t *pIncludes{ nullptr }; // Borrowed allow-pattern array.
+    usize nIncludeCount{ 0u };                 // Entries in pIncludes.
+    const string_view_t *pExcludes{ nullptr }; // Borrowed deny-pattern array.
+    usize nExcludeCount{ 0u };                 // Entries in pExcludes.
+    flags32_t flags{ PATH_MATCH_FLAG_NONE };   // path_match_flags_t behavior bits.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

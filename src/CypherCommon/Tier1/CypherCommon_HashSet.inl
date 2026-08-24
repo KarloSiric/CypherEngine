@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Hash Set Template Definitions
+
+Hash operations use explicit byte spans and stable seeds where persistence matters. Table
+placement may change, but externally stored content hashes must remain deterministic. Template
+definitions remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_HASHSET_INL
 #define CYPHER_COMMON_TIER1_HASHSET_INL
 
@@ -37,6 +47,7 @@ bool_t HashSet_Init(
     hasher_t hasher,
     equal_key_t equalKey ) noexcept
 {
+    // Set stores a zero-state marker value and delegates all key policy to HashTable.
     return HashTable_Init(
         pSet,
         pAllocator,
@@ -79,7 +90,7 @@ bool_t HashSet_Insert(
     hash_set_t<key_t, hasher_t, equal_key_t> *pSet,
     const key_t &key ) noexcept
 {
-    const set_unit_t unit{};
+    const set_unit_t unit{}; // No payload is associated with a set key.
     const hash_table_insert_result_t<set_unit_t> result =
         HashTable_Insert( pSet, key, unit );
     return result.bInserted;

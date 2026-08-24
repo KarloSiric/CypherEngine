@@ -32,7 +32,7 @@ namespace cypher::common
 namespace
 {
 
-constexpr usize CY_NET_ADDRESS_TEXT_CAPACITY = 128u;
+constexpr usize CY_NET_ADDRESS_TEXT_CAPACITY = 128u; // Numeric host plus scope and NUL.
 
 bool_t ParseDecimalU32( string_view_t text, u32 nMax, u32 &valueOut ) noexcept
 {
@@ -42,6 +42,7 @@ bool_t ParseDecimalU32( string_view_t text, u32 nMax, u32 &valueOut ) noexcept
     u32 nValue = 0u;
     for ( usize iByte = 0u; iByte < text.cchLength; ++iByte ) {
         const u8 nDigit = Char_DigitValueAscii( text.pData[iByte] );
+        // Check before multiply-add so the maximum accepted value is exact.
         if ( nDigit == CY_CHAR_INVALID_DIGIT_VALUE ||
              nValue > ( nMax - nDigit ) / 10u ) {
             return CY_FALSE;
@@ -127,6 +128,7 @@ bool_t NetAddress_Parse(
     string_view_t port{};
     bool_t bBracketed = CY_FALSE;
     if ( text.pData[0] == '[' ) {
+        // Brackets are required when an IPv6 literal is followed by a port.
         bBracketed = CY_TRUE;
         usize iClose = 1u;
         while ( iClose < text.cchLength && text.pData[iClose] != ']' ) {
@@ -151,6 +153,8 @@ bool_t NetAddress_Parse(
                 iColon = iByte;
             }
         }
+        // One colon is host:port; multiple colons are an unbracketed IPv6 host
+        // with no separately parseable port.
         if ( cColons == 1u ) {
             if ( iColon == 0u || iColon + 1u >= text.cchLength ) {
                 return CY_FALSE;
@@ -176,6 +180,8 @@ bool_t NetAddress_Parse(
         }
     }
     if ( iScope != CY_STRING_VIEW_NPOS ) {
+        // This low-level value accepts numeric IPv6 scope IDs only. Interface
+        // names require platform lookup and belong in a higher networking layer.
         const string_view_t scope{
             host.pData + iScope + 1u,
             host.cchLength - iScope - 1u
@@ -192,6 +198,7 @@ bool_t NetAddress_Parse(
     }
 
     net_address_t parsed{};
+    // inet_pton performs numeric conversion only; this path never blocks on DNS.
     const bool_t bIpv4 = !bBracketed && iScope == CY_STRING_VIEW_NPOS &&
         inet_pton( AF_INET, hostText, parsed.address ) == 1;
     if ( bIpv4 ) {
@@ -251,6 +258,8 @@ usize NetAddress_Format(
         ( bBrackets ? 2u : 0u ) +
         ( bIncludePort ? cchPort + 1u : 0u );
 
+    // Return the complete required length while writing a terminated prefix when
+    // the destination is short.
     const usize cchCapacity = cchDest > 0u ? cchDest - 1u : 0u;
     usize cchWritten = 0u;
     auto writeByte = [&]( char ch ) noexcept {

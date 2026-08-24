@@ -28,7 +28,7 @@ namespace cypher::common
 namespace
 {
 
-inline constexpr u32 CY_KEY_VALUE_DOCUMENT_MAGIC = 0x4B56444Fu;
+inline constexpr u32 CY_KEY_VALUE_DOCUMENT_MAGIC = 0x4B56444Fu; // "KVDO" validity cookie.
 
 static_assert(
     alignof( key_value_node_block_t ) >= alignof( key_value_t ) &&
@@ -118,6 +118,7 @@ CYPHER_NODISCARD bool_t DataAllocationSize(
 
 void InitializeRoot( key_value_document_t &document ) noexcept
 {
+    // The root is embedded in the document and is always counted as one live node.
     document.root = {};
     document.root.pDocument = &document;
     document.nNodes = 1u;
@@ -180,6 +181,7 @@ CYPHER_NODISCARD key_value_node_block_t *AllocateNodeBlock(
     pBlock->pNext = document.pNodeBlocks;
     pBlock->nCapacity = nCapacity;
     document.pNodeBlocks = pBlock;
+    // Node blocks never move, preserving every tree pointer returned to callers.
     document.nNextNodes = nCapacity <= CY_USIZE_MAX / 2u
         ? nCapacity * 2u
         : nCapacity;
@@ -191,6 +193,7 @@ CYPHER_NODISCARD key_value_t *AllocateNode(
 {
     key_value_t *pNode = document.pFreeNodes;
     if ( pNode != nullptr ) {
+        // Removed nodes are recycled before growing another stable block.
         document.pFreeNodes = pNode->pNext;
     } else {
         key_value_node_block_t *pBlock = document.pNodeBlocks;
@@ -231,6 +234,8 @@ CYPHER_NODISCARD key_value_data_block_t *AllocateDataBlock(
     pBlock->pNext = document.pDataBlocks;
     pBlock->cbCapacity = cbCapacity;
     document.pDataBlocks = pBlock;
+    // Payload blocks are append-only for the document lifetime. Old strings and
+    // binary values remain address-stable even after nodes are edited.
     document.cbNextData = cbCapacity <= CY_USIZE_MAX / 2u
         ? cbCapacity * 2u
         : cbCapacity;
@@ -307,6 +312,8 @@ void RecycleSubtree(
     key_value_document_t &document,
     key_value_t *pNode ) noexcept
 {
+    // Tree nodes return to the free list; arena payload bytes are intentionally
+    // reclaimed only by Clear or document destruction.
     key_value_t *pChild = pNode->pFirstChild;
     while ( pChild != nullptr ) {
         key_value_t *pNext = pChild->pNext;
@@ -336,6 +343,7 @@ void ResetValue( key_value_document_t &document, key_value_t &value ) noexcept
 
 void AppendChild( key_value_t &parent, key_value_t &child ) noexcept
 {
+    // Children form an insertion-ordered doubly linked list for stable traversal.
     child.pParent = &parent;
     child.pPrevious = parent.pLastChild;
     if ( parent.pLastChild != nullptr ) {
@@ -381,6 +389,8 @@ CYPHER_NODISCARD key_value_t *InsertChild(
          !StringView_IsValid( name ) ) {
         return nullptr;
     }
+    // Count ancestors before allocation so a failed depth check leaves no node
+    // or payload arena mutation behind.
     usize nParentDepth = 0u;
     for ( const key_value_t *pAncestor = pParent;
           pAncestor->pParent != nullptr;
@@ -465,6 +475,8 @@ CYPHER_NODISCARD bool_t ValidateSubtree(
     usize &nVisited ) noexcept
 {
     if ( pNode == nullptr || pDocument == nullptr ) return CY_FALSE;
+    // Validate with an explicit parent/sibling walk rather than consuming stack
+    // space recursively on untrusted documents.
     const key_value_t *pRoot = pNode;
     usize nDepth = 0u;
     while ( pNode != nullptr ) {
@@ -801,6 +813,8 @@ bool_t KeyValue_SetString(
     if ( !BelongsTo( pDocument, pValue ) || !StringView_IsValid( value ) ) {
         return CY_FALSE;
     }
+    // Allocate the replacement first. Allocation failure preserves the previous
+    // scalar/container value and all of its children.
     const char *pCopy = CopyString( *pDocument, value );
     if ( pCopy == nullptr ) {
         return CY_FALSE;
@@ -822,6 +836,7 @@ bool_t KeyValue_SetBinary(
     if ( !BelongsTo( pDocument, pValue ) || !BinaryBlock_IsValid( value ) ) {
         return CY_FALSE;
     }
+    // Binary payload follows the same allocate-before-reset transaction as text.
     const byte *pCopy = CopyBinary( *pDocument, value );
     if ( pCopy == nullptr ) {
         return CY_FALSE;
@@ -924,6 +939,8 @@ bool_t KeyValue_Remove(
          !BelongsTo( pDocument, pChild ) || pChild->pParent != pParent ) {
         return CY_FALSE;
     }
+    // Unlink before recycling so the parent remains a valid list throughout the
+    // subtree teardown and only pointers into the removed subtree are invalidated.
     if ( pChild->pPrevious != nullptr ) {
         pChild->pPrevious->pNext = pChild->pNext;
     } else {
@@ -1026,6 +1043,8 @@ void KeyValue_InternalMoveDocumentContents(
          !KeyValue_InternalDocumentIsValid( pSource ) || pDest == pSource ) {
         return;
     }
+    // Transfer whole arena ownership, then repair each node's document and parent
+    // pointers because the embedded root address changes between documents.
     KeyValue_ClearDocument( pDest );
     pDest->pNodeBlocks = pSource->pNodeBlocks;
     pDest->pDataBlocks = pSource->pDataBlocks;

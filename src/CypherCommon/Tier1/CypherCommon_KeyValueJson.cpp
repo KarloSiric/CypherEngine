@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Key Value Json Implementation Notes
+
+Converts between CYKV and JSON-compatible values without silently changing numeric kinds or
+string contents. Unsupported CYKV features are reported instead of being discarded.
+================
+*/
+
 #include "CypherCommon_KeyValueJson.h"
 
 #include "CypherCommon_KeyValueParserInternal.h"
@@ -47,6 +56,8 @@ key_value_parse_result_t KeyValueJson_Parse(
         invalid.status = key_value_parse_status_t::INVALID_ARGUMENT;
         return invalid;
     }
+    // JSON uses the shared parser in strict mode: root scalars are legal, while
+    // CYKV directives, comments, binary literals, and extended syntax are not.
     key_value_parse_options_t parseOptions{};
     parseOptions.flags = KEY_VALUE_PARSE_FLAG_ALLOW_ROOT_VALUE;
     if ( options.bRejectDuplicateKeys ) {
@@ -71,6 +82,8 @@ key_value_write_result_t KeyValueJson_Write(
     if ( !JsonOptionsAreValid( options ) ) {
         return { key_value_write_status_t::INVALID_ARGUMENT, 0u, 0u };
     }
+    // The internal writer's JSON mode rejects native CYKV values that have no
+    // lossless JSON representation instead of silently changing their type.
     key_value_write_options_t writeOptions{};
     writeOptions.flags = options.bPretty
         ? KEY_VALUE_WRITE_FLAG_PRETTY

@@ -29,8 +29,8 @@ namespace cypher::common
 namespace
 {
 
-constexpr byte g_emptyHashInput = 0u;
-constexpr usize CY_XXHASH_CASE_FOLD_CHUNK_SIZE = 256u;
+constexpr byte g_emptyHashInput = 0u; // xxHash still requires an address for an empty block.
+constexpr usize CY_XXHASH_CASE_FOLD_CHUNK_SIZE = 256u; // Bounds temporary stack use.
 
 CYPHER_NODISCARD const void *HashXXH_Input( binary_block_t data ) noexcept
 {
@@ -47,6 +47,8 @@ CYPHER_NODISCARD bool_t HashXXH_Validate( binary_block_t data ) noexcept
 CYPHER_NODISCARD XXH3_state_t *HashXXH_StreamState(
     hash_xxh3_stream_t *pStream ) noexcept
 {
+    // The public header keeps the third-party type opaque. Its lifetime begins
+    // in this byte storage through placement construction below.
     return std::launder(
         reinterpret_cast<XXH3_state_t *>( pStream->storage ) );
 }
@@ -194,6 +196,8 @@ bool_t HashXXH3_StreamDigest64(
         return CY_FALSE;
     }
 
+    // xxHash digest calls do not consume the state; callers may continue
+    // updating the same stream after taking an intermediate digest.
     *pHashOut = static_cast<hash64_t>(
         XXH3_64bits_digest( HashXXH_StreamState( pStream ) ) );
     return CY_TRUE;
@@ -243,6 +247,8 @@ hash32_t HashXXH32_StringInsensitiveAscii(
         return 0u;
     }
 
+    // Fold a bounded chunk at a time so hashing long paths never allocates or
+    // requires a second full-size lowercase copy.
     byte folded[CY_XXHASH_CASE_FOLD_CHUNK_SIZE]{};
     usize iOffset = 0u;
     while ( iOffset < text.cchLength ) {
@@ -279,6 +285,7 @@ hash64_t HashXXH3_64_StringInsensitiveAscii(
         return 0u;
     }
 
+    // Keep ASCII case-insensitive identity independent of the process locale.
     byte folded[CY_XXHASH_CASE_FOLD_CHUNK_SIZE]{};
     usize iOffset = 0u;
     while ( iOffset < text.cchLength ) {

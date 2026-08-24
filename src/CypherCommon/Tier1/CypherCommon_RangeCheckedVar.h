@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Range Checked Var Contract
+
+This is a non-owning range. The caller keeps the referenced storage alive, and all slicing or
+indexing operations validate the reported extent before pointer arithmetic.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_RANGECHECKEDVAR_H
 #define CYPHER_COMMON_TIER1_RANGECHECKEDVAR_H
 #ifndef PRAGMA_ONCE
@@ -28,8 +37,8 @@ namespace cypher::common
 
 template <typename type_t>
 struct range_checked_var_t {
-    type_t value{};
-    value_range_t<type_t> range{};
+    type_t value{};                  // Current value guaranteed to lie in range.
+    value_range_t<type_t> range{};   // Inclusive allowed bounds.
 };
 
 template <typename type_t>

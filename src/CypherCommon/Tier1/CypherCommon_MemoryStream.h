@@ -27,13 +27,16 @@
 namespace cypher::common
 {
 
+// Read streams alias immutable bytes. Write streams alias mutable capacity and publish cbSize
+// bytes. Seeking beyond cbSize is rejected; SetSize is the only operation that exposes new bytes.
+
 struct memory_stream_t {
-    const byte *pReadData{ nullptr };
-    byte *pWriteData{ nullptr };
-    usize cbSize{ 0u };
-    usize cbCapacity{ 0u };
-    usize iPosition{ 0u };
-    bool_t bWritable{ CY_FALSE };
+    const byte *pReadData{ nullptr }; // Source base used by both read-only and writable streams.
+    byte *pWriteData{ nullptr };      // Destination base; null for read-only streams.
+    usize cbSize{ 0u };               // Logical readable bytes.
+    usize cbCapacity{ 0u };           // Writable extent; equals cbSize for read-only streams.
+    usize iPosition{ 0u };            // Current byte cursor in [0, cbSize].
+    bool_t bWritable{ CY_FALSE };      // Selects whether write and resize operations are legal.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

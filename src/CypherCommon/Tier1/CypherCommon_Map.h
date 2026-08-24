@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Map Contract
+
+Map is the ordered key/value facade over rb_tree_t. Traversal is deterministic according to the
+stored comparator, but that order is a runtime policy and should be serialized only when the file
+format explicitly requires sorted keys.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_MAP_H
 #define CYPHER_COMMON_TIER1_MAP_H
 #ifndef PRAGMA_ONCE

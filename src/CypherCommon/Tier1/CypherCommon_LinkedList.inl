@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Linked List Template Definitions
+
+Container mutations must preserve structural invariants and element lifetime. Iterators or
+handles are invalidated only according to the rules stated by the public API. Template
+definitions remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_LINKEDLIST_INL
 #define CYPHER_COMMON_TIER1_LINKEDLIST_INL
 
@@ -57,6 +67,7 @@ linked_list_node_t<type_t> *LinkedList_CreateNode(
         std::is_nothrow_destructible_v<type_t>,
         "LinkedList values must support nothrow destruction." );
 
+    // Allocate and construct before publishing links into the list.
     void *pStorage = Allocator_Allocate(
         pList->pAllocator,
         sizeof( linked_list_node_t<type_t> ),
@@ -144,6 +155,7 @@ void LinkedList_Clear( linked_list_t<type_t> *pList ) noexcept
         return;
     }
 
+    // Save the next link before destroying the current node.
     linked_list_node_t<type_t> *pNode = pList->pHead;
     while ( pNode != nullptr ) {
         linked_list_node_t<type_t> *pNext = pNode->pNext;
@@ -281,6 +293,7 @@ void LinkedList_Erase(
         return;
     }
 
+    // Reconnect both neighbors before the removed node is destroyed.
     if ( pNode->pPrevious != nullptr ) {
         pNode->pPrevious->pNext = pNode->pNext;
     } else {
@@ -312,6 +325,7 @@ void LinkedList_SpliceBack(
         return;
     }
 
+    // Splicing transfers nodes without allocation or element movement.
     if ( pDest->pTail != nullptr ) {
         pDest->pTail->pNext = pSource->pHead;
         pSource->pHead->pPrevious = pDest->pTail;
@@ -320,6 +334,7 @@ void LinkedList_SpliceBack(
     }
     pDest->pTail = pSource->pTail;
     pDest->nCount += pSource->nCount;
+    // Rebind ownership so later erase validation accepts the transferred nodes.
     for ( linked_list_node_t<type_t> *pNode = pSource->pHead;
           pNode != nullptr;
           pNode = pNode->pNext ) {

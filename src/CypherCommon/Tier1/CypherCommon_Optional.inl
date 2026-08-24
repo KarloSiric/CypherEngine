@@ -38,6 +38,8 @@ template <typename type_t>
 CYPHER_NODISCARD type_t *Optional_Storage(
     optional_t<type_t> *pOptional ) noexcept
 {
+    // The byte buffer contains a type_t only while bHasValue is true; launder
+    // obtains the pointer for the current placement-constructed lifetime.
     return std::launder(
         reinterpret_cast<type_t *>( pOptional->storage ) );
 }
@@ -102,6 +104,7 @@ type_t *Optional_EmplaceArgs(
         return nullptr;
     }
 
+    // End any previous value lifetime before beginning the replacement lifetime.
     Optional_Reset( pOptional );
     type_t *pValue = ::new ( static_cast<void *>( pOptional->storage ) )
         type_t( static_cast<args_t &&>( args )... );
@@ -163,6 +166,7 @@ bool_t Optional_Take(
         return CY_FALSE;
     }
 
+    // Transfer the value, then make the optional empty by destroying the moved-from object.
     *pValueOut = static_cast<type_t &&>( *detail::Optional_Storage( pOptional ) );
     Optional_Reset( pOptional );
     return CY_TRUE;
@@ -204,6 +208,8 @@ optional_t<type_t> &optional_t<type_t>::operator=(
         return *this;
     }
 
+    // Two engaged optionals can use move assignment. Every other state change
+    // requires ending or beginning an object lifetime in raw storage.
     if ( bHasValue && other.bHasValue ) {
         *detail::Optional_Storage( this ) =
             static_cast<type_t &&>( *detail::Optional_Storage( &other ) );

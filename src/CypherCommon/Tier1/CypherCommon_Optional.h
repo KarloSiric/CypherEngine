@@ -26,6 +26,16 @@
 namespace cypher::common
 {
 
+/*
+================
+Optional Storage
+
+storage is untyped until bHasValue becomes true. Construction must complete before publishing
+that flag, and reset must destroy the object before clearing it. No API may inspect storage while
+the flag is false.
+================
+*/
+
 template <typename type_t>
 struct optional_t {
     static_assert( is_object_v<type_t>, "optional_t requires an object type." );
@@ -38,8 +48,8 @@ struct optional_t {
     optional_t( optional_t &&other ) noexcept;
     optional_t &operator=( optional_t &&other ) noexcept;
 
-    alignas( type_t ) byte storage[sizeof( type_t )]{};
-    bool_t bHasValue{ CY_FALSE };
+    alignas( type_t ) byte storage[sizeof( type_t )]{}; // In-place storage for one type_t object.
+    bool_t bHasValue{ CY_FALSE };                       // True only while storage contains a live object.
 };
 
 template <typename type_t>

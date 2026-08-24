@@ -28,9 +28,20 @@
 namespace cypher::common
 {
 
+/*
+================
+Hash Table Layout
+
+Open addressing keeps every key/value pair inside one slot array. EMPTY terminates a probe chain;
+there are no tombstones because erase closes the cluster by reinserting following entries. Slot
+storage is raw until state becomes OCCUPIED, and both objects must be destroyed before it becomes
+EMPTY again. Rehashing invalidates every key and value pointer returned by the table.
+================
+*/
+
 enum class hash_slot_state_t : u8 {
-    EMPTY = 0u,
-    OCCUPIED
+    EMPTY = 0u, // Raw storage; probing may stop at this slot.
+    OCCUPIED    // keyStorage and valueStorage contain live objects.
 };
 
 template <typename key_t, typename value_t>
@@ -41,10 +52,10 @@ struct hash_table_slot_t {
     hash_table_slot_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( hash_table_slot_t );
 
-    hash64_t hash{ 0u };
-    hash_slot_state_t state{ hash_slot_state_t::EMPTY };
-    alignas( key_t ) byte keyStorage[sizeof( key_t )];
-    alignas( value_t ) byte valueStorage[sizeof( value_t )];
+    hash64_t hash{ 0u };                                     // Cached full hash used during probing.
+    hash_slot_state_t state{ hash_slot_state_t::EMPTY };     // Controls both stored object lifetimes.
+    alignas( key_t ) byte keyStorage[sizeof( key_t )];       // Raw in-place key storage.
+    alignas( value_t ) byte valueStorage[sizeof( value_t )]; // Raw in-place mapped-value storage.
 };
 
 template <
@@ -57,18 +68,18 @@ struct hash_table_t {
     CYPHER_NO_COPY_MOVE( hash_table_t );
     ~hash_table_t() noexcept;
 
-    hash_table_slot_t<key_t, value_t> *pSlots{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
-    const allocator_t *pAllocator{ nullptr };
-    hasher_t hasher{};
-    equal_key_t equalKey{};
+    hash_table_slot_t<key_t, value_t> *pSlots{ nullptr }; // Power-of-two slot array.
+    usize nCount{ 0u };                                   // Number of occupied slots.
+    usize nCapacity{ 0u };                                // Total probe slots, including empty slots.
+    const allocator_t *pAllocator{ nullptr };             // Allocator fixed for the table lifetime.
+    hasher_t hasher{};                                    // Produces the full hash for a key.
+    equal_key_t equalKey{};                               // Resolves collisions between equal hashes.
 };
 
 template <typename value_t>
 struct hash_table_insert_result_t {
-    value_t *pValue{ nullptr };
-    bool_t bInserted{ CY_FALSE };
+    value_t *pValue{ nullptr };   // Existing or newly constructed mapped value.
+    bool_t bInserted{ CY_FALSE }; // False when the key was already present.
 };
 
 // Returns the live key stored in an occupied slot.

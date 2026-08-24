@@ -87,6 +87,8 @@ bool_t ReliableTimer_AddRttSample(
     }
 
     if ( !pTimer->bHasSample ) {
+        // RFC 6298 initializes SRTT from the first sample and RTTVAR to half
+        // that sample; later updates use alpha=1/8 and beta=1/4.
         pTimer->flSmoothedRttSeconds = flRttSeconds;
         pTimer->flRttVariationSeconds = flRttSeconds * 0.5;
         pTimer->bHasSample = CY_TRUE;
@@ -99,6 +101,8 @@ bool_t ReliableTimer_AddRttSample(
             0.875 * pTimer->flSmoothedRttSeconds + 0.125 * flRttSeconds;
     }
 
+    // The safety margin is four times variation, but never below the clock's
+    // measurable granularity.
     const f64 flVariationTerm = 4.0 * pTimer->flRttVariationSeconds;
     const f64 flSafetyMargin = flVariationTerm > pTimer->config.flClockGranularitySeconds
         ? flVariationTerm
@@ -153,6 +157,8 @@ void ReliableTimer_OnTimeout(
         return;
     }
 
+    // Saturating before multiplication avoids an intermediate overflow while
+    // implementing exponential retransmission backoff.
     pTimer->flRtoSeconds = pTimer->flRtoSeconds >= pTimer->config.flMaxRtoSeconds * 0.5
         ? pTimer->config.flMaxRtoSeconds
         : pTimer->flRtoSeconds * 2.0;

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Range Implementation Notes
+
+This is a non-owning range. The caller keeps the referenced storage alive, and all slicing or
+indexing operations validate the reported extent before pointer arithmetic.
+================
+*/
+
 #include "CypherCommon_Range.h"
 
 namespace cypher::common
@@ -22,6 +31,7 @@ namespace cypher::common
 
 bool_t IndexRange_IsValid( index_range_t range ) noexcept
 {
+    // Validate by subtraction so no one-past-end addition can wrap.
     return range.nCount <= CY_USIZE_MAX - range.iFirst;
 }
 
@@ -76,6 +86,7 @@ index_range_t IndexRange_Intersection(
         return {};
     }
 
+    // Half-open intersection naturally represents disjoint ranges with count zero.
     const usize iStart = rangeA.iFirst > rangeB.iFirst
         ? rangeA.iFirst
         : rangeB.iFirst;
@@ -90,6 +101,7 @@ index_range_t IndexRange_Intersection(
 
 bool_t ByteRange_IsValid( byte_range_t range ) noexcept
 {
+    // Byte ranges use the same half-open overflow contract as index ranges.
     return range.cbSize <= CY_USIZE_MAX - range.iOffset;
 }
 

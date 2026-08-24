@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Memory Stack Implementation Notes
+
+Storage ownership remains with the configured backing allocator or buffer. Reset and release
+operations invalidate outstanding allocations according to the lifetime documented by the public
+API.
+================
+*/
+
 #include "CypherCommon_MemoryStack.h"
 
 namespace cypher::common
@@ -75,6 +85,8 @@ void *MemoryStack_Allocate(
     }
 
     byte *pCurrent = pStack->memory.pData + pStack->iOffset;
+    // Align the absolute address, not merely the offset: caller-owned storage
+    // is not guaranteed to begin at the requested alignment.
     uintptr nAlignedAddress = 0u;
     if ( !Cy_AlignPointerUpChecked( pCurrent, nAlignment, nAlignedAddress ) ) {
         return nullptr;
@@ -87,6 +99,7 @@ void *MemoryStack_Allocate(
         return nullptr;
     }
 
+    // Publish the new cursor only after every bound check succeeds.
     pStack->iOffset += cbPadding + cbSize;
     if ( pStack->iOffset > pStack->cbHighWater ) {
         pStack->cbHighWater = pStack->iOffset;
@@ -126,6 +139,8 @@ bool_t MemoryStack_Restore(
         return CY_FALSE;
     }
 
+    // Markers are rewind points only. Accepting a future marker would expose
+    // bytes that were never allocated through this stack.
     const bool_t bValidMarker = marker <= pStack->iOffset;
     CY_ASSERT_MSG(
         bValidMarker,

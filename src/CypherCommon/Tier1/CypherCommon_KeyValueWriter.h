@@ -27,35 +27,35 @@ namespace cypher::common
 {
 
 enum key_value_write_flags_t : flags32_t {
-    KEY_VALUE_WRITE_FLAG_NONE          = 0u,
-    KEY_VALUE_WRITE_FLAG_PRETTY        = CYPHER_BIT32( 0 ),
-    KEY_VALUE_WRITE_FLAG_CANONICAL     = CYPHER_BIT32( 1 ),
-    KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE = CYPHER_BIT32( 2 ),
-    KEY_VALUE_WRITE_FLAG_ASCII_ONLY    = CYPHER_BIT32( 3 )
+    KEY_VALUE_WRITE_FLAG_NONE = 0u,                // Compact insertion-order output.
+    KEY_VALUE_WRITE_FLAG_PRETTY = CYPHER_BIT32( 0 ), // Emit indentation and line breaks.
+    KEY_VALUE_WRITE_FLAG_CANONICAL = CYPHER_BIT32( 1 ), // Sort keys and stabilize spelling.
+    KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE = CYPHER_BIT32( 2 ), // End text with LF.
+    KEY_VALUE_WRITE_FLAG_ASCII_ONLY = CYPHER_BIT32( 3 ) // Escape non-ASCII code points.
 };
 
 enum class key_value_write_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    INVALID_DOCUMENT,
-    DEPTH_LIMIT,
-    OUT_OF_MEMORY,
-    SIZE_OVERFLOW,
-    OUTPUT_TRUNCATED,
-    SINK_FAILED
+    OK = 0u,          // Complete text was emitted.
+    INVALID_ARGUMENT, // Root, options, destination, or sink is invalid.
+    INVALID_DOCUMENT, // Tree ownership, type, or linkage invariant is broken.
+    DEPTH_LIMIT,      // Tree nesting exceeds writer policy.
+    OUT_OF_MEMORY,    // Canonical key ordering could not allocate scratch space.
+    SIZE_OVERFLOW,    // Required character count overflowed usize.
+    OUTPUT_TRUNCATED, // Buffer received a prefix but cannot hold complete text.
+    SINK_FAILED       // Streaming sink rejected an output fragment.
 };
 
 struct key_value_write_options_t {
     flags32_t flags{ KEY_VALUE_WRITE_FLAG_PRETTY |
-                     KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE };
-    u8 nIndentSpaces{ 4u };
-    usize nMaxDepth{ 128u };
+                     KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE }; // Formatting and canonicalization policy.
+    u8 nIndentSpaces{ 4u };  // Spaces emitted for each pretty-print level.
+    usize nMaxDepth{ 128u }; // Maximum tree depth accepted by the writer.
 };
 
 struct key_value_write_result_t {
-    key_value_write_status_t status{ key_value_write_status_t::OK };
-    usize cchWritten{ 0u };
-    usize cchRequired{ 0u };
+    key_value_write_status_t status{ key_value_write_status_t::OK }; // Final status.
+    usize cchWritten{ 0u };  // Characters published, excluding a terminator.
+    usize cchRequired{ 0u }; // Complete character count even after truncation.
 };
 
 // Canonical mode emits compact text, sorts object members byte-wise by key,

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Key Value Writer Internal Contract
+
+Writes CYKV data deterministically into caller-controlled output. Escaping, indentation, and key
+order must not depend on pointer values, locale, or process state.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_KEYVALUEWRITERINTERNAL_H
 #define CYPHER_COMMON_TIER1_KEYVALUEWRITERINTERNAL_H
 #ifndef PRAGMA_ONCE

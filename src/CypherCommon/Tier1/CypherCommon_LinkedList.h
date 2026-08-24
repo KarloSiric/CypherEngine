@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Linked List Contract
+
+Container mutations must preserve structural invariants and element lifetime. Iterators or
+handles are invalidated only according to the rules stated by the public API.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_LINKEDLIST_H
 #define CYPHER_COMMON_TIER1_LINKEDLIST_H
 #ifndef PRAGMA_ONCE
@@ -26,15 +35,18 @@
 namespace cypher::common
 {
 
+// Nodes are individually allocated and retain stable addresses until erased. pOwner makes
+// cross-list misuse detectable and is updated for every node during SpliceBack.
+
 template <typename type_t>
 struct linked_list_t;
 
 template <typename type_t>
 struct linked_list_node_t {
-    linked_list_node_t *pPrevious{ nullptr };
-    linked_list_node_t *pNext{ nullptr };
-    linked_list_t<type_t> *pOwner{ nullptr };
-    type_t value{};
+    linked_list_node_t *pPrevious{ nullptr }; // Previous node, or null at the head.
+    linked_list_node_t *pNext{ nullptr };     // Next node, or null at the tail.
+    linked_list_t<type_t> *pOwner{ nullptr }; // List currently responsible for this node.
+    type_t value{};                           // Payload constructed with the node.
 };
 
 template <typename type_t>
@@ -43,10 +55,10 @@ struct linked_list_t {
     CYPHER_NO_COPY_MOVE( linked_list_t );
     ~linked_list_t() noexcept;
 
-    linked_list_node_t<type_t> *pHead{ nullptr };
-    linked_list_node_t<type_t> *pTail{ nullptr };
-    usize nCount{ 0u };
-    const allocator_t *pAllocator{ nullptr };
+    linked_list_node_t<type_t> *pHead{ nullptr }; // First node in traversal order.
+    linked_list_node_t<type_t> *pTail{ nullptr }; // Last node in traversal order.
+    usize nCount{ 0u };                           // Number of allocated live nodes.
+    const allocator_t *pAllocator{ nullptr };     // Allocates and releases each node.
 };
 
 template <typename type_t>

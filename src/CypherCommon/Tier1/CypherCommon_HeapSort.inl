@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Heap Sort Template Definitions
+
+Algorithms operate only on the supplied range and callback contracts. Comparators must define a
+consistent ordering; the implementation performs no hidden allocation unless explicitly
+documented. Template definitions remain in this file so each concrete instantiation is compiled
+at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_HEAPSORT_INL
 #define CYPHER_COMMON_TIER1_HEAPSORT_INL
 
@@ -37,6 +48,7 @@ void Heap_Make( span_t<type_t> values, compare_t compare ) noexcept
     if ( !bValid || values.nCount < 2u ) {
         return;
     }
+    // Leaves already satisfy heap order; sift internal nodes from the bottom up.
     for ( usize iRoot = values.nCount / 2u; iRoot > 0u; --iRoot ) {
         detail::Sort_SiftDown(
             values.pData,
@@ -55,6 +67,7 @@ void Heap_Push( span_t<type_t> values, compare_t compare ) noexcept
         return;
     }
 
+    // The caller appended one item; bubble only that new leaf toward the root.
     usize iChild = values.nCount - 1u;
     while ( iChild > 0u ) {
         const usize iParent = ( iChild - 1u ) / 2u;
@@ -74,6 +87,7 @@ void Heap_Pop( span_t<type_t> values, compare_t compare ) noexcept
     if ( !bValid || values.nCount < 2u ) {
         return;
     }
+    // Move the maximum to the final slot, then restore the shortened heap.
     detail::Sort_Swap( values.pData[0], values.pData[values.nCount - 1u] );
     detail::Sort_SiftDown( values.pData, 0u, values.nCount - 1u, compare );
 }

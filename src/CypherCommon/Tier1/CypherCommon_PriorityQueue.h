@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Priority Queue Contract
+
+storage is maintained as a binary heap. compare determines which value rises to the top and must
+remain unchanged while elements are present. Push and Pop may relocate elements and invalidate
+addresses into the underlying vector.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_PRIORITYQUEUE_H
 #define CYPHER_COMMON_TIER1_PRIORITYQUEUE_H
 #ifndef PRAGMA_ONCE
@@ -29,8 +39,8 @@ namespace cypher::common
 
 template <typename type_t, typename compare_t = less_t<type_t>>
 struct priority_queue_t {
-    vector_t<type_t> storage{};
-    compare_t compare{};
+    vector_t<type_t> storage{}; // Binary heap in breadth-first array order.
+    compare_t compare{};        // Heap priority relation retained from initialization.
 };
 
 template <typename type_t, typename compare_t>

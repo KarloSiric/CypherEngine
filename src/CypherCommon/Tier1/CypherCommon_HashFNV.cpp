@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Hash FNV Implementation Notes
+
+This algorithm is deterministic over an explicit byte range. It is suitable for lookup, change
+detection, or corruption checks, but must not be used as a cryptographic authenticator.
+================
+*/
+
 #include "CypherCommon_HashFNV.h"
 
 namespace cypher::common
@@ -28,6 +37,7 @@ hash32_t HashFNV1a32_Update( hash32_t state, binary_block_t data ) noexcept
         return state;
     }
 
+    // FNV-1a xors the next byte before multiplying by the fixed prime.
     for ( usize iByte = 0u; iByte < data.cbSize; ++iByte ) {
         state ^= static_cast<hash32_t>( data.pData[iByte] );
         state *= CY_FNV1A32_PRIME;

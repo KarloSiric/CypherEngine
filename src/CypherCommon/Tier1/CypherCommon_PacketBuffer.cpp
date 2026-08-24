@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Packet Buffer Implementation Notes
+
+The cursor and capacity form one invariant: no operation may advance beyond the supplied
+storage. Failed writes report the condition without publishing a cursor that claims unwritten
+bytes.
+================
+*/
+
 #include "CypherCommon_PacketBuffer.h"
 
 namespace cypher::common
@@ -33,7 +43,7 @@ bool_t PacketBuffer_Init(
         return CY_FALSE;
     }
 
-    pPacket->pData = storage.pData;
+    pPacket->pData = storage.pData; // Borrowed storage; PacketBuffer never frees it.
     pPacket->cbSize = 0u;
     pPacket->cbCapacity = storage.nCount;
     return CY_TRUE;
@@ -105,6 +115,7 @@ byte_writer_t PacketBuffer_ByteWriter( packet_buffer_t *pPacket ) noexcept
     CY_ASSERT_MSG( bValidPacket, "PacketBuffer_ByteWriter requires a valid packet." );
     byte_writer_t writer{};
     if ( bValidPacket ) {
+        // Writers see full capacity, but bytes become packet payload only after commit.
         const bool_t bInitialized = ByteWriter_Init(
             &writer,
             { pPacket->pData, pPacket->cbCapacity } );
@@ -122,6 +133,8 @@ bool_t PacketBuffer_CommitByteWriter(
     const bool_t bValidWriter = ByteWriter_IsValid( &writer );
     CY_ASSERT_MSG( bValidPacket, "PacketBuffer byte commit requires a valid packet." );
     CY_ASSERT_MSG( bValidWriter, "PacketBuffer byte commit requires a valid writer." );
+    // Identity and capacity checks prevent committing a writer created for a
+    // different packet; failed cursors never publish partial data.
     if ( !bValidPacket || !bValidWriter ||
          writer.status != byte_cursor_status_t::OK ||
          writer.pData != pPacket->pData ||
@@ -176,6 +189,8 @@ bool_t PacketBuffer_CommitBitWriter(
     const bool_t bValidWriter = BitWriter_IsValid( &writer );
     CY_ASSERT_MSG( bValidPacket, "PacketBuffer bit commit requires a valid packet." );
     CY_ASSERT_MSG( bValidWriter, "PacketBuffer bit commit requires a valid writer." );
+    // Bit writers carry capacity in bits, so provenance includes the exact
+    // byte-to-bit capacity conversion as well as the backing pointer.
     if ( !bValidPacket || !bValidWriter ||
          writer.status != bit_cursor_status_t::OK ||
          writer.pData != pPacket->pData ||

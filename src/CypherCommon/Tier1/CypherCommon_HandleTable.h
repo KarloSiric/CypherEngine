@@ -28,14 +28,17 @@ namespace cypher::common
 {
 
 inline constexpr usize CY_HANDLE_TABLE_MAX_CAPACITY =
-    static_cast<usize>( CY_HANDLE32_INDEX_MAX ) + 1u;
+    static_cast<usize>( CY_HANDLE32_INDEX_MAX ) + 1u; // Largest slot array encodable by handle32_t.
+
+// A handle is valid only when both its slot index and generation match an occupied slot. Removal
+// increments the generation before returning the slot to the free list, invalidating stale copies.
 
 template <typename type_t>
 struct handle_table_slot_t {
-    alignas( type_t ) byte storage[sizeof( type_t )];
-    u32 nGeneration{ 1u };
-    u32 iNextFree{ CY_U32_MAX };
-    bool_t bOccupied{ CY_FALSE };
+    alignas( type_t ) byte storage[sizeof( type_t )]; // Raw object storage while the slot is free.
+    u32 nGeneration{ 1u };                            // Version encoded into handles for this slot.
+    u32 iNextFree{ CY_U32_MAX };                      // Next free slot; invalid while occupied.
+    bool_t bOccupied{ CY_FALSE };                     // True only while storage contains a live object.
 };
 
 template <typename type_t>
@@ -44,11 +47,11 @@ struct handle_table_t {
     CYPHER_NO_COPY_MOVE( handle_table_t );
     ~handle_table_t() noexcept;
 
-    handle_table_slot_t<type_t> *pSlots{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
-    u32 iFreeHead{ CY_U32_MAX };
-    const allocator_t *pAllocator{ nullptr };
+    handle_table_slot_t<type_t> *pSlots{ nullptr }; // Slot array addressed by handle index.
+    usize nCount{ 0u };                             // Occupied slot count.
+    usize nCapacity{ 0u };                          // Allocated slots, limited by handle index bits.
+    u32 iFreeHead{ CY_U32_MAX };                    // First reusable slot or CY_U32_MAX.
+    const allocator_t *pAllocator{ nullptr };       // Owns the slot array.
 };
 
 template <typename type_t>

@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Map Template Definitions
+
+Container mutations must preserve structural invariants and element lifetime. Iterators or
+handles are invalidated only according to the rules stated by the public API. Template
+definitions remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_MAP_INL
 #define CYPHER_COMMON_TIER1_MAP_INL
 
@@ -35,6 +45,7 @@ bool_t Map_Init(
     const allocator_t *pAllocator,
     compare_t compare ) noexcept
 {
+    // Ordered-map behavior is exactly the RBTree comparator and node-lifetime contract.
     return RBTree_Init(
         pMap,
         pAllocator,
@@ -67,7 +78,7 @@ value_t *Map_Find(
     map_t<key_t, value_t, compare_t> *pMap,
     const key_t &key ) noexcept
 {
-    rb_tree_node_t<key_t, value_t> *pNode = RBTree_Find( pMap, key );
+    rb_tree_node_t<key_t, value_t> *pNode = RBTree_Find( pMap, key ); // Hide node metadata from map callers.
     return pNode != nullptr ? &pNode->value : nullptr;
 }
 

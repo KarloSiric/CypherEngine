@@ -28,16 +28,16 @@ namespace cypher::common
 {
 
 struct instance_log_record_t {
-    u64 nTimestampTicks{ 0u };
-    log_level_t level{ log_level_t::Info };
-    string_view_t category{};
-    string_view_t message{};
+    u64 nTimestampTicks{ 0u };               // Monotonic timestamp captured on insertion.
+    log_level_t level{ log_level_t::Info };  // Severity assigned by the producer.
+    string_view_t category{};                // Borrowed view into log-owned text storage.
+    string_view_t message{};                 // Borrowed view into log-owned text storage.
 };
 
 struct instance_log_desc_t {
-    const allocator_t *pAllocator{ nullptr };
-    usize nMaxRecords{ 256u };
-    usize cbMaxText{ 256u * CY_KIB };
+    const allocator_t *pAllocator{ nullptr }; // Owns records and copied text.
+    usize nMaxRecords{ 256u };                // Oldest records are evicted at this count.
+    usize cbMaxText{ 256u * CY_KIB };         // Total retained category/message bytes.
 };
 
 // cbMaxText counts category and message payload bytes, excluding terminators.

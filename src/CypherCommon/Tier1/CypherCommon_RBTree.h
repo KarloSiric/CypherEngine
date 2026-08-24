@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+RB Tree Contract
+
+The root is black, red nodes never have red children, and every root-to-leaf path has equal black
+height. Insert and erase preserve those properties through local rotations. Node addresses remain
+stable until that node is erased; Clear and Shutdown invalidate every node at once.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_RBTREE_H
 #define CYPHER_COMMON_TIER1_RBTREE_H
 #ifndef PRAGMA_ONCE
@@ -28,8 +38,8 @@ namespace cypher::common
 {
 
 enum class rb_tree_color_t : u8 {
-    RED = 0u,
-    BLACK
+    RED = 0u, // May not have a red parent or child.
+    BLACK     // Contributes one unit to every descendant path's black height.
 };
 
 template <typename key_t, typename value_t>
@@ -40,12 +50,12 @@ struct rb_tree_node_t {
     }
     CYPHER_NO_COPY_MOVE( rb_tree_node_t );
 
-    rb_tree_node_t *pParent{ nullptr };
-    rb_tree_node_t *pLeft{ nullptr };
-    rb_tree_node_t *pRight{ nullptr };
-    rb_tree_color_t color{ rb_tree_color_t::RED };
-    key_t key{};
-    value_t value{};
+    rb_tree_node_t *pParent{ nullptr };            // Null only for the root.
+    rb_tree_node_t *pLeft{ nullptr };              // Keys ordered before this node.
+    rb_tree_node_t *pRight{ nullptr };             // Keys ordered after this node.
+    rb_tree_color_t color{ rb_tree_color_t::RED }; // Balancing metadata, not user-visible state.
+    key_t key{};                                   // Immutable ordering identity after insertion.
+    value_t value{};                               // Mapped payload owned by this node.
 };
 
 template <typename key_t, typename value_t, typename compare_t = less_t<key_t>>
@@ -54,16 +64,16 @@ struct rb_tree_t {
     CYPHER_NO_COPY_MOVE( rb_tree_t );
     ~rb_tree_t() noexcept;
 
-    rb_tree_node_t<key_t, value_t> *pRoot{ nullptr };
-    usize nCount{ 0u };
-    const allocator_t *pAllocator{ nullptr };
-    compare_t compare{};
+    rb_tree_node_t<key_t, value_t> *pRoot{ nullptr }; // Top of the ordered tree.
+    usize nCount{ 0u };                               // Number of allocated live nodes.
+    const allocator_t *pAllocator{ nullptr };         // Allocates and releases individual nodes.
+    compare_t compare{};                              // Strict weak ordering retained by the tree.
 };
 
 template <typename key_t, typename value_t>
 struct rb_tree_insert_result_t {
-    rb_tree_node_t<key_t, value_t> *pNode{ nullptr };
-    bool_t bInserted{ CY_FALSE };
+    rb_tree_node_t<key_t, value_t> *pNode{ nullptr }; // Existing or newly inserted node.
+    bool_t bInserted{ CY_FALSE };                     // False when an equivalent key already existed.
 };
 
 template <typename key_t, typename value_t, typename compare_t>

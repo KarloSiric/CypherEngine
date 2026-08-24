@@ -63,6 +63,7 @@ bool_t HandleTable_IsCanonicalEmpty(
 
 inline u32 HandleTable_NextGeneration( u32 nGeneration ) noexcept
 {
+    // Generation zero is reserved by the packed-handle contract as invalid.
     return nGeneration >= CY_HANDLE32_GENERATION_MAX
         ? 1u
         : nGeneration + 1u;
@@ -72,6 +73,8 @@ template <typename type_t>
 void HandleTable_RebuildFreeList( handle_table_t<type_t> &table ) noexcept
 {
     table.iFreeHead = CY_U32_MAX;
+    // Walk backward and push each vacant index so allocation still begins at
+    // the lowest available slot after growth or clear.
     for ( usize iSlot = table.nCapacity; iSlot > 0u; --iSlot ) {
         const u32 iCurrent = static_cast<u32>( iSlot - 1u );
         handle_table_slot_t<type_t> &slot = table.pSlots[iCurrent];
@@ -158,12 +161,13 @@ bool_t HandleTable_DecodeLiveHandle(
         return CY_FALSE;
     }
 
-    const u32 iSlot = handle.value & CY_HANDLE32_INDEX_MAX;
+    const u32 iSlot = handle.value & CY_HANDLE32_INDEX_MAX; // Low packed index bits.
     const u32 nGeneration = handle.value >> CY_HANDLE32_INDEX_BITS;
     if ( static_cast<usize>( iSlot ) >= table.nCapacity ) {
         return CY_FALSE;
     }
 
+    // Matching the generation rejects stale handles after a slot is recycled.
     const handle_table_slot_t<type_t> &slot = table.pSlots[iSlot];
     if ( !slot.bOccupied || slot.nGeneration != nGeneration ) {
         return CY_FALSE;
@@ -317,6 +321,8 @@ bool_t HandleTable_Reserve(
         return CY_FALSE;
     }
 
+    // Construct every slot wrapper first; individual value lifetimes begin only
+    // for occupied slots copied below.
     for ( usize iSlot = 0u; iSlot < nCapacity; ++iSlot ) {
         ::new ( static_cast<void *>( pNewSlots + iSlot ) ) slot_t;
     }
@@ -340,6 +346,8 @@ bool_t HandleTable_Reserve(
         }
     }
 
+    // The new array is complete before the old array is touched, preserving the
+    // table when allocation fails and preserving every packed slot index.
     if ( pTable->pSlots != nullptr ) {
         detail::HandleTable_DestroyValues( *pTable );
         detail::HandleTable_DestroySlotStorage( *pTable );
@@ -371,7 +379,7 @@ handle32_t HandleTable_Emplace(
         return CY_HANDLE32_INVALID;
     }
 
-    const u32 iSlot = pTable->iFreeHead;
+    const u32 iSlot = pTable->iFreeHead; // Pop one slot from the intrusive free list.
     handle_table_slot_t<type_t> &slot = pTable->pSlots[iSlot];
     pTable->iFreeHead = slot.iNextFree;
     slot.iNextFree = CY_U32_MAX;
@@ -466,6 +474,8 @@ bool_t HandleTable_Remove(
     handle_table_slot_t<type_t> &slot = pTable->pSlots[iSlot];
     detail::HandleTable_SlotValue( slot )->~type_t();
     slot.bOccupied = CY_FALSE;
+    // Advance before linking the slot back into the free list. Any outstanding
+    // handle to the removed object becomes invalid immediately.
     slot.nGeneration =
         detail::HandleTable_NextGeneration( slot.nGeneration );
     slot.iNextFree = pTable->iFreeHead;

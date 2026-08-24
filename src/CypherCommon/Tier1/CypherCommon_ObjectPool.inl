@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Object Pool Template Definitions
+
+Storage ownership remains with the configured backing allocator or buffer. Reset and release
+operations invalidate outstanding allocations according to the lifetime documented by the public
+API. Template definitions remain in this file so each concrete instantiation is compiled at its
+call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_OBJECTPOOL_INL
 #define CYPHER_COMMON_TIER1_OBJECTPOOL_INL
 
@@ -66,6 +77,8 @@ void ObjectPool_DestroyLiveObjects(
     for ( usize iBlock = 0u; iBlock < blocks.nBlockCount; ++iBlock ) {
         auto *pObject = reinterpret_cast<type_t *>(
             blocks.memory.pData + iBlock * blocks.cbBlockStride );
+        // The backing pool's occupancy bitmap is the authority on which raw slots
+        // currently contain constructed type_t objects.
         if ( MemoryPool_IsAllocated( &pool.memory, pObject ) ) {
             pObject->~type_t();
         }
@@ -158,7 +171,7 @@ type_t *ObjectPool_Create(
         return nullptr;
     }
 
-    void *pStorage = MemoryPool_Allocate( &pPool->memory );
+    void *pStorage = MemoryPool_Allocate( &pPool->memory ); // Reserve raw storage before construction.
     if ( pStorage == nullptr ) {
         return nullptr;
     }
@@ -189,7 +202,7 @@ bool_t ObjectPool_Destroy(
         return CY_FALSE;
     }
 
-    pObject->~type_t();
+    pObject->~type_t(); // End the C++ object lifetime before recycling its storage slot.
     return MemoryPool_Free( &pPool->memory, pObject );
 }
 

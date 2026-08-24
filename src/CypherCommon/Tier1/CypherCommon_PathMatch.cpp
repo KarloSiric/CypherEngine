@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Path Match Implementation Notes
+
+This dependency-light Tier1 utility keeps ownership, capacity, and failure behavior explicit so
+higher engine systems can use it without hidden allocation or platform state.
+================
+*/
+
 #include "CypherCommon_PathMatch.h"
 
 #include "CypherCommon_StringPath.h"
@@ -77,6 +86,7 @@ bool_t PathMatch_Filter(
         return CY_FALSE;
     }
 
+    // An empty include list means "include all"; exclusions always win afterward.
     bool_t bIncluded = filter.nIncludeCount == 0u;
     for ( usize iPattern = 0u; iPattern < filter.nIncludeCount; ++iPattern ) {
         if ( PathMatch_Wildcard( path, filter.pIncludes[iPattern], filter.flags ) ) {

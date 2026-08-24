@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Net Address Contract
+
+Address values remain independent of native socket structures. Parsing and formatting are
+bounded, while DNS or transport ownership belongs to the higher networking layer.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_NETADDRESS_H
 #define CYPHER_COMMON_TIER1_NETADDRESS_H
 #ifndef PRAGMA_ONCE
@@ -27,16 +36,16 @@ namespace cypher::common
 {
 
 enum class net_address_family_t : u8 {
-    INVALID = 0u,
-    IPV4,
-    IPV6
+    INVALID = 0u, // No usable address bytes.
+    IPV4,         // First four address bytes contain an IPv4 address.
+    IPV6          // All sixteen address bytes contain an IPv6 address.
 };
 
 struct net_address_t {
-    byte address[16]{};
-    u32 nScopeId{ 0u };
-    u16 nPort{ 0u };
-    net_address_family_t family{ net_address_family_t::INVALID };
+    byte address[16]{}; // Network-order address bytes selected by family.
+    u32 nScopeId{ 0u }; // IPv6 interface scope; zero for unscoped and IPv4 addresses.
+    u16 nPort{ 0u };    // Host-order transport port.
+    net_address_family_t family{ net_address_family_t::INVALID }; // Active address layout.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

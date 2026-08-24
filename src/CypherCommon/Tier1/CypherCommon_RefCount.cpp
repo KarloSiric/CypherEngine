@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Ref Count Implementation Notes
+
+Reference transitions are atomic where required, but the counted object owns its destruction
+policy. Reaching zero is a lifetime event and must occur exactly once.
+================
+*/
+
 #include "CypherCommon_RefCount.h"
 
 namespace cypher::common
@@ -42,6 +51,8 @@ u32 RefCount_AddRef( ref_count_t *pRefCount ) noexcept
         return 0u;
     }
 
+    // Compare-exchange is required to reject both resurrection from zero and
+    // overflow without racing another acquiring thread.
     u32 nCurrent = Cy_AtomicLoad(
         &pRefCount->nReferences,
         CY_MEMORY_ORDER_RELAXED );
@@ -53,6 +64,8 @@ u32 RefCount_AddRef( ref_count_t *pRefCount ) noexcept
         if ( !bCanAcquire ) {
             return nCurrent;
         }
+        // Acquire-release publishes all prior owner writes to the thread that
+        // observes the final zero and destroys the containing object.
         if ( Cy_AtomicCompareExchangeWeak(
                  &pRefCount->nReferences,
                  &nCurrent,

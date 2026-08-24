@@ -63,6 +63,7 @@ inline usize Queue_PhysicalIndex(
     usize iLogicalIndex,
     usize nCapacity ) noexcept
 {
+    // Logical FIFO order starts at iHead and may cross the end of storage once.
     const usize nUntilWrap = nCapacity - iHead;
     return iLogicalIndex < nUntilWrap
         ? iHead + iLogicalIndex
@@ -76,6 +77,7 @@ void Queue_DestroyLiveElements( queue_t<type_t> &queue ) noexcept
         return;
     }
 
+    // Live objects occupy at most two contiguous spans around the wrap point.
     const usize nFirstCount =
         queue.nCount < queue.nCapacity - queue.iHead
             ? queue.nCount
@@ -111,6 +113,7 @@ bool_t Queue_ReallocateExact(
     }
 
     if ( pQueue->nCount > 0u ) {
+        // Reallocation also linearizes FIFO order, making the new head index zero.
         const usize nFirstCount =
             pQueue->nCount < pQueue->nCapacity - pQueue->iHead
                 ? pQueue->nCount
@@ -152,6 +155,7 @@ bool_t Queue_CalculateGrowth(
         ? nMinimumCapacity
         : nCurrentCapacity;
     if ( nCandidate < nRequiredCapacity ) {
+        // Grow by roughly 1.5x to balance relocation cost and unused storage.
         const usize nHalf = nCandidate / 2u;
         nCandidate = nCandidate > nMaximumCapacity - nHalf
             ? nMaximumCapacity
@@ -379,6 +383,8 @@ bool_t Queue_Push(
     const bool_t bInternalValue =
         detail::Queue_PointerIsInternal( *pQueue, &value );
     if ( bMustGrow && bInternalValue ) {
+        // Reallocation invalidates a value borrowed from this queue; preserve it
+        // in a temporary object before storage moves.
         type_t temporary( value );
         if ( !detail::Queue_EnsureAdditional( pQueue, 1u ) ) {
             return CY_FALSE;
@@ -424,6 +430,7 @@ bool_t Queue_PushMove(
     const bool_t bInternalValue =
         detail::Queue_PointerIsInternal( *pQueue, &value );
     if ( bMustGrow && bInternalValue ) {
+        // Move the aliased value out before its source storage is relocated.
         type_t temporary( static_cast<type_t &&>( value ) );
         if ( !detail::Queue_EnsureAdditional( pQueue, 1u ) ) {
             return CY_FALSE;
@@ -468,6 +475,8 @@ type_t *Queue_Emplace(
         return nullptr;
     }
 
+    // Construct before growth because constructor arguments may refer to an
+    // element already held by this queue.
     type_t temporary( static_cast<args_t &&>( args )... );
     if ( !detail::Queue_EnsureAdditional( pQueue, 1u ) ) {
         return nullptr;

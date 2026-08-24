@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Hash Map Template Definitions
+
+Hash operations use explicit byte spans and stable seeds where persistence matters. Table
+placement may change, but externally stored content hashes must remain deterministic. Template
+definitions remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_HASHMAP_INL
 #define CYPHER_COMMON_TIER1_HASHMAP_INL
 
@@ -37,6 +47,8 @@ bool_t HashMap_Init(
     hasher_t hasher,
     equal_key_t equalKey ) noexcept
 {
+    // Map is a naming facade; probing, ownership, and invalidation remain the
+    // single HashTable contract rather than a second container implementation.
     return HashTable_Init(
         pMap,
         pAllocator,
@@ -80,6 +92,7 @@ hash_table_insert_result_t<value_t> HashMap_Insert(
     const key_t &key,
     const value_t &value ) noexcept
 {
+    // Result distinguishes insertion from an existing-key lookup without probing twice.
     return HashTable_Insert( pMap, key, value );
 }
 

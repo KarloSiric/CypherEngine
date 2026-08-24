@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Key Value Json Contract
+
+Converts between CYKV and JSON-compatible values without silently changing numeric kinds or
+string contents. Unsupported CYKV features are reported instead of being discarded.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_KEYVALUEJSON_H
 #define CYPHER_COMMON_TIER1_KEYVALUEJSON_H
 #ifndef PRAGMA_ONCE
@@ -28,13 +37,13 @@ namespace cypher::common
 {
 
 struct key_value_json_options_t {
-    bool_t bPretty{ CY_TRUE };
-    bool_t bRejectDuplicateKeys{ CY_TRUE };
-    bool_t bEscapeNonAscii{ CY_FALSE };
-    u8 nIndentSpaces{ 2u };
-    usize nMaxDepth{ 128u };
-    usize nMaxNodes{ 1u << 20u };
-    usize cbMaxStringData{ 64u * CY_MIB };
+    bool_t bPretty{ CY_TRUE };              // Emit whitespace and indentation when writing.
+    bool_t bRejectDuplicateKeys{ CY_TRUE }; // Reject repeated object member names on parse.
+    bool_t bEscapeNonAscii{ CY_FALSE };     // Emit non-ASCII code points as escapes.
+    u8 nIndentSpaces{ 2u };                 // Spaces written for each nesting level.
+    usize nMaxDepth{ 128u };                // Recursive parse/write depth limit.
+    usize nMaxNodes{ 1u << 20u };           // Maximum semantic values accepted.
+    usize cbMaxStringData{ 64u * CY_MIB };  // Maximum aggregate decoded string bytes.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

@@ -26,12 +26,12 @@
 namespace cypher::common
 {
 
-using memory_stack_marker_t = usize;
+using memory_stack_marker_t = usize; // Saved byte offset used for LIFO bulk release.
 
 struct memory_stack_t {
-    fixed_memory_t memory{};
-    usize iOffset{ 0u };
-    usize cbHighWater{ 0u };
+    fixed_memory_t memory{};  // Caller-owned backing region; never resized or released here.
+    usize iOffset{ 0u };      // First unused byte before alignment is applied.
+    usize cbHighWater{ 0u };  // Largest live offset observed since initialization.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API
@@ -80,6 +80,7 @@ CYPHER_NODISCARD CYPHER_COMMON_API
 memory_stack_marker_t MemoryStack_Mark(
     const memory_stack_t *pStack ) noexcept;
 
+// Restoring a marker invalidates every pointer returned after that marker was captured.
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t MemoryStack_Restore(
     memory_stack_t *pStack,

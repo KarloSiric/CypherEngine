@@ -26,17 +26,20 @@
 namespace cypher::common
 {
 
+// The list owns no nodes. root is a sentinel whose next/previous links close the ring; callers
+// embed intrusive_list_node_t in a longer-lived object and must unlink it before that object dies.
+
 struct intrusive_list_t;
 
 struct intrusive_list_node_t {
-    intrusive_list_node_t *pPrevious{ nullptr };
-    intrusive_list_node_t *pNext{ nullptr };
-    intrusive_list_t *pOwner{ nullptr };
+    intrusive_list_node_t *pPrevious{ nullptr }; // Previous node or the owner's root sentinel.
+    intrusive_list_node_t *pNext{ nullptr };     // Next node or the owner's root sentinel.
+    intrusive_list_t *pOwner{ nullptr };         // Null while unlinked; otherwise the owning list.
 };
 
 struct intrusive_list_t {
-    intrusive_list_node_t root{};
-    usize nCount{ 0u };
+    intrusive_list_node_t root{}; // Sentinel; never returned as a user node.
+    usize nCount{ 0u };           // Linked user nodes, excluding root.
 };
 
 CYPHER_COMMON_API void IntrusiveList_Init( intrusive_list_t *pList ) noexcept;

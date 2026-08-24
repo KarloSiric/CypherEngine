@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Range Checked Var Template Definitions
+
+This is a non-owning range. The caller keeps the referenced storage alive, and all slicing or
+indexing operations validate the reported extent before pointer arithmetic. Template definitions
+remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_RANGECHECKEDVAR_INL
 #define CYPHER_COMMON_TIER1_RANGECHECKEDVAR_INL
 
@@ -48,6 +58,7 @@ bool_t RangeCheckedVar_Init(
         return CY_FALSE;
     }
 
+    // Publish value and policy together only after both validate.
     pVariable->value = value;
     pVariable->range = range;
     return CY_TRUE;
@@ -85,7 +96,7 @@ void RangeCheckedVar_SetClamped(
         return;
     }
 
-    pVariable->value = ValueRange_Clamp( pVariable->range, value );
+    pVariable->value = ValueRange_Clamp( pVariable->range, value ); // Saturating assignment never fails.
 }
 
 template <typename type_t>
