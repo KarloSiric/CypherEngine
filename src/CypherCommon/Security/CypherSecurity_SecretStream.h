@@ -36,20 +36,20 @@ inline constexpr usize CY_SECURITY_SECRET_STREAM_STATE_STORAGE_SIZE = 128u;
 inline constexpr usize CY_SECURITY_SECRET_STREAM_STATE_ALIGNMENT = 64u;
 
 enum class secret_stream_tag_t : u8 {
-    MESSAGE = 0u,
-    PUSH = 1u,
-    REKEY = 2u,
-    FINAL = 3u
+    MESSAGE = 0u, // Ordinary record; the stream remains open.
+    PUSH = 1u,    // Logical boundary within the stream.
+    REKEY = 2u,   // Record also rotates the stream key.
+    FINAL = 3u    // Last record; state is destroyed after processing.
 };
 
 struct secret_stream_key_t {
-    secure_memory_t memory{};
+    secure_memory_t memory{}; // Guarded secretstream key material.
     secret_stream_key_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( secret_stream_key_t );
 };
 
 struct secret_stream_header_t {
-    byte bytes[CY_SECURITY_SECRET_STREAM_HEADER_SIZE]{};
+    byte bytes[CY_SECURITY_SECRET_STREAM_HEADER_SIZE]{}; // Public stream initialization header.
 };
 
 struct secret_stream_push_t {
@@ -58,8 +58,8 @@ struct secret_stream_push_t {
     CYPHER_NO_COPY_MOVE( secret_stream_push_t );
 
     alignas( CY_SECURITY_SECRET_STREAM_STATE_ALIGNMENT )
-        byte storage[CY_SECURITY_SECRET_STREAM_STATE_STORAGE_SIZE]{};
-    bool_t bActive{ CY_FALSE };
+        byte storage[CY_SECURITY_SECRET_STREAM_STATE_STORAGE_SIZE]{}; // Opaque encryption state.
+    bool_t bActive{ CY_FALSE }; // Begin succeeded and FINAL has not been emitted.
 };
 
 struct secret_stream_pull_t {
@@ -68,8 +68,8 @@ struct secret_stream_pull_t {
     CYPHER_NO_COPY_MOVE( secret_stream_pull_t );
 
     alignas( CY_SECURITY_SECRET_STREAM_STATE_ALIGNMENT )
-        byte storage[CY_SECURITY_SECRET_STREAM_STATE_STORAGE_SIZE]{};
-    bool_t bActive{ CY_FALSE };
+        byte storage[CY_SECURITY_SECRET_STREAM_STATE_STORAGE_SIZE]{}; // Opaque decryption state.
+    bool_t bActive{ CY_FALSE }; // Begin succeeded and FINAL has not been consumed.
 };
 
 CYPHER_NODISCARD CYPHER_SECURITY_API

@@ -28,6 +28,7 @@ template <usize nExtent>
 CYPHER_NODISCARD constexpr string_view_t SchemaText(
     const char ( &text )[nExtent] ) noexcept
 {
+    // Schema literals are static borrowed views without their trailing NUL.
     static_assert( nExtent > 0u );
     return { text, nExtent - 1u };
 }
@@ -90,6 +91,7 @@ CYPHER_NODISCARD constexpr schema_rule_t ClosedObjectRule(
     const schema_member_t *pMembers,
     usize nMembers ) noexcept
 {
+    // Authored resource schemas reject misspelled or unsupported fields.
     schema_rule_t rule{};
     rule.allowedTypes = SCHEMA_TYPE_OBJECT;
     rule.object.pMembers = pMembers;
@@ -102,6 +104,7 @@ CYPHER_NODISCARD constexpr schema_rule_t DynamicObjectRule(
     const schema_rule_t *pMemberRule,
     usize nMaxMembers ) noexcept
 {
+    // Dynamic object member names become shader binding or parameter identifiers.
     schema_rule_t rule{};
     rule.allowedTypes = SCHEMA_TYPE_OBJECT;
     rule.object.pAdditionalMemberRule = pMemberRule;
@@ -110,6 +113,7 @@ CYPHER_NODISCARD constexpr schema_rule_t DynamicObjectRule(
     return rule;
 }
 
+// Shared leaf rules feed three immutable process-lifetime schema graphs.
 inline constexpr string_view_t g_shaderLanguages[]{
     SchemaText( "glsl" )
 };
@@ -132,6 +136,7 @@ inline constexpr schema_rule_t g_identifierRule = StringRule(
 inline constexpr schema_rule_t g_boolRule = BoolRule();
 inline constexpr schema_rule_t g_numberRule = NumberRule();
 
+// cypher.shader: one GLSL graphics program plus an optional define set.
 inline constexpr schema_rule_t g_shaderLanguageRule = StringValuesRule(
     g_shaderLanguages,
     sizeof( g_shaderLanguages ) / sizeof( g_shaderLanguages[0] ) );
@@ -154,6 +159,7 @@ inline constexpr schema_descriptor_t g_shaderSchema{
     &g_shaderRootRule
 };
 
+// cypher.texture: one imported image with explicit usage and color policy.
 inline constexpr schema_rule_t g_textureUsageRule = StringValuesRule(
     g_textureUsages,
     sizeof( g_textureUsages ) / sizeof( g_textureUsages[0] ) );
@@ -175,6 +181,7 @@ inline constexpr schema_descriptor_t g_textureSchema{
     &g_textureRootRule
 };
 
+// cypher.material: dynamic binding maps validated semantically by the decoder.
 inline constexpr schema_rule_t g_materialTextureMapRule = DynamicObjectRule(
     &g_pathRule,
     CY_RENDER_MATERIAL_MAX_TEXTURES );

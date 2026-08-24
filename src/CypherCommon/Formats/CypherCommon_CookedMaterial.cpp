@@ -32,45 +32,45 @@ namespace
 {
 
 inline constexpr flags32_t CY_COOKED_MATERIAL_KNOWN_FLAGS =
-    COOKED_MATERIAL_FLAG_NONE;
+    COOKED_MATERIAL_FLAG_NONE; // Unknown persisted material flags are rejected.
 
 struct material_string_ref_t {
-    u32 iOffset{ 0u };
-    u32 cchLength{ 0u };
+    u32 iOffset{ 0u };  // Byte offset into MTST.
+    u32 cchLength{ 0u }; // Bytes before the required NUL terminator.
 };
 
 struct material_texture_record_t {
-    material_string_ref_t binding{};
-    material_string_ref_t texture{};
+    material_string_ref_t binding{}; // Shader sampler name.
+    material_string_ref_t texture{}; // Referenced .cytex path.
 };
 
 struct material_parameter_record_t {
-    material_string_ref_t name{};
+    material_string_ref_t name{}; // Shader parameter name in MTST.
     render_material_parameter_type_t type{
         render_material_parameter_type_t::SCALAR
     };
-    u32 nComponents{ 0u };
-    f64 values[CY_RENDER_MATERIAL_VECTOR_MAX_COMPONENTS]{};
+    u32 nComponents{ 0u }; // Active numeric values; zero for Boolean.
+    f64 values[CY_RENDER_MATERIAL_VECTOR_MAX_COMPONENTS]{}; // Canonical payload.
 };
 
 struct material_metadata_t {
-    flags32_t flags{ COOKED_MATERIAL_FLAG_NONE };
-    u32 nTextures{ 0u };
-    u32 nParameters{ 0u };
-    material_string_ref_t shader{};
-    u32 cbStringTable{ 0u };
+    flags32_t flags{ COOKED_MATERIAL_FLAG_NONE }; // Persisted material flags.
+    u32 nTextures{ 0u };                          // Following texture records.
+    u32 nParameters{ 0u };                        // Following parameter records.
+    material_string_ref_t shader{};               // Shader path in MTST.
+    u32 cbStringTable{ 0u };                      // Exact MTST payload size.
 };
 
 struct canonical_material_t {
-    string_view_t shader{};
+    string_view_t shader{}; // Borrowed validated shader path.
     cooked_material_texture_source_t
         textures[CY_RENDER_MATERIAL_MAX_TEXTURES]{};
     cooked_material_parameter_source_t
         parameters[CY_RENDER_MATERIAL_MAX_PARAMETERS]{};
-    usize nTextures{ 0u };
-    usize nParameters{ 0u };
-    usize cbStringTable{ 0u };
-    flags32_t flags{ COOKED_MATERIAL_FLAG_NONE };
+    usize nTextures{ 0u };   // Sorted active texture bindings.
+    usize nParameters{ 0u }; // Sorted active parameters.
+    usize cbStringTable{ 0u }; // Exact canonical MTST size.
+    flags32_t flags{ COOKED_MATERIAL_FLAG_NONE }; // Validated flags.
 };
 
 template <usize nLength>
@@ -118,6 +118,7 @@ CYPHER_NODISCARD bool_t IsZeroRange(
 
 CYPHER_NODISCARD f64 CanonicalNumber( f64 value ) noexcept
 {
+    // Collapse negative zero so semantically equal inputs serialize identically.
     return value == 0.0 ? 0.0 : value;
 }
 
@@ -176,6 +177,7 @@ void SortTextures(
     cooked_material_texture_source_t *pTextures,
     usize nTextures ) noexcept
 {
+    // Counts are capped at 32, making stable insertion sort simple and sufficient.
     for ( usize iTexture = 1u; iTexture < nTextures; ++iTexture ) {
         const cooked_material_texture_source_t value = pTextures[iTexture];
         usize iInsert = iTexture;
@@ -194,6 +196,7 @@ void SortParameters(
     cooked_material_parameter_source_t *pParameters,
     usize nParameters ) noexcept
 {
+    // Canonical name order enables deterministic bytes and binary-search lookup.
     for ( usize iParameter = 1u;
           iParameter < nParameters;
           ++iParameter ) {
@@ -216,6 +219,7 @@ CYPHER_NODISCARD cooked_material_status_t CanonicalizeMaterial(
     canonical_material_t &canonical,
     cooked_material_result_t *pResult ) noexcept
 {
+    // Validate and copy into bounded scratch storage before sorting caller data.
     if ( !Span_IsValid( material.textures ) ||
          !Span_IsValid( material.parameters ) ) {
         return cooked_material_status_t::INVALID_ARGUMENT;
@@ -297,6 +301,7 @@ CYPHER_NODISCARD cooked_material_status_t CanonicalizeMaterial(
         canonical.parameters[iParameter] = parameter;
     }
 
+    // Serialized named records are always ascending and duplicate-free.
     SortTextures( canonical.textures, canonical.nTextures );
     SortParameters( canonical.parameters, canonical.nParameters );
 
@@ -334,6 +339,7 @@ CYPHER_NODISCARD bool_t PrepareCanonicalLayout(
     cooked_chunk_desc_t ( &chunks )[2],
     usize &cbFileOut ) noexcept
 {
+    // Materials use exactly two chunks: fixed metadata followed by its string table.
     usize iOffset = CookedResource_PrefixSize( 2u );
     if ( iOffset == 0u ||
          !Cy_AlignUpChecked(
@@ -372,6 +378,7 @@ CYPHER_NODISCARD material_string_ref_t NextStringRef(
     string_view_t value,
     usize &iString ) noexcept
 {
+    // Strings are emitted once, in metadata traversal order, including each NUL.
     const material_string_ref_t ref{
         static_cast<u32>( iString ),
         static_cast<u32>( value.cchLength )
@@ -392,6 +399,7 @@ CYPHER_NODISCARD bool_t WriteMetadata(
     const canonical_material_t &material,
     byte_span_t output ) noexcept
 {
+    // Offset records are computed before any field is serialized.
     material_texture_record_t
         textures[CY_RENDER_MATERIAL_MAX_TEXTURES]{};
     material_parameter_record_t
@@ -797,6 +805,7 @@ cooked_material_result_t CookedMaterial_Write(
         return result;
     }
 
+    // Canonicalization is transactional and does not mutate caller-owned arrays.
     canonical_material_t canonical{};
     result.status = CanonicalizeMaterial(
         material,
@@ -827,6 +836,7 @@ cooked_material_result_t CookedMaterial_Write(
         return result;
     }
 
+    // Deterministic padding and sorted records make cooked output reproducible.
     const usize cbPrefix = CookedResource_PrefixSize( 2u );
     if ( chunks[0].iOffset > cbPrefix ) {
         Cy_MemZero(
@@ -866,6 +876,7 @@ cooked_material_result_t CookedMaterial_Write(
         header.sourceHash = sourceHash;
     }
 
+    // First publish descriptors, then hash the payload area and seal the header.
     const cooked_resource_result_t layout = CookedResource_WriteLayout(
         header,
         { chunks, 2u },
@@ -912,6 +923,7 @@ cooked_material_result_t CookedMaterial_Read(
         return result;
     }
 
+    // CYRS validation establishes all chunk bounds before material parsing begins.
     cooked_resource_header_t header{};
     cooked_chunk_desc_t chunks[2]{};
     const cooked_resource_result_t layout = CookedResource_ReadLayout(
@@ -1019,6 +1031,7 @@ cooked_material_result_t CookedMaterial_Read(
         return result;
     }
 
+    // Records stay on the stack because format limits are deliberately small.
     material_texture_record_t
         textureRecords[CY_RENDER_MATERIAL_MAX_TEXTURES]{};
     material_parameter_record_t
@@ -1046,6 +1059,7 @@ cooked_material_result_t CookedMaterial_Read(
         return result;
     }
 
+    // Output strings borrow MTST bytes; the complete input file must outlive the view.
     cooked_material_view_t material{};
     material.flags = metadata.flags;
     material.nTextures = metadata.nTextures;
@@ -1067,6 +1081,7 @@ cooked_material_result_t CookedMaterial_Read(
         return result;
     }
 
+    // Consume strings in exact writer order and reject gaps, aliases, or reordering.
     for ( usize iTexture = 0u;
           iTexture < material.nTextures;
           ++iTexture ) {
@@ -1166,6 +1181,7 @@ cooked_material_result_t CookedMaterial_Read(
         return result;
     }
 
+    // The final layout check rejects valid-but-noncanonical chunk placement.
     usize iExpected = CookedResource_PrefixSize( 2u );
     const usize iPrefixEnd = iExpected;
     if ( !Cy_AlignUpChecked(
@@ -1201,6 +1217,7 @@ const cooked_material_texture_view_t *CookedMaterial_FindTexture(
          material.nTextures > CY_RENDER_MATERIAL_MAX_TEXTURES ) {
         return nullptr;
     }
+    // Canonical sorted bindings support allocation-free logarithmic lookup.
     usize iBegin = 0u;
     usize iEnd = material.nTextures;
     while ( iBegin < iEnd ) {

@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Render Format Contract
+
+This header is a serialized resource contract. Persisted fields use fixed-width values and
+explicit offsets; readers validate magic, version, counts, and byte ranges before interpreting
+payload data.
+================
+*/
+
 #ifndef CYPHER_COMMON_FORMATS_RENDERFORMAT_H
 #define CYPHER_COMMON_FORMATS_RENDERFORMAT_H
 #ifndef PRAGMA_ONCE
@@ -27,11 +37,11 @@ namespace cypher::common
 {
 
 inline constexpr fourcc_t CY_RENDER_SHADER_RESOURCE_TYPE =
-    Cy_MakeFourCC( 'C', 'Y', 'S', 'H' );
+    Cy_MakeFourCC( 'C', 'Y', 'S', 'H' ); // Cooked shader program.
 inline constexpr fourcc_t CY_RENDER_TEXTURE_RESOURCE_TYPE =
-    Cy_MakeFourCC( 'C', 'Y', 'T', 'X' );
+    Cy_MakeFourCC( 'C', 'Y', 'T', 'X' ); // Cooked texture and mip chain.
 inline constexpr fourcc_t CY_RENDER_MATERIAL_RESOURCE_TYPE =
-    Cy_MakeFourCC( 'C', 'Y', 'M', 'T' );
+    Cy_MakeFourCC( 'C', 'Y', 'M', 'T' ); // Cooked material bindings and values.
 
 inline constexpr format_version_t CY_RENDER_SHADER_RESOURCE_VERSION = 2u;
 inline constexpr format_version_t CY_RENDER_TEXTURE_RESOURCE_VERSION = 1u;

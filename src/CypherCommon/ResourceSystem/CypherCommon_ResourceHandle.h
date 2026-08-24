@@ -26,23 +26,23 @@
 namespace cypher::common
 {
 
-using resource_slot_t = u32;
-using resource_generation_t = u32;
-using resource_type_slot_t = u32;
+using resource_slot_t = u32;       // Logical slot; only low 16 bits are packed.
+using resource_generation_t = u32; // Reuse counter preventing stale-handle access.
+using resource_type_slot_t = u32;  // Runtime resource-manager type index.
 
-constexpr u32 CY_RESOURCE_SLOT_BITS = 16u;
-constexpr u32 CY_RESOURCE_GENERATION_BITS = 32u;
-constexpr u32 CY_RESOURCE_TYPE_SLOT_BITS = 16u;
-constexpr u32 CY_RESOURCE_GENERATION_SHIFT = CY_RESOURCE_SLOT_BITS;
+constexpr u32 CY_RESOURCE_SLOT_BITS = 16u;       // Low packed field width.
+constexpr u32 CY_RESOURCE_GENERATION_BITS = 32u; // Middle packed field width.
+constexpr u32 CY_RESOURCE_TYPE_SLOT_BITS = 16u;  // High packed field width.
+constexpr u32 CY_RESOURCE_GENERATION_SHIFT = CY_RESOURCE_SLOT_BITS; // Bit 16.
 constexpr u32 CY_RESOURCE_TYPE_SLOT_SHIFT =
     CY_RESOURCE_SLOT_BITS + CY_RESOURCE_GENERATION_BITS;
-constexpr resource_slot_t CY_RESOURCE_SLOT_MAX = 0xFFFFu;
-constexpr resource_generation_t CY_RESOURCE_GENERATION_INVALID = 0u;
-constexpr resource_generation_t CY_RESOURCE_GENERATION_FIRST = 1u;
-constexpr resource_generation_t CY_RESOURCE_GENERATION_MAX = CY_U32_MAX;
+constexpr resource_slot_t CY_RESOURCE_SLOT_MAX = 0xFFFFu; // Largest packed slot.
+constexpr resource_generation_t CY_RESOURCE_GENERATION_INVALID = 0u; // Sentinel.
+constexpr resource_generation_t CY_RESOURCE_GENERATION_FIRST = 1u; // Initial live value.
+constexpr resource_generation_t CY_RESOURCE_GENERATION_MAX = CY_U32_MAX; // Wrap bound.
 
-constexpr resource_type_slot_t CY_RESOURCE_TYPE_SLOT_INVALID = 0u;
-constexpr resource_type_slot_t CY_RESOURCE_TYPE_SLOT_MAX = 0xFFFFu;
+constexpr resource_type_slot_t CY_RESOURCE_TYPE_SLOT_INVALID = 0u; // No type.
+constexpr resource_type_slot_t CY_RESOURCE_TYPE_SLOT_MAX = 0xFFFFu; // Packed maximum.
 
 static_assert(
     CY_RESOURCE_SLOT_BITS +
@@ -51,13 +51,13 @@ static_assert(
     "Resource handle fields must occupy exactly 64 bits." );
 
 struct resource_handle_t {
-    u64 value{ 0u };
+    u64 value{ 0u }; // Opaque packed type, generation, and slot fields.
 };
 
 struct resource_handle_parts_t {
-    resource_slot_t iSlot{};
-    resource_generation_t nGeneration{};
-    resource_type_slot_t iTypeSlot{};
+    resource_slot_t iSlot{};             // Manager record index.
+    resource_generation_t nGeneration{}; // Expected record generation.
+    resource_type_slot_t iTypeSlot{};    // Owning resource-manager type.
 };
 
 constexpr resource_handle_t CY_RESOURCE_HANDLE_INVALID{};

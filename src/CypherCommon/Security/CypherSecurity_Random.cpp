@@ -40,6 +40,9 @@ security_status_t SecurityRandom_Fill(
     if ( !Security_IsReady() ) {
         return security_status_t::BACKEND_UNAVAILABLE;
     }
+
+    // libsodium selects the operating-system CSPRNG and handles platform
+    // reseeding. This API never falls back to a deterministic PRNG.
     randombytes_buf( pOutput, cbOutput );
 
     return security_status_t::OK;
@@ -53,6 +56,7 @@ security_status_t SecurityRandom_U32(
     if ( !bValidOutput ) {
         return security_status_t::INVALID_ARGUMENT;
     }
+    // Fill the object representation directly; every u32 bit pattern is valid.
     u32 nValue = 0u;
     const security_status_t result = SecurityRandom_Fill( &nValue, sizeof( nValue ) );
     if ( result != security_status_t::OK ) {
@@ -71,6 +75,7 @@ security_status_t SecurityRandom_U64(
     if ( !bValidOutput ) {
         return security_status_t::INVALID_ARGUMENT;
     }
+    // Fill the object representation directly; every u64 bit pattern is valid.
     u64 nValue = 0u;
     const security_status_t result = SecurityRandom_Fill( &nValue, sizeof( nValue ) );
     if ( result != security_status_t::OK ) {
@@ -101,6 +106,7 @@ security_status_t SecurityRandom_UniformU32(
     if ( !Security_IsReady() ) {
         return security_status_t::BACKEND_UNAVAILABLE;
     }
+    // randombytes_uniform uses rejection sampling and therefore has no modulo bias.
     const u32 nValue = randombytes_uniform( nUpperBoundExclusive );
     *pValueOut = nValue;
 
@@ -126,7 +132,8 @@ security_status_t SecurityRandom_UniformU64(
         return security_status_t::OK;
     }
 
-    // Unsigned wrap computes 2^64 modulo the requested bound.
+    // Unsigned wrap computes 2^64 modulo the requested bound. Values below
+    // this threshold occupy the incomplete residue classes and are rejected.
     const u64 nThreshold = ( ( static_cast<u64>( 0u ) - nUpperBoundExclusive ) % nUpperBoundExclusive );
     u64 nRandomValue = 0u;
 
@@ -137,6 +144,7 @@ security_status_t SecurityRandom_UniformU64(
         }
     } while ( nRandomValue < nThreshold );
 
+    // Every remaining residue occurs the same number of times in the accepted range.
     *pValueOut = nRandomValue % nUpperBoundExclusive;
 
     return security_status_t::OK;

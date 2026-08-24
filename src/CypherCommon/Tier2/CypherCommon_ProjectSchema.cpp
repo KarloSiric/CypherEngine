@@ -28,6 +28,7 @@ template <usize nExtent>
 CYPHER_NODISCARD constexpr string_view_t SchemaText(
     const char ( &text )[nExtent] ) noexcept
 {
+    // Schema literals have static lifetime and exclude the source NUL.
     static_assert( nExtent > 0u );
     return { text, nExtent - 1u };
 }
@@ -71,6 +72,7 @@ CYPHER_NODISCARD constexpr schema_rule_t ObjectRule(
 inline constexpr schema_rule_t g_projectIdRule = StringRule(
     1u,
     CY_PROJECT_ID_MAX_LENGTH );
+// Project identity and resource roots are durable source-controlled data.
 inline constexpr schema_rule_t g_projectNameRule = StringRule(
     1u,
     CY_PROJECT_NAME_MAX_LENGTH );

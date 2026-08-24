@@ -26,13 +26,13 @@
 namespace cypher::common
 {
 
-inline constexpr u32 CY_SETTINGS_DEFAULT_DISPLAY_WIDTH = 1280u;
-inline constexpr u32 CY_SETTINGS_DEFAULT_DISPLAY_HEIGHT = 720u;
+inline constexpr u32 CY_SETTINGS_DEFAULT_DISPLAY_WIDTH = 1280u; // Missing-file default.
+inline constexpr u32 CY_SETTINGS_DEFAULT_DISPLAY_HEIGHT = 720u; // Missing-file default.
 
 enum class settings_display_mode_t : u8 {
-    WINDOWED = 0u,
-    BORDERLESS,
-    FULLSCREEN
+    WINDOWED = 0u, // Decorated resizable OS window.
+    BORDERLESS,    // Desktop-sized borderless window.
+    FULLSCREEN     // Exclusive fullscreen request.
 };
 
 /*
@@ -45,22 +45,22 @@ fallback when the local settings file or individual optional fields are absent.
 ================
 */
 struct cypher_settings_t {
-    u32 nDisplayWidth{ CY_SETTINGS_DEFAULT_DISPLAY_WIDTH };
-    u32 nDisplayHeight{ CY_SETTINGS_DEFAULT_DISPLAY_HEIGHT };
-    settings_display_mode_t displayMode{ settings_display_mode_t::WINDOWED };
-    bool_t bVSync{ CY_TRUE };
+    u32 nDisplayWidth{ CY_SETTINGS_DEFAULT_DISPLAY_WIDTH }; // Requested pixel width.
+    u32 nDisplayHeight{ CY_SETTINGS_DEFAULT_DISPLAY_HEIGHT }; // Requested pixel height.
+    settings_display_mode_t displayMode{ settings_display_mode_t::WINDOWED }; // Window mode.
+    bool_t bVSync{ CY_TRUE }; // Synchronize presentation when the backend supports it.
 };
 
 enum class cypher_settings_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    INVALID_DOCUMENT,
-    INTERNAL_ERROR
+    OK = 0u,          // Settings decoded successfully.
+    INVALID_ARGUMENT,// Document, diagnostics, or output argument is invalid.
+    INVALID_DOCUMENT,// Generic settings schema validation failed.
+    INTERNAL_ERROR   // Validated CYKV data could not be extracted.
 };
 
 struct cypher_settings_decode_result_t {
-    cypher_settings_status_t status{ cypher_settings_status_t::OK };
-    schema_validation_result_t validation{};
+    cypher_settings_status_t status{ cypher_settings_status_t::OK }; // Decode result.
+    schema_validation_result_t validation{}; // Structural schema result.
 };
 
 // Returns the deterministic settings used when no local settings file exists.

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+API Contract
+
+Security symbol visibility is centralized here so cryptographic wrappers cross library
+boundaries consistently without exposing third-party implementation types.
+================
+*/
+
 #ifndef CYPHER_SECURITY_API_H
 #define CYPHER_SECURITY_API_H
 #ifndef PRAGMA_ONCE

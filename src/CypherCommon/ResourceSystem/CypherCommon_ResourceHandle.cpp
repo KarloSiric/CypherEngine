@@ -21,6 +21,16 @@
 namespace cypher::common
 {
 
+// The packed handle layout is part of the runtime ABI:
+//
+//   63                    48 47                    16 15             0
+//  +-----------------------+------------------------+----------------+
+//  |      type slot        |       generation       |      slot      |
+//  +-----------------------+------------------------+----------------+
+//
+// Slot zero is valid. Type slot zero and generation zero are reserved so an
+// all-zero handle can always represent "no resource".
+
 bool_t ResourceHandle_TryMake(
     resource_slot_t iSlot,
     resource_generation_t nGeneration,
@@ -41,6 +51,7 @@ bool_t ResourceHandle_TryMake(
         return CY_FALSE;
     }
 
+    // Cast before shifting so each field is widened to the 64-bit packed domain.
     pHandleOut->value =
         ( static_cast<u64>( iTypeSlot ) << CY_RESOURCE_TYPE_SLOT_SHIFT ) |
         ( static_cast<u64>( nGeneration ) << CY_RESOURCE_GENERATION_SHIFT ) |
@@ -72,6 +83,7 @@ bool_t ResourceHandle_IsValid( resource_handle_t handle ) noexcept
     const resource_type_slot_t iTypeSlot =
         ResourceHandle_TypeSlot( handle );
 
+    // The slot field is intentionally not checked; every 16-bit slot is encodable.
     return ( nGeneration != CY_RESOURCE_GENERATION_INVALID && iTypeSlot != CY_RESOURCE_TYPE_SLOT_INVALID );
 }
 
@@ -94,6 +106,7 @@ resource_handle_parts_t ResourceHandle_Unpack(
 
 resource_slot_t ResourceHandle_Slot( resource_handle_t handle ) noexcept
 {
+    // Slot occupies the low bits and therefore needs no right shift.
     return static_cast<resource_slot_t>(
         handle.value & static_cast<u64>( CY_RESOURCE_SLOT_MAX ) );
 }
@@ -101,6 +114,7 @@ resource_slot_t ResourceHandle_Slot( resource_handle_t handle ) noexcept
 resource_generation_t ResourceHandle_Generation(
    resource_handle_t handle ) noexcept
 {
+    // Mask after shifting to prevent the type field from entering the result.
     return static_cast<resource_generation_t>(
         ( handle.value >> CY_RESOURCE_GENERATION_SHIFT ) &
         static_cast<u64>( CY_RESOURCE_GENERATION_MAX ) );
@@ -109,6 +123,7 @@ resource_generation_t ResourceHandle_Generation(
 resource_type_slot_t ResourceHandle_TypeSlot(
     resource_handle_t handle ) noexcept
 {
+    // Type is the highest field; the mask documents its fixed 16-bit width.
     return static_cast<resource_type_slot_t>(
         ( handle.value >> CY_RESOURCE_TYPE_SLOT_SHIFT ) &
         static_cast<u64>( CY_RESOURCE_TYPE_SLOT_MAX ) );

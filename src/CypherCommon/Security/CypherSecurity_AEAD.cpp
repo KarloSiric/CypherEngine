@@ -47,6 +47,8 @@ CYPHER_NODISCARD bool_t Aead_OutputDoesNotOverlap(
     binary_block_t first,
     binary_block_t second ) noexcept
 {
+    // Cypher exposes a simple out-of-place contract even if a backend happens
+    // to support selected in-place layouts. This prevents ambiguous aliasing.
     return !common::Cy_MemRangesOverlap(
                pOutput,
                cbOutput,
@@ -175,6 +177,8 @@ security_status_t AeadNonceSequence_Init(
         return security_status_t::INVALID_STATE;
     }
 
+    // A random 128-bit prefix identifies this sequence; the remaining 64 bits
+    // are a monotonic counter. A key must never reuse the same prefix/counter pair.
     aead_nonce_sequence_t sequence{};
     const security_status_t result = SecurityRandom_Fill(
         sequence.prefix,
@@ -246,6 +250,8 @@ security_status_t AeadNonceSequence_Next(
         nonce.bytes + CY_SECURITY_AEAD_NONCE_PREFIX_SIZE,
         pSequence->nNextCounter );
 
+    // Emit the maximum counter once, then permanently exhaust the sequence so
+    // wraparound cannot repeat a nonce under the same key.
     if ( pSequence->nNextCounter == common::CY_U64_MAX ) {
         pSequence->bExhausted = CY_TRUE;
     } else {
@@ -325,6 +331,8 @@ security_status_t Aead_Encrypt(
         return security_status_t::INVALID_ARGUMENT;
     }
 
+    // Authenticated data is covered by the tag but is not copied into the
+    // ciphertext. Protocol headers can therefore remain visible and tamper-evident.
     unsigned long long cbProduced = 0u;
     const int result = crypto_aead_xchacha20poly1305_ietf_encrypt(
         static_cast<byte *>( pCiphertextOut ),
@@ -398,6 +406,8 @@ security_status_t Aead_Decrypt(
         nonce.bytes,
         SecureMemory_ConstData( &pKey->memory ) );
     if ( result != 0 ) {
+        // Never expose unauthenticated plaintext. Scrub the complete expected
+        // output range before reporting the authentication failure.
         Security_ZeroMemory( pPlaintextOut, cbRequired );
         return security_status_t::AUTHENTICATION_FAILED;
     }

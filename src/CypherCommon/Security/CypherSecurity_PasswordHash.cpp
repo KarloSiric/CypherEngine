@@ -31,14 +31,16 @@ namespace
 constexpr char g_emptyPassword = '\0';
 
 struct password_hash_limits_t {
-    unsigned long long nOperations;
-    usize cbMemory;
+    unsigned long long nOperations; // Argon2 work factor selected by policy.
+    usize cbMemory;                  // Maximum working memory consumed by hashing.
 };
 
 CYPHER_NODISCARD bool_t PasswordHash_ProfileLimits(
     password_hash_profile_t profile,
     password_hash_limits_t &limitsOut ) noexcept
 {
+    // Keep application profiles mapped directly to libsodium's maintained
+    // policy constants; callers never hard-code backend-specific costs.
     switch ( profile ) {
         case password_hash_profile_t::INTERACTIVE:
             limitsOut = {
@@ -107,6 +109,8 @@ security_status_t PasswordHash_Create(
         return security_status_t::BACKEND_UNAVAILABLE;
     }
 
+    // The encoded string carries algorithm, salt, and cost parameters together;
+    // verification therefore requires no separate salt database field.
     password_hash_t encoded{};
     const int result = crypto_pwhash_str_alg(
         encoded.encoded,
@@ -141,6 +145,8 @@ security_status_t PasswordHash_Verify(
         return security_status_t::BACKEND_UNAVAILABLE;
     }
 
+    // needs_rehash also parses and validates the encoded form. Run it first so
+    // malformed storage is not reported as an ordinary password mismatch.
     password_hash_limits_t validationLimits{};
     const bool_t bHaveValidationLimits = PasswordHash_ProfileLimits(
         password_hash_profile_t::INTERACTIVE,
@@ -180,6 +186,8 @@ security_status_t PasswordHash_CheckRehash(
         return security_status_t::BACKEND_UNAVAILABLE;
     }
 
+    // A valid hash may still need replacement when the configured policy has
+    // changed since it was created.
     const int result = crypto_pwhash_str_needs_rehash(
         hash.encoded,
         limits.nOperations,

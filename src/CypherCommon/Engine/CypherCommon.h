@@ -128,24 +128,24 @@ Static identity data printed by the engine and exposed to commands/config.
 ================
 */
 struct version_t {
-	common::u32 major{ 0u };
-	common::u32 minor{ 1u };
-	common::u32 patch{ 0u };
-	common::u32 build{ 0u };
+	common::u32 major{ 0u }; // Breaking compatibility generation.
+	common::u32 minor{ 1u }; // Backward-compatible feature generation.
+	common::u32 patch{ 0u }; // Compatible fixes.
+	common::u32 build{ 0u }; // Build-system revision.
 };
 
 struct product_info_t {
-	const char *name{ nullptr };
-	const char *szInternalName{ nullptr };
-	const char *description{ nullptr };
+	const char *name{ nullptr };         // User-facing product name.
+	const char *szInternalName{ nullptr }; // Stable filesystem/process identifier.
+	const char *description{ nullptr };  // Short user-facing product description.
 
-	version_t version{};
+	version_t version{}; // Product semantic version.
 
-	const char *szOrganizationName{ "CypherEngine" };
-	const char *szCopyrightOwner{ "Karlo Siric" };
+	const char *szOrganizationName{ "CypherEngine" }; // Publisher/organization.
+	const char *szCopyrightOwner{ "Karlo Siric" }; // Copyright holder.
 
-	const char *szLicenseName{ "CypherEngine Proprietary License" };
-	const char *szLicenseSpdx{ "LicenseRef-CypherEngine-Proprietary" };
+	const char *szLicenseName{ "CypherEngine Proprietary License" }; // Display label.
+	const char *szLicenseSpdx{ "LicenseRef-CypherEngine-Proprietary" }; // Stable ID.
 };
 
 constexpr product_info_t COM_GAME_INFO{

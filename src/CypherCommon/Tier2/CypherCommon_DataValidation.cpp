@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Data Validation Implementation Notes
+
+Validation accumulates source-aware diagnostics without mutating the document being checked.
+Schema failures remain distinct from parser and filesystem failures.
+================
+*/
+
 #include "CypherCommon_DataValidation.h"
 
 #include "CypherCommon_Char.h"
@@ -35,6 +44,7 @@ CYPHER_NODISCARD data_validation_result_t Failure(
 
 CYPHER_NODISCARD bool_t IsForbiddenVirtualPathByte( char ch ) noexcept
 {
+    // Exclude whitespace, non-ASCII, and characters with host-filesystem meaning.
     const u8 value = static_cast<u8>( ch );
     return value < 0x21u || value >= 0x7fu || ch == ':' || ch == '*' ||
            ch == '?' || ch == '"' || ch == '<' || ch == '>' || ch == '|';
@@ -63,6 +73,7 @@ CYPHER_NODISCARD data_validation_result_t CheckSegment(
     usize iStart,
     usize iEnd ) noexcept
 {
+    // Empty, current-directory, and parent-directory segments are noncanonical.
     const usize cchLength = iEnd - iStart;
     if ( cchLength == 0u ) {
         return Failure(
@@ -178,6 +189,7 @@ data_validation_result_t DataValidation_CheckCanonicalVirtualPath(
         return Failure( data_validation_status_t::NON_CANONICAL_PATH, 0u );
     }
 
+    // Paths stay lexical here; mount lookup and symlink resolution belong to VFS.
     usize iSegmentStart = 0u;
     for ( usize iByte = 0u; iByte < path.cchLength; ++iByte ) {
         const char ch = path.pData[iByte];
@@ -219,6 +231,7 @@ data_validation_result_t DataValidation_CheckResourcePath(
     if ( !DataValidation_Succeeded( pathResult ) ) {
         return pathResult;
     }
+    // Extension comparison is case-sensitive because canonical paths are lowercase.
     if ( !StringPath_HasExtension( path, extension, CY_FALSE ) ) {
         return Failure(
             data_validation_status_t::EXTENSION_MISMATCH,

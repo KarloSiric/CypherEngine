@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Password Hash Contract
+
+Password hashing uses the configured memory-hard primitive and stores all parameters needed for
+later verification. Password bytes and derived secrets are cleared as soon as their lifetime
+ends.
+================
+*/
+
 #ifndef CYPHER_SECURITY_PASSWORDHASH_H
 #define CYPHER_SECURITY_PASSWORDHASH_H
 #ifndef PRAGMA_ONCE
@@ -32,13 +42,13 @@ using common::string_view_t;
 inline constexpr usize CY_PASSWORD_HASH_STRING_CAPACITY = 128u;
 
 enum class password_hash_profile_t : u8 {
-    INTERACTIVE = 0u,
-    MODERATE,
-    SENSITIVE
+    INTERACTIVE = 0u, // Low-latency login or editor authentication.
+    MODERATE,         // Stronger offline/tool operation with higher cost.
+    SENSITIVE         // Maximum configured memory and CPU cost.
 };
 
 struct password_hash_t {
-    char encoded[CY_PASSWORD_HASH_STRING_CAPACITY]{};
+    char encoded[CY_PASSWORD_HASH_STRING_CAPACITY]{}; // Null-terminated Argon2id hash string.
 };
 
 CYPHER_NODISCARD CYPHER_SECURITY_API

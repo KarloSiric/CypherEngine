@@ -106,6 +106,8 @@ bool_t SecurityHex_EncodedSize(
     usize cbBinary,
     usize *pSizeOut ) noexcept
 {
+    // Two printable characters per byte plus the terminating null expected by
+    // the encoding API.
     if ( pSizeOut == nullptr ||
          cbBinary > ( common::CY_USIZE_MAX - 1u ) / 2u ) {
         return CY_FALSE;
@@ -181,6 +183,8 @@ security_status_t SecurityHex_Decode(
          !common::StringView_IsValid( encoded ) ) {
         return security_status_t::INVALID_ARGUMENT;
     }
+    // Validate the complete spelling and determine exact output size before
+    // touching caller storage.
     usize cbRequired = 0u;
     if ( !SecurityHex_DecodedSize( encoded, &cbRequired ) ) {
         return security_status_t::INVALID_ENCODING;
@@ -232,6 +236,8 @@ bool_t SecurityBase64_EncodedSize(
         return CY_FALSE;
     }
 
+    // Every complete three-byte group becomes four characters. The tail differs
+    // only by whether this variant retains '=' padding.
     const usize cGroups = cbBinary / 3u;
     const usize cRemainder = cbBinary % 3u;
     if ( cGroups > ( common::CY_USIZE_MAX - 1u ) / 4u ) {
@@ -314,6 +320,8 @@ bool_t SecurityBase64_DecodedSize(
              ( cPadding == 2u && cRemainder != 2u ) ) ) ) {
         return CY_FALSE;
     }
+    // Unused low bits in the final sextet must be zero. Rejecting alternate
+    // spellings keeps one canonical Base64 representation for each byte string.
     if ( cRemainder == 2u ) {
         const int nLast = Base64_CharacterValue(
             encoded.pData[cDataCharacters - 1u],
@@ -427,6 +435,8 @@ security_status_t SecurityBase64_Decode(
         &cbWritten,
         &pEnd,
         Base64Variant_Native( variant ) );
+    // Requiring pEnd at the exact view boundary rejects valid prefixes followed
+    // by trailing garbage.
     if ( result != 0 || cbWritten != cbRequired ||
          pEnd != pInput + encoded.cchLength ) {
         Security_ZeroMemory( pBinaryOut, cbRequired );

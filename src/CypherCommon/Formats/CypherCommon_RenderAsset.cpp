@@ -32,6 +32,7 @@ template <usize nExtent>
 CYPHER_NODISCARD constexpr string_view_t AssetText(
     const char ( &text )[nExtent] ) noexcept
 {
+    // Compile-time literals become views without carrying their trailing NUL.
     static_assert( nExtent > 0u );
     return { text, nExtent - 1u };
 }
@@ -97,6 +98,7 @@ CYPHER_NODISCARD bool_t IsCanonicalPathWithAnyExtension(
     const string_view_t *pExtensions,
     usize nExtensions ) noexcept
 {
+    // Path normalization is a source-authoring rule; decoders never repair input.
     if ( !DataValidation_Succeeded(
              DataValidation_CheckCanonicalVirtualPath(
                  path,
@@ -178,6 +180,7 @@ render_asset_decode_result_t RenderShaderSource_Decode(
         return result;
     }
 
+    // Structural schema validation precedes resource-specific semantic checks.
     result.validation = Schema_ValidateDocument(
         RenderShaderSchema_V1(),
         pDocument,
@@ -206,6 +209,7 @@ render_asset_decode_result_t RenderShaderSource_Decode(
         return result;
     }
 
+    // Generic .glsl is accepted alongside stage-specific conventional suffixes.
     constexpr string_view_t vertexExtensions[]{
         AssetText( ".vert" ),
         AssetText( ".glsl" )
@@ -235,6 +239,7 @@ render_asset_decode_result_t RenderShaderSource_Decode(
         return result;
     }
 
+    // Defines preserve authoring order but behave as a unique set.
     const key_value_t *pDefines = KeyValue_Find(
         pRoot,
         AssetText( "defines" ) );
@@ -301,6 +306,7 @@ render_asset_decode_result_t RenderTextureSource_Decode(
         return result;
     }
 
+    // Schema handles shape and bounds; this pass handles path and color semantics.
     result.validation = Schema_ValidateDocument(
         RenderTextureSchema_V1(),
         pDocument,
@@ -327,6 +333,7 @@ render_asset_decode_result_t RenderTextureSource_Decode(
         AssetText( ".png" ),
         AssetText( ".jpg" ),
         AssetText( ".jpeg" ),
+        AssetText( ".tga" ),
         AssetText( ".exr" )
     };
     if ( !IsCanonicalPathWithAnyExtension(
@@ -365,6 +372,7 @@ render_asset_decode_result_t RenderTextureSource_Decode(
         return result;
     }
 
+    // HDR and non-color inputs default to linear and may never be tagged sRGB.
     const bool_t bExrSource = StringPath_HasExtension(
         texture.source,
         AssetText( ".exr" ),
@@ -401,6 +409,7 @@ render_asset_decode_result_t RenderMaterialSource_Decode(
         return result;
     }
 
+    // Decode into a local view so failure never publishes a partially filled result.
     result.validation = Schema_ValidateDocument(
         RenderMaterialSchema_V1(),
         pDocument,
@@ -430,6 +439,7 @@ render_asset_decode_result_t RenderMaterialSource_Decode(
         return result;
     }
 
+    // Object member names become shader bindings; values are cooked texture paths.
     const key_value_t *pTextures = KeyValue_Find(
         pRoot,
         AssetText( "textures" ) );
@@ -478,6 +488,7 @@ render_asset_decode_result_t RenderMaterialSource_Decode(
         }
     }
 
+    // CYKV value kinds select the compact material parameter representation.
     const key_value_t *pParameters = KeyValue_Find(
         pRoot,
         AssetText( "parameters" ) );
@@ -553,6 +564,7 @@ render_asset_decode_result_t RenderMaterialSource_Decode(
         }
     }
 
+    // Publish only after every borrowed field has passed semantic validation.
     *pMaterialOut = material;
     return result;
 }

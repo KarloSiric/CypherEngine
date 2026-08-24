@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Render Asset Contract
+
+This header is a serialized resource contract. Persisted fields use fixed-width values and
+explicit offsets; readers validate magic, version, counts, and byte ranges before interpreting
+payload data.
+================
+*/
+
 #ifndef CYPHER_COMMON_FORMATS_RENDERASSET_H
 #define CYPHER_COMMON_FORMATS_RENDERASSET_H
 #ifndef PRAGMA_ONCE
@@ -28,84 +38,84 @@ namespace cypher::common
 {
 
 enum class render_asset_decode_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    INVALID_DOCUMENT,
-    INVALID_IDENTIFIER,
-    INVALID_RESOURCE_PATH,
-    DUPLICATE_VALUE,
-    INVALID_COMBINATION,
-    INTERNAL_ERROR
+    OK = 0u,             // Source document decoded successfully.
+    INVALID_ARGUMENT,   // Required input, output, or diagnostic storage is invalid.
+    INVALID_DOCUMENT,   // Generic CYKV schema validation failed.
+    INVALID_IDENTIFIER, // A binding, define, or parameter name is not canonical.
+    INVALID_RESOURCE_PATH,// A referenced asset path or extension is invalid.
+    DUPLICATE_VALUE,    // A set-like source field contains a duplicate value.
+    INVALID_COMBINATION,// Individually valid fields conflict semantically.
+    INTERNAL_ERROR      // Validated data could not be decoded as its declared type.
 };
 
 struct render_asset_decode_result_t {
-    render_asset_decode_status_t status{ render_asset_decode_status_t::OK };
-    schema_validation_result_t validation{};
-    string_view_t field{};
-    usize iElement{ CY_INVALID_SIZE };
+    render_asset_decode_status_t status{ render_asset_decode_status_t::OK }; // Decode result.
+    schema_validation_result_t validation{}; // Detailed structural validation result.
+    string_view_t field{};                   // Borrowed field name for semantic errors.
+    usize iElement{ CY_INVALID_SIZE };        // Failing array element, when applicable.
 };
 
 enum class render_shader_language_t : u8 {
-    GLSL = 0u
+    GLSL = 0u // OpenGL Shading Language source recipe.
 };
 
 struct render_shader_source_view_t {
-    render_shader_language_t language{ render_shader_language_t::GLSL };
-    string_view_t vertexSource{};
-    string_view_t fragmentSource{};
-    string_view_t defines[CY_RENDER_SHADER_MAX_DEFINES]{};
-    usize nDefines{ 0u };
+    render_shader_language_t language{ render_shader_language_t::GLSL }; // Source language.
+    string_view_t vertexSource{};   // Canonical virtual path borrowed from CYKV.
+    string_view_t fragmentSource{}; // Canonical virtual path borrowed from CYKV.
+    string_view_t defines[CY_RENDER_SHADER_MAX_DEFINES]{}; // Unique preprocessor names.
+    usize nDefines{ 0u };           // Active entries in defines.
 };
 
 enum class render_texture_usage_t : u8 {
-    COLOR = 0u,
-    NORMAL,
-    DATA
+    COLOR = 0u, // Color data; sRGB or linear according to the source recipe.
+    NORMAL,     // Normal-vector data; always linear.
+    DATA        // Masks, roughness, height, or other non-color data; always linear.
 };
 
 enum class render_texture_color_space_t : u8 {
-    SRGB = 0u,
-    LINEAR
+    SRGB = 0u, // Gamma-encoded color values.
+    LINEAR     // Linear numeric values suitable for computation.
 };
 
 struct render_texture_source_view_t {
-    string_view_t source{};
-    render_texture_usage_t usage{ render_texture_usage_t::COLOR };
+    string_view_t source{}; // Borrowed canonical path to imported image data.
+    render_texture_usage_t usage{ render_texture_usage_t::COLOR }; // Intended sampling use.
     render_texture_color_space_t colorSpace{
         render_texture_color_space_t::SRGB
-    };
-    bool_t bGenerateMips{ CY_TRUE };
+    }; // Interpretation applied by import and mip generation.
+    bool_t bGenerateMips{ CY_TRUE }; // Build a complete mip chain when true.
 };
 
 struct render_material_texture_view_t {
-    string_view_t binding{};
-    string_view_t texture{};
+    string_view_t binding{}; // Shader binding name borrowed from the member name.
+    string_view_t texture{}; // Borrowed canonical .cytex resource path.
 };
 
 enum class render_material_parameter_type_t : u8 {
-    BOOL = 0u,
-    SCALAR,
-    VECTOR
+    BOOL = 0u, // Boolean shader parameter.
+    SCALAR,    // One numeric component.
+    VECTOR     // Two through four numeric components.
 };
 
 struct render_material_parameter_view_t {
-    string_view_t name{};
+    string_view_t name{}; // Shader parameter name borrowed from the member name.
     render_material_parameter_type_t type{
         render_material_parameter_type_t::SCALAR
-    };
-    bool_t bValue{ CY_FALSE };
-    f64 values[CY_RENDER_MATERIAL_VECTOR_MAX_COMPONENTS]{};
-    usize nComponents{ 0u };
+    }; // Selects the active value representation below.
+    bool_t bValue{ CY_FALSE }; // Active only when type is BOOL.
+    f64 values[CY_RENDER_MATERIAL_VECTOR_MAX_COMPONENTS]{}; // Scalar/vector components.
+    usize nComponents{ 0u }; // One for scalar; two through four for vector.
 };
 
 struct render_material_source_view_t {
-    string_view_t shader{};
+    string_view_t shader{}; // Borrowed canonical .cyshader resource path.
     render_material_texture_view_t
-        textures[CY_RENDER_MATERIAL_MAX_TEXTURES]{};
-    usize nTextures{ 0u };
+        textures[CY_RENDER_MATERIAL_MAX_TEXTURES]{}; // Texture bindings in source order.
+    usize nTextures{ 0u }; // Active entries in textures.
     render_material_parameter_view_t
-        parameters[CY_RENDER_MATERIAL_MAX_PARAMETERS]{};
-    usize nParameters{ 0u };
+        parameters[CY_RENDER_MATERIAL_MAX_PARAMETERS]{}; // Typed shader parameters.
+    usize nParameters{ 0u }; // Active entries in parameters.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Render Asset Schema Contract
+
+This header is a serialized resource contract. Persisted fields use fixed-width values and
+explicit offsets; readers validate magic, version, counts, and byte ranges before interpreting
+payload data.
+================
+*/
+
 #ifndef CYPHER_COMMON_FORMATS_RENDERASSETSCHEMA_H
 #define CYPHER_COMMON_FORMATS_RENDERASSETSCHEMA_H
 #ifndef PRAGMA_ONCE
@@ -28,14 +38,14 @@
 namespace cypher::common
 {
 
-inline constexpr u32 CY_RENDER_ASSET_SCHEMA_VERSION = 1u;
-inline constexpr usize CY_RENDER_ASSET_PATH_MAX_LENGTH = 259u;
-inline constexpr usize CY_RENDER_ASSET_IDENTIFIER_MAX_LENGTH = 64u;
-inline constexpr usize CY_RENDER_SHADER_MAX_DEFINES = 64u;
-inline constexpr usize CY_RENDER_MATERIAL_MAX_TEXTURES = 32u;
-inline constexpr usize CY_RENDER_MATERIAL_MAX_PARAMETERS = 64u;
-inline constexpr usize CY_RENDER_MATERIAL_VECTOR_MIN_COMPONENTS = 2u;
-inline constexpr usize CY_RENDER_MATERIAL_VECTOR_MAX_COMPONENTS = 4u;
+inline constexpr u32 CY_RENDER_ASSET_SCHEMA_VERSION = 1u; // CYKV schema generation.
+inline constexpr usize CY_RENDER_ASSET_PATH_MAX_LENGTH = 259u; // Virtual path bytes.
+inline constexpr usize CY_RENDER_ASSET_IDENTIFIER_MAX_LENGTH = 64u; // Name bytes.
+inline constexpr usize CY_RENDER_SHADER_MAX_DEFINES = 64u; // Recipe define count.
+inline constexpr usize CY_RENDER_MATERIAL_MAX_TEXTURES = 32u; // Binding count.
+inline constexpr usize CY_RENDER_MATERIAL_MAX_PARAMETERS = 64u; // Value count.
+inline constexpr usize CY_RENDER_MATERIAL_VECTOR_MIN_COMPONENTS = 2u; // Vector floor.
+inline constexpr usize CY_RENDER_MATERIAL_VECTOR_MAX_COMPONENTS = 4u; // Vector ceiling.
 
 CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
 const schema_descriptor_t *RenderShaderSchema_V1() noexcept;

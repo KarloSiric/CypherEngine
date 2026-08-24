@@ -26,13 +26,13 @@
 namespace cypher::common
 {
 
-using resource_type_id_t = u32;
+using resource_type_id_t = u32; // Case-folded stable resource-type hash.
 
-constexpr usize CY_RESOURCE_ID_STRING_LENGTH = 16u;
-constexpr usize CY_RESOURCE_ID_STRING_CAPACITY = CY_RESOURCE_ID_STRING_LENGTH + 1u;
+constexpr usize CY_RESOURCE_ID_STRING_LENGTH = 16u; // Lowercase hexadecimal digits.
+constexpr usize CY_RESOURCE_ID_STRING_CAPACITY = CY_RESOURCE_ID_STRING_LENGTH + 1u; // NUL.
 
 struct resource_id_t {
-    u64 value{ 0u };
+    u64 value{ 0u }; // Typed canonical-path digest; zero is invalid.
 };
 
 constexpr resource_id_t CY_RESOURCE_ID_INVALID{};

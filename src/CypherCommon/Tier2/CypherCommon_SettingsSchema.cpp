@@ -28,6 +28,7 @@ template <usize nExtent>
 CYPHER_NODISCARD constexpr string_view_t SchemaText(
     const char ( &text )[nExtent] ) noexcept
 {
+    // Schema literals have static lifetime and exclude the source NUL.
     static_assert( nExtent > 0u );
     return { text, nExtent - 1u };
 }
@@ -81,6 +82,7 @@ inline constexpr string_view_t g_displayModes[]{
     SchemaText( "fullscreen" )
 };
 
+// Display settings are all optional bounded overrides of compiled defaults.
 inline constexpr schema_rule_t g_displayWidthRule = I64Rule(
     CY_SETTINGS_DISPLAY_WIDTH_MIN,
     CY_SETTINGS_DISPLAY_WIDTH_MAX );

@@ -30,23 +30,23 @@ namespace
 {
 
 inline constexpr flags32_t CY_SCHEMA_MEMBER_FLAGS =
-    SCHEMA_MEMBER_REQUIRED | SCHEMA_MEMBER_DEPRECATED;
+    SCHEMA_MEMBER_REQUIRED | SCHEMA_MEMBER_DEPRECATED; // Complete member flag set.
 inline constexpr flags32_t CY_SCHEMA_OBJECT_FLAGS =
-    SCHEMA_OBJECT_REJECT_UNKNOWN_MEMBERS;
+    SCHEMA_OBJECT_REJECT_UNKNOWN_MEMBERS; // Complete object flag set.
 
 struct descriptor_context_t {
-    const schema_rule_t *pAncestors[CY_SCHEMA_MAX_DESCRIPTOR_DEPTH]{};
-    usize nDepth{ 0u };
+    const schema_rule_t *pAncestors[CY_SCHEMA_MAX_DESCRIPTOR_DEPTH]{}; // DFS stack.
+    usize nDepth{ 0u }; // Active entries in pAncestors.
 };
 
 struct validation_context_t {
-    const schema_validation_options_t *pOptions{ nullptr };
-    schema_diagnostic_t *pDiagnostics{ nullptr };
-    usize nDiagnosticCapacity{ 0u };
-    schema_validation_result_t result{};
-    char path[CY_SCHEMA_MAX_PATH]{};
-    usize cchPath{ 0u };
-    bool_t bNodeLimitReported{ CY_FALSE };
+    const schema_validation_options_t *pOptions{ nullptr }; // Borrowed limits.
+    schema_diagnostic_t *pDiagnostics{ nullptr }; // Caller-owned output array.
+    usize nDiagnosticCapacity{ 0u };              // Writable output entries.
+    schema_validation_result_t result{};          // Running counts and status.
+    char path[CY_SCHEMA_MAX_PATH]{};              // Current escaped node path.
+    usize cchPath{ 0u };                          // Path bytes excluding NUL.
+    bool_t bNodeLimitReported{ CY_FALSE };         // Suppresses repeated limit errors.
 };
 
 CYPHER_NODISCARD bool_t ViewHasNoNullByte( string_view_t view ) noexcept
@@ -68,6 +68,7 @@ CYPHER_NODISCARD bool_t SchemaIdIsValid( string_view_t schemaId ) noexcept
         return CY_FALSE;
     }
 
+    // IDs are dotted lowercase components, such as "cypher.material".
     bool_t bAtComponentStart = CY_TRUE;
     bool_t bSawDot = CY_FALSE;
     for ( usize iByte = 0u; iByte < schemaId.cchLength; ++iByte ) {
@@ -115,6 +116,7 @@ CYPHER_NODISCARD schema_descriptor_status_t CheckRule(
     if ( pRule == nullptr ) {
         return schema_descriptor_status_t::INVALID_RULE;
     }
+    // Shared and recursive rule graphs are legal; stop only the active DFS cycle.
     if ( RuleIsAncestor( context, pRule ) ) {
         return schema_descriptor_status_t::OK;
     }
@@ -171,6 +173,7 @@ CYPHER_NODISCARD schema_descriptor_status_t CheckRule(
         return schema_descriptor_status_t::INVALID_RULE;
     }
 
+    // From this point every early return must pop the active rule.
     context.pAncestors[context.nDepth++] = pRule;
 
     for ( usize iAllowed = 0u;
@@ -264,6 +267,7 @@ void EmitDiagnostic(
     flags32_t expectedTypes,
     key_value_type_t actualType ) noexcept
 {
+    // Required counts continue after output fills, enabling an exact second pass.
     ++context.result.nDiagnosticsRequired;
     if ( severity == schema_diagnostic_severity_t::ERROR ) {
         ++context.result.nErrors;
@@ -309,6 +313,7 @@ CYPHER_NODISCARD bool_t PushMemberPath(
     }
     for ( usize iByte = 0u; iByte < name.cchLength; ++iByte ) {
         const u8 value = static_cast<u8>( name.pData[iByte] );
+        // JSON-Pointer escapes plus ~xHH keep arbitrary control bytes unambiguous.
         if ( value == static_cast<u8>( '~' ) ) {
             if ( !PushPathBytes( context, "~0", 2u ) ) {
                 return CY_FALSE;
@@ -410,6 +415,7 @@ void ValidateObject(
             key_value_type_t::OBJECT );
     }
 
+    // Check missing required names before validating children that are present.
     for ( usize iMember = 0u; iMember < rule.object.nMembers; ++iMember ) {
         const schema_member_t &member = rule.object.pMembers[iMember];
         if ( ( member.flags & SCHEMA_MEMBER_REQUIRED ) == 0u ||
@@ -437,6 +443,7 @@ void ValidateObject(
         RestorePath( context, cchSaved );
     }
 
+    // Restore the parent path after every child, including path-overflow failures.
     for ( usize iChild = 0u; iChild < nChildren; ++iChild ) {
         const key_value_t *pChild = KeyValue_ChildAt( pValue, iChild );
         const string_view_t name = KeyValue_Name( pChild );
@@ -533,6 +540,7 @@ void ValidateRule(
     const key_value_t *pValue,
     usize nDepth ) noexcept
 {
+    // Node and depth limits bound malicious or accidentally enormous documents.
     if ( context.result.nNodesVisited >= context.pOptions->nMaxNodes ) {
         if ( !context.bNodeLimitReported ) {
             EmitDiagnostic(
@@ -701,6 +709,7 @@ schema_validation_result_t Schema_ValidateDocument(
     schema_diagnostic_t *pDiagnostics,
     usize nDiagnosticCapacity ) noexcept
 {
+    // Context owns no memory; all diagnostics go directly to bounded caller storage.
     validation_context_t context{};
     context.pOptions = &options;
     context.pDiagnostics = pDiagnostics;
@@ -718,6 +727,7 @@ schema_validation_result_t Schema_ValidateDocument(
         return context.result;
     }
 
+    // Header identity must match exactly before traversing the semantic tree.
     const key_value_document_header_t header =
         KeyValue_DocumentHeader( pDocument );
     if ( header.nLanguageVersion != CYKV_LANGUAGE_VERSION ) {

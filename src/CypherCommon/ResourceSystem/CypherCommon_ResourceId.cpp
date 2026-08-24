@@ -30,8 +30,8 @@ namespace
 
 constexpr stable_hash_domain_t CY_RESOURCE_ID_HASH_DOMAIN =
     0x4359524553494431ull; // "CYRESID1"
-constexpr u32 CY_RESOURCE_ID_HASH_SCHEMA = 1u;
-constexpr char g_resourceIdHexDigits[] = "0123456789abcdef";
+constexpr u32 CY_RESOURCE_ID_HASH_SCHEMA = 1u; // Increment if hashed field order changes.
+constexpr char g_resourceIdHexDigits[] = "0123456789abcdef"; // Canonical text alphabet.
 
 } // namespace
 
@@ -43,6 +43,7 @@ resource_type_id_t ResourceTypeId_FromName( string_view_t typeName ) noexcept
         return 0u;
     }
 
+    // Type identities are ASCII case-insensitive and allocation-free.
     hash32_t hash = CY_FNV1A32_OFFSET;
     for ( usize iChar = 0u; iChar < typeName.cchLength; ++iChar ) {
         const char ch = typeName.pData[iChar];
@@ -68,6 +69,7 @@ resource_id_t ResourceId_FromPath(
         return CY_RESOURCE_ID_INVALID;
     }
 
+    // Type is encoded before path so equal text in two resource domains differs.
     stable_hash_builder_t builder{};
     hash64_t hash = 0u;
     if ( !StableHash_Begin(
@@ -112,6 +114,7 @@ usize ResourceId_ToString(
         return 0u;
     }
 
+    // Emit most-significant nibble first for fixed-width lexical ordering.
     for ( usize iDigit = 0u; iDigit < CY_RESOURCE_ID_STRING_LENGTH; ++iDigit ) {
         const u32 nShift = static_cast<u32>(
             ( CY_RESOURCE_ID_STRING_LENGTH - 1u - iDigit ) * 4u );

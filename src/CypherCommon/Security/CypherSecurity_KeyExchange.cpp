@@ -43,6 +43,8 @@ CYPHER_NODISCARD security_status_t KeyExchangeSessionKeys_Create(
     secure_memory_lock_policy_t lockPolicy,
     key_exchange_session_keys_t *pSessionKeys ) noexcept
 {
+    // Receive and transmit keys are distinct by design. Directional separation
+    // prevents reflection and accidental reuse of one key in both channels.
     security_status_t result = SecureMemory_Create(
         CY_SECURITY_KX_SESSION_KEY_SIZE,
         lockPolicy,
@@ -81,6 +83,9 @@ using derive_session_keys_fn_t = int (*)(
     const unsigned char *,
     const unsigned char * );
 
+// Client and server derivation share validation and memory handling, but pass
+// different libsodium role functions so both peers agree on key direction.
+
 CYPHER_NODISCARD security_status_t KeyExchange_DeriveSessionKeys(
     const key_exchange_keypair_t *pLocalKeyPair,
     const key_exchange_public_key_t &peerPublicKey,
@@ -106,6 +111,8 @@ CYPHER_NODISCARD security_status_t KeyExchange_DeriveSessionKeys(
         return result;
     }
 
+    // Derive directly into guarded memory. A rejected peer key destroys both
+    // outputs, including any backend state written before failure.
     const int deriveResult = pfnDerive(
         SecureMemory_Data( &pSessionKeysOut->receiveKey ),
         SecureMemory_Data( &pSessionKeysOut->transmitKey ),
@@ -175,6 +182,8 @@ security_status_t KeyExchangeKeyPair_FromSeed(
         return security_status_t::BACKEND_UNAVAILABLE;
     }
 
+    // Seeded generation is deterministic and intended for controlled key
+    // provisioning or reproducible tests, not as a substitute for random keys.
     security_status_t result = SecureMemory_Create(
         CY_SECURITY_KX_SECRET_KEY_SIZE,
         lockPolicy,

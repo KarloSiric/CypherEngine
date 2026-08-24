@@ -29,10 +29,10 @@ namespace
 {
 
 inline constexpr flags32_t CY_COOKED_TEXTURE_KNOWN_FLAGS =
-    COOKED_TEXTURE_FLAG_GENERATED_MIPS;
+    COOKED_TEXTURE_FLAG_GENERATED_MIPS; // Reject unknown persisted V1 flag bits.
 
 struct cooked_texture_metadata_t {
-    cooked_texture_desc_t texture{};
+    cooked_texture_desc_t texture{}; // Fixed metadata header decoded from TXMD.
 };
 
 CYPHER_NODISCARD bool_t CheckedAdd(
@@ -105,6 +105,7 @@ CYPHER_NODISCARD bool_t IsColorSpaceValid(
 CYPHER_NODISCARD cooked_texture_status_t ValidateTexture(
     const cooked_texture_desc_t &texture ) noexcept
 {
+    // Validate enum domains before applying cross-field texture policy.
     if ( !IsDimensionValid( texture.dimension ) ) {
         return cooked_texture_status_t::INVALID_DIMENSION;
     }
@@ -128,6 +129,7 @@ CYPHER_NODISCARD cooked_texture_status_t ValidateTexture(
         return cooked_texture_status_t::INVALID_EXTENT;
     }
 
+    // Generated chains are canonical only when they reach the final 1x1 level.
     const u32 nFullMipLevels = CookedTexture_FullMipCount(
         texture.nWidth,
         texture.nHeight,
@@ -142,6 +144,7 @@ CYPHER_NODISCARD cooked_texture_status_t ValidateTexture(
         return cooked_texture_status_t::INVALID_MIP_CHAIN;
     }
 
+    // Encoded format and declared color interpretation must tell the same story.
     const bool_t bSrgbFormat =
         texture.pixelFormat == render_texture_pixel_format_t::RGBA8_SRGB;
     if ( ( texture.colorSpace == render_texture_color_space_t::SRGB ) !=
@@ -162,6 +165,7 @@ CYPHER_NODISCARD bool_t ExpectedMipLayout(
     u32 &cbRowPitchOut,
     u64 &cbDataOut ) noexcept
 {
+    // V1 stores every mip tightly packed; dimensions clamp to one after shifting.
     const u32 cbPixel = CookedTexture_BytesPerPixel( texture.pixelFormat );
     if ( cbPixel == 0u || nLevel >= texture.nMipLevels ) {
         return CY_FALSE;
@@ -204,6 +208,7 @@ CYPHER_NODISCARD cooked_texture_status_t ValidateMipDescriptors(
         return cooked_texture_status_t::INVALID_MIP_CHAIN;
     }
 
+    // Mip records and data chunks are one-to-one and remain in level order.
     u64 cbTotal = 0u;
     for ( usize iMip = 0u; iMip < mips.nCount; ++iMip ) {
         const cooked_texture_mip_desc_t &mip = mips.pData[iMip];
@@ -239,6 +244,7 @@ CYPHER_NODISCARD bool_t WriteMetadataHeader(
     byte_writer_t &writer,
     const cooked_texture_desc_t &texture ) noexcept
 {
+    // Metadata is serialized field by field; native struct padding never reaches disk.
     return ByteWriter_WriteU32( &writer, CY_COOKED_TEXTURE_METADATA_MAGIC ) &&
            ByteWriter_WriteU32(
                &writer,
@@ -313,6 +319,7 @@ CYPHER_NODISCARD bool_t ReadMetadataHeader(
          !ByteReader_ReadU32( &reader, &reserved1 ) ) {
         return CY_FALSE;
     }
+    // Reserved words must remain zero so later versions cannot be misread as V1.
     if ( magic != CY_COOKED_TEXTURE_METADATA_MAGIC ||
          version != CY_COOKED_TEXTURE_METADATA_VERSION ||
          cbHeader != CY_COOKED_TEXTURE_METADATA_HEADER_SIZE ||
@@ -349,6 +356,7 @@ CYPHER_NODISCARD bool_t PrepareCanonicalLayout(
     cooked_texture_mip_desc_t *pMipDescs,
     usize &cbFileOut ) noexcept
 {
+    // Chunk zero is metadata; each following chunk owns exactly one mip payload.
     const u32 nChunks = static_cast<u32>( mips.nCount + 1u );
     usize iOffset = CookedResource_PrefixSize( nChunks );
     if ( iOffset == 0u ||
@@ -374,6 +382,7 @@ CYPHER_NODISCARD bool_t PrepareCanonicalLayout(
         return CY_FALSE;
     }
 
+    // Alignment padding is part of canonical file layout and is zeroed by the writer.
     for ( usize iMip = 0u; iMip < mips.nCount; ++iMip ) {
         const cooked_texture_mip_source_t &source = mips.pData[iMip];
         if ( !Cy_AlignUpChecked(
@@ -442,6 +451,7 @@ u32 CookedTexture_FullMipCount(
     if ( nDepth > nLargest ) {
         nLargest = nDepth;
     }
+    // The largest dimension determines how many halvings are needed to reach one.
     u32 nMipLevels = 1u;
     while ( nLargest > 1u ) {
         nLargest >>= 1u;
@@ -534,6 +544,7 @@ cooked_texture_result_t CookedTexture_WriteMetadata(
         return result;
     }
 
+    // Alias rejection above lets this serialization run directly into output.
     byte_writer_t writer{};
     if ( !ByteWriter_Init(
              &writer,
@@ -574,6 +585,7 @@ cooked_texture_result_t CookedTexture_Write(
         return result;
     }
 
+    // Fixed-size scratch arrays keep the format writer allocation-free.
     cooked_chunk_desc_t chunks[CY_COOKED_TEXTURE_MAX_MIP_LEVELS + 1u]{};
     cooked_texture_mip_desc_t mipDescs[CY_COOKED_TEXTURE_MAX_MIP_LEVELS]{};
     if ( !PrepareCanonicalLayout(
@@ -622,6 +634,7 @@ cooked_texture_result_t CookedTexture_Write(
         }
     }
 
+    // Canonical padding is deterministic and therefore explicitly zero-filled.
     const u32 nChunks = static_cast<u32>( mips.nCount + 1u );
     const usize cbPrefix = CookedResource_PrefixSize( nChunks );
     if ( chunks[0].iOffset > cbPrefix ) {
@@ -630,6 +643,7 @@ cooked_texture_result_t CookedTexture_Write(
             static_cast<usize>( chunks[0].iOffset - cbPrefix ) );
     }
 
+    // The outer CYRS header identifies this payload independently of TXMD metadata.
     cooked_resource_header_t header{};
     header.resourceType = CY_RENDER_TEXTURE_RESOURCE_TYPE;
     header.nResourceVersion = CY_RENDER_TEXTURE_RESOURCE_VERSION;
@@ -672,6 +686,7 @@ cooked_texture_result_t CookedTexture_Write(
         iPayloadEnd = static_cast<usize>( chunk.iOffset + chunk.cbStored );
     }
 
+    // Write once without a file hash, then seal the final bytes with that hash.
     const cooked_resource_result_t layout = CookedResource_WriteLayout(
         header,
         { chunks, nChunks },
@@ -717,6 +732,7 @@ cooked_texture_result_t CookedTexture_Read(
         return result;
     }
 
+    // Decode the outer container into bounded stack storage before touching output.
     cooked_resource_header_t header{};
     cooked_chunk_desc_t chunks[CY_COOKED_TEXTURE_MAX_MIP_LEVELS + 1u]{};
     const cooked_resource_result_t layout = CookedResource_ReadLayout(
@@ -747,6 +763,7 @@ cooked_texture_result_t CookedTexture_Read(
         return result;
     }
 
+    // Canonical V1 files always place validated metadata in chunk zero.
     const cooked_chunk_desc_t &metadataChunk = chunks[0];
     if ( metadataChunk.chunkType != CY_COOKED_TEXTURE_METADATA_CHUNK ||
          metadataChunk.codec != cooked_chunk_codec_t::NONE ||
@@ -808,6 +825,7 @@ cooked_texture_result_t CookedTexture_Read(
         return result;
     }
 
+    // Build a local zero-copy view and publish it only after every mip validates.
     cooked_texture_view_t texture{};
     texture.desc = metadata.texture;
     texture.sourceHash = header.sourceHash;
@@ -829,6 +847,7 @@ cooked_texture_result_t CookedTexture_Read(
         return result;
     }
 
+    // Enforce exact chunk order, alignment, zero padding, size, and content hash.
     for ( usize iMip = 0u; iMip < texture.nMipLevels; ++iMip ) {
         const cooked_texture_mip_desc_t &mip = mipDescs[iMip];
         const cooked_chunk_desc_t &chunk = chunks[mip.iDataChunk];

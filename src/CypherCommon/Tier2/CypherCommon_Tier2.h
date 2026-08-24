@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Tier2 Contract
+
+Tier2 exposes shared data contracts built from Tier0 and Tier1 utilities. It must remain
+independent of renderer, game, editor, and platform UI implementations.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER2_H
 #define CYPHER_COMMON_TIER2_H
 #ifndef PRAGMA_ONCE

@@ -44,6 +44,7 @@ bool_t SchemaRegistry_Init(
          ( ppStorage == nullptr && nCapacity != 0u ) ) {
         return CY_FALSE;
     }
+    // Clear all caller slots so stale pointers cannot look registered later.
     *pRegistry = { ppStorage, 0u, nCapacity };
     for ( usize iSchema = 0u; iSchema < nCapacity; ++iSchema ) {
         ppStorage[iSchema] = nullptr;
@@ -73,6 +74,7 @@ schema_registry_status_t SchemaRegistry_Register(
          schema_descriptor_status_t::OK ) {
         return schema_registry_status_t::INVALID_SCHEMA;
     }
+    // Identity is the exact (schema ID, version) pair; versions coexist.
     if ( SchemaRegistry_Find(
              pRegistry,
              pSchema->schemaId,
@@ -117,6 +119,7 @@ const schema_descriptor_t *SchemaRegistry_FindLatest(
         return nullptr;
     }
 
+    // Latest is for migration discovery only; normal validation never falls back.
     const schema_descriptor_t *pLatest = nullptr;
     for ( usize iSchema = 0u; iSchema < pRegistry->nCount; ++iSchema ) {
         const schema_descriptor_t *pSchema = pRegistry->ppSchemas[iSchema];
@@ -144,6 +147,7 @@ schema_validation_result_t SchemaRegistry_ValidateDocument(
         return result;
     }
 
+    // Parsed CYKV metadata selects one exact immutable schema descriptor.
     const key_value_document_header_t header =
         KeyValue_DocumentHeader( pDocument );
     const schema_descriptor_t *pSchema = SchemaRegistry_Find(

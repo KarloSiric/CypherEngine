@@ -45,6 +45,8 @@ CYPHER_NODISCARD const byte *SecretStream_Input(
 CYPHER_NODISCARD native_stream_state_t *SecretStreamPush_State(
     secret_stream_push_t *pStream ) noexcept
 {
+    // Push and pull objects expose only fixed aligned storage; the backend state
+    // and its ABI remain private to this implementation unit.
     return std::launder(
         reinterpret_cast<native_stream_state_t *>( pStream->storage ) );
 }
@@ -222,6 +224,8 @@ security_status_t SecretStreamPush_Begin(
         return security_status_t::INVALID_STATE;
     }
 
+    // The generated header is public metadata and must accompany the encrypted
+    // record stream so the receiver can initialize matching pull state.
     ::new ( static_cast<void *>( pStreamOut->storage ) ) native_stream_state_t{};
     secret_stream_header_t header{};
     if ( crypto_secretstream_xchacha20poly1305_init_push(
@@ -281,6 +285,8 @@ security_status_t SecretStreamPush_Message(
         return security_status_t::INVALID_ARGUMENT;
     }
 
+    // Each call emits one independently framed authenticated record while the
+    // hidden stream state advances its nonce and key schedule.
     unsigned long long cbWritten = 0u;
     const int result = crypto_secretstream_xchacha20poly1305_push(
         SecretStreamPush_State( pStream ),
@@ -292,12 +298,15 @@ security_status_t SecretStreamPush_Message(
         static_cast<unsigned long long>( authenticatedData.cbSize ),
         static_cast<byte>( tag ) );
     if ( result != 0 || cbWritten != cbRequired ) {
+        // A failed push makes stream synchronization uncertain; scrub output and
+        // retire the state rather than allowing the caller to continue.
         Security_ZeroMemory( pCiphertextOut, cbRequired );
         SecretStreamPush_Cancel( pStream );
         return security_status_t::OPERATION_FAILED;
     }
     *pCiphertextSizeOut = static_cast<usize>( cbWritten );
     if ( tag == secret_stream_tag_t::FINAL ) {
+        // FINAL is terminal by contract; further records require a new header.
         SecretStreamPush_Cancel( pStream );
     }
     return security_status_t::OK;
@@ -411,6 +420,8 @@ security_status_t SecretStreamPull_Message(
         SecretStream_Input( authenticatedData ),
         static_cast<unsigned long long>( authenticatedData.cbSize ) );
     if ( result != 0 ) {
+        // Authentication precedes publication. A failed record erases output and
+        // retires pull state because subsequent record synchronization is untrusted.
         Security_ZeroMemory( pPlaintextOut, cbRequired );
         SecretStreamPull_Cancel( pStream );
         return security_status_t::AUTHENTICATION_FAILED;

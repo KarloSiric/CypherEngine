@@ -41,16 +41,16 @@ Secure Memory Rules
 
 // Memory locking is defense in depth: operating-system limits may prevent it.
 enum class secure_memory_lock_policy_t : u8 {
-    BEST_EFFORT = 0u,
-    REQUIRE_LOCKED
+    BEST_EFFORT = 0u, // Continue when the OS refuses to pin the pages.
+    REQUIRE_LOCKED    // Fail creation unless the pages can be pinned.
 };
 
 // INACTIVE denotes an object that currently owns no guarded allocation.
 enum class secure_memory_access_t : u8 {
-    INACTIVE = 0u,
-    READ_WRITE,
-    READ_ONLY,
-    NO_ACCESS
+    INACTIVE = 0u, // No allocation is owned.
+    READ_WRITE,    // Secret bytes may be read and changed.
+    READ_ONLY,     // Secret bytes may be read but not changed.
+    NO_ACCESS      // Guarded pages reject both reads and writes.
 };
 
 // Owns one fixed-size guarded allocation. The public fields are implementation
@@ -60,10 +60,10 @@ struct secure_memory_t {
     CYPHER_SECURITY_API ~secure_memory_t() noexcept;
     CYPHER_NO_COPY_MOVE( secure_memory_t );
 
-    void *pMemory{ nullptr };
-    usize cbMemory{ 0u };
-    secure_memory_access_t access{ secure_memory_access_t::INACTIVE };
-    bool_t bLocked{ CY_FALSE };
+    void *pMemory{ nullptr }; // Start of the guarded backend allocation.
+    usize cbMemory{ 0u };     // Usable secret-byte count.
+    secure_memory_access_t access{ secure_memory_access_t::INACTIVE }; // Current page protection.
+    bool_t bLocked{ CY_FALSE }; // True when the OS pinned the pages against swapping.
 };
 
 // Allocates zeroed guarded storage in READ_WRITE state. Creation is

@@ -36,12 +36,12 @@ inline constexpr usize CY_SECURITY_KX_SEED_SIZE = 32u;
 inline constexpr usize CY_SECURITY_KX_SESSION_KEY_SIZE = 32u;
 
 struct key_exchange_public_key_t {
-    byte bytes[CY_SECURITY_KX_PUBLIC_KEY_SIZE]{};
+    byte bytes[CY_SECURITY_KX_PUBLIC_KEY_SIZE]{}; // Public X25519 key safe to transmit.
 };
 
 struct key_exchange_keypair_t {
-    key_exchange_public_key_t publicKey{};
-    secure_memory_t secretKey{};
+    key_exchange_public_key_t publicKey{}; // Public identity used by the peer.
+    secure_memory_t secretKey{};           // Guarded private X25519 key material.
 
     key_exchange_keypair_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( key_exchange_keypair_t );
@@ -50,8 +50,8 @@ struct key_exchange_keypair_t {
 // Directional keys prevent one direction's ciphertext from being accepted in
 // the opposite direction when the surrounding protocol uses them correctly.
 struct key_exchange_session_keys_t {
-    secure_memory_t receiveKey{};
-    secure_memory_t transmitKey{};
+    secure_memory_t receiveKey{};  // Key reserved for peer-to-local traffic.
+    secure_memory_t transmitKey{}; // Key reserved for local-to-peer traffic.
 
     key_exchange_session_keys_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( key_exchange_session_keys_t );

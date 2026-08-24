@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Security Implementation Notes
+
+Security initialization establishes the cryptographic backend before any random, hashing,
+encryption, or key operation. Backend failures are explicit and never fall back to insecure
+substitutes.
+================
+*/
+
 #include "CypherSecurity.h"
 #include "CypherCommon_Assert.h"
 
@@ -25,6 +35,8 @@ namespace cypher::security
 
 security_status_t Security_Init() noexcept
 {
+    // sodium_init is idempotent, so every public entry point may defend its
+    // own backend dependency without requiring fragile global call ordering.
     return sodium_init() >= 0
         ? security_status_t::OK
         : security_status_t::BACKEND_UNAVAILABLE;
@@ -44,6 +56,7 @@ void Security_ZeroMemory(
         bValidMemory,
         "Security_ZeroMemory requires memory for a non-empty range." );
     if ( bValidMemory && cbMemory > 0u ) {
+        // sodium_memzero is designed not to be removed as a dead store.
         sodium_memzero( pMemory, cbMemory );
     }
 }
@@ -60,6 +73,8 @@ bool_t Security_ConstantTimeEquals(
     if ( !bValidLeft || !bValidRight ) {
         return CY_FALSE;
     }
+    // Do not replace this with memcmp: early exit would leak the first
+    // differing byte through timing.
     return cbData == 0u || sodium_memcmp( pLeft, pRight, cbData ) == 0;
 }
 

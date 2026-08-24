@@ -29,11 +29,11 @@ namespace
 
 constexpr flags32_t g_knownResourceFlags =
     COOKED_RESOURCE_FLAG_HAS_SOURCE_HASH |
-    COOKED_RESOURCE_FLAG_HAS_CONTENT_HASH;
+    COOKED_RESOURCE_FLAG_HAS_CONTENT_HASH; // Complete V1 resource flag domain.
 constexpr flags32_t g_knownChunkFlags =
     COOKED_CHUNK_FLAG_COMPRESSED |
     COOKED_CHUNK_FLAG_OPTIONAL |
-    COOKED_CHUNK_FLAG_HAS_CONTENT_HASH;
+    COOKED_CHUNK_FLAG_HAS_CONTENT_HASH; // Complete V1 chunk flag domain.
 
 CYPHER_NODISCARD bool_t IsCodecValid(
     cooked_chunk_codec_t codec ) noexcept
@@ -50,6 +50,7 @@ CYPHER_NODISCARD bool_t IsCodecValid(
 CYPHER_NODISCARD cooked_resource_status_t ValidateHeader(
     const cooked_resource_header_t &header ) noexcept
 {
+    // Fixed offsets and zeroed reserves make the V1 envelope deterministic.
     if ( header.magic != CY_COOKED_RESOURCE_MAGIC ) {
         return cooked_resource_status_t::INVALID_MAGIC;
     }
@@ -74,6 +75,7 @@ CYPHER_NODISCARD cooked_resource_status_t ValidateHeader(
         return cooked_resource_status_t::CHUNK_LIMIT_EXCEEDED;
     }
 
+    // Presence bits and sentinel hash values must agree in both directions.
     const bool_t bHasSourceHash =
         ( header.flags & COOKED_RESOURCE_FLAG_HAS_SOURCE_HASH ) != 0u;
     const bool_t bHasContentHash =
@@ -93,6 +95,7 @@ CYPHER_NODISCARD cooked_resource_status_t ValidateHeader(
 CYPHER_NODISCARD cooked_resource_status_t ValidateChunk(
     const cooked_chunk_desc_t &chunk ) noexcept
 {
+    // Alignment is persisted as a bounded power of two for direct payload access.
     if ( chunk.chunkType == CY_INVALID_FOURCC ||
          !IsCodecValid( chunk.codec ) || chunk.nReserved != 0u ||
          chunk.cbStored == 0u || chunk.cbDecoded == 0u ||
@@ -105,6 +108,7 @@ CYPHER_NODISCARD cooked_resource_status_t ValidateChunk(
         return cooked_resource_status_t::INVALID_FLAGS;
     }
 
+    // Codec and compression flag are redundant by design and cross-validated.
     const bool_t bCompressed =
         ( chunk.flags & COOKED_CHUNK_FLAG_COMPRESSED ) != 0u;
     if ( chunk.codec == cooked_chunk_codec_t::NONE ) {
@@ -127,6 +131,7 @@ CYPHER_NODISCARD bool_t WriteHeader(
     byte_writer_t &writer,
     const cooked_resource_header_t &header ) noexcept
 {
+    // Serialize fields explicitly; native padding and host endianness are irrelevant.
     return ByteWriter_WriteU32( &writer, header.magic ) &&
            ByteWriter_WriteU32( &writer, header.nContainerVersion ) &&
            ByteWriter_WriteU32( &writer, header.cbHeader ) &&
@@ -220,6 +225,7 @@ content_hash_t CookedResource_ComputeContentHash(
          file.cbSize <= CY_COOKED_RESOURCE_HEADER_SIZE ) {
         return CY_CONTENT_HASH_INVALID;
     }
+    // Excluding the fixed header permits its contentHash field to seal the file.
     return ContentHash_Data( {
         file.pData + CY_COOKED_RESOURCE_HEADER_SIZE,
         file.cbSize - CY_COOKED_RESOURCE_HEADER_SIZE
@@ -250,6 +256,7 @@ cooked_resource_status_t CookedResource_ValidateLayout(
         return cooked_resource_status_t::INVALID_HEADER;
     }
 
+    // Ordered descriptors make overlap and bounds checks a single linear pass.
     const u64 cbPrefix = CookedResource_PrefixSize( header.nChunks );
     u64 iPreviousEnd = cbPrefix;
     for ( usize iChunk = 0u; iChunk < chunks.nCount; ++iChunk ) {
@@ -305,6 +312,7 @@ cooked_resource_result_t CookedResource_WriteLayout(
         return result;
     }
 
+    // Payload bytes are caller-owned; this routine emits only header and table.
     byte_writer_t writer{};
     if ( !ByteWriter_Init(
              &writer,
@@ -343,6 +351,7 @@ cooked_resource_result_t CookedResource_ReadLayout(
         return result;
     }
 
+    // Decode into local state so malformed input cannot alter caller outputs.
     byte_reader_t reader{};
     cooked_resource_header_t header{};
     if ( !ByteReader_Init(

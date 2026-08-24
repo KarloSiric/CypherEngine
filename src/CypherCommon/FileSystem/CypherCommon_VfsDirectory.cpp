@@ -34,12 +34,12 @@ namespace
 {
 
 struct directory_entry_record_t {
-    std::string virtualPath{};
-    vfs_file_info_t info{};
+    std::string virtualPath{}; // Canonical path relative to the provider root.
+    vfs_file_info_t info{};    // Type and size captured during traversal.
 };
 
-inline constexpr usize CY_VFS_DIRECTORY_MAX_ENTRIES = 1u << 20u;
-inline constexpr usize CY_VFS_DIRECTORY_MAX_PATH_BYTES = 256u * CY_MIB;
+inline constexpr usize CY_VFS_DIRECTORY_MAX_ENTRIES = 1u << 20u; // Traversal bound.
+inline constexpr usize CY_VFS_DIRECTORY_MAX_PATH_BYTES = 256u * CY_MIB; // Aggregate.
 
 CYPHER_NODISCARD bool_t DirectoryIsInitialized(
     const vfs_directory_t *pDirectory ) noexcept
@@ -53,6 +53,7 @@ template <typename operation_t>
 CYPHER_NODISCARD vfs_status_t GuardFilesystemOperation(
     operation_t &&operation ) noexcept
 {
+    // std::filesystem may throw despite error_code overloads during allocation.
 #if CYPHER_CPP_EXCEPTIONS
     try {
         return operation();
@@ -87,6 +88,7 @@ CYPHER_NODISCARD bool_t PathIsBelowRoot(
     const std::filesystem::path &root,
     const std::filesystem::path &candidate )
 {
+    // Compare canonical path components, avoiding unsafe textual-prefix checks.
     auto iRoot = root.begin();
     auto iCandidate = candidate.begin();
     for ( ; iRoot != root.end(); ++iRoot, ++iCandidate ) {
@@ -118,6 +120,7 @@ CYPHER_NODISCARD vfs_status_t ResolveDirectoryPath(
     }
 
     std::error_code error{};
+    // Resolve existing symlinks before enforcing the provider-root boundary.
     candidate = std::filesystem::weakly_canonical( candidate, error );
     if ( error ) {
         return vfs_status_t::IO_ERROR;
@@ -204,6 +207,7 @@ CYPHER_NODISCARD vfs_status_t DirectoryReadAllImpl(
         return vfs_status_t::IO_ERROR;
     }
 
+    // Read into a temporary blob so failure leaves the caller's destination intact.
     blob_t pending{};
     const usize cbSize = static_cast<usize>( info.cbSize );
     const bool_t bInitialized = Blob_Init(
@@ -293,6 +297,7 @@ CYPHER_NODISCARD vfs_status_t CollectDirectoryEntries(
         if ( error ) {
             return vfs_status_t::IO_ERROR;
         }
+        // Enumeration never follows symlinks, even when their targets stay in root.
         if ( std::filesystem::is_symlink( symlinkStatus ) ) {
             continue;
         }
@@ -311,6 +316,7 @@ CYPHER_NODISCARD vfs_status_t CollectDirectoryEntries(
             continue;
         }
 
+        // Provider results always expose root-relative generic paths with '/'.
         const std::filesystem::path relative =
             std::filesystem::relative( entry.path(), providerRoot, error );
         if ( error ) {
@@ -404,6 +410,7 @@ CYPHER_NODISCARD vfs_status_t DirectoryEnumerateImpl(
         return status;
     }
 
+    // Native iterator order is unspecified; sort before invoking user callbacks.
     std::sort(
         entries.begin(),
         entries.end(),
@@ -498,6 +505,7 @@ vfs_status_t VfsDirectory_Init(
         }
     }
 
+    // Store the real canonical root once so every later containment check agrees.
     return GuardFilesystemOperation( [&]() {
         std::error_code error{};
         const std::filesystem::path root = std::filesystem::canonical(
@@ -548,6 +556,7 @@ vfs_t VfsDirectory_Make( vfs_directory_t *pDirectory ) noexcept
     if ( !DirectoryIsInitialized( pDirectory ) ) {
         return {};
     }
+    // The lightweight facade borrows pDirectory; shutdown must wait for all users.
     return {
         &DIRECTORY_VFS_OPS,
         pDirectory,

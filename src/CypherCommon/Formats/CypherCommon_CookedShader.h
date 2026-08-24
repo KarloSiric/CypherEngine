@@ -29,43 +29,43 @@ namespace cypher::common
 {
 
 inline constexpr fourcc_t CY_COOKED_SHADER_METADATA_CHUNK =
-    Cy_MakeFourCC( 'S', 'H', 'M', 'D' );
+    Cy_MakeFourCC( 'S', 'H', 'M', 'D' ); // Program and stage descriptor payload.
 inline constexpr fourcc_t CY_COOKED_SHADER_CODE_CHUNK =
-    Cy_MakeFourCC( 'S', 'H', 'C', 'D' );
+    Cy_MakeFourCC( 'S', 'H', 'C', 'D' ); // One prepared source/code payload per stage.
 inline constexpr fourcc_t CY_COOKED_SHADER_METADATA_MAGIC =
-    Cy_MakeFourCC( 'C', 'S', 'H', 'D' );
+    Cy_MakeFourCC( 'C', 'S', 'H', 'D' ); // Signature inside SHMD.
 
-inline constexpr format_version_t CY_COOKED_SHADER_METADATA_VERSION = 2u;
-inline constexpr usize CY_COOKED_SHADER_METADATA_HEADER_SIZE = 40u;
-inline constexpr usize CY_COOKED_SHADER_STAGE_RECORD_SIZE = 24u;
-inline constexpr u32 CY_COOKED_SHADER_MAX_STAGES = 2u;
-inline constexpr u64 CY_COOKED_SHADER_MAX_CODE_SIZE = 16u * CY_MIB;
-inline constexpr u32 CY_COOKED_SHADER_METADATA_ALIGNMENT = 8u;
-inline constexpr u32 CY_COOKED_SHADER_CODE_ALIGNMENT = 4u;
+inline constexpr format_version_t CY_COOKED_SHADER_METADATA_VERSION = 2u; // SHMD layout.
+inline constexpr usize CY_COOKED_SHADER_METADATA_HEADER_SIZE = 40u; // Fixed bytes.
+inline constexpr usize CY_COOKED_SHADER_STAGE_RECORD_SIZE = 24u; // Per-stage bytes.
+inline constexpr u32 CY_COOKED_SHADER_MAX_STAGES = 2u; // V1 graphics stage set.
+inline constexpr u64 CY_COOKED_SHADER_MAX_CODE_SIZE = 16u * CY_MIB; // Per stage.
+inline constexpr u32 CY_COOKED_SHADER_METADATA_ALIGNMENT = 8u; // SHMD alignment.
+inline constexpr u32 CY_COOKED_SHADER_CODE_ALIGNMENT = 4u; // SHCD alignment.
 
 // Numeric values in these enums are serialized and therefore versioned.
 enum class render_shader_backend_t : u32 {
-    OPENGL = 1u
+    OPENGL = 1u // OpenGL runtime backend.
 };
 
 enum class render_shader_program_kind_t : u32 {
-    GRAPHICS = 1u
+    GRAPHICS = 1u // Linked vertex and fragment graphics program.
 };
 
 enum class render_shader_stage_t : u32 {
-    VERTEX = 1u,
-    FRAGMENT = 2u
+    VERTEX = 1u,  // Per-vertex stage.
+    FRAGMENT = 2u // Per-fragment stage.
 };
 
 enum class render_shader_code_format_t : u32 {
-    GLSL_UTF8 = 1u
+    GLSL_UTF8 = 1u // Validated UTF-8 GLSL source without a required NUL.
 };
 
 // The language profile and version are runtime compatibility requirements.
 // They are serialized independently from the backend so a loader can reject an
 // unsupported shader before asking a graphics driver to compile it.
 enum class render_shader_language_profile_t : u32 {
-    GLSL_CORE = 1u
+    GLSL_CORE = 1u // Desktop OpenGL core language profile.
 };
 
 enum cooked_shader_flags_t : flags32_t {
@@ -77,15 +77,15 @@ enum cooked_shader_stage_flags_t : flags32_t {
 };
 
 struct cooked_shader_desc_t {
-    render_shader_backend_t backend{ render_shader_backend_t::OPENGL };
+    render_shader_backend_t backend{ render_shader_backend_t::OPENGL }; // Runtime target.
     render_shader_program_kind_t kind{
         render_shader_program_kind_t::GRAPHICS
     };
     render_shader_language_profile_t languageProfile{
         render_shader_language_profile_t::GLSL_CORE
     };
-    u32 nLanguageVersion{ 410u };
-    flags32_t flags{ COOKED_SHADER_FLAG_NONE };
+    u32 nLanguageVersion{ 410u }; // GLSL integer version, for example 410 or 460.
+    flags32_t flags{ COOKED_SHADER_FLAG_NONE }; // Program-wide persisted flags.
 };
 
 struct cooked_shader_stage_desc_t {
@@ -93,9 +93,9 @@ struct cooked_shader_stage_desc_t {
     render_shader_code_format_t codeFormat{
         render_shader_code_format_t::GLSL_UTF8
     };
-    flags32_t flags{ COOKED_SHADER_STAGE_FLAG_NONE };
-    u32 iCodeChunk{ 0u };
-    u64 cbCode{ 0u };
+    flags32_t flags{ COOKED_SHADER_STAGE_FLAG_NONE }; // Stage-specific persisted flags.
+    u32 iCodeChunk{ 0u }; // CYRS table index containing this stage's bytes.
+    u64 cbCode{ 0u };     // Exact stage payload size.
 };
 
 struct cooked_shader_stage_source_t {
@@ -103,8 +103,8 @@ struct cooked_shader_stage_source_t {
     render_shader_code_format_t codeFormat{
         render_shader_code_format_t::GLSL_UTF8
     };
-    flags32_t flags{ COOKED_SHADER_STAGE_FLAG_NONE };
-    binary_block_t code{};
+    flags32_t flags{ COOKED_SHADER_STAGE_FLAG_NONE }; // Stage flags to serialize.
+    binary_block_t code{}; // Borrowed prepared stage bytes copied by the writer.
 };
 
 struct cooked_shader_stage_view_t {
@@ -112,9 +112,9 @@ struct cooked_shader_stage_view_t {
     render_shader_code_format_t codeFormat{
         render_shader_code_format_t::GLSL_UTF8
     };
-    flags32_t flags{ COOKED_SHADER_STAGE_FLAG_NONE };
-    binary_block_t code{};
-    content_hash_t contentHash{};
+    flags32_t flags{ COOKED_SHADER_STAGE_FLAG_NONE }; // Validated stage flags.
+    binary_block_t code{}; // Immutable view into source CYRS bytes.
+    content_hash_t contentHash{}; // Verified stage payload identity.
 };
 
 struct cooked_shader_view_t {
@@ -125,48 +125,48 @@ struct cooked_shader_view_t {
     render_shader_language_profile_t languageProfile{
         render_shader_language_profile_t::GLSL_CORE
     };
-    u32 nLanguageVersion{ 0u };
-    flags32_t flags{ COOKED_SHADER_FLAG_NONE };
-    content_hash_t sourceHash{};
+    u32 nLanguageVersion{ 0u }; // Required GLSL language version.
+    flags32_t flags{ COOKED_SHADER_FLAG_NONE }; // Program-wide flags.
+    content_hash_t sourceHash{}; // Optional authored-source identity.
     cooked_shader_stage_view_t stages[CY_COOKED_SHADER_MAX_STAGES]{};
-    u32 nStages{ 0u };
+    u32 nStages{ 0u }; // Active entries in stages.
 };
 
 enum class cooked_shader_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    OUTPUT_TOO_SMALL,
-    RESOURCE_ERROR,
-    INVALID_RESOURCE_TYPE,
-    VERSION_MISMATCH,
-    INVALID_CHUNK_COUNT,
-    INVALID_METADATA_CHUNK,
-    INVALID_METADATA,
-    INVALID_BACKEND,
-    INVALID_PROGRAM_KIND,
-    INVALID_LANGUAGE_PROFILE,
-    INVALID_LANGUAGE_VERSION,
-    INVALID_FLAGS,
-    STAGE_LIMIT_EXCEEDED,
-    INVALID_STAGE,
-    DUPLICATE_STAGE,
-    INVALID_STAGE_SET,
-    INVALID_CODE_CHUNK,
-    INVALID_CODE,
-    CONTENT_HASH_MISMATCH,
-    NON_CANONICAL_LAYOUT
+    OK = 0u,               // Shader operation completed.
+    INVALID_ARGUMENT,     // Input, span, output, or aliasing contract is invalid.
+    OUTPUT_TOO_SMALL,     // Destination cannot hold canonical output.
+    RESOURCE_ERROR,       // Underlying CYRS validation or writing failed.
+    INVALID_RESOURCE_TYPE,// CYRS payload is not a cooked shader.
+    VERSION_MISMATCH,     // Cooked shader resource version is unsupported.
+    INVALID_CHUNK_COUNT,  // Metadata/stage count and CYRS chunks disagree.
+    INVALID_METADATA_CHUNK,// SHMD descriptor violates the format contract.
+    INVALID_METADATA,     // SHMD header or stage records are malformed.
+    INVALID_BACKEND,      // Persisted runtime backend is unsupported.
+    INVALID_PROGRAM_KIND, // Persisted program kind is unsupported.
+    INVALID_LANGUAGE_PROFILE,// Source language profile is unsupported.
+    INVALID_LANGUAGE_VERSION,// GLSL version is outside the accepted core range.
+    INVALID_FLAGS,        // Program or stage contains unknown flag bits.
+    STAGE_LIMIT_EXCEEDED, // Stage count is zero or exceeds the V2 limit.
+    INVALID_STAGE,        // Stage enum or code format is invalid.
+    DUPLICATE_STAGE,      // More than one record declares the same stage.
+    INVALID_STAGE_SET,    // Program lacks its required vertex/fragment pair.
+    INVALID_CODE_CHUNK,   // Stage descriptor and SHCD chunk disagree.
+    INVALID_CODE,         // GLSL bytes fail NUL or UTF-8 validation.
+    CONTENT_HASH_MISMATCH,// Metadata or code payload hash failed.
+    NON_CANONICAL_LAYOUT  // Valid data is not in the required deterministic order.
 };
 
 struct cooked_shader_result_t {
-    cooked_shader_status_t status{ cooked_shader_status_t::OK };
+    cooked_shader_status_t status{ cooked_shader_status_t::OK }; // Shader result.
     cooked_resource_status_t resourceStatus{
         cooked_resource_status_t::OK
-    };
-    usize cbRead{ 0u };
-    usize cbWritten{ 0u };
-    usize cbRequired{ 0u };
-    usize iStage{ CY_INVALID_SIZE };
-    usize iChunk{ CY_INVALID_SIZE };
+    }; // Underlying CYRS result when status is RESOURCE_ERROR.
+    usize cbRead{ 0u };              // Validated source bytes.
+    usize cbWritten{ 0u };           // Published cooked bytes.
+    usize cbRequired{ 0u };          // Exact output capacity required.
+    usize iStage{ CY_INVALID_SIZE }; // First offending stage, when known.
+    usize iChunk{ CY_INVALID_SIZE }; // First offending CYRS chunk, when known.
 };
 
 // Returns the exact metadata payload size, or zero for an invalid stage count.

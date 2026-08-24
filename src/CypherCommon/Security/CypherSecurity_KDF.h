@@ -37,17 +37,17 @@ inline constexpr usize CY_SECURITY_KDF_SUBKEY_MIN_SIZE = 16u;
 inline constexpr usize CY_SECURITY_KDF_SUBKEY_MAX_SIZE = 64u;
 
 struct kdf_context_t {
-    char bytes[CY_SECURITY_KDF_CONTEXT_SIZE]{};
+    char bytes[CY_SECURITY_KDF_CONTEXT_SIZE]{}; // Exact public domain-separation label.
 };
 
 struct kdf_master_key_t {
-    secure_memory_t memory{};
+    secure_memory_t memory{}; // Guarded root key used only for subkey derivation.
     kdf_master_key_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( kdf_master_key_t );
 };
 
 struct kdf_subkey_t {
-    secure_memory_t memory{};
+    secure_memory_t memory{}; // Guarded derived key for one context and identifier.
     kdf_subkey_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( kdf_subkey_t );
 };

@@ -55,6 +55,8 @@ CYPHER_NODISCARD bool_t SecurityDigestKeyIsValid(
 CYPHER_NODISCARD crypto_generichash_state *SecurityDigest_State(
     security_digest_stream_t *pStream ) noexcept
 {
+    // The public stream owns opaque, correctly aligned storage so libsodium
+    // state does not leak into Cypher headers or downstream ABI contracts.
     return std::launder(
         reinterpret_cast<crypto_generichash_state *>( pStream->storage ) );
 }
@@ -98,6 +100,8 @@ security_status_t SecurityDigest_Data(
         return security_status_t::BACKEND_UNAVAILABLE;
     }
 
+    // An empty key selects an ordinary BLAKE2b digest; a valid non-empty key
+    // selects its keyed authentication mode.
     security_digest_t digest{};
     const int result = crypto_generichash(
         digest.bytes,
@@ -135,6 +139,7 @@ security_status_t SecurityDigest_Begin(
         return security_status_t::BACKEND_UNAVAILABLE;
     }
     
+    // Begin the backend object's lifetime explicitly inside the opaque buffer.
     ::new ( static_cast<void *>( pStream->storage ) ) crypto_generichash_state{};
     const int result = crypto_generichash_init(
         SecurityDigest_State( pStream ),
@@ -183,6 +188,8 @@ void SecurityDigest_Cancel(
         return;
     }
 
+    // Streaming state may retain key-derived material; cancellation and normal
+    // finalization both scrub the complete opaque buffer.
     Security_ZeroMemory( pStream->storage, sizeof( pStream->storage ) );
     pStream->cbDigest = 0u;
     pStream->bActive = CY_FALSE;
@@ -234,6 +241,8 @@ bool_t SecurityDigest_Equals(
          left.cbSize != right.cbSize ) {
         return CY_FALSE;
     }
+    // Digest comparisons used for authentication must not exit at the first
+    // different byte.
     return Security_ConstantTimeEquals(
         left.bytes,
         right.bytes,
@@ -294,6 +303,7 @@ bool_t SecurityShortHash_Equals(
 hash64_t SecurityShortHash_ToU64(
     const security_short_hash_t &hash ) noexcept
 {
+    // Define a stable little-endian integer view independent of host byte order.
     hash64_t value = 0u;
     for ( usize iByte = 0u; iByte < sizeof( hash.bytes ); ++iByte ) {
         value |= static_cast<hash64_t>( hash.bytes[iByte] ) <<

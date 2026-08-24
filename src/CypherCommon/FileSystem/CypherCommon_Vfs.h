@@ -28,34 +28,34 @@
 namespace cypher::common
 {
 
-inline constexpr usize CY_VFS_MAX_VIRTUAL_PATH = 4095u;
+inline constexpr usize CY_VFS_MAX_VIRTUAL_PATH = 4095u; // UTF-8 bytes, excluding NUL.
 
 enum class vfs_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    INVALID_PATH,
-    NOT_FOUND,
-    NOT_A_FILE,
-    NOT_A_DIRECTORY,
-    SIZE_LIMIT,
-    OUT_OF_MEMORY,
-    IO_ERROR,
-    UNSUPPORTED,
-    CANCELLED
+    OK = 0u,        // Operation completed.
+    INVALID_ARGUMENT,// Provider, callback, output, or size argument is invalid.
+    INVALID_PATH,  // Virtual path violates canonical policy or escapes its mount.
+    NOT_FOUND,     // No provider entry resolves to the requested path.
+    NOT_A_FILE,    // Entry exists but cannot be read as a regular file.
+    NOT_A_DIRECTORY,// Entry exists but cannot be enumerated as a directory.
+    SIZE_LIMIT,    // File, path data, or entry count exceeds a caller/provider bound.
+    OUT_OF_MEMORY, // Provider could not allocate transactional output.
+    IO_ERROR,      // Native filesystem or package operation failed.
+    UNSUPPORTED,   // Provider does not advertise the requested capability.
+    CANCELLED      // Visitor stopped enumeration intentionally.
 };
 
 enum class vfs_entry_type_t : u8 {
-    UNKNOWN = 0u,
-    FILE,
-    DIRECTORY
+    UNKNOWN = 0u, // Unrecognized or unsupported provider entry.
+    FILE,         // Readable regular-file resource.
+    DIRECTORY     // Enumerable virtual directory.
 };
 
 enum vfs_capability_flags_t : flags32_t {
-    VFS_CAPABILITY_NONE             = 0u,
-    VFS_CAPABILITY_READ_ALL         = CYPHER_BIT32( 0 ),
-    VFS_CAPABILITY_STAT             = CYPHER_BIT32( 1 ),
-    VFS_CAPABILITY_ENUMERATE        = CYPHER_BIT32( 2 ),
-    VFS_CAPABILITY_DIAGNOSTIC_PATH  = CYPHER_BIT32( 3 )
+    VFS_CAPABILITY_NONE             = 0u, // Invalid provider with no operations.
+    VFS_CAPABILITY_READ_ALL         = CYPHER_BIT32( 0 ), // Whole-file reads.
+    VFS_CAPABILITY_STAT             = CYPHER_BIT32( 1 ), // Entry type and size queries.
+    VFS_CAPABILITY_ENUMERATE        = CYPHER_BIT32( 2 ), // Directory traversal.
+    VFS_CAPABILITY_DIAGNOSTIC_PATH  = CYPHER_BIT32( 3 )  // Human-only native path.
 };
 
 inline constexpr flags32_t CY_VFS_CAPABILITY_MASK =
@@ -65,8 +65,8 @@ inline constexpr flags32_t CY_VFS_CAPABILITY_MASK =
     VFS_CAPABILITY_DIAGNOSTIC_PATH;
 
 struct vfs_file_info_t {
-    vfs_entry_type_t type{ vfs_entry_type_t::UNKNOWN };
-    u64 cbSize{ 0u };
+    vfs_entry_type_t type{ vfs_entry_type_t::UNKNOWN }; // Provider entry kind.
+    u64 cbSize{ 0u }; // File bytes; zero for directories and unknown entries.
 };
 
 using vfs_visit_fn_t = bool_t ( * )(
@@ -98,16 +98,16 @@ using vfs_resolve_diagnostic_path_fn_t = vfs_status_t ( * )(
     text_buffer_t *pNativePathOut ) noexcept;
 
 struct vfs_ops_t {
-    vfs_read_all_fn_t pfnReadAll{ nullptr };
-    vfs_stat_fn_t pfnStat{ nullptr };
-    vfs_enumerate_fn_t pfnEnumerate{ nullptr };
-    vfs_resolve_diagnostic_path_fn_t pfnResolveDiagnosticPath{ nullptr };
+    vfs_read_all_fn_t pfnReadAll{ nullptr }; // Required by READ_ALL capability.
+    vfs_stat_fn_t pfnStat{ nullptr }; // Required by STAT capability.
+    vfs_enumerate_fn_t pfnEnumerate{ nullptr }; // Required by ENUMERATE capability.
+    vfs_resolve_diagnostic_path_fn_t pfnResolveDiagnosticPath{ nullptr }; // Optional.
 };
 
 struct vfs_t {
-    const vfs_ops_t *pOps{ nullptr };
-    void *pUserData{ nullptr };
-    flags32_t capabilities{ VFS_CAPABILITY_NONE };
+    const vfs_ops_t *pOps{ nullptr }; // Borrowed process-lifetime callback table.
+    void *pUserData{ nullptr };       // Borrowed provider instance passed to callbacks.
+    flags32_t capabilities{ VFS_CAPABILITY_NONE }; // vfs_capability_flags_t bits.
 };
 
 // Checks the canonical lowercase, forward-slash virtual path policy. Empty paths

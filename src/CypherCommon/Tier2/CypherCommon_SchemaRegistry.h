@@ -28,17 +28,17 @@ namespace cypher::common
 {
 
 struct schema_registry_t {
-    const schema_descriptor_t **ppSchemas{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
+    const schema_descriptor_t **ppSchemas{ nullptr }; // Caller-owned pointer slots.
+    usize nCount{ 0u };                               // Registered descriptors.
+    usize nCapacity{ 0u };                            // Total writable slots.
 };
 
 enum class schema_registry_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    INVALID_SCHEMA,
-    DUPLICATE_SCHEMA,
-    CAPACITY_EXCEEDED
+    OK = 0u,          // Registry operation completed.
+    INVALID_ARGUMENT,// Registry or descriptor pointer is invalid.
+    INVALID_SCHEMA,  // Descriptor graph failed structural validation.
+    DUPLICATE_SCHEMA,// Exact schema ID and version pair already exists.
+    CAPACITY_EXCEEDED// Caller-owned pointer storage is full.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

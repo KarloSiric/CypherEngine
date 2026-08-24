@@ -39,6 +39,8 @@ CYPHER_NODISCARD bool_t SecurityKdf_SubkeySizeIsValid(
 CYPHER_NODISCARD security_status_t SecurityKdf_FinalizeKey(
     secure_memory_t *pMemory ) noexcept
 {
+    // Key creation occurs in writable guarded memory. Publish it read-only;
+    // if protection fails, destroy the bytes instead of returning mutable secret state.
     const security_status_t result = SecureMemory_SetReadOnly( pMemory );
     if ( result != security_status_t::OK ) {
         SecureMemory_Destroy( pMemory );
@@ -70,6 +72,8 @@ security_status_t SecurityKdf_ContextFromBytes(
         return security_status_t::INVALID_ARGUMENT;
     }
 
+    // libsodium uses an exact eight-byte context as the domain separator. It is
+    // a fixed binary tag, not a null-terminated or variable-length string.
     kdf_context_t context{};
     common::Cy_MemCopy( context.bytes, pContext, sizeof( context.bytes ) );
     *pContextOut = context;
@@ -97,6 +101,8 @@ security_status_t SecurityKdf_GenerateMasterKey(
         return result;
     }
 
+    // Generate directly into guarded storage so no ordinary heap copy of the
+    // master key is created.
     crypto_kdf_keygen( SecureMemory_Data( &pKeyOut->memory ) );
     return SecurityKdf_FinalizeKey( &pKeyOut->memory );
 }
@@ -175,6 +181,8 @@ security_status_t SecurityKdf_DeriveSubkey(
         return result;
     }
 
+    // Context separates subsystems; the 64-bit identifier separates keys within
+    // that subsystem. Reusing an ID is safe only for the same intended purpose.
     const int deriveResult = crypto_kdf_derive_from_key(
         SecureMemory_Data( &pSubkeyOut->memory ),
         cbSubkey,

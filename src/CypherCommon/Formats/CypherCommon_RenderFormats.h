@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Render Formats Contract
+
+This header is a serialized resource contract. Persisted fields use fixed-width values and
+explicit offsets; readers validate magic, version, counts, and byte ranges before interpreting
+payload data.
+================
+*/
+
 #ifndef CYPHER_COMMON_FORMATS_RENDERFORMATS_H
 #define CYPHER_COMMON_FORMATS_RENDERFORMATS_H
 #ifndef PRAGMA_ONCE

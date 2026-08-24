@@ -30,13 +30,13 @@ namespace
 {
 
 inline constexpr u32 CY_COOKED_SHADER_KNOWN_FLAGS =
-    COOKED_SHADER_FLAG_NONE;
+    COOKED_SHADER_FLAG_NONE; // Unknown program flags are rejected by V2 readers.
 inline constexpr u32 CY_COOKED_SHADER_KNOWN_STAGE_FLAGS =
-    COOKED_SHADER_STAGE_FLAG_NONE;
+    COOKED_SHADER_STAGE_FLAG_NONE; // Unknown stage flags are rejected by V2 readers.
 
 struct cooked_shader_metadata_t {
-    cooked_shader_desc_t shader{};
-    u32 nStages{ 0u };
+    cooked_shader_desc_t shader{}; // Fixed SHMD program header.
+    u32 nStages{ 0u };             // Number of following stage records.
 };
 
 CYPHER_NODISCARD bool_t CheckedAdd(
@@ -97,6 +97,7 @@ CYPHER_NODISCARD bool_t IsLanguageProfileValid(
 
 CYPHER_NODISCARD bool_t IsGlslCoreVersionValid( u32 nVersion ) noexcept
 {
+    // V2 accepts desktop core GLSL 3.30 through 4.60 in ten-point revisions.
     switch ( nVersion ) {
         case 330u:
         case 400u:
@@ -113,6 +114,7 @@ CYPHER_NODISCARD bool_t IsGlslCoreVersionValid( u32 nVersion ) noexcept
 
 CYPHER_NODISCARD u32 StageBit( render_shader_stage_t stage ) noexcept
 {
+    // Persisted stage values begin at one, leaving bit zero for VERTEX.
     return IsStageValid( stage )
         ? CYPHER_BIT32( static_cast<u32>( stage ) - 1u )
         : 0u;
@@ -205,6 +207,7 @@ CYPHER_NODISCARD cooked_shader_status_t ValidateStageDescriptors(
         return cooked_shader_status_t::STAGE_LIMIT_EXCEEDED;
     }
 
+    // Descriptors are unique, sorted by enum value, and map directly to code chunks.
     u32 stageMask = 0u;
     for ( usize iStage = 0u; iStage < stages.nCount; ++iStage ) {
         const cooked_shader_stage_desc_t &stage = stages.pData[iStage];
@@ -253,6 +256,7 @@ CYPHER_NODISCARD bool_t WriteMetadataHeader(
     const cooked_shader_desc_t &shader,
     u32 nStages ) noexcept
 {
+    // SHMD is serialized field by field; compiler struct layout is never persisted.
     return ByteWriter_WriteU32( &writer, CY_COOKED_SHADER_METADATA_MAGIC ) &&
            ByteWriter_WriteU32(
                &writer,
@@ -315,6 +319,7 @@ CYPHER_NODISCARD bool_t ReadMetadataHeader(
          !ByteReader_ReadU32( &reader, &reserved ) ) {
         return CY_FALSE;
     }
+    // A nonzero reserve signals an incompatible future metadata interpretation.
     if ( magic != CY_COOKED_SHADER_METADATA_MAGIC ||
          version != CY_COOKED_SHADER_METADATA_VERSION ||
          cbHeader != CY_COOKED_SHADER_METADATA_HEADER_SIZE ||
@@ -353,6 +358,7 @@ CYPHER_NODISCARD cooked_shader_status_t ValidateCode(
     if ( !BinaryBlock_IsValid( code ) || code.cbSize != stage.cbCode ) {
         return cooked_shader_status_t::INVALID_CODE_CHUNK;
     }
+    // Stored GLSL is one UTF-8 byte sequence followed by exactly one NUL.
     if ( code.cbSize <= 1u ||
          code.pData[code.cbSize - 1u] != static_cast<byte>( '\0' ) ) {
         return cooked_shader_status_t::INVALID_CODE;
@@ -379,6 +385,7 @@ CYPHER_NODISCARD bool_t PrepareCanonicalLayout(
     cooked_shader_stage_desc_t *pStageDescs,
     usize &cbFileOut ) noexcept
 {
+    // Chunk zero is SHMD; stage N always occupies code chunk N + 1.
     const u32 nChunks = static_cast<u32>( stages.nCount + 1u );
     usize iOffset = CookedResource_PrefixSize( nChunks );
     if ( iOffset == 0u ||
@@ -404,6 +411,7 @@ CYPHER_NODISCARD bool_t PrepareCanonicalLayout(
     if ( !CheckedAdd( iOffset, cbMetadata, iOffset ) ) {
         return CY_FALSE;
     }
+    // Stage payloads follow metadata in deterministic aligned order.
     for ( usize iStage = 0u; iStage < stages.nCount; ++iStage ) {
         const cooked_shader_stage_source_t &source = stages.pData[iStage];
         if ( !IsStageSourceRepresentable( source ) ) {
@@ -462,6 +470,7 @@ usize CookedShader_RequiredSize(
         return 0u;
     }
 
+    // Small fixed stage limits keep sizing allocation-free.
     cooked_chunk_desc_t chunks[CY_COOKED_SHADER_MAX_STAGES + 1u]{};
     cooked_shader_stage_desc_t
         stageDescs[CY_COOKED_SHADER_MAX_STAGES]{};
@@ -536,6 +545,7 @@ cooked_shader_result_t CookedShader_WriteMetadata(
         return result;
     }
 
+    // Alias rejection above permits direct little-endian serialization to output.
     byte_writer_t writer{};
     if ( !ByteWriter_Init(
              &writer,
@@ -580,6 +590,7 @@ cooked_shader_result_t CookedShader_Write(
         return result;
     }
 
+    // Prepare and validate every descriptor before mutating caller output.
     cooked_chunk_desc_t chunks[CY_COOKED_SHADER_MAX_STAGES + 1u]{};
     cooked_shader_stage_desc_t
         stageDescs[CY_COOKED_SHADER_MAX_STAGES]{};
@@ -637,6 +648,7 @@ cooked_shader_result_t CookedShader_Write(
         }
     }
 
+    // All alignment gaps are zero so equivalent inputs produce identical files.
     const usize cbPrefix = CookedResource_PrefixSize(
         static_cast<u32>( stages.nCount + 1u ) );
     if ( chunks[0].iOffset > cbPrefix ) {
@@ -733,6 +745,7 @@ cooked_shader_result_t CookedShader_Read(
         return result;
     }
 
+    // The outer CYRS pass validates bounds and file hash before shader decoding.
     cooked_resource_header_t header{};
     cooked_chunk_desc_t chunks[CY_COOKED_SHADER_MAX_STAGES + 1u]{};
     const span_t<cooked_chunk_desc_t> chunkStorage{
@@ -767,6 +780,7 @@ cooked_shader_result_t CookedShader_Read(
         return result;
     }
 
+    // Canonical V2 shader metadata always occupies the first chunk.
     const cooked_chunk_desc_t &metadataChunk = chunks[0];
     if ( metadataChunk.chunkType != CY_COOKED_SHADER_METADATA_CHUNK ||
          metadataChunk.codec != cooked_chunk_codec_t::NONE ||
@@ -828,6 +842,7 @@ cooked_shader_result_t CookedShader_Read(
         return result;
     }
 
+    // Assemble a borrowed view locally and publish it only after all stages pass.
     cooked_shader_view_t shader{};
     shader.backend = metadata.shader.backend;
     shader.kind = metadata.shader.kind;
@@ -852,6 +867,7 @@ cooked_shader_result_t CookedShader_Read(
         result.iChunk = 0u;
         return result;
     }
+    // Enforce exact order, alignment, zero padding, hash, NUL, and UTF-8 validity.
     for ( usize iStage = 0u; iStage < metadata.nStages; ++iStage ) {
         const cooked_shader_stage_desc_t &stage = stageDescs[iStage];
         if ( stage.iCodeChunk != iStage + 1u ||

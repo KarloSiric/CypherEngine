@@ -37,22 +37,22 @@ inline constexpr usize CY_SECURITY_AEAD_NONCE_PREFIX_SIZE = 16u;
 inline constexpr usize CY_SECURITY_AEAD_TAG_SIZE = 16u;
 
 struct aead_key_t {
-    secure_memory_t memory{};
+    secure_memory_t memory{}; // Guarded CY_SECURITY_AEAD_KEY_SIZE-byte key storage.
     aead_key_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( aead_key_t );
 };
 
 struct aead_nonce_t {
-    byte bytes[CY_SECURITY_AEAD_NONCE_SIZE]{};
+    byte bytes[CY_SECURITY_AEAD_NONCE_SIZE]{}; // Public XChaCha20 nonce bytes.
 };
 
 // A sequence combines a random 128-bit prefix with a 64-bit counter. One
 // sequence must never be reused with the same key after restart or reset.
 struct aead_nonce_sequence_t {
-    byte prefix[CY_SECURITY_AEAD_NONCE_PREFIX_SIZE]{};
-    u64 nNextCounter{ 0u };
-    bool_t bInitialized{ CY_FALSE };
-    bool_t bExhausted{ CY_FALSE };
+    byte prefix[CY_SECURITY_AEAD_NONCE_PREFIX_SIZE]{}; // Random per-sequence nonce domain.
+    u64 nNextCounter{ 0u };                            // Counter assigned by the next call.
+    bool_t bInitialized{ CY_FALSE };                   // Prefix and counter are usable.
+    bool_t bExhausted{ CY_FALSE };                     // Counter wrapped; no nonce may be emitted.
 };
 
 CYPHER_NODISCARD CYPHER_SECURITY_API

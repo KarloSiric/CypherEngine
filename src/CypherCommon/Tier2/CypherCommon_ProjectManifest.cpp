@@ -31,6 +31,7 @@ template <usize nExtent>
 CYPHER_NODISCARD constexpr string_view_t ManifestText(
     const char ( &text )[nExtent] ) noexcept
 {
+    // Static field names become borrowed views without their trailing NUL.
     static_assert( nExtent > 0u );
     return { text, nExtent - 1u };
 }
@@ -88,6 +89,7 @@ project_manifest_decode_result_t ProjectManifest_Decode(
         return result;
     }
 
+    // Schema bounds strings; semantic checks establish durable naming policy.
     if ( !DataValidation_Succeeded(
              DataValidation_CheckStableIdentifier(
                  manifest.id,
@@ -104,6 +106,7 @@ project_manifest_decode_result_t ProjectManifest_Decode(
         return result;
     }
 
+    // Search-path order is meaningful because earlier mounts have higher priority.
     const key_value_t *pSearchPaths = KeyValue_Find(
         pRoot,
         ManifestText( "search_paths" ) );

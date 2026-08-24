@@ -30,6 +30,7 @@ template <usize nExtent>
 CYPHER_NODISCARD constexpr string_view_t SettingsText(
     const char ( &text )[nExtent] ) noexcept
 {
+    // Static field names become borrowed views without their trailing NUL.
     static_assert( nExtent > 0u );
     return { text, nExtent - 1u };
 }
@@ -97,6 +98,7 @@ CYPHER_NODISCARD bool_t ReadOptionalDisplayMode(
 
 cypher_settings_t CypherSettings_Defaults() noexcept
 {
+    // Default member initializers are the single authoritative fallback set.
     return {};
 }
 

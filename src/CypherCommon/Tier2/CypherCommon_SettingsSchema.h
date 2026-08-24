@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Settings Schema Contract
+
+The settings schema defines accepted keys, types, ranges, and defaults independently of any UI.
+Unknown or incompatible values are diagnosed at their original source location.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER2_SETTINGSSCHEMA_H
 #define CYPHER_COMMON_TIER2_SETTINGSSCHEMA_H
 #ifndef PRAGMA_ONCE
@@ -27,11 +36,11 @@
 namespace cypher::common
 {
 
-inline constexpr u32 CY_SETTINGS_SCHEMA_VERSION = 1u;
-inline constexpr i64 CY_SETTINGS_DISPLAY_WIDTH_MIN = 320;
-inline constexpr i64 CY_SETTINGS_DISPLAY_WIDTH_MAX = 16384;
-inline constexpr i64 CY_SETTINGS_DISPLAY_HEIGHT_MIN = 200;
-inline constexpr i64 CY_SETTINGS_DISPLAY_HEIGHT_MAX = 16384;
+inline constexpr u32 CY_SETTINGS_SCHEMA_VERSION = 1u; // cypher.settings generation.
+inline constexpr i64 CY_SETTINGS_DISPLAY_WIDTH_MIN = 320; // Inclusive pixels.
+inline constexpr i64 CY_SETTINGS_DISPLAY_WIDTH_MAX = 16384; // Inclusive pixels.
+inline constexpr i64 CY_SETTINGS_DISPLAY_HEIGHT_MIN = 200; // Inclusive pixels.
+inline constexpr i64 CY_SETTINGS_DISPLAY_HEIGHT_MAX = 16384; // Inclusive pixels.
 
 CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
 const schema_descriptor_t *SettingsSchema_V1() noexcept;

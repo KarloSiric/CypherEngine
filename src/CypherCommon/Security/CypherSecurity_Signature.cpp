@@ -41,6 +41,7 @@ CYPHER_NODISCARD const byte *Signature_Input(
 CYPHER_NODISCARD crypto_sign_state *SignatureStream_State(
     signature_stream_t *pStream ) noexcept
 {
+    // Backend state remains private behind fixed, aligned public storage.
     return std::launder(
         reinterpret_cast<crypto_sign_state *>( pStream->storage ) );
 }
@@ -160,6 +161,8 @@ security_status_t SignatureKeyPair_ImportSecret(
     if ( result != security_status_t::OK ) {
         return result;
     }
+    // Re-derive the canonical keypair from the embedded seed, then compare the
+    // complete secret key. This rejects inconsistent or corrupted imports.
     byte seed[CY_SECURITY_SIGN_SEED_SIZE]{};
     const int seedResult = crypto_sign_ed25519_sk_to_seed(
         seed,
@@ -244,6 +247,8 @@ security_status_t Signature_Sign(
         return security_status_t::INVALID_ARGUMENT;
     }
 
+    // Produce a detached signature: the message remains external and only the
+    // fixed-size authenticator is returned.
     signature_t signature{};
     unsigned long long cbSignature = 0u;
     const int result = crypto_sign_detached(
@@ -304,6 +309,8 @@ security_status_t SignatureStream_Begin(
         return security_status_t::BACKEND_UNAVAILABLE;
     }
 
+    // libsodium's multipart API implements Ed25519ph. Its signatures must be
+    // verified with this same streaming API, not the one-shot Ed25519 function.
     ::new ( static_cast<void *>( pStream->storage ) ) crypto_sign_state{};
     if ( crypto_sign_init( SignatureStream_State( pStream ) ) != 0 ) {
         SignatureStream_Cancel( pStream );
@@ -405,6 +412,7 @@ void SignatureStream_Cancel(
     if ( pStream == nullptr ) {
         return;
     }
+    // Always erase accumulated hash state on completion, cancellation, or destruction.
     Security_ZeroMemory( pStream->storage, sizeof( pStream->storage ) );
     pStream->bActive = CY_FALSE;
 }

@@ -41,16 +41,16 @@ inline constexpr usize CY_SECURITY_DIGEST_STREAM_STORAGE_SIZE = 512u;
 inline constexpr usize CY_SECURITY_DIGEST_STREAM_STORAGE_ALIGNMENT = 64u;
 
 struct security_digest_t {
-    byte bytes[CY_SECURITY_DIGEST_MAX_SIZE]{};
-    usize cbSize{ 0u };
+    byte bytes[CY_SECURITY_DIGEST_MAX_SIZE]{}; // Digest bytes; only the leading cbSize are valid.
+    usize cbSize{ 0u };                        // Selected BLAKE2b output size in bytes.
 };
 
 struct security_short_hash_key_t {
-    byte bytes[CY_SECURITY_SHORT_HASH_KEY_SIZE]{};
+    byte bytes[CY_SECURITY_SHORT_HASH_KEY_SIZE]{}; // Secret SipHash key material.
 };
 
 struct security_short_hash_t {
-    byte bytes[CY_SECURITY_SHORT_HASH_SIZE]{};
+    byte bytes[CY_SECURITY_SHORT_HASH_SIZE]{}; // Fixed-width SipHash result bytes.
 };
 
 struct security_digest_stream_t {
@@ -59,9 +59,9 @@ struct security_digest_stream_t {
     CYPHER_NO_COPY_MOVE( security_digest_stream_t );
 
     alignas( CY_SECURITY_DIGEST_STREAM_STORAGE_ALIGNMENT )
-        byte storage[CY_SECURITY_DIGEST_STREAM_STORAGE_SIZE]{};
-    usize cbDigest{ 0u };
-    bool_t bActive{ CY_FALSE };
+        byte storage[CY_SECURITY_DIGEST_STREAM_STORAGE_SIZE]{}; // Opaque libsodium state.
+    usize cbDigest{ 0u };                                    // Requested final digest width.
+    bool_t bActive{ CY_FALSE };                              // Begin succeeded and End is pending.
 };
 
 // Computes an unkeyed or keyed BLAKE2b digest. An empty key selects unkeyed mode.

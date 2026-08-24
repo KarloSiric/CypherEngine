@@ -33,10 +33,10 @@ using common::binary_block_t;
 using common::string_view_t;
 
 enum class base64_variant_t : u8 {
-    ORIGINAL = 0u,
-    ORIGINAL_NO_PADDING,
-    URL_SAFE,
-    URL_SAFE_NO_PADDING
+    ORIGINAL = 0u,       // RFC 4648 alphabet with '=' padding.
+    ORIGINAL_NO_PADDING, // RFC 4648 alphabet without trailing padding.
+    URL_SAFE,            // URL-safe '-'/'_' alphabet with padding.
+    URL_SAFE_NO_PADDING  // URL-safe alphabet without trailing padding.
 };
 
 // Encoded size includes the terminating null byte required by Hex_Encode.

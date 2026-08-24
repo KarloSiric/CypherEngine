@@ -27,12 +27,12 @@
 namespace cypher::common
 {
 
-inline constexpr u32 CY_PROJECT_SCHEMA_VERSION = 1u;
-inline constexpr usize CY_PROJECT_ID_MAX_LENGTH = 64u;
-inline constexpr usize CY_PROJECT_NAME_MAX_LENGTH = 128u;
+inline constexpr u32 CY_PROJECT_SCHEMA_VERSION = 1u; // cypher.project generation.
+inline constexpr usize CY_PROJECT_ID_MAX_LENGTH = 64u; // Stable ID bytes.
+inline constexpr usize CY_PROJECT_NAME_MAX_LENGTH = 128u; // Display-name bytes.
 // Matches the current VFS/resource runtime contract: 259 bytes plus terminator.
-inline constexpr usize CY_PROJECT_PATH_MAX_LENGTH = 259u;
-inline constexpr usize CY_PROJECT_MAX_SEARCH_PATHS = 64u;
+inline constexpr usize CY_PROJECT_PATH_MAX_LENGTH = 259u; // Virtual path bytes.
+inline constexpr usize CY_PROJECT_MAX_SEARCH_PATHS = 64u; // Ordered mount roots.
 
 CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
 const schema_descriptor_t *ProjectSchema_V1() noexcept;

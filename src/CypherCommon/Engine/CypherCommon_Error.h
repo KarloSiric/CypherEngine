@@ -27,7 +27,7 @@
 
 namespace cypher::engine::common {
 
-using error_t = u32;
+using error_t = u32; // Packed 16-bit domain and 16-bit local code.
 
 /*
 ================
@@ -37,36 +37,36 @@ Errors are packed as high 16 bits domain, low 16 bits subsystem-local code.
 ================
 */
 enum class domain_t : u16 {
-	COM_DOMAIN_COMMON = 0,
-	COM_DOMAIN_RENDER,
-	COM_DOMAIN_LOG,
-	COM_DOMAIN_HOST,
-	COM_DOMAIN_SYS,
-	COM_DOMAIN_AUDIO,
-	COM_DOMAIN_FS,
-	COM_DOMAIN_NET,
-	COM_DOMAIN_GAME,
-	COM_DOMAIN_CMD,
-	COM_DOMAIN_CVAR,
-	COM_DOMAIN_CFG,
-    COM_DOMAIN_MEMORY,
-    COM_DOMAIN_PAK
+	COM_DOMAIN_COMMON = 0, // Shared engine/common failures.
+	COM_DOMAIN_RENDER,     // Renderer and graphics-backend failures.
+	COM_DOMAIN_LOG,        // Structured logging failures.
+	COM_DOMAIN_HOST,       // Engine host lifecycle failures.
+	COM_DOMAIN_SYS,        // Platform and operating-system failures.
+	COM_DOMAIN_AUDIO,      // Audio runtime failures.
+	COM_DOMAIN_FS,         // Filesystem and VFS failures.
+	COM_DOMAIN_NET,        // Transport and protocol failures.
+	COM_DOMAIN_GAME,       // Game-module failures.
+	COM_DOMAIN_CMD,        // Console command failures.
+	COM_DOMAIN_CVAR,       // Console-variable failures.
+	COM_DOMAIN_CFG,        // Configuration processing failures.
+    COM_DOMAIN_MEMORY,   // Allocator and memory-budget failures.
+    COM_DOMAIN_PAK       // Package archive failures.
 };
 
 enum class common_error_t : u8 {
-	OK = 0,
+	OK = 0,               // Operation completed.
 
-	ERR_FAILED,
-	ERR_INVALID_ARGUMENT,
-	ERR_INVALID_STATE,
-	ERR_INVALID_OPERATION,
-	ERR_NOT_INIT,
-	ERR_IS_INIT,
-	ERR_OUT_OF_MEMORY,
-	ERR_NOT_FOUND,
-	ERR_UNSUPPORTED,
-	ERR_IO_ERROR,
-	ERR_INTERNAL_ERROR
+	ERR_FAILED,          // Unspecified operation failure.
+	ERR_INVALID_ARGUMENT,// Caller supplied an invalid argument.
+	ERR_INVALID_STATE,   // Object state does not permit the operation.
+	ERR_INVALID_OPERATION,// Operation itself is not legal in this context.
+	ERR_NOT_INIT,        // Required subsystem is not initialized.
+	ERR_IS_INIT,         // Initialization was requested twice.
+	ERR_OUT_OF_MEMORY,   // Required memory could not be obtained.
+	ERR_NOT_FOUND,       // Requested object or resource does not exist.
+	ERR_UNSUPPORTED,     // Feature is not supported by this implementation.
+	ERR_IO_ERROR,        // External input/output operation failed.
+	ERR_INTERNAL_ERROR   // Internal invariant or dependency failed.
 };
 
 /*

@@ -31,7 +31,7 @@ namespace cypher::common
 // produces canonical virtual paths in bytewise ascending order so offline builds
 // discover the same input sequence on repeated runs.
 struct vfs_directory_t {
-    text_buffer_t nativeRoot{};
+    text_buffer_t nativeRoot{}; // Owned absolute, canonical UTF-8 host path.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

@@ -28,21 +28,21 @@ namespace cypher::common
 {
 
 enum class data_validation_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    EMPTY_VALUE,
-    LENGTH_LIMIT,
-    INVALID_IDENTIFIER_START,
-    INVALID_IDENTIFIER_BYTE,
-    INVALID_PATH_BYTE,
-    NON_CANONICAL_PATH,
-    PARENT_TRAVERSAL,
-    EXTENSION_MISMATCH
+    OK = 0u,                // Value satisfies the requested policy.
+    INVALID_ARGUMENT,      // View or configured limit is invalid.
+    EMPTY_VALUE,           // Policy requires at least one byte.
+    LENGTH_LIMIT,          // Value exceeds its configured byte limit.
+    INVALID_IDENTIFIER_START,// First identifier byte is not permitted.
+    INVALID_IDENTIFIER_BYTE,// Later identifier byte is not permitted.
+    INVALID_PATH_BYTE,     // Path contains control, platform, or reserved syntax.
+    NON_CANONICAL_PATH,    // Path is absolute, mixed-case, backslashed, or segmented badly.
+    PARENT_TRAVERSAL,      // A path segment is exactly "..".
+    EXTENSION_MISMATCH     // Canonical path lacks the required exact extension.
 };
 
 struct data_validation_result_t {
-    data_validation_status_t status{ data_validation_status_t::OK };
-    usize iByte{ CY_INVALID_SIZE };
+    data_validation_status_t status{ data_validation_status_t::OK }; // Result code.
+    usize iByte{ CY_INVALID_SIZE }; // First offending byte or relevant boundary.
 };
 
 // ASCII identifiers begin with a letter or underscore and continue with ASCII

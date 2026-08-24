@@ -28,6 +28,7 @@ namespace
 CYPHER_NODISCARD bool_t VfsContractIsValid(
     const vfs_t *pVfs ) noexcept
 {
+    // A capability bit is a promise that its matching callback is callable.
     if ( pVfs == nullptr || pVfs->pOps == nullptr ||
          ( pVfs->capabilities & ~CY_VFS_CAPABILITY_MASK ) != 0u ) {
         return CY_FALSE;
@@ -55,6 +56,7 @@ CYPHER_NODISCARD bool_t VfsContractIsValid(
 
 bool_t Vfs_IsCanonicalPath( string_view_t virtualPath ) noexcept
 {
+    // Canonical paths are stable resource identities, not platform path strings.
     return DataValidation_Succeeded(
         DataValidation_CheckCanonicalVirtualPath(
             virtualPath,
@@ -81,6 +83,7 @@ vfs_status_t Vfs_ReadAll(
          !Allocator_IsValid( pDest->pAllocator ) ) {
         return vfs_status_t::INVALID_ARGUMENT;
     }
+    // Transactional destination behavior is part of the provider contract.
     return pVfs->pOps->pfnReadAll(
         pVfs->pUserData,
         virtualPath,
@@ -93,6 +96,7 @@ vfs_status_t Vfs_Stat(
     string_view_t virtualPath,
     vfs_file_info_t *pInfoOut ) noexcept
 {
+    // Clear output before dispatch so every failure leaves a defined result.
     if ( pInfoOut != nullptr ) {
         *pInfoOut = {};
     }
@@ -120,6 +124,7 @@ vfs_status_t Vfs_Exists(
     *pExistsOut = CY_FALSE;
     vfs_file_info_t info{};
     const vfs_status_t status = Vfs_Stat( pVfs, virtualPath, &info );
+    // Absence is a successful Boolean query; other provider errors remain errors.
     if ( status == vfs_status_t::NOT_FOUND ) {
         return vfs_status_t::OK;
     }
@@ -140,6 +145,7 @@ vfs_status_t Vfs_Enumerate(
          ( pVfs->capabilities & VFS_CAPABILITY_ENUMERATE ) == 0u ) {
         return vfs_status_t::UNSUPPORTED;
     }
+    // Empty is reserved as the canonical spelling of the provider root.
     if ( !StringView_IsValid( virtualRoot ) ||
          ( virtualRoot.cchLength != 0u &&
            !Vfs_IsCanonicalPath( virtualRoot ) ) ||
@@ -167,6 +173,7 @@ vfs_status_t Vfs_ResolveDiagnosticPath(
          !TextBuffer_IsValid( pNativePathOut ) ) {
         return vfs_status_t::INVALID_ARGUMENT;
     }
+    // The result is display-only and must never become a second access path.
     return pVfs->pOps->pfnResolveDiagnosticPath(
         pVfs->pUserData,
         virtualPath,

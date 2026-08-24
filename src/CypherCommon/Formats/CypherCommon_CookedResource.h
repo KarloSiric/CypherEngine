@@ -28,85 +28,85 @@ namespace cypher::common
 {
 
 inline constexpr fourcc_t CY_COOKED_RESOURCE_MAGIC =
-    Cy_MakeFourCC( 'C', 'Y', 'R', 'S' );
-inline constexpr format_version_t CY_COOKED_RESOURCE_CONTAINER_VERSION = 1u;
-inline constexpr usize CY_COOKED_RESOURCE_HEADER_SIZE = 80u;
-inline constexpr usize CY_COOKED_RESOURCE_CHUNK_SIZE = 64u;
-inline constexpr u32 CY_COOKED_RESOURCE_MAX_CHUNKS = 4096u;
-inline constexpr u32 CY_COOKED_RESOURCE_MAX_ALIGNMENT = 1u * CY_MIB;
+    Cy_MakeFourCC( 'C', 'Y', 'R', 'S' ); // Every cooked resource begins with CYRS.
+inline constexpr format_version_t CY_COOKED_RESOURCE_CONTAINER_VERSION = 1u; // Envelope.
+inline constexpr usize CY_COOKED_RESOURCE_HEADER_SIZE = 80u; // Serialized header bytes.
+inline constexpr usize CY_COOKED_RESOURCE_CHUNK_SIZE = 64u; // Serialized table record.
+inline constexpr u32 CY_COOKED_RESOURCE_MAX_CHUNKS = 4096u; // Parser allocation bound.
+inline constexpr u32 CY_COOKED_RESOURCE_MAX_ALIGNMENT = 1u * CY_MIB; // Chunk limit.
 
 enum cooked_resource_flags_t : flags32_t {
-    COOKED_RESOURCE_FLAG_NONE             = 0u,
-    COOKED_RESOURCE_FLAG_HAS_SOURCE_HASH  = CYPHER_BIT32( 0 ),
-    COOKED_RESOURCE_FLAG_HAS_CONTENT_HASH = CYPHER_BIT32( 1 )
+    COOKED_RESOURCE_FLAG_NONE             = 0u, // No optional header hashes.
+    COOKED_RESOURCE_FLAG_HAS_SOURCE_HASH  = CYPHER_BIT32( 0 ), // sourceHash is valid.
+    COOKED_RESOURCE_FLAG_HAS_CONTENT_HASH = CYPHER_BIT32( 1 )  // contentHash is valid.
 };
 
 enum cooked_chunk_flags_t : flags32_t {
-    COOKED_CHUNK_FLAG_NONE             = 0u,
-    COOKED_CHUNK_FLAG_COMPRESSED       = CYPHER_BIT32( 0 ),
-    COOKED_CHUNK_FLAG_OPTIONAL         = CYPHER_BIT32( 1 ),
-    COOKED_CHUNK_FLAG_HAS_CONTENT_HASH = CYPHER_BIT32( 2 )
+    COOKED_CHUNK_FLAG_NONE             = 0u, // Plain required payload.
+    COOKED_CHUNK_FLAG_COMPRESSED       = CYPHER_BIT32( 0 ), // Stored and decoded sizes differ.
+    COOKED_CHUNK_FLAG_OPTIONAL         = CYPHER_BIT32( 1 ), // Unknown readers may skip it.
+    COOKED_CHUNK_FLAG_HAS_CONTENT_HASH = CYPHER_BIT32( 2 )  // contentHash is valid.
 };
 
 // These numeric values are part of the versioned file format.
 enum class cooked_chunk_codec_t : u32 {
-    NONE = 0u,
-    LZ4 = 1u,
-    ZSTD = 2u
+    NONE = 0u, // Payload is stored verbatim.
+    LZ4 = 1u,  // Payload uses the engine's LZ4 contract.
+    ZSTD = 2u  // Payload uses the engine's Zstandard contract.
 };
 
 struct cooked_resource_header_t {
-    fourcc_t magic{ CY_COOKED_RESOURCE_MAGIC };
+    fourcc_t magic{ CY_COOKED_RESOURCE_MAGIC }; // Container signature.
     format_version_t nContainerVersion{
         CY_COOKED_RESOURCE_CONTAINER_VERSION
-    };
-    u32 cbHeader{ static_cast<u32>( CY_COOKED_RESOURCE_HEADER_SIZE ) };
-    fourcc_t resourceType{ CY_INVALID_FOURCC };
-    format_version_t nResourceVersion{ 0u };
-    flags32_t flags{ COOKED_RESOURCE_FLAG_NONE };
-    u32 nChunks{ 0u };
-    u32 nReserved{ 0u };
-    u64 cbFile{ 0u };
-    u64 iChunkTable{ CY_COOKED_RESOURCE_HEADER_SIZE };
-    content_hash_t sourceHash{};
-    content_hash_t contentHash{};
+    }; // CYRS envelope version, independent of resource payload version.
+    u32 cbHeader{ static_cast<u32>( CY_COOKED_RESOURCE_HEADER_SIZE ) }; // Header bytes.
+    fourcc_t resourceType{ CY_INVALID_FOURCC }; // CYSH, CYTX, CYMT, or another type.
+    format_version_t nResourceVersion{ 0u }; // Type-specific format version.
+    flags32_t flags{ COOKED_RESOURCE_FLAG_NONE }; // cooked_resource_flags_t bits.
+    u32 nChunks{ 0u }; // Number of records in the chunk table.
+    u32 nReserved{ 0u }; // Must be zero in container version one.
+    u64 cbFile{ 0u }; // Exact canonical file size.
+    u64 iChunkTable{ CY_COOKED_RESOURCE_HEADER_SIZE }; // Table byte offset.
+    content_hash_t sourceHash{}; // Optional authored-input identity.
+    content_hash_t contentHash{}; // Optional hash of bytes after the fixed header.
 };
 
 struct cooked_chunk_desc_t {
-    fourcc_t chunkType{ CY_INVALID_FOURCC };
-    cooked_chunk_codec_t codec{ cooked_chunk_codec_t::NONE };
-    flags32_t flags{ COOKED_CHUNK_FLAG_NONE };
-    u32 nAlignment{ 1u };
-    u64 iOffset{ 0u };
-    u64 cbStored{ 0u };
-    u64 cbDecoded{ 0u };
-    u64 nReserved{ 0u };
-    content_hash_t contentHash{};
+    fourcc_t chunkType{ CY_INVALID_FOURCC }; // Type-specific payload identity.
+    cooked_chunk_codec_t codec{ cooked_chunk_codec_t::NONE }; // Storage codec.
+    flags32_t flags{ COOKED_CHUNK_FLAG_NONE }; // cooked_chunk_flags_t bits.
+    u32 nAlignment{ 1u }; // Required power-of-two file alignment.
+    u64 iOffset{ 0u }; // Absolute payload byte offset.
+    u64 cbStored{ 0u }; // Bytes occupied in the file.
+    u64 cbDecoded{ 0u }; // Bytes after decompression.
+    u64 nReserved{ 0u }; // Must remain zero in container version one.
+    content_hash_t contentHash{}; // Optional hash of stored payload bytes.
 };
 
 enum class cooked_resource_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    OUTPUT_TOO_SMALL,
-    TRUNCATED_INPUT,
-    INVALID_MAGIC,
-    VERSION_MISMATCH,
-    INVALID_HEADER,
-    INVALID_RESOURCE_TYPE,
-    INVALID_FLAGS,
-    CHUNK_LIMIT_EXCEEDED,
-    INVALID_CHUNK,
-    INVALID_CHUNK_ORDER,
-    FILE_SIZE_MISMATCH,
-    CONTENT_HASH_MISMATCH
+    OK = 0u,             // Envelope operation completed.
+    INVALID_ARGUMENT,   // Input block, span, or output pointer is invalid.
+    OUTPUT_TOO_SMALL,   // Destination cannot hold the prefix or descriptors.
+    TRUNCATED_INPUT,    // Input ends before declared metadata is available.
+    INVALID_MAGIC,      // File does not begin with the CYRS signature.
+    VERSION_MISMATCH,   // Container version is unsupported.
+    INVALID_HEADER,     // Header offsets, reserves, hashes, or counts disagree.
+    INVALID_RESOURCE_TYPE,// Payload type or payload version is absent.
+    INVALID_FLAGS,      // Header or chunk contains unknown flag bits.
+    CHUNK_LIMIT_EXCEEDED,// Chunk count exceeds the bounded parser contract.
+    INVALID_CHUNK,      // Descriptor codec, size, alignment, or hash is invalid.
+    INVALID_CHUNK_ORDER,// Descriptors overlap or are not ordered by file offset.
+    FILE_SIZE_MISMATCH, // Actual and declared complete file sizes differ.
+    CONTENT_HASH_MISMATCH // Sealed payload-area hash failed verification.
 };
 
 struct cooked_resource_result_t {
-    cooked_resource_status_t status{ cooked_resource_status_t::OK };
-    usize cbRead{ 0u };
-    usize cbWritten{ 0u };
-    usize cbRequired{ 0u };
-    usize iChunk{ CY_INVALID_SIZE };
+    cooked_resource_status_t status{ cooked_resource_status_t::OK }; // Result code.
+    usize cbRead{ 0u };              // Input bytes consumed after full validation.
+    usize cbWritten{ 0u };           // Header and table bytes emitted.
+    usize cbRequired{ 0u };          // Exact prefix capacity required.
+    usize iChunk{ CY_INVALID_SIZE }; // First invalid chunk-table entry, when known.
 };
 
 // Returns the encoded header and chunk-table size, or zero for an invalid count.

@@ -38,16 +38,16 @@ inline constexpr usize CY_SECURITY_SIGN_STREAM_STORAGE_SIZE = 512u;
 inline constexpr usize CY_SECURITY_SIGN_STREAM_STORAGE_ALIGNMENT = 64u;
 
 struct signature_public_key_t {
-    byte bytes[CY_SECURITY_SIGN_PUBLIC_KEY_SIZE]{};
+    byte bytes[CY_SECURITY_SIGN_PUBLIC_KEY_SIZE]{}; // Public Ed25519 verification key.
 };
 
 struct signature_t {
-    byte bytes[CY_SECURITY_SIGNATURE_SIZE]{};
+    byte bytes[CY_SECURITY_SIGNATURE_SIZE]{}; // Detached Ed25519 signature bytes.
 };
 
 struct signature_keypair_t {
-    signature_public_key_t publicKey{};
-    secure_memory_t secretKey{};
+    signature_public_key_t publicKey{}; // Public half safe to distribute.
+    secure_memory_t secretKey{};        // Guarded private signing key.
 
     signature_keypair_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( signature_keypair_t );
@@ -61,8 +61,8 @@ struct signature_stream_t {
     CYPHER_NO_COPY_MOVE( signature_stream_t );
 
     alignas( CY_SECURITY_SIGN_STREAM_STORAGE_ALIGNMENT )
-        byte storage[CY_SECURITY_SIGN_STREAM_STORAGE_SIZE]{};
-    bool_t bActive{ CY_FALSE };
+        byte storage[CY_SECURITY_SIGN_STREAM_STORAGE_SIZE]{}; // Opaque Ed25519ph state.
+    bool_t bActive{ CY_FALSE };                               // Multipart operation is open.
 };
 
 CYPHER_NODISCARD CYPHER_SECURITY_API

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Types Contract
+
+Security types use fixed sizes and explicit validity rules. Secret buffers are not ordinary
+strings and must never be logged, implicitly copied, or compared with early-exit equality.
+================
+*/
+
 #ifndef CYPHER_SECURITY_TYPES_H
 #define CYPHER_SECURITY_TYPES_H
 #ifndef PRAGMA_ONCE
@@ -36,18 +45,18 @@ using common::CY_FALSE;
 using common::CY_TRUE;
 
 enum class security_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    BACKEND_UNAVAILABLE,
-    OPERATION_FAILED,
-    INVALID_ENCODING,
-    AUTHENTICATION_FAILED,
-    OUT_OF_MEMORY,
-    INVALID_STATE,
-    PROTECTION_FAILED,
-    BUFFER_TOO_SMALL,
-    COUNTER_EXHAUSTED,
-    PEER_KEY_REJECTED
+    OK = 0u,               // Operation completed successfully.
+    INVALID_ARGUMENT,      // A pointer, size, policy, or value violates the contract.
+    BACKEND_UNAVAILABLE,   // The cryptographic backend could not be initialized.
+    OPERATION_FAILED,      // Backend operation failed without a narrower status.
+    INVALID_ENCODING,      // Text or serialized cryptographic data is malformed.
+    AUTHENTICATION_FAILED, // Tag, password, or signature verification failed.
+    OUT_OF_MEMORY,         // Guarded or ordinary allocation could not be obtained.
+    INVALID_STATE,         // Object lifecycle does not permit this operation.
+    PROTECTION_FAILED,     // Required page locking or protection transition failed.
+    BUFFER_TOO_SMALL,      // Caller-provided destination cannot hold the result.
+    COUNTER_EXHAUSTED,     // A nonce counter reached its non-reusable terminal state.
+    PEER_KEY_REJECTED      // Peer public key was invalid or produced an unsafe exchange.
 };
 
 } // namespace cypher::security
