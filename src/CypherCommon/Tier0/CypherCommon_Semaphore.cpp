@@ -24,6 +24,9 @@ namespace cypher::common
 namespace
 {
 
+// Waiters participate in shutdown. The last departing waiter wakes the thread
+// destroying the semaphore so no thread can retain a reference after shutdown.
+
 void SemaphoreWaiterLeftLocked( cy_semaphore_t *pSemaphore ) noexcept
 {
     --pSemaphore->nWaiterCount;
@@ -34,6 +37,7 @@ void SemaphoreWaiterLeftLocked( cy_semaphore_t *pSemaphore ) noexcept
 
 cy_wait_result_t SemaphoreConsumeLocked( cy_semaphore_t *pSemaphore ) noexcept
 {
+    // Count inspection and consumption are one operation under nativeMutex.
     if ( !pSemaphore->isInitialized ) {
         return cy_wait_result_t::Shutdown;
     }
@@ -76,6 +80,8 @@ bool_t Cy_SemaphoreShutdown( cy_semaphore_t *pSemaphore ) noexcept
         return CY_FALSE;
     }
 
+    // Invalidate the wait predicate before broadcasting. Waiting threads return
+    // Shutdown without consuming permits, then announce that they have left.
     pSemaphore->isInitialized = CY_FALSE;
     pSemaphore->nCount = 0u;
     pSemaphore->nativeCondition.notify_all();
@@ -111,16 +117,21 @@ bool_t Cy_SemaphorePost(
             return CY_FALSE;
         }
 
+        // Reject the entire post on overflow; partial permit publication makes
+        // producer/consumer accounting difficult to reason about.
         if ( nCount > pSemaphore->nMaxCount - pSemaphore->nCount ) {
             return CY_FALSE;
         }
 
         pSemaphore->nCount += nCount;
+        // Waking more threads than new permits only creates avoidable contention.
         nWakeCount = nCount < pSemaphore->nWaiterCount
             ? nCount
             : pSemaphore->nWaiterCount;
     }
 
+    // std::condition_variable has no notify_n operation. Issue one notification
+    // per available permit while leaving non-waiting permits in nCount.
     if ( nWakeCount == 1u ) {
         pSemaphore->nativeCondition.notify_one();
     } else if ( nWakeCount > 1u ) {
@@ -144,6 +155,8 @@ cy_wait_result_t Cy_SemaphoreWaitResult(
         return cy_wait_result_t::Shutdown;
     }
 
+    // Register before sleeping so Shutdown can wait until no thread references
+    // caller-owned semaphore storage.
     ++pSemaphore->nWaiterCount;
     try {
         pSemaphore->nativeCondition.wait( lock, [&]() {

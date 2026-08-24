@@ -27,10 +27,12 @@ namespace cypher::common
 namespace
 {
 
+// Callback replacement is rare, so a mutex is clearer than publishing two
+// related atomics independently. The callback itself always runs without the lock.
 std::mutex g_logMutex;
 log_callback_t g_logCallback = nullptr;
 void *g_logUserData = nullptr;
-thread_local u32 g_logCallbackDepth = 0u;
+thread_local u32 g_logCallbackDepth = 0u; // Prevents callback recursion per thread.
 
 struct log_callback_scope_t {
     log_callback_scope_t()
@@ -46,6 +48,8 @@ struct log_callback_scope_t {
 
 void Log_WriteFallback( const log_record_t &record ) noexcept
 {
+    // stderr is the last-resort sink used before logging initialization and during
+    // recursive callbacks. Keep it allocation-free and flush fatal diagnostics.
     const char *pLevel = Cy_LogLevelName( record.level );
     const char *pChannel = Cy_LogChannelName( record.channel );
 
@@ -117,6 +121,7 @@ void Cy_LogWriteErrorAt(
     const char *pMessage,
     source_location_t location ) noexcept
 {
+    // Filtering happens before record construction or callback synchronization.
     const log_category_mask_t channelMask = Cy_LogChannelMask( channel );
     if ( channelMask != 0u && !Cy_LogToggleAllEnabled( channelMask ) ) {
         return;
@@ -132,6 +137,8 @@ void Cy_LogWriteErrorAt(
     log_callback_t pCallback = nullptr;
     void *pUserData = nullptr;
     {
+        // Snapshot the callback pair, then release the lock before entering user
+        // code. A callback may log, install another callback, or take other locks.
         std::lock_guard<std::mutex> lock( g_logMutex );
         pCallback = g_logCallback;
         pUserData = g_logUserData;
@@ -143,6 +150,8 @@ void Cy_LogWriteErrorAt(
         return;
     }
 
+    // A recursive log cannot re-enter the custom sink safely; route it directly
+    // to stderr so the original diagnostic is not lost.
     Log_WriteFallback( record );
 }
 

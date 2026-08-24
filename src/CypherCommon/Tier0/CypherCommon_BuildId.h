@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_BuildId.h
-//  Purpose: Declares CypherCommon Tier0 BuildId support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares immutable engine/game build identity records.
+//  Details: Pointers refer to static process-lifetime strings generated at build
+//           time. Logs and crash reports may retain them without copying.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -38,21 +37,21 @@ namespace cypher::common
 {
 
 struct build_version_t {
-    u32 nMajor;
-    u32 nMinor;
-    u32 nPatch;
-    u32 nBuild;
+    u32 nMajor; // Breaking product generation.
+    u32 nMinor; // Backward-compatible feature generation.
+    u32 nPatch; // Corrective release generation.
+    u32 nBuild; // Build-system sequence or zero when unavailable.
 };
 
 struct build_id_t {
-    const char *pszProductName;
-    const char *pszInternalName;
-    const char *pszVersion;
-    const char *pszBranchName;
-    const char *pszCommitHash;
-    const char *pszBuildDate;
-    const char *pszBuildTime;
-    build_version_t version;
+    const char *pszProductName;  // User-facing engine or game name.
+    const char *pszInternalName; // Stable executable/module identifier.
+    const char *pszVersion;      // Preformatted semantic version string.
+    const char *pszBranchName;   // Source-control branch, if embedded.
+    const char *pszCommitHash;   // Source revision, if embedded.
+    const char *pszBuildDate;    // Compiler-provided build date.
+    const char *pszBuildTime;    // Compiler-provided build time.
+    build_version_t version;     // Numeric form for machine comparisons.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API const build_id_t *Cy_BuildIdGetEngine() noexcept;

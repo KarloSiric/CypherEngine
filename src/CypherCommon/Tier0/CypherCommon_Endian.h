@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Endian.h
-//  Purpose: Declares CypherCommon Tier0 Endian support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares byte-order conversion, unaligned IO, and FourCC helpers.
+//  Details: Serialized data must choose an explicit byte order. Never write native
+//           structs directly and assume their layout is a portable file format.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-21
@@ -67,7 +66,8 @@ CYPHER_NODISCARD constexpr u64 Cy_ByteSwap64( u64 nValue ) noexcept
            ( ( nValue & 0xFF00000000000000ull ) >> 56u );
 }
 
-// Packs four ASCII characters into a little-endian FourCC value.
+// Packs four ASCII characters into a canonical little-endian FourCC value. The
+// numeric result is stable regardless of the host's native byte order.
 CYPHER_NODISCARD constexpr u32 Cy_MakeFourCC( char ch0, char ch1, char ch2, char ch3 ) noexcept
 {
     return static_cast<u32>( static_cast<u8>( ch0 ) ) |
@@ -76,7 +76,7 @@ CYPHER_NODISCARD constexpr u32 Cy_MakeFourCC( char ch0, char ch1, char ch2, char
            ( static_cast<u32>( static_cast<u8>( ch3 ) ) << 24u );
 }
 
-// Extracts one character from a FourCC; invalid indices return nul.
+// Extracts one character from a FourCC; invalid indices return NUL.
 CYPHER_NODISCARD constexpr char Cy_FourCCChar( u32 nFourCC, u32 nIndex ) noexcept
 {
     return nIndex < 4u ? static_cast<char>( ( nFourCC >> ( nIndex * 8u ) ) & 0xFFu ) : '\0';
@@ -284,6 +284,8 @@ CYPHER_NODISCARD constexpr f64 Cy_BigToHostF64( f64 flValue ) noexcept
     return Cy_HostToBigF64( flValue );
 }
 
+// Unaligned reads use memcpy rather than casting pSrc. This avoids alignment faults
+// and strict-aliasing violations on ARM and other non-x86 targets.
 // Reads an unaligned 16-bit little-endian value. pSrc must reference two bytes.
 CYPHER_NODISCARD inline u16 Cy_ReadLittle16( const void *pSrc ) noexcept
 {

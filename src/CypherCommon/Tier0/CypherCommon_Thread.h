@@ -4,10 +4,8 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Thread.h
-//  Purpose: Declares CypherCommon Tier0 Thread support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Provides portable thread identity, lifecycle, naming, sleep, and yield.
+//  Details: This is a low-level platform service, not the engine job scheduler.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-21
@@ -41,26 +39,26 @@ debugger/profiler naming.
 namespace cypher::common
 {
 
-using thread_id_t = u64;
+using thread_id_t = u64; // Collision-free process-local identifier, not an OS thread handle.
 
-constexpr thread_id_t CY_THREAD_INVALID_ID = 0u;
-constexpr usize CY_THREAD_NAME_CAPACITY = 64u;
+constexpr thread_id_t CY_THREAD_INVALID_ID = 0u; // Assigned IDs begin at one.
+constexpr usize CY_THREAD_NAME_CAPACITY = 64u;   // Includes the null terminator.
 
 enum class cy_wait_result_t : u8 {
-    Success = 0u,
-    Timeout,
-    Shutdown,
-    Invalid
+    Success = 0u, // Wait predicate was satisfied.
+    Timeout,      // Deadline expired before the predicate was satisfied.
+    Shutdown,     // Primitive was shut down while this thread waited.
+    Invalid       // Null object or invalid lifecycle state.
 };
 
-using thread_proc_t = i32 ( * )( void *pUserData ) noexcept;
+using thread_proc_t = i32 ( * )( void *pUserData ) noexcept; // Return value is collected by Join.
 
 struct cy_thread_t {
-    std::thread native;
-    std::atomic<thread_id_t> nThreadId{ CY_THREAD_INVALID_ID };
-    std::atomic<bool_t> isRunning{ CY_FALSE };
-    i32 nResult = 0;
-    char szName[CY_THREAD_NAME_CAPACITY] = {};
+    std::thread native;                                         // Joinable native thread object.
+    std::atomic<thread_id_t> nThreadId{ CY_THREAD_INVALID_ID }; // Published after the thread starts.
+    std::atomic<bool_t> isRunning{ CY_FALSE };                  // True only while the procedure is active.
+    i32 nResult = 0;                                            // Procedure result, valid after Join.
+    char szName[CY_THREAD_NAME_CAPACITY] = {};                  // Owned debugger/profiler name copy.
 };
 
 // Initializes thread state and captures the calling thread as the main thread.
@@ -72,13 +70,11 @@ CYPHER_COMMON_API void Cy_ThreadShutdown() noexcept;
 // Returns whether the thread module has captured a main thread.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadIsInitialized() noexcept;
 
-// Yields the current thread's remaining scheduler time slice.
 CYPHER_COMMON_API void Cy_ThreadYield() noexcept;
 
-// Sleeps the current thread for at least the requested milliseconds.
+// Sleep durations are minimum requests; scheduler latency may extend them.
 CYPHER_COMMON_API void Cy_ThreadSleepMs( u32 nMilliseconds ) noexcept;
 
-// Sleeps the current thread for at least the requested microseconds.
 CYPHER_COMMON_API void Cy_ThreadSleepUs( u32 nMicroseconds ) noexcept;
 
 // Returns a collision-free process-local ID assigned lazily to the calling thread.
@@ -87,7 +83,7 @@ CYPHER_NODISCARD CYPHER_COMMON_API thread_id_t Cy_ThreadGetCurrentId() noexcept;
 // Compatibility name for diagnostics that expect a numeric thread token.
 CYPHER_NODISCARD CYPHER_COMMON_API u64 Cy_ThreadGetCurrentIdHash() noexcept;
 
-// Returns detected hardware concurrency, falling back to one.
+// Hardware concurrency falls back to one when the platform cannot report it.
 CYPHER_NODISCARD CYPHER_COMMON_API u32 Cy_ThreadGetLogicalCount() noexcept;
 
 // Captures the caller as main; refuses to replace a different captured thread.
@@ -96,7 +92,6 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadCaptureMainThread() noexcept;
 // Returns the captured main thread id, or CY_THREAD_INVALID_ID if unset.
 CYPHER_NODISCARD CYPHER_COMMON_API thread_id_t Cy_ThreadGetMainThreadId() noexcept;
 
-// Returns true when called from the captured main thread.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadIsMainThread() noexcept;
 
 // Best-effort current-thread name for debugger and profiler views.
@@ -116,11 +111,9 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadJoin(
     cy_thread_t *pThread,
     i32 *pOutResult = nullptr ) noexcept;
 
-// Returns whether the created thread has not yet returned from its procedure.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_ThreadIsRunning(
     const cy_thread_t *pThread ) noexcept;
 
-// Returns the assigned process-local ID, or invalid before the thread starts.
 CYPHER_NODISCARD CYPHER_COMMON_API thread_id_t Cy_ThreadGetId(
     const cy_thread_t *pThread ) noexcept;
 

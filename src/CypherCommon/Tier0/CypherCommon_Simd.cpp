@@ -24,6 +24,8 @@
 namespace cypher::common
 {
 
+// CPUDetect reports hardware and operating-system state. This file translates
+// those facts into the smaller SIMD vocabulary supported by engine algorithms.
 namespace
 {
 
@@ -94,6 +96,8 @@ flags64_t SimdConvertCpuFeatures( flags64_t cpuFeatures ) noexcept
 
 flags64_t SimdDetectCompiledFeatures() noexcept
 {
+    // Compiler predefined macros describe which instruction families may appear
+    // in this translation unit. Runtime CPUID alone cannot make absent code callable.
     flags64_t features = CY_SIMD_FEATURE_NONE;
 
 #if CYPHER_ARCH_X64
@@ -140,6 +144,8 @@ void SimdSelectBestLevel( cy_simd_caps_t &caps ) noexcept
     caps.bestLevel = CY_SIMD_LEVEL_SCALAR;
     caps.vectorRegisterBytes = CY_SIMD_SCALAR_REGISTER_BYTES;
 
+    // Prefer the widest x86 implementation, then older x86 levels, then ARM NEON.
+    // Only one ISA family is expected in a single target binary.
     if ( Cy_SimdHasFeature( caps.usableFeatures, CY_SIMD_FEATURE_AVX2 ) ) {
         caps.bestLevel = CY_SIMD_LEVEL_AVX2;
         caps.vectorRegisterBytes = CY_SIMD_256_REGISTER_BYTES;
@@ -167,6 +173,8 @@ cy_simd_caps_t SimdBuildCaps() noexcept
     cy_simd_caps_t caps = {};
     caps.cpuFeatures = SimdConvertCpuFeatures( pCpu->usableFeatures );
     caps.compiledFeatures = SimdDetectCompiledFeatures();
+    // Safe dispatch requires both halves: the host can execute the instructions
+    // and this exact binary contains code compiled for them.
     caps.usableFeatures = caps.cpuFeatures & caps.compiledFeatures;
     SimdSelectBestLevel( caps );
     return caps;
@@ -174,6 +182,7 @@ cy_simd_caps_t SimdBuildCaps() noexcept
 
 const cy_simd_caps_t &SimdGetCachedCaps() noexcept
 {
+    // CPU and build capabilities do not change after process startup.
     static const cy_simd_caps_t caps = SimdBuildCaps();
     return caps;
 }

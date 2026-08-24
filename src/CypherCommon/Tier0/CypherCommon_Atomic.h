@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Atomic.h
-//  Purpose: Declares CypherCommon Tier0 Atomic support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Normalizes atomic scalar operations and legal memory-order combinations.
+//  Details: The default remains sequential consistency; weaker orders require a
+//           documented synchronization argument at the call site.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -57,11 +56,11 @@ using atomic_flag_t = std::atomic_flag;
 
 using memory_order_t = std::memory_order;
 
-constexpr memory_order_t CY_MEMORY_ORDER_RELAXED = std::memory_order_relaxed;
-constexpr memory_order_t CY_MEMORY_ORDER_ACQUIRE = std::memory_order_acquire;
-constexpr memory_order_t CY_MEMORY_ORDER_RELEASE = std::memory_order_release;
-constexpr memory_order_t CY_MEMORY_ORDER_ACQ_REL = std::memory_order_acq_rel;
-constexpr memory_order_t CY_MEMORY_ORDER_SEQ_CST = std::memory_order_seq_cst;
+constexpr memory_order_t CY_MEMORY_ORDER_RELAXED = std::memory_order_relaxed; // Atomicity only.
+constexpr memory_order_t CY_MEMORY_ORDER_ACQUIRE = std::memory_order_acquire; // Orders following reads/writes.
+constexpr memory_order_t CY_MEMORY_ORDER_RELEASE = std::memory_order_release; // Publishes preceding reads/writes.
+constexpr memory_order_t CY_MEMORY_ORDER_ACQ_REL = std::memory_order_acq_rel;  // Acquire and release on RMW.
+constexpr memory_order_t CY_MEMORY_ORDER_SEQ_CST = std::memory_order_seq_cst; // Single global total order.
 
 // Returns a valid load/wait order, falling back to sequential consistency.
 CYPHER_NODISCARD constexpr memory_order_t Cy_AtomicNormalizeLoadOrder(

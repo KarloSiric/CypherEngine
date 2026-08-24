@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Environment.h
-//  Purpose: Declares CypherCommon Tier0 Environment support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares bounded UTF-8 access to process environment variables.
+//  Details: Reads support a size-query pass and distinguish a missing variable
+//           from a present variable whose value is the empty string.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -37,9 +36,9 @@ namespace cypher::common
 {
 
 struct cy_environment_get_result_t {
-    usize cchRequired;
-    bool_t exists;
-    bool_t isTruncated;
+    usize cchRequired; // Value characters required, excluding null terminator.
+    bool_t exists;     // Name is present even when cchRequired is zero.
+    bool_t isTruncated; // Supplied destination could not hold the whole value.
 };
 
 // Reads a process environment value. cchRequired excludes the null terminator.

@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_API.h
-//  Purpose: Declares CypherCommon Tier0 API support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Defines symbol visibility and calling conventions for module APIs.
+//  Details: Static builds erase visibility decoration; shared builds select export
+//           while producing a module and import while consuming it.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,22 +21,9 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon API
-
-DLL/shared-library visibility macros used when Common, engine runtime, tools
-or game modules need a stable binary boundary.
-================
-*/
-
 #include "CypherCommon_Platform.h"
 
-/*
-================
-Generic Symbol Visibility
-================
-*/
+// Generic symbol visibility used by subsystem-specific API macros.
 #if CYPHER_PLATFORM_WINDOWS
     #define CYPHER_API_EXPORT __declspec( dllexport )
     #define CYPHER_API_IMPORT __declspec( dllimport )
@@ -52,11 +38,7 @@ Generic Symbol Visibility
     #define CYPHER_API_LOCAL
 #endif
 
-/*
-================
-C ABI And Calling Convention
-================
-*/
+// C linkage prevents C++ name mangling at dynamically discovered entry points.
 #define CYPHER_EXTERN_C extern "C"
 #define CYPHER_EXTERN_C_BEGIN extern "C" {
 #define CYPHER_EXTERN_C_END }
@@ -67,11 +49,7 @@ C ABI And Calling Convention
     #define CYPHER_CALL
 #endif
 
-/*
-================
-CypherCommon Linkage
-================
-*/
+// Exactly one linkage role may be selected for a translation unit.
 #if defined( CYPHER_COMMON_STATIC ) && ( defined( CYPHER_COMMON_BUILD_DLL ) || defined( CYPHER_COMMON_USE_DLL ) )
     #error "CypherCommon cannot be both static and shared."
 #endif
@@ -81,13 +59,13 @@ CypherCommon Linkage
 #endif
 
 #if defined( CYPHER_COMMON_STATIC )
-    #define CYPHER_COMMON_API
+    #define CYPHER_COMMON_API                 // Symbols resolve from the linked archive.
 #elif defined( CYPHER_COMMON_BUILD_DLL )
-    #define CYPHER_COMMON_API CYPHER_API_EXPORT
+    #define CYPHER_COMMON_API CYPHER_API_EXPORT // Producing the shared library.
 #elif defined( CYPHER_COMMON_USE_DLL )
-    #define CYPHER_COMMON_API CYPHER_API_IMPORT
+    #define CYPHER_COMMON_API CYPHER_API_IMPORT // Consuming the shared library.
 #else
-    #define CYPHER_COMMON_API
+    #define CYPHER_COMMON_API                 // Default static/monolithic build.
 #endif
 
 #endif // CYPHER_COMMON_TIER0_API_H

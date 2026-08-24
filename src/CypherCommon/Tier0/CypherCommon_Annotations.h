@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Annotations.h
-//  Purpose: Declares CypherCommon Tier0 Annotations support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Normalizes source annotations used for diagnostics and static analysis.
+//  Details: Unsupported annotations collapse to no-ops and must never change runtime
+//           behavior or binary layout.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,32 +21,17 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Annotations
-
-Portable API annotation surface for static analysis and compiler diagnostics.
-Annotations never change runtime behavior.
-================
-*/
-
 #include "CypherCommon_Platform.h"
 
-/*
-================
-Standard Attributes
-================
-*/
+// Standard C++ attributes.
 #define CYPHER_NODISCARD                    [[nodiscard]]
 #define CYPHER_NODISCARD_MSG( message )     [[nodiscard( message )]]
 #define CYPHER_MAYBE_UNUSED                 [[maybe_unused]]
 #define CYPHER_FALLTHROUGH                  [[fallthrough]]
+#define CYPHER_NORETURN                     [[noreturn]]
 
-/*
-================
-Pointer And Buffer Contracts
-================
-*/
+// MSVC's SAL annotations describe pointer direction and buffer extents to the
+// analyzer. Other compilers receive the same declarations with empty spellings.
 #if CYPHER_COMPILER_MSVC_ABI
     #include <sal.h>
 
@@ -86,16 +70,13 @@ Pointer And Buffer Contracts
     #define CY_SCANF_FORMAT_STRING
 #endif
 
-// Compatibility vocabulary retained for existing declarations.
-#define CY_OPTIONAL
-#define CY_CAP( count )
-#define CY_Z
+// Compatibility-only vocabulary retained until old declarations are migrated.
+#define CY_OPTIONAL       // Optional pointer; documentation-only outside SAL declarations.
+#define CY_CAP( count )   // Buffer capacity expression; documentation-only.
+#define CY_Z              // Null-terminated string marker; documentation-only.
 
-/*
-================
-Function Contracts
-================
-*/
+// GCC and Clang use these contracts to validate printf/scanf arguments and
+// non-null pointer requirements at compile time.
 #if CYPHER_COMPILER_CLANG || CYPHER_COMPILER_GCC
     #define CY_PRINTF_LIKE( formatIndex, firstArgumentIndex ) \
         __attribute__(( format( printf, formatIndex, firstArgumentIndex ) ))

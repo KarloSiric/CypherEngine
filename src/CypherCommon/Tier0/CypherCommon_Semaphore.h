@@ -4,9 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Semaphore.h
-//  Purpose: Declares CypherCommon Tier0 Semaphore synchronization support.
-//  Details: Semaphores count available work/resources and let worker threads sleep
-//           until a producer posts one or more units.
+//  Purpose: Provides a bounded counting semaphore for producer/consumer queues.
+//  Details: Shutdown wakes blocked waiters and waits for them to leave before the
+//           caller may destroy or reuse the object.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-07-07
@@ -41,12 +41,12 @@ namespace cypher::common
 {
 
 struct cy_semaphore_t {
-    mutable std::mutex nativeMutex;
-    std::condition_variable nativeCondition;
-    u32 nCount = 0u;
-    u32 nMaxCount = CY_U32_MAX;
-    u32 nWaiterCount = 0u;
-    bool_t isInitialized = CY_FALSE;
+    mutable std::mutex nativeMutex;           // Guards count, waiters, and lifecycle state.
+    std::condition_variable nativeCondition; // Wakes waiters after Post or Shutdown.
+    u32 nCount = 0u;                          // Units currently available to consume.
+    u32 nMaxCount = CY_U32_MAX;               // Saturation limit established by Init.
+    u32 nWaiterCount = 0u;                    // Threads currently inside a blocking wait.
+    bool_t isInitialized = CY_FALSE;          // False also acts as the shutdown predicate.
 };
 
 // Initializes a counting semaphore.
@@ -59,7 +59,6 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_SemaphoreInit(
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_SemaphoreShutdown(
     cy_semaphore_t *pSemaphore ) noexcept;
 
-// Returns whether the semaphore has been initialized.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_SemaphoreIsInitialized(
     const cy_semaphore_t *pSemaphore ) noexcept;
 
@@ -85,12 +84,10 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_SemaphoreWaitTimeoutMs(
 CYPHER_NODISCARD CYPHER_COMMON_API cy_wait_result_t Cy_SemaphoreWaitResult(
     cy_semaphore_t *pSemaphore ) noexcept;
 
-// Detailed timed wait result.
 CYPHER_NODISCARD CYPHER_COMMON_API cy_wait_result_t Cy_SemaphoreWaitTimeoutMsResult(
     cy_semaphore_t *pSemaphore,
     u32 nMilliseconds ) noexcept;
 
-// Returns the current count for diagnostics.
 CYPHER_NODISCARD CYPHER_COMMON_API u32 Cy_SemaphoreGetCount(
     const cy_semaphore_t *pSemaphore ) noexcept;
 

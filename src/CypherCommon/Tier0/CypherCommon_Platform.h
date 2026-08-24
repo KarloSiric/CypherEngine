@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Platform.h
-//  Purpose: Declares CypherCommon Tier0 Platform support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Normalizes compiler, operating-system, CPU, and build properties.
+//  Details: Every target selector produced here is either zero or one so the rest
+//           of the engine can use it safely in preprocessor expressions.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-20
@@ -22,46 +21,36 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Platform
+//=============================================================================
+//
+// Platform contract
+//
+// Raw compiler and operating-system defines are translated here. Code outside
+// Tier0 should use the CYPHER_* names so unsupported targets fail in one place.
+// CypherEngine currently supports 64-bit, little-endian desktop targets only.
+//
+//=============================================================================
 
-Central compiler, operating system, architecture, endian and build detection.
-
-Rules:
-- Raw target macros such as _WIN32, __linux__, __APPLE__, _MSC_VER and
-  __clang__ are normalized here.
-- Other Cypher code should use CYPHER_* target macros instead of raw compiler
-  or operating system macros.
-- All Boolean target and feature macros are always defined as 0 or 1.
-- CypherEngine currently supports 64-bit, little-endian desktop targets only.
-================
-*/
-
-/*
-================
-C++ Standard Detection
-================
-*/
+//-----------------------------------------------------------------------------
+// C++ language level
+//-----------------------------------------------------------------------------
 #if !defined( __cplusplus )
     #error "CypherCommon requires C++."
 #endif
 
 #if defined( _MSVC_LANG )
-    #define CYPHER_CPP_STANDARD _MSVC_LANG
+    #define CYPHER_CPP_STANDARD _MSVC_LANG  // MSVC reports the selected /std mode here.
 #else
-    #define CYPHER_CPP_STANDARD __cplusplus
+    #define CYPHER_CPP_STANDARD __cplusplus // Language level reported by GCC and Clang.
 #endif
 
 #if CYPHER_CPP_STANDARD < 202002L
     #error "CypherCommon requires C++20 or newer."
 #endif
 
-/*
-================
-Compiler Detection
-================
-*/
+//-----------------------------------------------------------------------------
+// Compiler and ABI
+//-----------------------------------------------------------------------------
 #if defined( __clang__ )
     #define CYPHER_COMPILER_MSVC 0
     #define CYPHER_COMPILER_CLANG 1
@@ -106,6 +95,8 @@ Compiler Detection
     #error "Unsupported Cypher compiler."
 #endif
 
+// Packed version used for diagnostics and build records. Use the tuple helper
+// below for comparisons because vendor patch components are not equally wide.
 #define CYPHER_COMPILER_VERSION                                                                                  \
     ( ( ( CYPHER_COMPILER_VERSION_MAJOR ) << 24u ) | ( ( CYPHER_COMPILER_VERSION_MINOR ) << 16u ) |             \
       ( ( CYPHER_COMPILER_VERSION_PATCH ) & 0xFFFFu ) )
@@ -122,11 +113,40 @@ Compiler Detection
     #error "CYPHER_COMPILER_MSVC_ABI must be either 0 or 1."
 #endif
 
-/*
-================
-Operating System Detection
-================
-*/
+//-----------------------------------------------------------------------------
+// Compiler capability queries
+//
+// Version numbers are only approximations of feature support. Query the exact
+// builtin, attribute, or feature whenever the compiler provides that facility.
+//-----------------------------------------------------------------------------
+#if defined( __has_builtin )
+    #define CYPHER_HAS_BUILTIN( builtin ) __has_builtin( builtin )
+#else
+    #define CYPHER_HAS_BUILTIN( builtin ) 0
+#endif
+
+#if defined( __has_attribute )
+    #define CYPHER_HAS_ATTRIBUTE( attribute ) __has_attribute( attribute )
+#else
+    #define CYPHER_HAS_ATTRIBUTE( attribute ) 0
+#endif
+
+#if defined( __has_feature )
+    #define CYPHER_HAS_FEATURE( feature ) __has_feature( feature )
+#else
+    #define CYPHER_HAS_FEATURE( feature ) 0
+#endif
+
+// Arguments must be integer literals or other preprocessor constants.
+#define CYPHER_COMPILER_VERSION_AT_LEAST( major, minor, patch )                                                  \
+    ( ( CYPHER_COMPILER_VERSION_MAJOR > ( major ) ) ||                                                          \
+      ( CYPHER_COMPILER_VERSION_MAJOR == ( major ) && CYPHER_COMPILER_VERSION_MINOR > ( minor ) ) ||           \
+      ( CYPHER_COMPILER_VERSION_MAJOR == ( major ) && CYPHER_COMPILER_VERSION_MINOR == ( minor ) &&            \
+        CYPHER_COMPILER_VERSION_PATCH >= ( patch ) ) )
+
+//-----------------------------------------------------------------------------
+// Operating system
+//-----------------------------------------------------------------------------
 #if defined( _WIN32 )
     #define CYPHER_PLATFORM_WINDOWS 1
     #define CYPHER_PLATFORM_LINUX 0
@@ -157,11 +177,32 @@ Operating System Detection
     #error "Cypher platform detection must resolve to exactly one platform."
 #endif
 
-/*
-================
-CPU Architecture Detection
-================
-*/
+//-----------------------------------------------------------------------------
+// Native host names
+//
+// These values describe physical host files. Virtual filesystem paths always
+// use '/' and must never be constructed with CYPHER_NATIVE_PATH_SEPARATOR.
+//-----------------------------------------------------------------------------
+#if CYPHER_PLATFORM_WINDOWS
+    #define CYPHER_NATIVE_PATH_SEPARATOR '\\'      // Win32 host path separator.
+    #define CYPHER_SHARED_LIBRARY_PREFIX ""         // foo.dll, never libfoo.dll.
+    #define CYPHER_SHARED_LIBRARY_EXTENSION ".dll"
+    #define CYPHER_EXECUTABLE_EXTENSION ".exe"
+#elif CYPHER_PLATFORM_MACOS
+    #define CYPHER_NATIVE_PATH_SEPARATOR '/'
+    #define CYPHER_SHARED_LIBRARY_PREFIX "lib"       // libfoo.dylib.
+    #define CYPHER_SHARED_LIBRARY_EXTENSION ".dylib"
+    #define CYPHER_EXECUTABLE_EXTENSION ""           // Mach-O executables have no required suffix.
+#elif CYPHER_PLATFORM_LINUX
+    #define CYPHER_NATIVE_PATH_SEPARATOR '/'
+    #define CYPHER_SHARED_LIBRARY_PREFIX "lib"       // libfoo.so.
+    #define CYPHER_SHARED_LIBRARY_EXTENSION ".so"
+    #define CYPHER_EXECUTABLE_EXTENSION ""           // ELF executables have no required suffix.
+#endif
+
+//-----------------------------------------------------------------------------
+// CPU architecture
+//-----------------------------------------------------------------------------
 #if defined( _M_ARM64EC )
     #define CYPHER_ARCH_X64 0
     #define CYPHER_ARCH_X86 0
@@ -217,30 +258,26 @@ CPU Architecture Detection
     #define CYPHER_ARCH_ARM_FAMILY 1
 #endif
 
-/*
-================
-Pointer Width Detection
-================
-*/
+//-----------------------------------------------------------------------------
+// Pointer width
+//-----------------------------------------------------------------------------
 #if CYPHER_ARCH_X64 || CYPHER_ARCH_ARM64
     #define CYPHER_TARGET_64BIT 1
     #define CYPHER_TARGET_32BIT 0
-    #define CYPHER_POINTER_SIZE 8
+    #define CYPHER_POINTER_SIZE 8 // Bytes, not bits.
 #else
     #define CYPHER_TARGET_64BIT 0
     #define CYPHER_TARGET_32BIT 1
-    #define CYPHER_POINTER_SIZE 4
+    #define CYPHER_POINTER_SIZE 4 // Bytes, not bits.
 #endif
 
 #if ( CYPHER_TARGET_64BIT + CYPHER_TARGET_32BIT ) != 1
     #error "Cypher pointer width detection must resolve to exactly one width."
 #endif
 
-/*
-================
-Endian Detection
-================
-*/
+//-----------------------------------------------------------------------------
+// Native byte order
+//-----------------------------------------------------------------------------
 #if CYPHER_PLATFORM_WINDOWS && ( CYPHER_ARCH_X86_FAMILY || CYPHER_ARCH_ARM_FAMILY )
     #define CYPHER_ENDIAN_LITTLE 1
     #define CYPHER_ENDIAN_BIG 0
@@ -262,11 +299,9 @@ Endian Detection
     #error "CypherEngine currently requires a little-endian target."
 #endif
 
-/*
-================
-Build Configuration Detection
-================
-*/
+//-----------------------------------------------------------------------------
+// Build configuration
+//-----------------------------------------------------------------------------
 #if !defined( CYPHER_CONFIG_DEBUG )
     #define CYPHER_CONFIG_DEBUG 0
 #endif
@@ -301,13 +336,14 @@ Build Configuration Detection
 #define CYPHER_BUILD_DEVELOPMENT CYPHER_CONFIG_DEVELOPMENT
 #define CYPHER_BUILD_RELEASE CYPHER_CONFIG_RELEASE
 #define CYPHER_BUILD_SHIPPING CYPHER_CONFIG_SHIPPING
-#define CYPHER_BUILD_OPTIMIZED ( CYPHER_CONFIG_DEVELOPMENT || CYPHER_CONFIG_RELEASE || CYPHER_CONFIG_SHIPPING )
 
-/*
-================
-C++ Feature Detection
-================
-*/
+// Development, release, and shipping targets are expected to enable optimization.
+#define CYPHER_BUILD_OPTIMIZED \
+    ( CYPHER_CONFIG_DEVELOPMENT || CYPHER_CONFIG_RELEASE || CYPHER_CONFIG_SHIPPING )
+
+//-----------------------------------------------------------------------------
+// Optional C++ runtime features
+//-----------------------------------------------------------------------------
 #if defined( _CPPUNWIND ) || defined( __EXCEPTIONS )
     #define CYPHER_CPP_EXCEPTIONS 1
 #else
@@ -318,6 +354,65 @@ C++ Feature Detection
     #define CYPHER_CPP_RTTI 1
 #else
     #define CYPHER_CPP_RTTI 0
+#endif
+
+//-----------------------------------------------------------------------------
+// Sanitizers
+//
+// The build may override these when a compiler has no reliable feature macro.
+// Keep every value normalized to zero or one; several low-level implementations
+// use them to disable operations that sanitizer runtimes cannot instrument.
+//-----------------------------------------------------------------------------
+#if !defined( CYPHER_SANITIZER_ADDRESS )
+    #if defined( __SANITIZE_ADDRESS__ ) || CYPHER_HAS_FEATURE( address_sanitizer )
+        #define CYPHER_SANITIZER_ADDRESS 1
+    #else
+        #define CYPHER_SANITIZER_ADDRESS 0
+    #endif
+#endif
+
+#if !defined( CYPHER_SANITIZER_THREAD )
+    #if defined( __SANITIZE_THREAD__ ) || CYPHER_HAS_FEATURE( thread_sanitizer )
+        #define CYPHER_SANITIZER_THREAD 1
+    #else
+        #define CYPHER_SANITIZER_THREAD 0
+    #endif
+#endif
+
+#if !defined( CYPHER_SANITIZER_MEMORY )
+    #if defined( __SANITIZE_MEMORY__ ) || CYPHER_HAS_FEATURE( memory_sanitizer )
+        #define CYPHER_SANITIZER_MEMORY 1
+    #else
+        #define CYPHER_SANITIZER_MEMORY 0
+    #endif
+#endif
+
+#if !defined( CYPHER_SANITIZER_UNDEFINED )
+    #if defined( __SANITIZE_UNDEFINED__ ) || CYPHER_HAS_FEATURE( undefined_behavior_sanitizer )
+        #define CYPHER_SANITIZER_UNDEFINED 1
+    #else
+        #define CYPHER_SANITIZER_UNDEFINED 0
+    #endif
+#endif
+
+#define CYPHER_SANITIZER_ANY                                                                                     \
+    ( CYPHER_SANITIZER_ADDRESS || CYPHER_SANITIZER_THREAD || CYPHER_SANITIZER_MEMORY ||                          \
+      CYPHER_SANITIZER_UNDEFINED )
+
+#if ( CYPHER_SANITIZER_ADDRESS != 0 ) && ( CYPHER_SANITIZER_ADDRESS != 1 )
+    #error "CYPHER_SANITIZER_ADDRESS must be either 0 or 1."
+#endif
+
+#if ( CYPHER_SANITIZER_THREAD != 0 ) && ( CYPHER_SANITIZER_THREAD != 1 )
+    #error "CYPHER_SANITIZER_THREAD must be either 0 or 1."
+#endif
+
+#if ( CYPHER_SANITIZER_MEMORY != 0 ) && ( CYPHER_SANITIZER_MEMORY != 1 )
+    #error "CYPHER_SANITIZER_MEMORY must be either 0 or 1."
+#endif
+
+#if ( CYPHER_SANITIZER_UNDEFINED != 0 ) && ( CYPHER_SANITIZER_UNDEFINED != 1 )
+    #error "CYPHER_SANITIZER_UNDEFINED must be either 0 or 1."
 #endif
 
 #endif // CYPHER_COMMON_TIER0_PLATFORM_H

@@ -38,6 +38,8 @@ namespace cypher::common
 namespace
 {
 
+// POSIX backtrace must capture skipped frames into the same temporary buffer. The
+// internal limit bounds stack use regardless of untrusted skip/max arguments.
 constexpr u32 CYPHER_STACK_TRACE_CAPTURE_LIMIT = 128u;
 
 constexpr u32 ClampCaptureCount( u32 cMaxFrames ) noexcept
@@ -78,6 +80,8 @@ u32 Cy_StackTraceCapture( stack_trace_t *pTrace, u32 cMaxFrames, u32 cSkipFrames
     }
 
 #if CYPHER_PLATFORM_WINDOWS
+    // CaptureStackBackTrace accepts a skip count directly, so no larger temporary
+    // array is needed to discard caller-requested frames.
     void *pCaptured[CYPHER_STACK_TRACE_MAX_FRAMES] = {};
     const USHORT cCaptured = CaptureStackBackTrace(
         static_cast<DWORD>( cSkipFrames + 1u ),
@@ -92,6 +96,8 @@ u32 Cy_StackTraceCapture( stack_trace_t *pTrace, u32 cMaxFrames, u32 cSkipFrames
     pTrace->frame_count = static_cast<u32>( cCaptured );
     return pTrace->frame_count;
 #elif CYPHER_PLATFORM_POSIX
+    // backtrace has no skip argument. Capture the requested prefix, then compact
+    // only frames after this function and the caller-requested skip depth.
     void *pCaptured[CYPHER_STACK_TRACE_CAPTURE_LIMIT] = {};
     const u32 cAvailableAfterSkip = CYPHER_STACK_TRACE_CAPTURE_LIMIT - cSkipFrames - 1u;
     const u32 cRequestedOutput = cOutputMax < cAvailableAfterSkip

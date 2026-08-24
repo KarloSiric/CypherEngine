@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Warnings.h
-//  Purpose: Declares CypherCommon Tier0 Warnings support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares scoped compiler-warning controls used at narrow boundaries.
+//  Details: Suppressions must be enclosed by PUSH/POP and should normally be
+//           limited to third-party headers or deliberate low-level conversions.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -44,12 +43,14 @@ Pragma Helpers
 ================
 */
 #if CYPHER_COMPILER_MSVC
+    // __pragma is accepted inside macro replacement lists by the MSVC frontend.
     #define CYPHER_WARNING_PUSH()                       __pragma( warning( push ) )
     #define CYPHER_WARNING_POP()                        __pragma( warning( pop ) )
     #define CYPHER_WARNING_DISABLE_MSVC( warning_id )   __pragma( warning( disable : warning_id ) )
     #define CYPHER_WARNING_DISABLE_CLANG( warning_name )
     #define CYPHER_WARNING_DISABLE_GCC( warning_name )
 #elif CYPHER_COMPILER_CLANG
+    // _Pragma is the standard macro-friendly form of #pragma.
     #define CYPHER_WARNING_DO_PRAGMA( x )               _Pragma( #x )
     #define CYPHER_WARNING_PUSH()                       CYPHER_WARNING_DO_PRAGMA( clang diagnostic push )
     #define CYPHER_WARNING_POP()                        CYPHER_WARNING_DO_PRAGMA( clang diagnostic pop )
@@ -72,31 +73,37 @@ Pragma Helpers
 Common Warning Groups
 ================
 */
+// Function signatures sometimes require a parameter on one platform only.
 #define CYPHER_WARNING_DISABLE_UNUSED_PARAMETER()       \
     CYPHER_WARNING_DISABLE_MSVC( 4100 )                 \
     CYPHER_WARNING_DISABLE_CLANG( "-Wunused-parameter" ) \
     CYPHER_WARNING_DISABLE_GCC( "-Wunused-parameter" )
 
+// Used around compile-time branches whose constant condition is intentional.
 #define CYPHER_WARNING_DISABLE_CONSTANT_CONDITION()     \
     CYPHER_WARNING_DISABLE_MSVC( 4127 )                 \
     CYPHER_WARNING_DISABLE_CLANG( "-Wconstant-logical-operand" )
 
+// Signed/unsigned conversion has been range-checked by surrounding code.
 #define CYPHER_WARNING_DISABLE_SIGN_CONVERSION()        \
     CYPHER_WARNING_DISABLE_MSVC( 4365 )                 \
     CYPHER_WARNING_DISABLE_CLANG( "-Wsign-conversion" ) \
     CYPHER_WARNING_DISABLE_GCC( "-Wsign-conversion" )
 
+// General narrowing conversion has been explicitly validated by the caller.
 #define CYPHER_WARNING_DISABLE_CONVERSION()              \
     CYPHER_WARNING_DISABLE_MSVC( 4242 )                 \
     CYPHER_WARNING_DISABLE_MSVC( 4244 )                 \
     CYPHER_WARNING_DISABLE_CLANG( "-Wconversion" )      \
     CYPHER_WARNING_DISABLE_GCC( "-Wconversion" )
 
+// Compatibility shims may need a host API marked deprecated by one platform.
 #define CYPHER_WARNING_DISABLE_DEPRECATED()              \
     CYPHER_WARNING_DISABLE_MSVC( 4996 )                 \
     CYPHER_WARNING_DISABLE_CLANG( "-Wdeprecated-declarations" ) \
     CYPHER_WARNING_DISABLE_GCC( "-Wdeprecated-declarations" )
 
+// Deliberate local shadowing in imported or tightly scoped compatibility code.
 #define CYPHER_WARNING_DISABLE_SHADOW()                  \
     CYPHER_WARNING_DISABLE_MSVC( 4456 )                 \
     CYPHER_WARNING_DISABLE_MSVC( 4457 )                 \

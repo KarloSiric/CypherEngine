@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Align.h
-//  Purpose: Declares CypherCommon Tier0 Align support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares power-of-two alignment operations for sizes and addresses.
+//  Details: Fast forms require a valid alignment and representable result. Checked
+//           forms must be used for file, network, command-line, or computed input.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-21
@@ -41,7 +40,8 @@ CYPHER_NODISCARD constexpr bool_t Cy_AlignIsPowerOfTwo( usize value ) noexcept
     return value != 0u && ( value & ( value - 1u ) ) == 0u;
 }
 
-// Rounds value up to the next alignment boundary. Alignment must be a non-zero
+// The mask formula works only for powers of two: alignment-1 is then a contiguous
+// run of low bits. Rounds value up to the next alignment boundary. Alignment must be a non-zero
 // power of two and the result must be representable; use Cy_AlignUpChecked for
 // untrusted values.
 CYPHER_NODISCARD constexpr usize Cy_AlignUp( usize nValue, usize nAlignment ) noexcept

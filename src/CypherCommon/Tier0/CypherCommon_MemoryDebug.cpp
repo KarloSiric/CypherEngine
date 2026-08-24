@@ -24,10 +24,12 @@ namespace cypher::common
 namespace
 {
 
+// Callback and context form one process-wide pair. Reporting snapshots them under
+// the mutex but invokes user code after unlocking to avoid lock-order cycles.
 std::mutex g_memoryDebugMutex;
 memory_debug_callback_t g_memoryDebugCallback = nullptr;
 void *g_pMemoryDebugContext = nullptr;
-thread_local bool_t g_isInsideMemoryDebugCallback = CY_FALSE;
+thread_local bool_t g_isInsideMemoryDebugCallback = CY_FALSE; // Allocator recursion guard.
 
 } // namespace
 
@@ -51,6 +53,8 @@ memory_debug_callback_t Cy_MemoryDebugGetCallback( void **ppOutContext ) noexcep
 
 void Cy_MemoryDebugReportEvent( const memory_debug_record_t &record ) noexcept
 {
+    // A callback may allocate while formatting or storing an event. Suppress the
+    // nested allocation record so instrumentation cannot recurse indefinitely.
     if ( g_isInsideMemoryDebugCallback ) {
         return;
     }
@@ -58,6 +62,8 @@ void Cy_MemoryDebugReportEvent( const memory_debug_record_t &record ) noexcept
     memory_debug_callback_t pCallback = nullptr;
     void *pContext = nullptr;
     {
+        // Keep callback lifetime management with the caller: replacement does not
+        // wait for a callback already in flight on another thread.
         std::lock_guard<std::mutex> lock( g_memoryDebugMutex );
         pCallback = g_memoryDebugCallback;
         pContext = g_pMemoryDebugContext;

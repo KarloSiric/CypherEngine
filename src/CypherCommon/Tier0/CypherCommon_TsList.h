@@ -4,10 +4,8 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_TsList.h
-//  Purpose: Declares CypherCommon Tier0 TsList support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Provides a mutex-protected intrusive LIFO list for shared work nodes.
+//  Details: Nodes own no payload and may belong to at most one initialized list.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -42,14 +40,14 @@ namespace cypher::common
 struct tslist_t;
 
 struct tslist_node_t {
-    tslist_node_t *pNext = nullptr;
-    std::atomic<tslist_t *> pOwner{ nullptr };
+    tslist_node_t *pNext = nullptr;            // Intrusive link valid only while owned by a list.
+    std::atomic<tslist_t *> pOwner{ nullptr }; // Rejects double insertion across lists.
 };
 
 struct tslist_t {
-    mutable std::mutex nativeMutex;
-    tslist_node_t *pHead = nullptr;
-    usize nCount = 0u;
+    mutable std::mutex nativeMutex; // Guards head, count, and lifecycle state.
+    tslist_node_t *pHead = nullptr; // Most recently pushed node.
+    usize nCount = 0u;              // Nodes reachable from pHead.
     bool_t isInitialized = CY_FALSE;
 };
 
@@ -68,11 +66,9 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TsListPush(
 CYPHER_NODISCARD CYPHER_COMMON_API tslist_node_t *Cy_TsListPop(
     tslist_t *pList ) noexcept;
 
-// Returns a consistent node-count snapshot.
 CYPHER_NODISCARD CYPHER_COMMON_API usize Cy_TsListGetCount(
     const tslist_t *pList ) noexcept;
 
-// Returns whether the initialized list currently contains no nodes.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TsListIsEmpty(
     const tslist_t *pList ) noexcept;
 

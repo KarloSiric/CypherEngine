@@ -28,6 +28,9 @@ namespace cypher::common
 namespace
 {
 
+// The sequence counter makes the sink function and user pointer one coherent
+// snapshot for readers. Odd values mean a writer is replacing the pair.
+
 std::mutex g_profileSinkWriteMutex;
 std::atomic<profile_sink_fn_t> g_profileSink = nullptr;
 std::atomic<void *> g_profileSinkUserData = nullptr;
@@ -40,13 +43,15 @@ std::atomic<u64> g_profileDroppedReentrantEventCount = 0u;
 thread_local bool_t g_isInsideProfileSink = CY_FALSE;
 
 struct profile_sink_snapshot_t {
-    profile_sink_fn_t pSink;
+    profile_sink_fn_t pSink; // Callback and context must come from one revision.
     void *pUserData;
 };
 
 profile_sink_snapshot_t Profile_GetSinkSnapshot() noexcept
 {
     profile_sink_snapshot_t snapshot{};
+    // This is a small sequence-lock read. Writers make the sequence odd while
+    // replacing the pair; readers retry if a write overlapped their snapshot.
     for ( ;; ) {
         const u64 nBegin =
             g_profileSinkSequence.load( std::memory_order_acquire );
@@ -68,6 +73,8 @@ profile_sink_snapshot_t Profile_GetSinkSnapshot() noexcept
 
 bool_t Profile_Emit( const profile_event_t &event ) noexcept
 {
+    // A sink may log or profile internally. Drop that nested event instead of
+    // recursing into user code until the thread stack is exhausted.
     if ( g_isInsideProfileSink ) {
         g_profileDroppedReentrantEventCount.fetch_add(
             1u,
@@ -124,6 +131,8 @@ void Cy_ProfileSetSink(
 {
     try {
         std::lock_guard<std::mutex> lock( g_profileSinkWriteMutex );
+        // Odd marks the pair unstable. Publishing the final even value makes the
+        // new callback and user pointer visible as one logical update.
         g_profileSinkSequence.fetch_add( 1u, std::memory_order_acq_rel );
         g_profileSinkUserData.store( pUserData, std::memory_order_release );
         g_profileSink.store( pSink, std::memory_order_release );
@@ -154,6 +163,8 @@ profile_token_t Cy_ProfileBeginZone(
         return CY_PROFILE_INVALID_TOKEN;
     }
 
+    // Zero is reserved as the invalid token. Skip it if the monotonic counter
+    // wraps after an extremely long process lifetime.
     profile_token_t token =
         g_profileNextToken.fetch_add( 1u, std::memory_order_relaxed );
     if ( token == CY_PROFILE_INVALID_TOKEN ) {
@@ -192,6 +203,8 @@ bool_t Cy_ProfileCounterAdd( const char *pszName, i64 value ) noexcept
         return CY_FALSE;
     }
 
+    // CounterAdd events carry the post-add absolute value. Consumers can rebuild
+    // graphs even if an earlier event was dropped by their own transport.
     stat_value_t counter{};
     if ( !Cy_StatsGet( id, &counter ) ) {
         return CY_FALSE;
@@ -260,6 +273,8 @@ profile_state_t Cy_ProfileGetState() noexcept
 
 void Cy_ProfileResetState() noexcept
 {
+    // Resetting while producers run can reuse tokens and move frame indices
+    // backwards. The public contract therefore requires a quiescent profiler.
     g_profileNextToken.store( 1u, std::memory_order_relaxed );
     g_profileFrameIndex.store( 0u, std::memory_order_relaxed );
     g_profileEmittedEventCount.store( 0u, std::memory_order_relaxed );

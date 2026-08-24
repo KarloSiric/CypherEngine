@@ -46,6 +46,13 @@ namespace cypher::common
 namespace
 {
 
+//-----------------------------------------------------------------------------
+// Build identities
+//
+// These records describe the binaries being compiled, not assets loaded at
+// runtime. Keep their formatting stable enough for crash reports and diagnostics.
+//-----------------------------------------------------------------------------
+
 const build_id_t g_engineBuildId = {
     "CypherEngine",
     "CypherEngine",

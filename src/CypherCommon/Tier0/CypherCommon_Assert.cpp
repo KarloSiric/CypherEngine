@@ -24,6 +24,9 @@
 
 namespace cypher::common
 {
+
+// Assertion handlers are process-wide, but failure recursion is thread-local.
+// A handler that asserts again must not recursively invoke itself.
 namespace
 {
 
@@ -32,6 +35,8 @@ thread_local bool_t g_assertHandlingFailure = CY_FALSE;
 
 assert_action_t Cy_AssertDefaultHandler( const assert_info_t &info ) noexcept
 {
+    // The default path intentionally bypasses the logging callback. Assertions
+    // often originate inside logging or during partially initialized startup.
     std::fprintf( stderr,
                   "[Assert] Expression: %s\n"
                   "         Message: %s\n"
@@ -63,6 +68,8 @@ void Cy_AssertHandleFailure( const char *pExpression,
                              const char *pMessage,
                              source_location_t location ) noexcept
 {
+    // A recursive assertion means the handler or reporting path is compromised.
+    // Stop immediately instead of overwriting the first failure or recursing.
     if ( g_assertHandlingFailure ) {
         std::fprintf( stderr, "[Assert] Recursive assertion failure.\n" );
         std::fflush( stderr );
@@ -71,6 +78,7 @@ void Cy_AssertHandleFailure( const char *pExpression,
 
     g_assertHandlingFailure = CY_TRUE;
 
+    // Normalize borrowed strings so custom handlers never need null checks.
     assert_info_t info{};
     info.pExpression = pExpression != nullptr ? pExpression : "<unknown expression>";
     info.pMessage = pMessage != nullptr ? pMessage : "";
@@ -88,12 +96,16 @@ void Cy_AssertHandleFailure( const char *pExpression,
         ? pHandler( info )
         : Cy_AssertDefaultHandler( info );
 
+    // Clear the recursion guard before honoring Continue/Break. A debugger may
+    // resume execution and future independent assertions must still be reported.
     g_assertHandlingFailure = CY_FALSE;
 
     switch ( action ) {
         case assert_action_t::Continue:
             return;
         case assert_action_t::Break:
+            // Break is conditional: without a debugger, continuing is safer than
+            // raising an unhandled SIGTRAP. Abort remains the explicit hard stop.
             CYPHER_UNUSED( Cy_DebugBreakIfAttached() );
             return;
         case assert_action_t::Abort:

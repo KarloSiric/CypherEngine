@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_TLS.h
-//  Purpose: Declares CypherCommon Tier0 TLS support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Manages bounded generational thread-local pointer slots.
+//  Details: Slots store borrowed pointers per thread; slot destruction requires all
+//           participating threads to have cleared or exited first.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -37,12 +36,12 @@ context without passing a pointer through every call.
 namespace cypher::common
 {
 
-using tls_slot_t = u32;
+using tls_slot_t = u32; // Packed slot index and generation; never a raw OS TLS key.
 
-constexpr tls_slot_t CY_TLS_INVALID_SLOT = CY_U32_MAX;
-constexpr u32 CY_TLS_MAX_SLOT_COUNT = 256u;
+constexpr tls_slot_t CY_TLS_INVALID_SLOT = CY_U32_MAX; // All-one sentinel.
+constexpr u32 CY_TLS_MAX_SLOT_COUNT = 256u;            // Fixed process-wide slot capacity.
 
-using tls_destructor_t = void ( * )( void *pValue ) noexcept;
+using tls_destructor_t = void ( * )( void *pValue ) noexcept; // Invoked for non-null values at thread exit.
 
 // Creates a generational TLS slot handle, or CY_TLS_INVALID_SLOT on failure.
 CYPHER_NODISCARD CYPHER_COMMON_API tls_slot_t Cy_TLSCreateSlot(
@@ -61,14 +60,12 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TLSSetValue(
     tls_slot_t slot,
     void *pValue ) noexcept;
 
-// Reads the pointer value for the current thread and slot.
 CYPHER_NODISCARD CYPHER_COMMON_API void *Cy_TLSGetValue(
     tls_slot_t slot ) noexcept;
 
 // Clears the pointer without invoking the optional thread-exit destructor.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TLSClearValue( tls_slot_t slot ) noexcept;
 
-// Returns the number of currently allocated slot handles.
 CYPHER_NODISCARD CYPHER_COMMON_API u32 Cy_TLSGetAllocatedSlotCount() noexcept;
 
 } // namespace cypher::common

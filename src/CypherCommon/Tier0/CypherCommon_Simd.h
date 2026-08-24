@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Simd.h
-//  Purpose: Declares CypherCommon Tier0 Simd support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares SIMD features usable by both hardware and this binary.
+//  Details: Runtime hardware support is intersected with instructions compiled
+//           into the executable. Dispatch code must use usableFeatures, not CPUID.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -38,17 +37,17 @@ compiler or CPU feature checks through the engine.
 namespace cypher::common
 {
 
-constexpr u32 CY_SIMD_SCALAR_REGISTER_BYTES = 0u;
-constexpr u32 CY_SIMD_128_REGISTER_BYTES = 16u;
-constexpr u32 CY_SIMD_256_REGISTER_BYTES = 32u;
+constexpr u32 CY_SIMD_SCALAR_REGISTER_BYTES = 0u; // Scalar fallback has no vector width.
+constexpr u32 CY_SIMD_128_REGISTER_BYTES = 16u;   // SSE/NEON register width.
+constexpr u32 CY_SIMD_256_REGISTER_BYTES = 32u;   // AVX/AVX2 register width.
 
 enum cy_simd_level_t : u32 {
-    CY_SIMD_LEVEL_SCALAR = 0u,
-    CY_SIMD_LEVEL_SSE2,
-    CY_SIMD_LEVEL_SSE41,
-    CY_SIMD_LEVEL_AVX,
-    CY_SIMD_LEVEL_AVX2,
-    CY_SIMD_LEVEL_NEON
+    CY_SIMD_LEVEL_SCALAR = 0u, // Portable scalar implementation.
+    CY_SIMD_LEVEL_SSE2,        // Baseline 128-bit x86 SIMD.
+    CY_SIMD_LEVEL_SSE41,       // SSE4.1 implementation family.
+    CY_SIMD_LEVEL_AVX,         // 256-bit AVX implementation family.
+    CY_SIMD_LEVEL_AVX2,        // 256-bit integer-capable AVX2 family.
+    CY_SIMD_LEVEL_NEON         // 128-bit ARM Advanced SIMD family.
 };
 
 enum cy_simd_feature_flags_t : flags64_t {
@@ -67,14 +66,14 @@ enum cy_simd_feature_flags_t : flags64_t {
 };
 
 struct cy_simd_caps_t {
-    flags64_t cpuFeatures;
-    flags64_t compiledFeatures;
-    flags64_t usableFeatures;
+    flags64_t cpuFeatures;      // Features CPUDetect says the OS permits.
+    flags64_t compiledFeatures; // Implementations present in this binary.
+    flags64_t usableFeatures;   // Intersection used for runtime dispatch.
 
-    cy_simd_level_t bestLevel;
+    cy_simd_level_t bestLevel;  // Highest preferred usable implementation.
 
-    u32 vectorRegisterBytes;
-    u32 vectorRegisterBits;
+    u32 vectorRegisterBytes;    // Width associated with bestLevel.
+    u32 vectorRegisterBits;     // Same width expressed in bits for diagnostics.
 };
 
 // Initializes the immutable process-lifetime SIMD capability snapshot.

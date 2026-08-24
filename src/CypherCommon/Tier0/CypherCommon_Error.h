@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Error.h
-//  Purpose: Declares CypherCommon Tier0 Error support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Defines the packed error code shared by engine and tool diagnostics.
+//  Details: Each subsystem owns its local enum while Tier0 supplies one stable
+//           domain/code representation and allocation-free lookup tables.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,15 +21,6 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Error
-
-Common error packing and domain declarations. Subsystems still own their local
-error enums, but this gives logs and diagnostics one shared encoded form.
-================
-*/
-
 #include "CypherCommon_Annotations.h"
 #include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
@@ -39,7 +29,7 @@ error enums, but this gives logs and diagnostics one shared encoded form.
 namespace cypher::common
 {
 
-using error_code_t = u32;
+using error_code_t = u32; // High 16 bits: domain; low 16 bits: subsystem-local code.
 
 enum class error_domain_t : u16 {
     COMMON = 0u,
@@ -73,9 +63,9 @@ enum class error_domain_t : u16 {
     JOB,
     SERIALIZATION,
     REFLECTION,
-    COUNT,
+    COUNT, // Number of registrable domains; never stored in an error code.
 
-    INVALID = CY_U16_MAX,
+    INVALID = CY_U16_MAX, // All-one sentinel for corrupt or unavailable domains.
 
     // Compatibility names retained while existing subsystems migrate.
     COM_DOMAIN_COMMON = COMMON,
@@ -139,55 +129,52 @@ enum class common_error_t : u16 {
 };
 
 struct error_description_t {
-    u16 localCode;
-    const char *pName;
-    const char *pDescription;
+    u16 localCode;             // Subsystem-local value, without packed domain bits.
+    const char *pName;         // Static symbolic name, such as ERR_NOT_FOUND.
+    const char *pDescription;  // Static user-facing diagnostic description.
 };
 
 struct error_table_t {
-    error_domain_t domain;
-    const error_description_t *pErrors;
-    usize errorCount;
+    error_domain_t domain;                 // Domain owned by every entry in this table.
+    const error_description_t *pErrors;    // Non-owning pointer to immutable entries.
+    usize errorCount;                      // Number of readable entries at pErrors.
 };
 
+// WARNING: Logs, tool diagnostics, and serialized reports depend on this layout.
 constexpr u32 CY_ERROR_DOMAIN_SHIFT = 16u;
-constexpr error_code_t CY_ERROR_LOCAL_MASK = 0x0000FFFFu;
-constexpr error_code_t CY_ERROR_DOMAIN_MASK = 0xFFFF0000u;
-constexpr error_code_t CY_ERROR_OK = 0u;
+constexpr error_code_t CY_ERROR_LOCAL_MASK = 0x0000FFFFu;  // Bits 0-15.
+constexpr error_code_t CY_ERROR_DOMAIN_MASK = 0xFFFF0000u; // Bits 16-31.
+constexpr error_code_t CY_ERROR_OK = 0u;                   // COMMON domain, local code zero.
 
-// Returns true only for a registered subsystem domain.
 CYPHER_NODISCARD constexpr bool_t Cy_ErrorDomainIsValid( error_domain_t domain ) noexcept
 {
     return static_cast<u16>( domain ) < static_cast<u16>( error_domain_t::COUNT );
 }
 
-// Packs one subsystem domain and one subsystem-local code into a stable value.
 CYPHER_NODISCARD constexpr error_code_t Cy_ErrorMake( error_domain_t domain, u16 localErrorCode ) noexcept
 {
     return ( static_cast<error_code_t>( domain ) << CY_ERROR_DOMAIN_SHIFT ) |
            static_cast<error_code_t>( localErrorCode );
 }
 
-// Packs a Common-domain error.
 CYPHER_NODISCARD constexpr error_code_t Cy_ErrorMake( common_error_t error ) noexcept
 {
     return Cy_ErrorMake( error_domain_t::COMMON, static_cast<u16>( error ) );
 }
 
-// Extracts the subsystem domain from a packed error.
 CYPHER_NODISCARD constexpr error_domain_t Cy_ErrorDomain( error_code_t errorCode ) noexcept
 {
     return static_cast<error_domain_t>(
         static_cast<u16>( ( errorCode & CY_ERROR_DOMAIN_MASK ) >> CY_ERROR_DOMAIN_SHIFT ) );
 }
 
-// Extracts the subsystem-local code from a packed error.
 CYPHER_NODISCARD constexpr u16 Cy_ErrorLocalCode( error_code_t errorCode ) noexcept
 {
     return static_cast<u16>( errorCode & CY_ERROR_LOCAL_MASK );
 }
 
-// A zero local code means success only in a registered subsystem domain.
+// A zero local code is success only when its domain is registered. This prevents
+// arbitrary values with zero low bits from being accepted as successful results.
 CYPHER_NODISCARD constexpr bool_t Cy_ErrorSucceeded( error_code_t errorCode ) noexcept
 {
     return Cy_ErrorDomainIsValid( Cy_ErrorDomain( errorCode ) ) &&
@@ -235,6 +222,7 @@ CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL const error_table_t *Cy_Co
 
 } // namespace cypher::common
 
+// Keep packing at call sites type-checked; these macros only shorten enum spelling.
 #define CY_ERROR( domain, code )                                                     \
     ::cypher::common::Cy_ErrorMake(                                                  \
         ::cypher::common::error_domain_t::domain,                                    \

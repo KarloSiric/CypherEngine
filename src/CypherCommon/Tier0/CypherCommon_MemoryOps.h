@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_MemoryOps.h
-//  Purpose: Declares CypherCommon Tier0 MemoryOps support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares raw byte operations and checked typed-array byte counts.
+//  Details: These routines do not construct, destroy, allocate, or validate object
+//           lifetimes. Typed helpers are restricted to trivially copyable values.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-21
@@ -80,7 +79,8 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MemIsZero(
     const void *pData,
     usize nByteCount ) noexcept;
 
-// Computes element_count * sizeof(type_t) without unsigned overflow.
+// Computes element_count * sizeof(type_t) without unsigned overflow. This check is
+// required before accepting counts read from files, packets, or tool input.
 template <typename type_t>
 CYPHER_NODISCARD constexpr bool_t Cy_TryArrayByteCount(
     usize nElementCount,
@@ -95,7 +95,8 @@ CYPHER_NODISCARD constexpr bool_t Cy_TryArrayByteCount(
     return CY_TRUE;
 }
 
-// Clears a trivially copyable object to zero bytes.
+// Clears a trivially copyable object to zero bytes. Zero bytes are not guaranteed
+// to represent a valid semantic value for every trivially copyable type.
 template <typename type_t>
 inline void Cy_ZeroStruct( type_t &value ) noexcept
 {

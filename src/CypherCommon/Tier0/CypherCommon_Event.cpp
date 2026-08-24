@@ -21,6 +21,9 @@
 
 namespace cypher::common
 {
+
+// Auto-reset events transfer one signal to one waiter. Manual-reset events keep
+// the signaled state until reset and therefore release every current waiter.
 namespace
 {
 
@@ -33,6 +36,8 @@ cy_wait_result_t EventConsumeSignalLocked( cy_event_t *pEvent ) noexcept
         return cy_wait_result_t::Timeout;
     }
 
+    // Auto-reset consumes the signal atomically with the successful wait. Manual-
+    // reset leaves it set so future waiters also pass until Reset is called.
     if ( pEvent->resetMode == cy_event_reset_mode_t::Auto ) {
         pEvent->isSignaled = CY_FALSE;
     }
@@ -42,6 +47,7 @@ cy_wait_result_t EventConsumeSignalLocked( cy_event_t *pEvent ) noexcept
 
 void EventWaiterLeftLocked( cy_event_t *pEvent ) noexcept
 {
+    // Shutdown waits for this count to reach zero before the event may die.
     --pEvent->nWaiterCount;
     if ( !pEvent->isInitialized && pEvent->nWaiterCount == 0u ) {
         pEvent->nativeCondition.notify_all();
@@ -82,9 +88,12 @@ bool_t Cy_EventShutdown( cy_event_t *pEvent ) noexcept
         return CY_FALSE;
     }
 
+    // Mark shutdown under the same mutex used by wait predicates, then wake all
+    // sleepers. Each waiter reports Shutdown and decrements nWaiterCount.
     pEvent->isInitialized = CY_FALSE;
     pEvent->isSignaled = CY_FALSE;
     pEvent->nativeCondition.notify_all();
+    // Do not return while a waiter can still access caller-owned event storage.
     pEvent->nativeCondition.wait( lock, [&]() {
         return pEvent->nWaiterCount == 0u;
     } );
@@ -118,6 +127,8 @@ bool_t Cy_EventSignal( cy_event_t *pEvent ) noexcept
         resetMode = pEvent->resetMode;
     }
 
+    // Notify after releasing nativeMutex so the awakened thread can immediately
+    // reacquire it and evaluate/consume the signal.
     if ( resetMode == cy_event_reset_mode_t::Auto ) {
         pEvent->nativeCondition.notify_one();
     } else {
@@ -151,6 +162,8 @@ cy_wait_result_t Cy_EventWaitResult( cy_event_t *pEvent ) noexcept
         return cy_wait_result_t::Shutdown;
     }
 
+    // Count the waiter before sleeping so Shutdown cannot destroy the object while
+    // this thread is inside condition_variable::wait.
     ++pEvent->nWaiterCount;
     try {
         pEvent->nativeCondition.wait( lock, [&]() {

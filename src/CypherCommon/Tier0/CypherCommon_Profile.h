@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Profile.h
-//  Purpose: Declares CypherCommon Tier0 Profile support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Defines synchronous profiling events for zones, counters, and frames.
+//  Details: Event strings are borrowed for the sink call; the sink is responsible
+//           for copying any metadata it needs after the callback returns.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -42,20 +41,20 @@ namespace cypher::common
 {
 
 using profile_token_t = u64;
-constexpr profile_token_t CY_PROFILE_INVALID_TOKEN = 0u;
+constexpr profile_token_t CY_PROFILE_INVALID_TOKEN = 0u; // Valid zone tokens begin at one.
 
 enum profile_flags_t : flags32_t {
     PROFILE_FLAG_NONE = 0u,
-    PROFILE_FLAG_CPU = CYPHER_BIT32( 0 ),
-    PROFILE_FLAG_GPU = CYPHER_BIT32( 1 ),
-    PROFILE_FLAG_TOOL = CYPHER_BIT32( 2 )
+    PROFILE_FLAG_CPU = CYPHER_BIT32( 0 ),  // CPU-side timed work.
+    PROFILE_FLAG_GPU = CYPHER_BIT32( 1 ),  // GPU work submitted by a renderer backend.
+    PROFILE_FLAG_TOOL = CYPHER_BIT32( 2 )  // Offline or editor operation.
 };
 
 struct profile_zone_desc_t {
-    const char *pszName;
-    const char *pszCategory;
-    source_location_t location;
-    flags32_t flags;
+    const char *pszName;        // Borrowed zone name valid during event delivery.
+    const char *pszCategory;    // Borrowed grouping name valid during event delivery.
+    source_location_t location; // Source of the instrumented zone.
+    flags32_t flags;            // Bitwise combination of profile_flags_t.
 };
 
 enum class profile_event_type_t : u8 {
@@ -68,25 +67,25 @@ enum class profile_event_type_t : u8 {
 };
 
 struct profile_event_t {
-    profile_event_type_t type;
-    profile_token_t token;
-    timer_tick_t nTimestampTicks;
-    u64 nFrameIndex;
-    thread_id_t nThreadId;
-    profile_zone_desc_t zone;
-    const char *pszCounterName;
-    i64 nCounterValue;
+    profile_event_type_t type;    // Selects which payload fields are meaningful.
+    profile_token_t token;        // Matches begin/end events; zero for non-zone events.
+    timer_tick_t nTimestampTicks; // Monotonic Tier0 timer sample.
+    u64 nFrameIndex;              // Current profiler frame sequence.
+    thread_id_t nThreadId;        // Producer thread that emitted the event.
+    profile_zone_desc_t zone;     // Valid for zone begin/end events.
+    const char *pszCounterName;   // Borrowed name for counter events; null otherwise.
+    i64 nCounterValue;            // Delta or absolute value selected by event type.
 };
 
 using profile_sink_fn_t =
     void ( CYPHER_CALL * )( const profile_event_t &event, void *pUserData ) noexcept;
 
 struct profile_state_t {
-    u64 nFrameIndex;
-    u64 nEmittedEventCount;
-    u64 nDroppedReentrantEventCount;
-    bool_t isEnabled;
-    bool_t hasSink;
+    u64 nFrameIndex;                 // Current profiler frame sequence.
+    u64 nEmittedEventCount;          // Events successfully delivered to the sink.
+    u64 nDroppedReentrantEventCount; // Events suppressed while already inside the sink.
+    bool_t isEnabled;                // Global event-production gate.
+    bool_t hasSink;                  // A process-wide sink is currently installed.
 };
 
 // Installs a synchronous event sink. Event string pointers are callback-lifetime.

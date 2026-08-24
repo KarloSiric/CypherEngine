@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Bits.h
-//  Purpose: Declares CypherCommon Tier0 Bits support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares bounded bit, mask, rotation, and power-of-two operations.
+//  Details: Out-of-range bit indices return zero instead of invoking undefined
+//           shift behavior. Checked forms expose overflow to untrusted-data paths.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-21
@@ -213,7 +212,9 @@ CYPHER_NODISCARD constexpr i32 Cy_FindHighestSetBit64( u64 nValue ) noexcept
     return nValue == 0ull ? -1 : static_cast<i32>( 63u - Cy_CountLeadingZeros64( nValue ) );
 }
 
-// Rounds up to the next power of two. Zero returns one and overflow returns zero.
+// Rounds up to the next power of two. The shift cascade propagates the highest set
+// bit through every lower position; adding one produces the next single-bit value.
+// Zero returns one and overflow returns zero.
 CYPHER_NODISCARD constexpr u32 Cy_NextPowerOfTwo32( u32 nValue ) noexcept
 {
     if ( nValue <= 1u ) {

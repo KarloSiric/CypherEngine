@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_PlatformMemory.h
-//  Purpose: Declares CypherCommon Tier0 PlatformMemory support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Wraps operating-system virtual memory reservation and page commitment.
+//  Details: Byte ranges must obey the reported page geometry; reservations and
+//           committed physical pages remain separate lifecycle operations.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -37,10 +36,10 @@ namespace cypher::common
 {
 
 struct platform_memory_info_t {
-    usize nPageSize;
-    usize nAllocationGranularity;
-    u64 nTotalPhysicalBytes;
-    u64 nAvailablePhysicalBytes;
+    usize nPageSize;              // Commit/decommit granularity in bytes.
+    usize nAllocationGranularity; // Reservation alignment in bytes.
+    u64 nTotalPhysicalBytes;      // Installed physical memory reported by the OS.
+    u64 nAvailablePhysicalBytes;  // Approximate bytes currently available to the system.
 };
 
 // Queries page geometry and current physical-memory totals directly from the OS.

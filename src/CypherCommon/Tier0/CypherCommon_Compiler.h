@@ -4,10 +4,8 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Compiler.h
-//  Purpose: Declares CypherCommon Tier0 Compiler support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Exposes normalized compiler identity and enabled C++ runtime features.
+//  Details: Values mirror CypherCommon_Platform.h and are available at compile time.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,14 +20,6 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Compiler
-
-Compiler identity and feature declarations.
-================
-*/
-
 #include "CypherCommon_BaseTypes.h"
 #include "CypherCommon_Platform.h"
 
@@ -38,27 +28,27 @@ namespace cypher::common
 
 enum class compiler_type_t : u8 {
     Unknown = 0u,
-    Msvc,
-    Clang,
-    Gcc
+    Msvc,  // Microsoft C/C++ frontend.
+    Clang, // LLVM Clang, including clang-cl.
+    Gcc    // GNU C++ frontend.
 };
 
 struct compiler_info_t {
-    compiler_type_t type = compiler_type_t::Unknown;
-    const char *pName = "Unknown";
+    compiler_type_t type = compiler_type_t::Unknown; // Normalized frontend family.
+    const char *pName = "Unknown";                    // Static compiler-owned name string.
 
-    u32 version = 0u;
-    u32 versionMajor = 0u;
-    u32 versionMinor = 0u;
-    u32 versionPatch = 0u;
+    u32 version = 0u;      // Packed diagnostic value; do not use for ordering.
+    u32 versionMajor = 0u; // Vendor major component.
+    u32 versionMinor = 0u; // Vendor minor component.
+    u32 versionPatch = 0u; // Vendor patch or toolset-build component.
 
-    bool_t isClangCl = CY_FALSE;
-    bool_t usesMsvcAbi = CY_FALSE;
-    bool_t hasExceptions = CY_FALSE;
-    bool_t hasRtti = CY_FALSE;
+    bool_t isClangCl = CY_FALSE;     // Clang frontend using the MSVC command-line mode.
+    bool_t usesMsvcAbi = CY_FALSE;   // Target uses Microsoft's C++ ABI.
+    bool_t hasExceptions = CY_FALSE; // Language-level exception support is enabled.
+    bool_t hasRtti = CY_FALSE;       // C++ runtime type information is enabled.
 };
 
-// Returns the normalized compiler frontend selected by platform detection.
+// All accessors are compile-time views of the platform detection macros.
 CYPHER_NODISCARD constexpr compiler_type_t Cy_CompilerGetType() noexcept
 {
 #if CYPHER_COMPILER_MSVC
@@ -72,7 +62,6 @@ CYPHER_NODISCARD constexpr compiler_type_t Cy_CompilerGetType() noexcept
 #endif
 }
 
-// Returns the compiler identity detected by CypherCommon_Platform.h.
 CYPHER_NODISCARD constexpr compiler_info_t Cy_CompilerGetInfo() noexcept
 {
     compiler_info_t info = {};
@@ -89,55 +78,46 @@ CYPHER_NODISCARD constexpr compiler_info_t Cy_CompilerGetInfo() noexcept
     return info;
 }
 
-// Returns the normalized compiler name string.
 CYPHER_NODISCARD constexpr const char *Cy_CompilerGetName() noexcept
 {
     return CYPHER_COMPILER_NAME;
 }
 
-// Returns a packed compiler version value.
 CYPHER_NODISCARD constexpr u32 Cy_CompilerGetVersion() noexcept
 {
     return static_cast<u32>( CYPHER_COMPILER_VERSION );
 }
 
-// Returns the compiler frontend's major version component.
 CYPHER_NODISCARD constexpr u32 Cy_CompilerGetVersionMajor() noexcept
 {
     return static_cast<u32>( CYPHER_COMPILER_VERSION_MAJOR );
 }
 
-// Returns the compiler frontend's minor version component.
 CYPHER_NODISCARD constexpr u32 Cy_CompilerGetVersionMinor() noexcept
 {
     return static_cast<u32>( CYPHER_COMPILER_VERSION_MINOR );
 }
 
-// Returns the compiler frontend's patch or toolset build component.
 CYPHER_NODISCARD constexpr u32 Cy_CompilerGetVersionPatch() noexcept
 {
     return static_cast<u32>( CYPHER_COMPILER_VERSION_PATCH );
 }
 
-// Returns whether the frontend is Clang operating in clang-cl mode.
 CYPHER_NODISCARD constexpr bool_t Cy_CompilerIsClangCl() noexcept
 {
     return CYPHER_COMPILER_CLANG_CL != 0;
 }
 
-// Returns whether the compiler targets the Microsoft C++ ABI.
 CYPHER_NODISCARD constexpr bool_t Cy_CompilerUsesMsvcAbi() noexcept
 {
     return CYPHER_COMPILER_MSVC_ABI != 0;
 }
 
-// Returns whether language-level C++ exceptions are enabled.
 CYPHER_NODISCARD constexpr bool_t Cy_CompilerHasExceptions() noexcept
 {
     return CYPHER_CPP_EXCEPTIONS != 0;
 }
 
-// Returns whether C++ runtime type information is enabled.
 CYPHER_NODISCARD constexpr bool_t Cy_CompilerHasRtti() noexcept
 {
     return CYPHER_CPP_RTTI != 0;

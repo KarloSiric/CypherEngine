@@ -42,11 +42,20 @@
 namespace cypher::common
 {
 
+//-----------------------------------------------------------------------------
+// Debugger detection and trap dispatch
+//
+// Detection is platform-specific, but break and trap behavior is exposed through
+// one contract so assertions and crash handling do not repeat host checks.
+//-----------------------------------------------------------------------------
+
 bool_t Cy_DebuggerIsAttached() noexcept
 {
     #if CYPHER_PLATFORM_WINDOWS
         return ::IsDebuggerPresent() != FALSE;
     #elif CYPHER_PLATFORM_LINUX
+        // Linux exposes the tracing process ID through /proc. Read the file
+        // directly so this lowest layer does not allocate or spawn a helper.
         const int fd = ::open( "/proc/self/status", O_RDONLY | O_CLOEXEC );
         if ( fd < 0 ) {
             return false;
@@ -54,6 +63,7 @@ bool_t Cy_DebuggerIsAttached() noexcept
 
         char status[4096];
         ssize_t bytesRead = -1;
+        // Signals may interrupt read without consuming data; retry only EINTR.
         do {
             bytesRead = ::read( fd, status, sizeof( status ) - 1u );
         } while ( bytesRead < 0 && errno == EINTR );
@@ -74,6 +84,8 @@ bool_t Cy_DebuggerIsAttached() noexcept
 
         return *pTracer >= '1' && *pTracer <= '9';
     #elif CYPHER_PLATFORM_MACOS
+        // KERN_PROC_PID returns P_TRACED when the process is controlled by lldb
+        // or another ptrace-compatible debugger.
         int query[4] = {
             CTL_KERN,
             KERN_PROC,
@@ -93,6 +105,8 @@ bool_t Cy_DebuggerIsAttached() noexcept
 
 void Cy_DebugBreak() noexcept
 {
+    // Break assumes a debugger is present. General callers should prefer
+    // Cy_DebugBreakIfAttached so SIGTRAP is not delivered unexpectedly.
     #if CYPHER_COMPILER_MSVC
         __debugbreak();
     #elif CYPHER_COMPILER_CLANG
@@ -116,6 +130,8 @@ bool_t Cy_DebugBreakIfAttached() noexcept
 
 [[noreturn]] void Cy_DebugTrap() noexcept
 {
+    // abort has consistent noreturn semantics and produces a diagnosable abnormal
+    // termination on every supported host.
     std::abort();
 }
 

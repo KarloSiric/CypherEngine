@@ -36,6 +36,8 @@
 namespace cypher::common
 {
 
+// POSIX environment access is process-global and not consistently thread-safe
+// across implementations. Serialize all reads and writes behind one lock.
 namespace
 {
 
@@ -47,6 +49,8 @@ bool_t Environment_IsValidName( const char *pszName ) noexcept
         return CY_FALSE;
     }
 
+    // The native environment representation is NAME=VALUE. An '=' in NAME would
+    // make the entry ambiguous and is rejected on every platform.
     for ( const char *pszRead = pszName; *pszRead != '\0'; ++pszRead ) {
         if ( *pszRead == '=' ) {
             return CY_FALSE;
@@ -62,6 +66,8 @@ wchar_t *Environment_Utf8ToWide( const char *pszValue ) noexcept
         return nullptr;
     }
 
+    // Query exact UTF-16 storage including NUL before allocating. Invalid UTF-8
+    // is rejected rather than silently replaced by the Windows conversion API.
     const int cchRequired = ::MultiByteToWideChar(
         CP_UTF8,
         MB_ERR_INVALID_CHARS,
@@ -101,6 +107,7 @@ cy_environment_get_result_t Cy_EnvironmentGet(
     char *pszDst,
     usize cchDst ) noexcept
 {
+    // A failed or truncated read always leaves caller storage as an empty string.
     cy_environment_get_result_t result = {};
     if ( pszDst != nullptr && cchDst > 0u ) {
         pszDst[0] = '\0';
@@ -119,6 +126,8 @@ cy_environment_get_result_t Cy_EnvironmentGet(
             return result;
         }
 
+        // GetEnvironmentVariableW returns zero for both missing and present-empty
+        // values. GetLastError distinguishes those two public API states.
         wchar_t wszProbe[1] = {};
         ::SetLastError( ERROR_SUCCESS );
         const DWORD cchWideRequired =
@@ -162,6 +171,7 @@ cy_environment_get_result_t Cy_EnvironmentGet(
         }
 
         result.exists = CY_TRUE;
+        // WideCharToMultiByte's required count includes NUL; the public result does not.
         result.cchRequired = static_cast<usize>( cchUtf8Required - 1 );
         if ( pszDst != nullptr && cchDst > 0u ) {
             if ( cchDst >= static_cast<usize>( cchUtf8Required ) ) {
@@ -185,6 +195,8 @@ cy_environment_get_result_t Cy_EnvironmentGet(
         }
         std::free( pWideValue );
 #else
+        // getenv returns storage owned by the C runtime. Copy it while holding the
+        // environment mutex because another thread may replace the variable.
         const char *pszValue = std::getenv( pszName );
         if ( pszValue == nullptr ) {
             return result;
@@ -257,6 +269,7 @@ bool_t Cy_EnvironmentUnset( const char *pszName ) noexcept
         }
 
         ::SetLastError( ERROR_SUCCESS );
+        // Removing an already-missing value is idempotent and therefore succeeds.
         const bool_t didUnset =
             ::SetEnvironmentVariableW( pWideName, nullptr ) != FALSE ||
             ::GetLastError() == ERROR_ENVVAR_NOT_FOUND;

@@ -52,6 +52,8 @@ namespace
 {
 
 #if CYPHER_ARCH_X86_FAMILY
+// CPUID returns four machine registers. Keeping the raw register names makes
+// feature-bit references easy to compare with Intel and AMD documentation.
 struct cpuid_regs_t {
     u32 eax;
     u32 ebx;
@@ -76,6 +78,8 @@ void CPUDetect_CopyString( char *pszDst, usize cchDst, const char *pszSrc ) noex
 }
 
 #if CYPHER_ARCH_X86_FAMILY
+// CPUID leaf availability differs by processor generation. Callers must query
+// the highest supported leaf before reading optional feature leaves.
 bool_t CPUDetect_Cpuid( u32 leaf, u32 subleaf, cpuid_regs_t &out ) noexcept
 {
     out = {};
@@ -132,15 +136,17 @@ bool_t CPUDetect_HasAvxOsSupport() noexcept
         return CY_FALSE;
     }
 
-    constexpr u32 CPU_FEATURE_XSAVE = CYPHER_BIT32( 26 );
-    constexpr u32 CPU_FEATURE_OSXSAVE = CYPHER_BIT32( 27 );
-    constexpr u64 XCR0_SSE = 0x2ull;
-    constexpr u64 XCR0_AVX = 0x4ull;
+    constexpr u32 CPU_FEATURE_XSAVE = CYPHER_BIT32( 26 );   // CPU can save extended state.
+    constexpr u32 CPU_FEATURE_OSXSAVE = CYPHER_BIT32( 27 ); // OS participates in XSAVE.
+    constexpr u64 XCR0_SSE = 0x2ull;                        // XMM state is enabled.
+    constexpr u64 XCR0_AVX = 0x4ull;                        // YMM state is enabled.
 
     if ( ( regs.ecx & CPU_FEATURE_XSAVE ) == 0u || ( regs.ecx & CPU_FEATURE_OSXSAVE ) == 0u ) {
         return CY_FALSE;
     }
 
+    // Advertising AVX is not sufficient. Executing it is legal only when the OS
+    // saves both XMM and YMM state during context switches.
     const u64 xcr0 = CPUDetect_XGetBV( 0u );
     return ( xcr0 & ( XCR0_SSE | XCR0_AVX ) ) == ( XCR0_SSE | XCR0_AVX );
 }
@@ -155,6 +161,10 @@ u32 CPUDetect_QueryMaxBasicLeaf() noexcept
     return 0u;
 }
 #endif
+
+//=============================================================================
+// Processor identity
+//=============================================================================
 
 void CPUDetect_AddFeature(
     flags64_t &features,
@@ -171,6 +181,8 @@ void CPUDetect_FillVendor( cy_cpu_detect_info_t &info ) noexcept
 #if CYPHER_ARCH_X86_FAMILY
     cpuid_regs_t regs = {};
     if ( CPUDetect_Cpuid( 0u, 0u, regs ) ) {
+        // CPUID deliberately returns the twelve-byte vendor string in EBX, EDX,
+        // ECX order rather than normal register order.
         char szVendor[CY_CPU_VENDOR_MAX] = {};
         std::memcpy( szVendor + 0u, &regs.ebx, sizeof( regs.ebx ) );
         std::memcpy( szVendor + 4u, &regs.edx, sizeof( regs.edx ) );
@@ -211,6 +223,7 @@ void CPUDetect_FillBrand( cy_cpu_detect_info_t &info ) noexcept
         char szBrand[CY_CPU_BRAND_MAX] = {};
         cpuid_regs_t regs = {};
 
+        // Extended leaves 0x80000002..4 form one contiguous 48-byte string.
         for ( u32 i = 0u; i < 3u; ++i ) {
             if ( CPUDetect_Cpuid( 0x80000002u + i, 0u, regs ) ) {
                 std::memcpy( szBrand + ( i * 16u ) + 0u, &regs.eax, sizeof( regs.eax ) );
@@ -232,6 +245,8 @@ void CPUDetect_FillBrand( cy_cpu_detect_info_t &info ) noexcept
         return;
     }
 #elif CYPHER_PLATFORM_LINUX
+    // ARM Linux systems do not always expose the x86-style "model name" key,
+    // so accept the common Hardware and Processor alternatives as well.
     FILE *pFile = std::fopen( "/proc/cpuinfo", "r" );
     if ( pFile == nullptr ) {
         return;
@@ -276,6 +291,8 @@ void CPUDetect_FillFamilyModelStepping( cy_cpu_detect_info_t &info ) noexcept
     const u32 extendedModel = ( regs.eax >> 16u ) & 0x0Fu;
     const u32 extendedFamily = ( regs.eax >> 20u ) & 0xFFu;
 
+    // Intel and AMD extend family/model through separate EAX fields for newer
+    // processor families. These rules come from the CPUID specification.
     info.stepping = baseStepping;
     info.family = baseFamily == 0x0Fu ? baseFamily + extendedFamily : baseFamily;
     info.model = ( baseFamily == 0x06u || baseFamily == 0x0Fu ) ? baseModel + ( extendedModel << 4u ) : baseModel;
@@ -285,6 +302,10 @@ void CPUDetect_FillFamilyModelStepping( cy_cpu_detect_info_t &info ) noexcept
     info.stepping = 0u;
 #endif
 }
+
+//=============================================================================
+// Topology and cache geometry
+//=============================================================================
 
 u32 CPUDetect_QueryPhysicalCoreCount() noexcept
 {
@@ -331,6 +352,9 @@ u32 CPUDetect_QueryPhysicalCoreCount() noexcept
         return Cy_ThreadGetLogicalCount();
     }
 
+    // Linux exposes one processor record per logical CPU. A physical core is
+    // identified by the unique (physical id, core id) pair. Keep the scratch
+    // table fixed so Tier0 does not allocate while building diagnostics.
     constexpr u32 MAX_CPU_PAIRS = 1024u;
     u32 nPhysicalIds[MAX_CPU_PAIRS] = {};
     u32 nCoreIds[MAX_CPU_PAIRS] = {};
@@ -349,6 +373,8 @@ u32 CPUDetect_QueryPhysicalCoreCount() noexcept
             }
         }
 
+        // Machines larger than this conservative Tier0 limit fall back to the
+        // logical count rather than overflowing local storage.
         if ( nPairCount < MAX_CPU_PAIRS ) {
             nPhysicalIds[nPairCount] = nCurrentPhysicalId;
             nCoreIds[nPairCount] = nCurrentCoreId;
@@ -440,6 +466,8 @@ usize CPUDetect_QueryCacheLineSize() noexcept
 }
 
 #if CYPHER_ARCH_ARM64
+// ARM feature discovery is an operating-system query. Unlike x86 CPUID, user
+// code cannot infer safely executable extensions from the architecture alone.
 bool_t CPUDetect_QueryArm64AesSupport() noexcept
 {
 #if CYPHER_PLATFORM_WINDOWS && CYPHER_ARCH_ARM64 && defined( PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE )
@@ -469,6 +497,10 @@ bool_t CPUDetect_QueryArm64AesSupport() noexcept
 #endif
 }
 #endif
+
+//=============================================================================
+// Instruction feature masks
+//=============================================================================
 
 flags64_t CPUDetect_QueryHardwareFeatures() noexcept
 {
@@ -511,6 +543,8 @@ flags64_t CPUDetect_FilterUsableFeatures( flags64_t hardwareFeatures ) noexcept
     flags64_t usableFeatures = hardwareFeatures;
 
 #if CYPHER_ARCH_X86_FAMILY
+    // AVX2 and FMA also use YMM state, so they must be removed together when
+    // the host OS has not enabled AVX context management.
     if ( !CPUDetect_HasAvxOsSupport() ) {
         usableFeatures &= ~static_cast<flags64_t>( CY_CPU_FEATURE_AVX );
         usableFeatures &= ~static_cast<flags64_t>( CY_CPU_FEATURE_AVX2 );
@@ -537,6 +571,8 @@ cy_cpu_detect_info_t CPUDetect_BuildInfo() noexcept
 
 const cy_cpu_detect_info_t &CPUDetect_GetCachedInfo() noexcept
 {
+    // Function-local static initialization is thread-safe in C++11 and later.
+    // CPU identity is immutable, so detecting it once avoids repeated syscalls.
     static const cy_cpu_detect_info_t info = CPUDetect_BuildInfo();
     return info;
 }

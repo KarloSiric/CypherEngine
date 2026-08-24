@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_CacheHints.h
-//  Purpose: Declares CypherCommon Tier0 CacheHints support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares optional CPU prefetch hints and cache-line discovery.
+//  Details: Prefetch calls are performance hints only; callers must never depend
+//           on them for validity, ordering, coherency, or fault suppression.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -37,10 +36,10 @@ namespace cypher::common
 {
 
 enum class cache_prefetch_locality_t : u8 {
-    NonTemporal = 0u,
-    Low,
-    Medium,
-    High
+    NonTemporal = 0u, // Expected single use; minimize cache retention.
+    Low,              // Low temporal reuse.
+    Medium,           // Moderate temporal reuse.
+    High              // Strong temporal reuse; prefer nearby cache levels.
 };
 
 // Hints that a memory address will soon be read. Null is a no-op.

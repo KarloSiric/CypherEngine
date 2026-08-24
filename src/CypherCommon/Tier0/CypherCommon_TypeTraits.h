@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_TypeTraits.h
-//  Purpose: Declares CypherCommon Tier0 TypeTraits support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares the small type-trait vocabulary used by Common containers.
+//  Details: These are aliases over standard traits, not a replacement trait engine.
+//           Keep additions driven by concrete container or ABI requirements.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-21
@@ -37,6 +36,7 @@ Thin aliases around standard C++ traits so engine code has one vocabulary.
 namespace cypher::common
 {
 
+// Type transformation aliases.
 template <typename type_t>
 using remove_reference_t = typename std::remove_reference<type_t>::type;
 
@@ -76,6 +76,7 @@ using enable_if_t = typename std::enable_if<bCondition, type_t>::type;
 template <typename... types_t>
 using common_type_t = typename std::common_type<types_t...>::type;
 
+// Boolean property aliases used in constraints and static assertions.
 template <typename type_a_t, typename type_b_t>
 inline constexpr bool is_same_v = std::is_same_v<type_a_t, type_b_t>;
 

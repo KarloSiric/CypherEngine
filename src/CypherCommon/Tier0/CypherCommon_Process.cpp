@@ -39,6 +39,12 @@
 namespace cypher::common
 {
 
+//-----------------------------------------------------------------------------
+// Process identity and termination
+//
+// Exit and abort are intentionally separate: exit performs normal runtime
+// teardown, while abort is reserved for states that cannot continue safely.
+//-----------------------------------------------------------------------------
 namespace
 {
 

@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_LogToggle.h
-//  Purpose: Declares CypherCommon Tier0 LogToggle support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares the process-wide log-channel enable mask.
+//  Details: One bit maps directly to one log_channel_t value. Filtering remains a
+//           cheap atomic mask test before records enter the logging callback path.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -37,9 +36,9 @@ Runtime log category filtering shared by the Tier0 logger.
 namespace cypher::common
 {
 
-using log_category_mask_t = u64;
+using log_category_mask_t = u64; // Bit i controls log_channel_t value i.
 
-constexpr log_category_mask_t CY_LOG_CATEGORY_ALL = CY_U64_MAX;
+constexpr log_category_mask_t CY_LOG_CATEGORY_ALL = CY_U64_MAX; // Enable every channel.
 
 // Converts a valid log channel into its category bit.
 CYPHER_NODISCARD constexpr log_category_mask_t Cy_LogChannelMask( log_channel_t channel ) noexcept

@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Validator.h
-//  Purpose: Declares CypherCommon Tier0 Validator support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Reports recoverable data-validation issues through a shared callback.
+//  Details: Validators continue after reporting; programmer invariants belong to
+//           Assert and unrecoverable process failures belong to Crash.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -44,19 +43,19 @@ enum class validator_severity_t : u32 {
     Warning,
     Error,
     Fatal,
-    Count
+    Count // Sentinel; never submitted in a valid record.
 };
 
 struct validation_record_t {
-    validator_severity_t severity{ validator_severity_t::Info };
-    error_code_t errorCode{ CY_ERROR_OK };
-    source_location_t location{};
-    const char *pMessage{ "" };
+    validator_severity_t severity{ validator_severity_t::Info }; // Presentation and build-failure policy.
+    error_code_t errorCode{ CY_ERROR_OK };                       // Optional packed machine-readable cause.
+    source_location_t location{};                               // Reporter call site, not authored-file position.
+    const char *pMessage{ "" };                                 // Borrowed during the callback only.
 };
 
 using validator_callback_t = void ( * )(
     const validation_record_t &record,
-    void *pUserData ) noexcept;
+    void *pUserData ) noexcept; // Opaque value installed with the process-wide callback.
 
 // Callbacks may execute concurrently. Replacement does not drain calls already
 // in flight, so callback code and user data must outlive active producers.

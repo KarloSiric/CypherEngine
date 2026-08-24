@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Minidump.h
-//  Purpose: Declares CypherCommon Tier0 Minidump support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Writes a portable bounded text report for fatal diagnostics.
+//  Details: This is not a Windows minidump or POSIX core file; native crash artifacts
+//           belong to platform-specific backends above this API.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -48,17 +47,17 @@ enum class minidump_result_t : u8 {
     Busy,
     OpenFailed,
     WriteFailed,
-    Count
+    Count // Sentinel; never returned by a backend.
 };
 
 struct minidump_info_t {
-    const char *pApplicationName{ "" };
-    const char *pVersion{ "" };
-    const char *pOutputPath{ nullptr };
-    const char *pReason{ "" };
-    source_location_t location{};
-    u32 maxFrames{ CYPHER_STACK_TRACE_MAX_FRAMES };
-    u32 skipFrames{ 1u };
+    const char *pApplicationName{ "" }; // Borrowed product name written into the report.
+    const char *pVersion{ "" };         // Borrowed product/build version.
+    const char *pOutputPath{ nullptr };  // Optional host path; nullptr uses the configured default.
+    const char *pReason{ "" };          // Borrowed failure summary.
+    source_location_t location{};       // Source of an explicit fatal request, when known.
+    u32 maxFrames{ CYPHER_STACK_TRACE_MAX_FRAMES }; // Capture limit, clamped to fixed storage.
+    u32 skipFrames{ 1u };               // Leading helper frames omitted from the report.
 };
 
 // Writes one portable text diagnostic report. It returns Busy rather than

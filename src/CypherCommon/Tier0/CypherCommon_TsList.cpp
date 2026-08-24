@@ -20,6 +20,9 @@
 namespace cypher::common
 {
 
+// pOwner is claimed atomically before linking a node. This prevents one
+// intrusive node from being inserted into two lists even when callers race.
+
 bool_t Cy_TsListInit( tslist_t *pList ) noexcept
 {
     if ( pList == nullptr ) {
@@ -45,6 +48,8 @@ bool_t Cy_TsListShutdown( tslist_t *pList ) noexcept
     }
 
     std::lock_guard<std::mutex> lock( pList->nativeMutex );
+    // Shutdown refuses a non-empty list because intrusive nodes are owned by their
+    // callers; silently detaching them would strand their pOwner markers.
     if ( !pList->isInitialized || pList->pHead != nullptr ||
          pList->nCount != 0u ) {
         return CY_FALSE;
@@ -64,6 +69,8 @@ bool_t Cy_TsListPush( tslist_t *pList, tslist_node_t *pNode ) noexcept
         return CY_FALSE;
     }
 
+    // Claim ownership before mutating links. compare_exchange makes duplicate or
+    // cross-list insertion fail even if callers race on the same node.
     tslist_t *pExpectedOwner = nullptr;
     if ( !pNode->pOwner.compare_exchange_strong(
              pExpectedOwner,
@@ -94,6 +101,7 @@ tslist_node_t *Cy_TsListPop( tslist_t *pList ) noexcept
     if ( pNode != nullptr ) {
         pList->pHead = pNode->pNext;
         pNode->pNext = nullptr;
+        // Clear links and ownership before returning the node for immediate reuse.
         pNode->pOwner.store( nullptr, std::memory_order_release );
         --pList->nCount;
     }

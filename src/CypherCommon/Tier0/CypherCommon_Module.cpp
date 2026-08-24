@@ -20,6 +20,12 @@
 namespace cypher::common
 {
 
+//-----------------------------------------------------------------------------
+// Module contract validation
+//
+// Compatibility is checked before state transitions so a module never reaches
+// initialization with a mismatched descriptor or API version.
+//-----------------------------------------------------------------------------
 namespace
 {
 

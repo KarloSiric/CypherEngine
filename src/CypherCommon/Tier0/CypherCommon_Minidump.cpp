@@ -44,6 +44,9 @@ namespace cypher::common
 namespace
 {
 
+// Path updates and dump writes use separate locks: callers may change the next
+// output directory without allowing two crash reports to write one file at once.
+
 constexpr usize CYPHER_MINIDUMP_PATH_CAPACITY = 1024u;
 constexpr char CYPHER_MINIDUMP_DEFAULT_PATH[] = "CypherEngine.crash.txt";
 
@@ -108,6 +111,8 @@ FILE *Minidump_OpenUtf8Path(
 
 minidump_result_t Cy_MinidumpWrite( const minidump_info_t &info ) noexcept
 {
+    // Minidump support is deliberately best-effort. Failure reporting must not
+    // allocate recursively or turn an original crash into another unhandled one.
     char szPath[CYPHER_MINIDUMP_PATH_CAPACITY] = {};
     if ( info.pOutputPath != nullptr && info.pOutputPath[0] != '\0' ) {
         if ( !Minidump_CopyPath( szPath, CYPHER_ARRAY_COUNT( szPath ), info.pOutputPath ) ) {

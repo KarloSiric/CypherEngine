@@ -4,10 +4,8 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_BuildConfig.h
-//  Purpose: Declares CypherCommon Tier0 BuildConfig support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Exposes the active build configuration as a typed compile-time value.
+//  Details: The configuration selectors are normalized by CypherCommon_Platform.h.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -22,14 +20,6 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Build Config
-
-Build configuration declarations shared by every module.
-================
-*/
-
 #include "CypherCommon_BaseTypes.h"
 #include "CypherCommon_Platform.h"
 
@@ -38,13 +28,13 @@ namespace cypher::common
 
 enum class build_config_t : u32 {
     Unknown = 0u,
-    Debug,
-    Development,
-    Release,
-    Shipping
+    Debug,       // Diagnostics on; optimization normally off.
+    Development, // Diagnostics on; optimization on.
+    Release,     // Production performance with non-shipping facilities retained.
+    Shipping     // Final player-facing build with developer facilities removed.
 };
 
-// Returns the active compile configuration.
+// Compile-time configuration queries; no runtime state is consulted.
 CYPHER_NODISCARD constexpr build_config_t Cy_BuildConfigGetCurrent() noexcept
 {
 #if CYPHER_CONFIG_DEBUG
@@ -60,7 +50,6 @@ CYPHER_NODISCARD constexpr build_config_t Cy_BuildConfigGetCurrent() noexcept
 #endif
 }
 
-// Returns a stable human-readable name for a build configuration.
 CYPHER_NODISCARD constexpr const char *Cy_BuildConfigGetName( build_config_t config ) noexcept
 {
     switch ( config ) {
@@ -78,7 +67,6 @@ CYPHER_NODISCARD constexpr const char *Cy_BuildConfigGetName( build_config_t con
     }
 }
 
-// Returns whether the supplied build configuration is recognized.
 CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsKnown( build_config_t config ) noexcept
 {
     switch ( config ) {
@@ -93,31 +81,26 @@ CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsKnown( build_config_t config )
     return CY_FALSE;
 }
 
-// Returns true when the current translation unit is compiled as Debug.
 CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsDebug() noexcept
 {
     return CYPHER_CONFIG_DEBUG != 0;
 }
 
-// Returns true when the current translation unit is compiled as Development.
 CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsDevelopment() noexcept
 {
     return CYPHER_CONFIG_DEVELOPMENT != 0;
 }
 
-// Returns true when the current translation unit is compiled as Release.
 CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsRelease() noexcept
 {
     return CYPHER_CONFIG_RELEASE != 0;
 }
 
-// Returns true when the current translation unit is compiled as Shipping.
 CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsShipping() noexcept
 {
     return CYPHER_CONFIG_SHIPPING != 0;
 }
 
-// Returns true for any non-Debug configuration that enables optimization.
 CYPHER_NODISCARD constexpr bool_t Cy_BuildConfigIsOptimized() noexcept
 {
     return CYPHER_BUILD_OPTIMIZED != 0;

@@ -22,8 +22,12 @@
 namespace cypher::common
 {
 
+// Formats into caller-owned storage. Truncation is explicit and the returned
+// count never includes the terminating null byte.
+
 usize Cy_SourceLocation_Format( const source_location_t &location, char *pDest, usize cchDest ) noexcept
 {
+    // Normalize missing compiler metadata so every diagnostic remains printable.
     const char *pFile = location.pFile != nullptr && location.pFile[0] != '\0'
         ? location.pFile
         : "<unknown>";
@@ -31,6 +35,8 @@ usize Cy_SourceLocation_Format( const source_location_t &location, char *pDest, 
         ? location.pFunction
         : "<unknown>";
 
+    // snprintf with a null destination and zero capacity is the required-size
+    // query. Its return excludes the terminator and still reports truncation size.
     const usize cchWrite = pDest != nullptr ? cchDest : 0u;
     int cchRequired = 0;
     if ( location.column != 0u ) {
@@ -50,6 +56,8 @@ usize Cy_SourceLocation_Format( const source_location_t &location, char *pDest, 
                                      pFunction );
     }
 
+    // Defensively terminate even on libraries with non-conforming truncation
+    // behavior; this write is valid only when the caller supplied capacity.
     if ( pDest != nullptr && cchDest != 0u ) {
         pDest[cchDest - 1u] = '\0';
     }

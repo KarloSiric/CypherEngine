@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_MemoryOps.cpp
-//  Purpose: Implements CypherCommon Tier0 MemoryOps support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Implements raw byte operations and overflow-safe range predicates.
+//  Details: Wrappers preserve libc semantics while giving engine code one stable
+//           vocabulary and zero-length behavior across every supported platform.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-07-01
@@ -22,6 +21,14 @@
 
 namespace cypher::common
 {
+
+//-----------------------------------------------------------------------------
+// Raw byte operations
+//
+// These wrappers retain the corresponding libc overlap rules. Range helpers do
+// their arithmetic in uintptr space so they can reject wraparound before an end
+// address is formed.
+//-----------------------------------------------------------------------------
 
 void *Cy_MemCopy( void *pDst, const void *pSrc, usize nByteCount ) noexcept
 {
@@ -100,6 +107,8 @@ bool_t Cy_MemRangesOverlap( const void *pA, usize nABytes,
 
 bool_t Cy_MemIsZero( const void *pData, usize nByteCount ) noexcept
 {
+    // Compare against one shared read-only zero page in bounded chunks. This avoids
+    // byte-at-a-time scanning while keeping stack use independent of input size.
     static constexpr usize nZeroBlockBytes = 4096u;
     static constexpr u8 nZeroBlock[nZeroBlockBytes] = {};
 

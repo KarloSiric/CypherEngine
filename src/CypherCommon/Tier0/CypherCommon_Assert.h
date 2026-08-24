@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Assert.h
-//  Purpose: Declares CypherCommon Tier0 Assert support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Reports failed programmer invariants through a configurable handler.
+//  Details: Assertions are for internal contract violations, never recoverable errors;
+//           handlers must be thread-safe, allocation-aware, and non-throwing.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-21
@@ -44,22 +43,19 @@ Rules:
 namespace cypher::common
 {
 
-// Selects how execution proceeds after an assertion has been reported.
 enum class assert_action_t : u8 {
-    Continue = 0u,
-    Break,
-    Abort,
-    Count
+    Continue = 0u, // Return to the failing call site.
+    Break,         // Interrupt an attached debugger, then return.
+    Abort,         // Terminate because continuing is unsafe.
+    Count          // Sentinel; never returned by a valid handler.
 };
 
-// Describes one failed programmer invariant without allocating memory.
 struct assert_info_t {
-    const char *pExpression{ "" };
-    const char *pMessage{ "" };
-    source_location_t location{};
+    const char *pExpression{ "" }; // Stringized expression; borrowed during the handler call.
+    const char *pMessage{ "" };    // Optional borrowed explanation; empty when absent.
+    source_location_t location{};  // Source location captured at the assertion call site.
 };
 
-// Receives an assertion and chooses whether execution continues, breaks, or aborts.
 using assert_handler_t = assert_action_t ( * )( const assert_info_t &info ) noexcept;
 
 // Installs a process-wide handler; passing nullptr restores default handling.
@@ -76,15 +72,12 @@ CYPHER_COMMON_API void Cy_AssertHandleFailure(
 
 } // namespace cypher::common
 
-/*
-================
-Assert Macros
-================
-*/
 #define CY_STATIC_ASSERT( expression, message ) static_assert( expression, message )
 
-#define CYPHER_ASSERTS_ENABLED ( CYPHER_CONFIG_DEBUG || CYPHER_CONFIG_DEVELOPMENT )
+#define CYPHER_ASSERTS_ENABLED ( CYPHER_CONFIG_DEBUG || CYPHER_CONFIG_DEVELOPMENT ) // Compile-time gate.
 
+// ASSERT expressions disappear entirely when disabled. VERIFY expressions still
+// execute for side effects, but failure reporting is compiled out.
 #if CYPHER_ASSERTS_ENABLED
     #define CY_ASSERT( expression )                                                             \
         do {                                                                                     \

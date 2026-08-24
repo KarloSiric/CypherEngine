@@ -25,6 +25,8 @@ namespace cypher::common
 namespace
 {
 
+// Validator callback replacement is rare. Snapshot the callback/context pair under
+// one mutex and use a thread-local depth guard for callbacks that validate again.
 std::mutex g_validatorMutex;
 validator_callback_t g_validatorCallback = nullptr;
 void *g_validatorUserData = nullptr;
@@ -72,6 +74,7 @@ void Cy_ValidatorReportAt(
     validator_callback_t pCallback = nullptr;
     void *pUserData = nullptr;
     {
+        // Never call external code while holding the process-wide callback lock.
         std::lock_guard<std::mutex> lock( g_validatorMutex );
         pCallback = g_validatorCallback;
         pUserData = g_validatorUserData;
@@ -84,6 +87,8 @@ void Cy_ValidatorReportAt(
         return;
     }
 
+    // Missing or recursive callbacks fall back to stderr so validation failures
+    // remain visible during early startup and callback failure.
     if ( errorCode != CY_ERROR_OK ) {
         std::fprintf(
             stderr,

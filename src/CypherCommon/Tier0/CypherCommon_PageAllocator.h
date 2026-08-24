@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_PageAllocator.h
-//  Purpose: Declares CypherCommon Tier0 PageAllocator support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Provides a linear page allocator over one virtual-memory reservation.
+//  Details: Commit grows from the reservation base; Reset decommits physical pages
+//           without giving up the stable virtual address range.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -37,10 +36,10 @@ namespace cypher::common
 {
 
 struct page_allocator_t {
-    void *pReservedBase;
-    usize nReservedByteCount;
-    usize nCommittedByteCount;
-    usize nPageSize;
+    void *pReservedBase;         // Base of the owned virtual address reservation.
+    usize nReservedByteCount;    // Total reserved range in bytes.
+    usize nCommittedByteCount;   // Committed prefix length in bytes.
+    usize nPageSize;             // Commit granularity captured during Init.
 };
 
 // Reserves a linear virtual-memory range. The allocator must be zero initialized.

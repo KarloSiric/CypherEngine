@@ -34,6 +34,8 @@ bool_t Cy_Handle32TryMake(
         return CY_FALSE;
     }
 
+    // Generation occupies the high bits and index the low bits. All-ones is
+    // reserved, so the numerically largest valid parts cannot form a live handle.
     pOutHandle->value = ( nGeneration << CY_HANDLE32_INDEX_BITS ) | nIndex;
     return pOutHandle->value != CY_HANDLE32_INVALID.value;
 }
@@ -53,6 +55,8 @@ bool_t Cy_Handle64TryMake(
         return CY_FALSE;
     }
 
+    // The 64-bit layout is [type:16][generation:16][index:32]. Keep these shifts
+    // synchronized with constants and unpack helpers in CypherCommon_Handle.h.
     pOutHandle->value =
         ( static_cast<u64>( nType ) << 48u ) |
         ( static_cast<u64>( nGeneration ) << CY_HANDLE64_INDEX_BITS ) |
@@ -62,6 +66,8 @@ bool_t Cy_Handle64TryMake(
 
 handle32_t Cy_Handle32Make( u32 nIndex, u32 nGeneration ) noexcept
 {
+    // Convenience builders intentionally collapse invalid parts to the invalid
+    // sentinel. Parsers and untrusted-data paths should call TryMake instead.
     handle32_t handle{};
     static_cast<void>(
         Cy_Handle32TryMake( nIndex, nGeneration, &handle ) );

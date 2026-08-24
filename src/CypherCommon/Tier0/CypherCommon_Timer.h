@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Timer.h
-//  Purpose: Declares CypherCommon Tier0 Timer support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares the process-relative monotonic clock and stopwatch helpers.
+//  Details: Timer ticks are suitable for elapsed-time measurement only. They are
+//           unrelated to wall-clock dates, simulation time, or frame time scale.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-21
@@ -39,13 +38,13 @@ Higher-level systems build those policies on top of this clock.
 namespace cypher::common
 {
 
-using timer_tick_t = u64;
-using timer_frequency_t = u64;
+using timer_tick_t = u64;      // Process-relative monotonic counter value.
+using timer_frequency_t = u64; // Counter ticks per second.
 
 struct cy_timer_t {
-    timer_tick_t nStartTicks = 0u;
-    timer_tick_t nEndTicks = 0u;
-    bool_t isRunning = CY_FALSE;
+    timer_tick_t nStartTicks = 0u; // Tick captured by Begin/Reset.
+    timer_tick_t nEndTicks = 0u;   // Tick captured by End or last start value.
+    bool_t isRunning = CY_FALSE;   // GetTicks samples now while this is true.
 };
 
 // Initializes the process monotonic clock baseline.
@@ -81,6 +80,7 @@ CYPHER_NODISCARD CYPHER_COMMON_API f64 Cy_TimerTicksToMicroseconds(
 CYPHER_NODISCARD CYPHER_COMMON_API f64 Cy_TimerTicksToNanoseconds(
     timer_tick_t nTicks ) noexcept;
 
+// Elapsed conversion helpers clamp reversed intervals to zero.
 CYPHER_NODISCARD CYPHER_COMMON_API f64 Cy_TimerElapsedSeconds(
     timer_tick_t nStartTicks,
     timer_tick_t nEndTicks ) noexcept;
@@ -98,6 +98,7 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TimerBegin( cy_timer_t *pTimer ) no
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TimerEnd( cy_timer_t *pTimer ) noexcept;
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_TimerReset( cy_timer_t *pTimer ) noexcept;
 
+// Returns a live elapsed value for a running timer and the fixed interval after End.
 CYPHER_NODISCARD CYPHER_COMMON_API timer_tick_t Cy_TimerGetTicks(
     const cy_timer_t *pTimer ) noexcept;
 

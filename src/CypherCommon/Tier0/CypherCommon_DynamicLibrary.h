@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_DynamicLibrary.h
-//  Purpose: Declares CypherCommon Tier0 DynamicLibrary support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares explicit loading and symbol lookup for shared libraries.
+//  Details: The wrapper owns only the native loader handle and its last error.
+//           ABI version negotiation and module lifecycle belong to Module.h.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -37,10 +36,10 @@ Runtime shared library declarations.
 namespace cypher::common
 {
 
-constexpr usize CY_DYNAMIC_LIBRARY_ERROR_MAX = 512u;
+constexpr usize CY_DYNAMIC_LIBRARY_ERROR_MAX = 512u; // Includes null terminator.
 
 enum cy_dynamic_library_flags_t : flags32_t {
-    CY_DYNAMIC_LIBRARY_NONE = 0u,
+    CY_DYNAMIC_LIBRARY_NONE = 0u, // Immediate resolution and local visibility.
     // POSIX loader policy. Accepted as a no-op on platforms without this choice.
     CY_DYNAMIC_LIBRARY_RESOLVE_LAZY = CYPHER_BIT32( 0 ),
     // POSIX symbol visibility. Accepted as a no-op on platforms without this choice.
@@ -48,8 +47,8 @@ enum cy_dynamic_library_flags_t : flags32_t {
 };
 
 struct dynamic_library_t {
-    void *pHandle = nullptr;
-    char szLastError[CY_DYNAMIC_LIBRARY_ERROR_MAX] = {};
+    void *pHandle = nullptr; // HMODULE on Windows, dlopen handle on POSIX.
+    char szLastError[CY_DYNAMIC_LIBRARY_ERROR_MAX] = {}; // Owned diagnostic text.
 };
 
 // Initializes an unloaded library handle.

@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_MemoryDebug.h
-//  Purpose: Declares CypherCommon Tier0 MemoryDebug support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Defines allocation events consumed by memory diagnostics and tools.
+//  Details: Records borrow all string and memory pointers for the synchronous
+//           callback only; reporting itself must not allocate recursively.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -44,18 +43,18 @@ enum class memory_debug_event_t : u32 {
 };
 
 struct memory_debug_record_t {
-    memory_debug_event_t eventType;
-    void *pMemory;
-    usize nByteCount;
-    usize nAlignment;
-    const char *pszTag;
-    const char *pszFile;
-    u32 nLine;
+    memory_debug_event_t eventType; // Allocation operation represented by this record.
+    void *pMemory;                  // Affected allocation; null is valid for failed allocs.
+    usize nByteCount;               // Requested or tracked allocation size in bytes.
+    usize nAlignment;               // Requested alignment in bytes; zero means unspecified.
+    const char *pszTag;             // Borrowed allocation category; may be null.
+    const char *pszFile;            // Borrowed source path; may be null.
+    u32 nLine;                      // One-based source line; zero means unavailable.
 };
 
 using memory_debug_callback_t = void ( * )(
     const memory_debug_record_t &record,
-    void *pContext ) noexcept;
+    void *pContext ) noexcept; // Opaque value installed with the callback.
 
 // Installs a callback and opaque context. Passing nullptr disables callbacks.
 // Callbacks may run concurrently on producer threads. Replacing a callback does

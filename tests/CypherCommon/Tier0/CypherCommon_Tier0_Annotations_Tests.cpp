@@ -26,6 +26,8 @@
 namespace
 {
 
+CYPHER_NORETURN void NeverReturnsAnnotated();
+
 void CopyAnnotated(
     CY_OUT_WRITES( cchDest ) char *pDest,
     std::size_t cchDest,

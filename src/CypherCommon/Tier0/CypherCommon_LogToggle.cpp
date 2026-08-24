@@ -21,6 +21,9 @@
 
 namespace cypher::common
 {
+
+// Category toggles are read from hot logging paths. One atomic mask keeps the
+// common query lock-free while configuration updates remain infrequent.
 namespace
 {
 
@@ -30,6 +33,8 @@ std::atomic<log_category_mask_t> g_logCategoryMask = CY_LOG_CATEGORY_ALL;
 
 void Cy_LogToggleSetMask( log_category_mask_t categoryMask ) noexcept
 {
+    // The mask publishes no related data, so relaxed ordering is sufficient for
+    // best-effort diagnostic filtering and avoids unnecessary fences on log calls.
     g_logCategoryMask.store( categoryMask, std::memory_order_relaxed );
 }
 
@@ -40,6 +45,7 @@ log_category_mask_t Cy_LogToggleGetMask() noexcept
 
 void Cy_LogToggleEnable( log_category_mask_t categoryMask ) noexcept
 {
+    // fetch_or/fetch_and preserve concurrent updates to unrelated channel bits.
     g_logCategoryMask.fetch_or( categoryMask, std::memory_order_relaxed );
 }
 

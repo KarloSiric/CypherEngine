@@ -57,6 +57,14 @@ namespace cypher::common
 namespace
 {
 
+//-----------------------------------------------------------------------------
+// Host-query helpers
+//
+// CPU identity is cached by CPUDetect, while memory, power, and disk values are
+// sampled on demand because the operating system may change them at any time.
+// A failed optional query leaves its field unknown instead of inventing a value.
+//-----------------------------------------------------------------------------
+
 void SystemInfo_CopyString( char *pszDst, usize cchDst, const char *pszSrc ) noexcept
 {
     if ( pszDst == nullptr || cchDst == 0u ) {
@@ -127,10 +135,14 @@ bool_t SystemInfo_WideToUtf8(
 #endif
 
 struct system_info_report_writer_t {
-    char *pszDst;
-    usize cchDst;
-    usize cchRequired;
+    char *pszDst;       // Optional destination; null performs a size query.
+    usize cchDst;       // Destination capacity including the terminator.
+    usize cchRequired;  // Characters required, excluding the terminator.
 };
+
+// The report writer always counts the full result, even after the destination
+// fills. Callers can therefore query the exact size or detect truncation without
+// allocating inside Tier0.
 
 void SystemInfo_ReportAppendChar(
     system_info_report_writer_t &writer,
@@ -248,6 +260,8 @@ cy_system_memory_pressure_t SystemInfo_CalculateMemoryPressure(
         return CY_SYSTEM_MEMORY_PRESSURE_UNKNOWN;
     }
 
+    // This is a portable diagnostic heuristic, not the platform's own pressure
+    // notification system. Higher layers must not use it as an OOM guarantee.
     const f64 availablePercent =
         ( static_cast<f64>( availableBytes ) / static_cast<f64>( totalBytes ) ) * 100.0;
     if ( availablePercent <= 5u ) {
@@ -376,6 +390,8 @@ cy_system_info_t SystemInfo_BuildSnapshot() noexcept
 
 const cy_system_info_t &SystemInfo_GetCachedSnapshot() noexcept
 {
+    // Build, platform, CPU, and startup-path fields are immutable for the life
+    // of the process. Live memory/disk/power data is intentionally not cached.
     static const cy_system_info_t info = SystemInfo_BuildSnapshot();
     return info;
 }
@@ -413,6 +429,8 @@ cy_system_memory_status_t Cy_SystemInfoQueryMemoryStatus() noexcept
         status.hasProcessMemory = CY_TRUE;
     }
 #elif CYPHER_PLATFORM_LINUX
+    // /proc/self/statm reports page counts, not bytes. Saturating arithmetic
+    // prevents corrupt host data from wrapping the diagnostic counters.
     FILE *pStatm = std::fopen( "/proc/self/statm", "r" );
     if ( pStatm != nullptr ) {
         unsigned long long virtualPages = 0ull;
@@ -437,6 +455,8 @@ cy_system_memory_status_t Cy_SystemInfoQueryMemoryStatus() noexcept
     }
 #endif
 
+    // Some kernels report reclaimable memory using estimates that briefly exceed
+    // the installed total. Clamp the public snapshot to a coherent range.
     if ( status.availablePhysicalBytes > status.totalPhysicalBytes ) {
         status.availablePhysicalBytes = status.totalPhysicalBytes;
     }
@@ -470,6 +490,8 @@ cy_system_power_state_t Cy_SystemInfoQueryPowerState() noexcept
 cy_system_disk_status_t Cy_SystemInfoQueryDiskStatus( const char *pszPath ) noexcept
 {
     cy_system_disk_status_t status = {};
+    // Empty means the current working directory, matching ordinary command-line
+    // tool expectations and avoiding a separate overload.
     const char *pszQueryPath = SystemInfo_IsStringEmpty( pszPath ) ? "." : pszPath;
 
 #if CYPHER_PLATFORM_WINDOWS
@@ -548,6 +570,8 @@ usize Cy_SystemInfoFormatReport( char *pszDst, usize cchDst ) noexcept
     const cy_system_memory_status_t memory = Cy_SystemInfoQueryMemoryStatus();
     system_info_report_writer_t writer = { pszDst, cchDst, 0u };
 
+    // Keep this report line-oriented and allocation-free. Crash reporters and
+    // command-line tools can write it directly without a serializer dependency.
     SystemInfo_ReportAppendString( writer, "Cypher System Info\n" );
     SystemInfo_ReportAppendStringLine( writer, "engine", pInfo->build.pszEngineName );
     SystemInfo_ReportAppendStringLine( writer, "engine_version", pInfo->build.pszEngineVersion );

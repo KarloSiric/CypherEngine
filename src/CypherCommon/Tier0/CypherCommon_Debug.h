@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Debug.h
-//  Purpose: Declares CypherCommon Tier0 Debug support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Provides debugger breaks, fatal traps, and build-gated statements.
+//  Details: These primitives have no logging, allocation, or engine dependency so
+//           assertion and crash paths can use them safely.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-21
@@ -56,21 +55,12 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_DebugBreakIfAttached() noexcept;
 
 } // namespace cypher::common
 
-/*
-================
-Debugger Break / Trap
-================
-*/
-// Routes call sites through the platform-independent Tier0 implementation.
-#define CY_DEBUG_BREAK() ::cypher::common::Cy_DebugBreak()
-#define CY_TRAP()        ::cypher::common::Cy_DebugTrap()
+// Route call sites through the platform-independent Tier0 implementation.
+#define CY_DEBUG_BREAK() ::cypher::common::Cy_DebugBreak() // May return after debugger continuation.
+#define CY_TRAP()        ::cypher::common::Cy_DebugTrap()  // Never returns.
 
-/*
-================
-Build Gated Code Helpers
-================
-*/
-// Emits a statement only for the selected build class.
+// Statements in disabled branches are not evaluated and must not carry required
+// side effects. Use ordinary control flow when execution is semantically required.
 #if CYPHER_CONFIG_DEBUG
     #define CY_DEBUG_ONLY( statement ) do { statement; } while ( 0 )
 #else

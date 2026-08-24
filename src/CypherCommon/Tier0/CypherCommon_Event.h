@@ -42,17 +42,17 @@ namespace cypher::common
 {
 
 enum class cy_event_reset_mode_t : u8 {
-    Manual = 0u,
-    Auto = 1u
+    Manual = 0u, // Signal remains set until Reset and releases every waiter.
+    Auto = 1u    // One successful wait consumes the signal.
 };
 
 struct cy_event_t {
-    mutable std::mutex nativeMutex;
-    std::condition_variable nativeCondition;
-    bool_t isInitialized = CY_FALSE;
-    bool_t isSignaled = CY_FALSE;
-    u32 nWaiterCount = 0u;
-    cy_event_reset_mode_t resetMode = cy_event_reset_mode_t::Manual;
+    mutable std::mutex nativeMutex;                           // Guards every field below.
+    std::condition_variable nativeCondition;                  // Wakes waiters after signal or shutdown.
+    bool_t isInitialized = CY_FALSE;                          // False also acts as the shutdown predicate.
+    bool_t isSignaled = CY_FALSE;                             // Protected signal state.
+    u32 nWaiterCount = 0u;                                   // Threads currently inside a blocking wait.
+    cy_event_reset_mode_t resetMode = cy_event_reset_mode_t::Manual; // Signal-consumption policy.
 };
 
 // Initializes an event with reset policy and initial signal state.
@@ -64,14 +64,12 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventInit(
 // Wakes blocked waiters and does not return until they have left this event.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventShutdown( cy_event_t *pEvent ) noexcept;
 
-// Returns whether the event is initialized.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventIsInitialized(
     const cy_event_t *pEvent ) noexcept;
 
 // Signals the event. Manual-reset wakes all waiters; auto-reset wakes one.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventSignal( cy_event_t *pEvent ) noexcept;
 
-// Clears the signaled state.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventReset( cy_event_t *pEvent ) noexcept;
 
 // Waits until the event is signaled or shut down.
@@ -87,12 +85,10 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventWaitTimeoutMs(
 CYPHER_NODISCARD CYPHER_COMMON_API cy_wait_result_t Cy_EventWaitResult(
     cy_event_t *pEvent ) noexcept;
 
-// Detailed timed wait result.
 CYPHER_NODISCARD CYPHER_COMMON_API cy_wait_result_t Cy_EventWaitTimeoutMsResult(
     cy_event_t *pEvent,
     u32 nMilliseconds ) noexcept;
 
-// Returns the current signal state for diagnostics.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_EventIsSignaled(
     const cy_event_t *pEvent ) noexcept;
 

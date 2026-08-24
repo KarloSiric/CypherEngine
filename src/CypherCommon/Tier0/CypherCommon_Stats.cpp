@@ -27,16 +27,19 @@ namespace
 {
 
 struct stat_record_t {
-    char szName[CY_STAT_NAME_MAX];
-    char szCategory[CY_STAT_CATEGORY_MAX];
-    char szDescription[CY_STAT_DESCRIPTION_MAX];
-    stat_value_t value;
+    char szName[CY_STAT_NAME_MAX];               // Stable lookup key.
+    char szCategory[CY_STAT_CATEGORY_MAX];       // Tool-facing grouping label.
+    char szDescription[CY_STAT_DESCRIPTION_MAX]; // Tool-facing explanatory text.
+    stat_value_t value;                          // Mutable value and fixed type tag.
 };
 
+// A fixed registry keeps the diagnostic path deterministic and preserves stable
+// record addresses. The single mutex favors simple, coherent snapshots over a
+// more complicated lock-free registration/update scheme.
 std::mutex g_statsMutex;
 stat_record_t g_statRecords[CY_STATS_MAX_COUNT] = {};
-usize g_statCount = 0u;
-u64 g_droppedRegistrations = 0u;
+usize g_statCount = 0u;             // Dense prefix of live records.
+u64 g_droppedRegistrations = 0u;    // Saturating capacity-failure counter.
 
 bool_t Stats_StringFits(
     const char *pszValue,
@@ -103,6 +106,8 @@ usize Stats_FindIndexLocked( const char *pszName ) noexcept
         return CY_USIZE_MAX;
     }
 
+    // Registration count is intentionally small and bounded. Linear lookup keeps
+    // storage allocation-free; hot updates use IDs and do not scan names.
     for ( usize i = 0u; i < g_statCount; ++i ) {
         if ( std::strcmp( g_statRecords[i].szName, pszName ) == 0 ) {
             return i;
@@ -113,6 +118,7 @@ usize Stats_FindIndexLocked( const char *pszName ) noexcept
 
 stat_id_t Stats_IndexToId( usize nIndex ) noexcept
 {
+    // Public IDs are one-based so a zero-initialized ID is always invalid.
     return static_cast<stat_id_t>( nIndex + 1u );
 }
 
@@ -157,6 +163,8 @@ bool_t Cy_StatsRegister(
         std::lock_guard<std::mutex> lock( g_statsMutex );
         const usize nExisting = Stats_FindIndexLocked( desc.pszName );
         if ( nExisting != CY_USIZE_MAX ) {
+            // Re-registration refreshes descriptive metadata but cannot change
+            // the value representation behind an already-issued stable ID.
             stat_record_t &record = g_statRecords[nExisting];
             if ( record.value.type != desc.type ) {
                 return CY_FALSE;
@@ -177,6 +185,8 @@ bool_t Cy_StatsRegister(
         }
 
         if ( g_statCount >= CY_STATS_MAX_COUNT ) {
+            // Keep counting rejected registrations without allowing the counter
+            // itself to wrap and hide a long-running capacity problem.
             if ( g_droppedRegistrations != CY_U64_MAX ) {
                 ++g_droppedRegistrations;
             }
@@ -278,6 +288,8 @@ bool_t Cy_StatsAddI64( stat_id_t id, i64 delta ) noexcept
             return CY_FALSE;
         }
 
+        // Statistics never wrap silently; overflow usually signals a bad unit,
+        // runaway counter, or corrupt caller state that diagnostics should expose.
         const i64 current = g_statRecords[nIndex].value.i64Value;
         if ( ( delta > 0 && current > CY_I64_MAX - delta ) ||
              ( delta < 0 && current < CY_I64_MIN - delta ) ) {
@@ -386,6 +398,8 @@ bool_t Cy_StatsGetSnapshot(
             return CY_FALSE;
         }
 
+        // Copy strings and value while holding the lock so tools receive one
+        // internally consistent record and retain no pointers into the registry.
         const stat_record_t &record = g_statRecords[nIndex];
         pOutSnapshot->id = Stats_IndexToId( nIndex );
         Stats_CopyString(
@@ -425,6 +439,8 @@ void Cy_StatsResetValues() noexcept
 {
     try {
         std::lock_guard<std::mutex> lock( g_statsMutex );
+        // Preserve names, types, and issued IDs; only the active union member is
+        // reset to the zero value appropriate for its declared type.
         for ( usize i = 0u; i < g_statCount; ++i ) {
             g_statRecords[i].value =
                 Stats_MakeValue( g_statRecords[i].value.type );

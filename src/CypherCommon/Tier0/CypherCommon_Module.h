@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Module.h
-//  Purpose: Declares CypherCommon Tier0 Module support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares binary-module metadata and legal lifecycle transitions.
+//  Details: This is the ABI-facing contract used by optional engine/game/tool
+//           modules. It does not load libraries; DynamicLibrary owns that step.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -39,25 +38,25 @@ namespace cypher::common
 {
 
 enum class module_state_t : u8 {
-    Unloaded = 0u,
-    Loaded,
-    Initialized,
-    Shutdown
+    Unloaded = 0u, // No native library or exports are available.
+    Loaded,        // Binary is loaded and its descriptor may be inspected.
+    Initialized,   // Module initialization completed successfully.
+    Shutdown       // Shutdown callback ran; binary may now be unloaded.
 };
 
 struct module_version_t {
-    u32 nMajor;
-    u32 nMinor;
-    u32 nPatch;
-    u32 nBuild;
+    u32 nMajor; // Compatibility-breaking generation.
+    u32 nMinor; // Backward-compatible feature generation.
+    u32 nPatch; // Corrective generation.
+    u32 nBuild; // Informational build metadata.
 };
 
 struct module_desc_t {
-    const char *pszName;
-    const char *pszInternalName;
-    const char *pszDescription;
-    module_version_t version;
-    u32 nApiVersion;
+    const char *pszName;         // User-facing module name.
+    const char *pszInternalName; // Stable machine-facing identifier.
+    const char *pszDescription;  // Optional diagnostic description.
+    module_version_t version;    // Product compatibility version.
+    u32 nApiVersion;             // Exact function-table layout version.
 };
 
 // Module callbacks must not allow C++ exceptions to cross binary boundaries.

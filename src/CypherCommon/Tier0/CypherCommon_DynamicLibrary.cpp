@@ -62,6 +62,8 @@ void DynamicLibrary_SetWindowsError(
     dynamic_library_t *pLibrary,
     DWORD nError ) noexcept
 {
+    // Windows loader diagnostics are UTF-16. Convert into the UTF-8 error buffer
+    // used by the rest of Common, with a numeric fallback if conversion fails.
     wchar_t wszMessage[CY_DYNAMIC_LIBRARY_ERROR_MAX] = {};
     const DWORD cchMessage = ::FormatMessageW(
         FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
@@ -97,6 +99,8 @@ void DynamicLibrary_SetWindowsError(
 
 wchar_t *DynamicLibrary_Utf8PathToWide( const char *pszPath ) noexcept
 {
+    // The Windows loader has no bounded UTF-8 entry point. Query the exact UTF-16
+    // length first, then allocate one temporary path buffer for LoadLibraryExW.
     const int cchRequired = ::MultiByteToWideChar(
         CP_UTF8,
         MB_ERR_INVALID_CHARS,
@@ -160,7 +164,7 @@ bool_t Cy_DynamicLibraryLoadEx(
     const char *pszPath,
     flags32_t flags ) noexcept
 {
-    constexpr flags32_t VALID_FLAGS =
+    constexpr flags32_t VALID_FLAGS = // Reject unknown bits before platform dispatch.
         CY_DYNAMIC_LIBRARY_RESOLVE_LAZY |
         CY_DYNAMIC_LIBRARY_GLOBAL_SYMBOLS;
     if ( pLibrary == nullptr ) {
@@ -181,6 +185,8 @@ bool_t Cy_DynamicLibraryLoadEx(
     DynamicLibrary_SetError( pLibrary, "" );
 
 #if CYPHER_PLATFORM_WINDOWS
+    // LOAD_LIBRARY_SEARCH_DEFAULT_DIRS avoids the legacy current-directory search
+    // behavior and uses the process's configured safe DLL search locations.
     wchar_t *pWidePath = DynamicLibrary_Utf8PathToWide( pszPath );
     if ( pWidePath == nullptr ) {
         DynamicLibrary_SetError( pLibrary, "failed to convert dynamic-library path to UTF-16" );
@@ -198,6 +204,8 @@ bool_t Cy_DynamicLibraryLoadEx(
     }
     pLibrary->pHandle = reinterpret_cast<void *>( hModule );
 #elif CYPHER_PLATFORM_POSIX
+    // RTLD_NOW catches missing imports during Load. Lazy resolution is available
+    // only when a caller explicitly accepts failure at first symbol use.
     const int nResolveMode =
         ( flags & CY_DYNAMIC_LIBRARY_RESOLVE_LAZY ) != 0u ? RTLD_LAZY : RTLD_NOW;
     const int nVisibility =
@@ -275,6 +283,8 @@ void *Cy_DynamicLibraryGetSymbol(
     }
     return reinterpret_cast<void *>( pSymbol );
 #elif CYPHER_PLATFORM_POSIX
+    // dlsym may legally return null for a symbol whose address is zero. dlerror is
+    // the authoritative failure indicator and must be cleared before each lookup.
     ::dlerror();
     void *pSymbol = ::dlsym( pLibrary->pHandle, pszSymbolName );
     const char *pszError = ::dlerror();

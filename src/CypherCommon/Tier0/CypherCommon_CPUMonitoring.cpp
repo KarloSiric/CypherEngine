@@ -44,13 +44,13 @@ namespace
 {
 
 struct cpu_time_sample_t {
-    u64 nIdle;
-    u64 nTotal;
+    u64 nIdle;    // Cumulative idle units in the platform's native scale.
+    u64 nTotal;   // Cumulative busy+idle units in the same scale.
     bool_t isValid;
 };
 
 struct process_time_sample_t {
-    u64 nProcessTime;
+    u64 nProcessTime; // Cumulative user+kernel time in platform-native units.
     bool_t isValid;
 };
 
@@ -66,6 +66,7 @@ f32 ClampPercent( f64 value ) noexcept
 }
 
 #if CYPHER_PLATFORM_WINDOWS
+// FILETIME is a 64-bit count of 100-nanosecond intervals split into two words.
 u64 FileTimeToU64( const FILETIME &time ) noexcept
 {
     ULARGE_INTEGER value{};
@@ -112,6 +113,8 @@ process_time_sample_t QueryProcessTimeSample() noexcept
 #elif CYPHER_PLATFORM_LINUX
 cpu_time_sample_t QueryCpuTimeSample() noexcept
 {
+    // The first /proc/stat row is the aggregate across all logical CPUs. Its
+    // fields are cumulative scheduler ticks and only their deltas are useful.
     FILE *pFile = std::fopen( "/proc/stat", "r" );
     if ( pFile == nullptr ) {
         return {};
@@ -168,6 +171,8 @@ process_time_sample_t QueryProcessTimeSample() noexcept
 #elif CYPHER_PLATFORM_MACOS
 cpu_time_sample_t QueryCpuTimeSample() noexcept
 {
+    // Mach exposes cumulative host ticks in the same four categories used by
+    // the kernel scheduler. Their absolute unit is irrelevant to the ratio.
     host_cpu_load_info_data_t cpuInfo{};
     mach_msg_type_number_t cInfo = HOST_CPU_LOAD_INFO_COUNT;
     const kern_return_t result = host_statistics(
@@ -227,6 +232,8 @@ f32 CalculateCpuUsage(
         return 0.0f;
     }
 
+    // Utilization is busy delta divided by total delta. Counter rollback is
+    // treated as unavailable data above, which also handles monitor reset.
     const u64 nTotalDelta = current.nTotal - nPreviousTotal;
     const u64 nIdleDelta =
         current.nIdle > nPreviousIdle ? current.nIdle - nPreviousIdle : 0u;
@@ -249,14 +256,16 @@ f32 CalculateProcessUsage(
     }
 
 #if CYPHER_PLATFORM_WINDOWS
-    constexpr f64 PROCESS_TIME_UNITS_PER_SECOND = 10000000.0;
+    constexpr f64 PROCESS_TIME_UNITS_PER_SECOND = 10000000.0; // FILETIME units.
 #else
-    constexpr f64 PROCESS_TIME_UNITS_PER_SECOND = 1000000.0;
+    constexpr f64 PROCESS_TIME_UNITS_PER_SECOND = 1000000.0;  // getrusage microseconds.
 #endif
 
     const f64 processDeltaSeconds =
         static_cast<f64>( current.nProcessTime - nPreviousProcessTime ) /
         PROCESS_TIME_UNITS_PER_SECOND;
+    // One fully occupied logical CPU is only 1/N of total machine capacity.
+    // Normalize against all scheduler-visible CPUs so the public range is 0..100.
     const f64 machineSeconds =
         intervalSeconds * static_cast<f64>( nLogicalThreadCount );
     if ( machineSeconds <= 0.0 ) {
@@ -278,6 +287,8 @@ bool_t Cy_CPUMonitorInit( cy_cpu_monitor_t *pMonitor ) noexcept
     const process_time_sample_t currentProcessTime = QueryProcessTimeSample();
     const timer_tick_t nWallTicks = Cy_TimerNowTicks();
 
+    // The first query establishes a baseline and intentionally reports no usage;
+    // percentages require two cumulative samples separated by wall time.
     *pMonitor = {};
     pMonitor->nPreviousIdleTicks = currentCpuTime.nIdle;
     pMonitor->nPreviousTotalTicks = currentCpuTime.nTotal;
@@ -341,6 +352,8 @@ bool_t Cy_CPUMonitorSample(
             nLogicalThreadCount );
     }
 
+    // Advance each baseline independently. If one host query fails temporarily,
+    // the other metric remains usable and the failed baseline is preserved.
     if ( currentCpuTime.isValid ) {
         pMonitor->nPreviousIdleTicks = currentCpuTime.nIdle;
         pMonitor->nPreviousTotalTicks = currentCpuTime.nTotal;

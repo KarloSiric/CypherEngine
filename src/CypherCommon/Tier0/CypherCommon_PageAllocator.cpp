@@ -38,6 +38,8 @@ bool_t PageAllocator_HasValidReservation(
         return CY_FALSE;
     }
 
+    // The allocator commits one contiguous prefix. Every stored size must remain
+    // page aligned or Reset could pass an invalid range to the operating system.
     return Cy_AlignIsAligned(
                reinterpret_cast<uintptr>( pAllocator->pReservedBase ),
                pAllocator->nPageSize ) &&
@@ -58,6 +60,8 @@ bool_t Cy_PageAllocatorInit(
     if ( pAllocator == nullptr || nReserveByteCount == 0u ) {
         return CY_FALSE;
     }
+    // Reinitializing a live allocator would lose the only handle to its virtual
+    // reservation. Require caller-owned state to begin fully zeroed.
     if ( pAllocator->pReservedBase != nullptr ||
          pAllocator->nReservedByteCount != 0u ||
          pAllocator->nCommittedByteCount != 0u ||
@@ -67,6 +71,7 @@ bool_t Cy_PageAllocatorInit(
 
     const platform_memory_info_t info = Cy_PlatformMemoryGetInfo();
     usize nAlignedReserveByteCount = 0u;
+    // Reserve on the stricter allocation granularity; later commits use page size.
     if ( !Cy_AlignUpChecked(
              nReserveByteCount,
              info.nAllocationGranularity,
@@ -127,6 +132,8 @@ void *Cy_PageAllocatorCommit(
         return nullptr;
     }
 
+    // Only a growing prefix is committed. This keeps returned ranges contiguous
+    // and makes Reset a single decommit operation.
     void *pMemory =
         static_cast<byte *>( pAllocator->pReservedBase ) +
         pAllocator->nCommittedByteCount;
@@ -152,6 +159,8 @@ bool_t Cy_PageAllocatorReset( page_allocator_t *pAllocator ) noexcept
         return CY_FALSE;
     }
 
+    // Keep the virtual addresses reserved so a future commit can reuse the same
+    // base without address-space fragmentation or pointer relocation.
     pAllocator->nCommittedByteCount = 0u;
     return CY_TRUE;
 }

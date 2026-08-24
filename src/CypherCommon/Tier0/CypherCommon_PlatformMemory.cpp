@@ -39,6 +39,13 @@
 namespace cypher::common
 {
 
+//-----------------------------------------------------------------------------
+// Native virtual-memory translation
+//
+// Reserve establishes an address range, commit makes pages accessible, decommit
+// releases their physical backing, and release destroys the reservation itself.
+// Callers must preserve page alignment across every transition.
+//-----------------------------------------------------------------------------
 namespace
 {
 
@@ -109,6 +116,8 @@ platform_memory_info_t Cy_PlatformMemoryGetInfo() noexcept
     }
 #elif CYPHER_PLATFORM_POSIX
     info.nPageSize = PlatformMemory_PageSize();
+    // POSIX mmap reservations have page granularity. Windows distinguishes page
+    // size from the larger virtual allocation granularity.
     info.nAllocationGranularity = info.nPageSize;
 
     #if defined( _SC_PHYS_PAGES )
@@ -151,6 +160,8 @@ void *Cy_PlatformMemoryReserve( usize nByteCount ) noexcept
 #if CYPHER_PLATFORM_WINDOWS
     return ::VirtualAlloc( nullptr, nAlignedByteCount, MEM_RESERVE, PAGE_NOACCESS );
 #elif CYPHER_PLATFORM_POSIX
+    // PROT_NONE reserves address space and catches accidental access before the
+    // caller commits a page range with mprotect.
     void *pMemory = ::mmap(
         nullptr,
         nAlignedByteCount,
@@ -179,12 +190,15 @@ bool_t Cy_PlatformMemoryCommit(
     }
 
 #if CYPHER_PLATFORM_WINDOWS
+    // VirtualAlloc performs a true commit and obtains backing-store commitment.
     return ::VirtualAlloc(
                pMemory,
                nAlignedByteCount,
                MEM_COMMIT,
                PAGE_READWRITE ) != nullptr;
 #elif CYPHER_PLATFORM_POSIX
+    // POSIX has no direct reserve/commit split matching Windows. Changing access
+    // protection makes the range usable; physical pages remain demand-paged.
     return ::mprotect(
                pMemory,
                nAlignedByteCount,
@@ -211,6 +225,8 @@ bool_t Cy_PlatformMemoryDecommit(
 #if CYPHER_PLATFORM_WINDOWS
     return ::VirtualFree( pMemory, nAlignedByteCount, MEM_DECOMMIT ) != FALSE;
 #elif CYPHER_PLATFORM_POSIX
+    // Revoke access first so stale pointers fault consistently. MADV_DONTNEED is
+    // best effort and asks the kernel to discard resident backing pages.
     if ( ::mprotect( pMemory, nAlignedByteCount, PROT_NONE ) != 0 ) {
         return CY_FALSE;
     }
@@ -232,9 +248,11 @@ bool_t Cy_PlatformMemoryRelease(
     }
 
 #if CYPHER_PLATFORM_WINDOWS
+    // MEM_RELEASE requires the original reservation base and a zero byte count.
     ( void )nByteCount;
     return ::VirtualFree( pMemory, 0u, MEM_RELEASE ) != FALSE;
 #elif CYPHER_PLATFORM_POSIX
+    // munmap requires the reservation length, so POSIX callers must retain it.
     usize nAlignedByteCount = 0u;
     if ( !PlatformMemory_AlignSize(
              nByteCount,

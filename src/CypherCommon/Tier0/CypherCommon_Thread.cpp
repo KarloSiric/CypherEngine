@@ -43,10 +43,12 @@ namespace cypher::common
 namespace
 {
 
-std::mutex g_threadStateMutex;
+// Cypher thread IDs are small process-local identifiers. They are independent of
+// native handles, remain cheap to store in events, and are assigned lazily.
+std::mutex g_threadStateMutex; // Serializes main-thread capture and shutdown.
 std::atomic_bool g_threadInitialized = false;
 std::atomic<thread_id_t> g_mainThreadId = CY_THREAD_INVALID_ID;
-std::atomic<thread_id_t> g_nextThreadId{ 1u };
+std::atomic<thread_id_t> g_nextThreadId{ 1u }; // Zero remains the invalid ID.
 thread_local thread_id_t g_currentThreadId = CY_THREAD_INVALID_ID;
 
 thread_id_t ThreadGetOrAssignCurrentId() noexcept
@@ -55,8 +57,11 @@ thread_id_t ThreadGetOrAssignCurrentId() noexcept
         return g_currentThreadId;
     }
 
+    // Relaxed ordering is sufficient: uniqueness comes from atomic fetch_add and
+    // the ID carries no publication relationship with other thread state.
     thread_id_t nThreadId =
         g_nextThreadId.fetch_add( 1u, std::memory_order_relaxed );
+    // Skip zero if the monotonically increasing counter wraps.
     if ( nThreadId == CY_THREAD_INVALID_ID ) {
         nThreadId = g_nextThreadId.fetch_add( 1u, std::memory_order_relaxed );
     }
@@ -144,6 +149,8 @@ u64 Cy_ThreadGetCurrentIdHash() noexcept
 
 u32 Cy_ThreadGetLogicalCount() noexcept
 {
+    // Hardware topology does not change for the process in the supported runtime
+    // model. Cache the query and guarantee at least one worker-visible thread.
     static const u32 nThreadCount = []() {
         const u32 nDetectedThreadCount = std::thread::hardware_concurrency();
         return nDetectedThreadCount != 0u ? nDetectedThreadCount : 1u;
@@ -156,6 +163,8 @@ bool_t Cy_ThreadCaptureMainThread() noexcept
 {
     std::lock_guard<std::mutex> lock( g_threadStateMutex );
     const thread_id_t nCurrentThreadId = ThreadGetOrAssignCurrentId();
+    // Once initialized, a different thread may not silently replace the main
+    // thread identity; callers can use the false result to diagnose bad startup.
     if ( g_threadInitialized.load( std::memory_order_acquire ) ) {
         return g_mainThreadId.load( std::memory_order_acquire ) ==
                nCurrentThreadId;
@@ -193,10 +202,12 @@ bool_t Cy_ThreadSetCurrentName( const char *pszName ) noexcept
     }
     return CY_FALSE;
 #elif CYPHER_PLATFORM_MACOS
+    // Darwin accepts a 64-byte thread name including the terminator.
     char szName[CY_THREAD_NAME_CAPACITY] = {};
     ThreadCopyName( szName, CYPHER_ARRAY_COUNT( szName ), pszName );
     return pthread_setname_np( szName ) == 0;
 #elif CYPHER_PLATFORM_LINUX
+    // Linux pthread names are limited to 16 bytes including the terminator.
     char szName[16] = {};
     for ( usize i = 0u; i + 1u < CYPHER_ARRAY_COUNT( szName ) && pszName[i] != '\0'; ++i ) {
         szName[i] = pszName[i];
@@ -218,6 +229,8 @@ bool_t Cy_ThreadCreate(
         return CY_FALSE;
     }
 
+    // Publish running before construction so a successfully returned thread object
+    // is never observed in a transient stopped state while its entry point starts.
     pThread->nThreadId.store( CY_THREAD_INVALID_ID, std::memory_order_relaxed );
     pThread->isRunning.store( CY_TRUE, std::memory_order_release );
     pThread->nResult = 0;
@@ -225,6 +238,8 @@ bool_t Cy_ThreadCreate(
 
     try {
         pThread->native = std::thread( [pThread, pProc, pUserData]() noexcept {
+            // The wrapper owns bookkeeping; the caller-supplied procedure only
+            // returns its result and never has to manipulate cy_thread_t internals.
             pThread->nThreadId.store(
                 Cy_ThreadGetCurrentId(),
                 std::memory_order_release );
@@ -245,6 +260,8 @@ bool_t Cy_ThreadCreate(
 
 bool_t Cy_ThreadJoin( cy_thread_t *pThread, i32 *pOutResult ) noexcept
 {
+    // Joining the current thread would deadlock. A non-joinable object either was
+    // never started or has already been joined/moved.
     if ( pThread == nullptr || !pThread->native.joinable() ||
          pThread->native.get_id() == std::this_thread::get_id() ) {
         return CY_FALSE;

@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Process.h
-//  Purpose: Declares CypherCommon Tier0 Process support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares current-process identity, executable path, and termination.
+//  Details: Process creation and IPC are intentionally outside Tier0; these calls
+//           are the small set required by logs, crash reports, and startup code.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -36,8 +35,8 @@ Process identity and process utility declarations.
 namespace cypher::common
 {
 
-using process_id_t = u64;
-constexpr usize CY_PROCESS_PATH_MAX = 4096u;
+using process_id_t = u64;                       // Normalized native PID value.
+constexpr usize CY_PROCESS_PATH_MAX = 4096u;   // Includes the null terminator.
 
 // Returns the host process identifier.
 CYPHER_NODISCARD CYPHER_COMMON_API process_id_t Cy_ProcessGetCurrentId() noexcept;

@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Stats.h
-//  Purpose: Declares CypherCommon Tier0 Stats support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Defines the bounded process-wide registry for runtime statistics.
+//  Details: Registrations receive stable IDs; values may change concurrently while
+//           names and categories remain fixed until the registry is cleared.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -38,11 +37,11 @@ namespace cypher::common
 {
 
 using stat_id_t = u32;
-constexpr stat_id_t CY_STAT_ID_INVALID = 0u;
-constexpr usize CY_STATS_MAX_COUNT = 1024u;
-constexpr usize CY_STAT_NAME_MAX = 64u;
-constexpr usize CY_STAT_CATEGORY_MAX = 48u;
-constexpr usize CY_STAT_DESCRIPTION_MAX = 128u;
+constexpr stat_id_t CY_STAT_ID_INVALID = 0u; // Registration IDs begin at one.
+constexpr usize CY_STATS_MAX_COUNT = 1024u; // Fixed registry capacity; no growth allocation.
+constexpr usize CY_STAT_NAME_MAX = 64u;      // Includes the null terminator.
+constexpr usize CY_STAT_CATEGORY_MAX = 48u;  // Includes the null terminator.
+constexpr usize CY_STAT_DESCRIPTION_MAX = 128u; // Includes the null terminator.
 
 enum class stat_value_type_t : u8 {
     I64 = 0u,
@@ -51,33 +50,33 @@ enum class stat_value_type_t : u8 {
 };
 
 struct stat_value_t {
-    stat_value_type_t type = stat_value_type_t::I64;
+    stat_value_type_t type = stat_value_type_t::I64; // Selects the active union member.
     union {
-        i64 i64Value;
-        u64 u64Value;
-        f64 f64Value;
+        i64 i64Value; // Signed counter or gauge.
+        u64 u64Value; // Unsigned counter or gauge.
+        f64 f64Value; // Floating-point gauge.
     };
 };
 
 struct stat_desc_t {
-    const char *pszName;
-    const char *pszCategory;
-    const char *pszDescription;
-    stat_value_type_t type = stat_value_type_t::I64;
+    const char *pszName;        // Required registration name; copied into registry storage.
+    const char *pszCategory;    // Optional grouping name; copied into registry storage.
+    const char *pszDescription; // Optional explanation; copied into registry storage.
+    stat_value_type_t type = stat_value_type_t::I64; // Type accepted by future updates.
 };
 
 struct stat_snapshot_t {
-    stat_id_t id;
-    char szName[CY_STAT_NAME_MAX];
-    char szCategory[CY_STAT_CATEGORY_MAX];
-    char szDescription[CY_STAT_DESCRIPTION_MAX];
-    stat_value_t value;
+    stat_id_t id;                              // Stable registration ID.
+    char szName[CY_STAT_NAME_MAX];             // Owned null-terminated name copy.
+    char szCategory[CY_STAT_CATEGORY_MAX];     // Owned null-terminated category copy.
+    char szDescription[CY_STAT_DESCRIPTION_MAX]; // Owned null-terminated description copy.
+    stat_value_t value;                        // Value observed while taking the snapshot.
 };
 
 struct stats_registry_info_t {
-    usize nRegisteredCount;
-    usize nCapacity;
-    u64 nDroppedRegistrations;
+    usize nRegisteredCount;    // Live registrations currently addressable by ID.
+    usize nCapacity;           // Fixed maximum registration count.
+    u64 nDroppedRegistrations; // Failed registrations since the last full clear.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_StatsRegister(

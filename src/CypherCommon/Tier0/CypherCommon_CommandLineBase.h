@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_CommandLineBase.h
-//  Purpose: Declares CypherCommon Tier0 CommandLineBase support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares a bounded, non-owning view of the process argument vector.
+//  Details: Tier0 stores argv pointers only. Parsing subcommands, response files,
+//           typed options, and help text belongs to the tool framework.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -36,12 +35,12 @@ Low-level process command line declarations.
 namespace cypher::common
 {
 
-constexpr usize CY_COMMANDLINEBASE_MAX_ARGS = 128u;
+constexpr usize CY_COMMANDLINEBASE_MAX_ARGS = 128u; // Fixed no-allocation capacity.
 
 struct command_line_base_t {
-    const char *ppszArgs[CY_COMMANDLINEBASE_MAX_ARGS] = {};
-    usize nArgCount = 0u;
-    bool_t isTruncated = CY_FALSE;
+    const char *ppszArgs[CY_COMMANDLINEBASE_MAX_ARGS] = {}; // Borrowed argv strings.
+    usize nArgCount = 0u;                                  // Stored pointer count.
+    bool_t isTruncated = CY_FALSE;                         // Input exceeded capacity.
 };
 
 // Borrows argv pointers; their strings must outlive the command-line object.

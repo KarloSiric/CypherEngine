@@ -22,8 +22,13 @@
 namespace cypher::common
 {
 
+// Performance counters retain native timer ticks until conversion is requested;
+// this avoids precision loss when short intervals are accumulated.
+
 performance_counter_t Cy_PerformanceCounterNow() noexcept
 {
+    // Keep this facade exactly in Timer units so callers can mix counter samples
+    // with the frequency returned below without an extra conversion or epoch.
     return static_cast<performance_counter_t>( Cy_TimerNowTicks() );
 }
 

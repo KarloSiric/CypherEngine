@@ -27,6 +27,8 @@
 namespace cypher::common
 {
 
+// Prefetch is a non-binding performance hint. Unsupported targets intentionally
+// degrade to a no-op rather than changing program correctness.
 namespace
 {
 
@@ -37,6 +39,7 @@ void Cache_BuiltinPrefetch(
     cache_prefetch_locality_t locality ) noexcept
 {
     static_assert( nWrite == 0 || nWrite == 1, "Prefetch mode must be read or write." );
+    // GCC/Clang locality values map directly from 0 (none) to 3 (high).
     switch ( locality ) {
         case cache_prefetch_locality_t::NonTemporal:
             __builtin_prefetch( pMemory, nWrite, 0 );
@@ -66,6 +69,8 @@ void Cy_CachePrefetchRead(
     }
 
 #if CYPHER_COMPILER_MSVC && CYPHER_ARCH_X64
+    // MSVC exposes x86 read-prefetch hints only; write-prefetch falls back to the
+    // same non-binding hint below on unsupported compiler/architecture pairs.
     switch ( locality ) {
         case cache_prefetch_locality_t::NonTemporal:
             _mm_prefetch( static_cast<const char *>( pMemory ), _MM_HINT_NTA );
@@ -105,6 +110,8 @@ void Cy_CachePrefetchWrite(
 
 usize Cy_CacheGetLineSize() noexcept
 {
+    // CPUDetect owns platform queries and SystemInfo owns the cached snapshot.
+    // Never issue CPUID/sysctl from a hot prefetch call site.
     const cy_system_info_t *pInfo = Cy_SystemInfoGet();
     const usize nDetectedSize =
         pInfo != nullptr ? pInfo->cpu.cacheLineSize : 0u;

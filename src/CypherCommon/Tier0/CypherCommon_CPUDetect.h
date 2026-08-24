@@ -4,10 +4,10 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_CPUDetect.h
-//  Purpose: Declares CypherCommon Tier0 CPUDetect support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares the process-wide CPU identity and feature snapshot.
+//  Details: Hardware features and OS-usable features are kept separate. A CPU may
+//           advertise AVX while the operating system has not enabled the register
+//           state needed to execute AVX instructions safely.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -29,18 +29,19 @@
 namespace cypher::common
 {
 
-constexpr usize CY_CPU_VENDOR_MAX = 32u;
-constexpr usize CY_CPU_BRAND_MAX = 128u;
+constexpr usize CY_CPU_VENDOR_MAX = 32u; // CPUID vendor plus the null terminator.
+constexpr usize CY_CPU_BRAND_MAX = 128u; // Human-readable processor description.
 
 enum cy_cpu_vendor_t : u32 {
-    CY_CPU_VENDOR_UNKNOWN = 0u,
-    CY_CPU_VENDOR_INTEL,
-    CY_CPU_VENDOR_AMD,
-    CY_CPU_VENDOR_APPLE,
-    CY_CPU_VENDOR_ARM,
-    CY_CPU_VENDOR_QUALCOMM
+    CY_CPU_VENDOR_UNKNOWN = 0u, // Vendor could not be identified reliably.
+    CY_CPU_VENDOR_INTEL,        // GenuineIntel CPUID vendor string.
+    CY_CPU_VENDOR_AMD,          // AuthenticAMD CPUID vendor string.
+    CY_CPU_VENDOR_APPLE,        // Apple Silicon host.
+    CY_CPU_VENDOR_ARM,          // Generic ARM host without a narrower vendor.
+    CY_CPU_VENDOR_QUALCOMM      // Qualcomm ARM host.
 };
 
+// Feature bits are stable Cypher values; they are not raw CPUID/HWCAP bits.
 enum cy_cpu_feature_flags_t : flags64_t {
     CY_CPU_FEATURE_NONE  = 0ull,
 
@@ -63,22 +64,22 @@ enum cy_cpu_feature_flags_t : flags64_t {
 };
 
 struct cy_cpu_detect_info_t {
-    cy_cpu_vendor_t vendor;
+    cy_cpu_vendor_t vendor;                    // Normalized processor vendor.
 
-    char szVendor[CY_CPU_VENDOR_MAX];
-    char szBrand[CY_CPU_BRAND_MAX];
+    char szVendor[CY_CPU_VENDOR_MAX];           // Raw or synthesized vendor name.
+    char szBrand[CY_CPU_BRAND_MAX];             // User-facing model/brand string.
 
-    u32 family;
-    u32 model;
-    u32 stepping;
+    u32 family;                                 // x86 family; zero on other ISAs.
+    u32 model;                                  // x86 model; zero on other ISAs.
+    u32 stepping;                               // x86 stepping; zero on other ISAs.
 
-    u32 logicalThreadCount;
-    u32 physicalCoreCount;
+    u32 logicalThreadCount;                     // Scheduler-visible hardware threads.
+    u32 physicalCoreCount;                      // Best available physical-core count.
 
-    usize cacheLineSize;
+    usize cacheLineSize;                        // L1 data cache line size in bytes.
 
-    flags64_t hardwareFeatures;
-    flags64_t usableFeatures;
+    flags64_t hardwareFeatures;                 // Features reported by the processor.
+    flags64_t usableFeatures;                   // Features safe to execute in this OS.
 };
 
 // Initializes the immutable process-lifetime CPU snapshot.

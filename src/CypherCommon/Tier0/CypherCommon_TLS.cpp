@@ -23,17 +23,20 @@
 
 namespace cypher::common
 {
+
+// A slot packs an array index with a generation. Reusing an index increments
+// the generation so stale slot values cannot address newly registered TLS data.
 namespace
 {
 
-constexpr u32 CY_TLS_INDEX_BITS = 8u;
+constexpr u32 CY_TLS_INDEX_BITS = 8u; // Low handle bits select one of 256 slots.
 constexpr u32 CY_TLS_INDEX_MASK = ( 1u << CY_TLS_INDEX_BITS ) - 1u;
 static_assert( CY_TLS_MAX_SLOT_COUNT == ( 1u << CY_TLS_INDEX_BITS ) );
 
 struct tls_slot_record_t {
-    std::atomic<u32> nGeneration{ 1u };
-    std::atomic_bool isActive{ false };
-    std::atomic<tls_destructor_t> pDestructor{ nullptr };
+    std::atomic<u32> nGeneration{ 1u };              // Changes on every reuse.
+    std::atomic_bool isActive{ false };              // Slot accepts Get/Set calls.
+    std::atomic<tls_destructor_t> pDestructor{ nullptr }; // Runs at thread exit.
 };
 
 std::mutex g_tlsMutex;
@@ -41,11 +44,13 @@ std::array<tls_slot_record_t, CY_TLS_MAX_SLOT_COUNT> g_tlsSlots;
 std::atomic<u32> g_tlsAllocatedSlotCount{ 0u };
 
 struct tls_thread_state_t {
-    std::array<void *, CY_TLS_MAX_SLOT_COUNT> values{};
-    std::array<u32, CY_TLS_MAX_SLOT_COUNT> generations{};
+    std::array<void *, CY_TLS_MAX_SLOT_COUNT> values{}; // Values owned by this thread.
+    std::array<u32, CY_TLS_MAX_SLOT_COUNT> generations{}; // Handle revision per value.
 
     ~tls_thread_state_t() noexcept
     {
+        // Destruct only values whose slot is still active and has the generation
+        // recorded by this thread. A destroyed and reused slot is unrelated data.
         for ( u32 nIndex = 0u; nIndex < CY_TLS_MAX_SLOT_COUNT; ++nIndex ) {
             void *pValue = values[nIndex];
             if ( pValue == nullptr ) {
@@ -110,6 +115,8 @@ tls_slot_t Cy_TLSCreateSlot( tls_destructor_t pDestructor ) noexcept
     for ( u32 nIndex = 0u; nIndex < CY_TLS_MAX_SLOT_COUNT; ++nIndex ) {
         tls_slot_record_t &record = g_tlsSlots[nIndex];
         if ( !record.isActive.load( std::memory_order_relaxed ) ) {
+            // Store destructor first, then release-publish active. Lock-free readers
+            // that acquire isActive cannot observe a half-initialized record.
             record.pDestructor.store( pDestructor, std::memory_order_relaxed );
             record.isActive.store( true, std::memory_order_release );
             g_tlsAllocatedSlotCount.fetch_add( 1u, std::memory_order_relaxed );
@@ -135,6 +142,8 @@ bool_t Cy_TLSDestroySlot( tls_slot_t slot ) noexcept
         const u32 nGeneration = TLS_GenerationFromSlot( slot );
         tls_slot_record_t &record = g_tlsSlots[nIndex];
 
+        // Slot destruction can directly clean only the calling thread's value.
+        // Other threads reject the stale generation and clean nothing at exit.
         if ( g_tlsThreadState.generations[nIndex] == nGeneration ) {
             pCurrentThreadValue = g_tlsThreadState.values[nIndex];
             g_tlsThreadState.values[nIndex] = nullptr;
@@ -145,6 +154,8 @@ bool_t Cy_TLSDestroySlot( tls_slot_t slot ) noexcept
         record.isActive.store( false, std::memory_order_release );
         record.pDestructor.store( nullptr, std::memory_order_release );
 
+        // Generation zero is reserved by the invalid handle. Wrap to one before
+        // the generation would overlap the packed index bits.
         u32 nNextGeneration =
             record.nGeneration.load( std::memory_order_relaxed ) + 1u;
         if ( nNextGeneration == 0u ||
@@ -155,6 +166,7 @@ bool_t Cy_TLSDestroySlot( tls_slot_t slot ) noexcept
         g_tlsAllocatedSlotCount.fetch_sub( 1u, std::memory_order_relaxed );
     }
 
+    // User code runs outside g_tlsMutex; destructors may use other TLS APIs.
     if ( pCurrentThreadValue != nullptr && pDestructor != nullptr ) {
         pDestructor( pCurrentThreadValue );
     }
@@ -173,6 +185,8 @@ bool_t Cy_TLSSetValue( tls_slot_t slot, void *pValue ) noexcept
     }
 
     const u32 nIndex = TLS_IndexFromSlot( slot );
+    // Replacing a value does not invoke the destructor. Ownership transfer on Set
+    // is explicit; destruction occurs only on slot destruction or thread exit.
     g_tlsThreadState.values[nIndex] = pValue;
     g_tlsThreadState.generations[nIndex] = TLS_GenerationFromSlot( slot );
 

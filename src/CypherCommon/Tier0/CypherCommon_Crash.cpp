@@ -24,6 +24,9 @@
 
 namespace cypher::common
 {
+
+// Crash reporting is process-wide. The thread-local guard prevents a custom
+// crash handler from re-entering the reporting path if the handler itself fails.
 namespace
 {
 
@@ -32,6 +35,8 @@ thread_local bool_t g_crashHandlingReport = CY_FALSE;
 
 void Crash_WriteFallback( const crash_info_t &info ) noexcept
 {
+    // Do not depend on the normal logger here; a fatal report may be caused by
+    // logging initialization, allocation, or callback failure.
     std::fprintf( stderr,
                   "[Fatal] %s (%s:%u:%s)\n",
                   info.pReason,
@@ -55,6 +60,8 @@ crash_handler_t Cy_CrashGetHandler() noexcept
 
 void Cy_CrashReport( const char *pReason, source_location_t location ) noexcept
 {
+    // Normalize optional fields before invoking either sink. A crash callback gets
+    // printable strings even when the original caller supplied an empty location.
     crash_info_t info{};
     info.pReason = pReason != nullptr && pReason[0] != '\0'
         ? pReason
@@ -68,6 +75,8 @@ void Cy_CrashReport( const char *pReason, source_location_t location ) noexcept
     info.location.line = location.line;
     info.location.column = location.column;
 
+    // Recursive reporting bypasses user code but does not terminate by itself;
+    // Cy_CrashTrigger performs the unconditional process trap after reporting.
     if ( g_crashHandlingReport ) {
         Crash_WriteFallback( info );
         return;
@@ -85,6 +94,8 @@ void Cy_CrashReport( const char *pReason, source_location_t location ) noexcept
 
 [[noreturn]] void Cy_CrashTrigger( const char *pReason, source_location_t location ) noexcept
 {
+    // Reporting is best effort. The trap is unconditional even when no handler is
+    // installed or a custom handler returns normally.
     Cy_CrashReport( pReason, location );
     CY_TRAP();
 }

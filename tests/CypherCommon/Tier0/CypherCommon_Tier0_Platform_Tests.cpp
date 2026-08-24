@@ -29,6 +29,13 @@ TEST_CASE( "Platform selects exactly one compiler frontend", "[CypherCommon][Tie
     STATIC_REQUIRE( CYPHER_COMPILER_MSVC_ABI == 0 || CYPHER_COMPILER_MSVC_ABI == 1 );
     STATIC_REQUIRE( CYPHER_COMPILER_VERSION_MAJOR > 0 );
     STATIC_REQUIRE( CYPHER_COMPILER_VERSION != 0 );
+    STATIC_REQUIRE(
+        CYPHER_COMPILER_VERSION_AT_LEAST(
+            CYPHER_COMPILER_VERSION_MAJOR,
+            CYPHER_COMPILER_VERSION_MINOR,
+            CYPHER_COMPILER_VERSION_PATCH
+        )
+    );
     STATIC_REQUIRE( CYPHER_COMPILER_NAME[0] != '\0' );
 
 #if defined( __clang__ ) && defined( _MSC_VER )
@@ -46,6 +53,13 @@ TEST_CASE( "Platform selects exactly one compiler frontend", "[CypherCommon][Tie
 #endif
 }
 
+TEST_CASE( "Platform exposes portable compiler capability queries", "[CypherCommon][Tier0][Platform]" )
+{
+    STATIC_REQUIRE( CYPHER_HAS_BUILTIN( __builtin_trap ) == 0 || CYPHER_HAS_BUILTIN( __builtin_trap ) == 1 );
+    STATIC_REQUIRE( CYPHER_HAS_ATTRIBUTE( noinline ) == 0 || CYPHER_HAS_ATTRIBUTE( noinline ) == 1 );
+    STATIC_REQUIRE( CYPHER_HAS_FEATURE( address_sanitizer ) == 0 || CYPHER_HAS_FEATURE( address_sanitizer ) == 1 );
+}
+
 TEST_CASE( "Platform selects one supported operating system", "[CypherCommon][Tier0][Platform]" )
 {
     STATIC_REQUIRE( CYPHER_PLATFORM_WINDOWS + CYPHER_PLATFORM_LINUX + CYPHER_PLATFORM_MACOS == 1 );
@@ -56,6 +70,22 @@ TEST_CASE( "Platform selects one supported operating system", "[CypherCommon][Ti
     STATIC_REQUIRE( CYPHER_PLATFORM_POSIX == 0 );
 #else
     STATIC_REQUIRE( CYPHER_PLATFORM_POSIX == 1 );
+#endif
+}
+
+TEST_CASE( "Platform describes native host filenames", "[CypherCommon][Tier0][Platform]" )
+{
+    STATIC_REQUIRE( CYPHER_NATIVE_PATH_SEPARATOR == '/' || CYPHER_NATIVE_PATH_SEPARATOR == '\\' );
+    STATIC_REQUIRE( CYPHER_SHARED_LIBRARY_EXTENSION[0] == '.' );
+
+#if CYPHER_PLATFORM_WINDOWS
+    STATIC_REQUIRE( CYPHER_NATIVE_PATH_SEPARATOR == '\\' );
+    STATIC_REQUIRE( CYPHER_SHARED_LIBRARY_PREFIX[0] == '\0' );
+    STATIC_REQUIRE( CYPHER_EXECUTABLE_EXTENSION[0] == '.' );
+#else
+    STATIC_REQUIRE( CYPHER_NATIVE_PATH_SEPARATOR == '/' );
+    STATIC_REQUIRE( CYPHER_SHARED_LIBRARY_PREFIX[0] == 'l' );
+    STATIC_REQUIRE( CYPHER_EXECUTABLE_EXTENSION[0] == '\0' );
 #endif
 }
 
@@ -99,4 +129,18 @@ TEST_CASE( "Platform reports the required C++ language features", "[CypherCommon
     STATIC_REQUIRE( CYPHER_CPP_STANDARD >= 202002L );
     STATIC_REQUIRE( CYPHER_CPP_EXCEPTIONS == 0 || CYPHER_CPP_EXCEPTIONS == 1 );
     STATIC_REQUIRE( CYPHER_CPP_RTTI == 0 || CYPHER_CPP_RTTI == 1 );
+}
+
+TEST_CASE( "Platform normalizes sanitizer detection", "[CypherCommon][Tier0][Platform]" )
+{
+    STATIC_REQUIRE( CYPHER_SANITIZER_ADDRESS == 0 || CYPHER_SANITIZER_ADDRESS == 1 );
+    STATIC_REQUIRE( CYPHER_SANITIZER_THREAD == 0 || CYPHER_SANITIZER_THREAD == 1 );
+    STATIC_REQUIRE( CYPHER_SANITIZER_MEMORY == 0 || CYPHER_SANITIZER_MEMORY == 1 );
+    STATIC_REQUIRE( CYPHER_SANITIZER_UNDEFINED == 0 || CYPHER_SANITIZER_UNDEFINED == 1 );
+    STATIC_REQUIRE( CYPHER_SANITIZER_ANY == 0 || CYPHER_SANITIZER_ANY == 1 );
+    STATIC_REQUIRE(
+        CYPHER_SANITIZER_ANY ==
+        ( CYPHER_SANITIZER_ADDRESS || CYPHER_SANITIZER_THREAD || CYPHER_SANITIZER_MEMORY ||
+          CYPHER_SANITIZER_UNDEFINED )
+    );
 }

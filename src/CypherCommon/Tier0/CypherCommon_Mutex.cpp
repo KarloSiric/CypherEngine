@@ -20,12 +20,18 @@
 namespace cypher::common
 {
 
+//-----------------------------------------------------------------------------
+// Non-recursive mutex lifecycle and ownership tracking
+//-----------------------------------------------------------------------------
+
 bool_t Cy_MutexInit( cy_mutex_t *pMutex ) noexcept
 {
     if ( pMutex == nullptr ) {
         return CY_FALSE;
     }
 
+    // compare_exchange rejects duplicate initialization without a separate
+    // lifecycle lock. Native std::mutex storage already exists in the object.
     bool_t wasInitialized = CY_FALSE;
     if ( !pMutex->isInitialized.compare_exchange_strong(
              wasInitialized,
@@ -51,6 +57,8 @@ bool_t Cy_MutexShutdown( cy_mutex_t *pMutex ) noexcept
         return CY_FALSE;
     }
 
+    // Ownership metadata is diagnostic and can race just before a contender takes
+    // the native mutex. try_lock closes that window before disabling the wrapper.
     try {
         if ( !pMutex->native.try_lock() ) {
             return CY_FALSE;
@@ -81,6 +89,8 @@ bool_t Cy_MutexLock( cy_mutex_t *pMutex ) noexcept
         return CY_FALSE;
     }
 
+    // std::mutex recursive locking is undefined behavior. Reject it explicitly so
+    // engine code gets a failure instead of a platform-dependent deadlock.
     const thread_id_t nCurrentThreadId = Cy_ThreadGetCurrentId();
     if ( pMutex->nOwnerThreadId.load( std::memory_order_acquire ) ==
          nCurrentThreadId ) {
@@ -92,6 +102,8 @@ bool_t Cy_MutexLock( cy_mutex_t *pMutex ) noexcept
     } catch ( ... ) {
         return CY_FALSE;
     }
+    // Shutdown may have won while this thread was blocked in native.lock(). Do not
+    // publish ownership for a wrapper whose lifecycle has already ended.
     if ( !Cy_MutexIsInitialized( pMutex ) ) {
         pMutex->native.unlock();
         return CY_FALSE;
@@ -136,6 +148,8 @@ bool_t Cy_MutexUnlock( cy_mutex_t *pMutex ) noexcept
         return CY_FALSE;
     }
 
+    // Clear diagnostic ownership before releasing the native mutex. A new owner
+    // can then publish its ID immediately after lock() returns.
     pMutex->nOwnerThreadId.store(
         CY_THREAD_INVALID_ID,
         std::memory_order_release );
@@ -157,6 +171,9 @@ bool_t Cy_MutexIsOwnedByCurrentThread( const cy_mutex_t *pMutex ) noexcept
                Cy_ThreadGetCurrentId();
 }
 
+//-----------------------------------------------------------------------------
+// Recursive mutex lifecycle and recursion-depth tracking
+//-----------------------------------------------------------------------------
 bool_t Cy_RecursiveMutexInit( cy_recursive_mutex_t *pMutex ) noexcept
 {
     if ( pMutex == nullptr ) {
@@ -231,6 +248,8 @@ bool_t Cy_RecursiveMutexLock( cy_recursive_mutex_t *pMutex ) noexcept
         return CY_FALSE;
     }
 
+    // The native recursive mutex controls exclusion; these fields only mirror its
+    // owner/depth so misuse can be detected without relying on native internals.
     const thread_id_t nCurrentThreadId = Cy_ThreadGetCurrentId();
     if ( pMutex->nOwnerThreadId.load( std::memory_order_acquire ) ==
          nCurrentThreadId ) {
@@ -290,6 +309,7 @@ bool_t Cy_RecursiveMutexUnlock( cy_recursive_mutex_t *pMutex ) noexcept
         return CY_FALSE;
     }
 
+    // Ownership ends only when the outermost recursive acquisition is released.
     if ( nDepth == 1u ) {
         pMutex->nRecursionDepth.store( 0u, std::memory_order_release );
         pMutex->nOwnerThreadId.store(

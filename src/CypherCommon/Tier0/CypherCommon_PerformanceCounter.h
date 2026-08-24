@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_PerformanceCounter.h
-//  Purpose: Declares CypherCommon Tier0 PerformanceCounter support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares the legacy high-resolution counter facade over Timer.
+//  Details: Counter values are monotonic process-relative ticks. This API remains
+//           small so old call sites do not depend on platform clock types.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -36,7 +35,7 @@ High-resolution counter declarations.
 namespace cypher::common
 {
 
-using performance_counter_t = u64;
+using performance_counter_t = u64; // Same units returned by Cy_TimerNowTicks.
 
 CYPHER_NODISCARD CYPHER_COMMON_API performance_counter_t
 Cy_PerformanceCounterNow() noexcept;

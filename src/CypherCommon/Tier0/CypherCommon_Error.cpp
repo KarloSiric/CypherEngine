@@ -20,6 +20,8 @@
 namespace cypher::common
 {
 
+// Error tables are static and allocation-free so diagnostics remain usable from
+// low-memory and crash-adjacent paths. Numeric codes are stable lookup keys.
 namespace
 {
 
@@ -85,6 +87,8 @@ const char *Cy_ErrorDescription( common_error_t error ) noexcept
 
 const char *Cy_ErrorDomainName( error_domain_t domain ) noexcept
 {
+    // Domain names are deliberately stable diagnostic strings. They may appear
+    // in logs and tool output, so changing spelling is an output-format change.
     switch ( domain ) {
         case error_domain_t::COMMON: return "Common";
         case error_domain_t::MEMORY: return "Memory";
@@ -135,6 +139,8 @@ const error_description_t *Cy_ErrorFindDesc( const error_table_t &table, error_c
         return nullptr;
     }
 
+    // Tables are short subsystem-owned arrays. Linear lookup keeps the registry
+    // constexpr-friendly and allocation-free; errors are not a hot-path index.
     const u16 localCode = Cy_ErrorLocalCode( errorCode );
     for ( usize i = 0u; i < table.errorCount; ++i ) {
         const error_description_t &desc = table.pErrors[i];
@@ -150,7 +156,7 @@ const char *Cy_ErrorFindName( const error_table_t &table, error_code_t errorCode
 {
     const error_description_t *pDesc = Cy_ErrorFindDesc( table, errorCode );
     if ( pDesc == nullptr || pDesc->pName == nullptr ) {
-        return "ERR_UNKNOWN";
+        return "ERR_UNKNOWN"; // Stable fallback; never return null to logging.
     }
 
     return pDesc->pName;
@@ -160,7 +166,7 @@ const char *Cy_ErrorFindDescription( const error_table_t &table, error_code_t er
 {
     const error_description_t *pDesc = Cy_ErrorFindDesc( table, errorCode );
     if ( pDesc == nullptr || pDesc->pDescription == nullptr ) {
-        return "Unknown error.";
+        return "Unknown error."; // Stable fallback; never return null to logging.
     }
 
     return pDesc->pDescription;

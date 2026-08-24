@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_CPUMonitoring.h
-//  Purpose: Declares CypherCommon Tier0 CPUMonitoring support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares caller-owned, delta-based CPU utilization sampling.
+//  Details: Host counters are cumulative. A monitor retains the previous sample
+//           so each new query can report utilization over a measured interval.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -38,24 +37,24 @@ namespace cypher::common
 {
 
 struct cy_cpu_monitor_t {
-    u64 nPreviousIdleTicks;
-    u64 nPreviousTotalTicks;
-    u64 nPreviousProcessTicks;
-    timer_tick_t nPreviousWallTicks;
-    bool_t hasSystemBaseline;
-    bool_t hasProcessBaseline;
-    bool_t isInitialized;
+    u64 nPreviousIdleTicks;          // Previous cumulative host-idle counter.
+    u64 nPreviousTotalTicks;         // Previous cumulative host-total counter.
+    u64 nPreviousProcessTicks;       // Previous process user+kernel counter.
+    timer_tick_t nPreviousWallTicks; // Monotonic time of the previous sample.
+    bool_t hasSystemBaseline;        // System delta can be calculated next time.
+    bool_t hasProcessBaseline;       // Process delta can be calculated next time.
+    bool_t isInitialized;            // At least one host counter was available.
 };
 
 struct cy_cpu_monitor_sample_t {
-    f32 totalUsagePercent;
-    f32 processUsagePercent;
-    f64 intervalSeconds;
-    u32 nLogicalThreadCount;
+    f32 totalUsagePercent;   // Whole-machine busy time in [0, 100].
+    f32 processUsagePercent; // Process load normalized across logical CPUs.
+    f64 intervalSeconds;     // Monotonic interval covered by this sample.
+    u32 nLogicalThreadCount; // Normalization divisor used for process load.
     // A query can succeed before the host counters advance. Read a percentage
     // only when its corresponding validity flag is true.
-    bool_t hasSystemUsage;
-    bool_t hasProcessUsage;
+    bool_t hasSystemUsage;  // totalUsagePercent contains a measured delta.
+    bool_t hasProcessUsage; // processUsagePercent contains a measured delta.
 };
 
 // Captures the baseline for a caller-owned CPU monitor.

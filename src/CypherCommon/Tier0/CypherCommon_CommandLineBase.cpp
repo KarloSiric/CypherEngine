@@ -58,6 +58,8 @@ bool_t CommandLineBase_NameMatches(
         return CY_FALSE;
     }
 
+    // Match the complete switch name. '=' and ':' begin an inline value and are
+    // accepted only immediately after that full name.
     const usize cchName = std::strlen( pszName );
     if ( std::strncmp( pszArg, pszName, cchName ) != 0 ) {
         return CY_FALSE;
@@ -99,6 +101,8 @@ bool_t Cy_CommandLineBaseSet(
         return CY_FALSE;
     }
 
+    // Preserve the prefix that fits and report truncation. argv strings remain
+    // owned by the process runtime and are never copied here.
     const usize nRequestedCount = static_cast<usize>( nArgCount );
     const usize nStoredCount =
         nRequestedCount < CY_COMMANDLINEBASE_MAX_ARGS ?
@@ -123,6 +127,8 @@ const char *Cy_CommandLineBaseFindValue(
         return nullptr;
     }
 
+    // argv[0] names the executable. A standalone "--" terminates switch parsing,
+    // matching common command-line conventions.
     for ( usize i = 1u; i < pCommandLine->nArgCount; ++i ) {
         const char *pszArg = pCommandLine->ppszArgs[i];
         if ( pszArg != nullptr && std::strcmp( pszArg, "--" ) == 0 ) {
@@ -132,6 +138,8 @@ const char *Cy_CommandLineBaseFindValue(
             continue;
         }
 
+        // Inline forms (--name=value, --name:value) take precedence. Otherwise a
+        // following non-switch token is borrowed as the value.
         const char *pszInlineValue = CommandLineBase_ValueFromArg( pszArg );
         if ( pszInlineValue != nullptr ) {
             return pszInlineValue;

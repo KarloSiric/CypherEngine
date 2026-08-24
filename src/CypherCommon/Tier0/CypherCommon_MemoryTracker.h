@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_MemoryTracker.h
-//  Purpose: Declares CypherCommon Tier0 MemoryTracker support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Tracks a bounded set of live allocations without recursive allocation.
+//  Details: Metadata strings are borrowed until the allocation is removed; callers
+//           must keep tag and source strings alive for that interval.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -39,27 +38,27 @@ namespace cypher::common
 // Metadata strings are borrowed. They must remain valid while the allocation is
 // tracked and while memory-debug callbacks consume the corresponding event.
 struct memory_allocation_record_t {
-    void *pMemory;
-    usize nByteCount;
-    usize nAlignment;
-    const char *pszTag;
-    const char *pszFile;
-    u32 nLine;
+    void *pMemory;       // Allocation base used as the unique lookup key.
+    usize nByteCount;    // Live allocation size in bytes.
+    usize nAlignment;    // Requested alignment in bytes; zero means unspecified.
+    const char *pszTag;  // Borrowed allocation category; may be null.
+    const char *pszFile; // Borrowed source path; may be null.
+    u32 nLine;           // One-based source line; zero means unavailable.
 };
 
 struct memory_tracker_stats_t {
-    usize nCapacity;
-    usize nLiveAllocationCount;
-    usize nLiveByteCount;
-    usize nPeakAllocationCount;
-    usize nPeakByteCount;
-    u64 nAllocationEvents;
-    u64 nFreeEvents;
-    u64 nUnknownFreeEvents;
-    u64 nDroppedAllocationEvents;
+    usize nCapacity;              // Maximum simultaneously tracked allocations.
+    usize nLiveAllocationCount;   // Records currently occupied.
+    usize nLiveByteCount;         // Sum of bytes in live records.
+    usize nPeakAllocationCount;   // Highest live record count since Reset.
+    usize nPeakByteCount;         // Highest live byte total since Reset.
+    u64 nAllocationEvents;        // Successful allocation records since Reset.
+    u64 nFreeEvents;              // Successful record removals since Reset.
+    u64 nUnknownFreeEvents;       // Free requests for untracked pointers.
+    u64 nDroppedAllocationEvents; // Allocations omitted because the table was full.
 };
 
-constexpr usize CY_MEMORY_TRACKER_CAPACITY = 16384u;
+constexpr usize CY_MEMORY_TRACKER_CAPACITY = 16384u; // Fixed storage avoids tracker recursion.
 
 // Records a live allocation without allocating memory inside the tracker.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MemoryTrackerRecordAlloc(
@@ -69,12 +68,10 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MemoryTrackerRecordAlloc(
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MemoryTrackerRecordFree(
     void *pMemory ) noexcept;
 
-// Copies the live record for a pointer when present.
 CYPHER_NODISCARD CYPHER_COMMON_API bool_t Cy_MemoryTrackerFind(
     const void *pMemory,
     memory_allocation_record_t &outRecord ) noexcept;
 
-// Returns a consistent snapshot of tracker counters.
 CYPHER_NODISCARD CYPHER_COMMON_API memory_tracker_stats_t Cy_MemoryTrackerGetStats() noexcept;
 
 // Clears all records and counters. Call only when tracked allocators are quiescent.

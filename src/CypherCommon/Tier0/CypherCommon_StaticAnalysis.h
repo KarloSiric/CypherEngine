@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_StaticAnalysis.h
-//  Purpose: Declares CypherCommon Tier0 StaticAnalysis support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Declares optimizer assumptions and unreachable-code contracts.
+//  Details: An assumption is not validation. If its expression can be false in a
+//           release build, the optimizer is permitted to miscompile later code.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -40,6 +39,7 @@ Rules:
 #include "CypherCommon_Defines.h"
 
 #if CYPHER_CONFIG_DEBUG || CYPHER_CONFIG_DEVELOPMENT
+    // Contract violations remain visible while developing the engine.
     #define CY_ANALYSIS_ASSUME( expression )                   \
         do {                                                   \
             if ( !( expression ) ) {                           \
@@ -48,6 +48,7 @@ Rules:
         } while ( 0 )
     #define CY_ANALYSIS_UNREACHABLE() CY_TRAP()
 #elif CYPHER_COMPILER_MSVC_ABI
+    // Optimized builds communicate the already-proven fact to the compiler.
     #define CY_ANALYSIS_ASSUME( expression ) __assume( expression )
     #define CY_ANALYSIS_UNREACHABLE() __assume( 0 )
 #elif CYPHER_COMPILER_CLANG

@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Crash.h
-//  Purpose: Declares CypherCommon Tier0 Crash support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Provides synchronous fatal reporting and explicit process termination.
+//  Details: This API does not install native exception or signal handlers and keeps
+//           the reporting path allocation-free.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -39,16 +38,15 @@ namespace cypher::common
 {
 
 struct crash_info_t {
-    const char *pReason{ "" };
-    source_location_t location{};
+    const char *pReason{ "" };    // Borrowed reason string valid during the callback.
+    source_location_t location{}; // Source location of the explicit crash request.
 };
 
-using crash_handler_t = void ( * )( const crash_info_t &info ) noexcept;
+using crash_handler_t = void ( * )( const crash_info_t &info ) noexcept; // Must not throw or return borrowed data.
 
-// Installs a process-wide synchronous crash handler.
+// The handler is process-wide; nullptr restores the allocation-free fallback.
 CYPHER_COMMON_API void Cy_CrashSetHandler( crash_handler_t pHandler ) noexcept;
 
-// Returns the current handler, or nullptr when fallback reporting is active.
 CYPHER_NODISCARD CYPHER_COMMON_API crash_handler_t Cy_CrashGetHandler() noexcept;
 
 // Reports fatal context without terminating. Intended for tests and for callers

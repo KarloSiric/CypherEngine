@@ -45,10 +45,10 @@ namespace
 {
 
 struct timer_state_t {
-    std::atomic<timer_frequency_t> nFrequency;
-    std::atomic<timer_tick_t> nBaseTicks;
-    std::atomic<bool_t> isInitialized;
-    std::mutex lifecycleMutex;
+    std::atomic<timer_frequency_t> nFrequency; // Native ticks represented per second.
+    std::atomic<timer_tick_t> nBaseTicks;      // Native sample treated as process zero.
+    std::atomic<bool_t> isInitialized;         // Publishes both values to readers.
+    std::mutex lifecycleMutex;                 // Serializes init/shutdown transitions.
 };
 
 timer_state_t g_TimerState = {};
@@ -69,13 +69,13 @@ bool_t Timer_QueryNativeFrequency(
     nOutFrequency = static_cast<timer_frequency_t>( frequency.QuadPart );
     
 #elif CYPHER_PLATFORM_LINUX
-    nOutFrequency = 1000000000ull;
+    nOutFrequency = 1000000000ull; // CLOCK_MONOTONIC is converted to nanoseconds.
 
 #elif CYPHER_PLATFORM_MACOS
-    nOutFrequency = 1000000000ull;
+    nOutFrequency = 1000000000ull; // mach_absolute_time is converted to nanoseconds.
 
 #else
-    nOutFrequency = 1000000000ull;
+    nOutFrequency = 1000000000ull; // steady_clock is converted to nanoseconds.
 #endif
     return CY_TRUE;
 }
@@ -101,6 +101,9 @@ bool_t Timer_QueryNativeTicks( timer_tick_t &nOutTicks ) noexcept
         static_cast<timer_tick_t>( ts.tv_sec ) * 1000000000ull +
         static_cast<timer_tick_t>( ts.tv_nsec );
 #elif CYPHER_PLATFORM_MACOS
+    // mach_absolute_time uses a hardware-dependent scale. Cache the conversion
+    // ratio once and publish nanoseconds so every non-Windows backend shares the
+    // same one-billion-ticks-per-second contract.
     static mach_timebase_info_data_t timebase = [] {
         mach_timebase_info_data_t info = {};
         if ( mach_timebase_info( &info ) != KERN_SUCCESS ) {
@@ -114,12 +117,16 @@ bool_t Timer_QueryNativeTicks( timer_tick_t &nOutTicks ) noexcept
 
     const u64 nRawTicks = mach_absolute_time();
     #if defined( __SIZEOF_INT128__ ) 
+        // The wide intermediate preserves precision without overflowing during
+        // multiplication on long-running processes.
         const __uint128_t nNanoseconds = ( static_cast<__uint128_t>( nRawTicks ) * timebase.numer ) / timebase.denom;
         if ( nNanoseconds > CY_U64_MAX ) {
             return CY_FALSE;
         }
         nOutTicks = static_cast<timer_tick_t>( nNanoseconds );
     #else
+        // Divide into whole and remainder components when the compiler has no
+        // 128-bit integer type. This keeps the multiplication bounded.
         const u64 nWhole = ( nRawTicks / timebase.denom ) * timebase.numer;
         const u64 nRemainder =
             ( ( nRawTicks % timebase.denom ) * timebase.numer ) /
@@ -154,6 +161,8 @@ bool_t Timer_EnsureInitialized() noexcept
     
 bool_t Cy_TimerInit() noexcept
 {
+    // Fast path avoids taking the lifecycle lock after startup. The second test
+    // under the lock handles two threads racing through first use.
     if ( Cy_TimerIsInitialized() ) {
         return CY_TRUE;
     }
@@ -171,6 +180,8 @@ bool_t Cy_TimerInit() noexcept
         return CY_FALSE;
     }
 
+    // Publish the clock parameters before setting isInitialized. Readers acquire
+    // that flag and therefore observe a complete baseline.
     g_TimerState.nFrequency.store( nFrequency, std::memory_order_release );
     g_TimerState.nBaseTicks.store( nBaseTicks, std::memory_order_release );
     g_TimerState.isInitialized.store( CY_TRUE, std::memory_order_release );
@@ -220,6 +231,8 @@ bool_t Cy_TimerTryNowTicks( timer_tick_t *pOutTicks ) noexcept
         return CY_FALSE;
     }
 
+    // Exposing process-relative ticks keeps reports compact and prevents callers
+    // from depending on an unspecified host-clock epoch.
     *pOutTicks = nNativeTicks - nBaseTicks;
     return CY_TRUE;
 }
@@ -363,6 +376,7 @@ timer_tick_t Cy_TimerDeadlineAfterTicks(
     timer_tick_t nDurationTicks ) noexcept
 {
     const timer_tick_t nNowTicks = Cy_TimerNowTicks();
+    // Saturation creates a deadline that cannot wrap into the past.
     return nDurationTicks > CY_U64_MAX - nNowTicks
         ? CY_U64_MAX
         : nNowTicks + nDurationTicks;

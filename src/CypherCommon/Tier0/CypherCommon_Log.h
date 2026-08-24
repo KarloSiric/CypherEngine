@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_Log.h
-//  Purpose: Declares CypherCommon Tier0 Log support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Defines the allocation-free logging record and process-wide sink.
+//  Details: Producers submit borrowed strings synchronously; callbacks may run on
+//           multiple producer threads and must not retain record pointers.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
@@ -21,15 +20,6 @@
 #ifndef PRAGMA_ONCE
     #pragma once
 #endif
-
-/*
-================
-CypherCommon Log
-
-Low-level logging declarations used by Common diagnostics before higher engine
-logging layers are available.
-================
-*/
 
 #include "CypherCommon_BaseTypes.h"
 #include "CypherCommon_API.h"
@@ -46,7 +36,7 @@ enum class log_level_t : u8 {
     Warning,
     Error,
     Fatal,
-    Count
+    Count // Sentinel; never emitted as a level.
 };
 
 enum class log_channel_t : u16 {
@@ -80,42 +70,39 @@ enum class log_channel_t : u16 {
     Job,
     Serialization,
     Reflection,
-    Count
+    Count // Sentinel; never emitted as a channel.
 };
 
 struct log_record_t {
-    log_level_t level{ log_level_t::Info };
-    log_channel_t channel{ log_channel_t::Common };
-    error_code_t errorCode{ CY_ERROR_OK };
-    source_location_t location{};
-    const char *pMessage{ "" };
+    log_level_t level{ log_level_t::Info };          // Severity used for filtering and presentation.
+    log_channel_t channel{ log_channel_t::Common };  // Subsystem that produced the record.
+    error_code_t errorCode{ CY_ERROR_OK };           // Optional packed error; zero means no failure.
+    source_location_t location{};                    // Call site; invalid for non-At entry points.
+    const char *pMessage{ "" };                      // Borrowed for the duration of the callback only.
 };
 
 using log_callback_t = void ( * )(
     const log_record_t &record,
-    void *pUserData ) noexcept;
+    void *pUserData ) noexcept; // pUserData is the opaque value registered with the callback.
 
-// Emits one record without source-location metadata.
+// Write functions invoke the currently installed sink synchronously.
 CYPHER_COMMON_API void Cy_LogWrite(
     log_level_t level,
     log_channel_t channel,
     const char *pMessage ) noexcept;
 
-// Emits one error record without source-location metadata.
 CYPHER_COMMON_API void Cy_LogWriteError(
     log_level_t level,
     log_channel_t channel,
     error_code_t errorCode,
     const char *pMessage ) noexcept;
 
-// Emits one record with source-location metadata.
 CYPHER_COMMON_API void Cy_LogWriteAt(
     log_level_t level,
     log_channel_t channel,
     const char *pMessage,
     source_location_t location ) noexcept;
 
-// Emits one error record with source-location metadata.
 CYPHER_COMMON_API void Cy_LogWriteErrorAt(
     log_level_t level,
     log_channel_t channel,

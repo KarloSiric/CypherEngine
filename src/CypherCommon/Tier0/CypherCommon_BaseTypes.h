@@ -4,10 +4,9 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier0/CypherCommon_BaseTypes.h
-//  Purpose: Declares CypherCommon Tier0 BaseTypes support.
-//  Details: Tier0 is dependency-light runtime infrastructure shared by the engine,
-//           tools, tests, and future editor code. Keep this layer portable,
-//           predictable, and careful about allocation.
+//  Purpose: Defines the fixed-width scalar and storage types used by CypherEngine.
+//  Details: Layout checks at the end of this file enforce the runtime and file-format
+//           assumptions shared by every engine module.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-06-20
@@ -22,20 +21,10 @@
     #pragma once
 #endif
 
-/*
-================
-CypherCommon Base Types
-
-Primitive engine-wide scalar types and constants.
-
-Rules:
-- No CypherEngine dependency.
-- No allocation.
-- No containers.
-- No platform API calls.
-- No subsystem policy.
-================
-*/
+//=============================================================================
+// Primitive engine-wide types. Keep this header free of allocation, containers,
+// platform APIs, and subsystem policy.
+//=============================================================================
 
 #include "CypherCommon_Annotations.h"
 
@@ -48,11 +37,7 @@ Rules:
 namespace cypher::common
 {
 
-/*
-================
-Fixed Width Integer Types
-================
-*/
+// Fixed-width integer types used by runtime state and serialized layouts.
 using i8 = std::int8_t;
 using i16 = std::int16_t;
 using i32 = std::int32_t;
@@ -63,90 +48,62 @@ using u16 = std::uint16_t;
 using u32 = std::uint32_t;
 using u64 = std::uint64_t;
 
-/*
-================
-Floating Point Types
-================
-*/
+// Floating-point widths are checked for IEEE-754 representation below.
 using f32 = float;
 using f64 = double;
 
-/*
-================
-Size And Pointer Types
-================
-*/
+// Native size and pointer types; CypherEngine currently requires 64-bit targets.
 using usize = std::size_t;
 using isize = std::ptrdiff_t;
 using uintptr = std::uintptr_t;
 using intptr = std::intptr_t;
 
-/*
-================
-Byte And Text Pointer Types
-================
-*/
+// Byte and narrow-text convenience aliases. These pointers never imply ownership.
 using byte = u8;
 using char8 = char;
 using cstring = const char *;
 using mstring = char *;
 
-/*
-================
-Boolean Types
-================
-*/
 using bool_t = bool;
 
 enum class b8 : u8 {
-    False = 0u,
-    True = 1u
+    False = 0u, // Stable false representation in one-byte storage.
+    True = 1u   // Stable true representation in one-byte storage.
 };
 
 constexpr bool_t CY_FALSE = false;
 constexpr bool_t CY_TRUE = true;
 
-// Converts stable one-byte Boolean storage into a runtime Boolean.
 CYPHER_NODISCARD constexpr bool_t Cy_B8ToBool( b8 value ) noexcept
 {
     return value == b8::True;
 }
 
-// Converts a runtime Boolean into stable one-byte Boolean storage.
 CYPHER_NODISCARD constexpr b8 Cy_B8FromBool( bool_t value ) noexcept
 {
     return value ? b8::True : b8::False;
 }
 
-/*
-================
-Generic Engine ID Types
-================
-*/
-using index_t = u32;
-using generation_t = u32;
-using handle_t = u32;
-using frame_index_t = u64;
+// Generic identifiers are storage vocabulary only; each owning subsystem defines
+// the meaning and lifetime of its indices and generations.
+using index_t = u32;       // Dense table or slot index.
+using generation_t = u32;  // Reuse counter used to reject stale handles.
+using handle_t = u32;      // Generic opaque 32-bit handle storage.
+using frame_index_t = u64; // Monotonic frame sequence; wrapping is permitted.
 
-constexpr index_t CY_INVALID_INDEX = std::numeric_limits<index_t>::max();
-constexpr generation_t CY_INVALID_GENERATION = std::numeric_limits<generation_t>::max();
-constexpr handle_t CY_INVALID_HANDLE = 0u;
+constexpr index_t CY_INVALID_INDEX = std::numeric_limits<index_t>::max();            // All-one index sentinel.
+constexpr generation_t CY_INVALID_GENERATION = std::numeric_limits<generation_t>::max(); // All-one generation sentinel.
+constexpr handle_t CY_INVALID_HANDLE = 0u;                                           // Zero never identifies a live handle.
 constexpr frame_index_t CY_INVALID_FRAME_INDEX = std::numeric_limits<frame_index_t>::max();
 
-/*
-================
-Common Size Constants
-================
-*/
-constexpr usize CY_BITS_PER_BYTE = static_cast<usize>( CHAR_BIT );
+constexpr usize CY_BITS_PER_BYTE = static_cast<usize>( CHAR_BIT ); // Required to be eight below.
 constexpr usize CY_KIB = static_cast<usize>( 1024u );
 constexpr usize CY_MIB = CY_KIB * static_cast<usize>( 1024u );
 constexpr usize CY_GIB = CY_MIB * static_cast<usize>( 1024u );
 constexpr usize CY_TIB = CY_GIB * static_cast<usize>( 1024u );
 
-// Conservative fallback used before runtime CPU cache information is available.
-constexpr usize CY_DEFAULT_CACHE_LINE_SIZE = 64u;
-constexpr usize CY_INVALID_SIZE = std::numeric_limits<usize>::max();
+constexpr usize CY_DEFAULT_CACHE_LINE_SIZE = 64u;                 // Fallback until runtime CPU detection completes.
+constexpr usize CY_INVALID_SIZE = std::numeric_limits<usize>::max(); // All-one size sentinel.
 
 // Compatibility aliases. New code should use the binary IEC names above.
 constexpr usize CY_KB = CY_KIB;
@@ -155,13 +112,7 @@ constexpr usize CY_GB = CY_GIB;
 constexpr usize CY_TB = CY_TIB;
 constexpr usize CY_CACHE_LINE_SIZE = CY_DEFAULT_CACHE_LINE_SIZE;
 
-/*
-================
-Semantic Storage Types
-================
-*/
-// Stable 32-bit Boolean storage. Callers must normalize values to zero or one.
-using b32 = u32;
+using b32 = u32; // Stable 32-bit Boolean storage; values must be zero or one.
 
 using flags8_t  = u8;
 using flags16_t = u16;
@@ -173,29 +124,21 @@ using hash64_t  = u64;
 using crc32_t   = u32;
 using fourcc_t  = u32;
 
-using offset_t  = u64;
-using byte_count_t = u64;
+using offset_t = u64;     // Byte offset in a stream or serialized resource.
+using byte_count_t = u64; // Byte count independent of the host size type.
 using alignment_t = usize;
 
 using version_t = u32;
 using format_version_t = u32;
 
-/*
-================
-Invalid Semantic Values
-================
-*/
-constexpr fourcc_t CY_INVALID_FOURCC = 0u;
+constexpr fourcc_t CY_INVALID_FOURCC = 0u; // Four zero bytes never name a valid format.
 
 constexpr offset_t CY_INVALID_OFFSET = std::numeric_limits<offset_t>::max();
 constexpr version_t CY_INVALID_VERSION = 0u;
 constexpr format_version_t CY_INVALID_FORMAT_VERSION = 0u;
 
-/*
-================
-Primitive Limits
-================
-*/
+// Primitive limits are named here so low-level code does not mix STL spellings
+// with the engine's fixed-width vocabulary.
 constexpr u8 CY_U8_MAX = std::numeric_limits<u8>::max();
 constexpr u8 CY_U8_MIN = std::numeric_limits<u8>::min();
 constexpr u16 CY_U16_MAX = std::numeric_limits<u16>::max();
@@ -229,11 +172,7 @@ constexpr f64 CY_F64_LOWEST = std::numeric_limits<f64>::lowest();
 constexpr f64 CY_F64_EPSILON = std::numeric_limits<f64>::epsilon();
 constexpr f64 CY_F64_INFINITY = std::numeric_limits<f64>::infinity();
 
-/*
-================
-Layout Checks
-================
-*/
+// WARNING: Serialized formats and public module boundaries depend on these sizes.
 static_assert( sizeof( i8 ) == 1, "i8 must be 1 byte." );
 static_assert( sizeof( i16 ) == 2, "i16 must be 2 bytes." );
 static_assert( sizeof( i32 ) == 4, "i32 must be 4 bytes." );
