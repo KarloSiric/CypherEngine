@@ -27,27 +27,25 @@ namespace cypher::common
 {
 
 enum class bit_order_t : u8 {
-    // Stream bit zero is byte bit zero; a field consumes value bit zero first.
-    LEAST_SIGNIFICANT_FIRST = 0u,
-    // Stream bit zero is byte bit seven; a field consumes its highest bit first.
-    MOST_SIGNIFICANT_FIRST
+    LEAST_SIGNIFICANT_FIRST = 0u, // Stream bit zero is byte bit zero; fields consume low bits first.
+    MOST_SIGNIFICANT_FIRST       // Stream bit zero is byte bit seven; fields consume high bits first.
 };
 
 enum class bit_cursor_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    OUT_OF_BOUNDS,
-    INVALID_BIT_COUNT,
-    VALUE_OUT_OF_RANGE,
-    CURSOR_OVERFLOW
+    OK = 0u,           // No operation has failed.
+    INVALID_ARGUMENT, // Null output or inconsistent source state.
+    OUT_OF_BOUNDS,    // Requested field extends beyond nBitSize.
+    INVALID_BIT_COUNT,// A scalar field requested zero or more than 64 bits.
+    VALUE_OUT_OF_RANGE,// Signed or unsigned value cannot fit in the requested width.
+    CURSOR_OVERFLOW   // Bit-position arithmetic overflowed before access.
 };
 
 struct bit_reader_t {
-    const byte *pData{ nullptr };
-    usize nBitSize{ 0u };
-    usize iBit{ 0u };
-    bit_order_t bitOrder{ bit_order_t::LEAST_SIGNIFICANT_FIRST };
-    bit_cursor_status_t status{ bit_cursor_status_t::OK };
+    const byte *pData{ nullptr };                                  // Borrowed packed-bit source.
+    usize nBitSize{ 0u };                                          // Readable bits; may end inside a byte.
+    usize iBit{ 0u };                                               // Next unread stream bit.
+    bit_order_t bitOrder{ bit_order_t::LEAST_SIGNIFICANT_FIRST };  // Bit numbering within each byte.
+    bit_cursor_status_t status{ bit_cursor_status_t::OK };         // Sticky first-failure state.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

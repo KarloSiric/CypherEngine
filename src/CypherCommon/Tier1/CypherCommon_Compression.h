@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Compression Contract
+
+Compression is a storage optimization, not an integrity or security boundary. Every decoder
+receives an explicit output limit and must reject truncated, oversized, or inconsistent streams.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_COMPRESSION_H
 #define CYPHER_COMMON_TIER1_COMPRESSION_H
 #ifndef PRAGMA_ONCE
@@ -29,38 +38,38 @@ namespace cypher::common
 {
 
 enum class compression_codec_t : u8 {
-    NONE = 0u,
-    CYPHER_LZ,
-    LZ4,
-    ZSTD
+    NONE = 0u, // Identity copy; useful for uniform package records.
+    CYPHER_LZ, // Internal deterministic codec for bootstrap and tests.
+    LZ4,       // Low-latency external codec.
+    ZSTD       // Higher-ratio external codec with level control.
 };
 
 enum class compression_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    UNSUPPORTED_CODEC,
-    UNSUPPORTED_OPTION,
-    BACKEND_UNAVAILABLE,
-    OUTPUT_TOO_SMALL,
-    CORRUPT_INPUT,
-    DICTIONARY_MISMATCH,
-    OUT_OF_MEMORY,
-    INTERNAL_ERROR
+    OK = 0u,           // Operation completed successfully.
+    INVALID_ARGUMENT,  // Input, output, options, or stream state is invalid.
+    UNSUPPORTED_CODEC, // Codec identifier has no implementation.
+    UNSUPPORTED_OPTION, // Selected codec cannot honor an option.
+    BACKEND_UNAVAILABLE, // Optional codec library was not built or initialized.
+    OUTPUT_TOO_SMALL,  // Destination cannot hold the next or complete result.
+    CORRUPT_INPUT,     // Compressed stream is malformed or truncated.
+    DICTIONARY_MISMATCH, // Stream requires different dictionary bytes.
+    OUT_OF_MEMORY,     // Codec or facade state allocation failed.
+    INTERNAL_ERROR     // Backend failed without a more precise public status.
 };
 
-inline constexpr usize CY_COMPRESSION_SIZE_UNKNOWN = CY_USIZE_MAX;
+inline constexpr usize CY_COMPRESSION_SIZE_UNKNOWN = CY_USIZE_MAX; // Decoder could not predict output size.
 
 struct compression_options_t {
-    i32 nLevel{ 0 };
-    binary_block_t dictionary{};
-    bool_t bChecksum{ CY_FALSE };
+    i32 nLevel{ 0 };                    // Zero selects the backend's documented default level.
+    binary_block_t dictionary{};       // Borrowed codec dictionary; must match during decode.
+    bool_t bChecksum{ CY_FALSE };       // Requests a backend integrity field when supported.
 };
 
 struct compression_result_t {
-    compression_status_t status{ compression_status_t::OK };
-    usize cbRead{ 0u };
-    usize cbWritten{ 0u };
-    usize cbRequired{ 0u };
+    compression_status_t status{ compression_status_t::OK }; // Final codec or facade status.
+    usize cbRead{ 0u };                                      // Input bytes consumed.
+    usize cbWritten{ 0u };                                   // Output bytes initialized.
+    usize cbRequired{ 0u };                                  // Required output capacity when known.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL

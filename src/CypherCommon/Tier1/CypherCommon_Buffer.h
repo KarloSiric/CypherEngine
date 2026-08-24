@@ -26,10 +26,13 @@
 namespace cypher::common
 {
 
+// buffer_t is a writable cursor over caller-owned storage. It never grows the backing allocation.
+// Bytes in [0, cbSize) are logical content; [cbSize, cbCapacity) is unused writable storage.
+
 struct buffer_t {
-    byte *pData{ nullptr };
-    usize cbSize{ 0u };
-    usize cbCapacity{ 0u };
+    byte *pData{ nullptr };       // Borrowed first byte of the backing storage.
+    usize cbSize{ 0u };           // Logical bytes currently published to readers.
+    usize cbCapacity{ 0u };       // Total writable byte extent at pData.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

@@ -37,39 +37,39 @@ inline constexpr convar_handle_t CY_CONVAR_HANDLE_INVALID = CY_HANDLE32_INVALID;
 inline constexpr usize CY_COMMAND_MAX_EXECUTION_DEPTH = 16u;
 
 enum class command_system_error_t : u16 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    OUT_OF_MEMORY,
-    PARSE_FAILED,
-    NOT_FOUND,
-    ALREADY_EXISTS,
-    PERMISSION_DENIED,
-    BUSY,
-    RECURSION_LIMIT
+    OK = 0u,          // Command operation completed successfully.
+    INVALID_ARGUMENT, // Descriptor, handle, or command line is invalid.
+    OUT_OF_MEMORY,    // Registry growth or owned text allocation failed.
+    PARSE_FAILED,     // Command line could not be tokenized.
+    NOT_FOUND,        // Requested command does not exist.
+    ALREADY_EXISTS,   // Name is already registered in this command domain.
+    PERMISSION_DENIED, // Context does not satisfy command flags.
+    BUSY,             // Mutation was requested during protected execution.
+    RECURSION_LIMIT   // Nested command execution exceeded the hard limit.
 };
 
 enum class convar_system_error_t : u16 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    OUT_OF_MEMORY,
-    NOT_FOUND,
-    ALREADY_EXISTS,
-    READ_ONLY,
-    PERMISSION_DENIED,
-    INVALID_VALUE,
-    BELOW_MINIMUM,
-    ABOVE_MAXIMUM,
-    BUSY
+    OK = 0u,           // ConVar operation completed successfully.
+    INVALID_ARGUMENT,  // Descriptor, handle, or text is invalid.
+    OUT_OF_MEMORY,     // Registry growth or owned text allocation failed.
+    NOT_FOUND,         // Requested ConVar does not exist.
+    ALREADY_EXISTS,    // Name is already registered in this ConVar domain.
+    READ_ONLY,         // Runtime mutation is forbidden by registration flags.
+    PERMISSION_DENIED, // Context does not satisfy ConVar flags.
+    INVALID_VALUE,     // Text cannot be converted to the declared type.
+    BELOW_MINIMUM,     // Parsed scalar is lower than the configured bound.
+    ABOVE_MAXIMUM,     // Parsed scalar is higher than the configured bound.
+    BUSY               // Mutation was requested during a protected callback.
 };
 
 struct command_register_result_t {
-    error_code_t error{ CY_ERROR_OK };
-    command_handle_t handle{ CY_COMMAND_HANDLE_INVALID };
+    error_code_t error{ CY_ERROR_OK };                   // Stable registration result.
+    command_handle_t handle{ CY_COMMAND_HANDLE_INVALID }; // New handle when error is OK.
 };
 
 struct convar_register_result_t {
-    error_code_t error{ CY_ERROR_OK };
-    convar_handle_t handle{ CY_CONVAR_HANDLE_INVALID };
+    error_code_t error{ CY_ERROR_OK };                 // Stable registration result.
+    convar_handle_t handle{ CY_CONVAR_HANDLE_INVALID }; // New handle when error is OK.
 };
 
 using command_output_fn_t = void ( * )(
@@ -88,12 +88,12 @@ using convar_visit_fn_t = bool_t ( * )(
     void *pUserData ) noexcept;
 
 struct command_system_desc_t {
-    const allocator_t *pAllocator{ nullptr };
-    usize nInitialCommands{ 128u };
-    usize nInitialConVars{ 256u };
-    bool_t bCaseInsensitiveAscii{ CY_TRUE };
-    command_output_fn_t pfnOutput{ nullptr };
-    void *pOutputUserData{ nullptr };
+    const allocator_t *pAllocator{ nullptr }; // Owns registry records and copied strings.
+    usize nInitialCommands{ 128u };            // Initial command-table reservation.
+    usize nInitialConVars{ 256u };             // Initial ConVar-table reservation.
+    bool_t bCaseInsensitiveAscii{ CY_TRUE };   // Fold ASCII names during lookup.
+    command_output_fn_t pfnOutput{ nullptr };  // Optional command text sink.
+    void *pOutputUserData{ nullptr };          // Opaque state passed to pfnOutput.
 };
 
 struct command_system_t;

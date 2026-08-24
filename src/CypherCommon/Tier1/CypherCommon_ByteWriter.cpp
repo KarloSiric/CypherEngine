@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Byte Writer Implementation Notes
+
+The cursor and capacity form one invariant: no operation may advance beyond the supplied
+storage. Failed writes report the condition without publishing a cursor that claims unwritten
+bytes.
+================
+*/
+
 #include "CypherCommon_ByteWriter.h"
 
 #include <bit>
@@ -88,10 +98,15 @@ void ByteWriterCommit(
     const void *pSource,
     usize cbData ) noexcept
 {
+    // MemMove permits callers to patch or duplicate bytes from the writer's
+    // own storage without introducing an overlap restriction.
     if ( cbData > 0u ) {
         Cy_MemMove( pWriter->pData + pWriter->iOffset, pSource, cbData );
     }
     pWriter->iOffset += cbData;
+
+    // Seeking may move the cursor backward. The high-water mark records the
+    // complete initialized prefix and therefore never shrinks on a patch.
     if ( pWriter->iOffset > pWriter->cbHighWater ) {
         pWriter->cbHighWater = pWriter->iOffset;
     }
@@ -352,6 +367,8 @@ bool_t ByteWriter_WriteF64( byte_writer_t *pWriter, f64 value ) noexcept
 
 bool_t ByteWriter_WriteVarU64( byte_writer_t *pWriter, u64 value ) noexcept
 {
+    // Build the complete LEB128 representation locally, then submit one
+    // bounds-checked write. A short destination never receives a partial value.
     byte encoded[10]{};
     usize cbEncoded = 0u;
     do {

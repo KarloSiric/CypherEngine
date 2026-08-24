@@ -26,9 +26,12 @@
 namespace cypher::common
 {
 
+// A fixed-memory record describes writable storage but does not own or initialize it. Address
+// queries use half-open ranges so one-past-the-end is accepted only for an empty subrange.
+
 struct fixed_memory_t {
-    byte *pData{ nullptr };
-    usize cbSize{ 0u };
+    byte *pData{ nullptr }; // Borrowed first byte; nullptr is valid only for an empty region.
+    usize cbSize{ 0u };     // Total writable bytes in the represented region.
 };
 
 // Creates a writable view over caller-owned storage.

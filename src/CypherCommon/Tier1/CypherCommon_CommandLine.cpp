@@ -34,6 +34,8 @@ bool_t CommandLine_NormalizeSwitchName(
         return CY_FALSE;
     }
 
+    // Callers may search for "name", "-name", or "--name"; all normalize to
+    // the same borrowed switch-name view.
     usize cchPrefix = 0u;
     if ( name.cchLength > 0u && name.pData[0] == '-' ) {
         cchPrefix = 1u;
@@ -64,6 +66,7 @@ bool_t CommandLine_NormalizeSwitchName(
 
 bool_t CommandLine_IsTerminator( string_view_t argument ) noexcept
 {
+    // POSIX -- ends option processing; every later argv entry is positional.
     return argument.cchLength == 2u &&
            argument.pData != nullptr &&
            argument.pData[0] == '-' &&
@@ -88,6 +91,7 @@ bool_t CommandLine_ParseSwitchArgument(
         return CY_FALSE;
     }
 
+    // Support both --name=value and the Windows-style --name:value spelling.
     usize iSeparator = CY_STRING_VIEW_NPOS;
     for ( usize iCharacter = cchPrefix;
           iCharacter < argument.cchLength;
@@ -167,6 +171,8 @@ bool_t CommandLine_Init(
         }
     }
 
+    // argv storage belongs to the process entry point. This object only borrows
+    // the pointer array and its NUL-terminated strings.
     pCommandLine->nArgumentCount = argc;
     pCommandLine->ppArguments = argc > 0 ? ppArgv : nullptr;
     return CY_TRUE;
@@ -305,6 +311,8 @@ bool_t CommandLine_FindSwitchInfo(
         parsed.iArgument = iArgument;
         if ( !parsed.bHasValue &&
              iArgument + 1 < pCommandLine->nArgumentCount ) {
+            // A following non-switch argument supplies the detached value form:
+            // --output path. A terminator or another switch is never consumed.
             const string_view_t next = StringView_FromCString(
                 pCommandLine->ppArguments[iArgument + 1] );
             command_line_switch_t nextSwitch{};

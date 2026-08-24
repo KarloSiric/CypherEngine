@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Bit Writer Implementation Notes
+
+The cursor and capacity form one invariant: no operation may advance beyond the supplied
+storage. Failed writes report the condition without publishing a cursor that claims unwritten
+bytes.
+================
+*/
+
 #include "CypherCommon_BitWriter.h"
 
 #include <bit>
@@ -129,6 +139,8 @@ void BitWriterCommitBits(
         return;
     }
 
+    // General cross-byte path. Preserve unrelated bits because callers may seek
+    // backward and patch a previously emitted field.
     for ( u32 iFieldBit = 0u; iFieldBit < nBits; ++iFieldBit ) {
         const usize iStreamBit = pWriter->iBit + iFieldBit;
         const usize iByte = iStreamBit / 8u;
@@ -153,6 +165,7 @@ void BitWriterCommitBits(
         }
     }
 
+    // The cursor may move backward; high-water remains the serialized extent.
     pWriter->iBit += nBits;
     if ( pWriter->iBit > pWriter->nBitHighWater ) {
         pWriter->nBitHighWater = pWriter->iBit;
@@ -322,6 +335,7 @@ bool_t BitWriter_WriteSignedBits(
         return CY_FALSE;
     }
 
+    // The low nBits of the two's-complement value are its wire representation.
     u64 bits = std::bit_cast<u64>( value );
     if ( nBits < 64u ) {
         bits &= ( 1ull << nBits ) - 1u;

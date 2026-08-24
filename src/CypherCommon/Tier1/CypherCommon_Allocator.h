@@ -69,19 +69,19 @@ using allocator_free_fn_t = void ( * )(
     usize nAlignment ) noexcept;
 
 struct allocator_t {
-    allocator_allocate_fn_t pfnAllocate{ nullptr };
-    allocator_reallocate_fn_t pfnReallocate{ nullptr };
-    allocator_free_fn_t pfnFree{ nullptr };
-    void *pUserData{ nullptr };
+    allocator_allocate_fn_t pfnAllocate{ nullptr };       // Required raw-block allocation entry point.
+    allocator_reallocate_fn_t pfnReallocate{ nullptr };   // Optional native resize entry point.
+    allocator_free_fn_t pfnFree{ nullptr };               // Required release entry point.
+    void *pUserData{ nullptr };                            // Borrowed backend state passed to every callback.
 };
 
 // Move-only transfer record for raw memory whose deallocation responsibility
 // changes owner. Destruction does not free the block; call Allocator_FreeOwned.
 struct owned_allocation_t {
-    void *pData{ nullptr };
-    usize cbSize{ 0u };
-    usize nAlignment{ 0u };
-    const allocator_t *pAllocator{ nullptr };
+    void *pData{ nullptr };                       // First byte of the owned allocation.
+    usize cbSize{ 0u };                           // Exact byte count supplied when the block is released.
+    usize nAlignment{ 0u };                       // Original allocation alignment in bytes.
+    const allocator_t *pAllocator{ nullptr };     // Allocator that must eventually release pData.
 
     owned_allocation_t() noexcept = default;
     CYPHER_NO_COPY( owned_allocation_t );

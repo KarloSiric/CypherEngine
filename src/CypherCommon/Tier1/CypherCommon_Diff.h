@@ -28,22 +28,22 @@ namespace cypher::common
 {
 
 enum class diff_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    OUT_OF_MEMORY,
-    CORRUPT_DIFF,
-    SOURCE_MISMATCH,
-    OUTPUT_TOO_SMALL,
-    OUTPUT_OVERFLOW,
-    INTERNAL_ERROR
+    OK = 0u,          // Delta generation or application completed.
+    INVALID_ARGUMENT,// Input block, destination, or diff state is invalid.
+    OUT_OF_MEMORY,   // Encoding storage could not be allocated.
+    CORRUPT_DIFF,    // Encoded operations or target hash failed validation.
+    SOURCE_MISMATCH, // Source size or content hash does not match the delta.
+    OUTPUT_TOO_SMALL,// Destination cannot hold the reconstructed target.
+    OUTPUT_OVERFLOW, // Encoded output lengths overflow the host size type.
+    INTERNAL_ERROR   // Hash stream or another internal primitive failed.
 };
 
 struct binary_diff_t {
-    content_hash_t sourceHash{};
-    content_hash_t targetHash{};
-    usize cbSource{ 0u };
-    usize cbTarget{ 0u };
-    blob_t encodedOps{};
+    content_hash_t sourceHash{}; // Exact source identity required by apply.
+    content_hash_t targetHash{}; // Expected identity after reconstruction.
+    usize cbSource{ 0u };        // Required source byte count.
+    usize cbTarget{ 0u };        // Reconstructed target byte count.
+    blob_t encodedOps{};         // Owned versioned operation stream.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

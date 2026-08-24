@@ -50,6 +50,7 @@ bool_t CalculateBlobGrowth(
     usize cbCandidate = cbCurrentCapacity < cbMinimumCapacity
         ? cbMinimumCapacity
         : cbCurrentCapacity;
+    // Grow by 1.5x to amortize appends without the memory spike of doubling.
     if ( cbCandidate < cbRequiredCapacity ) {
         const usize cbHalf = cbCandidate / 2u;
         cbCandidate = cbCandidate > CY_USIZE_MAX - cbHalf
@@ -103,6 +104,8 @@ bool_t RebaseBlobSource(
     }
     const uintptr nStorageEnd = nStorageBegin + blob.cbCapacity;
     const uintptr nSourceEnd = nSourceBegin + source.cbSize;
+    // Internal source ranges must be represented as offsets because Reserve may
+    // relocate the blob before the eventual copy.
     const bool_t bOverlapsStorage =
         nSourceBegin < nStorageEnd && nStorageBegin < nSourceEnd;
     if ( !bOverlapsStorage ) {
@@ -432,6 +435,7 @@ owned_allocation_t Blob_Release(
     if ( pcbLogicalSizeOut != nullptr ) {
         *pcbLogicalSizeOut = pBlob->cbSize;
     }
+    // Transfer both the allocation and its allocator provenance to the caller.
     owned_allocation_t allocation{};
     if ( pBlob->pData != nullptr ) {
         const bool_t bAdopted = Allocator_AdoptOwned(
@@ -444,7 +448,7 @@ owned_allocation_t Blob_Release(
             return {};
         }
     }
-    ResetBlob( *pBlob );
+    ResetBlob( *pBlob ); // Prevent the blob destructor from freeing released bytes.
     return allocation;
 }
 

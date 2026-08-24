@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Fixed Array Contract
+
+The extent is part of the type and every logical element exists for the full lifetime of the
+record. The one-element physical fallback keeps zero-extent specializations legal C++ storage;
+FixedArray_Count still reports zero and no caller may address that fallback element.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_FIXEDARRAY_H
 #define CYPHER_COMMON_TIER1_FIXEDARRAY_H
 #ifndef PRAGMA_ONCE
@@ -31,7 +41,7 @@ struct fixed_array_t {
     static_assert( is_object_v<type_t>, "fixed_array_t requires an object type." );
     static_assert( !is_array_v<type_t>, "fixed_array_t does not store array elements." );
 
-    type_t data[nExtent > 0u ? nExtent : 1u]{};
+    type_t data[nExtent > 0u ? nExtent : 1u]{}; // Inline elements; one unused slot when nExtent is zero.
 };
 
 template <typename type_t, usize nExtent>

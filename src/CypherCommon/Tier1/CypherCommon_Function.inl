@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Function Template Definitions
+
+Callback storage keeps invocation cost and ownership visible. A bound user pointer is borrowed
+unless the concrete wrapper explicitly owns its target. Template definitions remain in this file
+so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_FUNCTION_INL
 #define CYPHER_COMMON_TIER1_FUNCTION_INL
 
@@ -118,11 +128,13 @@ struct function_binder_t<
             }
         }
 
+        // Small callables stay inside the wrapper; larger/over-aligned ones use its allocator.
         constexpr bool bUseInlineStorage =
             cbInline > 0u &&
             sizeof( callable_t ) <= cbInline &&
             alignof( callable_t ) <= alignof( std::max_align_t );
 
+        // Inline binding materializes a temporary before reset in case it aliases old state.
         void *pNewCallable = nullptr;
         if constexpr ( bUseInlineStorage ) {
             callable_t temporary(
@@ -144,6 +156,7 @@ struct function_binder_t<
             Function_Reset( pFunction );
         }
 
+        // Per-type thunks erase the callable type without virtual dispatch.
         pFunction->pCallable = pNewCallable;
         pFunction->pfnInvoke = [](
             void *pStoredCallable,
@@ -215,6 +228,7 @@ void Function_Reset(
         return;
     }
 
+    // Snapshot destruction metadata before clearing the active binding.
     void *pCallable = pFunction->pCallable;
     const typename function_t<signature_t, cbInline>::destroy_fn_t pfnDestroy =
         pFunction->pfnDestroy;
@@ -332,6 +346,7 @@ bool_t Function_Move(
     pDest->alignment = pSource->alignment;
     pDest->bHeapAllocated = pSource->bHeapAllocated;
     if ( pSource->bHeapAllocated ) {
+        // Heap bindings transfer ownership; inline bindings move-construct in place.
         pDest->pCallable = pSource->pCallable;
     } else {
         pDest->pCallable = pDest->inlineStorage;

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Call Queue Implementation Notes
+
+Container mutations must preserve structural invariants and element lifetime. Iterators or
+handles are invalidated only according to the rules stated by the public API.
+================
+*/
+
 #include "CypherCommon_CallQueue.h"
 #include "CypherCommon_Queue.h"
 
@@ -24,9 +33,9 @@ namespace cypher::common
 {
 
 struct call_queue_t {
-    queue_t<call_queue_entry_t> entries{};
-    const allocator_t *pAllocator{ nullptr };
-    bool_t bDraining{ CY_FALSE };
+    queue_t<call_queue_entry_t> entries{};  // FIFO callback records awaiting execution.
+    const allocator_t *pAllocator{ nullptr }; // Owns both this object and queue storage.
+    bool_t bDraining{ CY_FALSE };           // Rejects destructive reentry from callbacks.
 };
 
 namespace
@@ -148,6 +157,9 @@ usize CallQueue_CancelTag( call_queue_t *pQueue, u64 nTag ) noexcept
 
     const usize nOriginalCount = Queue_Count( &pQueue->entries );
     usize nCancelled = 0u;
+
+    // Rotate exactly the original queue once. Retained entries are appended in
+    // their original order, while matching entries disappear from the stream.
     for ( usize iEntry = 0u; iEntry < nOriginalCount; ++iEntry ) {
         call_queue_entry_t entry{};
         const bool_t bPopped = Queue_Pop( &pQueue->entries, &entry );
@@ -192,6 +204,8 @@ usize CallQueue_Drain(
             ? nQueued
             : nMaxCalls;
 
+    // Only drain the prefix present on entry. A callback may enqueue more work,
+    // but that work belongs to a later drain and cannot extend this loop forever.
     pQueue->bDraining = CY_TRUE;
     usize nExecuted = 0u;
     for ( ; nExecuted < nDrainLimit; ++nExecuted ) {

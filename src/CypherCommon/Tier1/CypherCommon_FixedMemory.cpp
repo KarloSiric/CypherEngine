@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Fixed Memory Implementation Notes
+
+Storage ownership remains with the configured backing allocator or buffer. Reset and release
+operations invalidate outstanding allocations according to the lifetime documented by the public
+API.
+================
+*/
+
 #include "CypherCommon_FixedMemory.h"
 
 namespace cypher::common
@@ -91,6 +101,8 @@ bool_t FixedMemory_ContainsAddress(
         return CY_FALSE;
     }
 
+    // Compare first, then subtract. Computing an end pointer could wrap for a
+    // malformed near-address-space-limit range.
     const uintptr nBaseAddress = reinterpret_cast<uintptr>( memory.pData );
     const uintptr nAddress = reinterpret_cast<uintptr>( pAddress );
     if ( nAddress < nBaseAddress ) {
@@ -112,6 +124,8 @@ bool_t FixedMemory_ContainsRange(
         return CY_FALSE;
     }
 
+    // Offset-based containment also makes a zero-sized range at the one-past-end
+    // address legal without constructing a wrapped end address.
     const uintptr nBaseAddress = reinterpret_cast<uintptr>( memory.pData );
     const uintptr nAddress = reinterpret_cast<uintptr>( pAddress );
     if ( nAddress < nBaseAddress ) {
@@ -165,6 +179,7 @@ byte_span_t FixedMemory_Subspan(
     }
 
     const usize cbAvailable = memory.cbSize - iOffset;
+    // Clamp to the remaining bytes so callers can request an oversized tail safely.
     const usize cbSubspan = cbSize < cbAvailable ? cbSize : cbAvailable;
     return { memory.pData + iOffset, cbSubspan };
 }

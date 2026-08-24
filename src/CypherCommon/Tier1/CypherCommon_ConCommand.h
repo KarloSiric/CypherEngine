@@ -26,19 +26,19 @@
 namespace cypher::common
 {
 
-constexpr usize CY_COMMAND_MAX_ARGUMENTS = 64u;
-constexpr usize CY_COMMAND_MAX_NAME_BYTES = 127u;
-constexpr usize CY_COMMAND_MAX_LINE_BYTES = 4u * CY_KIB;
+constexpr usize CY_COMMAND_MAX_ARGUMENTS = 64u;           // Hard parser argument limit.
+constexpr usize CY_COMMAND_MAX_NAME_BYTES = 127u;         // Maximum command-name bytes.
+constexpr usize CY_COMMAND_MAX_LINE_BYTES = 4u * CY_KIB;  // Maximum accepted command line.
 
 enum concommand_flags_t : flags32_t {
-    CONCOMMAND_FLAG_NONE          = 0u,
-    CONCOMMAND_FLAG_CHEAT         = CYPHER_BIT32( 0 ),
-    CONCOMMAND_FLAG_DEVELOPMENT   = CYPHER_BIT32( 1 ),
-    CONCOMMAND_FLAG_SERVER_ONLY   = CYPHER_BIT32( 2 ),
-    CONCOMMAND_FLAG_CLIENT_ONLY   = CYPHER_BIT32( 3 ),
-    CONCOMMAND_FLAG_HIDDEN        = CYPHER_BIT32( 4 ),
-    CONCOMMAND_FLAG_ARCHIVE       = CYPHER_BIT32( 5 ),
-    CONCOMMAND_FLAG_REMOTE_ALLOWED = CYPHER_BIT32( 6 )
+    CONCOMMAND_FLAG_NONE           = 0u,                // No policy restrictions.
+    CONCOMMAND_FLAG_CHEAT          = CYPHER_BIT32( 0 ), // Requires cheat permission.
+    CONCOMMAND_FLAG_DEVELOPMENT    = CYPHER_BIT32( 1 ), // Development builds or contexts only.
+    CONCOMMAND_FLAG_SERVER_ONLY    = CYPHER_BIT32( 2 ), // Requires server execution context.
+    CONCOMMAND_FLAG_CLIENT_ONLY    = CYPHER_BIT32( 3 ), // Requires client execution context.
+    CONCOMMAND_FLAG_HIDDEN         = CYPHER_BIT32( 4 ), // Omit from normal discovery/help.
+    CONCOMMAND_FLAG_ARCHIVE        = CYPHER_BIT32( 5 ), // Reserved for persisted command state.
+    CONCOMMAND_FLAG_REMOTE_ALLOWED = CYPHER_BIT32( 6 )  // May be called by an authorized peer.
 };
 
 constexpr flags32_t CONCOMMAND_VALID_FLAGS =
@@ -51,49 +51,49 @@ constexpr flags32_t CONCOMMAND_VALID_FLAGS =
     CONCOMMAND_FLAG_REMOTE_ALLOWED;
 
 enum class command_parse_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    EMPTY_LINE,
-    LINE_TOO_LONG,
-    EMBEDDED_NULL,
-    LINE_BREAK,
-    INVALID_CHARACTER,
-    UNEXPECTED_QUOTE,
-    UNTERMINATED_QUOTE,
-    TRAILING_BYTES_AFTER_QUOTE,
-    TOO_MANY_ARGUMENTS,
-    INVALID_COMMAND_NAME
+    OK = 0u,                 // Parsing produced at least one valid argument.
+    INVALID_ARGUMENT,        // Source or destination contract is invalid.
+    EMPTY_LINE,              // Input contains no command token.
+    LINE_TOO_LONG,           // Input exceeds CY_COMMAND_MAX_LINE_BYTES.
+    EMBEDDED_NULL,           // Bounded input contains an interior null byte.
+    LINE_BREAK,              // A single-line parse encountered CR or LF.
+    INVALID_CHARACTER,       // Control or forbidden byte appears in the line.
+    UNEXPECTED_QUOTE,        // Quote began inside an unquoted token.
+    UNTERMINATED_QUOTE,      // Closing quote is missing.
+    TRAILING_BYTES_AFTER_QUOTE, // Non-space bytes follow a quoted token.
+    TOO_MANY_ARGUMENTS,      // Parsed token count exceeds the fixed output array.
+    INVALID_COMMAND_NAME     // First token violates command-name syntax.
 };
 
 struct command_parse_result_t {
-    command_parse_status_t status{ command_parse_status_t::INVALID_ARGUMENT };
-    usize iError{ CY_STRING_VIEW_NPOS };
+    command_parse_status_t status{ command_parse_status_t::INVALID_ARGUMENT }; // Final parse status.
+    usize iError{ CY_STRING_VIEW_NPOS }; // Byte offset associated with failure.
 };
 
 enum class command_source_t : u8 {
-    ENGINE = 0u,
-    LOCAL_CONSOLE,
-    CONFIG,
-    COMMAND_LINE,
-    SCRIPT,
-    REMOTE_CLIENT,
-    TOOL
+    ENGINE = 0u,  // Internal engine code.
+    LOCAL_CONSOLE, // Interactive local console.
+    CONFIG,        // Configuration-file execution.
+    COMMAND_LINE,  // Process startup arguments.
+    SCRIPT,        // Gameplay or tool scripting runtime.
+    REMOTE_CLIENT, // Authenticated remote console client.
+    TOOL           // Editor or command-line tool host.
 };
 
 struct command_args_t {
-    string_view_t commandLine{};
-    string_view_t arguments[CY_COMMAND_MAX_ARGUMENTS]{};
-    usize nArgumentCount{ 0u };
+    string_view_t commandLine{}; // Original borrowed line containing all views.
+    string_view_t arguments[CY_COMMAND_MAX_ARGUMENTS]{}; // Parsed borrowed tokens.
+    usize nArgumentCount{ 0u };  // Number of valid entries in arguments.
 };
 
 struct command_context_t {
-    command_source_t source{ command_source_t::ENGINE };
-    u64 nCallerId{ 0u };
-    bool_t bCheatsAllowed{ CY_FALSE };
-    bool_t bDevelopmentAllowed{ CY_FALSE };
-    bool_t bServerContext{ CY_FALSE };
-    bool_t bClientContext{ CY_FALSE };
-    void *pUserData{ nullptr };
+    command_source_t source{ command_source_t::ENGINE }; // Origin used for policy checks.
+    u64 nCallerId{ 0u };                    // Host-defined local or remote caller identity.
+    bool_t bCheatsAllowed{ CY_FALSE };       // Grants CHEAT commands.
+    bool_t bDevelopmentAllowed{ CY_FALSE };  // Grants DEVELOPMENT commands.
+    bool_t bServerContext{ CY_FALSE };       // Execution belongs to server state.
+    bool_t bClientContext{ CY_FALSE };       // Execution belongs to client state.
+    void *pUserData{ nullptr };              // Host state visible to command callbacks.
 };
 
 using concommand_callback_t = error_code_t ( * )(
@@ -108,13 +108,13 @@ using concommand_complete_fn_t = usize ( * )(
     void *pCommandUserData ) noexcept;
 
 struct concommand_desc_t {
-    string_view_t name{};
-    string_view_t help{};
-    string_view_t usage{};
-    flags32_t flags{ CONCOMMAND_FLAG_NONE };
-    concommand_callback_t pfnExecute{ nullptr };
-    concommand_complete_fn_t pfnComplete{ nullptr };
-    void *pUserData{ nullptr };
+    string_view_t name{};                         // Unique command name.
+    string_view_t help{};                         // Human-readable purpose text.
+    string_view_t usage{};                        // Expected argument syntax.
+    flags32_t flags{ CONCOMMAND_FLAG_NONE };      // concommand_flags_t policy bits.
+    concommand_callback_t pfnExecute{ nullptr };  // Required execution callback.
+    concommand_complete_fn_t pfnComplete{ nullptr }; // Optional completion provider.
+    void *pUserData{ nullptr };                   // Opaque callback state.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

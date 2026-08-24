@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Color Implementation Notes
+
+Color conversion states its numeric domain and transfer assumptions explicitly. Callers must not
+confuse linear values, encoded display values, and packed byte channels.
+================
+*/
+
 #include "CypherCommon_Color.h"
 
 #include <cmath>
@@ -73,6 +82,7 @@ colorf_t ColorF_RGBA( f32 r, f32 g, f32 b, f32 a ) noexcept
 
 colorf_t Color_SrgbToLinear( color32_t color ) noexcept
 {
+    // RGB uses the sRGB transfer curve; alpha is coverage and remains linear.
     return {
         Color_SrgbChannelToLinear( color.r ),
         Color_SrgbChannelToLinear( color.g ),
@@ -123,6 +133,7 @@ colorf_t Color_PremultiplyAlpha( colorf_t color ) noexcept
 
 colorf_t Color_UnpremultiplyAlpha( colorf_t color ) noexcept
 {
+    // Transparent black is the only stable result when alpha carries no color weight.
     if ( color.a == 0.0f ) {
         return { 0.0f, 0.0f, 0.0f, 0.0f };
     }
@@ -138,6 +149,7 @@ colorf_t Color_UnpremultiplyAlpha( colorf_t color ) noexcept
 
 u32 Color32_PackRGBA8( color32_t color ) noexcept
 {
+    // Packed names describe bit significance, independent of host byte order.
     return static_cast<u32>( color.r ) |
            ( static_cast<u32>( color.g ) << 8u ) |
            ( static_cast<u32>( color.b ) << 16u ) |

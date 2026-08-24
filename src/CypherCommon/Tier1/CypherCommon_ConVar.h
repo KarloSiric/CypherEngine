@@ -29,23 +29,23 @@ namespace cypher::common
 {
 
 enum class convar_type_t : u8 {
-    BOOL = 0u,
-    I64,
-    U64,
-    F64,
-    STRING
+    BOOL = 0u, // Boolean true/false value.
+    I64,       // Signed 64-bit integer.
+    U64,       // Unsigned 64-bit integer.
+    F64,       // Double-precision scalar.
+    STRING     // Borrowed or registry-owned UTF-8 text.
 };
 
 enum convar_flags_t : flags32_t {
-    CONVAR_FLAG_NONE          = 0u,
-    CONVAR_FLAG_ARCHIVE       = CYPHER_BIT32( 0 ),
-    CONVAR_FLAG_READ_ONLY     = CYPHER_BIT32( 1 ),
-    CONVAR_FLAG_CHEAT         = CYPHER_BIT32( 2 ),
-    CONVAR_FLAG_REPLICATED    = CYPHER_BIT32( 3 ),
-    CONVAR_FLAG_DEVELOPMENT   = CYPHER_BIT32( 4 ),
-    CONVAR_FLAG_HIDDEN        = CYPHER_BIT32( 5 ),
-    CONVAR_FLAG_NOTIFY        = CYPHER_BIT32( 6 ),
-    CONVAR_FLAG_REMOTE_WRITE_ALLOWED = CYPHER_BIT32( 7 )
+    CONVAR_FLAG_NONE          = 0u,                // No optional policy.
+    CONVAR_FLAG_ARCHIVE       = CYPHER_BIT32( 0 ), // Persist in user configuration.
+    CONVAR_FLAG_READ_ONLY     = CYPHER_BIT32( 1 ), // Reject runtime writes.
+    CONVAR_FLAG_CHEAT         = CYPHER_BIT32( 2 ), // Requires cheat permission.
+    CONVAR_FLAG_REPLICATED    = CYPHER_BIT32( 3 ), // Participates in network state.
+    CONVAR_FLAG_DEVELOPMENT   = CYPHER_BIT32( 4 ), // Development contexts only.
+    CONVAR_FLAG_HIDDEN        = CYPHER_BIT32( 5 ), // Omit from normal discovery.
+    CONVAR_FLAG_NOTIFY        = CYPHER_BIT32( 6 ), // Report accepted value changes.
+    CONVAR_FLAG_REMOTE_WRITE_ALLOWED = CYPHER_BIT32( 7 ) // Authorized peers may write.
 };
 
 constexpr flags32_t CONVAR_VALID_FLAGS =
@@ -59,22 +59,22 @@ constexpr flags32_t CONVAR_VALID_FLAGS =
     CONVAR_FLAG_REMOTE_WRITE_ALLOWED;
 
 enum class convar_parse_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    INVALID_TYPE,
-    EMBEDDED_NULL,
-    INVALID_VALUE,
-    BELOW_MINIMUM,
-    ABOVE_MAXIMUM
+    OK = 0u,          // Text converted and satisfied optional bounds.
+    INVALID_ARGUMENT, // Descriptor, input view, or output is invalid.
+    INVALID_TYPE,     // Descriptor names an unsupported value type.
+    EMBEDDED_NULL,    // Bounded string contains an interior null byte.
+    INVALID_VALUE,    // Text cannot be converted to the declared type.
+    BELOW_MINIMUM,    // Parsed scalar is below the inclusive lower bound.
+    ABOVE_MAXIMUM     // Parsed scalar is above the inclusive upper bound.
 };
 
 struct convar_parse_result_t {
-    convar_parse_status_t status{ convar_parse_status_t::INVALID_ARGUMENT };
-    string_parse_result_t scalarResult{};
+    convar_parse_status_t status{ convar_parse_status_t::INVALID_ARGUMENT }; // ConVar-level result.
+    string_parse_result_t scalarResult{}; // Detailed numeric parse result when applicable.
 };
 
 struct convar_value_t {
-    variant_t value{};
+    variant_t value{}; // Value whose variant type must match the descriptor.
 };
 
 using convar_changed_fn_t = void ( * )(
@@ -84,15 +84,15 @@ using convar_changed_fn_t = void ( * )(
     void *pUserData ) noexcept;
 
 struct convar_desc_t {
-    string_view_t name{};
-    string_view_t help{};
-    convar_type_t type{ convar_type_t::STRING };
-    string_view_t defaultValue{};
-    string_view_t minValue{};
-    string_view_t maxValue{};
-    flags32_t flags{ CONVAR_FLAG_NONE };
-    convar_changed_fn_t pfnChanged{ nullptr };
-    void *pUserData{ nullptr };
+    string_view_t name{};                    // Unique console-visible variable name.
+    string_view_t help{};                    // Human-readable purpose text.
+    convar_type_t type{ convar_type_t::STRING }; // Declared storage and parse type.
+    string_view_t defaultValue{};            // Required authored default text.
+    string_view_t minValue{};                // Optional inclusive scalar minimum.
+    string_view_t maxValue{};                // Optional inclusive scalar maximum.
+    flags32_t flags{ CONVAR_FLAG_NONE };      // convar_flags_t policy bits.
+    convar_changed_fn_t pfnChanged{ nullptr }; // Optional post-commit callback.
+    void *pUserData{ nullptr };               // Opaque callback state.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

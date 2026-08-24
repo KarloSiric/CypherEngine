@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Fixed String Contract
+
+The buffer always has room for a trailing NUL. cchLength counts payload bytes and never includes
+that terminator. Assign and append report the required length even when output is truncated, which
+lets callers detect loss without scanning the destination again.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_FIXEDSTRING_H
 #define CYPHER_COMMON_TIER1_FIXEDSTRING_H
 #ifndef PRAGMA_ONCE
@@ -28,8 +38,8 @@ namespace cypher::common
 
 template <usize cchCapacity>
 struct fixed_string_t {
-    char data[cchCapacity + 1u]{};
-    usize cchLength{ 0u };
+    char data[cchCapacity + 1u]{}; // UTF-8 bytes plus the invariant trailing NUL.
+    usize cchLength{ 0u };         // Payload bytes currently stored; excludes the terminator.
 };
 
 template <usize cchCapacity>

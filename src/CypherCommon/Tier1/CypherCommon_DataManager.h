@@ -32,10 +32,10 @@ using data_destroy_fn_t = void ( * )(
     void *pUserData ) noexcept;
 
 struct data_entry_desc_t {
-    string_view_t name{};
-    void *pData{ nullptr };
-    data_destroy_fn_t pfnDestroy{ nullptr };
-    void *pUserData{ nullptr };
+    string_view_t name{};                    // Unique byte-exact registry name.
+    void *pData{ nullptr };                  // Opaque object stored by the registry.
+    data_destroy_fn_t pfnDestroy{ nullptr }; // Optional ownership-release callback.
+    void *pUserData{ nullptr };              // Opaque state passed to pfnDestroy.
 };
 
 struct data_manager_t;

@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Dictionary Contract
+
+Dictionary interns every accepted key so the hash table never points at caller text. Key views
+remain valid until Clear or Shutdown destroys the pool. Case policy is fixed during Init because
+changing it would invalidate both hashes and equality for every existing entry.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_DICTIONARY_H
 #define CYPHER_COMMON_TIER1_DICTIONARY_H
 #ifndef PRAGMA_ONCE
@@ -28,12 +38,12 @@ namespace cypher::common
 {
 
 struct string_view_hash_t {
-    bool_t bCaseInsensitiveAscii{ CY_FALSE };
+    bool_t bCaseInsensitiveAscii{ CY_FALSE }; // Fold ASCII case before hashing when enabled.
     CYPHER_NODISCARD hash64_t operator()( string_view_t value ) const noexcept;
 };
 
 struct string_view_equal_t {
-    bool_t bCaseInsensitiveAscii{ CY_FALSE };
+    bool_t bCaseInsensitiveAscii{ CY_FALSE }; // Must use the same policy as string_view_hash_t.
     CYPHER_NODISCARD bool_t operator()(
         string_view_t left,
         string_view_t right ) const noexcept;
@@ -45,10 +55,10 @@ struct dictionary_t {
     CYPHER_NO_COPY_MOVE( dictionary_t );
     ~dictionary_t() noexcept;
 
-    string_pool_t *pKeys{ nullptr };
-    hash_map_t<string_view_t, value_t, string_view_hash_t, string_view_equal_t> entries{};
-    const allocator_t *pAllocator{ nullptr };
-    bool_t bCaseInsensitiveAscii{ CY_FALSE };
+    string_pool_t *pKeys{ nullptr }; // Owns immutable bytes referenced by every map key.
+    hash_map_t<string_view_t, value_t, string_view_hash_t, string_view_equal_t> entries{}; // Index.
+    const allocator_t *pAllocator{ nullptr }; // Shared allocator used by pool and map.
+    bool_t bCaseInsensitiveAscii{ CY_FALSE }; // Immutable key comparison policy.
 };
 
 template <typename value_t>

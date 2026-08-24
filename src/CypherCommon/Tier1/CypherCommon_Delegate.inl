@@ -55,6 +55,8 @@ struct delegate_function_binder_t<return_t( args_t... ), pfnFunction> {
                 args_t...>,
             "Delegate free function must match the signature and be noexcept." );
 
+        // A compile-time thunk supplies the concrete function while preserving
+        // one uniform (void*, args...) invocation signature.
         delegate_t<return_t( args_t... )> delegate{};
         delegate.pfnInvoke = []( void *, args_t... args ) noexcept -> return_t {
             return pfnFunction( static_cast<args_t &&>( args )... );
@@ -99,6 +101,8 @@ struct delegate_method_binder_t<
         if ( pObject == nullptr ) {
             return delegate;
         }
+        // The delegate borrows this object. The caller must keep it alive until
+        // every copy of the delegate has been reset or discarded.
         delegate.pObject = pObject;
         delegate.pfnInvoke = []( void *pBoundObject, args_t... args ) noexcept
             -> return_t {
@@ -127,6 +131,7 @@ struct delegate_method_binder_t<
         if ( pObject == nullptr ) {
             return delegate;
         }
+        // Erased storage is void*, but the thunk restores const before invocation.
         delegate.pObject = const_cast<object_t *>( pObject );
         delegate.pfnInvoke = []( void *pBoundObject, args_t... args ) noexcept
             -> return_t {
@@ -233,6 +238,8 @@ return_t Delegate_Invoke(
 {
     const bool_t bBound = Delegate_IsBound( delegate );
     CY_ASSERT_MSG( bBound, "Delegate_Invoke requires a bound delegate." );
+    // Invocation is intentionally unchecked in release after the contract
+    // assertion; calling an unbound delegate is a programmer error.
     return delegate.pfnInvoke(
         delegate.pObject,
         static_cast<args_t &&>( args )... );

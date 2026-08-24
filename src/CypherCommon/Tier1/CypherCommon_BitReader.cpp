@@ -25,6 +25,9 @@ namespace cypher::common
 namespace
 {
 
+// Failure status is sticky. A malformed field cannot be ignored accidentally by
+// issuing another read without an explicit reset or ClearStatus operation.
+
 bool_t IsBitOrderValid( bit_order_t bitOrder ) noexcept
 {
     switch ( bitOrder ) {
@@ -252,6 +255,8 @@ bool_t BitReader_ReadBits(
         return CY_TRUE;
     }
 
+    // General cross-byte path. Physical stream order and integer value order are
+    // handled separately so both LSB-first and MSB-first formats are stable.
     u64 value = 0u;
     for ( u32 iFieldBit = 0u; iFieldBit < nBits; ++iFieldBit ) {
         const usize iStreamBit = pReader->iBit + iFieldBit;
@@ -287,6 +292,7 @@ bool_t BitReader_ReadSignedBits(
     if ( !BitReader_ReadBits( pReader, nBits, &bits ) ) {
         return CY_FALSE;
     }
+    // Sign-extend the field width before interpreting the bits as i64.
     if ( nBits < 64u && ( bits & ( 1ull << ( nBits - 1u ) ) ) != 0u ) {
         bits |= ~(( 1ull << nBits ) - 1u );
     }

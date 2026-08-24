@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Buffer Implementation Notes
+
+The cursor and capacity form one invariant: no operation may advance beyond the supplied
+storage. Failed writes report the condition without publishing a cursor that claims unwritten
+bytes.
+================
+*/
+
 #include "CypherCommon_Buffer.h"
 
 namespace cypher::common
@@ -131,12 +141,14 @@ bool_t Buffer_Append(
     CY_ASSERT_MSG(
         bValidSource,
         "Buffer_Append requires non-null data for a non-empty source." );
+    // Validate the complete append before touching storage; failure is atomic.
     if ( !bValidBuffer || !bValidSource ||
          cbData > pBuffer->cbCapacity - pBuffer->cbSize ) {
         return CY_FALSE;
     }
 
     if ( cbData > 0u ) {
+        // MemMove permits a source range that aliases this buffer.
         Cy_MemMove( pBuffer->pData + pBuffer->cbSize, pData, cbData );
         pBuffer->cbSize += cbData;
     }
@@ -188,6 +200,8 @@ byte_span_t Buffer_AppendUninitialized(
         return {};
     }
 
+    // Size is published with the reservation; caller must initialize the returned
+    // bytes before exposing the buffer as immutable data.
     byte *pAppended = pBuffer->pData != nullptr
         ? pBuffer->pData + pBuffer->cbSize
         : nullptr;

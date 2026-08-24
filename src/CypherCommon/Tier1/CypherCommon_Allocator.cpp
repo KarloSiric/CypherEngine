@@ -207,6 +207,8 @@ void *Allocator_Reallocate(
     }
 
     if ( pAllocator->pfnReallocate != nullptr ) {
+        // A native callback owns any in-place growth policy and must preserve the
+        // original allocation when it reports failure.
         void *pNewMemory = pAllocator->pfnReallocate(
             pAllocator->pUserData,
             pMemory,
@@ -228,6 +230,8 @@ void *Allocator_Reallocate(
         return pNewMemory;
     }
 
+    // Portable fallback: allocate first, copy the common prefix, then free. The
+    // original bytes remain valid if the replacement allocation fails.
     void *pNewMemory = Allocator_Allocate(
         pAllocator,
         cbNewSize,
@@ -349,6 +353,8 @@ bool_t Allocator_AdoptOwned(
         return CY_FALSE;
     }
 
+    // Allocator provenance travels with the pointer so ownership can cross module
+    // boundaries without guessing which heap must release it.
     pAllocation->pData = pMemory;
     pAllocation->cbSize = cbSize;
     pAllocation->nAlignment = nAlignment;

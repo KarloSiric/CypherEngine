@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Byte Writer Contract
+
+Writes never advance iOffset unless the complete operation fits. Seeking backward does not erase
+published bytes, so cbHighWater records the complete initialized prefix returned by Block. Status
+is sticky and prevents a caller from accidentally continuing after truncated output.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_BYTEWRITER_H
 #define CYPHER_COMMON_TIER1_BYTEWRITER_H
 #ifndef PRAGMA_ONCE
@@ -27,12 +37,12 @@ namespace cypher::common
 {
 
 struct byte_writer_t {
-    byte *pData{ nullptr };
-    usize cbCapacity{ 0u };
-    usize iOffset{ 0u };
-    usize cbHighWater{ 0u };
-    data_byte_order_t byteOrder{ data_byte_order_t::LITTLE };
-    byte_cursor_status_t status{ byte_cursor_status_t::OK };
+    byte *pData{ nullptr };                                    // Borrowed writable storage.
+    usize cbCapacity{ 0u };                                    // Maximum addressable bytes.
+    usize iOffset{ 0u };                                       // Position of the next write.
+    usize cbHighWater{ 0u };                                   // Furthest byte initialized by any write.
+    data_byte_order_t byteOrder{ data_byte_order_t::LITTLE };  // Order used for fixed-width values.
+    byte_cursor_status_t status{ byte_cursor_status_t::OK };   // Sticky first-failure state.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

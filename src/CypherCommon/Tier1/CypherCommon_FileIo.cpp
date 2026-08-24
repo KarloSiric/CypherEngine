@@ -43,12 +43,12 @@ namespace cypher::common
 
 struct native_file_t {
 #if CYPHER_PLATFORM_WINDOWS
-    HANDLE hFile{ INVALID_HANDLE_VALUE };
+    HANDLE hFile{ INVALID_HANDLE_VALUE }; // Win32 kernel handle owned by this object.
 #else
-    int nFileDescriptor{ -1 };
+    int nFileDescriptor{ -1 };            // POSIX descriptor owned by this object.
 #endif
-    flags32_t flags{ FILE_OPEN_FLAG_NONE };
-    const allocator_t *pAllocator{ nullptr };
+    flags32_t flags{ FILE_OPEN_FLAG_NONE }; // Capabilities requested when opening.
+    const allocator_t *pAllocator{ nullptr }; // Releases the wrapper object on close.
 };
 
 namespace
@@ -60,7 +60,7 @@ constexpr flags32_t CY_FILE_OPEN_FLAG_MASK =
     FILE_OPEN_FLAG_APPEND |
     FILE_OPEN_FLAG_CREATE |
     FILE_OPEN_FLAG_TRUNCATE |
-    FILE_OPEN_FLAG_EXCLUSIVE;
+    FILE_OPEN_FLAG_EXCLUSIVE; // Reject unknown open modes before platform translation.
 
 bool_t NativePathIsValid( string_view_t nativePath ) noexcept
 {
@@ -88,6 +88,7 @@ bool_t OpenFlagsAreValid( flags32_t flags ) noexcept
     const bool_t bTruncate = ( flags & FILE_OPEN_FLAG_TRUNCATE ) != 0u;
     const bool_t bExclusive = ( flags & FILE_OPEN_FLAG_EXCLUSIVE ) != 0u;
 
+    // Mutation modes require write access and exclusive creation cannot truncate.
     if ( !bRead && !bWrite ) {
         return CY_FALSE;
     }
@@ -112,6 +113,7 @@ wchar_t *CopyNativePath(
         return nullptr;
     }
 
+    // Win32 wide APIs receive an explicit-length UTF-8 conversion plus our own NUL.
     const int cchSource = static_cast<int>( nativePath.cchLength );
     const int cchWide = MultiByteToWideChar(
         CP_UTF8,
@@ -198,6 +200,7 @@ bool_t CreateWideDirectoryComponent( wchar_t *pPath ) noexcept
 
 usize WidePathRootLength( const wchar_t *pPath, usize cchPath ) noexcept
 {
+    // Preserve the complete drive or UNC share root while creating components.
     if ( cchPath >= 3u &&
          ( ( pPath[0] >= L'A' && pPath[0] <= L'Z' ) ||
            ( pPath[0] >= L'a' && pPath[0] <= L'z' ) ) &&
@@ -239,6 +242,7 @@ stream_io_result_t NativeFileRead(
         return {};
     }
 
+    // ReadFile accepts a DWORD count; Stream_ReadExact repeats calls for larger requests.
     const usize cbMaximum = static_cast<usize>( std::numeric_limits<DWORD>::max() );
     const DWORD cbChunk = static_cast<DWORD>(
         cbRequested < cbMaximum ? cbRequested : cbMaximum );
@@ -266,6 +270,7 @@ stream_io_result_t NativeFileWrite(
         return {};
     }
 
+    // WriteFile accepts a DWORD count; Stream_WriteExact repeats partial writes.
     const usize cbMaximum = static_cast<usize>( std::numeric_limits<DWORD>::max() );
     const DWORD cbChunk = static_cast<DWORD>(
         cbRequested < cbMaximum ? cbRequested : cbMaximum );
@@ -366,6 +371,7 @@ char *CopyNativePath(
         return nullptr;
     }
 
+    // POSIX paths are byte strings; copy the bounded view and append the required NUL.
     cbAllocationOut = nativePath.cchLength + 1u;
     auto *pPath = static_cast<char *>( Allocator_Allocate(
         pAllocator,
@@ -431,6 +437,7 @@ stream_io_result_t NativeFileRead(
 
     const usize cbMaximum = static_cast<usize>( std::numeric_limits<ssize_t>::max() );
     const usize cbChunk = cbRequested < cbMaximum ? cbRequested : cbMaximum;
+    // Interrupted syscalls are retried because no bytes were transferred.
     ssize_t cbRead = -1;
     do {
         cbRead = read( pFile->nFileDescriptor, pDest, cbChunk );
@@ -461,6 +468,7 @@ stream_io_result_t NativeFileWrite(
 
     const usize cbMaximum = static_cast<usize>( std::numeric_limits<ssize_t>::max() );
     const usize cbChunk = cbRequested < cbMaximum ? cbRequested : cbMaximum;
+    // A successful short write is exposed to Stream_WriteExact for continuation.
     ssize_t cbWritten = -1;
     do {
         cbWritten = write( pFile->nFileDescriptor, pSource, cbChunk );
@@ -557,7 +565,7 @@ const stream_ops_t NATIVE_FILE_STREAM_OPS{
     &NativeFileSeek,
     &NativeFileTell,
     &NativeFileSize,
-    &NativeFileFlush
+    &NativeFileFlush // Adapts one native handle to the generic stream contract.
 };
 
 } // namespace
@@ -582,6 +590,7 @@ native_file_t *FileIo_OpenNative(
         return nullptr;
     }
 
+    // Translate common flags once; all later I/O goes through the stream adapter.
 #if CYPHER_PLATFORM_WINDOWS
     DWORD nAccess = 0u;
     if ( ( flags & FILE_OPEN_FLAG_READ ) != 0u ) {
@@ -662,6 +671,7 @@ native_file_t *FileIo_OpenNative(
     }
 #endif
 
+    // The OS handle is live here; allocation failure must close it before returning.
     void *pStorage = Allocator_Allocate(
         pAllocator,
         sizeof( native_file_t ),
@@ -768,6 +778,7 @@ bool_t FileIo_ReadAllNative(
         return CY_FALSE;
     }
 
+    // Read into a temporary blob so failure preserves the caller's existing contents.
     blob_t pending{};
     const bool_t bInitialized = Blob_Init(
         &pending,
@@ -812,6 +823,7 @@ bool_t FileIo_WriteAllNative(
     }
 
     stream_t stream = FileIo_AsStream( pFile );
+    // Exact write plus flush gives callers a complete-or-failed bootstrap operation.
     const bool_t bWritten = Stream_WriteExact(
         &stream,
         source.pData,
@@ -838,6 +850,7 @@ bool_t FileIo_CreateDirectoriesNative( string_view_t nativePath ) noexcept
         return CY_FALSE;
     }
 
+    // Temporarily terminate at each separator and create the path one component at a time.
     bool_t bCreated = CY_TRUE;
 #if CYPHER_PLATFORM_WINDOWS
     const usize cchPath = cbPathAllocation / sizeof( wchar_t ) - 1u;
@@ -945,6 +958,7 @@ bool_t FileIo_ReplaceNative(
     }
 
 #if CYPHER_PLATFORM_WINDOWS
+    // Replace-existing plus write-through is the closest Win32 atomic publication primitive.
     const bool_t bReplaced = MoveFileExW(
         pSource,
         pDestination,
@@ -952,6 +966,7 @@ bool_t FileIo_ReplaceNative(
         ? CY_TRUE
         : CY_FALSE;
 #else
+    // POSIX rename atomically replaces a destination when both paths share a filesystem.
     int nResult = -1;
     do {
         nResult = std::rename( pSource, pDestination );

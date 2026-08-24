@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Function Contract
+
+Unlike delegate_t, this wrapper owns its callable. Small targets live in inlineStorage; larger or
+over-aligned targets use pAllocator. The thunk trio is an internal vtable without C++ virtual
+dispatch. A callable is considered bound only when all thunks and pCallable describe one target.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_FUNCTION_H
 #define CYPHER_COMMON_TIER1_FUNCTION_H
 #ifndef PRAGMA_ONCE
@@ -30,7 +40,7 @@
 namespace cypher::common
 {
 
-constexpr usize CY_FUNCTION_DEFAULT_INLINE_BYTES = 48u;
+constexpr usize CY_FUNCTION_DEFAULT_INLINE_BYTES = 48u; // Covers common captures without heap traffic.
 
 template <typename signature_t, usize cbInline = CY_FUNCTION_DEFAULT_INLINE_BYTES>
 struct function_t;
@@ -45,15 +55,15 @@ struct function_t<return_t( args_t... ), cbInline> {
     CYPHER_NO_COPY_MOVE( function_t );
     ~function_t() noexcept;
 
-    alignas( std::max_align_t ) byte inlineStorage[cbInline > 0u ? cbInline : 1u]{};
-    void *pCallable{ nullptr };
-    invoke_fn_t pfnInvoke{ nullptr };
-    destroy_fn_t pfnDestroy{ nullptr };
-    move_fn_t pfnMove{ nullptr };
-    const allocator_t *pAllocator{ nullptr };
-    usize cbAllocation{ 0u };
-    usize alignment{ 0u };
-    bool_t bHeapAllocated{ CY_FALSE };
+    alignas( std::max_align_t ) byte inlineStorage[cbInline > 0u ? cbInline : 1u]{}; // Local target storage.
+    void *pCallable{ nullptr };                    // Inline target or allocator-owned target address.
+    invoke_fn_t pfnInvoke{ nullptr };              // Calls the erased concrete callable.
+    destroy_fn_t pfnDestroy{ nullptr };            // Ends the concrete callable lifetime.
+    move_fn_t pfnMove{ nullptr };                  // Move-constructs an inline target into new storage.
+    const allocator_t *pAllocator{ nullptr };      // Allocator used for an out-of-line target.
+    usize cbAllocation{ 0u };                      // Heap byte count needed by Allocator_Free.
+    usize alignment{ 0u };                         // Heap alignment needed by Allocator_Free.
+    bool_t bHeapAllocated{ CY_FALSE };             // Selects pCallable ownership and move behavior.
 };
 
 template <typename signature_t, usize cbInline>

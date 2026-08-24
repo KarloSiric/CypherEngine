@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Array Template Definitions
+
+Element count, capacity, and storage ownership move together. Mutating operations preserve
+constructed-element lifetime and never access capacity outside the active allocation. Template
+definitions remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_ARRAY_INL
 #define CYPHER_COMMON_TIER1_ARRAY_INL
 
@@ -156,6 +166,8 @@ bool_t Array_Resize(
         return CY_FALSE;
     }
 
+    // Build replacement storage before destroying the old array. Allocation
+    // failure therefore leaves the original value untouched.
     type_t *pNewData = Allocator_AllocateArrayStorage<type_t>(
         pArray->pAllocator,
         nCount );
@@ -163,6 +175,7 @@ bool_t Array_Resize(
         return CY_FALSE;
     }
 
+    // Relocate the common prefix and construct only the newly exposed tail.
     const usize nPreserved = pArray->nCount < nCount
         ? pArray->nCount
         : nCount;

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Compression Zstd Contract
+
+Compression is a storage optimization, not an integrity or security boundary. Every decoder
+receives an explicit output limit and must reject truncated, oversized, or inconsistent streams.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_COMPRESSIONZSTD_H
 #define CYPHER_COMMON_TIER1_COMPRESSIONZSTD_H
 #ifndef PRAGMA_ONCE

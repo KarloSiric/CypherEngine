@@ -25,13 +25,13 @@ namespace cypher::common
 namespace
 {
 
-constexpr byte DIFF_MAGIC[]{ 'C', 'Y', 'B', 'D' };
-constexpr byte DIFF_VERSION = 1u;
+constexpr byte DIFF_MAGIC[]{ 'C', 'Y', 'B', 'D' }; // Binary-diff stream signature.
+constexpr byte DIFF_VERSION = 1u;                  // Current operation encoding version.
 
 enum class diff_op_t : byte {
-    COPY = 1u,
-    LITERAL = 2u,
-    END = 0xFFu
+    COPY = 1u,    // Copy a source range: offset, length.
+    LITERAL = 2u, // Copy literal bytes embedded in the operation stream.
+    END = 0xFFu   // Required end marker; no trailing bytes are permitted.
 };
 
 bool_t DiffIsInitialized( const binary_diff_t *pDiff ) noexcept
@@ -48,6 +48,7 @@ bool_t AppendByte( blob_t &blob, byte value ) noexcept
 
 bool_t AppendVarU64( blob_t &blob, u64 value ) noexcept
 {
+    // Seven payload bits per byte; the high bit means another byte follows.
     byte encoded[10]{};
     usize cbEncoded = 0u;
     do {
@@ -92,11 +93,13 @@ bool_t ReadVarU64(
             return CY_FALSE;
         }
         const byte value = encoded.pData[iCursor++];
+        // A u64 uses at most one payload bit in its tenth encoded byte.
         if ( iByte == 9u && ( value & 0xFEu ) != 0u ) {
             return CY_FALSE;
         }
         valueOut |= static_cast<u64>( value & 0x7Fu ) << ( iByte * 7u );
         if ( ( value & 0x80u ) == 0u ) {
+            // Reject redundant terminal zero groups to keep one canonical encoding.
             return iByte == 0u || value != 0u;
         }
     }
@@ -122,15 +125,16 @@ bool_t RangesOverlap(
 }
 
 struct diff_validation_t {
-    diff_status_t status{ diff_status_t::OK };
-    usize cbOutput{ 0u };
-    content_hash_t outputHash{};
+    diff_status_t status{ diff_status_t::OK }; // Structural validation result.
+    usize cbOutput{ 0u };                      // Reconstructed byte count.
+    content_hash_t outputHash{};               // Hash produced while validating.
 };
 
 diff_validation_t ValidateOperations(
     binary_block_t source,
     const binary_diff_t &diff ) noexcept
 {
+    // Validation walks the complete stream and hashes logical output without writing it.
     const binary_block_t encoded = Blob_Block( &diff.encodedOps );
     if ( encoded.cbSize < sizeof( DIFF_MAGIC ) + 2u ||
          Cy_MemCompare( encoded.pData, DIFF_MAGIC, sizeof( DIFF_MAGIC ) ) != 0 ||
@@ -146,7 +150,7 @@ diff_validation_t ValidateOperations(
         return { diff_status_t::INTERNAL_ERROR };
     }
 
-    usize iCursor = sizeof( DIFF_MAGIC ) + 1u;
+    usize iCursor = sizeof( DIFF_MAGIC ) + 1u; // Skip magic and version.
     usize cbOutput = 0u;
     bool_t bEnded = CY_FALSE;
     while ( iCursor < encoded.cbSize ) {
@@ -156,6 +160,7 @@ diff_validation_t ValidateOperations(
             break;
         }
 
+        // Each operation resolves to one bounded block of reconstructed output.
         binary_block_t outputBlock{};
         if ( operation == diff_op_t::COPY ) {
             u64 iSource64 = 0u;
@@ -219,6 +224,7 @@ void ApplyOperations(
     const binary_diff_t &diff,
     byte *pDest ) noexcept
 {
+    // The caller validates this stream first, so this pass can remain branch-light.
     const binary_block_t encoded = Blob_Block( &diff.encodedOps );
     usize iCursor = sizeof( DIFF_MAGIC ) + 1u;
     usize iOutput = 0u;
@@ -304,6 +310,7 @@ diff_status_t Diff_Generate(
         return diff_status_t::INVALID_ARGUMENT;
     }
 
+    // Version one preserves the common edges and stores the changed middle literally.
     usize cbPrefix = 0u;
     const usize cbShortest = source.cbSize < target.cbSize
         ? source.cbSize
@@ -320,6 +327,7 @@ diff_status_t Diff_Generate(
     }
     const usize cbLiteral = target.cbSize - cbPrefix - cbSuffix;
 
+    // Build into temporary storage so failure never destroys the previous diff.
     blob_t encoded{};
     if ( !Blob_Init( &encoded, pDiffOut->encodedOps.pAllocator ) ) {
         return diff_status_t::OUT_OF_MEMORY;
@@ -380,6 +388,7 @@ diff_status_t Diff_Apply(
         return diff_status_t::INVALID_ARGUMENT;
     }
 
+    // Do not touch destination memory until structure, bounds, and target hash agree.
     const diff_validation_t validation = ValidateOperations( source, diff );
     if ( validation.status != diff_status_t::OK ) {
         return validation.status;

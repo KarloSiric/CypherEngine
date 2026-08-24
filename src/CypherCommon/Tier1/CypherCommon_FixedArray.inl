@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Fixed Array Template Definitions
+
+Element count, capacity, and storage ownership move together. Mutating operations preserve
+constructed-element lifetime and never access capacity outside the active allocation. Template
+definitions remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_FIXEDARRAY_INL
 #define CYPHER_COMMON_TIER1_FIXEDARRAY_INL
 
@@ -75,6 +85,7 @@ template <typename type_t, usize nExtent>
 type_t *FixedArray_Begin(
     fixed_array_t<type_t, nExtent> *pArray ) noexcept
 {
+    // Fixed extent means iteration pointers remain stable for the array lifetime.
     return FixedArray_Data( pArray );
 }
 
@@ -164,6 +175,7 @@ void FixedArray_Fill(
         return;
     }
 
+    // All nExtent elements are alive for the complete fixed-array lifetime.
     for ( usize iIndex = 0u; iIndex < nExtent; ++iIndex ) {
         pArray->data[iIndex] = value;
     }

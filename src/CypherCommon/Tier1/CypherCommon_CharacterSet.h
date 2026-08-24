@@ -37,8 +37,8 @@ All char arguments are interpreted as unsigned byte values in the [0, 255] domai
 namespace cypher::common
 {
 
-constexpr usize CY_CHARACTER_SET_VALUE_COUNT    = 256u;
-constexpr usize CY_CHARACTER_SET_WORD_BITS      = 64u;
+constexpr usize CY_CHARACTER_SET_VALUE_COUNT    = 256u; // Complete unsigned-byte domain.
+constexpr usize CY_CHARACTER_SET_WORD_BITS      = 64u;  // Membership bits stored per word.
 constexpr usize CY_CHARACTER_SET_WORD_COUNT     = CY_CHARACTER_SET_VALUE_COUNT / CY_CHARACTER_SET_WORD_BITS;
 
 static_assert( CY_CHARACTER_SET_VALUE_COUNT % CY_CHARACTER_SET_WORD_BITS == 0u,
@@ -46,7 +46,7 @@ static_assert( CY_CHARACTER_SET_VALUE_COUNT % CY_CHARACTER_SET_WORD_BITS == 0u,
 
 // Fixed 256 bit set where each bit represents one possible byte value.
 struct character_set_t {
-    u64 bitWords[CY_CHARACTER_SET_WORD_COUNT]{};
+    u64 bitWords[CY_CHARACTER_SET_WORD_COUNT]{}; // Bit N records membership of byte value N.
 };
 
 static_assert( sizeof( character_set_t ) == 32u, "character_set_t must remain a compact 256-bit value." );

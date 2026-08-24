@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Blob Contract
+
+Blob owns a growable raw-byte allocation. Growth is transactional and preserves the previous
+allocation on failure. Release transfers both the pointer and its allocator metadata; the blob
+returns to an initialized empty state and must not free the transferred block.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_BLOB_H
 #define CYPHER_COMMON_TIER1_BLOB_H
 #ifndef PRAGMA_ONCE
@@ -32,10 +42,10 @@ struct blob_t {
     CYPHER_NO_COPY_MOVE( blob_t );
     ~blob_t() noexcept;
 
-    byte *pData{ nullptr };
-    usize cbSize{ 0u };
-    usize cbCapacity{ 0u };
-    const allocator_t *pAllocator{ nullptr };
+    byte *pData{ nullptr };                     // First byte of the owned allocation.
+    usize cbSize{ 0u };                         // Logical payload bytes visible through Blob_Block.
+    usize cbCapacity{ 0u };                     // Allocated byte count available at pData.
+    const allocator_t *pAllocator{ nullptr };   // Allocator bound until shutdown or release.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

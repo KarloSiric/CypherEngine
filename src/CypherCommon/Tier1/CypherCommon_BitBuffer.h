@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Bit Buffer Contract
+
+The buffer borrows fixed storage and tracks a logical number of valid bits independently from the
+physical byte capacity. Shrinking clears no storage; growing initializes each newly exposed bit to
+the requested fill value so later serialization is deterministic.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_BITBUFFER_H
 #define CYPHER_COMMON_TIER1_BITBUFFER_H
 #ifndef PRAGMA_ONCE
@@ -27,9 +37,9 @@ namespace cypher::common
 {
 
 struct bit_buffer_t {
-    byte *pData{ nullptr };
-    usize nBitSize{ 0u };
-    usize nBitCapacity{ 0u };
+    byte *pData{ nullptr };       // Borrowed packed-bit storage.
+    usize nBitSize{ 0u };         // Logical bits currently exposed to readers.
+    usize nBitCapacity{ 0u };     // Physical storage capacity expressed in bits.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

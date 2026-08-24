@@ -68,6 +68,8 @@ content_hash_t ContentHash_Combine(
         return CY_CONTENT_HASH_INVALID;
     }
 
+    // Serialize both hashes in an explicit byte order before rehashing. Native
+    // struct layout would make composition depend on host endianness and padding.
     byte canonical[32]{};
     ContentHash_StoreU64Little( canonical, left.low );
     ContentHash_StoreU64Little( canonical + 8u, left.high );
@@ -78,6 +80,7 @@ content_hash_t ContentHash_Combine(
 
 bool_t ContentHash_IsValid( content_hash_t hash ) noexcept
 {
+    // All-zero is reserved as the invalid/uncomputed sentinel.
     return hash.low != 0u || hash.high != 0u;
 }
 
@@ -103,6 +106,8 @@ usize ContentHash_ToHex(
         return 0u;
     }
 
+    // Print high word first so lexical text order matches the conventional
+    // most-significant-to-least-significant 128-bit representation.
     ContentHash_WriteHexWord( pDest, hash.high );
     ContentHash_WriteHexWord( pDest + 16u, hash.low );
     pDest[CY_CONTENT_HASH_HEX_LENGTH] = '\0';

@@ -27,17 +27,27 @@
 namespace cypher::common
 {
 
+/*
+================
+Fixed Block Layout
+
+The occupancy bitmap and aligned payload slots share one caller-owned region. Free blocks store
+their next pointer in the payload itself, so cbPayload must be large enough for that link. Reset
+rebuilds the list and invalidates every allocation without inspecting user payload bytes.
+================
+*/
+
 struct block_memory_t {
-    fixed_memory_t memory{};
-    void *pFreeHead{ nullptr };
-    byte *pOccupancyBits{ nullptr };
-    usize cbOccupancyBits{ 0u };
-    usize cbBlockStride{ 0u };
-    usize cbPayload{ 0u };
-    usize nAlignment{ 0u };
-    usize nBlockCount{ 0u };
-    usize nFreeCount{ 0u };
-    usize nHighWaterCount{ 0u };
+    fixed_memory_t memory{};        // Entire borrowed metadata-and-payload region.
+    void *pFreeHead{ nullptr };     // First available payload; free payloads form a singly linked list.
+    byte *pOccupancyBits{ nullptr };// One allocation bit per block, stored at the front of memory.
+    usize cbOccupancyBits{ 0u };    // Bytes reserved for pOccupancyBits.
+    usize cbBlockStride{ 0u };      // Aligned distance between consecutive payload addresses.
+    usize cbPayload{ 0u };          // Usable bytes returned for each allocation.
+    usize nAlignment{ 0u };         // Required alignment of every payload address.
+    usize nBlockCount{ 0u };        // Total number of payload slots in memory.
+    usize nFreeCount{ 0u };         // Slots currently reachable through pFreeHead.
+    usize nHighWaterCount{ 0u };    // Maximum simultaneously allocated slots since reset.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

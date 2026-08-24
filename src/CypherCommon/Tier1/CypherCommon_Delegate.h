@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Delegate Contract
+
+The delegate owns nothing. pObject is borrowed and must outlive every invocation. pfnInvoke is a
+type-specific thunk that casts pObject and dispatches to the bound function, method, or callable.
+Both fields are null for the canonical unbound state.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_DELEGATE_H
 #define CYPHER_COMMON_TIER1_DELEGATE_H
 #ifndef PRAGMA_ONCE
@@ -36,8 +46,8 @@ template <typename return_t, typename... args_t>
 struct delegate_t<return_t( args_t... )> {
     using invoke_fn_t = return_t ( * )( void *pObject, args_t... args ) noexcept;
 
-    void *pObject{ nullptr };
-    invoke_fn_t pfnInvoke{ nullptr };
+    void *pObject{ nullptr };             // Borrowed function target or callable object.
+    invoke_fn_t pfnInvoke{ nullptr };     // Erased dispatch thunk; null means unbound.
 };
 
 template <typename return_t, typename... args_t>

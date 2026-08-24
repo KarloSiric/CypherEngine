@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Binary Block Implementation Notes
+
+The cursor and capacity form one invariant: no operation may advance beyond the supplied
+storage. Failed writes report the condition without publishing a cursor that claims unwritten
+bytes.
+================
+*/
+
 #include "CypherCommon_BinaryBlock.h"
 
 namespace cypher::common
@@ -86,6 +96,7 @@ binary_block_t BinaryBlock_Subblock(
         return {};
     }
 
+    // Length is clamped, but the starting offset is never silently corrected.
     const usize cbAvailable = block.cbSize - iOffset;
     const usize cbSubblock = cbSize < cbAvailable ? cbSize : cbAvailable;
     return { block.pData + iOffset, cbSubblock };

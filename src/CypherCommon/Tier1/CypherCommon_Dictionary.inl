@@ -43,6 +43,7 @@ inline hash64_t string_view_hash_t::operator()( string_view_t value ) const noex
         return HashFNV1a64_String( value );
     }
 
+    // Case-insensitive mode folds ASCII bytes before the same FNV recurrence.
     hash64_t hash = CY_FNV1A64_OFFSET;
     for ( usize iChar = 0u; iChar < value.cchLength; ++iChar ) {
         hash ^= static_cast<u8>( Char_ToLowerAscii( value.pData[iChar] ) );
@@ -85,6 +86,7 @@ bool_t Dictionary_Init(
         return CY_FALSE;
     }
 
+    // Interned key storage keeps every hash-map string view stable for its lifetime.
     string_pool_desc_t poolDesc{};
     poolDesc.pAllocator = pAllocator;
     poolDesc.nInitialBuckets = nInitialCapacity > 0u
@@ -206,6 +208,7 @@ hash_table_insert_result_t<value_t> Dictionary_Insert(
         return { pExisting, CY_FALSE };
     }
 
+    // Copy before insertion because caller-owned key bytes may disappear immediately.
     const char *pOwnedKey = StringPool_Intern( pDictionary->pKeys, key );
     if ( pOwnedKey == nullptr ) {
         return {};

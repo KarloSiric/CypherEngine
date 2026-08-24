@@ -27,22 +27,22 @@ namespace cypher::common
 {
 
 struct color32_t {
-    u8 r{ 0u };
-    u8 g{ 0u };
-    u8 b{ 0u };
-    u8 a{ 255u };
+    u8 r{ 0u };   // Red channel in [0, 255].
+    u8 g{ 0u };   // Green channel in [0, 255].
+    u8 b{ 0u };   // Blue channel in [0, 255].
+    u8 a{ 255u }; // Alpha channel in [0, 255].
 };
 
 struct colorf_t {
-    f32 r{ 0.0f };
-    f32 g{ 0.0f };
-    f32 b{ 0.0f };
-    f32 a{ 1.0f };
+    f32 r{ 0.0f }; // Red channel, conventionally in [0, 1].
+    f32 g{ 0.0f }; // Green channel, conventionally in [0, 1].
+    f32 b{ 0.0f }; // Blue channel, conventionally in [0, 1].
+    f32 a{ 1.0f }; // Alpha channel, conventionally in [0, 1].
 };
 
-constexpr color32_t CY_COLOR32_BLACK{ 0u, 0u, 0u, 255u };
-constexpr color32_t CY_COLOR32_WHITE{ 255u, 255u, 255u, 255u };
-constexpr color32_t CY_COLOR32_TRANSPARENT{ 0u, 0u, 0u, 0u };
+constexpr color32_t CY_COLOR32_BLACK{ 0u, 0u, 0u, 255u };       // Opaque black.
+constexpr color32_t CY_COLOR32_WHITE{ 255u, 255u, 255u, 255u }; // Opaque white.
+constexpr color32_t CY_COLOR32_TRANSPARENT{ 0u, 0u, 0u, 0u };   // Transparent black.
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 color32_t Color32_RGBA( u8 r, u8 g, u8 b, u8 a = 255u ) noexcept;

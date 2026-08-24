@@ -28,18 +28,18 @@ namespace cypher::common
 {
 
 struct command_line_t {
-    i32 nArgumentCount{ 0 };
-    const char *const *ppArguments{ nullptr };
+    i32 nArgumentCount{ 0 };                  // Number of argv entries, including the program.
+    const char *const *ppArguments{ nullptr }; // Borrowed process argument vector.
 };
 
 struct command_line_switch_t {
-    i32 iArgument{ -1 };
-    string_view_t name{};
-    string_view_t value{};
-    bool_t bHasValue{ CY_FALSE };
+    i32 iArgument{ -1 };          // argv index containing the matched switch.
+    string_view_t name{};         // Normalized switch name without '-' or '--'.
+    string_view_t value{};        // Borrowed explicit value, which may be empty.
+    bool_t bHasValue{ CY_FALSE }; // Distinguishes no value from an empty value.
 };
 
-inline constexpr i32 CY_COMMAND_LINE_NOT_FOUND = -1;
+inline constexpr i32 CY_COMMAND_LINE_NOT_FOUND = -1; // Sentinel returned by failed searches.
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t CommandLine_Init(

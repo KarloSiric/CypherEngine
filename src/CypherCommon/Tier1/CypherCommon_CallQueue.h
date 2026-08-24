@@ -29,9 +29,9 @@ namespace cypher::common
 using call_queue_proc_t = void ( * )( void *pUserData ) noexcept;
 
 struct call_queue_entry_t {
-    call_queue_proc_t pfnCall{ nullptr };
-    void *pUserData{ nullptr };
-    u64 nTag{ 0u };
+    call_queue_proc_t pfnCall{ nullptr }; // Procedure invoked when this entry drains.
+    void *pUserData{ nullptr };           // Opaque caller state passed to pfnCall.
+    u64 nTag{ 0u };                       // Caller-defined group used for cancellation.
 };
 
 struct call_queue_t;

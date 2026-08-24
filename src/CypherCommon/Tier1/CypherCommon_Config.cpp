@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Config Implementation Notes
+
+Configuration composition is deterministic: later layers override earlier layers only through
+documented precedence rules. Source storage remains owned by the caller or parsed document.
+================
+*/
+
 #include "CypherCommon_Config.h"
 
 namespace cypher::common
@@ -25,6 +34,8 @@ namespace
 
 string_view_t StripComment( string_view_t line ) noexcept
 {
+    // Comment markers inside quoted arguments are data. Escapes affect quote
+    // termination only while a quoted span is active.
     char chQuote = '\0';
     bool_t bEscaped = CY_FALSE;
     for ( usize iByte = 0u; iByte < line.cchLength; ++iByte ) {
@@ -142,8 +153,8 @@ bool_t WriteEscapedString(
 }
 
 struct config_write_context_t {
-    config_writer_t writer{};
-    error_code_t error{ CY_ERROR_OK };
+    config_writer_t writer{};              // Caller-supplied streaming sink.
+    error_code_t error{ CY_ERROR_OK };      // First write error retained across enumeration.
 };
 
 bool_t WriteArchivedConVar(
@@ -199,12 +210,16 @@ config_load_result_t Config_Load(
         return result;
     }
 
+    // Config text cannot grant itself permissions. It can only narrow the
+    // caller's command context according to source flags.
     command_context_t effectiveContext = context;
     effectiveContext.source = command_source_t::CONFIG;
     effectiveContext.bCheatsAllowed =
         context.bCheatsAllowed &&
         ( source.flags & CONFIG_FLAG_ALLOW_CHEATS ) != 0u;
 
+    // Execute physical lines independently so diagnostics retain a byte offset
+    // into the original file and STOP_ON_ERROR has an unambiguous boundary.
     usize iLineBegin = 0u;
     while ( iLineBegin < source.text.cchLength ) {
         usize iLineEnd = iLineBegin;
@@ -231,6 +246,8 @@ config_load_result_t Config_Load(
                     pCommandSystem,
                     args.arguments[0] );
                 if ( Cy_Handle32IsValid( command ) ) {
+                    // Explicit commands require opt-in; archived-only loads also
+                    // reject commands that are not marked safe for persistence.
                     concommand_desc_t desc{};
                     const bool_t bAllowed =
                         ( source.flags & CONFIG_FLAG_ALLOW_COMMANDS ) != 0u &&
@@ -317,6 +334,8 @@ error_code_t Config_WriteArchivedConVars(
         return Config_MakeError( config_error_t::INVALID_ARGUMENT );
     }
     config_write_context_t context{ writer, CY_ERROR_OK };
+    // Enumeration stops when the writer callback returns false; context.error
+    // carries the stable reason back across the callback boundary.
     static_cast<void>( CommandSystem_ForEachConVar(
         const_cast<command_system_t *>( pCommandSystem ),
         WriteArchivedConVar,

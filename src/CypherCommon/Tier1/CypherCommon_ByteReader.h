@@ -28,25 +28,27 @@ namespace cypher::common
 {
 
 enum class data_byte_order_t : u8 {
-    LITTLE = 0u,
-    BIG,
-    NATIVE
+    LITTLE = 0u,  // Serialized least-significant byte first.
+    BIG,          // Serialized most-significant byte first.
+    NATIVE        // Host order; unsuitable for portable persistent formats.
 };
 
 enum class byte_cursor_status_t : u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    OUT_OF_BOUNDS,
-    INVALID_ENCODING,
-    CURSOR_OVERFLOW
+    OK = 0u,          // No operation has failed.
+    INVALID_ARGUMENT,// Null output or inconsistent source state.
+    OUT_OF_BOUNDS,   // Requested bytes do not fit in the supplied region.
+    INVALID_ENCODING,// Encoded integer or string violates its representation.
+    CURSOR_OVERFLOW  // Offset arithmetic exceeded usize before a memory access.
 };
 
+// Reader failures are sticky. Once status changes from OK, later reads fail without advancing
+// until ByteReader_ClearStatus is called or the reader is reset.
 struct byte_reader_t {
-    const byte *pData{ nullptr };
-    usize cbSize{ 0u };
-    usize iOffset{ 0u };
-    data_byte_order_t byteOrder{ data_byte_order_t::LITTLE };
-    byte_cursor_status_t status{ byte_cursor_status_t::OK };
+    const byte *pData{ nullptr };                              // Borrowed serialized bytes.
+    usize cbSize{ 0u };                                        // Total readable byte extent.
+    usize iOffset{ 0u };                                       // Next unread byte.
+    data_byte_order_t byteOrder{ data_byte_order_t::LITTLE };  // Order used for fixed-width values.
+    byte_cursor_status_t status{ byte_cursor_status_t::OK };   // Sticky first-failure state.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

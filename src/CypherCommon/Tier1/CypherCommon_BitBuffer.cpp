@@ -23,6 +23,9 @@ namespace cypher::common
 namespace
 {
 
+// Logical bits are packed least-significant bit first inside each byte. Range
+// writes preserve all bits outside the requested half-open interval.
+
 usize BitsToBytes( usize nBits ) noexcept
 {
     return ( nBits / 8u ) + ( ( nBits % 8u ) != 0u ? 1u : 0u );
@@ -64,6 +67,7 @@ void FillRangeUnchecked(
     const usize iEndBit = iEnd % 8u;
 
     if ( iFirstByte == iLastByte ) {
+        // A single-byte range needs one mask so neighboring bits survive.
         const usize nBitCount = iEnd - iFirst;
         const u32 nMask = ( ( 1u << nBitCount ) - 1u ) << iFirstBit;
         ApplyByteMask(
@@ -84,6 +88,7 @@ void FillRangeUnchecked(
 
     const usize iWholeByteEnd = iEnd / 8u;
     if ( iWholeByteBegin < iWholeByteEnd ) {
+        // Only complete interior bytes can use the bulk fill path.
         Cy_MemSet(
             pBuffer->pData + iWholeByteBegin,
             value ? 0xFFu : 0x00u,
@@ -105,6 +110,7 @@ void ClearPaddingUnchecked( bit_buffer_t *pBuffer ) noexcept
         return;
     }
 
+    // Never expose stale padding when the logical block is serialized.
     const usize iLastByte = pBuffer->nBitSize / 8u;
     const byte mask = static_cast<byte>( ( 1u << nBitsInLastByte ) - 1u );
     pBuffer->pData[iLastByte] = static_cast<byte>(

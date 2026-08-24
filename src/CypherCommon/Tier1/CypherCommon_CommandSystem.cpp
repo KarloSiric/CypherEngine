@@ -32,7 +32,7 @@ namespace command_system_detail
 {
 
 struct name_hasher_t {
-    bool_t bCaseInsensitiveAscii{ CY_TRUE };
+    bool_t bCaseInsensitiveAscii{ CY_TRUE }; // Must match name_equal_t's comparison policy.
 
     hash64_t operator()( string_view_t name ) const noexcept
     {
@@ -46,7 +46,7 @@ struct name_hasher_t {
 };
 
 struct name_equal_t {
-    bool_t bCaseInsensitiveAscii{ CY_TRUE };
+    bool_t bCaseInsensitiveAscii{ CY_TRUE }; // Keeps hash-map equality consistent with hashing.
 
     bool_t operator()( string_view_t left, string_view_t right ) const noexcept
     {
@@ -81,10 +81,10 @@ struct command_record_t {
         desc.usage = TextBuffer_View( &usage );
     }
 
-    text_buffer_t name{};
-    text_buffer_t help{};
-    text_buffer_t usage{};
-    concommand_desc_t desc{};
+    text_buffer_t name{};  // Stable owned bytes used by the name map key.
+    text_buffer_t help{};  // Owned help text exposed through desc.
+    text_buffer_t usage{}; // Owned usage text exposed through desc.
+    concommand_desc_t desc{}; // Public descriptor rebound after every move.
 };
 
 struct convar_record_t {
@@ -130,19 +130,19 @@ struct convar_record_t {
         }
     }
 
-    text_buffer_t name{};
-    text_buffer_t help{};
-    text_buffer_t defaultText{};
-    text_buffer_t minimumText{};
-    text_buffer_t maximumText{};
-    text_buffer_t currentText{};
-    convar_desc_t desc{};
-    convar_value_t currentValue{};
-    convar_value_t minimum{};
-    convar_value_t maximum{};
-    bool_t bHasMinimum{ CY_FALSE };
-    bool_t bHasMaximum{ CY_FALSE };
-    bool_t bInCallback{ CY_FALSE };
+    text_buffer_t name{};        // Stable owned bytes used by the name map key.
+    text_buffer_t help{};        // Owned help text exposed through desc.
+    text_buffer_t defaultText{}; // Authored default spelling retained for reset.
+    text_buffer_t minimumText{}; // Authored lower-bound spelling retained in desc.
+    text_buffer_t maximumText{}; // Authored upper-bound spelling retained in desc.
+    text_buffer_t currentText{}; // Storage backing a live string ConVar value.
+    convar_desc_t desc{};        // Public descriptor rebound after every move.
+    convar_value_t currentValue{}; // Parsed value used by reads and callbacks.
+    convar_value_t minimum{};      // Parsed lower bound for numeric types.
+    convar_value_t maximum{};      // Parsed upper bound for numeric types.
+    bool_t bHasMinimum{ CY_FALSE }; // minimum contains an enforceable value.
+    bool_t bHasMaximum{ CY_FALSE }; // maximum contains an enforceable value.
+    bool_t bInCallback{ CY_FALSE }; // Prevents recursive writes to this ConVar.
 };
 
 using command_name_map_t = hash_map_t<
@@ -160,13 +160,13 @@ using convar_name_map_t = hash_map_t<
 } // namespace command_system_detail
 
 struct command_system_t {
-    const allocator_t *pAllocator{ nullptr };
-    command_output_fn_t pfnOutput{ nullptr };
-    void *pOutputUserData{ nullptr };
-    bool_t bCaseInsensitiveAscii{ CY_TRUE };
-    bool_t bInitialized{ CY_FALSE };
-    usize nExecutionDepth{ 0u };
-    usize nCallbackDepth{ 0u };
+    const allocator_t *pAllocator{ nullptr }; // Owns this object, records, maps, and strings.
+    command_output_fn_t pfnOutput{ nullptr }; // Optional sink used when a ConVar is queried.
+    void *pOutputUserData{ nullptr };         // Opaque context forwarded to pfnOutput.
+    bool_t bCaseInsensitiveAscii{ CY_TRUE };  // Shared command/ConVar naming policy.
+    bool_t bInitialized{ CY_FALSE };          // Separates live state from partial construction.
+    usize nExecutionDepth{ 0u };              // Guards recursive command execution.
+    usize nCallbackDepth{ 0u };               // Blocks structural mutation during callbacks.
 
     // Name maps are declared after record tables so they are destroyed first.
     handle_table_t<command_system_detail::command_record_t> commands{};
@@ -232,6 +232,7 @@ CYPHER_NODISCARD bool_t InitCommandRecord(
         return CY_FALSE;
     }
 
+    // Descriptors initially borrow caller text; rebind them to owned record buffers.
     pRecord->desc = desc;
     pRecord->RebindViews();
     return CY_TRUE;
@@ -256,6 +257,7 @@ CYPHER_NODISCARD bool_t InitConVarRecord(
         return CY_FALSE;
     }
 
+    // Parse all authored bounds once so runtime writes need no schema conversion.
     convar_value_t defaultValue{};
     if ( !ConVar_ParseSucceeded(
              ConVar_ParseValue( desc.type, desc.defaultValue, &defaultValue ) ) ) {
@@ -349,6 +351,7 @@ CYPHER_NODISCARD convar_system_error_t ConVarWritePermission(
     const convar_desc_t &desc,
     const command_context_t &context ) noexcept
 {
+    // Permission checks stay centralized so command-line and direct writes agree.
     if ( ( desc.flags & CONVAR_FLAG_READ_ONLY ) != 0u ) {
         return convar_system_error_t::READ_ONLY;
     }
@@ -416,6 +419,7 @@ void InvokeConVarCallback(
         return;
     }
 
+    // A callback may inspect the registry, but cannot recursively mutate this record.
     record.bInCallback = CY_TRUE;
     ++system.nCallbackDepth;
     record.desc.pfnChanged(
@@ -461,6 +465,7 @@ CYPHER_NODISCARD error_code_t SetConVarRecord(
         return CY_ERROR_OK;
     }
 
+    // Numeric and boolean variants are self-contained; strings require owned storage.
     if ( record.desc.type != convar_type_t::STRING ) {
         const convar_value_t oldValue = record.currentValue;
         record.currentValue = parsed;
@@ -474,6 +479,7 @@ CYPHER_NODISCARD error_code_t SetConVarRecord(
         return CommandSystem_MakeError( convar_system_error_t::OUT_OF_MEMORY );
     }
 
+    // Keep the previous bytes alive until the change callback returns.
     text_buffer_t previous{};
     TextBuffer_Move( &previous, &record.currentText );
     TextBuffer_Move( &record.currentText, &replacement );
@@ -560,7 +566,7 @@ struct execution_scope_t {
         --system.nExecutionDepth;
     }
 
-    command_system_t &system;
+    command_system_t &system; // Balanced depth counter for every return path.
 };
 
 void SortSuggestions(
@@ -568,6 +574,7 @@ void SortSuggestions(
     string_view_t *pSuggestions,
     usize nCount ) noexcept
 {
+    // Completion sets are small; insertion sort is allocation-free and deterministic.
     for ( usize iSuggestion = 1u; iSuggestion < nCount; ++iSuggestion ) {
         const string_view_t current = pSuggestions[iSuggestion];
         usize iInsert = iSuggestion;
@@ -648,6 +655,7 @@ command_system_t *CommandSystem_Create(
 
     const name_hasher_t hasher{ desc.bCaseInsensitiveAscii };
     const name_equal_t equalKey{ desc.bCaseInsensitiveAscii };
+    // Every backing container must succeed before the instance becomes observable.
     const bool_t bInitialized =
         HandleTable_Init(
             &pSystem->commands,
@@ -725,6 +733,7 @@ bool_t CommandSystem_IsValid( const command_system_t *pSystem ) noexcept
     }
 
     bool_t bValid = CY_TRUE;
+    // Cross-check both directions: live record -> name map and command -> ConVar namespace.
     const usize nCommandsVisited = HandleTable_ForEach(
         &pSystem->commands,
         [&]( command_handle_t handle, const command_record_t &record ) noexcept -> bool_t {
@@ -809,6 +818,7 @@ command_register_result_t CommandSystem_RegisterCommand(
         };
     }
 
+    // Publish the record first so the map key can borrow its stable owned name.
     const command_handle_t handle = HandleTable_InsertMove(
         &pSystem->commands,
         static_cast<command_record_t &&>( record ) );
@@ -827,6 +837,7 @@ command_register_result_t CommandSystem_RegisterCommand(
         pStored->desc.name,
         handle );
     if ( !inserted.bInserted ) {
+        // Roll back the table insertion if the second half of registration fails.
         const bool_t bRemoved = HandleTable_Remove( &pSystem->commands, handle );
         CY_ASSERT_MSG( bRemoved, "Command registration rollback failed." );
         return {
@@ -871,6 +882,7 @@ convar_register_result_t CommandSystem_RegisterConVar(
         };
     }
 
+    // Publish the record first so the map key can borrow its stable owned name.
     const convar_handle_t handle = HandleTable_InsertMove(
         &pSystem->convars,
         static_cast<convar_record_t &&>( record ) );
@@ -889,6 +901,7 @@ convar_register_result_t CommandSystem_RegisterConVar(
         pStored->desc.name,
         handle );
     if ( !inserted.bInserted ) {
+        // Roll back the table insertion if the second half of registration fails.
         const bool_t bRemoved = HandleTable_Remove( &pSystem->convars, handle );
         CY_ASSERT_MSG( bRemoved, "ConVar registration rollback failed." );
         return {
@@ -1042,6 +1055,7 @@ error_code_t CommandSystem_ExecuteLine(
         return CommandSystem_MakeError( command_system_error_t::PARSE_FAILED );
     }
 
+    // The scope guard restores recursion depth even when dispatch returns early.
     execution_scope_t executionScope{ *pSystem };
     const string_view_t name = args.arguments[0];
     const command_handle_t commandHandle = CommandSystem_FindCommand(
@@ -1215,6 +1229,7 @@ usize CommandSystem_Complete(
     }
 
     if ( iSeparator != CY_STRING_VIEW_NPOS ) {
+        // Once a command name is complete, delegate argument completion to that command.
         const string_view_t commandName = StringView_Prefix(
             partial,
             iSeparator );
@@ -1240,6 +1255,7 @@ usize CommandSystem_Complete(
         return nRequired;
     }
 
+    // Otherwise merge visible commands and ConVars into one sorted namespace.
     usize nRequired = 0u;
     usize nWritten = 0u;
     const usize nCommandsVisited = HandleTable_ForEach(

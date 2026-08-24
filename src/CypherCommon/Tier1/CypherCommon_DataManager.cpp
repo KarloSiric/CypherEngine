@@ -24,11 +24,11 @@ namespace
 {
 
 struct data_entry_t {
-    char *pName{ nullptr };
-    usize cchName{ 0u };
-    void *pData{ nullptr };
-    data_destroy_fn_t pfnDestroy{ nullptr };
-    void *pUserData{ nullptr };
+    char *pName{ nullptr };                    // Registry-owned, NUL-terminated lookup key.
+    usize cchName{ 0u };                       // Name bytes excluding the stored terminator.
+    void *pData{ nullptr };                    // Opaque object registered by the caller.
+    data_destroy_fn_t pfnDestroy{ nullptr };   // Optional ownership-release callback.
+    void *pUserData{ nullptr };                // Caller context forwarded to pfnDestroy.
 };
 
 bool_t DataNameIsValid( string_view_t name ) noexcept
@@ -60,10 +60,10 @@ bool_t DataNameEquals( const data_entry_t &entry, string_view_t name ) noexcept
 } // namespace
 
 struct data_manager_t {
-    const allocator_t *pAllocator{ nullptr };
-    data_entry_t *pEntries{ nullptr };
-    usize nCount{ 0u };
-    usize nCapacity{ 0u };
+    const allocator_t *pAllocator{ nullptr };  // Owns the manager, entry array, and copied names.
+    data_entry_t *pEntries{ nullptr };          // Dense unordered registry storage.
+    usize nCount{ 0u };                        // Number of initialized entries.
+    usize nCapacity{ 0u };                     // Allocated entry slots.
 };
 
 namespace
@@ -107,6 +107,8 @@ bool_t DataManager_Reserve(
         return CY_FALSE;
     }
     pManager->pEntries = static_cast<data_entry_t *>( pMemory );
+    // Keep unused slots in the null state so failed/debug inspection never sees
+    // stale callback or object pointers left by the allocator.
     Cy_MemZero(
         pManager->pEntries + pManager->nCapacity,
         ( nCapacity - pManager->nCapacity ) * sizeof( data_entry_t ) );
@@ -121,6 +123,8 @@ void DataManager_RemoveAt(
     void **ppDetachedOut ) noexcept
 {
     const data_entry_t removed = pManager->pEntries[iEntry];
+    // Compact and logically remove the entry before invoking user code. A
+    // destructor may safely re-enter the manager without finding this record.
     for ( usize iMove = iEntry; iMove + 1u < pManager->nCount; ++iMove ) {
         pManager->pEntries[iMove] = pManager->pEntries[iMove + 1u];
     }

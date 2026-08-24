@@ -36,9 +36,9 @@ struct array_t {
     CYPHER_NO_COPY_MOVE( array_t );
     ~array_t() noexcept;
 
-    type_t *pData{ nullptr };
-    usize nCount{ 0u };
-    const allocator_t *pAllocator{ nullptr };
+    type_t *pData{ nullptr };                     // Contiguous storage for exactly nCount live objects.
+    usize nCount{ 0u };                           // Constructed element count; also the allocation extent.
+    const allocator_t *pAllocator{ nullptr };     // Allocator bound for the array's complete lifetime.
 };
 
 template <typename type_t>

@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Compression Zstd Implementation Notes
+
+Compression is a storage optimization, not an integrity or security boundary. Every decoder
+receives an explicit output limit and must reject truncated, oversized, or inconsistent streams.
+================
+*/
+
 #include "CypherCommon_CompressionZstd.h"
 
 #include <zstd.h>
@@ -94,6 +103,8 @@ compression_result_t CompressionZstd_Compress(
         return Fail( compression_status_t::OUT_OF_MEMORY );
     }
 
+    // Configure the reusable context completely before presenting input data.
+    // The first backend error remains authoritative for status translation.
     usize backendResult = ZSTD_CCtx_setParameter(
         pContext,
         ZSTD_c_compressionLevel,
@@ -144,7 +155,9 @@ compression_result_t CompressionZstd_Decompress(
         return Fail( compression_status_t::INVALID_ARGUMENT );
     }
 
+    // Known frame sizes allow an early, mutation-free capacity rejection.
     const usize cbRequired = CompressionZstd_FrameContentSize( input );
+    // A successful decoder must still agree with an advertised frame size.
     if ( cbRequired != CY_COMPRESSION_SIZE_UNKNOWN &&
          output.nCount < cbRequired ) {
         return Fail( compression_status_t::OUTPUT_TOO_SMALL, cbRequired );

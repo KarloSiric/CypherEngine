@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Array View Contract
+
+This is a non-owning range. The caller keeps the referenced storage alive, and all slicing or
+indexing operations validate the reported extent before pointer arithmetic.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_ARRAYVIEW_H
 #define CYPHER_COMMON_TIER1_ARRAYVIEW_H
 #ifndef PRAGMA_ONCE

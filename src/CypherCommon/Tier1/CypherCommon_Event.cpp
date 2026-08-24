@@ -28,12 +28,12 @@ namespace
 {
 
 struct event_subscription_record_t {
-    event_id_t eventId{ 0u };
-    i32 nPriority{ 0 };
-    flags32_t flags{ EVENT_SUBSCRIPTION_FLAG_NONE };
-    event_callback_t pfnCallback{ nullptr };
-    void *pUserData{ nullptr };
-    u64 nSequence{ 0u };
+    event_id_t eventId{ 0u };                  // Event channel accepted by this record.
+    i32 nPriority{ 0 };                        // Higher priorities run first.
+    flags32_t flags{ EVENT_SUBSCRIPTION_FLAG_NONE }; // Lifetime and dispatch policy.
+    event_callback_t pfnCallback{ nullptr };   // Synchronous subscriber entry point.
+    void *pUserData{ nullptr };                // Opaque callback context.
+    u64 nSequence{ 0u };                       // FIFO tie-breaker within one priority.
 };
 
 constexpr flags32_t EVENT_SUBSCRIPTION_KNOWN_FLAGS =
@@ -44,12 +44,12 @@ bool_t EventBus_RebaseSequences( event_bus_t *pBus ) noexcept;
 } // namespace
 
 struct event_bus_t {
-    handle_table_t<event_subscription_record_t> subscriptions{};
-    vector_t<event_subscription_t> order{};
-    vector_t<event_subscription_t> dispatchSnapshot{};
-    const allocator_t *pAllocator{ nullptr };
-    u64 nNextSequence{ 0u };
-    bool_t bEmitting{ CY_FALSE };
+    handle_table_t<event_subscription_record_t> subscriptions{}; // Stable generational records.
+    vector_t<event_subscription_t> order{};       // Priority-sorted live handles.
+    vector_t<event_subscription_t> dispatchSnapshot{}; // Frozen order for current emission.
+    const allocator_t *pAllocator{ nullptr };     // Shared owner for all bus storage.
+    u64 nNextSequence{ 0u };                      // Monotonic registration order.
+    bool_t bEmitting{ CY_FALSE };                 // Rejects nested dispatch and destruction.
 };
 
 namespace
@@ -57,6 +57,8 @@ namespace
 
 bool_t EventBus_RebaseSequences( event_bus_t *pBus ) noexcept
 {
+    // Sequence exhaustion is practically unreachable, but rebasing preserves
+    // current stable order without allowing the counter to wrap.
     for ( usize iOrder = 0u; iOrder < pBus->order.nCount; ++iOrder ) {
         event_subscription_record_t *pRecord = HandleTable_Get(
             &pBus->subscriptions,
@@ -339,6 +341,8 @@ bool_t EventBus_TryEmit(
         return CY_FALSE;
     }
 
+    // Snapshot the handles so callbacks may subscribe or unsubscribe without
+    // invalidating this dispatch traversal. Removed handles fail generation lookup.
     Vector_Clear( &pBus->dispatchSnapshot );
     if ( !Vector_Append(
              &pBus->dispatchSnapshot,
@@ -362,6 +366,8 @@ bool_t EventBus_TryEmit(
             continue;
         }
 
+        // Copy callback state before invocation because user code may remove its
+        // own subscription and invalidate pRecord.
         const event_callback_t pfnCallback = pRecord->pfnCallback;
         void *pUserData = pRecord->pUserData;
         const flags32_t flags = pRecord->flags;

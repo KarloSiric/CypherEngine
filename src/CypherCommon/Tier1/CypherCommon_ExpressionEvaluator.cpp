@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Expression Evaluator Implementation Notes
+
+Expression evaluation uses bounded tokens and explicit numeric rules. Invalid syntax, overflow,
+and division errors are returned as data rather than escaping through exceptions.
+================
+*/
+
 #include "CypherCommon_ExpressionEvaluator.h"
 
 #include "CypherCommon_StringParse.h"
@@ -32,15 +41,15 @@ constexpr string_view_t EXPRESSION_PUNCTUATIONS[]{
     { "<=", 2u }, { ">=", 2u },
     { "+", 1u }, { "-", 1u }, { "*", 1u }, { "/", 1u },
     { "%", 1u }, { "!", 1u }, { "<", 1u }, { ">", 1u },
-    { "(", 1u }, { ")", 1u }, { ",", 1u }
+    { "(", 1u }, { ")", 1u }, { ",", 1u } // Longest operators appear first for lexer matching.
 };
 
 struct expression_parser_t {
-    lexer_t lexer{};
-    token_t token{};
-    expression_context_t context{};
-    expression_status_t status{ expression_status_t::OK };
-    text_location_t errorLocation{};
+    lexer_t lexer{};                 // Shared lexer and cursor over borrowed expression text.
+    token_t token{};                 // Current token consumed by precedence productions.
+    expression_context_t context{}; // Resolver callbacks and parser limits.
+    expression_status_t status{ expression_status_t::OK }; // Sticky first failure.
+    text_location_t errorLocation{}; // Source position of that first failure.
 };
 
 void SetError(
@@ -48,6 +57,7 @@ void SetError(
     expression_status_t status,
     text_location_t location ) noexcept
 {
+    // Preserve the earliest diagnostic; unwind paths must not replace it.
     if ( parser.status == expression_status_t::OK ) {
         parser.status = status;
         parser.errorLocation = location;
@@ -203,6 +213,7 @@ bool_t ParsePrimary(
         if ( !Advance( parser ) ) {
             return CY_FALSE;
         }
+        // Fixed argument storage keeps the evaluator allocation-free.
         f64 arguments[CY_EXPRESSION_MAX_FUNCTION_ARGUMENTS]{};
         usize nArgumentCount = 0u;
         if ( !TokenIs( parser, ")" ) ) {
@@ -296,6 +307,7 @@ bool_t ParseUnary(
     bool_t bEvaluate,
     f64 &valueOut ) noexcept
 {
+    // Recursive unary operators consume depth even without parentheses.
     if ( nDepth > parser.context.nMaxDepth ) {
         SetError( parser, expression_status_t::DEPTH_LIMIT, parser.token.range.begin );
         return CY_FALSE;
@@ -345,6 +357,7 @@ bool_t ParseMultiply(
             return CY_FALSE;
         }
         if ( !bEvaluate ) {
+            // Short-circuited branches are still parsed, but callbacks and math are skipped.
             continue;
         }
         if ( ( operation.lexeme.pData[0] == '/' ||
@@ -532,6 +545,7 @@ expression_result_t ExpressionEvaluator_Evaluate(
         return result;
     }
 
+    // The parser functions form a precedence ladder from logical OR down to primary.
     lexer_rules_t rules = Lexer_DefaultRules();
     rules.pPunctuations = EXPRESSION_PUNCTUATIONS;
     rules.nPunctuationCount =

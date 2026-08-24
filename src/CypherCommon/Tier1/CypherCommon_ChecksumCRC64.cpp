@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Checksum CRC64 Implementation Notes
+
+This algorithm is deterministic over an explicit byte range. It is suitable for lookup, change
+detection, or corruption checks, but must not be used as a cryptographic authenticator.
+================
+*/
+
 #include "CypherCommon_ChecksumCRC64.h"
 
 #include <array>
@@ -30,6 +39,7 @@ using crc64_slice_tables_t = std::array<crc64_table_t, 8u>;
 
 constexpr crc64_slice_tables_t BuildCRC64Tables() noexcept
 {
+    // ECMA-182 is non-reflected: bytes enter at the high end and shift left.
     crc64_slice_tables_t tables{};
     for ( usize iEntry = 0u; iEntry < tables[0].size(); ++iEntry ) {
         crc64_t nValue = static_cast<crc64_t>( iEntry ) << 56u;
@@ -67,6 +77,8 @@ crc64_t ChecksumCRC64_Update( crc64_t state, binary_block_t data ) noexcept
 
     const byte *pCursor = data.pData;
     usize cbRemaining = data.cbSize;
+    // Assemble the eight-byte block explicitly to preserve identical results on
+    // little- and big-endian hosts without relying on unaligned native loads.
     while ( cbRemaining >= 8u ) {
         const crc64_t nBlock = state ^
             ( static_cast<crc64_t>( pCursor[0] ) << 56u ) ^

@@ -104,6 +104,8 @@ CYPHER_NODISCARD usize FormatInteger(
     usize cchDest ) noexcept
 {
     char scratch[32]{};
+    // max_digits10 guarantees that parsing the formatted value reproduces the
+    // same finite binary64 value on every supported host.
     const std::to_chars_result format = std::to_chars(
         scratch,
         scratch + sizeof( scratch ),
@@ -183,6 +185,8 @@ bool_t ConVar_ValidateDesc( const convar_desc_t &desc ) noexcept
         return CY_FALSE;
     }
 
+    // Parse defaults and bounds through the same runtime parser. A descriptor
+    // cannot declare values that its own setter would later reject.
     convar_value_t defaultValue{};
     if ( !ConVar_ParseSucceeded(
              ConVar_ParseValue( desc.type, desc.defaultValue, &defaultValue ) ) ) {
@@ -246,6 +250,8 @@ convar_parse_result_t ConVar_ParseValue(
         return ConVarResult( convar_parse_status_t::EMBEDDED_NULL );
     }
 
+    // Keep parsing transactional: pValueOut changes only after type-specific
+    // syntax and conversion have both succeeded.
     convar_value_t parsed{};
     string_parse_result_t scalarResult{};
     switch ( type ) {
@@ -318,6 +324,8 @@ convar_parse_result_t ConVar_ParseValue(
         }
         case convar_type_t::STRING:
             scalarResult = ScalarSuccess( text.cchLength );
+            // String convars borrow the supplied bytes; the registry layer must
+            // copy them when it requires persistent ownership.
             parsed.value = Variant_FromString( text );
             break;
     }
@@ -342,6 +350,8 @@ convar_parse_result_t ConVar_ParseValueForDesc(
         return parseResult;
     }
 
+    // Bounds are inclusive and apply only after a value has parsed to the
+    // descriptor's declared scalar type.
     if ( !StringView_IsEmpty( desc.minValue ) ) {
         convar_value_t minimum{};
         if ( !ParseDescriptorBound( desc.type, desc.minValue, &minimum ) ) {

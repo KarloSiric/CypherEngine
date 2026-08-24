@@ -25,6 +25,9 @@ namespace cypher::common
 namespace
 {
 
+// Reader failures are sticky. The first error identifies the operation that
+// invalidated the cursor; later reads must not overwrite that diagnosis.
+
 bool_t IsByteOrderValid( data_byte_order_t byteOrder ) noexcept
 {
     switch ( byteOrder ) {
@@ -258,6 +261,8 @@ bool_t ByteReader_Read(
         return CY_FALSE;
     }
 
+    // Check the complete range before copying so a failed read changes neither
+    // the destination nor the cursor.
     if ( cbData > 0u ) {
         Cy_MemMove( pDest, pReader->pData + pReader->iOffset, cbData );
     }
@@ -418,6 +423,9 @@ bool_t ByteReader_ReadVarU64( byte_reader_t *pReader, u64 *pOut ) noexcept
 
     usize iCursor = pReader->iOffset;
     u64 nValue = 0u;
+
+    // Unsigned LEB128 needs at most ten bytes for 64 bits. The tenth byte may
+    // carry only bit 63; any other payload bit would overflow the result.
     for ( u32 iByte = 0u; iByte < 10u; ++iByte ) {
         if ( iCursor == pReader->cbSize ) {
             return ByteReaderFail(
@@ -461,6 +469,9 @@ bool_t ByteReader_ReadVarI64( byte_reader_t *pReader, i64 *pOut ) noexcept
     if ( !ByteReader_ReadVarU64( pReader, &nEncoded ) ) {
         return CY_FALSE;
     }
+
+    // Zig-zag decoding maps alternating unsigned values back to
+    // 0, -1, 1, -2, 2, ... without implementation-defined signed shifts.
     const u64 nDecoded =
         ( nEncoded >> 1u ) ^ ( 0u - ( nEncoded & 1u ) );
     *pOut = std::bit_cast<i64>( nDecoded );

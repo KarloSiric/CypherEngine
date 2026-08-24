@@ -93,6 +93,8 @@ bool_t CommandBuffer_RebaseSource(
         return CY_FALSE;
     }
 
+    // Keep an offset rather than the aliased pointer because reserve may move
+    // the text allocation before the source bytes are appended.
     bInternalOut = CY_TRUE;
     iSourceOffsetOut = nSourceBegin - nStorageBegin;
     return CY_TRUE;
@@ -107,6 +109,7 @@ bool_t CommandBuffer_FindPendingLine(
         return CY_FALSE;
     }
 
+    // Every queued line owns one trailing newline delimiter; returned views omit it.
     const char *pData = buffer.text.pData;
     for ( usize iEnd = buffer.iReadOffset;
           iEnd < buffer.text.cchLength;
@@ -267,6 +270,8 @@ bool_t CommandBuffer_Enqueue(
         return CY_FALSE;
     }
 
+    // Reserve the complete line plus delimiter before changing logical state.
+    // This makes allocation failure leave the queue byte-for-byte unchanged.
     const usize cchRequired =
         cchOldLength + commandLine.cchLength + 1u;
     if ( !TextBuffer_Reserve( &pBuffer->text, cchRequired ) ) {
@@ -319,6 +324,8 @@ bool_t CommandBuffer_Pop(
         return CY_FALSE;
     }
 
+    // The returned view remains borrowed from the text buffer and is invalidated
+    // by a later enqueue that reallocates or by explicit compaction.
     pBuffer->iReadOffset += pCommandOut->cchLength + 1u;
     --pBuffer->nCommandCount;
     return CY_TRUE;
@@ -340,6 +347,7 @@ void CommandBuffer_Compact( command_buffer_t *pBuffer ) noexcept
         return;
     }
 
+    // Remove only the consumed prefix; pending command order and delimiters stay intact.
     const bool_t bErased = TextBuffer_Erase(
         &pBuffer->text,
         0u,

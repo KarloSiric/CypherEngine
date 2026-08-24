@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Command Buffer Contract
+
+The cursor and capacity form one invariant: no operation may advance beyond the supplied
+storage. Failed writes report the condition without publishing a cursor that claims unwritten
+bytes.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_COMMANDBUFFER_H
 #define CYPHER_COMMON_TIER1_COMMANDBUFFER_H
 #ifndef PRAGMA_ONCE
@@ -28,9 +38,9 @@ namespace cypher::common
 {
 
 struct command_buffer_t {
-    text_buffer_t text{};
-    usize iReadOffset{ 0u };
-    usize nCommandCount{ 0u };
+    text_buffer_t text{};       // Newline-delimited command storage.
+    usize iReadOffset{ 0u };    // First unread byte in text.
+    usize nCommandCount{ 0u };  // Complete commands waiting to be consumed.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

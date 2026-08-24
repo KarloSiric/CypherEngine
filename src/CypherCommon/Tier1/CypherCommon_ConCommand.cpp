@@ -108,6 +108,7 @@ bool_t ConCommand_ValidateDesc( const concommand_desc_t &desc ) noexcept
         return CY_FALSE;
     }
 
+    // Mutually exclusive execution domains would make dispatch policy ambiguous.
     const bool_t bServerOnly =
         ( desc.flags & CONCOMMAND_FLAG_SERVER_ONLY ) != 0u;
     const bool_t bClientOnly =
@@ -152,6 +153,8 @@ command_parse_result_t ConCommand_ParseArgs(
             CY_COMMAND_MAX_LINE_BYTES );
     }
 
+    // Parse into a temporary result. The caller's output remains unchanged on
+    // every syntax or capacity failure.
     command_args_t parsed{};
     parsed.commandLine = commandLine;
     usize iCursor = 0u;
@@ -179,6 +182,8 @@ command_parse_result_t ConCommand_ParseArgs(
         string_view_t argument{};
         const char chFirst = commandLine.pData[iCursor];
         if ( chFirst == '\'' || chFirst == '"' ) {
+            // Quotes delimit one borrowed argument. Escape pairs are validated
+            // here but deliberately remain encoded in the original command line.
             const char chQuote = chFirst;
             const usize iQuote = iCursor;
             const usize iArgument = ++iCursor;
@@ -249,7 +254,7 @@ command_parse_result_t ConCommand_ParseArgs(
                 iCursor - iArgument );
         }
 
-        parsed.arguments[parsed.nArgumentCount] = argument;
+        parsed.arguments[parsed.nArgumentCount] = argument; // View borrows commandLine storage.
         ++parsed.nArgumentCount;
     }
 

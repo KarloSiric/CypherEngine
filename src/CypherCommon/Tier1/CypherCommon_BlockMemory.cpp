@@ -26,7 +26,7 @@ namespace
 {
 
 struct free_block_t {
-    free_block_t *pNext;
+    free_block_t *pNext; // Intrusive link stored inside a currently free payload.
 };
 
 usize OccupancyByteCount( usize nBlockCount ) noexcept
@@ -75,6 +75,7 @@ bool_t CalculateBlockLayout(
     if ( nBlockCount > CY_USIZE_MAX / cbStrideOut ) {
         return CY_FALSE;
     }
+    // Bitmap bytes lead the allocation; aligned payload strides follow them.
     cbBlocksOut = nBlockCount * cbStrideOut;
     cbOccupancyOut = OccupancyByteCount( nBlockCount );
 
@@ -180,6 +181,7 @@ void RebuildFreeList( block_memory_t &memory ) noexcept
     Cy_MemZero( memory.pOccupancyBits, memory.cbOccupancyBits );
     memory.pFreeHead = nullptr;
 
+    // Build backwards so allocation returns blocks in increasing address order.
     for ( usize iBlock = memory.nBlockCount; iBlock > 0u; --iBlock ) {
         byte *pBlock = memory.memory.pData +
             ( iBlock - 1u ) * memory.cbBlockStride;
@@ -387,6 +389,7 @@ bool_t BlockMemory_Free(
         return CY_FALSE;
     }
 
+    // Reject foreign/interior pointers before they can enter the free list.
     const bool_t bOwnedBlock = OwnsUnchecked( *pMemory, pBlock );
     CY_ASSERT_MSG( bOwnedBlock, "BlockMemory_Free received a foreign or interior pointer." );
     if ( !bOwnedBlock ) {
@@ -394,6 +397,7 @@ bool_t BlockMemory_Free(
     }
 
     const usize iBlock = BlockIndexUnchecked( *pMemory, pBlock );
+    // One occupancy bit makes duplicate-free detection constant time.
     const bool_t bAllocated = OccupancyBitIsSet( *pMemory, iBlock );
     CY_ASSERT_MSG( bAllocated, "BlockMemory_Free detected a duplicate free." );
     if ( !bAllocated ) {

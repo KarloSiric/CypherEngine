@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Compression LZ Implementation Notes
+
+Compression is a storage optimization, not an integrity or security boundary. Every decoder
+receives an explicit output limit and must reject truncated, oversized, or inconsistent streams.
+================
+*/
+
 #include "CypherCommon_CompressionLZ.h"
 
 namespace cypher::common
@@ -24,15 +33,15 @@ namespace cypher::common
 namespace
 {
 
-inline constexpr byte CY_LZ_MAGIC[]{ 'C', 'Y', 'L', 'Z' };
-inline constexpr u8 CY_LZ_VERSION = 1u;
-inline constexpr usize CY_LZ_HEADER_BYTES = 16u;
-inline constexpr usize CY_LZ_HASH_BITS = 12u;
+inline constexpr byte CY_LZ_MAGIC[]{ 'C', 'Y', 'L', 'Z' }; // Identifies the private frame format.
+inline constexpr u8 CY_LZ_VERSION = 1u;                    // On-disk decoder contract version.
+inline constexpr usize CY_LZ_HEADER_BYTES = 16u;           // Fixed magic/version/size header.
+inline constexpr usize CY_LZ_HASH_BITS = 12u;              // 4096-entry stack hash table.
 inline constexpr usize CY_LZ_HASH_COUNT = 1u << CY_LZ_HASH_BITS;
-inline constexpr usize CY_LZ_MAX_DISTANCE = CY_U16_MAX;
-inline constexpr usize CY_LZ_MIN_MATCH = 3u;
-inline constexpr usize CY_LZ_MAX_MATCH = 130u;
-inline constexpr usize CY_LZ_MAX_LITERAL = 128u;
+inline constexpr usize CY_LZ_MAX_DISTANCE = CY_U16_MAX;    // Match distance stored as little-endian u16.
+inline constexpr usize CY_LZ_MIN_MATCH = 3u;               // Shortest match that earns a tag.
+inline constexpr usize CY_LZ_MAX_MATCH = 130u;             // Seven tag bits plus minimum length.
+inline constexpr usize CY_LZ_MAX_LITERAL = 128u;           // Literal tag stores length minus one.
 
 CYPHER_NODISCARD compression_result_t Fail(
     compression_status_t status,
@@ -83,12 +92,14 @@ CYPHER_NODISCARD usize HashTriplet( const byte *pData ) noexcept
         static_cast<u32>( pData[0] ) |
         ( static_cast<u32>( pData[1] ) << 8u ) |
         ( static_cast<u32>( pData[2] ) << 16u );
+    // Multiplicative hashing keeps the high bits of three-byte patterns well distributed.
     return static_cast<usize>(
         ( value * 2654435761u ) >> ( 32u - CY_LZ_HASH_BITS ) );
 }
 
 void WriteHeader( byte *pDest, usize cbInput ) noexcept
 {
+    // Header fields are written explicitly so host endianness and padding never leak to disk.
     Cy_MemCopy( pDest, CY_LZ_MAGIC, sizeof( CY_LZ_MAGIC ) );
     pDest[4] = CY_LZ_VERSION;
     pDest[5] = 0u;
@@ -169,6 +180,7 @@ compression_result_t CompressionLZ_Compress(
         };
     }
 
+    // One most-recent position per hash gives bounded memory and deterministic output.
     usize lastPositions[CY_LZ_HASH_COUNT]{};
     for ( usize &position : lastPositions ) {
         position = CY_USIZE_MAX;
@@ -203,7 +215,8 @@ compression_result_t CompressionLZ_Compress(
             }
         }
 
-        if ( cbMatch != 0u ) {   
+        if ( cbMatch != 0u ) {
+            // Flush pending literals before emitting the backward-reference token.
             const usize cbLiteral = iCursor - iLiteral;
             if ( cbLiteral != 0u ) {
                 WriteLiteralRun(
@@ -220,6 +233,7 @@ compression_result_t CompressionLZ_Compress(
                 static_cast<u16>( cbDistance ) );
             iOutput += 2u;
 
+            // Seed positions inside the match so later matches can begin there.
             const usize iMatchEnd = iCursor + cbMatch;
             for ( usize iPosition = iCursor + 1u;
                   iPosition + CY_LZ_MIN_MATCH <= iMatchEnd;
@@ -282,6 +296,7 @@ compression_result_t CompressionLZ_Decompress(
             return Fail( compression_status_t::CORRUPT_INPUT, cbDecoded );
         }
 
+        // High tag bit selects match; low seven bits encode length minus its base.
         const byte tag = input.pData[iInput++];
         if ( ( tag & 0x80u ) == 0u ) {
             const usize cbLiteral = static_cast<usize>( tag ) + 1u;
@@ -309,6 +324,7 @@ compression_result_t CompressionLZ_Decompress(
              cbMatch > cbDecoded - iOutput ) {
             return Fail( compression_status_t::CORRUPT_INPUT, cbDecoded );
         }
+        // Copy bytewise because valid LZ matches may overlap their own output.
         const usize iMatch = iOutput - cbDistance;
         for ( usize iByte = 0u; iByte < cbMatch; ++iByte ) {
             output.pData[iOutput++] = output.pData[iMatch + iByte];

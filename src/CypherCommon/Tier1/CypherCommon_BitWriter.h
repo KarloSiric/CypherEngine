@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Bit Writer Contract
+
+Fields are committed only when the complete bit count fits. nBitHighWater survives backward seeks
+and defines the published prefix. Callers must clear or initialize storage before writing when
+untouched padding bits need deterministic values.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_BITWRITER_H
 #define CYPHER_COMMON_TIER1_BITWRITER_H
 #ifndef PRAGMA_ONCE
@@ -27,12 +37,12 @@ namespace cypher::common
 {
 
 struct bit_writer_t {
-    byte *pData{ nullptr };
-    usize nBitCapacity{ 0u };
-    usize iBit{ 0u };
-    usize nBitHighWater{ 0u };
-    bit_order_t bitOrder{ bit_order_t::LEAST_SIGNIFICANT_FIRST };
-    bit_cursor_status_t status{ bit_cursor_status_t::OK };
+    byte *pData{ nullptr };                                        // Borrowed packed-bit destination.
+    usize nBitCapacity{ 0u };                                      // Writable bits in the destination.
+    usize iBit{ 0u };                                               // Position of the next written bit.
+    usize nBitHighWater{ 0u };                                      // Furthest bit initialized by any write.
+    bit_order_t bitOrder{ bit_order_t::LEAST_SIGNIFICANT_FIRST };  // Bit numbering within each byte.
+    bit_cursor_status_t status{ bit_cursor_status_t::OK };         // Sticky first-failure state.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

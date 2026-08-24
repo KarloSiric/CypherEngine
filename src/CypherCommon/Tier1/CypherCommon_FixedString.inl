@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Fixed String Template Definitions
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+Template definitions remain in this file so each concrete instantiation is compiled at its call
+site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_FIXEDSTRING_INL
 #define CYPHER_COMMON_TIER1_FIXEDSTRING_INL
 
@@ -109,6 +120,8 @@ usize FixedString_Assign(
         return CY_USIZE_MAX;
     }
 
+    // CopyToCString always terminates the destination and reports the complete
+    // source length, even when the fixed buffer can hold only a prefix.
     const usize cchRequired = StringView_CopyToCString(
         source,
         pString->data,
@@ -144,7 +157,7 @@ usize FixedString_Append(
         return CY_USIZE_MAX;
     }
 
-    const usize cchRequired = pString->cchLength + source.cchLength;
+    const usize cchRequired = pString->cchLength + source.cchLength; // Required length before truncation.
     const usize cchAvailable = cchCapacity - pString->cchLength;
     const usize cchCopy = source.cchLength < cchAvailable
         ? source.cchLength
@@ -157,7 +170,7 @@ usize FixedString_Append(
             cchCopy );
         pString->cchLength += cchCopy;
     }
-    pString->data[pString->cchLength] = '\0';
+    pString->data[pString->cchLength] = '\0'; // Truncated appends still leave a valid C string.
     return cchRequired;
 }
 

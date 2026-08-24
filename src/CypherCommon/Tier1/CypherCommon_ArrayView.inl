@@ -15,6 +15,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Array View Template Definitions
+
+This is a non-owning range. The caller keeps the referenced storage alive, and all slicing or
+indexing operations validate the reported extent before pointer arithmetic. Template definitions
+remain in this file so each concrete instantiation is compiled at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_ARRAYVIEW_INL
 #define CYPHER_COMMON_TIER1_ARRAYVIEW_INL
 
@@ -28,6 +38,9 @@
 
 namespace cypher::common
 {
+
+// ArrayView intentionally forwards to Span instead of duplicating range logic.
+// The two names differ by use-site vocabulary, not representation or ownership.
 
 template <typename type_t>
 array_view_t<type_t> ArrayView_Make(

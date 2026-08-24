@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Binary Block Contract
+
+Binary blocks never own their bytes. The source storage must remain alive and immutable while a
+block or any subblock is in use. nullptr is a valid address only for the canonical empty block.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_BINARYBLOCK_H
 #define CYPHER_COMMON_TIER1_BINARYBLOCK_H
 #ifndef PRAGMA_ONCE
@@ -27,8 +36,8 @@ namespace cypher::common
 {
 
 struct binary_block_t {
-    const byte *pData{ nullptr };
-    usize cbSize{ 0u };
+    const byte *pData{ nullptr }; // Borrowed first byte; nullptr is valid only when cbSize is zero.
+    usize cbSize{ 0u };           // Number of readable bytes beginning at pData.
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

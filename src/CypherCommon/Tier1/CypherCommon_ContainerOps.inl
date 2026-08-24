@@ -15,6 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Container Ops Template Definitions
+
+Algorithms operate only on the supplied range and callback contracts. Comparators must define a
+consistent ordering; the implementation performs no hidden allocation unless explicitly
+documented. Template definitions remain in this file so each concrete instantiation is compiled
+at its call site.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_CONTAINEROPS_INL
 #define CYPHER_COMMON_TIER1_CONTAINEROPS_INL
 #ifndef PRAGMA_ONCE
@@ -53,6 +64,8 @@ void Container_DestroyRange(
         std::is_nothrow_destructible_v<type_t>,
         "Container element destruction must not throw." );
 
+    // Trivial elements require no lifetime work. Non-trivial elements are
+    // destroyed in reverse construction order, matching normal array teardown.
     if constexpr ( !std::is_trivially_destructible_v<type_t> ) {
         while ( nCount > 0u ) {
             --nCount;
@@ -71,6 +84,8 @@ void Container_CopyConstructRange(
         std::is_nothrow_copy_constructible_v<type_t>,
         "Container copy construction must not throw." );
 
+    // Byte-copying is legal only for trivially copyable types. Every other type
+    // must begin a distinct object lifetime through its copy constructor.
     if constexpr ( std::is_trivially_copyable_v<type_t> ) {
         usize cbSize = 0u;
         const bool_t bValidByteCount =
@@ -98,6 +113,8 @@ void Container_RelocateConstructRange(
         std::is_nothrow_copy_constructible_v<type_t>,
         "Container relocation requires nothrow move or copy construction." );
 
+    // Relocation constructs destination objects but deliberately leaves source
+    // destruction to the owning container after the full transfer succeeds.
     if constexpr ( std::is_trivially_copyable_v<type_t> ) {
         usize cbSize = 0u;
         const bool_t bValidByteCount =
@@ -107,6 +124,7 @@ void Container_RelocateConstructRange(
             Cy_MemCopy( pDestination, pSource, cbSize );
         }
     } else if constexpr ( std::is_nothrow_move_constructible_v<type_t> ) {
+        // Forward assignment is used when shifting elements toward lower addresses.
         for ( usize iIndex = 0u; iIndex < nCount; ++iIndex ) {
             ::new ( static_cast<void *>( pDestination + iIndex ) )
                 type_t( static_cast<type_t &&>( pSource[iIndex] ) );
@@ -158,6 +176,8 @@ void Container_MoveAssignRangeBackward(
         static_assert(
             std::is_nothrow_move_assignable_v<type_t>,
             "Container shifting requires nothrow move assignment." );
+        // Walk backward when shifting toward higher addresses so overlapping
+        // source elements are consumed before their slots are overwritten.
         while ( nCount > 0u ) {
             --nCount;
             pDestination[nCount] =

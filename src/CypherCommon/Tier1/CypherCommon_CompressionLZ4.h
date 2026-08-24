@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Compression LZ4 Contract
+
+Compression is a storage optimization, not an integrity or security boundary. Every decoder
+receives an explicit output limit and must reject truncated, oversized, or inconsistent streams.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_COMPRESSIONLZ4_H
 #define CYPHER_COMMON_TIER1_COMPRESSIONLZ4_H
 #ifndef PRAGMA_ONCE

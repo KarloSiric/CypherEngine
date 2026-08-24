@@ -24,6 +24,8 @@
 namespace cypher::common
 {
 
+// A byte value selects one of four 64-bit words and one bit inside that word.
+// Cast through u8 so negative plain-char values still map to [128, 255].
 static constexpr usize CharacterSet_GetWordIndex( char chValue ) noexcept
 {
     const usize nValue = static_cast<usize>( static_cast<u8>( chValue ) );
@@ -132,6 +134,10 @@ bool_t CharacterSet_Equals(
     return CY_TRUE;
 }
 
+//==========================================================================
+// Individual values and inclusive ranges
+//==========================================================================
+
 void CharacterSet_Add( character_set_t *pSet, char chValue ) noexcept
 {
     CY_ASSERT_MSG( pSet != nullptr, "CharacterSet_Add requires a valid set." );
@@ -192,6 +198,8 @@ void CharacterSet_AddRange(
     const usize iLastWord = nLastValue / CY_CHARACTER_SET_WORD_BITS;
 
     for ( usize iWord = iFirstWord; iWord <= iLastWord; ++iWord ) {
+        // Boundary words use partial masks; words strictly inside the range use
+        // all 64 bits. The same loop handles one- and multiword spans.
         const u32 nFirstBit = iWord == iFirstWord
             ? static_cast<u32>( nFirstValue % CY_CHARACTER_SET_WORD_BITS )
             : 0u;
@@ -261,6 +269,10 @@ void CharacterSet_AddView( character_set_t *pSet, string_view_t view ) noexcept
         pSet->bitWords[iWordIndex] |= nBitMask;
     }
 }
+
+//==========================================================================
+// String-view membership and set algebra
+//==========================================================================
 
 void CharacterSet_RemoveView( character_set_t *pSet, string_view_t view ) noexcept
 {

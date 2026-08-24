@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Functor Contract
+
+Callback storage keeps invocation cost and ownership visible. A bound user pointer is borrowed
+unless the concrete wrapper explicitly owns its target.
+================
+*/
+
 #ifndef CYPHER_COMMON_TIER1_FUNCTOR_H
 #define CYPHER_COMMON_TIER1_FUNCTOR_H
 #ifndef PRAGMA_ONCE

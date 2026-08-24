@@ -16,10 +16,22 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Char Implementation Notes
+
+Text operations distinguish bounded byte ranges from null-terminated strings. Cursor movement
+and conversion validate limits before reading, and failure never relies on ambient locale state.
+================
+*/
+
 #include "CypherCommon_Char.h"
 
 namespace cypher::common
 {
+
+// These predicates deliberately implement the fixed 7-bit ASCII tables. They
+// do not consult the process locale, and the u8 cast makes signed-char hosts safe.
 
 bool_t Char_IsAscii( char ch ) noexcept
 {
@@ -150,7 +162,7 @@ u8 Char_DigitValueAscii( char ch ) noexcept
     if ( Char_IsDigitAscii( ch ) ) {
         return static_cast<u8>( ch - '0' );
     }
-    return CY_CHAR_INVALID_DIGIT_VALUE;
+    return CY_CHAR_INVALID_DIGIT_VALUE; // Outside the representable digit range.
 }
 
 u8 Char_HexValueAscii( char ch ) noexcept
@@ -164,7 +176,7 @@ u8 Char_HexValueAscii( char ch ) noexcept
     if ( ch >= 'a' && ch <= 'f' ) {
         return static_cast<u8>( ch - 'a' + 10 );
     }
-    return CY_CHAR_INVALID_DIGIT_VALUE;
+    return CY_CHAR_INVALID_DIGIT_VALUE; // Shared sentinel for non-hexadecimal input.
 }
 
 } // namespace cypher::common

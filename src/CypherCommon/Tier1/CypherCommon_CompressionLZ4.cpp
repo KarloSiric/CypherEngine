@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Compression LZ4 Implementation Notes
+
+Compression is a storage optimization, not an integrity or security boundary. Every decoder
+receives an explicit output limit and must reject truncated, oversized, or inconsistent streams.
+================
+*/
+
 #include "CypherCommon_CompressionLZ4.h"
 
 #include <lz4frame.h>
@@ -146,6 +155,8 @@ compression_result_t CompressionLZ4_Decompress(
         return Fail( compression_status_t::CORRUPT_INPUT );
     }
 
+    // Cypher-written frames advertise content size, but tolerate external LZ4
+    // frames that omit it by retaining the explicit UNKNOWN sentinel.
     usize cbRequired = CY_COMPRESSION_SIZE_UNKNOWN;
     if ( frameInfo.contentSize != 0u ) {
         if ( frameInfo.contentSize >
@@ -164,6 +175,8 @@ compression_result_t CompressionLZ4_Decompress(
     usize iOutput = 0u;
     usize nextHint = infoResult;
     byte emptyOutput = 0u;
+    // LZ4F returns zero only after the complete frame footer has been consumed.
+    // Zero progress with a nonzero hint marks a truncated or stuck stream.
     while ( nextHint != 0u ) {
         usize cbSource = input.cbSize - iInput;
         usize cbDest = output.nCount - iOutput;
@@ -192,6 +205,8 @@ compression_result_t CompressionLZ4_Decompress(
     }
 
     static_cast<void>( LZ4F_freeDecompressionContext( pContext ) );
+    // Trailing bytes and advertised-size mismatches are rejected as corruption;
+    // this API accepts exactly one frame per input block.
     if ( iInput != input.cbSize ||
          ( cbRequired != CY_COMPRESSION_SIZE_UNKNOWN &&
            iOutput != cbRequired ) ) {

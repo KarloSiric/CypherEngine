@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Checksum CRC32 Implementation Notes
+
+This algorithm is deterministic over an explicit byte range. It is suitable for lookup, change
+detection, or corruption checks, but must not be used as a cryptographic authenticator.
+================
+*/
+
 #include "CypherCommon_ChecksumCRC32.h"
 
 #include <array>
@@ -30,6 +39,8 @@ using crc32_slice_tables_t = std::array<crc32_table_t, 8u>;
 
 constexpr crc32_slice_tables_t BuildCRC32Tables() noexcept
 {
+    // Slice zero advances one reflected byte; later tables precompute additional
+    // byte advances so Update can consume eight bytes per iteration.
     crc32_slice_tables_t tables{};
     for ( usize iEntry = 0u; iEntry < tables[0].size(); ++iEntry ) {
         crc32_t nValue = static_cast<crc32_t>( iEntry );
@@ -65,6 +76,7 @@ crc32_t ChecksumCRC32_Update( crc32_t state, binary_block_t data ) noexcept
 
     const byte *pCursor = data.pData;
     usize cbRemaining = data.cbSize;
+    // Slicing-by-eight avoids unaligned native loads and remains endian-explicit.
     while ( cbRemaining >= 8u ) {
         const crc32_t nFirstWord = state ^
             static_cast<crc32_t>( pCursor[0] ) ^

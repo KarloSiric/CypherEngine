@@ -28,13 +28,13 @@ namespace cypher::common
 {
 
 struct content_hash_t {
-    u64 low{ 0u };
-    u64 high{ 0u };
+    u64 low{ 0u };  // Least-significant 64 bits of the stable digest.
+    u64 high{ 0u }; // Most-significant 64 bits of the stable digest.
 };
 
-constexpr content_hash_t CY_CONTENT_HASH_INVALID{};
-constexpr usize CY_CONTENT_HASH_HEX_LENGTH = 32u;
-constexpr usize CY_CONTENT_HASH_HEX_CAPACITY = CY_CONTENT_HASH_HEX_LENGTH + 1u;
+constexpr content_hash_t CY_CONTENT_HASH_INVALID{}; // All-zero invalid sentinel.
+constexpr usize CY_CONTENT_HASH_HEX_LENGTH = 32u;   // Characters excluding terminator.
+constexpr usize CY_CONTENT_HASH_HEX_CAPACITY = CY_CONTENT_HASH_HEX_LENGTH + 1u; // With null.
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 content_hash_t ContentHash_Data( binary_block_t data ) noexcept;

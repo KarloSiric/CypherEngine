@@ -35,13 +35,13 @@ inline constexpr event_subscription_t CY_EVENT_SUBSCRIPTION_INVALID =
 
 struct event_payload_t {
     // Borrowed bytes remain valid only for the synchronous EventBus_Emit call.
-    binary_block_t data{};
-    u64 nSenderId{ 0u };
+    binary_block_t data{}; // Event-specific borrowed payload bytes.
+    u64 nSenderId{ 0u };   // Host-defined producer identity.
 };
 
 enum event_subscription_flags_t : flags32_t {
-    EVENT_SUBSCRIPTION_FLAG_NONE  = 0u,
-    EVENT_SUBSCRIPTION_FLAG_ONCE  = CYPHER_BIT32( 0 )
+    EVENT_SUBSCRIPTION_FLAG_NONE = 0u,                // Remain registered until removed.
+    EVENT_SUBSCRIPTION_FLAG_ONCE = CYPHER_BIT32( 0 ) // Remove after the first invocation.
 };
 
 // Callback and user data must remain valid until unsubscribed or the bus is destroyed.
@@ -51,8 +51,8 @@ using event_callback_t = void ( * )(
     void *pUserData ) noexcept;
 
 struct event_bus_desc_t {
-    const allocator_t *pAllocator{ nullptr };
-    usize nInitialSubscriptions{ 128u };
+    const allocator_t *pAllocator{ nullptr }; // Owns subscription records.
+    usize nInitialSubscriptions{ 128u };       // Initial registry reservation.
 };
 
 struct event_bus_t;

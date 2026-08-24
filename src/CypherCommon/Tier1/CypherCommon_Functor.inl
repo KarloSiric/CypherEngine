@@ -55,6 +55,8 @@ CYPHER_NODISCARD inline hash64_t HashFunctor_StringView(
         return HashFunctor_Mix64( 0u );
     }
 
+    // Local FNV-1a avoids a dependency cycle between generic containers and the
+    // higher hash facade; final mixing improves low-entropy short keys.
     u64 nHash = 14695981039346656037ull;
     for ( usize i = 0u; i < value.cchLength; ++i ) {
         nHash ^= static_cast<u8>( value.pData[i] );
@@ -95,6 +97,8 @@ hash64_t hash_functor_t<type_t>::operator()(
 {
     using key_t = remove_cv_t<type_t>;
 
+    // Supported categories have an explicit, deterministic byte interpretation.
+    // Aggregate keys require a caller-owned policy rather than hashing padding.
     if constexpr ( is_same_v<key_t, string_view_t> ) {
         return detail::HashFunctor_StringView( value );
     } else if constexpr ( is_same_v<key_t, bool_t> ) {
@@ -111,6 +115,7 @@ hash64_t hash_functor_t<type_t>::operator()(
                 static_cast<unsigned_key_t>(
                     static_cast<underlying_t>( value ) ) ) );
     } else if constexpr ( is_same_v<key_t, f32> ) {
+        // Normalize signed zero so equality and hashing obey the same contract.
         const u32 nBits = value == 0.0f
             ? 0u
             : std::bit_cast<u32>( value );

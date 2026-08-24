@@ -29,13 +29,13 @@ namespace cypher::common
 {
 
 enum file_open_flags_t : flags32_t {
-    FILE_OPEN_FLAG_NONE       = 0u,
-    FILE_OPEN_FLAG_READ       = CYPHER_BIT32( 0 ),
-    FILE_OPEN_FLAG_WRITE      = CYPHER_BIT32( 1 ),
-    FILE_OPEN_FLAG_APPEND     = CYPHER_BIT32( 2 ),
-    FILE_OPEN_FLAG_CREATE     = CYPHER_BIT32( 3 ),
-    FILE_OPEN_FLAG_TRUNCATE   = CYPHER_BIT32( 4 ),
-    FILE_OPEN_FLAG_EXCLUSIVE  = CYPHER_BIT32( 5 )
+    FILE_OPEN_FLAG_NONE      = 0u,                // Invalid without READ or WRITE.
+    FILE_OPEN_FLAG_READ      = CYPHER_BIT32( 0 ), // Permit reads.
+    FILE_OPEN_FLAG_WRITE     = CYPHER_BIT32( 1 ), // Permit writes.
+    FILE_OPEN_FLAG_APPEND    = CYPHER_BIT32( 2 ), // Force writes to current end.
+    FILE_OPEN_FLAG_CREATE    = CYPHER_BIT32( 3 ), // Create when missing.
+    FILE_OPEN_FLAG_TRUNCATE  = CYPHER_BIT32( 4 ), // Clear existing content on open.
+    FILE_OPEN_FLAG_EXCLUSIVE = CYPHER_BIT32( 5 )  // Fail CREATE when path exists.
 };
 
 /*

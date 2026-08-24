@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Compression Implementation Notes
+
+Compression is a storage optimization, not an integrity or security boundary. Every decoder
+receives an explicit output limit and must reject truncated, oversized, or inconsistent streams.
+================
+*/
+
 #include "CypherCommon_Compression.h"
 
 #include "CypherCommon_CompressionLZ.h"
@@ -30,14 +39,14 @@ namespace cypher::common
 {
 
 struct compression_stream_t {
-    compression_codec_t codec{ compression_codec_t::NONE };
-    bool_t bCompress{ CY_FALSE };
-    bool_t bBegan{ CY_FALSE };
-    bool_t bFinishSeen{ CY_FALSE };
-    bool_t bFinished{ CY_FALSE };
-    compression_options_t options{};
-    const allocator_t *pAllocator{ nullptr };
-    void *pBackend{ nullptr };
+    compression_codec_t codec{ compression_codec_t::NONE }; // Backend selected at creation.
+    bool_t bCompress{ CY_FALSE };      // True for encoder state, false for decoder state.
+    bool_t bBegan{ CY_FALSE };         // LZ4 frame header has been emitted.
+    bool_t bFinishSeen{ CY_FALSE };    // Caller entered the terminal drain phase.
+    bool_t bFinished{ CY_FALSE };      // Backend has completed its frame.
+    compression_options_t options{};  // Immutable level, dictionary, and checksum policy.
+    const allocator_t *pAllocator{ nullptr }; // Owns this facade object.
+    void *pBackend{ nullptr };         // Codec-specific LZ4 or Zstd context.
 };
 
 namespace
@@ -98,6 +107,7 @@ CYPHER_NODISCARD compression_result_t ProcessNone(
     byte_span_t output,
     bool_t bFinish ) noexcept
 {
+    // NONE still obeys streaming partial-consumption semantics.
     const usize cbTransfer = input.cbSize < output.nCount
         ? input.cbSize
         : output.nCount;
@@ -125,6 +135,7 @@ CYPHER_NODISCARD compression_result_t ProcessLZ4Compress(
 {
     auto *pContext = static_cast<LZ4F_cctx *>( stream.pBackend );
     const LZ4F_preferences_t preferences = MakeLZ4Preferences( stream.options );
+    // LZ4's update API requires the entire worst-case output region up front.
     usize cbRequired = stream.bBegan ? 0u : LZ4F_HEADER_SIZE_MAX;
     const usize cbUpdate = LZ4F_compressBound( input.cbSize, &preferences );
     if ( LZ4F_isError( cbUpdate ) != 0u ||
@@ -146,6 +157,7 @@ CYPHER_NODISCARD compression_result_t ProcessLZ4Compress(
 
     usize iOutput = 0u;
     if ( !stream.bBegan ) {
+        // Begin exactly once so subsequent calls continue the same frame.
         const usize cbHeader = LZ4F_compressBegin(
             pContext,
             output.pData,
@@ -197,6 +209,7 @@ CYPHER_NODISCARD compression_result_t ProcessLZ4Decompress(
     bool_t bFinish ) noexcept
 {
     auto *pContext = static_cast<LZ4F_dctx *>( stream.pBackend );
+    // Some backend versions require non-null addresses even for zero-length spans.
     byte inputDummy = 0u;
     byte outputDummy = 0u;
     usize cbInput = input.cbSize;
@@ -212,6 +225,7 @@ CYPHER_NODISCARD compression_result_t ProcessLZ4Decompress(
         return Fail( compression_status_t::CORRUPT_INPUT );
     }
     if ( backendResult == 0u ) {
+        // A zero hint is the backend's authoritative end-of-frame signal.
         stream.bFinished = CY_TRUE;
         return {
             compression_status_t::OK,
@@ -273,6 +287,7 @@ CYPHER_NODISCARD compression_result_t ProcessZstdCompress(
     if ( bFinish && backendResult == 0u && source.pos == source.size ) {
         stream.bFinished = CY_TRUE;
     }
+    // Zstd may consume all input but still require output space to flush the frame.
     const bool_t bNeedsOutput =
         source.pos != source.size || ( bFinish && backendResult != 0u );
     return {
@@ -347,6 +362,7 @@ CYPHER_NODISCARD compression_result_t ProcessZstdDecompress(
 CYPHER_NODISCARD bool_t InitializeBackend(
     compression_stream_t &stream ) noexcept
 {
+    // Backend allocation and dictionary binding are completed before publication.
     switch ( stream.codec ) {
         case compression_codec_t::NONE:
             return HasDefaultOptions( stream.options );
@@ -582,6 +598,7 @@ compression_stream_t *CompressionStream_Create(
     if ( pStorage == nullptr ) {
         return nullptr;
     }
+    // Construct the facade first, then roll it back if backend creation fails.
     auto *pStream = new ( pStorage ) compression_stream_t{};
     pStream->codec = codec;
     pStream->bCompress = bCompress;
@@ -627,6 +644,7 @@ compression_result_t CompressionStream_Process(
         return Fail( compression_status_t::INVALID_ARGUMENT );
     }
     if ( bFinish ) {
+        // Once finishing starts, later calls may only continue draining the end state.
         pContext->bFinishSeen = CY_TRUE;
     }
     switch ( pContext->codec ) {
