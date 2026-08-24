@@ -15,6 +15,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Render Preview Implementation Notes
+
+Preview data is CPU-side renderer-neutral state. It prepares bounded geometry and material
+references without creating graphics-API objects or assuming an editor UI.
+================
+*/
+
 #include "CypherCommon_RenderPreview.h"
 
 #include <cmath>
@@ -25,6 +34,8 @@ namespace cypher::common
 namespace
 {
 
+// Preview colors cross a public tool boundary, so reject NaNs and infinities
+// before they can contaminate a renderer command stream.
 bool_t IsFiniteColor( colorf_t color ) noexcept
 {
     return std::isfinite( color.r ) &&
@@ -86,7 +97,10 @@ usize RenderPreview_RequiredOutputSize(
         return 0u;
     }
 
-    constexpr usize cbPixel = 4u;
+    constexpr usize cbPixel = 4u; // RGBA8_SRGB is tightly packed by contract.
+
+    // Perform both multiplications explicitly so a hostile request cannot wrap
+    // into a small buffer that the backend would then overrun.
     if ( static_cast<usize>( nWidth ) >
          std::numeric_limits<usize>::max() / static_cast<usize>( nHeight ) ) {
         return 0u;
@@ -116,6 +130,9 @@ render_preview_status_t RenderPreview_ValidateRequest(
     if ( !RenderPreview_IsServiceValid( pService ) ) {
         return render_preview_status_t::INVALID_SERVICE;
     }
+    // The source fields form a tagged union. Exactly the member selected by
+    // request.source must be populated; accepting both would make ownership and
+    // cache identity ambiguous.
     const bool_t bResourceSource =
         request.source == render_preview_source_t::RESOURCE_HANDLE &&
         ResourceHandle_IsValid( request.resource ) &&
@@ -143,6 +160,8 @@ render_preview_status_t RenderPreview_ValidateRequest(
         return render_preview_status_t::INVALID_REQUEST;
     }
 
+    // Target-specific options are checked only after the common output and
+    // source contract has been established.
     if ( request.target == render_preview_target_t::TEXTURE ) {
         if ( ( pService->capabilities &
                RENDER_PREVIEW_CAPABILITY_TEXTURE ) == 0u ) {
@@ -197,17 +216,23 @@ render_preview_result_t RenderPreview_Render(
         return result;
     }
 
+    // Restrict the callback to the exact initialized range. Bytes beyond the
+    // requested frame remain caller-owned and must not be touched.
     const render_preview_status_t backendStatus = pService->pfnRender(
         pService->pUserData,
         request,
         { output.pData, cbRequired } );
     if ( backendStatus != render_preview_status_t::OK ) {
+        // Backends may report only operational failures. Validation failures at
+        // this point indicate a broken callback contract, not bad user input.
         result.status = IsBackendFailureStatusValid( backendStatus )
             ? backendStatus
             : render_preview_status_t::CONTRACT_VIOLATION;
         return result;
     }
 
+    // Publish identifying metadata only after the callback completed the whole
+    // frame. Callers can therefore treat zero metadata as an uncommitted result.
     result.status = render_preview_status_t::OK;
     result.nRequestId = request.nRequestId;
     result.nDocumentRevision = request.nDocumentRevision;
