@@ -35,16 +35,16 @@ Command Error Codes
 ================
 */
 enum class cmd_error_t : common::u8 {
-    OK,
+    OK,                            // Operation completed successfully.
 
-    ERR_NOT_INIT,
-    ERR_IS_INIT,
-    ERR_INVALID_COMMAND,
-    ERR_COMMAND_ALREADY_EXISTS,
-    ERR_COMMAND_NOT_FOUND,
-    ERR_REGISTRY_FULL,
-    ERR_PARSE_FAILED,
-    ERR_INVALID_CALLBACK
+    ERR_NOT_INIT,                  // Command registry is not initialized.
+    ERR_IS_INIT,                   // Initialization was requested for a live registry.
+    ERR_INVALID_COMMAND,           // Command name or input line is invalid.
+    ERR_COMMAND_ALREADY_EXISTS,    // A command already owns this name.
+    ERR_COMMAND_NOT_FOUND,         // Dispatch could not resolve the first token.
+    ERR_REGISTRY_FULL,             // Fixed command capacity is exhausted.
+    ERR_PARSE_FAILED,              // Tokenizer rejected or truncated the command line.
+    ERR_INVALID_CALLBACK           // Registration callback is null.
 };
 
 /*

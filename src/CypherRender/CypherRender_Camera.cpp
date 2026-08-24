@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Camera Implementation Notes
+
+Camera state is renderer-front-end data. View and projection derivation must use the engine
+coordinate conventions and must not depend on a particular graphics API.
+================
+*/
+
 #include "CypherRender_Camera.h"
 #include "CypherLog.h"
 
@@ -47,6 +56,7 @@ void CypherRender_CameraInit( camera_t &camera, const camera_desc_t &cameraDesc 
 
 void CypherRender_CameraUpdateMatrices( camera_t &camera )
 {
+    // Normalize once so every derived basis vector shares the same stable orientation.
     cmath::quat_t normalizedOrientation{};
     if ( !cmath::Quat_TryNormalize(
              camera.orientation,
@@ -60,6 +70,7 @@ void CypherRender_CameraUpdateMatrices( camera_t &camera )
     }
     camera.orientation = normalizedOrientation;
 
+    // Cypher uses a right-handed camera and OpenGL's -1..1 clip-depth convention here.
     const cmath::vec3_t forward = cmath::Quat_Forward( camera.orientation );
     const cmath::vec3_t up = cmath::Quat_Up( camera.orientation );
     const cmath::vec3_t target = cmath::Vec3_Add( camera.position, forward );
@@ -85,6 +96,7 @@ void CypherRender_CameraUpdateMatrices( camera_t &camera )
         LOG_ERROR( log::channel_t::RENDER, "camera projection matrix construction failed." );
     }
 
+    // Cache the exact matrix used for rendering so culling tests the same transform.
     camera.projectionView = cmath::Mat4_Multiply( camera.projection, camera.view );
     if ( !cmath::Frustum_TryFromViewProjection(
              camera.projectionView,

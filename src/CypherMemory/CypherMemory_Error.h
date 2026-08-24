@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Error Contract
+
+Memory failures are reported through stable error values so allocation code does not depend on
+exceptions or diagnostic heap allocation.
+================
+*/
+
 #ifndef CYPHER_ENGINE_MEMORY_ERROR_H
 #define CYPHER_ENGINE_MEMORY_ERROR_H
 
@@ -30,26 +39,26 @@ namespace cypher::engine::memory
 {
 
 enum class mem_error_t : common::u8 {
-    OK = 0,
+    OK = 0,                       // Operation completed successfully.
 
-    ERR_INVALID_ARGUMENT,
-    ERR_OUT_OF_MEMORY,
-    ERR_MEMORY_ALLOCATION,
-    ERR_ALREADY_INITIALIZED,
-    ERR_NOT_INITIALIZED,
-    ERR_INVALID_ALIGNMENT,
-    ERR_INVALID_CAPACITY,
-    ERR_INVALID_MARKER,
-    ERR_INVALID_POINTER,
-    ERR_DOUBLE_FREE,
-    ERR_INTEGER_OVERFLOW,
-    ERR_BUFFER_TOO_SMALL,
-    ERR_EXTERNAL_BUFFER_REQUIRED,
+    ERR_INVALID_ARGUMENT,         // One or more caller-provided values violate the API contract.
+    ERR_OUT_OF_MEMORY,            // The selected allocator has insufficient remaining capacity.
+    ERR_MEMORY_ALLOCATION,        // The backing heap allocation failed.
+    ERR_ALREADY_INITIALIZED,      // Initialization was requested for live state.
+    ERR_NOT_INITIALIZED,          // Operation requires state that has not been initialized.
+    ERR_INVALID_ALIGNMENT,        // Alignment is zero, unsupported, or not a power of two.
+    ERR_INVALID_CAPACITY,         // Requested backing or slot capacity is unusable.
+    ERR_INVALID_MARKER,           // Arena marker is outside the current rewindable range.
+    ERR_INVALID_POINTER,          // Pointer is null, foreign, or not located on a valid slot boundary.
+    ERR_DOUBLE_FREE,              // Pool metadata says the supplied slot is already free.
+    ERR_INTEGER_OVERFLOW,         // Size, alignment, or address arithmetic was not representable.
+    ERR_BUFFER_TOO_SMALL,         // Caller-provided storage cannot hold the requested layout.
+    ERR_EXTERNAL_BUFFER_REQUIRED, // External backing was selected without a valid buffer.
 
-    ERR_MEMORY_RESERVE,
-    ERR_MEMORY_COMMIT,
-    ERR_MEMORY_DECOMMIT,
-    ERR_MEMORY_RELEASE
+    ERR_MEMORY_RESERVE,           // Platform virtual-address reservation failed.
+    ERR_MEMORY_COMMIT,            // Platform page commit failed.
+    ERR_MEMORY_DECOMMIT,          // Platform page decommit failed.
+    ERR_MEMORY_RELEASE            // Platform backing release failed.
 };
 
 constexpr inline const char *CypherMemory_ErrorName( const mem_error_t error )

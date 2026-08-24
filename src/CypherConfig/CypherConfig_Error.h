@@ -35,15 +35,15 @@ Config Error Codes
 ================
 */
 enum class cfg_error_t : common::u8 {
-	OK = 0,
-	ERR_NOT_INIT,
-	ERR_IS_INIT,
-	ERR_INVALID_PATH,
-	ERR_INVALID_LINE,
-	ERR_FILE_OPEN_FAILED,
-	ERR_PARSE_FAILED,
-	ERR_COMMAND_FAILED,
-	ERR_IO_ERROR
+		OK = 0,                  // Operation completed successfully.
+		ERR_NOT_INIT,            // Config service is not initialized.
+		ERR_IS_INIT,             // Initialization was requested for live state.
+		ERR_INVALID_PATH,        // Config virtual path is empty or malformed.
+		ERR_INVALID_LINE,        // One line exceeds syntax or storage policy.
+		ERR_FILE_OPEN_FAILED,    // Config source could not be opened.
+		ERR_PARSE_FAILED,        // One or more lines could not be tokenized.
+		ERR_COMMAND_FAILED,      // Parsed command or CVar assignment failed to execute.
+		ERR_IO_ERROR             // Read failed after the file was opened.
 };
 
 /*

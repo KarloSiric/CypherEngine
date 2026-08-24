@@ -34,23 +34,23 @@ namespace cypher::engine::memory
 Pool Constants
 ================
 */
-constexpr common::u32 CYPHER_MEMORY_POOL_FLAG_NONE              = 0u;
-constexpr common::u32 CYPHER_MEMORY_POOL_FLAG_ZERO_ON_ALLOC     = 1u << 0u;
-constexpr common::u32 CYPHER_MEMORY_POOL_FLAG_CLEAR_ON_FREE     = 1u << 1u;
-constexpr common::u32 CYPHER_MEMORY_POOL_FLAG_CLEAR_ON_RESET    = 1u << 2u;
-constexpr common::u32 CYPHER_MEMORY_POOL_FLAG_CLEAR_ON_SHUTDOWN = 1u << 3u;
+constexpr common::u32 CYPHER_MEMORY_POOL_FLAG_NONE              = 0u;       // Preserve slot bytes across operations.
+constexpr common::u32 CYPHER_MEMORY_POOL_FLAG_ZERO_ON_ALLOC     = 1u << 0u; // Return zero-filled payloads.
+constexpr common::u32 CYPHER_MEMORY_POOL_FLAG_CLEAR_ON_FREE     = 1u << 1u; // Scrub payload bytes before reuse.
+constexpr common::u32 CYPHER_MEMORY_POOL_FLAG_CLEAR_ON_RESET    = 1u << 2u; // Scrub every slot during bulk reset.
+constexpr common::u32 CYPHER_MEMORY_POOL_FLAG_CLEAR_ON_SHUTDOWN = 1u << 3u; // Scrub managed backing before shutdown.
 
 constexpr common::usize CYPHER_MEMORY_POOL_OPERATION_TRACE_COUNT = 64u;
 
 enum class pool_backing_t : common::u8 {
-    POOL_ARENA = 0,
-    POOL_EXTERNAL_BUFFER
+    POOL_ARENA = 0,      // Pool borrows one allocation carved from an arena.
+    POOL_EXTERNAL_BUFFER // Pool manages caller-owned storage without releasing it.
 };
 
 enum class pool_operation_t : common::u8 {
-    POOL_OPERATION_ALLOC = 0,
-    POOL_OPERATION_FREE,
-    POOL_OPERATION_RESET
+    POOL_OPERATION_ALLOC = 0, // Slot allocation attempt.
+    POOL_OPERATION_FREE,      // Slot release attempt.
+    POOL_OPERATION_RESET      // Bulk return of every slot to the free list.
 };
 
 /*
@@ -62,18 +62,18 @@ external buffer; it only manages slots inside memory provided by them.
 ================
 */
 struct pool_desc_t {
-    const char *name{ nullptr };
+    const char *name{ nullptr };                            // Borrowed diagnostic name; must outlive the pool.
 
-    arena_t *arena{ nullptr };
-    void *pExternalBuffer{ nullptr };
-    common::usize nExternalBufferSize{ 0u };
+    arena_t *arena{ nullptr };                              // Borrowed backing arena for POOL_ARENA.
+    void *pExternalBuffer{ nullptr };                       // Caller-owned backing base for EXTERNAL_BUFFER.
+    common::usize nExternalBufferSize{ 0u };                // Usable external backing extent in bytes.
 
-    common::usize nSlotSize{ 0u };
-    common::usize nSlotCount{ 0u };
-    common::usize alignment{ CYPHER_MEMORY_DEFAULT_ALIGNMENT };
+    common::usize nSlotSize{ 0u };                          // Maximum caller payload bytes per slot.
+    common::usize nSlotCount{ 0u };                         // Fixed number of independently allocatable slots.
+    common::usize alignment{ CYPHER_MEMORY_DEFAULT_ALIGNMENT }; // Alignment of every returned slot.
 
-    common::u32 flags{ CYPHER_MEMORY_POOL_FLAG_NONE };
-    pool_backing_t backing{ pool_backing_t::POOL_ARENA };
+    common::u32 flags{ CYPHER_MEMORY_POOL_FLAG_NONE };      // CYPHER_MEMORY_POOL_FLAG_* policy bits.
+    pool_backing_t backing{ pool_backing_t::POOL_ARENA };   // Selects which backing descriptor is active.
 };
 
 struct pool_free_node_t;
@@ -86,17 +86,17 @@ Small ring buffer for recent pool operations. This is diagnostic data only.
 ================
 */
 struct pool_operation_trace_t {
-    const char *file{ nullptr };
-    const char *function{ nullptr };
-    common::i32 line{ 0 };
+    const char *file{ nullptr };                            // Borrowed source filename for the operation.
+    const char *function{ nullptr };                        // Borrowed source function name.
+    common::i32 line{ 0 };                                  // One-based source line, or zero when unavailable.
 
-    void *ptr{ nullptr };
-    common::usize nSlotIndex{ 0u };
+    void *ptr{ nullptr };                                   // Slot address involved in the operation.
+    common::usize nSlotIndex{ 0u };                         // Pool-relative slot index when known.
 
-    common::u64 nOperationIndex{ 0u };
-    pool_operation_t operation{ pool_operation_t::POOL_OPERATION_ALLOC };
-    mem_error_t error{ mem_error_t::OK };
-    bool failed{ false };
+    common::u64 nOperationIndex{ 0u };                      // Monotonic ordering number for traces.
+    pool_operation_t operation{ pool_operation_t::POOL_OPERATION_ALLOC }; // Operation category.
+    mem_error_t error{ mem_error_t::OK };                   // Result captured at the call boundary.
+    bool failed{ false };                                   // True when the requested operation did not complete.
 };
 
 /*
@@ -107,23 +107,23 @@ Snapshot of fixed-block pool usage.
 ================
 */
 struct pool_stats_t {
-    const char *name{ nullptr };
+    const char *name{ nullptr };                            // Borrowed pool diagnostic name.
 
-    common::usize nSlotSize{ 0u };
-    common::usize nSlotStride{ 0u };
-    common::usize nSlotCount{ 0u };
-    common::usize nUsedCount{ 0u };
-    common::usize nFreeCount{ 0u };
-    common::usize nPeakUsedCount{ 0u };
+    common::usize nSlotSize{ 0u };                          // Caller-visible payload bytes per slot.
+    common::usize nSlotStride{ 0u };                        // Aligned distance between adjacent slots.
+    common::usize nSlotCount{ 0u };                         // Total slots in the pool.
+    common::usize nUsedCount{ 0u };                         // Slots currently checked out.
+    common::usize nFreeCount{ 0u };                         // Slots currently on the free list.
+    common::usize nPeakUsedCount{ 0u };                     // Highest simultaneous used count.
 
-    common::usize nSlotBytes{ 0u };
-    common::usize nMetadataBytes{ 0u };
-    common::usize nBackingBytes{ 0u };
+    common::usize nSlotBytes{ 0u };                         // Bytes occupied by all slot strides.
+    common::usize nMetadataBytes{ 0u };                     // Bytes occupied by the allocation bitmap.
+    common::usize nBackingBytes{ 0u };                      // Complete managed backing size.
 
-    common::u64 nAllocationCount{ 0u };
-    common::u64 nFreeOperationCount{ 0u };
-    common::u64 nFailedAllocationCount{ 0u };
-    common::u64 nFailedFreeCount{ 0u };
+    common::u64 nAllocationCount{ 0u };                     // Successful slot allocations.
+    common::u64 nFreeOperationCount{ 0u };                  // Successful slot releases.
+    common::u64 nFailedAllocationCount{ 0u };               // Rejected or exhausted allocations.
+    common::u64 nFailedFreeCount{ 0u };                     // Invalid, foreign, or duplicate frees.
 };
 
 /*
@@ -135,40 +135,40 @@ the allocation bitmap detects invalid frees and double frees.
 ================
 */
 struct pool_t {
-    const char *name{ nullptr };
+    const char *name{ nullptr };                            // Borrowed diagnostic name.
 
-    common::byte *base{ nullptr };
-    pool_free_node_t *freeList{ nullptr };
-    common::u64 *allocationBits{ nullptr };
+    common::byte *base{ nullptr };                          // First slot in the managed backing region.
+    pool_free_node_t *freeList{ nullptr };                  // Intrusive list whose nodes occupy free slots.
+    common::u64 *allocationBits{ nullptr };                 // One liveness bit per slot for free validation.
 
-    common::usize nSlotSize{ 0u };
-    common::usize nSlotStride{ 0u };
-    common::usize nSlotCount{ 0u };
-    common::usize alignment{ CYPHER_MEMORY_DEFAULT_ALIGNMENT };
+    common::usize nSlotSize{ 0u };                          // Caller-visible payload bytes per slot.
+    common::usize nSlotStride{ 0u };                        // Aligned byte distance between slots.
+    common::usize nSlotCount{ 0u };                         // Fixed capacity of the pool.
+    common::usize alignment{ CYPHER_MEMORY_DEFAULT_ALIGNMENT }; // Guaranteed address alignment.
 
-    common::usize nSlotBytes{ 0u };
-    common::usize nMetadataBytes{ 0u };
-    common::usize nBackingBytes{ 0u };
-    common::usize nAllocationWordCount{ 0u };
+    common::usize nSlotBytes{ 0u };                         // nSlotStride * nSlotCount.
+    common::usize nMetadataBytes{ 0u };                     // Allocation-bitmap bytes after alignment.
+    common::usize nBackingBytes{ 0u };                      // Total bytes borrowed from the backing source.
+    common::usize nAllocationWordCount{ 0u };               // Number of valid u64 words in allocationBits.
 
-    common::usize nUsedCount{ 0u };
-    common::usize nFreeCount{ 0u };
-    common::usize nPeakUsedCount{ 0u };
+    common::usize nUsedCount{ 0u };                         // Live checked-out slots.
+    common::usize nFreeCount{ 0u };                         // Slots available through freeList.
+    common::usize nPeakUsedCount{ 0u };                     // Highest observed nUsedCount.
 
-    common::u64 nAllocationCount{ 0u };
-    common::u64 nFreeOperationCount{ 0u };
-    common::u64 nFailedAllocationCount{ 0u };
-    common::u64 nFailedFreeCount{ 0u };
+    common::u64 nAllocationCount{ 0u };                     // Successful allocations since counter reset.
+    common::u64 nFreeOperationCount{ 0u };                  // Successful frees since counter reset.
+    common::u64 nFailedAllocationCount{ 0u };               // Failed allocations since counter reset.
+    common::u64 nFailedFreeCount{ 0u };                     // Failed frees since counter reset.
 
-    common::u32 flags{ CYPHER_MEMORY_POOL_FLAG_NONE };
-    pool_backing_t backing{ pool_backing_t::POOL_ARENA };
-    mem_error_t lastError{ mem_error_t::OK };
+    common::u32 flags{ CYPHER_MEMORY_POOL_FLAG_NONE };      // Active clearing/zeroing policy bits.
+    pool_backing_t backing{ pool_backing_t::POOL_ARENA };   // Origin of the managed backing block.
+    mem_error_t lastError{ mem_error_t::OK };               // Result of the latest mutating operation.
 
-    pool_operation_trace_t pOperationTraces[CYPHER_MEMORY_POOL_OPERATION_TRACE_COUNT]{};
-    common::usize nOperationTraceIndex{ 0u };
-    common::usize nOperationTraceCount{ 0u };
+    pool_operation_trace_t pOperationTraces[CYPHER_MEMORY_POOL_OPERATION_TRACE_COUNT]{}; // Recent-operation ring.
+    common::usize nOperationTraceIndex{ 0u };               // Slot overwritten by the next trace.
+    common::usize nOperationTraceCount{ 0u };               // Valid records, capped at ring capacity.
 
-    bool initialized{ false };
+    bool initialized{ false };                              // Pool invariants and backing are ready for use.
 };
 
 using pool_allocator_t = pool_t;

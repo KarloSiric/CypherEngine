@@ -38,30 +38,30 @@ the backing arena to the saved marker and invalidates every scratch allocation.
 ================
 */
 struct scratch_scope_t {
-    const char *name{ nullptr };
-    arena_t *arena{ nullptr };
-    arena_marker_t marker{};
+    const char *name{ nullptr };                            // Borrowed diagnostic name for this temporary scope.
+    arena_t *arena{ nullptr };                              // Borrowed arena rewound when the scope ends.
+    arena_marker_t marker{};                                // Cursor captured before the first scope allocation.
 
-    common::usize nUsedAtBegin{ 0u };
-    common::u64 nAllocationCountAtBegin{ 0u };
-    common::u64 nFailedAllocationCountAtBegin{ 0u };
+    common::usize nUsedAtBegin{ 0u };                       // Arena cursor captured for statistics.
+    common::u64 nAllocationCountAtBegin{ 0u };              // Successful allocation counter at begin.
+    common::u64 nFailedAllocationCountAtBegin{ 0u };        // Failed allocation counter at begin.
 
-    mem_error_t lastError{ mem_error_t::OK };
-    bool active{ false };
+    mem_error_t lastError{ mem_error_t::OK };               // Result of the most recent scope operation.
+    bool active{ false };                                   // True between successful Begin and End calls.
 };
 
 struct scratch_stats_t {
-    const char *name{ nullptr };
+    const char *name{ nullptr };                            // Borrowed scope diagnostic name.
 
-    common::usize nUsedAtBegin{ 0u };
-    common::usize nUsedCurrent{ 0u };
-    common::usize nUsedSinceBegin{ 0u };
-    common::usize capacity{ 0u };
+    common::usize nUsedAtBegin{ 0u };                       // Backing cursor at scope entry.
+    common::usize nUsedCurrent{ 0u };                       // Current backing cursor.
+    common::usize nUsedSinceBegin{ 0u };                    // Bytes consumed by this scope and nested work.
+    common::usize capacity{ 0u };                           // Complete backing arena capacity.
 
-    common::u64 nAllocationCountSinceBegin{ 0u };
-    common::u64 nFailedAllocationCountSinceBegin{ 0u };
+    common::u64 nAllocationCountSinceBegin{ 0u };           // Successful allocations during the scope.
+    common::u64 nFailedAllocationCountSinceBegin{ 0u };     // Failed allocations during the scope.
 
-    bool active{ false };
+    bool active{ false };                                   // Snapshot describes a currently live scope.
 };
 
 mem_error_t CypherMemory_ScratchBegin( scratch_scope_t &scope, arena_t &arena, const char *name = nullptr );

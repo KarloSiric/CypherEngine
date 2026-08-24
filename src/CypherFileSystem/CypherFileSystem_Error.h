@@ -34,43 +34,43 @@ Filesystem Error Codes
 ================
 */
 enum class fs_error_t : common::u8 {
-    OK = 0,
+    OK = 0,                    // Operation completed successfully.
 
-    ERR_NOT_INIT,
-    ERR_IS_INIT,
+    ERR_NOT_INIT,              // Filesystem services are not initialized.
+    ERR_IS_INIT,               // Initialization was requested for live state.
 
-    ERR_INVALID_PATH,
-    ERR_INVALID_ROOT,
-    ERR_INVALID_MODE,
-    ERR_INVALID_HANDLE,
-    ERR_INVALID_ARGUMENT,
-    ERR_INVALID_FLAGS,
-    ERR_WRITE_PATH_NOT_SET,
+    ERR_INVALID_PATH,          // Path violates virtual or physical path policy.
+    ERR_INVALID_ROOT,          // Virtual mount root is malformed.
+    ERR_INVALID_MODE,          // Open mode is unsupported for the selected backend.
+    ERR_INVALID_HANDLE,        // File, mount, request, or watch handle is not live.
+    ERR_INVALID_ARGUMENT,      // Caller supplied an invalid pointer, count, or combination.
+    ERR_INVALID_FLAGS,         // Flags contain unsupported or contradictory bits.
+    ERR_WRITE_PATH_NOT_SET,    // A mutating operation was requested before setting the write root.
 
-    ERR_TOO_MANY_MOUNTS,
-    ERR_TOO_MANY_WATCHES,
-    ERR_MOUNT_NOT_FOUND,
-    ERR_PATH_NOT_FOUND,
-    ERR_ALREADY_EXISTS,
-    ERR_NOT_DIRECTORY,
-    ERR_NOT_FILE,
-    ERR_DIRECTORY_NOT_EMPTY,
+    ERR_TOO_MANY_MOUNTS,       // Fixed runtime mount capacity is exhausted.
+    ERR_TOO_MANY_WATCHES,      // Fixed runtime watch capacity is exhausted.
+    ERR_MOUNT_NOT_FOUND,       // No live mount matches the supplied identity.
+    ERR_PATH_NOT_FOUND,        // No eligible mount contains the requested virtual path.
+    ERR_ALREADY_EXISTS,        // Destination already exists and replacement was not allowed.
+    ERR_NOT_DIRECTORY,         // Operation requires a directory target.
+    ERR_NOT_FILE,              // Operation requires a regular file target.
+    ERR_DIRECTORY_NOT_EMPTY,   // Non-recursive removal encountered child entries.
 
-    ERR_FILE_OPEN_FAILED,
-    ERR_FILE_CLOSE_FAILED,
-    ERR_FILE_READ_FAILED,
-    ERR_FILE_WRITE_FAILED,
-    ERR_FILE_SEEK_FAILED,
-    ERR_FILE_TELL_FAILED,
+    ERR_FILE_OPEN_FAILED,      // Backend could not open or create the requested object.
+    ERR_FILE_CLOSE_FAILED,     // Backend close or flush-on-close failed.
+    ERR_FILE_READ_FAILED,      // Backend could not complete the requested read.
+    ERR_FILE_WRITE_FAILED,     // Backend could not complete the requested write.
+    ERR_FILE_SEEK_FAILED,      // Backend rejected the requested cursor movement.
+    ERR_FILE_TELL_FAILED,      // Backend could not report its current cursor.
 
-    ERR_BUFFER_TOO_SMALL,
-    ERR_WATCH_QUEUE_FULL,
-    ERR_OUT_OF_MEMORY,
-    ERR_UNSUPPORTED_BACKEND,
-    ERR_NOT_IMPLEMENTED,
-    ERR_PERMISSION_DENIED,
-    ERR_CANCELLED,
-    ERR_IO_ERROR
+    ERR_BUFFER_TOO_SMALL,      // Caller storage cannot hold the requested path or content.
+    ERR_WATCH_QUEUE_FULL,      // Bounded watch-event ring cannot accept another event.
+    ERR_OUT_OF_MEMORY,         // Required runtime allocation failed.
+    ERR_UNSUPPORTED_BACKEND,   // Backend cannot implement the requested operation.
+    ERR_NOT_IMPLEMENTED,       // Contract exists but this version has no implementation.
+    ERR_PERMISSION_DENIED,     // Host operating system denied access.
+    ERR_CANCELLED,             // Async operation observed cooperative cancellation.
+    ERR_IO_ERROR               // Backend reported an uncategorized I/O failure.
 };
 
 /*

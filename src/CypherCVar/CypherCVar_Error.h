@@ -34,18 +34,18 @@ Cvar Error Codes
 ================
 */
 enum class cvar_error_t : common::u8 {
-	OK = 0,
+		OK = 0,                       // Operation completed successfully.
 
-	ERR_NOT_INIT,
-	ERR_IS_INIT,
-	ERR_INVALID_CVAR,
-	ERR_INVALID_DEFAULT_VALUE,
-	ERR_INVALID_FLAG,
-	ERR_CVAR_ALREADY_EXISTS,
-	ERR_CVAR_NOT_FOUND,
-	ERR_REGISTRY_FULL,
-	ERR_READONLY,
-	ERR_CHEAT_PROTECTED
+		ERR_NOT_INIT,                 // CVar registry is not initialized.
+		ERR_IS_INIT,                  // Initialization was requested for a live registry.
+		ERR_INVALID_CVAR,             // Name or new value violates CVar policy.
+		ERR_INVALID_DEFAULT_VALUE,    // Registration default cannot be parsed or stored.
+		ERR_INVALID_FLAG,             // Registration supplied runtime-owned or unknown flag bits.
+		ERR_CVAR_ALREADY_EXISTS,      // A variable already owns this name.
+		ERR_CVAR_NOT_FOUND,           // Lookup or mutation could not resolve the name.
+		ERR_REGISTRY_FULL,            // Fixed variable capacity is exhausted.
+		ERR_READONLY,                 // Mutation was rejected by read-only policy.
+		ERR_CHEAT_PROTECTED           // Mutation was rejected by cheat policy.
 };
 
 /*

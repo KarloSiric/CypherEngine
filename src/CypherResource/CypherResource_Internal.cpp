@@ -30,6 +30,8 @@ common::bool_t AppendArrayLayout(
     common::usize &iCursor,
     common::usize &iOffsetOut ) noexcept
 {
+    // Calculate and align every region with checked arithmetic before allocating the
+    // manager block; no partially computed layout is ever handed to the allocator.
     common::usize cbArray = 0u;
     if ( !common::Cy_TryArrayByteCount<type_t>( nCount, cbArray ) ) {
         return common::CY_FALSE;
@@ -51,6 +53,8 @@ common::bool_t AppendArrayLayout(
 
 common::u32 LookupCapacityFor( common::u32 cResources ) noexcept
 {
+    // Keep maximum load at 50 percent and round to a power of two so probing wraps
+    // with a mask instead of division.
     const common::u32 cRequired = cResources * 2u;
     common::u32 cCapacity = 1u;
     while ( cCapacity < cRequired ) {
@@ -62,6 +66,8 @@ common::u32 LookupCapacityFor( common::u32 cResources ) noexcept
 common::resource_generation_t NextGeneration(
     common::resource_generation_t nGeneration ) noexcept
 {
+    // Generation zero is reserved invalid.  Wrap to the first live generation after
+    // exhausting the packed handle field.
     return nGeneration >= common::CY_RESOURCE_GENERATION_MAX
         ? common::CY_RESOURCE_GENERATION_FIRST
         : nGeneration + 1u;
@@ -77,6 +83,7 @@ common::bool_t CalculateLayout(
     layoutOut.cLookupCapacity = LookupCapacityFor(
         config.cResourceCapacity );
 
+    // One allocation holds the implementation header followed by three aligned arrays.
     common::usize iCursor = sizeof( resource_manager_impl_t );
     if ( !AppendArrayLayout<resource_record_t>(
             config.cResourceCapacity,
@@ -106,6 +113,7 @@ common::bool_t InsertLookup(
     common::u32 iLookup = HashLookupIndex( id, impl.cLookupCapacity );
     const common::u32 nMask = impl.cLookupCapacity - 1u;
 
+    // Entries store record index plus one, leaving an all-zero table immediately valid.
     for ( common::u32 iProbe = 0u;
           iProbe < impl.cLookupCapacity;
           ++iProbe ) {
@@ -167,6 +175,7 @@ common::u32 AllocateRecord( resource_manager_impl_t &impl ) noexcept
         return CYPHER_RESOURCE_INVALID_INDEX;
     }
 
+    // Allocation is O(1) and allocation-free after manager initialization.
     const common::u32 iRecord = impl.iFreeHead;
     resource_record_t &record = impl.pRecords[iRecord];
     impl.iFreeHead = record.iNextFree;
@@ -179,6 +188,8 @@ void RecycleRecord(
     common::u32 iRecord ) noexcept
 {
     resource_record_t &record = impl.pRecords[iRecord];
+    // Preserve and advance generation across zero-initialization.  This is the step
+    // that makes an old handle fail after its slot is reused.
     const common::resource_generation_t nNextGeneration =
         NextGeneration( record.nGeneration );
     record = {};
@@ -193,6 +204,8 @@ void AppendLiveRecord(
     resource_manager_impl_t &impl,
     common::u32 iRecord ) noexcept
 {
+    // Live records form an acquisition-ordered intrusive list.  Appending is O(1),
+    // and shutdown can walk backward to destroy dependents before dependencies.
     resource_record_t &record = impl.pRecords[iRecord];
     record.iPreviousLive = impl.iLiveTail;
     record.iNextLive = CYPHER_RESOURCE_INVALID_INDEX;
@@ -236,6 +249,8 @@ resource_error_t UnloadRecord(
         return resource_error_t::INTERNAL_ERROR;
     }
 
+    // Remove public liveness before entering external unload code so recursive access
+    // cannot observe a payload while it is being destroyed.
     record.state = resource_state_t::UNLOADING;
     RemoveLiveRecord( impl, iRecord );
     --impl.stats.cLiveResources;
@@ -246,6 +261,8 @@ resource_error_t UnloadRecord(
         record.pResource );
     --impl.cCallbackDepth;
 
+    // Remove identity only after the callback finishes; reentrant acquisition during
+    // unloading sees RESOURCE_BUSY rather than starting a duplicate load.
     if ( !RemoveLookup( impl, iRecord ) ) {
         return resource_error_t::INTERNAL_ERROR;
     }

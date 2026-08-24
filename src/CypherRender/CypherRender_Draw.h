@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Draw Contract
+
+Draw commands validate borrowed geometry and material references before submission. Backend
+execution owns no caller memory and must not retain transient command pointers past their
+documented lifetime.
+================
+*/
+
 #ifndef CYPHER_ENGINE_RENDER_DRAW_H
 #define CYPHER_ENGINE_RENDER_DRAW_H
 
@@ -34,16 +44,16 @@ namespace cypher::engine::render
 constexpr common::u32 CYPHER_RENDER_DRAW_ITEMS_LIST_MAX = 16384u;
 
 struct draw_item_t {
-    ::cypher::math::mat4_t modelMatrix{ ::cypher::math::CY_MAT4_IDENTITY };
+    ::cypher::math::mat4_t modelMatrix{ ::cypher::math::CY_MAT4_IDENTITY }; // Object-to-world transform.
 
-    mesh_t    *mesh{};
-    shader_t  *shader{};
+    mesh_t    *mesh{};                                      // Borrowed geometry; must outlive list execution.
+    shader_t  *shader{};                                    // Borrowed program; must outlive list execution.
 };
 
 struct draw_list_t {
-    draw_item_t *items{ nullptr };
-    common::u32 nItemCount{ 0u };
-    common::u32 nItemCapacity{ 0u };
+    draw_item_t *items{ nullptr };                          // Caller-owned contiguous command storage.
+    common::u32 nItemCount{ 0u };                           // Submitted commands in the active prefix.
+    common::u32 nItemCapacity{ 0u };                        // Maximum commands addressable through items.
 };
 
 render_error_t CypherRender_DrawItem( const draw_item_t &item, const camera_t &camera );

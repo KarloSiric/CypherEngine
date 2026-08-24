@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Internal Contract
+
+Resource records connect stable IDs and generation-checked handles to runtime payloads. Internal
+tables own loaded data; callers receive borrowed handles that become invalid after release or
+generation change.
+================
+*/
+
 #ifndef CYPHER_ENGINE_RESOURCE_INTERNAL_H
 #define CYPHER_ENGINE_RESOURCE_INTERNAL_H
 #ifndef PRAGMA_ONCE
@@ -28,56 +38,56 @@ namespace cypher::engine::resource::detail
 {
 
 inline constexpr common::u32 CYPHER_RESOURCE_INVALID_INDEX =
-    common::CY_U32_MAX;
-inline constexpr common::u32 CYPHER_RESOURCE_LOOKUP_EMPTY = 0u;
+    common::CY_U32_MAX;                                     // Sentinel for record/list indices.
+inline constexpr common::u32 CYPHER_RESOURCE_LOOKUP_EMPTY = 0u; // Hash entries store record index plus one.
 
 struct resource_type_entry_t {
-    resource_loader_t loader{};
+    resource_loader_t loader{};                             // Registered callbacks and persistent type ID.
     common::resource_type_slot_t iTypeSlot{
-        common::CY_RESOURCE_TYPE_SLOT_INVALID };
+        common::CY_RESOURCE_TYPE_SLOT_INVALID };            // Monotonic runtime slot embedded in handles.
 };
 
 struct resource_record_t {
-    common::resource_id_t id{};
-    common::resource_type_id_t type{};
+    common::resource_id_t id{};                             // Stable lookup key for path plus persistent type.
+    common::resource_type_id_t type{};                      // Persistent type used to find the loader.
     common::resource_generation_t nGeneration{
-        common::CY_RESOURCE_GENERATION_FIRST };
+        common::CY_RESOURCE_GENERATION_FIRST };             // Changes whenever this slot is recycled.
     common::resource_type_slot_t iTypeSlot{
-        common::CY_RESOURCE_TYPE_SLOT_INVALID };
-    resource_state_t state{ resource_state_t::EMPTY };
-    common::u32 cReferences{ 0u };
-    void *pResource{ nullptr };
-    common::u32 iNextFree{ CYPHER_RESOURCE_INVALID_INDEX };
-    common::u32 iPreviousLive{ CYPHER_RESOURCE_INVALID_INDEX };
-    common::u32 iNextLive{ CYPHER_RESOURCE_INVALID_INDEX };
-    common::usize cchVirtualPath{ 0u };
-    char szVirtualPath[CYPHER_RESOURCE_PATH_BUFFER_SIZE]{};
+        common::CY_RESOURCE_TYPE_SLOT_INVALID };            // Runtime loader slot embedded in handles.
+    resource_state_t state{ resource_state_t::EMPTY };      // Lifecycle guard and free/live discriminator.
+    common::u32 cReferences{ 0u };                          // Retains preventing payload destruction.
+    void *pResource{ nullptr };                             // Loader-owned payload returned to callers by borrow.
+    common::u32 iNextFree{ CYPHER_RESOURCE_INVALID_INDEX }; // Intrusive free-list link while EMPTY.
+    common::u32 iPreviousLive{ CYPHER_RESOURCE_INVALID_INDEX }; // Intrusive live-list previous link.
+    common::u32 iNextLive{ CYPHER_RESOURCE_INVALID_INDEX }; // Intrusive live-list next link.
+    common::usize cchVirtualPath{ 0u };                     // Path byte length excluding terminator.
+    char szVirtualPath[CYPHER_RESOURCE_PATH_BUFFER_SIZE]{}; // Canonical VFS path retained for reload/diagnostics.
 };
 
 struct resource_manager_impl_t {
-    resource_record_t *pRecords{ nullptr };
-    resource_type_entry_t *pTypes{ nullptr };
-    common::u32 *pLookup{ nullptr };
-    common::u32 cResourceCapacity{ 0u };
-    common::u32 cTypeCapacity{ 0u };
-    common::u32 cLookupCapacity{ 0u };
-    common::u32 cRegisteredTypes{ 0u };
+    resource_record_t *pRecords{ nullptr };                 // Fixed record table inside manager allocation.
+    resource_type_entry_t *pTypes{ nullptr };               // Compact registered-loader array.
+    common::u32 *pLookup{ nullptr };                        // Open-addressed ID-to-record hash table.
+    common::u32 cResourceCapacity{ 0u };                    // Number of elements in pRecords.
+    common::u32 cTypeCapacity{ 0u };                        // Number of elements in pTypes.
+    common::u32 cLookupCapacity{ 0u };                      // Power-of-two number of hash entries.
+    common::u32 cRegisteredTypes{ 0u };                     // Initialized prefix of pTypes.
     common::resource_type_slot_t iNextTypeSlot{
-        common::CY_RESOURCE_TYPE_SLOT_INVALID + 1u };
-    common::u32 iFreeHead{ CYPHER_RESOURCE_INVALID_INDEX };
-    common::u32 iLiveHead{ CYPHER_RESOURCE_INVALID_INDEX };
-    common::u32 iLiveTail{ CYPHER_RESOURCE_INVALID_INDEX };
-    common::u32 cCallbackDepth{ 0u };
-    common::bool_t bShuttingDown{ common::CY_FALSE };
-    resource_manager_stats_t stats{};
+        common::CY_RESOURCE_TYPE_SLOT_INVALID + 1u };       // Monotonic slot allocator; retired slots are not reused.
+    common::u32 iFreeHead{ CYPHER_RESOURCE_INVALID_INDEX }; // Head of EMPTY record free list.
+    common::u32 iLiveHead{ CYPHER_RESOURCE_INVALID_INDEX }; // Oldest live record for deterministic traversal.
+    common::u32 iLiveTail{ CYPHER_RESOURCE_INVALID_INDEX }; // Newest live record for O(1) append.
+    common::u32 cCallbackDepth{ 0u };                       // Rejects reentrant manager lifecycle operations.
+    common::bool_t bShuttingDown{ common::CY_FALSE };       // Prevents new work during teardown.
+    resource_manager_stats_t stats{};                       // Owner-thread diagnostic counters.
 };
 
 struct resource_manager_layout_t {
-    common::usize cbTotal{ 0u };
-    common::usize iRecordsOffset{ 0u };
-    common::usize iTypesOffset{ 0u };
-    common::usize iLookupOffset{ 0u };
-    common::u32 cLookupCapacity{ 0u };
+    common::usize cbTotal{ 0u };                            // Total bytes in the single manager allocation.
+    common::usize iRecordsOffset{ 0u };                     // Aligned byte offset of resource records.
+    common::usize iTypesOffset{ 0u };                       // Aligned byte offset of loader entries.
+    common::usize iLookupOffset{ 0u };                      // Aligned byte offset of hash entries.
+    common::u32 cLookupCapacity{ 0u };                      // Computed power-of-two lookup capacity.
 };
 
 CYPHER_NODISCARD common::bool_t CalculateLayout(
@@ -124,6 +134,8 @@ inline common::u32 HashLookupIndex(
     common::resource_id_t id,
     common::u32 cLookupCapacity ) noexcept
 {
+    // MurmurHash3 finalizer provides good avalanche for IDs whose source hash may
+    // contain patterns; the capacity mask requires a power-of-two table.
     common::u64 nValue = id.value;
     nValue ^= nValue >> 33u;
     nValue *= 0xff51afd7ed558ccdull;
@@ -140,6 +152,8 @@ inline common::u32 LookupRecord(
     common::u32 iLookup = HashLookupIndex( id, impl.cLookupCapacity );
     const common::u32 nMask = impl.cLookupCapacity - 1u;
 
+    // Lookup uses linear probing.  Empty terminates the search because deletion
+    // rebuilds the following cluster rather than leaving tombstones.
     for ( common::u32 iProbe = 0u;
           iProbe < impl.cLookupCapacity;
           ++iProbe ) {
@@ -221,6 +235,8 @@ inline resource_error_t ResolveHandle(
         return resource_error_t::INVALID_HANDLE;
     }
 
+    // All three handle components participate in validation.  Generation rejects a
+    // recycled slot; type slot rejects accidental cross-type handle interpretation.
     const resource_record_t &record = impl.pRecords[parts.iSlot];
     if ( record.state == resource_state_t::EMPTY ||
          record.nGeneration != parts.nGeneration ||

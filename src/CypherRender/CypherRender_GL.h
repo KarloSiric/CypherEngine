@@ -39,7 +39,7 @@ Opaque backend context kept out of higher-level renderer code.
 ================
 */
 struct gl_state_t {
-    void *context{ nullptr };
+    void *context{ nullptr };                               // SDL/OpenGL context owned by this backend instance.
 };
 
 /*

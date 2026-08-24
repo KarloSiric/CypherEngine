@@ -46,18 +46,18 @@ Shader Types
 ================
 */
 struct shader_t {
-    common::u32 nShaderId{ 0 };
-    char name[CYPHER_RENDER_MAX_SHADER_NAME]{};
-    char szVertexPath[CYPHER_RENDER_MAX_SHADER_PATH]{};
-    char szFragmentPath[CYPHER_RENDER_MAX_SHADER_PATH]{};
+    common::u32 nShaderId{ 0 };                             // Registry-local identity; zero is invalid.
+    char name[CYPHER_RENDER_MAX_SHADER_NAME]{};             // Human-readable lookup name, always terminated.
+    char szVertexPath[CYPHER_RENDER_MAX_SHADER_PATH]{};     // Authored vertex-source path retained for diagnostics.
+    char szFragmentPath[CYPHER_RENDER_MAX_SHADER_PATH]{};   // Authored fragment-source path retained for diagnostics.
 
-    common::u32 nGlShaderProgramId{ 0 };
-    bool loaded{ false };
+    common::u32 nGlShaderProgramId{ 0 };                    // Transitional OpenGL program owned by this record.
+    bool loaded{ false };                                   // Program compiled, linked, and remains live.
 };
 
 struct shader_registry_t {
-    shader_t shaders[CYPHER_RENDER_MAX_SHADERS]{};
-    common::u32 nShaderCount{ 0 };
+    shader_t shaders[CYPHER_RENDER_MAX_SHADERS]{};          // Dense fixed-capacity shader storage.
+    common::u32 nShaderCount{ 0 };                          // Live prefix length in shaders.
 };
 
 /*

@@ -21,6 +21,9 @@
 namespace cypher::engine::resource
 {
 
+// Type slots are compact runtime identifiers embedded in resource handles. They
+// increase monotonically and are never recycled during a manager lifetime.
+
 resource_error_t CypherResource_RegisterType(
     resource_manager_t *pManager,
     const resource_loader_t &loader,
@@ -102,10 +105,13 @@ resource_error_t CypherResource_UnregisterType(
           ++iRecord ) {
         if ( pImpl->pRecords[iRecord].state != resource_state_t::EMPTY &&
              pImpl->pRecords[iRecord].type == type ) {
+            // The record may still call this type's unload callback.
             return resource_error_t::TYPE_IN_USE;
         }
     }
 
+    // Registration is cold-path work; compact the short array instead of adding
+    // tombstones and another branch to every type lookup.
     for ( common::u32 iType = iTypeFound;
           iType + 1u < pImpl->cRegisteredTypes;
           ++iType ) {

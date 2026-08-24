@@ -25,7 +25,7 @@
 
 #include "CypherCVar_Error.h"
 
-#define CYPHER_CVAR_MAX_CVARS 256u
+#define CYPHER_CVAR_MAX_CVARS 256u // Fixed console-variable registry capacity.
 
 namespace cypher::engine::cvar {
 
@@ -37,32 +37,32 @@ Cvars are named runtime variables used by configs, console and engine systems.
 ================
 */
 enum flags_t : common::u32 {
-	CYPHER_CVAR_NONE = 0,
-	CYPHER_CVAR_ARCHIVE = 1 << 0,
-	CYPHER_CVAR_READONLY = 1 << 1,
-	CYPHER_CVAR_CHEAT = 1 << 2,
-	CYPHER_CVAR_DEV = 1 << 3,
-	CYPHER_CVAR_MODIFIED = 1 << 4
+		CYPHER_CVAR_NONE = 0,             // No special storage or mutation policy.
+		CYPHER_CVAR_ARCHIVE = 1 << 0,     // Persist value to user configuration.
+		CYPHER_CVAR_READONLY = 1 << 1,    // Reject ordinary runtime mutation.
+		CYPHER_CVAR_CHEAT = 1 << 2,       // Mutation requires cheat policy to be enabled.
+		CYPHER_CVAR_DEV = 1 << 3,         // Developer-only variable, hidden in shipping policy.
+		CYPHER_CVAR_MODIFIED = 1 << 4     // Runtime value differs from its registered default.
 };
 
 struct cvar_t {
-	const char *name;
-	char valueString[256];
-	char defaultString[256];
-	common::u32 valueInt;
-	common::f32 valueFloat;
-	bool valueBool;
-	flags_t flags;
+		const char *name;                  // Borrowed unique variable name.
+		char valueString[256];             // Canonical current text value.
+		char defaultString[256];           // Registered default text value.
+		common::u32 valueInt;              // Cached unsigned integer interpretation.
+		common::f32 valueFloat;            // Cached floating-point interpretation.
+		bool valueBool;                    // Cached boolean interpretation.
+		flags_t flags;                     // Registration policy plus modified state.
 };
 
 struct registry_t {
-	cvar_t cvars[CYPHER_CVAR_MAX_CVARS];
-	common::u32 nCvarCount;
-	bool initialized;
+		cvar_t cvars[CYPHER_CVAR_MAX_CVARS]; // Compact registered-variable array.
+		common::u32 nCvarCount;              // Initialized prefix of cvars.
+		bool initialized;                    // Registry lifetime guard.
 };
 
 constexpr common::u32 CYPHER_CVAR_REGISTER_ALLOWED_FLAGS =
-	CYPHER_CVAR_ARCHIVE | CYPHER_CVAR_READONLY | CYPHER_CVAR_CHEAT | CYPHER_CVAR_DEV;
+		CYPHER_CVAR_ARCHIVE | CYPHER_CVAR_READONLY | CYPHER_CVAR_CHEAT | CYPHER_CVAR_DEV; // MODIFIED is runtime-owned.
 
 /*
 ================

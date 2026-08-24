@@ -31,8 +31,8 @@
 namespace cypher::engine::sys
 {
 
-constexpr common::u32 SYS_MAX_PATH_LENGTH = 1024u;
-constexpr common::u32 SYS_MAX_NAME_LENGTH = 256;
+constexpr common::u32 SYS_MAX_PATH_LENGTH = 1024u;   // Fixed storage for normalized host paths, including terminator.
+constexpr common::u32 SYS_MAX_NAME_LENGTH = 256u;    // Fixed storage for application/organization names.
 
 /*
 ================
@@ -40,17 +40,17 @@ Platform Detection Types
 ================
 */
 enum class platform_t : common::u8 {
-    UNKNOWN = 0,
-    WINDOWS,
-    LINUX,
-    MACOSX
+    UNKNOWN = 0,  // Build target could not be identified.
+    WINDOWS,      // Microsoft Windows desktop target.
+    LINUX,        // Linux desktop target.
+    MACOSX        // Apple macOS desktop target.
 };
 
 enum class compiler_t : common::u8 {
-    UNKNOWN = 0,
-    CLANG,
-    GCC,
-    MSVC
+    UNKNOWN = 0,  // Toolchain could not be identified.
+    CLANG,        // LLVM Clang or Apple Clang.
+    GCC,          // GNU Compiler Collection.
+    MSVC          // Microsoft Visual C++ compiler.
 };
 
 /*
@@ -59,31 +59,31 @@ System Startup Data
 ================
 */
 struct init_info_t {
-    int argc{ 0 };
-    const char *const *argv{ nullptr };
+    int argc{ 0 };                                  // Process argument count borrowed for runtime queries.
+    const char *const *argv{ nullptr };             // Process arguments borrowed until system shutdown.
 
-    const char *szAppName{ nullptr };
-    const char *szOrganizationName{ nullptr };
+    const char *szAppName{ nullptr };                // Required application name copied during initialization.
+    const char *szOrganizationName{ nullptr };       // Required organization name copied during initialization.
 };
 
 struct paths_t {
-    char szExecutablePath[SYS_MAX_PATH_LENGTH]{};
-    char executableDir[SYS_MAX_PATH_LENGTH]{};
-    char workingDir[SYS_MAX_PATH_LENGTH]{};
+    char szExecutablePath[SYS_MAX_PATH_LENGTH]{};    // Absolute path to the running executable.
+    char executableDir[SYS_MAX_PATH_LENGTH]{};       // Absolute directory containing the executable.
+    char workingDir[SYS_MAX_PATH_LENGTH]{};          // Process working directory captured at startup.
 
-    char szBasePath[SYS_MAX_PATH_LENGTH]{};
-    char szUserPath[SYS_MAX_PATH_LENGTH]{};
+    char szBasePath[SYS_MAX_PATH_LENGTH]{};          // Default engine/content base directory.
+    char szUserPath[SYS_MAX_PATH_LENGTH]{};          // Per-user writable application directory.
 };
 
 struct runtime_state_t {
-    bool initialized{ false };
+    bool initialized{ false };                       // True only after every platform query succeeds.
 
-    char szAppName[SYS_MAX_NAME_LENGTH]{};
-    char szOrganizationName[SYS_MAX_NAME_LENGTH]{};
+    char szAppName[SYS_MAX_NAME_LENGTH]{};           // Owned copy of application name.
+    char szOrganizationName[SYS_MAX_NAME_LENGTH]{};  // Owned copy of organization name.
 
-    int argc{ 0u };
-    const char *const *argv{ nullptr };
-    paths_t sysPaths{};
+    int argc{ 0 };                                   // Borrowed process argument count.
+    const char *const *argv{ nullptr };              // Borrowed process argument vector.
+    paths_t sysPaths{};                              // Cached platform path discovery results.
 
 };
 
@@ -115,13 +115,13 @@ bool CypherSystem_LocalTime( std::time_t timeValue, std::tm &timeOut );
 
 common::usize CypherSystem_VirtualPageSize();
 
-void *CypherSystem_VirtualReserve( const common::usize size );
+void *CypherSystem_VirtualReserve( const common::usize size ); // Reserves inaccessible address space without committing pages.
 
-sys_error_t CypherSystem_VirtualCommit( void *memory, common::usize size );
+sys_error_t CypherSystem_VirtualCommit( void *memory, common::usize size ); // Makes reserved pages readable and writable.
 
-sys_error_t CypherSystem_VirtualDecommit( void *memory, common::usize size );
+sys_error_t CypherSystem_VirtualDecommit( void *memory, common::usize size ); // Discards page contents but retains the address range.
 
-sys_error_t CypherSystem_VirtualRelease( void *memory, common::usize size );
+sys_error_t CypherSystem_VirtualRelease( void *memory, common::usize size ); // Releases the complete reservation to the OS.
 
 /*
 ================

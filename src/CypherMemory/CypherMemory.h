@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Memory Contract
+
+The memory front end routes explicit allocation, reallocation, and free requests to the selected
+backend. Memory allocated by one backend must be released through that same ownership domain.
+================
+*/
+
 #ifndef CYPHER_ENGINE_MEMORY_H
 #define CYPHER_ENGINE_MEMORY_H
 
@@ -34,86 +43,86 @@ namespace cypher::engine::memory
 {
 
 enum class memory_tag_t : common::u8 {
-    UNKNOWN = 0,
-    CORE,
-    SYSTEM,
-    MEMORY,
-    FILESYSTEM,
-    RESOURCE,
-    WORLD,
-    RENDER,
-    AUDIO,
-    PHYSICS,
-    AI,
-    SCRIPT,
-    NETWORK,
-    EDITOR,
-    TOOLS,
-    TEMP,
-    COUNT
+    UNKNOWN = 0, // Allocation owner is not known.
+    CORE,        // Host and engine-wide runtime state.
+    SYSTEM,      // Platform, process, window, and device services.
+    MEMORY,      // Allocator implementation metadata.
+    FILESYSTEM,  // Mounts, paths, package readers, and file buffers.
+    RESOURCE,    // Loaded resource records and decoded payloads.
+    WORLD,       // Map, entity, and spatial world state.
+    RENDER,      // Renderer frontend and backend allocations.
+    AUDIO,       // Sound system state and decoded audio data.
+    PHYSICS,     // Collision and simulation state.
+    AI,          // Navigation and decision-system data.
+    SCRIPT,      // Lua runtime and script-owned state.
+    NETWORK,     // Transport, packet, channel, client, and server state.
+    EDITOR,      // Editor-only documents and UI model data.
+    TOOLS,       // Offline compiler and authoring-tool state.
+    TEMP,        // Explicitly short-lived scratch work.
+    COUNT        // Sentinel used to size per-tag tables.
 };
 
 struct memory_tag_stats_t {
-    const char *name{ nullptr };
-    common::usize used{ 0u };
-    common::usize nPeakUsed{ 0u };
-    common::u64 nAllocationCount{ 0u };
-    common::u64 nFailedAllocationCount{ 0u };
+    const char *name{ nullptr };                            // Static display name for the tag.
+    common::usize used{ 0u };                               // Current attributed live bytes.
+    common::usize nPeakUsed{ 0u };                          // Highest attributed live-byte count.
+    common::u64 nAllocationCount{ 0u };                     // Successful attributed allocations.
+    common::u64 nFailedAllocationCount{ 0u };               // Failed attributed allocation attempts.
 };
 
 struct memory_arena_config_t {
-    const char *name{ nullptr };
-    common::usize nReserveSize{ 0u };
-    common::usize initialCommit{ 0u };
-    common::u32 flags{ CYPHER_MEMORY_ARENA_FLAG_NONE };
-    arena_backing_t backing{ arena_backing_t::ARENA_VIRTUAL_MEMORY };
-    memory_tag_t tag{ memory_tag_t::MEMORY };
+    const char *name{ nullptr };                            // Borrowed process-lifetime arena name.
+    common::usize nReserveSize{ 0u };                       // Arena capacity or virtual reservation in bytes.
+    common::usize initialCommit{ 0u };                      // Initial accessible prefix for virtual backing.
+    common::u32 flags{ CYPHER_MEMORY_ARENA_FLAG_NONE };     // Arena allocation/reset policy bits.
+    arena_backing_t backing{ arena_backing_t::ARENA_VIRTUAL_MEMORY }; // Backing strategy.
+    memory_tag_t tag{ memory_tag_t::MEMORY };               // Attribution category for diagnostics.
 };
 
 struct memory_config_t {
-    memory_arena_config_t permanentArena;
-    memory_arena_config_t frameArena;
-    memory_arena_config_t scratchArena;
-    memory_arena_config_t resourceArena;
-    memory_arena_config_t worldArena;
-    memory_arena_config_t renderArena;
-    memory_arena_config_t editorArena;
+    memory_arena_config_t permanentArena;                   // Process-lifetime engine state.
+    memory_arena_config_t frameArena;                       // Cleared at the frame boundary.
+    memory_arena_config_t scratchArena;                     // Marker-scoped temporary work.
+    memory_arena_config_t resourceArena;                    // Loaded resource metadata and payloads.
+    memory_arena_config_t worldArena;                       // Current map/world lifetime.
+    memory_arena_config_t renderArena;                      // Renderer-owned runtime allocations.
+    memory_arena_config_t editorArena;                      // Editor/tool document lifetime.
 };
 
 struct memory_stats_t {
-    common::usize nTotalCapacity{ 0u };
-    common::usize totalCommitted{ 0u };
-    common::usize nTotalUsed{ 0u };
-    common::usize nPeakUsed{ 0u };
+    common::usize nTotalCapacity{ 0u };                     // Sum of configured arena capacities.
+    common::usize totalCommitted{ 0u };                     // Sum of currently accessible backing bytes.
+    common::usize nTotalUsed{ 0u };                         // Sum of current arena cursors.
+    common::usize nPeakUsed{ 0u };                          // Highest aggregate usage observed by the system.
 
-    arena_stats_t permanentStats{};
-    arena_stats_t frameStats{};
-    arena_stats_t scratchStats{};
-    arena_stats_t resourceStats{};
-    arena_stats_t worldStats{};
-    arena_stats_t renderStats{};
-    arena_stats_t editorStats{};
+    arena_stats_t permanentStats{};                         // Process-lifetime arena snapshot.
+    arena_stats_t frameStats{};                             // Per-frame arena snapshot.
+    arena_stats_t scratchStats{};                           // Scratch arena snapshot.
+    arena_stats_t resourceStats{};                          // Resource arena snapshot.
+    arena_stats_t worldStats{};                             // World arena snapshot.
+    arena_stats_t renderStats{};                            // Renderer arena snapshot.
+    arena_stats_t editorStats{};                            // Editor arena snapshot.
 
-    memory_tag_stats_t tagStats[static_cast<common::usize>( memory_tag_t::COUNT )]{};
+    memory_tag_stats_t tagStats[static_cast<common::usize>( memory_tag_t::COUNT )]{}; // Per-owner totals.
 };
 
 struct memory_state_t {
-    bool initialized{ false };
+    bool initialized{ false };                              // All configured arenas are live and accessible.
 
-    memory_config_t config{};
+    memory_config_t config{};                               // Owned copy of the successful initialization policy.
 
-    arena_t permanentArena{};
-    arena_t frameArena{};
-    arena_t scratchArena{};
-    arena_t resourceArena{};
-    arena_t worldArena{};
-    arena_t renderArena{};
-    arena_t editorArena{};
+    arena_t permanentArena{};                               // Process-lifetime arena state.
+    arena_t frameArena{};                                   // Reset at BeginFrame.
+    arena_t scratchArena{};                                 // Backing for nested scratch scopes.
+    arena_t resourceArena{};                                // Resource-lifetime allocations.
+    arena_t worldArena{};                                   // Current world/map allocations.
+    arena_t renderArena{};                                  // Renderer-lifetime allocations.
+    arena_t editorArena{};                                  // Editor/tool allocations.
 
-    common::usize nTotalCapacity{ 0u };
-    common::usize totalCommitted{ 0u };
-    common::usize nTotalUsed{ 0u };
-    common::usize nPeakUsed{ 0u };
+    common::usize nTotalCapacity{ 0u };                     // Cached aggregate capacity.
+    common::usize totalCommitted{ 0u };                     // Cached aggregate commit size.
+    common::usize nTotalUsed{ 0u };                         // Cached aggregate current usage.
+    common::usize nPeakUsed{ 0u };                          // Highest cached aggregate usage.
 };
 
 memory_config_t CypherMemory_DefaultConfig();

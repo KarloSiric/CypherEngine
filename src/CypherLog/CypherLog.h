@@ -211,4 +211,14 @@ layer so older code and external users do not break while engine code stays comp
 #define LOG_ERROR_MESSAGE               CYPHER_LOG_ERROR_MESSAGE
 #define LOG_CHECK                       CYPHER_LOG_CHECK
 
+/*
+================
+Additional aliases for proper fallback dependencies.
+
+It is not advised to use global logging
+================
+*/
+
+
+
 #endif // CYPHER_ENGINE_LOG_H

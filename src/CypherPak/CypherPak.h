@@ -30,7 +30,7 @@
 #include "CypherPak_Types.h"
 #include "CypherPak_Writer.h"
 
-namespace cypher::engine::pak
+namespace cypher::engine
 {
 
 /*
@@ -42,6 +42,6 @@ Tools will use the writer API later to build deterministic content packages.
 ================
 */
 
-}       // namespace cypher::engine::pak
+}       // namespace cypher::engine
 
 #endif // CYPHER_ENGINE_PAK_H

@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Package Mount Notes
+
+CypherPak owns archive parsing and byte extraction.  This module adapts an open package reader
+into the same priority-ordered namespace used by directory mounts.  The mount owns its reader;
+failure before table insertion must close and destroy that reader without publishing the mount.
+================
+*/
+
 #include "CypherFileSystem_Runtime.h"
 #include "CypherLog.h"
 #include "CypherPak.h"
@@ -28,10 +38,13 @@
 namespace cypher::engine::fs
 {
 
+namespace pak = ::cypher::engine;
+
 namespace {
 
 fs_error_t PakErrorToFs( const pak::pak_error_t error )
 {
+    // Do not leak package-specific result codes through the filesystem API.
     switch ( error ) {
     case pak::pak_error_t::OK:
         return fs_error_t::OK;
@@ -77,6 +90,8 @@ bool CopyString( char *out, const common::u32 nOutSize, const char *text )
 
 pak::pak_reader_t *PackageReader( const mount_t &mount )
 {
+    // Package reader storage is opaque in mount_t so the shared mount table stays
+    // independent of CypherPak's public type definitions.
     return static_cast<pak::pak_reader_t *>( mount.pPackageReader );
 }
 
@@ -98,6 +113,8 @@ fs_error_t CypherFileSystem_MountPackage(
         return fs_error_t::ERR_INVALID_PATH;
     }
 
+    // Package and directory mounts use the same canonical root representation; this
+    // is what makes backend-neutral priority resolution possible.
     char szNormalizedVirtualRoot[CYPHER_FILESYSTEM_MAX_VIRTUAL_ROOT_LENGTH]{};
     const fs_error_t rootResult = CypherFileSystem_NormalizeVirtualRoot( szVirtualRoot, szNormalizedVirtualRoot, sizeof( szNormalizedVirtualRoot ) );
     if ( rootResult != fs_error_t::OK ) {
@@ -120,6 +137,7 @@ fs_error_t CypherFileSystem_MountPackage(
         return fs_error_t::ERR_BUFFER_TOO_SMALL;
     }
 
+    // Filesystem exceptions never cross this C-style API boundary.
     std::error_code ec{};
     if ( !std::filesystem::exists( szPackagePath, ec ) ) {
         if ( !ec && ( flags & CYPHER_FILESYSTEM_MOUNT_OPTIONAL ) != 0u ) {
@@ -141,12 +159,15 @@ fs_error_t CypherFileSystem_MountPackage(
         }
     }
 
+    // The reader must outlive every file handle resolved through this mount.  Mount
+    // removal closes and destroys it after the filesystem lock excludes new opens.
     pak::pak_reader_t *reader = new ( std::nothrow ) pak::pak_reader_t();
     if ( reader == nullptr ) {
         return fs_error_t::ERR_OUT_OF_MEMORY;
     }
 
-    const pak::pak_error_t openResult = pak::CypherPak_OpenReader(
+    // Verify archive metadata before making any entry visible in the virtual namespace.
+    const pak::pak_error_t openResult = pak::Pak_OpenReader(
         szPackagePath,
         pak::CYPHER_PAK_OPEN_VERIFY_INDEX,
         *reader );
@@ -164,9 +185,10 @@ fs_error_t CypherFileSystem_MountPackage(
     std::memcpy( mount.szVirtualRoot, szNormalizedVirtualRoot, std::strlen( szNormalizedVirtualRoot ) + 1u );
     std::memcpy( mount.szPhysicalRoot, szPackagePath, nPackagePathLen + 1u );
 
+    // Insertion is the publication point.  Roll back reader ownership on failure.
     const fs_error_t insertResult = CypherFileSystem_InsertMountByPriority( state, mount );
     if ( insertResult != fs_error_t::OK ) {
-        pak::CypherPak_CloseReader( *reader );
+        pak::Pak_CloseReader( *reader );
         delete reader;
         return insertResult;
     }
@@ -186,6 +208,8 @@ fs_error_t CypherFileSystem_UnmountPackage( const char *szPackagePath )
         return fs_error_t::ERR_INVALID_PATH;
     }
 
+    // Package identity is its mounted physical archive path.  The same archive may be
+    // mounted only once through this path-based API.
     for ( common::u32 i = 0u; i < state.nMountCount; ++i ) {
         const mount_t &mount = state.mounts[i];
         if ( mount.type == mount_type_t::CYPHER_FILESYSTEM_PACKAGE &&
@@ -226,7 +250,7 @@ fs_error_t CypherFileSystem_GetPackageInfo( const char *szPackagePath, package_i
 
         common::u32 nFileCount = 0u;
         pak::pak_reader_t *reader = PackageReader( mount );
-        const pak::pak_error_t nCountResult = pak::CypherPak_GetFileCount( *reader, nFileCount );
+        const pak::pak_error_t nCountResult = pak::Pak_GetFileCount( *reader, nFileCount );
         if ( nCountResult != pak::pak_error_t::OK ) {
             infoOut = {};
             return PakErrorToFs( nCountResult );

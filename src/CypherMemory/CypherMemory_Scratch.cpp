@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Scratch Implementation Notes
+
+Scratch allocations are temporary and invalid after the matching scope or reset. The
+implementation favors linear reuse and never promotes scratch pointers to persistent ownership.
+================
+*/
+
 #include "CypherMemory_Scratch.h"
 #include "CypherLog.h"
 
@@ -61,6 +70,7 @@ mem_error_t CypherMemory_ScratchBegin( scratch_scope_t &scope, arena_t &arena, c
         return scope.lastError;
     }
 
+    // Capture both the rewind cursor and diagnostic counters before publishing the scope.
     scope = {};
     scope.name = name;
     scope.arena = &arena;
@@ -87,6 +97,7 @@ mem_error_t CypherMemory_ScratchEnd( scratch_scope_t &scope )
         return scope.lastError;
     }
 
+    // Rewind invalidates every allocation made by this scope and any nested work above it.
     const mem_error_t rewindResult = CypherMemory_ArenaRewind( *scope.arena, scope.marker );
     scope.lastError = rewindResult;
 
@@ -109,6 +120,7 @@ scratch_stats_t CypherMemory_ScratchStats( const scratch_scope_t &scope )
         return stats;
     }
 
+    // Counter subtraction is guarded in case external code reset arena diagnostics mid-scope.
     stats.nUsedCurrent = scope.arena->used;
     stats.nUsedSinceBegin = stats.nUsedCurrent >= scope.nUsedAtBegin ? stats.nUsedCurrent - scope.nUsedAtBegin : 0u;
     stats.capacity = scope.arena->capacity;
@@ -142,6 +154,7 @@ void *CypherMemory_ScratchAllocDebug( scratch_scope_t &scope,
         return CypherMemory_ScratchFailAlloc( scope, mem_error_t::ERR_NOT_INITIALIZED, "backing arena is not initialized" );
     }
 
+    // Scratch allocation is a lifetime policy over the arena; no separate storage is owned here.
     void *memory = CypherMemory_ArenaAllocDebug( *scope.arena, size, alignment, file, function, line );
     scope.lastError = CypherMemory_ArenaLastError( *scope.arena );
 

@@ -16,14 +16,23 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Compression Implementation Notes
+
+Package compression is selected per entry and remains independent of package integrity checks.
+Decoders receive exact compressed and uncompressed limits and reject partial output.
+================
+*/
+
 #include "CypherPak_Compression.h"
 
 #include <cstring>
 
-namespace cypher::engine::pak
+namespace cypher::engine
 {
 
-const char *CypherPak_CompressionName( const pak_compression_t method )
+const char *Pak_CompressionName( const pak_compression_t method )
 {
     switch ( method ) {
     case pak_compression_t::NONE:
@@ -37,19 +46,19 @@ const char *CypherPak_CompressionName( const pak_compression_t method )
     }
 }
 
-bool CypherPak_CompressionSupported( const pak_compression_t method )
+bool Pak_CompressionSupported( const pak_compression_t method )
 {
     return ( method == pak_compression_t::NONE );
 }
 
-pak_error_t CypherPak_CompressBound(
+pak_error_t Pak_CompressBound(
     const pak_compression_t method,
     const common::u64 nInputSize,
     common::u64 &nOutMaxOutputSize )
 {
     nOutMaxOutputSize = 0u;
 
-    if ( !CypherPak_CompressionSupported( method ) ) {
+    if ( !Pak_CompressionSupported( method ) ) {
         return pak_error_t::ERR_UNSUPPORTED_COMPRESSION;
     }
 
@@ -57,7 +66,7 @@ pak_error_t CypherPak_CompressBound(
     return pak_error_t::OK;
 }
 
-pak_error_t CypherPak_Compress(
+pak_error_t Pak_Compress(
     const pak_compression_config_t &config,
     const void *input,
     const common::u64 nInputSize,
@@ -67,7 +76,7 @@ pak_error_t CypherPak_Compress(
 {
     nOutBytesWritten = 0u;
 
-    if ( !CypherPak_CompressionSupported( config.method ) ) {
+    if ( !Pak_CompressionSupported( config.method ) ) {
         return pak_error_t::ERR_UNSUPPORTED_COMPRESSION;
     }
     if ( nInputSize > 0u && input == nullptr ) {
@@ -87,7 +96,7 @@ pak_error_t CypherPak_Compress(
     return pak_error_t::OK;
 }
 
-pak_error_t CypherPak_Decompress(
+pak_error_t Pak_Decompress(
     const pak_compression_t method,
     const void *input,
     const common::u64 nInputSize,
@@ -97,7 +106,7 @@ pak_error_t CypherPak_Decompress(
 {
     nOutBytesWritten = 0u;
 
-    if ( !CypherPak_CompressionSupported( method ) ) {
+    if ( !Pak_CompressionSupported( method ) ) {
         return pak_error_t::ERR_UNSUPPORTED_COMPRESSION;
     }
     if ( nInputSize > 0u && input == nullptr ) {
@@ -117,4 +126,4 @@ pak_error_t CypherPak_Decompress(
     return pak_error_t::OK;
 }
 
-}       // namespace cypher::engine::pak
+}       // namespace cypher::engine

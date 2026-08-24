@@ -16,6 +16,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Asynchronous I/O Notes
+
+This first implementation uses one std::async task per request.  Request handles refer to a
+fixed bookkeeping table, while read buffers remain caller-owned and write data is copied into
+worker-owned storage.  Cancellation is cooperative at the result boundary: it changes the
+reported result but cannot interrupt an operating-system call already in flight.
+================
+*/
+
 #include "CypherFileSystem_Runtime.h"
 
 #include <chrono>
@@ -33,6 +44,8 @@ namespace {
 
 async_request_state_t *FindAsyncRequest( runtime_state_t &state, async_request_t request )
 {
+    // The table is deliberately bounded; linear lookup keeps handle storage simple at
+    // this scale and avoids allocating bookkeeping during an I/O request.
     for ( common::u32 i = 0u; i < CYPHER_FILESYSTEM_MAX_ASYNC_REQUESTS; ++i ) {
         async_request_state_t &slot = state.pAsyncRequests[i];
         if ( slot.used && slot.handle == request ) {
@@ -45,6 +58,8 @@ async_request_state_t *FindAsyncRequest( runtime_state_t &state, async_request_t
 
 async_request_state_t *AllocateAsyncRequest( runtime_state_t &state )
 {
+    // Prefer a never-used slot, then reclaim a terminal slot whose worker is known to
+    // have stopped.  A future that is not ready still owns live worker state.
     for ( common::u32 i = 0u; i < CYPHER_FILESYSTEM_MAX_ASYNC_REQUESTS; ++i ) {
         async_request_state_t &slot = state.pAsyncRequests[i];
         if ( !slot.used ) {
@@ -74,6 +89,7 @@ async_request_state_t *AllocateAsyncRequest( runtime_state_t &state )
 
 async_request_t AllocateAsyncHandle( runtime_state_t &state )
 {
+    // Zero remains an invalid sentinel so default-initialized handles fail safely.
     async_request_t handle = state.nextAsyncRequest++;
     if ( handle == CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST ) {
         handle = state.nextAsyncRequest++;
@@ -87,6 +103,8 @@ async_worker_result_t ReadAsyncWorker(
     void *buffer,
     const common::u64 nBytesToRead )
 {
+    // buffer is borrowed from the caller for the entire request lifetime.  The caller
+    // must not release or mutate it until Poll/Wait reports a terminal status.
     common::u64 nBytesRead = 0u;
     const fs_error_t result = CypherFileSystem_ReadEntireFile(
         szVirtualPath.c_str(),
@@ -102,6 +120,8 @@ async_worker_result_t WriteAsyncWorker(
     std::vector<common::u8> data,
     const common::u64 nBytesToWrite )
 {
+    // Write requests move an owned byte copy into the worker, so caller storage may be
+    // reused immediately after CypherFileSystem_WriteAsync returns.
     const void *buffer = data.empty() ? nullptr : data.data();
     const fs_error_t result = CypherFileSystem_WriteEntireFile(
         szVirtualPath.c_str(),
@@ -126,6 +146,8 @@ async_result_t BuildCompletedAsyncResult( async_request_state_t &slot )
         return slot.result;
     }
 
+    // shared_future::get may rethrow a worker exception.  Exceptions are contained at
+    // this boundary and translated into the filesystem's explicit error contract.
     async_worker_result_t workerResult{};
     try {
         workerResult = slot.future.get();
@@ -134,6 +156,8 @@ async_result_t BuildCompletedAsyncResult( async_request_state_t &slot )
         workerResult.nBytesTransferred = 0u;
     }
 
+    // Cancellation wins over a worker result, even if the underlying I/O completed.
+    // It is a result-state policy, not an attempt to preempt a kernel operation.
     if ( slot.cancelled ) {
         slot.result.status = async_status_t::CANCELLED;
         slot.result.error = fs_error_t::ERR_CANCELLED;
@@ -156,6 +180,7 @@ fs_error_t SubmitAsyncRequest(
 {
     runtime_state_t &state = CypherFileSystem_RuntimeState();
 
+    // Publish the handle only after the worker future exists and the slot is complete.
     slot.handle = AllocateAsyncHandle( state );
     slot.status = async_status_t::RUNNING;
     slot.cancelled = false;
@@ -193,6 +218,8 @@ fs_error_t CypherFileSystem_ReadAsync(
         return fs_error_t::ERR_OUT_OF_MEMORY;
     }
 
+    // std::launch::async requires execution on another thread rather than permitting
+    // deferred execution during Poll or Wait.
     try {
         std::shared_future<async_worker_result_t> future =
             std::async(
@@ -231,6 +258,8 @@ fs_error_t CypherFileSystem_WriteAsync(
         return fs_error_t::ERR_INVALID_ARGUMENT;
     }
 
+    // Copy write input before launching the worker.  This explicit ownership cost
+    // prevents use-after-free when callers submit stack or transient arena storage.
     std::vector<common::u8> pWriteBuffer{};
     if ( nBytesToWrite > 0u ) {
         if ( nBytesToWrite > static_cast<common::u64>( std::numeric_limits<common::usize>::max() ) ) {
@@ -294,6 +323,7 @@ fs_error_t CypherFileSystem_PollAsync( async_request_t request, async_result_t &
         return fs_error_t::OK;
     }
 
+    // Poll never blocks; an unfinished request returns a valid pending result.
     const std::future_status status = slot->future.wait_for( std::chrono::seconds( 0 ) );
     if ( status != std::future_status::ready ) {
         resultOut = BuildPendingAsyncResult( *slot );
@@ -330,6 +360,8 @@ fs_error_t CypherFileSystem_WaitAsync( async_request_t request, async_result_t &
             return fs_error_t::OK;
         }
 
+        // Copy the shared future, then release the runtime lock before blocking.  The
+        // worker enters regular filesystem APIs which need this same recursive mutex.
         future = slot->future;
     }
 
@@ -357,6 +389,8 @@ fs_error_t CypherFileSystem_CancelAsync( async_request_t request )
         return fs_error_t::ERR_CANCELLED;
     }
 
+    // std::future has no portable preemption operation.  Mark the public result as
+    // cancelled and let the worker finish before its slot can be reclaimed.
     slot->cancelled = true;
     slot->status = async_status_t::CANCELLED;
     return fs_error_t::OK;
@@ -379,10 +413,13 @@ void CypherFileSystem_ShutdownAsyncRequests()
         }
     }
 
+    // Never wait while holding the filesystem mutex: workers may be blocked trying to
+    // enter the synchronous read/write path guarded by that mutex.
     for ( common::u32 i = 0u; i < nFutureCount; ++i ) {
         futures[i].wait();
     }
 
+    // Once every worker has stopped, clearing the slots invalidates all old handles.
     {
         std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
         runtime_state_t &state = CypherFileSystem_RuntimeState();

@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Thread Implementation Notes
+
+Thread-local memory state borrows backing storage from the memory system and must be released
+before thread exit. Cross-thread frees follow the owning allocator's synchronization policy.
+================
+*/
+
 #include "CypherMemory_Thread.h"
 #include "CypherLog.h"
 
@@ -47,6 +56,7 @@ void CypherMemory_MutexUnlock( memory_mutex_t &mutex )
 
 mem_error_t CypherMemory_ThreadSafeArenaBind( thread_safe_arena_t &threadSafeArena, arena_t &arena )
 {
+    // Binding transfers no ownership; the arena must outlive the wrapper and all users.
     if ( threadSafeArena.initialized ) {
         threadSafeArena.lastError = mem_error_t::ERR_ALREADY_INITIALIZED;
         return threadSafeArena.lastError;
@@ -66,6 +76,7 @@ mem_error_t CypherMemory_ThreadSafeArenaBind( thread_safe_arena_t &threadSafeAre
 
 void CypherMemory_ThreadSafeArenaUnbind( thread_safe_arena_t &threadSafeArena )
 {
+    // Serialize publication of the unbound state with in-flight wrapper operations.
     CypherMemory_MutexLock( threadSafeArena.mutex );
     threadSafeArena.arena = nullptr;
     threadSafeArena.lastError = mem_error_t::OK;
@@ -92,6 +103,7 @@ void *CypherMemory_ThreadSafeArenaAllocDebug( thread_safe_arena_t &threadSafeAre
         return CypherMemory_ThreadSafeAllocFail( nullptr, threadSafeArena.lastError, "arena wrapper is not initialized" );
     }
 
+    // Keep the allocator mutation and last-error snapshot in one critical section.
     CypherMemory_MutexLock( threadSafeArena.mutex );
     void *memory = CypherMemory_ArenaAllocDebug( *threadSafeArena.arena, size, alignment, file, function, line );
     threadSafeArena.lastError = CypherMemory_ArenaLastError( *threadSafeArena.arena );
@@ -164,6 +176,7 @@ mem_error_t CypherMemory_ThreadSafeArenaLastError( const thread_safe_arena_t &th
 
 mem_error_t CypherMemory_ThreadSafePoolBind( thread_safe_pool_t &threadSafePool, pool_t &pool )
 {
+    // The wrapper serializes access but does not extend the pool's lifetime.
     if ( threadSafePool.initialized ) {
         threadSafePool.lastError = mem_error_t::ERR_ALREADY_INITIALIZED;
         return threadSafePool.lastError;
@@ -183,6 +196,7 @@ mem_error_t CypherMemory_ThreadSafePoolBind( thread_safe_pool_t &threadSafePool,
 
 void CypherMemory_ThreadSafePoolUnbind( thread_safe_pool_t &threadSafePool )
 {
+    // Pool free-list and bitmap state must change under the same lock.
     CypherMemory_MutexLock( threadSafePool.mutex );
     threadSafePool.pool = nullptr;
     threadSafePool.lastError = mem_error_t::OK;
@@ -296,6 +310,7 @@ mem_error_t CypherMemory_ThreadSafePoolLastError( const thread_safe_pool_t &thre
 
 mem_error_t CypherMemory_ThreadSafeBucketBind( thread_safe_bucket_t &threadSafeBucket, bucket_t &bucket )
 {
+    // All class pools are protected as one bucket ownership domain.
     if ( threadSafeBucket.initialized ) {
         threadSafeBucket.lastError = mem_error_t::ERR_ALREADY_INITIALIZED;
         return threadSafeBucket.lastError;
@@ -315,6 +330,7 @@ mem_error_t CypherMemory_ThreadSafeBucketBind( thread_safe_bucket_t &threadSafeB
 
 void CypherMemory_ThreadSafeBucketUnbind( thread_safe_bucket_t &threadSafeBucket )
 {
+    // Class selection and the selected pool allocation are one atomic wrapper operation.
     CypherMemory_MutexLock( threadSafeBucket.mutex );
     threadSafeBucket.bucket = nullptr;
     threadSafeBucket.lastError = mem_error_t::OK;

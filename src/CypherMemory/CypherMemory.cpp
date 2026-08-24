@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Memory Implementation Notes
+
+The memory front end routes explicit allocation, reallocation, and free requests to the selected
+backend. Memory allocated by one backend must be released through that same ownership domain.
+================
+*/
+
 #include "CypherMemory.h"
 #include "CypherLog.h"
 
@@ -47,6 +56,7 @@ cypher::engine::memory::mem_error_t CypherMemory_InitArena(
 
 void CypherMemory_ShutdownInitializedArenas()
 {
+    // Release in reverse initialization order so later arenas cannot outlive dependencies.
     cypher::engine::memory::CypherMemory_ArenaShutdown( s_Memory.editorArena );
     cypher::engine::memory::CypherMemory_ArenaShutdown( s_Memory.renderArena );
     cypher::engine::memory::CypherMemory_ArenaShutdown( s_Memory.worldArena );
@@ -63,6 +73,7 @@ void CypherMemory_AddArenaStats(
 {
     const cypher::engine::common::usize nTagIndex = static_cast<cypher::engine::common::usize>( tag );
 
+    // An attribution tag may own multiple arenas, so tag statistics accumulate.
     stats.nTotalCapacity += arena.capacity;
     stats.totalCommitted += arena.committed;
     stats.nTotalUsed += arena.used;
@@ -89,6 +100,7 @@ memory_config_t CypherMemory_DefaultConfig()
 {
     memory_config_t config{};
 
+    // Virtual reservations establish lifetime budgets without committing every byte up front.
     config.permanentArena = memory_arena_config_t{
         "PermanentArena",
         CypherMemory_Megabytes( 256u ),
@@ -162,6 +174,7 @@ mem_error_t CypherMemory_Init( const memory_config_t &config )
         return mem_error_t::ERR_ALREADY_INITIALIZED;
     }
 
+    // Arena startup is transactional; every failure unwinds the initialized prefix.
     s_Memory = {};
     s_Memory.config = config;
 
@@ -247,6 +260,7 @@ void CypherMemory_BeginFrame()
         return;
     }
 
+    // Frame allocations are invalid from this point; callers must not retain their pointers.
     CypherMemory_ArenaReset( s_Memory.frameArena );
 }
 
@@ -256,6 +270,7 @@ void CypherMemory_EndFrame()
         return;
     }
 
+    // Preserve live usage while starting a fresh diagnostics window for the next frame.
     CypherMemory_ArenaResetCounters( s_Memory.frameArena );
 }
 
@@ -266,6 +281,7 @@ bool CypherMemory_IsInitialized()
 
 memory_stats_t CypherMemory_Stats()
 {
+    // Build a coherent snapshot from each lifetime arena before updating aggregate peaks.
     memory_stats_t stats{};
 
     stats.permanentStats = CypherMemory_ArenaStats( s_Memory.permanentArena );
@@ -300,24 +316,24 @@ memory_stats_t CypherMemory_Stats()
 const char *CypherMemory_TagName( const memory_tag_t tag )
 {
     switch ( tag ) {
-    case memory_tag_t::UNKNOWN:    return "UNKNOWN";
-    case memory_tag_t::CORE:       return "CORE";
-    case memory_tag_t::SYSTEM:     return "SYSTEM";
-    case memory_tag_t::MEMORY:     return "MEMORY";
-    case memory_tag_t::FILESYSTEM: return "FILESYSTEM";
-    case memory_tag_t::RESOURCE:   return "RESOURCE";
-    case memory_tag_t::WORLD:      return "WORLD";
-    case memory_tag_t::RENDER:     return "RENDER";
-    case memory_tag_t::AUDIO:      return "AUDIO";
-    case memory_tag_t::PHYSICS:    return "PHYSICS";
-    case memory_tag_t::AI:         return "AI";
-    case memory_tag_t::SCRIPT:     return "SCRIPT";
-    case memory_tag_t::NETWORK:    return "NETWORK";
-    case memory_tag_t::EDITOR:     return "EDITOR";
-    case memory_tag_t::TOOLS:      return "TOOLS";
-    case memory_tag_t::TEMP:       return "TEMP";
-    case memory_tag_t::COUNT:      return "COUNT";
-    default:                       return "UNKNOWN";
+        case memory_tag_t::UNKNOWN:    return "UNKNOWN";
+        case memory_tag_t::CORE:       return "CORE";
+        case memory_tag_t::SYSTEM:     return "SYSTEM";
+        case memory_tag_t::MEMORY:     return "MEMORY";
+        case memory_tag_t::FILESYSTEM: return "FILESYSTEM";
+        case memory_tag_t::RESOURCE:   return "RESOURCE";
+        case memory_tag_t::WORLD:      return "WORLD";
+        case memory_tag_t::RENDER:     return "RENDER";
+        case memory_tag_t::AUDIO:      return "AUDIO";
+        case memory_tag_t::PHYSICS:    return "PHYSICS";
+        case memory_tag_t::AI:         return "AI";
+        case memory_tag_t::SCRIPT:     return "SCRIPT";
+        case memory_tag_t::NETWORK:    return "NETWORK";
+        case memory_tag_t::EDITOR:     return "EDITOR";
+        case memory_tag_t::TOOLS:      return "TOOLS";
+        case memory_tag_t::TEMP:       return "TEMP";
+        case memory_tag_t::COUNT:      return "COUNT";
+        default:                       return "UNKNOWN";
     }
 }
 

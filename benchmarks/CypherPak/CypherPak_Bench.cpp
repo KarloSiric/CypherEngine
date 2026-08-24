@@ -26,7 +26,7 @@
 #include <filesystem>
 #include <string>
 
-namespace pak = cypher::engine::pak;
+namespace pak = cypher::engine;
 
 namespace
 {
@@ -101,7 +101,7 @@ bool BuildBenchArchive( const std::filesystem::path &archivePath )
 
     pak::pak_writer_config_t config{};
     config.szArchivePath = archivePathString.c_str();
-    return pak::CypherPak_CreateArchive( config, files, kPakBenchFileCount ) == pak::pak_error_t::OK;
+    return pak::Pak_CreateArchive( config, files, kPakBenchFileCount ) == pak::pak_error_t::OK;
 }
 
 void BM_Pak_CreateArchive_SmallFiles( benchmark::State &state )
@@ -113,7 +113,7 @@ void BM_Pak_CreateArchive_SmallFiles( benchmark::State &state )
         std::filesystem::remove( archivePath, ec );
         const bool bOk = BuildBenchArchive( archivePath );
         if ( !bOk ) {
-            state.SkipWithError( "CypherPak_CreateArchive failed." );
+            state.SkipWithError( "Pak_CreateArchive failed." );
             break;
         }
         benchmark::ClobberMemory();
@@ -133,13 +133,13 @@ void BM_Pak_OpenCloseReader( benchmark::State &state )
     const std::string archivePathString = archivePath.string();
     for ( auto _ : state ) {
         pak::pak_reader_t reader{};
-        const pak::pak_error_t openResult = pak::CypherPak_OpenReader( archivePathString.c_str(), pak::CYPHER_PAK_OPEN_NONE, reader );
+        const pak::pak_error_t openResult = pak::Pak_OpenReader( archivePathString.c_str(), pak::CYPHER_PAK_OPEN_NONE, reader );
         if ( openResult != pak::pak_error_t::OK ) {
-            state.SkipWithError( "CypherPak_OpenReader failed." );
+            state.SkipWithError( "Pak_OpenReader failed." );
             break;
         }
         benchmark::DoNotOptimize( reader.nFileCount );
-        benchmark::DoNotOptimize( pak::CypherPak_CloseReader( reader ) );
+        benchmark::DoNotOptimize( pak::Pak_CloseReader( reader ) );
         benchmark::ClobberMemory();
     }
 }
@@ -154,22 +154,22 @@ void BM_Pak_ReadFileByPath_4KiB( benchmark::State &state )
 
     const std::string archivePathString = archivePath.string();
     pak::pak_reader_t reader{};
-    if ( pak::CypherPak_OpenReader( archivePathString.c_str(), pak::CYPHER_PAK_OPEN_NONE, reader ) != pak::pak_error_t::OK ) {
-        state.SkipWithError( "CypherPak_OpenReader failed." );
+    if ( pak::Pak_OpenReader( archivePathString.c_str(), pak::CYPHER_PAK_OPEN_NONE, reader ) != pak::pak_error_t::OK ) {
+        state.SkipWithError( "Pak_OpenReader failed." );
         return;
     }
 
     std::array<unsigned char, kSmallFileSize> buffer{};
     for ( auto _ : state ) {
         cypher::engine::common::u64 nBytesRead = 0u;
-        const pak::pak_error_t readResult = pak::CypherPak_ReadFile(
+        const pak::pak_error_t readResult = pak::Pak_ReadFile(
             reader,
             "textures/wall_albedo.dds",
             buffer.data(),
             buffer.size(),
             nBytesRead );
         if ( readResult != pak::pak_error_t::OK ) {
-            state.SkipWithError( "CypherPak_ReadFile failed." );
+            state.SkipWithError( "Pak_ReadFile failed." );
             break;
         }
         benchmark::DoNotOptimize( nBytesRead );
@@ -178,7 +178,7 @@ void BM_Pak_ReadFileByPath_4KiB( benchmark::State &state )
     }
 
     state.SetBytesProcessed( state.iterations() * static_cast<benchmark::IterationCount>( kSmallFileSize ) );
-    benchmark::DoNotOptimize( pak::CypherPak_CloseReader( reader ) );
+    benchmark::DoNotOptimize( pak::Pak_CloseReader( reader ) );
 }
 
 }       // namespace

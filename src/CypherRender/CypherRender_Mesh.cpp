@@ -50,6 +50,7 @@ render_error_t CypherRender_MeshCreate( const vertex_t *vertices,
 
     meshOut = {};
 
+    // Seed from real geometry so bounds never depend on arbitrary finite sentinels.
     meshOut.bounds = cmath::Aabb_FromPoint( vertices[0].position );
 
     for ( common::u32 i = 1u; i < nVertexCount; ++i ) {
@@ -58,7 +59,7 @@ render_error_t CypherRender_MeshCreate( const vertex_t *vertices,
             vertices[i].position );
     }
 
-    // Calling OpenGL API for creating a mesh, creating a distinction between different API's.
+    // Cypher 1 delegates ownership creation to OpenGL after frontend validation succeeds.
     const auto result = CypherRenderGL_MeshCreate(
         vertices,
         nVertexCount,

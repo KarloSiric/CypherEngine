@@ -24,7 +24,7 @@
 #include <string>
 
 namespace fs = cypher::engine::fs;
-namespace pak = cypher::engine::pak;
+namespace pak = cypher::engine;
 
 namespace {
 
@@ -354,7 +354,7 @@ int main()
     };
     pak::pak_writer_config_t packageConfig{};
     packageConfig.szArchivePath = szPackageArchivePathString.c_str();
-    if ( pak::CypherPak_CreateArchive( packageConfig, packageFiles, 3u ) != pak::pak_error_t::OK ) {
+    if ( pak::Pak_CreateArchive( packageConfig, packageFiles, 3u ) != pak::pak_error_t::OK ) {
         std::fprintf( stderr, "filesystem smoke failed: create package archive\n" );
         return 1;
     }

@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Pool Implementation Notes
+
+Pool and bucket allocators trade generality for predictable size classes and reuse. Allocation
+metadata must always identify the owning pool before a block is returned or freed.
+================
+*/
+
 #include "CypherMemory_Pool.h"
 #include "CypherLog.h"
 
@@ -35,15 +44,15 @@ constexpr common::usize CYPHER_MEMORY_POOL_INVALID_SLOT_INDEX = std::numeric_lim
 constexpr common::usize CYPHER_MEMORY_POOL_ALLOCATION_BITS_PER_WORD = sizeof( common::u64 ) * 8u;
 
 struct pool_layout_t {
-    common::usize nSlotSize{ 0u };
-    common::usize nSlotStride{ 0u };
-    common::usize nSlotCount{ 0u };
-    common::usize alignment{ CYPHER_MEMORY_DEFAULT_ALIGNMENT };
-    common::usize nSlotBytes{ 0u };
-    common::usize nMetadataOffset{ 0u };
-    common::usize nMetadataBytes{ 0u };
-    common::usize nBackingBytes{ 0u };
-    common::usize nAllocationWordCount{ 0u };
+    common::usize nSlotSize{ 0u };                          // Caller-visible payload bytes.
+    common::usize nSlotStride{ 0u };                        // Aligned distance between adjacent slots.
+    common::usize nSlotCount{ 0u };                         // Number of slots represented by the layout.
+    common::usize alignment{ CYPHER_MEMORY_DEFAULT_ALIGNMENT }; // Alignment used for slots and free nodes.
+    common::usize nSlotBytes{ 0u };                         // Total bytes occupied by slot strides.
+    common::usize nMetadataOffset{ 0u };                    // Aligned offset of the liveness bitmap.
+    common::usize nMetadataBytes{ 0u };                     // Number of bytes occupied by the bitmap.
+    common::usize nBackingBytes{ 0u };                      // Complete slot plus metadata extent.
+    common::usize nAllocationWordCount{ 0u };               // Number of valid u64 bitmap words.
 };
 
 common::usize CypherMemory_PoolMax( const common::usize a, const common::usize b )
@@ -109,6 +118,7 @@ mem_error_t CypherMemory_PoolFailInit( pool_t &pool, const pool_desc_t &poolDesc
 
 bool CypherMemory_PoolComputeLayout( const pool_desc_t &poolDesc, pool_layout_t &layoutOut, mem_error_t &errorOut )
 {
+    // Compute every offset with checked arithmetic before touching backing memory.
     layoutOut = {};
     errorOut = mem_error_t::OK;
 
@@ -127,6 +137,7 @@ bool CypherMemory_PoolComputeLayout( const pool_desc_t &poolDesc, pool_layout_t 
         return false;
     }
 
+    // A free slot stores an intrusive node, so slots must fit and align that node too.
     const common::usize nNodeAlignment = alignof( pool_free_node_t );
     const common::usize nNodeSize = sizeof( pool_free_node_t );
     const common::usize alignment = CypherMemory_PoolMax( poolDesc.alignment, nNodeAlignment );
@@ -144,6 +155,7 @@ bool CypherMemory_PoolComputeLayout( const pool_desc_t &poolDesc, pool_layout_t 
         return false;
     }
 
+    // Round slot bits upward to complete u64 words without overflowing the count.
     const common::usize bitsRounding = CYPHER_MEMORY_POOL_ALLOCATION_BITS_PER_WORD - 1u;
     common::usize nRoundedSlotCount = 0u;
     if ( !CypherMemory_PoolAddChecked( poolDesc.nSlotCount, bitsRounding, nRoundedSlotCount ) ) {
@@ -194,6 +206,7 @@ void CypherMemory_PoolRecordOperationTrace( pool_t &pool,
                                             const char *function,
                                             const common::i32 line )
 {
+    // Traces intentionally overwrite the oldest record once the fixed ring is full.
     const common::usize nTraceIndex = pool.nOperationTraceIndex % CYPHER_MEMORY_POOL_OPERATION_TRACE_COUNT;
 
     pool_operation_trace_t &trace = pool.pOperationTraces[nTraceIndex];
@@ -230,6 +243,7 @@ common::usize CypherMemory_PoolIndexUnchecked( const pool_t &pool, const void *p
 
 bool CypherMemory_PoolIsSlotAllocated( const pool_t &pool, const common::usize nSlotIndex )
 {
+    // The bitmap is the authoritative liveness state; free-list links alone cannot detect double frees.
     const common::usize nWordIndex = nSlotIndex / CYPHER_MEMORY_POOL_ALLOCATION_BITS_PER_WORD;
     const common::usize nBitIndex = nSlotIndex % CYPHER_MEMORY_POOL_ALLOCATION_BITS_PER_WORD;
     const common::u64 mask = common::u64{ 1u } << nBitIndex;
@@ -268,6 +282,7 @@ void CypherMemory_PoolBuildFreeList( pool_t &pool )
 {
     pool.freeList = nullptr;
 
+    // Build backwards while prepending so allocation returns slots in ascending address order.
     for ( common::usize nSlotIndex = pool.nSlotCount; nSlotIndex > 0u; --nSlotIndex ) {
         pool_free_node_t *node = reinterpret_cast<pool_free_node_t *>( CypherMemory_PoolSlotPtr( pool, nSlotIndex - 1u ) );
         node->next = pool.freeList;
@@ -342,6 +357,7 @@ void *CypherMemory_PoolAllocInternal( pool_t &pool,
         return nullptr;
     }
 
+    // Remove the head first, then mark it live before publishing the result.
     pool_free_node_t *node = pool.freeList;
     pool.freeList = node->next;
 
@@ -385,6 +401,7 @@ mem_error_t CypherMemory_PoolInit( pool_t &pool, const pool_desc_t &poolDesc )
         return CypherMemory_PoolFailInit( pool, poolDesc, layoutError, CypherMemory_ErrorDesc( layoutError ) );
     }
 
+    // The pool borrows backing in both modes; shutdown never frees or rewinds its source.
     void *memory = nullptr;
 
     switch ( poolDesc.backing ) {
@@ -417,6 +434,7 @@ mem_error_t CypherMemory_PoolInit( pool_t &pool, const pool_desc_t &poolDesc )
         }
 
         {
+            // Align inside the external span and account for the consumed leading padding.
             const common::usize pExternalAddress = reinterpret_cast<common::usize>( poolDesc.pExternalBuffer );
             common::usize pAlignedAddress = 0u;
 
@@ -442,6 +460,7 @@ mem_error_t CypherMemory_PoolInit( pool_t &pool, const pool_desc_t &poolDesc )
         return CypherMemory_PoolFailInit( pool, poolDesc, mem_error_t::ERR_INVALID_ARGUMENT, "invalid backing type" );
     }
 
+    // Publish fully computed state only after backing acquisition has succeeded.
     pool = pool_t{};
     pool.name = poolDesc.name;
     pool.base = static_cast<common::byte *>( memory );
@@ -552,6 +571,7 @@ void CypherMemory_PoolReset( pool_t &pool )
         std::memset( pool.base, 0, pool.nSlotBytes );
     }
 
+    // Reset invalidates every outstanding slot in one operation.
     CypherMemory_PoolClearAllocationBits( pool );
     CypherMemory_PoolBuildFreeList( pool );
 
@@ -654,6 +674,7 @@ mem_error_t CypherMemory_PoolFreeDebug( pool_t &pool, void *ptr, const char *fil
         std::memset( ptr, 0, pool.nSlotStride );
     }
 
+    // Clear liveness and return the slot to the intrusive free-list head.
     pool_free_node_t *node = static_cast<pool_free_node_t *>( ptr );
     node->next = pool.freeList;
     pool.freeList = node;
@@ -696,6 +717,7 @@ bool CypherMemory_PoolOwnsSlot( const pool_t &pool, const void *ptr )
     const common::usize base = reinterpret_cast<common::usize>( pool.base );
     const common::usize offset = address - base;
 
+    // Interior pointers are inside the pool but are not legal objects to free.
     return ( offset % pool.nSlotStride ) == 0u;
 }
 

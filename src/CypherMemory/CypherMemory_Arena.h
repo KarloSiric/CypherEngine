@@ -134,9 +134,9 @@ constexpr inline common::usize CypherMemory_AlignForward( common::usize value, c
 }
 
 enum class arena_backing_t : common::u8 {
-    ARENA_HEAP = 0,
-    ARENA_EXTERNAL_BUFFER,
-    ARENA_VIRTUAL_MEMORY
+    ARENA_HEAP = 0,       // Arena owns one heap allocation of its full capacity.
+    ARENA_EXTERNAL_BUFFER,// Caller owns the fixed backing span and its lifetime.
+    ARENA_VIRTUAL_MEMORY  // Arena reserves address space and commits pages on demand.
 };
 
 /*
@@ -147,14 +147,14 @@ Creation request for an arena that owns its backing memory.
 ================
 */
 struct arena_desc_t {
-    const char *name{ nullptr };
+    const char *name{ nullptr };                            // Borrowed diagnostic name; must outlive the arena.
 
-    common::usize capacity{ 0u };
-    common::usize initialCommit{ 0u };
-    void *pExternalBuffer{ nullptr };
+    common::usize capacity{ 0u };                           // Maximum allocatable backing extent in bytes.
+    common::usize initialCommit{ 0u };                      // Bytes committed immediately for virtual backing.
+    void *pExternalBuffer{ nullptr };                       // Caller-owned base when backing is EXTERNAL_BUFFER.
 
-    common::u32 flags{ CYPHER_MEMORY_ARENA_FLAG_NONE };
-    arena_backing_t backing{ arena_backing_t::ARENA_HEAP };
+    common::u32 flags{ CYPHER_MEMORY_ARENA_FLAG_NONE };     // CYPHER_MEMORY_ARENA_FLAG_* behavior bits.
+    arena_backing_t backing{ arena_backing_t::ARENA_HEAP }; // Source and ownership of the backing memory.
 };
 
 /*
@@ -166,7 +166,7 @@ after this point.
 ================
 */
 struct arena_marker_t {
-    common::usize used{ 0u };
+    common::usize used{ 0u };                               // Saved linear cursor in bytes from arena base.
 };
 
 /*
@@ -177,18 +177,18 @@ Small debug record for recent arena allocation callsites.
 ================
 */
 struct arena_allocation_trace_t {
-    const char *file{ nullptr };
-    const char *function{ nullptr };
-    common::i32 line{ 0 };
+    const char *file{ nullptr };                            // Borrowed source filename for the operation.
+    const char *function{ nullptr };                        // Borrowed source function name.
+    common::i32 line{ 0 };                                  // One-based source line, or zero when unavailable.
 
-    void *ptr{ nullptr };
-    common::usize size{ 0u };
-    common::usize alignment{ 0u };
-    common::usize nUsedAfter{ 0u };
+    void *ptr{ nullptr };                                   // Returned allocation address, null on failure.
+    common::usize size{ 0u };                               // Requested payload size in bytes.
+    common::usize alignment{ 0u };                          // Requested power-of-two alignment in bytes.
+    common::usize nUsedAfter{ 0u };                         // Arena cursor after the attempted allocation.
 
-    common::u64 nAllocationIndex{ 0u };
-    mem_error_t error{ mem_error_t::OK };
-    bool failed{ false };
+    common::u64 nAllocationIndex{ 0u };                     // Monotonic operation number for chronological ordering.
+    mem_error_t error{ mem_error_t::OK };                   // Result associated with this trace record.
+    bool failed{ false };                                   // True when no allocation was returned.
 };
 
 /*
@@ -199,18 +199,18 @@ Snapshot of arena memory usage.
 ================
 */
 struct arena_stats_t {
-    const char *name{ nullptr };
+    const char *name{ nullptr };                            // Borrowed arena diagnostic name.
 
-    common::usize capacity{ 0u };
-    common::usize used{ 0u };
-    common::usize remaining{ 0u };
-    common::usize nPeakUsed{ 0u };
+    common::usize capacity{ 0u };                           // Reserved or allocated backing extent in bytes.
+    common::usize used{ 0u };                               // Current linear cursor in bytes.
+    common::usize remaining{ 0u };                          // capacity - used after invariant validation.
+    common::usize nPeakUsed{ 0u };                          // Highest observed cursor since initialization/reset.
 
-    common::u64 nAllocationCount{ 0u };
-    common::u64 nFailedAllocationCount{ 0u };
+    common::u64 nAllocationCount{ 0u };                     // Successful allocation operations.
+    common::u64 nFailedAllocationCount{ 0u };               // Rejected or exhausted allocation operations.
 
-    common::usize committed{ 0u };
-    common::usize initialCommit{ 0u };
+    common::usize committed{ 0u };                          // Backing bytes currently accessible to the process.
+    common::usize initialCommit{ 0u };                      // Minimum commit retained across decommit resets.
 };
 
 /*
@@ -222,33 +222,33 @@ block and serves allocations by moving the used offset forward.
 ================
 */
 struct arena_t {
-    const char *name{ nullptr };        // debugging/logging
+    const char *name{ nullptr };                            // Borrowed diagnostic name; never freed by the arena.
 
-    common::byte *base{ nullptr };      // pointer to the beginning of the arena memory block
+    common::byte *base{ nullptr };                          // First byte of the contiguous backing region.
 
-    common::usize capacity{ 0u };       // max bytes allocation size
-    common::usize used{ 0u };           // how much is used by this specific arena in arena.
-    common::usize nPeakUsed{ 0u };      // peak usage in frames for debugging.
+    common::usize capacity{ 0u };                           // Maximum cursor position in bytes.
+    common::usize used{ 0u };                               // Current allocation cursor in bytes.
+    common::usize nPeakUsed{ 0u };                          // Highest observed cursor for diagnostics.
 
-    common::usize committed{ 0u };
-    common::usize initialCommit{ 0u };
-    common::usize nPageSize{ 0u };
+    common::usize committed{ 0u };                          // Accessible prefix of virtual backing in bytes.
+    common::usize initialCommit{ 0u };                      // Commit floor restored after decommit-on-reset.
+    common::usize nPageSize{ 0u };                          // Platform page granularity used for commit operations.
 
-    common::u64 nAllocationCount{ 0u }; // how many allocations happened for this, like usage
-    common::u64 nFailedAllocationCount{ 0u };
+    common::u64 nAllocationCount{ 0u };                     // Successful allocations since counters were reset.
+    common::u64 nFailedAllocationCount{ 0u };               // Failed allocations since counters were reset.
 
-    common::u32 flags{ CYPHER_MEMORY_ARENA_FLAG_NONE };
+    common::u32 flags{ CYPHER_MEMORY_ARENA_FLAG_NONE };     // Active CYPHER_MEMORY_ARENA_FLAG_* policy bits.
 
-    mem_error_t lastError{ mem_error_t::OK };
+    mem_error_t lastError{ mem_error_t::OK };               // Result of the most recent mutating operation.
 
-    arena_allocation_trace_t pAllocationTraces[CYPHER_MEMORY_ARENA_ALLOCATION_TRACE_COUNT]{};
-    common::usize nAllocationTraceIndex{ 0u };
-    common::usize nAllocationTraceCount{ 0u };
+    arena_allocation_trace_t pAllocationTraces[CYPHER_MEMORY_ARENA_ALLOCATION_TRACE_COUNT]{}; // Recent-operation ring.
+    common::usize nAllocationTraceIndex{ 0u };              // Slot overwritten by the next trace.
+    common::usize nAllocationTraceCount{ 0u };              // Valid records, capped at ring capacity.
 
-    arena_backing_t backing{ arena_backing_t::ARENA_HEAP };
+    arena_backing_t backing{ arena_backing_t::ARENA_HEAP }; // Allocation/release strategy for base.
 
-    bool initialized{ false };          // did we init this arena or not
-    bool pOwnsMemory{ false };          // is it external or internal, arenas memory or not
+    bool initialized{ false };                              // Public operations are valid only while true.
+    bool pOwnsMemory{ false };                              // Shutdown releases base only when ownership is true.
 };
 
 /*

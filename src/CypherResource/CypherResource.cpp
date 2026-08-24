@@ -24,6 +24,10 @@
 namespace cypher::engine::resource
 {
 
+//==========================================================================
+// Manager construction and destruction
+//==========================================================================
+
 resource_manager_config_t CypherResource_DefaultConfig() noexcept
 {
     return {
@@ -60,6 +64,8 @@ resource_error_t CypherResource_Init(
     }
 
     resource_manager_layout_t layout{};
+    // Layout calculation performs all size and alignment overflow checks before
+    // the manager asks the allocator for a single backing block.
     if ( !CalculateLayout( config, layout ) ) {
         return resource_error_t::INVALID_ARGUMENT;
     }
@@ -73,6 +79,8 @@ resource_error_t CypherResource_Init(
     }
 
     auto *pBytes = static_cast<common::byte *>( pAllocation );
+    // The implementation object and all fixed-capacity tables share this block.
+    // No further manager allocation is required after successful initialization.
     auto *pImpl = new ( pAllocation ) resource_manager_impl_t{};
     pImpl->pRecords = reinterpret_cast<resource_record_t *>(
         pBytes + layout.iRecordsOffset );
@@ -87,6 +95,7 @@ resource_error_t CypherResource_Init(
     pImpl->stats.cResourceCapacity = config.cResourceCapacity;
     pImpl->stats.cTypeCapacity = config.cTypeCapacity;
 
+    // Every unused record begins on a singly linked free list.
     for ( common::u32 iRecord = 0u;
           iRecord < config.cResourceCapacity;
           ++iRecord ) {
@@ -123,6 +132,8 @@ resource_error_t CypherResource_Shutdown(
     }
 
     pImpl->bShuttingDown = common::CY_TRUE;
+    // Reverse acquisition order protects dependencies: users unload before the
+    // resources they acquired during their own load callbacks.
     while ( pImpl->iLiveTail != CYPHER_RESOURCE_INVALID_INDEX ) {
         const resource_error_t unloadResult = UnloadRecord(
             *pImpl,
@@ -133,6 +144,7 @@ resource_error_t CypherResource_Shutdown(
         }
     }
 
+    // Preserve allocator metadata before clearing the public manager shell.
     const common::allocator_t *pAllocator = pManager->pAllocator;
     const common::usize cbAllocation = pManager->cbAllocation;
     for ( common::u32 iType = 0u;
@@ -163,6 +175,8 @@ common::bool_t CypherResource_IsInitialized(
     return detail::ManagerImpl( pManager ) != nullptr;
 }
 
+// Keep this switch exhaustive and stable; tool diagnostics and tests use these
+// symbolic names without allocating temporary strings.
 const char *CypherResource_ErrorName( resource_error_t error ) noexcept
 {
     switch ( error ) {

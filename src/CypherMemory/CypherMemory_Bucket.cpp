@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Bucket Implementation Notes
+
+Pool and bucket allocators trade generality for predictable size classes and reuse. Allocation
+metadata must always identify the owning pool before a block is returned or freed.
+================
+*/
+
 #include "CypherMemory_Bucket.h"
 #include "CypherLog.h"
 
@@ -31,6 +40,7 @@ constexpr common::usize CYPHER_MEMORY_BUCKET_INVALID_CLASS_INDEX = std::numeric_
 
 common::u32 CypherMemory_BucketPoolFlags( const common::u32 nBucketFlags )
 {
+    // Class pools implement the byte-clearing policy; translate the public bucket bits once.
     common::u32 nPoolFlags = CYPHER_MEMORY_POOL_FLAG_NONE;
 
     if ( ( nBucketFlags & CYPHER_MEMORY_BUCKET_FLAG_ZERO_ON_ALLOC ) != 0u ) {
@@ -73,6 +83,7 @@ common::usize CypherMemory_BucketFindBestClass( const bucket_t &bucket,
                                                 const common::usize alignment,
                                                 const bool nRequireFreeSlot )
 {
+    // Best fit minimizes internal fragmentation while optionally skipping exhausted classes.
     common::usize nBestIndex = CYPHER_MEMORY_BUCKET_INVALID_CLASS_INDEX;
     common::usize nBestSlotSize = std::numeric_limits<common::usize>::max();
 
@@ -143,6 +154,7 @@ bucket_desc_t CypherMemory_BucketDefaultDesc( arena_t &arena, const char *name )
     desc.nClassCount = CYPHER_MEMORY_BUCKET_DEFAULT_CLASS_COUNT;
     desc.flags = CYPHER_MEMORY_BUCKET_FLAG_NONE;
 
+    // Defaults cover small engine allocations while reducing capacity as object size grows.
     desc.classes[0] = bucket_class_desc_t{ 16u, 1024u };
     desc.classes[1] = bucket_class_desc_t{ 32u, 1024u };
     desc.classes[2] = bucket_class_desc_t{ 64u, 1024u };
@@ -181,6 +193,7 @@ mem_error_t CypherMemory_BucketInit( bucket_t &bucket, const bucket_desc_t &buck
         return CypherMemory_BucketFailInit( bucket, bucketDesc, mem_error_t::ERR_INVALID_ALIGNMENT, "invalid bucket alignment" );
     }
 
+    // Initialization is transactional: rewind every class allocation if any class fails.
     const arena_marker_t initMarker = CypherMemory_ArenaGetMarker( *bucketDesc.arena );
 
     bucket = bucket_t{};
@@ -192,6 +205,7 @@ mem_error_t CypherMemory_BucketInit( bucket_t &bucket, const bucket_desc_t &buck
 
     const common::u32 nPoolFlags = CypherMemory_BucketPoolFlags( bucketDesc.flags );
 
+    // Each size class is an independent fixed-block pool sharing the same backing arena.
     for ( common::usize nClassIndex = 0u; nClassIndex < bucketDesc.nClassCount; ++nClassIndex ) {
         const bucket_class_desc_t &classDesc = bucketDesc.classes[nClassIndex];
 
@@ -270,6 +284,7 @@ void CypherMemory_BucketReset( bucket_t &bucket )
         return;
     }
 
+    // Reset invalidates every outstanding bucket allocation without releasing backing.
     for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
         CypherMemory_PoolReset( bucket.classes[nClassIndex].pool );
     }
@@ -354,6 +369,7 @@ void *CypherMemory_BucketAllocDebug( bucket_t &bucket,
         return CypherMemory_BucketFailAlloc( bucket, mem_error_t::ERR_BUFFER_TOO_SMALL, "no bucket class can satisfy the request" );
     }
 
+    // A larger compatible class may satisfy the request when the ideal class is full.
     const common::usize nClassIndex = CypherMemory_BucketFindBestClass( bucket, size, alignment, true );
     if ( nClassIndex == CYPHER_MEMORY_BUCKET_INVALID_CLASS_INDEX ) {
         return CypherMemory_BucketFailAlloc( bucket, mem_error_t::ERR_OUT_OF_MEMORY, "all compatible bucket classes are full" );
@@ -391,6 +407,7 @@ void *CypherMemory_BucketAllocZeroDebug( bucket_t &bucket,
         return nullptr;
     }
 
+    // Resolve ownership by class before clearing the complete physical slot stride.
     for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
         const pool_t &pool = bucket.classes[nClassIndex].pool;
         if ( CypherMemory_PoolOwnsSlot( pool, memory ) ) {
@@ -421,6 +438,7 @@ mem_error_t CypherMemory_BucketFreeDebug( bucket_t &bucket, void *ptr, const cha
         return bucket.lastError;
     }
 
+    // Only the owning pool can validate liveness and detect a duplicate free.
     for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
         pool_t &pool = bucket.classes[nClassIndex].pool;
         if ( !CypherMemory_PoolOwnsSlot( pool, ptr ) ) {

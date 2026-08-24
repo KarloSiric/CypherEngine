@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Reader Contract
+
+Package files are untrusted input. Header fields, table ranges, compression metadata, and path
+records are validated for overflow and containment before any view into mapped or buffered data
+is returned.
+================
+*/
+
 #ifndef CYPHER_ENGINE_PAK_READER_H
 #define CYPHER_ENGINE_PAK_READER_H
 
@@ -25,68 +35,68 @@
 
 #include "CypherPak_Types.h"
 
-namespace cypher::engine::pak
+namespace cypher::engine
 {
 
-pak_error_t CypherPak_OpenReader(
+pak_error_t Pak_OpenReader(
     const char *szArchivePath,
     common::u32 flags,
     pak_reader_t &reader );
 
-pak_error_t CypherPak_CloseReader( pak_reader_t &reader );
+pak_error_t Pak_CloseReader( pak_reader_t &reader );
 
-bool CypherPak_IsOpen( const pak_reader_t &reader );
+bool Pak_IsOpen( const pak_reader_t &reader );
 
-pak_error_t CypherPak_ValidateHeader( const pak_header_t &header );
+pak_error_t Pak_ValidateHeader( const pak_header_t &header );
 
-pak_error_t CypherPak_GetStats(
+pak_error_t Pak_GetStats(
     const pak_reader_t &reader,
     pak_stats_t &statsOut );
 
-pak_error_t CypherPak_GetFileCount(
+pak_error_t Pak_GetFileCount(
     const pak_reader_t &reader,
     common::u32 &nOutFileCount );
 
-pak_error_t CypherPak_FindFile(
+pak_error_t Pak_FindFile(
     const pak_reader_t &reader,
     const char *szVirtualPath,
     pak_file_index_t &nOutIndex );
 
-pak_error_t CypherPak_GetFileInfo(
+pak_error_t Pak_GetFileInfo(
     const pak_reader_t &reader,
     pak_file_index_t index,
     pak_file_info_t &infoOut );
 
-pak_error_t CypherPak_GetFileInfoByPath(
+pak_error_t Pak_GetFileInfoByPath(
     const pak_reader_t &reader,
     const char *szVirtualPath,
     pak_file_info_t &infoOut );
 
-pak_error_t CypherPak_ReadFile(
+pak_error_t Pak_ReadFile(
     pak_reader_t &reader,
     const char *szVirtualPath,
     void *buffer,
     common::u64 nBufferSize,
     common::u64 &nOutBytesRead );
 
-pak_error_t CypherPak_ReadFileByIndex(
+pak_error_t Pak_ReadFileByIndex(
     pak_reader_t &reader,
     pak_file_index_t index,
     void *buffer,
     common::u64 nBufferSize,
     common::u64 &nOutBytesRead );
 
-pak_error_t CypherPak_ReadRawFileByIndex(
+pak_error_t Pak_ReadRawFileByIndex(
     pak_reader_t &reader,
     pak_file_index_t index,
     void *buffer,
     common::u64 nBufferSize,
     common::u64 &nOutBytesRead );
 
-pak_error_t CypherPak_Verify(
+pak_error_t Pak_Verify(
     pak_reader_t &reader,
     common::u32 flags );
 
-}       // namespace cypher::engine::pak
+}       // namespace cypher::engine
 
 #endif // CYPHER_ENGINE_PAK_READER_H

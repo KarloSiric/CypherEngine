@@ -37,23 +37,23 @@ The public engine-facing wrapper around native SDL window state.
 ================
 */
 struct window_desc_t {
-    const char *title{ common::COM_GAME_INFO.name };
-    common::u32 width{ 1280u };
-    common::u32 height{ 720u };
-    bool fullscreen{ false };
-    bool vsync{ true };
+    const char *title{ common::COM_GAME_INFO.name }; // Borrowed UTF-8 title used during creation.
+    common::u32 width{ 1280u };                     // Requested drawable width in pixels.
+    common::u32 height{ 720u };                     // Requested drawable height in pixels.
+    bool fullscreen{ false };                       // Creates a fullscreen window when true.
+    bool vsync{ true };                             // Requests synchronized buffer presentation.
 };
 
 struct window_t {
-    void *pNativeWindow{ nullptr };
+    void *pNativeWindow{ nullptr };                  // Opaque SDL_Window pointer owned by this wrapper.
 
-    common::u32 width{ 0u };
-    common::u32 height{ 0u };
+    common::u32 width{ 0u };                        // Last known drawable width in pixels.
+    common::u32 height{ 0u };                       // Last known drawable height in pixels.
 
-    bool fullscreen{ false};
-    bool vsync{ true };
-    bool bShouldClose{ false };
-    bool valid{ false };
+    bool fullscreen{ false };                       // Current fullscreen policy.
+    bool vsync{ true };                             // Current presentation interval policy.
+    bool bShouldClose{ false };                     // Set after a platform close request.
+    bool valid{ false };                            // Native window was created and has not been destroyed.
 };
 
 /*

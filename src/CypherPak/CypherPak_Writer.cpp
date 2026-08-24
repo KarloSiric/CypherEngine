@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Writer Implementation Notes
+
+Package output is deterministic and published only after the complete directory and payload have
+been written successfully. On-disk offsets and sizes are checked before conversion to
+fixed-width fields.
+================
+*/
+
 #include "CypherPak_Writer.h"
 #include "CypherPak_Compression.h"
 
@@ -30,7 +40,7 @@
 #include <string>
 #include <vector>
 
-namespace cypher::engine::pak
+namespace cypher::engine
 {
 
 namespace {
@@ -44,33 +54,34 @@ constexpr common::u64 IO_CHUNK_SIZE = 64u * 1024u;
 std::atomic<common::u32> s_NextWriterHandle{ 1u };
 
 struct source_file_copy_t {
-    std::string szVirtualPath;
-    std::string szPhysicalPath;
-    pak_compression_t compression{ pak_compression_t::NONE };
-    common::u32 flags{ CYPHER_PAK_ENTRY_NONE };
+    std::string szVirtualPath;                              // Owned package-relative path supplied by the caller.
+    std::string szPhysicalPath;                             // Owned source path used during finalization.
+    pak_compression_t compression{ pak_compression_t::NONE }; // Per-file codec selection.
+    common::u32 flags{ CYPHER_PAK_ENTRY_NONE };             // Validated pak_entry_flags_t bits.
 };
 
 struct packed_file_t {
-    std::string szVirtualPath;
-    std::string szPhysicalPath;
-    std::vector<common::u8> data;
-    pak_compression_t compression{ pak_compression_t::NONE };
-    common::u32 flags{ CYPHER_PAK_ENTRY_NONE };
-    common::u64 nPathOffset{ 0u };
-    common::u64 nDataOffset{ 0u };
-    common::u64 nStoredSize{ 0u };
-    common::u64 nUnpackedSize{ 0u };
-    common::u64 modifiedTimeUtc{ 0u };
-    common::u64 contentHash{ 0u };
-    common::u32 szPathHash{ 0u };
+    std::string szVirtualPath;                              // Normalized archive key.
+    std::string szPhysicalPath;                             // Source retained for diagnostics.
+    std::vector<common::u8> data;                           // Complete stored payload awaiting publication.
+    pak_compression_t compression{ pak_compression_t::NONE }; // Codec represented by data.
+    common::u32 flags{ CYPHER_PAK_ENTRY_NONE };             // Final serialized entry flags.
+    common::u64 nPathOffset{ 0u };                          // Assigned offset into the packed string table.
+    common::u64 nDataOffset{ 0u };                          // Assigned aligned archive payload offset.
+    common::u64 nStoredSize{ 0u };                          // data byte count.
+    common::u64 nUnpackedSize{ 0u };                        // Logical source byte count.
+    common::u64 modifiedTimeUtc{ 0u };                      // Source timestamp captured by the cooker.
+    common::u64 contentHash{ 0u };                          // Hash of logical/unpacked bytes.
+    common::u32 szPathHash{ 0u };                           // Lookup accelerator for the normalized path.
 };
 
 struct writer_state_t {
-    std::vector<source_file_copy_t> files;
+    std::vector<source_file_copy_t> files;                  // Inputs owned between BeginWriter and FinishWriter.
 };
 
 pak_handle_t AllocateWriterHandle()
 {
+    // Zero is reserved for invalid handles and must be skipped after counter wrap.
     common::u32 handle = s_NextWriterHandle.fetch_add( 1u );
     if ( handle == CYPHER_PAK_INVALID_HANDLE ) {
         handle = s_NextWriterHandle.fetch_add( 1u );
@@ -147,6 +158,7 @@ pak_error_t NormalizeVirtualPath( const char *szVirtualPath, char *szOutPath, co
         return pak_error_t::ERR_INVALID_PATH;
     }
 
+    // Canonical paths make duplicate detection and archive lookup host-independent.
     common::u32 nWriteIndex = 0u;
     common::u32 nSegmentCount = 0u;
     const char *cursor = szVirtualPath;
@@ -377,36 +389,36 @@ void EncodeHeader( const pak_header_t &header, common::u8 *bytes )
     std::memcpy( bytes + offset, header.magic, CYPHER_PAK_MAGIC_SIZE );
     offset += CYPHER_PAK_MAGIC_SIZE;
 
-    CypherPak_StoreU32LE( bytes + offset, header.version );
+    Pak_StoreU32LE( bytes + offset, header.version );
     offset += 4u;
-    CypherPak_StoreU32LE( bytes + offset, header.nHeaderSize );
+    Pak_StoreU32LE( bytes + offset, header.nHeaderSize );
     offset += 4u;
-    CypherPak_StoreU32LE( bytes + offset, header.endianTag );
+    Pak_StoreU32LE( bytes + offset, header.endianTag );
     offset += 4u;
-    CypherPak_StoreU32LE( bytes + offset, header.flags );
+    Pak_StoreU32LE( bytes + offset, header.flags );
     offset += 4u;
 
-    CypherPak_StoreU64LE( bytes + offset, header.nArchiveSize );
+    Pak_StoreU64LE( bytes + offset, header.nArchiveSize );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, header.nFileCount );
+    Pak_StoreU64LE( bytes + offset, header.nFileCount );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, header.nIndexOffset );
+    Pak_StoreU64LE( bytes + offset, header.nIndexOffset );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, header.nIndexSize );
+    Pak_StoreU64LE( bytes + offset, header.nIndexSize );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, header.nStringTableOffset );
+    Pak_StoreU64LE( bytes + offset, header.nStringTableOffset );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, header.nStringTableSize );
+    Pak_StoreU64LE( bytes + offset, header.nStringTableSize );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, header.nDataOffset );
+    Pak_StoreU64LE( bytes + offset, header.nDataOffset );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, header.nDataSize );
+    Pak_StoreU64LE( bytes + offset, header.nDataSize );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, header.archiveHash );
+    Pak_StoreU64LE( bytes + offset, header.archiveHash );
     offset += 8u;
 
     for ( common::u32 i = 0u; i < 4u; ++i ) {
-        CypherPak_StoreU64LE( bytes + offset, header.reserved[i] );
+        Pak_StoreU64LE( bytes + offset, header.reserved[i] );
         offset += 8u;
     }
 }
@@ -415,25 +427,25 @@ void EncodeFileEntry( const pak_disk_file_entry_t &entry, common::u8 *bytes )
 {
     common::usize offset = 0u;
 
-    CypherPak_StoreU64LE( bytes + offset, entry.nPathOffset );
+    Pak_StoreU64LE( bytes + offset, entry.nPathOffset );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, entry.nDataOffset );
+    Pak_StoreU64LE( bytes + offset, entry.nDataOffset );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, entry.nStoredSize );
+    Pak_StoreU64LE( bytes + offset, entry.nStoredSize );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, entry.nUnpackedSize );
+    Pak_StoreU64LE( bytes + offset, entry.nUnpackedSize );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, entry.modifiedTimeUtc );
+    Pak_StoreU64LE( bytes + offset, entry.modifiedTimeUtc );
     offset += 8u;
-    CypherPak_StoreU64LE( bytes + offset, entry.contentHash );
+    Pak_StoreU64LE( bytes + offset, entry.contentHash );
     offset += 8u;
-    CypherPak_StoreU32LE( bytes + offset, entry.nPathSize );
+    Pak_StoreU32LE( bytes + offset, entry.nPathSize );
     offset += 4u;
-    CypherPak_StoreU32LE( bytes + offset, entry.szPathHash );
+    Pak_StoreU32LE( bytes + offset, entry.szPathHash );
     offset += 4u;
-    CypherPak_StoreU32LE( bytes + offset, entry.compression );
+    Pak_StoreU32LE( bytes + offset, entry.compression );
     offset += 4u;
-    CypherPak_StoreU32LE( bytes + offset, entry.flags );
+    Pak_StoreU32LE( bytes + offset, entry.flags );
 }
 
 pak_error_t MakeSourceCopy( const pak_source_file_t &source, source_file_copy_t &copyOut )
@@ -449,7 +461,7 @@ pak_error_t MakeSourceCopy( const pak_source_file_t &source, source_file_copy_t 
     if ( ( source.flags & ~bAllowedEntryFlags ) != 0u ) {
         return pak_error_t::ERR_UNSUPPORTED_FLAGS;
     }
-    if ( !CypherPak_CompressionSupported( source.compression ) ) {
+    if ( !Pak_CompressionSupported( source.compression ) ) {
         return pak_error_t::ERR_UNSUPPORTED_COMPRESSION;
     }
 
@@ -477,6 +489,7 @@ pak_error_t PrepareFiles(
         return pak_error_t::ERR_OUT_OF_MEMORY;
     }
 
+    // Materialize and hash every source before opening the destination archive.
     for ( const source_file_copy_t &source : szSourceFiles ) {
         packed_file_t file{};
 
@@ -519,12 +532,14 @@ pak_error_t PrepareFiles(
         }
     }
 
+    // Sorting controls the serialized index order and enables binary search at runtime.
     if ( ( nWriterFlags & CYPHER_PAK_WRITER_SORT_INDEX ) != 0u ) {
         std::sort( filesOut.begin(), filesOut.end(), []( const packed_file_t &a, const packed_file_t &b ) {
             return a.szVirtualPath < b.szVirtualPath;
         } );
     }
 
+    // Duplicate detection is required even when callers request an unsorted archive.
     std::vector<std::string> sortedPaths;
     try {
         sortedPaths.reserve( filesOut.size() );
@@ -551,6 +566,7 @@ pak_error_t BuildStringTable(
 {
     stringTableOut.clear();
 
+    // Paths are packed once and entries refer to them by offset and explicit length.
     for ( packed_file_t &file : files ) {
         if ( stringTableOut.size() > std::numeric_limits<common::u64>::max() ) {
             return pak_error_t::ERR_INTEGER_OVERFLOW;
@@ -581,7 +597,7 @@ pak_error_t BuildArchive(
     if ( !WriterFlagsSupported( nWriterFlags ) ) {
         return pak_error_t::ERR_UNSUPPORTED_FLAGS;
     }
-    if ( !CypherPak_CompressionSupported( defaultCompression ) ) {
+    if ( !Pak_CompressionSupported( defaultCompression ) ) {
         return pak_error_t::ERR_UNSUPPORTED_COMPRESSION;
     }
     if ( szSourceFiles.size() > static_cast<common::usize>( std::numeric_limits<common::u32>::max() ) ) {
@@ -605,6 +621,7 @@ pak_error_t BuildArchive(
         return pak_error_t::ERR_INTEGER_OVERFLOW;
     }
 
+    // Compute the complete immutable layout before creating the destination file.
     const common::u64 alignment = nDataAlignment == 0u ? 1u : nDataAlignment;
     pak_header_t header{};
     std::memcpy( header.magic, CYPHER_PAK_MAGIC, CYPHER_PAK_MAGIC_SIZE );
@@ -632,11 +649,12 @@ pak_error_t BuildArchive(
     if ( AddOverflow( header.nStringTableOffset, header.nStringTableSize, stringTableEnd ) ) {
         return pak_error_t::ERR_INTEGER_OVERFLOW;
     }
-    header.nDataOffset = CypherPak_AlignUp64( stringTableEnd, alignment );
+    header.nDataOffset = Pak_AlignUp64( stringTableEnd, alignment );
 
+    // Assign each payload an aligned, overflow-checked absolute offset.
     common::u64 cursor = header.nDataOffset;
     for ( packed_file_t &file : files ) {
-        cursor = CypherPak_AlignUp64( cursor, alignment );
+        cursor = Pak_AlignUp64( cursor, alignment );
         file.nDataOffset = cursor;
         if ( AddOverflow( cursor, file.nStoredSize, cursor ) ) {
             return pak_error_t::ERR_INTEGER_OVERFLOW;
@@ -661,6 +679,7 @@ pak_error_t BuildArchive(
         return pak_error_t::ERR_FILE_OPEN_FAILED;
     }
 
+    // A partial archive is never a valid artifact; remove it on every write failure.
     auto fail = [&]( const pak_error_t error ) {
         std::fclose( archive );
         std::filesystem::remove( szOutputPath, ec );
@@ -673,7 +692,9 @@ pak_error_t BuildArchive(
         return fail( pak_error_t::ERR_FILE_WRITE_FAILED );
     }
 
+    // Serialize fixed-width records explicitly rather than dumping native structures.
     common::u8 nEntryBytes[CYPHER_PAK_FILE_ENTRY_SIZE]{};
+    // Zero padding makes alignment deterministic and prevents leaking uninitialized memory.
     for ( const packed_file_t &file : files ) {
         pak_disk_file_entry_t diskEntry{};
         diskEntry.nPathOffset = file.nPathOffset;
@@ -737,7 +758,7 @@ pak_error_t BuildArchive(
 
 }       // namespace
 
-pak_error_t CypherPak_CreateArchive(
+pak_error_t Pak_CreateArchive(
     const pak_writer_config_t &config,
     const pak_source_file_t *files,
     const common::u32 nFileCount )
@@ -774,7 +795,7 @@ pak_error_t CypherPak_CreateArchive(
         szSourceFiles );
 }
 
-pak_error_t CypherPak_BeginWriter(
+pak_error_t Pak_BeginWriter(
     const pak_writer_config_t &config,
     pak_writer_t &writer )
 {
@@ -786,7 +807,7 @@ pak_error_t CypherPak_BeginWriter(
     if ( !WriterFlagsSupported( config.flags ) ) {
         return pak_error_t::ERR_UNSUPPORTED_FLAGS;
     }
-    if ( !CypherPak_CompressionSupported( config.defaultCompression ) ) {
+    if ( !Pak_CompressionSupported( config.defaultCompression ) ) {
         return pak_error_t::ERR_UNSUPPORTED_COMPRESSION;
     }
     if ( !CopyString( writer.szArchivePath, sizeof( writer.szArchivePath ), config.szArchivePath ) ) {
@@ -808,7 +829,7 @@ pak_error_t CypherPak_BeginWriter(
     return pak_error_t::OK;
 }
 
-pak_error_t CypherPak_AddFile(
+pak_error_t Pak_AddFile(
     pak_writer_t &writer,
     const pak_source_file_t &file )
 {
@@ -836,7 +857,7 @@ pak_error_t CypherPak_AddFile(
     return pak_error_t::OK;
 }
 
-pak_error_t CypherPak_FinishWriter( pak_writer_t &writer )
+pak_error_t Pak_FinishWriter( pak_writer_t &writer )
 {
     if ( !writer.open || writer.pBuilderState == nullptr || writer.handle == CYPHER_PAK_INVALID_HANDLE ) {
         return pak_error_t::ERR_INVALID_HANDLE;
@@ -862,7 +883,7 @@ pak_error_t CypherPak_FinishWriter( pak_writer_t &writer )
     return result;
 }
 
-pak_error_t CypherPak_CancelWriter( pak_writer_t &writer )
+pak_error_t Pak_CancelWriter( pak_writer_t &writer )
 {
     if ( writer.pBuilderState != nullptr ) {
         delete static_cast<writer_state_t *>( writer.pBuilderState );
@@ -871,4 +892,4 @@ pak_error_t CypherPak_CancelWriter( pak_writer_t &writer )
     return pak_error_t::OK;
 }
 
-}       // namespace cypher::engine::pak
+}       // namespace cypher::engine

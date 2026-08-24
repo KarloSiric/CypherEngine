@@ -34,16 +34,16 @@ Log Error Codes
 ================
 */
 enum class log_error_t : common::u8 {
-      OK = 0,
+      OK = 0,                    // Operation completed successfully.
 
-      ERR_NOT_INIT,
-      ERR_IS_INIT,
-      ERR_INVALID_CONFIG,
-      ERR_FILE_OPEN_FAILED,
-      ERR_FILE_WRITE_FAILED,
-      ERR_FORMAT_FAILED,
-      ERR_INVALID_CHANNEL,
-      ERR_INVALID_LEVEL
+      ERR_NOT_INIT,              // Logging service has not been initialized.
+      ERR_IS_INIT,               // Initialization was requested for live state.
+      ERR_INVALID_CONFIG,        // Sink, mask, path, or policy configuration is invalid.
+      ERR_FILE_OPEN_FAILED,      // A configured file sink could not be opened.
+      ERR_FILE_WRITE_FAILED,     // A sink could not write a complete record.
+      ERR_FORMAT_FAILED,         // Message or record formatting failed.
+      ERR_INVALID_CHANNEL,       // Channel value is outside the public channel range.
+      ERR_INVALID_LEVEL          // Severity value is outside the public level range.
 };
 
 /*

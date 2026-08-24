@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Diagnostics Implementation Notes
+
+Filesystem diagnostics report resolved providers, paths, and failure stages without changing
+lookup behavior or requiring a UI.
+================
+*/
+
 #include "CypherFileSystem_Runtime.h"
 #include "CypherLog.h"
 
@@ -31,6 +40,7 @@ fs_error_t CypherFileSystem_GetStats( stats_t &statsOut )
         return fs_error_t::ERR_NOT_INIT;
     }
 
+    // Copy while holding the runtime lock so related counters form one coherent snapshot.
     statsOut = state.stats;
     return fs_error_t::OK;
 }
@@ -43,6 +53,7 @@ fs_error_t CypherFileSystem_ResetStats()
         return fs_error_t::ERR_NOT_INIT;
     }
 
+    // Reset only diagnostics; live handles, mounts, and requests are unaffected.
     state.stats = {};
     return fs_error_t::OK;
 }
@@ -55,6 +66,8 @@ fs_error_t CypherFileSystem_DumpMounts()
         return fs_error_t::ERR_NOT_INIT;
     }
 
+    // Iteration order is resolution order, which makes this dump directly useful when
+    // diagnosing path shadowing between mounted providers.
     LOG_INFO( log::channel_t::FS, "filesystem mounts: count=%u.", state.nMountCount );
     for ( common::u32 i = 0u; i < state.nMountCount; ++i ) {
         const mount_t &mount = state.mounts[i];

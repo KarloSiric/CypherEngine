@@ -33,25 +33,25 @@ System Error Codes
 ================
 */
 enum class sys_error_t : common::u8 {
-	OK = 0,
+		OK = 0,                        // Operation completed successfully.
 
-	ERR_NOT_INIT,
-	ERR_IS_INIT,
+		ERR_NOT_INIT,                  // Platform services are not initialized.
+		ERR_IS_INIT,                   // Initialization was requested for live state.
 
-	ERR_INVALID_ARGUMENT,
-	ERR_INVALID_PATH,
+		ERR_INVALID_ARGUMENT,          // Caller supplied an invalid pointer, size, or combination.
+		ERR_INVALID_PATH,              // Path is empty, malformed, or outside policy.
 
-	ERR_UNSUPPORTED_PLATFORM,
-	ERR_UNSUPPORTED_COMPILER,
+		ERR_UNSUPPORTED_PLATFORM,      // Build or runtime platform has no implementation.
+		ERR_UNSUPPORTED_COMPILER,      // Compiler toolchain has no supported configuration.
 
-	ERR_PATH_QUERY_FAILED,
-	ERR_PATH_TOO_LONG,
-	ERR_DIRECTORY_CREATE_FAILED,
+		ERR_PATH_QUERY_FAILED,         // Operating system could not provide a required path.
+		ERR_PATH_TOO_LONG,             // Platform path exceeds fixed runtime storage.
+		ERR_DIRECTORY_CREATE_FAILED,   // Required writable directory could not be created.
 
-	ERR_TIME_UNAVAILABLE,
-	ERR_LOCALTIME_FAILED,
+		ERR_TIME_UNAVAILABLE,          // Monotonic platform clock could not be queried.
+		ERR_LOCALTIME_FAILED,          // Calendar-time conversion failed.
 
-	ERR_INTERNAL_ERROR
+		ERR_INTERNAL_ERROR             // Platform invariant failed without a specific code.
 };
 
 /*

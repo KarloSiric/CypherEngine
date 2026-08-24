@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Thread Contract
+
+Thread-local memory state borrows backing storage from the memory system and must be released
+before thread exit. Cross-thread frees follow the owning allocator's synchronization policy.
+================
+*/
+
 #ifndef CYPHER_ENGINE_MEMORY_THREAD_H
 #define CYPHER_ENGINE_MEMORY_THREAD_H
 
@@ -34,34 +43,34 @@ namespace cypher::engine::memory
 {
 
 enum class memory_thread_policy_t : common::u8 {
-    SINGLE_THREAD = 0,
-    EXTERNAL_LOCK,
-    INTERNAL_LOCK
+    SINGLE_THREAD = 0, // Caller guarantees no concurrent access.
+    EXTERNAL_LOCK,     // Caller serializes operations around the allocator.
+    INTERNAL_LOCK      // Wrapper acquires its mutex around every allocator operation.
 };
 
 struct memory_mutex_t {
-    std::mutex nativeMutex{};
+    std::mutex nativeMutex{};                               // Platform-neutral C++ mutex owned by the wrapper.
 };
 
 struct thread_safe_arena_t {
-    arena_t *arena{ nullptr };
-    memory_mutex_t mutex{};
-    mem_error_t lastError{ mem_error_t::OK };
-    bool initialized{ false };
+    arena_t *arena{ nullptr };                              // Borrowed arena protected by mutex.
+    memory_mutex_t mutex{};                                 // Serializes all operations through this wrapper.
+    mem_error_t lastError{ mem_error_t::OK };               // Wrapper-level result of the latest operation.
+    bool initialized{ false };                              // Binding is active and arena is valid.
 };
 
 struct thread_safe_pool_t {
-    pool_t *pool{ nullptr };
-    memory_mutex_t mutex{};
-    mem_error_t lastError{ mem_error_t::OK };
-    bool initialized{ false };
+    pool_t *pool{ nullptr };                                // Borrowed pool protected by mutex.
+    memory_mutex_t mutex{};                                 // Serializes all operations through this wrapper.
+    mem_error_t lastError{ mem_error_t::OK };               // Wrapper-level result of the latest operation.
+    bool initialized{ false };                              // Binding is active and pool is valid.
 };
 
 struct thread_safe_bucket_t {
-    bucket_t *bucket{ nullptr };
-    memory_mutex_t mutex{};
-    mem_error_t lastError{ mem_error_t::OK };
-    bool initialized{ false };
+    bucket_t *bucket{ nullptr };                            // Borrowed bucket protected by mutex.
+    memory_mutex_t mutex{};                                 // Serializes all operations through this wrapper.
+    mem_error_t lastError{ mem_error_t::OK };               // Wrapper-level result of the latest operation.
+    bool initialized{ false };                              // Binding is active and bucket is valid.
 };
 
 void CypherMemory_MutexLock( memory_mutex_t &mutex );

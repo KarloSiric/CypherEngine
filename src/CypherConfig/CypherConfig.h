@@ -33,9 +33,9 @@ namespace cypher::engine::cfg {
 Config Limits
 ================
 */
-constexpr common::u32 CYPHER_CONFIG_MAX_LINE_LENGTH = 1024u;
-constexpr common::u32 CYPHER_CONFIG_MAX_PATH_LENGTH = 260u;
-constexpr common::u64 CYPHER_CONFIG_MAX_FILE_SIZE = 64u * 1024;
+constexpr common::u32 CYPHER_CONFIG_MAX_LINE_LENGTH = 1024u;    // Command line bytes including terminator.
+constexpr common::u32 CYPHER_CONFIG_MAX_PATH_LENGTH = 260u;     // Virtual config path bytes including terminator.
+constexpr common::u64 CYPHER_CONFIG_MAX_FILE_SIZE = 64u * 1024u; // Defensive maximum text configuration size.
 
 /*
 ================

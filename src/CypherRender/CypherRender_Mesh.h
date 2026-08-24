@@ -33,25 +33,27 @@ namespace cypher::engine::render
 ================
 Renderer Mesh Types
 
-CPU-facing mesh description plus backend handles owned by the renderer.
+CPU-facing mesh description plus transitional OpenGL handles owned by the
+renderer. The public backend identities will be replaced by opaque render
+handles when the frontend/backend boundary is consolidated.
 ================
 */
 struct vertex_t {
-    ::cypher::math::vec3_t position{};
-    ::cypher::math::vec3_t color{};
+    ::cypher::math::vec3_t position{};                      // Object-space vertex position.
+    ::cypher::math::vec3_t color{};                         // Linear RGB vertex color.
 };
 
 struct mesh_t {
-    common::u32 nVertexCount{ 0u };
-    common::u32 nIndexCount{ 0u };
+    common::u32 nVertexCount{ 0u };                         // Number of uploaded vertex_t records.
+    common::u32 nIndexCount{ 0u };                          // Number of uploaded 32-bit triangle indices.
 
-    common::u32 nGlVao{ 0u };
-    common::u32 nGlVbo{ 0u };
-    common::u32 nGlEbo{ 0u };
+    common::u32 nGlVao{ 0u };                               // OpenGL vertex-array object owned by this mesh.
+    common::u32 nGlVbo{ 0u };                               // OpenGL vertex-buffer object owned by this mesh.
+    common::u32 nGlEbo{ 0u };                               // OpenGL index-buffer object owned by this mesh.
 
-    ::cypher::math::aabb_t bounds{ ::cypher::math::CY_AABB_EMPTY };
+    ::cypher::math::aabb_t bounds{ ::cypher::math::CY_AABB_EMPTY }; // Object-space bounds used for culling.
 
-    bool loaded{ false };
+    bool loaded{ false };                                   // True only while all backend objects are valid.
 };
 
 /*

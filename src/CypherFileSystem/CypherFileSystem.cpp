@@ -31,6 +31,8 @@
 
 namespace cypher::engine::fs {
 
+namespace pak = ::cypher::engine;
+
 namespace {
 
 struct package_file_state_t {
@@ -268,7 +270,7 @@ fs_error_t CypherFileSystem_Open( const char *szVirtualPath, open_mode_t mode, f
 			}
 
 			common::u64 nBytesRead = 0u;
-			const pak::pak_error_t readResult = pak::CypherPak_ReadFileByIndex(
+			const pak::pak_error_t readResult = pak::Pak_ReadFileByIndex(
 				*static_cast<pak::pak_reader_t *>( resolvedFile.pPackageReader ),
 				resolvedFile.nPackageFileIndex,
 				pPackageState->data,

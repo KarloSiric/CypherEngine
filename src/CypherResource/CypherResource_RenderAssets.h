@@ -39,74 +39,74 @@ inline constexpr common::usize CYPHER_RESOURCE_MAX_COOKED_MATERIAL_FILE_SIZE =
     1u * common::CY_MIB;
 
 enum class render_asset_load_status_t : common::u8 {
-    OK = 0u,
-    INVALID_ARGUMENT,
-    TYPE_MISMATCH,
-    PATH_EXTENSION_MISMATCH,
-    PAYLOAD_ALLOCATION_FAILED,
-    VFS_READ_FAILED,
-    COOKED_FORMAT_INVALID
+    OK = 0u,                    // Most recent callback completed successfully.
+    INVALID_ARGUMENT,          // Loader context or callback output pointer is invalid.
+    TYPE_MISMATCH,             // Callback was invoked for a different resource type.
+    PATH_EXTENSION_MISMATCH,   // Virtual path does not carry the expected cooked extension.
+    PAYLOAD_ALLOCATION_FAILED, // Owned file/view payload storage could not be allocated.
+    VFS_READ_FAILED,           // Cooked file could not be read through the configured VFS.
+    COOKED_FORMAT_INVALID      // Container or type-specific validation rejected the bytes.
 };
 
 // Captures the last synchronous callback failure. The manager remains the source
 // of resource_error_t; this record preserves the lower-level reason for tools,
 // diagnostics, and development hosts without changing the generic loader ABI.
 struct render_asset_load_diagnostic_t {
-    render_asset_load_status_t status{ render_asset_load_status_t::OK };
-    common::vfs_status_t vfsStatus{ common::vfs_status_t::OK };
+    render_asset_load_status_t status{ render_asset_load_status_t::OK }; // Adapter-level failure stage.
+    common::vfs_status_t vfsStatus{ common::vfs_status_t::OK };          // Detailed VFS read result.
     common::cooked_resource_status_t resourceStatus{
         common::cooked_resource_status_t::OK
-    };
+    };                                                          // Generic cooked-container validation result.
     common::cooked_shader_status_t shaderStatus{
         common::cooked_shader_status_t::OK
-    };
+    };                                                          // Shader-specific validation result.
     common::cooked_texture_status_t textureStatus{
         common::cooked_texture_status_t::OK
-    };
+    };                                                          // Texture-specific validation result.
     common::cooked_material_status_t materialStatus{
         common::cooked_material_status_t::OK
-    };
-    common::resource_id_t id{};
-    common::resource_type_id_t type{ 0u };
-    common::usize iStage{ common::CY_INVALID_SIZE };
-    common::usize iMip{ common::CY_INVALID_SIZE };
-    common::usize iTexture{ common::CY_INVALID_SIZE };
-    common::usize iParameter{ common::CY_INVALID_SIZE };
-    common::usize iChunk{ common::CY_INVALID_SIZE };
+    };                                                          // Material-specific validation result.
+    common::resource_id_t id{};                             // Stable ID of the resource being loaded.
+    common::resource_type_id_t type{ 0u };                 // Type supplied by the resource manager.
+    common::usize iStage{ common::CY_INVALID_SIZE };       // Invalid shader-stage index, when applicable.
+    common::usize iMip{ common::CY_INVALID_SIZE };         // Invalid texture-mip index, when applicable.
+    common::usize iTexture{ common::CY_INVALID_SIZE };     // Invalid material texture-binding index.
+    common::usize iParameter{ common::CY_INVALID_SIZE };   // Invalid material parameter index.
+    common::usize iChunk{ common::CY_INVALID_SIZE };       // Invalid cooked-container chunk index.
 };
 
 struct render_asset_loader_config_t {
-    const common::vfs_t *pVfs{ nullptr };
-    const common::allocator_t *pAllocator{ nullptr };
+    const common::vfs_t *pVfs{ nullptr };              // Borrowed VFS used to read complete cooked files.
+    const common::allocator_t *pAllocator{ nullptr };  // Borrowed allocator for owned file/view payloads.
     common::usize cbMaximumShader{
         CYPHER_RESOURCE_MAX_COOKED_SHADER_FILE_SIZE
-    };
+    };                                                      // Defensive maximum accepted shader file size.
     common::usize cbMaximumTexture{
         CYPHER_RESOURCE_MAX_COOKED_TEXTURE_FILE_SIZE
-    };
+    };                                                      // Defensive maximum accepted texture file size.
     common::usize cbMaximumMaterial{
         CYPHER_RESOURCE_MAX_COOKED_MATERIAL_FILE_SIZE
-    };
+    };                                                      // Defensive maximum accepted material file size.
 };
 
 // The context is borrowed by registered callbacks and must outlive the resource
 // manager registration. The manager is owner-thread only, so lastDiagnostic is
 // intentionally a simple non-atomic record.
 struct render_asset_loader_context_t {
-    render_asset_loader_config_t config{};
-    render_asset_load_diagnostic_t lastDiagnostic{};
+    render_asset_loader_config_t config{};                  // Validated immutable callback configuration.
+    render_asset_load_diagnostic_t lastDiagnostic{};        // Last owner-thread callback result.
 };
 
 struct render_asset_type_slots_t {
     common::resource_type_slot_t shader{
         common::CY_RESOURCE_TYPE_SLOT_INVALID
-    };
+    };                                                      // Runtime slot assigned to cooked shaders.
     common::resource_type_slot_t texture{
         common::CY_RESOURCE_TYPE_SLOT_INVALID
-    };
+    };                                                      // Runtime slot assigned to cooked textures.
     common::resource_type_slot_t material{
         common::CY_RESOURCE_TYPE_SLOT_INVALID
-    };
+    };                                                      // Runtime slot assigned to cooked materials.
 };
 
 CYPHER_NODISCARD render_asset_loader_config_t

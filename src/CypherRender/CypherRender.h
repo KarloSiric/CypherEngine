@@ -38,24 +38,25 @@ namespace cypher::engine::render
 ================
 Renderer Runtime State
 
-High-level renderer state. Backend-specific OpenGL details stay behind r_gl.
+High-level renderer state. The embedded OpenGL state is transitional; public
+renderer contracts must eventually expose backend-neutral handles only.
 ================
 */
 struct render_runtime_state_t {
-    bool initialized{ false };
-    bool inFrame{ false };
+    bool initialized{ false };                              // Renderer and selected backend completed initialization.
+    bool inFrame{ false };                                  // BeginFrame succeeded and EndFrame is still required.
 
-    const sys::window_t *window{ nullptr };
+    const sys::window_t *window{ nullptr };                 // Borrowed presentation window; System owns its lifetime.
 
-    camera_t activeCamera{};
+    camera_t activeCamera{};                                // Camera used to build view/projection state this frame.
 
-    draw_list_t mainDrawList{};
+    draw_list_t mainDrawList{};                             // Transient submissions consumed before EndFrame.
 
-    common::u32 nViewportWidth{ 0u };
-    common::u32 nViewportHeight{ 0u };
+    common::u32 nViewportWidth{ 0u };                       // Current drawable width in pixels.
+    common::u32 nViewportHeight{ 0u };                      // Current drawable height in pixels.
 
-    gl_state_t pGlState{};
-    shader_registry_t szShaderRegistry{};
+    gl_state_t pGlState{};                                  // OpenGL backend state for the Cypher 1 renderer.
+    shader_registry_t szShaderRegistry{};                   // Shaders owned by the current renderer instance.
 };
 
 /*

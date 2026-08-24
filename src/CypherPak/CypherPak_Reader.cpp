@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Reader Implementation Notes
+
+Package files are untrusted input. Header fields, table ranges, compression metadata, and path
+records are validated for overflow and containment before any view into mapped or buffered data
+is returned.
+================
+*/
+
 #include "CypherPak_Reader.h"
 
 #include <algorithm>
@@ -34,7 +44,7 @@
 #include <sys/types.h>
 #endif
 
-namespace cypher::engine::pak
+namespace cypher::engine
 {
 
 namespace {
@@ -49,6 +59,7 @@ std::atomic<common::u32> s_NextReaderHandle{ 1u };
 
 pak_handle_t AllocateReaderHandle()
 {
+    // Zero is the public invalid value, so skip it when the diagnostic counter wraps.
     common::u32 handle = s_NextReaderHandle.fetch_add( 1u );
     if ( handle == CYPHER_PAK_INVALID_HANDLE ) {
         handle = s_NextReaderHandle.fetch_add( 1u );
@@ -125,6 +136,7 @@ pak_error_t NormalizeVirtualPath( const char *szVirtualPath, char *szOutPath, co
         return pak_error_t::ERR_INVALID_PATH;
     }
 
+    // Archive names form one portable namespace: relative, lowercase ASCII, and '/'.
     common::u32 nWriteIndex = 0u;
     common::u32 nSegmentCount = 0u;
     const char *cursor = szVirtualPath;
@@ -210,6 +222,7 @@ bool AddOverflow( const common::u64 a, const common::u64 b, common::u64 &out )
 
 bool RangeInside( const common::u64 offset, const common::u64 size, const common::u64 nContainerSize )
 {
+    // Calculate the end separately so wrapped offsets can never pass containment checks.
     common::u64 end = 0u;
     if ( AddOverflow( offset, size, end ) ) {
         return false;
@@ -269,42 +282,43 @@ bool ReadExact( std::FILE *file, void *buffer, const common::u64 size )
 
 pak_header_t DecodeHeader( const common::u8 *bytes )
 {
+    // Decode fields explicitly; copying the native struct would make disk layout host-dependent.
     pak_header_t header{};
     common::usize offset = 0u;
 
     std::memcpy( header.magic, bytes + offset, CYPHER_PAK_MAGIC_SIZE );
     offset += CYPHER_PAK_MAGIC_SIZE;
 
-    header.version = CypherPak_LoadU32LE( bytes + offset );
+    header.version = Pak_LoadU32LE( bytes + offset );
     offset += 4u;
-    header.nHeaderSize = CypherPak_LoadU32LE( bytes + offset );
+    header.nHeaderSize = Pak_LoadU32LE( bytes + offset );
     offset += 4u;
-    header.endianTag = CypherPak_LoadU32LE( bytes + offset );
+    header.endianTag = Pak_LoadU32LE( bytes + offset );
     offset += 4u;
-    header.flags = CypherPak_LoadU32LE( bytes + offset );
+    header.flags = Pak_LoadU32LE( bytes + offset );
     offset += 4u;
 
-    header.nArchiveSize = CypherPak_LoadU64LE( bytes + offset );
+    header.nArchiveSize = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    header.nFileCount = CypherPak_LoadU64LE( bytes + offset );
+    header.nFileCount = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    header.nIndexOffset = CypherPak_LoadU64LE( bytes + offset );
+    header.nIndexOffset = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    header.nIndexSize = CypherPak_LoadU64LE( bytes + offset );
+    header.nIndexSize = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    header.nStringTableOffset = CypherPak_LoadU64LE( bytes + offset );
+    header.nStringTableOffset = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    header.nStringTableSize = CypherPak_LoadU64LE( bytes + offset );
+    header.nStringTableSize = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    header.nDataOffset = CypherPak_LoadU64LE( bytes + offset );
+    header.nDataOffset = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    header.nDataSize = CypherPak_LoadU64LE( bytes + offset );
+    header.nDataSize = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    header.archiveHash = CypherPak_LoadU64LE( bytes + offset );
+    header.archiveHash = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
 
     for ( common::u32 i = 0u; i < 4u; ++i ) {
-        header.reserved[i] = CypherPak_LoadU64LE( bytes + offset );
+        header.reserved[i] = Pak_LoadU64LE( bytes + offset );
         offset += 8u;
     }
 
@@ -313,28 +327,29 @@ pak_header_t DecodeHeader( const common::u8 *bytes )
 
 pak_disk_file_entry_t DecodeFileEntry( const common::u8 *bytes )
 {
+    // Keep this order synchronized with the canonical entry layout in CypherPak_Format.h.
     pak_disk_file_entry_t entry{};
     common::usize offset = 0u;
 
-    entry.nPathOffset = CypherPak_LoadU64LE( bytes + offset );
+    entry.nPathOffset = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    entry.nDataOffset = CypherPak_LoadU64LE( bytes + offset );
+    entry.nDataOffset = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    entry.nStoredSize = CypherPak_LoadU64LE( bytes + offset );
+    entry.nStoredSize = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    entry.nUnpackedSize = CypherPak_LoadU64LE( bytes + offset );
+    entry.nUnpackedSize = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    entry.modifiedTimeUtc = CypherPak_LoadU64LE( bytes + offset );
+    entry.modifiedTimeUtc = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    entry.contentHash = CypherPak_LoadU64LE( bytes + offset );
+    entry.contentHash = Pak_LoadU64LE( bytes + offset );
     offset += 8u;
-    entry.nPathSize = CypherPak_LoadU32LE( bytes + offset );
+    entry.nPathSize = Pak_LoadU32LE( bytes + offset );
     offset += 4u;
-    entry.szPathHash = CypherPak_LoadU32LE( bytes + offset );
+    entry.szPathHash = Pak_LoadU32LE( bytes + offset );
     offset += 4u;
-    entry.compression = CypherPak_LoadU32LE( bytes + offset );
+    entry.compression = Pak_LoadU32LE( bytes + offset );
     offset += 4u;
-    entry.flags = CypherPak_LoadU32LE( bytes + offset );
+    entry.flags = Pak_LoadU32LE( bytes + offset );
 
     return entry;
 }
@@ -363,6 +378,7 @@ pak_error_t ValidateLoadedIndex( const pak_reader_t &reader )
         return pak_error_t::ERR_OUT_OF_MEMORY;
     }
 
+    // Validate every referenced byte range before exposing any path or payload to callers.
     const char *szPreviousPath = nullptr;
     for ( common::u32 i = 0u; i < reader.nFileCount; ++i ) {
         const pak_disk_file_entry_t &entry = reader.entries[i];
@@ -412,6 +428,7 @@ pak_error_t ValidateLoadedIndex( const pak_reader_t &reader )
             return pak_error_t::ERR_ARCHIVE_CORRUPT;
         }
 
+        // Sorted archives must be strictly increasing; equality also catches duplicates.
         if ( ( reader.header.flags & CYPHER_PAK_FORMAT_INDEX_SORTED ) != 0u && szPreviousPath != nullptr ) {
             if ( std::strcmp( szPreviousPath, path ) >= 0 ) {
                 return pak_error_t::ERR_INVALID_INDEX;
@@ -421,6 +438,7 @@ pak_error_t ValidateLoadedIndex( const pak_reader_t &reader )
         sortedPaths.push_back( path );
     }
 
+    // Unsorted archives need a temporary ordering pass solely to detect duplicate paths.
     if ( ( reader.header.flags & CYPHER_PAK_FORMAT_INDEX_SORTED ) == 0u ) {
         std::sort( sortedPaths.begin(), sortedPaths.end(), []( const char *a, const char *b ) {
             return std::strcmp( a, b ) < 0;
@@ -446,6 +464,7 @@ pak_error_t HashFileRange(
         return pak_error_t::ERR_FILE_SEEK_FAILED;
     }
 
+    // Stream the range through bounded stack storage; package payloads may be many gigabytes.
     common::u8 buffer[static_cast<common::usize>( READ_CHUNK_SIZE )]{};
     common::u64 remaining = size;
     while ( remaining > 0u ) {
@@ -479,9 +498,9 @@ void FillStats( pak_reader_t &reader )
 
 }       // namespace
 
-pak_error_t CypherPak_ValidateHeader( const pak_header_t &header )
+pak_error_t Pak_ValidateHeader( const pak_header_t &header )
 {
-    if ( !CypherPak_MagicEquals( header.magic ) ) {
+    if ( !Pak_MagicEquals( header.magic ) ) {
         return pak_error_t::ERR_BAD_MAGIC;
     }
     if ( header.version != CYPHER_PAK_FORMAT_VERSION ) {
@@ -513,6 +532,7 @@ pak_error_t CypherPak_ValidateHeader( const pak_header_t &header )
         return pak_error_t::ERR_INVALID_HEADER;
     }
 
+    // Sections are ordered and non-overlapping; overflow is rejected before comparison.
     common::u64 nIndexEnd = 0u;
     common::u64 stringEnd = 0u;
     common::u64 pDataEnd = 0u;
@@ -541,11 +561,12 @@ pak_error_t CypherPak_ValidateHeader( const pak_header_t &header )
     return pak_error_t::OK;
 }
 
-pak_error_t CypherPak_OpenReader(
+pak_error_t Pak_OpenReader(
     const char *szArchivePath,
     const common::u32 flags,
     pak_reader_t &reader )
 {
+    // Initialization is transactional: a failed open always leaves a zeroed reader.
     reader = {};
 
     if ( szArchivePath == nullptr || szArchivePath[0] == '\0' ) {
@@ -580,7 +601,7 @@ pak_error_t CypherPak_OpenReader(
     }
 
     reader.header = DecodeHeader( nHeaderBytes );
-    pak_error_t result = CypherPak_ValidateHeader( reader.header );
+    pak_error_t result = Pak_ValidateHeader( reader.header );
     if ( result != pak_error_t::OK ) {
         std::fclose( file );
         reader = {};
@@ -592,6 +613,7 @@ pak_error_t CypherPak_OpenReader(
         return pak_error_t::ERR_ARCHIVE_CORRUPT;
     }
 
+    // The header validator proved that this narrowing conversion is representable.
     reader.nFileCount = static_cast<common::u32>( reader.header.nFileCount );
     if ( reader.nFileCount > 0u ) {
         reader.entries = new ( std::nothrow ) pak_disk_file_entry_t[reader.nFileCount];
@@ -622,7 +644,7 @@ pak_error_t CypherPak_OpenReader(
 
     if ( reader.nFileCount > 0u ) {
         if ( !SeekFile( file, reader.header.nIndexOffset ) ) {
-            CypherPak_CloseReader( reader );
+            Pak_CloseReader( reader );
             std::fclose( file );
             return pak_error_t::ERR_FILE_SEEK_FAILED;
         }
@@ -630,7 +652,7 @@ pak_error_t CypherPak_OpenReader(
         common::u8 nEntryBytes[CYPHER_PAK_FILE_ENTRY_SIZE]{};
         for ( common::u32 i = 0u; i < reader.nFileCount; ++i ) {
             if ( !ReadExact( file, nEntryBytes, sizeof( nEntryBytes ) ) ) {
-                CypherPak_CloseReader( reader );
+                Pak_CloseReader( reader );
                 std::fclose( file );
                 return pak_error_t::ERR_FILE_READ_FAILED;
             }
@@ -640,18 +662,19 @@ pak_error_t CypherPak_OpenReader(
 
     if ( reader.nStringTableSize > 0u ) {
         if ( !SeekFile( file, reader.header.nStringTableOffset ) ) {
-            CypherPak_CloseReader( reader );
+            Pak_CloseReader( reader );
             std::fclose( file );
             return pak_error_t::ERR_FILE_SEEK_FAILED;
         }
         if ( !ReadExact( file, reader.stringTable, reader.nStringTableSize ) ) {
-            CypherPak_CloseReader( reader );
+            Pak_CloseReader( reader );
             std::fclose( file );
             return pak_error_t::ERR_FILE_READ_FAILED;
         }
         reader.stringTable[reader.nStringTableSize] = '\0';
     }
 
+    // Publish ownership only after all persistent allocations and reads have succeeded.
     reader.pNativeFile = file;
     reader.flags = flags;
     reader.handle = AllocateReaderHandle();
@@ -660,14 +683,14 @@ pak_error_t CypherPak_OpenReader(
 
     result = ValidateLoadedIndex( reader );
     if ( result != pak_error_t::OK ) {
-        CypherPak_CloseReader( reader );
+        Pak_CloseReader( reader );
         return result;
     }
 
     if ( ( flags & CYPHER_PAK_OPEN_VERIFY_FILE_HASHES ) != 0u ) {
-        result = CypherPak_Verify( reader, CYPHER_PAK_VERIFY_FILE_HASHES );
+        result = Pak_Verify( reader, CYPHER_PAK_VERIFY_FILE_HASHES );
         if ( result != pak_error_t::OK ) {
-            CypherPak_CloseReader( reader );
+            Pak_CloseReader( reader );
             return result;
         }
     }
@@ -675,7 +698,7 @@ pak_error_t CypherPak_OpenReader(
     return pak_error_t::OK;
 }
 
-pak_error_t CypherPak_CloseReader( pak_reader_t &reader )
+pak_error_t Pak_CloseReader( pak_reader_t &reader )
 {
     pak_error_t result = pak_error_t::OK;
 
@@ -691,18 +714,18 @@ pak_error_t CypherPak_CloseReader( pak_reader_t &reader )
     return result;
 }
 
-bool CypherPak_IsOpen( const pak_reader_t &reader )
+bool Pak_IsOpen( const pak_reader_t &reader )
 {
     return reader.open && reader.pNativeFile != nullptr && reader.handle != CYPHER_PAK_INVALID_HANDLE;
 }
 
-pak_error_t CypherPak_GetStats(
+pak_error_t Pak_GetStats(
     const pak_reader_t &reader,
     pak_stats_t &statsOut )
 {
     statsOut = {};
 
-    if ( !CypherPak_IsOpen( reader ) ) {
+    if ( !Pak_IsOpen( reader ) ) {
         return pak_error_t::ERR_INVALID_HANDLE;
     }
 
@@ -710,13 +733,13 @@ pak_error_t CypherPak_GetStats(
     return pak_error_t::OK;
 }
 
-pak_error_t CypherPak_GetFileCount(
+pak_error_t Pak_GetFileCount(
     const pak_reader_t &reader,
     common::u32 &nOutFileCount )
 {
     nOutFileCount = 0u;
 
-    if ( !CypherPak_IsOpen( reader ) ) {
+    if ( !Pak_IsOpen( reader ) ) {
         return pak_error_t::ERR_INVALID_HANDLE;
     }
 
@@ -724,14 +747,14 @@ pak_error_t CypherPak_GetFileCount(
     return pak_error_t::OK;
 }
 
-pak_error_t CypherPak_FindFile(
+pak_error_t Pak_FindFile(
     const pak_reader_t &reader,
     const char *szVirtualPath,
     pak_file_index_t &nOutIndex )
 {
     nOutIndex = CYPHER_PAK_INVALID_FILE_INDEX;
 
-    if ( !CypherPak_IsOpen( reader ) ) {
+    if ( !Pak_IsOpen( reader ) ) {
         return pak_error_t::ERR_INVALID_HANDLE;
     }
 
@@ -741,6 +764,7 @@ pak_error_t CypherPak_FindFile(
         return result;
     }
 
+    // Sorted indexes use binary search; unsorted archives fall back to hash-filtered scanning.
     if ( ( reader.header.flags & CYPHER_PAK_FORMAT_INDEX_SORTED ) != 0u ) {
         common::u32 left = 0u;
         common::u32 right = reader.nFileCount;
@@ -776,14 +800,14 @@ pak_error_t CypherPak_FindFile(
     return pak_error_t::ERR_ENTRY_NOT_FOUND;
 }
 
-pak_error_t CypherPak_GetFileInfo(
+pak_error_t Pak_GetFileInfo(
     const pak_reader_t &reader,
     const pak_file_index_t index,
     pak_file_info_t &infoOut )
 {
     infoOut = {};
 
-    if ( !CypherPak_IsOpen( reader ) ) {
+    if ( !Pak_IsOpen( reader ) ) {
         return pak_error_t::ERR_INVALID_HANDLE;
     }
     if ( index >= reader.nFileCount ) {
@@ -809,7 +833,7 @@ pak_error_t CypherPak_GetFileInfo(
     return pak_error_t::OK;
 }
 
-pak_error_t CypherPak_GetFileInfoByPath(
+pak_error_t Pak_GetFileInfoByPath(
     const pak_reader_t &reader,
     const char *szVirtualPath,
     pak_file_info_t &infoOut )
@@ -817,15 +841,15 @@ pak_error_t CypherPak_GetFileInfoByPath(
     infoOut = {};
 
     pak_file_index_t index = CYPHER_PAK_INVALID_FILE_INDEX;
-    const pak_error_t result = CypherPak_FindFile( reader, szVirtualPath, index );
+    const pak_error_t result = Pak_FindFile( reader, szVirtualPath, index );
     if ( result != pak_error_t::OK ) {
         return result;
     }
 
-    return CypherPak_GetFileInfo( reader, index, infoOut );
+    return Pak_GetFileInfo( reader, index, infoOut );
 }
 
-pak_error_t CypherPak_ReadRawFileByIndex(
+pak_error_t Pak_ReadRawFileByIndex(
     pak_reader_t &reader,
     const pak_file_index_t index,
     void *buffer,
@@ -834,7 +858,7 @@ pak_error_t CypherPak_ReadRawFileByIndex(
 {
     nOutBytesRead = 0u;
 
-    if ( !CypherPak_IsOpen( reader ) ) {
+    if ( !Pak_IsOpen( reader ) ) {
         return pak_error_t::ERR_INVALID_HANDLE;
     }
     if ( index >= reader.nFileCount ) {
@@ -849,6 +873,7 @@ pak_error_t CypherPak_ReadRawFileByIndex(
         return pak_error_t::ERR_BUFFER_TOO_SMALL;
     }
 
+    // Raw reads return exactly the stored bytes and deliberately bypass decompression.
     std::FILE *file = static_cast<std::FILE *>( reader.pNativeFile );
     if ( !SeekFile( file, entry.nDataOffset ) ) {
         return pak_error_t::ERR_FILE_SEEK_FAILED;
@@ -863,7 +888,7 @@ pak_error_t CypherPak_ReadRawFileByIndex(
     return pak_error_t::OK;
 }
 
-pak_error_t CypherPak_ReadFileByIndex(
+pak_error_t Pak_ReadFileByIndex(
     pak_reader_t &reader,
     const pak_file_index_t index,
     void *buffer,
@@ -872,7 +897,7 @@ pak_error_t CypherPak_ReadFileByIndex(
 {
     nOutBytesRead = 0u;
 
-    if ( !CypherPak_IsOpen( reader ) ) {
+    if ( !Pak_IsOpen( reader ) ) {
         return pak_error_t::ERR_INVALID_HANDLE;
     }
     if ( index >= reader.nFileCount ) {
@@ -887,10 +912,10 @@ pak_error_t CypherPak_ReadFileByIndex(
         return pak_error_t::ERR_BUFFER_TOO_SMALL;
     }
 
-    return CypherPak_ReadRawFileByIndex( reader, index, buffer, nBufferSize, nOutBytesRead );
+    return Pak_ReadRawFileByIndex( reader, index, buffer, nBufferSize, nOutBytesRead );
 }
 
-pak_error_t CypherPak_ReadFile(
+pak_error_t Pak_ReadFile(
     pak_reader_t &reader,
     const char *szVirtualPath,
     void *buffer,
@@ -900,19 +925,19 @@ pak_error_t CypherPak_ReadFile(
     nOutBytesRead = 0u;
 
     pak_file_index_t index = CYPHER_PAK_INVALID_FILE_INDEX;
-    const pak_error_t result = CypherPak_FindFile( reader, szVirtualPath, index );
+    const pak_error_t result = Pak_FindFile( reader, szVirtualPath, index );
     if ( result != pak_error_t::OK ) {
         return result;
     }
 
-    return CypherPak_ReadFileByIndex( reader, index, buffer, nBufferSize, nOutBytesRead );
+    return Pak_ReadFileByIndex( reader, index, buffer, nBufferSize, nOutBytesRead );
 }
 
-pak_error_t CypherPak_Verify(
+pak_error_t Pak_Verify(
     pak_reader_t &reader,
     const common::u32 flags )
 {
-    if ( !CypherPak_IsOpen( reader ) ) {
+    if ( !Pak_IsOpen( reader ) ) {
         return pak_error_t::ERR_INVALID_HANDLE;
     }
     if ( flags == CYPHER_PAK_VERIFY_NONE ) {
@@ -920,7 +945,7 @@ pak_error_t CypherPak_Verify(
     }
 
     if ( ( flags & CYPHER_PAK_VERIFY_HEADER ) != 0u ) {
-        const pak_error_t headerResult = CypherPak_ValidateHeader( reader.header );
+        const pak_error_t headerResult = Pak_ValidateHeader( reader.header );
         if ( headerResult != pak_error_t::OK ) {
             return headerResult;
         }
@@ -931,6 +956,7 @@ pak_error_t CypherPak_Verify(
             return nIndexResult;
         }
     }
+    // Hash verification currently applies to raw/uncompressed payloads only.
     if ( ( flags & CYPHER_PAK_VERIFY_FILE_HASHES ) != 0u ) {
         for ( common::u32 i = 0u; i < reader.nFileCount; ++i ) {
             const pak_disk_file_entry_t &entry = reader.entries[i];
@@ -960,4 +986,4 @@ pak_error_t CypherPak_Verify(
     return pak_error_t::OK;
 }
 
-}       // namespace cypher::engine::pak
+}       // namespace cypher::engine

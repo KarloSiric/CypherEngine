@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Mount Implementation Notes
+
+Mount order defines path shadowing. Updates are synchronized, normalized virtual paths never
+escape a mount root, and open handles retain the resolved provider required for their lifetime.
+================
+*/
+
 #include "CypherFileSystem_Runtime.h"
 #include "CypherLog.h"
 #include "CypherPak.h"
@@ -27,10 +36,14 @@
 namespace cypher::engine::fs
 {
 
+namespace pak = ::cypher::engine;
+
 namespace {
 
 fs_error_t PakErrorToFs( const pak::pak_error_t error )
 {
+    // Keep package details behind the filesystem boundary.  Callers should not need
+    // to know which backing store produced an otherwise ordinary filesystem error.
     switch ( error ) {
     case pak::pak_error_t::OK:
         return fs_error_t::OK;
@@ -60,6 +73,8 @@ fs_error_t PakErrorToFs( const pak::pak_error_t error )
 
 pak::pak_reader_t *PackageReader( const mount_t &mount )
 {
+    // mount_t stays backend-neutral; package mounts own this concrete reader through
+    // the opaque pointer until the mount is removed.
     return static_cast<pak::pak_reader_t *>( mount.pPackageReader );
 }
 
@@ -78,6 +93,7 @@ void FillMountInfo( const mount_t &mount, mount_info_t &infoOut )
 
 mount_handle_t CypherFileSystem_AllocateMountHandle( runtime_state_t &state )
 {
+    // Zero is the public invalid sentinel and is never issued as a live handle.
     mount_handle_t handle = state.nNextMountHandle++;
     if ( handle == CYPHER_FILESYSTEM_INVALID_MOUNT ) {
         handle = state.nNextMountHandle++;
@@ -91,6 +107,8 @@ fs_error_t CypherFileSystem_InsertMountByPriority( runtime_state_t &state, const
         return fs_error_t::ERR_TOO_MANY_MOUNTS;
     }
 
+    // Higher-priority mounts shadow lower-priority mounts during resolution.  The
+    // strict comparison preserves insertion order between equal-priority mounts.
     common::u32 nInsertIndex = state.nMountCount;
     while ( nInsertIndex > 0u && state.mounts[nInsertIndex - 1u].priority < mount.priority ) {
         state.mounts[nInsertIndex] = state.mounts[nInsertIndex - 1u];
@@ -107,14 +125,17 @@ void CypherFileSystem_RemoveMountAtIndex( runtime_state_t &state, const common::
         return;
     }
 
+    // A package reader belongs to its mount; tear it down before compacting the table.
     mount_t &mount = state.mounts[index];
     if ( mount.type == mount_type_t::CYPHER_FILESYSTEM_PACKAGE && mount.pPackageReader != nullptr ) {
         pak::pak_reader_t *reader = PackageReader( mount );
-        pak::CypherPak_CloseReader( *reader );
+        pak::Pak_CloseReader( *reader );
         delete reader;
         mount.pPackageReader = nullptr;
     }
 
+    // Mounts are few and resolution depends on their sorted order, so a compact array
+    // is preferable to leaving holes or maintaining another indirection table.
     for ( common::u32 j = index; j + 1u < state.nMountCount; ++j ) {
         state.mounts[j] = state.mounts[j + 1u];
     }
@@ -141,6 +162,8 @@ fs_error_t CypherFileSystem_MountDirectoryWithHandle(
     common::u32 priority,
     mount_handle_t &nOutHandle )
 {
+    // The recursive mutex permits helpers in this call chain to use the same runtime
+    // lock without exposing an unlocked variant of the filesystem API.
     runtime_state_t &state = CypherFileSystem_RuntimeState();
     std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
     nOutHandle = CYPHER_FILESYSTEM_INVALID_MOUNT;
@@ -154,6 +177,8 @@ fs_error_t CypherFileSystem_MountDirectoryWithHandle(
         return fs_error_t::ERR_INVALID_PATH;
     }
 
+    // Store only canonical roots.  Resolution can then compare path components rather
+    // than accepting aliases such as duplicate separators or parent traversal.
     char szNormalizedVirtualRoot[CYPHER_FILESYSTEM_MAX_VIRTUAL_ROOT_LENGTH]{};
     const fs_error_t rootResult = CypherFileSystem_NormalizeVirtualRoot( szVirtualRoot, szNormalizedVirtualRoot, sizeof( szNormalizedVirtualRoot ) );
     if ( rootResult != fs_error_t::OK ) {
@@ -186,6 +211,8 @@ fs_error_t CypherFileSystem_MountDirectoryWithHandle(
         return fs_error_t::ERR_BUFFER_TOO_SMALL;
     }
 
+    // Use error_code overloads here: mount failure is reported through fs_error_t and
+    // must never escape as a std::filesystem exception.
     std::error_code ec{};
     if ( !std::filesystem::exists( szPhysicalPath, ec ) ) {
         if ( !ec && ( flags & CYPHER_FILESYSTEM_MOUNT_OPTIONAL ) != 0u ) {
@@ -198,6 +225,8 @@ fs_error_t CypherFileSystem_MountDirectoryWithHandle(
         return ec ? fs_error_t::ERR_IO_ERROR : fs_error_t::ERR_NOT_DIRECTORY;
     }
 
+    // The same provider/root pair is redundant, but a different provider may legally
+    // share the virtual root and participate in priority-based shadowing.
     for ( common::u32 i = 0u; i < state.nMountCount; ++i ) {
         const mount_t &existingMount = state.mounts[i];
         if ( std::strcmp( existingMount.szVirtualRoot, szNormalizedVirtualRoot ) == 0 &&
@@ -216,6 +245,8 @@ fs_error_t CypherFileSystem_MountDirectoryWithHandle(
     mount.flags = flags;
     mount.priority = priority;
 
+    // Publish the output handle only after insertion succeeds; failure leaves no live
+    // mount observable by the caller.
     const fs_error_t insertResult = CypherFileSystem_InsertMountByPriority( state, mount );
     if ( insertResult != fs_error_t::OK ) {
         return insertResult;
@@ -336,6 +367,8 @@ fs_error_t CypherFileSystem_ResolvePath( const char *szVirtualPath, char *szOutR
     if ( resolveResult != fs_error_t::OK ) {
         return resolveResult;
     }
+    // A package entry has no standalone host path.  Consumers that support packages
+    // must use the regular file API instead of asking for a physical filename.
     if ( resolvedFile.backend != file_backend_t::OS_FILE ) {
         return fs_error_t::ERR_UNSUPPORTED_BACKEND;
     }
@@ -369,9 +402,13 @@ fs_error_t CypherFileSystem_ResolveReadableFile( const char *szVirtualPath, reso
         return normalizeResult;
     }
 
+    // The table is already sorted by priority.  First matching regular file wins,
+    // giving directory and package mounts identical shadowing semantics.
     for ( common::u32 i = 0u; i < state.nMountCount; ++i ) {
         const mount_t &mount = state.mounts[i];
 
+        // This helper performs a component-aware prefix test and returns a borrowed
+        // pointer into the normalized path immediately after the virtual root.
         const char *szRelativePath = nullptr;
         if ( !CypherFileSystem_VirtualPathStartsWithRoot( fileOut.szNormalizedPath, mount.szVirtualRoot, &szRelativePath ) ) {
             continue;
@@ -387,6 +424,8 @@ fs_error_t CypherFileSystem_ResolveReadableFile( const char *szVirtualPath, reso
                 return buildPathResult;
             }
 
+            // Directories are not returned as readable files.  Directory discovery
+            // is handled separately so file-open callers receive an unambiguous result.
             std::error_code ec{};
             if ( !std::filesystem::exists( szCandidatePath, ec ) ) {
                 continue;
@@ -401,6 +440,8 @@ fs_error_t CypherFileSystem_ResolveReadableFile( const char *szVirtualPath, reso
                 continue;
             }
 
+            // Publish enough provider identity for the later open call to use exactly
+            // the mount selected here rather than performing a second resolution.
             fileOut.backend = file_backend_t::OS_FILE;
             fileOut.mount = mount.handle;
             fileOut.nMountIndex = i;
@@ -422,8 +463,10 @@ fs_error_t CypherFileSystem_ResolveReadableFile( const char *szVirtualPath, reso
                 continue;
             }
 
+            // Package lookup returns a stable entry index; the open path stores both
+            // this index and the owning reader for backend-neutral reads.
             pak::pak_file_index_t nPackageIndex = pak::CYPHER_PAK_INVALID_FILE_INDEX;
-            const pak::pak_error_t findResult = pak::CypherPak_FindFile( *reader, szRelativePath, nPackageIndex );
+            const pak::pak_error_t findResult = pak::Pak_FindFile( *reader, szRelativePath, nPackageIndex );
             if ( findResult == pak::pak_error_t::ERR_ENTRY_NOT_FOUND ) {
                 continue;
             }
@@ -432,7 +475,7 @@ fs_error_t CypherFileSystem_ResolveReadableFile( const char *szVirtualPath, reso
             }
 
             pak::pak_file_info_t packageInfo{};
-            const pak::pak_error_t infoResult = pak::CypherPak_GetFileInfo( *reader, nPackageIndex, packageInfo );
+            const pak::pak_error_t infoResult = pak::Pak_GetFileInfo( *reader, nPackageIndex, packageInfo );
             if ( infoResult != pak::pak_error_t::OK ) {
                 return PakErrorToFs( infoResult );
             }
@@ -454,6 +497,7 @@ fs_error_t CypherFileSystem_ResolveReadableFile( const char *szVirtualPath, reso
         }
     }
 
+    // Count only complete misses.  Validation and backend failures are not lookup misses.
     state.stats.nFailedLookupCount++;
     return fs_error_t::ERR_PATH_NOT_FOUND;
 }
@@ -487,6 +531,8 @@ fs_error_t CypherFileSystem_TraceResolve( const char *szVirtualPath, resolve_tra
         return normalizeResult;
     }
 
+    // Trace the same ordered walk as normal resolution.  Keeping this diagnostic path
+    // structurally parallel makes reports useful when debugging mount shadowing.
     for ( common::u32 i = 0u; i < state.nMountCount; ++i ) {
         const mount_t &mount = state.mounts[i];
         resolve_trace_entry_t &entry = traceOut.entries[traceOut.nCheckedMountCount++];
@@ -515,7 +561,7 @@ fs_error_t CypherFileSystem_TraceResolve( const char *szVirtualPath, resolve_tra
             std::memcpy( entry.szPhysicalPath, mount.szPhysicalRoot, nPackagePathLen + 1u );
 
             pak::pak_file_index_t nPackageIndex = pak::CYPHER_PAK_INVALID_FILE_INDEX;
-            const pak::pak_error_t findResult = pak::CypherPak_FindFile( *reader, szRelativePath, nPackageIndex );
+            const pak::pak_error_t findResult = pak::Pak_FindFile( *reader, szRelativePath, nPackageIndex );
             if ( findResult == pak::pak_error_t::ERR_ENTRY_NOT_FOUND ) {
                 continue;
             }
@@ -579,6 +625,8 @@ bool CypherFileSystem_Exists( const char *szVirtualPath )
         return true;
     }
 
+    // A path may name a directory rather than a readable file.  The sizing form of
+    // ListDirectory proves directory existence without allocating an entry array.
     common::u32 nEntryCount = 0u;
     const fs_error_t listResult = CypherFileSystem_ListDirectory( szVirtualPath, nullptr, 0u, nEntryCount );
     return listResult == fs_error_t::OK || listResult == fs_error_t::ERR_BUFFER_TOO_SMALL;
@@ -616,6 +664,8 @@ fs_error_t CypherFileSystem_GetFileInfo( const char *szVirtualPath, file_info_t 
 
     std::memcpy( infoOut.szVirtualPath, szNormalizedPath, std::strlen( szNormalizedPath ) + 1u );
 
+    // Prefer the file resolver, then fall back to directory discovery.  This preserves
+    // the same mount precedence rules for both forms of filesystem object.
     resolved_file_t resolvedFile{};
     err = CypherFileSystem_ResolveReadableFile( szNormalizedPath, resolvedFile );
     if ( err == fs_error_t::OK ) {

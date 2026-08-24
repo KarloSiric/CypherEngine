@@ -23,10 +23,10 @@
     #pragma once
 #endif
 
-#include "Engine/CypherCommon.h"
-#include "Engine/CypherCommon_Error.h"
+#include "CypherCommon/Engine/CypherCommon.h"
+#include "CypherCommon/Engine/CypherCommon_Error.h"
 
-namespace cypher::engine::pak
+namespace cypher::engine
 {
 
 /*
@@ -79,7 +79,7 @@ enum class pak_error_t : common::u8 {
 CypherPak Error Helpers
 ================
 */
-constexpr inline const char *CypherPak_ErrorName( const pak_error_t error )
+constexpr inline const char *Pak_ErrorName( const pak_error_t error )
 {
     switch ( error ) {
     case pak_error_t::OK:
@@ -147,7 +147,7 @@ constexpr inline const char *CypherPak_ErrorName( const pak_error_t error )
     }
 }
 
-constexpr inline const char *CypherPak_ErrorDesc( const pak_error_t error )
+constexpr inline const char *Pak_ErrorDesc( const pak_error_t error )
 {
     switch ( error ) {
     case pak_error_t::OK:
@@ -215,11 +215,11 @@ constexpr inline const char *CypherPak_ErrorDesc( const pak_error_t error )
     }
 }
 
-constexpr inline common::error_t CypherPak_ErrorCode( const pak_error_t error )
+constexpr inline common::error_t Pak_ErrorCode( const pak_error_t error )
 {
     return common::CypherCommon_ErrorMake( common::domain_t::COM_DOMAIN_PAK, static_cast<common::u16>( error ) );
 }
 
-}       // namespace cypher::engine::pak
+}       // namespace cypher::engine
 
 #endif // CYPHER_ENGINE_PAK_ERROR_H

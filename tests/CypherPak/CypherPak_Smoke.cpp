@@ -22,7 +22,7 @@
 #include <filesystem>
 #include <string>
 
-namespace pak = cypher::engine::pak;
+namespace pak = cypher::engine;
 
 namespace {
 
@@ -46,8 +46,8 @@ bool CheckError( const pak::pak_error_t actual, const pak::pak_error_t expected,
         stderr,
         "pak smoke failed: %s: expected %s, got %s\n",
         message,
-        pak::CypherPak_ErrorName( expected ),
-        pak::CypherPak_ErrorName( actual ) );
+        pak::Pak_ErrorName( expected ),
+        pak::Pak_ErrorName( actual ) );
     return false;
 }
 
@@ -89,31 +89,31 @@ bool WriteMinimalArchiveHeader(
     }
     offset += pak::CYPHER_PAK_MAGIC_SIZE;
 
-    pak::CypherPak_StoreU32LE( nHeaderBytes + offset, version );
+    pak::Pak_StoreU32LE( nHeaderBytes + offset, version );
     offset += sizeof( cypher::engine::common::u32 );
-    pak::CypherPak_StoreU32LE( nHeaderBytes + offset, pak::CYPHER_PAK_HEADER_SIZE );
+    pak::Pak_StoreU32LE( nHeaderBytes + offset, pak::CYPHER_PAK_HEADER_SIZE );
     offset += sizeof( cypher::engine::common::u32 );
-    pak::CypherPak_StoreU32LE( nHeaderBytes + offset, pak::CYPHER_PAK_ENDIAN_TAG );
+    pak::Pak_StoreU32LE( nHeaderBytes + offset, pak::CYPHER_PAK_ENDIAN_TAG );
     offset += sizeof( cypher::engine::common::u32 );
-    pak::CypherPak_StoreU32LE( nHeaderBytes + offset, pak::CYPHER_PAK_FORMAT_NONE );
+    pak::Pak_StoreU32LE( nHeaderBytes + offset, pak::CYPHER_PAK_FORMAT_NONE );
     offset += sizeof( cypher::engine::common::u32 );
 
-    pak::CypherPak_StoreU64LE( nHeaderBytes + offset, pak::CYPHER_PAK_HEADER_SIZE );
+    pak::Pak_StoreU64LE( nHeaderBytes + offset, pak::CYPHER_PAK_HEADER_SIZE );
     offset += sizeof( cypher::engine::common::u64 );
-    pak::CypherPak_StoreU64LE( nHeaderBytes + offset, 0u );
+    pak::Pak_StoreU64LE( nHeaderBytes + offset, 0u );
     offset += sizeof( cypher::engine::common::u64 );
 
-    pak::CypherPak_StoreU64LE( nHeaderBytes + offset, pak::CYPHER_PAK_HEADER_SIZE );
+    pak::Pak_StoreU64LE( nHeaderBytes + offset, pak::CYPHER_PAK_HEADER_SIZE );
     offset += sizeof( cypher::engine::common::u64 );
-    pak::CypherPak_StoreU64LE( nHeaderBytes + offset, 0u );
+    pak::Pak_StoreU64LE( nHeaderBytes + offset, 0u );
     offset += sizeof( cypher::engine::common::u64 );
-    pak::CypherPak_StoreU64LE( nHeaderBytes + offset, pak::CYPHER_PAK_HEADER_SIZE );
+    pak::Pak_StoreU64LE( nHeaderBytes + offset, pak::CYPHER_PAK_HEADER_SIZE );
     offset += sizeof( cypher::engine::common::u64 );
-    pak::CypherPak_StoreU64LE( nHeaderBytes + offset, 0u );
+    pak::Pak_StoreU64LE( nHeaderBytes + offset, 0u );
     offset += sizeof( cypher::engine::common::u64 );
-    pak::CypherPak_StoreU64LE( nHeaderBytes + offset, pak::CYPHER_PAK_HEADER_SIZE );
+    pak::Pak_StoreU64LE( nHeaderBytes + offset, pak::CYPHER_PAK_HEADER_SIZE );
     offset += sizeof( cypher::engine::common::u64 );
-    pak::CypherPak_StoreU64LE( nHeaderBytes + offset, 0u );
+    pak::Pak_StoreU64LE( nHeaderBytes + offset, 0u );
 
     return WritePhysicalFile( path, nHeaderBytes, sizeof( nHeaderBytes ) );
 }
@@ -186,7 +186,7 @@ int main()
 
     pak::pak_writer_config_t config{};
     config.szArchivePath = szArchivePathString.c_str();
-    if ( !CheckError( pak::CypherPak_CreateArchive( config, szSourceFiles, 3u ), pak::pak_error_t::OK, "create archive" ) ) {
+    if ( !CheckError( pak::Pak_CreateArchive( config, szSourceFiles, 3u ), pak::pak_error_t::OK, "create archive" ) ) {
         return 1;
     }
     if ( !Check( std::filesystem::exists( szArchivePath, ec ), "archive exists" ) ) {
@@ -194,25 +194,25 @@ int main()
     }
 
     pak::pak_reader_t reader{};
-    if ( !CheckError( pak::CypherPak_OpenReader( szBadMagicArchivePathString.c_str(), pak::CYPHER_PAK_OPEN_NONE, reader ), pak::pak_error_t::ERR_BAD_MAGIC, "open bad magic archive" ) ) {
+    if ( !CheckError( pak::Pak_OpenReader( szBadMagicArchivePathString.c_str(), pak::CYPHER_PAK_OPEN_NONE, reader ), pak::pak_error_t::ERR_BAD_MAGIC, "open bad magic archive" ) ) {
         return 1;
     }
-    if ( !CheckError( pak::CypherPak_OpenReader( szWrongVersionArchivePathString.c_str(), pak::CYPHER_PAK_OPEN_NONE, reader ), pak::pak_error_t::ERR_UNSUPPORTED_VERSION, "open wrong version archive" ) ) {
+    if ( !CheckError( pak::Pak_OpenReader( szWrongVersionArchivePathString.c_str(), pak::CYPHER_PAK_OPEN_NONE, reader ), pak::pak_error_t::ERR_UNSUPPORTED_VERSION, "open wrong version archive" ) ) {
         return 1;
     }
-    if ( !CheckError( pak::CypherPak_OpenReader( szTruncatedArchivePathString.c_str(), pak::CYPHER_PAK_OPEN_NONE, reader ), pak::pak_error_t::ERR_FILE_READ_FAILED, "open truncated archive" ) ) {
+    if ( !CheckError( pak::Pak_OpenReader( szTruncatedArchivePathString.c_str(), pak::CYPHER_PAK_OPEN_NONE, reader ), pak::pak_error_t::ERR_FILE_READ_FAILED, "open truncated archive" ) ) {
         return 1;
     }
 
     cypher::engine::common::u32 nUnopenedFileCount = 99u;
-    if ( !CheckError( pak::CypherPak_GetFileCount( reader, nUnopenedFileCount ), pak::pak_error_t::ERR_INVALID_HANDLE, "unopened reader file count" ) ) {
+    if ( !CheckError( pak::Pak_GetFileCount( reader, nUnopenedFileCount ), pak::pak_error_t::ERR_INVALID_HANDLE, "unopened reader file count" ) ) {
         return 1;
     }
     if ( !Check( nUnopenedFileCount == 0u, "unopened reader file count reset" ) ) {
         return 1;
     }
     pak::pak_file_index_t nUnopenedIndex = 0u;
-    if ( !CheckError( pak::CypherPak_FindFile( reader, "scripts/player.cfg", nUnopenedIndex ), pak::pak_error_t::ERR_INVALID_HANDLE, "unopened reader find" ) ) {
+    if ( !CheckError( pak::Pak_FindFile( reader, "scripts/player.cfg", nUnopenedIndex ), pak::pak_error_t::ERR_INVALID_HANDLE, "unopened reader find" ) ) {
         return 1;
     }
     if ( !Check( nUnopenedIndex == pak::CYPHER_PAK_INVALID_FILE_INDEX, "unopened reader find index reset" ) ) {
@@ -220,25 +220,25 @@ int main()
     }
     char pUnopenedBuffer[8]{};
     cypher::engine::common::u64 nUnopenedBytesRead = 99u;
-    if ( !CheckError( pak::CypherPak_ReadFile( reader, "scripts/player.cfg", pUnopenedBuffer, sizeof( pUnopenedBuffer ), nUnopenedBytesRead ), pak::pak_error_t::ERR_INVALID_HANDLE, "unopened reader read" ) ) {
+    if ( !CheckError( pak::Pak_ReadFile( reader, "scripts/player.cfg", pUnopenedBuffer, sizeof( pUnopenedBuffer ), nUnopenedBytesRead ), pak::pak_error_t::ERR_INVALID_HANDLE, "unopened reader read" ) ) {
         return 1;
     }
     if ( !Check( nUnopenedBytesRead == 0u, "unopened reader read byte count reset" ) ) {
         return 1;
     }
 
-    if ( !CheckError( pak::CypherPak_OpenReader( szArchivePathString.c_str(), pak::CYPHER_PAK_OPEN_VERIFY_FILE_HASHES, reader ), pak::pak_error_t::OK, "open reader" ) ) {
+    if ( !CheckError( pak::Pak_OpenReader( szArchivePathString.c_str(), pak::CYPHER_PAK_OPEN_VERIFY_FILE_HASHES, reader ), pak::pak_error_t::OK, "open reader" ) ) {
         return 1;
     }
     if ( !Check( reader.header.version == pak::CYPHER_PAK_FORMAT_VERSION, "reader version" ) ) {
         return 1;
     }
-    if ( !Check( pak::CypherPak_MagicEquals( reader.header.magic ), "reader magic" ) ) {
+    if ( !Check( pak::Pak_MagicEquals( reader.header.magic ), "reader magic" ) ) {
         return 1;
     }
 
     cypher::engine::common::u32 nFileCount = 0u;
-    if ( !CheckError( pak::CypherPak_GetFileCount( reader, nFileCount ), pak::pak_error_t::OK, "get file count" ) ) {
+    if ( !CheckError( pak::Pak_GetFileCount( reader, nFileCount ), pak::pak_error_t::OK, "get file count" ) ) {
         return 1;
     }
     if ( !Check( nFileCount == 3u, "file count value" ) ) {
@@ -246,12 +246,12 @@ int main()
     }
 
     pak::pak_file_index_t nPlayerIndex = pak::CYPHER_PAK_INVALID_FILE_INDEX;
-    if ( !CheckError( pak::CypherPak_FindFile( reader, "SCRIPTS\\PLAYER.CFG", nPlayerIndex ), pak::pak_error_t::OK, "find normalized file" ) ) {
+    if ( !CheckError( pak::Pak_FindFile( reader, "SCRIPTS\\PLAYER.CFG", nPlayerIndex ), pak::pak_error_t::OK, "find normalized file" ) ) {
         return 1;
     }
 
     pak::pak_file_info_t playerInfo{};
-    if ( !CheckError( pak::CypherPak_GetFileInfo( reader, nPlayerIndex, playerInfo ), pak::pak_error_t::OK, "get file info by index" ) ) {
+    if ( !CheckError( pak::Pak_GetFileInfo( reader, nPlayerIndex, playerInfo ), pak::pak_error_t::OK, "get file info by index" ) ) {
         return 1;
     }
     if ( !Check( std::strcmp( playerInfo.szVirtualPath, "scripts/player.cfg" ) == 0, "normalized file info path" ) ) {
@@ -263,58 +263,58 @@ int main()
 
     char pReadBuffer[128]{};
     cypher::engine::common::u64 nBytesRead = 0u;
-    if ( !CheckError( pak::CypherPak_ReadFile( reader, "scripts/player.cfg", pReadBuffer, sizeof( pReadBuffer ), nBytesRead ), pak::pak_error_t::OK, "read file" ) ) {
+    if ( !CheckError( pak::Pak_ReadFile( reader, "scripts/player.cfg", pReadBuffer, sizeof( pReadBuffer ), nBytesRead ), pak::pak_error_t::OK, "read file" ) ) {
         return 1;
     }
     if ( !Check( nBytesRead == std::strlen( playerCfg ) && std::memcmp( pReadBuffer, playerCfg, std::strlen( playerCfg ) ) == 0, "read file bytes" ) ) {
         return 1;
     }
 
-    if ( !CheckError( pak::CypherPak_ReadFile( reader, "textures/wall.dds", pReadBuffer, 2u, nBytesRead ), pak::pak_error_t::ERR_BUFFER_TOO_SMALL, "read buffer too small" ) ) {
+    if ( !CheckError( pak::Pak_ReadFile( reader, "textures/wall.dds", pReadBuffer, 2u, nBytesRead ), pak::pak_error_t::ERR_BUFFER_TOO_SMALL, "read buffer too small" ) ) {
         return 1;
     }
-    if ( !CheckError( pak::CypherPak_FindFile( reader, "missing/file.txt", nPlayerIndex ), pak::pak_error_t::ERR_ENTRY_NOT_FOUND, "missing file" ) ) {
+    if ( !CheckError( pak::Pak_FindFile( reader, "missing/file.txt", nPlayerIndex ), pak::pak_error_t::ERR_ENTRY_NOT_FOUND, "missing file" ) ) {
         return 1;
     }
 
     pak::pak_stats_t stats{};
-    if ( !CheckError( pak::CypherPak_GetStats( reader, stats ), pak::pak_error_t::OK, "get stats" ) ) {
+    if ( !CheckError( pak::Pak_GetStats( reader, stats ), pak::pak_error_t::OK, "get stats" ) ) {
         return 1;
     }
     if ( !Check( stats.nFileCount == 3u && stats.nStoredDataSize >= sizeof( pWallData ), "stats values" ) ) {
         return 1;
     }
 
-    if ( !CheckError( pak::CypherPak_Verify( reader, pak::CYPHER_PAK_VERIFY_FULL ), pak::pak_error_t::OK, "verify full" ) ) {
+    if ( !CheckError( pak::Pak_Verify( reader, pak::CYPHER_PAK_VERIFY_FULL ), pak::pak_error_t::OK, "verify full" ) ) {
         return 1;
     }
-    if ( !CheckError( pak::CypherPak_CloseReader( reader ), pak::pak_error_t::OK, "close reader" ) ) {
+    if ( !CheckError( pak::Pak_CloseReader( reader ), pak::pak_error_t::OK, "close reader" ) ) {
         return 1;
     }
 
     pak::pak_writer_config_t incrementalConfig{};
     incrementalConfig.szArchivePath = szArchivePath2String.c_str();
     pak::pak_writer_t writer{};
-    if ( !CheckError( pak::CypherPak_BeginWriter( incrementalConfig, writer ), pak::pak_error_t::OK, "begin writer" ) ) {
+    if ( !CheckError( pak::Pak_BeginWriter( incrementalConfig, writer ), pak::pak_error_t::OK, "begin writer" ) ) {
         return 1;
     }
-    if ( !CheckError( pak::CypherPak_AddFile( writer, szSourceFiles[0] ), pak::pak_error_t::OK, "add file" ) ) {
+    if ( !CheckError( pak::Pak_AddFile( writer, szSourceFiles[0] ), pak::pak_error_t::OK, "add file" ) ) {
         return 1;
     }
-    if ( !CheckError( pak::CypherPak_FinishWriter( writer ), pak::pak_error_t::OK, "finish writer" ) ) {
+    if ( !CheckError( pak::Pak_FinishWriter( writer ), pak::pak_error_t::OK, "finish writer" ) ) {
         return 1;
     }
 
-    if ( !CheckError( pak::CypherPak_OpenReader( szArchivePath2String.c_str(), pak::CYPHER_PAK_OPEN_VERIFY_FILE_HASHES, reader ), pak::pak_error_t::OK, "open incremental archive" ) ) {
+    if ( !CheckError( pak::Pak_OpenReader( szArchivePath2String.c_str(), pak::CYPHER_PAK_OPEN_VERIFY_FILE_HASHES, reader ), pak::pak_error_t::OK, "open incremental archive" ) ) {
         return 1;
     }
-    if ( !CheckError( pak::CypherPak_GetFileCount( reader, nFileCount ), pak::pak_error_t::OK, "get incremental file count" ) ) {
+    if ( !CheckError( pak::Pak_GetFileCount( reader, nFileCount ), pak::pak_error_t::OK, "get incremental file count" ) ) {
         return 1;
     }
     if ( !Check( nFileCount == 1u, "incremental file count value" ) ) {
         return 1;
     }
-    if ( !CheckError( pak::CypherPak_CloseReader( reader ), pak::pak_error_t::OK, "close incremental reader" ) ) {
+    if ( !CheckError( pak::Pak_CloseReader( reader ), pak::pak_error_t::OK, "close incremental reader" ) ) {
         return 1;
     }
 
@@ -323,21 +323,21 @@ int main()
         { "DUPLICATE\\FILE.TXT", szPlayerCfgPathString.c_str(), pak::pak_compression_t::NONE, pak::CYPHER_PAK_ENTRY_NONE }
     };
     config.szArchivePath = szDuplicateArchivePathString.c_str();
-    if ( !CheckError( pak::CypherPak_CreateArchive( config, duplicateFiles, 2u ), pak::pak_error_t::ERR_DUPLICATE_ENTRY, "duplicate normalized path" ) ) {
+    if ( !CheckError( pak::Pak_CreateArchive( config, duplicateFiles, 2u ), pak::pak_error_t::ERR_DUPLICATE_ENTRY, "duplicate normalized path" ) ) {
         return 1;
     }
 
     pak::pak_compression_config_t compressionConfig{};
     unsigned char compressed[16]{};
     cypher::engine::common::u64 nCompressedSize = 0u;
-    if ( !CheckError( pak::CypherPak_Compress( compressionConfig, pWallData, sizeof( pWallData ), compressed, sizeof( compressed ), nCompressedSize ), pak::pak_error_t::OK, "none compression copy" ) ) {
+    if ( !CheckError( pak::Pak_Compress( compressionConfig, pWallData, sizeof( pWallData ), compressed, sizeof( compressed ), nCompressedSize ), pak::pak_error_t::OK, "none compression copy" ) ) {
         return 1;
     }
     if ( !Check( nCompressedSize == sizeof( pWallData ) && std::memcmp( compressed, pWallData, sizeof( pWallData ) ) == 0, "none compression bytes" ) ) {
         return 1;
     }
     cypher::engine::common::u64 bound = 0u;
-    if ( !CheckError( pak::CypherPak_CompressBound( pak::pak_compression_t::LZ4, sizeof( pWallData ), bound ), pak::pak_error_t::ERR_UNSUPPORTED_COMPRESSION, "lz4 unsupported for now" ) ) {
+    if ( !CheckError( pak::Pak_CompressBound( pak::pak_compression_t::LZ4, sizeof( pWallData ), bound ), pak::pak_error_t::ERR_UNSUPPORTED_COMPRESSION, "lz4 unsupported for now" ) ) {
         return 1;
     }
 

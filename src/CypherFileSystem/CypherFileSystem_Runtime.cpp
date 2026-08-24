@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Runtime Implementation Notes
+
+The filesystem runtime coordinates initialization and shutdown of mounts and open-file services.
+Shutdown refuses to hide outstanding ownership or background work.
+================
+*/
+
 #include "CypherFileSystem_Runtime.h"
 
 namespace cypher::engine::fs
@@ -23,8 +32,8 @@ namespace cypher::engine::fs
 
 namespace {
 
-runtime_state_t s_FsRuntimeState{};
-std::recursive_mutex s_FsRuntimeMutex{};
+runtime_state_t s_FsRuntimeState{};             // Process-wide filesystem state; Host owns its lifetime.
+std::recursive_mutex s_FsRuntimeMutex{};        // Serializes mounts, handles, watches, async slots, and counters.
 
 }       // namespace
 
@@ -60,6 +69,8 @@ fs_error_t CypherFileSystem_BuildWritePath( const char *szVirtualPath, char *szO
         return fs_error_t::ERR_INVALID_ARGUMENT;
     }
 
+    // Normalize before joining so parent traversal cannot escape the configured write
+    // root and two spellings of one virtual path map to the same physical destination.
     char szNormalizedPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
     const fs_error_t normalizeResult = CypherFileSystem_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) );
     if ( normalizeResult != fs_error_t::OK ) {

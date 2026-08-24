@@ -57,6 +57,8 @@ resource_error_t CypherResource_Acquire(
         return resource_error_t::TYPE_NOT_REGISTERED;
     }
 
+    // Persistent identity combines canonical path and type.  The full path/type pair
+    // remains in the record so the rare hash collision can be detected explicitly.
     const common::resource_id_t id = common::ResourceId_FromPath(
         normalizedVirtualPath,
         type );
@@ -64,6 +66,8 @@ resource_error_t CypherResource_Acquire(
         return resource_error_t::INVALID_ARGUMENT;
     }
 
+    // Acquisition is also the cache lookup.  A ready record gains one reference and
+    // returns the same generation-checked handle without re-entering its loader.
     const common::u32 iExisting = LookupRecord( *pImpl, id );
     if ( iExisting != CYPHER_RESOURCE_INVALID_INDEX ) {
         resource_record_t &record = pImpl->pRecords[iExisting];
@@ -90,6 +94,8 @@ resource_error_t CypherResource_Acquire(
         return resource_error_t::OK;
     }
 
+    // Reserve and initialize a record before invoking external code.  Every failure
+    // below must remove its lookup entry and recycle this slot transactionally.
     const common::u32 iRecord = AllocateRecord( *pImpl );
     if ( iRecord == CYPHER_RESOURCE_INVALID_INDEX ) {
         return resource_error_t::CAPACITY_EXCEEDED;
@@ -117,6 +123,8 @@ resource_error_t CypherResource_Acquire(
         return resource_error_t::INTERNAL_ERROR;
     }
 
+    // Loader callbacks may acquire dependencies through this manager.  Callback depth
+    // therefore guards only forbidden manager lifecycle mutations, not nested loads.
     ++pImpl->stats.cLoadAttempts;
     void *pResource = nullptr;
     ++pImpl->cCallbackDepth;
@@ -128,6 +136,8 @@ resource_error_t CypherResource_Acquire(
         &pResource );
     --pImpl->cCallbackDepth;
 
+    // A callback that reports failure but returns storage still transfers that storage
+    // to its matching unload callback; the manager never publishes a partial payload.
     if ( !bLoaded || pResource == nullptr ) {
         record.state = resource_state_t::FAILED;
         record.pResource = pResource;
@@ -146,6 +156,7 @@ resource_error_t CypherResource_Acquire(
         return resource_error_t::LOAD_FAILED;
     }
 
+    // Publication happens only after the callback returns a non-null complete payload.
     record.pResource = pResource;
     record.cReferences = 1u;
     record.state = resource_state_t::READY;
@@ -226,6 +237,8 @@ resource_error_t CypherResource_Release(
         return resource_error_t::RESOURCE_BUSY;
     }
 
+    // Final release synchronously unloads and recycles the record.  The generation
+    // increment performed during recycling invalidates every stale handle immediately.
     --record.cReferences;
     return record.cReferences == 0u
         ? UnloadRecord( *pImpl, iRecord )
@@ -267,6 +280,8 @@ resource_error_t CypherResource_Get(
         return resource_error_t::RESOURCE_BUSY;
     }
 
+    // Returned payload storage is borrowed; Get does not retain the resource.  The
+    // caller must already own a reference for the entire use interval.
     *ppResourceOut = record.pResource;
     return resource_error_t::OK;
 }

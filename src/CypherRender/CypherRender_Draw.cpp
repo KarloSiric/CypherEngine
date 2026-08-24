@@ -16,6 +16,16 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Draw Implementation Notes
+
+Draw commands validate borrowed geometry and material references before submission. Backend
+execution owns no caller memory and must not retain transient command pointers past their
+documented lifetime.
+================
+*/
+
 #include "CypherRender_Draw.h"
 #include "CypherLog.h"
 
@@ -34,6 +44,7 @@ render_error_t CypherRender_DrawItem( const draw_item_t &item, const camera_t &c
         return render_error_t::ERR_INVALID_FUNC_PARAMETER;
     }
 
+    // The Cypher 1 shader contract names these three transforms explicitly.
     render_error_t result = CypherRender_ShaderBind( *item.shader );
     if ( result != render_error_t::OK ) {
         LOG_ERROR( log::channel_t::RENDER, "draw item failed: shader bind failed: %s.", CypherRender_ErrorDesc( result ) );
@@ -63,10 +74,10 @@ render_error_t CypherRender_DrawItem( const draw_item_t &item, const camera_t &c
 
 void CypherRender_DrawListInit( draw_list_t &drawList, draw_item_t *items, common::u32 nItemCapacity )
 {
+    // Storage is borrowed; the owner must keep it alive until all submitted draws complete.
     drawList.items = items;
     drawList.nItemCount = 0u;
     drawList.nItemCapacity = nItemCapacity;
-
     LOG_DEBUG( log::channel_t::RENDER, "draw list initialized: capacity=%u.", nItemCapacity );
 
     return ;
@@ -74,6 +85,7 @@ void CypherRender_DrawListInit( draw_list_t &drawList, draw_item_t *items, commo
 
 void CypherRender_DrawListClear( draw_list_t &drawList )
 {
+    // Clearing is O(1); stale slots are outside the live prefix and are never read.
     drawList.nItemCount = 0u;
 
     return ;
@@ -96,6 +108,7 @@ render_error_t CypherRender_DrawListSubmit( draw_list_t &drawList, const draw_it
         return render_error_t::ERR_DRAW_LIST_FULL;
     }
 
+    // Draw items contain borrowed pointers, so submission copies only the lightweight command.
     drawList.items[drawList.nItemCount] = item;
     ++drawList.nItemCount;
 
@@ -113,6 +126,7 @@ render_error_t CypherRender_DrawListDraw( const draw_list_t &drawList, const cam
         return render_error_t::ERR_INVALID_FUNC_PARAMETER;
     }
 
+    // Preserve submission order until explicit sorting/batching policy is introduced.
     for ( common::u32 i = 0u; i < drawList.nItemCount; ++i ) {
         const render_error_t result = CypherRender_DrawItem( drawList.items[i], camera );
 

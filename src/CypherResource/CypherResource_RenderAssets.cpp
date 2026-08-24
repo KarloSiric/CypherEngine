@@ -52,9 +52,9 @@ inline constexpr common::string_view_t CY_RENDER_MATERIAL_COOKED_EXTENSION{
 
 template <typename view_t>
 struct owned_cooked_payload_t {
-    common::blob_t storage{};
-    view_t view{};
-    const common::allocator_t *pAllocator{ nullptr };
+    common::blob_t storage{};                        // Owns the complete serialized cooked file.
+    view_t view{};                                   // Borrows strings and byte ranges from storage.
+    const common::allocator_t *pAllocator{ nullptr }; // Releases this wrapper and its blob.
 };
 
 using owned_shader_t = owned_cooked_payload_t<common::cooked_shader_view_t>;
@@ -75,6 +75,8 @@ template <typename payload_t>
 payload_t *AllocatePayload(
     render_asset_loader_context_t &context ) noexcept
 {
+    // Payload and blob deliberately share one allocator contract so partial setup can
+    // unwind without mixing ownership domains.
     void *pStorage = common::Allocator_Allocate(
         context.config.pAllocator,
         sizeof( payload_t ),
@@ -109,6 +111,7 @@ void DestroyPayload( payload_t *pPayload ) noexcept
     if ( pPayload == nullptr ) {
         return;
     }
+    // The blob destructor releases the serialized bytes before the wrapper allocation.
     const common::allocator_t *pAllocator = pPayload->pAllocator;
     pPayload->~payload_t();
     common::Allocator_Free(
@@ -129,6 +132,8 @@ payload_t *ReadPayload(
         return nullptr;
     }
 
+    // Read the complete cooked file once.  Parsed views remain zero-copy and therefore
+    // require these bytes to stay owned for the resource's full retained lifetime.
     const common::vfs_status_t vfsStatus = common::Vfs_ReadAll(
         context.config.pVfs,
         virtualPath,
@@ -182,6 +187,8 @@ common::bool_t LoadShader(
         return common::CY_FALSE;
     }
 
+    // Validation precedes publication.  No partially decoded view can become visible
+    // through the generic resource manager.
     const common::cooked_shader_result_t result = common::CookedShader_Read(
         common::Blob_Block( &pPayload->storage ),
         &pPayload->view );
@@ -238,6 +245,8 @@ common::bool_t LoadTexture(
         return common::CY_FALSE;
     }
 
+    // The reader validates container layout, texture metadata, and every mip range
+    // while retaining zero-copy references into pPayload->storage.
     const common::cooked_texture_result_t result = common::CookedTexture_Read(
         common::Blob_Block( &pPayload->storage ),
         &pPayload->view );
@@ -294,6 +303,8 @@ common::bool_t LoadMaterial(
         return common::CY_FALSE;
     }
 
+    // Material texture references remain stable IDs/paths here; GPU binding belongs
+    // to the renderer and is intentionally outside this resource adapter.
     const common::cooked_material_result_t result = common::CookedMaterial_Read(
         common::Blob_Block( &pPayload->storage ),
         &pPayload->view );
@@ -342,6 +353,8 @@ resource_error_t GetCookedView(
         return resource_error_t::INVALID_ARGUMENT;
     }
 
+    // Check the persistent type before casting the opaque payload.  A valid handle of
+    // another registered type must never be reinterpreted as this payload template.
     resource_info_t info{};
     const resource_error_t infoResult = CypherResource_GetInfo(
         pManager,
@@ -363,6 +376,8 @@ resource_error_t GetCookedView(
         return getResult;
     }
 
+    // This is a borrow, not a reference increment.  The caller must already retain
+    // handle ownership for as long as it uses the returned view.
     const auto *pPayload = static_cast<const payload_t *>( pResource );
     *ppViewOut = &pPayload->view;
     return resource_error_t::OK;
@@ -393,6 +408,7 @@ common::bool_t CypherResource_InitRenderAssetLoader(
         return common::CY_FALSE;
     }
 
+    // Context borrows both services.  Registration does not extend their lifetimes.
     pContext->config = config;
     pContext->lastDiagnostic = {};
     return common::CY_TRUE;
@@ -471,6 +487,8 @@ resource_error_t CypherResource_RegisterRenderAssetLoaders(
         return resource_error_t::INVALID_ARGUMENT;
     }
 
+    // Registration is transactional from the caller's perspective.  Roll back earlier
+    // registrations in reverse order if a later built-in type cannot be installed.
     render_asset_type_slots_t slots{};
     resource_error_t result = CypherResource_RegisterType(
         pManager,
@@ -485,6 +503,8 @@ resource_error_t CypherResource_RegisterRenderAssetLoaders(
         CypherResource_MakeTextureLoader( pContext ),
         &slots.texture );
     if ( result != resource_error_t::OK ) {
+        // Runtime type slots are monotonic and remain retired after rollback; stale
+        // handles can therefore never acquire the identity of a later loader.
         const resource_error_t rollback = CypherResource_UnregisterType(
             pManager,
             CypherResource_ShaderTypeId() );

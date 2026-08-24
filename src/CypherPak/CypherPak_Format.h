@@ -23,9 +23,9 @@
     #pragma once
 #endif
 
-#include "Engine/CypherCommon.h"
+#include "CypherCommon/Engine/CypherCommon.h"
 
-namespace cypher::engine::pak
+namespace cypher::engine
 {
 
 /*
@@ -54,23 +54,23 @@ inline constexpr char CYPHER_PAK_MAGIC[CYPHER_PAK_MAGIC_SIZE]   = {
 };
 
 enum pak_format_flags_t : common::u32 {
-    CYPHER_PAK_FORMAT_NONE              = 0u,
-    CYPHER_PAK_FORMAT_INDEX_SORTED      = 1u << 0u,
-    CYPHER_PAK_FORMAT_HAS_FILE_HASHES   = 1u << 1u,
-    CYPHER_PAK_FORMAT_HAS_ARCHIVE_HASH  = 1u << 2u,
-    CYPHER_PAK_FORMAT_COMPRESSED_INDEX  = 1u << 3u
+    CYPHER_PAK_FORMAT_NONE              = 0u,       // No optional archive features are present.
+    CYPHER_PAK_FORMAT_INDEX_SORTED      = 1u << 0u, // File records are sorted by normalized virtual path.
+    CYPHER_PAK_FORMAT_HAS_FILE_HASHES   = 1u << 1u, // Every file record carries an unpacked-content hash.
+    CYPHER_PAK_FORMAT_HAS_ARCHIVE_HASH  = 1u << 2u, // The header carries an integrity hash for the archive.
+    CYPHER_PAK_FORMAT_COMPRESSED_INDEX  = 1u << 3u  // Reserved for a compressed index representation.
 };
 
 enum pak_entry_flags_t : common::u32 {
-    CYPHER_PAK_ENTRY_NONE               = 0u,
-    CYPHER_PAK_ENTRY_COMPRESSED         = 1u << 0u,
-    CYPHER_PAK_ENTRY_HAS_HASH           = 1u << 1u
+    CYPHER_PAK_ENTRY_NONE               = 0u,       // Entry payload is stored verbatim and has no hash.
+    CYPHER_PAK_ENTRY_COMPRESSED         = 1u << 0u, // Stored bytes must be decoded before use.
+    CYPHER_PAK_ENTRY_HAS_HASH           = 1u << 1u  // contentHash is valid for this entry.
 };
 
 enum class pak_compression_t : common::u32 {
-    NONE = 0u,
-    LZ4,
-    ZSTD
+    NONE = 0u, // Payload bytes are stored without compression.
+    LZ4,       // Favor fast decompression and low runtime overhead.
+    ZSTD       // Favor stronger compression for offline-produced content.
 };
 
 /*
@@ -82,38 +82,38 @@ should still serialize every numeric field explicitly as little-endian.
 ================
 */
 struct pak_header_t {
-    char magic[CYPHER_PAK_MAGIC_SIZE]{};
-    common::u32 version{ CYPHER_PAK_FORMAT_VERSION };
-    common::u32 nHeaderSize{ CYPHER_PAK_HEADER_SIZE };
-    common::u32 endianTag{ CYPHER_PAK_ENDIAN_TAG };
-    common::u32 flags{ CYPHER_PAK_FORMAT_NONE };
+    char magic[CYPHER_PAK_MAGIC_SIZE]{};                    // Identifies a Cypher package before any numeric field is read.
+    common::u32 version{ CYPHER_PAK_FORMAT_VERSION };       // On-disk format version, not the engine version.
+    common::u32 nHeaderSize{ CYPHER_PAK_HEADER_SIZE };      // Serialized header size in bytes.
+    common::u32 endianTag{ CYPHER_PAK_ENDIAN_TAG };         // Detects byte-swapped or corrupt input.
+    common::u32 flags{ CYPHER_PAK_FORMAT_NONE };            // pak_format_flags_t bits describing optional sections.
 
-    common::u64 nArchiveSize{ 0u };
-    common::u64 nFileCount{ 0u };
+    common::u64 nArchiveSize{ 0u };                         // Complete archive length in bytes.
+    common::u64 nFileCount{ 0u };                           // Number of fixed-size entries in the index.
 
-    common::u64 nIndexOffset{ 0u };
-    common::u64 nIndexSize{ 0u };
-    common::u64 nStringTableOffset{ 0u };
-    common::u64 nStringTableSize{ 0u };
-    common::u64 nDataOffset{ 0u };
-    common::u64 nDataSize{ 0u };
+    common::u64 nIndexOffset{ 0u };                         // Absolute byte offset of the file-entry table.
+    common::u64 nIndexSize{ 0u };                           // Serialized file-entry table size in bytes.
+    common::u64 nStringTableOffset{ 0u };                   // Absolute byte offset of packed virtual paths.
+    common::u64 nStringTableSize{ 0u };                     // Packed virtual-path table size in bytes.
+    common::u64 nDataOffset{ 0u };                          // Absolute byte offset of the first payload.
+    common::u64 nDataSize{ 0u };                            // Total aligned payload region size in bytes.
 
-    common::u64 archiveHash{ 0u };
-    common::u64 reserved[4]{};
+    common::u64 archiveHash{ 0u };                          // Stable archive-integrity hash when the flag is set.
+    common::u64 reserved[4]{};                              // Must remain zero; retained for compatible extension.
 };
 
 struct pak_disk_file_entry_t {
-    common::u64 nPathOffset{ 0u };
-    common::u64 nDataOffset{ 0u };
-    common::u64 nStoredSize{ 0u };
-    common::u64 nUnpackedSize{ 0u };
-    common::u64 modifiedTimeUtc{ 0u };
-    common::u64 contentHash{ 0u };
+    common::u64 nPathOffset{ 0u };                          // Byte offset into the archive string table.
+    common::u64 nDataOffset{ 0u };                          // Absolute byte offset of this file's stored payload.
+    common::u64 nStoredSize{ 0u };                          // Number of bytes physically stored in the archive.
+    common::u64 nUnpackedSize{ 0u };                        // Exact payload size after decompression.
+    common::u64 modifiedTimeUtc{ 0u };                      // Source modification time in the archive's UTC epoch convention.
+    common::u64 contentHash{ 0u };                          // Hash of unpacked bytes when HAS_HASH is present.
 
-    common::u32 nPathSize{ 0u };
-    common::u32 szPathHash{ 0u };
-    common::u32 compression{ static_cast<common::u32>( pak_compression_t::NONE ) };
-    common::u32 flags{ CYPHER_PAK_ENTRY_NONE };
+    common::u32 nPathSize{ 0u };                            // Virtual-path byte count excluding its terminator.
+    common::u32 szPathHash{ 0u };                           // Fast lookup hash; equality still verifies the full path.
+    common::u32 compression{ static_cast<common::u32>( pak_compression_t::NONE ) }; // Serialized pak_compression_t value.
+    common::u32 flags{ CYPHER_PAK_ENTRY_NONE };             // pak_entry_flags_t bits for this payload.
 };
 
 static_assert( sizeof( common::u32 ) == 4u, "CypherPak requires 32-bit common::u32" );
@@ -121,7 +121,7 @@ static_assert( sizeof( common::u64 ) == 8u, "CypherPak requires 64-bit common::u
 static_assert( sizeof( pak_header_t ) == CYPHER_PAK_HEADER_SIZE, "CypherPak header size changed" );
 static_assert( sizeof( pak_disk_file_entry_t ) == CYPHER_PAK_FILE_ENTRY_SIZE, "CypherPak file entry size changed" );
 
-constexpr inline bool CypherPak_MagicEquals( const char *magic )
+constexpr inline bool Pak_MagicEquals( const char *magic )
 {
     if ( magic == nullptr ) {
         return false;
@@ -136,17 +136,17 @@ constexpr inline bool CypherPak_MagicEquals( const char *magic )
     return true;
 }
 
-constexpr inline common::u32 CypherPak_AlignUp( const common::u32 value, const common::u32 alignment )
+constexpr inline common::u32 Pak_AlignUp( const common::u32 value, const common::u32 alignment )
 {
     return alignment == 0u ? value : ( ( value + alignment - 1u ) / alignment ) * alignment;
 }
 
-constexpr inline common::u64 CypherPak_AlignUp64( const common::u64 value, const common::u64 alignment )
+constexpr inline common::u64 Pak_AlignUp64( const common::u64 value, const common::u64 alignment )
 {
     return alignment == 0u ? value : ( ( value + alignment - 1u ) / alignment ) * alignment;
 }
 
-inline common::u16 CypherPak_LoadU16LE( const void *data )
+inline common::u16 Pak_LoadU16LE( const void *data )
 {
     const common::u8 *bytes = static_cast<const common::u8 *>( data );
     return static_cast<common::u16>(
@@ -154,7 +154,7 @@ inline common::u16 CypherPak_LoadU16LE( const void *data )
         static_cast<common::u16>( static_cast<common::u16>( bytes[1] ) << 8u ) );
 }
 
-inline common::u32 CypherPak_LoadU32LE( const void *data )
+inline common::u32 Pak_LoadU32LE( const void *data )
 {
     const common::u8 *bytes = static_cast<const common::u8 *>( data );
     return static_cast<common::u32>( bytes[0] ) |
@@ -163,7 +163,7 @@ inline common::u32 CypherPak_LoadU32LE( const void *data )
         ( static_cast<common::u32>( bytes[3] ) << 24u );
 }
 
-inline common::u64 CypherPak_LoadU64LE( const void *data )
+inline common::u64 Pak_LoadU64LE( const void *data )
 {
     const common::u8 *bytes = static_cast<const common::u8 *>( data );
     return static_cast<common::u64>( bytes[0] ) |
@@ -176,14 +176,14 @@ inline common::u64 CypherPak_LoadU64LE( const void *data )
         ( static_cast<common::u64>( bytes[7] ) << 56u );
 }
 
-inline void CypherPak_StoreU16LE( void *data, const common::u16 value )
+inline void Pak_StoreU16LE( void *data, const common::u16 value )
 {
     common::u8 *bytes = static_cast<common::u8 *>( data );
     bytes[0] = static_cast<common::u8>( value & 0xFFu );
     bytes[1] = static_cast<common::u8>( ( value >> 8u ) & 0xFFu );
 }
 
-inline void CypherPak_StoreU32LE( void *data, const common::u32 value )
+inline void Pak_StoreU32LE( void *data, const common::u32 value )
 {
     common::u8 *bytes = static_cast<common::u8 *>( data );
     bytes[0] = static_cast<common::u8>( value & 0xFFu );
@@ -192,7 +192,7 @@ inline void CypherPak_StoreU32LE( void *data, const common::u32 value )
     bytes[3] = static_cast<common::u8>( ( value >> 24u ) & 0xFFu );
 }
 
-inline void CypherPak_StoreU64LE( void *data, const common::u64 value )
+inline void Pak_StoreU64LE( void *data, const common::u64 value )
 {
     common::u8 *bytes = static_cast<common::u8 *>( data );
     bytes[0] = static_cast<common::u8>( value & 0xFFu );
@@ -205,6 +205,6 @@ inline void CypherPak_StoreU64LE( void *data, const common::u64 value )
     bytes[7] = static_cast<common::u8>( ( value >> 56u ) & 0xFFu );
 }
 
-}       // namespace cypher::engine::pak
+}       // namespace cypher::engine
 
 #endif // CYPHER_ENGINE_PAK_FORMAT_H

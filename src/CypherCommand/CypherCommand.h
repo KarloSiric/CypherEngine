@@ -26,8 +26,8 @@
 #include "CypherCommand_Error.h"
 #include "Engine/CypherCommon.h"
 
-#define CYPHER_COMMAND_MAX_COMMANDS        256u
-#define CYPHER_COMMAND_MAX_ARGUMENTS       16u
+#define CYPHER_COMMAND_MAX_COMMANDS        256u    // Fixed command-registry capacity.
+#define CYPHER_COMMAND_MAX_ARGUMENTS       16u     // Maximum tokens passed to one callback.
 
 namespace cypher::engine::cmd
 {
@@ -42,16 +42,16 @@ Commands bind a text name to a callback used by configs, console and tools.
 using command_fn_t = void (*)( void *pExtraData, common::u32 argc, char **argv );
 
 struct cmd_t {
-    const char  *name;
-    command_fn_t    pCallbackFn;
-    void        *pExtraData;
-    const char  *description;
+    const char *name;                    // Borrowed unique command name.
+    command_fn_t pCallbackFn;            // Callback invoked after tokenization succeeds.
+    void *pExtraData;                    // Borrowed registration context passed to callback.
+    const char *description;             // Borrowed human-readable help text.
 };
 
 struct registry_t {
-    cmd_t cmdCommands[CYPHER_COMMAND_MAX_COMMANDS];
-    common::u32 nCmdCount;
-    bool initialized;
+    cmd_t cmdCommands[CYPHER_COMMAND_MAX_COMMANDS]; // Compact registered-command array.
+    common::u32 nCmdCount;                         // Initialized prefix of cmdCommands.
+    bool initialized;                              // Registry lifetime guard.
 };
 
 /*

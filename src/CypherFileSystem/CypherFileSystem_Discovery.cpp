@@ -16,6 +16,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+/*
+================
+Discovery Implementation Notes
+
+Discovery walks configured roots using normalized virtual paths and deterministic ordering.
+Native directory entries are validated before they become engine-visible records.
+================
+*/
+
 #include "CypherFileSystem_Runtime.h"
 #include "CypherPak.h"
 
@@ -28,6 +37,8 @@
 
 namespace cypher::engine::fs
 {
+
+namespace pak = ::cypher::engine;
 
 namespace {
 
@@ -58,6 +69,8 @@ bool EntryAlreadyAdded( const directory_entry_t *entries, const common::u32 nEnt
         return false;
     }
 
+    // Earlier entries came from higher-priority mounts.  Suppressing later copies
+    // preserves the same shadowing rule used by direct file resolution.
     for ( common::u32 i = 0u; i < nEntryCount; ++i ) {
         if ( std::strcmp( entries[i].szVirtualPath, szVirtualPath ) == 0 ) {
             return true;
@@ -96,6 +109,8 @@ fs_error_t FillEntryFromPhysicalPath(
         return fs_error_t::ERR_BUFFER_TOO_SMALL;
     }
 
+    // Discovery reports filesystem failures as fs_error_t; the error_code overloads
+    // prevent malformed or inaccessible entries from throwing through tool code.
     std::error_code ec{};
     const bool bIsDirectory = std::filesystem::is_directory( szPhysicalPath, ec );
     if ( ec ) {
@@ -148,6 +163,8 @@ fs_error_t AddDirectoryEntry(
         return fs_error_t::OK;
     }
 
+    // nOutEntryCount is a required-count result, not merely a written-count result.
+    // This lets callers perform a zero-capacity sizing pass and retry once.
     if ( nOutEntryCount < nMaxEntries && entries != nullptr ) {
         entries[nOutEntryCount] = entry;
     } else {
@@ -178,6 +195,8 @@ fs_error_t AddMountedChildRoot(
         return fs_error_t::OK;
     }
 
+    // A mount below the requested directory contributes only its next path component.
+    // For example, mount "game/materials" appears as directory "game" at VFS root.
     char szChildName[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
     common::u32 nWriteIndex = 0u;
     const char *cursor = szRelativePath;
@@ -215,6 +234,8 @@ fs_error_t AddPackagePathChild(
     bool &overflowOut,
     bool &szOutFoundSource )
 {
+    // Package archives store flat file records.  Directory entries are synthesized
+    // from the first remaining component under the requested virtual directory.
     const char *tail = fileInfo.szVirtualPath;
 
     if ( relativeDir != nullptr && relativeDir[0] != '\0' ) {
@@ -269,6 +290,8 @@ bool MatchWildcard( const char *text, const char *pattern )
         return false;
     }
 
+    // Remember the most recent '*'.  On a later mismatch, extend that star by one
+    // byte and retry instead of allocating or recursing for wildcard backtracking.
     const char *star = nullptr;
     const char *szTextAfterStar = nullptr;
 
@@ -332,6 +355,8 @@ fs_error_t NormalizeFindPattern( const char *pattern, char *patternOut, const co
 
     patternOut[0] = '\0';
 
+    // Patterns match one entry name, not a path.  Separators are rejected so recursive
+    // traversal remains an explicit flag rather than hidden pattern behavior.
     common::u32 nWriteIndex = 0u;
     const char *cursor = pattern;
     while ( *cursor != '\0' ) {
@@ -366,6 +391,8 @@ fs_error_t FindFilesRecursive(
     common::u32 &nOutEntryCount,
     bool &overflowOut )
 {
+    // ListDirectory follows a count-then-fill contract.  The second call may still
+    // grow if the directory changes concurrently, so retry with the new required size.
     common::u32 nChildCount = 0u;
     fs_error_t result = CypherFileSystem_ListDirectory( szVirtualRoot, nullptr, 0u, nChildCount );
     if ( result == fs_error_t::ERR_PATH_NOT_FOUND ) {
@@ -399,6 +426,8 @@ fs_error_t FindFilesRecursive(
         break;
     }
 
+    // With no explicit type filter, match both files and directories.  This keeps a
+    // plain find useful while preserving strict behavior when the caller chooses one.
     const common::u32 nMatchFlags = ( flags & ( CYPHER_FILESYSTEM_FIND_FILES | CYPHER_FILESYSTEM_FIND_DIRECTORIES ) ) != 0u
         ? flags
         : flags | CYPHER_FILESYSTEM_FIND_FILES | CYPHER_FILESYSTEM_FIND_DIRECTORIES;
@@ -457,6 +486,8 @@ fs_error_t CypherFileSystem_ListDirectory(
         return rootResult;
     }
 
+    // Merge all providers in mount-priority order.  AddDirectoryEntry removes shadowed
+    // duplicates while the required-count contract records output overflow.
     bool bFoundSource = false;
     bool overflow = false;
 
@@ -484,6 +515,8 @@ fs_error_t CypherFileSystem_ListDirectory(
             }
 
             bFoundSource = true;
+            // Native names are normalized before publication so package and directory
+            // backends expose the same virtual-path spelling to callers.
             for ( const std::filesystem::directory_entry &physicalEntry : std::filesystem::directory_iterator( szPhysicalPath, ec ) ) {
                 if ( ec ) {
                     return fs_error_t::ERR_IO_ERROR;
@@ -519,15 +552,17 @@ fs_error_t CypherFileSystem_ListDirectory(
                 continue;
             }
 
+            // Archives have no explicit directory records.  Walk their file table and
+            // synthesize only immediate children of the requested virtual directory.
             common::u32 nPackageFileCount = 0u;
-            pak::pak_error_t nCountResult = pak::CypherPak_GetFileCount( *reader, nPackageFileCount );
+            pak::pak_error_t nCountResult = pak::Pak_GetFileCount( *reader, nPackageFileCount );
             if ( nCountResult != pak::pak_error_t::OK ) {
                 return PakErrorToFs( nCountResult );
             }
 
             for ( common::u32 nPackageIndex = 0u; nPackageIndex < nPackageFileCount; ++nPackageIndex ) {
                 pak::pak_file_info_t fileInfo{};
-                const pak::pak_error_t infoResult = pak::CypherPak_GetFileInfo( *reader, nPackageIndex, fileInfo );
+                const pak::pak_error_t infoResult = pak::Pak_GetFileInfo( *reader, nPackageIndex, fileInfo );
                 if ( infoResult != pak::pak_error_t::OK ) {
                     return PakErrorToFs( infoResult );
                 }
@@ -546,6 +581,8 @@ fs_error_t CypherFileSystem_ListDirectory(
                 }
             }
         } else if ( CypherFileSystem_VirtualPathStartsWithRoot( mount.szVirtualRoot, szNormalizedRoot, nullptr ) ) {
+            // The requested path is an ancestor of this mount.  Expose the mount's next
+            // component even though no physical directory exists at this VFS level.
             bFoundSource = true;
             const fs_error_t result = AddMountedChildRoot( szNormalizedRoot, mount.szVirtualRoot, entries, nMaxEntries, nOutEntryCount, overflow );
             if ( result != fs_error_t::OK ) {
@@ -592,6 +629,8 @@ fs_error_t CypherFileSystem_FindFiles(
         return result;
     }
 
+    // Sort only initialized output slots; nOutEntryCount may exceed capacity because
+    // it reports the number required for a complete result.
     const common::u32 nSortCount = nOutEntryCount < nMaxEntries ? nOutEntryCount : nMaxEntries;
     if ( entries != nullptr && ( flags & CYPHER_FILESYSTEM_FIND_SORT_BY_NAME ) != 0u ) {
         std::sort( entries, entries + nSortCount, []( const directory_entry_t &a, const directory_entry_t &b ) {
