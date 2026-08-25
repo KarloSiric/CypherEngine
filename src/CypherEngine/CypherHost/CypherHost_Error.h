@@ -46,7 +46,7 @@ enum class host_error_t : common::u8 {
 Host Error Helpers
 ================
 */
-constexpr inline const char *CypherHost_ErrorName( const host_error_t error ) {
+constexpr inline const char *Host_ErrorName( const host_error_t error ) {
     switch ( error ) {
     case host_error_t::OK:
         return "OK";
@@ -61,7 +61,7 @@ constexpr inline const char *CypherHost_ErrorName( const host_error_t error ) {
     }
 }
 
-constexpr inline const char *CypherHost_ErrorDesc( const host_error_t error ) {
+constexpr inline const char *Host_ErrorDesc( const host_error_t error ) {
     switch ( error ) {
     case host_error_t::OK:
         return "operation completed successfully";
@@ -76,7 +76,7 @@ constexpr inline const char *CypherHost_ErrorDesc( const host_error_t error ) {
     }
 }
 
-constexpr inline common::error_t CypherHost_ErrorCode( host_error_t error ) {
+constexpr inline common::error_t Host_ErrorCode( host_error_t error ) {
     return common::CypherCommon_ErrorMake( common::domain_t::COM_DOMAIN_HOST, static_cast<common::u16>( error ) );
 }
 

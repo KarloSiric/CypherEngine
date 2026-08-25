@@ -37,18 +37,18 @@ int main(int argc, char const *argv[])
     pHostState.config.argc = argc;
     pHostState.config.argv = argv;
 
-    if ( host::CypherHost_Init( pHostState ) != host::host_error_t::OK ) {
+    if ( host::Host_Init( pHostState ) != host::host_error_t::OK ) {
         return ( EXIT_FAILURE );
     }
 
-    while( host::CypherHost_IsRunning( pHostState ) ) {
-        host::CypherHost_BeginFrame( pHostState );
-        host::CypherHost_Update( pHostState );
-        host::CypherHost_Render( pHostState );
-        host::CypherHost_EndFrame( pHostState );
+    while( host::Host_IsRunning( pHostState ) ) {
+        host::Host_BeginFrame( pHostState );
+        host::Host_Update( pHostState );
+        host::Host_Render( pHostState );
+        host::Host_EndFrame( pHostState );
     }
 
-    host::CypherHost_Shutdown( pHostState );
+    host::Host_Shutdown( pHostState );
 
     return ( EXIT_SUCCESS );
 }
