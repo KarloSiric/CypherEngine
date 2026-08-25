@@ -43,11 +43,11 @@ editor browsing, save data and future hot reload.
 Lifecycle
 ================
 */
-fs_error_t CypherFileSystem_Init();
+fs_error_t FS_Init();
 
-fs_error_t CypherFileSystem_Shutdown();
+fs_error_t FS_Shutdown();
 
-bool CypherFileSystem_IsInitialized();
+bool FS_IsInitialized();
 
 /*
 ================
@@ -57,38 +57,38 @@ Reads search mounted content by priority. Higher priority wins; equal priority
 keeps insertion order stable so overlays remain predictable.
 ================
 */
-fs_error_t CypherFileSystem_MountDirectory(
+fs_error_t FS_MountDirectory(
     const char *pszVirtualRoot,
     const char *pszPhysicalPath,
     common::u32 nFlags,
     common::u32 nPriority );
 
-fs_error_t CypherFileSystem_MountDirectoryWithHandle(
+fs_error_t FS_MountDirectoryWithHandle(
     const char *pszVirtualRoot,
     const char *pszPhysicalPath,
     common::u32 nFlags,
     common::u32 nPriority,
     mount_handle_t &hMountOut );
 
-fs_error_t CypherFileSystem_UnmountDirectory( const char *pszVirtualRoot );
+fs_error_t FS_UnmountDirectory( const char *pszVirtualRoot );
 
-fs_error_t CypherFileSystem_Unmount( mount_handle_t hMount );
+fs_error_t FS_Unmount( mount_handle_t hMount );
 
-fs_error_t CypherFileSystem_MountPackage(
+fs_error_t FS_MountPackage(
     const char *pszVirtualRoot,
     const char *pszPackagePath,
     common::u32 nFlags,
     common::u32 nPriority );
 
-fs_error_t CypherFileSystem_UnmountPackage( const char *pszPackagePath );
+fs_error_t FS_UnmountPackage( const char *pszPackagePath );
 
-common::u32 CypherFileSystem_MountCount();
+common::u32 FS_MountCount();
 
-fs_error_t CypherFileSystem_GetMountInfo(
+fs_error_t FS_GetMountInfo(
     common::u32 iMount,
     mount_info_t &mountInfoOut );
 
-fs_error_t CypherFileSystem_GetMountInfoByHandle(
+fs_error_t FS_GetMountInfoByHandle(
     mount_handle_t hMount,
     mount_info_t &mountInfoOut );
 
@@ -101,59 +101,59 @@ reject absolute paths, reject drive letters and normalize asset paths to lower
 case internally for cross-platform consistency.
 ================
 */
-fs_error_t CypherFileSystem_NormalizeVirtualPath(
+fs_error_t FS_NormalizeVirtualPath(
     const char *pszVirtualPath,
     char *pszOutPath,
     common::u32 nOutPathSize );
 
-fs_error_t CypherFileSystem_NormalizeVirtualRoot(
+fs_error_t FS_NormalizeVirtualRoot(
     const char *pszVirtualRoot,
     char *pszOutRoot,
     common::u32 nOutRootSize );
 
-bool CypherFileSystem_IsValidVirtualPath( const char *pszVirtualPath );
+bool FS_IsValidVirtualPath( const char *pszVirtualPath );
 
-bool CypherFileSystem_VirtualPathStartsWithRoot(
+bool FS_VirtualPathStartsWithRoot(
     const char *pszVirtualPath,
     const char *pszVirtualRoot,
     const char **ppszRelativePathOut );
 
-fs_error_t CypherFileSystem_BuildPhysicalPath(
+fs_error_t FS_BuildPhysicalPath(
     const char *pszPhysicalRoot,
     const char *pszRelativePath,
     char *pszOutPath,
     common::u32 nOutPathSize );
 
-fs_error_t CypherFileSystem_ResolvePath(
+fs_error_t FS_ResolvePath(
     const char *pszVirtualPath,
     char *pszOutResolvedPath,
     common::u32 nOutResolvedPathSize );
 
-fs_error_t CypherFileSystem_TraceResolve(
+fs_error_t FS_TraceResolve(
     const char *pszVirtualPath,
     resolve_trace_t &traceOut );
 
-fs_error_t CypherFileSystem_PathJoin(
+fs_error_t FS_PathJoin(
     const char *pszLeft,
     const char *pszRight,
     char *pszOutPath,
     common::u32 nOutPathSize );
 
-const char *CypherFileSystem_PathBasename( const char *pszVirtualPath );
+const char *FS_PathBasename( const char *pszVirtualPath );
 
-fs_error_t CypherFileSystem_PathDirname(
+fs_error_t FS_PathDirname(
     const char *pszVirtualPath,
     char *pszOutPath,
     common::u32 nOutPathSize );
 
-const char *CypherFileSystem_PathExtension( const char *pszVirtualPath );
+const char *FS_PathExtension( const char *pszVirtualPath );
 
-fs_error_t CypherFileSystem_PathWithoutExtension(
+fs_error_t FS_PathWithoutExtension(
     const char *pszVirtualPath,
     char *pszOutPath,
     common::u32 nOutPathSize );
 
-bool CypherFileSystem_PathHasExtension(
+bool FS_PathHasExtension(
     const char *pszVirtualPath,
     const char *pszExtension );
 
@@ -165,57 +165,57 @@ Writes, deletes, renames and generated data go through the write path. They do
 not modify arbitrary read mounts.
 ================
 */
-fs_error_t CypherFileSystem_SetWritePath( const char *pszPhysicalPath );
+fs_error_t FS_SetWritePath( const char *pszPhysicalPath );
 
-const char *CypherFileSystem_GetWritePath();
+const char *FS_GetWritePath();
 
 /*
 ================
 File I/O
 ================
 */
-fs_error_t CypherFileSystem_Open(
+fs_error_t FS_Open(
     const char *pszVirtualPath,
     open_mode_t mode,
     file_t &fileOut );
 
-fs_error_t CypherFileSystem_Close( file_t &file );
+fs_error_t FS_Close( file_t &file );
 
-fs_error_t CypherFileSystem_Read(
+fs_error_t FS_Read(
     file_t &file,
     void *pBuffer,
     common::u64 nBytesToRead,
     common::u64 &nBytesReadOut );
 
-fs_error_t CypherFileSystem_Write(
+fs_error_t FS_Write(
     file_t &file,
     const void *pBuffer,
     common::u64 nBytesToWrite,
     common::u64 &nBytesWrittenOut );
 
-fs_error_t CypherFileSystem_Seek(
+fs_error_t FS_Seek(
     file_t &file,
     common::i64 nOffset,
     seek_origin_t origin );
 
-fs_error_t CypherFileSystem_Tell(
+fs_error_t FS_Tell(
     file_t &file,
     common::u64 &nPositionOut );
 
-fs_error_t CypherFileSystem_Flush( file_t &file );
+fs_error_t FS_Flush( file_t &file );
 
-fs_error_t CypherFileSystem_ReadEntireFile(
+fs_error_t FS_ReadEntireFile(
     const char *pszVirtualPath,
     void *pBuffer,
     common::u64 nBytesToRead,
     common::u64 &nBytesReadOut );
 
-fs_error_t CypherFileSystem_WriteEntireFile(
+fs_error_t FS_WriteEntireFile(
     const char *pszVirtualPath,
     const void *pBuffer,
     common::u64 nBytesToWrite );
 
-fs_error_t CypherFileSystem_AppendEntireFile(
+fs_error_t FS_AppendEntireFile(
     const char *pszVirtualPath,
     const void *pBuffer,
     common::u64 nBytesToWrite );
@@ -228,19 +228,19 @@ These APIs operate under the write path. RemoveDirectory is intentionally
 non-recursive; destructive recursive removal is a separate explicit API.
 ================
 */
-fs_error_t CypherFileSystem_CreateDirectory( const char *pszVirtualPath );
+fs_error_t FS_CreateDirectory( const char *pszVirtualPath );
 
-fs_error_t CypherFileSystem_DeleteFile( const char *pszVirtualPath );
+fs_error_t FS_DeleteFile( const char *pszVirtualPath );
 
-fs_error_t CypherFileSystem_RemoveDirectory( const char *pszVirtualPath );
+fs_error_t FS_RemoveDirectory( const char *pszVirtualPath );
 
-fs_error_t CypherFileSystem_RemoveDirectoryTree( const char *pszVirtualPath );
+fs_error_t FS_RemoveDirectoryTree( const char *pszVirtualPath );
 
-fs_error_t CypherFileSystem_Rename(
+fs_error_t FS_Rename(
     const char *pszFromVirtualPath,
     const char *pszToVirtualPath );
 
-fs_error_t CypherFileSystem_CopyFile(
+fs_error_t FS_CopyFile(
     const char *pszFromVirtualPath,
     const char *pszToVirtualPath );
 
@@ -249,23 +249,23 @@ fs_error_t CypherFileSystem_CopyFile(
 Query And Discovery
 ================
 */
-bool CypherFileSystem_Exists( const char *pszVirtualPath );
+bool FS_Exists( const char *pszVirtualPath );
 
-bool CypherFileSystem_FileExists( const char *pszVirtualPath );
+bool FS_FileExists( const char *pszVirtualPath );
 
-bool CypherFileSystem_DirectoryExists( const char *pszVirtualPath );
+bool FS_DirectoryExists( const char *pszVirtualPath );
 
-fs_error_t CypherFileSystem_GetFileInfo(
+fs_error_t FS_GetFileInfo(
     const char *pszVirtualPath,
     file_info_t &fileInfoOut );
 
-fs_error_t CypherFileSystem_ListDirectory(
+fs_error_t FS_ListDirectory(
     const char *pszVirtualPath,
     directory_entry_t *pEntries,
     common::u32 nMaxEntries,
     common::u32 &nEntryCountOut );
 
-fs_error_t CypherFileSystem_FindFiles(
+fs_error_t FS_FindFiles(
     const char *pszVirtualRoot,
     const char *pszPattern,
     common::u32 nFlags,
@@ -281,11 +281,11 @@ Package APIs will back .pak/.zip/custom package mounts later. The public API is
 declared now so engine code has a stable target surface.
 ================
 */
-fs_error_t CypherFileSystem_GetPackageInfo(
+fs_error_t FS_GetPackageInfo(
     const char *pszPackagePath,
     package_info_t &packageInfoOut );
 
-bool CypherFileSystem_PackageIsMounted( const char *pszPackagePath );
+bool FS_PackageIsMounted( const char *pszPackagePath );
 
 /*
 ================
@@ -295,27 +295,27 @@ The first implementation can be simple worker-thread file reads. Later this
 becomes the streaming layer for textures, audio, levels and packages.
 ================
 */
-fs_error_t CypherFileSystem_ReadAsync(
+fs_error_t FS_ReadAsync(
     const char *pszVirtualPath,
     void *pBuffer,
     common::u64 nBytesToRead,
     async_request_t &hRequestOut );
 
-fs_error_t CypherFileSystem_WriteAsync(
+fs_error_t FS_WriteAsync(
     const char *pszVirtualPath,
     const void *pBuffer,
     common::u64 nBytesToWrite,
     async_request_t &hRequestOut );
 
-fs_error_t CypherFileSystem_PollAsync(
+fs_error_t FS_PollAsync(
     async_request_t hRequest,
     async_result_t &resultOut );
 
-fs_error_t CypherFileSystem_WaitAsync(
+fs_error_t FS_WaitAsync(
     async_request_t hRequest,
     async_result_t &resultOut );
 
-fs_error_t CypherFileSystem_CancelAsync( async_request_t hRequest );
+fs_error_t FS_CancelAsync( async_request_t hRequest );
 
 /*
 ================
@@ -324,14 +324,14 @@ File Watching
 Used by editor workflows and hot reload for shaders, configs and assets.
 ================
 */
-fs_error_t CypherFileSystem_WatchPath(
+fs_error_t FS_WatchPath(
     const char *pszVirtualPath,
     common::u32 nFlags,
     watch_handle_t &hWatchOut );
 
-fs_error_t CypherFileSystem_UnwatchPath( watch_handle_t hWatch );
+fs_error_t FS_UnwatchPath( watch_handle_t hWatch );
 
-fs_error_t CypherFileSystem_PollChanges(
+fs_error_t FS_PollChanges(
     watch_event_t *pEvents,
     common::u32 nMaxEvents,
     common::u32 &nEventCountOut );
@@ -344,13 +344,13 @@ Runtime visibility is mandatory for a professional filesystem: mount dumps,
 lookup failures, bytes read/written and package/debug inspection.
 ================
 */
-fs_error_t CypherFileSystem_GetStats( stats_t &statsOut );
+fs_error_t FS_GetStats( stats_t &statsOut );
 
-fs_error_t CypherFileSystem_ResetStats();
+fs_error_t FS_ResetStats();
 
-fs_error_t CypherFileSystem_DumpMounts();
+fs_error_t FS_DumpMounts();
 
-fs_error_t CypherFileSystem_DumpStats();
+fs_error_t FS_DumpStats();
 
 }       // namespace cypher::engine::fs
 

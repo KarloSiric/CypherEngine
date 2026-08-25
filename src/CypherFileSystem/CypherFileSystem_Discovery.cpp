@@ -90,7 +90,7 @@ fs_error_t BuildVirtualChildPath(
         return CopyString( szOutPath, nOutPathSize, szChildName ) ? fs_error_t::OK : fs_error_t::ERR_BUFFER_TOO_SMALL;
     }
 
-    return CypherFileSystem_PathJoin( virtualDir, szChildName, szOutPath, nOutPathSize );
+    return FS_PathJoin( virtualDir, szChildName, szOutPath, nOutPathSize );
 }
 
 fs_error_t FillEntryFromPhysicalPath(
@@ -104,7 +104,7 @@ fs_error_t FillEntryFromPhysicalPath(
         return fs_error_t::ERR_BUFFER_TOO_SMALL;
     }
 
-    const char *basename = CypherFileSystem_PathBasename( szVirtualPath );
+    const char *basename = FS_PathBasename( szVirtualPath );
     if ( basename == nullptr || !CopyString( entryOut.name, sizeof( entryOut.name ), basename ) ) {
         return fs_error_t::ERR_BUFFER_TOO_SMALL;
     }
@@ -184,7 +184,7 @@ fs_error_t AddMountedChildRoot(
     bool &overflowOut )
 {
     const char *szRelativePath = nullptr;
-    if ( szRequestedRoot[0] != '\0' && !CypherFileSystem_VirtualPathStartsWithRoot( szMountedRoot, szRequestedRoot, &szRelativePath ) ) {
+    if ( szRequestedRoot[0] != '\0' && !FS_VirtualPathStartsWithRoot( szMountedRoot, szRequestedRoot, &szRelativePath ) ) {
         return fs_error_t::OK;
     }
 
@@ -394,7 +394,7 @@ fs_error_t FindFilesRecursive(
     // ListDirectory follows a count-then-fill contract.  The second call may still
     // grow if the directory changes concurrently, so retry with the new required size.
     common::u32 nChildCount = 0u;
-    fs_error_t result = CypherFileSystem_ListDirectory( szVirtualRoot, nullptr, 0u, nChildCount );
+    fs_error_t result = FS_ListDirectory( szVirtualRoot, nullptr, 0u, nChildCount );
     if ( result == fs_error_t::ERR_PATH_NOT_FOUND ) {
         return fs_error_t::OK;
     }
@@ -408,7 +408,7 @@ fs_error_t FindFilesRecursive(
     std::vector<directory_entry_t> children( nChildCount );
     while ( true ) {
         common::u32 nListedChildCount = 0u;
-        result = CypherFileSystem_ListDirectory(
+        result = FS_ListDirectory(
             szVirtualRoot,
             children.data(),
             static_cast<common::u32>( children.size() ),
@@ -463,14 +463,14 @@ fs_error_t FindFilesRecursive(
 
 }       // namespace
 
-fs_error_t CypherFileSystem_ListDirectory(
+fs_error_t FS_ListDirectory(
     const char *szVirtualPath,
     directory_entry_t *entries,
     common::u32 nMaxEntries,
     common::u32 &nOutEntryCount )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     nOutEntryCount = 0u;
 
     if ( !state.initialized ) {
@@ -481,7 +481,7 @@ fs_error_t CypherFileSystem_ListDirectory(
     }
 
     char szNormalizedRoot[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    const fs_error_t rootResult = CypherFileSystem_NormalizeVirtualRoot( szVirtualPath, szNormalizedRoot, sizeof( szNormalizedRoot ) );
+    const fs_error_t rootResult = FS_NormalizeVirtualRoot( szVirtualPath, szNormalizedRoot, sizeof( szNormalizedRoot ) );
     if ( rootResult != fs_error_t::OK ) {
         return rootResult;
     }
@@ -496,9 +496,9 @@ fs_error_t CypherFileSystem_ListDirectory(
 
         const char *szRelativePath = nullptr;
         if ( mount.type == mount_type_t::CYPHER_FILESYSTEM_DIRECTORY &&
-             CypherFileSystem_VirtualPathStartsWithRoot( szNormalizedRoot, mount.szVirtualRoot, &szRelativePath ) ) {
+             FS_VirtualPathStartsWithRoot( szNormalizedRoot, mount.szVirtualRoot, &szRelativePath ) ) {
             char szPhysicalPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-            fs_error_t result = CypherFileSystem_BuildPhysicalPath( mount.szPhysicalRoot, szRelativePath, szPhysicalPath, sizeof( szPhysicalPath ) );
+            fs_error_t result = FS_BuildPhysicalPath( mount.szPhysicalRoot, szRelativePath, szPhysicalPath, sizeof( szPhysicalPath ) );
             if ( result != fs_error_t::OK ) {
                 return result;
             }
@@ -524,7 +524,7 @@ fs_error_t CypherFileSystem_ListDirectory(
 
                 const std::string szRawName = physicalEntry.path().filename().string();
                 char szNormalizedName[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-                if ( CypherFileSystem_NormalizeVirtualPath( szRawName.c_str(), szNormalizedName, sizeof( szNormalizedName ) ) != fs_error_t::OK ) {
+                if ( FS_NormalizeVirtualPath( szRawName.c_str(), szNormalizedName, sizeof( szNormalizedName ) ) != fs_error_t::OK ) {
                     continue;
                 }
 
@@ -546,7 +546,7 @@ fs_error_t CypherFileSystem_ListDirectory(
                 }
             }
         } else if ( mount.type == mount_type_t::CYPHER_FILESYSTEM_PACKAGE &&
-                    CypherFileSystem_VirtualPathStartsWithRoot( szNormalizedRoot, mount.szVirtualRoot, &szRelativePath ) ) {
+                    FS_VirtualPathStartsWithRoot( szNormalizedRoot, mount.szVirtualRoot, &szRelativePath ) ) {
             pak::pak_reader_t *reader = static_cast<pak::pak_reader_t *>( mount.pPackageReader );
             if ( reader == nullptr ) {
                 continue;
@@ -580,7 +580,7 @@ fs_error_t CypherFileSystem_ListDirectory(
                     return result;
                 }
             }
-        } else if ( CypherFileSystem_VirtualPathStartsWithRoot( mount.szVirtualRoot, szNormalizedRoot, nullptr ) ) {
+        } else if ( FS_VirtualPathStartsWithRoot( mount.szVirtualRoot, szNormalizedRoot, nullptr ) ) {
             // The requested path is an ancestor of this mount.  Expose the mount's next
             // component even though no physical directory exists at this VFS level.
             bFoundSource = true;
@@ -599,7 +599,7 @@ fs_error_t CypherFileSystem_ListDirectory(
     return overflow ? fs_error_t::ERR_BUFFER_TOO_SMALL : fs_error_t::OK;
 }
 
-fs_error_t CypherFileSystem_FindFiles(
+fs_error_t FS_FindFiles(
     const char *szVirtualRoot,
     const char *pattern,
     common::u32 flags,
@@ -607,10 +607,10 @@ fs_error_t CypherFileSystem_FindFiles(
     common::u32 nMaxEntries,
     common::u32 &nOutEntryCount )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     nOutEntryCount = 0u;
 
-    if ( !CypherFileSystem_RuntimeState().initialized ) {
+    if ( !FS_RuntimeState().initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
     if ( entries == nullptr && nMaxEntries != 0u ) {

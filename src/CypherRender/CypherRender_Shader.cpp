@@ -123,18 +123,18 @@ render_error_t CypherRender_ShaderLoad( shader_registry_t &szShaderRegistry, con
     common::u64 nVertexBytesRead{ 0u };
     common::u64 nFragmentBytesRead{ 0u };
 
-    const auto vertexReadResult = fs::CypherFileSystem_ReadEntireFile( szVertexPath, szVertexSource, CYPHER_RENDER_MAX_SHADER_SOURCE_SIZE, nVertexBytesRead );
+    const auto vertexReadResult = fs::FS_ReadEntireFile( szVertexPath, szVertexSource, CYPHER_RENDER_MAX_SHADER_SOURCE_SIZE, nVertexBytesRead );
 
     if ( vertexReadResult != fs::fs_error_t::OK ) {
-        LOG_ERROR( log::channel_t::RENDER, "shader '%s' load failed: vertex source '%s' read failed: %s.", name, szVertexPath, fs::CypherFileSystem_ErrorDesc( vertexReadResult ) );
+        LOG_ERROR( log::channel_t::RENDER, "shader '%s' load failed: vertex source '%s' read failed: %s.", name, szVertexPath, fs::FS_ErrorDesc( vertexReadResult ) );
         COM_ERRORF( CypherRender_ErrorCode( render_error_t::ERR_SHADER_LOAD ), "CypherRender_ShaderLoad: failed reading vertex shader '%s'.\n", szVertexPath );
         return render_error_t::ERR_SHADER_LOAD;
     }
     szVertexSource[nVertexBytesRead] = '\0';
 
-    const auto fragmentReadResult = fs::CypherFileSystem_ReadEntireFile( szFragmentPath, szFragmentSource, CYPHER_RENDER_MAX_SHADER_SOURCE_SIZE, nFragmentBytesRead );
+    const auto fragmentReadResult = fs::FS_ReadEntireFile( szFragmentPath, szFragmentSource, CYPHER_RENDER_MAX_SHADER_SOURCE_SIZE, nFragmentBytesRead );
     if ( fragmentReadResult != fs::fs_error_t::OK ) {
-        LOG_ERROR( log::channel_t::RENDER, "shader '%s' load failed: fragment source '%s' read failed: %s.", name, szFragmentPath, fs::CypherFileSystem_ErrorDesc( fragmentReadResult ) );
+        LOG_ERROR( log::channel_t::RENDER, "shader '%s' load failed: fragment source '%s' read failed: %s.", name, szFragmentPath, fs::FS_ErrorDesc( fragmentReadResult ) );
         COM_ERRORF( CypherRender_ErrorCode( render_error_t::ERR_SHADER_LOAD ), "CypherRender_ShaderLoad: failed reading fragment shader '%s'.\n", szFragmentPath );
         return render_error_t::ERR_SHADER_LOAD;
     }

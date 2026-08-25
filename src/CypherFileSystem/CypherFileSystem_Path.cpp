@@ -103,10 +103,10 @@ namespace cypher::engine::fs
 
 /*
 ================
-CypherFileSystem_NormalizeVirtualPath
+FS_NormalizeVirtualPath
 ================
 */
-fs_error_t CypherFileSystem_NormalizeVirtualPath( const char *szVirtualPath, char *szOutPath, common::u32 nOutPathSize )
+fs_error_t FS_NormalizeVirtualPath( const char *szVirtualPath, char *szOutPath, common::u32 nOutPathSize )
 {
     if ( szVirtualPath == nullptr || szVirtualPath[0] == '\0' ) {
         return fs_error_t::ERR_INVALID_PATH;
@@ -186,10 +186,10 @@ fs_error_t CypherFileSystem_NormalizeVirtualPath( const char *szVirtualPath, cha
 
 /*
 ================
-CypherFileSystem_NormalizeVirtualRoot
+FS_NormalizeVirtualRoot
 ================
 */
-fs_error_t CypherFileSystem_NormalizeVirtualRoot( const char *szVirtualRoot, char *szOutRoot, common::u32 nOutSize )
+fs_error_t FS_NormalizeVirtualRoot( const char *szVirtualRoot, char *szOutRoot, common::u32 nOutSize )
 {
     if ( szOutRoot == nullptr || nOutSize == 0u ) {
         return fs_error_t::ERR_INVALID_ARGUMENT;
@@ -205,15 +205,15 @@ fs_error_t CypherFileSystem_NormalizeVirtualRoot( const char *szVirtualRoot, cha
         return fs_error_t::OK;
     }
 
-    return CypherFileSystem_NormalizeVirtualPath( szVirtualRoot, szOutRoot, nOutSize );
+    return FS_NormalizeVirtualPath( szVirtualRoot, szOutRoot, nOutSize );
 }
 
 /*
 ================
-CypherFileSystem_VirtualPathStartsWithRoot
+FS_VirtualPathStartsWithRoot
 ================
 */
-bool CypherFileSystem_VirtualPathStartsWithRoot( const char *szVirtualPath, const char *szVirtualRoot, const char **szOutRelativePath )
+bool FS_VirtualPathStartsWithRoot( const char *szVirtualPath, const char *szVirtualRoot, const char **szOutRelativePath )
 {
     if ( szOutRelativePath != nullptr ) {
         *szOutRelativePath = nullptr;
@@ -252,10 +252,10 @@ bool CypherFileSystem_VirtualPathStartsWithRoot( const char *szVirtualPath, cons
 
 /*
 ================
-CypherFileSystem_BuildPhysicalPath
+FS_BuildPhysicalPath
 ================
 */
-fs_error_t CypherFileSystem_BuildPhysicalPath( const char *szPhysicalRoot, const char *szRelativePath, char *szOutPath, common::u32 nOutPathSize )
+fs_error_t FS_BuildPhysicalPath( const char *szPhysicalRoot, const char *szRelativePath, char *szOutPath, common::u32 nOutPathSize )
 {
     if ( szOutPath == nullptr || nOutPathSize == 0u ) {
         return fs_error_t::ERR_INVALID_ARGUMENT;
@@ -292,14 +292,14 @@ fs_error_t CypherFileSystem_BuildPhysicalPath( const char *szPhysicalRoot, const
     return fs_error_t::OK;
 }
 
-bool CypherFileSystem_IsValidVirtualPath( const char *szVirtualPath )
+bool FS_IsValidVirtualPath( const char *szVirtualPath )
 {
     char szNormalizedPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    fs_error_t result = CypherFileSystem_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) );
+    fs_error_t result = FS_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) );
     return ( result == fs_error_t::OK );
 }
 
-fs_error_t CypherFileSystem_PathJoin(
+fs_error_t FS_PathJoin(
     const char *left,
     const char *right,
     char *szOutPath,
@@ -318,11 +318,11 @@ fs_error_t CypherFileSystem_PathJoin(
     char normalizedLeft[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
     char normalizedRight[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
 
-    fs_error_t err = CypherFileSystem_NormalizeVirtualPath( left, normalizedLeft, sizeof( normalizedLeft ) );
+    fs_error_t err = FS_NormalizeVirtualPath( left, normalizedLeft, sizeof( normalizedLeft ) );
     if ( err != fs_error_t::OK ) {
         return err;
     }
-    err = CypherFileSystem_NormalizeVirtualPath( right, normalizedRight, sizeof( normalizedRight ) );
+    err = FS_NormalizeVirtualPath( right, normalizedRight, sizeof( normalizedRight ) );
     if ( err != fs_error_t::OK ) {
         return err;
     }
@@ -341,7 +341,7 @@ fs_error_t CypherFileSystem_PathJoin(
     return fs_error_t::OK;
 }
 
-const char *CypherFileSystem_PathBasename( const char *szVirtualPath )
+const char *FS_PathBasename( const char *szVirtualPath )
 {
     if ( szVirtualPath == nullptr ) {
         return nullptr;
@@ -354,7 +354,7 @@ const char *CypherFileSystem_PathBasename( const char *szVirtualPath )
     return szVirtualPath;
 }
 
-fs_error_t CypherFileSystem_PathDirname(
+fs_error_t FS_PathDirname(
     const char *szVirtualPath,
     char *szOutPath,
     common::u32 nOutPathSize )
@@ -367,7 +367,7 @@ fs_error_t CypherFileSystem_PathDirname(
         return fs_error_t::ERR_INVALID_PATH;
     }
     char szNormalizedPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    fs_error_t err = CypherFileSystem_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) );
+    fs_error_t err = FS_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) );
     if ( err != fs_error_t::OK ) {
         return err;
     }
@@ -386,13 +386,13 @@ fs_error_t CypherFileSystem_PathDirname(
     return fs_error_t::OK;
 }
 
-const char *CypherFileSystem_PathExtension( const char *szVirtualPath )
+const char *FS_PathExtension( const char *szVirtualPath )
 {
     if ( szVirtualPath == nullptr ) {
         return nullptr;
     }
 
-    const char *basename = CypherFileSystem_PathBasename( szVirtualPath );
+    const char *basename = FS_PathBasename( szVirtualPath );
     const char *cursor = basename;
     const char *lastDot = nullptr;
 
@@ -410,7 +410,7 @@ const char *CypherFileSystem_PathExtension( const char *szVirtualPath )
     return lastDot;
 }
 
-fs_error_t CypherFileSystem_PathWithoutExtension(
+fs_error_t FS_PathWithoutExtension(
     const char *szVirtualPath,
     char *szOutPath,
     common::u32 nOutPathSize )
@@ -422,12 +422,12 @@ fs_error_t CypherFileSystem_PathWithoutExtension(
     szOutPath[0] = '\0';
 
     char szNormalizedPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    const fs_error_t err = CypherFileSystem_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) );
+    const fs_error_t err = FS_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) );
     if ( err != fs_error_t::OK ) {
         return err;
     }
 
-    const char *extension = CypherFileSystem_PathExtension( szNormalizedPath );
+    const char *extension = FS_PathExtension( szNormalizedPath );
     const common::usize nCopyLen = ( extension != nullptr && extension[0] != '\0' )
         ? static_cast<common::usize>( extension - szNormalizedPath )
         : std::strlen( szNormalizedPath );
@@ -441,14 +441,14 @@ fs_error_t CypherFileSystem_PathWithoutExtension(
     return fs_error_t::OK;
 }
 
-bool CypherFileSystem_PathHasExtension( const char *szVirtualPath, const char *extension )
+bool FS_PathHasExtension( const char *szVirtualPath, const char *extension )
 {
     if ( szVirtualPath == nullptr || extension == nullptr || extension[0] == '\0' ) {
         return false;
     }
 
     char szNormalizedPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    if ( CypherFileSystem_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) ) != fs_error_t::OK ) {
+    if ( FS_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) ) != fs_error_t::OK ) {
         return false;
     }
 
@@ -479,7 +479,7 @@ bool CypherFileSystem_PathHasExtension( const char *szVirtualPath, const char *e
 
     szNormalizedExtension[nWriteIndex] = '\0';
 
-    const char *szPathExtension = CypherFileSystem_PathExtension( szNormalizedPath );
+    const char *szPathExtension = FS_PathExtension( szNormalizedPath );
     return szPathExtension != nullptr && std::strcmp( szPathExtension, szNormalizedExtension ) == 0;
 }
 

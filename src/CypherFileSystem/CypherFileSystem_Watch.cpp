@@ -135,7 +135,7 @@ static fs_error_t ResolveWatchPhysicalPath( runtime_state_t &state,
     szOutNormalizedPath[0] = '\0';
     szOutPhysicalPath[0] = '\0';
 
-    fs_error_t result = CypherFileSystem_NormalizeVirtualPath( szVirtualPath, szOutNormalizedPath, nOutNormalizedPathSize );
+    fs_error_t result = FS_NormalizeVirtualPath( szVirtualPath, szOutNormalizedPath, nOutNormalizedPathSize );
     if ( result != fs_error_t::OK ) {
         return result;
     }
@@ -145,14 +145,14 @@ static fs_error_t ResolveWatchPhysicalPath( runtime_state_t &state,
             continue;
         }
         const char *szRelativePath = nullptr;
-        if ( !CypherFileSystem_VirtualPathStartsWithRoot( szOutNormalizedPath, mount.szVirtualRoot, &szRelativePath ) ) {
+        if ( !FS_VirtualPathStartsWithRoot( szOutNormalizedPath, mount.szVirtualRoot, &szRelativePath ) ) {
             continue;
         }
         if ( szRelativePath == nullptr ) {
             continue;
         }
         char szPossiblePath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-        result = CypherFileSystem_BuildPhysicalPath( mount.szPhysicalRoot, szRelativePath, szPossiblePath, sizeof( szPossiblePath ) );
+        result = FS_BuildPhysicalPath( mount.szPhysicalRoot, szRelativePath, szPossiblePath, sizeof( szPossiblePath ) );
         if ( result != fs_error_t::OK ) {
             return result;
         }
@@ -328,14 +328,14 @@ static fs_error_t BuildWatchEventVirtualPath(
         if ( pWatchVirtualBase[0] == '\0' ) {
             return fs_error_t::ERR_INVALID_PATH;
         }
-        return CypherFileSystem_NormalizeVirtualPath( pWatchVirtualBase, szOutVirtualPath, nOutVirtualPathSize );
+        return FS_NormalizeVirtualPath( pWatchVirtualBase, szOutVirtualPath, nOutVirtualPathSize );
     }
 
     if ( pWatchVirtualBase[0] == '\0' ) {
-        return CypherFileSystem_NormalizeVirtualPath( szRelativePath, szOutVirtualPath, nOutVirtualPathSize );
+        return FS_NormalizeVirtualPath( szRelativePath, szOutVirtualPath, nOutVirtualPathSize );
     }
 
-    return CypherFileSystem_PathJoin( pWatchVirtualBase, szRelativePath, szOutVirtualPath, nOutVirtualPathSize );
+    return FS_PathJoin( pWatchVirtualBase, szRelativePath, szOutVirtualPath, nOutVirtualPathSize );
 }       // BuildWatchEventVirtualPath
 
 static fs_error_t DiffWatchSnapshots(
@@ -469,7 +469,7 @@ fs_error_t BuildWatchSnapshot( watch_t &watch )
             // directory_entry.path() is the physical child path of the provided parent path
             std::string szChildName = directory_entry.path().filename().generic_string();
             char szChildVirtualPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-            result = CypherFileSystem_PathJoin( watch.szVirtualPath, szChildName.c_str(), szChildVirtualPath, sizeof( szChildVirtualPath ) );
+            result = FS_PathJoin( watch.szVirtualPath, szChildName.c_str(), szChildVirtualPath, sizeof( szChildVirtualPath ) );
             if ( result != fs_error_t::OK ) {
                 return result;
             }
@@ -493,7 +493,7 @@ fs_error_t BuildWatchSnapshot( watch_t &watch )
             }
             std::string relativeString = szRelativePath.generic_string();
             char szChildVirtualPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-            result = CypherFileSystem_PathJoin( watch.szVirtualPath, relativeString.c_str(), szChildVirtualPath, sizeof( szChildVirtualPath ) );
+            result = FS_PathJoin( watch.szVirtualPath, relativeString.c_str(), szChildVirtualPath, sizeof( szChildVirtualPath ) );
             if ( result != fs_error_t::OK ) {
                 return result;
             }
@@ -660,12 +660,12 @@ static fs_error_t WindowsCreateNativeWatch( watch_t &watch )
             WindowsDestroyNativeWatch( watch );
             return fs_error_t::ERR_BUFFER_TOO_SMALL;
         }
-        fs_error_t dirnameResult = CypherFileSystem_PathDirname( watch.szVirtualPath, winWatch->szWatchVirtualPath, sizeof( winWatch->szWatchVirtualPath ) );
+        fs_error_t dirnameResult = FS_PathDirname( watch.szVirtualPath, winWatch->szWatchVirtualPath, sizeof( winWatch->szWatchVirtualPath ) );
         if ( dirnameResult != fs_error_t::OK ) {
             WindowsDestroyNativeWatch( watch );
             return dirnameResult;
         }
-        const char *basename = CypherFileSystem_PathBasename( watch.szVirtualPath );
+        const char *basename = FS_PathBasename( watch.szVirtualPath );
         if ( basename == nullptr || basename[0] == '\0' ) {
             WindowsDestroyNativeWatch( watch );
             return fs_error_t::ERR_INVALID_PATH;
@@ -770,7 +770,7 @@ static fs_error_t WindowsBuildEventVirtualPath(
     }
 
     char normalizedRelative[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    fs_error_t result = CypherFileSystem_NormalizeVirtualPath( szRelativePath, normalizedRelative, sizeof( normalizedRelative ) );
+    fs_error_t result = FS_NormalizeVirtualPath( szRelativePath, normalizedRelative, sizeof( normalizedRelative ) );
     if ( result != fs_error_t::OK ) {
         return result;
     }
@@ -1128,7 +1128,7 @@ static fs_error_t LinuxCreateNativeWatch( watch_t &watch )
 
     fs_error_t result = fs_error_t::OK;
     if ( linuxWatch->bWatchFile ) {
-        const char *basename = CypherFileSystem_PathBasename( watch.szVirtualPath );
+        const char *basename = FS_PathBasename( watch.szVirtualPath );
         if ( basename == nullptr || basename[0] == '\0' ||
              !CopyString( linuxWatch->szFileFilter, sizeof( linuxWatch->szFileFilter ), basename ) ) {
             LinuxDestroyNativeWatch( watch );
@@ -1158,7 +1158,7 @@ static fs_error_t LinuxBuildEventVirtualPath(
     common::u32 nOutVirtualPathSize )
 {
     if ( linuxWatch.bWatchFile || nativeEvent.len == 0u || szNativeName == nullptr || szNativeName[0] == '\0' ) {
-        return CypherFileSystem_NormalizeVirtualPath( dir.szVirtualPath, szOutVirtualPath, nOutVirtualPathSize );
+        return FS_NormalizeVirtualPath( dir.szVirtualPath, szOutVirtualPath, nOutVirtualPathSize );
     }
 
     return BuildWatchEventVirtualPath( dir.szVirtualPath, szNativeName, szOutVirtualPath, nOutVirtualPathSize );
@@ -1375,7 +1375,7 @@ static fs_error_t MacOSCreateNativeWatch( watch_t &watch )
     }
 
     if ( macosWatch->bWatchFile ) {
-        const char *basename = CypherFileSystem_PathBasename( watch.szVirtualPath );
+        const char *basename = FS_PathBasename( watch.szVirtualPath );
         if ( basename == nullptr || basename[0] == '\0' ||
              !CopyString( macosWatch->szFileFilter, sizeof( macosWatch->szFileFilter ), basename ) ) {
             MacOSDestroyNativeWatch( watch );
@@ -1443,13 +1443,13 @@ static fs_error_t MacOSPollNativeWatch( watch_t &watch )
 
 }           // namespace
 
-fs_error_t CypherFileSystem_WatchPath(
+fs_error_t FS_WatchPath(
     const char *szVirtualPath,
     common::u32 flags,
     watch_handle_t &watchOut )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
     watchOut = CYPHER_FILESYSTEM_INVALID_WATCH;
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;
@@ -1515,10 +1515,10 @@ fs_error_t CypherFileSystem_WatchPath(
     return fs_error_t::OK;
 }
 
-fs_error_t CypherFileSystem_UnwatchPath( watch_handle_t nWatchHandle )
+fs_error_t FS_UnwatchPath( watch_handle_t nWatchHandle )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
@@ -1548,13 +1548,13 @@ fs_error_t CypherFileSystem_UnwatchPath( watch_handle_t nWatchHandle )
     return fs_error_t::ERR_INVALID_HANDLE;
 }
 
-fs_error_t CypherFileSystem_PollChanges(
+fs_error_t FS_PollChanges(
     watch_event_t *events,
     common::u32 nMaxEvents,
     common::u32 &nOutEventCount )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
     nOutEventCount = 0u;
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;

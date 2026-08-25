@@ -38,7 +38,7 @@ void BM_FS_NormalizeVirtualPath( benchmark::State &state )
     char szOut[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( CypherFileSystem_NormalizeVirtualPath( kMessyPath, szOut, sizeof( szOut ) ) );
+        benchmark::DoNotOptimize( FS_NormalizeVirtualPath( kMessyPath, szOut, sizeof( szOut ) ) );
         benchmark::DoNotOptimize( szOut );
         benchmark::ClobberMemory();
     }
@@ -49,7 +49,7 @@ void BM_FS_PathJoin( benchmark::State &state )
     char szOut[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( CypherFileSystem_PathJoin( kRootPath, kRelativePath, szOut, sizeof( szOut ) ) );
+        benchmark::DoNotOptimize( FS_PathJoin( kRootPath, kRelativePath, szOut, sizeof( szOut ) ) );
         benchmark::DoNotOptimize( szOut );
         benchmark::ClobberMemory();
     }
@@ -60,7 +60,7 @@ void BM_FS_BuildPhysicalPath( benchmark::State &state )
     char szOut[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( CypherFileSystem_BuildPhysicalPath( kPhysicalRoot, kNormalizedPath, szOut, sizeof( szOut ) ) );
+        benchmark::DoNotOptimize( FS_BuildPhysicalPath( kPhysicalRoot, kNormalizedPath, szOut, sizeof( szOut ) ) );
         benchmark::DoNotOptimize( szOut );
         benchmark::ClobberMemory();
     }
@@ -69,7 +69,7 @@ void BM_FS_BuildPhysicalPath( benchmark::State &state )
 void BM_FS_PathBasename( benchmark::State &state )
 {
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( CypherFileSystem_PathBasename( kNormalizedPath ) );
+        benchmark::DoNotOptimize( FS_PathBasename( kNormalizedPath ) );
     }
 }
 
@@ -78,7 +78,7 @@ void BM_FS_PathDirname( benchmark::State &state )
     char szOut[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( CypherFileSystem_PathDirname( kNormalizedPath, szOut, sizeof( szOut ) ) );
+        benchmark::DoNotOptimize( FS_PathDirname( kNormalizedPath, szOut, sizeof( szOut ) ) );
         benchmark::DoNotOptimize( szOut );
         benchmark::ClobberMemory();
     }
@@ -89,7 +89,7 @@ void BM_FS_PathWithoutExtension( benchmark::State &state )
     char szOut[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( CypherFileSystem_PathWithoutExtension( kNormalizedPath, szOut, sizeof( szOut ) ) );
+        benchmark::DoNotOptimize( FS_PathWithoutExtension( kNormalizedPath, szOut, sizeof( szOut ) ) );
         benchmark::DoNotOptimize( szOut );
         benchmark::ClobberMemory();
     }
@@ -98,7 +98,7 @@ void BM_FS_PathWithoutExtension( benchmark::State &state )
 void BM_FS_PathHasExtension( benchmark::State &state )
 {
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( CypherFileSystem_PathHasExtension( kNormalizedPath, ".dds" ) );
+        benchmark::DoNotOptimize( FS_PathHasExtension( kNormalizedPath, ".dds" ) );
     }
 }
 
@@ -107,7 +107,7 @@ void BM_FS_VirtualPathStartsWithRoot( benchmark::State &state )
     const char *pszRelative = nullptr;
 
     for ( auto _ : state ) {
-        benchmark::DoNotOptimize( CypherFileSystem_VirtualPathStartsWithRoot( kNormalizedPath, kRootPath, &pszRelative ) );
+        benchmark::DoNotOptimize( FS_VirtualPathStartsWithRoot( kNormalizedPath, kRootPath, &pszRelative ) );
         benchmark::DoNotOptimize( pszRelative );
     }
 }

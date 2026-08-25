@@ -37,27 +37,27 @@ std::recursive_mutex s_FsRuntimeMutex{};        // Serializes mounts, handles, w
 
 }       // namespace
 
-runtime_state_t &CypherFileSystem_RuntimeState()
+runtime_state_t &FS_RuntimeState()
 {
     return s_FsRuntimeState;
 }
 
-std::recursive_mutex &CypherFileSystem_RuntimeMutex()
+std::recursive_mutex &FS_RuntimeMutex()
 {
     return s_FsRuntimeMutex;
 }
 
-bool CypherFileSystem_HasWritePath()
+bool FS_HasWritePath()
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    const runtime_state_t &state = CypherFileSystem_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    const runtime_state_t &state = FS_RuntimeState();
     return state.initialized && state.szWritePath[0] != '\0';
 }
 
-fs_error_t CypherFileSystem_BuildWritePath( const char *szVirtualPath, char *szOutPath, common::u32 nOutPathSize )
+fs_error_t FS_BuildWritePath( const char *szVirtualPath, char *szOutPath, common::u32 nOutPathSize )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
 
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;
@@ -72,13 +72,13 @@ fs_error_t CypherFileSystem_BuildWritePath( const char *szVirtualPath, char *szO
     // Normalize before joining so parent traversal cannot escape the configured write
     // root and two spellings of one virtual path map to the same physical destination.
     char szNormalizedPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    const fs_error_t normalizeResult = CypherFileSystem_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) );
+    const fs_error_t normalizeResult = FS_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) );
     if ( normalizeResult != fs_error_t::OK ) {
         szOutPath[0] = '\0';
         return normalizeResult;
     }
 
-    return CypherFileSystem_BuildPhysicalPath( state.szWritePath, szNormalizedPath, szOutPath, nOutPathSize );
+    return FS_BuildPhysicalPath( state.szWritePath, szNormalizedPath, szOutPath, nOutPathSize );
 }
 
 }       // namespace cypher::engine::fs

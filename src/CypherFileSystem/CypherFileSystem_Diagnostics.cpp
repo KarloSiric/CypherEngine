@@ -31,10 +31,10 @@ lookup behavior or requiring a UI.
 namespace cypher::engine::fs
 {
 
-fs_error_t CypherFileSystem_GetStats( stats_t &statsOut )
+fs_error_t FS_GetStats( stats_t &statsOut )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    const runtime_state_t &state = CypherFileSystem_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    const runtime_state_t &state = FS_RuntimeState();
     if ( !state.initialized ) {
         statsOut = {};
         return fs_error_t::ERR_NOT_INIT;
@@ -45,10 +45,10 @@ fs_error_t CypherFileSystem_GetStats( stats_t &statsOut )
     return fs_error_t::OK;
 }
 
-fs_error_t CypherFileSystem_ResetStats()
+fs_error_t FS_ResetStats()
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
@@ -58,10 +58,10 @@ fs_error_t CypherFileSystem_ResetStats()
     return fs_error_t::OK;
 }
 
-fs_error_t CypherFileSystem_DumpMounts()
+fs_error_t FS_DumpMounts()
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    const runtime_state_t &state = CypherFileSystem_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    const runtime_state_t &state = FS_RuntimeState();
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
@@ -86,10 +86,10 @@ fs_error_t CypherFileSystem_DumpMounts()
     return fs_error_t::OK;
 }
 
-fs_error_t CypherFileSystem_DumpStats()
+fs_error_t FS_DumpStats()
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    const runtime_state_t &state = CypherFileSystem_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    const runtime_state_t &state = FS_RuntimeState();
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }

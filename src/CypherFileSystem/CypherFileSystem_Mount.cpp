@@ -91,7 +91,7 @@ void FillMountInfo( const mount_t &mount, mount_info_t &infoOut )
 
 }       // namespace
 
-mount_handle_t CypherFileSystem_AllocateMountHandle( runtime_state_t &state )
+mount_handle_t FS_AllocateMountHandle( runtime_state_t &state )
 {
     // Zero is the public invalid sentinel and is never issued as a live handle.
     mount_handle_t handle = state.nNextMountHandle++;
@@ -101,7 +101,7 @@ mount_handle_t CypherFileSystem_AllocateMountHandle( runtime_state_t &state )
     return handle;
 }
 
-fs_error_t CypherFileSystem_InsertMountByPriority( runtime_state_t &state, const mount_t &mount )
+fs_error_t FS_InsertMountByPriority( runtime_state_t &state, const mount_t &mount )
 {
     if ( state.nMountCount >= CYPHER_FILESYSTEM_MAX_MOUNTS ) {
         return fs_error_t::ERR_TOO_MANY_MOUNTS;
@@ -119,7 +119,7 @@ fs_error_t CypherFileSystem_InsertMountByPriority( runtime_state_t &state, const
     return fs_error_t::OK;
 }
 
-void CypherFileSystem_RemoveMountAtIndex( runtime_state_t &state, const common::u32 index )
+void FS_RemoveMountAtIndex( runtime_state_t &state, const common::u32 index )
 {
     if ( index >= state.nMountCount ) {
         return;
@@ -143,19 +143,19 @@ void CypherFileSystem_RemoveMountAtIndex( runtime_state_t &state, const common::
     state.mounts[state.nMountCount] = {};
 }
 
-common::u32 CypherFileSystem_MountCount()
+common::u32 FS_MountCount()
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    return CypherFileSystem_RuntimeState().nMountCount;
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    return FS_RuntimeState().nMountCount;
 }
 
-fs_error_t CypherFileSystem_MountDirectory( const char *szVirtualRoot, const char *szPhysicalPath, common::u32 flags, common::u32 priority )
+fs_error_t FS_MountDirectory( const char *szVirtualRoot, const char *szPhysicalPath, common::u32 flags, common::u32 priority )
 {
     mount_handle_t nIgnoredHandle = CYPHER_FILESYSTEM_INVALID_MOUNT;
-    return CypherFileSystem_MountDirectoryWithHandle( szVirtualRoot, szPhysicalPath, flags, priority, nIgnoredHandle );
+    return FS_MountDirectoryWithHandle( szVirtualRoot, szPhysicalPath, flags, priority, nIgnoredHandle );
 }
 
-fs_error_t CypherFileSystem_MountDirectoryWithHandle(
+fs_error_t FS_MountDirectoryWithHandle(
     const char *szVirtualRoot,
     const char *szPhysicalPath,
     common::u32 flags,
@@ -164,8 +164,8 @@ fs_error_t CypherFileSystem_MountDirectoryWithHandle(
 {
     // The recursive mutex permits helpers in this call chain to use the same runtime
     // lock without exposing an unlocked variant of the filesystem API.
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     nOutHandle = CYPHER_FILESYSTEM_INVALID_MOUNT;
 
     if ( !state.initialized ) {
@@ -180,7 +180,7 @@ fs_error_t CypherFileSystem_MountDirectoryWithHandle(
     // Store only canonical roots.  Resolution can then compare path components rather
     // than accepting aliases such as duplicate separators or parent traversal.
     char szNormalizedVirtualRoot[CYPHER_FILESYSTEM_MAX_VIRTUAL_ROOT_LENGTH]{};
-    const fs_error_t rootResult = CypherFileSystem_NormalizeVirtualRoot( szVirtualRoot, szNormalizedVirtualRoot, sizeof( szNormalizedVirtualRoot ) );
+    const fs_error_t rootResult = FS_NormalizeVirtualRoot( szVirtualRoot, szNormalizedVirtualRoot, sizeof( szNormalizedVirtualRoot ) );
     if ( rootResult != fs_error_t::OK ) {
         LOG_ERROR( log::channel_t::FS, "mount failed for '%s': invalid virtual root.", szPhysicalPath );
         return rootResult;
@@ -236,7 +236,7 @@ fs_error_t CypherFileSystem_MountDirectoryWithHandle(
     }
 
     mount_t mount{};
-    mount.handle = CypherFileSystem_AllocateMountHandle( state );
+    mount.handle = FS_AllocateMountHandle( state );
     mount.type = mount_type_t::CYPHER_FILESYSTEM_DIRECTORY;
 
     const common::u32 nVirtualRootLength = static_cast<common::u32>( std::strlen( szNormalizedVirtualRoot ) );
@@ -247,7 +247,7 @@ fs_error_t CypherFileSystem_MountDirectoryWithHandle(
 
     // Publish the output handle only after insertion succeeds; failure leaves no live
     // mount observable by the caller.
-    const fs_error_t insertResult = CypherFileSystem_InsertMountByPriority( state, mount );
+    const fs_error_t insertResult = FS_InsertMountByPriority( state, mount );
     if ( insertResult != fs_error_t::OK ) {
         return insertResult;
     }
@@ -257,17 +257,17 @@ fs_error_t CypherFileSystem_MountDirectoryWithHandle(
     return fs_error_t::OK;
 }
 
-fs_error_t CypherFileSystem_UnmountDirectory( const char *szVirtualRoot )
+fs_error_t FS_UnmountDirectory( const char *szVirtualRoot )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
 
     char szNormalizedVirtualRoot[CYPHER_FILESYSTEM_MAX_VIRTUAL_ROOT_LENGTH]{};
-    const fs_error_t rootResult = CypherFileSystem_NormalizeVirtualRoot( szVirtualRoot, szNormalizedVirtualRoot, sizeof( szNormalizedVirtualRoot ) );
+    const fs_error_t rootResult = FS_NormalizeVirtualRoot( szVirtualRoot, szNormalizedVirtualRoot, sizeof( szNormalizedVirtualRoot ) );
     if ( rootResult != fs_error_t::OK ) {
         return rootResult;
     }
@@ -275,7 +275,7 @@ fs_error_t CypherFileSystem_UnmountDirectory( const char *szVirtualRoot )
     for ( common::u32 i = 0u; i < state.nMountCount; ++i ) {
         if ( state.mounts[i].type == mount_type_t::CYPHER_FILESYSTEM_DIRECTORY &&
              std::strcmp( state.mounts[i].szVirtualRoot, szNormalizedVirtualRoot ) == 0 ) {
-            CypherFileSystem_RemoveMountAtIndex( state, i );
+            FS_RemoveMountAtIndex( state, i );
             return fs_error_t::OK;
         }
     }
@@ -283,10 +283,10 @@ fs_error_t CypherFileSystem_UnmountDirectory( const char *szVirtualRoot )
     return fs_error_t::ERR_MOUNT_NOT_FOUND;
 }
 
-fs_error_t CypherFileSystem_Unmount( mount_handle_t mount )
+fs_error_t FS_Unmount( mount_handle_t mount )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;
@@ -297,7 +297,7 @@ fs_error_t CypherFileSystem_Unmount( mount_handle_t mount )
 
     for ( common::u32 i = 0u; i < state.nMountCount; ++i ) {
         if ( state.mounts[i].handle == mount ) {
-            CypherFileSystem_RemoveMountAtIndex( state, i );
+            FS_RemoveMountAtIndex( state, i );
             return fs_error_t::OK;
         }
     }
@@ -305,10 +305,10 @@ fs_error_t CypherFileSystem_Unmount( mount_handle_t mount )
     return fs_error_t::ERR_MOUNT_NOT_FOUND;
 }
 
-fs_error_t CypherFileSystem_GetMountInfo( common::u32 nMountIndex, mount_info_t &infoOut )
+fs_error_t FS_GetMountInfo( common::u32 nMountIndex, mount_info_t &infoOut )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 
     infoOut = {};
 
@@ -324,10 +324,10 @@ fs_error_t CypherFileSystem_GetMountInfo( common::u32 nMountIndex, mount_info_t 
     return fs_error_t::OK;
 }
 
-fs_error_t CypherFileSystem_GetMountInfoByHandle( mount_handle_t mount, mount_info_t &infoOut )
+fs_error_t FS_GetMountInfoByHandle( mount_handle_t mount, mount_info_t &infoOut )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 
     infoOut = {};
 
@@ -348,10 +348,10 @@ fs_error_t CypherFileSystem_GetMountInfoByHandle( mount_handle_t mount, mount_in
     return fs_error_t::ERR_MOUNT_NOT_FOUND;
 }
 
-fs_error_t CypherFileSystem_ResolvePath( const char *szVirtualPath, char *szOutResolvedPath, common::u32 nOutResolvedPathSize )
+fs_error_t FS_ResolvePath( const char *szVirtualPath, char *szOutResolvedPath, common::u32 nOutResolvedPathSize )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
@@ -363,7 +363,7 @@ fs_error_t CypherFileSystem_ResolvePath( const char *szVirtualPath, char *szOutR
     }
     szOutResolvedPath[0] = '\0';
     resolved_file_t resolvedFile{};
-    const fs_error_t resolveResult = CypherFileSystem_ResolveReadableFile( szVirtualPath, resolvedFile );
+    const fs_error_t resolveResult = FS_ResolveReadableFile( szVirtualPath, resolvedFile );
     if ( resolveResult != fs_error_t::OK ) {
         return resolveResult;
     }
@@ -380,10 +380,10 @@ fs_error_t CypherFileSystem_ResolvePath( const char *szVirtualPath, char *szOutR
     return fs_error_t::OK;
 }
 
-fs_error_t CypherFileSystem_ResolveReadableFile( const char *szVirtualPath, resolved_file_t &fileOut )
+fs_error_t FS_ResolveReadableFile( const char *szVirtualPath, resolved_file_t &fileOut )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 
     fileOut = {};
 
@@ -394,7 +394,7 @@ fs_error_t CypherFileSystem_ResolveReadableFile( const char *szVirtualPath, reso
         return fs_error_t::ERR_INVALID_PATH;
     }
 
-    const fs_error_t normalizeResult = CypherFileSystem_NormalizeVirtualPath(
+    const fs_error_t normalizeResult = FS_NormalizeVirtualPath(
         szVirtualPath,
         fileOut.szNormalizedPath,
         sizeof( fileOut.szNormalizedPath ) );
@@ -410,7 +410,7 @@ fs_error_t CypherFileSystem_ResolveReadableFile( const char *szVirtualPath, reso
         // This helper performs a component-aware prefix test and returns a borrowed
         // pointer into the normalized path immediately after the virtual root.
         const char *szRelativePath = nullptr;
-        if ( !CypherFileSystem_VirtualPathStartsWithRoot( fileOut.szNormalizedPath, mount.szVirtualRoot, &szRelativePath ) ) {
+        if ( !FS_VirtualPathStartsWithRoot( fileOut.szNormalizedPath, mount.szVirtualRoot, &szRelativePath ) ) {
             continue;
         }
         if ( szRelativePath == nullptr || szRelativePath[0] == '\0' ) {
@@ -419,7 +419,7 @@ fs_error_t CypherFileSystem_ResolveReadableFile( const char *szVirtualPath, reso
 
         if ( mount.type == mount_type_t::CYPHER_FILESYSTEM_DIRECTORY ) {
             char szCandidatePath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-            const fs_error_t buildPathResult = CypherFileSystem_BuildPhysicalPath( mount.szPhysicalRoot, szRelativePath, szCandidatePath, sizeof( szCandidatePath ) );
+            const fs_error_t buildPathResult = FS_BuildPhysicalPath( mount.szPhysicalRoot, szRelativePath, szCandidatePath, sizeof( szCandidatePath ) );
             if ( buildPathResult != fs_error_t::OK ) {
                 return buildPathResult;
             }
@@ -502,10 +502,10 @@ fs_error_t CypherFileSystem_ResolveReadableFile( const char *szVirtualPath, reso
     return fs_error_t::ERR_PATH_NOT_FOUND;
 }
 
-fs_error_t CypherFileSystem_TraceResolve( const char *szVirtualPath, resolve_trace_t &traceOut )
+fs_error_t FS_TraceResolve( const char *szVirtualPath, resolve_trace_t &traceOut )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 
     traceOut = resolve_trace_t{};
 
@@ -525,7 +525,7 @@ fs_error_t CypherFileSystem_TraceResolve( const char *szVirtualPath, resolve_tra
     }
     std::memcpy( traceOut.szRequestedPath, szVirtualPath, nRequestedLen + 1u );
 
-    const fs_error_t normalizeResult = CypherFileSystem_NormalizeVirtualPath( szVirtualPath, traceOut.szNormalizedPath, sizeof( traceOut.szNormalizedPath ) );
+    const fs_error_t normalizeResult = FS_NormalizeVirtualPath( szVirtualPath, traceOut.szNormalizedPath, sizeof( traceOut.szNormalizedPath ) );
     if ( normalizeResult != fs_error_t::OK ) {
         traceOut.result = normalizeResult;
         return normalizeResult;
@@ -541,7 +541,7 @@ fs_error_t CypherFileSystem_TraceResolve( const char *szVirtualPath, resolve_tra
         std::memcpy( entry.szVirtualRoot, mount.szVirtualRoot, std::strlen( mount.szVirtualRoot ) + 1u );
 
         const char *szRelativePath = nullptr;
-        if ( !CypherFileSystem_VirtualPathStartsWithRoot( traceOut.szNormalizedPath, mount.szVirtualRoot, &szRelativePath ) ) {
+        if ( !FS_VirtualPathStartsWithRoot( traceOut.szNormalizedPath, mount.szVirtualRoot, &szRelativePath ) ) {
             continue;
         }
 
@@ -581,7 +581,7 @@ fs_error_t CypherFileSystem_TraceResolve( const char *szVirtualPath, resolve_tra
             continue;
         }
 
-        const fs_error_t buildPathResult = CypherFileSystem_BuildPhysicalPath( mount.szPhysicalRoot, szRelativePath, entry.szPhysicalPath, sizeof( entry.szPhysicalPath ) );
+        const fs_error_t buildPathResult = FS_BuildPhysicalPath( mount.szPhysicalRoot, szRelativePath, entry.szPhysicalPath, sizeof( entry.szPhysicalPath ) );
         if ( buildPathResult != fs_error_t::OK ) {
             traceOut.result = buildPathResult;
             return buildPathResult;
@@ -613,40 +613,40 @@ fs_error_t CypherFileSystem_TraceResolve( const char *szVirtualPath, resolve_tra
     return fs_error_t::ERR_PATH_NOT_FOUND;
 }
 
-bool CypherFileSystem_Exists( const char *szVirtualPath )
+bool FS_Exists( const char *szVirtualPath )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    if ( !CypherFileSystem_RuntimeState().initialized ) {
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    if ( !FS_RuntimeState().initialized ) {
         return false;
     }
 
     resolved_file_t resolvedFile{};
-    if ( CypherFileSystem_ResolveReadableFile( szVirtualPath, resolvedFile ) == fs_error_t::OK ) {
+    if ( FS_ResolveReadableFile( szVirtualPath, resolvedFile ) == fs_error_t::OK ) {
         return true;
     }
 
     // A path may name a directory rather than a readable file.  The sizing form of
     // ListDirectory proves directory existence without allocating an entry array.
     common::u32 nEntryCount = 0u;
-    const fs_error_t listResult = CypherFileSystem_ListDirectory( szVirtualPath, nullptr, 0u, nEntryCount );
+    const fs_error_t listResult = FS_ListDirectory( szVirtualPath, nullptr, 0u, nEntryCount );
     return listResult == fs_error_t::OK || listResult == fs_error_t::ERR_BUFFER_TOO_SMALL;
 }
 
-bool CypherFileSystem_FileExists( const char *szVirtualPath )
+bool FS_FileExists( const char *szVirtualPath )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    if ( !CypherFileSystem_RuntimeState().initialized ) {
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    if ( !FS_RuntimeState().initialized ) {
         return false;
     }
 
     file_info_t info{};
-    return CypherFileSystem_GetFileInfo( szVirtualPath, info ) == fs_error_t::OK && info.exists && !info.bIsDirectory;
+    return FS_GetFileInfo( szVirtualPath, info ) == fs_error_t::OK && info.exists && !info.bIsDirectory;
 }
 
-fs_error_t CypherFileSystem_GetFileInfo( const char *szVirtualPath, file_info_t &infoOut )
+fs_error_t FS_GetFileInfo( const char *szVirtualPath, file_info_t &infoOut )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    if ( !CypherFileSystem_RuntimeState().initialized ) {
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    if ( !FS_RuntimeState().initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
 
@@ -657,7 +657,7 @@ fs_error_t CypherFileSystem_GetFileInfo( const char *szVirtualPath, file_info_t 
     }
 
     char szNormalizedPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    fs_error_t err = CypherFileSystem_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) );
+    fs_error_t err = FS_NormalizeVirtualPath( szVirtualPath, szNormalizedPath, sizeof( szNormalizedPath ) );
     if ( err != fs_error_t::OK ) {
         return err;
     }
@@ -667,7 +667,7 @@ fs_error_t CypherFileSystem_GetFileInfo( const char *szVirtualPath, file_info_t 
     // Prefer the file resolver, then fall back to directory discovery.  This preserves
     // the same mount precedence rules for both forms of filesystem object.
     resolved_file_t resolvedFile{};
-    err = CypherFileSystem_ResolveReadableFile( szNormalizedPath, resolvedFile );
+    err = FS_ResolveReadableFile( szNormalizedPath, resolvedFile );
     if ( err == fs_error_t::OK ) {
         infoOut.exists = true;
         infoOut.bIsDirectory = false;
@@ -688,7 +688,7 @@ fs_error_t CypherFileSystem_GetFileInfo( const char *szVirtualPath, file_info_t 
     }
 
     common::u32 nEntryCount = 0u;
-    err = CypherFileSystem_ListDirectory( szNormalizedPath, nullptr, 0u, nEntryCount );
+    err = FS_ListDirectory( szNormalizedPath, nullptr, 0u, nEntryCount );
     if ( err != fs_error_t::OK && err != fs_error_t::ERR_BUFFER_TOO_SMALL ) {
         infoOut = {};
         return err;

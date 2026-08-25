@@ -91,24 +91,24 @@ cfg_error_t CypherConfig_LoadFile( const char *path, const bool required ) {
 
     fs::file_t file{};
 
-    const fs::fs_error_t openResult = fs::CypherFileSystem_Open( path, fs::open_mode_t::READ_TEXT, file );
+    const fs::fs_error_t openResult = fs::FS_Open( path, fs::open_mode_t::READ_TEXT, file );
     if ( openResult != fs::fs_error_t::OK ) {
         if ( required ) {
-            LOG_ERROR( log::channel_t::CFG, "required config '%s' failed to open: %s.", path, fs::CypherFileSystem_ErrorDesc( openResult ) );
+            LOG_ERROR( log::channel_t::CFG, "required config '%s' failed to open: %s.", path, fs::FS_ErrorDesc( openResult ) );
         } else {
-            LOG_DEBUG( log::channel_t::CFG, "optional config '%s' not loaded: %s.", path, fs::CypherFileSystem_ErrorDesc( openResult ) );
+            LOG_DEBUG( log::channel_t::CFG, "optional config '%s' not loaded: %s.", path, fs::FS_ErrorDesc( openResult ) );
         }
         return required ? cfg_error_t::ERR_FILE_OPEN_FAILED : cfg_error_t::OK;
     }
 
     if ( file.size == 0u ) {
-        fs::CypherFileSystem_Close( file );
+        fs::FS_Close( file );
         LOG_INFO( log::channel_t::CFG, "config '%s' loaded: empty file.", path );
         return cfg_error_t::OK;
     }
 
     if ( file.size >= CYPHER_CONFIG_MAX_FILE_SIZE ) {
-        fs::CypherFileSystem_Close( file );
+        fs::FS_Close( file );
         LOG_ERROR( log::channel_t::CFG, "config '%s' failed: file too large (%llu bytes).",
                           path,
                           static_cast<unsigned long long>( file.size ) );
@@ -118,16 +118,16 @@ cfg_error_t CypherConfig_LoadFile( const char *path, const bool required ) {
     char buffer[CYPHER_CONFIG_MAX_FILE_SIZE]{};
     common::u64 nBytesRead{};
 
-    const fs::fs_error_t readResult = fs::CypherFileSystem_Read( file, buffer, file.size, nBytesRead );
-    const fs::fs_error_t closeResult = fs::CypherFileSystem_Close( file );
+    const fs::fs_error_t readResult = fs::FS_Read( file, buffer, file.size, nBytesRead );
+    const fs::fs_error_t closeResult = fs::FS_Close( file );
 
     if ( readResult != fs::fs_error_t::OK ) {
-        LOG_ERROR( log::channel_t::CFG, "config '%s' failed: read failed: %s.", path, fs::CypherFileSystem_ErrorDesc( readResult ) );
+        LOG_ERROR( log::channel_t::CFG, "config '%s' failed: read failed: %s.", path, fs::FS_ErrorDesc( readResult ) );
         return cfg_error_t::ERR_IO_ERROR;
     }
 
     if ( closeResult != fs::fs_error_t::OK ) {
-        LOG_ERROR( log::channel_t::CFG, "config '%s' failed: close failed: %s.", path, fs::CypherFileSystem_ErrorDesc( closeResult ) );
+        LOG_ERROR( log::channel_t::CFG, "config '%s' failed: close failed: %s.", path, fs::FS_ErrorDesc( closeResult ) );
         return cfg_error_t::ERR_IO_ERROR;
     }
 

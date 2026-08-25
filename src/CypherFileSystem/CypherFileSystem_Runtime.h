@@ -120,32 +120,32 @@ struct resolved_file_t {
 	char szPackagePath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};  // Physical archive path for PACKAGE_FILE.
 };
 
-runtime_state_t &CypherFileSystem_RuntimeState();
+runtime_state_t &FS_RuntimeState();
 
-std::recursive_mutex &CypherFileSystem_RuntimeMutex();
+std::recursive_mutex &FS_RuntimeMutex();
 
-mount_handle_t CypherFileSystem_AllocateMountHandle( runtime_state_t &state );
+mount_handle_t FS_AllocateMountHandle( runtime_state_t &state );
 
-fs_error_t CypherFileSystem_InsertMountByPriority(
+fs_error_t FS_InsertMountByPriority(
 	runtime_state_t &state,
 	const mount_t &mount );
 
-void CypherFileSystem_RemoveMountAtIndex(
+void FS_RemoveMountAtIndex(
 	runtime_state_t &state,
 	common::u32 index );
 
-fs_error_t CypherFileSystem_ResolveReadableFile(
+fs_error_t FS_ResolveReadableFile(
 	const char *szVirtualPath,
 	resolved_file_t &fileOut );
 
-bool CypherFileSystem_HasWritePath();
+bool FS_HasWritePath();
 
-fs_error_t CypherFileSystem_BuildWritePath(
+fs_error_t FS_BuildWritePath(
 	const char *szVirtualPath,
 	char *szOutPath,
 	common::u32 nOutPathSize );
 
-void CypherFileSystem_ShutdownAsyncRequests();
+void FS_ShutdownAsyncRequests();
 
 } // namespace cypher::engine::fs
 

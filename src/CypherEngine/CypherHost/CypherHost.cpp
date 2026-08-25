@@ -227,10 +227,10 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         return host_error_t::ERR_INITIALIZING;
     }
 
-    const auto fsResult = fs::CypherFileSystem_Init();
+    const auto fsResult = fs::FS_Init();
     if( fsResult != fs::fs_error_t::OK ) {
-        LOG_ERROR( log::channel_t::FS, "filesystem initialization failed: %s.", fs::CypherFileSystem_ErrorDesc( fsResult ) );
-        COM_ERRORF( CypherFileSystem_ErrorCode( fsResult ), "CypherHost_Init: CypherFileSystem_Init failed: %s", fs::CypherFileSystem_ErrorDesc( fsResult ) );
+        LOG_ERROR( log::channel_t::FS, "filesystem initialization failed: %s.", fs::FS_ErrorDesc( fsResult ) );
+        COM_ERRORF( FS_ErrorCode( fsResult ), "CypherHost_Init: FS_Init failed: %s", fs::FS_ErrorDesc( fsResult ) );
         mem::CypherMemory_Shutdown();
         log::CypherLog_Shutdown();
         sys::Sys_Shutdown();
@@ -245,7 +245,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         LOG_ERROR( log::channel_t::CMD, "command system initialization failed: %s.", CypherCommand_ErrorDesc( cmdResult ) );
         COM_ERRORF( CypherCommand_ErrorCode( cmdResult ), "CypherHost_Init: CypherCommand_Init failed: %s", CypherCommand_ErrorDesc( cmdResult ) );
 
-        fs::CypherFileSystem_Shutdown();
+        fs::FS_Shutdown();
         mem::CypherMemory_Shutdown();
         log::CypherLog_Shutdown();
         sys::Sys_Shutdown();
@@ -263,7 +263,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         COM_ERRORF( CypherCVar_ErrorCode( cvarResult ), "CypherHost_Init: CypherCVar_Init failed: %s", cvar::CypherCVar_ErrorDesc( cvarResult ) );
 
         cmd::CypherCommand_Shutdown();
-        fs::CypherFileSystem_Shutdown();
+        fs::FS_Shutdown();
         mem::CypherMemory_Shutdown();
         log::CypherLog_Shutdown();
         sys::Sys_Shutdown();
@@ -282,7 +282,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
 
         cvar::CypherCVar_Shutdown();
         cmd::CypherCommand_Shutdown();
-        fs::CypherFileSystem_Shutdown();
+        fs::FS_Shutdown();
         mem::CypherMemory_Shutdown();
         log::CypherLog_Shutdown();
         sys::Sys_Shutdown();
@@ -304,28 +304,28 @@ CypherHost_MountFileSystem
 host_error_t CypherHost_MountFileSystem( void ) {
     const sys::paths_t &paths = sys::Sys_Paths();
 
-    const auto baseMountResult = fs::CypherFileSystem_MountDirectory(
+    const auto baseMountResult = fs::FS_MountDirectory(
         "",
         paths.basePath,
         fs::CYPHER_FILESYSTEM_MOUNT_READ_ONLY,
         0u );
 
     if ( baseMountResult != fs::fs_error_t::OK ) {
-        LOG_ERROR( log::channel_t::FS, "filesystem base mount failed: base='%s', error=%s.", paths.basePath, fs::CypherFileSystem_ErrorDesc( baseMountResult ) );
+        LOG_ERROR( log::channel_t::FS, "filesystem base mount failed: base='%s', error=%s.", paths.basePath, fs::FS_ErrorDesc( baseMountResult ) );
         COM_ERRORF(
-            fs::CypherFileSystem_ErrorCode( baseMountResult ),
+            fs::FS_ErrorCode( baseMountResult ),
             "CypherHost_Init: filesystem base mount failed: %s",
-            fs::CypherFileSystem_ErrorDesc( baseMountResult ) );
+            fs::FS_ErrorDesc( baseMountResult ) );
         return host_error_t::ERR_INITIALIZING;
     }
 
-    const auto writePathResult = fs::CypherFileSystem_SetWritePath( paths.userPath );
+    const auto writePathResult = fs::FS_SetWritePath( paths.userPath );
     if ( writePathResult != fs::fs_error_t::OK ) {
-        LOG_ERROR( log::channel_t::FS, "filesystem write path failed: user='%s', error=%s.", paths.userPath, fs::CypherFileSystem_ErrorDesc( writePathResult ) );
+        LOG_ERROR( log::channel_t::FS, "filesystem write path failed: user='%s', error=%s.", paths.userPath, fs::FS_ErrorDesc( writePathResult ) );
         COM_ERRORF(
-            fs::CypherFileSystem_ErrorCode( writePathResult ),
+            fs::FS_ErrorCode( writePathResult ),
             "CypherHost_Init: filesystem write path failed: %s",
-            fs::CypherFileSystem_ErrorDesc( writePathResult ) );
+            fs::FS_ErrorDesc( writePathResult ) );
         return host_error_t::ERR_INITIALIZING;
     }
 
@@ -808,7 +808,7 @@ void CypherHost_Shutdown( state_t &pHostState ) {
     cfg::CypherConfig_Shutdown();
     cvar::CypherCVar_Shutdown();
     cmd::CypherCommand_Shutdown();
-    fs::CypherFileSystem_Shutdown();
+    fs::FS_Shutdown();
     mem::CypherMemory_Shutdown();
     LOG_INFO( log::channel_t::HOST, "%s shutdown complete.", common::COM_ENGINE_INFO.name );
     log::CypherLog_Shutdown();

@@ -106,7 +106,7 @@ async_worker_result_t ReadAsyncWorker(
     // buffer is borrowed from the caller for the entire request lifetime.  The caller
     // must not release or mutate it until Poll/Wait reports a terminal status.
     common::u64 nBytesRead = 0u;
-    const fs_error_t result = CypherFileSystem_ReadEntireFile(
+    const fs_error_t result = FS_ReadEntireFile(
         szVirtualPath.c_str(),
         buffer,
         nBytesToRead,
@@ -121,9 +121,9 @@ async_worker_result_t WriteAsyncWorker(
     const common::u64 nBytesToWrite )
 {
     // Write requests move an owned byte copy into the worker, so caller storage may be
-    // reused immediately after CypherFileSystem_WriteAsync returns.
+    // reused immediately after FS_WriteAsync returns.
     const void *buffer = data.empty() ? nullptr : data.data();
-    const fs_error_t result = CypherFileSystem_WriteEntireFile(
+    const fs_error_t result = FS_WriteEntireFile(
         szVirtualPath.c_str(),
         buffer,
         nBytesToWrite );
@@ -178,7 +178,7 @@ fs_error_t SubmitAsyncRequest(
     std::shared_future<async_worker_result_t> future,
     async_request_t &requestOut )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
+    runtime_state_t &state = FS_RuntimeState();
 
     // Publish the handle only after the worker future exists and the slot is complete.
     slot.handle = AllocateAsyncHandle( state );
@@ -194,16 +194,16 @@ fs_error_t SubmitAsyncRequest(
 
 }       // namespace
 
-fs_error_t CypherFileSystem_ReadAsync(
+fs_error_t FS_ReadAsync(
     const char *szVirtualPath,
     void *buffer,
     common::u64 nBytesToRead,
     async_request_t &requestOut )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     requestOut = CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST;
 
-    if ( !CypherFileSystem_RuntimeState().initialized ) {
+    if ( !FS_RuntimeState().initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
     if ( szVirtualPath == nullptr || szVirtualPath[0] == '\0' ) {
@@ -213,7 +213,7 @@ fs_error_t CypherFileSystem_ReadAsync(
         return fs_error_t::ERR_INVALID_ARGUMENT;
     }
 
-    async_request_state_t *slot = AllocateAsyncRequest( CypherFileSystem_RuntimeState() );
+    async_request_state_t *slot = AllocateAsyncRequest( FS_RuntimeState() );
     if ( slot == nullptr ) {
         return fs_error_t::ERR_OUT_OF_MEMORY;
     }
@@ -239,16 +239,16 @@ fs_error_t CypherFileSystem_ReadAsync(
     }
 }
 
-fs_error_t CypherFileSystem_WriteAsync(
+fs_error_t FS_WriteAsync(
     const char *szVirtualPath,
     const void *buffer,
     common::u64 nBytesToWrite,
     async_request_t &requestOut )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     requestOut = CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST;
 
-    if ( !CypherFileSystem_RuntimeState().initialized ) {
+    if ( !FS_RuntimeState().initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
     if ( szVirtualPath == nullptr || szVirtualPath[0] == '\0' ) {
@@ -275,7 +275,7 @@ fs_error_t CypherFileSystem_WriteAsync(
         std::memcpy( pWriteBuffer.data(), buffer, static_cast<common::usize>( nBytesToWrite ) );
     }
 
-    async_request_state_t *slot = AllocateAsyncRequest( CypherFileSystem_RuntimeState() );
+    async_request_state_t *slot = AllocateAsyncRequest( FS_RuntimeState() );
     if ( slot == nullptr ) {
         return fs_error_t::ERR_OUT_OF_MEMORY;
     }
@@ -299,12 +299,12 @@ fs_error_t CypherFileSystem_WriteAsync(
     }
 }
 
-fs_error_t CypherFileSystem_PollAsync( async_request_t request, async_result_t &resultOut )
+fs_error_t FS_PollAsync( async_request_t request, async_result_t &resultOut )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     resultOut = {};
 
-    if ( !CypherFileSystem_RuntimeState().initialized ) {
+    if ( !FS_RuntimeState().initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
     if ( request == CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST ) {
@@ -312,7 +312,7 @@ fs_error_t CypherFileSystem_PollAsync( async_request_t request, async_result_t &
         return fs_error_t::ERR_INVALID_HANDLE;
     }
 
-    async_request_state_t *slot = FindAsyncRequest( CypherFileSystem_RuntimeState(), request );
+    async_request_state_t *slot = FindAsyncRequest( FS_RuntimeState(), request );
     if ( slot == nullptr || !slot->future.valid() ) {
         resultOut.error = fs_error_t::ERR_INVALID_HANDLE;
         return fs_error_t::ERR_INVALID_HANDLE;
@@ -334,15 +334,15 @@ fs_error_t CypherFileSystem_PollAsync( async_request_t request, async_result_t &
     return fs_error_t::OK;
 }
 
-fs_error_t CypherFileSystem_WaitAsync( async_request_t request, async_result_t &resultOut )
+fs_error_t FS_WaitAsync( async_request_t request, async_result_t &resultOut )
 {
     std::shared_future<async_worker_result_t> future{};
 
     {
-        std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+        std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
         resultOut = {};
 
-        if ( !CypherFileSystem_RuntimeState().initialized ) {
+        if ( !FS_RuntimeState().initialized ) {
             return fs_error_t::ERR_NOT_INIT;
         }
         if ( request == CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST ) {
@@ -350,7 +350,7 @@ fs_error_t CypherFileSystem_WaitAsync( async_request_t request, async_result_t &
             return fs_error_t::ERR_INVALID_HANDLE;
         }
 
-        async_request_state_t *slot = FindAsyncRequest( CypherFileSystem_RuntimeState(), request );
+        async_request_state_t *slot = FindAsyncRequest( FS_RuntimeState(), request );
         if ( slot == nullptr || !slot->future.valid() ) {
             resultOut.error = fs_error_t::ERR_INVALID_HANDLE;
             return fs_error_t::ERR_INVALID_HANDLE;
@@ -366,20 +366,20 @@ fs_error_t CypherFileSystem_WaitAsync( async_request_t request, async_result_t &
     }
 
     future.wait();
-    return CypherFileSystem_PollAsync( request, resultOut );
+    return FS_PollAsync( request, resultOut );
 }
 
-fs_error_t CypherFileSystem_CancelAsync( async_request_t request )
+fs_error_t FS_CancelAsync( async_request_t request )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    if ( !CypherFileSystem_RuntimeState().initialized ) {
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    if ( !FS_RuntimeState().initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
     if ( request == CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST ) {
         return fs_error_t::ERR_INVALID_HANDLE;
     }
 
-    async_request_state_t *slot = FindAsyncRequest( CypherFileSystem_RuntimeState(), request );
+    async_request_state_t *slot = FindAsyncRequest( FS_RuntimeState(), request );
     if ( slot == nullptr || !slot->future.valid() ) {
         return fs_error_t::ERR_INVALID_HANDLE;
     }
@@ -396,14 +396,14 @@ fs_error_t CypherFileSystem_CancelAsync( async_request_t request )
     return fs_error_t::OK;
 }
 
-void CypherFileSystem_ShutdownAsyncRequests()
+void FS_ShutdownAsyncRequests()
 {
     std::shared_future<async_worker_result_t> futures[CYPHER_FILESYSTEM_MAX_ASYNC_REQUESTS]{};
     common::u32 nFutureCount = 0u;
 
     {
-        std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-        runtime_state_t &state = CypherFileSystem_RuntimeState();
+        std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+        runtime_state_t &state = FS_RuntimeState();
         for ( common::u32 i = 0u; i < CYPHER_FILESYSTEM_MAX_ASYNC_REQUESTS; ++i ) {
             async_request_state_t &slot = state.pAsyncRequests[i];
             if ( slot.used && slot.future.valid() ) {
@@ -421,8 +421,8 @@ void CypherFileSystem_ShutdownAsyncRequests()
 
     // Once every worker has stopped, clearing the slots invalidates all old handles.
     {
-        std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-        runtime_state_t &state = CypherFileSystem_RuntimeState();
+        std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+        runtime_state_t &state = FS_RuntimeState();
         for ( common::u32 i = 0u; i < CYPHER_FILESYSTEM_MAX_ASYNC_REQUESTS; ++i ) {
             state.pAsyncRequests[i] = async_request_state_t{};
         }

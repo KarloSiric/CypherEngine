@@ -97,14 +97,14 @@ pak::pak_reader_t *PackageReader( const mount_t &mount )
 
 }       // namespace
 
-fs_error_t CypherFileSystem_MountPackage(
+fs_error_t FS_MountPackage(
     const char *szVirtualRoot,
     const char *szPackagePath,
     common::u32 flags,
     common::u32 priority )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;
@@ -116,7 +116,7 @@ fs_error_t CypherFileSystem_MountPackage(
     // Package and directory mounts use the same canonical root representation; this
     // is what makes backend-neutral priority resolution possible.
     char szNormalizedVirtualRoot[CYPHER_FILESYSTEM_MAX_VIRTUAL_ROOT_LENGTH]{};
-    const fs_error_t rootResult = CypherFileSystem_NormalizeVirtualRoot( szVirtualRoot, szNormalizedVirtualRoot, sizeof( szNormalizedVirtualRoot ) );
+    const fs_error_t rootResult = FS_NormalizeVirtualRoot( szVirtualRoot, szNormalizedVirtualRoot, sizeof( szNormalizedVirtualRoot ) );
     if ( rootResult != fs_error_t::OK ) {
         return rootResult;
     }
@@ -177,7 +177,7 @@ fs_error_t CypherFileSystem_MountPackage(
     }
 
     mount_t mount{};
-    mount.handle = CypherFileSystem_AllocateMountHandle( state );
+    mount.handle = FS_AllocateMountHandle( state );
     mount.type = mount_type_t::CYPHER_FILESYSTEM_PACKAGE;
     mount.flags = flags;
     mount.priority = priority;
@@ -186,7 +186,7 @@ fs_error_t CypherFileSystem_MountPackage(
     std::memcpy( mount.szPhysicalRoot, szPackagePath, nPackagePathLen + 1u );
 
     // Insertion is the publication point.  Roll back reader ownership on failure.
-    const fs_error_t insertResult = CypherFileSystem_InsertMountByPriority( state, mount );
+    const fs_error_t insertResult = FS_InsertMountByPriority( state, mount );
     if ( insertResult != fs_error_t::OK ) {
         pak::Pak_CloseReader( *reader );
         delete reader;
@@ -197,10 +197,10 @@ fs_error_t CypherFileSystem_MountPackage(
     return fs_error_t::OK;
 }
 
-fs_error_t CypherFileSystem_UnmountPackage( const char *szPackagePath )
+fs_error_t FS_UnmountPackage( const char *szPackagePath )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     if ( !state.initialized ) {
         return fs_error_t::ERR_NOT_INIT;
     }
@@ -214,7 +214,7 @@ fs_error_t CypherFileSystem_UnmountPackage( const char *szPackagePath )
         const mount_t &mount = state.mounts[i];
         if ( mount.type == mount_type_t::CYPHER_FILESYSTEM_PACKAGE &&
              std::strcmp( mount.szPhysicalRoot, szPackagePath ) == 0 ) {
-            CypherFileSystem_RemoveMountAtIndex( state, i );
+            FS_RemoveMountAtIndex( state, i );
             return fs_error_t::OK;
         }
     }
@@ -222,10 +222,10 @@ fs_error_t CypherFileSystem_UnmountPackage( const char *szPackagePath )
     return fs_error_t::ERR_MOUNT_NOT_FOUND;
 }
 
-fs_error_t CypherFileSystem_GetPackageInfo( const char *szPackagePath, package_info_t &infoOut )
+fs_error_t FS_GetPackageInfo( const char *szPackagePath, package_info_t &infoOut )
 {
-    runtime_state_t &state = CypherFileSystem_RuntimeState();
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    runtime_state_t &state = FS_RuntimeState();
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     infoOut = {};
 
     if ( !state.initialized ) {
@@ -269,14 +269,14 @@ fs_error_t CypherFileSystem_GetPackageInfo( const char *szPackagePath, package_i
     return fs_error_t::ERR_MOUNT_NOT_FOUND;
 }
 
-bool CypherFileSystem_PackageIsMounted( const char *szPackagePath )
+bool FS_PackageIsMounted( const char *szPackagePath )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    if ( !CypherFileSystem_RuntimeState().initialized || szPackagePath == nullptr || szPackagePath[0] == '\0' ) {
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    if ( !FS_RuntimeState().initialized || szPackagePath == nullptr || szPackagePath[0] == '\0' ) {
         return false;
     }
 
-    const runtime_state_t &state = CypherFileSystem_RuntimeState();
+    const runtime_state_t &state = FS_RuntimeState();
     for ( common::u32 i = 0u; i < state.nMountCount; ++i ) {
         const mount_t &mount = state.mounts[i];
         if ( mount.type == mount_type_t::CYPHER_FILESYSTEM_PACKAGE &&

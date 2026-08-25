@@ -77,12 +77,12 @@ void ClearRuntimeState( runtime_state_t &state )
 
 /*
 ================
-CypherFileSystem_Init
+FS_Init
 ================
 */
-fs_error_t CypherFileSystem_Init() {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-	runtime_state_t &state = CypherFileSystem_RuntimeState();
+fs_error_t FS_Init() {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+	runtime_state_t &state = FS_RuntimeState();
 	if ( state.initialized ) {
 		LOG_WARNING( log::channel_t::FS, "filesystem init requested while already initialized." );
 		return fs_error_t::ERR_IS_INIT;
@@ -101,31 +101,31 @@ fs_error_t CypherFileSystem_Init() {
 
 /*
 ================
-CypherFileSystem_Shutdown
+FS_Shutdown
 ================
 */
-fs_error_t CypherFileSystem_Shutdown() {
+fs_error_t FS_Shutdown() {
 	{
-		std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-		runtime_state_t &state = CypherFileSystem_RuntimeState();
+		std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+		runtime_state_t &state = FS_RuntimeState();
 		if ( !state.initialized ) {
 			LOG_WARNING( log::channel_t::FS, "filesystem shutdown requested while not initialized." );
 			return fs_error_t::ERR_NOT_INIT;
 		}
 	}
 
-	CypherFileSystem_ShutdownAsyncRequests();
+	FS_ShutdownAsyncRequests();
 
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-	runtime_state_t &state = CypherFileSystem_RuntimeState();
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+	runtime_state_t &state = FS_RuntimeState();
 	LOG_INFO( log::channel_t::FS, "filesystem shutdown: mounts=%u.", state.nMountCount );
 	while ( state.nWatchCount > 0u ) {
 		const watch_handle_t watch = state.watches[0].handle;
-		( void )CypherFileSystem_UnwatchPath( watch );
+		( void )FS_UnwatchPath( watch );
 	}
 	while ( state.nMountCount > 0u ) {
 		const mount_handle_t mount = state.mounts[0].handle;
-		( void )CypherFileSystem_Unmount( mount );
+		( void )FS_Unmount( mount );
 	}
 	ClearRuntimeState( state );
 	return fs_error_t::OK;
@@ -133,22 +133,22 @@ fs_error_t CypherFileSystem_Shutdown() {
 
 /*
 ================
-CypherFileSystem_IsInitialized
+FS_IsInitialized
 ================
 */
-bool CypherFileSystem_IsInitialized() {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-	return CypherFileSystem_RuntimeState().initialized;
+bool FS_IsInitialized() {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+	return FS_RuntimeState().initialized;
 }
 
 /*
 ================
-CypherFileSystem_SetWritePath
+FS_SetWritePath
 ================
 */
-fs_error_t CypherFileSystem_SetWritePath( const char *szPhysicalPath ) {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-	runtime_state_t &state = CypherFileSystem_RuntimeState();
+fs_error_t FS_SetWritePath( const char *szPhysicalPath ) {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+	runtime_state_t &state = FS_RuntimeState();
 	if ( !state.initialized ) {
 		LOG_ERROR( log::channel_t::FS, "set write path failed: filesystem is not initialized." );
 		return fs_error_t::ERR_NOT_INIT;
@@ -181,12 +181,12 @@ fs_error_t CypherFileSystem_SetWritePath( const char *szPhysicalPath ) {
 
 /*
 ================
-CypherFileSystem_GetWritePath
+FS_GetWritePath
 ================
 */
-const char *CypherFileSystem_GetWritePath() {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-	const runtime_state_t &state = CypherFileSystem_RuntimeState();
+const char *FS_GetWritePath() {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+	const runtime_state_t &state = FS_RuntimeState();
 	if ( !state.initialized ) {
 		return nullptr;
 	}
@@ -198,10 +198,10 @@ const char *CypherFileSystem_GetWritePath() {
 
 /*
 ================
-CypherFileSystem_OpenModeToCMode
+FS_OpenModeToCMode
 ================
 */
-static const char *CypherFileSystem_OpenModeToCMode( const open_mode_t mode ) {
+static const char *FS_OpenModeToCMode( const open_mode_t mode ) {
 	switch ( mode ) {
 	case open_mode_t::READ_TEXT:
 		return "rb";
@@ -222,21 +222,21 @@ static const char *CypherFileSystem_OpenModeToCMode( const open_mode_t mode ) {
 
 /*
 ================
-CypherFileSystem_Open
+FS_Open
 
 Opens an OS-backed file resolved through the virtual filesystem.
 ================
 */
-fs_error_t CypherFileSystem_Open( const char *szVirtualPath, open_mode_t mode, file_t &file ) {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-	if ( !CypherFileSystem_RuntimeState().initialized ) {
+fs_error_t FS_Open( const char *szVirtualPath, open_mode_t mode, file_t &file ) {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+	if ( !FS_RuntimeState().initialized ) {
 		return fs_error_t::ERR_NOT_INIT;
 	}
 	file = {};
 	if ( szVirtualPath == nullptr || szVirtualPath[0] == '\0' ) {
 		return fs_error_t::ERR_INVALID_PATH;
 	}
-	const char *cMode = CypherFileSystem_OpenModeToCMode( mode );
+	const char *cMode = FS_OpenModeToCMode( mode );
 	if ( cMode == nullptr ) {
 		return fs_error_t::ERR_INVALID_MODE;
 	}
@@ -246,7 +246,7 @@ fs_error_t CypherFileSystem_Open( const char *szVirtualPath, open_mode_t mode, f
 	char szResolvedPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
 	if ( readMode ) {
 		resolved_file_t resolvedFile{};
-		const fs_error_t err = CypherFileSystem_ResolveReadableFile( szVirtualPath, resolvedFile );
+		const fs_error_t err = FS_ResolveReadableFile( szVirtualPath, resolvedFile );
 		if ( err != fs_error_t::OK ) {
 			return err;
 		}
@@ -288,7 +288,7 @@ fs_error_t CypherFileSystem_Open( const char *szVirtualPath, open_mode_t mode, f
 			file.writable = false;
 			file.cursor = 0u;
 			file.size = pPackageState->size;
-			CypherFileSystem_RuntimeState().stats.nOpenCount++;
+			FS_RuntimeState().stats.nOpenCount++;
 			return fs_error_t::OK;
 		}
 		if ( resolvedFile.backend != file_backend_t::OS_FILE ) {
@@ -296,7 +296,7 @@ fs_error_t CypherFileSystem_Open( const char *szVirtualPath, open_mode_t mode, f
 		}
 		std::memcpy( szResolvedPath, resolvedFile.szPhysicalPath, std::strlen( resolvedFile.szPhysicalPath ) + 1u );
 	} else if ( writeMode || appendMode ) {
-		const fs_error_t buildPathResult = CypherFileSystem_BuildWritePath( szVirtualPath, szResolvedPath, sizeof( szResolvedPath ) );
+		const fs_error_t buildPathResult = FS_BuildWritePath( szVirtualPath, szResolvedPath, sizeof( szResolvedPath ) );
 		if ( buildPathResult != fs_error_t::OK ) {
 			return buildPathResult;
 		}
@@ -335,18 +335,18 @@ fs_error_t CypherFileSystem_Open( const char *szVirtualPath, open_mode_t mode, f
 		file.cursor = file.size;
 	}
 
-	CypherFileSystem_RuntimeState().stats.nOpenCount++;
+	FS_RuntimeState().stats.nOpenCount++;
 	return fs_error_t::OK;
 }
 
 /*
 ================
-CypherFileSystem_Close
+FS_Close
 ================
 */
-fs_error_t CypherFileSystem_Close( file_t &file ) {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-	if ( !CypherFileSystem_RuntimeState().initialized ) {
+fs_error_t FS_Close( file_t &file ) {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+	if ( !FS_RuntimeState().initialized ) {
 		return fs_error_t::ERR_NOT_INIT;
 	}
 
@@ -359,7 +359,7 @@ fs_error_t CypherFileSystem_Close( file_t &file ) {
 		delete[] pPackageState->data;
 		delete pPackageState;
 		file = {};
-		CypherFileSystem_RuntimeState().stats.nCloseCount++;
+		FS_RuntimeState().stats.nCloseCount++;
 		return fs_error_t::OK;
 	}
 
@@ -374,21 +374,21 @@ fs_error_t CypherFileSystem_Close( file_t &file ) {
 	}
 
 	file = {};
-	CypherFileSystem_RuntimeState().stats.nCloseCount++;
+	FS_RuntimeState().stats.nCloseCount++;
 
 	return fs_error_t::OK;
 }
 
 /*
 ================
-CypherFileSystem_Read
+FS_Read
 ================
 */
-fs_error_t CypherFileSystem_Read( file_t &file, void *buffer, common::u64 nBytesToRead, common::u64 &nBytesReadOut ) {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+fs_error_t FS_Read( file_t &file, void *buffer, common::u64 nBytesToRead, common::u64 &nBytesReadOut ) {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 	nBytesReadOut = 0u;
 
-	if ( !CypherFileSystem_RuntimeState().initialized ) {
+	if ( !FS_RuntimeState().initialized ) {
 		return fs_error_t::ERR_NOT_INIT;
 	}
 
@@ -417,8 +417,8 @@ fs_error_t CypherFileSystem_Read( file_t &file, void *buffer, common::u64 nBytes
 		}
 		nBytesReadOut = nBytesToCopy;
 		file.cursor += nBytesToCopy;
-		CypherFileSystem_RuntimeState().stats.nReadCount++;
-		CypherFileSystem_RuntimeState().stats.nBytesRead += nBytesReadOut;
+		FS_RuntimeState().stats.nReadCount++;
+		FS_RuntimeState().stats.nBytesRead += nBytesReadOut;
 		return fs_error_t::OK;
 	}
 
@@ -437,8 +437,8 @@ fs_error_t CypherFileSystem_Read( file_t &file, void *buffer, common::u64 nBytes
 
 	nBytesReadOut = static_cast<common::u64>( nBytesRead );
 	file.cursor += nBytesReadOut;
-	CypherFileSystem_RuntimeState().stats.nReadCount++;
-	CypherFileSystem_RuntimeState().stats.nBytesRead += nBytesReadOut;
+	FS_RuntimeState().stats.nReadCount++;
+	FS_RuntimeState().stats.nBytesRead += nBytesReadOut;
 
 	if ( nBytesRead != nReadSize && std::ferror( pNativeFile ) != 0 ) {
 		return fs_error_t::ERR_FILE_READ_FAILED;
@@ -449,14 +449,14 @@ fs_error_t CypherFileSystem_Read( file_t &file, void *buffer, common::u64 nBytes
 
 /*
 ================
-CypherFileSystem_Write
+FS_Write
 ================
 */
-fs_error_t CypherFileSystem_Write( file_t &file, const void *buffer, common::u64 nBytesToWrite, common::u64 &nBytesWrittenOut ) {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+fs_error_t FS_Write( file_t &file, const void *buffer, common::u64 nBytesToWrite, common::u64 &nBytesWrittenOut ) {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 	nBytesWrittenOut = 0u;
 
-	if ( !CypherFileSystem_RuntimeState().initialized ) {
+	if ( !FS_RuntimeState().initialized ) {
 		return fs_error_t::ERR_NOT_INIT;
 	}
 	if ( file.backend == file_backend_t::PACKAGE_FILE ) {
@@ -487,8 +487,8 @@ fs_error_t CypherFileSystem_Write( file_t &file, const void *buffer, common::u64
 
 	nBytesWrittenOut = static_cast<common::u64>( nBytesWritten );
 	file.cursor += nBytesWrittenOut;
-	CypherFileSystem_RuntimeState().stats.nWriteCount++;
-	CypherFileSystem_RuntimeState().stats.nBytesWritten += nBytesWrittenOut;
+	FS_RuntimeState().stats.nWriteCount++;
+	FS_RuntimeState().stats.nBytesWritten += nBytesWrittenOut;
 
 	if ( file.cursor > file.size ) {
 		file.size = file.cursor;
@@ -503,12 +503,12 @@ fs_error_t CypherFileSystem_Write( file_t &file, const void *buffer, common::u64
 
 /*
 ================
-CypherFileSystem_Seek
+FS_Seek
 ================
 */
-fs_error_t CypherFileSystem_Seek( file_t &file, common::i64 offset, seek_origin_t origin ) {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-	if ( !CypherFileSystem_RuntimeState().initialized ) {
+fs_error_t FS_Seek( file_t &file, common::i64 offset, seek_origin_t origin ) {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+	if ( !FS_RuntimeState().initialized ) {
 		return fs_error_t::ERR_NOT_INIT;
 	}
 
@@ -580,14 +580,14 @@ fs_error_t CypherFileSystem_Seek( file_t &file, common::i64 offset, seek_origin_
 
 /*
 ================
-CypherFileSystem_Tell
+FS_Tell
 ================
 */
-fs_error_t CypherFileSystem_Tell( file_t &file, common::u64 &nOutPosition ) {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+fs_error_t FS_Tell( file_t &file, common::u64 &nOutPosition ) {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 	nOutPosition = 0u;
 
-	if ( !CypherFileSystem_RuntimeState().initialized ) {
+	if ( !FS_RuntimeState().initialized ) {
 		return fs_error_t::ERR_NOT_INIT;
 	}
 
@@ -619,12 +619,12 @@ fs_error_t CypherFileSystem_Tell( file_t &file, common::u64 &nOutPosition ) {
 
 /*
 ================
-CypherFileSystem_Flush
+FS_Flush
 ================
 */
-fs_error_t CypherFileSystem_Flush( file_t &file ) {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-	if ( !CypherFileSystem_RuntimeState().initialized ) {
+fs_error_t FS_Flush( file_t &file ) {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+	if ( !FS_RuntimeState().initialized ) {
 		return fs_error_t::ERR_NOT_INIT;
 	}
 	if ( file.backend == file_backend_t::PACKAGE_FILE ) {
@@ -646,14 +646,14 @@ fs_error_t CypherFileSystem_Flush( file_t &file ) {
 
 /*
 ================
-CypherFileSystem_ReadEntireFile
+FS_ReadEntireFile
 ================
 */
-fs_error_t CypherFileSystem_ReadEntireFile( const char *szVirtualPath, void *buffer, common::u64 nBytesToRead, common::u64 &nBytesReadOut ) {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+fs_error_t FS_ReadEntireFile( const char *szVirtualPath, void *buffer, common::u64 nBytesToRead, common::u64 &nBytesReadOut ) {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 	nBytesReadOut = 0u;
 
-	if ( !CypherFileSystem_RuntimeState().initialized ) {
+	if ( !FS_RuntimeState().initialized ) {
 		LOG_ERROR( log::channel_t::FS, "read entire file failed for '%s': filesystem is not initialized.", szVirtualPath ? szVirtualPath : "<null>" );
 		return fs_error_t::ERR_NOT_INIT;
 	}
@@ -664,15 +664,15 @@ fs_error_t CypherFileSystem_ReadEntireFile( const char *szVirtualPath, void *buf
 	}
 
 	file_t file{};
-	fs_error_t err = CypherFileSystem_Open( szVirtualPath, open_mode_t::READ_BINARY, file );
+	fs_error_t err = FS_Open( szVirtualPath, open_mode_t::READ_BINARY, file );
 
 	if ( err != fs_error_t::OK ) {
-		LOG_ERROR( log::channel_t::FS, "read entire file failed for '%s': open failed: %s.", szVirtualPath ? szVirtualPath : "<null>", CypherFileSystem_ErrorDesc( err ) );
+		LOG_ERROR( log::channel_t::FS, "read entire file failed for '%s': open failed: %s.", szVirtualPath ? szVirtualPath : "<null>", FS_ErrorDesc( err ) );
 		return err;
 	}
 
 	if ( file.size > nBytesToRead ) {
-		CypherFileSystem_Close( file );
+		FS_Close( file );
 		LOG_ERROR( log::channel_t::FS, "read entire file failed for '%s': buffer too small, file=%llu bytes, buffer=%llu bytes.",
 		                  szVirtualPath ? szVirtualPath : "<null>",
 		                  static_cast<unsigned long long>( file.size ),
@@ -681,20 +681,20 @@ fs_error_t CypherFileSystem_ReadEntireFile( const char *szVirtualPath, void *buf
 	}
 
 	if ( file.size == 0u ) {
-		return CypherFileSystem_Close( file );
+		return FS_Close( file );
 	}
 
 	const common::u64 nExpectedSize = file.size;
-	err = CypherFileSystem_Read( file, buffer, nExpectedSize, nBytesReadOut );
-	const fs_error_t closeErr = CypherFileSystem_Close( file );
+	err = FS_Read( file, buffer, nExpectedSize, nBytesReadOut );
+	const fs_error_t closeErr = FS_Close( file );
 
 	if ( err != fs_error_t::OK ) {
-		LOG_ERROR( log::channel_t::FS, "read entire file failed for '%s': read failed: %s.", szVirtualPath ? szVirtualPath : "<null>", CypherFileSystem_ErrorDesc( err ) );
+		LOG_ERROR( log::channel_t::FS, "read entire file failed for '%s': read failed: %s.", szVirtualPath ? szVirtualPath : "<null>", FS_ErrorDesc( err ) );
 		return err;
 	}
 
 	if ( closeErr != fs_error_t::OK ) {
-		LOG_ERROR( log::channel_t::FS, "read entire file failed for '%s': close failed: %s.", szVirtualPath ? szVirtualPath : "<null>", CypherFileSystem_ErrorDesc( closeErr ) );
+		LOG_ERROR( log::channel_t::FS, "read entire file failed for '%s': close failed: %s.", szVirtualPath ? szVirtualPath : "<null>", FS_ErrorDesc( closeErr ) );
 		return closeErr;
 	}
 
@@ -711,25 +711,25 @@ fs_error_t CypherFileSystem_ReadEntireFile( const char *szVirtualPath, void *buf
 
 /*
 ================
-CypherFileSystem_WriteEntireFile
+FS_WriteEntireFile
 ================
 */
-fs_error_t CypherFileSystem_WriteEntireFile( const char *szVirtualPath, const void *buffer, common::u64 nBytesToWrite ) {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+fs_error_t FS_WriteEntireFile( const char *szVirtualPath, const void *buffer, common::u64 nBytesToWrite ) {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 	if ( nBytesToWrite != 0u && buffer == nullptr ) {
 		return fs_error_t::ERR_INVALID_ARGUMENT;
 	}
 
 	file_t file{};
-	fs_error_t err = CypherFileSystem_Open( szVirtualPath, open_mode_t::WRITE_BINARY, file );
+	fs_error_t err = FS_Open( szVirtualPath, open_mode_t::WRITE_BINARY, file );
 	if ( err != fs_error_t::OK ) {
 		return err;
 	}
 
 	common::u64 nBytesWritten = 0u;
-	err = CypherFileSystem_Write( file, buffer, nBytesToWrite, nBytesWritten );
-	const fs_error_t flushErr = err == fs_error_t::OK ? CypherFileSystem_Flush( file ) : fs_error_t::OK;
-	const fs_error_t closeErr = CypherFileSystem_Close( file );
+	err = FS_Write( file, buffer, nBytesToWrite, nBytesWritten );
+	const fs_error_t flushErr = err == fs_error_t::OK ? FS_Flush( file ) : fs_error_t::OK;
+	const fs_error_t closeErr = FS_Close( file );
 
 	if ( err != fs_error_t::OK ) {
 		return err;
@@ -745,25 +745,25 @@ fs_error_t CypherFileSystem_WriteEntireFile( const char *szVirtualPath, const vo
 
 /*
 ================
-CypherFileSystem_AppendEntireFile
+FS_AppendEntireFile
 ================
 */
-fs_error_t CypherFileSystem_AppendEntireFile( const char *szVirtualPath, const void *buffer, common::u64 nBytesToWrite ) {
-	std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+fs_error_t FS_AppendEntireFile( const char *szVirtualPath, const void *buffer, common::u64 nBytesToWrite ) {
+	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 	if ( nBytesToWrite != 0u && buffer == nullptr ) {
 		return fs_error_t::ERR_INVALID_ARGUMENT;
 	}
 
 	file_t file{};
-	fs_error_t err = CypherFileSystem_Open( szVirtualPath, open_mode_t::APPEND_BINARY, file );
+	fs_error_t err = FS_Open( szVirtualPath, open_mode_t::APPEND_BINARY, file );
 	if ( err != fs_error_t::OK ) {
 		return err;
 	}
 
 	common::u64 nBytesWritten = 0u;
-	err = CypherFileSystem_Write( file, buffer, nBytesToWrite, nBytesWritten );
-	const fs_error_t flushErr = err == fs_error_t::OK ? CypherFileSystem_Flush( file ) : fs_error_t::OK;
-	const fs_error_t closeErr = CypherFileSystem_Close( file );
+	err = FS_Write( file, buffer, nBytesToWrite, nBytesWritten );
+	const fs_error_t flushErr = err == fs_error_t::OK ? FS_Flush( file ) : fs_error_t::OK;
+	const fs_error_t closeErr = FS_Close( file );
 
 	if ( err != fs_error_t::OK ) {
 		return err;

@@ -28,16 +28,16 @@ namespace cypher::engine::fs
 
 /*
 ================
-CypherFileSystem_CreateDirectory
+FS_CreateDirectory
 
 Creates a directory below the configured write path. Existing directories are OK.
 ================
 */
-fs_error_t CypherFileSystem_CreateDirectory( const char *szVirtualPath )
+fs_error_t FS_CreateDirectory( const char *szVirtualPath )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     char szPhysicalPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    const fs_error_t buildResult = CypherFileSystem_BuildWritePath( szVirtualPath, szPhysicalPath, sizeof( szPhysicalPath ) );
+    const fs_error_t buildResult = FS_BuildWritePath( szVirtualPath, szPhysicalPath, sizeof( szPhysicalPath ) );
     if ( buildResult != fs_error_t::OK ) {
         return buildResult;
     }
@@ -63,16 +63,16 @@ fs_error_t CypherFileSystem_CreateDirectory( const char *szVirtualPath )
 
 /*
 ================
-CypherFileSystem_DeleteFile
+FS_DeleteFile
 
 Deletes a file below the configured write path. It never deletes mounted read-only content.
 ================
 */
-fs_error_t CypherFileSystem_DeleteFile( const char *szVirtualPath )
+fs_error_t FS_DeleteFile( const char *szVirtualPath )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     char szPhysicalPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    const fs_error_t buildResult = CypherFileSystem_BuildWritePath( szVirtualPath, szPhysicalPath, sizeof( szPhysicalPath ) );
+    const fs_error_t buildResult = FS_BuildWritePath( szVirtualPath, szPhysicalPath, sizeof( szPhysicalPath ) );
     if ( buildResult != fs_error_t::OK ) {
         return buildResult;
     }
@@ -95,16 +95,16 @@ fs_error_t CypherFileSystem_DeleteFile( const char *szVirtualPath )
 
 /*
 ================
-CypherFileSystem_RemoveDirectory
+FS_RemoveDirectory
 
 Removes an empty directory below the configured write path.
 ================
 */
-fs_error_t CypherFileSystem_RemoveDirectory( const char *szVirtualPath )
+fs_error_t FS_RemoveDirectory( const char *szVirtualPath )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     char szPhysicalPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    const fs_error_t buildResult = CypherFileSystem_BuildWritePath( szVirtualPath, szPhysicalPath, sizeof( szPhysicalPath ) );
+    const fs_error_t buildResult = FS_BuildWritePath( szVirtualPath, szPhysicalPath, sizeof( szPhysicalPath ) );
     if ( buildResult != fs_error_t::OK ) {
         return buildResult;
     }
@@ -130,16 +130,16 @@ fs_error_t CypherFileSystem_RemoveDirectory( const char *szVirtualPath )
 
 /*
 ================
-CypherFileSystem_RemoveDirectoryTree
+FS_RemoveDirectoryTree
 
 Recursively removes a directory below the configured write path.
 ================
 */
-fs_error_t CypherFileSystem_RemoveDirectoryTree( const char *szVirtualPath )
+fs_error_t FS_RemoveDirectoryTree( const char *szVirtualPath )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     char szPhysicalPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
-    const fs_error_t buildResult = CypherFileSystem_BuildWritePath( szVirtualPath, szPhysicalPath, sizeof( szPhysicalPath ) );
+    const fs_error_t buildResult = FS_BuildWritePath( szVirtualPath, szPhysicalPath, sizeof( szPhysicalPath ) );
     if ( buildResult != fs_error_t::OK ) {
         return buildResult;
     }
@@ -158,23 +158,23 @@ fs_error_t CypherFileSystem_RemoveDirectoryTree( const char *szVirtualPath )
 
 /*
 ================
-CypherFileSystem_Rename
+FS_Rename
 
 Renames a write-path file or directory. Destination must not already exist.
 ================
 */
-fs_error_t CypherFileSystem_Rename( const char *szFromVirtualPath, const char *szToVirtualPath )
+fs_error_t FS_Rename( const char *szFromVirtualPath, const char *szToVirtualPath )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     char szFromPhysicalPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
     char szToPhysicalPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
 
-    fs_error_t buildResult = CypherFileSystem_BuildWritePath( szFromVirtualPath, szFromPhysicalPath, sizeof( szFromPhysicalPath ) );
+    fs_error_t buildResult = FS_BuildWritePath( szFromVirtualPath, szFromPhysicalPath, sizeof( szFromPhysicalPath ) );
     if ( buildResult != fs_error_t::OK ) {
         return buildResult;
     }
 
-    buildResult = CypherFileSystem_BuildWritePath( szToVirtualPath, szToPhysicalPath, sizeof( szToPhysicalPath ) );
+    buildResult = FS_BuildWritePath( szToVirtualPath, szToPhysicalPath, sizeof( szToPhysicalPath ) );
     if ( buildResult != fs_error_t::OK ) {
         return buildResult;
     }
@@ -201,18 +201,18 @@ fs_error_t CypherFileSystem_Rename( const char *szFromVirtualPath, const char *s
 
 /*
 ================
-CypherFileSystem_CopyFile
+FS_CopyFile
 
 Copies from the readable virtual view into the configured write path.
 ================
 */
-fs_error_t CypherFileSystem_CopyFile( const char *szFromVirtualPath, const char *szToVirtualPath )
+fs_error_t FS_CopyFile( const char *szFromVirtualPath, const char *szToVirtualPath )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     char szToPhysicalPath[CYPHER_FILESYSTEM_MAX_PATH_LENGTH]{};
 
     file_info_t szSourceInfo{};
-    fs_error_t result = CypherFileSystem_GetFileInfo( szFromVirtualPath, szSourceInfo );
+    fs_error_t result = FS_GetFileInfo( szFromVirtualPath, szSourceInfo );
     if ( result != fs_error_t::OK ) {
         return result;
     }
@@ -220,7 +220,7 @@ fs_error_t CypherFileSystem_CopyFile( const char *szFromVirtualPath, const char 
         return fs_error_t::ERR_NOT_FILE;
     }
 
-    result = CypherFileSystem_BuildWritePath( szToVirtualPath, szToPhysicalPath, sizeof( szToPhysicalPath ) );
+    result = FS_BuildWritePath( szToVirtualPath, szToPhysicalPath, sizeof( szToPhysicalPath ) );
     if ( result != fs_error_t::OK ) {
         return result;
     }
@@ -247,7 +247,7 @@ fs_error_t CypherFileSystem_CopyFile( const char *szFromVirtualPath, const char 
     }
 
     if ( szSourceInfo.nFileSize == 0u ) {
-        return CypherFileSystem_WriteEntireFile( szToVirtualPath, nullptr, 0u );
+        return FS_WriteEntireFile( szToVirtualPath, nullptr, 0u );
     }
 
     if ( szSourceInfo.nFileSize > static_cast<common::u64>( std::numeric_limits<common::usize>::max() ) ) {
@@ -256,7 +256,7 @@ fs_error_t CypherFileSystem_CopyFile( const char *szFromVirtualPath, const char 
 
     std::vector<common::u8> buffer( static_cast<common::usize>( szSourceInfo.nFileSize ) );
     common::u64 nBytesRead = 0u;
-    result = CypherFileSystem_ReadEntireFile( szFromVirtualPath, buffer.data(), szSourceInfo.nFileSize, nBytesRead );
+    result = FS_ReadEntireFile( szFromVirtualPath, buffer.data(), szSourceInfo.nFileSize, nBytesRead );
     if ( result != fs_error_t::OK ) {
         return result;
     }
@@ -264,25 +264,25 @@ fs_error_t CypherFileSystem_CopyFile( const char *szFromVirtualPath, const char 
         return fs_error_t::ERR_FILE_READ_FAILED;
     }
 
-    return CypherFileSystem_WriteEntireFile( szToVirtualPath, buffer.data(), nBytesRead );
+    return FS_WriteEntireFile( szToVirtualPath, buffer.data(), nBytesRead );
 }
 
 /*
 ================
-CypherFileSystem_DirectoryExists
+FS_DirectoryExists
 
 Checks the readable mounted filesystem view.
 ================
 */
-bool CypherFileSystem_DirectoryExists( const char *szVirtualPath )
+bool FS_DirectoryExists( const char *szVirtualPath )
 {
-    std::lock_guard<std::recursive_mutex> lock( CypherFileSystem_RuntimeMutex() );
-    if ( !CypherFileSystem_RuntimeState().initialized ) {
+    std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
+    if ( !FS_RuntimeState().initialized ) {
         return false;
     }
 
     common::u32 nEntryCount = 0u;
-    const fs_error_t result = CypherFileSystem_ListDirectory( szVirtualPath, nullptr, 0u, nEntryCount );
+    const fs_error_t result = FS_ListDirectory( szVirtualPath, nullptr, 0u, nEntryCount );
     return result == fs_error_t::OK || result == fs_error_t::ERR_BUFFER_TOO_SMALL;
 }
 

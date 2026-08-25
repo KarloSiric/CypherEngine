@@ -78,7 +78,7 @@ enum class fs_error_t : common::u8 {
 Filesystem Error Helpers
 ================
 */
-constexpr inline const char *CypherFileSystem_ErrorName( const fs_error_t error ) {
+constexpr inline const char *FS_ErrorName( const fs_error_t error ) {
     switch ( error ) {
     case fs_error_t::OK:
         return "OK";
@@ -149,7 +149,7 @@ constexpr inline const char *CypherFileSystem_ErrorName( const fs_error_t error 
     }
 }
 
-constexpr inline const char *CypherFileSystem_ErrorDesc( const fs_error_t error ) {
+constexpr inline const char *FS_ErrorDesc( const fs_error_t error ) {
     switch ( error ) {
     case fs_error_t::OK:
         return "operation completed successfully";
@@ -220,7 +220,7 @@ constexpr inline const char *CypherFileSystem_ErrorDesc( const fs_error_t error 
     }
 }
 
-constexpr inline common::error_t CypherFileSystem_ErrorCode( fs_error_t  error ) {
+constexpr inline common::error_t FS_ErrorCode( fs_error_t  error ) {
     return common::CypherCommon_ErrorMake( common::domain_t::COM_DOMAIN_FS, static_cast<common::u16>( error ) );
 }
 
