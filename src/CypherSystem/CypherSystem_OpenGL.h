@@ -45,8 +45,8 @@ macOS is capped at OpenGL 4.1 core, while Windows/Linux can request newer GL.
     constexpr int SYS_GL_CONTEXT_FLAGS = 0;
 #else
     // Conservative fallback for unknown platforms.
-    constexpr int SYS_GL_SYS_GL_CONTEXT_MAJOR = 4;
-    constexpr int SYS_GL_SYS_GL_CONTEXT_MINOR = 1;
+    constexpr int SYS_GL_CONTEXT_MAJOR = 4;
+    constexpr int SYS_GL_CONTEXT_MINOR = 1;
     constexpr int SYS_GL_CONTEXT_FLAGS = 0;
 #endif
 

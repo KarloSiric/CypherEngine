@@ -45,7 +45,7 @@ render_error_t CypherRender_Init( const sys::window_t &window, const host::windo
 		return render_error_t::ERR_IS_INIT;
 	}
 
-	if ( !window.valid || window.pNativeWindow == nullptr ) {
+	if ( !window.valid || window.nativeWindow == nullptr ) {
 		LOG_ERROR( log::channel_t::RENDER, "invalid sys window." );
 		return render_error_t::ERR_INVALID_WINDOW_CFG;
 	}

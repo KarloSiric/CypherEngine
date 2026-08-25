@@ -105,7 +105,7 @@ void CypherMemory_ArenaDecommitToInitialCommit( arena_t &arena )
 
     const common::usize nDecommitOffset = arena.initialCommit;
     const common::usize nDecommitSize = arena.committed - arena.initialCommit;
-    const sys::sys_error_t decommitResult = sys::CypherSystem_VirtualDecommit( arena.base + nDecommitOffset, nDecommitSize );
+    const sys::sys_error_t decommitResult = sys::Sys_VirtualDecommit( arena.base + nDecommitOffset, nDecommitSize );
 
     if ( decommitResult != sys::sys_error_t::OK ) {
         arena.lastError = mem_error_t::ERR_MEMORY_DECOMMIT;
@@ -162,7 +162,7 @@ mem_error_t CypherMemory_ArenaInit( arena_t &arena, const arena_desc_t &arenaDes
         break;
 
     case arena_backing_t::ARENA_VIRTUAL_MEMORY:
-        nPageSize = sys::CypherSystem_VirtualPageSize();
+        nPageSize = sys::Sys_VirtualPageSize();
 
         if ( nPageSize == 0u || !CypherMemory_IsPowerOfTwo( nPageSize ) ) {
             arena.lastError = mem_error_t::ERR_INVALID_ALIGNMENT;
@@ -196,7 +196,7 @@ mem_error_t CypherMemory_ArenaInit( arena_t &arena, const arena_desc_t &arenaDes
             return mem_error_t::ERR_INTEGER_OVERFLOW;
         }
 
-        memory = sys::CypherSystem_VirtualReserve( capacity );
+        memory = sys::Sys_VirtualReserve( capacity );
 
         if ( memory == nullptr ) {
             arena.lastError = mem_error_t::ERR_MEMORY_RESERVE;
@@ -205,9 +205,9 @@ mem_error_t CypherMemory_ArenaInit( arena_t &arena, const arena_desc_t &arenaDes
         }
 
         if ( committed > 0u ) {
-            const sys::sys_error_t commitResult = sys::CypherSystem_VirtualCommit( memory, committed );
+            const sys::sys_error_t commitResult = sys::Sys_VirtualCommit( memory, committed );
             if ( commitResult != sys::sys_error_t::OK ) {
-                sys::CypherSystem_VirtualRelease( memory, capacity );
+                sys::Sys_VirtualRelease( memory, capacity );
                 arena.lastError = mem_error_t::ERR_MEMORY_COMMIT;
                 LOG_ERROR( log::channel_t::MEMORY, "arena init failed for '%s': virtual commit of %zu bytes failed.", arenaDesc.name ? arenaDesc.name : "<unnamed>", committed );
                 return mem_error_t::ERR_MEMORY_COMMIT;
@@ -267,7 +267,7 @@ void CypherMemory_ArenaShutdown( arena_t &arena )
 
     if ( arena.pOwnsMemory && arena.base != nullptr ) {
         if ( arena.backing == arena_backing_t::ARENA_VIRTUAL_MEMORY ) {
-            const sys::sys_error_t releaseResult = sys::CypherSystem_VirtualRelease( arena.base, arena.capacity );
+            const sys::sys_error_t releaseResult = sys::Sys_VirtualRelease( arena.base, arena.capacity );
             if ( releaseResult != sys::sys_error_t::OK ) {
                 LOG_ERROR( log::channel_t::MEMORY, "arena '%s' virtual release failed during shutdown.", arena.name ? arena.name : "<unnamed>" );
             }
@@ -441,7 +441,7 @@ void *CypherMemory_ArenaAllocDebug(
         }
 
         const common::usize nCommitSize = commitTarget - arena.committed;
-        const sys::sys_error_t commitResult = sys::CypherSystem_VirtualCommit( arena.base + arena.committed, nCommitSize );
+        const sys::sys_error_t commitResult = sys::Sys_VirtualCommit( arena.base + arena.committed, nCommitSize );
 
         if ( commitResult != sys::sys_error_t::OK ) {
             arena.lastError = mem_error_t::ERR_MEMORY_COMMIT;

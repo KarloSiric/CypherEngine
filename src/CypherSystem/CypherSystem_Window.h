@@ -45,14 +45,14 @@ struct window_desc_t {
 };
 
 struct window_t {
-    void *pNativeWindow{ nullptr };                  // Opaque SDL_Window pointer owned by this wrapper.
+    void *nativeWindow{ nullptr };                  // Opaque SDL_Window pointer owned by this wrapper.
 
     common::u32 width{ 0u };                        // Last known drawable width in pixels.
     common::u32 height{ 0u };                       // Last known drawable height in pixels.
 
     bool fullscreen{ false };                       // Current fullscreen policy.
     bool vsync{ true };                             // Current presentation interval policy.
-    bool bShouldClose{ false };                     // Set after a platform close request.
+    bool shouldClose{ false };                     // Set after a platform close request.
     bool valid{ false };                            // Native window was created and has not been destroyed.
 };
 
@@ -61,13 +61,13 @@ struct window_t {
 System Window API
 ================
 */
-sys_error_t CypherSystem_CreateWindow( const window_desc_t &szWindowDescription, window_t &windowOut );
+sys_error_t Sys_CreateWindow( const window_desc_t &windowDescription, window_t &windowOut );
 
-void CypherSystem_DestroyWindow( window_t &window );
+void Sys_DestroyWindow( window_t &window );
 
-void CypherSystem_PollWindowEvents( window_t &window );
+void Sys_PollWindowEvents( window_t &window );
 
-bool CypherSystem_WindowShouldClose( const window_t &window );
+bool Sys_WindowShouldClose( const window_t &window );
 
 }       // namespace cypher::engine::sys
 

@@ -59,7 +59,7 @@ bool CypherLog_FormatTimestamp( const record_t &record, char *bufferOut, const c
 
     std::tm tmValue{};
 
-    if ( !sys::CypherSystem_LocalTime( record.timestamp, tmValue ) ) {
+    if ( !sys::Sys_LocalTime( record.timestamp, tmValue ) ) {
         return false;
     }
 
@@ -120,7 +120,7 @@ log_error_t CypherLog_FormatDetailed(
     const char *pszSourceFile = bHasSourceLocation ? record.file : "";
 
     if ( bIncludeSourceLocation && config.szSourcePath == source_path_mode_t::BASENAME ) {
-        pszSourceFile = sys::CypherSystem_PathBasename( pszSourceFile );
+        pszSourceFile = sys::Sys_PathBasename( pszSourceFile );
     }
 
     const char *szFunctionName = bHasFunctionName ? record.function : "";

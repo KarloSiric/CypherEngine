@@ -59,41 +59,41 @@ namespace {
 
 /*
 ================
-CypherSystem_CopyPath
+Sys_CopyPath
 ================
 */
-bool CypherSystem_CopyPath( char *szOutPath, const common::u32 nOutPathSize, const std::filesystem::path &path )
+bool Sys_CopyPath( char *outPath, const common::u32 outPathSize, const std::filesystem::path &path )
 {
-    if ( szOutPath == nullptr || nOutPathSize == 0u ) {
+    if ( outPath == nullptr || outPathSize == 0u ) {
         return false;
     }
 
-    std::string szPathString = path.lexically_normal().string();
+    std::string pathString = path.lexically_normal().string();
 
-    if ( szPathString.size() >= nOutPathSize ) {
-        szOutPath[0] = '\0';
+    if ( pathString.size() >= outPathSize ) {
+        outPath[0] = '\0';
         return false;
     }
 
-    std::strncpy( szOutPath, szPathString.c_str(), nOutPathSize - 1u );
-    szOutPath[nOutPathSize - 1u] = '\0';
+    std::strncpy( outPath, pathString.c_str(), outPathSize - 1u );
+    outPath[outPathSize - 1u] = '\0';
 
     return true;
 }
 
 /*
 ================
-CypherSystem_FindArgvValue
+Sys_FindArgvValue
 ================
 */
-const char *CypherSystem_FindArgvValue( const init_info_t &info, const char *szArgvName )
+const char *Sys_FindArgvValue( const init_info_t &info, const char *argumentName )
 {
-    if ( info.argv == nullptr || szArgvName == nullptr ) {
+    if ( info.argv == nullptr || argumentName == nullptr ) {
         return nullptr;
     }
 
     for ( int i = 1; i + 1 < info.argc; ++i ) {
-        if ( std::strcmp( info.argv[i], szArgvName ) == 0 ) {
+        if ( std::strcmp( info.argv[i], argumentName ) == 0 ) {
             return info.argv[i + 1];
         }
     }
@@ -101,52 +101,52 @@ const char *CypherSystem_FindArgvValue( const init_info_t &info, const char *szA
     return nullptr;
 }
 
-sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_t &pathsOut );
-void CypherSystem_PlatformSleepMilliseconds( common::u64 milliseconds );
-common::usize CypherSystem_PlatformVirtualPageSize();
-void *CypherSystem_PlatformVirtualReserve( common::usize size );
-bool CypherSystem_PlatformVirtualCommit( void *memory, common::usize size );
-bool CypherSystem_PlatformVirtualDecommit( void *memory, common::usize size );
-bool CypherSystem_PlatformVirtualRelease( void *memory, common::usize size );
+sys_error_t Sys_PlatformBuildPaths( const init_info_t &infoInit, paths_t &pathsOut );
+void Sys_PlatformSleepMilliseconds( common::u64 milliseconds );
+common::usize Sys_PlatformVirtualPageSize();
+void *Sys_PlatformVirtualReserve( common::usize size );
+bool Sys_PlatformVirtualCommit( void *memory, common::usize size );
+bool Sys_PlatformVirtualDecommit( void *memory, common::usize size );
+bool Sys_PlatformVirtualRelease( void *memory, common::usize size );
 
 /*
 ================
-CypherSystem_AlignVirtualMemorySize
+Sys_AlignVirtualMemorySize
 
 Rounds virtual-memory operation sizes up to the platform page size.
 ================
 */
-common::usize CypherSystem_AlignVirtualMemorySize( const common::usize size )
+common::usize Sys_AlignVirtualMemorySize( const common::usize size )
 {
     if ( size == 0u ) {
         return 0u;
     }
 
-    const common::usize nPageSize = CypherSystem_PlatformVirtualPageSize();
-    if ( nPageSize == 0u ) {
+    const common::usize pageSize = Sys_PlatformVirtualPageSize();
+    if ( pageSize == 0u ) {
         return size;
     }
 
-    const common::usize remainder = size % nPageSize;
+    const common::usize remainder = size % pageSize;
     if ( remainder == 0u ) {
         return size;
     }
 
-    return size + ( nPageSize - remainder );
+    return size + ( pageSize - remainder );
 }
 
 }       // namespace
 
 /*
 ================
-CypherSystem_PlatformType
+Sys_PlatformType
 ================
 */
-platform_t CypherSystem_PlatformType() {
+platform_t Sys_PlatformType() {
 #   ifdef CYPHER_PLATFORM_WINDOWS
                 return platform_t::WINDOWS;
 #   elif defined( CYPHER_PLATFORM_MACOS )
-                return platform_t::MACOSX;
+                return platform_t::MACOS;
 #   elif defined( CYPHER_PLATFORM_LINUX )
                 return platform_t::LINUX;
 #   else
@@ -156,10 +156,10 @@ platform_t CypherSystem_PlatformType() {
 
 /*
 ================
-CypherSystem_CompilerType
+Sys_CompilerType
 ================
 */
-compiler_t CypherSystem_CompilerType() {
+compiler_t Sys_CompilerType() {
 #   ifdef CYPHER_COMPILER_MSVC
                 return compiler_t::MSVC;
 #   elif defined( CYPHER_COMPILER_CLANG )
@@ -173,39 +173,39 @@ compiler_t CypherSystem_CompilerType() {
 
 /*
 ================
-CypherSystem_Init
+Sys_Init
 
 Copies startup info and builds platform paths.
 ================
 */
-sys_error_t CypherSystem_Init( const init_info_t &infoInit ) {
+sys_error_t Sys_Init( const init_info_t &infoInit ) {
     if ( s_SysRuntimeState.initialized ) {
         return sys_error_t::ERR_IS_INIT;
     }
-    if ( infoInit.szAppName == nullptr || infoInit.szAppName[0] == '\0' ) {
+    if ( infoInit.appName == nullptr || infoInit.appName[0] == '\0' ) {
         return sys_error_t::ERR_INVALID_ARGUMENT;
     }
-    if ( infoInit.szOrganizationName == nullptr || infoInit.szOrganizationName[0] == '\0' ) {
+    if ( infoInit.organizationName == nullptr || infoInit.organizationName[0] == '\0' ) {
         return sys_error_t::ERR_INVALID_ARGUMENT;
     }
     s_SysRuntimeState = {};
 
     std::strncpy(
-                 s_SysRuntimeState.szAppName,
-                 infoInit.szAppName,
-                 sizeof( s_SysRuntimeState.szAppName ) - 1u
+                 s_SysRuntimeState.appName,
+                 infoInit.appName,
+                 sizeof( s_SysRuntimeState.appName ) - 1u
     );
 
     std::strncpy(
-                 s_SysRuntimeState.szOrganizationName,
-                 infoInit.szOrganizationName,
-                 sizeof( s_SysRuntimeState.szOrganizationName ) - 1u
+                 s_SysRuntimeState.organizationName,
+                 infoInit.organizationName,
+                 sizeof( s_SysRuntimeState.organizationName ) - 1u
     );
 
     s_SysRuntimeState.argc = infoInit.argc;
     s_SysRuntimeState.argv = infoInit.argv;
 
-    sys_error_t pathsResult = CypherSystem_PlatformBuildPaths( infoInit, s_SysRuntimeState.sysPaths );
+    sys_error_t pathsResult = Sys_PlatformBuildPaths( infoInit, s_SysRuntimeState.sysPaths );
 
     if ( pathsResult != sys_error_t::OK ) {
         s_SysRuntimeState = {};
@@ -219,10 +219,10 @@ sys_error_t CypherSystem_Init( const init_info_t &infoInit ) {
 
 /*
 ================
-CypherSystem_Shutdown
+Sys_Shutdown
 ================
 */
-sys_error_t CypherSystem_Shutdown() {
+sys_error_t Sys_Shutdown() {
     if ( !s_SysRuntimeState.initialized ) {
         return sys_error_t::ERR_NOT_INIT;
     }
@@ -236,33 +236,33 @@ sys_error_t CypherSystem_Shutdown() {
 
 /*
 ================
-CypherSystem_IsInitialized
+Sys_IsInitialized
 ================
 */
-bool CypherSystem_IsInitialized() {
+bool Sys_IsInitialized() {
     return s_SysRuntimeState.initialized;
 }
 
 /*
 ================
-CypherSystem_PlatformName
+Sys_PlatformName
 ================
 */
-const char *CypherSystem_PlatformName( platform_t type ) {
+const char *Sys_PlatformName( platform_t type ) {
     switch( type ) {
         case platform_t::WINDOWS:   return "Windows";
     case platform_t::LINUX:         return "Linux";
-    case platform_t::MACOSX:        return "MacOS";
+    case platform_t::MACOS:         return "macOS";
         default:                    return "Unknown";
     }
 }
 
 /*
 ================
-CypherSystem_CompilerName
+Sys_CompilerName
 ================
 */
-const char *CypherSystem_CompilerName( compiler_t type ) {
+const char *Sys_CompilerName( compiler_t type ) {
     switch( type ) {
         case compiler_t::CLANG: return "Clang";
         case compiler_t::GCC:   return "GCC";
@@ -273,10 +273,10 @@ const char *CypherSystem_CompilerName( compiler_t type ) {
 
 /*
 ================
-CypherSystem_PathBasename
+Sys_PathBasename
 ================
 */
-const char *CypherSystem_PathBasename( const char *path ) {
+const char *Sys_PathBasename( const char *path ) {
     if ( path == nullptr || path[0] == '\0' ) {
         return "";
     }
@@ -294,10 +294,10 @@ const char *CypherSystem_PathBasename( const char *path ) {
 
 /*
 ================
-CypherSystem_TimeNowSeconds
+Sys_TimeNowSeconds
 ================
 */
-common::f64 CypherSystem_TimeNowSeconds() {
+common::f64 Sys_TimeNowSeconds() {
     const auto now = std::chrono::steady_clock::now();
     const auto seconds = std::chrono::duration<common::f64>( now.time_since_epoch() );
     return seconds.count();
@@ -305,10 +305,10 @@ common::f64 CypherSystem_TimeNowSeconds() {
 
 /*
 ================
-CypherSystem_LocalTime
+Sys_LocalTime
 ================
 */
-bool CypherSystem_LocalTime( std::time_t timeValue, std::tm &timeOut ) {
+bool Sys_LocalTime( std::time_t timeValue, std::tm &timeOut ) {
 
 #   ifdef CYPHER_PLATFORM_WINDOWS
                 return localtime_s( &timeOut, &timeValue ) == 0;
@@ -320,19 +320,19 @@ bool CypherSystem_LocalTime( std::time_t timeValue, std::tm &timeOut ) {
 
 /*
 ================
-CypherSystem_Paths
+Sys_Paths
 ================
 */
-const paths_t &CypherSystem_Paths() {
+const paths_t &Sys_Paths() {
     return s_SysRuntimeState.sysPaths;
 }
 
 /*
 ================
-CypherSystem_GetPaths
+Sys_GetPaths
 ================
 */
-sys_error_t CypherSystem_GetPaths( paths_t &pathsOut ) {
+sys_error_t Sys_GetPaths( paths_t &pathsOut ) {
     if ( !s_SysRuntimeState.initialized ) {
         return sys_error_t::ERR_NOT_INIT;
     }
@@ -344,42 +344,42 @@ sys_error_t CypherSystem_GetPaths( paths_t &pathsOut ) {
 
 /*
 ================
-CypherSystem_SleepMilliseconds
+Sys_SleepMilliseconds
 ================
 */
-void CypherSystem_SleepMilliseconds( common::u64 milliseconds ) {
-    CypherSystem_PlatformSleepMilliseconds( milliseconds );
+void Sys_SleepMilliseconds( common::u64 milliseconds ) {
+    Sys_PlatformSleepMilliseconds( milliseconds );
     return ;
 }
 
 /*
 ================
-CypherSystem_VirtualPageSize
+Sys_VirtualPageSize
 ================
 */
-common::usize CypherSystem_VirtualPageSize()
+common::usize Sys_VirtualPageSize()
 {
-    return CypherSystem_PlatformVirtualPageSize();
+    return Sys_PlatformVirtualPageSize();
 }
 
 /*
 ================
-CypherSystem_VirtualReserve
+Sys_VirtualReserve
 ================
 */
-void *CypherSystem_VirtualReserve( const common::usize size )
+void *Sys_VirtualReserve( const common::usize size )
 {
-    return CypherSystem_PlatformVirtualReserve( CypherSystem_AlignVirtualMemorySize( size ) );
+    return Sys_PlatformVirtualReserve( Sys_AlignVirtualMemorySize( size ) );
 }
 
 /*
 ================
-CypherSystem_VirtualCommit
+Sys_VirtualCommit
 ================
 */
-sys_error_t CypherSystem_VirtualCommit( void *memory, common::usize size )
+sys_error_t Sys_VirtualCommit( void *memory, common::usize size )
 {
-    if ( CypherSystem_PlatformVirtualCommit( memory, CypherSystem_AlignVirtualMemorySize( size ) ) ) {
+    if ( Sys_PlatformVirtualCommit( memory, Sys_AlignVirtualMemorySize( size ) ) ) {
         return sys_error_t::OK;
     }
 
@@ -388,12 +388,12 @@ sys_error_t CypherSystem_VirtualCommit( void *memory, common::usize size )
 
 /*
 ================
-CypherSystem_VirtualDecommit
+Sys_VirtualDecommit
 ================
 */
-sys_error_t CypherSystem_VirtualDecommit( void *memory, common::usize size )
+sys_error_t Sys_VirtualDecommit( void *memory, common::usize size )
 {
-    if ( CypherSystem_PlatformVirtualDecommit( memory, CypherSystem_AlignVirtualMemorySize( size ) ) ) {
+    if ( Sys_PlatformVirtualDecommit( memory, Sys_AlignVirtualMemorySize( size ) ) ) {
         return sys_error_t::OK;
     }
 
@@ -402,12 +402,12 @@ sys_error_t CypherSystem_VirtualDecommit( void *memory, common::usize size )
 
 /*
 ================
-CypherSystem_VirtualRelease
+Sys_VirtualRelease
 ================
 */
-sys_error_t CypherSystem_VirtualRelease( void *memory, common::usize size )
+sys_error_t Sys_VirtualRelease( void *memory, common::usize size )
 {
-    if ( CypherSystem_PlatformVirtualRelease( memory, CypherSystem_AlignVirtualMemorySize( size ) ) ) {
+    if ( Sys_PlatformVirtualRelease( memory, Sys_AlignVirtualMemorySize( size ) ) ) {
         return sys_error_t::OK;
     }
 
@@ -420,12 +420,12 @@ namespace {
 
 /*
 ================
-CypherSystem_PlatformBuildPaths
+Sys_PlatformBuildPaths
 
 Builds Win32 executable, base and user paths.
 ================
 */
-sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_t &pathsOut )
+sys_error_t Sys_PlatformBuildPaths( const init_info_t &infoInit, paths_t &pathsOut )
 {
     pathsOut = {};
 
@@ -436,86 +436,86 @@ sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_
         return sys_error_t::ERR_PATH_QUERY_FAILED;
     }
 
-    char pExecutableBuffer[SYS_MAX_PATH_LENGTH]{};
+    char executableBuffer[SYS_MAX_PATH_LENGTH]{};
 
-    const DWORD nExecutableLength = GetModuleFileNameA(
+    const DWORD executableLength = GetModuleFileNameA(
         nullptr,
-        pExecutableBuffer,
-        static_cast<DWORD>( sizeof( pExecutableBuffer ) )
+        executableBuffer,
+        static_cast<DWORD>( sizeof( executableBuffer ) )
     );
 
-    if ( nExecutableLength == 0u ) {
+    if ( executableLength == 0u ) {
         return sys_error_t::ERR_PATH_QUERY_FAILED;
     }
 
-    if ( nExecutableLength >= sizeof( pExecutableBuffer ) ) {
+    if ( executableLength >= sizeof( executableBuffer ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    pExecutableBuffer[nExecutableLength] = '\0';
+    executableBuffer[executableLength] = '\0';
 
-    std::filesystem::path szExecutablePath = std::filesystem::weakly_canonical( pExecutableBuffer, ec );
+    std::filesystem::path executablePath = std::filesystem::weakly_canonical( executableBuffer, ec );
 
     if ( ec ) {
         ec.clear();
-        szExecutablePath = pExecutableBuffer;
+        executablePath = executableBuffer;
     }
 
-    const std::filesystem::path executableDir = szExecutablePath.parent_path();
-    const char *szBasePathOverride = CypherSystem_FindArgvValue( infoInit, "-basedir" );
+    const std::filesystem::path executableDir = executablePath.parent_path();
+    const char *basePathOverride = Sys_FindArgvValue( infoInit, "-basedir" );
 
-    const std::filesystem::path szBasePath =
-        ( szBasePathOverride != nullptr && szBasePathOverride[0] != '\0' ) ? std::filesystem::path( szBasePathOverride ) : workingDir;
+    const std::filesystem::path basePath =
+        ( basePathOverride != nullptr && basePathOverride[0] != '\0' ) ? std::filesystem::path( basePathOverride ) : workingDir;
 
-    const char *szUserPathOverride = CypherSystem_FindArgvValue( infoInit, "-userpath" );
-    std::filesystem::path szUserPath{};
+    const char *userPathOverride = Sys_FindArgvValue( infoInit, "-userpath" );
+    std::filesystem::path userPath{};
 
-    if ( szUserPathOverride != nullptr && szUserPathOverride[0] != '\0' ) {
-        szUserPath = szUserPathOverride;
+    if ( userPathOverride != nullptr && userPathOverride[0] != '\0' ) {
+        userPath = userPathOverride;
     } else {
-        char pAppdataBuffer[SYS_MAX_PATH_LENGTH]{};
+        char appDataBuffer[SYS_MAX_PATH_LENGTH]{};
 
-        const DWORD nAppdataLength = GetEnvironmentVariableA(
+        const DWORD appDataLength = GetEnvironmentVariableA(
             "APPDATA",
-            pAppdataBuffer,
-            static_cast<DWORD>( sizeof( pAppdataBuffer ) )
+            appDataBuffer,
+            static_cast<DWORD>( sizeof( appDataBuffer ) )
         );
 
-        if ( nAppdataLength == 0u ) {
+        if ( appDataLength == 0u ) {
             return sys_error_t::ERR_PATH_QUERY_FAILED;
         }
 
-        if ( nAppdataLength >= sizeof( pAppdataBuffer ) ) {
+        if ( appDataLength >= sizeof( appDataBuffer ) ) {
             return sys_error_t::ERR_PATH_TOO_LONG;
         }
 
-        pAppdataBuffer[nAppdataLength] = '\0';
+        appDataBuffer[appDataLength] = '\0';
 
-        szUserPath = std::filesystem::path( pAppdataBuffer ) / infoInit.szAppName;
+        userPath = std::filesystem::path( appDataBuffer ) / infoInit.appName;
     }
 
-    std::filesystem::create_directories( szUserPath, ec );
+    std::filesystem::create_directories( userPath, ec );
     if ( ec ) {
         return sys_error_t::ERR_DIRECTORY_CREATE_FAILED;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.szExecutablePath, sizeof( pathsOut.szExecutablePath ), szExecutablePath ) ) {
+    if ( !Sys_CopyPath( pathsOut.executablePath, sizeof( pathsOut.executablePath ), executablePath ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.executableDir, sizeof( pathsOut.executableDir ), executableDir ) ) {
+    if ( !Sys_CopyPath( pathsOut.executableDir, sizeof( pathsOut.executableDir ), executableDir ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.workingDir, sizeof( pathsOut.workingDir ), workingDir ) ) {
+    if ( !Sys_CopyPath( pathsOut.workingDir, sizeof( pathsOut.workingDir ), workingDir ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.szBasePath, sizeof( pathsOut.szBasePath ), szBasePath ) ) {
+    if ( !Sys_CopyPath( pathsOut.basePath, sizeof( pathsOut.basePath ), basePath ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.szUserPath, sizeof( pathsOut.szUserPath ), szUserPath ) ) {
+    if ( !Sys_CopyPath( pathsOut.userPath, sizeof( pathsOut.userPath ), userPath ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
@@ -524,20 +524,20 @@ sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_
 
 /*
 ================
-CypherSystem_PlatformSleepMilliseconds
+Sys_PlatformSleepMilliseconds
 ================
 */
-void CypherSystem_PlatformSleepMilliseconds( common::u64 milliseconds )
+void Sys_PlatformSleepMilliseconds( common::u64 milliseconds )
 {
     Sleep( static_cast<DWORD>( milliseconds ) );
 }
 
 /*
 ================
-CypherSystem_PlatformVirtualPageSize
+Sys_PlatformVirtualPageSize
 ================
 */
-common::usize CypherSystem_PlatformVirtualPageSize()
+common::usize Sys_PlatformVirtualPageSize()
 {
     constexpr common::usize DEFAULT_PAGE_SIZE = 4096u;
     SYSTEM_INFO info{};
@@ -553,10 +553,10 @@ common::usize CypherSystem_PlatformVirtualPageSize()
 
 /*
 ================
-CypherSystem_PlatformVirtualReserve
+Sys_PlatformVirtualReserve
 ================
 */
-void *CypherSystem_PlatformVirtualReserve( common::usize size )
+void *Sys_PlatformVirtualReserve( common::usize size )
 {
     if ( size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual reserve failed: requested size is zero." );
@@ -576,10 +576,10 @@ void *CypherSystem_PlatformVirtualReserve( common::usize size )
 
 /*
 ================
-CypherSystem_PlatformVirtualCommit
+Sys_PlatformVirtualCommit
 ================
 */
-bool CypherSystem_PlatformVirtualCommit( void *memory, common::usize size )
+bool Sys_PlatformVirtualCommit( void *memory, common::usize size )
 {
     if ( memory == nullptr || size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual commit failed: memory=%p, size=%zu.", memory, size );
@@ -598,10 +598,10 @@ bool CypherSystem_PlatformVirtualCommit( void *memory, common::usize size )
 
 /*
 ================
-CypherSystem_PlatformVirtualDecommit
+Sys_PlatformVirtualDecommit
 ================
 */
-bool CypherSystem_PlatformVirtualDecommit( void *memory, common::usize size )
+bool Sys_PlatformVirtualDecommit( void *memory, common::usize size )
 {
     if ( memory == nullptr || size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual decommit failed: memory=%p, size=%zu.", memory, size );
@@ -620,10 +620,10 @@ bool CypherSystem_PlatformVirtualDecommit( void *memory, common::usize size )
 
 /*
 ================
-CypherSystem_PlatformVirtualRelease
+Sys_PlatformVirtualRelease
 ================
 */
-bool CypherSystem_PlatformVirtualRelease( void *memory, common::usize size )
+bool Sys_PlatformVirtualRelease( void *memory, common::usize size )
 {
     if ( memory == nullptr || size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual release failed: memory=%p, size=%zu.", memory, size );
@@ -646,12 +646,12 @@ bool CypherSystem_PlatformVirtualRelease( void *memory, common::usize size )
 
 /*
 ================
-CypherSystem_PlatformBuildPaths
+Sys_PlatformBuildPaths
 
 Builds macOS executable, base and user paths.
 ================
 */
-sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_t &pathsOut )
+sys_error_t Sys_PlatformBuildPaths( const init_info_t &infoInit, paths_t &pathsOut )
 {
     pathsOut = {};
 
@@ -662,32 +662,32 @@ sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_
         return sys_error_t::ERR_PATH_QUERY_FAILED;
     }
 
-    char pExecutableBuffer[SYS_MAX_PATH_LENGTH]{};
-    std::uint32_t nExecutableBufferSize = static_cast<std::uint32_t>( sizeof( pExecutableBuffer ) );
+    char executableBuffer[SYS_MAX_PATH_LENGTH]{};
+    std::uint32_t executableBufferSize = static_cast<std::uint32_t>( sizeof( executableBuffer ) );
 
-    if ( _NSGetExecutablePath( pExecutableBuffer, &nExecutableBufferSize ) != 0 ) {
+    if ( _NSGetExecutablePath( executableBuffer, &executableBufferSize ) != 0 ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    std::filesystem::path szExecutablePath = std::filesystem::weakly_canonical( pExecutableBuffer, ec );
+    std::filesystem::path executablePath = std::filesystem::weakly_canonical( executableBuffer, ec );
 
     if ( ec ) {
         ec.clear();
-        szExecutablePath = pExecutableBuffer;
+        executablePath = executableBuffer;
     }
 
-    const std::filesystem::path executableDir = szExecutablePath.parent_path();
-    const char *szBasePathOverride = CypherSystem_FindArgvValue( infoInit, "-basedir" );
+    const std::filesystem::path executableDir = executablePath.parent_path();
+    const char *basePathOverride = Sys_FindArgvValue( infoInit, "-basedir" );
 
-    const std::filesystem::path szBasePath =
-        ( szBasePathOverride != nullptr && szBasePathOverride[0] != '\0' ) ? std::filesystem::path( szBasePathOverride ) : workingDir;
+    const std::filesystem::path basePath =
+        ( basePathOverride != nullptr && basePathOverride[0] != '\0' ) ? std::filesystem::path( basePathOverride ) : workingDir;
 
-    const char *szUserPathOverride = CypherSystem_FindArgvValue( infoInit, "-userpath" );
+    const char *userPathOverride = Sys_FindArgvValue( infoInit, "-userpath" );
 
-    std::filesystem::path szUserPath{};
+    std::filesystem::path userPath{};
 
-    if ( szUserPathOverride != nullptr && szUserPathOverride[0] != '\0' ) {
-        szUserPath = szUserPathOverride;
+    if ( userPathOverride != nullptr && userPathOverride[0] != '\0' ) {
+        userPath = userPathOverride;
     } else {
         const char *home = std::getenv( "HOME" );
 
@@ -695,34 +695,34 @@ sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_
             return sys_error_t::ERR_PATH_QUERY_FAILED;
         }
 
-        szUserPath = std::filesystem::path( home ) /
+        userPath = std::filesystem::path( home ) /
                     "Library" /
                     "Application Support" /
-                    infoInit.szAppName;
+                    infoInit.appName;
     }
 
-    std::filesystem::create_directories( szUserPath, ec );
+    std::filesystem::create_directories( userPath, ec );
     if ( ec ) {
         return sys_error_t::ERR_DIRECTORY_CREATE_FAILED;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.szExecutablePath, sizeof( pathsOut.szExecutablePath ), szExecutablePath ) ) {
+    if ( !Sys_CopyPath( pathsOut.executablePath, sizeof( pathsOut.executablePath ), executablePath ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.executableDir, sizeof( pathsOut.executableDir ), executableDir ) ) {
+    if ( !Sys_CopyPath( pathsOut.executableDir, sizeof( pathsOut.executableDir ), executableDir ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.workingDir, sizeof( pathsOut.workingDir ), workingDir ) ) {
+    if ( !Sys_CopyPath( pathsOut.workingDir, sizeof( pathsOut.workingDir ), workingDir ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.szBasePath, sizeof( pathsOut.szBasePath ), szBasePath ) ) {
+    if ( !Sys_CopyPath( pathsOut.basePath, sizeof( pathsOut.basePath ), basePath ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.szUserPath, sizeof( pathsOut.szUserPath ), szUserPath ) ) {
+    if ( !Sys_CopyPath( pathsOut.userPath, sizeof( pathsOut.userPath ), userPath ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
@@ -731,10 +731,10 @@ sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_
 
 /*
 ================
-CypherSystem_PlatformSleepMilliseconds
+Sys_PlatformSleepMilliseconds
 ================
 */
-void CypherSystem_PlatformSleepMilliseconds( common::u64 milliseconds )
+void Sys_PlatformSleepMilliseconds( common::u64 milliseconds )
 {
     timespec request{};
     request.tv_sec = static_cast<time_t>( milliseconds / 1000u );
@@ -746,28 +746,28 @@ void CypherSystem_PlatformSleepMilliseconds( common::u64 milliseconds )
 
 /*
 ================
-CypherSystem_PlatformVirtualPageSize
+Sys_PlatformVirtualPageSize
 ================
 */
-common::usize CypherSystem_PlatformVirtualPageSize()
+common::usize Sys_PlatformVirtualPageSize()
 {
     constexpr common::usize DEFAULT_PAGE_SIZE = 4096u;
 
-    const long nPageSize = sysconf( _SC_PAGESIZE );
-    if ( nPageSize <= 0 ) {
+    const long pageSize = sysconf( _SC_PAGESIZE );
+    if ( pageSize <= 0 ) {
         LOG_WARNING( log::channel_t::PLATFORM, "sysconf(_SC_PAGESIZE) failed; using default page size %zu.", DEFAULT_PAGE_SIZE );
         return DEFAULT_PAGE_SIZE;
     }
 
-    return static_cast<common::usize>( nPageSize );
+    return static_cast<common::usize>( pageSize );
 }
 
 /*
 ================
-CypherSystem_PlatformVirtualReserve
+Sys_PlatformVirtualReserve
 ================
 */
-void *CypherSystem_PlatformVirtualReserve( common::usize size )
+void *Sys_PlatformVirtualReserve( common::usize size )
 {
     if ( size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual reserve failed: requested size is zero." );
@@ -793,10 +793,10 @@ void *CypherSystem_PlatformVirtualReserve( common::usize size )
 
 /*
 ================
-CypherSystem_PlatformVirtualCommit
+Sys_PlatformVirtualCommit
 ================
 */
-bool CypherSystem_PlatformVirtualCommit( void *memory, common::usize size )
+bool Sys_PlatformVirtualCommit( void *memory, common::usize size )
 {
     if ( memory == nullptr || size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual commit failed: memory=%p, size=%zu.", memory, size );
@@ -814,10 +814,10 @@ bool CypherSystem_PlatformVirtualCommit( void *memory, common::usize size )
 
 /*
 ================
-CypherSystem_PlatformVirtualDecommit
+Sys_PlatformVirtualDecommit
 ================
 */
-bool CypherSystem_PlatformVirtualDecommit( void *memory, common::usize size )
+bool Sys_PlatformVirtualDecommit( void *memory, common::usize size )
 {
     if ( memory == nullptr || size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual decommit failed: memory=%p, size=%zu.", memory, size );
@@ -840,10 +840,10 @@ bool CypherSystem_PlatformVirtualDecommit( void *memory, common::usize size )
 
 /*
 ================
-CypherSystem_PlatformVirtualRelease
+Sys_PlatformVirtualRelease
 ================
 */
-bool CypherSystem_PlatformVirtualRelease( void *memory, common::usize size )
+bool Sys_PlatformVirtualRelease( void *memory, common::usize size )
 {
     if ( memory == nullptr || size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual release failed: memory=%p, size=%zu.", memory, size );
@@ -865,12 +865,12 @@ bool CypherSystem_PlatformVirtualRelease( void *memory, common::usize size )
 
 /*
 ================
-CypherSystem_PlatformBuildPaths
+Sys_PlatformBuildPaths
 
 Builds Linux executable, base and user paths.
 ================
 */
-sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_t &pathsOut )
+sys_error_t Sys_PlatformBuildPaths( const init_info_t &infoInit, paths_t &pathsOut )
 {
     std::error_code ec{};
     pathsOut = {};
@@ -880,39 +880,39 @@ sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_
         return sys_error_t::ERR_PATH_QUERY_FAILED;
     }
 
-    char pExecutableBuffer[SYS_MAX_PATH_LENGTH]{};
+    char executableBuffer[SYS_MAX_PATH_LENGTH]{};
 
-    const ssize_t nExecutableLength = readlink(
+    const ssize_t executableLength = readlink(
         "/proc/self/exe",
-        pExecutableBuffer,
-        sizeof( pExecutableBuffer ) - 1u
+        executableBuffer,
+        sizeof( executableBuffer ) - 1u
     );
 
-    if ( nExecutableLength < 0 ) {
+    if ( executableLength < 0 ) {
         return sys_error_t::ERR_PATH_QUERY_FAILED;
     }
 
-    pExecutableBuffer[nExecutableLength] = '\0';
+    executableBuffer[executableLength] = '\0';
 
-    std::filesystem::path szExecutablePath = std::filesystem::weakly_canonical( pExecutableBuffer, ec );
+    std::filesystem::path executablePath = std::filesystem::weakly_canonical( executableBuffer, ec );
 
     if ( ec ) {
         ec.clear();
-        szExecutablePath = pExecutableBuffer;
+        executablePath = executableBuffer;
     }
 
-    const std::filesystem::path executableDir = szExecutablePath.parent_path();
-    const char *szBasePathOverride = CypherSystem_FindArgvValue( infoInit, "-basedir" );
+    const std::filesystem::path executableDir = executablePath.parent_path();
+    const char *basePathOverride = Sys_FindArgvValue( infoInit, "-basedir" );
 
-    const std::filesystem::path szBasePath =
-        ( szBasePathOverride != nullptr && szBasePathOverride[0] != '\0' ) ? std::filesystem::path( szBasePathOverride ) : workingDir;
+    const std::filesystem::path basePath =
+        ( basePathOverride != nullptr && basePathOverride[0] != '\0' ) ? std::filesystem::path( basePathOverride ) : workingDir;
 
-    const char *szUserPathOverride = CypherSystem_FindArgvValue( infoInit, "-userpath" );
+    const char *userPathOverride = Sys_FindArgvValue( infoInit, "-userpath" );
 
-    std::filesystem::path szUserPath{};
+    std::filesystem::path userPath{};
 
-    if ( szUserPathOverride != nullptr && szUserPathOverride[0] != '\0' ) {
-        szUserPath = szUserPathOverride;
+    if ( userPathOverride != nullptr && userPathOverride[0] != '\0' ) {
+        userPath = userPathOverride;
     } else {
         const char *home = std::getenv( "HOME" );
 
@@ -920,35 +920,35 @@ sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_
             return sys_error_t::ERR_PATH_QUERY_FAILED;
         }
 
-        szUserPath = std::filesystem::path( home ) /
+        userPath = std::filesystem::path( home ) /
                     ".local" /
                     "share" /
-                    infoInit.szAppName;
+                    infoInit.appName;
     }
 
-    std::filesystem::create_directories( szUserPath, ec );
+    std::filesystem::create_directories( userPath, ec );
 
     if ( ec ) {
         return sys_error_t::ERR_DIRECTORY_CREATE_FAILED;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.szExecutablePath, sizeof( pathsOut.szExecutablePath ), szExecutablePath ) ) {
+    if ( !Sys_CopyPath( pathsOut.executablePath, sizeof( pathsOut.executablePath ), executablePath ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.executableDir, sizeof( pathsOut.executableDir ), executableDir ) ) {
+    if ( !Sys_CopyPath( pathsOut.executableDir, sizeof( pathsOut.executableDir ), executableDir ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.workingDir, sizeof( pathsOut.workingDir ), workingDir ) ) {
+    if ( !Sys_CopyPath( pathsOut.workingDir, sizeof( pathsOut.workingDir ), workingDir ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.szBasePath, sizeof( pathsOut.szBasePath ), szBasePath ) ) {
+    if ( !Sys_CopyPath( pathsOut.basePath, sizeof( pathsOut.basePath ), basePath ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
-    if ( !CypherSystem_CopyPath( pathsOut.szUserPath, sizeof( pathsOut.szUserPath ), szUserPath ) ) {
+    if ( !Sys_CopyPath( pathsOut.userPath, sizeof( pathsOut.userPath ), userPath ) ) {
         return sys_error_t::ERR_PATH_TOO_LONG;
     }
 
@@ -957,10 +957,10 @@ sys_error_t CypherSystem_PlatformBuildPaths( const init_info_t &infoInit, paths_
 
 /*
 ================
-CypherSystem_PlatformSleepMilliseconds
+Sys_PlatformSleepMilliseconds
 ================
 */
-void CypherSystem_PlatformSleepMilliseconds( common::u64 milliseconds )
+void Sys_PlatformSleepMilliseconds( common::u64 milliseconds )
 {
     timespec request{};
     request.tv_sec = static_cast<time_t>( milliseconds / 1000u );
@@ -972,28 +972,28 @@ void CypherSystem_PlatformSleepMilliseconds( common::u64 milliseconds )
 
 /*
 ================
-CypherSystem_PlatformVirtualPageSize
+Sys_PlatformVirtualPageSize
 ================
 */
-common::usize CypherSystem_PlatformVirtualPageSize()
+common::usize Sys_PlatformVirtualPageSize()
 {
     constexpr common::usize DEFAULT_PAGE_SIZE = 4096u;
-    const long nPageSize = sysconf( _SC_PAGESIZE );
+    const long pageSize = sysconf( _SC_PAGESIZE );
 
-    if ( nPageSize <= 0 ) {
+    if ( pageSize <= 0 ) {
         LOG_WARNING( log::channel_t::PLATFORM, "sysconf(_SC_PAGESIZE) failed; using default page size %zu.", DEFAULT_PAGE_SIZE );
         return DEFAULT_PAGE_SIZE;
     }
 
-    return static_cast<common::usize>( nPageSize );
+    return static_cast<common::usize>( pageSize );
 }
 
 /*
 ================
-CypherSystem_PlatformVirtualReserve
+Sys_PlatformVirtualReserve
 ================
 */
-void *CypherSystem_PlatformVirtualReserve( common::usize size )
+void *Sys_PlatformVirtualReserve( common::usize size )
 {
     if ( size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual reserve failed: requested size is zero." );
@@ -1019,10 +1019,10 @@ void *CypherSystem_PlatformVirtualReserve( common::usize size )
 
 /*
 ================
-CypherSystem_PlatformVirtualCommit
+Sys_PlatformVirtualCommit
 ================
 */
-bool CypherSystem_PlatformVirtualCommit( void *memory, common::usize size )
+bool Sys_PlatformVirtualCommit( void *memory, common::usize size )
 {
     if ( memory == nullptr || size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual commit failed: memory=%p, size=%zu.", memory, size );
@@ -1040,10 +1040,10 @@ bool CypherSystem_PlatformVirtualCommit( void *memory, common::usize size )
 
 /*
 ================
-CypherSystem_PlatformVirtualDecommit
+Sys_PlatformVirtualDecommit
 ================
 */
-bool CypherSystem_PlatformVirtualDecommit( void *memory, common::usize size )
+bool Sys_PlatformVirtualDecommit( void *memory, common::usize size )
 {
     if ( memory == nullptr || size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual decommit failed: memory=%p, size=%zu.", memory, size );
@@ -1066,10 +1066,10 @@ bool CypherSystem_PlatformVirtualDecommit( void *memory, common::usize size )
 
 /*
 ================
-CypherSystem_PlatformVirtualRelease
+Sys_PlatformVirtualRelease
 ================
 */
-bool CypherSystem_PlatformVirtualRelease( void *memory, common::usize size )
+bool Sys_PlatformVirtualRelease( void *memory, common::usize size )
 {
     if ( memory == nullptr || size == 0u ) {
         LOG_ERROR( log::channel_t::PLATFORM, "virtual release failed: memory=%p, size=%zu.", memory, size );

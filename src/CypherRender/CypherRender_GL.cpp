@@ -36,14 +36,14 @@ Creates the SDL OpenGL context and loads GL entry points through GLAD.
 */
 render_error_t CypherRenderGL_Init( const sys::window_t &window, bool vsync, gl_state_t &pGlState )
 {
-    SDL_Window *pSdlWindow{ nullptr};
+    SDL_Window *sdlWindow{ nullptr};
 
-    if ( window.pNativeWindow == nullptr || !window.valid ) {
+    if ( window.nativeWindow == nullptr || !window.valid ) {
         LOG_ERROR( log::channel_t::RENDER, "OpenGL init failed: invalid native window." );
         return render_error_t::ERR_INVALID_WINDOW_CFG;
     }
 
-    pSdlWindow = static_cast<SDL_Window *>( window.pNativeWindow );
+    sdlWindow = static_cast<SDL_Window *>( window.nativeWindow );
 
     // macOS requires a forward-compatible core profile context.
     #ifdef CYPHER_PLATFORM_MACOS
@@ -80,7 +80,7 @@ render_error_t CypherRenderGL_Init( const sys::window_t &window, bool vsync, gl_
     #endif
 
     SDL_GLContext pGlContext{ nullptr };
-    pGlContext = SDL_GL_CreateContext( pSdlWindow );
+    pGlContext = SDL_GL_CreateContext( sdlWindow );
 
     if ( pGlContext == nullptr ) {
         LOG_ERROR( log::channel_t::RENDER, "SDL_GL_CreateContext failed: %s", SDL_GetError() );
@@ -91,7 +91,7 @@ render_error_t CypherRenderGL_Init( const sys::window_t &window, bool vsync, gl_
         LOG_ERROR( log::channel_t::RENDER, "SDL_GL_SetSwapInterval failed: %s", SDL_GetError() );
     }
 
-    if ( !SDL_GL_MakeCurrent( pSdlWindow, pGlContext ) ) {
+    if ( !SDL_GL_MakeCurrent( sdlWindow, pGlContext ) ) {
         SDL_GL_DestroyContext( pGlContext );
         LOG_ERROR( log::channel_t::RENDER, "SDL_GL_MakeCurrent failed: %s", SDL_GetError() );
         return render_error_t::ERR_OPENGL_INIT;
@@ -157,7 +157,7 @@ Sets per-frame GL state and clears the back buffer.
 */
 render_error_t CypherRenderGL_BeginFrame( const sys::window_t &window )
 {
-    if ( window.pNativeWindow == nullptr || !window.valid ) {
+    if ( window.nativeWindow == nullptr || !window.valid ) {
         LOG_ERROR( log::channel_t::RENDER, "GL begin frame failed: invalid native window." );
         return render_error_t::ERR_INVALID_WINDOW_CFG;
     }
@@ -185,15 +185,15 @@ CypherRenderGL_EndFrame
 */
 render_error_t CypherRenderGL_EndFrame( const sys::window_t &window )
 {
-    SDL_Window *pSdlWindow{ nullptr };
-    if ( !window.valid || window.pNativeWindow == nullptr ) {
+    SDL_Window *sdlWindow{ nullptr };
+    if ( !window.valid || window.nativeWindow == nullptr ) {
         LOG_ERROR( log::channel_t::RENDER, "GL end frame failed: invalid native window." );
         return render_error_t::ERR_INVALID_WINDOW_CFG;
     }
 
-    pSdlWindow = static_cast<SDL_Window *>( window.pNativeWindow );
+    sdlWindow = static_cast<SDL_Window *>( window.nativeWindow );
 
-    SDL_GL_SwapWindow( pSdlWindow );
+    SDL_GL_SwapWindow( sdlWindow );
 
     return render_error_t::OK;
 }

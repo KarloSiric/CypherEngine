@@ -187,13 +187,13 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
     sys::init_info_t sysInfo {
         .argc = pHostState.config.argc,
         .argv = pHostState.config.argv,
-        .szAppName = common::COM_GAME_INFO.szInternalName,
-        .szOrganizationName = common::COM_GAME_INFO.szOrganizationName
+        .appName = common::COM_GAME_INFO.szInternalName,
+        .organizationName = common::COM_GAME_INFO.szOrganizationName
     };
 
-    const auto sysResult = sys::CypherSystem_Init( sysInfo );
+    const auto sysResult = sys::Sys_Init( sysInfo );
     if ( sysResult != sys::sys_error_t::OK ) {
-        COM_ERRORF( CypherSystem_ErrorCode( sysResult ) , "CypherHost_Init: CypherSystem_Init failed: %s", sys::CypherSystem_ErrorDesc( sysResult ) );
+        COM_ERRORF( Sys_ErrorCode( sysResult ) , "CypherHost_Init: Sys_Init failed: %s", sys::Sys_ErrorDesc( sysResult ) );
 
         pHostState.running = false;
         pHostState.stage = stage_t::SHUTDOWN;
@@ -204,7 +204,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
     if ( logResult != log::log_error_t::OK ) {
         COM_ERRORF( log::CypherLog_ErrorCode( logResult ), "CypherHost_Init: CypherLog_Init failed: %s", log::CypherLog_ErrorDesc( logResult ) );
 
-        sys::CypherSystem_Shutdown();
+        sys::Sys_Shutdown();
 
         pHostState.running = false;
         pHostState.stage = stage_t::SHUTDOWN;
@@ -212,15 +212,15 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
     }
 
     LOG_INFO( log::channel_t::HOST, "%s startup begin.", common::COM_ENGINE_INFO.name );
-    LOG_INFO( log::channel_t::SYSTEM, "system initialized: platform=%s, compiler=%s.", sys::CypherSystem_PlatformName( sys::CypherSystem_PlatformType() ), sys::CypherSystem_CompilerName( sys::CypherSystem_CompilerType() ) );
-    LOG_INFO( log::channel_t::SYSTEM, "paths: base='%s', user='%s', executable='%s'.", sys::CypherSystem_Paths().szBasePath, sys::CypherSystem_Paths().szUserPath, sys::CypherSystem_Paths().szExecutablePath );
+    LOG_INFO( log::channel_t::SYSTEM, "system initialized: platform=%s, compiler=%s.", sys::Sys_PlatformName( sys::Sys_PlatformType() ), sys::Sys_CompilerName( sys::Sys_CompilerType() ) );
+    LOG_INFO( log::channel_t::SYSTEM, "paths: base='%s', user='%s', executable='%s'.", sys::Sys_Paths().basePath, sys::Sys_Paths().userPath, sys::Sys_Paths().executablePath );
 
     const auto memoryResult = mem::CypherMemory_Init( mem::CypherMemory_DefaultConfig() );
     if ( memoryResult != mem::mem_error_t::OK ) {
         LOG_ERROR( log::channel_t::MEMORY, "memory system initialization failed: %s.", mem::CypherMemory_ErrorDesc( memoryResult ) );
         COM_ERRORF( mem::CypherMemory_ErrorCode( memoryResult ), "CypherHost_Init: CypherMemory_Init failed: %s", mem::CypherMemory_ErrorDesc( memoryResult ) );
         log::CypherLog_Shutdown();
-        sys::CypherSystem_Shutdown();
+        sys::Sys_Shutdown();
 
         pHostState.running = false;
         pHostState.stage = stage_t::SHUTDOWN;
@@ -233,7 +233,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         COM_ERRORF( CypherFileSystem_ErrorCode( fsResult ), "CypherHost_Init: CypherFileSystem_Init failed: %s", fs::CypherFileSystem_ErrorDesc( fsResult ) );
         mem::CypherMemory_Shutdown();
         log::CypherLog_Shutdown();
-        sys::CypherSystem_Shutdown();
+        sys::Sys_Shutdown();
 
         pHostState.running = false;
         pHostState.stage = stage_t::SHUTDOWN;
@@ -248,7 +248,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         fs::CypherFileSystem_Shutdown();
         mem::CypherMemory_Shutdown();
         log::CypherLog_Shutdown();
-        sys::CypherSystem_Shutdown();
+        sys::Sys_Shutdown();
 
         pHostState.running = false;
         pHostState.stage = stage_t::SHUTDOWN;
@@ -266,7 +266,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         fs::CypherFileSystem_Shutdown();
         mem::CypherMemory_Shutdown();
         log::CypherLog_Shutdown();
-        sys::CypherSystem_Shutdown();
+        sys::Sys_Shutdown();
 
         pHostState.running = false;
         pHostState.stage = stage_t::SHUTDOWN;
@@ -285,7 +285,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         fs::CypherFileSystem_Shutdown();
         mem::CypherMemory_Shutdown();
         log::CypherLog_Shutdown();
-        sys::CypherSystem_Shutdown();
+        sys::Sys_Shutdown();
 
         pHostState.running = false;
         pHostState.stage = stage_t::SHUTDOWN;
@@ -302,16 +302,16 @@ CypherHost_MountFileSystem
 ================
 */
 host_error_t CypherHost_MountFileSystem( void ) {
-    const sys::paths_t &paths = sys::CypherSystem_Paths();
+    const sys::paths_t &paths = sys::Sys_Paths();
 
     const auto baseMountResult = fs::CypherFileSystem_MountDirectory(
         "",
-        paths.szBasePath,
+        paths.basePath,
         fs::CYPHER_FILESYSTEM_MOUNT_READ_ONLY,
         0u );
 
     if ( baseMountResult != fs::fs_error_t::OK ) {
-        LOG_ERROR( log::channel_t::FS, "filesystem base mount failed: base='%s', error=%s.", paths.szBasePath, fs::CypherFileSystem_ErrorDesc( baseMountResult ) );
+        LOG_ERROR( log::channel_t::FS, "filesystem base mount failed: base='%s', error=%s.", paths.basePath, fs::CypherFileSystem_ErrorDesc( baseMountResult ) );
         COM_ERRORF(
             fs::CypherFileSystem_ErrorCode( baseMountResult ),
             "CypherHost_Init: filesystem base mount failed: %s",
@@ -319,9 +319,9 @@ host_error_t CypherHost_MountFileSystem( void ) {
         return host_error_t::ERR_INITIALIZING;
     }
 
-    const auto writePathResult = fs::CypherFileSystem_SetWritePath( paths.szUserPath );
+    const auto writePathResult = fs::CypherFileSystem_SetWritePath( paths.userPath );
     if ( writePathResult != fs::fs_error_t::OK ) {
-        LOG_ERROR( log::channel_t::FS, "filesystem write path failed: user='%s', error=%s.", paths.szUserPath, fs::CypherFileSystem_ErrorDesc( writePathResult ) );
+        LOG_ERROR( log::channel_t::FS, "filesystem write path failed: user='%s', error=%s.", paths.userPath, fs::CypherFileSystem_ErrorDesc( writePathResult ) );
         COM_ERRORF(
             fs::CypherFileSystem_ErrorCode( writePathResult ),
             "CypherHost_Init: filesystem write path failed: %s",
@@ -329,7 +329,7 @@ host_error_t CypherHost_MountFileSystem( void ) {
         return host_error_t::ERR_INITIALIZING;
     }
 
-    LOG_INFO( log::channel_t::FS, "filesystem mounted: base='%s', write='%s'.", paths.szBasePath, paths.szUserPath );
+    LOG_INFO( log::channel_t::FS, "filesystem mounted: base='%s', write='%s'.", paths.basePath, paths.userPath );
     return host_error_t::OK;
 }
 
@@ -511,9 +511,9 @@ log::level_t CypherHost_LogLevelFromCvar( const char *szCvarName, const log::lev
 CypherHost_CopyLogPathFromCvar
 ================
 */
-void CypherHost_CopyLogPathFromCvar( char *szOutPath, const common::usize nOutPathSize, const char *szCvarName, const char *fallback )
+void CypherHost_CopyLogPathFromCvar( char *outPath, const common::usize outPathSize, const char *szCvarName, const char *fallback )
 {
-    if ( szOutPath == nullptr || nOutPathSize == 0u ) {
+    if ( outPath == nullptr || outPathSize == 0u ) {
         return;
     }
 
@@ -523,8 +523,8 @@ void CypherHost_CopyLogPathFromCvar( char *szOutPath, const common::usize nOutPa
         path = fallback;
     }
 
-    std::strncpy( szOutPath, path, nOutPathSize - 1u );
-    szOutPath[nOutPathSize - 1u] = '\0';
+    std::strncpy( outPath, path, outPathSize - 1u );
+    outPath[outPathSize - 1u] = '\0';
 }
 
 /*
@@ -644,18 +644,18 @@ CypherHost_CreateWindow
 */
 host_error_t CypherHost_CreateWindow( state_t &pHostState )
 {
-    sys::window_desc_t szWindowDescription{};
+    sys::window_desc_t windowDescription{};
 
-    szWindowDescription.title        = pHostState.config.pWindowConfig.title;
-    szWindowDescription.width        = pHostState.config.pWindowConfig.viewport.width;
-    szWindowDescription.height       = pHostState.config.pWindowConfig.viewport.height;
-    szWindowDescription.fullscreen   = pHostState.config.pWindowConfig.fullscreen;
-    szWindowDescription.vsync        = pHostState.config.pWindowConfig.vsync;
+    windowDescription.title        = pHostState.config.pWindowConfig.title;
+    windowDescription.width        = pHostState.config.pWindowConfig.viewport.width;
+    windowDescription.height       = pHostState.config.pWindowConfig.viewport.height;
+    windowDescription.fullscreen   = pHostState.config.pWindowConfig.fullscreen;
+    windowDescription.vsync        = pHostState.config.pWindowConfig.vsync;
 
-    const auto windowResult = sys::CypherSystem_CreateWindow( szWindowDescription, pHostState.window );
+    const auto windowResult = sys::Sys_CreateWindow( windowDescription, pHostState.window );
     if ( windowResult != sys::sys_error_t::OK ) {
-        LOG_ERROR( log::channel_t::HOST, "window creation failed: %s.", sys::CypherSystem_ErrorDesc( windowResult ) );
-        COM_ERRORF( sys::CypherSystem_ErrorCode( windowResult ), "CypherHost_CreateWindow: CypherSystem_CreateWindow failed: %s", sys::CypherSystem_ErrorDesc( windowResult ) );
+        LOG_ERROR( log::channel_t::HOST, "window creation failed: %s.", sys::Sys_ErrorDesc( windowResult ) );
+        COM_ERRORF( sys::Sys_ErrorCode( windowResult ), "CypherHost_CreateWindow: Sys_CreateWindow failed: %s", sys::Sys_ErrorDesc( windowResult ) );
         return host_error_t::ERR_INITIALIZING;
     }
 
@@ -689,7 +689,7 @@ host_error_t CypherHost_FinishInit( state_t &pHostState ) {
     pHostState.running = true;
     pHostState.stage = stage_t::RUNNING;
 
-    const common::f64 now = sys::CypherSystem_TimeNowSeconds();
+    const common::f64 now = sys::Sys_TimeNowSeconds();
 
     pHostState.frame.nCurrentTimeSeconds = now;
     pHostState.frame.nPreviousTimeSeconds = now;
@@ -804,7 +804,7 @@ void CypherHost_Shutdown( state_t &pHostState ) {
 	pHostState.stage = stage_t::SHUTDOWN;
 
     render::CypherRender_Shutdown();
-    sys::CypherSystem_DestroyWindow( pHostState.window );
+    sys::Sys_DestroyWindow( pHostState.window );
     cfg::CypherConfig_Shutdown();
     cvar::CypherCVar_Shutdown();
     cmd::CypherCommand_Shutdown();
@@ -812,7 +812,7 @@ void CypherHost_Shutdown( state_t &pHostState ) {
     mem::CypherMemory_Shutdown();
     LOG_INFO( log::channel_t::HOST, "%s shutdown complete.", common::COM_ENGINE_INFO.name );
     log::CypherLog_Shutdown();
-    sys::CypherSystem_Shutdown();
+    sys::Sys_Shutdown();
 }
 
 /*
@@ -832,7 +832,7 @@ void CypherHost_BeginFrame( state_t &pHostState ) {
 	frame_t &frame = pHostState.frame;
 
 	frame.nPreviousTimeSeconds = frame.nCurrentTimeSeconds;
-	frame.nCurrentTimeSeconds = sys::CypherSystem_TimeNowSeconds();
+	frame.nCurrentTimeSeconds = sys::Sys_TimeNowSeconds();
 
     const common::f32 nRawDeltaTimeSeconds = static_cast<common::f32>( frame.nCurrentTimeSeconds - frame.nPreviousTimeSeconds );
 
@@ -882,9 +882,9 @@ void CypherHost_Update( state_t &pHostState ) {
 		return;
 	}
 
-    sys::CypherSystem_PollWindowEvents( pHostState.window );
+    sys::Sys_PollWindowEvents( pHostState.window );
 
-    if ( sys::CypherSystem_WindowShouldClose( pHostState.window ) ) {
+    if ( sys::Sys_WindowShouldClose( pHostState.window ) ) {
         CypherHost_RequestShutdown( pHostState );
         return ;
     }

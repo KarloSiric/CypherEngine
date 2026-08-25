@@ -43,7 +43,7 @@ enum class platform_t : common::u8 {
     UNKNOWN = 0,  // Build target could not be identified.
     WINDOWS,      // Microsoft Windows desktop target.
     LINUX,        // Linux desktop target.
-    MACOSX        // Apple macOS desktop target.
+    MACOS         // Apple macOS desktop target.
 };
 
 enum class compiler_t : common::u8 {
@@ -62,24 +62,24 @@ struct init_info_t {
     int argc{ 0 };                                  // Process argument count borrowed for runtime queries.
     const char *const *argv{ nullptr };             // Process arguments borrowed until system shutdown.
 
-    const char *szAppName{ nullptr };                // Required application name copied during initialization.
-    const char *szOrganizationName{ nullptr };       // Required organization name copied during initialization.
+    const char *appName{ nullptr };                // Required application name copied during initialization.
+    const char *organizationName{ nullptr };       // Required organization name copied during initialization.
 };
 
 struct paths_t {
-    char szExecutablePath[SYS_MAX_PATH_LENGTH]{};    // Absolute path to the running executable.
+    char executablePath[SYS_MAX_PATH_LENGTH]{};    // Absolute path to the running executable.
     char executableDir[SYS_MAX_PATH_LENGTH]{};       // Absolute directory containing the executable.
     char workingDir[SYS_MAX_PATH_LENGTH]{};          // Process working directory captured at startup.
 
-    char szBasePath[SYS_MAX_PATH_LENGTH]{};          // Default engine/content base directory.
-    char szUserPath[SYS_MAX_PATH_LENGTH]{};          // Per-user writable application directory.
+    char basePath[SYS_MAX_PATH_LENGTH]{};          // Default engine/content base directory.
+    char userPath[SYS_MAX_PATH_LENGTH]{};          // Per-user writable application directory.
 };
 
 struct runtime_state_t {
     bool initialized{ false };                       // True only after every platform query succeeds.
 
-    char szAppName[SYS_MAX_NAME_LENGTH]{};           // Owned copy of application name.
-    char szOrganizationName[SYS_MAX_NAME_LENGTH]{};  // Owned copy of organization name.
+    char appName[SYS_MAX_NAME_LENGTH]{};           // Owned copy of application name.
+    char organizationName[SYS_MAX_NAME_LENGTH]{};  // Owned copy of organization name.
 
     int argc{ 0 };                                   // Borrowed process argument count.
     const char *const *argv{ nullptr };              // Borrowed process argument vector.
@@ -92,36 +92,36 @@ struct runtime_state_t {
 System API
 ================
 */
-sys_error_t CypherSystem_Init( const init_info_t &initInfo );
-sys_error_t CypherSystem_Shutdown();
+sys_error_t Sys_Init( const init_info_t &initInfo );
+sys_error_t Sys_Shutdown();
 
-bool CypherSystem_IsInitialized();
+bool Sys_IsInitialized();
 
-platform_t CypherSystem_PlatformType();
-compiler_t CypherSystem_CompilerType();
+platform_t Sys_PlatformType();
+compiler_t Sys_CompilerType();
 
-const char *CypherSystem_PlatformName( platform_t type );
-const char *CypherSystem_CompilerName( compiler_t type );
+const char *Sys_PlatformName( platform_t type );
+const char *Sys_CompilerName( compiler_t type );
 
-const paths_t &CypherSystem_Paths();
-sys_error_t CypherSystem_GetPaths( paths_t &pathsOut );
+const paths_t &Sys_Paths();
+sys_error_t Sys_GetPaths( paths_t &pathsOut );
 
-const char *CypherSystem_PathBasename( const char *path );
+const char *Sys_PathBasename( const char *path );
 
-common::f64 CypherSystem_TimeNowSeconds();
-void CypherSystem_SleepMilliseconds( common::u64 milliseconds );
+common::f64 Sys_TimeNowSeconds();
+void Sys_SleepMilliseconds( common::u64 milliseconds );
 
-bool CypherSystem_LocalTime( std::time_t timeValue, std::tm &timeOut );
+bool Sys_LocalTime( std::time_t timeValue, std::tm &timeOut );
 
-common::usize CypherSystem_VirtualPageSize();
+common::usize Sys_VirtualPageSize();
 
-void *CypherSystem_VirtualReserve( const common::usize size ); // Reserves inaccessible address space without committing pages.
+void *Sys_VirtualReserve( const common::usize size ); // Reserves inaccessible address space without committing pages.
 
-sys_error_t CypherSystem_VirtualCommit( void *memory, common::usize size ); // Makes reserved pages readable and writable.
+sys_error_t Sys_VirtualCommit( void *memory, common::usize size ); // Makes reserved pages readable and writable.
 
-sys_error_t CypherSystem_VirtualDecommit( void *memory, common::usize size ); // Discards page contents but retains the address range.
+sys_error_t Sys_VirtualDecommit( void *memory, common::usize size ); // Discards page contents but retains the address range.
 
-sys_error_t CypherSystem_VirtualRelease( void *memory, common::usize size ); // Releases the complete reservation to the OS.
+sys_error_t Sys_VirtualRelease( void *memory, common::usize size ); // Releases the complete reservation to the OS.
 
 /*
 ================
