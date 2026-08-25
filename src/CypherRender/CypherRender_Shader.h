@@ -65,19 +65,19 @@ struct shader_registry_t {
 Shader Registry API
 ================
 */
-void CypherRender_ShaderRegistryInit( shader_registry_t &szShaderRegistry );
+void R_ShaderRegistryInit( shader_registry_t &szShaderRegistry );
 
-void CypherRender_ShaderRegistryShutdown( shader_registry_t &szShaderRegistry );
+void R_ShaderRegistryShutdown( shader_registry_t &szShaderRegistry );
 
-render_error_t CypherRender_ShaderLoad( shader_registry_t &szShaderRegistry, const char *name, const char *szVertexPath, const char *szFragmentPath, shader_t **szOutShader );
+render_error_t R_ShaderLoad( shader_registry_t &szShaderRegistry, const char *name, const char *szVertexPath, const char *szFragmentPath, shader_t **szOutShader );
 
-shader_t *CypherRender_ShaderFind( shader_registry_t &registry, const char *name );
+shader_t *R_ShaderFind( shader_registry_t &registry, const char *name );
 
-render_error_t CypherRender_ShaderBind( const shader_t &shader );
+render_error_t R_ShaderBind( const shader_t &shader );
 
-void CypherRender_ShaderUnload( shader_t &shader );
+void R_ShaderUnload( shader_t &shader );
 
-render_error_t CypherRender_ShaderSetMat4(
+render_error_t R_ShaderSetMat4(
     const shader_t &shader,
     const char *szUniformName,
     const ::cypher::math::mat4_t &matrix );

@@ -27,12 +27,12 @@ namespace cmath = ::cypher::math;
 
 /*
 ================
-CypherRender_MeshCreate
+R_MeshCreate
 
 Validates CPU mesh data, calculates simple bounds, then uploads to OpenGL.
 ================
 */
-render_error_t CypherRender_MeshCreate( const vertex_t *vertices,
+render_error_t R_MeshCreate( const vertex_t *vertices,
                              const common::u32 nVertexCount,
                              const common::u32 *indices,
                              const common::u32 nIndexCount,
@@ -60,7 +60,7 @@ render_error_t CypherRender_MeshCreate( const vertex_t *vertices,
     }
 
     // Cypher 1 delegates ownership creation to OpenGL after frontend validation succeeds.
-    const auto result = CypherRenderGL_MeshCreate(
+    const auto result = GL_MeshCreate(
         vertices,
         nVertexCount,
         indices,
@@ -68,7 +68,7 @@ render_error_t CypherRender_MeshCreate( const vertex_t *vertices,
         meshOut );
 
     if ( result != render_error_t::OK ) {
-        LOG_ERROR( log::channel_t::RENDER, "mesh create failed: GL upload failed: %s.", CypherRender_ErrorDesc( result ) );
+        LOG_ERROR( log::channel_t::RENDER, "mesh create failed: GL upload failed: %s.", R_ErrorDesc( result ) );
         meshOut = {};
     } else {
         LOG_DEBUG( log::channel_t::RENDER, "mesh created: vertices=%u, indices=%u, vao=%u, vbo=%u, ebo=%u.", meshOut.nVertexCount, meshOut.nIndexCount, meshOut.nGlVao, meshOut.nGlVbo, meshOut.nGlEbo );
@@ -77,27 +77,27 @@ render_error_t CypherRender_MeshCreate( const vertex_t *vertices,
     return result;
 }
 
-void CypherRender_MeshDestroy( mesh_t &mesh )
+void R_MeshDestroy( mesh_t &mesh )
 {
     if ( !mesh.loaded ) {
         return ;
     }
 
     LOG_DEBUG( log::channel_t::RENDER, "mesh destroyed: vao=%u, vbo=%u, ebo=%u.", mesh.nGlVao, mesh.nGlVbo, mesh.nGlEbo );
-    CypherRenderGL_MeshDestroy( mesh );
+    GL_MeshDestroy( mesh );
     mesh = {};
 
     return ;
 }
 
-render_error_t CypherRender_MeshDraw( const mesh_t &mesh )
+render_error_t R_MeshDraw( const mesh_t &mesh )
 {
     if ( !mesh.loaded ) {
         LOG_ERROR( log::channel_t::RENDER, "mesh draw failed: mesh is not loaded." );
         return render_error_t::ERR_INVALID_FUNC_PARAMETER;
     }
 
-    return CypherRenderGL_MeshDraw( mesh );
+    return GL_MeshDraw( mesh );
 }
 
 }       // namespace cypher::engine::render

@@ -58,20 +58,20 @@ struct mesh_t {
 
 /*
 ================
-CypherRender_MeshCreate
+R_MeshCreate
 
 Uploads vertex/index data into the active renderer backend.
 ================
 */
-render_error_t CypherRender_MeshCreate( const vertex_t *vertices,
+render_error_t R_MeshCreate( const vertex_t *vertices,
                              const common::u32 nVertexCount,
                              const common::u32 *indices,
                              const common::u32 nIndexCount,
                              mesh_t &meshOut );
 
-void CypherRender_MeshDestroy( mesh_t &mesh );
+void R_MeshDestroy( mesh_t &mesh );
 
-render_error_t CypherRender_MeshDraw( const mesh_t &mesh );
+render_error_t R_MeshDraw( const mesh_t &mesh );
 
 }       // namespace cypher::engine::render
 

@@ -63,26 +63,26 @@ struct camera_t {
     ::cypher::math::frustum_t frustum{};                    // World-space planes derived from projectionView.
 };
 
-void CypherRender_CameraInit( camera_t &camera, const camera_desc_t &cameraDesc );
+void R_CameraInit( camera_t &camera, const camera_desc_t &cameraDesc );
 
-void CypherRender_CameraUpdateMatrices( camera_t &camera );
+void R_CameraUpdateMatrices( camera_t &camera );
 
-void CypherRender_CameraSetPerspective( camera_t &camera, common::f32 fovYRadians, common::f32 aspectRation, common::f32 nearZ, common::f32 farZ );
+void R_CameraSetPerspective( camera_t &camera, common::f32 fovYRadians, common::f32 aspectRation, common::f32 nearZ, common::f32 farZ );
 
-void CypherRender_CameraSetTransform(
+void R_CameraSetTransform(
     camera_t &camera,
     const ::cypher::math::vec3_t &position,
     const ::cypher::math::quat_t &orientation );
 
-void CypherRender_CameraSetPosition(
+void R_CameraSetPosition(
     camera_t &camera,
     const ::cypher::math::vec3_t &position );
 
-void CypherRender_CameraSetOrientation(
+void R_CameraSetOrientation(
     camera_t &camera,
     const ::cypher::math::quat_t &orientation );
 
-void CypherRender_CameraSetPerspectiveMode( camera_t &camera, camera_projection_mode_t &mode );
+void R_CameraSetPerspectiveMode( camera_t &camera, camera_projection_mode_t &mode );
 
 }       // namespace cypher::engine::render
 

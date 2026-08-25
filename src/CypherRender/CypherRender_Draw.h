@@ -56,15 +56,15 @@ struct draw_list_t {
     common::u32 nItemCapacity{ 0u };                        // Maximum commands addressable through items.
 };
 
-render_error_t CypherRender_DrawItem( const draw_item_t &item, const camera_t &camera );
+render_error_t R_DrawItem( const draw_item_t &item, const camera_t &camera );
 
-void CypherRender_DrawListInit( draw_list_t &drawList, draw_item_t *items, common::u32 nItemCapacity );
+void R_DrawListInit( draw_list_t &drawList, draw_item_t *items, common::u32 nItemCapacity );
 
-void CypherRender_DrawListClear( draw_list_t &drawList );
+void R_DrawListClear( draw_list_t &drawList );
 
-render_error_t CypherRender_DrawListSubmit( draw_list_t &drawList, const draw_item_t &item );
+render_error_t R_DrawListSubmit( draw_list_t &drawList, const draw_item_t &item );
 
-render_error_t CypherRender_DrawListDraw( const draw_list_t &drawList, const camera_t &camera );
+render_error_t R_DrawListDraw( const draw_list_t &drawList, const camera_t &camera );
 
 }       // namespace cypher::engine::render
 

@@ -64,19 +64,19 @@ struct render_runtime_state_t {
 Renderer API
 ================
 */
-render_error_t CypherRender_Init( const sys::window_t &window, const host::window_config_t &pWindowConfig );
+render_error_t R_Init( const sys::window_t &window, const host::window_config_t &pWindowConfig );
 
-void CypherRender_Shutdown();
+void R_Shutdown();
 
-render_error_t CypherRender_BeginFrame( const common::f32 nDeltaTimeSeconds );
+render_error_t R_BeginFrame( const common::f32 nDeltaTimeSeconds );
 
-render_error_t CypherRender_RenderFrame();
+render_error_t R_RenderFrame();
 
-render_error_t CypherRender_EndFrame();
+render_error_t R_EndFrame();
 
-render_error_t CypherRender_SubmitDrawItem( const draw_item_t &drawItem );
+render_error_t R_SubmitDrawItem( const draw_item_t &drawItem );
 
-bool CypherRender_IsInitialized();
+bool R_IsInitialized();
 
 }
 

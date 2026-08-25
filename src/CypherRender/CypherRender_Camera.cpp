@@ -41,7 +41,7 @@ constexpr common::f32 CAMERA_MINIMUM_PLANE_NORMAL_LENGTH = 1.0e-6f;
 
 } // namespace
 
-void CypherRender_CameraInit( camera_t &camera, const camera_desc_t &cameraDesc )
+void R_CameraInit( camera_t &camera, const camera_desc_t &cameraDesc )
 {
     camera = camera_t{};
 
@@ -49,12 +49,12 @@ void CypherRender_CameraInit( camera_t &camera, const camera_desc_t &cameraDesc 
     camera.position = cmath::CY_VEC3_ZERO;
     camera.orientation = cmath::CY_QUAT_IDENTITY;
 
-    CypherRender_CameraUpdateMatrices( camera );
+    R_CameraUpdateMatrices( camera );
 
     LOG_INFO( log::channel_t::RENDER, "camera initialized: fov_y=%f, aspect=%f, near=%f, far=%f.", camera.cameraDesc.fovYRadians, camera.cameraDesc.aspectRatio, camera.cameraDesc.nearZ, camera.cameraDesc.farZ );
 }
 
-void CypherRender_CameraUpdateMatrices( camera_t &camera )
+void R_CameraUpdateMatrices( camera_t &camera )
 {
     // Normalize once so every derived basis vector shares the same stable orientation.
     cmath::quat_t normalizedOrientation{};
@@ -108,19 +108,19 @@ void CypherRender_CameraUpdateMatrices( camera_t &camera )
     }
 }
 
-void CypherRender_CameraSetPerspective( camera_t &camera, common::f32 fovYRadians, common::f32 aspectRatio, common::f32 nearZ, common::f32 farZ )
+void R_CameraSetPerspective( camera_t &camera, common::f32 fovYRadians, common::f32 aspectRatio, common::f32 nearZ, common::f32 farZ )
 {
     camera.cameraDesc.fovYRadians = fovYRadians;
     camera.cameraDesc.aspectRatio = aspectRatio;
     camera.cameraDesc.nearZ = nearZ;
     camera.cameraDesc.farZ = farZ;
 
-    CypherRender_CameraUpdateMatrices( camera );
+    R_CameraUpdateMatrices( camera );
 
     LOG_INFO( log::channel_t::RENDER, "camera perspective changed: fov_y=%f, aspect=%f, near=%f, far=%f.", fovYRadians, aspectRatio, nearZ, farZ );
 }
 
-void CypherRender_CameraSetTransform(
+void R_CameraSetTransform(
     camera_t &camera,
     const cmath::vec3_t &position,
     const cmath::quat_t &orientation )
@@ -128,32 +128,32 @@ void CypherRender_CameraSetTransform(
     camera.position = position;
     camera.orientation = orientation;
 
-    CypherRender_CameraUpdateMatrices( camera );
+    R_CameraUpdateMatrices( camera );
 }
 
-void CypherRender_CameraSetPosition(
+void R_CameraSetPosition(
     camera_t &camera,
     const cmath::vec3_t &position )
 {
     camera.position = position;
 
-    CypherRender_CameraUpdateMatrices( camera );
+    R_CameraUpdateMatrices( camera );
 }
 
-void CypherRender_CameraSetOrientation(
+void R_CameraSetOrientation(
     camera_t &camera,
     const cmath::quat_t &orientation )
 {
     camera.orientation = orientation;
 
-    CypherRender_CameraUpdateMatrices( camera );
+    R_CameraUpdateMatrices( camera );
 }
 
-void CypherRender_CameraSetPerspectiveMode( camera_t &camera, camera_projection_mode_t &mode )
+void R_CameraSetPerspectiveMode( camera_t &camera, camera_projection_mode_t &mode )
 {
     camera.cameraDesc.cameraProjectionMode = mode;
 
-    CypherRender_CameraUpdateMatrices( camera );
+    R_CameraUpdateMatrices( camera );
 
     LOG_INFO( log::channel_t::RENDER, "camera projection mode changed: mode=%u.", static_cast<common::u32>( mode ) );
 }

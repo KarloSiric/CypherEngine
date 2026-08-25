@@ -29,12 +29,12 @@ namespace cypher::engine::render
 
 /*
 ================
-CypherRenderGL_Init
+GL_Init
 
 Creates the SDL OpenGL context and loads GL entry points through GLAD.
 ================
 */
-render_error_t CypherRenderGL_Init( const sys::window_t &window, bool vsync, gl_state_t &pGlState )
+render_error_t GL_Init( const sys::window_t &window, bool vsync, gl_state_t &pGlState )
 {
     SDL_Window *sdlWindow{ nullptr};
 
@@ -131,10 +131,10 @@ render_error_t CypherRenderGL_Init( const sys::window_t &window, bool vsync, gl_
 
 /*
 ================
-CypherRenderGL_Shutdown
+GL_Shutdown
 ================
 */
-void CypherRenderGL_Shutdown( gl_state_t &pGlState )
+void GL_Shutdown( gl_state_t &pGlState )
 {
     if ( pGlState.context == nullptr ) {
         return ;
@@ -150,12 +150,12 @@ void CypherRenderGL_Shutdown( gl_state_t &pGlState )
 
 /*
 ================
-CypherRenderGL_BeginFrame
+GL_BeginFrame
 
 Sets per-frame GL state and clears the back buffer.
 ================
 */
-render_error_t CypherRenderGL_BeginFrame( const sys::window_t &window )
+render_error_t GL_BeginFrame( const sys::window_t &window )
 {
     if ( window.nativeWindow == nullptr || !window.valid ) {
         LOG_ERROR( log::channel_t::RENDER, "GL begin frame failed: invalid native window." );
@@ -180,10 +180,10 @@ render_error_t CypherRenderGL_BeginFrame( const sys::window_t &window )
 
 /*
 ================
-CypherRenderGL_EndFrame
+GL_EndFrame
 ================
 */
-render_error_t CypherRenderGL_EndFrame( const sys::window_t &window )
+render_error_t GL_EndFrame( const sys::window_t &window )
 {
     SDL_Window *sdlWindow{ nullptr };
     if ( !window.valid || window.nativeWindow == nullptr ) {
@@ -200,12 +200,12 @@ render_error_t CypherRenderGL_EndFrame( const sys::window_t &window )
 
 /*
 ================
-CypherRenderGL_CompileShader
+GL_CompileShader
 
 Compiles a single OpenGL shader stage and returns its temporary object id.
 ================
 */
-GLuint CypherRenderGL_CompileShader( const GLenum szShaderType, const char *szShaderSource )
+GLuint GL_CompileShader( const GLenum szShaderType, const char *szShaderSource )
 {
     if ( szShaderSource == nullptr || szShaderSource[0] == '\0' ) {
         LOG_ERROR( log::channel_t::RENDER, "OpenGL shader compile failed: shader source is empty." );
@@ -223,7 +223,7 @@ GLuint CypherRenderGL_CompileShader( const GLenum szShaderType, const char *szSh
         char infoLog[2024]{};
         glGetShaderInfoLog( nShaderId, sizeof( infoLog ), nullptr, infoLog );
 
-        LOG_ERROR( log::channel_t::RENDER, "CypherRenderGL_CompileShader: OpenGL shader compile failed: %s\n", infoLog );
+        LOG_ERROR( log::channel_t::RENDER, "GL_CompileShader: OpenGL shader compile failed: %s\n", infoLog );
         glDeleteShader( nShaderId );
         return 0;
     }
@@ -233,12 +233,12 @@ GLuint CypherRenderGL_CompileShader( const GLenum szShaderType, const char *szSh
 
 /*
 ================
-CypherRenderGL_CreateShaderProgram
+GL_CreateShaderProgram
 
 Compiles vertex/fragment shader stages and links them into one GL program.
 ================
 */
-render_error_t CypherRenderGL_CreateShaderProgram( const char *szVertexSource, const char *szFragmentSource, common::u32 &nOutShaderProgramId )
+render_error_t GL_CreateShaderProgram( const char *szVertexSource, const char *szFragmentSource, common::u32 &nOutShaderProgramId )
 {
     nOutShaderProgramId = 0;
 
@@ -252,12 +252,12 @@ render_error_t CypherRenderGL_CreateShaderProgram( const char *szVertexSource, c
         return render_error_t::ERR_INVALID_FUNC_PARAMETER;
     }
 
-    GLuint nVertexShaderId = CypherRenderGL_CompileShader( GL_VERTEX_SHADER, szVertexSource );
+    GLuint nVertexShaderId = GL_CompileShader( GL_VERTEX_SHADER, szVertexSource );
     if ( nVertexShaderId == 0 ) {
         return render_error_t::ERR_SHADER_COMPILE;
     }
 
-    GLuint nFragmentShaderId = CypherRenderGL_CompileShader( GL_FRAGMENT_SHADER, szFragmentSource );
+    GLuint nFragmentShaderId = GL_CompileShader( GL_FRAGMENT_SHADER, szFragmentSource );
     if ( nFragmentShaderId == 0 ) {
         glDeleteShader( nVertexShaderId );
         return render_error_t::ERR_SHADER_COMPILE;
@@ -289,10 +289,10 @@ render_error_t CypherRenderGL_CreateShaderProgram( const char *szVertexSource, c
 
 /*
 ================
-CypherRenderGL_BindShaderProgram
+GL_BindShaderProgram
 ================
 */
-render_error_t CypherRenderGL_BindShaderProgram( const common::u32 nShaderProgramId )
+render_error_t GL_BindShaderProgram( const common::u32 nShaderProgramId )
 {
     if ( nShaderProgramId == 0u ) {
         LOG_ERROR( log::channel_t::RENDER, "shader program bind failed: program id is zero." );
@@ -306,10 +306,10 @@ render_error_t CypherRenderGL_BindShaderProgram( const common::u32 nShaderProgra
 
 /*
 ================
-CypherRenderGL_DestroyShaderProgram
+GL_DestroyShaderProgram
 ================
 */
-void CypherRenderGL_DestroyShaderProgram( const common::u32 nShaderProgramId )
+void GL_DestroyShaderProgram( const common::u32 nShaderProgramId )
 {
     if ( nShaderProgramId == 0u ) {
         return ;
@@ -322,12 +322,12 @@ void CypherRenderGL_DestroyShaderProgram( const common::u32 nShaderProgramId )
 
 /*
 ================
-CypherRenderGL_MeshCreate
+GL_MeshCreate
 
 Uploads mesh vertex/index data and records VAO/VBO/EBO handles.
 ================
 */
-render_error_t CypherRenderGL_MeshCreate( const vertex_t *vertices,
+render_error_t GL_MeshCreate( const vertex_t *vertices,
                                const common::u32 nVertexCount,
                                const common::u32 *indices,
                                const common::u32 nIndexCount,
@@ -412,10 +412,10 @@ render_error_t CypherRenderGL_MeshCreate( const vertex_t *vertices,
 
 /*
 ================
-CypherRenderGL_MeshDestroy
+GL_MeshDestroy
 ================
 */
-void CypherRenderGL_MeshDestroy( mesh_t &mesh )
+void GL_MeshDestroy( mesh_t &mesh )
 {
     if ( mesh.nGlEbo != 0u ) {
         GLuint nElementBufferId = static_cast<GLuint>( mesh.nGlEbo );
@@ -442,10 +442,10 @@ void CypherRenderGL_MeshDestroy( mesh_t &mesh )
 
 /*
 ================
-CypherRenderGL_MeshDraw
+GL_MeshDraw
 ================
 */
-render_error_t CypherRenderGL_MeshDraw( const mesh_t &mesh )
+render_error_t GL_MeshDraw( const mesh_t &mesh )
 {
     if ( !mesh.loaded || mesh.nGlVao == 0u || mesh.nIndexCount == 0u ) {
         LOG_ERROR( log::channel_t::RENDER, "GL mesh draw failed: loaded=%u, vao=%u, indices=%u.", mesh.loaded ? 1u : 0u, mesh.nGlVao, mesh.nIndexCount );
@@ -459,7 +459,7 @@ render_error_t CypherRenderGL_MeshDraw( const mesh_t &mesh )
     return render_error_t::OK;
 }
 
-render_error_t CypherRenderGL_SetUniformMat4(
+render_error_t GL_SetUniformMat4(
     common::u32 nShaderProgramId,
     const char *szUniformName,
     const ::cypher::math::mat4_t &matrix )

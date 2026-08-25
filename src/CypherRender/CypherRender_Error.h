@@ -67,7 +67,7 @@ enum class render_error_t : common::u8 {
 Renderer Error Helpers
 ================
 */
-constexpr inline const char *CypherRender_ErrorName( const render_error_t error ) {
+constexpr inline const char *R_ErrorName( const render_error_t error ) {
     switch ( error ) {
     case render_error_t::OK:
         return "OK";
@@ -114,7 +114,7 @@ constexpr inline const char *CypherRender_ErrorName( const render_error_t error 
     }
 }
 
-constexpr inline const char *CypherRender_ErrorDesc( const render_error_t error ) {
+constexpr inline const char *R_ErrorDesc( const render_error_t error ) {
     switch ( error ) {
     case render_error_t::OK:
         return "operation completed successfully";
@@ -161,7 +161,7 @@ constexpr inline const char *CypherRender_ErrorDesc( const render_error_t error 
     }
 }
 
-constexpr inline common::error_t CypherRender_ErrorCode( render_error_t code ) {
+constexpr inline common::error_t R_ErrorCode( render_error_t code ) {
     return common::CypherCommon_ErrorMake( common::domain_t::COM_DOMAIN_RENDER , static_cast<common::u16>( code ) );
 }
 

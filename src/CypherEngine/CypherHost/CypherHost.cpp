@@ -668,11 +668,11 @@ Host_InitRenderer
 ================
 */
 host_error_t Host_InitRenderer( state_t &pHostState ) {
-    const auto renderResult = render::CypherRender_Init( pHostState.window, pHostState.config.pWindowConfig );
+    const auto renderResult = render::R_Init( pHostState.window, pHostState.config.pWindowConfig );
     if ( renderResult != render::render_error_t::OK ) {
         LOG_ERROR( log::channel_t::RENDER, "renderer initialization failed." );
         COM_ERRORF(
-            render::CypherRender_ErrorCode( renderResult ),
+            render::R_ErrorCode( renderResult ),
             "Host_Init: renderer initialization failed." );
         return host_error_t::ERR_INITIALIZING;
     }
@@ -803,7 +803,7 @@ void Host_Shutdown( state_t &pHostState ) {
 	pHostState.running = false;
 	pHostState.stage = stage_t::SHUTDOWN;
 
-    render::CypherRender_Shutdown();
+    render::R_Shutdown();
     sys::Sys_DestroyWindow( pHostState.window );
     cfg::Cfg_Shutdown();
     cvar::Cvar_Shutdown();
@@ -852,11 +852,11 @@ void Host_BeginFrame( state_t &pHostState ) {
 
 	frame.index++;
 
-	const auto renderResult = render::CypherRender_BeginFrame( frame.nDeltaTimeSeconds );
+	const auto renderResult = render::R_BeginFrame( frame.nDeltaTimeSeconds );
 
 	if ( renderResult != render::render_error_t::OK ) {
 		COM_ERRORF(
-			render::CypherRender_ErrorCode( renderResult ),
+			render::R_ErrorCode( renderResult ),
 			"Host_BeginFrame: renderer begin-frame failed." );
 
 		pHostState.running = false;
@@ -905,11 +905,11 @@ void Host_Render( state_t &pHostState ) {
 		return;
 	}
 
-	const auto renderResult = render::CypherRender_RenderFrame();
+	const auto renderResult = render::R_RenderFrame();
 
 	if ( renderResult != render::render_error_t::OK ) {
 		COM_ERRORF(
-			render::CypherRender_ErrorCode( renderResult ),
+			render::R_ErrorCode( renderResult ),
 			"Host_Render: renderer frame submission failed." );
 
 		pHostState.running = false;
@@ -927,11 +927,11 @@ void Host_EndFrame( state_t &pHostState ) {
 		return;
 	}
 
-	const auto renderResult = render::CypherRender_EndFrame();
+	const auto renderResult = render::R_EndFrame();
 
 	if ( renderResult != render::render_error_t::OK ) {
 		COM_ERRORF(
-			render::CypherRender_ErrorCode( renderResult ),
+			render::R_ErrorCode( renderResult ),
 			"Host_EndFrame: renderer end-frame failed." );
 
 		pHostState.running = false;

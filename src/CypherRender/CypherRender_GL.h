@@ -47,41 +47,41 @@ struct gl_state_t {
 OpenGL Context
 ================
 */
-render_error_t CypherRenderGL_Init( const sys::window_t &window, bool vsync, gl_state_t &pGlState );
+render_error_t GL_Init( const sys::window_t &window, bool vsync, gl_state_t &pGlState );
 
-void CypherRenderGL_Shutdown( gl_state_t &pGlState );
+void GL_Shutdown( gl_state_t &pGlState );
 
-render_error_t CypherRenderGL_BeginFrame( const sys::window_t &window );
+render_error_t GL_BeginFrame( const sys::window_t &window );
 
-render_error_t CypherRenderGL_EndFrame( const sys::window_t &window );
+render_error_t GL_EndFrame( const sys::window_t &window );
 
 /*
 ================
 OpenGL Shaders
 ================
 */
-render_error_t CypherRenderGL_CreateShaderProgram( const char *szVertexSource, const char *szFragmentSource, common::u32 &nOutShaderProgramId );
+render_error_t GL_CreateShaderProgram( const char *szVertexSource, const char *szFragmentSource, common::u32 &nOutShaderProgramId );
 
-render_error_t CypherRenderGL_BindShaderProgram( const common::u32 nShaderProgramId );
+render_error_t GL_BindShaderProgram( const common::u32 nShaderProgramId );
 
-void CypherRenderGL_DestroyShaderProgram( const common::u32 nShaderProgramId );
+void GL_DestroyShaderProgram( const common::u32 nShaderProgramId );
 
 /*
 ================
 OpenGL Meshes
 ================
 */
-render_error_t CypherRenderGL_MeshCreate( const vertex_t *vertices,
+render_error_t GL_MeshCreate( const vertex_t *vertices,
                                const common::u32 nVertexCount,
                                const common::u32 *indices,
                                const common::u32 nIndexCount,
                                mesh_t &meshOut );
 
-void CypherRenderGL_MeshDestroy( mesh_t &mesh );
+void GL_MeshDestroy( mesh_t &mesh );
 
-render_error_t CypherRenderGL_MeshDraw( const mesh_t &mesh );
+render_error_t GL_MeshDraw( const mesh_t &mesh );
 
-render_error_t CypherRenderGL_SetUniformMat4(
+render_error_t GL_SetUniformMat4(
     common::u32 nShaderProgramId,
     const char *szUniformName,
     const ::cypher::math::mat4_t &matrix );

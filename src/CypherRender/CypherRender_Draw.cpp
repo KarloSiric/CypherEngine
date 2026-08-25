@@ -32,7 +32,7 @@ documented lifetime.
 namespace cypher::engine::render
 {
 
-render_error_t CypherRender_DrawItem( const draw_item_t &item, const camera_t &camera )
+render_error_t R_DrawItem( const draw_item_t &item, const camera_t &camera )
 {
     if ( item.mesh == nullptr ) {
         LOG_ERROR( log::channel_t::RENDER, "draw item failed: mesh is null." );
@@ -45,34 +45,34 @@ render_error_t CypherRender_DrawItem( const draw_item_t &item, const camera_t &c
     }
 
     // The Cypher 1 shader contract names these three transforms explicitly.
-    render_error_t result = CypherRender_ShaderBind( *item.shader );
+    render_error_t result = R_ShaderBind( *item.shader );
     if ( result != render_error_t::OK ) {
-        LOG_ERROR( log::channel_t::RENDER, "draw item failed: shader bind failed: %s.", CypherRender_ErrorDesc( result ) );
+        LOG_ERROR( log::channel_t::RENDER, "draw item failed: shader bind failed: %s.", R_ErrorDesc( result ) );
         return result;
     }
 
-    result = CypherRender_ShaderSetMat4( *item.shader, "u_model", item.modelMatrix );
+    result = R_ShaderSetMat4( *item.shader, "u_model", item.modelMatrix );
     if ( result != render_error_t::OK ) {
-        LOG_ERROR( log::channel_t::RENDER, "draw item failed: setting u_model failed: %s.", CypherRender_ErrorDesc( result ) );
+        LOG_ERROR( log::channel_t::RENDER, "draw item failed: setting u_model failed: %s.", R_ErrorDesc( result ) );
         return result;
     }
 
-    result = CypherRender_ShaderSetMat4( *item.shader, "u_view", camera.view );
+    result = R_ShaderSetMat4( *item.shader, "u_view", camera.view );
     if ( result != render_error_t::OK ) {
-        LOG_ERROR( log::channel_t::RENDER, "draw item failed: setting u_view failed: %s.", CypherRender_ErrorDesc( result ) );
+        LOG_ERROR( log::channel_t::RENDER, "draw item failed: setting u_view failed: %s.", R_ErrorDesc( result ) );
         return result;
     }
 
-    result = CypherRender_ShaderSetMat4( *item.shader, "u_projection", camera.projection );
+    result = R_ShaderSetMat4( *item.shader, "u_projection", camera.projection );
     if ( result != render_error_t::OK ) {
-        LOG_ERROR( log::channel_t::RENDER, "draw item failed: setting u_projection failed: %s.", CypherRender_ErrorDesc( result ) );
+        LOG_ERROR( log::channel_t::RENDER, "draw item failed: setting u_projection failed: %s.", R_ErrorDesc( result ) );
         return result;
     }
 
-    return CypherRender_MeshDraw( *item.mesh );
+    return R_MeshDraw( *item.mesh );
 }
 
-void CypherRender_DrawListInit( draw_list_t &drawList, draw_item_t *items, common::u32 nItemCapacity )
+void R_DrawListInit( draw_list_t &drawList, draw_item_t *items, common::u32 nItemCapacity )
 {
     // Storage is borrowed; the owner must keep it alive until all submitted draws complete.
     drawList.items = items;
@@ -83,7 +83,7 @@ void CypherRender_DrawListInit( draw_list_t &drawList, draw_item_t *items, commo
     return ;
 }
 
-void CypherRender_DrawListClear( draw_list_t &drawList )
+void R_DrawListClear( draw_list_t &drawList )
 {
     // Clearing is O(1); stale slots are outside the live prefix and are never read.
     drawList.nItemCount = 0u;
@@ -91,7 +91,7 @@ void CypherRender_DrawListClear( draw_list_t &drawList )
     return ;
 }
 
-render_error_t CypherRender_DrawListSubmit( draw_list_t &drawList, const draw_item_t &item )
+render_error_t R_DrawListSubmit( draw_list_t &drawList, const draw_item_t &item )
 {
     if ( drawList.items == nullptr || drawList.nItemCapacity == 0u ) {
         LOG_ERROR( log::channel_t::RENDER, "draw list submit failed: draw list storage is invalid." );
@@ -115,7 +115,7 @@ render_error_t CypherRender_DrawListSubmit( draw_list_t &drawList, const draw_it
     return render_error_t::OK;
 }
 
-render_error_t CypherRender_DrawListDraw( const draw_list_t &drawList, const camera_t &camera )
+render_error_t R_DrawListDraw( const draw_list_t &drawList, const camera_t &camera )
 {
     if ( drawList.nItemCount == 0u ) {
         return render_error_t::OK;
@@ -128,10 +128,10 @@ render_error_t CypherRender_DrawListDraw( const draw_list_t &drawList, const cam
 
     // Preserve submission order until explicit sorting/batching policy is introduced.
     for ( common::u32 i = 0u; i < drawList.nItemCount; ++i ) {
-        const render_error_t result = CypherRender_DrawItem( drawList.items[i], camera );
+        const render_error_t result = R_DrawItem( drawList.items[i], camera );
 
         if ( result != render_error_t::OK ) {
-            LOG_ERROR( log::channel_t::RENDER, "draw list draw failed: item=%u error=%s.", i, CypherRender_ErrorDesc( result ) );
+            LOG_ERROR( log::channel_t::RENDER, "draw list draw failed: item=%u error=%s.", i, R_ErrorDesc( result ) );
             return result;
         }
     }

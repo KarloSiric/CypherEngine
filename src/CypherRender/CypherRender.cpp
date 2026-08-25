@@ -34,13 +34,13 @@ static render_runtime_state_t s_RenderRuntimeState{};
 
 /*
 ================
-CypherRender_Init
+R_Init
 
 Validates host/window config, starts the GL backend and initializes renderer state.
 ================
 */
-render_error_t CypherRender_Init( const sys::window_t &window, const host::window_config_t &pWindowConfig ) {
-	if ( CypherRender_IsInitialized() ) {
+render_error_t R_Init( const sys::window_t &window, const host::window_config_t &pWindowConfig ) {
+	if ( R_IsInitialized() ) {
 		LOG_WARNING( log::channel_t::RENDER, "renderer already initialized." );
 		return render_error_t::ERR_IS_INIT;
 	}
@@ -66,7 +66,7 @@ render_error_t CypherRender_Init( const sys::window_t &window, const host::windo
 	s_RenderRuntimeState.szShaderRegistry = {};
 	s_RenderRuntimeState.inFrame = false;
 
-    CypherRender_DrawListInit(
+    R_DrawListInit(
         s_RenderRuntimeState.mainDrawList,
         s_MainDrawItems,
         CYPHER_RENDER_DRAW_ITEMS_LIST_MAX );
@@ -77,14 +77,14 @@ render_error_t CypherRender_Init( const sys::window_t &window, const host::windo
 		s_RenderRuntimeState.nViewportWidth,
 		s_RenderRuntimeState.nViewportHeight );
 
-	const auto glResult = CypherRenderGL_Init( window, pWindowConfig.vsync, s_RenderRuntimeState.pGlState );
+	const auto glResult = GL_Init( window, pWindowConfig.vsync, s_RenderRuntimeState.pGlState );
 	if ( glResult != render_error_t::OK ) {
-        LOG_ERROR( log::channel_t::RENDER, "renderer backend initialization failed: %s.", CypherRender_ErrorDesc( glResult ) );
+        LOG_ERROR( log::channel_t::RENDER, "renderer backend initialization failed: %s.", R_ErrorDesc( glResult ) );
 		s_RenderRuntimeState = {};
 		return glResult;
 	}
 
-	CypherRender_ShaderRegistryInit( s_RenderRuntimeState.szShaderRegistry );
+	R_ShaderRegistryInit( s_RenderRuntimeState.szShaderRegistry );
 
     camera_desc_t cameraDesc{};
     cameraDesc.cameraProjectionMode = camera_projection_mode_t::PERSPECTIVE;
@@ -93,7 +93,7 @@ render_error_t CypherRender_Init( const sys::window_t &window, const host::windo
     cameraDesc.fovYRadians   = CYPHER_RENDER_DEFAULT_FOV_Y_RADIANS;
     cameraDesc.farZ           = CYPHER_RENDER_DEFAULT_FAR_Z;
     cameraDesc.nearZ          = CYPHER_RENDER_DEFAULT_NEAR_Z;
-    CypherRender_CameraInit( s_RenderRuntimeState.activeCamera, cameraDesc );
+    R_CameraInit( s_RenderRuntimeState.activeCamera, cameraDesc );
 
     s_RenderRuntimeState.initialized = true;
 
@@ -102,17 +102,17 @@ render_error_t CypherRender_Init( const sys::window_t &window, const host::windo
 
 /*
 ================
-CypherRender_Shutdown
+R_Shutdown
 ================
 */
-void CypherRender_Shutdown() {
-	if ( !CypherRender_IsInitialized() ) {
+void R_Shutdown() {
+	if ( !R_IsInitialized() ) {
 		LOG_INFO( log::channel_t::RENDER, "renderer was not initialized; nothing to shutdown." );
 		return;
 	}
 
-	CypherRender_ShaderRegistryShutdown( s_RenderRuntimeState.szShaderRegistry );
-	CypherRenderGL_Shutdown( s_RenderRuntimeState.pGlState );
+	R_ShaderRegistryShutdown( s_RenderRuntimeState.szShaderRegistry );
+	GL_Shutdown( s_RenderRuntimeState.pGlState );
 
 	s_RenderRuntimeState = {};
 
@@ -121,13 +121,13 @@ void CypherRender_Shutdown() {
 
 /*
 ================
-CypherRender_BeginFrame
+R_BeginFrame
 
 Opens a render frame and prepares the backend for drawing.
 ================
 */
-render_error_t CypherRender_BeginFrame( const common::f32 nDeltaTimeSeconds ) {
-	if ( !CypherRender_IsInitialized() ) {
+render_error_t R_BeginFrame( const common::f32 nDeltaTimeSeconds ) {
+	if ( !R_IsInitialized() ) {
         LOG_ERROR( log::channel_t::RENDER, "begin frame failed: renderer is not initialized." );
 		return render_error_t::ERR_NOT_INIT;
 	}
@@ -137,13 +137,13 @@ render_error_t CypherRender_BeginFrame( const common::f32 nDeltaTimeSeconds ) {
 		return render_error_t::ERR_FRAME_ALREADY_ACTIVE;
 	}
 
-	const auto glResult = CypherRenderGL_BeginFrame( *s_RenderRuntimeState.window );
+	const auto glResult = GL_BeginFrame( *s_RenderRuntimeState.window );
 	if ( glResult != render_error_t::OK ) {
-        LOG_ERROR( log::channel_t::RENDER, "begin frame failed: GL begin failed: %s.", CypherRender_ErrorDesc( glResult ) );
+        LOG_ERROR( log::channel_t::RENDER, "begin frame failed: GL begin failed: %s.", R_ErrorDesc( glResult ) );
 		return render_error_t::ERR_BEGIN_DRAW;
 	}
 
-    CypherRender_DrawListClear( s_RenderRuntimeState.mainDrawList );
+    R_DrawListClear( s_RenderRuntimeState.mainDrawList );
 
 	(void)nDeltaTimeSeconds;
 	s_RenderRuntimeState.inFrame = true;
@@ -153,13 +153,13 @@ render_error_t CypherRender_BeginFrame( const common::f32 nDeltaTimeSeconds ) {
 
 /*
 ================
-CypherRender_RenderFrame
+R_RenderFrame
 
 Draws the items submitted by world/game/editor systems for the active frame.
 ================
 */
-render_error_t CypherRender_RenderFrame() {
-	if ( !CypherRender_IsInitialized() ) {
+render_error_t R_RenderFrame() {
+	if ( !R_IsInitialized() ) {
         LOG_ERROR( log::channel_t::RENDER, "render frame failed: renderer is not initialized." );
 		return render_error_t::ERR_NOT_INIT;
 	}
@@ -169,20 +169,20 @@ render_error_t CypherRender_RenderFrame() {
 		return render_error_t::ERR_FRAME_NOT_ACTIVE;
 	}
 
-    return CypherRender_DrawListDraw(
+    return R_DrawListDraw(
         s_RenderRuntimeState.mainDrawList,
         s_RenderRuntimeState.activeCamera );
 }
 
 /*
 ================
-CypherRender_EndFrame
+R_EndFrame
 
 Closes the render frame and presents the back buffer.
 ================
 */
-render_error_t CypherRender_EndFrame() {
-	if ( !CypherRender_IsInitialized() ) {
+render_error_t R_EndFrame() {
+	if ( !R_IsInitialized() ) {
         LOG_ERROR( log::channel_t::RENDER, "end frame failed: renderer is not initialized." );
 		return render_error_t::ERR_NOT_INIT;
 	}
@@ -192,9 +192,9 @@ render_error_t CypherRender_EndFrame() {
 		return render_error_t::ERR_FRAME_NOT_ACTIVE;
 	}
 
-	const auto glResult = CypherRenderGL_EndFrame( *s_RenderRuntimeState.window );
+	const auto glResult = GL_EndFrame( *s_RenderRuntimeState.window );
 	if ( glResult != render_error_t::OK ) {
-        LOG_ERROR( log::channel_t::RENDER, "end frame failed: GL end failed: %s.", CypherRender_ErrorDesc( glResult ) );
+        LOG_ERROR( log::channel_t::RENDER, "end frame failed: GL end failed: %s.", R_ErrorDesc( glResult ) );
 		return render_error_t::ERR_END_DRAW;
 	}
 
@@ -205,15 +205,15 @@ render_error_t CypherRender_EndFrame() {
 
 /*
 ================
-CypherRender_SubmitDrawItem
+R_SubmitDrawItem
 
 Submits one draw item for the current frame. Game, editor and ECS layers use
 this as the public doorway into the renderer draw list.
 ================
 */
-render_error_t CypherRender_SubmitDrawItem( const draw_item_t &drawItem )
+render_error_t R_SubmitDrawItem( const draw_item_t &drawItem )
 {
-    if ( !CypherRender_IsInitialized() ) {
+    if ( !R_IsInitialized() ) {
         LOG_ERROR( log::channel_t::RENDER, "submit draw item failed: renderer is not initialized." );
         return render_error_t::ERR_NOT_INIT;
     }
@@ -223,15 +223,15 @@ render_error_t CypherRender_SubmitDrawItem( const draw_item_t &drawItem )
         return render_error_t::ERR_FRAME_NOT_ACTIVE;
     }
 
-    return CypherRender_DrawListSubmit( s_RenderRuntimeState.mainDrawList, drawItem );
+    return R_DrawListSubmit( s_RenderRuntimeState.mainDrawList, drawItem );
 }
 
 /*
 ================
-CypherRender_IsInitialized
+R_IsInitialized
 ================
 */
-bool CypherRender_IsInitialized() {
+bool R_IsInitialized() {
 	return s_RenderRuntimeState.initialized;
 }
 
