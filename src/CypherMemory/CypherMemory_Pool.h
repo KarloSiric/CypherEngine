@@ -173,111 +173,111 @@ struct pool_t {
 
 using pool_allocator_t = pool_t;
 
-mem_error_t CypherMemory_PoolInit( pool_t &pool, const pool_desc_t &poolDesc );
+mem_error_t Mem_PoolInit( pool_t &pool, const pool_desc_t &poolDesc );
 
-void CypherMemory_PoolShutdown( pool_t &pool );
+void Mem_PoolShutdown( pool_t &pool );
 
-pool_stats_t CypherMemory_PoolStats( const pool_t &pool );
+pool_stats_t Mem_PoolStats( const pool_t &pool );
 
-void CypherMemory_PoolResetCounters( pool_t &pool );
+void Mem_PoolResetCounters( pool_t &pool );
 
-void CypherMemory_PoolReset( pool_t &pool );
+void Mem_PoolReset( pool_t &pool );
 
-void *CypherMemory_PoolAlloc( pool_t &pool );
+void *Mem_PoolAlloc( pool_t &pool );
 
-void *CypherMemory_PoolAllocDebug( pool_t &pool, const char *file, const char *function, common::i32 line );
+void *Mem_PoolAllocDebug( pool_t &pool, const char *file, const char *function, common::i32 line );
 
-void *CypherMemory_PoolAllocZero( pool_t &pool );
+void *Mem_PoolAllocZero( pool_t &pool );
 
-void *CypherMemory_PoolAllocZeroDebug( pool_t &pool, const char *file, const char *function, common::i32 line );
+void *Mem_PoolAllocZeroDebug( pool_t &pool, const char *file, const char *function, common::i32 line );
 
-void *CypherMemory_PoolAllocSize( pool_t &pool, common::usize size, common::usize alignment = CYPHER_MEMORY_DEFAULT_ALIGNMENT );
+void *Mem_PoolAllocSize( pool_t &pool, common::usize size, common::usize alignment = CYPHER_MEMORY_DEFAULT_ALIGNMENT );
 
-void *CypherMemory_PoolAllocSizeDebug( pool_t &pool,
+void *Mem_PoolAllocSizeDebug( pool_t &pool,
                                        common::usize size,
                                        common::usize alignment,
                                        const char *file,
                                        const char *function,
                                        common::i32 line );
 
-void *CypherMemory_PoolAllocSizeZero( pool_t &pool, common::usize size, common::usize alignment = CYPHER_MEMORY_DEFAULT_ALIGNMENT );
+void *Mem_PoolAllocSizeZero( pool_t &pool, common::usize size, common::usize alignment = CYPHER_MEMORY_DEFAULT_ALIGNMENT );
 
-void *CypherMemory_PoolAllocSizeZeroDebug( pool_t &pool,
+void *Mem_PoolAllocSizeZeroDebug( pool_t &pool,
                                            common::usize size,
                                            common::usize alignment,
                                            const char *file,
                                            const char *function,
                                            common::i32 line );
 
-mem_error_t CypherMemory_PoolFree( pool_t &pool, void *ptr );
+mem_error_t Mem_PoolFree( pool_t &pool, void *ptr );
 
-mem_error_t CypherMemory_PoolFreeDebug( pool_t &pool, void *ptr, const char *file, const char *function, common::i32 line );
+mem_error_t Mem_PoolFreeDebug( pool_t &pool, void *ptr, const char *file, const char *function, common::i32 line );
 
-bool CypherMemory_PoolContains( const pool_t &pool, const void *ptr );
+bool Mem_PoolContains( const pool_t &pool, const void *ptr );
 
-bool CypherMemory_PoolOwnsSlot( const pool_t &pool, const void *ptr );
+bool Mem_PoolOwnsSlot( const pool_t &pool, const void *ptr );
 
-bool CypherMemory_PoolIsInitialized( const pool_t &pool );
+bool Mem_PoolIsInitialized( const pool_t &pool );
 
-mem_error_t CypherMemory_PoolLastError( const pool_t &pool );
+mem_error_t Mem_PoolLastError( const pool_t &pool );
 
-common::usize CypherMemory_PoolSlotIndex( const pool_t &pool, const void *ptr );
+common::usize Mem_PoolSlotIndex( const pool_t &pool, const void *ptr );
 
-common::usize CypherMemory_PoolUsedCount( const pool_t &pool );
+common::usize Mem_PoolUsedCount( const pool_t &pool );
 
-common::usize CypherMemory_PoolFreeCount( const pool_t &pool );
+common::usize Mem_PoolFreeCount( const pool_t &pool );
 
-common::usize CypherMemory_PoolCapacity( const pool_t &pool );
+common::usize Mem_PoolCapacity( const pool_t &pool );
 
-common::f32 CypherMemory_PoolUsageRatio( const pool_t &pool );
+common::f32 Mem_PoolUsageRatio( const pool_t &pool );
 
-const pool_operation_trace_t *CypherMemory_PoolOperationTraces( const pool_t &pool, common::usize &nOutCount );
+const pool_operation_trace_t *Mem_PoolOperationTraces( const pool_t &pool, common::usize &nOutCount );
 
 template <typename T>
-T *CypherMemory_PoolAllocType( pool_t &pool )
+T *Mem_PoolAllocType( pool_t &pool )
 {
-    return static_cast<T *>( CypherMemory_PoolAllocSize( pool, sizeof( T ), alignof( T ) ) );
+    return static_cast<T *>( Mem_PoolAllocSize( pool, sizeof( T ), alignof( T ) ) );
 }
 
 template <typename T>
-T *CypherMemory_PoolAllocTypeDebug( pool_t &pool, const char *file, const char *function, common::i32 line )
+T *Mem_PoolAllocTypeDebug( pool_t &pool, const char *file, const char *function, common::i32 line )
 {
-    return static_cast<T *>( CypherMemory_PoolAllocSizeDebug( pool, sizeof( T ), alignof( T ), file, function, line ) );
+    return static_cast<T *>( Mem_PoolAllocSizeDebug( pool, sizeof( T ), alignof( T ), file, function, line ) );
 }
 
 template <typename T>
-T *CypherMemory_PoolAllocTypeZero( pool_t &pool )
+T *Mem_PoolAllocTypeZero( pool_t &pool )
 {
-    return static_cast<T *>( CypherMemory_PoolAllocSizeZero( pool, sizeof( T ), alignof( T ) ) );
+    return static_cast<T *>( Mem_PoolAllocSizeZero( pool, sizeof( T ), alignof( T ) ) );
 }
 
 template <typename T>
-T *CypherMemory_PoolAllocTypeZeroDebug( pool_t &pool, const char *file, const char *function, common::i32 line )
+T *Mem_PoolAllocTypeZeroDebug( pool_t &pool, const char *file, const char *function, common::i32 line )
 {
-    return static_cast<T *>( CypherMemory_PoolAllocSizeZeroDebug( pool, sizeof( T ), alignof( T ), file, function, line ) );
+    return static_cast<T *>( Mem_PoolAllocSizeZeroDebug( pool, sizeof( T ), alignof( T ), file, function, line ) );
 }
 
 }       // namespace cypher::engine::memory
 
 #define CYPHER_MEMORY_POOL_ALLOC( POOL ) \
-    ::cypher::engine::memory::CypherMemory_PoolAllocDebug( ( POOL ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_PoolAllocDebug( ( POOL ), __FILE__, __func__, __LINE__ )
 
 #define CYPHER_MEMORY_POOL_ALLOC_ZERO( POOL ) \
-    ::cypher::engine::memory::CypherMemory_PoolAllocZeroDebug( ( POOL ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_PoolAllocZeroDebug( ( POOL ), __FILE__, __func__, __LINE__ )
 
 #define CYPHER_MEMORY_POOL_ALLOC_SIZE( POOL, SIZE, ALIGNMENT ) \
-    ::cypher::engine::memory::CypherMemory_PoolAllocSizeDebug( ( POOL ), ( SIZE ), ( ALIGNMENT ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_PoolAllocSizeDebug( ( POOL ), ( SIZE ), ( ALIGNMENT ), __FILE__, __func__, __LINE__ )
 
 #define CYPHER_MEMORY_POOL_ALLOC_SIZE_ZERO( POOL, SIZE, ALIGNMENT ) \
-    ::cypher::engine::memory::CypherMemory_PoolAllocSizeZeroDebug( ( POOL ), ( SIZE ), ( ALIGNMENT ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_PoolAllocSizeZeroDebug( ( POOL ), ( SIZE ), ( ALIGNMENT ), __FILE__, __func__, __LINE__ )
 
 #define CYPHER_MEMORY_POOL_ALLOC_TYPE( POOL, TYPE ) \
-    ::cypher::engine::memory::CypherMemory_PoolAllocTypeDebug<TYPE>( ( POOL ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_PoolAllocTypeDebug<TYPE>( ( POOL ), __FILE__, __func__, __LINE__ )
 
 #define CYPHER_MEMORY_POOL_ALLOC_TYPE_ZERO( POOL, TYPE ) \
-    ::cypher::engine::memory::CypherMemory_PoolAllocTypeZeroDebug<TYPE>( ( POOL ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_PoolAllocTypeZeroDebug<TYPE>( ( POOL ), __FILE__, __func__, __LINE__ )
 
 #define CYPHER_MEMORY_POOL_FREE( POOL, PTR ) \
-    ::cypher::engine::memory::CypherMemory_PoolFreeDebug( ( POOL ), ( PTR ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_PoolFreeDebug( ( POOL ), ( PTR ), __FILE__, __func__, __LINE__ )
 
 #endif // CYPHER_ENGINE_MEMORY_POOL_H

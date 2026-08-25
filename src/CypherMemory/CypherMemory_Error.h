@@ -61,7 +61,7 @@ enum class mem_error_t : common::u8 {
     ERR_MEMORY_RELEASE            // Platform backing release failed.
 };
 
-constexpr inline const char *CypherMemory_ErrorName( const mem_error_t error )
+constexpr inline const char *Mem_ErrorName( const mem_error_t error )
 {
     switch ( error ) {
     case mem_error_t::OK:
@@ -105,7 +105,7 @@ constexpr inline const char *CypherMemory_ErrorName( const mem_error_t error )
     }
 }
 
-constexpr inline const char *CypherMemory_ErrorDesc( const mem_error_t error )
+constexpr inline const char *Mem_ErrorDesc( const mem_error_t error )
 {
     switch ( error ) {
     case mem_error_t::OK:
@@ -149,7 +149,7 @@ constexpr inline const char *CypherMemory_ErrorDesc( const mem_error_t error )
     }
 }
 
-constexpr inline common::error_t CypherMemory_ErrorCode( const mem_error_t code )
+constexpr inline common::error_t Mem_ErrorCode( const mem_error_t code )
 {
     return common::CypherCommon_ErrorMake( common::domain_t::COM_DOMAIN_MEMORY, static_cast<common::u16>( code ) );
 }

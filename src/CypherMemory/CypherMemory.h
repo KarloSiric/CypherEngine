@@ -125,35 +125,35 @@ struct memory_state_t {
     common::usize nPeakUsed{ 0u };                          // Highest cached aggregate usage.
 };
 
-memory_config_t CypherMemory_DefaultConfig();
+memory_config_t Mem_DefaultConfig();
 
-mem_error_t CypherMemory_Init( const memory_config_t &config );
+mem_error_t Mem_Init( const memory_config_t &config );
 
-void CypherMemory_Shutdown();
+void Mem_Shutdown();
 
-void CypherMemory_BeginFrame();
+void Mem_BeginFrame();
 
-void CypherMemory_EndFrame();
+void Mem_EndFrame();
 
-bool CypherMemory_IsInitialized();
+bool Mem_IsInitialized();
 
-memory_stats_t CypherMemory_Stats();
+memory_stats_t Mem_Stats();
 
-const char *CypherMemory_TagName( memory_tag_t tag );
+const char *Mem_TagName( memory_tag_t tag );
 
-arena_t &CypherMemory_PermanentArena();
+arena_t &Mem_PermanentArena();
 
-arena_t &CypherMemory_FrameArena();
+arena_t &Mem_FrameArena();
 
-arena_t &CypherMemory_ScratchArena();
+arena_t &Mem_ScratchArena();
 
-arena_t &CypherMemory_ResourceArena();
+arena_t &Mem_ResourceArena();
 
-arena_t &CypherMemory_WorldArena();
+arena_t &Mem_WorldArena();
 
-arena_t &CypherMemory_RenderArena();
+arena_t &Mem_RenderArena();
 
-arena_t &CypherMemory_EditorArena();
+arena_t &Mem_EditorArena();
 
 }       // namespace cypher::engine::memory
 

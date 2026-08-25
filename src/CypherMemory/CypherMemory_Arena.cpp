@@ -31,17 +31,17 @@ namespace {
 
 /*
 ================
-CypherMemory_AlignSizeForward
+Mem_AlignSizeForward
 ================
 */
-common::usize CypherMemory_AlignSizeForward( const common::usize size, const common::usize alignment )
+common::usize Mem_AlignSizeForward( const common::usize size, const common::usize alignment )
 {
     if ( size == 0u || alignment == 0u ) {
         return size;
     }
 
     common::usize nAlignedSize = size;
-    if ( !CypherMemory_AlignForwardChecked( size, alignment, nAlignedSize ) ) {
+    if ( !Mem_AlignForwardChecked( size, alignment, nAlignedSize ) ) {
         return 0u;
     }
 
@@ -50,10 +50,10 @@ common::usize CypherMemory_AlignSizeForward( const common::usize size, const com
 
 /*
 ================
-CypherMemory_ArenaRecordAllocationTrace
+Mem_ArenaRecordAllocationTrace
 ================
 */
-void CypherMemory_ArenaRecordAllocationTrace(
+void Mem_ArenaRecordAllocationTrace(
     arena_t &arena,
     void *ptr,
     const common::usize size,
@@ -86,10 +86,10 @@ void CypherMemory_ArenaRecordAllocationTrace(
 
 /*
 ================
-CypherMemory_ArenaDecommitToInitialCommit
+Mem_ArenaDecommitToInitialCommit
 ================
 */
-void CypherMemory_ArenaDecommitToInitialCommit( arena_t &arena )
+void Mem_ArenaDecommitToInitialCommit( arena_t &arena )
 {
     if ( arena.backing != arena_backing_t::ARENA_VIRTUAL_MEMORY ) {
         return;
@@ -121,7 +121,7 @@ void CypherMemory_ArenaDecommitToInitialCommit( arena_t &arena )
 
 }       // namespace
 
-mem_error_t CypherMemory_ArenaInit( arena_t &arena, const arena_desc_t &arenaDesc )
+mem_error_t Mem_ArenaInit( arena_t &arena, const arena_desc_t &arenaDesc )
 {
     if ( arena.initialized ) {
         arena.lastError = mem_error_t::ERR_ALREADY_INITIALIZED;
@@ -164,13 +164,13 @@ mem_error_t CypherMemory_ArenaInit( arena_t &arena, const arena_desc_t &arenaDes
     case arena_backing_t::ARENA_VIRTUAL_MEMORY:
         nPageSize = sys::Sys_VirtualPageSize();
 
-        if ( nPageSize == 0u || !CypherMemory_IsPowerOfTwo( nPageSize ) ) {
+        if ( nPageSize == 0u || !Mem_IsPowerOfTwo( nPageSize ) ) {
             arena.lastError = mem_error_t::ERR_INVALID_ALIGNMENT;
             LOG_ERROR( log::channel_t::MEMORY, "arena init failed for '%s': invalid virtual page size %zu.", arenaDesc.name ? arenaDesc.name : "<unnamed>", nPageSize );
             return mem_error_t::ERR_INVALID_ALIGNMENT;
         }
 
-        capacity = CypherMemory_AlignSizeForward( arenaDesc.capacity, nPageSize );
+        capacity = Mem_AlignSizeForward( arenaDesc.capacity, nPageSize );
 
         if ( capacity == 0u ) {
             arena.lastError = mem_error_t::ERR_INTEGER_OVERFLOW;
@@ -189,7 +189,7 @@ mem_error_t CypherMemory_ArenaInit( arena_t &arena, const arena_desc_t &arenaDes
             return mem_error_t::ERR_INVALID_CAPACITY;
         }
 
-        committed = CypherMemory_AlignSizeForward( committed, nPageSize );
+        committed = Mem_AlignSizeForward( committed, nPageSize );
         if ( committed == 0u && arenaDesc.initialCommit > 0u ) {
             arena.lastError = mem_error_t::ERR_INTEGER_OVERFLOW;
             LOG_ERROR( log::channel_t::MEMORY, "arena init failed for '%s': initial commit alignment overflowed.", arenaDesc.name ? arenaDesc.name : "<unnamed>" );
@@ -248,7 +248,7 @@ mem_error_t CypherMemory_ArenaInit( arena_t &arena, const arena_desc_t &arenaDes
     return mem_error_t::OK;
 }
 
-void CypherMemory_ArenaShutdown( arena_t &arena )
+void Mem_ArenaShutdown( arena_t &arena )
 {
     if ( !arena.initialized ) {
         return ;
@@ -279,7 +279,7 @@ void CypherMemory_ArenaShutdown( arena_t &arena )
     arena = arena_t{};
 }
 
-void CypherMemory_ArenaReset( arena_t &arena )
+void Mem_ArenaReset( arena_t &arena )
 {
     // Only resets the arena memory does not free the memory itself.
     if ( !arena.initialized ) {
@@ -299,7 +299,7 @@ void CypherMemory_ArenaReset( arena_t &arena )
         }
     }
 
-    CypherMemory_ArenaDecommitToInitialCommit( arena );
+    Mem_ArenaDecommitToInitialCommit( arena );
 
     arena.used = 0u;
     if ( arena.lastError != mem_error_t::ERR_MEMORY_DECOMMIT ) {
@@ -307,7 +307,7 @@ void CypherMemory_ArenaReset( arena_t &arena )
     }
 }
 
-arena_stats_t CypherMemory_ArenaStats( const arena_t &arena )
+arena_stats_t Mem_ArenaStats( const arena_t &arena )
 {
     arena_stats_t stats{};
 
@@ -324,7 +324,7 @@ arena_stats_t CypherMemory_ArenaStats( const arena_t &arena )
     return stats;
 }
 
-void CypherMemory_ArenaResetCounters( arena_t &arena )
+void Mem_ArenaResetCounters( arena_t &arena )
 {
     if ( !arena.initialized ) {
         return ;
@@ -336,12 +336,12 @@ void CypherMemory_ArenaResetCounters( arena_t &arena )
     arena.lastError = mem_error_t::OK;
 }
 
-void *CypherMemory_ArenaAlloc( arena_t &arena, common::usize size, common::usize alignment )
+void *Mem_ArenaAlloc( arena_t &arena, common::usize size, common::usize alignment )
 {
-    return CypherMemory_ArenaAllocDebug( arena, size, alignment, nullptr, nullptr, 0 );
+    return Mem_ArenaAllocDebug( arena, size, alignment, nullptr, nullptr, 0 );
 }
 
-void *CypherMemory_ArenaAllocDebug(
+void *Mem_ArenaAllocDebug(
     arena_t &arena,
     common::usize size,
     common::usize alignment,
@@ -352,40 +352,40 @@ void *CypherMemory_ArenaAllocDebug(
     if ( !arena.initialized ) {
         arena.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         ++arena.nFailedAllocationCount;
-        CypherMemory_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
+        Mem_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
         LOG_ERROR( log::channel_t::MEMORY, "arena allocation failed: arena is not initialized." );
         return nullptr;
     }
     if ( size == 0u ) {
         arena.lastError = mem_error_t::ERR_INVALID_ARGUMENT;
         ++arena.nFailedAllocationCount;
-        CypherMemory_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
+        Mem_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
         LOG_ERROR( log::channel_t::MEMORY, "arena '%s' allocation failed: requested size is zero.", arena.name ? arena.name : "<unnamed>" );
         return nullptr;
     }
 
-    if ( !CypherMemory_IsPowerOfTwo( alignment ) ) {
+    if ( !Mem_IsPowerOfTwo( alignment ) ) {
         arena.lastError = mem_error_t::ERR_INVALID_ALIGNMENT;
         ++arena.nFailedAllocationCount;
-        CypherMemory_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
+        Mem_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
         LOG_ERROR( log::channel_t::MEMORY, "arena '%s' allocation failed: invalid alignment %zu.", arena.name ? arena.name : "<unnamed>", alignment );
         return nullptr;
     }
 
     common::usize pCurrentAddress = 0u;
-    if ( !CypherMemory_AddSizeChecked( reinterpret_cast<common::usize>( arena.base ), arena.used, pCurrentAddress ) ) {
+    if ( !Mem_AddSizeChecked( reinterpret_cast<common::usize>( arena.base ), arena.used, pCurrentAddress ) ) {
         arena.lastError = mem_error_t::ERR_INTEGER_OVERFLOW;
         ++arena.nFailedAllocationCount;
-        CypherMemory_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
+        Mem_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
         LOG_ERROR( log::channel_t::MEMORY, "arena '%s' allocation failed: current address calculation overflowed.", arena.name ? arena.name : "<unnamed>" );
         return nullptr;
     }
 
     common::usize pAlignedAddress = 0u;
-    if ( !CypherMemory_AlignForwardChecked( pCurrentAddress, alignment, pAlignedAddress ) ) {
+    if ( !Mem_AlignForwardChecked( pCurrentAddress, alignment, pAlignedAddress ) ) {
         arena.lastError = mem_error_t::ERR_INTEGER_OVERFLOW;
         ++arena.nFailedAllocationCount;
-        CypherMemory_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
+        Mem_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
         LOG_ERROR( log::channel_t::MEMORY, "arena '%s' allocation failed: alignment calculation overflowed.", arena.name ? arena.name : "<unnamed>" );
         return nullptr;
     }
@@ -393,19 +393,19 @@ void *CypherMemory_ArenaAllocDebug(
     const common::usize padding = pAlignedAddress - pCurrentAddress;
 
     common::usize bUsedWithPadding = 0u;
-    if ( !CypherMemory_AddSizeChecked( arena.used, padding, bUsedWithPadding ) ) {
+    if ( !Mem_AddSizeChecked( arena.used, padding, bUsedWithPadding ) ) {
         arena.lastError = mem_error_t::ERR_INTEGER_OVERFLOW;
         ++arena.nFailedAllocationCount;
-        CypherMemory_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
+        Mem_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
         LOG_ERROR( log::channel_t::MEMORY, "arena '%s' allocation failed: padding calculation overflowed.", arena.name ? arena.name : "<unnamed>" );
         return nullptr;
     }
 
     common::usize pNewAddress = 0u;
-    if ( !CypherMemory_AddSizeChecked( bUsedWithPadding, size, pNewAddress ) ) {
+    if ( !Mem_AddSizeChecked( bUsedWithPadding, size, pNewAddress ) ) {
         arena.lastError = mem_error_t::ERR_INTEGER_OVERFLOW;
         ++arena.nFailedAllocationCount;
-        CypherMemory_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
+        Mem_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
         LOG_ERROR( log::channel_t::MEMORY, "arena '%s' allocation failed: allocation end calculation overflowed.", arena.name ? arena.name : "<unnamed>" );
         return nullptr;
     }
@@ -413,7 +413,7 @@ void *CypherMemory_ArenaAllocDebug(
     if ( pNewAddress > arena.capacity ) {
         arena.lastError = mem_error_t::ERR_OUT_OF_MEMORY;
         ++arena.nFailedAllocationCount;
-        CypherMemory_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
+        Mem_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
         LOG_ERROR( log::channel_t::MEMORY, "arena '%s' allocation failed: requested=%zu, alignment=%zu, used=%zu, capacity=%zu.", arena.name ? arena.name : "<unnamed>", size, alignment, arena.used, arena.capacity );
         return nullptr;
     }
@@ -422,16 +422,16 @@ void *CypherMemory_ArenaAllocDebug(
         if ( ( arena.flags & CYPHER_MEMORY_ARENA_FLAG_GROW_COMMIT_ON_ALLOC ) == 0u ) {
             arena.lastError = mem_error_t::ERR_MEMORY_COMMIT;
             ++arena.nFailedAllocationCount;
-            CypherMemory_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
+            Mem_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
             LOG_ERROR( log::channel_t::MEMORY, "arena '%s' allocation failed: requested=%zu exceeds committed=%zu.", arena.name ? arena.name : "<unnamed>", pNewAddress, arena.committed );
             return nullptr;
         }
 
-        common::usize commitTarget = CypherMemory_AlignSizeForward( pNewAddress, arena.nPageSize );
+        common::usize commitTarget = Mem_AlignSizeForward( pNewAddress, arena.nPageSize );
         if ( commitTarget == 0u ) {
             arena.lastError = mem_error_t::ERR_INTEGER_OVERFLOW;
             ++arena.nFailedAllocationCount;
-            CypherMemory_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
+            Mem_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
             LOG_ERROR( log::channel_t::MEMORY, "arena '%s' allocation failed: commit target calculation overflowed.", arena.name ? arena.name : "<unnamed>" );
             return nullptr;
         }
@@ -446,7 +446,7 @@ void *CypherMemory_ArenaAllocDebug(
         if ( commitResult != sys::sys_error_t::OK ) {
             arena.lastError = mem_error_t::ERR_MEMORY_COMMIT;
             ++arena.nFailedAllocationCount;
-            CypherMemory_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
+            Mem_ArenaRecordAllocationTrace( arena, nullptr, size, alignment, file, function, line, arena.lastError, true );
             LOG_ERROR( log::channel_t::MEMORY, "arena '%s' allocation failed: virtual commit of %zu bytes failed.", arena.name ? arena.name : "<unnamed>", nCommitSize );
             return nullptr;
         }
@@ -469,17 +469,17 @@ void *CypherMemory_ArenaAllocDebug(
         std::memset( result, 0, size );
     }
 
-    CypherMemory_ArenaRecordAllocationTrace( arena, result, size, alignment, file, function, line, arena.lastError, false );
+    Mem_ArenaRecordAllocationTrace( arena, result, size, alignment, file, function, line, arena.lastError, false );
 
     return result;
 }
 
-void *CypherMemory_ArenaAllocZero( arena_t &arena, common::usize size, common::usize alignment )
+void *Mem_ArenaAllocZero( arena_t &arena, common::usize size, common::usize alignment )
 {
-    return CypherMemory_ArenaAllocZeroDebug( arena, size, alignment, nullptr, nullptr, 0 );
+    return Mem_ArenaAllocZeroDebug( arena, size, alignment, nullptr, nullptr, 0 );
 }
 
-void *CypherMemory_ArenaAllocZeroDebug(
+void *Mem_ArenaAllocZeroDebug(
     arena_t &arena,
     common::usize size,
     common::usize alignment,
@@ -487,7 +487,7 @@ void *CypherMemory_ArenaAllocZeroDebug(
     const char *function,
     common::i32 line )
 {
-    void *memory = CypherMemory_ArenaAllocDebug( arena, size, alignment, file, function, line );
+    void *memory = Mem_ArenaAllocDebug( arena, size, alignment, file, function, line );
 
     if ( memory == nullptr ) {
         return nullptr;
@@ -497,7 +497,7 @@ void *CypherMemory_ArenaAllocZeroDebug(
     return memory;
 }
 
-common::usize CypherMemory_ArenaRemaining( const arena_t &arena )
+common::usize Mem_ArenaRemaining( const arena_t &arena )
 {
     if ( !arena.initialized ) {
         return 0u;
@@ -510,13 +510,13 @@ common::usize CypherMemory_ArenaRemaining( const arena_t &arena )
     return arena.capacity - arena.used;
 }
 
-const arena_allocation_trace_t *CypherMemory_ArenaAllocationTraces( const arena_t &arena, common::usize &nOutCount )
+const arena_allocation_trace_t *Mem_ArenaAllocationTraces( const arena_t &arena, common::usize &nOutCount )
 {
     nOutCount = arena.nAllocationTraceCount;
     return arena.pAllocationTraces;
 }
 
-arena_marker_t CypherMemory_ArenaGetMarker( const arena_t &arena )
+arena_marker_t Mem_ArenaGetMarker( const arena_t &arena )
 {
     arena_marker_t marker{};
 
@@ -528,7 +528,7 @@ arena_marker_t CypherMemory_ArenaGetMarker( const arena_t &arena )
     return marker;
 }
 
-mem_error_t CypherMemory_ArenaRewind( arena_t &arena, arena_marker_t marker )
+mem_error_t Mem_ArenaRewind( arena_t &arena, arena_marker_t marker )
 {
     if ( !arena.initialized ) {
         arena.lastError = mem_error_t::ERR_NOT_INITIALIZED;
@@ -554,7 +554,7 @@ mem_error_t CypherMemory_ArenaRewind( arena_t &arena, arena_marker_t marker )
     return mem_error_t::OK;
 }
 
-bool CypherMemory_ArenaContains( const arena_t &arena, const void *ptr )
+bool Mem_ArenaContains( const arena_t &arena, const void *ptr )
 {
     if ( !arena.initialized || arena.base == nullptr || ptr == nullptr ) {
         return false;
@@ -570,22 +570,22 @@ bool CypherMemory_ArenaContains( const arena_t &arena, const void *ptr )
     return ( address - base ) < arena.capacity;
 }
 
-mem_error_t CypherMemory_ArenaLastError( const arena_t &arena )
+mem_error_t Mem_ArenaLastError( const arena_t &arena )
 {
     return arena.lastError;
 }
 
-bool CypherMemory_ArenaIsInitialized( const arena_t &arena )
+bool Mem_ArenaIsInitialized( const arena_t &arena )
 {
     return arena.initialized;
 }
 
-common::usize CypherMemory_ArenaUsed( const arena_t &arena )
+common::usize Mem_ArenaUsed( const arena_t &arena )
 {
     return arena.used;
 }
 
-common::f32 CypherMemory_ArenaUsageRatio( const arena_t &arena )
+common::f32 Mem_ArenaUsageRatio( const arena_t &arena )
 {
     if ( arena.capacity == 0u ) {
         return 0.0f;
@@ -593,7 +593,7 @@ common::f32 CypherMemory_ArenaUsageRatio( const arena_t &arena )
     return static_cast<common::f32>( arena.used ) / static_cast<common::f32>( arena.capacity );
 }
 
-common::usize CypherMemory_ArenaCapacity( const arena_t &arena )
+common::usize Mem_ArenaCapacity( const arena_t &arena )
 {
     if ( !arena.initialized ) {
         return 0u;

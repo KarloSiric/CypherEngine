@@ -41,22 +41,22 @@ void BM_Arena_Alloc64_ResetEachIteration( benchmark::State &state )
     desc.capacity = kArenaCapacity;
     desc.backing = arena_backing_t::ARENA_HEAP;
 
-    if ( CypherMemory_ArenaInit( arena, desc ) != mem_error_t::OK ) {
-        state.SkipWithError( "CypherMemory_ArenaInit failed." );
+    if ( Mem_ArenaInit( arena, desc ) != mem_error_t::OK ) {
+        state.SkipWithError( "Mem_ArenaInit failed." );
         return;
     }
 
     for ( auto _ : state ) {
-        CypherMemory_ArenaReset( arena );
+        Mem_ArenaReset( arena );
         for ( cypher::engine::common::usize i = 0u; i < kAllocCount; ++i ) {
-            void *ptr = CypherMemory_ArenaAlloc( arena, kAllocSize, 16u );
+            void *ptr = Mem_ArenaAlloc( arena, kAllocSize, 16u );
             benchmark::DoNotOptimize( ptr );
         }
         benchmark::ClobberMemory();
     }
 
     state.SetItemsProcessed( state.iterations() * static_cast<benchmark::IterationCount>( kAllocCount ) );
-    CypherMemory_ArenaShutdown( arena );
+    Mem_ArenaShutdown( arena );
 }
 
 void BM_Arena_AllocZero64_ResetEachIteration( benchmark::State &state )
@@ -67,22 +67,22 @@ void BM_Arena_AllocZero64_ResetEachIteration( benchmark::State &state )
     desc.capacity = kArenaCapacity;
     desc.backing = arena_backing_t::ARENA_HEAP;
 
-    if ( CypherMemory_ArenaInit( arena, desc ) != mem_error_t::OK ) {
-        state.SkipWithError( "CypherMemory_ArenaInit failed." );
+    if ( Mem_ArenaInit( arena, desc ) != mem_error_t::OK ) {
+        state.SkipWithError( "Mem_ArenaInit failed." );
         return;
     }
 
     for ( auto _ : state ) {
-        CypherMemory_ArenaReset( arena );
+        Mem_ArenaReset( arena );
         for ( cypher::engine::common::usize i = 0u; i < kAllocCount; ++i ) {
-            void *ptr = CypherMemory_ArenaAllocZero( arena, kAllocSize, 16u );
+            void *ptr = Mem_ArenaAllocZero( arena, kAllocSize, 16u );
             benchmark::DoNotOptimize( ptr );
         }
         benchmark::ClobberMemory();
     }
 
     state.SetItemsProcessed( state.iterations() * static_cast<benchmark::IterationCount>( kAllocCount ) );
-    CypherMemory_ArenaShutdown( arena );
+    Mem_ArenaShutdown( arena );
 }
 
 void BM_Pool_AllocFree64( benchmark::State &state )
@@ -93,8 +93,8 @@ void BM_Pool_AllocFree64( benchmark::State &state )
     arenaDesc.capacity = kArenaCapacity;
     arenaDesc.backing = arena_backing_t::ARENA_HEAP;
 
-    if ( CypherMemory_ArenaInit( arena, arenaDesc ) != mem_error_t::OK ) {
-        state.SkipWithError( "CypherMemory_ArenaInit failed." );
+    if ( Mem_ArenaInit( arena, arenaDesc ) != mem_error_t::OK ) {
+        state.SkipWithError( "Mem_ArenaInit failed." );
         return;
     }
 
@@ -107,9 +107,9 @@ void BM_Pool_AllocFree64( benchmark::State &state )
     poolDesc.alignment = 16u;
     poolDesc.backing = pool_backing_t::POOL_ARENA;
 
-    if ( CypherMemory_PoolInit( pool, poolDesc ) != mem_error_t::OK ) {
-        CypherMemory_ArenaShutdown( arena );
-        state.SkipWithError( "CypherMemory_PoolInit failed." );
+    if ( Mem_PoolInit( pool, poolDesc ) != mem_error_t::OK ) {
+        Mem_ArenaShutdown( arena );
+        state.SkipWithError( "Mem_PoolInit failed." );
         return;
     }
 
@@ -118,18 +118,18 @@ void BM_Pool_AllocFree64( benchmark::State &state )
 
     for ( auto _ : state ) {
         for ( cypher::engine::common::usize i = 0u; i < kAllocCount; ++i ) {
-            pointers[i] = CypherMemory_PoolAlloc( pool );
+            pointers[i] = Mem_PoolAlloc( pool );
             benchmark::DoNotOptimize( pointers[i] );
         }
         for ( cypher::engine::common::usize i = 0u; i < kAllocCount; ++i ) {
-            benchmark::DoNotOptimize( CypherMemory_PoolFree( pool, pointers[i] ) );
+            benchmark::DoNotOptimize( Mem_PoolFree( pool, pointers[i] ) );
         }
         benchmark::ClobberMemory();
     }
 
     state.SetItemsProcessed( state.iterations() * static_cast<benchmark::IterationCount>( kAllocCount * 2u ) );
-    CypherMemory_PoolShutdown( pool );
-    CypherMemory_ArenaShutdown( arena );
+    Mem_PoolShutdown( pool );
+    Mem_ArenaShutdown( arena );
 }
 
 void BM_MallocFree64( benchmark::State &state )

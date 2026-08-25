@@ -137,12 +137,12 @@ void CypherHost_CmdMemReport( void *pExtraData, rc::u32 argc, char **argv ) {
     ( void )argc;
     ( void )argv;
 
-    if ( !mem::CypherMemory_IsInitialized() ) {
+    if ( !mem::Mem_IsInitialized() ) {
         COM_PRINTF( "memory system is not initialized.\n" );
         return;
     }
 
-    const mem::memory_stats_t stats = mem::CypherMemory_Stats();
+    const mem::memory_stats_t stats = mem::Mem_Stats();
 
     COM_PRINTF(
         "memory: used=%zu committed=%zu capacity=%zu peak=%zu\n",
@@ -215,10 +215,10 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
     LOG_INFO( log::channel_t::SYSTEM, "system initialized: platform=%s, compiler=%s.", sys::Sys_PlatformName( sys::Sys_PlatformType() ), sys::Sys_CompilerName( sys::Sys_CompilerType() ) );
     LOG_INFO( log::channel_t::SYSTEM, "paths: base='%s', user='%s', executable='%s'.", sys::Sys_Paths().basePath, sys::Sys_Paths().userPath, sys::Sys_Paths().executablePath );
 
-    const auto memoryResult = mem::CypherMemory_Init( mem::CypherMemory_DefaultConfig() );
+    const auto memoryResult = mem::Mem_Init( mem::Mem_DefaultConfig() );
     if ( memoryResult != mem::mem_error_t::OK ) {
-        LOG_ERROR( log::channel_t::MEMORY, "memory system initialization failed: %s.", mem::CypherMemory_ErrorDesc( memoryResult ) );
-        COM_ERRORF( mem::CypherMemory_ErrorCode( memoryResult ), "CypherHost_Init: CypherMemory_Init failed: %s", mem::CypherMemory_ErrorDesc( memoryResult ) );
+        LOG_ERROR( log::channel_t::MEMORY, "memory system initialization failed: %s.", mem::Mem_ErrorDesc( memoryResult ) );
+        COM_ERRORF( mem::Mem_ErrorCode( memoryResult ), "CypherHost_Init: Mem_Init failed: %s", mem::Mem_ErrorDesc( memoryResult ) );
         log::Log_Shutdown();
         sys::Sys_Shutdown();
 
@@ -231,7 +231,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
     if( fsResult != fs::fs_error_t::OK ) {
         LOG_ERROR( log::channel_t::FS, "filesystem initialization failed: %s.", fs::FS_ErrorDesc( fsResult ) );
         COM_ERRORF( FS_ErrorCode( fsResult ), "CypherHost_Init: FS_Init failed: %s", fs::FS_ErrorDesc( fsResult ) );
-        mem::CypherMemory_Shutdown();
+        mem::Mem_Shutdown();
         log::Log_Shutdown();
         sys::Sys_Shutdown();
 
@@ -246,7 +246,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         COM_ERRORF( Cmd_ErrorCode( cmdResult ), "CypherHost_Init: Cmd_Init failed: %s", Cmd_ErrorDesc( cmdResult ) );
 
         fs::FS_Shutdown();
-        mem::CypherMemory_Shutdown();
+        mem::Mem_Shutdown();
         log::Log_Shutdown();
         sys::Sys_Shutdown();
 
@@ -264,7 +264,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
 
         cmd::Cmd_Shutdown();
         fs::FS_Shutdown();
-        mem::CypherMemory_Shutdown();
+        mem::Mem_Shutdown();
         log::Log_Shutdown();
         sys::Sys_Shutdown();
 
@@ -283,7 +283,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         cvar::Cvar_Shutdown();
         cmd::Cmd_Shutdown();
         fs::FS_Shutdown();
-        mem::CypherMemory_Shutdown();
+        mem::Mem_Shutdown();
         log::Log_Shutdown();
         sys::Sys_Shutdown();
 
@@ -809,7 +809,7 @@ void CypherHost_Shutdown( state_t &pHostState ) {
     cvar::Cvar_Shutdown();
     cmd::Cmd_Shutdown();
     fs::FS_Shutdown();
-    mem::CypherMemory_Shutdown();
+    mem::Mem_Shutdown();
     LOG_INFO( log::channel_t::HOST, "%s shutdown complete.", common::COM_ENGINE_INFO.name );
     log::Log_Shutdown();
     sys::Sys_Shutdown();
@@ -827,7 +827,7 @@ void CypherHost_BeginFrame( state_t &pHostState ) {
 		return;
 	}
 
-    mem::CypherMemory_BeginFrame();
+    mem::Mem_BeginFrame();
 
 	frame_t &frame = pHostState.frame;
 
@@ -861,7 +861,7 @@ void CypherHost_BeginFrame( state_t &pHostState ) {
 
 		pHostState.running = false;
 		pHostState.stage = stage_t::SHUTTINGDOWN;
-        mem::CypherMemory_EndFrame();
+        mem::Mem_EndFrame();
 		return;
 	}
 }
@@ -936,7 +936,7 @@ void CypherHost_EndFrame( state_t &pHostState ) {
 
 		pHostState.running = false;
 		pHostState.stage = stage_t::SHUTDOWN;
-        mem::CypherMemory_EndFrame();
+        mem::Mem_EndFrame();
 		return;
 	}
 
@@ -945,7 +945,7 @@ void CypherHost_EndFrame( state_t &pHostState ) {
 		pHostState.stage = stage_t::SHUTDOWN;
 	}
 
-    mem::CypherMemory_EndFrame();
+    mem::Mem_EndFrame();
 }
 
 /*

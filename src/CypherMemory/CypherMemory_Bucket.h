@@ -117,95 +117,95 @@ struct bucket_t {
 
 using bucket_allocator_t = bucket_t;
 
-bucket_desc_t CypherMemory_BucketDefaultDesc( arena_t &arena, const char *name = nullptr );
+bucket_desc_t Mem_BucketDefaultDesc( arena_t &arena, const char *name = nullptr );
 
-mem_error_t CypherMemory_BucketInit( bucket_t &bucket, const bucket_desc_t &bucketDesc );
+mem_error_t Mem_BucketInit( bucket_t &bucket, const bucket_desc_t &bucketDesc );
 
-void CypherMemory_BucketShutdown( bucket_t &bucket );
+void Mem_BucketShutdown( bucket_t &bucket );
 
-void CypherMemory_BucketReset( bucket_t &bucket );
+void Mem_BucketReset( bucket_t &bucket );
 
-void CypherMemory_BucketResetCounters( bucket_t &bucket );
+void Mem_BucketResetCounters( bucket_t &bucket );
 
-bucket_stats_t CypherMemory_BucketStats( const bucket_t &bucket );
+bucket_stats_t Mem_BucketStats( const bucket_t &bucket );
 
-void *CypherMemory_BucketAlloc( bucket_t &bucket, common::usize size, common::usize alignment = CYPHER_MEMORY_DEFAULT_ALIGNMENT );
+void *Mem_BucketAlloc( bucket_t &bucket, common::usize size, common::usize alignment = CYPHER_MEMORY_DEFAULT_ALIGNMENT );
 
-void *CypherMemory_BucketAllocDebug( bucket_t &bucket,
+void *Mem_BucketAllocDebug( bucket_t &bucket,
                                      common::usize size,
                                      common::usize alignment,
                                      const char *file,
                                      const char *function,
                                      common::i32 line );
 
-void *CypherMemory_BucketAllocZero( bucket_t &bucket, common::usize size, common::usize alignment = CYPHER_MEMORY_DEFAULT_ALIGNMENT );
+void *Mem_BucketAllocZero( bucket_t &bucket, common::usize size, common::usize alignment = CYPHER_MEMORY_DEFAULT_ALIGNMENT );
 
-void *CypherMemory_BucketAllocZeroDebug( bucket_t &bucket,
+void *Mem_BucketAllocZeroDebug( bucket_t &bucket,
                                          common::usize size,
                                          common::usize alignment,
                                          const char *file,
                                          const char *function,
                                          common::i32 line );
 
-mem_error_t CypherMemory_BucketFree( bucket_t &bucket, void *ptr );
+mem_error_t Mem_BucketFree( bucket_t &bucket, void *ptr );
 
-mem_error_t CypherMemory_BucketFreeDebug( bucket_t &bucket, void *ptr, const char *file, const char *function, common::i32 line );
+mem_error_t Mem_BucketFreeDebug( bucket_t &bucket, void *ptr, const char *file, const char *function, common::i32 line );
 
-bool CypherMemory_BucketContains( const bucket_t &bucket, const void *ptr );
+bool Mem_BucketContains( const bucket_t &bucket, const void *ptr );
 
-bool CypherMemory_BucketOwnsSlot( const bucket_t &bucket, const void *ptr );
+bool Mem_BucketOwnsSlot( const bucket_t &bucket, const void *ptr );
 
-bool CypherMemory_BucketIsInitialized( const bucket_t &bucket );
+bool Mem_BucketIsInitialized( const bucket_t &bucket );
 
-mem_error_t CypherMemory_BucketLastError( const bucket_t &bucket );
+mem_error_t Mem_BucketLastError( const bucket_t &bucket );
 
-common::usize CypherMemory_BucketClassIndexForSize( const bucket_t &bucket, common::usize size, common::usize alignment = CYPHER_MEMORY_DEFAULT_ALIGNMENT );
+common::usize Mem_BucketClassIndexForSize( const bucket_t &bucket, common::usize size, common::usize alignment = CYPHER_MEMORY_DEFAULT_ALIGNMENT );
 
-common::usize CypherMemory_BucketUsedCount( const bucket_t &bucket );
+common::usize Mem_BucketUsedCount( const bucket_t &bucket );
 
-common::usize CypherMemory_BucketFreeCount( const bucket_t &bucket );
+common::usize Mem_BucketFreeCount( const bucket_t &bucket );
 
-common::f32 CypherMemory_BucketUsageRatio( const bucket_t &bucket );
+common::f32 Mem_BucketUsageRatio( const bucket_t &bucket );
 
 template <typename T>
-T *CypherMemory_BucketAllocType( bucket_t &bucket )
+T *Mem_BucketAllocType( bucket_t &bucket )
 {
-    return static_cast<T *>( CypherMemory_BucketAlloc( bucket, sizeof( T ), alignof( T ) ) );
+    return static_cast<T *>( Mem_BucketAlloc( bucket, sizeof( T ), alignof( T ) ) );
 }
 
 template <typename T>
-T *CypherMemory_BucketAllocTypeDebug( bucket_t &bucket, const char *file, const char *function, common::i32 line )
+T *Mem_BucketAllocTypeDebug( bucket_t &bucket, const char *file, const char *function, common::i32 line )
 {
-    return static_cast<T *>( CypherMemory_BucketAllocDebug( bucket, sizeof( T ), alignof( T ), file, function, line ) );
+    return static_cast<T *>( Mem_BucketAllocDebug( bucket, sizeof( T ), alignof( T ), file, function, line ) );
 }
 
 template <typename T>
-T *CypherMemory_BucketAllocTypeZero( bucket_t &bucket )
+T *Mem_BucketAllocTypeZero( bucket_t &bucket )
 {
-    return static_cast<T *>( CypherMemory_BucketAllocZero( bucket, sizeof( T ), alignof( T ) ) );
+    return static_cast<T *>( Mem_BucketAllocZero( bucket, sizeof( T ), alignof( T ) ) );
 }
 
 template <typename T>
-T *CypherMemory_BucketAllocTypeZeroDebug( bucket_t &bucket, const char *file, const char *function, common::i32 line )
+T *Mem_BucketAllocTypeZeroDebug( bucket_t &bucket, const char *file, const char *function, common::i32 line )
 {
-    return static_cast<T *>( CypherMemory_BucketAllocZeroDebug( bucket, sizeof( T ), alignof( T ), file, function, line ) );
+    return static_cast<T *>( Mem_BucketAllocZeroDebug( bucket, sizeof( T ), alignof( T ), file, function, line ) );
 }
 
 }       // namespace cypher::engine::memory
 
 #define CYPHER_MEMORY_BUCKET_ALLOC( BUCKET, SIZE, ALIGNMENT ) \
-    ::cypher::engine::memory::CypherMemory_BucketAllocDebug( ( BUCKET ), ( SIZE ), ( ALIGNMENT ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_BucketAllocDebug( ( BUCKET ), ( SIZE ), ( ALIGNMENT ), __FILE__, __func__, __LINE__ )
 
 #define CYPHER_MEMORY_BUCKET_ALLOC_ZERO( BUCKET, SIZE, ALIGNMENT ) \
-    ::cypher::engine::memory::CypherMemory_BucketAllocZeroDebug( ( BUCKET ), ( SIZE ), ( ALIGNMENT ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_BucketAllocZeroDebug( ( BUCKET ), ( SIZE ), ( ALIGNMENT ), __FILE__, __func__, __LINE__ )
 
 #define CYPHER_MEMORY_BUCKET_ALLOC_TYPE( BUCKET, TYPE ) \
-    ::cypher::engine::memory::CypherMemory_BucketAllocTypeDebug<TYPE>( ( BUCKET ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_BucketAllocTypeDebug<TYPE>( ( BUCKET ), __FILE__, __func__, __LINE__ )
 
 #define CYPHER_MEMORY_BUCKET_ALLOC_TYPE_ZERO( BUCKET, TYPE ) \
-    ::cypher::engine::memory::CypherMemory_BucketAllocTypeZeroDebug<TYPE>( ( BUCKET ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_BucketAllocTypeZeroDebug<TYPE>( ( BUCKET ), __FILE__, __func__, __LINE__ )
 
 #define CYPHER_MEMORY_BUCKET_FREE( BUCKET, PTR ) \
-    ::cypher::engine::memory::CypherMemory_BucketFreeDebug( ( BUCKET ), ( PTR ), __FILE__, __func__, __LINE__ )
+    ::cypher::engine::memory::Mem_BucketFreeDebug( ( BUCKET ), ( PTR ), __FILE__, __func__, __LINE__ )
 
 #endif // CYPHER_ENGINE_MEMORY_BUCKET_H
