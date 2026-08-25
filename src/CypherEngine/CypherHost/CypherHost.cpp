@@ -255,12 +255,12 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         return host_error_t::ERR_INITIALIZING;
     }
 
-    const auto cvarResult = cvar::CypherCVar_Init();
+    const auto cvarResult = cvar::Cvar_Init();
 
     if ( cvarResult != cvar::cvar_error_t::OK )
     {
-        LOG_ERROR( log::channel_t::CVAR, "cvar system initialization failed: %s.", cvar::CypherCVar_ErrorDesc( cvarResult ) );
-        COM_ERRORF( CypherCVar_ErrorCode( cvarResult ), "CypherHost_Init: CypherCVar_Init failed: %s", cvar::CypherCVar_ErrorDesc( cvarResult ) );
+        LOG_ERROR( log::channel_t::CVAR, "cvar system initialization failed: %s.", cvar::Cvar_ErrorDesc( cvarResult ) );
+        COM_ERRORF( Cvar_ErrorCode( cvarResult ), "CypherHost_Init: Cvar_Init failed: %s", cvar::Cvar_ErrorDesc( cvarResult ) );
 
         cmd::Cmd_Shutdown();
         fs::FS_Shutdown();
@@ -280,7 +280,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         LOG_ERROR( log::channel_t::CFG, "config system initialization failed: %s.", cfg::CypherConfig_ErrorDesc( cfgResult ) );
         COM_ERRORF( CypherConfig_ErrorCode( cfgResult ), "CypherHost_Init: CypherConfig_Init failed: %s", cfg::CypherConfig_ErrorDesc( cfgResult ) );
 
-        cvar::CypherCVar_Shutdown();
+        cvar::Cvar_Shutdown();
         cmd::Cmd_Shutdown();
         fs::FS_Shutdown();
         mem::CypherMemory_Shutdown();
@@ -395,17 +395,17 @@ host_error_t CypherHost_RegisterBuiltinCvars( void ) {
     };
 
     for ( const builtin_cvar_t &builtinCvar : builtinCvars ) {
-        const auto result = cvar::CypherCVar_Register(
+        const auto result = cvar::Cvar_Register(
             builtinCvar.name,
             builtinCvar.defaultValue,
             builtinCvar.flags );
 
         if ( result != cvar::cvar_error_t::OK ) {
             COM_ERRORF(
-                cvar::CypherCVar_ErrorCode( result ),
+                cvar::Cvar_ErrorCode( result ),
                 "CypherHost_Init: failed to register cvar '%s': %s",
                 builtinCvar.name,
-                cvar::CypherCVar_ErrorDesc( result ) );
+                cvar::Cvar_ErrorDesc( result ) );
             return host_error_t::ERR_INITIALIZING;
         }
     }
@@ -495,7 +495,7 @@ CypherHost_LogLevelFromCvar
 log::level_t CypherHost_LogLevelFromCvar( const char *szCvarName, const log::level_t fallback )
 {
     log::level_t parsedLevel = fallback;
-    const char *szLevelName = cvar::CypherCVar_GetString( szCvarName );
+    const char *szLevelName = cvar::Cvar_GetString( szCvarName );
     const auto parseResult = log::Log_LevelFromString( szLevelName, parsedLevel );
 
     if ( parseResult != log::log_error_t::OK ) {
@@ -517,7 +517,7 @@ void CypherHost_CopyLogPathFromCvar( char *outPath, const common::usize outPathS
         return;
     }
 
-    const char *path = cvar::CypherCVar_GetString( szCvarName );
+    const char *path = cvar::Cvar_GetString( szCvarName );
 
     if ( path == nullptr || path[0] == '\0' ) {
         path = fallback;
@@ -540,33 +540,33 @@ host_error_t CypherHost_ApplyLogCvars( void )
 
     logConfig.nMinLevel = CypherHost_LogLevelFromCvar( "log_global_level", logConfig.nMinLevel );
 
-    logConfig.terminal.enabled = cvar::CypherCVar_GetBool( "log_terminal" );
+    logConfig.terminal.enabled = cvar::Cvar_GetBool( "log_terminal" );
     logConfig.terminal.nMinLevel = CypherHost_LogLevelFromCvar( "log_terminal_level", logConfig.terminal.nMinLevel );
     logConfig.terminal.format = log::format_mode_t::COMPACT;
-    logConfig.terminal.bIncludeTimestamps = cvar::CypherCVar_GetBool( "log_terminal_timestamps" );
+    logConfig.terminal.bIncludeTimestamps = cvar::Cvar_GetBool( "log_terminal_timestamps" );
     logConfig.terminal.bIncludeSourceLocation = false;
     logConfig.terminal.bIncludeFunctionName = false;
-    logConfig.terminal.bColorEnabled = cvar::CypherCVar_GetBool( "log_terminal_color" );
+    logConfig.terminal.bColorEnabled = cvar::Cvar_GetBool( "log_terminal_color" );
 
-    logConfig.engineFile.enabled = cvar::CypherCVar_GetBool( "log_engine_file" );
+    logConfig.engineFile.enabled = cvar::Cvar_GetBool( "log_engine_file" );
     logConfig.engineFile.nMinLevel = CypherHost_LogLevelFromCvar( "log_engine_file_level", logConfig.engineFile.nMinLevel );
     logConfig.engineFile.format = log::format_mode_t::DETAILED;
-    logConfig.engineFile.bIncludeTimestamps = cvar::CypherCVar_GetBool( "log_file_timestamps" );
-    logConfig.engineFile.bIncludeSourceLocation = cvar::CypherCVar_GetBool( "log_file_source" );
-    logConfig.engineFile.bIncludeFunctionName = cvar::CypherCVar_GetBool( "log_file_function" );
+    logConfig.engineFile.bIncludeTimestamps = cvar::Cvar_GetBool( "log_file_timestamps" );
+    logConfig.engineFile.bIncludeSourceLocation = cvar::Cvar_GetBool( "log_file_source" );
+    logConfig.engineFile.bIncludeFunctionName = cvar::Cvar_GetBool( "log_file_function" );
     logConfig.engineFile.bColorEnabled = false;
     CypherHost_CopyLogPathFromCvar( logConfig.engineFile.path, sizeof( logConfig.engineFile.path ), "log_engine_file_path", "CypherEngine.log" );
 
-    logConfig.errorFile.enabled = cvar::CypherCVar_GetBool( "log_error_file" );
+    logConfig.errorFile.enabled = cvar::Cvar_GetBool( "log_error_file" );
     logConfig.errorFile.nMinLevel = CypherHost_LogLevelFromCvar( "log_error_file_level", logConfig.errorFile.nMinLevel );
     logConfig.errorFile.format = log::format_mode_t::DETAILED;
-    logConfig.errorFile.bIncludeTimestamps = cvar::CypherCVar_GetBool( "log_file_timestamps" );
-    logConfig.errorFile.bIncludeSourceLocation = cvar::CypherCVar_GetBool( "log_file_source" );
-    logConfig.errorFile.bIncludeFunctionName = cvar::CypherCVar_GetBool( "log_file_function" );
+    logConfig.errorFile.bIncludeTimestamps = cvar::Cvar_GetBool( "log_file_timestamps" );
+    logConfig.errorFile.bIncludeSourceLocation = cvar::Cvar_GetBool( "log_file_source" );
+    logConfig.errorFile.bIncludeFunctionName = cvar::Cvar_GetBool( "log_file_function" );
     logConfig.errorFile.bColorEnabled = false;
     CypherHost_CopyLogPathFromCvar( logConfig.errorFile.path, sizeof( logConfig.errorFile.path ), "log_error_file_path", "CypherEngine_errors.log" );
 
-    logConfig.consoleFile.enabled = cvar::CypherCVar_GetBool( "log_console_file" );
+    logConfig.consoleFile.enabled = cvar::Cvar_GetBool( "log_console_file" );
     logConfig.consoleFile.nMinLevel = CypherHost_LogLevelFromCvar( "log_console_file_level", logConfig.consoleFile.nMinLevel );
     logConfig.consoleFile.format = log::format_mode_t::COMPACT;
     logConfig.consoleFile.bIncludeTimestamps = true;
@@ -575,21 +575,21 @@ host_error_t CypherHost_ApplyLogCvars( void )
     logConfig.consoleFile.bColorEnabled = false;
     CypherHost_CopyLogPathFromCvar( logConfig.consoleFile.path, sizeof( logConfig.consoleFile.path ), "log_console_file_path", "Console.log" );
 
-    logConfig.editorFile.enabled = cvar::CypherCVar_GetBool( "log_editor_file" );
+    logConfig.editorFile.enabled = cvar::Cvar_GetBool( "log_editor_file" );
     logConfig.editorFile.nMinLevel = CypherHost_LogLevelFromCvar( "log_editor_file_level", logConfig.editorFile.nMinLevel );
     logConfig.editorFile.format = log::format_mode_t::DETAILED;
-    logConfig.editorFile.bIncludeTimestamps = cvar::CypherCVar_GetBool( "log_file_timestamps" );
-    logConfig.editorFile.bIncludeSourceLocation = cvar::CypherCVar_GetBool( "log_file_source" );
-    logConfig.editorFile.bIncludeFunctionName = cvar::CypherCVar_GetBool( "log_file_function" );
+    logConfig.editorFile.bIncludeTimestamps = cvar::Cvar_GetBool( "log_file_timestamps" );
+    logConfig.editorFile.bIncludeSourceLocation = cvar::Cvar_GetBool( "log_file_source" );
+    logConfig.editorFile.bIncludeFunctionName = cvar::Cvar_GetBool( "log_file_function" );
     logConfig.editorFile.bColorEnabled = false;
     CypherHost_CopyLogPathFromCvar( logConfig.editorFile.path, sizeof( logConfig.editorFile.path ), "log_editor_file_path", "Editor.log" );
 
-    logConfig.gameFile.enabled = cvar::CypherCVar_GetBool( "log_game_file" );
+    logConfig.gameFile.enabled = cvar::Cvar_GetBool( "log_game_file" );
     logConfig.gameFile.nMinLevel = CypherHost_LogLevelFromCvar( "log_game_file_level", logConfig.gameFile.nMinLevel );
     logConfig.gameFile.format = log::format_mode_t::DETAILED;
-    logConfig.gameFile.bIncludeTimestamps = cvar::CypherCVar_GetBool( "log_file_timestamps" );
-    logConfig.gameFile.bIncludeSourceLocation = cvar::CypherCVar_GetBool( "log_file_source" );
-    logConfig.gameFile.bIncludeFunctionName = cvar::CypherCVar_GetBool( "log_file_function" );
+    logConfig.gameFile.bIncludeTimestamps = cvar::Cvar_GetBool( "log_file_timestamps" );
+    logConfig.gameFile.bIncludeSourceLocation = cvar::Cvar_GetBool( "log_file_source" );
+    logConfig.gameFile.bIncludeFunctionName = cvar::Cvar_GetBool( "log_file_function" );
     logConfig.gameFile.bColorEnabled = false;
     CypherHost_CopyLogPathFromCvar( logConfig.gameFile.path, sizeof( logConfig.gameFile.path ), "log_game_file_path", "Game.log" );
 
@@ -613,9 +613,9 @@ CypherHost_ApplyCvarsToConfig
 host_error_t CypherHost_ApplyCvarsToConfig( state_t &pHostState ) {
     host::window_config_t &pWindowConfig = pHostState.config.pWindowConfig;
 
-    const common::u32 width = cvar::CypherCVar_GetInt( "r_width" );
-    const common::u32 height = cvar::CypherCVar_GetInt( "r_height" );
-    const common::u32 nTargetFps = cvar::CypherCVar_GetInt( "host_target_fps" );
+    const common::u32 width = cvar::Cvar_GetInt( "r_width" );
+    const common::u32 height = cvar::Cvar_GetInt( "r_height" );
+    const common::u32 nTargetFps = cvar::Cvar_GetInt( "host_target_fps" );
 
     if ( width != 0u ) {
         pWindowConfig.viewport.width = width;
@@ -629,8 +629,8 @@ host_error_t CypherHost_ApplyCvarsToConfig( state_t &pHostState ) {
         pWindowConfig.nTargetFps = nTargetFps;
     }
 
-    pWindowConfig.fullscreen = cvar::CypherCVar_GetBool( "r_fullscreen" );
-    pWindowConfig.vsync = cvar::CypherCVar_GetBool( "r_vsync" );
+    pWindowConfig.fullscreen = cvar::Cvar_GetBool( "r_fullscreen" );
+    pWindowConfig.vsync = cvar::Cvar_GetBool( "r_vsync" );
 
     LOG_INFO( log::channel_t::HOST, "applied startup cvars: viewport=%ux%u, fullscreen=%u, vsync=%u, target_fps=%u.", pWindowConfig.viewport.width, pWindowConfig.viewport.height, pWindowConfig.fullscreen ? 1u : 0u, pWindowConfig.vsync ? 1u : 0u, pWindowConfig.nTargetFps );
 
@@ -806,7 +806,7 @@ void CypherHost_Shutdown( state_t &pHostState ) {
     render::CypherRender_Shutdown();
     sys::Sys_DestroyWindow( pHostState.window );
     cfg::CypherConfig_Shutdown();
-    cvar::CypherCVar_Shutdown();
+    cvar::Cvar_Shutdown();
     cmd::Cmd_Shutdown();
     fs::FS_Shutdown();
     mem::CypherMemory_Shutdown();
@@ -836,8 +836,8 @@ void CypherHost_BeginFrame( state_t &pHostState ) {
 
     const common::f32 nRawDeltaTimeSeconds = static_cast<common::f32>( frame.nCurrentTimeSeconds - frame.nPreviousTimeSeconds );
 
-    const common::f32 nMaxDeltaTimeSeconds = cvar::CypherCVar_GetFloat( "host_max_delta_time" );
-    const common::f32 timescale = cvar::CypherCVar_GetFloat( "host_timescale" );
+    const common::f32 nMaxDeltaTimeSeconds = cvar::Cvar_GetFloat( "host_max_delta_time" );
+    const common::f32 timescale = cvar::Cvar_GetFloat( "host_timescale" );
 
     const common::f32 flSafeMaxDeltaTimeSeconds = ( nMaxDeltaTimeSeconds > 0.0f ) ? nMaxDeltaTimeSeconds : 0.25f;
     const common::f32 flSafeTimescale = ( timescale >= 0.0f ) ? timescale : 1.0f;

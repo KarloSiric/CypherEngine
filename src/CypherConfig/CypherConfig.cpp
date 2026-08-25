@@ -323,7 +323,7 @@ cfg_error_t CypherConfig_ExecuteLine( const char *nCommandLine ) {
 		if ( cvarValue[0] == '\0' ) {
 			return cfg_error_t::ERR_PARSE_FAILED;
 		}
-		if ( cvar::CypherCVar_Set( szCvarName, cvarValue ) != cvar::cvar_error_t::OK ) {
+		if ( cvar::Cvar_Set( szCvarName, cvarValue ) != cvar::cvar_error_t::OK ) {
 			return cfg_error_t::ERR_PARSE_FAILED;
 		}
 		return cfg_error_t::OK;

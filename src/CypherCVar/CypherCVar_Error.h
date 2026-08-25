@@ -53,7 +53,7 @@ enum class cvar_error_t : common::u8 {
 Cvar Error Helpers
 ================
 */
-constexpr inline const char *CypherCVar_ErrorName( const cvar_error_t error ) {
+constexpr inline const char *Cvar_ErrorName( const cvar_error_t error ) {
 	switch ( error ) {
 	case cvar_error_t::OK:
 		return "OK";
@@ -82,7 +82,7 @@ constexpr inline const char *CypherCVar_ErrorName( const cvar_error_t error ) {
 	}
 }
 
-constexpr inline const char *CypherCVar_ErrorDesc( const cvar_error_t error ) {
+constexpr inline const char *Cvar_ErrorDesc( const cvar_error_t error ) {
 	switch ( error ) {
 	case cvar_error_t::OK:
 		return "success";
@@ -111,7 +111,7 @@ constexpr inline const char *CypherCVar_ErrorDesc( const cvar_error_t error ) {
 	}
 }
 
-constexpr inline common::error_t CypherCVar_ErrorCode( cvar_error_t error ) {
+constexpr inline common::error_t Cvar_ErrorCode( cvar_error_t error ) {
 	return common::CypherCommon_ErrorMake( common::domain_t::COM_DOMAIN_CVAR, static_cast<common::u16>( error ) );
 }
 

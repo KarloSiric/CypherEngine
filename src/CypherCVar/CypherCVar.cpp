@@ -30,10 +30,10 @@ static registry_t s_CvarRegistry;
 
 /*
 ================
-CypherCVar_Init
+Cvar_Init
 ================
 */
-cvar_error_t CypherCVar_Init() {
+cvar_error_t Cvar_Init() {
 	if ( s_CvarRegistry.initialized ) {
 		LOG_WARNING( log::channel_t::CVAR, "cvar system init requested while already initialized." );
 		return cvar_error_t::ERR_IS_INIT;
@@ -49,12 +49,12 @@ cvar_error_t CypherCVar_Init() {
 
 /*
 ================
-CypherCVar_ParseBool
+Cvar_ParseBool
 
 Accepts common console-friendly true/false strings.
 ================
 */
-bool CypherCVar_ParseBool( const char *value ) {
+bool Cvar_ParseBool( const char *value ) {
 	if ( value == nullptr || value[0] == '\0' ) {
 		return false;
 	}
@@ -80,12 +80,12 @@ bool CypherCVar_ParseBool( const char *value ) {
 
 /*
 ================
-CypherCVar_Register
+Cvar_Register
 
 Adds a cvar with default string and cached numeric views.
 ================
 */
-cvar_error_t CypherCVar_Register( const char *name, const char *defaultValue, flags_t flags ) {
+cvar_error_t Cvar_Register( const char *name, const char *defaultValue, flags_t flags ) {
 	if ( !s_CvarRegistry.initialized ) {
 		LOG_ERROR( log::channel_t::CVAR, "cvar register failed for '%s': cvar system is not initialized.", name ? name : "<null>" );
 		return cvar_error_t::ERR_NOT_INIT;
@@ -114,7 +114,7 @@ cvar_error_t CypherCVar_Register( const char *name, const char *defaultValue, fl
 		return cvar_error_t::ERR_INVALID_FLAG;
 	}
 
-	const cvar_t *cvar = CypherCVar_Find( name );
+	const cvar_t *cvar = Cvar_Find( name );
 
 	if ( cvar != nullptr ) {
 		LOG_WARNING( log::channel_t::CVAR, "cvar register skipped: '%s' already exists.", name );
@@ -136,7 +136,7 @@ cvar_error_t CypherCVar_Register( const char *name, const char *defaultValue, fl
 	entry.valueInt = std::atoi( defaultValue );
 	entry.valueFloat = std::atof( defaultValue );
 	entry.flags = flags;
-	entry.valueBool = CypherCVar_ParseBool( entry.valueString );
+	entry.valueBool = Cvar_ParseBool( entry.valueString );
 	s_CvarRegistry.nCvarCount++;
 
 	LOG_DEBUG( log::channel_t::CVAR, "registered cvar '%s' default='%s' flags=0x%x.", name, defaultValue, nFlagsBits );
@@ -146,12 +146,12 @@ cvar_error_t CypherCVar_Register( const char *name, const char *defaultValue, fl
 
 /*
 ================
-CypherCVar_Set
+Cvar_Set
 
 Changes a cvar string and updates its cached int/float/bool values.
 ================
 */
-cvar_error_t CypherCVar_Set( const char *name, const char *value ) {
+cvar_error_t Cvar_Set( const char *name, const char *value ) {
 	if ( !s_CvarRegistry.initialized ) {
 		LOG_ERROR( log::channel_t::CVAR, "cvar set failed for '%s': cvar system is not initialized.", name ? name : "<null>" );
 		return cvar_error_t::ERR_NOT_INIT;
@@ -198,7 +198,7 @@ cvar_error_t CypherCVar_Set( const char *name, const char *value ) {
 
     target->valueInt = static_cast<common::u32>( std::atoi( target->valueString ) );
     target->valueFloat = static_cast<common::f32>( std::atof( target->valueString ) );
-    target->valueBool = CypherCVar_ParseBool( target->valueString );
+    target->valueBool = Cvar_ParseBool( target->valueString );
 
     target->flags = static_cast<flags_t>( static_cast<common::u32>( target->flags ) | CYPHER_CVAR_MODIFIED );
 
@@ -209,10 +209,10 @@ cvar_error_t CypherCVar_Set( const char *name, const char *value ) {
 
 /*
 ================
-CypherCVar_Shutdown
+Cvar_Shutdown
 ================
 */
-cvar_error_t CypherCVar_Shutdown() {
+cvar_error_t Cvar_Shutdown() {
     if ( !s_CvarRegistry.initialized ) {
         LOG_WARNING( log::channel_t::CVAR, "cvar system shutdown requested while not initialized." );
         return cvar_error_t::ERR_NOT_INIT;
@@ -225,10 +225,10 @@ cvar_error_t CypherCVar_Shutdown() {
 
 /*
 ================
-CypherCVar_Find
+Cvar_Find
 ================
 */
-const cvar_t *CypherCVar_Find( const char *name ) {
+const cvar_t *Cvar_Find( const char *name ) {
     if ( !s_CvarRegistry.initialized ) {
         return nullptr;
     }
@@ -254,10 +254,10 @@ const cvar_t *CypherCVar_Find( const char *name ) {
 
 /*
 ================
-CypherCVar_GetString
+Cvar_GetString
 ================
 */
-const char *CypherCVar_GetString( const char *name ) {
+const char *Cvar_GetString( const char *name ) {
     if ( !s_CvarRegistry.initialized ) {
         return nullptr;
     }
@@ -266,7 +266,7 @@ const char *CypherCVar_GetString( const char *name ) {
         return nullptr;
     }
 
-    const cvar_t *cvar = CypherCVar_Find( name );
+    const cvar_t *cvar = Cvar_Find( name );
 
     if ( cvar == nullptr ) {
         return "";
@@ -277,10 +277,10 @@ const char *CypherCVar_GetString( const char *name ) {
 
 /*
 ================
-CypherCVar_GetInt
+Cvar_GetInt
 ================
 */
-common::u32 CypherCVar_GetInt( const char *name ) {
+common::u32 Cvar_GetInt( const char *name ) {
     if ( !s_CvarRegistry.initialized ) {
         return (common::u32)0u;
     }
@@ -289,7 +289,7 @@ common::u32 CypherCVar_GetInt( const char *name ) {
         return (common::u32)0u;
     }
 
-    const cvar_t *cvar = CypherCVar_Find( name );
+    const cvar_t *cvar = Cvar_Find( name );
 
     if ( cvar == nullptr ) {
         return (common::u32)0u;
@@ -300,10 +300,10 @@ common::u32 CypherCVar_GetInt( const char *name ) {
 
 /*
 ================
-CypherCVar_GetFloat
+Cvar_GetFloat
 ================
 */
-common::f32 CypherCVar_GetFloat( const char *name ) {
+common::f32 Cvar_GetFloat( const char *name ) {
     if ( !s_CvarRegistry.initialized ) {
         return (common::f32)0.0f;
     }
@@ -312,7 +312,7 @@ common::f32 CypherCVar_GetFloat( const char *name ) {
         return (common::f32)0.0f;
     }
 
-    const cvar_t *cvar = CypherCVar_Find( name );
+    const cvar_t *cvar = Cvar_Find( name );
 
     if ( cvar == nullptr ) {
         return (common::f32)0.0f;
@@ -323,10 +323,10 @@ common::f32 CypherCVar_GetFloat( const char *name ) {
 
 /*
 ================
-CypherCVar_GetBool
+Cvar_GetBool
 ================
 */
-bool CypherCVar_GetBool( const char *name ) {
+bool Cvar_GetBool( const char *name ) {
     if ( !s_CvarRegistry.initialized ) {
         return false;
     }
@@ -335,7 +335,7 @@ bool CypherCVar_GetBool( const char *name ) {
         return false;
     }
 
-    const cvar_t *cvar = CypherCVar_Find( name );
+    const cvar_t *cvar = Cvar_Find( name );
 
     if ( cvar == nullptr ) {
         return false;
