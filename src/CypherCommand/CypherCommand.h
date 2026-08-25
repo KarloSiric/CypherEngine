@@ -59,17 +59,17 @@ struct registry_t {
 Command API
 ================
 */
-cmd_error_t CypherCommand_Init( );
+cmd_error_t Cmd_Init( );
 
-void CypherCommand_Shutdown();
+void Cmd_Shutdown();
 
-cmd_error_t CypherCommand_Register( const char *szCmdName, command_fn_t pCallbackFn, void *pExtraData, const char *szCmdDescription );
+cmd_error_t Cmd_Register( const char *szCmdName, command_fn_t pCallbackFn, void *pExtraData, const char *szCmdDescription );
 
-const cmd_t *CypherCommand_Find( const char *szCmdName );
+const cmd_t *Cmd_Find( const char *szCmdName );
 
-cmd_error_t CypherCommand_Parse( char *nCommandLine, common::u32 &argc, char **argv );
+cmd_error_t Cmd_Parse( char *nCommandLine, common::u32 &argc, char **argv );
 
-cmd_error_t CypherCommand_Execute( const char *nCommandLine );
+cmd_error_t Cmd_Execute( const char *nCommandLine );
 
 }
 

@@ -239,11 +239,11 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         pHostState.stage = stage_t::SHUTDOWN;
         return host_error_t::ERR_INITIALIZING;
     }
-    const auto cmdResult = cmd::CypherCommand_Init();
+    const auto cmdResult = cmd::Cmd_Init();
     if ( cmdResult != cmd::cmd_error_t::OK )
     {
-        LOG_ERROR( log::channel_t::CMD, "command system initialization failed: %s.", CypherCommand_ErrorDesc( cmdResult ) );
-        COM_ERRORF( CypherCommand_ErrorCode( cmdResult ), "CypherHost_Init: CypherCommand_Init failed: %s", CypherCommand_ErrorDesc( cmdResult ) );
+        LOG_ERROR( log::channel_t::CMD, "command system initialization failed: %s.", Cmd_ErrorDesc( cmdResult ) );
+        COM_ERRORF( Cmd_ErrorCode( cmdResult ), "CypherHost_Init: Cmd_Init failed: %s", Cmd_ErrorDesc( cmdResult ) );
 
         fs::FS_Shutdown();
         mem::CypherMemory_Shutdown();
@@ -262,7 +262,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         LOG_ERROR( log::channel_t::CVAR, "cvar system initialization failed: %s.", cvar::CypherCVar_ErrorDesc( cvarResult ) );
         COM_ERRORF( CypherCVar_ErrorCode( cvarResult ), "CypherHost_Init: CypherCVar_Init failed: %s", cvar::CypherCVar_ErrorDesc( cvarResult ) );
 
-        cmd::CypherCommand_Shutdown();
+        cmd::Cmd_Shutdown();
         fs::FS_Shutdown();
         mem::CypherMemory_Shutdown();
         log::Log_Shutdown();
@@ -281,7 +281,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         COM_ERRORF( CypherConfig_ErrorCode( cfgResult ), "CypherHost_Init: CypherConfig_Init failed: %s", cfg::CypherConfig_ErrorDesc( cfgResult ) );
 
         cvar::CypherCVar_Shutdown();
-        cmd::CypherCommand_Shutdown();
+        cmd::Cmd_Shutdown();
         fs::FS_Shutdown();
         mem::CypherMemory_Shutdown();
         log::Log_Shutdown();
@@ -437,7 +437,7 @@ host_error_t CypherHost_RegisterBuiltinCommands( state_t &pHostState ) {
     };
 
     for ( const builtin_command_t &builtinCommand : builtinCommands ) {
-        const auto result = cmd::CypherCommand_Register(
+        const auto result = cmd::Cmd_Register(
             builtinCommand.name,
             builtinCommand.callback,
             builtinCommand.pExtraData,
@@ -445,10 +445,10 @@ host_error_t CypherHost_RegisterBuiltinCommands( state_t &pHostState ) {
 
         if ( result != cmd::cmd_error_t::OK ) {
             COM_ERRORF(
-                cmd::CypherCommand_ErrorCode( result ),
+                cmd::Cmd_ErrorCode( result ),
                 "CypherHost_Init: failed to register command '%s': %s",
                 builtinCommand.name,
-                cmd::CypherCommand_ErrorDesc( result ) );
+                cmd::Cmd_ErrorDesc( result ) );
             return host_error_t::ERR_INITIALIZING;
         }
     }
@@ -807,7 +807,7 @@ void CypherHost_Shutdown( state_t &pHostState ) {
     sys::Sys_DestroyWindow( pHostState.window );
     cfg::CypherConfig_Shutdown();
     cvar::CypherCVar_Shutdown();
-    cmd::CypherCommand_Shutdown();
+    cmd::Cmd_Shutdown();
     fs::FS_Shutdown();
     mem::CypherMemory_Shutdown();
     LOG_INFO( log::channel_t::HOST, "%s shutdown complete.", common::COM_ENGINE_INFO.name );

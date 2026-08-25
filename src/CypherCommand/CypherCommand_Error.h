@@ -52,7 +52,7 @@ enum class cmd_error_t : common::u8 {
 Command Error Helpers
 ================
 */
-constexpr inline const char *CypherCommand_ErrorName( const cmd_error_t error ) {
+constexpr inline const char *Cmd_ErrorName( const cmd_error_t error ) {
     switch ( error ) {
     case cmd_error_t::OK:
         return "OK";
@@ -77,7 +77,7 @@ constexpr inline const char *CypherCommand_ErrorName( const cmd_error_t error ) 
     }
 }
 
-constexpr inline const char *CypherCommand_ErrorDesc( const cmd_error_t error ) {
+constexpr inline const char *Cmd_ErrorDesc( const cmd_error_t error ) {
     switch ( error ) {
     case cmd_error_t::OK:
         return "operation completed successfully";
@@ -102,7 +102,7 @@ constexpr inline const char *CypherCommand_ErrorDesc( const cmd_error_t error ) 
     }
 }
 
-constexpr inline common::error_t CypherCommand_ErrorCode( cmd_error_t error ) {
+constexpr inline common::error_t Cmd_ErrorCode( cmd_error_t error ) {
     return common::CypherCommon_ErrorMake( common::domain_t::COM_DOMAIN_CMD , static_cast<common::u16>( error ) );
 }
 

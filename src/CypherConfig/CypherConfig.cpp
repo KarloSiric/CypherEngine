@@ -328,7 +328,7 @@ cfg_error_t CypherConfig_ExecuteLine( const char *nCommandLine ) {
 		}
 		return cfg_error_t::OK;
 	}
-	if ( cmd::CypherCommand_Execute( line ) != cmd::cmd_error_t::OK ) {
+	if ( cmd::Cmd_Execute( line ) != cmd::cmd_error_t::OK ) {
 		return cfg_error_t::ERR_COMMAND_FAILED;
 	}
 	return cfg_error_t::OK;
