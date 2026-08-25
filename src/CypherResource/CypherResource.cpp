@@ -28,7 +28,7 @@ namespace cypher::engine::resource
 // Manager construction and destruction
 //==========================================================================
 
-resource_manager_config_t CypherResource_DefaultConfig() noexcept
+resource_manager_config_t Res_DefaultConfig() noexcept
 {
     return {
         CYPHER_RESOURCE_DEFAULT_CAPACITY,
@@ -37,7 +37,7 @@ resource_manager_config_t CypherResource_DefaultConfig() noexcept
     };
 }
 
-resource_error_t CypherResource_Init(
+resource_error_t Res_Init(
     resource_manager_t *pManager,
     const resource_manager_config_t &config ) noexcept
 {
@@ -117,7 +117,7 @@ resource_error_t CypherResource_Init(
     return resource_error_t::OK;
 }
 
-resource_error_t CypherResource_Shutdown(
+resource_error_t Res_Shutdown(
     resource_manager_t *pManager ) noexcept
 {
     using namespace detail;
@@ -169,7 +169,7 @@ resource_error_t CypherResource_Shutdown(
     return resource_error_t::OK;
 }
 
-common::bool_t CypherResource_IsInitialized(
+common::bool_t Res_IsInitialized(
     const resource_manager_t *pManager ) noexcept
 {
     return detail::ManagerImpl( pManager ) != nullptr;
@@ -177,7 +177,7 @@ common::bool_t CypherResource_IsInitialized(
 
 // Keep this switch exhaustive and stable; tool diagnostics and tests use these
 // symbolic names without allocating temporary strings.
-const char *CypherResource_ErrorName( resource_error_t error ) noexcept
+const char *Res_ErrorName( resource_error_t error ) noexcept
 {
     switch ( error ) {
         case resource_error_t::OK: return "OK";

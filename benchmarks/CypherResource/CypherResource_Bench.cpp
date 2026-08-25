@@ -55,10 +55,10 @@ struct benchmark_manager_t {
 
     benchmark_manager_t()
     {
-        resource_manager_config_t config = CypherResource_DefaultConfig();
+        resource_manager_config_t config = Res_DefaultConfig();
         config.cResourceCapacity = 64u;
         config.cTypeCapacity = 4u;
-        if ( CypherResource_Init( &manager, config ) != resource_error_t::OK ) {
+        if ( Res_Init( &manager, config ) != resource_error_t::OK ) {
             std::abort();
         }
         const resource_loader_t loader{
@@ -67,7 +67,7 @@ struct benchmark_manager_t {
             BenchmarkUnload,
             &backend
         };
-        if ( CypherResource_RegisterType( &manager, loader ) !=
+        if ( Res_RegisterType( &manager, loader ) !=
              resource_error_t::OK ) {
             std::abort();
         }
@@ -75,7 +75,7 @@ struct benchmark_manager_t {
 
     ~benchmark_manager_t()
     {
-        (void)CypherResource_Shutdown( &manager );
+        (void)Res_Shutdown( &manager );
     }
 };
 
@@ -87,7 +87,7 @@ static void BM_ResourceGet( benchmark::State &state )
     resource_handle_t handle{};
     const string_view_t path = StringView_FromCString(
         "materials/benchmark.cymat" );
-    if ( CypherResource_Acquire(
+    if ( Res_Acquire(
             &context.manager,
             context.type,
             path,
@@ -98,7 +98,7 @@ static void BM_ResourceGet( benchmark::State &state )
 
     for ( auto _ : state ) {
         void *pResource = nullptr;
-        resource_error_t result = CypherResource_Get(
+        resource_error_t result = Res_Get(
             &context.manager,
             handle,
             &pResource );
@@ -115,7 +115,7 @@ static void BM_ResourceCachedAcquireRelease( benchmark::State &state )
     resource_handle_t owner{};
     const string_view_t path = StringView_FromCString(
         "materials/benchmark.cymat" );
-    if ( CypherResource_Acquire(
+    if ( Res_Acquire(
             &context.manager,
             context.type,
             path,
@@ -126,12 +126,12 @@ static void BM_ResourceCachedAcquireRelease( benchmark::State &state )
 
     for ( auto _ : state ) {
         resource_handle_t handle{};
-        resource_error_t acquireResult = CypherResource_Acquire(
+        resource_error_t acquireResult = Res_Acquire(
             &context.manager,
             context.type,
             path,
             &handle );
-        resource_error_t releaseResult = CypherResource_Release(
+        resource_error_t releaseResult = Res_Release(
             &context.manager,
             handle );
         benchmark::DoNotOptimize( acquireResult );
@@ -150,12 +150,12 @@ static void BM_ResourceLoadUnload( benchmark::State &state )
 
     for ( auto _ : state ) {
         resource_handle_t handle{};
-        resource_error_t acquireResult = CypherResource_Acquire(
+        resource_error_t acquireResult = Res_Acquire(
             &context.manager,
             context.type,
             path,
             &handle );
-        resource_error_t releaseResult = CypherResource_Release(
+        resource_error_t releaseResult = Res_Release(
             &context.manager,
             handle );
         benchmark::DoNotOptimize( acquireResult );

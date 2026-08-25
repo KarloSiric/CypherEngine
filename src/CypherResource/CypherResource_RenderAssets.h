@@ -110,40 +110,40 @@ struct render_asset_type_slots_t {
 };
 
 CYPHER_NODISCARD render_asset_loader_config_t
-CypherResource_DefaultRenderAssetLoaderConfig(
+Res_DefaultRenderAssetLoaderConfig(
     const common::vfs_t *pVfs ) noexcept;
 
 // Binds a VFS and allocator without acquiring either object. Reinitializing a
 // context while its callbacks are registered is invalid.
-CYPHER_NODISCARD common::bool_t CypherResource_InitRenderAssetLoader(
+CYPHER_NODISCARD common::bool_t Res_InitRenderAssetLoader(
     render_asset_loader_context_t *pContext,
     const render_asset_loader_config_t &config ) noexcept;
 
-CYPHER_NODISCARD common::bool_t CypherResource_IsRenderAssetLoaderValid(
+CYPHER_NODISCARD common::bool_t Res_IsRenderAssetLoaderValid(
     const render_asset_loader_context_t *pContext ) noexcept;
 
 CYPHER_NODISCARD common::resource_type_id_t
-CypherResource_ShaderTypeId() noexcept;
+Res_ShaderTypeId() noexcept;
 
 CYPHER_NODISCARD common::resource_type_id_t
-CypherResource_TextureTypeId() noexcept;
+Res_TextureTypeId() noexcept;
 
 CYPHER_NODISCARD common::resource_type_id_t
-CypherResource_MaterialTypeId() noexcept;
+Res_MaterialTypeId() noexcept;
 
-CYPHER_NODISCARD resource_loader_t CypherResource_MakeShaderLoader(
+CYPHER_NODISCARD resource_loader_t Res_MakeShaderLoader(
     render_asset_loader_context_t *pContext ) noexcept;
 
-CYPHER_NODISCARD resource_loader_t CypherResource_MakeTextureLoader(
+CYPHER_NODISCARD resource_loader_t Res_MakeTextureLoader(
     render_asset_loader_context_t *pContext ) noexcept;
 
-CYPHER_NODISCARD resource_loader_t CypherResource_MakeMaterialLoader(
+CYPHER_NODISCARD resource_loader_t Res_MakeMaterialLoader(
     render_asset_loader_context_t *pContext ) noexcept;
 
 // Registers all three built-in render resource types. If a later registration
 // fails, registrations made by this call are removed in reverse order. Runtime
 // type slots remain retired, matching the manager's non-reuse rule.
-CYPHER_NODISCARD resource_error_t CypherResource_RegisterRenderAssetLoaders(
+CYPHER_NODISCARD resource_error_t Res_RegisterRenderAssetLoaders(
     resource_manager_t *pManager,
     render_asset_loader_context_t *pContext,
     render_asset_type_slots_t *pSlotsOut = nullptr ) noexcept;
@@ -151,22 +151,22 @@ CYPHER_NODISCARD resource_error_t CypherResource_RegisterRenderAssetLoaders(
 // These typed accessors reject handles belonging to another registered type.
 // Returned views and every byte range inside them remain valid only while the
 // caller retains at least one reference to the resource handle.
-CYPHER_NODISCARD resource_error_t CypherResource_GetCookedShader(
+CYPHER_NODISCARD resource_error_t Res_GetCookedShader(
     const resource_manager_t *pManager,
     common::resource_handle_t handle,
     const common::cooked_shader_view_t **ppShaderOut ) noexcept;
 
-CYPHER_NODISCARD resource_error_t CypherResource_GetCookedTexture(
+CYPHER_NODISCARD resource_error_t Res_GetCookedTexture(
     const resource_manager_t *pManager,
     common::resource_handle_t handle,
     const common::cooked_texture_view_t **ppTextureOut ) noexcept;
 
-CYPHER_NODISCARD resource_error_t CypherResource_GetCookedMaterial(
+CYPHER_NODISCARD resource_error_t Res_GetCookedMaterial(
     const resource_manager_t *pManager,
     common::resource_handle_t handle,
     const common::cooked_material_view_t **ppMaterialOut ) noexcept;
 
-CYPHER_NODISCARD const char *CypherResource_RenderAssetLoadStatusName(
+CYPHER_NODISCARD const char *Res_RenderAssetLoadStatusName(
     render_asset_load_status_t status ) noexcept;
 
 } // namespace cypher::engine::resource

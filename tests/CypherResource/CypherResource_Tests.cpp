@@ -71,7 +71,7 @@ bool_t TestLoad(
 
     if ( backend.bAcquireSelf ) {
         resource_handle_t recursiveHandle{};
-        backend.recursiveResult = CypherResource_Acquire(
+        backend.recursiveResult = Res_Acquire(
             backend.pManager,
             backend.type,
             path,
@@ -114,7 +114,7 @@ resource_manager_config_t TestConfig(
     u32 cResources = 8u,
     u32 cTypes = 4u )
 {
-    resource_manager_config_t config = CypherResource_DefaultConfig();
+    resource_manager_config_t config = Res_DefaultConfig();
     config.cResourceCapacity = cResources;
     config.cTypeCapacity = cTypes;
     return config;
@@ -136,13 +136,13 @@ struct manager_scope_t {
 
     explicit manager_scope_t( const resource_manager_config_t &config )
     {
-        REQUIRE( CypherResource_Init( &manager, config ) == resource_error_t::OK );
+        REQUIRE( Res_Init( &manager, config ) == resource_error_t::OK );
     }
 
     ~manager_scope_t()
     {
-        if ( CypherResource_IsInitialized( &manager ) ) {
-            CHECK( CypherResource_Shutdown( &manager ) == resource_error_t::OK );
+        if ( Res_IsInitialized( &manager ) ) {
+            CHECK( Res_Shutdown( &manager ) == resource_error_t::OK );
         }
     }
 };
@@ -162,15 +162,15 @@ TEST_CASE( "Resource manager initializes transactionally",
            "[CypherEngine][Resource]" )
 {
     resource_manager_t manager{};
-    REQUIRE_FALSE( CypherResource_IsInitialized( &manager ) );
-    REQUIRE( CypherResource_Shutdown( &manager ) ==
+    REQUIRE_FALSE( Res_IsInitialized( &manager ) );
+    REQUIRE( Res_Shutdown( &manager ) ==
              resource_error_t::NOT_INITIALIZED );
 
     resource_manager_config_t invalid = TestConfig();
     invalid.cResourceCapacity = 0u;
-    REQUIRE( CypherResource_Init( &manager, invalid ) ==
+    REQUIRE( Res_Init( &manager, invalid ) ==
              resource_error_t::INVALID_ARGUMENT );
-    REQUIRE_FALSE( CypherResource_IsInitialized( &manager ) );
+    REQUIRE_FALSE( Res_IsInitialized( &manager ) );
 
     const allocator_t failingAllocator{
         FailAllocate,
@@ -180,23 +180,23 @@ TEST_CASE( "Resource manager initializes transactionally",
     };
     resource_manager_config_t allocationFailure = TestConfig();
     allocationFailure.pAllocator = &failingAllocator;
-    REQUIRE( CypherResource_Init( &manager, allocationFailure ) ==
+    REQUIRE( Res_Init( &manager, allocationFailure ) ==
              resource_error_t::ALLOCATION_FAILED );
-    REQUIRE_FALSE( CypherResource_IsInitialized( &manager ) );
+    REQUIRE_FALSE( Res_IsInitialized( &manager ) );
 
-    REQUIRE( CypherResource_Init( &manager, TestConfig() ) ==
+    REQUIRE( Res_Init( &manager, TestConfig() ) ==
              resource_error_t::OK );
-    REQUIRE( CypherResource_IsInitialized( &manager ) );
-    REQUIRE( CypherResource_Init( &manager, TestConfig() ) ==
+    REQUIRE( Res_IsInitialized( &manager ) );
+    REQUIRE( Res_Init( &manager, TestConfig() ) ==
              resource_error_t::ALREADY_INITIALIZED );
 
-    const resource_manager_stats_t stats = CypherResource_GetStats( &manager );
+    const resource_manager_stats_t stats = Res_GetStats( &manager );
     REQUIRE( stats.cResourceCapacity == 8u );
     REQUIRE( stats.cTypeCapacity == 4u );
     REQUIRE( stats.cLiveResources == 0u );
 
-    REQUIRE( CypherResource_Shutdown( &manager ) == resource_error_t::OK );
-    REQUIRE_FALSE( CypherResource_IsInitialized( &manager ) );
+    REQUIRE( Res_Shutdown( &manager ) == resource_error_t::OK );
+    REQUIRE_FALSE( Res_IsInitialized( &manager ) );
 }
 
 TEST_CASE( "Resource types have stable non-reused runtime slots",
@@ -212,34 +212,34 @@ TEST_CASE( "Resource types have stable non-reused runtime slots",
 
     resource_type_slot_t slotA = CY_RESOURCE_TYPE_SLOT_INVALID;
     resource_type_slot_t slotB = CY_RESOURCE_TYPE_SLOT_INVALID;
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backendA, typeA ), &slotA ) ==
         resource_error_t::OK );
     REQUIRE( slotA == 1u );
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backendB, typeB ), &slotB ) ==
         resource_error_t::OK );
     REQUIRE( slotB == 2u );
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backendC, typeC ) ) ==
         resource_error_t::TYPE_CAPACITY_EXCEEDED );
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backendA, typeA ) ) ==
         resource_error_t::TYPE_ALREADY_REGISTERED );
 
     resource_loader_t invalidLoader{};
     invalidLoader.type = TestType( "invalid" );
-    REQUIRE( CypherResource_RegisterType( &scope.manager, invalidLoader ) ==
+    REQUIRE( Res_RegisterType( &scope.manager, invalidLoader ) ==
              resource_error_t::INVALID_ARGUMENT );
 
-    REQUIRE( CypherResource_UnregisterType( &scope.manager, typeA ) ==
+    REQUIRE( Res_UnregisterType( &scope.manager, typeA ) ==
              resource_error_t::OK );
     resource_type_slot_t slotC = CY_RESOURCE_TYPE_SLOT_INVALID;
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backendC, typeC ), &slotC ) ==
         resource_error_t::OK );
     REQUIRE( slotC == 3u );
-    REQUIRE( CypherResource_UnregisterType( &scope.manager, typeA ) ==
+    REQUIRE( Res_UnregisterType( &scope.manager, typeA ) ==
              resource_error_t::TYPE_NOT_REGISTERED );
 }
 
@@ -249,33 +249,33 @@ TEST_CASE( "Acquire caches identity and reference counts gate unloading",
     manager_scope_t scope{ TestConfig() };
     test_backend_t backend{};
     const resource_type_id_t type = TestType();
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backend, type ) ) == resource_error_t::OK );
 
     const string_view_t path = StringView_FromCString(
         "shaders/world/basic.cyshader" );
     resource_handle_t first{};
-    REQUIRE( CypherResource_Acquire( &scope.manager, type, path, &first ) ==
+    REQUIRE( Res_Acquire( &scope.manager, type, path, &first ) ==
              resource_error_t::OK );
     REQUIRE( ResourceHandle_IsValid( first ) );
     REQUIRE( backend.cLoads == 1u );
 
     void *pPayload = nullptr;
-    REQUIRE( CypherResource_Get( &scope.manager, first, &pPayload ) ==
+    REQUIRE( Res_Get( &scope.manager, first, &pPayload ) ==
              resource_error_t::OK );
     REQUIRE( pPayload == &backend.payloads[0] );
     REQUIRE( backend.payloads[0].id.value != 0u );
 
     resource_handle_t second{};
-    REQUIRE( CypherResource_Acquire( &scope.manager, type, path, &second ) ==
+    REQUIRE( Res_Acquire( &scope.manager, type, path, &second ) ==
              resource_error_t::OK );
     REQUIRE( ResourceHandle_Equals( first, second ) );
     REQUIRE( backend.cLoads == 1u );
-    REQUIRE( CypherResource_Retain( &scope.manager, first ) ==
+    REQUIRE( Res_Retain( &scope.manager, first ) ==
              resource_error_t::OK );
 
     resource_info_t info{};
-    REQUIRE( CypherResource_GetInfo( &scope.manager, first, &info ) ==
+    REQUIRE( Res_GetInfo( &scope.manager, first, &info ) ==
              resource_error_t::OK );
     REQUIRE( info.state == resource_state_t::READY );
     REQUIRE( info.cReferences == 3u );
@@ -283,26 +283,26 @@ TEST_CASE( "Acquire caches identity and reference counts gate unloading",
     REQUIRE( std::strcmp( info.szVirtualPath,
                           "shaders/world/basic.cyshader" ) == 0 );
 
-    REQUIRE( CypherResource_UnregisterType( &scope.manager, type ) ==
+    REQUIRE( Res_UnregisterType( &scope.manager, type ) ==
              resource_error_t::TYPE_IN_USE );
-    REQUIRE( CypherResource_Release( &scope.manager, first ) ==
+    REQUIRE( Res_Release( &scope.manager, first ) ==
              resource_error_t::OK );
-    REQUIRE( CypherResource_Release( &scope.manager, second ) ==
+    REQUIRE( Res_Release( &scope.manager, second ) ==
              resource_error_t::OK );
     REQUIRE( backend.cUnloads == 0u );
-    REQUIRE( CypherResource_IsAlive( &scope.manager, first ) );
-    REQUIRE( CypherResource_Release( &scope.manager, first ) ==
+    REQUIRE( Res_IsAlive( &scope.manager, first ) );
+    REQUIRE( Res_Release( &scope.manager, first ) ==
              resource_error_t::OK );
     REQUIRE( backend.cUnloads == 1u );
-    REQUIRE_FALSE( CypherResource_IsAlive( &scope.manager, first ) );
+    REQUIRE_FALSE( Res_IsAlive( &scope.manager, first ) );
 
     pPayload = reinterpret_cast<void *>( 0x1u );
-    REQUIRE( CypherResource_Get( &scope.manager, first, &pPayload ) ==
+    REQUIRE( Res_Get( &scope.manager, first, &pPayload ) ==
              resource_error_t::INVALID_HANDLE );
     REQUIRE( pPayload == nullptr );
 
     const resource_manager_stats_t stats =
-        CypherResource_GetStats( &scope.manager );
+        Res_GetStats( &scope.manager );
     REQUIRE( stats.cLoadAttempts == 1u );
     REQUIRE( stats.cSuccessfulLoads == 1u );
     REQUIRE( stats.cCacheHits == 1u );
@@ -317,20 +317,20 @@ TEST_CASE( "Recycled slots advance generation and reject stale handles",
     manager_scope_t scope{ TestConfig( 1u, 1u ) };
     test_backend_t backend{};
     const resource_type_id_t type = TestType();
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backend, type ) ) == resource_error_t::OK );
 
     resource_handle_t oldHandle{};
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
         type,
         StringView_FromCString( "materials/old.cymat" ),
         &oldHandle ) == resource_error_t::OK );
-    REQUIRE( CypherResource_Release( &scope.manager, oldHandle ) ==
+    REQUIRE( Res_Release( &scope.manager, oldHandle ) ==
              resource_error_t::OK );
 
     resource_handle_t newHandle{};
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
         type,
         StringView_FromCString( "materials/new.cymat" ),
@@ -339,9 +339,9 @@ TEST_CASE( "Recycled slots advance generation and reject stale handles",
     REQUIRE( ResourceHandle_Generation( oldHandle ) !=
              ResourceHandle_Generation( newHandle ) );
     REQUIRE_FALSE( ResourceHandle_Equals( oldHandle, newHandle ) );
-    REQUIRE( CypherResource_Retain( &scope.manager, oldHandle ) ==
+    REQUIRE( Res_Retain( &scope.manager, oldHandle ) ==
              resource_error_t::INVALID_HANDLE );
-    REQUIRE( CypherResource_Release( &scope.manager, newHandle ) ==
+    REQUIRE( Res_Release( &scope.manager, newHandle ) ==
              resource_error_t::OK );
 }
 
@@ -351,30 +351,30 @@ TEST_CASE( "Capacity and failed loads roll back reserved slots",
     manager_scope_t scope{ TestConfig( 1u, 1u ) };
     test_backend_t backend{};
     const resource_type_id_t type = TestType();
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backend, type ) ) == resource_error_t::OK );
 
     resource_handle_t first{};
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
         type,
         StringView_FromCString( "textures/first.cytex" ),
         &first ) == resource_error_t::OK );
 
     resource_handle_t rejected = first;
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
         type,
         StringView_FromCString( "textures/second.cytex" ),
         &rejected ) == resource_error_t::CAPACITY_EXCEEDED );
     REQUIRE_FALSE( ResourceHandle_IsValid( rejected ) );
-    REQUIRE( CypherResource_Release( &scope.manager, first ) ==
+    REQUIRE( Res_Release( &scope.manager, first ) ==
              resource_error_t::OK );
 
     backend.bFailLoad = CY_TRUE;
     backend.bReturnPayloadOnFailure = CY_TRUE;
     resource_handle_t failed{};
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
         type,
         StringView_FromCString( "textures/broken.cytex" ),
@@ -385,16 +385,16 @@ TEST_CASE( "Capacity and failed loads roll back reserved slots",
     backend.bFailLoad = CY_FALSE;
     backend.bReturnPayloadOnFailure = CY_FALSE;
     resource_handle_t recovered{};
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
         type,
         StringView_FromCString( "textures/recovered.cytex" ),
         &recovered ) == resource_error_t::OK );
-    REQUIRE( CypherResource_Release( &scope.manager, recovered ) ==
+    REQUIRE( Res_Release( &scope.manager, recovered ) ==
              resource_error_t::OK );
 
     const resource_manager_stats_t stats =
-        CypherResource_GetStats( &scope.manager );
+        Res_GetStats( &scope.manager );
     REQUIRE( stats.cLoadAttempts == 3u );
     REQUIRE( stats.cSuccessfulLoads == 2u );
     REQUIRE( stats.cFailedLoads == 1u );
@@ -406,7 +406,7 @@ TEST_CASE( "Distinct resource churn preserves lookup and slot reuse",
     manager_scope_t scope{ TestConfig( 4u, 1u ) };
     test_backend_t backend{};
     const resource_type_id_t type = TestType();
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backend, type ) ) == resource_error_t::OK );
 
     char szPath[64]{};
@@ -421,7 +421,7 @@ TEST_CASE( "Distinct resource churn preserves lookup and slot reuse",
         REQUIRE( static_cast<usize>( cchPath ) < sizeof( szPath ) );
 
         resource_handle_t handle{};
-        REQUIRE( CypherResource_Acquire(
+        REQUIRE( Res_Acquire(
             &scope.manager,
             type,
             { szPath, static_cast<usize>( cchPath ) },
@@ -429,17 +429,17 @@ TEST_CASE( "Distinct resource churn preserves lookup and slot reuse",
         REQUIRE( ResourceHandle_Slot( handle ) == 0u );
         if ( ResourceHandle_IsValid( previous ) ) {
             REQUIRE_FALSE( ResourceHandle_Equals( handle, previous ) );
-            REQUIRE( CypherResource_Retain( &scope.manager, previous ) ==
+            REQUIRE( Res_Retain( &scope.manager, previous ) ==
                      resource_error_t::INVALID_HANDLE );
         }
 
         previous = handle;
-        REQUIRE( CypherResource_Release( &scope.manager, handle ) ==
+        REQUIRE( Res_Release( &scope.manager, handle ) ==
                  resource_error_t::OK );
     }
 
     const resource_manager_stats_t stats =
-        CypherResource_GetStats( &scope.manager );
+        Res_GetStats( &scope.manager );
     REQUIRE( stats.cSuccessfulLoads == 512u );
     REQUIRE( stats.cUnloads == 512u );
     REQUIRE( stats.cLiveResources == 0u );
@@ -451,7 +451,7 @@ TEST_CASE( "Lookup cluster deletion preserves colliding resources",
     manager_scope_t scope{ TestConfig( 4u, 1u ) };
     test_backend_t backend{};
     const resource_type_id_t type = TestType();
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backend, type ) ) == resource_error_t::OK );
 
     // Four resource slots produce an eight-entry lookup table. Choose three
@@ -488,25 +488,25 @@ TEST_CASE( "Lookup cluster deletion preserves colliding resources",
 
     resource_handle_t handles[3]{};
     for ( u32 iPath = 0u; iPath < 3u; ++iPath ) {
-        REQUIRE( CypherResource_Acquire(
+        REQUIRE( Res_Acquire(
             &scope.manager,
             type,
             StringView_FromCString( szPaths[iPath] ),
             &handles[iPath] ) == resource_error_t::OK );
     }
 
-    REQUIRE( CypherResource_Release( &scope.manager, handles[1] ) ==
+    REQUIRE( Res_Release( &scope.manager, handles[1] ) ==
              resource_error_t::OK );
-    REQUIRE( CypherResource_IsAlive( &scope.manager, handles[0] ) );
-    REQUIRE( CypherResource_IsAlive( &scope.manager, handles[2] ) );
+    REQUIRE( Res_IsAlive( &scope.manager, handles[0] ) );
+    REQUIRE( Res_IsAlive( &scope.manager, handles[2] ) );
 
     void *pResource = nullptr;
-    REQUIRE( CypherResource_Get( &scope.manager, handles[2], &pResource ) ==
+    REQUIRE( Res_Get( &scope.manager, handles[2], &pResource ) ==
              resource_error_t::OK );
     REQUIRE( pResource != nullptr );
-    REQUIRE( CypherResource_Release( &scope.manager, handles[0] ) ==
+    REQUIRE( Res_Release( &scope.manager, handles[0] ) ==
              resource_error_t::OK );
-    REQUIRE( CypherResource_Release( &scope.manager, handles[2] ) ==
+    REQUIRE( Res_Release( &scope.manager, handles[2] ) ==
              resource_error_t::OK );
 }
 
@@ -519,48 +519,48 @@ TEST_CASE( "Recursive acquisition of the loading identity reports a cycle",
     backend.bAcquireSelf = CY_TRUE;
     backend.bFailLoad = CY_TRUE;
     const resource_type_id_t type = TestType();
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backend, type ) ) == resource_error_t::OK );
 
     resource_handle_t handle{};
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
         type,
         StringView_FromCString( "models/cyclic.cymesh" ),
         &handle ) == resource_error_t::LOAD_FAILED );
     REQUIRE( backend.recursiveResult == resource_error_t::DEPENDENCY_CYCLE );
     REQUIRE_FALSE( ResourceHandle_IsValid( handle ) );
-    REQUIRE( CypherResource_GetStats( &scope.manager ).cLiveResources == 0u );
+    REQUIRE( Res_GetStats( &scope.manager ).cLiveResources == 0u );
 }
 
 TEST_CASE( "Shutdown force-unloads resources in reverse load order",
            "[CypherEngine][Resource]" )
 {
     resource_manager_t manager{};
-    REQUIRE( CypherResource_Init( &manager, TestConfig() ) == resource_error_t::OK );
+    REQUIRE( Res_Init( &manager, TestConfig() ) == resource_error_t::OK );
     test_backend_t backend{};
     const resource_type_id_t type = TestType();
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &manager, TestLoader( backend, type ) ) == resource_error_t::OK );
 
     resource_handle_t first{};
     resource_handle_t second{};
     resource_handle_t duplicate{};
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &manager, type, StringView_FromCString( "a" ), &first ) ==
         resource_error_t::OK );
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &manager, type, StringView_FromCString( "b" ), &second ) ==
         resource_error_t::OK );
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &manager, type, StringView_FromCString( "a" ), &duplicate ) ==
         resource_error_t::OK );
 
-    REQUIRE( CypherResource_Shutdown( &manager ) == resource_error_t::OK );
+    REQUIRE( Res_Shutdown( &manager ) == resource_error_t::OK );
     REQUIRE( backend.cUnloads == 2u );
     REQUIRE( backend.unloadOrder[0] == 2u );
     REQUIRE( backend.unloadOrder[1] == 1u );
-    REQUIRE_FALSE( CypherResource_IsInitialized( &manager ) );
+    REQUIRE_FALSE( Res_IsInitialized( &manager ) );
 }
 
 TEST_CASE( "Public operations reject invalid paths and reset outputs",
@@ -569,17 +569,17 @@ TEST_CASE( "Public operations reject invalid paths and reset outputs",
     manager_scope_t scope{ TestConfig() };
     test_backend_t backend{};
     const resource_type_id_t type = TestType();
-    REQUIRE( CypherResource_RegisterType(
+    REQUIRE( Res_RegisterType(
         &scope.manager, TestLoader( backend, type ) ) == resource_error_t::OK );
 
     resource_handle_t output = ResourceHandle_Make( 1u, 1u, 1u );
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager, type, {}, &output ) ==
         resource_error_t::INVALID_ARGUMENT );
     REQUIRE_FALSE( ResourceHandle_IsValid( output ) );
 
     const char embeddedNull[]{ 'a', '\0', 'b' };
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
         type,
         { embeddedNull, sizeof( embeddedNull ) },
@@ -587,13 +587,13 @@ TEST_CASE( "Public operations reject invalid paths and reset outputs",
 
     char tooLong[CYPHER_RESOURCE_PATH_BUFFER_SIZE + 1u]{};
     std::memset( tooLong, 'x', sizeof( tooLong ) );
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
         type,
         { tooLong, sizeof( tooLong ) },
         &output ) == resource_error_t::PATH_TOO_LONG );
 
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
         TestType( "missing" ),
         StringView_FromCString( "missing" ),
@@ -601,6 +601,6 @@ TEST_CASE( "Public operations reject invalid paths and reset outputs",
     REQUIRE_FALSE( ResourceHandle_IsValid( output ) );
 
     REQUIRE( std::strcmp(
-        CypherResource_ErrorName( resource_error_t::INVALID_HANDLE ),
+        Res_ErrorName( resource_error_t::INVALID_HANDLE ),
         "INVALID_HANDLE" ) == 0 );
 }

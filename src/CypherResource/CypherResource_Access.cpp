@@ -21,7 +21,7 @@
 namespace cypher::engine::resource
 {
 
-resource_error_t CypherResource_Acquire(
+resource_error_t Res_Acquire(
     resource_manager_t *pManager,
     common::resource_type_id_t type,
     common::string_view_t normalizedVirtualPath,
@@ -174,7 +174,7 @@ resource_error_t CypherResource_Acquire(
     return resource_error_t::OK;
 }
 
-resource_error_t CypherResource_Retain(
+resource_error_t Res_Retain(
     resource_manager_t *pManager,
     common::resource_handle_t handle ) noexcept
 {
@@ -210,7 +210,7 @@ resource_error_t CypherResource_Retain(
     return resource_error_t::OK;
 }
 
-resource_error_t CypherResource_Release(
+resource_error_t Res_Release(
     resource_manager_t *pManager,
     common::resource_handle_t handle ) noexcept
 {
@@ -245,7 +245,7 @@ resource_error_t CypherResource_Release(
         : resource_error_t::OK;
 }
 
-resource_error_t CypherResource_Get(
+resource_error_t Res_Get(
     const resource_manager_t *pManager,
     common::resource_handle_t handle,
     void **ppResourceOut ) noexcept
@@ -286,7 +286,7 @@ resource_error_t CypherResource_Get(
     return resource_error_t::OK;
 }
 
-common::bool_t CypherResource_IsAlive(
+common::bool_t Res_IsAlive(
     const resource_manager_t *pManager,
     common::resource_handle_t handle ) noexcept
 {
@@ -302,7 +302,7 @@ common::bool_t CypherResource_IsAlive(
            pImpl->pRecords[iRecord].state == resource_state_t::READY;
 }
 
-resource_error_t CypherResource_GetInfo(
+resource_error_t Res_GetInfo(
     const resource_manager_t *pManager,
     common::resource_handle_t handle,
     resource_info_t *pInfoOut ) noexcept
@@ -348,7 +348,7 @@ resource_error_t CypherResource_GetInfo(
     return resource_error_t::OK;
 }
 
-resource_manager_stats_t CypherResource_GetStats(
+resource_manager_stats_t Res_GetStats(
     const resource_manager_t *pManager ) noexcept
 {
     const detail::resource_manager_impl_t *pImpl = detail::ManagerImpl( pManager );

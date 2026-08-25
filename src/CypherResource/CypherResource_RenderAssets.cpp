@@ -161,12 +161,12 @@ common::bool_t LoadShader(
     }
     auto *pContext = static_cast<render_asset_loader_context_t *>( pUserData );
     if ( ppResourceOut == nullptr ||
-         !CypherResource_IsRenderAssetLoaderValid( pContext ) ) {
+         !Res_IsRenderAssetLoaderValid( pContext ) ) {
         return common::CY_FALSE;
     }
 
     ResetDiagnostic( *pContext, id, type );
-    if ( type != CypherResource_ShaderTypeId() ) {
+    if ( type != Res_ShaderTypeId() ) {
         pContext->lastDiagnostic.status =
             render_asset_load_status_t::TYPE_MISMATCH;
         return common::CY_FALSE;
@@ -219,12 +219,12 @@ common::bool_t LoadTexture(
     }
     auto *pContext = static_cast<render_asset_loader_context_t *>( pUserData );
     if ( ppResourceOut == nullptr ||
-         !CypherResource_IsRenderAssetLoaderValid( pContext ) ) {
+         !Res_IsRenderAssetLoaderValid( pContext ) ) {
         return common::CY_FALSE;
     }
 
     ResetDiagnostic( *pContext, id, type );
-    if ( type != CypherResource_TextureTypeId() ) {
+    if ( type != Res_TextureTypeId() ) {
         pContext->lastDiagnostic.status =
             render_asset_load_status_t::TYPE_MISMATCH;
         return common::CY_FALSE;
@@ -277,12 +277,12 @@ common::bool_t LoadMaterial(
     }
     auto *pContext = static_cast<render_asset_loader_context_t *>( pUserData );
     if ( ppResourceOut == nullptr ||
-         !CypherResource_IsRenderAssetLoaderValid( pContext ) ) {
+         !Res_IsRenderAssetLoaderValid( pContext ) ) {
         return common::CY_FALSE;
     }
 
     ResetDiagnostic( *pContext, id, type );
-    if ( type != CypherResource_MaterialTypeId() ) {
+    if ( type != Res_MaterialTypeId() ) {
         pContext->lastDiagnostic.status =
             render_asset_load_status_t::TYPE_MISMATCH;
         return common::CY_FALSE;
@@ -356,7 +356,7 @@ resource_error_t GetCookedView(
     // Check the persistent type before casting the opaque payload.  A valid handle of
     // another registered type must never be reinterpreted as this payload template.
     resource_info_t info{};
-    const resource_error_t infoResult = CypherResource_GetInfo(
+    const resource_error_t infoResult = Res_GetInfo(
         pManager,
         handle,
         &info );
@@ -368,7 +368,7 @@ resource_error_t GetCookedView(
     }
 
     void *pResource = nullptr;
-    const resource_error_t getResult = CypherResource_Get(
+    const resource_error_t getResult = Res_Get(
         pManager,
         handle,
         &pResource );
@@ -385,7 +385,7 @@ resource_error_t GetCookedView(
 
 } // namespace
 
-render_asset_loader_config_t CypherResource_DefaultRenderAssetLoaderConfig(
+render_asset_loader_config_t Res_DefaultRenderAssetLoaderConfig(
     const common::vfs_t *pVfs ) noexcept
 {
     render_asset_loader_config_t config{};
@@ -394,7 +394,7 @@ render_asset_loader_config_t CypherResource_DefaultRenderAssetLoaderConfig(
     return config;
 }
 
-common::bool_t CypherResource_InitRenderAssetLoader(
+common::bool_t Res_InitRenderAssetLoader(
     render_asset_loader_context_t *pContext,
     const render_asset_loader_config_t &config ) noexcept
 {
@@ -414,7 +414,7 @@ common::bool_t CypherResource_InitRenderAssetLoader(
     return common::CY_TRUE;
 }
 
-common::bool_t CypherResource_IsRenderAssetLoaderValid(
+common::bool_t Res_IsRenderAssetLoaderValid(
     const render_asset_loader_context_t *pContext ) noexcept
 {
     return pContext != nullptr &&
@@ -427,55 +427,55 @@ common::bool_t CypherResource_IsRenderAssetLoaderValid(
            pContext->config.cbMaximumMaterial != 0u;
 }
 
-common::resource_type_id_t CypherResource_ShaderTypeId() noexcept
+common::resource_type_id_t Res_ShaderTypeId() noexcept
 {
     return common::ResourceTypeId_FromName( CY_RENDER_SHADER_TYPE_NAME );
 }
 
-common::resource_type_id_t CypherResource_TextureTypeId() noexcept
+common::resource_type_id_t Res_TextureTypeId() noexcept
 {
     return common::ResourceTypeId_FromName( CY_RENDER_TEXTURE_TYPE_NAME );
 }
 
-common::resource_type_id_t CypherResource_MaterialTypeId() noexcept
+common::resource_type_id_t Res_MaterialTypeId() noexcept
 {
     return common::ResourceTypeId_FromName( CY_RENDER_MATERIAL_TYPE_NAME );
 }
 
-resource_loader_t CypherResource_MakeShaderLoader(
+resource_loader_t Res_MakeShaderLoader(
     render_asset_loader_context_t *pContext ) noexcept
 {
     return {
-        CypherResource_ShaderTypeId(),
+        Res_ShaderTypeId(),
         LoadShader,
         UnloadShader,
         pContext
     };
 }
 
-resource_loader_t CypherResource_MakeTextureLoader(
+resource_loader_t Res_MakeTextureLoader(
     render_asset_loader_context_t *pContext ) noexcept
 {
     return {
-        CypherResource_TextureTypeId(),
+        Res_TextureTypeId(),
         LoadTexture,
         UnloadTexture,
         pContext
     };
 }
 
-resource_loader_t CypherResource_MakeMaterialLoader(
+resource_loader_t Res_MakeMaterialLoader(
     render_asset_loader_context_t *pContext ) noexcept
 {
     return {
-        CypherResource_MaterialTypeId(),
+        Res_MaterialTypeId(),
         LoadMaterial,
         UnloadMaterial,
         pContext
     };
 }
 
-resource_error_t CypherResource_RegisterRenderAssetLoaders(
+resource_error_t Res_RegisterRenderAssetLoaders(
     resource_manager_t *pManager,
     render_asset_loader_context_t *pContext,
     render_asset_type_slots_t *pSlotsOut ) noexcept
@@ -483,47 +483,47 @@ resource_error_t CypherResource_RegisterRenderAssetLoaders(
     if ( pSlotsOut != nullptr ) {
         *pSlotsOut = {};
     }
-    if ( !CypherResource_IsRenderAssetLoaderValid( pContext ) ) {
+    if ( !Res_IsRenderAssetLoaderValid( pContext ) ) {
         return resource_error_t::INVALID_ARGUMENT;
     }
 
     // Registration is transactional from the caller's perspective.  Roll back earlier
     // registrations in reverse order if a later built-in type cannot be installed.
     render_asset_type_slots_t slots{};
-    resource_error_t result = CypherResource_RegisterType(
+    resource_error_t result = Res_RegisterType(
         pManager,
-        CypherResource_MakeShaderLoader( pContext ),
+        Res_MakeShaderLoader( pContext ),
         &slots.shader );
     if ( result != resource_error_t::OK ) {
         return result;
     }
 
-    result = CypherResource_RegisterType(
+    result = Res_RegisterType(
         pManager,
-        CypherResource_MakeTextureLoader( pContext ),
+        Res_MakeTextureLoader( pContext ),
         &slots.texture );
     if ( result != resource_error_t::OK ) {
         // Runtime type slots are monotonic and remain retired after rollback; stale
         // handles can therefore never acquire the identity of a later loader.
-        const resource_error_t rollback = CypherResource_UnregisterType(
+        const resource_error_t rollback = Res_UnregisterType(
             pManager,
-            CypherResource_ShaderTypeId() );
+            Res_ShaderTypeId() );
         return rollback == resource_error_t::OK
             ? result
             : resource_error_t::INTERNAL_ERROR;
     }
 
-    result = CypherResource_RegisterType(
+    result = Res_RegisterType(
         pManager,
-        CypherResource_MakeMaterialLoader( pContext ),
+        Res_MakeMaterialLoader( pContext ),
         &slots.material );
     if ( result != resource_error_t::OK ) {
-        const resource_error_t textureRollback = CypherResource_UnregisterType(
+        const resource_error_t textureRollback = Res_UnregisterType(
             pManager,
-            CypherResource_TextureTypeId() );
-        const resource_error_t shaderRollback = CypherResource_UnregisterType(
+            Res_TextureTypeId() );
+        const resource_error_t shaderRollback = Res_UnregisterType(
             pManager,
-            CypherResource_ShaderTypeId() );
+            Res_ShaderTypeId() );
         return textureRollback == resource_error_t::OK &&
                shaderRollback == resource_error_t::OK
             ? result
@@ -536,7 +536,7 @@ resource_error_t CypherResource_RegisterRenderAssetLoaders(
     return resource_error_t::OK;
 }
 
-resource_error_t CypherResource_GetCookedShader(
+resource_error_t Res_GetCookedShader(
     const resource_manager_t *pManager,
     common::resource_handle_t handle,
     const common::cooked_shader_view_t **ppShaderOut ) noexcept
@@ -544,11 +544,11 @@ resource_error_t CypherResource_GetCookedShader(
     return GetCookedView<owned_shader_t>(
         pManager,
         handle,
-        CypherResource_ShaderTypeId(),
+        Res_ShaderTypeId(),
         ppShaderOut );
 }
 
-resource_error_t CypherResource_GetCookedTexture(
+resource_error_t Res_GetCookedTexture(
     const resource_manager_t *pManager,
     common::resource_handle_t handle,
     const common::cooked_texture_view_t **ppTextureOut ) noexcept
@@ -556,11 +556,11 @@ resource_error_t CypherResource_GetCookedTexture(
     return GetCookedView<owned_texture_t>(
         pManager,
         handle,
-        CypherResource_TextureTypeId(),
+        Res_TextureTypeId(),
         ppTextureOut );
 }
 
-resource_error_t CypherResource_GetCookedMaterial(
+resource_error_t Res_GetCookedMaterial(
     const resource_manager_t *pManager,
     common::resource_handle_t handle,
     const common::cooked_material_view_t **ppMaterialOut ) noexcept
@@ -568,11 +568,11 @@ resource_error_t CypherResource_GetCookedMaterial(
     return GetCookedView<owned_material_t>(
         pManager,
         handle,
-        CypherResource_MaterialTypeId(),
+        Res_MaterialTypeId(),
         ppMaterialOut );
 }
 
-const char *CypherResource_RenderAssetLoadStatusName(
+const char *Res_RenderAssetLoadStatusName(
     render_asset_load_status_t status ) noexcept
 {
     switch ( status ) {

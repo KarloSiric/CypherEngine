@@ -158,16 +158,16 @@ struct manager_scope_t {
 
     explicit manager_scope_t( u32 cTypes = 8u )
     {
-        resource_manager_config_t config = CypherResource_DefaultConfig();
+        resource_manager_config_t config = Res_DefaultConfig();
         config.cResourceCapacity = 8u;
         config.cTypeCapacity = cTypes;
-        REQUIRE( CypherResource_Init( &manager, config ) == resource_error_t::OK );
+        REQUIRE( Res_Init( &manager, config ) == resource_error_t::OK );
     }
 
     ~manager_scope_t()
     {
-        if ( CypherResource_IsInitialized( &manager ) ) {
-            CHECK( CypherResource_Shutdown( &manager ) == resource_error_t::OK );
+        if ( Res_IsInitialized( &manager ) ) {
+            CHECK( Res_Shutdown( &manager ) == resource_error_t::OK );
         }
     }
 };
@@ -197,12 +197,12 @@ TEST_CASE( "Cooked render resources load through VFS and retain borrowed views",
     const vfs_t vfs = MakeVfs( storage );
 
     render_asset_loader_context_t loaders{};
-    REQUIRE( CypherResource_InitRenderAssetLoader(
+    REQUIRE( Res_InitRenderAssetLoader(
         &loaders,
-        CypherResource_DefaultRenderAssetLoaderConfig( &vfs ) ) );
+        Res_DefaultRenderAssetLoaderConfig( &vfs ) ) );
     manager_scope_t scope{};
     render_asset_type_slots_t slots{};
-    REQUIRE( CypherResource_RegisterRenderAssetLoaders(
+    REQUIRE( Res_RegisterRenderAssetLoaders(
         &scope.manager,
         &loaders,
         &slots ) == resource_error_t::OK );
@@ -213,19 +213,19 @@ TEST_CASE( "Cooked render resources load through VFS and retain borrowed views",
     resource_handle_t shaderHandle{};
     resource_handle_t textureHandle{};
     resource_handle_t materialHandle{};
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
-        CypherResource_ShaderTypeId(),
+        Res_ShaderTypeId(),
         storage.files[0].path,
         &shaderHandle ) == resource_error_t::OK );
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
-        CypherResource_TextureTypeId(),
+        Res_TextureTypeId(),
         storage.files[1].path,
         &textureHandle ) == resource_error_t::OK );
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
-        CypherResource_MaterialTypeId(),
+        Res_MaterialTypeId(),
         storage.files[2].path,
         &materialHandle ) == resource_error_t::OK );
     REQUIRE( storage.cReads == 3u );
@@ -238,15 +238,15 @@ TEST_CASE( "Cooked render resources load through VFS and retain borrowed views",
     const cooked_shader_view_t *pShader = nullptr;
     const cooked_texture_view_t *pTexture = nullptr;
     const cooked_material_view_t *pMaterial = nullptr;
-    REQUIRE( CypherResource_GetCookedShader(
+    REQUIRE( Res_GetCookedShader(
         &scope.manager,
         shaderHandle,
         &pShader ) == resource_error_t::OK );
-    REQUIRE( CypherResource_GetCookedTexture(
+    REQUIRE( Res_GetCookedTexture(
         &scope.manager,
         textureHandle,
         &pTexture ) == resource_error_t::OK );
-    REQUIRE( CypherResource_GetCookedMaterial(
+    REQUIRE( Res_GetCookedMaterial(
         &scope.manager,
         materialHandle,
         &pMaterial ) == resource_error_t::OK );
@@ -261,29 +261,29 @@ TEST_CASE( "Cooked render resources load through VFS and retain borrowed views",
         Text( "shaders/test.cyshader" ) ) );
 
     resource_handle_t textureAgain{};
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
-        CypherResource_TextureTypeId(),
+        Res_TextureTypeId(),
         storage.files[1].path,
         &textureAgain ) == resource_error_t::OK );
     REQUIRE( ResourceHandle_Equals( textureAgain, textureHandle ) );
     REQUIRE( storage.cReads == 3u );
-    REQUIRE( CypherResource_Release( &scope.manager, textureAgain ) ==
+    REQUIRE( Res_Release( &scope.manager, textureAgain ) ==
              resource_error_t::OK );
 
-    REQUIRE( CypherResource_GetCookedTexture(
+    REQUIRE( Res_GetCookedTexture(
         &scope.manager,
         shaderHandle,
         &pTexture ) == resource_error_t::INVALID_HANDLE );
     REQUIRE( pTexture == nullptr );
 
-    REQUIRE( CypherResource_Release( &scope.manager, shaderHandle ) ==
+    REQUIRE( Res_Release( &scope.manager, shaderHandle ) ==
              resource_error_t::OK );
-    REQUIRE( CypherResource_Release( &scope.manager, textureHandle ) ==
+    REQUIRE( Res_Release( &scope.manager, textureHandle ) ==
              resource_error_t::OK );
-    REQUIRE( CypherResource_Release( &scope.manager, materialHandle ) ==
+    REQUIRE( Res_Release( &scope.manager, materialHandle ) ==
              resource_error_t::OK );
-    REQUIRE( CypherResource_GetCookedShader(
+    REQUIRE( Res_GetCookedShader(
         &scope.manager,
         shaderHandle,
         &pShader ) == resource_error_t::INVALID_HANDLE );
@@ -305,17 +305,17 @@ TEST_CASE( "Render resource loaders preserve VFS and format diagnostics",
 
     render_asset_loader_context_t loaders{};
     render_asset_loader_config_t config =
-        CypherResource_DefaultRenderAssetLoaderConfig( &vfs );
-    REQUIRE( CypherResource_InitRenderAssetLoader( &loaders, config ) );
+        Res_DefaultRenderAssetLoaderConfig( &vfs );
+    REQUIRE( Res_InitRenderAssetLoader( &loaders, config ) );
     manager_scope_t scope{};
-    REQUIRE( CypherResource_RegisterRenderAssetLoaders(
+    REQUIRE( Res_RegisterRenderAssetLoaders(
         &scope.manager,
         &loaders ) == resource_error_t::OK );
 
     resource_handle_t handle{};
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
-        CypherResource_TextureTypeId(),
+        Res_TextureTypeId(),
         storage.files[0].path,
         &handle ) == resource_error_t::LOAD_FAILED );
     REQUIRE_FALSE( ResourceHandle_IsValid( handle ) );
@@ -326,17 +326,17 @@ TEST_CASE( "Render resource loaders preserve VFS and format diagnostics",
     REQUIRE( loaders.lastDiagnostic.resourceStatus ==
              cooked_resource_status_t::CONTENT_HASH_MISMATCH );
 
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
-        CypherResource_TextureTypeId(),
+        Res_TextureTypeId(),
         Text( "textures/wrong.extension" ),
         &handle ) == resource_error_t::LOAD_FAILED );
     REQUIRE( loaders.lastDiagnostic.status ==
              render_asset_load_status_t::PATH_EXTENSION_MISMATCH );
 
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &scope.manager,
-        CypherResource_ShaderTypeId(),
+        Res_ShaderTypeId(),
         Text( "shaders/missing.cyshader_c" ),
         &handle ) == resource_error_t::LOAD_FAILED );
     REQUIRE( loaders.lastDiagnostic.status ==
@@ -345,14 +345,14 @@ TEST_CASE( "Render resource loaders preserve VFS and format diagnostics",
 
     render_asset_loader_context_t boundedLoaders{};
     config.cbMaximumTexture = texture.size() - 1u;
-    REQUIRE( CypherResource_InitRenderAssetLoader( &boundedLoaders, config ) );
+    REQUIRE( Res_InitRenderAssetLoader( &boundedLoaders, config ) );
     manager_scope_t boundedScope{};
-    REQUIRE( CypherResource_RegisterRenderAssetLoaders(
+    REQUIRE( Res_RegisterRenderAssetLoaders(
         &boundedScope.manager,
         &boundedLoaders ) == resource_error_t::OK );
-    REQUIRE( CypherResource_Acquire(
+    REQUIRE( Res_Acquire(
         &boundedScope.manager,
-        CypherResource_TextureTypeId(),
+        Res_TextureTypeId(),
         storage.files[0].path,
         &handle ) == resource_error_t::LOAD_FAILED );
     REQUIRE( boundedLoaders.lastDiagnostic.vfsStatus == vfs_status_t::SIZE_LIMIT );
@@ -364,23 +364,23 @@ TEST_CASE( "Render resource registration rolls back partial type sets",
     memory_vfs_t storage{};
     const vfs_t vfs = MakeVfs( storage );
     render_asset_loader_context_t loaders{};
-    REQUIRE( CypherResource_InitRenderAssetLoader(
+    REQUIRE( Res_InitRenderAssetLoader(
         &loaders,
-        CypherResource_DefaultRenderAssetLoaderConfig( &vfs ) ) );
+        Res_DefaultRenderAssetLoaderConfig( &vfs ) ) );
 
     manager_scope_t scope{ 2u };
     render_asset_type_slots_t slots{};
-    REQUIRE( CypherResource_RegisterRenderAssetLoaders(
+    REQUIRE( Res_RegisterRenderAssetLoaders(
         &scope.manager,
         &loaders,
         &slots ) == resource_error_t::TYPE_CAPACITY_EXCEEDED );
     REQUIRE( slots.shader == CY_RESOURCE_TYPE_SLOT_INVALID );
-    REQUIRE( CypherResource_GetStats( &scope.manager ).cRegisteredTypes == 0u );
+    REQUIRE( Res_GetStats( &scope.manager ).cRegisteredTypes == 0u );
 
-    REQUIRE_FALSE( CypherResource_InitRenderAssetLoader( nullptr, {} ) );
-    REQUIRE_FALSE( CypherResource_IsRenderAssetLoaderValid( nullptr ) );
+    REQUIRE_FALSE( Res_InitRenderAssetLoader( nullptr, {} ) );
+    REQUIRE_FALSE( Res_IsRenderAssetLoaderValid( nullptr ) );
     REQUIRE( StringView_Equals(
-        StringView_FromCString( CypherResource_RenderAssetLoadStatusName(
+        StringView_FromCString( Res_RenderAssetLoadStatusName(
             render_asset_load_status_t::VFS_READ_FAILED ) ),
         Text( "VFS_READ_FAILED" ) ) );
 }
