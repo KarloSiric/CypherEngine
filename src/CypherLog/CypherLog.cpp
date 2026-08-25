@@ -56,20 +56,20 @@ namespace cypher::engine::log
 
 /*
 ================
-CypherLog_FileOpenMode
+Log_FileOpenMode
 ================
 */
-const char *CypherLog_FileOpenMode( const file_mode_t bFileMode )
+const char *Log_FileOpenMode( const file_mode_t bFileMode )
 {
     return ( bFileMode == file_mode_t::APPEND ) ? "a" : "w";
 }
 
 /*
 ================
-CypherLog_CloseFile
+Log_CloseFile
 ================
 */
-void CypherLog_CloseFile( std::FILE *&pFileHandle )
+void Log_CloseFile( std::FILE *&pFileHandle )
 {
     if ( pFileHandle == nullptr ) {
         return;
@@ -82,24 +82,24 @@ void CypherLog_CloseFile( std::FILE *&pFileHandle )
 
 /*
 ================
-CypherLog_CloseFileSinks
+Log_CloseFileSinks
 ================
 */
-void CypherLog_CloseFileSinks( runtime_state_t &pRuntimeState )
+void Log_CloseFileSinks( runtime_state_t &pRuntimeState )
 {
-    CypherLog_CloseFile( pRuntimeState.pEngineFileHandle );
-    CypherLog_CloseFile( pRuntimeState.pErrorFileHandle );
-    CypherLog_CloseFile( pRuntimeState.pConsoleFileHandle );
-    CypherLog_CloseFile( pRuntimeState.pEditorFileHandle );
-    CypherLog_CloseFile( pRuntimeState.pGameFileHandle );
+    Log_CloseFile( pRuntimeState.pEngineFileHandle );
+    Log_CloseFile( pRuntimeState.pErrorFileHandle );
+    Log_CloseFile( pRuntimeState.pConsoleFileHandle );
+    Log_CloseFile( pRuntimeState.pEditorFileHandle );
+    Log_CloseFile( pRuntimeState.pGameFileHandle );
 }
 
 /*
 ================
-CypherLog_OpenFileSink
+Log_OpenFileSink
 ================
 */
-log_error_t CypherLog_OpenFileSink( const sink_config_t &pSinkConfig, std::FILE *&pFileHandle )
+log_error_t Log_OpenFileSink( const sink_config_t &pSinkConfig, std::FILE *&pFileHandle )
 {
     pFileHandle = nullptr;
 
@@ -111,7 +111,7 @@ log_error_t CypherLog_OpenFileSink( const sink_config_t &pSinkConfig, std::FILE 
         return log_error_t::ERR_INVALID_CONFIG;
     }
 
-    pFileHandle = std::fopen( pSinkConfig.path, CypherLog_FileOpenMode( pSinkConfig.file ) );
+    pFileHandle = std::fopen( pSinkConfig.path, Log_FileOpenMode( pSinkConfig.file ) );
 
     if ( pFileHandle == nullptr ) {
         return log_error_t::ERR_FILE_OPEN_FAILED;
@@ -122,10 +122,10 @@ log_error_t CypherLog_OpenFileSink( const sink_config_t &pSinkConfig, std::FILE 
 
 /*
 ================
-CypherLog_FileSinkSameTarget
+Log_FileSinkSameTarget
 ================
 */
-bool CypherLog_FileSinkSameTarget( const sink_config_t &oldConfig, const sink_config_t &newConfig )
+bool Log_FileSinkSameTarget( const sink_config_t &oldConfig, const sink_config_t &newConfig )
 {
     if ( oldConfig.enabled != newConfig.enabled ) {
         return false;
@@ -140,33 +140,33 @@ bool CypherLog_FileSinkSameTarget( const sink_config_t &oldConfig, const sink_co
 
 /*
 ================
-CypherLog_UpdateFileSink
+Log_UpdateFileSink
 
 Keeps unchanged file handles alive. This avoids truncating the active log file
 when runtime cvars are applied without changing the sink target.
 ================
 */
-log_error_t CypherLog_UpdateFileSink( const sink_config_t &oldConfig, const sink_config_t &newConfig, std::FILE *&pFileHandle )
+log_error_t Log_UpdateFileSink( const sink_config_t &oldConfig, const sink_config_t &newConfig, std::FILE *&pFileHandle )
 {
     if ( !newConfig.enabled ) {
-        CypherLog_CloseFile( pFileHandle );
+        Log_CloseFile( pFileHandle );
         return log_error_t::OK;
     }
 
-    if ( pFileHandle != nullptr && CypherLog_FileSinkSameTarget( oldConfig, newConfig ) ) {
+    if ( pFileHandle != nullptr && Log_FileSinkSameTarget( oldConfig, newConfig ) ) {
         return log_error_t::OK;
     }
 
-    CypherLog_CloseFile( pFileHandle );
-    return CypherLog_OpenFileSink( newConfig, pFileHandle );
+    Log_CloseFile( pFileHandle );
+    return Log_OpenFileSink( newConfig, pFileHandle );
 }
 
 /*
 ================
-CypherLog_OpenFileSinks
+Log_OpenFileSinks
 ================
 */
-log_error_t CypherLog_OpenFileSinks(
+log_error_t Log_OpenFileSinks(
     const config_t &config,
     std::FILE *&pEngineFileHandle,
     std::FILE *&pErrorFileHandle,
@@ -176,38 +176,38 @@ log_error_t CypherLog_OpenFileSinks(
 {
     log_error_t result = log_error_t::OK;
 
-    result = CypherLog_OpenFileSink( config.engineFile, pEngineFileHandle );
+    result = Log_OpenFileSink( config.engineFile, pEngineFileHandle );
     if ( result != log_error_t::OK ) {
         return result;
     }
 
-    result = CypherLog_OpenFileSink( config.errorFile, pErrorFileHandle );
+    result = Log_OpenFileSink( config.errorFile, pErrorFileHandle );
     if ( result != log_error_t::OK ) {
-        CypherLog_CloseFile( pEngineFileHandle );
+        Log_CloseFile( pEngineFileHandle );
         return result;
     }
 
-    result = CypherLog_OpenFileSink( config.consoleFile, pConsoleFileHandle );
+    result = Log_OpenFileSink( config.consoleFile, pConsoleFileHandle );
     if ( result != log_error_t::OK ) {
-        CypherLog_CloseFile( pEngineFileHandle );
-        CypherLog_CloseFile( pErrorFileHandle );
+        Log_CloseFile( pEngineFileHandle );
+        Log_CloseFile( pErrorFileHandle );
         return result;
     }
 
-    result = CypherLog_OpenFileSink( config.editorFile, pEditorFileHandle );
+    result = Log_OpenFileSink( config.editorFile, pEditorFileHandle );
     if ( result != log_error_t::OK ) {
-        CypherLog_CloseFile( pEngineFileHandle );
-        CypherLog_CloseFile( pErrorFileHandle );
-        CypherLog_CloseFile( pConsoleFileHandle );
+        Log_CloseFile( pEngineFileHandle );
+        Log_CloseFile( pErrorFileHandle );
+        Log_CloseFile( pConsoleFileHandle );
         return result;
     }
 
-    result = CypherLog_OpenFileSink( config.gameFile, pGameFileHandle );
+    result = Log_OpenFileSink( config.gameFile, pGameFileHandle );
     if ( result != log_error_t::OK ) {
-        CypherLog_CloseFile( pEngineFileHandle );
-        CypherLog_CloseFile( pErrorFileHandle );
-        CypherLog_CloseFile( pConsoleFileHandle );
-        CypherLog_CloseFile( pEditorFileHandle );
+        Log_CloseFile( pEngineFileHandle );
+        Log_CloseFile( pErrorFileHandle );
+        Log_CloseFile( pConsoleFileHandle );
+        Log_CloseFile( pEditorFileHandle );
         return result;
     }
 
@@ -216,16 +216,16 @@ log_error_t CypherLog_OpenFileSinks(
 
 /*
 ================
-CypherLog_ShouldFlush
+Log_ShouldFlush
 ================
 */
-bool CypherLog_ShouldFlush( const flush_policy_t flushPolicy, const level_t level )
+bool Log_ShouldFlush( const flush_policy_t flushPolicy, const level_t level )
 {
     switch ( flushPolicy ) {
         case flush_policy_t::NEVER:
             return false;
         case flush_policy_t::ERRORS_AND_ABOVE:
-            return CypherLog_LevelPasses( level, level_t::ERR );
+            return Log_LevelPasses( level, level_t::ERR );
         case flush_policy_t::EVERY_MESSAGE:
             return true;
         default:
@@ -235,34 +235,34 @@ bool CypherLog_ShouldFlush( const flush_policy_t flushPolicy, const level_t leve
 
 /*
 ================
-CypherLog_SinkAcceptsRecord
+Log_SinkAcceptsRecord
 ================
 */
-bool CypherLog_SinkAcceptsRecord( const record_t &record, const sink_config_t &pSinkConfig )
+bool Log_SinkAcceptsRecord( const record_t &record, const sink_config_t &pSinkConfig )
 {
     if ( !pSinkConfig.enabled ) {
         return false;
     }
 
-    return CypherLog_LevelPasses( record.level, pSinkConfig.nMinLevel );
+    return Log_LevelPasses( record.level, pSinkConfig.nMinLevel );
 }
 
 /*
 ================
-CypherLog_TerminalStreamForLevel
+Log_TerminalStreamForLevel
 ================
 */
-std::FILE *CypherLog_TerminalStreamForLevel( const level_t level )
+std::FILE *Log_TerminalStreamForLevel( const level_t level )
 {
-    return CypherLog_LevelPasses( level, level_t::WARNING ) ? stderr : stdout;
+    return Log_LevelPasses( level, level_t::WARNING ) ? stderr : stdout;
 }
 
 /*
 ================
-CypherLog_WriteFormattedRecord
+Log_WriteFormattedRecord
 ================
 */
-void CypherLog_WriteFormattedRecord(
+void Log_WriteFormattedRecord(
     const record_t &record,
     const sink_config_t &pSinkConfig,
     const config_t &config,
@@ -273,7 +273,7 @@ void CypherLog_WriteFormattedRecord(
     }
 
     char szLineBuffer[CYPHER_LOG_MESSAGE_MAX + 512u]{};
-    const log_error_t formatResult = CypherLog_FormatRecord(
+    const log_error_t formatResult = Log_FormatRecord(
         record,
         pSinkConfig,
         config,
@@ -299,21 +299,21 @@ void CypherLog_WriteFormattedRecord(
         return;
     }
 
-    if ( CypherLog_ShouldFlush( pSinkConfig.flush, record.level ) ) {
+    if ( Log_ShouldFlush( pSinkConfig.flush, record.level ) ) {
         std::fflush( pFileHandle );
     }
 }
 
 /*
 ================
-CypherLog_Init
+Log_Init
 
 Installs active logging configuration and opens enabled file sinks.
 ================
 */
-log_error_t CypherLog_Init( const config_t &config )
+log_error_t Log_Init( const config_t &config )
 {
-    CypherLog_CloseFileSinks( s_LogRuntimeState );
+    Log_CloseFileSinks( s_LogRuntimeState );
     s_LogRuntimeState = {};
 
     std::FILE *pEngineFileHandle = nullptr;
@@ -322,7 +322,7 @@ log_error_t CypherLog_Init( const config_t &config )
     std::FILE *pEditorFileHandle = nullptr;
     std::FILE *pGameFileHandle = nullptr;
 
-    const log_error_t openResult = CypherLog_OpenFileSinks(
+    const log_error_t openResult = Log_OpenFileSinks(
         config,
         pEngineFileHandle,
         pErrorFileHandle,
@@ -349,44 +349,44 @@ log_error_t CypherLog_Init( const config_t &config )
 
 /*
 ================
-CypherLog_Shutdown
+Log_Shutdown
 ================
 */
-void CypherLog_Shutdown()
+void Log_Shutdown()
 {
-    CypherLog_CloseFileSinks( s_LogRuntimeState );
+    Log_CloseFileSinks( s_LogRuntimeState );
     s_LogRuntimeState.initialized = false;
     s_LogRuntimeState = {};
 }
 
 /*
 ================
-CypherLog_GetConfig
+Log_GetConfig
 ================
 */
-const config_t &CypherLog_GetConfig()
+const config_t &Log_GetConfig()
 {
     return s_LogRuntimeState.config;
 }
 
 /*
 ================
-CypherLog_IsInitialized
+Log_IsInitialized
 ================
 */
-bool CypherLog_IsInitialized()
+bool Log_IsInitialized()
 {
     return s_LogRuntimeState.initialized;
 }
 
 /*
 ================
-CypherLog_LevelFromString
+Log_LevelFromString
 
 Parses config/console level strings into logger severity values.
 ================
 */
-log_error_t CypherLog_LevelFromString( const char *szLevelName, level_t &levelOut )
+log_error_t Log_LevelFromString( const char *szLevelName, level_t &levelOut )
 {
     if ( szLevelName == nullptr || szLevelName[0] == '\0' ) {
         return log_error_t::ERR_INVALID_LEVEL;
@@ -436,12 +436,12 @@ log_error_t CypherLog_LevelFromString( const char *szLevelName, level_t &levelOu
 
 /*
 ================
-CypherLog_SetConfig
+Log_SetConfig
 
 Replaces active configuration and rotates file sinks if requested.
 ================
 */
-log_error_t CypherLog_SetConfig( const config_t &config )
+log_error_t Log_SetConfig( const config_t &config )
 {
     if ( !s_LogRuntimeState.initialized ) {
         return log_error_t::ERR_NOT_INIT;
@@ -449,27 +449,27 @@ log_error_t CypherLog_SetConfig( const config_t &config )
 
     log_error_t updateResult = log_error_t::OK;
 
-    updateResult = CypherLog_UpdateFileSink( s_LogRuntimeState.config.engineFile, config.engineFile, s_LogRuntimeState.pEngineFileHandle );
+    updateResult = Log_UpdateFileSink( s_LogRuntimeState.config.engineFile, config.engineFile, s_LogRuntimeState.pEngineFileHandle );
     if ( updateResult != log_error_t::OK ) {
         return updateResult;
     }
 
-    updateResult = CypherLog_UpdateFileSink( s_LogRuntimeState.config.errorFile, config.errorFile, s_LogRuntimeState.pErrorFileHandle );
+    updateResult = Log_UpdateFileSink( s_LogRuntimeState.config.errorFile, config.errorFile, s_LogRuntimeState.pErrorFileHandle );
     if ( updateResult != log_error_t::OK ) {
         return updateResult;
     }
 
-    updateResult = CypherLog_UpdateFileSink( s_LogRuntimeState.config.consoleFile, config.consoleFile, s_LogRuntimeState.pConsoleFileHandle );
+    updateResult = Log_UpdateFileSink( s_LogRuntimeState.config.consoleFile, config.consoleFile, s_LogRuntimeState.pConsoleFileHandle );
     if ( updateResult != log_error_t::OK ) {
         return updateResult;
     }
 
-    updateResult = CypherLog_UpdateFileSink( s_LogRuntimeState.config.editorFile, config.editorFile, s_LogRuntimeState.pEditorFileHandle );
+    updateResult = Log_UpdateFileSink( s_LogRuntimeState.config.editorFile, config.editorFile, s_LogRuntimeState.pEditorFileHandle );
     if ( updateResult != log_error_t::OK ) {
         return updateResult;
     }
 
-    updateResult = CypherLog_UpdateFileSink( s_LogRuntimeState.config.gameFile, config.gameFile, s_LogRuntimeState.pGameFileHandle );
+    updateResult = Log_UpdateFileSink( s_LogRuntimeState.config.gameFile, config.gameFile, s_LogRuntimeState.pGameFileHandle );
     if ( updateResult != log_error_t::OK ) {
         return updateResult;
     }
@@ -482,12 +482,12 @@ log_error_t CypherLog_SetConfig( const config_t &config )
 
 /*
 ================
-CypherLog_LevelEnabled
+Log_LevelEnabled
 
 Checks global severity and channel filters before building a log record.
 ================
 */
-bool CypherLog_LevelEnabled( const level_t level, const channel_t channel )
+bool Log_LevelEnabled( const level_t level, const channel_t channel )
 {
     if ( !s_LogRuntimeState.initialized ) {
         return false;
@@ -501,21 +501,21 @@ bool CypherLog_LevelEnabled( const level_t level, const channel_t channel )
         return false;
     }
 
-    if ( !CypherLog_LevelPasses( level, s_LogRuntimeState.config.nMinLevel ) ) {
+    if ( !Log_LevelPasses( level, s_LogRuntimeState.config.nMinLevel ) ) {
         return false;
     }
 
-    return CypherLog_ChannelEnabled( s_LogRuntimeState.config.nChannelMask, channel );
+    return Log_ChannelEnabled( s_LogRuntimeState.config.nChannelMask, channel );
 }
 
 /*
 ================
-CypherLog_ChannelEnabled
+Log_ChannelEnabled
 
 Checks a channel bit against the active channel mask.
 ================
 */
-bool CypherLog_ChannelEnabled( const common::u32 nChannelMask, const channel_t channel )
+bool Log_ChannelEnabled( const common::u32 nChannelMask, const channel_t channel )
 {
     if ( channel == channel_t::NONE || channel == channel_t::COUNT ) {
         return false;
@@ -527,94 +527,94 @@ bool CypherLog_ChannelEnabled( const common::u32 nChannelMask, const channel_t c
         return false;
     }
 
-    return ( nChannelMask & CypherLog_ChannelBit( channel ) ) != 0u;
+    return ( nChannelMask & Log_ChannelBit( channel ) ) != 0u;
 }
 
 /*
 ================
-CypherLog_Emit
+Log_Emit
 
 Routes a fully built log record to all enabled sinks requested by its sink mask.
 ================
 */
-void CypherLog_Emit( const record_t &record )
+void Log_Emit( const record_t &record )
 {
     if ( record.message[0] == '\0' ) {
         return;
     }
 
-    if ( !CypherLog_LevelEnabled( record.level, record.channel ) ) {
+    if ( !Log_LevelEnabled( record.level, record.channel ) ) {
         return;
     }
 
-    const config_t &config = CypherLog_GetConfig();
-    const common::u32 nSinkMask = ( record.nSinkMask != 0u ) ? record.nSinkMask : CypherLog_DefaultSinkMaskForLevel( record.level );
+    const config_t &config = Log_GetConfig();
+    const common::u32 nSinkMask = ( record.nSinkMask != 0u ) ? record.nSinkMask : Log_DefaultSinkMaskForLevel( record.level );
 
-    if ( CypherLog_SinkMaskHas( nSinkMask, sink_flag_t::TERMINAL ) && CypherLog_SinkAcceptsRecord( record, config.terminal ) ) {
-        CypherLog_WriteFormattedRecord( record, config.terminal, config, CypherLog_TerminalStreamForLevel( record.level ) );
+    if ( Log_SinkMaskHas( nSinkMask, sink_flag_t::TERMINAL ) && Log_SinkAcceptsRecord( record, config.terminal ) ) {
+        Log_WriteFormattedRecord( record, config.terminal, config, Log_TerminalStreamForLevel( record.level ) );
     }
 
-    if ( CypherLog_SinkMaskHas( nSinkMask, sink_flag_t::ENGINE_FILE ) && CypherLog_SinkAcceptsRecord( record, config.engineFile ) ) {
-        CypherLog_WriteFormattedRecord( record, config.engineFile, config, s_LogRuntimeState.pEngineFileHandle );
+    if ( Log_SinkMaskHas( nSinkMask, sink_flag_t::ENGINE_FILE ) && Log_SinkAcceptsRecord( record, config.engineFile ) ) {
+        Log_WriteFormattedRecord( record, config.engineFile, config, s_LogRuntimeState.pEngineFileHandle );
     }
 
-    if ( CypherLog_SinkMaskHas( nSinkMask, sink_flag_t::ERROR_FILE ) && CypherLog_SinkAcceptsRecord( record, config.errorFile ) ) {
-        CypherLog_WriteFormattedRecord( record, config.errorFile, config, s_LogRuntimeState.pErrorFileHandle );
+    if ( Log_SinkMaskHas( nSinkMask, sink_flag_t::ERROR_FILE ) && Log_SinkAcceptsRecord( record, config.errorFile ) ) {
+        Log_WriteFormattedRecord( record, config.errorFile, config, s_LogRuntimeState.pErrorFileHandle );
     }
 
-    if ( CypherLog_SinkMaskHas( nSinkMask, sink_flag_t::CONSOLE_FILE ) && CypherLog_SinkAcceptsRecord( record, config.consoleFile ) ) {
-        CypherLog_WriteFormattedRecord( record, config.consoleFile, config, s_LogRuntimeState.pConsoleFileHandle );
+    if ( Log_SinkMaskHas( nSinkMask, sink_flag_t::CONSOLE_FILE ) && Log_SinkAcceptsRecord( record, config.consoleFile ) ) {
+        Log_WriteFormattedRecord( record, config.consoleFile, config, s_LogRuntimeState.pConsoleFileHandle );
     }
 
-    if ( CypherLog_SinkMaskHas( nSinkMask, sink_flag_t::EDITOR_FILE ) && CypherLog_SinkAcceptsRecord( record, config.editorFile ) ) {
-        CypherLog_WriteFormattedRecord( record, config.editorFile, config, s_LogRuntimeState.pEditorFileHandle );
+    if ( Log_SinkMaskHas( nSinkMask, sink_flag_t::EDITOR_FILE ) && Log_SinkAcceptsRecord( record, config.editorFile ) ) {
+        Log_WriteFormattedRecord( record, config.editorFile, config, s_LogRuntimeState.pEditorFileHandle );
     }
 
-    if ( CypherLog_SinkMaskHas( nSinkMask, sink_flag_t::GAME_FILE ) && CypherLog_SinkAcceptsRecord( record, config.gameFile ) ) {
-        CypherLog_WriteFormattedRecord( record, config.gameFile, config, s_LogRuntimeState.pGameFileHandle );
+    if ( Log_SinkMaskHas( nSinkMask, sink_flag_t::GAME_FILE ) && Log_SinkAcceptsRecord( record, config.gameFile ) ) {
+        Log_WriteFormattedRecord( record, config.gameFile, config, s_LogRuntimeState.pGameFileHandle );
     }
 }
 
 /*
 ================
-CypherLog_Emitf
+Log_Emitf
 
 Formats and emits a log event from variadic arguments.
 ================
 */
-void CypherLog_Emitf( const level_t level, const channel_t channel,
+void Log_Emitf( const level_t level, const channel_t channel,
                 const char *file, const char *function, const common::i32 line,
                 const char *format, ... )
 {
-    if ( !CypherLog_LevelEnabled( level, channel ) ) {
+    if ( !Log_LevelEnabled( level, channel ) ) {
         return;
     }
 
     va_list args;
     va_start( args, format );
-    CypherLog_Emitfv( level, channel, file, function, line, format, args );
+    Log_Emitfv( level, channel, file, function, line, format, args );
     va_end( args );
 }
 
 /*
 ================
-CypherLog_Emitfv
+Log_Emitfv
 
 Builds a log record from an existing va_list.
 ================
 */
-void CypherLog_Emitfv( const level_t level, const channel_t channel,
+void Log_Emitfv( const level_t level, const channel_t channel,
                  const char *file, const char *function, const common::i32 line,
                  const char *format, va_list args )
 {
-    if ( !CypherLog_LevelEnabled( level, channel ) ) {
+    if ( !Log_LevelEnabled( level, channel ) ) {
         return;
     }
 
     record_t record{};
     record.level = level;
     record.channel = channel;
-    record.nSinkMask = CypherLog_DefaultSinkMaskForLevel( level );
+    record.nSinkMask = Log_DefaultSinkMaskForLevel( level );
     record.file = file ? file : "<unknown_file>";
     record.function = function ? function : "<unknown_function>";
     record.line = line;
@@ -623,7 +623,7 @@ void CypherLog_Emitfv( const level_t level, const channel_t channel,
     const char *bSafeFormat = format ? format : "<null format>";
     std::vsnprintf( record.message, sizeof( record.message ), bSafeFormat, args );
 
-    CypherLog_Emit( record );
+    Log_Emit( record );
 }
 
 }       // namespace cypher::engine::log

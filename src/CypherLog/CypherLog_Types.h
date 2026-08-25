@@ -204,7 +204,7 @@ struct config_t {
 Log Name Helpers
 ================
 */
-constexpr inline const char *CypherLog_LevelName( const level_t logLevel ) {
+constexpr inline const char *Log_LevelName( const level_t logLevel ) {
 	switch ( logLevel ) {
         case level_t::TRACE:        return "TRACE";
         case level_t::DEBUG:        return "DEBUG";
@@ -216,7 +216,7 @@ constexpr inline const char *CypherLog_LevelName( const level_t logLevel ) {
 	}
 }
 
-constexpr inline const char *CypherLog_ChannelName( const channel_t channel ) {
+constexpr inline const char *Log_ChannelName( const channel_t channel ) {
     switch ( channel ) {
         case channel_t::CORE:      return "CORE";
         case channel_t::HOST:      return "HOST";
@@ -251,7 +251,7 @@ constexpr inline const char *CypherLog_ChannelName( const channel_t channel ) {
     }
 }
 
-constexpr inline common::u32 CypherLog_ChannelBit( const channel_t channel )
+constexpr inline common::u32 Log_ChannelBit( const channel_t channel )
 {
     return 1u << static_cast<common::u32>( channel );
 }
@@ -260,43 +260,43 @@ constexpr inline common::u32 CypherLog_ChannelBit( const channel_t channel )
  * Helpers for the sink masking and bit masking.
  */
 
-constexpr inline common::u32 CypherLog_SinkBit( sink_flag_t pSinkFlag )
+constexpr inline common::u32 Log_SinkBit( sink_flag_t pSinkFlag )
 {
     return static_cast<common::u32>( pSinkFlag );
 }
 
-constexpr inline bool CypherLog_SinkMaskHas( common::u32 nSinkMask, sink_flag_t pSinkFlag )
+constexpr inline bool Log_SinkMaskHas( common::u32 nSinkMask, sink_flag_t pSinkFlag )
 {
-    return ( ( nSinkMask & CypherLog_SinkBit( pSinkFlag ) ) != 0u );
+    return ( ( nSinkMask & Log_SinkBit( pSinkFlag ) ) != 0u );
 }
 
-constexpr inline common::u32 CypherLog_SinkMaskAdd( common::u32 nSinkMask, sink_flag_t pSinkFlag )
+constexpr inline common::u32 Log_SinkMaskAdd( common::u32 nSinkMask, sink_flag_t pSinkFlag )
 {
-    return nSinkMask | CypherLog_SinkBit( pSinkFlag );
+    return nSinkMask | Log_SinkBit( pSinkFlag );
 }
 
-constexpr inline common::u32 CypherLog_SinkMaskRemove( common::u32 nSinkMask, sink_flag_t pSinkFlag )
+constexpr inline common::u32 Log_SinkMaskRemove( common::u32 nSinkMask, sink_flag_t pSinkFlag )
 {
-    return nSinkMask & ~CypherLog_SinkBit( pSinkFlag );
+    return nSinkMask & ~Log_SinkBit( pSinkFlag );
 }
 
-constexpr inline bool CypherLog_LevelPasses( level_t level, level_t nMinLevel )
+constexpr inline bool Log_LevelPasses( level_t level, level_t nMinLevel )
 {
     return static_cast<common::u8>( level ) >= static_cast<common::u8>( nMinLevel );
 }
 
-constexpr inline common::u32 CypherLog_DefaultSinkMaskForLevel( level_t level )
+constexpr inline common::u32 Log_DefaultSinkMaskForLevel( level_t level )
 {
     common::u32 mask = 0u;
-    mask = CypherLog_SinkMaskAdd( mask, sink_flag_t::TERMINAL );
-    mask = CypherLog_SinkMaskAdd( mask, sink_flag_t::ENGINE_FILE );
+    mask = Log_SinkMaskAdd( mask, sink_flag_t::TERMINAL );
+    mask = Log_SinkMaskAdd( mask, sink_flag_t::ENGINE_FILE );
 
-    if ( CypherLog_LevelPasses( level, level_t::WARNING ) ) {
-        mask = CypherLog_SinkMaskAdd( mask, sink_flag_t::ERROR_FILE );
+    if ( Log_LevelPasses( level, level_t::WARNING ) ) {
+        mask = Log_SinkMaskAdd( mask, sink_flag_t::ERROR_FILE );
     }
 
-    if ( CypherLog_LevelPasses( level, level_t::ERR ) ) {
-        mask = CypherLog_SinkMaskAdd( mask, sink_flag_t::CRASH_BUFFER );
+    if ( Log_LevelPasses( level, level_t::ERR ) ) {
+        mask = Log_SinkMaskAdd( mask, sink_flag_t::CRASH_BUFFER );
     }
 
     return mask;

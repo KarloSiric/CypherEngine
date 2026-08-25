@@ -38,29 +38,29 @@ Log API
 Structured logging with severity levels, channels and optional file output.
 ================
 */
-log_error_t CypherLog_Init( const config_t &config = {} );
+log_error_t Log_Init( const config_t &config = {} );
 
-void CypherLog_Shutdown();
+void Log_Shutdown();
 
-bool CypherLog_IsInitialized();
+bool Log_IsInitialized();
 
-const config_t &CypherLog_GetConfig();
+const config_t &Log_GetConfig();
 
-log_error_t CypherLog_SetConfig( const config_t &config );
+log_error_t Log_SetConfig( const config_t &config );
 
-log_error_t CypherLog_LevelFromString( const char *szLevelName, level_t &levelOut );
+log_error_t Log_LevelFromString( const char *szLevelName, level_t &levelOut );
 
-bool CypherLog_LevelEnabled( const level_t logLevel, const channel_t channel );
+bool Log_LevelEnabled( const level_t logLevel, const channel_t channel );
 
-bool CypherLog_ChannelEnabled( const common::u32 nChannelMask, const channel_t channel );
+bool Log_ChannelEnabled( const common::u32 nChannelMask, const channel_t channel );
 
-void CypherLog_Emit( const record_t &record );
+void Log_Emit( const record_t &record );
 
-void CypherLog_Emitf( const level_t logLevel, const channel_t channel,
+void Log_Emitf( const level_t logLevel, const channel_t channel,
                 const char *file, const char *function, const common::i32 line,
                 const char *format, ... );
 
-void CypherLog_Emitfv( const level_t logLevel, const channel_t channel,
+void Log_Emitfv( const level_t logLevel, const channel_t channel,
                  const char *file, const char *function, const common::i32 line,
                  const char *format, va_list args );
 
@@ -74,14 +74,14 @@ Capture source file, function and line while keeping call sites compact.
 ================
 */
 #define CYPHER_LOG_IF_ENABLED( LOG_LEVEL, LOG_CHANNEL )                                                           \
-    if ( cypher::engine::log::CypherLog_LevelEnabled( ( LOG_LEVEL ), ( LOG_CHANNEL ) ) )
+    if ( cypher::engine::log::Log_LevelEnabled( ( LOG_LEVEL ), ( LOG_CHANNEL ) ) )
 
 #define CYPHER_LOG( LOG_LEVEL, LOG_CHANNEL, LOG_MESSAGE )                                                         \
     do {                                                                                                          \
         const cypher::engine::log::level_t cypher_log_level_ = ( LOG_LEVEL );                                     \
         const cypher::engine::log::channel_t cypher_log_channel_ = ( LOG_CHANNEL );                               \
-        if ( cypher::engine::log::CypherLog_LevelEnabled( cypher_log_level_, cypher_log_channel_ ) ) {            \
-            cypher::engine::log::CypherLog_Emitf(                                                                 \
+        if ( cypher::engine::log::Log_LevelEnabled( cypher_log_level_, cypher_log_channel_ ) ) {            \
+            cypher::engine::log::Log_Emitf(                                                                 \
                 cypher_log_level_, cypher_log_channel_, __FILE__, __func__, __LINE__, "%s", ( LOG_MESSAGE ) );    \
         }                                                                                                         \
     } while ( false )
@@ -90,8 +90,8 @@ Capture source file, function and line while keeping call sites compact.
     do {                                                                                                          \
         const cypher::engine::log::level_t cypher_log_level_ = ( LOG_LEVEL );                                     \
         const cypher::engine::log::channel_t cypher_log_channel_ = ( LOG_CHANNEL );                               \
-        if ( cypher::engine::log::CypherLog_LevelEnabled( cypher_log_level_, cypher_log_channel_ ) ) {            \
-            cypher::engine::log::CypherLog_Emitf(                                                                 \
+        if ( cypher::engine::log::Log_LevelEnabled( cypher_log_level_, cypher_log_channel_ ) ) {            \
+            cypher::engine::log::Log_Emitf(                                                                 \
                 cypher_log_level_, cypher_log_channel_, __FILE__, __func__, __LINE__, ( LOG_FORMAT )              \
                 __VA_OPT__( , ) __VA_ARGS__ );                                                                    \
         }                                                                                                         \
@@ -101,8 +101,8 @@ Capture source file, function and line while keeping call sites compact.
     do {                                                                                                          \
         const cypher::engine::log::level_t cypher_log_level_ = ( LOG_LEVEL );                                     \
         const cypher::engine::log::channel_t cypher_log_channel_ = ( LOG_CHANNEL );                               \
-        if ( ( LOG_CONDITION ) && cypher::engine::log::CypherLog_LevelEnabled( cypher_log_level_, cypher_log_channel_ ) ) { \
-            cypher::engine::log::CypherLog_Emitf(                                                                 \
+        if ( ( LOG_CONDITION ) && cypher::engine::log::Log_LevelEnabled( cypher_log_level_, cypher_log_channel_ ) ) { \
+            cypher::engine::log::Log_Emitf(                                                                 \
                 cypher_log_level_, cypher_log_channel_, __FILE__, __func__, __LINE__, ( LOG_FORMAT )              \
                 __VA_OPT__( , ) __VA_ARGS__ );                                                                    \
         }                                                                                                         \
@@ -111,8 +111,8 @@ Capture source file, function and line while keeping call sites compact.
 #define CYPHER_LOG_TRACE( LOG_CHANNEL, LOG_FORMAT, ... )                                                          \
     do {                                                                                                          \
         const cypher::engine::log::channel_t cypher_log_channel_ = ( LOG_CHANNEL );                               \
-        if ( cypher::engine::log::CypherLog_LevelEnabled( cypher::engine::log::level_t::TRACE, cypher_log_channel_ ) ) { \
-            cypher::engine::log::CypherLog_Emitf(                                                                 \
+        if ( cypher::engine::log::Log_LevelEnabled( cypher::engine::log::level_t::TRACE, cypher_log_channel_ ) ) { \
+            cypher::engine::log::Log_Emitf(                                                                 \
                 cypher::engine::log::level_t::TRACE, cypher_log_channel_, __FILE__, __func__, __LINE__, ( LOG_FORMAT ) \
                 __VA_OPT__( , ) __VA_ARGS__ );                                                                    \
         }                                                                                                         \
@@ -121,8 +121,8 @@ Capture source file, function and line while keeping call sites compact.
 #define CYPHER_LOG_DEBUG( LOG_CHANNEL, LOG_FORMAT, ... )                                                          \
     do {                                                                                                          \
         const cypher::engine::log::channel_t cypher_log_channel_ = ( LOG_CHANNEL );                               \
-        if ( cypher::engine::log::CypherLog_LevelEnabled( cypher::engine::log::level_t::DEBUG, cypher_log_channel_ ) ) { \
-            cypher::engine::log::CypherLog_Emitf(                                                                 \
+        if ( cypher::engine::log::Log_LevelEnabled( cypher::engine::log::level_t::DEBUG, cypher_log_channel_ ) ) { \
+            cypher::engine::log::Log_Emitf(                                                                 \
                 cypher::engine::log::level_t::DEBUG, cypher_log_channel_, __FILE__, __func__, __LINE__, ( LOG_FORMAT ) \
                 __VA_OPT__( , ) __VA_ARGS__ );                                                                    \
         }                                                                                                         \
@@ -131,8 +131,8 @@ Capture source file, function and line while keeping call sites compact.
 #define CYPHER_LOG_INFO( LOG_CHANNEL, LOG_FORMAT, ... )                                                           \
     do {                                                                                                          \
         const cypher::engine::log::channel_t cypher_log_channel_ = ( LOG_CHANNEL );                               \
-        if ( cypher::engine::log::CypherLog_LevelEnabled( cypher::engine::log::level_t::INFO, cypher_log_channel_ ) ) { \
-            cypher::engine::log::CypherLog_Emitf(                                                                 \
+        if ( cypher::engine::log::Log_LevelEnabled( cypher::engine::log::level_t::INFO, cypher_log_channel_ ) ) { \
+            cypher::engine::log::Log_Emitf(                                                                 \
                 cypher::engine::log::level_t::INFO, cypher_log_channel_, __FILE__, __func__, __LINE__, ( LOG_FORMAT ) \
                 __VA_OPT__( , ) __VA_ARGS__ );                                                                    \
         }                                                                                                         \
@@ -141,8 +141,8 @@ Capture source file, function and line while keeping call sites compact.
 #define CYPHER_LOG_WARNING( LOG_CHANNEL, LOG_FORMAT, ... )                                                        \
     do {                                                                                                          \
         const cypher::engine::log::channel_t cypher_log_channel_ = ( LOG_CHANNEL );                               \
-        if ( cypher::engine::log::CypherLog_LevelEnabled( cypher::engine::log::level_t::WARNING, cypher_log_channel_ ) ) { \
-            cypher::engine::log::CypherLog_Emitf(                                                                 \
+        if ( cypher::engine::log::Log_LevelEnabled( cypher::engine::log::level_t::WARNING, cypher_log_channel_ ) ) { \
+            cypher::engine::log::Log_Emitf(                                                                 \
                 cypher::engine::log::level_t::WARNING, cypher_log_channel_, __FILE__, __func__, __LINE__, ( LOG_FORMAT ) \
                 __VA_OPT__( , ) __VA_ARGS__ );                                                                    \
         }                                                                                                         \
@@ -151,8 +151,8 @@ Capture source file, function and line while keeping call sites compact.
 #define CYPHER_LOG_ERROR( LOG_CHANNEL, LOG_FORMAT, ... )                                                          \
     do {                                                                                                          \
         const cypher::engine::log::channel_t cypher_log_channel_ = ( LOG_CHANNEL );                               \
-        if ( cypher::engine::log::CypherLog_LevelEnabled( cypher::engine::log::level_t::ERR, cypher_log_channel_ ) ) { \
-            cypher::engine::log::CypherLog_Emitf(                                                                 \
+        if ( cypher::engine::log::Log_LevelEnabled( cypher::engine::log::level_t::ERR, cypher_log_channel_ ) ) { \
+            cypher::engine::log::Log_Emitf(                                                                 \
                 cypher::engine::log::level_t::ERR, cypher_log_channel_, __FILE__, __func__, __LINE__, ( LOG_FORMAT ) \
                 __VA_OPT__( , ) __VA_ARGS__ );                                                                    \
         }                                                                                                         \
@@ -161,8 +161,8 @@ Capture source file, function and line while keeping call sites compact.
 #define CYPHER_LOG_FATAL( LOG_CHANNEL, LOG_FORMAT, ... )                                                          \
     do {                                                                                                          \
         const cypher::engine::log::channel_t cypher_log_channel_ = ( LOG_CHANNEL );                               \
-        if ( cypher::engine::log::CypherLog_LevelEnabled( cypher::engine::log::level_t::FATAL, cypher_log_channel_ ) ) { \
-            cypher::engine::log::CypherLog_Emitf(                                                                 \
+        if ( cypher::engine::log::Log_LevelEnabled( cypher::engine::log::level_t::FATAL, cypher_log_channel_ ) ) { \
+            cypher::engine::log::Log_Emitf(                                                                 \
                 cypher::engine::log::level_t::FATAL, cypher_log_channel_, __FILE__, __func__, __LINE__, ( LOG_FORMAT ) \
                 __VA_OPT__( , ) __VA_ARGS__ );                                                                    \
         }                                                                                                         \
@@ -178,8 +178,8 @@ Capture source file, function and line while keeping call sites compact.
     do {                                                                                                                            \
         if ( !CONDITION ) {                                                                                                         \
             const cypher::engine::log::channel_t cypher_log_channel_ = ( LOG_CHANNEL );                                             \
-            if ( cypher::engine::log::CypherLog_LevelEnabled( cypher::engine::log::level_t::ERR, cypher_log_channel_ ) ) {          \
-                cypher::engine::log::CypherLog_Emitf(                                                                               \
+            if ( cypher::engine::log::Log_LevelEnabled( cypher::engine::log::level_t::ERR, cypher_log_channel_ ) ) {          \
+                cypher::engine::log::Log_Emitf(                                                                               \
                     cypher::engine::log::level_t::ERR, cypher_log_channel_, __FILE__, __func__, __LINE__, ( LOG_FORMAT )            \
                     __VA_OPT__( , ) __VA_ARGS__ );                                                                                  \
             }                                                                                                                       \

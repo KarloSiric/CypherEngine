@@ -51,7 +51,7 @@ enum class log_error_t : common::u8 {
 Log Error Helpers
 ================
 */
-constexpr inline const char *CypherLog_ErrorName( const log_error_t error ) {
+constexpr inline const char *Log_ErrorName( const log_error_t error ) {
     switch ( error ) {
     case log_error_t::OK:
         return "OK";
@@ -76,7 +76,7 @@ constexpr inline const char *CypherLog_ErrorName( const log_error_t error ) {
     }
 }
 
-constexpr inline const char *CypherLog_ErrorDesc( const log_error_t error ) {
+constexpr inline const char *Log_ErrorDesc( const log_error_t error ) {
     switch ( error ) {
     case log_error_t::OK:
         return "operation completed successfully";
@@ -101,7 +101,7 @@ constexpr inline const char *CypherLog_ErrorDesc( const log_error_t error ) {
     }
 }
 
-constexpr inline common::error_t CypherLog_ErrorCode( log_error_t error ) {
+constexpr inline common::error_t Log_ErrorCode( log_error_t error ) {
     return common::CypherCommon_ErrorMake( common::domain_t::COM_DOMAIN_LOG, static_cast<common::u16>( error ) );
 }
 

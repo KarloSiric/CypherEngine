@@ -36,29 +36,29 @@ Formatting functions
 Used for formatting properly all of the logging system
 ================
 */
-log_error_t CypherLog_FormatRecord(
+log_error_t Log_FormatRecord(
     const record_t &record,
     const sink_config_t &pSinkConfig,
     const config_t &config,
     char *bufferOut,
     common::usize nOutBufferSize );
 
-log_error_t CypherLog_FormatDetailed(
+log_error_t Log_FormatDetailed(
     const record_t &record,
     const sink_config_t &pSinkConfig,
     const config_t &config,
     char *bufferOut,
     const common::usize nOutBufferSize );
 
-log_error_t CypherLog_FormatCompact(
+log_error_t Log_FormatCompact(
     const record_t &record,
     const sink_config_t &pSinkConfig,
     char *bufferOut,
     const common::usize nOutBufferSize );
 
-bool CypherLog_FormatTimestamp( const record_t &record, char *bufferOut, const common::usize nOutBufferSize );
+bool Log_FormatTimestamp( const record_t &record, char *bufferOut, const common::usize nOutBufferSize );
 
-const char *CypherLog_LevelColor( const level_t level );
+const char *Log_LevelColor( const level_t level );
 
 }       // namespace cypher::engine::log
 

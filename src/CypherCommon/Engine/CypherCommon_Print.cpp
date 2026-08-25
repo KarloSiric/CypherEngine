@@ -126,11 +126,11 @@ void CypherCommon_VErrorf( const error_t error, const char *message, va_list arg
     std::vsnprintf( msgBuf, sizeof( msgBuf ), bSafeFormat, args );
     const domain_t domain = CypherCommon_ErrorDomain( error );
 
-    if ( log::CypherLog_IsInitialized() ) {
+    if ( log::Log_IsInitialized() ) {
         log::record_t record{};
         record.level = log::level_t::ERR;
         record.channel = CypherCommon_LogChannelForDomain( domain );
-        record.nSinkMask = log::CypherLog_DefaultSinkMaskForLevel( record.level );
+        record.nSinkMask = log::Log_DefaultSinkMaskForLevel( record.level );
         record.file = "";
         record.function = "";
         record.line = 0;
@@ -144,7 +144,7 @@ void CypherCommon_VErrorf( const error_t error, const char *message, va_list arg
             msgBuf
         );
 
-        log::CypherLog_Emit( record );
+        log::Log_Emit( record );
         return;
     }
 

@@ -27,13 +27,13 @@ namespace cypher::engine::log
 
 /*
 ================
-CypherLog_LevelColor
+Log_LevelColor
 
 Returns ANSI terminal color for compact terminal output. File sinks keep colors
 disabled so escape sequences do not pollute log files.
 ================
 */
-const char *CypherLog_LevelColor( const level_t level )
+const char *Log_LevelColor( const level_t level )
 {
     switch ( level ) {
         case level_t::TRACE:   return "\033[90m";
@@ -48,10 +48,10 @@ const char *CypherLog_LevelColor( const level_t level )
 
 /*
 ================
-CypherLog_FormatTimestamp
+Log_FormatTimestamp
 ================
 */
-bool CypherLog_FormatTimestamp( const record_t &record, char *bufferOut, const common::usize nOutBufferSize )
+bool Log_FormatTimestamp( const record_t &record, char *bufferOut, const common::usize nOutBufferSize )
 {
     if ( bufferOut == nullptr || nOutBufferSize == 0u || record.timestamp == std::time_t{} ) {
         return false;
@@ -68,16 +68,16 @@ bool CypherLog_FormatTimestamp( const record_t &record, char *bufferOut, const c
 
 /*
 ================
-CypherLog_FormatCompact
+Log_FormatCompact
 ================
 */
-log_error_t CypherLog_FormatCompact(
+log_error_t Log_FormatCompact(
     const record_t &record,
     const sink_config_t &pSinkConfig,
     char *bufferOut,
     const common::usize nOutBufferSize )
 {
-    const char *colorBegin = pSinkConfig.bColorEnabled ? CypherLog_LevelColor( record.level ) : "";
+    const char *colorBegin = pSinkConfig.bColorEnabled ? Log_LevelColor( record.level ) : "";
     const char *colorEnd = pSinkConfig.bColorEnabled ? "\033[0m" : "";
 
     const int written = std::snprintf(
@@ -85,8 +85,8 @@ log_error_t CypherLog_FormatCompact(
         nOutBufferSize,
         "%s[%s][%s] %s%s\n",
         colorBegin,
-        CypherLog_LevelName( record.level ),
-        CypherLog_ChannelName( record.channel ),
+        Log_LevelName( record.level ),
+        Log_ChannelName( record.channel ),
         record.message,
         colorEnd
     );
@@ -96,10 +96,10 @@ log_error_t CypherLog_FormatCompact(
 
 /*
 ================
-CypherLog_FormatDetailed
+Log_FormatDetailed
 ================
 */
-log_error_t CypherLog_FormatDetailed(
+log_error_t Log_FormatDetailed(
     const record_t &record,
     const sink_config_t &pSinkConfig,
     const config_t &config,
@@ -109,7 +109,7 @@ log_error_t CypherLog_FormatDetailed(
     char pTimestampBuffer[32]{};
 
     if ( pSinkConfig.bIncludeTimestamps ) {
-        CypherLog_FormatTimestamp( record, pTimestampBuffer, sizeof( pTimestampBuffer ) );
+        Log_FormatTimestamp( record, pTimestampBuffer, sizeof( pTimestampBuffer ) );
     }
 
     const bool bHasSourceLocation = record.file != nullptr && record.file[0] != '\0';
@@ -133,8 +133,8 @@ log_error_t CypherLog_FormatDetailed(
             nOutBufferSize,
             "[%s][%s][%s] %s:%d (%s) %s\n",
             pTimestampBuffer,
-            CypherLog_LevelName( record.level ),
-            CypherLog_ChannelName( record.channel ),
+            Log_LevelName( record.level ),
+            Log_ChannelName( record.channel ),
             pszSourceFile,
             record.line,
             szFunctionName,
@@ -146,8 +146,8 @@ log_error_t CypherLog_FormatDetailed(
             nOutBufferSize,
             "[%s][%s][%s] %s:%d %s\n",
             pTimestampBuffer,
-            CypherLog_LevelName( record.level ),
-            CypherLog_ChannelName( record.channel ),
+            Log_LevelName( record.level ),
+            Log_ChannelName( record.channel ),
             pszSourceFile,
             record.line,
             record.message
@@ -158,8 +158,8 @@ log_error_t CypherLog_FormatDetailed(
             nOutBufferSize,
             "[%s][%s][%s] %s\n",
             pTimestampBuffer,
-            CypherLog_LevelName( record.level ),
-            CypherLog_ChannelName( record.channel ),
+            Log_LevelName( record.level ),
+            Log_ChannelName( record.channel ),
             record.message
         );
     } else if ( bIncludeSourceLocation && bIncludeFunctionName ) {
@@ -167,8 +167,8 @@ log_error_t CypherLog_FormatDetailed(
             bufferOut,
             nOutBufferSize,
             "[%s][%s] %s:%d (%s) %s\n",
-            CypherLog_LevelName( record.level ),
-            CypherLog_ChannelName( record.channel ),
+            Log_LevelName( record.level ),
+            Log_ChannelName( record.channel ),
             pszSourceFile,
             record.line,
             szFunctionName,
@@ -179,8 +179,8 @@ log_error_t CypherLog_FormatDetailed(
             bufferOut,
             nOutBufferSize,
             "[%s][%s] %s:%d %s\n",
-            CypherLog_LevelName( record.level ),
-            CypherLog_ChannelName( record.channel ),
+            Log_LevelName( record.level ),
+            Log_ChannelName( record.channel ),
             pszSourceFile,
             record.line,
             record.message
@@ -190,8 +190,8 @@ log_error_t CypherLog_FormatDetailed(
             bufferOut,
             nOutBufferSize,
             "[%s][%s] %s\n",
-            CypherLog_LevelName( record.level ),
-            CypherLog_ChannelName( record.channel ),
+            Log_LevelName( record.level ),
+            Log_ChannelName( record.channel ),
             record.message
         );
     }
@@ -201,10 +201,10 @@ log_error_t CypherLog_FormatDetailed(
 
 /*
 ================
-CypherLog_FormatRecord
+Log_FormatRecord
 ================
 */
-log_error_t CypherLog_FormatRecord(
+log_error_t Log_FormatRecord(
     const record_t &record,
     const sink_config_t &pSinkConfig,
     const config_t &config,
@@ -223,9 +223,9 @@ log_error_t CypherLog_FormatRecord(
 
     switch ( pSinkConfig.format ) {
         case format_mode_t::COMPACT:
-            return CypherLog_FormatCompact( record, pSinkConfig, bufferOut, nOutBufferSize );
+            return Log_FormatCompact( record, pSinkConfig, bufferOut, nOutBufferSize );
         case format_mode_t::DETAILED:
-            return CypherLog_FormatDetailed( record, pSinkConfig, config, bufferOut, nOutBufferSize );
+            return Log_FormatDetailed( record, pSinkConfig, config, bufferOut, nOutBufferSize );
         default:
             return log_error_t::ERR_FORMAT_FAILED;
     }

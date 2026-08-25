@@ -119,17 +119,17 @@ void CypherHost_CmdLogConfig( void *pExtraData, rc::u32 argc, char **argv ) {
     ( void )argc;
     ( void )argv;
 
-    const auto &config = cypher::engine::log::CypherLog_GetConfig();
+    const auto &config = cypher::engine::log::Log_GetConfig();
 
     COM_PRINTF(
         "log: global=%s terminal=%u/%s engine_file=%u/%s error_file=%u/%s\n",
-        cypher::engine::log::CypherLog_LevelName( config.nMinLevel ),
+        cypher::engine::log::Log_LevelName( config.nMinLevel ),
         config.terminal.enabled ? 1u : 0u,
-        cypher::engine::log::CypherLog_LevelName( config.terminal.nMinLevel ),
+        cypher::engine::log::Log_LevelName( config.terminal.nMinLevel ),
         config.engineFile.enabled ? 1u : 0u,
-        cypher::engine::log::CypherLog_LevelName( config.engineFile.nMinLevel ),
+        cypher::engine::log::Log_LevelName( config.engineFile.nMinLevel ),
         config.errorFile.enabled ? 1u : 0u,
-        cypher::engine::log::CypherLog_LevelName( config.errorFile.nMinLevel ) );
+        cypher::engine::log::Log_LevelName( config.errorFile.nMinLevel ) );
 }
 
 void CypherHost_CmdMemReport( void *pExtraData, rc::u32 argc, char **argv ) {
@@ -200,9 +200,9 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         return host_error_t::ERR_INITIALIZING;
     }
 
-    const auto logResult = log::CypherLog_Init();
+    const auto logResult = log::Log_Init();
     if ( logResult != log::log_error_t::OK ) {
-        COM_ERRORF( log::CypherLog_ErrorCode( logResult ), "CypherHost_Init: CypherLog_Init failed: %s", log::CypherLog_ErrorDesc( logResult ) );
+        COM_ERRORF( log::Log_ErrorCode( logResult ), "CypherHost_Init: Log_Init failed: %s", log::Log_ErrorDesc( logResult ) );
 
         sys::Sys_Shutdown();
 
@@ -219,7 +219,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
     if ( memoryResult != mem::mem_error_t::OK ) {
         LOG_ERROR( log::channel_t::MEMORY, "memory system initialization failed: %s.", mem::CypherMemory_ErrorDesc( memoryResult ) );
         COM_ERRORF( mem::CypherMemory_ErrorCode( memoryResult ), "CypherHost_Init: CypherMemory_Init failed: %s", mem::CypherMemory_ErrorDesc( memoryResult ) );
-        log::CypherLog_Shutdown();
+        log::Log_Shutdown();
         sys::Sys_Shutdown();
 
         pHostState.running = false;
@@ -232,7 +232,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         LOG_ERROR( log::channel_t::FS, "filesystem initialization failed: %s.", fs::FS_ErrorDesc( fsResult ) );
         COM_ERRORF( FS_ErrorCode( fsResult ), "CypherHost_Init: FS_Init failed: %s", fs::FS_ErrorDesc( fsResult ) );
         mem::CypherMemory_Shutdown();
-        log::CypherLog_Shutdown();
+        log::Log_Shutdown();
         sys::Sys_Shutdown();
 
         pHostState.running = false;
@@ -247,7 +247,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
 
         fs::FS_Shutdown();
         mem::CypherMemory_Shutdown();
-        log::CypherLog_Shutdown();
+        log::Log_Shutdown();
         sys::Sys_Shutdown();
 
         pHostState.running = false;
@@ -265,7 +265,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         cmd::CypherCommand_Shutdown();
         fs::FS_Shutdown();
         mem::CypherMemory_Shutdown();
-        log::CypherLog_Shutdown();
+        log::Log_Shutdown();
         sys::Sys_Shutdown();
 
         pHostState.running = false;
@@ -284,7 +284,7 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         cmd::CypherCommand_Shutdown();
         fs::FS_Shutdown();
         mem::CypherMemory_Shutdown();
-        log::CypherLog_Shutdown();
+        log::Log_Shutdown();
         sys::Sys_Shutdown();
 
         pHostState.running = false;
@@ -496,10 +496,10 @@ log::level_t CypherHost_LogLevelFromCvar( const char *szCvarName, const log::lev
 {
     log::level_t parsedLevel = fallback;
     const char *szLevelName = cvar::CypherCVar_GetString( szCvarName );
-    const auto parseResult = log::CypherLog_LevelFromString( szLevelName, parsedLevel );
+    const auto parseResult = log::Log_LevelFromString( szLevelName, parsedLevel );
 
     if ( parseResult != log::log_error_t::OK ) {
-        LOG_WARNING( log::channel_t::CFG, "invalid log level cvar '%s'='%s'; keeping '%s'.", szCvarName, szLevelName ? szLevelName : "<null>", log::CypherLog_LevelName( fallback ) );
+        LOG_WARNING( log::channel_t::CFG, "invalid log level cvar '%s'='%s'; keeping '%s'.", szCvarName, szLevelName ? szLevelName : "<null>", log::Log_LevelName( fallback ) );
         return fallback;
     }
 
@@ -536,7 +536,7 @@ Converts registered log cvars into the active logger sink configuration.
 */
 host_error_t CypherHost_ApplyLogCvars( void )
 {
-    log::config_t logConfig = log::CypherLog_GetConfig();
+    log::config_t logConfig = log::Log_GetConfig();
 
     logConfig.nMinLevel = CypherHost_LogLevelFromCvar( "log_global_level", logConfig.nMinLevel );
 
@@ -593,10 +593,10 @@ host_error_t CypherHost_ApplyLogCvars( void )
     logConfig.gameFile.bColorEnabled = false;
     CypherHost_CopyLogPathFromCvar( logConfig.gameFile.path, sizeof( logConfig.gameFile.path ), "log_game_file_path", "Game.log" );
 
-    const auto setResult = log::CypherLog_SetConfig( logConfig );
+    const auto setResult = log::Log_SetConfig( logConfig );
 
     if ( setResult != log::log_error_t::OK ) {
-        COM_ERRORF( log::CypherLog_ErrorCode( setResult ), "CypherHost_ApplyLogCvars: CypherLog_SetConfig failed: %s", log::CypherLog_ErrorDesc( setResult ) );
+        COM_ERRORF( log::Log_ErrorCode( setResult ), "CypherHost_ApplyLogCvars: Log_SetConfig failed: %s", log::Log_ErrorDesc( setResult ) );
         return host_error_t::ERR_INITIALIZING;
     }
 
@@ -811,7 +811,7 @@ void CypherHost_Shutdown( state_t &pHostState ) {
     fs::FS_Shutdown();
     mem::CypherMemory_Shutdown();
     LOG_INFO( log::channel_t::HOST, "%s shutdown complete.", common::COM_ENGINE_INFO.name );
-    log::CypherLog_Shutdown();
+    log::Log_Shutdown();
     sys::Sys_Shutdown();
 }
 
