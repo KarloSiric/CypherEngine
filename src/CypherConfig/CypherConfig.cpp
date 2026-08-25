@@ -43,10 +43,10 @@ constexpr const char *CYPHER_CONFIG_AUTOEXEC_PATH = "config/autoexec.cfg";
 
 /*
 ================
-CypherConfig_Init
+Cfg_Init
 ================
 */
-cfg_error_t CypherConfig_Init() {
+cfg_error_t Cfg_Init() {
 	if ( s_CfgRuntimeState.initialized ) {
 		LOG_WARNING( log::channel_t::CFG, "config system init requested while already initialized." );
 		return cfg_error_t::ERR_IS_INIT;
@@ -59,10 +59,10 @@ cfg_error_t CypherConfig_Init() {
 
 /*
 ================
-CypherConfig_Shutdown
+Cfg_Shutdown
 ================
 */
-cfg_error_t CypherConfig_Shutdown() {
+cfg_error_t Cfg_Shutdown() {
 	if ( !s_CfgRuntimeState.initialized ) {
 		LOG_WARNING( log::channel_t::CFG, "config system shutdown requested while not initialized." );
 		return cfg_error_t::ERR_NOT_INIT;
@@ -74,12 +74,12 @@ cfg_error_t CypherConfig_Shutdown() {
 
 /*
 ================
-CypherConfig_LoadFile
+Cfg_LoadFile
 
 Loads a cfg file through FS and executes it one line at a time.
 ================
 */
-cfg_error_t CypherConfig_LoadFile( const char *path, const bool required ) {
+cfg_error_t Cfg_LoadFile( const char *path, const bool required ) {
 	if ( path == nullptr || path[0] == '\0' ) {
 		LOG_ERROR( log::channel_t::CFG, "config load failed: invalid path." );
 		return cfg_error_t::ERR_INVALID_PATH;
@@ -146,10 +146,10 @@ cfg_error_t CypherConfig_LoadFile( const char *path, const bool required ) {
         char szSaveLineEnd = *szLineEnd;
         *szLineEnd = '\0';
 
-        const cfg_error_t lineResult = CypherConfig_ExecuteLine( szLineStart );
+        const cfg_error_t lineResult = Cfg_ExecuteLine( szLineStart );
 
         if ( lineResult != cfg_error_t::OK && result == cfg_error_t::OK ) {
-            LOG_WARNING( log::channel_t::CFG, "config '%s' line failed: %s.", path, CypherConfig_ErrorDesc( lineResult ) );
+            LOG_WARNING( log::channel_t::CFG, "config '%s' line failed: %s.", path, Cfg_ErrorDesc( lineResult ) );
             result = lineResult;
         }
 
@@ -176,36 +176,36 @@ cfg_error_t CypherConfig_LoadFile( const char *path, const bool required ) {
 
 /*
 ================
-CypherConfig_LoadDefault
+Cfg_LoadDefault
 ================
 */
-cfg_error_t CypherConfig_LoadDefault() {
+cfg_error_t Cfg_LoadDefault() {
 	if ( !s_CfgRuntimeState.initialized ) {
 		return cfg_error_t::ERR_NOT_INIT;
 	}
-	return CypherConfig_LoadFile( CYPHER_CONFIG_DEFAULT_PATH, true );
+	return Cfg_LoadFile( CYPHER_CONFIG_DEFAULT_PATH, true );
 }
 
 /*
 ================
-CypherConfig_LoadAutoexec
+Cfg_LoadAutoexec
 ================
 */
-cfg_error_t CypherConfig_LoadAutoexec() {
+cfg_error_t Cfg_LoadAutoexec() {
 	if ( !s_CfgRuntimeState.initialized ) {
 		return cfg_error_t::ERR_NOT_INIT;
 	}
-	return CypherConfig_LoadFile( CYPHER_CONFIG_AUTOEXEC_PATH, false );
+	return Cfg_LoadFile( CYPHER_CONFIG_AUTOEXEC_PATH, false );
 }
 
 /*
 ================
-CypherConfig_ExecuteLine
+Cfg_ExecuteLine
 
 Executes one trimmed cfg line: exec, set/seta, or regular command.
 ================
 */
-cfg_error_t CypherConfig_ExecuteLine( const char *nCommandLine ) {
+cfg_error_t Cfg_ExecuteLine( const char *nCommandLine ) {
 	if ( !s_CfgRuntimeState.initialized ) {
 		return cfg_error_t::ERR_INVALID_LINE;
 	}
@@ -277,7 +277,7 @@ cfg_error_t CypherConfig_ExecuteLine( const char *nCommandLine ) {
 			}
 		}
 		szExecPath[i] = '\0';
-		return CypherConfig_LoadFile( szExecPath, false );
+		return Cfg_LoadFile( szExecPath, false );
 	}
 	if ( std::strcmp( command, "set" ) == 0 || std::strcmp( command, "seta" ) == 0 ) {
 		while ( std::isspace( static_cast<unsigned char>( *cursor ) ) ) {

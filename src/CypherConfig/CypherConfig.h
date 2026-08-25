@@ -44,14 +44,14 @@ Config API
 Loads cfg files and routes each line into cvars or command execution.
 ================
 */
-cfg_error_t CypherConfig_Init();
-cfg_error_t CypherConfig_Shutdown();
+cfg_error_t Cfg_Init();
+cfg_error_t Cfg_Shutdown();
 
-cfg_error_t CypherConfig_LoadFile( const char *path, bool required = false );
-cfg_error_t CypherConfig_LoadDefault();
-cfg_error_t CypherConfig_LoadAutoexec();
+cfg_error_t Cfg_LoadFile( const char *path, bool required = false );
+cfg_error_t Cfg_LoadDefault();
+cfg_error_t Cfg_LoadAutoexec();
 
-cfg_error_t CypherConfig_ExecuteLine( const char *nCommandLine );
+cfg_error_t Cfg_ExecuteLine( const char *nCommandLine );
 
 }
 

@@ -51,7 +51,7 @@ enum class cfg_error_t : common::u8 {
 Config Error Helpers
 ================
 */
-constexpr inline const char *CypherConfig_ErrorName( const cfg_error_t error ) {
+constexpr inline const char *Cfg_ErrorName( const cfg_error_t error ) {
 	switch ( error ) {
 	case cfg_error_t::OK:
 		return "OK";
@@ -76,7 +76,7 @@ constexpr inline const char *CypherConfig_ErrorName( const cfg_error_t error ) {
 	}
 }
 
-constexpr inline const char *CypherConfig_ErrorDesc( const cfg_error_t error ) {
+constexpr inline const char *Cfg_ErrorDesc( const cfg_error_t error ) {
 	switch ( error ) {
 	case cfg_error_t::OK:
 		return "operation completed successfully";
@@ -101,7 +101,7 @@ constexpr inline const char *CypherConfig_ErrorDesc( const cfg_error_t error ) {
 	}
 }
 
-constexpr inline common::error_t CypherConfig_ErrorCode( const cfg_error_t error ) {
+constexpr inline common::error_t Cfg_ErrorCode( const cfg_error_t error ) {
 	return common::CypherCommon_ErrorMake( common::domain_t::COM_DOMAIN_CFG, static_cast<common::u16>( error ) );
 }
 

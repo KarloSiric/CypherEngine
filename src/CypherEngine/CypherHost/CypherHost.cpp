@@ -273,12 +273,12 @@ host_error_t CypherHost_InitCoreEngineSystems( state_t &pHostState ) {
         return host_error_t::ERR_INITIALIZING;
     }
 
-    const auto cfgResult = cfg::CypherConfig_Init();
+    const auto cfgResult = cfg::Cfg_Init();
 
     if ( cfgResult != cfg::cfg_error_t::OK )
     {
-        LOG_ERROR( log::channel_t::CFG, "config system initialization failed: %s.", cfg::CypherConfig_ErrorDesc( cfgResult ) );
-        COM_ERRORF( CypherConfig_ErrorCode( cfgResult ), "CypherHost_Init: CypherConfig_Init failed: %s", cfg::CypherConfig_ErrorDesc( cfgResult ) );
+        LOG_ERROR( log::channel_t::CFG, "config system initialization failed: %s.", cfg::Cfg_ErrorDesc( cfgResult ) );
+        COM_ERRORF( Cfg_ErrorCode( cfgResult ), "CypherHost_Init: Cfg_Init failed: %s", cfg::Cfg_ErrorDesc( cfgResult ) );
 
         cvar::Cvar_Shutdown();
         cmd::Cmd_Shutdown();
@@ -463,23 +463,23 @@ CypherHost_LoadStartupConfig
 ================
 */
 host_error_t CypherHost_LoadStartupConfig( void ) {
-    const auto defaultResult = cfg::CypherConfig_LoadFile( "config/default.cfg", false );
+    const auto defaultResult = cfg::Cfg_LoadFile( "config/default.cfg", false );
     if ( defaultResult != cfg::cfg_error_t::OK ) {
-        LOG_ERROR( log::channel_t::CFG, "default startup config failed: %s.", cfg::CypherConfig_ErrorDesc( defaultResult ) );
+        LOG_ERROR( log::channel_t::CFG, "default startup config failed: %s.", cfg::Cfg_ErrorDesc( defaultResult ) );
         COM_ERRORF(
-            cfg::CypherConfig_ErrorCode( defaultResult ),
+            cfg::Cfg_ErrorCode( defaultResult ),
             "CypherHost_Init: default config load failed: %s",
-            cfg::CypherConfig_ErrorDesc( defaultResult ) );
+            cfg::Cfg_ErrorDesc( defaultResult ) );
         return host_error_t::ERR_INITIALIZING;
     }
 
-    const auto autoexecResult = cfg::CypherConfig_LoadAutoexec();
+    const auto autoexecResult = cfg::Cfg_LoadAutoexec();
     if ( autoexecResult != cfg::cfg_error_t::OK ) {
-        LOG_ERROR( log::channel_t::CFG, "autoexec startup config failed: %s.", cfg::CypherConfig_ErrorDesc( autoexecResult ) );
+        LOG_ERROR( log::channel_t::CFG, "autoexec startup config failed: %s.", cfg::Cfg_ErrorDesc( autoexecResult ) );
         COM_ERRORF(
-            cfg::CypherConfig_ErrorCode( autoexecResult ),
+            cfg::Cfg_ErrorCode( autoexecResult ),
             "CypherHost_Init: autoexec config load failed: %s",
-            cfg::CypherConfig_ErrorDesc( autoexecResult ) );
+            cfg::Cfg_ErrorDesc( autoexecResult ) );
         return host_error_t::ERR_INITIALIZING;
     }
 
@@ -805,7 +805,7 @@ void CypherHost_Shutdown( state_t &pHostState ) {
 
     render::CypherRender_Shutdown();
     sys::Sys_DestroyWindow( pHostState.window );
-    cfg::CypherConfig_Shutdown();
+    cfg::Cfg_Shutdown();
     cvar::Cvar_Shutdown();
     cmd::Cmd_Shutdown();
     fs::FS_Shutdown();
