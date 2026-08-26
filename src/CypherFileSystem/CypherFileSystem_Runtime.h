@@ -24,8 +24,9 @@
 #endif
 
 #include "CypherFileSystem.h"
-#include "CypherSystem_Platform.h"
+#include "CypherCommon_Platform.h"
 
+#include <ctime>
 #include <future>
 #include <mutex>
 

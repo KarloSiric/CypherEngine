@@ -25,7 +25,9 @@
 #include "CypherLog.h"
 #include "CypherMemory.h"
 #include "CypherRender.h"
-#include "CypherSystem_Platform.h"
+#include "CypherSystem_Public.h"
+#include "CypherCommon_Compiler.h"
+#include "CypherCommon_Platform.h"
 
 #include <cstring>     // strncpy for log path cvars.
 
@@ -212,7 +214,11 @@ host_error_t Host_InitCoreEngineSystems( state_t &pHostState ) {
     }
 
     LOG_INFO( log::channel_t::HOST, "%s startup begin.", common::COM_ENGINE_INFO.name );
-    LOG_INFO( log::channel_t::SYSTEM, "system initialized: platform=%s, compiler=%s.", sys::Sys_PlatformName( sys::Sys_PlatformType() ), sys::Sys_CompilerName( sys::Sys_CompilerType() ) );
+    LOG_INFO(
+        log::channel_t::SYSTEM,
+        "system initialized: platform=%s, compiler=%s.",
+        ::cypher::common::Cy_PlatformGetName(),
+        ::cypher::common::Cy_CompilerGetName() );
     LOG_INFO( log::channel_t::SYSTEM, "paths: base='%s', user='%s', executable='%s'.", sys::Sys_Paths().basePath, sys::Sys_Paths().userPath, sys::Sys_Paths().executablePath );
 
     const auto memoryResult = mem::Mem_Init( mem::Mem_DefaultConfig() );

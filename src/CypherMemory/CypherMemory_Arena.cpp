@@ -18,7 +18,7 @@
 
 #include "CypherMemory_Arena.h"
 #include "CypherLog.h"
-#include "CypherSystem_Platform.h"
+#include "CypherSystem_Public.h"
 
 #include <cstdlib>          // for malloc func
 #include <cstring>          // for string memset

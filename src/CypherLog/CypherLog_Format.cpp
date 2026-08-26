@@ -17,7 +17,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherLog_Format.h"
-#include "CypherSystem_Platform.h"
+#include "CypherSystem_Public.h"
 
 #include <cstdio>      // std::snprintf.
 #include <ctime>       // std::strftime.

@@ -18,7 +18,6 @@
 
 #include "CypherFileSystem.h"
 #include "CypherFileSystem_Runtime.h"
-#include "CypherSystem_Platform.h"
 
 #include <algorithm>        // std::sort for deterministic snapshot comparison.
 #include <cstddef>          // offsetof
@@ -29,15 +28,15 @@
 #include <system_error>     // for error_codes etc...
 
 // @Windows Including and Checking
-#if defined( CYPHER_PLATFORM_WINDOWS )
+#if CYPHER_PLATFORM_WINDOWS
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
-#elif defined( CYPHER_PLATFORM_LINUX )
+#elif CYPHER_PLATFORM_LINUX
 #include <cerrno>
 #include <sys/inotify.h>
 #include <unistd.h>
-#elif defined( CYPHER_PLATFORM_MACOS )
+#elif CYPHER_PLATFORM_MACOS
 #include <cerrno>
 #include <fcntl.h>
 #include <sys/event.h>
@@ -50,7 +49,7 @@ namespace cypher::engine::fs
 
 namespace {
 
-#if defined( CYPHER_PLATFORM_WINDOWS )
+#if CYPHER_PLATFORM_WINDOWS
 
 struct windows_watch_t {
     bool used{ false };                                      // is this current watch in use or not.
@@ -72,7 +71,7 @@ struct windows_watch_t {
 
 static windows_watch_t s_WindowsWatches[CYPHER_FILESYSTEM_MAX_WATCHES]{};
 
-#elif defined( CYPHER_PLATFORM_LINUX )
+#elif CYPHER_PLATFORM_LINUX
 
 constexpr common::u32 LINUX_MAX_WATCH_DIRS = CYPHER_FILESYSTEM_MAX_WATCH_SNAPSHOT_ENTRIES;
 
@@ -100,7 +99,7 @@ struct linux_watch_t {
 
 static linux_watch_t s_LinuxWatches[CYPHER_FILESYSTEM_MAX_WATCHES]{};
 
-#elif defined( CYPHER_PLATFORM_MACOS )
+#elif CYPHER_PLATFORM_MACOS
 
 struct macos_watch_t {
     bool used{ false };
@@ -522,7 +521,7 @@ static fs_error_t BuildFreshWatchSnapshot( const watch_t &watch, watch_t &watchO
 }
 
 // @WindowsAPI Implementations ~ Karlo 17.06.2026
-#if defined( CYPHER_PLATFORM_WINDOWS )
+#if CYPHER_PLATFORM_WINDOWS
 
 static void WindowsResetNativeWatch( windows_watch_t &winWatch )
 {
@@ -960,7 +959,7 @@ static fs_error_t WindowsPollNativeWatch(
     return armResult;
 }
 
-#elif defined( CYPHER_PLATFORM_LINUX )
+#elif CYPHER_PLATFORM_LINUX
 
 static void LinuxResetNativeWatch( linux_watch_t &linuxWatch )
 {
@@ -1313,7 +1312,7 @@ static fs_error_t LinuxPollNativeWatch(
     }
 }
 
-#elif defined( CYPHER_PLATFORM_MACOS )
+#elif CYPHER_PLATFORM_MACOS
 
 static void MacOSResetNativeWatch( macos_watch_t &macosWatch )
 {
@@ -1495,14 +1494,14 @@ fs_error_t FS_WatchPath(
         return result;
     }
 
-#if defined( CYPHER_PLATFORM_WINDOWS )
+#if CYPHER_PLATFORM_WINDOWS
     result = WindowsCreateNativeWatch( watch );
-#elif defined( CYPHER_PLATFORM_LINUX )
+#elif CYPHER_PLATFORM_LINUX
     result = LinuxCreateNativeWatch( watch );
-#elif defined( CYPHER_PLATFORM_MACOS )
+#elif CYPHER_PLATFORM_MACOS
     result = MacOSCreateNativeWatch( watch );
 #endif
-#if defined( CYPHER_PLATFORM_WINDOWS ) || defined( CYPHER_PLATFORM_LINUX ) || defined( CYPHER_PLATFORM_MACOS )
+#if CYPHER_PLATFORM_WINDOWS || CYPHER_PLATFORM_LINUX || CYPHER_PLATFORM_MACOS
     if ( result != fs_error_t::OK ) {
         ResetWatch( watch );
         return result;
@@ -1529,11 +1528,11 @@ fs_error_t FS_UnwatchPath( watch_handle_t nWatchHandle )
     for ( common::u32 i = 0; i < state.nWatchCount; ++i ) {
         watch_t &watch = state.watches[i];
         if ( watch.handle == nWatchHandle ) {
-#if defined( CYPHER_PLATFORM_WINDOWS )
+#if CYPHER_PLATFORM_WINDOWS
             WindowsDestroyNativeWatch( watch );
-#elif defined( CYPHER_PLATFORM_LINUX )
+#elif CYPHER_PLATFORM_LINUX
             LinuxDestroyNativeWatch( watch );
-#elif defined( CYPHER_PLATFORM_MACOS )
+#elif CYPHER_PLATFORM_MACOS
             MacOSDestroyNativeWatch( watch );
 #endif
             // @note -> shift all the watches and fill the holes
@@ -1567,19 +1566,19 @@ fs_error_t FS_PollChanges(
         fs_error_t result = fs_error_t::OK;
         const common::u32 nNativeEventCountBefore = nOutEventCount;
 
-#if defined( CYPHER_PLATFORM_WINDOWS )
+#if CYPHER_PLATFORM_WINDOWS
         result = WindowsPollNativeWatch( oldWatch, events, nMaxEvents, nOutEventCount );
         if ( result != fs_error_t::OK ) {
             return result;
         }
         ( void )nNativeEventCountBefore;
-#elif defined( CYPHER_PLATFORM_LINUX )
+#elif CYPHER_PLATFORM_LINUX
         result = LinuxPollNativeWatch( oldWatch, events, nMaxEvents, nOutEventCount );
         if ( result != fs_error_t::OK ) {
             return result;
         }
         ( void )nNativeEventCountBefore;
-#elif defined( CYPHER_PLATFORM_MACOS )
+#elif CYPHER_PLATFORM_MACOS
         result = MacOSPollNativeWatch( oldWatch );
         if ( result != fs_error_t::OK ) {
             return result;

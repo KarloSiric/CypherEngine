@@ -19,7 +19,6 @@
 #include "CypherRender_GL.h"
 #include "CypherLog.h"
 #include "CypherSystem_OpenGL.h"
-#include "CypherSystem_Platform.h"
 
 #include <SDL3/SDL.h>      // SDL owns window creation and GL context lifetime.
 #include <cstddef>         // offsetof for vertex attribute layout.
@@ -46,7 +45,7 @@ render_error_t GL_Init( const sys::window_t &window, bool vsync, gl_state_t &pGl
     sdlWindow = static_cast<SDL_Window *>( window.nativeWindow );
 
     // macOS requires a forward-compatible core profile context.
-    #ifdef CYPHER_PLATFORM_MACOS
+    #if CYPHER_PLATFORM_MACOS
         if (
             !SDL_GL_SetAttribute( SDL_GL_CONTEXT_MAJOR_VERSION, SYS_GL_CONTEXT_MAJOR ) ||
             !SDL_GL_SetAttribute( SDL_GL_CONTEXT_MINOR_VERSION, SYS_GL_CONTEXT_MINOR ) ||
@@ -61,7 +60,7 @@ render_error_t GL_Init( const sys::window_t &window, bool vsync, gl_state_t &pGl
             return render_error_t::ERR_OPENGL_INIT;
         }
     // Windows and Linux can request the newer OpenGL profile.
-    #elif defined( CYPHER_PLATFORM_WINDOWS ) || defined( CYPHER_PLATFORM_LINUX )
+    #elif CYPHER_PLATFORM_WINDOWS || CYPHER_PLATFORM_LINUX
         if (
             !SDL_GL_SetAttribute( SDL_GL_CONTEXT_MAJOR_VERSION, SYS_GL_CONTEXT_MAJOR ) ||
             !SDL_GL_SetAttribute( SDL_GL_CONTEXT_MINOR_VERSION, SYS_GL_CONTEXT_MINOR ) ||
