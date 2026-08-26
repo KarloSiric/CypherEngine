@@ -158,11 +158,8 @@ cmd_error_t Cmd_Parse( char *nCommandLine, common::u32 &argc, char **argv ) {
         LOG_ERROR( log::channel_t::CMD, "command parse failed: invalid command line." );
         return cmd_error_t::ERR_INVALID_COMMAND;
     }
-
     argc = 0;
-
     char *pCursorPtr = nCommandLine;
-
     while ( *pCursorPtr != '\0' ) {
         while ( *pCursorPtr != '\0' && std::isspace( static_cast<unsigned char>( *pCursorPtr ) ) ) {
             pCursorPtr++;

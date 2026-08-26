@@ -23,6 +23,7 @@
 #include <cstdio>      // FILE and stdio logging sinks.
 #include <ctime>       // std::time.
 #include <cstring>     // std::strcmp / std::strncmp for level and sink config checks.
+#include <mutex>       // std::mutex and std::lock_guard serialize logger state and sink access.
 
 namespace cypher::engine::log
 {
@@ -49,6 +50,32 @@ struct runtime_state_t {
 
 static runtime_state_t s_LogRuntimeState;
 
+// A prepared sink either borrows the active handle or owns a newly opened one.
+// Ownership transfers to runtime_state_t only after every requested sink opens.
+struct prepared_sink_t {
+    std::FILE *pFileHandle{ nullptr };
+    bool bOwnsFileHandle{ false };
+};
+
+struct prepared_file_sinks_t {
+    prepared_sink_t engineFile{};
+    prepared_sink_t errorFile{};
+    prepared_sink_t consoleFile{};
+    prepared_sink_t editorFile{};
+    prepared_sink_t gameFile{};
+};
+
+/*
+================
+Log Runtime Lock
+
+Guards configuration, initialization state, sink handles and writes. Keeping
+the lock outside runtime_state_t allows the remaining state to be reset as a
+single value during initialization and shutdown.
+================
+*/
+static std::mutex s_LogRuntimeMutex;
+
 }
 
 namespace cypher::engine::log
@@ -74,7 +101,6 @@ void Log_CloseFile( std::FILE *&pFileHandle )
     if ( pFileHandle == nullptr ) {
         return;
     }
-
     std::fflush( pFileHandle );
     std::fclose( pFileHandle );
     pFileHandle = nullptr;
@@ -102,21 +128,16 @@ Log_OpenFileSink
 log_error_t Log_OpenFileSink( const sink_config_t &pSinkConfig, std::FILE *&pFileHandle )
 {
     pFileHandle = nullptr;
-
     if ( !pSinkConfig.enabled ) {
         return log_error_t::OK;
     }
-
     if ( pSinkConfig.path[0] == '\0' ) {
         return log_error_t::ERR_INVALID_CONFIG;
     }
-
     pFileHandle = std::fopen( pSinkConfig.path, Log_FileOpenMode( pSinkConfig.file ) );
-
     if ( pFileHandle == nullptr ) {
         return log_error_t::ERR_FILE_OPEN_FAILED;
     }
-
     return log_error_t::OK;
 }
 
@@ -140,78 +161,159 @@ bool Log_FileSinkSameTarget( const sink_config_t &oldConfig, const sink_config_t
 
 /*
 ================
-Log_UpdateFileSink
+Log_PrepareFileSink
 
-Keeps unchanged file handles alive. This avoids truncating the active log file
-when runtime cvars are applied without changing the sink target.
+Opens a replacement without disturbing the active handle. Unchanged targets
+borrow their existing handle so ordinary cvar updates do not truncate log files.
 ================
 */
-log_error_t Log_UpdateFileSink( const sink_config_t &oldConfig, const sink_config_t &newConfig, std::FILE *&pFileHandle )
+log_error_t Log_PrepareFileSink(
+    const sink_config_t &activeConfig,
+    const sink_config_t &requestedConfig,
+    std::FILE *pActiveFileHandle,
+    prepared_sink_t &preparedSink )
 {
-    if ( !newConfig.enabled ) {
-        Log_CloseFile( pFileHandle );
+    preparedSink = {};
+
+    if ( !requestedConfig.enabled ) {
         return log_error_t::OK;
     }
 
-    if ( pFileHandle != nullptr && Log_FileSinkSameTarget( oldConfig, newConfig ) ) {
+    if ( pActiveFileHandle != nullptr && Log_FileSinkSameTarget( activeConfig, requestedConfig ) ) {
+        preparedSink.pFileHandle = pActiveFileHandle;
         return log_error_t::OK;
     }
 
-    Log_CloseFile( pFileHandle );
-    return Log_OpenFileSink( newConfig, pFileHandle );
+    const log_error_t openResult = Log_OpenFileSink( requestedConfig, preparedSink.pFileHandle );
+    preparedSink.bOwnsFileHandle = openResult == log_error_t::OK;
+    return openResult;
 }
 
 /*
 ================
-Log_OpenFileSinks
+Log_ClosePreparedFileSink
 ================
 */
-log_error_t Log_OpenFileSinks(
-    const config_t &config,
-    std::FILE *&pEngineFileHandle,
-    std::FILE *&pErrorFileHandle,
-    std::FILE *&pConsoleFileHandle,
-    std::FILE *&pEditorFileHandle,
-    std::FILE *&pGameFileHandle )
+void Log_ClosePreparedFileSink( prepared_sink_t &preparedSink )
 {
-    log_error_t result = log_error_t::OK;
+    if ( preparedSink.bOwnsFileHandle ) {
+        Log_CloseFile( preparedSink.pFileHandle );
+    }
 
-    result = Log_OpenFileSink( config.engineFile, pEngineFileHandle );
+    preparedSink = {};
+}
+
+/*
+================
+Log_ClosePreparedFileSinks
+================
+*/
+void Log_ClosePreparedFileSinks( prepared_file_sinks_t &preparedSinks )
+{
+    Log_ClosePreparedFileSink( preparedSinks.engineFile );
+    Log_ClosePreparedFileSink( preparedSinks.errorFile );
+    Log_ClosePreparedFileSink( preparedSinks.consoleFile );
+    Log_ClosePreparedFileSink( preparedSinks.editorFile );
+    Log_ClosePreparedFileSink( preparedSinks.gameFile );
+}
+
+/*
+================
+Log_PrepareFileSinks
+
+Builds the complete candidate sink set. A failed candidate closes only handles
+opened during this attempt; active runtime handles remain untouched.
+================
+*/
+log_error_t Log_PrepareFileSinks(
+    const runtime_state_t &activeState,
+    const config_t &requestedConfig,
+    prepared_file_sinks_t &preparedSinks )
+{
+    preparedSinks = {};
+
+    log_error_t result = Log_PrepareFileSink(
+        activeState.config.engineFile,
+        requestedConfig.engineFile,
+        activeState.pEngineFileHandle,
+        preparedSinks.engineFile );
     if ( result != log_error_t::OK ) {
         return result;
     }
 
-    result = Log_OpenFileSink( config.errorFile, pErrorFileHandle );
+    result = Log_PrepareFileSink(
+        activeState.config.errorFile,
+        requestedConfig.errorFile,
+        activeState.pErrorFileHandle,
+        preparedSinks.errorFile );
     if ( result != log_error_t::OK ) {
-        Log_CloseFile( pEngineFileHandle );
+        Log_ClosePreparedFileSinks( preparedSinks );
         return result;
     }
 
-    result = Log_OpenFileSink( config.consoleFile, pConsoleFileHandle );
+    result = Log_PrepareFileSink(
+        activeState.config.consoleFile,
+        requestedConfig.consoleFile,
+        activeState.pConsoleFileHandle,
+        preparedSinks.consoleFile );
     if ( result != log_error_t::OK ) {
-        Log_CloseFile( pEngineFileHandle );
-        Log_CloseFile( pErrorFileHandle );
+        Log_ClosePreparedFileSinks( preparedSinks );
         return result;
     }
 
-    result = Log_OpenFileSink( config.editorFile, pEditorFileHandle );
+    result = Log_PrepareFileSink(
+        activeState.config.editorFile,
+        requestedConfig.editorFile,
+        activeState.pEditorFileHandle,
+        preparedSinks.editorFile );
     if ( result != log_error_t::OK ) {
-        Log_CloseFile( pEngineFileHandle );
-        Log_CloseFile( pErrorFileHandle );
-        Log_CloseFile( pConsoleFileHandle );
+        Log_ClosePreparedFileSinks( preparedSinks );
         return result;
     }
 
-    result = Log_OpenFileSink( config.gameFile, pGameFileHandle );
+    result = Log_PrepareFileSink(
+        activeState.config.gameFile,
+        requestedConfig.gameFile,
+        activeState.pGameFileHandle,
+        preparedSinks.gameFile );
     if ( result != log_error_t::OK ) {
-        Log_CloseFile( pEngineFileHandle );
-        Log_CloseFile( pErrorFileHandle );
-        Log_CloseFile( pConsoleFileHandle );
-        Log_CloseFile( pEditorFileHandle );
+        Log_ClosePreparedFileSinks( preparedSinks );
         return result;
     }
 
     return log_error_t::OK;
+}
+
+/*
+================
+Log_CommitPreparedFileSink
+
+Releases a superseded active handle and transfers the prepared handle into the
+runtime state. Borrowed handles compare equal and therefore remain open.
+================
+*/
+void Log_CommitPreparedFileSink( std::FILE *&pActiveFileHandle, prepared_sink_t &preparedSink )
+{
+    if ( pActiveFileHandle != preparedSink.pFileHandle ) {
+        Log_CloseFile( pActiveFileHandle );
+    }
+
+    pActiveFileHandle = preparedSink.pFileHandle;
+    preparedSink = {};
+}
+
+/*
+================
+Log_CommitPreparedFileSinks
+================
+*/
+void Log_CommitPreparedFileSinks( runtime_state_t &activeState, prepared_file_sinks_t &preparedSinks )
+{
+    Log_CommitPreparedFileSink( activeState.pEngineFileHandle, preparedSinks.engineFile );
+    Log_CommitPreparedFileSink( activeState.pErrorFileHandle, preparedSinks.errorFile );
+    Log_CommitPreparedFileSink( activeState.pConsoleFileHandle, preparedSinks.consoleFile );
+    Log_CommitPreparedFileSink( activeState.pEditorFileHandle, preparedSinks.editorFile );
+    Log_CommitPreparedFileSink( activeState.pGameFileHandle, preparedSinks.gameFile );
 }
 
 /*
@@ -313,34 +415,21 @@ Installs active logging configuration and opens enabled file sinks.
 */
 log_error_t Log_Init( const config_t &config )
 {
-    Log_CloseFileSinks( s_LogRuntimeState );
-    s_LogRuntimeState = {};
+    const std::lock_guard<std::mutex> lock( s_LogRuntimeMutex );
 
-    std::FILE *pEngineFileHandle = nullptr;
-    std::FILE *pErrorFileHandle = nullptr;
-    std::FILE *pConsoleFileHandle = nullptr;
-    std::FILE *pEditorFileHandle = nullptr;
-    std::FILE *pGameFileHandle = nullptr;
+    if ( s_LogRuntimeState.initialized ) {
+        return log_error_t::ERR_IS_INIT;
+    }
 
-    const log_error_t openResult = Log_OpenFileSinks(
-        config,
-        pEngineFileHandle,
-        pErrorFileHandle,
-        pConsoleFileHandle,
-        pEditorFileHandle,
-        pGameFileHandle
-    );
+    prepared_file_sinks_t preparedSinks{};
+    const log_error_t openResult = Log_PrepareFileSinks( s_LogRuntimeState, config, preparedSinks );
 
     if ( openResult != log_error_t::OK ) {
         return openResult;
     }
 
+    Log_CommitPreparedFileSinks( s_LogRuntimeState, preparedSinks );
     s_LogRuntimeState.config = config;
-    s_LogRuntimeState.pEngineFileHandle = pEngineFileHandle;
-    s_LogRuntimeState.pErrorFileHandle = pErrorFileHandle;
-    s_LogRuntimeState.pConsoleFileHandle = pConsoleFileHandle;
-    s_LogRuntimeState.pEditorFileHandle = pEditorFileHandle;
-    s_LogRuntimeState.pGameFileHandle = pGameFileHandle;
     s_LogRuntimeState.initialized = true;
     s_LogRuntimeState.bFileErrorReported = false;
 
@@ -354,8 +443,10 @@ Log_Shutdown
 */
 void Log_Shutdown()
 {
-    Log_CloseFileSinks( s_LogRuntimeState );
+    const std::lock_guard<std::mutex> lock( s_LogRuntimeMutex );
+
     s_LogRuntimeState.initialized = false;
+    Log_CloseFileSinks( s_LogRuntimeState );
     s_LogRuntimeState = {};
 }
 
@@ -364,8 +455,9 @@ void Log_Shutdown()
 Log_GetConfig
 ================
 */
-const config_t &Log_GetConfig()
+config_t Log_GetConfig()
 {
+    const std::lock_guard<std::mutex> lock( s_LogRuntimeMutex );
     return s_LogRuntimeState.config;
 }
 
@@ -376,6 +468,7 @@ Log_IsInitialized
 */
 bool Log_IsInitialized()
 {
+    const std::lock_guard<std::mutex> lock( s_LogRuntimeMutex );
     return s_LogRuntimeState.initialized;
 }
 
@@ -443,37 +536,19 @@ Replaces active configuration and rotates file sinks if requested.
 */
 log_error_t Log_SetConfig( const config_t &config )
 {
+    const std::lock_guard<std::mutex> lock( s_LogRuntimeMutex );
+
     if ( !s_LogRuntimeState.initialized ) {
         return log_error_t::ERR_NOT_INIT;
     }
 
-    log_error_t updateResult = log_error_t::OK;
-
-    updateResult = Log_UpdateFileSink( s_LogRuntimeState.config.engineFile, config.engineFile, s_LogRuntimeState.pEngineFileHandle );
+    prepared_file_sinks_t preparedSinks{};
+    const log_error_t updateResult = Log_PrepareFileSinks( s_LogRuntimeState, config, preparedSinks );
     if ( updateResult != log_error_t::OK ) {
         return updateResult;
     }
 
-    updateResult = Log_UpdateFileSink( s_LogRuntimeState.config.errorFile, config.errorFile, s_LogRuntimeState.pErrorFileHandle );
-    if ( updateResult != log_error_t::OK ) {
-        return updateResult;
-    }
-
-    updateResult = Log_UpdateFileSink( s_LogRuntimeState.config.consoleFile, config.consoleFile, s_LogRuntimeState.pConsoleFileHandle );
-    if ( updateResult != log_error_t::OK ) {
-        return updateResult;
-    }
-
-    updateResult = Log_UpdateFileSink( s_LogRuntimeState.config.editorFile, config.editorFile, s_LogRuntimeState.pEditorFileHandle );
-    if ( updateResult != log_error_t::OK ) {
-        return updateResult;
-    }
-
-    updateResult = Log_UpdateFileSink( s_LogRuntimeState.config.gameFile, config.gameFile, s_LogRuntimeState.pGameFileHandle );
-    if ( updateResult != log_error_t::OK ) {
-        return updateResult;
-    }
-
+    Log_CommitPreparedFileSinks( s_LogRuntimeState, preparedSinks );
     s_LogRuntimeState.config = config;
     s_LogRuntimeState.bFileErrorReported = false;
 
@@ -482,12 +557,12 @@ log_error_t Log_SetConfig( const config_t &config )
 
 /*
 ================
-Log_LevelEnabled
+Log_LevelEnabledLocked
 
-Checks global severity and channel filters before building a log record.
+Checks active filters while the caller owns s_LogRuntimeMutex.
 ================
 */
-bool Log_LevelEnabled( const level_t level, const channel_t channel )
+static bool Log_LevelEnabledLocked( const level_t level, const channel_t channel )
 {
     if ( !s_LogRuntimeState.initialized ) {
         return false;
@@ -506,6 +581,19 @@ bool Log_LevelEnabled( const level_t level, const channel_t channel )
     }
 
     return Log_ChannelEnabled( s_LogRuntimeState.config.nChannelMask, channel );
+}
+
+/*
+================
+Log_LevelEnabled
+
+Checks global severity and channel filters before building a log record.
+================
+*/
+bool Log_LevelEnabled( const level_t level, const channel_t channel )
+{
+    const std::lock_guard<std::mutex> lock( s_LogRuntimeMutex );
+    return Log_LevelEnabledLocked( level, channel );
 }
 
 /*
@@ -543,11 +631,13 @@ void Log_Emit( const record_t &record )
         return;
     }
 
-    if ( !Log_LevelEnabled( record.level, record.channel ) ) {
+    const std::lock_guard<std::mutex> lock( s_LogRuntimeMutex );
+
+    if ( !Log_LevelEnabledLocked( record.level, record.channel ) ) {
         return;
     }
 
-    const config_t &config = Log_GetConfig();
+    const config_t &config = s_LogRuntimeState.config;
     const common::u32 nSinkMask = ( record.nSinkMask != 0u ) ? record.nSinkMask : Log_DefaultSinkMaskForLevel( record.level );
 
     if ( Log_SinkMaskHas( nSinkMask, sink_flag_t::TERMINAL ) && Log_SinkAcceptsRecord( record, config.terminal ) ) {
@@ -586,10 +676,6 @@ void Log_Emitf( const level_t level, const channel_t channel,
                 const char *file, const char *function, const common::i32 line,
                 const char *format, ... )
 {
-    if ( !Log_LevelEnabled( level, channel ) ) {
-        return;
-    }
-
     va_list args;
     va_start( args, format );
     Log_Emitfv( level, channel, file, function, line, format, args );

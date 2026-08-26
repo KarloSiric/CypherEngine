@@ -25,6 +25,7 @@ handles are invalidated only according to the rules stated by the public API.
 */
 
 #include "CypherCommon_SoaContainer.h"
+#include "CypherCommon_Align.h"
 
 namespace cypher::common
 {

@@ -15,18 +15,17 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
-#include "CypherSystem_Local.h"
 #include "CypherCommon_Platform.h"
+
+#if CYPHER_PLATFORM_LINUX
+
+#include "CypherSystem_Local.h"
 
 #include <unistd.h> // readlink for /proc/self/exe.
 
 #include <cstdlib>      // std::getenv for HOME.
 #include <filesystem>   // Non-throwing path discovery and normalization.
 #include <system_error> // std::error_code.
-
-#if !CYPHER_PLATFORM_LINUX
-    #error "CypherSystem_Linux_Main.cpp may only be built for Linux targets."
-#endif
 
 namespace cypher::engine::sys
 {
@@ -92,3 +91,5 @@ sys_error_t Sys_PlatformBuildPaths( const init_info_t &initInfo, paths_t &pathsO
 }
 
 } // namespace cypher::engine::sys
+
+#endif // CYPHER_PLATFORM_LINUX

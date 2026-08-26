@@ -21,9 +21,15 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
-## [Unreleased] - 2026-08-12
+## [Unreleased] - 2026-08-27
 
 ### Added
+- Added focused `CypherLog` tests for lifecycle state, synchronized configuration
+  snapshots, failed sink replacement, concurrent writers, and concurrent runtime
+  configuration updates.
+- Declared the next `CypherSystem` lifecycle and emergency-output boundary,
+  including cooperative quit requests, final process termination, raw bootstrap
+  diagnostics, and fatal diagnostics. Implementations remain the next System task.
 - Added the first `CypherShaderCompiler` vertical slice: CYKV recipe decoding,
   exact schema and semantic validation, deterministic define application,
   glslang preprocessing/parsing/cross-stage linking, dependency fingerprints,
@@ -113,6 +119,17 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - Added the authoring-versus-cooked format direction for `.cymap`, `.cyscene`, `.cytex_c`, `.cymesh_c`, `.cyanim_c`, `.cybsp_c`, `.cypkg`, and related Cypher data formats.
 
 ### Changed
+- Made `CypherLog` runtime state, configuration, sink handles, and writes mutually
+  exclusive so renderer, resource, networking, and worker threads can log without
+  racing reconfiguration or shutdown.
+- Changed `Log_GetConfig()` to return a synchronized value snapshot instead of a
+  reference to mutable global logger state.
+- Made logger sink reconfiguration transactional: replacement handles are opened
+  first and committed only after every requested sink succeeds.
+- Guarded Linux, macOS, POSIX, and Win32 System translation units before including
+  target-native headers so clangd can index the complete source tree on one host.
+- Replaced several Tier0/Tier1 umbrella includes with the direct declarations
+  required by allocator, character, error, and SoA implementation units.
 - Clarified ToolFramework naming so terminal-specific behavior uses `ToolCli*`,
   while compiler, input, report, and host contracts remain frontend-neutral.
 - Changed runtime resource handles to an opaque 64-bit `16/32/16`
@@ -130,7 +147,20 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - Updated project structure documentation to reflect the top-level `src/CypherCommon/` tree and the planned Common folder families.
 - Updated the toolchain plan with concrete library, format, and wrapping rules for engine runtime, asset tools, and the future Mason editor.
 
+### Fixed
+- Fixed logger data races between record emission, configuration reads, sink
+  replacement, initialization, and shutdown.
+- Fixed failed logger reconfiguration so an invalid replacement sink no longer
+  closes or partially replaces the active sink set.
+- Fixed the `CypherSystem` declaration/definition exception-specification mismatch
+  introduced while drafting the lifecycle contract, and restored the public
+  `Sys_IsInitialized()` declaration.
+
 ### Verified
+- Verified the complete Debug build and all 223 registered tests on Apple Silicon
+  macOS after the logger synchronization and direct-include changes.
+- Repeated the concurrent `CypherLog` suite 25 consecutive times without failure
+  and verified the focused logger target under ASan/UBSan.
 - Verified the complete shader-tools Debug and Release builds with all 219
   registered tests passing on Apple Silicon macOS, including the VFS,
   ResourceCompiler process integration, and recursive 100-shader corpus paths.

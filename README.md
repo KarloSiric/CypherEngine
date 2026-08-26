@@ -20,27 +20,62 @@
 
 # CypherEngine
 
-CypherEngine is a C++20 game engine project written with C-style runtime code, explicit ownership, module prefixes, and data-oriented systems.
+CypherEngine is an early-stage, from-scratch C++20 3D game engine and offline
+asset toolchain. Runtime code favors C-style procedural APIs, explicit ownership,
+module prefixes, and data-oriented systems.
 
-CypherEngine studies ideas from idTech, GoldSrc/Source, and early CryEngine-era engines as engineering references. It is not a fork and does not copy their implementations.
+The project studies id Tech, GoldSrc/Source, and early CryEngine architecture as
+engineering references. It is not a fork of those engines and does not copy their
+implementations.
 
-Current work is focused on the common runtime foundation: Tier0/Tier1 utilities, memory, VFS, package archives, diagnostics, tests, and benchmarks.
+> **Project status:** Active pre-1.0 development. Public APIs, runtime behavior,
+> and authored/cooked resource formats may change while the foundation is being
+> established. The engine is not production-ready.
 
-## Stack
+## Current Milestone
 
-- C++20
-- CMake
-- vcpkg
-- Catch2
-- Google Benchmark
-- SDL3
-- OpenGL with glad
-- OpenAL Soft
-- LZ4, Zstd, xxHash, libsodium
-- meshoptimizer, FreeType, HarfBuzz
-- Lua for scripting
-- Tracy for profiling
-- Qt 6 later for Mason
+Current work is stabilizing the operating-system and diagnostic boundaries before
+expanding the runtime:
+
+- compile-time platform facts remain in `CypherCommon/Tier0`
+- engine-facing operating-system operations live behind `CypherSystem`
+- `CypherLog` serializes lifecycle, configuration, sink rotation, and writes
+- platform translation units remain isolated from non-target native headers
+- the next System work is cooperative quit handling, bootstrap/fatal output, and
+  a central fixed-capacity event queue
+
+## Engineering Principles
+
+- Build the playable runtime before broad editor expansion.
+- Keep ownership and lifetime rules explicit.
+- Prefer structs and free functions over inheritance-heavy designs.
+- Keep platform-native headers behind narrow subsystem boundaries.
+- Add abstractions only when a concrete runtime or tool consumer requires them.
+- Treat reference engines as sources of lessons, not source-code templates.
+
+## Repository Layout
+
+| Path | Responsibility |
+| --- | --- |
+| `src/CypherCommon` | Shared types, primitives, math, formats, and neutral contracts |
+| `src/CypherSystem` | Engine-facing operating-system services and target backends |
+| `src/CypherLog` | Structured logging, filtering, formatting, and output sinks |
+| `src/CypherEngine/CypherHost` | High-level runtime startup, frame, and shutdown orchestration |
+| `src/CypherResource` | Runtime resource identity, loading, caching, and ownership |
+| `src/CypherRender` | Renderer-facing runtime implementation |
+| `src/CypherTools` | Offline compiler and future authoring-tool products |
+| `tests` / `benchmarks` | Correctness, regression, and performance coverage |
+| `docs` | Architecture decisions, current status, formats, and development notes |
+
+## Requirements
+
+- CMake 3.20 or newer
+- A C++20 compiler
+- Git with submodule support
+- Platform SDK and build tools for Windows, macOS, or Linux
+
+Dependencies are pinned through `vcpkg.json` and the approved vendored libraries
+under `thirdparty/`.
 
 ## Build
 
@@ -48,14 +83,22 @@ Current work is focused on the common runtime foundation: Tier0/Tier1 utilities,
 git submodule update --init --recursive
 cmake -P cmake/CypherBootstrapVcpkg.cmake
 cmake --preset debug
-cmake --build --preset debug
+cmake --build --preset debug --parallel
 ./out/build/debug/bin/CypherEngine
 ```
 
 ## Tests
 
 ```bash
-ctest --preset debug
+ctest --preset debug --output-on-failure
+```
+
+The sanitizer preset provides a second validation path on supported toolchains:
+
+```bash
+cmake --preset asan-ubsan
+cmake --build --preset asan-ubsan --parallel
+ctest --preset asan-ubsan --output-on-failure
 ```
 
 ## Benchmarks
@@ -75,6 +118,8 @@ cmake --build --preset bench-release
 - [docs/subsystems.md](docs/subsystems.md)
 - [docs/coding_style.md](docs/coding_style.md)
 - [docs/reference_engine_lessons.md](docs/reference_engine_lessons.md)
+- [CHANGELOG.md](CHANGELOG.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## License
 

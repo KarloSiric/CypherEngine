@@ -33,6 +33,7 @@ dispatch. A callable is considered bound only when all thunks and pCallable desc
 #endif
 
 #include "CypherCommon_Allocator.h"
+#include "CypherCommon_Align.h"
 
 #include <cstddef>
 #include <type_traits>

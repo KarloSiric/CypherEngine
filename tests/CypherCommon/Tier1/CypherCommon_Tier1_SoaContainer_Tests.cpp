@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherCommon_SoaContainer.h"
+#include "CypherCommon_Align.h"
 
 #include <catch2/catch_test_macros.hpp>
 

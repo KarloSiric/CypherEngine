@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherCommon_Error.h"
+#include "CypherCommon_Defines.h"
 
 namespace cypher::common
 {

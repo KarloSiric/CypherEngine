@@ -84,7 +84,7 @@ const char *Sys_FindArgvValue( const init_info_t &initInfo, const char *argument
 Sys_Init
 ================
 */
-sys_error_t Sys_Init( const init_info_t &initInfo )
+sys_error_t Sys_Init( const init_info_t &initInfo ) noexcept
 {
     if ( s_RuntimeState.initialized ) {
         return sys_error_t::ERR_IS_INIT;
@@ -118,7 +118,7 @@ sys_error_t Sys_Init( const init_info_t &initInfo )
 Sys_Shutdown
 ================
 */
-sys_error_t Sys_Shutdown()
+sys_error_t Sys_Shutdown() noexcept
 {
     if ( !s_RuntimeState.initialized ) {
         return sys_error_t::ERR_NOT_INIT;
@@ -128,7 +128,7 @@ sys_error_t Sys_Shutdown()
     return sys_error_t::OK;
 }
 
-bool Sys_IsInitialized()
+bool Sys_IsInitialized() noexcept
 {
     return s_RuntimeState.initialized;
 }
@@ -163,7 +163,7 @@ const char *Sys_PathBasename( const char *path )
     return basename;
 }
 
-common::f64 Sys_TimeNowSeconds()
+common::f64 Sys_TimeNowSeconds() noexcept
 {
     const auto now = std::chrono::steady_clock::now();
     return std::chrono::duration<common::f64>( now.time_since_epoch() ).count();

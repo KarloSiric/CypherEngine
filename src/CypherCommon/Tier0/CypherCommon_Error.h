@@ -24,7 +24,6 @@
 #include "CypherCommon_Annotations.h"
 #include "CypherCommon_API.h"
 #include "CypherCommon_BaseTypes.h"
-#include "CypherCommon_Defines.h"
 
 namespace cypher::common
 {

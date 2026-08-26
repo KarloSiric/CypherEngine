@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherCommon_Allocator.h"
+#include "CypherCommon_Align.h"
 #include "CypherCommon_Assert.h"
 
 #include <catch2/catch_test_macros.hpp>

@@ -1779,6 +1779,21 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/ToolFramework/CypherCommon_ToolFramework_Compiler_Tests.cpp"
             Cypher::ToolFramework
         )
+
+        add_executable(cypher_log_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherLog/CypherLog_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
+        )
+        target_include_directories(cypher_log_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_log_tests
+            PRIVATE
+                Catch2::Catch2WithMain
+                Cypher::System
+                Threads::Threads
+        )
+        add_test(NAME cypher_log_tests COMMAND cypher_log_tests)
+        set_tests_properties(cypher_log_tests PROPERTIES TIMEOUT 20)
     else()
         message(STATUS "Catch2 not found. Skipping Catch2-based CypherCommon tests.")
     endif()

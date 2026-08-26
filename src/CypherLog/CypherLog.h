@@ -44,7 +44,7 @@ void Log_Shutdown();
 
 bool Log_IsInitialized();
 
-const config_t &Log_GetConfig();
+config_t Log_GetConfig();       // Returns a synchronized snapshot, never a reference to live logger state.
 
 log_error_t Log_SetConfig( const config_t &config );
 

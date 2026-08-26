@@ -344,6 +344,7 @@ bool_t Vec3_TryNormalize(
         "Vec3_TryNormalize requires a finite nonnegative minimum length." );
 
     // Checked APIs initialize outputs before any failure path.
+
     if ( pOriginalLength != nullptr ) {
         *pOriginalLength = 0.0f;
     }
@@ -447,11 +448,9 @@ vec3_t Vec3_ClampLength( vec3_t value, f32 minimumLength, f32 maximumLength ) no
     if ( !bValidMinimum || !bValidMaximum || !bOrderedBounds ) {
         return value;
     }
-
     if ( !Vec3_IsFinite( value ) ) {
         return value;
     }
-
     vec3_t normalized{};
     f32 length = 0.0f;
     if ( !Vec3_NormalizeFinite( value, &normalized, &length ) ) {

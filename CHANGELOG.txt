@@ -20,6 +20,28 @@ CypherEngine Changelog
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
+[Unreleased] - 2026-08-27
+-------------------------
+
+Added
+- Added focused CypherLog lifecycle, sink replacement, and concurrency tests.
+- Declared the next CypherSystem lifecycle, cooperative quit, bootstrap output, and fatal-output boundary.
+
+Changed
+- Serialized CypherLog state, sink access, configuration updates, writes, and shutdown.
+- Changed Log_GetConfig to return a synchronized value snapshot.
+- Made file-sink replacement transactional and preserved active sinks when a replacement fails.
+- Guarded target-specific System translation units so clangd can index them safely on non-target hosts.
+- Replaced several broad Tier0/Tier1 includes with direct dependencies.
+
+Fixed
+- Fixed logger races between writers, configuration updates, and shutdown.
+- Fixed the CypherSystem noexcept declaration mismatch and restored Sys_IsInitialized in the public header.
+
+Verified
+- Verified the complete Debug build and all 223 registered tests on Apple Silicon macOS.
+- Repeated the concurrent CypherLog suite 25 times and verified it under ASan/UBSan.
+
 [0.1.0] - 2026-07-04
 --------------------
 

@@ -15,8 +15,11 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
-#include "CypherSystem_Local.h"
 #include "CypherCommon_Platform.h"
+
+#if CYPHER_PLATFORM_WINDOWS
+
+#include "CypherSystem_Local.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
     #define WIN32_LEAN_AND_MEAN
@@ -28,10 +31,6 @@
 
 #include <filesystem>   // Non-throwing path discovery and normalization.
 #include <system_error> // std::error_code.
-
-#if !CYPHER_PLATFORM_WINDOWS
-    #error "CypherSystem_Win32_Main.cpp may only be built for Windows targets."
-#endif
 
 namespace cypher::engine::sys
 {
@@ -118,3 +117,5 @@ bool Sys_PlatformLocalTime( const std::time_t timeValue, std::tm &timeOut )
 }
 
 } // namespace cypher::engine::sys
+
+#endif // CYPHER_PLATFORM_WINDOWS

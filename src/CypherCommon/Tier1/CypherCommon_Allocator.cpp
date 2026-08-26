@@ -17,6 +17,8 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherCommon_Allocator.h"
+#include "CypherCommon_Align.h"
+#include "CypherCommon_Crash.h"
 
 #include <new>
 

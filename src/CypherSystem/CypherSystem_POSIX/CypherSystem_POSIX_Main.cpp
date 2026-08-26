@@ -14,15 +14,14 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
-#include "CypherSystem_Local.h"
 #include "CypherCommon_Platform.h"
+
+#if CYPHER_PLATFORM_POSIX
+
+#include "CypherSystem_Local.h"
 
 #include <cerrno> // errno and EINTR used while resuming interrupted sleeps.
 #include <ctime>  // nanosleep and localtime_r.
-
-#if !CYPHER_PLATFORM_POSIX
-    #error "CypherSystem_POSIX_Main.cpp may only be built for POSIX targets."
-#endif
 
 namespace cypher::engine::sys
 {
@@ -44,3 +43,5 @@ bool Sys_PlatformLocalTime( const std::time_t timeValue, std::tm &timeOut )
 }
 
 } // namespace cypher::engine::sys
+
+#endif // CYPHER_PLATFORM_POSIX

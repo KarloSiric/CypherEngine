@@ -22,7 +22,9 @@
     #pragma once
 #endif
 
-#include "CypherCommon_Tier0.h"
+#include "CypherCommon_Annotations.h"
+#include "CypherCommon_API.h"
+#include "CypherCommon_BaseTypes.h"
 
 
 namespace cypher::common

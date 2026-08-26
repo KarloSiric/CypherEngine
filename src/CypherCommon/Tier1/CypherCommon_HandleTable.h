@@ -23,6 +23,7 @@
 #endif
 
 #include "CypherCommon_Allocator.h"
+#include "CypherCommon_Handle.h"
 
 namespace cypher::common
 {
