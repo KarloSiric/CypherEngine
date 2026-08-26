@@ -374,6 +374,29 @@ set(CYPHERMATH_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Viewport.cpp"
 )
 
+set(CYPHERSYSTEM_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Window.cpp"
+)
+
+if (WIN32)
+    list(APPEND CYPHERSYSTEM_SOURCES
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Win32/CypherSystem_Win32_Main.cpp"
+    )
+elseif (APPLE)
+    list(APPEND CYPHERSYSTEM_SOURCES
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_POSIX/CypherSystem_POSIX_Main.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_MacOS/CypherSystem_MacOS_Main.cpp"
+    )
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND CYPHERSYSTEM_SOURCES
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_POSIX/CypherSystem_POSIX_Main.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Linux/CypherSystem_Linux_Main.cpp"
+    )
+else()
+    message(FATAL_ERROR "CypherSystem has no implementation for '${CMAKE_SYSTEM_NAME}'.")
+endif()
+
 add_library(CypherCommonTier0 STATIC ${CYPHERCOMMON_TIER0_SOURCES})
 add_library(Cypher::CommonTier0 ALIAS CypherCommonTier0)
 target_compile_features(CypherCommonTier0 PUBLIC cxx_std_20)
@@ -400,6 +423,22 @@ target_link_libraries(CypherCommonTier0 PRIVATE Threads::Threads)
 if (CMAKE_DL_LIBS)
     target_link_libraries(CypherCommonTier0 PRIVATE ${CMAKE_DL_LIBS})
 endif()
+
+add_library(CypherSystem STATIC ${CYPHERSYSTEM_SOURCES})
+add_library(Cypher::System ALIAS CypherSystem)
+target_compile_features(CypherSystem PUBLIC cxx_std_20)
+target_include_directories(CypherSystem
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem"
+    PRIVATE
+        "${CYPHERENGINE_SRC_DIR}/CypherLog"
+)
+target_link_libraries(CypherSystem
+    PUBLIC Cypher::CommonTier0
+    PRIVATE Cypher::ThirdPartyPlatform
+)
 
 add_library(CypherCommonTier1 STATIC ${CYPHERCOMMON_TIER1_SOURCES})
 add_library(Cypher::CommonTier1 ALIAS CypherCommonTier1)
@@ -576,6 +615,9 @@ list(FILTER CYPHERENGINE_SOURCES
 list(FILTER CYPHERENGINE_SOURCES
     EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherPak/"
 )
+list(FILTER CYPHERENGINE_SOURCES
+    EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherSystem/"
+)
 list(APPEND CYPHERENGINE_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Engine/CypherCommon_Print.cpp"
 )
@@ -589,6 +631,7 @@ if (CYPHERENGINE_SOURCES)
             Cypher::Math
             Cypher::Pak
             Cypher::RenderResourceRuntime
+            Cypher::System
     )
     if (CYPHERENGINE_LINK_LIBS)
         target_link_libraries(CypherEngine PRIVATE ${CYPHERENGINE_LINK_LIBS})
@@ -1754,12 +1797,11 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Watch.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
         "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Platform.cpp"
     )
 
     add_executable(cypher_filesystem_smoke ${CYPHERENGINE_FILESYSTEM_SMOKE_SOURCES})
     target_include_directories(cypher_filesystem_smoke PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
-    target_link_libraries(cypher_filesystem_smoke PRIVATE Cypher::Pak)
+    target_link_libraries(cypher_filesystem_smoke PRIVATE Cypher::Pak Cypher::System)
     add_test(NAME cypher_filesystem_smoke COMMAND cypher_filesystem_smoke)
 
     add_executable(cypher_pak_smoke
@@ -2338,10 +2380,9 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Pool.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
-            "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Platform.cpp"
         )
         target_include_directories(cypher_memory_bench PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
-        target_link_libraries(cypher_memory_bench PRIVATE benchmark::benchmark_main)
+        target_link_libraries(cypher_memory_bench PRIVATE benchmark::benchmark_main Cypher::System)
 
         add_executable(cypher_filesystem_path_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherFileSystem/CypherFileSystem_Path_Bench.cpp"
