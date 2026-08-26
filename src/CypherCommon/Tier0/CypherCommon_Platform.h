@@ -21,6 +21,8 @@
     #pragma once
 #endif
 
+#include <cstddef> // std::size_t used by the typed target query API.
+
 //=============================================================================
 //
 // Platform contract
@@ -177,6 +179,9 @@
     #error "Cypher platform detection must resolve to exactly one platform."
 #endif
 
+#define CYPHER_PLATFORM_DESKTOP \
+    ( CYPHER_PLATFORM_WINDOWS || CYPHER_PLATFORM_LINUX || CYPHER_PLATFORM_MACOS )
+
 //-----------------------------------------------------------------------------
 // Native host names
 //
@@ -184,21 +189,30 @@
 // use '/' and must never be constructed with CYPHER_NATIVE_PATH_SEPARATOR.
 //-----------------------------------------------------------------------------
 #if CYPHER_PLATFORM_WINDOWS
-    #define CYPHER_NATIVE_PATH_SEPARATOR '\\'      // Win32 host path separator.
+    #define CYPHER_NATIVE_PATH_SEPARATOR_STR "\\"      // Win32 host path separator string form.
+    #define CYPHER_NATIVE_PATH_SEPARATOR_CHAR '\\'      // Win32 host path separator char form.
+    #define CYPHER_NATIVE_PATH_LIST_SEPARATOR ';'   // PATH-style environment list separator.
     #define CYPHER_SHARED_LIBRARY_PREFIX ""         // foo.dll, never libfoo.dll.
     #define CYPHER_SHARED_LIBRARY_EXTENSION ".dll"
     #define CYPHER_EXECUTABLE_EXTENSION ".exe"
 #elif CYPHER_PLATFORM_MACOS
-    #define CYPHER_NATIVE_PATH_SEPARATOR '/'
+    #define CYPHER_NATIVE_PATH_SEPARATOR_STR "/"    // MacOS/OSX host path separator string form.
+    #define CYPHER_NATIVE_PATH_SEPARATOR_CHAR '/'   // MacOS/OSX host path separator char form.
+    #define CYPHER_NATIVE_PATH_LIST_SEPARATOR ':'
     #define CYPHER_SHARED_LIBRARY_PREFIX "lib"       // libfoo.dylib.
     #define CYPHER_SHARED_LIBRARY_EXTENSION ".dylib"
     #define CYPHER_EXECUTABLE_EXTENSION ""           // Mach-O executables have no required suffix.
 #elif CYPHER_PLATFORM_LINUX
-    #define CYPHER_NATIVE_PATH_SEPARATOR '/'
+    #define CYPHER_NATIVE_PATH_SEPARATOR_STR "/"    // Linux host path separator string form.
+    #define CYPHER_NATIVE_PATH_SEPARATOR_CHAR '/'   // Linux host path separator char form.
+    #define CYPHER_NATIVE_PATH_LIST_SEPARATOR ':'
     #define CYPHER_SHARED_LIBRARY_PREFIX "lib"       // libfoo.so.
     #define CYPHER_SHARED_LIBRARY_EXTENSION ".so"
     #define CYPHER_EXECUTABLE_EXTENSION ""           // ELF executables have no required suffix.
 #endif
+
+// Compatibility spelling retained while callers migrate to the explicit char form.
+#define CYPHER_NATIVE_PATH_SEPARATOR CYPHER_NATIVE_PATH_SEPARATOR_CHAR
 
 //-----------------------------------------------------------------------------
 // CPU architecture
@@ -414,5 +428,186 @@
 #if ( CYPHER_SANITIZER_UNDEFINED != 0 ) && ( CYPHER_SANITIZER_UNDEFINED != 1 )
     #error "CYPHER_SANITIZER_UNDEFINED must be either 0 or 1."
 #endif
+
+//=============================================================================
+//
+// Typed target identity
+//
+// These are compile-time views of the selectors above. Native language types
+// are intentional: Platform.h is the dependency root used while BaseTypes and
+// Annotations are themselves being declared.
+//
+//=============================================================================
+
+namespace cypher::common
+{
+
+enum class platform_type_t : unsigned char {
+    UNKNOWN = 0u, // No supported target matched; unreachable in a valid build.
+    WINDOWS,      // Microsoft Windows desktop.
+    LINUX,        // Linux desktop.
+    MACOS         // Apple macOS desktop.
+};
+
+enum class architecture_type_t : unsigned char {
+    UNKNOWN = 0u, // No supported instruction-set target matched.
+    X86,          // 32-bit x86; recognized but rejected by the current contract.
+    X64,          // 64-bit x86-64.
+    ARM32,        // 32-bit ARM; recognized but rejected by the current contract.
+    ARM64,        // 64-bit AArch64.
+    ARM64EC       // Windows ARM64EC compatibility ABI.
+};
+
+[[nodiscard]] constexpr platform_type_t Cy_PlatformGetType() noexcept
+{
+#if CYPHER_PLATFORM_WINDOWS
+    return platform_type_t::WINDOWS;
+#elif CYPHER_PLATFORM_LINUX
+    return platform_type_t::LINUX;
+#elif CYPHER_PLATFORM_MACOS
+    return platform_type_t::MACOS;
+#else
+    return platform_type_t::UNKNOWN;
+#endif
+}
+
+[[nodiscard]] constexpr const char *Cy_PlatformGetName() noexcept
+{
+    return CYPHER_PLATFORM_NAME;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsWindows() noexcept
+{
+    return CYPHER_PLATFORM_WINDOWS != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsLinux() noexcept
+{
+    return CYPHER_PLATFORM_LINUX != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsMacOS() noexcept
+{
+    return CYPHER_PLATFORM_MACOS != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsPosix() noexcept
+{
+    return CYPHER_PLATFORM_POSIX != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsDesktop() noexcept
+{
+    return CYPHER_PLATFORM_DESKTOP != 0;
+}
+
+[[nodiscard]] constexpr architecture_type_t Cy_PlatformGetArchitecture() noexcept
+{
+#if CYPHER_ARCH_ARM64EC
+    return architecture_type_t::ARM64EC;
+#elif CYPHER_ARCH_X64
+    return architecture_type_t::X64;
+#elif CYPHER_ARCH_X86
+    return architecture_type_t::X86;
+#elif CYPHER_ARCH_ARM64
+    return architecture_type_t::ARM64;
+#elif CYPHER_ARCH_ARM32
+    return architecture_type_t::ARM32;
+#else
+    return architecture_type_t::UNKNOWN;
+#endif
+}
+
+[[nodiscard]] constexpr const char *Cy_PlatformGetArchitectureName() noexcept
+{
+    return CYPHER_ARCH_NAME;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsX64() noexcept
+{
+    return CYPHER_ARCH_X64 != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsX86() noexcept
+{
+    return CYPHER_ARCH_X86 != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsArm64() noexcept
+{
+    return CYPHER_ARCH_ARM64 != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsArm32() noexcept
+{
+    return CYPHER_ARCH_ARM32 != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsArm64EC() noexcept
+{
+    return CYPHER_ARCH_ARM64EC != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsX86Family() noexcept
+{
+    return CYPHER_ARCH_X86_FAMILY != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsArmFamily() noexcept
+{
+    return CYPHER_ARCH_ARM_FAMILY != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIs64Bit() noexcept
+{
+    return CYPHER_TARGET_64BIT != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIs32Bit() noexcept
+{
+    return CYPHER_TARGET_32BIT != 0;
+}
+
+[[nodiscard]] constexpr std::size_t Cy_PlatformGetPointerSize() noexcept
+{
+    return static_cast<std::size_t>( CYPHER_POINTER_SIZE );
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsLittleEndian() noexcept
+{
+    return CYPHER_ENDIAN_LITTLE != 0;
+}
+
+[[nodiscard]] constexpr bool Cy_PlatformIsBigEndian() noexcept
+{
+    return CYPHER_ENDIAN_BIG != 0;
+}
+
+[[nodiscard]] constexpr char Cy_PlatformGetNativePathSeparator() noexcept
+{
+    return CYPHER_NATIVE_PATH_SEPARATOR_CHAR;
+}
+
+[[nodiscard]] constexpr char Cy_PlatformGetNativePathListSeparator() noexcept
+{
+    return CYPHER_NATIVE_PATH_LIST_SEPARATOR;
+}
+
+[[nodiscard]] constexpr const char *Cy_PlatformGetSharedLibraryPrefix() noexcept
+{
+    return CYPHER_SHARED_LIBRARY_PREFIX;
+}
+
+[[nodiscard]] constexpr const char *Cy_PlatformGetSharedLibraryExtension() noexcept
+{
+    return CYPHER_SHARED_LIBRARY_EXTENSION;
+}
+
+[[nodiscard]] constexpr const char *Cy_PlatformGetExecutableExtension() noexcept
+{
+    return CYPHER_EXECUTABLE_EXTENSION;
+}
+
+} // namespace cypher::common
 
 #endif // CYPHER_COMMON_TIER0_PLATFORM_H

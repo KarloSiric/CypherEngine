@@ -64,19 +64,40 @@ TEST_CASE( "Platform selects one supported operating system", "[CypherCommon][Ti
 {
     STATIC_REQUIRE( CYPHER_PLATFORM_WINDOWS + CYPHER_PLATFORM_LINUX + CYPHER_PLATFORM_MACOS == 1 );
     STATIC_REQUIRE( CYPHER_PLATFORM_POSIX == 0 || CYPHER_PLATFORM_POSIX == 1 );
+    STATIC_REQUIRE( CYPHER_PLATFORM_DESKTOP == 1 );
     STATIC_REQUIRE( CYPHER_PLATFORM_NAME[0] != '\0' );
+
+    STATIC_REQUIRE( ::cypher::common::Cy_PlatformGetType() != ::cypher::common::platform_type_t::UNKNOWN );
+    STATIC_REQUIRE( ::cypher::common::Cy_PlatformGetName()[0] != '\0' );
+    STATIC_REQUIRE( ::cypher::common::Cy_PlatformIsDesktop() );
+    STATIC_REQUIRE(
+        static_cast<int>( ::cypher::common::Cy_PlatformIsWindows() ) +
+        static_cast<int>( ::cypher::common::Cy_PlatformIsLinux() ) +
+        static_cast<int>( ::cypher::common::Cy_PlatformIsMacOS() ) == 1
+    );
 
 #if CYPHER_PLATFORM_WINDOWS
     STATIC_REQUIRE( CYPHER_PLATFORM_POSIX == 0 );
+    STATIC_REQUIRE( ::cypher::common::Cy_PlatformGetType() == ::cypher::common::platform_type_t::WINDOWS );
+    STATIC_REQUIRE_FALSE( ::cypher::common::Cy_PlatformIsPosix() );
 #else
     STATIC_REQUIRE( CYPHER_PLATFORM_POSIX == 1 );
+    STATIC_REQUIRE( ::cypher::common::Cy_PlatformIsPosix() );
 #endif
 }
 
 TEST_CASE( "Platform describes native host filenames", "[CypherCommon][Tier0][Platform]" )
 {
     STATIC_REQUIRE( CYPHER_NATIVE_PATH_SEPARATOR == '/' || CYPHER_NATIVE_PATH_SEPARATOR == '\\' );
+    STATIC_REQUIRE( CYPHER_NATIVE_PATH_LIST_SEPARATOR == ':' || CYPHER_NATIVE_PATH_LIST_SEPARATOR == ';' );
     STATIC_REQUIRE( CYPHER_SHARED_LIBRARY_EXTENSION[0] == '.' );
+    STATIC_REQUIRE(
+        ::cypher::common::Cy_PlatformGetNativePathSeparator() == CYPHER_NATIVE_PATH_SEPARATOR
+    );
+    STATIC_REQUIRE(
+        ::cypher::common::Cy_PlatformGetNativePathListSeparator() == CYPHER_NATIVE_PATH_LIST_SEPARATOR
+    );
+    STATIC_REQUIRE( ::cypher::common::Cy_PlatformGetSharedLibraryExtension()[0] == '.' );
 
 #if CYPHER_PLATFORM_WINDOWS
     STATIC_REQUIRE( CYPHER_NATIVE_PATH_SEPARATOR == '\\' );
@@ -99,6 +120,17 @@ TEST_CASE( "Platform architecture and pointer width agree", "[CypherCommon][Tier
     STATIC_REQUIRE( CYPHER_TARGET_64BIT == 1 );
     STATIC_REQUIRE( CYPHER_TARGET_32BIT == 0 );
     STATIC_REQUIRE( CYPHER_POINTER_SIZE == sizeof( void * ) );
+    STATIC_REQUIRE(
+        ::cypher::common::Cy_PlatformGetArchitecture() != ::cypher::common::architecture_type_t::UNKNOWN
+    );
+    STATIC_REQUIRE( ::cypher::common::Cy_PlatformGetArchitectureName()[0] != '\0' );
+    STATIC_REQUIRE(
+        static_cast<int>( ::cypher::common::Cy_PlatformIsX86Family() ) +
+        static_cast<int>( ::cypher::common::Cy_PlatformIsArmFamily() ) == 1
+    );
+    STATIC_REQUIRE( ::cypher::common::Cy_PlatformIs64Bit() );
+    STATIC_REQUIRE_FALSE( ::cypher::common::Cy_PlatformIs32Bit() );
+    STATIC_REQUIRE( ::cypher::common::Cy_PlatformGetPointerSize() == sizeof( void * ) );
 }
 
 TEST_CASE( "Platform byte order matches the C++20 implementation", "[CypherCommon][Tier0][Platform]" )
@@ -107,6 +139,8 @@ TEST_CASE( "Platform byte order matches the C++20 implementation", "[CypherCommo
     STATIC_REQUIRE( CYPHER_ENDIAN_LITTLE == 1 );
     STATIC_REQUIRE( CYPHER_ENDIAN_BIG == 0 );
     STATIC_REQUIRE( std::endian::native == std::endian::little );
+    STATIC_REQUIRE( ::cypher::common::Cy_PlatformIsLittleEndian() );
+    STATIC_REQUIRE_FALSE( ::cypher::common::Cy_PlatformIsBigEndian() );
 }
 
 TEST_CASE( "Platform exposes one build configuration", "[CypherCommon][Tier0][Platform]" )
