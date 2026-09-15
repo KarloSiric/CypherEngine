@@ -23,7 +23,7 @@
     #pragma once
 #endif
 
-#include "Engine/CypherCommon_Error.h"
+#include "CypherCommon/Engine/CypherCommon_Error.h"
 
 namespace cypher::engine::sys {
 
@@ -33,25 +33,30 @@ System Error Codes
 ================
 */
 enum class sys_error_t : common::u8 {
-		OK = 0,                        // Operation completed successfully.
+    OK = 0,                        // Operation completed successfully.
 
-		ERR_NOT_INIT,                  // Platform services are not initialized.
-		ERR_IS_INIT,                   // Initialization was requested for live state.
+    ERR_NOT_INIT,                  // Platform services are not initialized.
+    ERR_IS_INIT,                   // Initialization was requested for live state.
 
-		ERR_INVALID_ARGUMENT,          // Caller supplied an invalid pointer, size, or combination.
-		ERR_INVALID_PATH,              // Path is empty, malformed, or outside policy.
+    ERR_INVALID_ARGUMENT,          // Caller supplied an invalid pointer, size, or combination.
+    ERR_INVALID_PATH,              // Path is empty, malformed, or outside policy.
 
-		ERR_UNSUPPORTED_PLATFORM,      // Build or runtime platform has no implementation.
-		ERR_UNSUPPORTED_COMPILER,      // Compiler toolchain has no supported configuration.
+    ERR_UNSUPPORTED_PLATFORM,      // Build or runtime platform has no implementation.
+    ERR_UNSUPPORTED_COMPILER,      // Compiler toolchain has no supported configuration.
 
-		ERR_PATH_QUERY_FAILED,         // Operating system could not provide a required path.
-		ERR_PATH_TOO_LONG,             // Platform path exceeds fixed runtime storage.
-		ERR_DIRECTORY_CREATE_FAILED,   // Required writable directory could not be created.
+    ERR_PATH_QUERY_FAILED,         // Operating system could not provide a required path.
+    ERR_PATH_TOO_LONG,             // Platform path exceeds fixed runtime storage.
+    ERR_DIRECTORY_CREATE_FAILED,   // Required writable directory could not be created.
 
-		ERR_TIME_UNAVAILABLE,          // Monotonic platform clock could not be queried.
-		ERR_LOCALTIME_FAILED,          // Calendar-time conversion failed.
+    ERR_TIME_UNAVAILABLE,          // Monotonic platform clock could not be queried.
+    ERR_LOCALTIME_FAILED,          // Calendar-time conversion failed.
 
-		ERR_INTERNAL_ERROR             // Platform invariant failed without a specific code.
+    ERR_INTERNAL_ERROR,            // Platform invariant failed without a specific code.
+    ERR_RESOURCE_BUSY,             // A live System-owned resource blocks this operation.
+
+    ERR_GRAPHICS_CONFIG_UNSUPPORTED, // Native window system rejected requested graphics attributes.
+    ERR_GRAPHICS_CONTEXT_FAILED,     // Native graphics context creation or activation failed.
+    ERR_GRAPHICS_OPERATION_FAILED    // Context query, presentation, or swap control failed.
 };
 
 /*
@@ -87,6 +92,14 @@ constexpr inline const char *Sys_ErrorName( const sys_error_t error ) {
         return "ERR_LOCALTIME_FAILED";
     case sys_error_t::ERR_INTERNAL_ERROR:
         return "ERR_INTERNAL_ERROR";
+    case sys_error_t::ERR_RESOURCE_BUSY:
+        return "ERR_RESOURCE_BUSY";
+    case sys_error_t::ERR_GRAPHICS_CONFIG_UNSUPPORTED:
+        return "ERR_GRAPHICS_CONFIG_UNSUPPORTED";
+    case sys_error_t::ERR_GRAPHICS_CONTEXT_FAILED:
+        return "ERR_GRAPHICS_CONTEXT_FAILED";
+    case sys_error_t::ERR_GRAPHICS_OPERATION_FAILED:
+        return "ERR_GRAPHICS_OPERATION_FAILED";
     default:
         return "ERR_UNKNOWN";
     }
@@ -120,13 +133,23 @@ constexpr inline const char *Sys_ErrorDesc( const sys_error_t error ) {
         return "failed to convert platform local time";
     case sys_error_t::ERR_INTERNAL_ERROR:
         return "internal sys error";
+    case sys_error_t::ERR_RESOURCE_BUSY:
+        return "a live sys resource blocks the operation";
+    case sys_error_t::ERR_GRAPHICS_CONFIG_UNSUPPORTED:
+        return "requested graphics configuration is unsupported";
+    case sys_error_t::ERR_GRAPHICS_CONTEXT_FAILED:
+        return "failed to create or activate the graphics context";
+    case sys_error_t::ERR_GRAPHICS_OPERATION_FAILED:
+        return "native graphics operation failed";
     default:
         return "unknown sys error";
     }
 }
 
 constexpr inline common::error_t Sys_ErrorCode( sys_error_t error ) {
-	return common::CypherCommon_ErrorMake( common::domain_t::COM_DOMAIN_SYS, static_cast<common::u16>( error ) );
+    return common::CypherCommon_ErrorMake(
+        common::domain_t::COM_DOMAIN_SYS,
+        static_cast<common::u16>( error ) );
 }
 
 }       // namespace cypher::engine::sys

@@ -4,13 +4,10 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherRender/CypherRender_Shader.h
-//  Purpose: Declares the CypherRender Render Shader module.
-//  Details: This file participates in the renderer bootstrap and draw path. Keep API
-//           boundaries clear so the renderer can grow from simple OpenGL startup into
-//           a fuller rendering backend.
-//
-//  History:
-//  - Created by Karlo Siric on 2026-06-05
+//  Purpose: Reserves the backend-neutral runtime shader contract.
+//  Details: The contract will create live renderer programs from validated
+//           cooked shader views. Native OpenGL shader and program names remain
+//           private to the OpenGL backend.
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -18,70 +15,22 @@
 
 #ifndef CYPHER_ENGINE_RENDER_SHADER_H
 #define CYPHER_ENGINE_RENDER_SHADER_H
-
-#ifndef PRAGMA_ONCE
-    #pragma once
-#endif
-
-#include "CypherMath_Matrix4.h"
-#include "Engine/CypherCommon.h"
-#include "CypherRender_Error.h"
-
-namespace cypher::engine::render
-{
+#pragma once
 
 /*
-================
-Shader Limits
-================
+===============================================================================
+
+    Runtime shader contract design checklist
+
+Before declarations are added, define ownership of cooked bytes, supported
+stage sets, backend compatibility checks, driver compilation diagnostics,
+program reflection, debug names, handle lifetime, and hot-reload replacement.
+
+The first implementation accepts the existing validated CYSH graphics program
+containing one vertex stage and one fragment stage. It does not accept authored
+CYKV or raw files directly; resource loading and cooking stay outside Renderer.
+
+===============================================================================
 */
-constexpr common::u32 CYPHER_RENDER_MAX_SHADER_NAME            = 64u;
-constexpr common::u32 CYPHER_RENDER_MAX_SHADER_PATH            = 256u;
-constexpr common::u32 CYPHER_RENDER_MAX_SHADERS                = 1024u;
-constexpr common::u64 CYPHER_RENDER_MAX_SHADER_SOURCE_SIZE     = 1024u * 1024u;    // 1MB for shaders.
-
-/*
-================
-Shader Types
-================
-*/
-struct shader_t {
-    common::u32 nShaderId{ 0 };                             // Registry-local identity; zero is invalid.
-    char name[CYPHER_RENDER_MAX_SHADER_NAME]{};             // Human-readable lookup name, always terminated.
-    char szVertexPath[CYPHER_RENDER_MAX_SHADER_PATH]{};     // Authored vertex-source path retained for diagnostics.
-    char szFragmentPath[CYPHER_RENDER_MAX_SHADER_PATH]{};   // Authored fragment-source path retained for diagnostics.
-
-    common::u32 nGlShaderProgramId{ 0 };                    // Transitional OpenGL program owned by this record.
-    bool loaded{ false };                                   // Program compiled, linked, and remains live.
-};
-
-struct shader_registry_t {
-    shader_t shaders[CYPHER_RENDER_MAX_SHADERS]{};          // Dense fixed-capacity shader storage.
-    common::u32 nShaderCount{ 0 };                          // Live prefix length in shaders.
-};
-
-/*
-================
-Shader Registry API
-================
-*/
-void R_ShaderRegistryInit( shader_registry_t &szShaderRegistry );
-
-void R_ShaderRegistryShutdown( shader_registry_t &szShaderRegistry );
-
-render_error_t R_ShaderLoad( shader_registry_t &szShaderRegistry, const char *name, const char *szVertexPath, const char *szFragmentPath, shader_t **szOutShader );
-
-shader_t *R_ShaderFind( shader_registry_t &registry, const char *name );
-
-render_error_t R_ShaderBind( const shader_t &shader );
-
-void R_ShaderUnload( shader_t &shader );
-
-render_error_t R_ShaderSetMat4(
-    const shader_t &shader,
-    const char *szUniformName,
-    const ::cypher::math::mat4_t &matrix );
-
-}       // namespace cypher::engine::render
 
 #endif // CYPHER_ENGINE_RENDER_SHADER_H

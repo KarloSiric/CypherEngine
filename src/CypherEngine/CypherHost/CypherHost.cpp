@@ -19,12 +19,12 @@
 #include "CypherCommand.h"
 #include "CypherCVar.h"
 #include "Engine/CypherCommon_Print.h"
-#include "CypherHost.h"
+#include "CypherHost_Local.h"
 #include "CypherConfig.h"
 #include "CypherFileSystem.h"
 #include "CypherLog.h"
 #include "CypherMemory.h"
-#include "CypherRender.h"
+#include "CypherRender/CypherRender_Public.h"
 #include "CypherSystem_Public.h"
 #include "CypherCommon_Compiler.h"
 #include "CypherCommon_Platform.h"
@@ -617,28 +617,42 @@ Host_ApplyCvarsToConfig
 ================
 */
 host_error_t Host_ApplyCvarsToConfig( state_t &pHostState ) {
-    host::window_config_t &pWindowConfig = pHostState.config.pWindowConfig;
+    window_config_t &windowConfig = pHostState.config.windowConfig;
+    render::render_config_t &renderConfig = pHostState.config.renderConfig;
+
+    // Start from the renderer's canonical defaults on every startup pass, then
+    // apply user policy. This prevents stale state after a failed/retried init.
+    renderConfig = render::R_DefaultConfig();
 
     const common::u32 width = cvar::Cvar_GetInt( "r_width" );
     const common::u32 height = cvar::Cvar_GetInt( "r_height" );
     const common::u32 nTargetFps = cvar::Cvar_GetInt( "host_target_fps" );
 
     if ( width != 0u ) {
-        pWindowConfig.viewport.width = width;
+        windowConfig.viewport.width = width;
     }
 
     if ( height != 0u ) {
-        pWindowConfig.viewport.height = height;
+        windowConfig.viewport.height = height;
     }
 
     if ( nTargetFps != 0u ) {
-        pWindowConfig.nTargetFps = nTargetFps;
+        windowConfig.nTargetFps = nTargetFps;
     }
 
-    pWindowConfig.fullscreen = cvar::Cvar_GetBool( "r_fullscreen" );
-    pWindowConfig.vsync = cvar::Cvar_GetBool( "r_vsync" );
+    windowConfig.fullscreen = cvar::Cvar_GetBool( "r_fullscreen" );
+    renderConfig.presentMode = cvar::Cvar_GetBool( "r_vsync" )
+        ? render::render_present_mode_t::FIFO
+        : render::render_present_mode_t::IMMEDIATE;
 
-    LOG_INFO( log::channel_t::HOST, "applied startup cvars: viewport=%ux%u, fullscreen=%u, vsync=%u, target_fps=%u.", pWindowConfig.viewport.width, pWindowConfig.viewport.height, pWindowConfig.fullscreen ? 1u : 0u, pWindowConfig.vsync ? 1u : 0u, pWindowConfig.nTargetFps );
+    LOG_INFO(
+        log::channel_t::HOST,
+        "applied startup cvars: viewport=%ux%u, fullscreen=%u, present_mode=%u, target_fps=%u.",
+        windowConfig.viewport.width,
+        windowConfig.viewport.height,
+        windowConfig.fullscreen ? 1u : 0u,
+        static_cast<common::u32>( renderConfig.presentMode ),
+        windowConfig.nTargetFps );
 
     return host_error_t::OK;
 }
@@ -652,34 +666,15 @@ host_error_t Host_CreateWindow( state_t &pHostState )
 {
     sys::window_desc_t windowDescription{};
 
-    windowDescription.title        = pHostState.config.pWindowConfig.title;
-    windowDescription.width        = pHostState.config.pWindowConfig.viewport.width;
-    windowDescription.height       = pHostState.config.pWindowConfig.viewport.height;
-    windowDescription.fullscreen   = pHostState.config.pWindowConfig.fullscreen;
-    windowDescription.vsync        = pHostState.config.pWindowConfig.vsync;
+    windowDescription.title        = pHostState.config.windowConfig.title;
+    windowDescription.width        = pHostState.config.windowConfig.viewport.width;
+    windowDescription.height       = pHostState.config.windowConfig.viewport.height;
+    windowDescription.fullscreen   = pHostState.config.windowConfig.fullscreen;
 
     const auto windowResult = sys::Sys_CreateWindow( windowDescription, pHostState.window );
     if ( windowResult != sys::sys_error_t::OK ) {
         LOG_ERROR( log::channel_t::HOST, "window creation failed: %s.", sys::Sys_ErrorDesc( windowResult ) );
         COM_ERRORF( sys::Sys_ErrorCode( windowResult ), "Host_CreateWindow: Sys_CreateWindow failed: %s", sys::Sys_ErrorDesc( windowResult ) );
-        return host_error_t::ERR_INITIALIZING;
-    }
-
-    return host_error_t::OK;
-}
-
-/*
-================
-Host_InitRenderer
-================
-*/
-host_error_t Host_InitRenderer( state_t &pHostState ) {
-    const auto renderResult = render::R_Init( pHostState.window, pHostState.config.pWindowConfig );
-    if ( renderResult != render::render_error_t::OK ) {
-        LOG_ERROR( log::channel_t::RENDER, "renderer initialization failed." );
-        COM_ERRORF(
-            render::R_ErrorCode( renderResult ),
-            "Host_Init: renderer initialization failed." );
         return host_error_t::ERR_INITIALIZING;
     }
 
@@ -783,12 +778,6 @@ host_error_t Host_Init( state_t &pHostState ) {
         return result;
     }
 
-    result = Host_InitRenderer( pHostState );
-    if ( result != host_error_t::OK ) {
-        Host_Shutdown( pHostState );
-        return result;
-    }
-
     result = Host_FinishInit( pHostState );
     if ( result != host_error_t::OK ) {
         Host_Shutdown( pHostState );
@@ -809,8 +798,7 @@ void Host_Shutdown( state_t &pHostState ) {
 	pHostState.running = false;
 	pHostState.stage = stage_t::SHUTDOWN;
 
-    render::R_Shutdown();
-    sys::Sys_DestroyWindow( pHostState.window );
+    (void)sys::Sys_DestroyWindow( pHostState.window );
     cfg::Cfg_Shutdown();
     cvar::Cvar_Shutdown();
     cmd::Cmd_Shutdown();
@@ -825,7 +813,7 @@ void Host_Shutdown( state_t &pHostState ) {
 ================
 Host_BeginFrame
 
-Updates frame timing and opens the renderer frame.
+Updates frame timing and opens frame-local memory.
 ================
 */
 void Host_BeginFrame( state_t &pHostState ) {
@@ -857,19 +845,6 @@ void Host_BeginFrame( state_t &pHostState ) {
 	}
 
 	frame.index++;
-
-	const auto renderResult = render::R_BeginFrame( frame.nDeltaTimeSeconds );
-
-	if ( renderResult != render::render_error_t::OK ) {
-		COM_ERRORF(
-			render::R_ErrorCode( renderResult ),
-			"Host_BeginFrame: renderer begin-frame failed." );
-
-		pHostState.running = false;
-		pHostState.stage = stage_t::SHUTTINGDOWN;
-        mem::Mem_EndFrame();
-		return;
-	}
 }
 
 /*
@@ -899,6 +874,7 @@ void Host_Update( state_t &pHostState ) {
     Future order:
     CypherHost_UpdateInput -> CypherHost_UpdateConsole -> CypherHost_UpdateGame -> CypherHost_UpdateAudio.
      */
+
 }
 
 /*
@@ -911,16 +887,7 @@ void Host_Render( state_t &pHostState ) {
 		return;
 	}
 
-	const auto renderResult = render::R_RenderFrame();
-
-	if ( renderResult != render::render_error_t::OK ) {
-		COM_ERRORF(
-			render::R_ErrorCode( renderResult ),
-			"Host_Render: renderer frame submission failed." );
-
-		pHostState.running = false;
-		pHostState.stage = stage_t::SHUTTINGDOWN;
-	}
+    // The runtime renderer is intentionally absent while its backend contract is rebuilt.
 }
 
 /*
@@ -930,19 +897,6 @@ Host_EndFrame
 */
 void Host_EndFrame( state_t &pHostState ) {
 	if ( pHostState.stage == stage_t::SHUTDOWN ) {
-		return;
-	}
-
-	const auto renderResult = render::R_EndFrame();
-
-	if ( renderResult != render::render_error_t::OK ) {
-		COM_ERRORF(
-			render::R_ErrorCode( renderResult ),
-			"Host_EndFrame: renderer end-frame failed." );
-
-		pHostState.running = false;
-		pHostState.stage = stage_t::SHUTDOWN;
-        mem::Mem_EndFrame();
 		return;
 	}
 
@@ -959,7 +913,7 @@ void Host_EndFrame( state_t &pHostState ) {
 Host_IsRunning
 ================
 */
-bool Host_IsRunning( state_t &pHostState ) {
+bool Host_IsRunning( const state_t &pHostState ) {
 	return pHostState.running && ( pHostState.stage != stage_t::SHUTTINGDOWN && pHostState.stage != stage_t::SHUTDOWN );
 }
 

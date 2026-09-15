@@ -79,7 +79,6 @@ set(CYPHERENGINE_INCLUDE_DIRS
     "${CYPHERENGINE_SRC_DIR}/CypherPhysics"
     "${CYPHERENGINE_SRC_DIR}/CypherPlatform"
     "${CYPHERENGINE_SRC_DIR}/CypherProfile"
-    "${CYPHERENGINE_SRC_DIR}/CypherRender"
     "${CYPHERENGINE_SRC_DIR}/CypherResource"
     "${CYPHERENGINE_SRC_DIR}/CypherScript"
     "${CYPHERENGINE_SRC_DIR}/CypherSystem"
@@ -376,7 +375,38 @@ set(CYPHERMATH_SOURCES
 
 set(CYPHERSYSTEM_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_OpenGL.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Window.cpp"
+)
+
+set(CYPHERRENDER_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Backend.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Buffer.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Error.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Public.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Buffer.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Util.cpp"
+)
+
+# Header contracts are listed explicitly so IDE project views expose the same
+# module boundaries on every generator. A source file joins the target only
+# when its contract has an executable implementation.
+set(CYPHERRENDER_HEADERS
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Backend.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Buffer.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Command.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Draw.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Error.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Local.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Pipeline.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Public.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Shader.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Types.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_VertexLayout.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Buffer.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Local.h"
 )
 
 if (WIN32)
@@ -432,13 +462,35 @@ target_include_directories(CypherSystem
         "${CYPHERENGINE_SRC_DIR}"
         "${CYPHERENGINE_SRC_DIR}/CypherCommon"
         "${CYPHERENGINE_SRC_DIR}/CypherSystem"
-    PRIVATE
-        "${CYPHERENGINE_SRC_DIR}/CypherLog"
 )
 target_link_libraries(CypherSystem
     PUBLIC Cypher::CommonTier0
     PRIVATE Cypher::ThirdPartyPlatform
 )
+
+# CypherRender owns the backend-independent frontend and every backend compiled
+# into this binary. CypherSystem remains the sole owner of native windows and
+# graphics contexts; GLAD belongs privately to the OpenGL implementation.
+add_library(CypherRender STATIC ${CYPHERRENDER_SOURCES} ${CYPHERRENDER_HEADERS})
+add_library(Cypher::Render ALIAS CypherRender)
+target_compile_features(CypherRender PUBLIC cxx_std_20)
+target_include_directories(CypherRender
+    PUBLIC
+        "${CYPHERENGINE_SRC_DIR}"
+        "${CYPHERENGINE_SRC_DIR}/CypherRender"
+)
+target_link_libraries(CypherRender
+    PUBLIC Cypher::System
+    PRIVATE
+        CypherCommonTier1
+        Cypher::ThirdPartyGlad
+)
+
+# Preserve the original contract target name while downstream code migrates.
+# It now exposes the complete renderer rather than a compile-only facade.
+add_library(CypherRenderContract INTERFACE)
+add_library(Cypher::RenderContract ALIAS CypherRenderContract)
+target_link_libraries(CypherRenderContract INTERFACE Cypher::Render)
 
 add_library(CypherCommonTier1 STATIC ${CYPHERCOMMON_TIER1_SOURCES})
 add_library(Cypher::CommonTier1 ALIAS CypherCommonTier1)
@@ -618,6 +670,9 @@ list(FILTER CYPHERENGINE_SOURCES
 list(FILTER CYPHERENGINE_SOURCES
     EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherSystem/"
 )
+list(FILTER CYPHERENGINE_SOURCES
+    EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherRender/"
+)
 list(APPEND CYPHERENGINE_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Engine/CypherCommon_Print.cpp"
 )
@@ -631,6 +686,7 @@ if (CYPHERENGINE_SOURCES)
             Cypher::Math
             Cypher::Pak
             Cypher::RenderResourceRuntime
+            Cypher::Render
             Cypher::System
     )
     if (CYPHERENGINE_LINK_LIBS)
@@ -692,6 +748,56 @@ if (CYPHERENGINE_BUILD_TESTS)
             -DCYPHER_EXPECT_EXIT_CODE=73
             -P "${CYPHERENGINE_ROOT_DIR}/cmake/CypherExpectProcessResult.cmake"
     )
+
+    add_executable(cypher_system_death_test_helper
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_DeathTest_Helper.cpp"
+    )
+    target_link_libraries(cypher_system_death_test_helper PRIVATE Cypher::System)
+    add_test(
+        NAME cypher_system_quit_death_test
+        COMMAND
+            "${CMAKE_COMMAND}"
+            "-DCYPHER_TEST_HELPER=$<TARGET_FILE:cypher_system_death_test_helper>"
+            -DCYPHER_TEST_MODE=quit
+            -DCYPHER_EXPECT_EXIT_CODE=73
+            -P "${CYPHERENGINE_ROOT_DIR}/cmake/CypherExpectProcessResult.cmake"
+    )
+    add_test(
+        NAME cypher_system_error_death_test
+        COMMAND
+            "${CMAKE_COMMAND}"
+            "-DCYPHER_TEST_HELPER=$<TARGET_FILE:cypher_system_death_test_helper>"
+            -DCYPHER_TEST_MODE=error
+            -P "${CYPHERENGINE_ROOT_DIR}/cmake/CypherExpectProcessResult.cmake"
+    )
+    add_test(
+        NAME cypher_system_error_v_death_test
+        COMMAND
+            "${CMAKE_COMMAND}"
+            "-DCYPHER_TEST_HELPER=$<TARGET_FILE:cypher_system_death_test_helper>"
+            -DCYPHER_TEST_MODE=error-v
+            -P "${CYPHERENGINE_ROOT_DIR}/cmake/CypherExpectProcessResult.cmake"
+    )
+    add_test(
+        NAME cypher_system_debug_output_test
+        COMMAND "$<TARGET_FILE:cypher_system_death_test_helper>" debug-output
+    )
+    set_tests_properties(cypher_system_debug_output_test PROPERTIES
+        PASS_REGULAR_EXPRESSION "system-debug=17.*system-vdebug=23"
+    )
+    add_test(
+        NAME cypher_system_report_output_test
+        COMMAND "$<TARGET_FILE:cypher_system_death_test_helper>" system-report
+    )
+    set_tests_properties(cypher_system_report_output_test PROPERTIES
+        PASS_REGULAR_EXPRESSION "Cypher System Info"
+    )
+
+    add_executable(cypher_render_contract_tests
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_Contract_Tests.cpp"
+    )
+    target_link_libraries(cypher_render_contract_tests PRIVATE Cypher::RenderContract)
+    add_test(NAME cypher_render_contract_tests COMMAND cypher_render_contract_tests)
 
     if (Catch2_FOUND)
         function(cypher_add_common_catch_test target_name source_file common_target)
@@ -1780,6 +1886,42 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::ToolFramework
         )
 
+        cypher_add_common_catch_test(
+            cypher_system_event_queue_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_EventQueue_Tests.cpp"
+            Cypher::System
+        )
+        cypher_add_common_catch_test(
+            cypher_system_runtime_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_Runtime_Tests.cpp"
+            Cypher::System
+        )
+        cypher_add_common_catch_test(
+            cypher_system_opengl_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_OpenGL_Tests.cpp"
+            Cypher::System
+        )
+        cypher_add_common_catch_test(
+            cypher_render_runtime_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_Runtime_Tests.cpp"
+            Cypher::Render
+        )
+        cypher_add_common_catch_test(
+            cypher_render_opengl_smoke_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_OpenGL_Smoke_Tests.cpp"
+            Cypher::Render
+        )
+        add_executable(cypher_system_window_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_Window_Tests.cpp"
+        )
+        target_link_libraries(cypher_system_window_tests
+            PRIVATE
+                Catch2::Catch2WithMain
+                Cypher::System
+                Cypher::ThirdPartyPlatform
+        )
+        add_test(NAME cypher_system_window_tests COMMAND cypher_system_window_tests)
+
         add_executable(cypher_log_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherLog/CypherLog_Tests.cpp"
             "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
@@ -2387,6 +2529,17 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
             cypher_common_progressbar_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherCommon/ToolFramework/CypherCommon_ProgressBar_Bench.cpp"
             Cypher::ToolFramework
+        )
+
+        cypher_add_common_benchmark(
+            cypher_system_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherSystem/CypherSystem_Bench.cpp"
+            Cypher::System
+        )
+        cypher_add_common_benchmark(
+            cypher_render_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherRender/CypherRender_Bench.cpp"
+            Cypher::Render
         )
 
         add_executable(cypher_memory_bench

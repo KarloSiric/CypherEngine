@@ -23,8 +23,9 @@
     #pragma once
 #endif
 
-#include "Engine/CypherCommon.h"
-#include "CypherSystem_Window.h"
+#include "CypherCommon/Engine/CypherCommon.h"
+#include "CypherRender/CypherRender_Types.h"
+#include "CypherSystem/CypherSystem_Window.h"
 
 namespace cypher::engine::host
 {
@@ -76,7 +77,6 @@ struct window_config_t {
     viewport_t viewport{};
     const char *title{ HOST_DEFAULT_WINDOW_TITLE };
     bool fullscreen{false};
-    bool vsync{true};
     common::u32 nTargetFps{ HOST_DEFAULT_TARGET_FPS };
 };
 
@@ -92,11 +92,12 @@ struct frame_t {
 };
 
 struct config_t {
-    int argc{ 0 };
-    const char *const *argv{ nullptr };
+    int argc{ 0 };                      // Number of process command-line arguments.
+    const char *const *argv{ nullptr }; // Borrowed argument array; valid for process lifetime.
 
-    build_config_t buildConfig{ build_config_t::UNKNOWN };
-    window_config_t pWindowConfig{};
+    build_config_t buildConfig{ build_config_t::UNKNOWN }; // Build policy selected for this executable.
+    window_config_t windowConfig{};                 // Host-owned native-window request.
+    render::render_config_t renderConfig{};         // Host-owned backend-neutral renderer request.
 };
 
 struct state_t {

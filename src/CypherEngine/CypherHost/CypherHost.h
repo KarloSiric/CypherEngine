@@ -31,53 +31,24 @@ namespace cypher::engine::host
 
 /*
 ================
-Host Initialization Steps
-
-Kept separate so startup order stays readable and failure cleanup is explicit.
-================
-*/
-void Host_PrepareStateForInit( state_t &pHostState );
-
-host_error_t Host_InitCoreEngineSystems( state_t &pHostState );
-
-host_error_t Host_MountFileSystem( void );
-
-host_error_t Host_RegisterBuiltinCvars( void );
-
-host_error_t Host_RegisterBuiltinCommands( state_t &pHostState );
-
-host_error_t Host_LoadStartupConfig( void );
-
-host_error_t Host_ApplyLogCvars( void );
-
-host_error_t Host_ApplyCvarsToConfig( state_t &pHostState );
-
-host_error_t Host_CreateWindow( state_t &pHostState );
-
-host_error_t Host_InitRenderer( state_t &pHostState );
-
-host_error_t Host_FinishInit( state_t &pHostState );
-
-/*
-================
 Host Runtime API
 ================
 */
-host_error_t Host_Init( state_t &pHostState );
+CYPHER_NODISCARD host_error_t Host_Init( state_t &hostState );
 
-void Host_RequestShutdown( state_t &pHostState );
+void Host_RequestShutdown( state_t &hostState );
 
-void Host_Shutdown( state_t &pHostState );
+void Host_Shutdown( state_t &hostState );
 
-void Host_BeginFrame( state_t &pHostState );
+void Host_BeginFrame( state_t &hostState );
 
-void Host_Update( state_t &pHostState );
+void Host_Update( state_t &hostState );
 
-void Host_Render( state_t &pHostState );
+void Host_Render( state_t &hostState );
 
-void Host_EndFrame( state_t &pHostState );
+void Host_EndFrame( state_t &hostState );
 
-bool Host_IsRunning( state_t &pHostState );
+CYPHER_NODISCARD bool Host_IsRunning( const state_t &hostState );
 
 }
 

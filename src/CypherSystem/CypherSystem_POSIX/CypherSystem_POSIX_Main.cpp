@@ -26,7 +26,7 @@
 namespace cypher::engine::sys
 {
 
-void Sys_PlatformSleepMilliseconds( const common::u64 milliseconds )
+void Sys_PlatformSleepMilliseconds( const common::u64 milliseconds ) noexcept
 {
     timespec request{};
     request.tv_sec = static_cast<time_t>( milliseconds / 1000u );
@@ -37,7 +37,7 @@ void Sys_PlatformSleepMilliseconds( const common::u64 milliseconds )
     }
 }
 
-bool Sys_PlatformLocalTime( const std::time_t timeValue, std::tm &timeOut )
+bool Sys_PlatformLocalTime( const std::time_t timeValue, std::tm &timeOut ) noexcept
 {
     return localtime_r( &timeValue, &timeOut ) != nullptr;
 }
