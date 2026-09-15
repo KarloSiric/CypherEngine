@@ -1,6 +1,8 @@
 @cykv 1
 @schema "cypher.shader" 1
 
+
+// CYKV -> meaning cypher key values, our own propriatery schema used for almost eveyrthing we will need in our games.
 // Integration corpus recipe 080: ui pipeline variant 20.
 // This authored document intentionally shares GLSL stages while changing the
 // define set, exercising deterministic preprocessing and cooked identities.

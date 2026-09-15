@@ -207,7 +207,7 @@ mem_error_t Mem_ArenaInit( arena_t &arena, const arena_desc_t &arenaDesc )
         if ( committed > 0u ) {
             const sys::sys_error_t commitResult = sys::Sys_VirtualCommit( memory, committed );
             if ( commitResult != sys::sys_error_t::OK ) {
-                sys::Sys_VirtualRelease( memory, capacity );
+                (void)sys::Sys_VirtualRelease( memory, capacity );
                 arena.lastError = mem_error_t::ERR_MEMORY_COMMIT;
                 LOG_ERROR( log::channel_t::MEMORY, "arena init failed for '%s': virtual commit of %zu bytes failed.", arenaDesc.name ? arenaDesc.name : "<unnamed>", committed );
                 return mem_error_t::ERR_MEMORY_COMMIT;

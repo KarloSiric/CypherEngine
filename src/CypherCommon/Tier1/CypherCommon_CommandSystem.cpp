@@ -87,6 +87,7 @@ struct command_record_t {
     concommand_desc_t desc{}; // Public descriptor rebound after every move.
 };
 
+
 struct convar_record_t {
     convar_record_t() noexcept = default;
     CYPHER_NO_COPY( convar_record_t );

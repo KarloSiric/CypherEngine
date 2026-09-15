@@ -206,7 +206,6 @@ static string_parse_status_t StringParse_FloatRangeStatus(
     if ( iFirstNonZeroDigit == CY_INVALID_SIZE ) {
         return string_parse_status_t::NUMERIC_UNDERFLOW;
     }
-
     const i64 nBaseExponent = StringParse_SaturatingDifference(
         cDigitsBeforePoint,
         iFirstNonZeroDigit + 1u );
@@ -248,7 +247,6 @@ static string_parse_result_t StringParse_Float(
                 iConversionBegin
             };
         }
-
         ++iConversionBegin;
         if ( iConversionBegin == text.cchLength ||
              text.pData[iConversionBegin] == '+' ||

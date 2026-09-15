@@ -23,12 +23,13 @@
     #pragma once
 #endif
 
+#include "CypherCommon/Tier0/CypherCommon_Defines.h" // Canonical portable macro vocabulary.
+
 #include <cstddef>     // std::size_t.
 #include <cstdint>     // Fixed-width integer types.
 #include <limits>      // Numeric limits for invalid handles and constants.
 
-#define CYPHER_STRINGIFY( x ) #x
-
+// Compatibility spellings retained for existing engine-side source locations.
 #define CYPHER_TOSTRING( x ) CYPHER_STRINGIFY( x )
 
 #define CYPHER_FILE_LINE __FILE__ ":" CYPHER_TOSTRING( __LINE__ )

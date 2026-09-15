@@ -5,7 +5,13 @@
 // This authored document intentionally shares GLSL stages while changing the
 // define set, exercising deterministic preprocessing and cooked identities.
 {
-    language = "glsl"
+    /* NOTE: here we will be adding things that we wnat to add */
+    /* FIXME: Adding this to showcase that the compilation does indeed work. */
+    /*
+        Something whatever the hel
+        that is.
+    */
+    language = "glsl"       // this is to indicate the language and in this OpenGL language for shaders which is glsl
     vertex = "shaders/corpus/stages/ui.vert"
     fragment = "shaders/corpus/stages/ui.frag"
 

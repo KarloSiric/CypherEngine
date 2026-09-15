@@ -167,7 +167,7 @@ brush_vertex_result_t Brush_BuildVertices(
          cOutputVertices == 0u || minimumAbsDeterminant < 0.0 ||
          insideTolerance < 0.0f || mergeTolerance < 0.0f ) {
         return result;
-}
+    }
     
     const f32 mergeToleranceSquared = mergeTolerance * mergeTolerance;
 
