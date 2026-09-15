@@ -384,9 +384,12 @@ set(CYPHERRENDER_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Buffer.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Error.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Public.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_VertexInput.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_VertexLayout.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Buffer.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Util.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_VertexInput.cpp"
 )
 
 # Header contracts are listed explicitly so IDE project views expose the same
@@ -403,10 +406,12 @@ set(CYPHERRENDER_HEADERS
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Public.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Shader.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Types.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_VertexInput.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_VertexLayout.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Buffer.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Local.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_VertexInput.h"
 )
 
 if (WIN32)

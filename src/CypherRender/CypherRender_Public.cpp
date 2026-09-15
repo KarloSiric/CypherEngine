@@ -164,6 +164,13 @@ render_error_t R_Init(
         return bufferInitResult;
     }
 
+    const render_error_t vertexInputInitResult = R_VertexInputSystemInit();
+    if ( vertexInputInitResult != render_error_t::OK ) {
+        (void)R_BufferSystemShutdown();
+        (void)backend->Shutdown( backend->state );
+        return vertexInputInitResult;
+    }
+
     tr.backend = backend;
     tr.window = &window;
     tr.config = config;
@@ -183,11 +190,13 @@ render_error_t R_Shutdown() noexcept
     }
 
     const render_error_t idleResult = tr.backend->WaitIdle( tr.backend->state );
+    const render_error_t vertexInputResult = R_VertexInputSystemShutdown();
     const render_error_t bufferResult = R_BufferSystemShutdown();
     const render_error_t shutdownResult = tr.backend->Shutdown( tr.backend->state );
 
     tr = {};
     if ( shutdownResult != render_error_t::OK ) return shutdownResult;
+    if ( vertexInputResult != render_error_t::OK ) return vertexInputResult;
     if ( bufferResult != render_error_t::OK ) return bufferResult;
     return idleResult;
 }

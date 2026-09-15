@@ -55,6 +55,19 @@ extern renderer_state_t tr;
 CYPHER_NODISCARD render_error_t R_BufferSystemInit() noexcept;
 CYPHER_NODISCARD render_error_t R_BufferSystemShutdown() noexcept;
 
+// Vertex-input objects retain buffer references so native VAOs can never keep
+// names of buffers that the frontend has already destroyed.
+CYPHER_NODISCARD render_error_t R_BufferAcquireReference(
+    render_buffer_handle_t buffer,
+    render_buffer_usage_flags_t requiredUsage,
+    CY_OUT backend_buffer_t *nativeOut,
+    CY_OUT render_buffer_info_t *infoOut ) noexcept;
+CYPHER_NODISCARD render_error_t R_BufferReleaseReference(
+    render_buffer_handle_t buffer ) noexcept;
+
+CYPHER_NODISCARD render_error_t R_VertexInputSystemInit() noexcept;
+CYPHER_NODISCARD render_error_t R_VertexInputSystemShutdown() noexcept;
+
 } // namespace cypher::engine::render
 
 #endif // CYPHER_ENGINE_RENDER_LOCAL_H

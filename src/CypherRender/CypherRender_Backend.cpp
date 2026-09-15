@@ -47,6 +47,8 @@ bool R_IsBackendValid( const backend_api_t *backend ) noexcept
         backend->InvalidateMappedBuffer != nullptr &&
         backend->UnmapBuffer != nullptr &&
         backend->DestroyBuffer != nullptr &&
+        backend->CreateVertexInput != nullptr &&
+        backend->DestroyVertexInput != nullptr &&
         backend->state != nullptr;
 }
 

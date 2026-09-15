@@ -18,6 +18,7 @@
 #pragma once
 
 #include "CypherRender_Buffer.h"
+#include "CypherRender_VertexInput.h"
 #include "CypherSystem/CypherSystem_Window.h"
 
 namespace cypher::engine::render
@@ -33,13 +34,14 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version two adds the first resource family: untyped renderer buffers. Texture,
-shader, pipeline, command, and draw callbacks remain absent until their public
-descriptors and ownership rules have been designed.
+Version three adds immutable vertex-input objects. OpenGL implements each one
+as a VAO, while the frontend contract remains independent of that native type.
+Texture, shader, pipeline, command, and draw callbacks remain absent until their
+public descriptors and ownership rules have been designed.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 2u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 3u;
 
 /*
 ================
@@ -61,6 +63,46 @@ CYPHER_NODISCARD constexpr bool R_IsBackendBufferValid(
 {
     return buffer.value != R_INVALID_BACKEND_BUFFER.value;
 }
+
+/*
+================
+Backend vertex-input token and descriptor
+
+The frontend translates public buffer handles into native backend tokens before
+dispatch. No backend is permitted to retain pointers into the public descriptor.
+================
+*/
+struct backend_vertex_input_t {
+    ::cypher::common::u64 value{ 0u };
+};
+
+inline constexpr backend_vertex_input_t R_INVALID_BACKEND_VERTEX_INPUT{};
+
+CYPHER_NODISCARD constexpr bool R_IsBackendVertexInputValid(
+    const backend_vertex_input_t vertexInput ) noexcept
+{
+    return vertexInput.value != R_INVALID_BACKEND_VERTEX_INPUT.value;
+}
+
+struct backend_vertex_buffer_binding_t {
+    backend_buffer_t buffer{};
+    ::cypher::common::u64 offset{ 0u };
+    ::cypher::common::u8 binding{ 0u };
+};
+
+struct backend_index_buffer_binding_t {
+    backend_buffer_t buffer{};
+    ::cypher::common::u64 offset{ 0u };
+    render_index_type_t type{ render_index_type_t::UINT16 };
+};
+
+struct backend_vertex_input_desc_t {
+    render_vertex_layout_t layout{};
+    backend_vertex_buffer_binding_t vertexBuffers[R_MAX_VERTEX_BINDINGS]{};
+    ::cypher::common::u32 vertexBufferCount{ 0u };
+    backend_index_buffer_binding_t indexBuffer{};
+    const char *debugName{ nullptr };
+};
 
 // Selects graphics-related native-window attributes before Sys_CreateWindow.
 using backend_configure_window_fn_t = render_error_t (*)(
@@ -147,6 +189,17 @@ using backend_destroy_buffer_fn_t = render_error_t (*)(
     backend_buffer_t buffer,
     void *backendState ) noexcept;
 
+// Materializes one validated layout and native buffer-binding package.
+using backend_create_vertex_input_fn_t = render_error_t (*)(
+    const backend_vertex_input_desc_t &description,
+    backend_vertex_input_t &vertexInputOut,
+    void *backendState ) noexcept;
+
+// Releases the backend-specific input object, such as an OpenGL VAO.
+using backend_destroy_vertex_input_fn_t = render_error_t (*)(
+    backend_vertex_input_t vertexInput,
+    void *backendState ) noexcept;
+
 struct backend_api_t {
     ::cypher::common::u32 apiVersion{ 0u };              // Must equal R_BACKEND_API_VERSION.
     ::cypher::common::u32 structSize{ 0u };              // Exact table size rejects ABI layout mismatches.
@@ -169,6 +222,9 @@ struct backend_api_t {
     backend_invalidate_mapped_buffer_fn_t InvalidateMappedBuffer{ nullptr }; // Refreshes mapped CPU reads.
     backend_unmap_buffer_fn_t UnmapBuffer{ nullptr };           // Ends one active mapping.
     backend_destroy_buffer_fn_t DestroyBuffer{ nullptr };       // Releases native storage.
+
+    backend_create_vertex_input_fn_t CreateVertexInput{ nullptr }; // Creates native vertex-input state.
+    backend_destroy_vertex_input_fn_t DestroyVertexInput{ nullptr }; // Releases native vertex-input state.
 
     void *state{ nullptr }; // Backend-owned runtime passed back unchanged to every callback.
 };

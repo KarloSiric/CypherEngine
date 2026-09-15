@@ -23,7 +23,9 @@
 #endif
 
 #include "CypherRender_Error.h"
+#include "CypherRender_Buffer.h"
 #include "CypherRender_Types.h"
+#include "CypherRender_VertexInput.h"
 #include "CypherSystem/CypherSystem_Window.h"
 
 namespace cypher::engine::render

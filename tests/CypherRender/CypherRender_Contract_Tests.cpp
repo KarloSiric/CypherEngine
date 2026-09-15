@@ -24,6 +24,7 @@ static_assert( sizeof( render::render_present_mode_t ) == 1u );
 static_assert( sizeof( render::render_validation_t ) == 1u );
 static_assert( sizeof( render::render_handle_t ) == 8u );
 static_assert( sizeof( render::backend_buffer_t ) == 8u );
+static_assert( sizeof( render::backend_vertex_input_t ) == 8u );
 static_assert( sizeof( render::render_clear_flags_t ) == 4u );
 
 // Capability positions are persistent contract values and may not be reordered.
@@ -37,8 +38,13 @@ static_assert( render::R_CLEAR_FLAG_MASK ==
 static_assert( render::R_INVALID_HANDLE.value == 0u );
 static_assert( render::R_INVALID_BACKEND_BUFFER.value == 0u );
 static_assert( render::R_INVALID_BUFFER.value == 0u );
+static_assert( render::R_INVALID_VERTEX_INPUT.value == 0u );
+static_assert( render::R_INVALID_BACKEND_VERTEX_INPUT.value == 0u );
 static_assert( std::is_trivially_copyable_v<render::render_buffer_desc_t> );
 static_assert( std::is_trivially_copyable_v<render::render_buffer_info_t> );
+static_assert( std::is_trivially_copyable_v<render::render_vertex_layout_t> );
+static_assert( std::is_trivially_copyable_v<render::render_vertex_input_desc_t> );
+static_assert( std::is_trivially_copyable_v<render::render_vertex_input_info_t> );
 static_assert( std::is_trivially_copyable_v<render::render_config_t> );
 static_assert( std::is_trivially_copyable_v<render::render_info_t> );
 static_assert( std::is_trivially_copyable_v<render::render_frame_info_t> );
@@ -60,6 +66,9 @@ using create_buffer_fn_t = render::render_error_t (*)(
     const render::render_buffer_desc_t &,
     const render::render_buffer_data_t *,
     render::render_buffer_handle_t * ) noexcept;
+using create_vertex_input_fn_t = render::render_error_t (*)(
+    const render::render_vertex_input_desc_t &,
+    render::render_vertex_input_handle_t * ) noexcept;
 
 static_assert( std::is_same_v<
     decltype( &render::R_ConfigureWindow ),
@@ -71,6 +80,10 @@ static_assert( std::is_same_v<
     set_present_mode_fn_t> );
 static_assert( std::is_same_v<decltype( &render::R_WaitIdle ), wait_idle_fn_t> );
 static_assert( std::is_same_v<decltype( &render::R_CreateBuffer ), create_buffer_fn_t> );
+static_assert( std::is_same_v<
+    decltype( &render::R_CreateVertexInput ),
+    create_vertex_input_fn_t> );
+static_assert( render::R_BACKEND_API_VERSION == 3u );
 
 int main()
 {

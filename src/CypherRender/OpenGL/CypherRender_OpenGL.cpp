@@ -17,6 +17,7 @@
 
 #include "CypherRender_OpenGL_Buffer.h"
 #include "CypherRender_OpenGL_Local.h"
+#include "CypherRender_OpenGL_VertexInput.h"
 
 #include "CypherSystem/CypherSystem_OpenGL.h"
 
@@ -607,6 +608,8 @@ const backend_api_t glBackend = {
     .InvalidateMappedBuffer = GL_InvalidateMappedBuffer,
     .UnmapBuffer = GL_UnmapBuffer,
     .DestroyBuffer = GL_DestroyBuffer,
+    .CreateVertexInput = GL_CreateVertexInput,
+    .DestroyVertexInput = GL_DestroyVertexInput,
     .state = &glState
 };
 

@@ -22,6 +22,36 @@
 namespace render = ::cypher::engine::render;
 namespace sys = ::cypher::engine::sys;
 
+namespace
+{
+
+render::render_vertex_layout_t MakeInterleavedVertexLayout()
+{
+    render::render_vertex_layout_t layout{};
+    layout.bindingCount = 1u;
+    layout.bindings[0].binding = 0u;
+    layout.bindings[0].stride = 16u;
+    layout.bindings[0].inputRate = render::render_vertex_input_rate_t::PER_VERTEX;
+    layout.bindings[0].instanceDivisor = 0u;
+
+    layout.attributeCount = 2u;
+    layout.attributes[0] = {
+        render::render_format_t::RGB32_FLOAT,
+        0u,
+        0u,
+        0u
+    };
+    layout.attributes[1] = {
+        render::render_format_t::RGBA8_UNORM,
+        12u,
+        1u,
+        0u
+    };
+    return layout;
+}
+
+} // namespace
+
 TEST_CASE( "renderer errors expose stable names and descriptions" )
 {
     const ::cypher::common::error_table_t *table = render::R_ErrorTable();
@@ -109,6 +139,9 @@ TEST_CASE( "backend selection returns one complete concrete OpenGL table" )
     CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
     malformed = *backend;
     malformed.CreateBuffer = nullptr;
+    CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
+    malformed = *backend;
+    malformed.CreateVertexInput = nullptr;
     CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
     malformed = *backend;
     malformed.state = nullptr;
@@ -225,4 +258,99 @@ TEST_CASE( "buffer operations reject calls before renderer initialization" )
         render::render_error_t::ERR_NOT_INITIALIZED );
     CHECK( buffer.value == render::R_INVALID_BUFFER.value );
     CHECK_FALSE( render::R_IsBufferValid( buffer ) );
+}
+
+TEST_CASE( "vertex format metadata distinguishes converted and integer inputs" )
+{
+    render::render_vertex_format_info_t info{};
+
+    REQUIRE( render::R_GetVertexFormatInfo(
+        render::render_format_t::RGBA8_UNORM,
+        &info ) );
+    CHECK( info.componentCount == 4u );
+    CHECK( info.byteSize == 4u );
+    CHECK( info.alignment == 1u );
+    CHECK( info.valueType == render::render_vertex_value_t::FLOAT );
+    CHECK( info.normalized );
+    CHECK_FALSE( info.packed );
+
+    REQUIRE( render::R_GetVertexFormatInfo(
+        render::render_format_t::RGB32_UINT,
+        &info ) );
+    CHECK( info.componentCount == 3u );
+    CHECK( info.byteSize == 12u );
+    CHECK( info.alignment == 4u );
+    CHECK( info.valueType == render::render_vertex_value_t::UINT );
+    CHECK_FALSE( info.normalized );
+
+    CHECK_FALSE( render::R_GetVertexFormatInfo(
+        render::render_format_t::RGBA8_SRGB,
+        &info ) );
+    CHECK_FALSE( render::R_GetVertexFormatInfo(
+        render::render_format_t::BC7_UNORM,
+        &info ) );
+    CHECK_FALSE( render::R_GetVertexFormatInfo(
+        render::render_format_t::R32_FLOAT,
+        nullptr ) );
+    CHECK( render::R_IndexTypeSize( render::render_index_type_t::UINT16 ) == 2u );
+    CHECK( render::R_IndexTypeSize( render::render_index_type_t::UINT32 ) == 4u );
+    CHECK( render::R_IndexTypeSize( render::render_index_type_t::COUNT ) == 0u );
+}
+
+TEST_CASE( "vertex layouts enforce portable stream and attribute invariants" )
+{
+    const render::render_vertex_layout_t valid = MakeInterleavedVertexLayout();
+    CHECK( render::R_ValidateVertexLayout( valid ) == render::render_error_t::OK );
+
+    render::render_vertex_layout_t malformed = valid;
+    malformed.bindingCount = 0u;
+    CHECK( render::R_ValidateVertexLayout( malformed ) ==
+        render::render_error_t::ERR_VERTEX_LAYOUT_INVALID );
+
+    malformed = valid;
+    malformed.bindings[0].stride = 12u;
+    CHECK( render::R_ValidateVertexLayout( malformed ) ==
+        render::render_error_t::ERR_VERTEX_LAYOUT_INVALID );
+
+    malformed = valid;
+    malformed.bindings[0].instanceDivisor = 1u;
+    CHECK( render::R_ValidateVertexLayout( malformed ) ==
+        render::render_error_t::ERR_VERTEX_LAYOUT_INVALID );
+
+    malformed = valid;
+    malformed.bindings[0].inputRate = render::render_vertex_input_rate_t::PER_INSTANCE;
+    malformed.bindings[0].instanceDivisor = 0u;
+    CHECK( render::R_ValidateVertexLayout( malformed ) ==
+        render::render_error_t::ERR_VERTEX_LAYOUT_INVALID );
+
+    malformed = valid;
+    malformed.attributes[1].location = malformed.attributes[0].location;
+    CHECK( render::R_ValidateVertexLayout( malformed ) ==
+        render::render_error_t::ERR_VERTEX_LAYOUT_INVALID );
+
+    malformed = valid;
+    malformed.attributes[1].binding = 1u;
+    CHECK( render::R_ValidateVertexLayout( malformed ) ==
+        render::render_error_t::ERR_VERTEX_LAYOUT_INVALID );
+
+    malformed = valid;
+    malformed.attributes[1].format = render::render_format_t::RGBA8_SRGB;
+    CHECK( render::R_ValidateVertexLayout( malformed ) ==
+        render::render_error_t::ERR_VERTEX_LAYOUT_INVALID );
+}
+
+TEST_CASE( "vertex input operations reject calls before renderer initialization" )
+{
+    render::render_vertex_input_desc_t description{};
+    description.layout = MakeInterleavedVertexLayout();
+    description.vertexBufferCount = 1u;
+    description.vertexBuffers[0].binding = 0u;
+
+    render::render_vertex_input_handle_t vertexInput{ 0xFFFFFFFFFFFFFFFFull };
+    CHECK( render::R_ValidateVertexInputDesc( description ) ==
+        render::render_error_t::ERR_NOT_INITIALIZED );
+    CHECK( render::R_CreateVertexInput( description, &vertexInput ) ==
+        render::render_error_t::ERR_NOT_INITIALIZED );
+    CHECK( vertexInput.value == render::R_INVALID_VERTEX_INPUT.value );
+    CHECK_FALSE( render::R_IsVertexInputValid( vertexInput ) );
 }

@@ -91,6 +91,7 @@ enum class render_object_type_t : ::cypher::common::u16 {
     FENCE,        // CPU/GPU synchronization object.
     MESH,         // Renderer-owned geometry buffers and draw metadata.
     MATERIAL,     // Pipeline and binding combination used for a surface.
+    VERTEX_INPUT, // Vertex layout and buffer bindings; an OpenGL backend owns a VAO.
     COUNT         // Number of renderer object types; never stored in a handle.
 };
 

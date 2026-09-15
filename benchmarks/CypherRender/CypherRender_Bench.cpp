@@ -22,6 +22,19 @@ namespace render = ::cypher::engine::render;
 namespace
 {
 
+render::render_vertex_layout_t MakeBenchmarkVertexLayout()
+{
+    render::render_vertex_layout_t layout{};
+    layout.bindingCount = 1u;
+    layout.bindings[0].binding = 0u;
+    layout.bindings[0].stride = 32u;
+    layout.attributeCount = 3u;
+    layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    layout.attributes[1] = { render::render_format_t::RGB32_FLOAT, 12u, 1u, 0u };
+    layout.attributes[2] = { render::render_format_t::RG32_FLOAT, 24u, 2u, 0u };
+    return layout;
+}
+
 void BM_R_DefaultConfig( benchmark::State &state )
 {
     for ( auto _ : state ) {
@@ -75,6 +88,27 @@ void BM_R_ErrorName( benchmark::State &state )
     state.SetItemsProcessed( state.iterations() );
 }
 
+void BM_R_GetVertexFormatInfo( benchmark::State &state )
+{
+    for ( auto _ : state ) {
+        render::render_vertex_format_info_t info{};
+        benchmark::DoNotOptimize( render::R_GetVertexFormatInfo(
+            render::render_format_t::RGB32_FLOAT,
+            &info ) );
+        benchmark::DoNotOptimize( info );
+    }
+    state.SetItemsProcessed( state.iterations() );
+}
+
+void BM_R_ValidateVertexLayout( benchmark::State &state )
+{
+    const render::render_vertex_layout_t layout = MakeBenchmarkVertexLayout();
+    for ( auto _ : state ) {
+        benchmark::DoNotOptimize( render::R_ValidateVertexLayout( layout ) );
+    }
+    state.SetItemsProcessed( state.iterations() );
+}
+
 } // namespace
 
 BENCHMARK( BM_R_DefaultConfig );
@@ -82,3 +116,5 @@ BENCHMARK( BM_R_ValidateConfig );
 BENCHMARK( BM_R_SelectBackend );
 BENCHMARK( BM_R_IsBackendValid );
 BENCHMARK( BM_R_ErrorName );
+BENCHMARK( BM_R_GetVertexFormatInfo );
+BENCHMARK( BM_R_ValidateVertexLayout );

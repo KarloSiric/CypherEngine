@@ -15,6 +15,7 @@
 
 #include "CypherRender/CypherRender_Buffer.h"
 #include "CypherRender/CypherRender_Public.h"
+#include "CypherRender/CypherRender_VertexInput.h"
 #include "CypherSystem/CypherSystem_Public.h"
 #include "CypherSystem/CypherSystem_Window.h"
 
@@ -152,6 +153,80 @@ TEST_CASE( "OpenGL renderer clears and presents one hidden frame", "[CypherRende
         render::render_error_t::OK );
     REQUIRE( render::R_UnmapBuffer( buffer ) == render::render_error_t::OK );
 
+    const ::cypher::common::u16 indices[3]{ 0u, 1u, 2u };
+    render::render_buffer_desc_t indexDescription{};
+    indexDescription.byteSize = sizeof( indices );
+    indexDescription.usage = render::R_BUFFER_USAGE_INDEX;
+    indexDescription.updatePolicy = render::render_buffer_update_t::IMMUTABLE;
+    indexDescription.memory = render::render_buffer_memory_t::DEVICE_LOCAL;
+    indexDescription.debugName = "OpenGL smoke index buffer";
+    const render::render_buffer_data_t indexData{ indices, sizeof( indices ) };
+
+    render::render_buffer_handle_t indexBuffer{};
+    REQUIRE( render::R_CreateBuffer(
+        indexDescription,
+        &indexData,
+        &indexBuffer ) == render::render_error_t::OK );
+
+    render::render_vertex_input_desc_t vertexInputDescription{};
+    vertexInputDescription.layout.bindingCount = 1u;
+    vertexInputDescription.layout.bindings[0].binding = 0u;
+    vertexInputDescription.layout.bindings[0].stride = 16u;
+    vertexInputDescription.layout.attributeCount = 2u;
+    vertexInputDescription.layout.attributes[0] = {
+        render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u
+    };
+    vertexInputDescription.layout.attributes[1] = {
+        render::render_format_t::RGBA8_UNORM, 12u, 1u, 0u
+    };
+    vertexInputDescription.vertexBufferCount = 1u;
+    vertexInputDescription.vertexBuffers[0] = { buffer, 0u, 0u };
+    vertexInputDescription.indexBuffer = {
+        indexBuffer,
+        0u,
+        render::render_index_type_t::UINT16
+    };
+    vertexInputDescription.debugName = "OpenGL smoke vertex input";
+
+    REQUIRE( render::R_ValidateVertexInputDesc( vertexInputDescription ) ==
+        render::render_error_t::OK );
+    render::render_vertex_input_handle_t vertexInput{};
+    REQUIRE( render::R_CreateVertexInput(
+        vertexInputDescription,
+        &vertexInput ) == render::render_error_t::OK );
+    REQUIRE( render::R_IsVertexInputValid( vertexInput ) );
+
+    render::render_vertex_input_info_t vertexInputInfo{};
+    REQUIRE( render::R_GetVertexInputInfo( vertexInput, &vertexInputInfo ) ==
+        render::render_error_t::OK );
+    CHECK( vertexInputInfo.layout.attributeCount == 2u );
+    CHECK( vertexInputInfo.vertexBuffers[0].buffer.value == buffer.value );
+    CHECK( vertexInputInfo.indexBuffer.buffer.value == indexBuffer.value );
+
+    // A VAO captures both native buffer names. Frontend references therefore
+    // prevent either buffer from being destroyed while the input remains live.
+    CHECK( render::R_DestroyBuffer( buffer ) ==
+        render::render_error_t::ERR_RESOURCE_BUSY );
+    CHECK( render::R_DestroyBuffer( indexBuffer ) ==
+        render::render_error_t::ERR_RESOURCE_BUSY );
+
+    const ::cypher::common::handle_parts64_t vertexInputParts =
+        ::cypher::common::Cy_Handle64Unpack( vertexInput );
+    const render::render_vertex_input_handle_t wrongVertexInputType =
+        ::cypher::common::Cy_Handle64Make(
+            vertexInputParts.nIndex,
+            vertexInputParts.nGeneration,
+            static_cast<::cypher::common::u32>( render::render_object_type_t::BUFFER ) );
+    CHECK( render::R_GetVertexInputInfo(
+        wrongVertexInputType,
+        &vertexInputInfo ) == render::render_error_t::ERR_RESOURCE_TYPE_MISMATCH );
+
+    REQUIRE( render::R_DestroyVertexInput( vertexInput ) ==
+        render::render_error_t::OK );
+    CHECK_FALSE( render::R_IsVertexInputValid( vertexInput ) );
+    CHECK( render::R_GetVertexInputInfo( vertexInput, &vertexInputInfo ) ==
+        render::render_error_t::ERR_STALE_HANDLE );
+
     const ::cypher::common::handle_parts64_t bufferParts =
         ::cypher::common::Cy_Handle64Unpack( buffer );
     const render::render_buffer_handle_t wrongTypeHandle =
@@ -162,6 +237,7 @@ TEST_CASE( "OpenGL renderer clears and presents one hidden frame", "[CypherRende
     CHECK( render::R_GetBufferInfo( wrongTypeHandle, &bufferInfo ) ==
         render::render_error_t::ERR_RESOURCE_TYPE_MISMATCH );
 
+    REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( buffer ) == render::render_error_t::OK );
     CHECK_FALSE( render::R_IsBufferValid( buffer ) );
     CHECK( render::R_GetBufferInfo( buffer, &bufferInfo ) ==
@@ -174,6 +250,16 @@ TEST_CASE( "OpenGL renderer clears and presents one hidden frame", "[CypherRende
         nullptr,
         &shutdownOwnedBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_IsBufferValid( shutdownOwnedBuffer ) );
+
+    render::render_vertex_input_desc_t shutdownVertexInputDescription =
+        vertexInputDescription;
+    shutdownVertexInputDescription.vertexBuffers[0].buffer = shutdownOwnedBuffer;
+    shutdownVertexInputDescription.indexBuffer = {};
+    render::render_vertex_input_handle_t shutdownOwnedVertexInput{};
+    REQUIRE( render::R_CreateVertexInput(
+        shutdownVertexInputDescription,
+        &shutdownOwnedVertexInput ) == render::render_error_t::OK );
+    REQUIRE( render::R_IsVertexInputValid( shutdownOwnedVertexInput ) );
 
     render::render_frame_info_t frameInfo{};
     frameInfo.frameIndex = 1u;

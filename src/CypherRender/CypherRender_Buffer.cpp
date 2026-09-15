@@ -30,6 +30,7 @@ inline constexpr ::cypher::common::usize R_INITIAL_BUFFER_CAPACITY = 256u;
 struct buffer_record_t {
     backend_buffer_t native{}; // Opaque object owned by the selected backend.
     render_buffer_info_t info{}; // Frontend policy and current mapping state.
+    ::cypher::common::u32 referenceCount{ 0u }; // Vertex inputs currently retaining this buffer.
 };
 
 struct buffer_system_t {
@@ -194,6 +195,69 @@ render_error_t R_BufferSystemShutdown() noexcept
     ::cypher::common::HandleTable_Shutdown( &bufferSystem.records );
     bufferSystem.initialized = false;
     return firstError;
+}
+
+render_error_t R_BufferAcquireReference(
+    const render_buffer_handle_t buffer,
+    const render_buffer_usage_flags_t requiredUsage,
+    backend_buffer_t *nativeOut,
+    render_buffer_info_t *infoOut ) noexcept
+{
+    if ( nativeOut == nullptr || infoOut == nullptr ||
+         requiredUsage == R_BUFFER_USAGE_NONE ||
+         ( requiredUsage & ~R_BUFFER_USAGE_KNOWN_MASK ) != 0u ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    *nativeOut = R_INVALID_BACKEND_BUFFER;
+    *infoOut = {};
+
+    if ( !tr.initialized || !bufferSystem.initialized ) {
+        return render_error_t::ERR_NOT_INITIALIZED;
+    }
+
+    ::cypher::common::handle32_t tableHandle{};
+    buffer_record_t *record = nullptr;
+    const render_error_t resolveResult = R_ResolveBuffer(
+        buffer,
+        tableHandle,
+        record );
+    if ( resolveResult != render_error_t::OK ) return resolveResult;
+    if ( ( record->info.usage & requiredUsage ) != requiredUsage ) {
+        return render_error_t::ERR_BINDING_MISMATCH;
+    }
+    if ( record->info.mapped ) {
+        return render_error_t::ERR_RESOURCE_BUSY;
+    }
+    if ( record->referenceCount == ::cypher::common::CY_U32_MAX ) {
+        return render_error_t::ERR_LIMIT_EXCEEDED;
+    }
+
+    ++record->referenceCount;
+    *nativeOut = record->native;
+    *infoOut = record->info;
+    return render_error_t::OK;
+}
+
+render_error_t R_BufferReleaseReference(
+    const render_buffer_handle_t buffer ) noexcept
+{
+    if ( !tr.initialized || !bufferSystem.initialized ) {
+        return render_error_t::ERR_NOT_INITIALIZED;
+    }
+
+    ::cypher::common::handle32_t tableHandle{};
+    buffer_record_t *record = nullptr;
+    const render_error_t resolveResult = R_ResolveBuffer(
+        buffer,
+        tableHandle,
+        record );
+    if ( resolveResult != render_error_t::OK ) return resolveResult;
+    if ( record->referenceCount == 0u ) {
+        return render_error_t::ERR_INVALID_STATE;
+    }
+
+    --record->referenceCount;
+    return render_error_t::OK;
 }
 
 render_error_t R_ValidateBufferDesc(
@@ -468,7 +532,9 @@ render_error_t R_DestroyBuffer( const render_buffer_handle_t buffer ) noexcept
         tableHandle,
         record );
     if ( resolveResult != render_error_t::OK ) return resolveResult;
-    if ( record->info.mapped ) return render_error_t::ERR_RESOURCE_BUSY;
+    if ( record->info.mapped || record->referenceCount != 0u ) {
+        return render_error_t::ERR_RESOURCE_BUSY;
+    }
 
     const render_error_t destroyResult = tr.backend->DestroyBuffer(
         record->native,
