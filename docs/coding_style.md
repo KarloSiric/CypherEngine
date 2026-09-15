@@ -35,17 +35,22 @@ hidden runtime cost.
 
 ## Naming direction
 
-CypherEngine uses Source/id-style low-magic C/C++ naming: explicit prefixes for
-pointer intent, counts, handles, booleans and storage lifetime. The goal is not
-to copy any engine's code. The goal is to make call sites readable in the same
-way older professional engine code is readable: the name tells you what kind of
-data you are touching before you inspect the type.
+CypherEngine uses id-style module-prefixed C/C++ naming. The goal is not to copy
+historical source mechanically. The useful property is that ownership is visible
+at a call site: `Sys_*` performs an operating-system operation, `R_*` belongs to
+the renderer frontend, and `GL_*` is private OpenGL implementation code.
+
+The compiler already knows whether a value is a pointer, integer or boolean.
+Identifiers therefore describe meaning and lifetime instead of repeating the
+type with faux-Hungarian prefixes. Prefer `window`, `backend`, `byteCount`,
+`enabled`, `handle` and `debugName` over `pWindow`, `pBackend`, `nBytes`,
+`bEnabled`, `hHandle` and `pszDebugName`.
 
 Module names use `Cypher*`:
 
 - `CypherCommon` for shared contracts, primitive types, handles, and platform-independent helpers
-- `CypherSystem` for central engine startup, shutdown, frame orchestration, and subsystem ownership
-- `CypherPlatform` for OS, window, filesystem backend, dynamic library, and platform-specific glue
+- `CypherHost` for central engine startup, shutdown, frame orchestration, and subsystem ownership
+- `CypherSystem` for OS, window, timing, process, dynamic-library, and platform-specific services
 - `CypherMemory` for arenas, pools, allocation tracking, and memory diagnostics
 - `CypherFileSystem` for mounted paths, virtual paths, file handles, and package/archive access
 - `CypherConsole` for developer console, commands, CVars, and runtime tweaking
@@ -70,47 +75,44 @@ Implementation files keep the subsystem visible in the filename:
 - `CypherMemory_Arena.h`
 - `CypherFileSystem_Types.h`
 
-Function names keep explicit subsystem prefixes because the project uses free
-functions rather than large class hierarchies:
+Runtime functions use the short owner prefixes defined by
+`adr/0003-runtime-naming-and-target-ownership.md`:
 
-- `CypherMemory_ArenaAlloc`
-- `CypherRender_SubmitDrawItem`
-- `CypherFileSystem_ResolvePath`
-- `CypherPlatform_CreateWindow`
+- `Mem_ArenaAlloc`
+- `R_SubmitDrawItem`
+- `FS_ResolvePath`
+- `Sys_CreateWindow`
 
-Backend-specific functions include the backend name:
+Renderer prefixes carry distinct architectural meanings:
 
-- `CypherRenderGL_Init`
-- `CypherRenderGL_MeshCreate`
-- `CypherRenderVK_Init` later if Vulkan is added
+- `R_*` is renderer frontend, resource, scene-building, or backend-neutral work.
+- `RB_*` executes prepared renderer commands in a backend; it is not a generic
+  prefix for every backend-related helper.
+- `GL_*` is private OpenGL renderer code and OpenGL state management.
+- `GLimp_*` is the System-owned platform integration used to create a context,
+  resolve OpenGL procedures, set swap policy, and present a window.
+- `RE_*` is reserved for a future engine-to-renderer module export boundary. It
+  is not used merely because a function is declared in a public header.
 
-## Identifier prefixes
+## Identifier shape
 
-These prefixes are now the target for new code and for subsystem migrations:
-
-- `pName`: pointer to one object or one buffer.
-- `ppName`: pointer to pointer.
-- `pszName`: pointer to a zero-terminated string.
-- `szName`: local/member fixed string buffer or string-like character array.
-- `nName`: count, size, byte count, capacity, limit or integer quantity.
-- `iName`: loop index or random-access array index.
-- `bName`: boolean predicate.
-- `flName`: floating point scalar.
-- `hName`: opaque handle.
-- `pfnName`: function pointer.
-- `m_Name`: struct/class member when the type has behavior or private-like state.
-- `g_Name`: process-global state.
-- `s_Name`: file-local static state.
-
-`sz` does not mean size. It means zero-terminated string. Sizes must use `n`,
-for example `nPathBytes`, `nBufferSize`, `nFileCount`, `nMaxEntries`.
-
-Output reference parameters use an `Out` suffix after the normal typed name,
-for example `nBytesReadOut`, `hMountOut`, `fileInfoOut` or `traceOut`.
-
-Generic record/object values and error/result temporaries use lowerCamel when no
-data-shape prefix is useful, for example `mountInfo`, `resolveTrace`,
-`buildResult` or `memoryResult`.
+- Variables, parameters and fields use descriptive `lowerCamelCase`.
+- Types use `snake_case_t` while C-style module functions use `Prefix_PascalCase`.
+- Pointer names do not receive a `p` or `pp` prefix. Indirection is visible in
+  the declaration; names such as `source`, `backendOut`, and `userData` describe
+  the role of the pointee.
+- Function-pointer table members use operation names such as `Init`,
+  `BeginFrame`, and `Shutdown`, not `pfnInit` or `pfnShutdown`.
+- Boolean names state a predicate such as `initialized`, `frameActive`, or
+  `allowFallback`; they do not receive a `b` prefix.
+- Counts and sizes include units or meaning, such as `byteCount`, `fileCount`,
+  `capacity`, `width`, and `height`; they do not receive a generic `n` prefix.
+- Indexes use a meaningful name such as `extensionIndex` or `surfaceIndex`.
+- Output parameters use an `Out` suffix when the direction is not obvious from
+  the operation, for example `backendOut`, `bytesReadOut`, or `traceOut`.
+- File-local state should have one strong subsystem name such as `tr`,
+  `backEnd`, or `glState`; generic `g_` and `s_` prefixes are not required.
+- Constants and enum bits use module-prefixed `SCREAMING_SNAKE_CASE`.
 
 ## Type style
 
@@ -118,7 +120,7 @@ data-shape prefix is useful, for example `mountInfo`, `resolveTrace`,
 - plain engine data: `snake_case_t`
 - creation/config descriptions: `*_desc_t`
 - runtime state structs: `*_state_t`
-- public opaque handles: `*_handle_t`, with variables named `hMount`, `hFile`, `hRequest`
+- public opaque handles: `*_handle_t`, with variables named `mountHandle`, `fileHandle`, `requestHandle`
 - error enums: subsystem-local names such as `fs_error_t`, `pak_error_t`, `render_error_t`
 - flag bitmasks: `*_flags_t` or `CYPHER_*_FLAG_*` constants
 - enum values: `OK`, `ERR_*`, or domain-specific `NAME_*` values

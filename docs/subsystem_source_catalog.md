@@ -208,41 +208,64 @@ CypherRender_Buffer             CypherRender_Texture
 CypherRender_Sampler            CypherRender_Shader
 CypherRender_Pipeline           CypherRender_Descriptor
 CypherRender_Mesh               CypherRender_Material
-CypherRender_Camera             CypherRender_View
-CypherRender_Scene              CypherRender_DrawList
+CypherRender_View               CypherRender_RenderQueue
 CypherRender_RenderGraph        CypherRender_Pass
 CypherRender_Light              CypherRender_Shadow
-CypherRender_Sky                CypherRender_Decal
-CypherRender_Particle           CypherRender_DebugDraw
+CypherRender_Occlusion          CypherRender_DebugDraw
 CypherRender_Capture            CypherRender_Stats
 Backends/Software              Backends/OpenGL
 Backends/Vulkan
 ```
 
-First slice: renderer-neutral handles and commands, a software reference
-backend, one camera, static meshes, textures, materials, and debug geometry.
-OpenGL follows the reference path; Vulkan remains deferred.
+CypherRender owns GPU objects, pass construction, draw sorting and batching,
+fine/GPU occlusion, command execution, and presentation. It does not own the
+world scene graph, terrain, portals, streaming, or coarse visibility.
+
+First slice: renderer-neutral handles and commands, one OpenGL backend, indexed
+geometry, textures, materials, one view, and debug geometry. A software
+reference backend remains a later learning and validation path; Vulkan remains
+deferred.
 
 ## `CypherWorld`
 
 ```text
-CypherWorld_API                 CypherWorld_Types
-CypherWorld_Error               CypherWorld_Handle
-CypherWorld_Runtime             CypherWorld_Loader
-CypherWorld_Map                 CypherWorld_Scene
-CypherWorld_Object              CypherWorld_Transform
-CypherWorld_Hierarchy           CypherWorld_Cell
-CypherWorld_Sector              CypherWorld_Portal
-CypherWorld_Visibility          CypherWorld_SpatialIndex
-CypherWorld_Query               CypherWorld_Trace
-CypherWorld_Streaming           CypherWorld_Spawn
-CypherWorld_Environment         CypherWorld_Lighting
-CypherWorld_Decal               CypherWorld_Debug
-CypherWorld_Serialization       CypherWorld_Stats
+CypherWorld_Public              CypherWorld_Types
+CypherWorld_Error               CypherWorld_Config
+CypherWorld_Local               CypherWorld_Runtime
+Scene/Map                       Scene/ObjectTable
+Scene/Transform                 Scene/Bounds
+Scene/Hierarchy                 Scene/Layer
+Scene/RenderProxy               Scene/StaticGeometry
+Scene/Spawn                     Spatial/LinearIndex
+Spatial/StaticBVH               Spatial/DynamicTree
+Spatial/CellGrid                Spatial/Query
+Visibility/View                Visibility/FrustumCull
+Visibility/DistanceCull        Visibility/VisArea
+Visibility/Portal              Visibility/PortalTraversal
+Terrain/Heightfield            Terrain/TerrainChunk
+Terrain/TerrainQuadtree        Terrain/TerrainLOD
+Terrain/TerrainQuery           Environment/Environment
+Environment/Sky               Environment/Fog
+Environment/Water             Environment/Vegetation
+Environment/Wind              Environment/Light
+Environment/Decal             Streaming/Cell
+Streaming/Streaming           Streaming/Residency
+Streaming/Request             Streaming/Budget
+Submission/RenderItem         Submission/RenderList
+Submission/LightList          Submission/EnvironmentView
+Submission/Submission         Debug/Debug
+Debug/Report                  Debug/Validate
 ```
 
-First slice: load one cooked map, own static placements and spawn records, query
-world bounds, and submit visible render objects.
+CypherWorld owns loaded spatial state, coarse CPU visibility, terrain, portal
+graphs, environment placement, world residency decisions, and the immutable
+candidate handoff to CypherRender. It does not own gameplay components,
+collision simulation, native renderer objects, or Mason's editable topology.
+
+First slice: one in-memory object table, transforms and bounds, linear frustum
+queries, and deterministic renderer-neutral submissions. Cooked map loading
+comes next; accelerated indexes, terrain, portals, and streaming follow measured
+implementation gates in `docs/world_runtime_module_map.md`.
 
 ## `CypherEntity`
 

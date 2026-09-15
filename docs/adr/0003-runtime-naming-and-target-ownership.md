@@ -54,8 +54,9 @@ Public runtime operations use a short owner prefix inside `cypher::engine`:
 | `Cfg_` | configuration loading and application |
 | `Res_` | runtime resource ownership and lookup |
 | `R_` | renderer frontend and backend-neutral submission |
-| `RB_` | renderer backend contract |
-| `GL_` | private OpenGL backend operations |
+| `RB_` | renderer backend command execution |
+| `GL_` | private OpenGL renderer operations and state |
+| `GLimp_` | System-owned platform OpenGL integration |
 | `IN_` | input collection and state |
 | `NET_` | socket and transport services |
 | `Netchan_` | packet sequencing and reliable-channel logic |
@@ -132,9 +133,9 @@ Migration is deliberately incremental:
 6. commit before selecting the next subsystem
 
 No repository-wide search-and-replace is permitted. Faux-Hungarian local names
-such as `sz`, `p`, and `n` are reconsidered only inside the subsystem currently
-being migrated. Existing serialized layouts and behavior do not change during a
-naming/ownership migration.
+such as `sz`, `p`, `pp`, `pfn`, and `n` are removed only inside the subsystem
+currently being migrated. Existing serialized layouts and behavior do not
+change during a naming/ownership migration.
 
 Host, renderer design, physics, ECS, AI, animation, networking, and gameplay
 architecture remain separate collaborative design steps. This ADR does not

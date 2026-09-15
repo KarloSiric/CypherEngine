@@ -1052,20 +1052,31 @@ Approx final runtime LOC:
 
 Purpose:
 
-- loaded map/world state
+- loaded spatial map/world state and renderer-neutral view preparation
 
 Implement:
 
 - world metadata
 - static object placement
+- dynamic render proxies
 - entity spawn data
-- spatial partitioning
+- reference linear spatial queries
+- measured static and dynamic spatial acceleration
 - world bounds
-- scene queries
+- frustum, distance, layer, and LOD queries
+- terrain heightfields, chunks, and LOD selection
+- indoor VisAreas and portal traversal
+- environment and vegetation placement
+- cell residency and streaming coordination
+- immutable renderer-neutral view submissions
 - save/load
-- runtime world format
-- source world format
+- cooked runtime world format
+- CYKV source world format and map compiler boundary
 - debug inspection
+
+CypherWorld does not own gameplay components, the physics broadphase, graphics
+API objects, or Mason's editable topology. See
+`docs/world_runtime_module_map.md` for the staged implementation gates.
 
 Approx final runtime LOC:
 

@@ -51,6 +51,12 @@ Useful naming patterns:
 The key lesson is density with intent: engine code can stay C-like and still be
 clear if names encode ownership, storage and data shape.
 
+This list records Source SDK's historical convention; it is not Cypher's active
+identifier policy. Cypher uses descriptive names such as `window`, `byteCount`,
+`enabled`, `fileHandle`, and `Init` because C++ declarations already expose the
+underlying pointer, integer, boolean, handle, and function-pointer types. See
+`coding_style.md` for the normative rule.
+
 ## idTech 3
 
 Quake III centralizes shared definitions in `q_shared.h` and keeps common

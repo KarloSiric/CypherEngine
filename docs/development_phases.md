@@ -154,15 +154,21 @@ Exit when:
 Build:
 
 - first custom world/map source format direction
-- world metadata
-- static object placement
-- entity spawn data
-- simple cooked/runtime world loading
-- debug inspection support
+- generation-checked spatial object table
+- transforms, bounds, layers, and render proxies
+- reference linear frustum and distance queries
+- immutable renderer-neutral view submissions
+- simple, fully resident cooked world loading
+- world diagnostics and reference-query tests
 
 Exit when:
 
 - authored world data can replace pure hardcoded graybox assumptions
+- the renderer consumes a CypherWorld submission without traversing world state
+
+Terrain, accelerated indexes, portals, and streaming follow the measured gates
+in `docs/world_runtime_module_map.md`; they are not prerequisites for the first
+correct cooked graybox.
 
 ## Phase 8 - Honest Runtime Split
 

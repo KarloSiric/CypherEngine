@@ -33,6 +33,8 @@ This document records the agreed long-term direction for:
   collision, and lighting
 - `CypherMapCompiler` and related command-line tools
 - `Mason`, the long-term Qt 6 editor application
+- optional AI/MCP-assisted map authoring and review
+- optional real-time team collaboration and shared sessions
 - asset validation, versioning, diagnostics, testing, and packaging
 
 It is an architectural target, not a claim that these systems currently exist.
@@ -975,6 +977,78 @@ Commands enable:
 
 The UI must not mutate arbitrary engine memory directly.
 
+### Assisted Authoring And MCP
+
+Mason should eventually expose an optional, versioned editor-automation
+contract that can be consumed by local scripts, tests, and an MCP adapter. The
+MCP transport is only one client of that contract; AI-specific behavior must
+not be embedded in the map document, geometry kernel, or command system.
+
+The assisted-authoring path should support bounded operations such as:
+
+- inspect document status, selection, hierarchy, properties, and stable IDs
+- query assets, materials, entity schemas, bounds, and map statistics
+- capture consistently framed editor viewport images for visual review
+- preview a command transaction against a temporary document clone
+- apply one validated command batch as one ordinary undo-history transaction
+- run map validation, geometry lint, compile preflight, compilation, and playtest
+- undo or redo through the same revision-protected history used by manual edits
+
+Every mutating request must name the document revision it was prepared against.
+If the document changed, Mason rejects the stale request instead of applying it
+to different objects. Preview and apply must use the same command schemas and
+validation rules, and generated objects must receive normal stable IDs. The
+result remains manually editable and contains no opaque AI-owned geometry.
+
+The default connection is local, disabled, and read-only. Enabling mutation
+requires an explicit user decision and a visible session indicator. The bridge
+must use capability-scoped operations, bounded request and result sizes, an
+append-only activity log, and explicit confirmation for destructive or broad
+changes. It must never expose arbitrary process execution, unrestricted host
+filesystem paths, renderer internals, raw engine pointers, or credentials. File
+operations remain constrained to authorized project VFS mounts.
+
+AI providers remain replaceable and optional. Mason may connect an external MCP
+client, a local model, or a hosted assistant without changing editor commands.
+Projects must remain completely usable when no AI service is configured.
+
+Q3Edit's experimental live MCP bridge is a useful public reference for revision
+checks, preview/apply separation, editor captures, atomic command batches, and
+normal undo integration. Cypher will design its own typed operations around
+Mason's mesh-first `.cymap` model rather than copying Q3Edit's Quake-specific
+brush operations or trusting arbitrary local paths.
+
+### Team Collaboration
+
+Real-time collaboration is a separate optional service built above the same
+stable IDs, command transactions, and document revisions. It is not part of the
+renderer, map runtime, CYKV parser, or MCP bridge. A single developer must be
+able to author, compile, and play maps without running a collaboration server.
+
+The first practical collaboration model should provide:
+
+- authenticated project and map sessions with explicit roles and permissions
+- presence, viewport, selection, and cursor information as ephemeral state
+- authoritative document revisions and an ordered operation journal
+- atomic command transactions with conflict detection and user-visible diffs
+- object, layer, or region leases for topology edits that cannot merge safely
+- checkpoints, crash recovery, history inspection, and session export
+- content-hash-based asset synchronization instead of resending unchanged files
+- project-scoped clone, download, archive, and review workflows
+
+Topology mutation should initially use short-lived ownership leases rather than
+pretending arbitrary concurrent mesh edits can always merge. Independent
+property edits may use optimistic revision checks where their command preconditions
+remain valid. Conflicts must be surfaced for a human decision; last-writer-wins
+is not acceptable for map source.
+
+The collaboration service does not replace source control. Source control owns
+durable branches, reviews, and releases; a live session owns low-latency presence
+and an ordered working journal. Remote deployments require encrypted transport,
+authentication, authorization, rate limits, audit records, and project storage
+quotas. LAN and localhost modes follow the same protocol without requiring a
+hosted Cypher service.
+
 ### Schema-Driven Inspector
 
 The property inspector should be generated primarily from reflection/schema
@@ -1336,6 +1410,19 @@ correctness, and iteration targets.
 
 Each workspace begins only after the underlying runtime and compiler data are
 real enough to edit.
+
+### Phase 8: Assisted And Collaborative Authoring
+
+- stabilize and version Mason's editor-command and query contracts
+- add local automation with preview, revision checks, undo, and audit records
+- expose the bounded automation contract through an optional MCP adapter
+- add authenticated collaboration sessions, presence, leases, and journals
+- add content-hash asset synchronization, checkpoints, and conflict review
+- test hostile requests, stale revisions, disconnect recovery, and permission boundaries
+
+Exit condition: an authorized assistant or teammate can propose and apply normal
+Mason transactions without bypassing map validation, undo, project isolation,
+or source-control workflows.
 
 ## Approximate Scope
 

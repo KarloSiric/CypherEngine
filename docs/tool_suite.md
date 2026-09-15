@@ -237,6 +237,8 @@ separate executable provides a proven workflow benefit.
 | Playtest | Decided | Play, pause, frame-step, stop, possess, reload, simulation isolation, and optional out-of-process launch. |
 | Profiler | Planned | Frame summary, CPU/GPU timings, allocations, IO, renderer statistics, and trace capture. |
 | Source Control and Review | Planned | Change lists, diff, history, locks where required, conflict awareness, annotations, and review links without replacing the source-control client. |
+| Assisted Authoring | Planned | Optional local automation and MCP access through versioned queries, revision-safe previews, validated command batches, normal undo, explicit permissions, and an activity log. |
+| Live Collaboration | Deferred | Opt-in authenticated sessions, presence, ordered command journals, topology leases, conflict review, checkpoints, and content-hash asset synchronization. |
 
 ### World And Gameplay Workspaces
 

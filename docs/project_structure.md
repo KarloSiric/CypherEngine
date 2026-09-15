@@ -100,9 +100,9 @@ CypherEngine/
 - `src/CypherResource`
   - asset handles, loading, dependencies, reload, and lifecycle tracking
 - `src/CypherRender`
-  - renderer front-end, cameras, draw lists, shaders, meshes, materials, backend dispatch
+  - GPU objects, views, render queues, passes, shaders, meshes, materials, backend dispatch, and presentation
 - `src/CypherWorld`
-  - map/world source data, object placement, scene ownership, level metadata
+  - loaded map state, spatial objects, coarse visibility, terrain, portals, environment, and streaming decisions
 - `src/CypherEntity`
   - entity identity, component ownership, and game-object runtime bridge
 - `src/CypherInput`

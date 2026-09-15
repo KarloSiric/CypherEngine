@@ -124,11 +124,11 @@ Owns:
 - `CypherMemory` owns allocator and memory lifetime policy
 - `CypherPlatform` owns OS/window/time/platform-facing behavior and the SDL seam
 - `CypherSystem` owns high-level engine orchestration
-- `CypherRender` owns GPU-facing code
+- `CypherRender` owns GPU objects, passes, draw queues, backend commands, and presentation
 - `CypherFileSystem` owns path resolution, mounts, and file I/O
 - `CypherHost` owns top-level engine orchestration
 - `CypherResource` owns asset lifetime and resource handles
-- `CypherWorld` owns level/world data
+- `CypherWorld` owns loaded map state, spatial records, coarse visibility, terrain, portals, environment, and world streaming decisions
 - `CypherEntity` owns entity/component identity and lifetime glue
 - `CypherClient` owns local input/prediction/presentation bridge
 - `CypherServer` owns authoritative simulation
@@ -139,6 +139,12 @@ Owns:
 - `CypherAnimation` owns skeleton/clip/pose evaluation
 - `CypherScript` is the bridge between engine runtime and `rvm`
 - `CypherEditor` owns the Qt editor application and editor-only workflows
+
+CypherWorld produces immutable, renderer-neutral view submissions. CypherRender
+consumes those submissions but must not traverse the world, own terrain source
+data, or control gameplay simulation. Mason owns editable topology and undo
+history; CypherWorld owns only compiled runtime representations. The complete
+boundary is recorded in `docs/adr/0004-world-renderer-ownership.md`.
 
 ## CypherCommon contract model
 
