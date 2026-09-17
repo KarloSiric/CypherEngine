@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherCommon_Align.h"
+#include "CypherCommon_Platform.h"
 #include "CypherCommon_PlatformMemory.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -31,6 +32,21 @@ TEST_CASE( "PlatformMemory reports usable page geometry", "[CypherCommon][Tier0]
     REQUIRE( info.nAllocationGranularity >= info.nPageSize );
     REQUIRE( Cy_AlignIsPowerOfTwo( info.nAllocationGranularity ) );
     REQUIRE( ( info.nAllocationGranularity % info.nPageSize ) == 0u );
+}
+
+TEST_CASE( "PlatformMemory reports coherent physical memory", "[CypherCommon][Tier0][PlatformMemory]" )
+{
+    const platform_memory_info_t info = Cy_PlatformMemoryGetInfo();
+
+    REQUIRE( info.nTotalPhysicalBytes != 0u );
+    REQUIRE( info.nAvailablePhysicalBytes <= info.nTotalPhysicalBytes );
+
+#if CYPHER_PLATFORM_MACOS
+    // macOS has no _SC_AVPHYS_PAGES query. The Mach fallback must still expose
+    // a live, page-aligned estimate instead of reporting zero availability.
+    REQUIRE( info.nAvailablePhysicalBytes != 0u );
+    REQUIRE( ( info.nAvailablePhysicalBytes % info.nPageSize ) == 0u );
+#endif
 }
 
 TEST_CASE( "PlatformMemory rejects invalid and overflowing requests", "[CypherCommon][Tier0][PlatformMemory]" )
