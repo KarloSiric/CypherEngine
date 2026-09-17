@@ -28,17 +28,17 @@ Implemented here:
 - `CypherCommon_RenderFormats`: optional public umbrella for consumers that need
   the complete render-asset contract; implementation files should prefer narrow
   includes
-- `CypherCommon_RenderAssetSchema`: CYKV schemas for `.cyshader`, `.cytex`, and
-  `.cymat` source documents
+- `CypherCommon_RenderAssetSchema`: versioned CYKV schemas for `.cyshader`,
+  `.cytex`, and `.cymat` source documents
 - `CypherCommon_RenderAsset`: bounded, typed, zero-copy source decoders
 - `CypherCommon_CookedResource`: the versioned little-endian header and ordered
   chunk table shared by `_c` runtime resources
-- `CypherCommon_CookedShader`: deterministic `CYSH` packaging and strict borrowed
-  views for the first OpenGL GLSL shader path
-- `CypherCommon_CookedTexture`: deterministic `CYTX` metadata and independently
-  validated 2D mip chunks
-- `CypherCommon_CookedMaterial`: deterministic `CYMT` shader/texture references,
-  typed values, canonical string storage, and borrowed lookup views
+- `CypherCommon_CookedShader`: deterministic `CYSH` stage packaging, logical
+  interface reflection, stable binding IDs, and strict borrowed views
+- `CypherCommon_CookedTexture`: target-ready `CYTX` storage metadata, explicit
+  alpha/residency policy, and independently validated subresource chunks
+- `CypherCommon_CookedMaterial`: deterministic `CYMT` shader-interface identity,
+  resolved state, texture/UV bindings, packed typed constants, and lookup views
 
 The corresponding compiler implementations live under `src/CypherTools` and
 link `Cypher::RenderFormats`. Runtime ownership and native renderer objects live
