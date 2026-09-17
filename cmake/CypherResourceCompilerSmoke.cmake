@@ -463,7 +463,7 @@ if (CYPHER_COLOR_INDEX EQUAL -1)
 endif()
 
 file(WRITE "${CYPHER_SOURCE_ROOT}/shaders/bad-schema.cyshader" [=[@cykv 1
-@schema "cypher.shader" 2
+@schema "cypher.shader" 3
 {
     language = "glsl"
     vertex = "shaders/world.vert"
