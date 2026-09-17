@@ -85,6 +85,7 @@ Shared state and helpers used only by filesystem implementation files.
 */
 struct runtime_state_t {
 	bool initialized{ false };                                // Global filesystem services are ready for use.
+	bool shuttingDown{ false };                               // Reject new async work while admitted workers drain.
 	mount_t mounts[CYPHER_FILESYSTEM_MAX_MOUNTS]{};           // Priority-ordered live mount prefix.
 	common::u32 nMountCount{ 0u };                            // Valid prefix length in mounts.
 	mount_handle_t nNextMountHandle{ 1u };                    // Monotonic handle source; zero remains invalid.
