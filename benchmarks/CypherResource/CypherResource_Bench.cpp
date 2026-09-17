@@ -102,6 +102,10 @@ static void BM_ResourceGet( benchmark::State &state )
             &context.manager,
             handle,
             &pResource );
+        if ( result != resource_error_t::OK || pResource == nullptr ) {
+            state.SkipWithError( "resource lookup failed" );
+            break;
+        }
         benchmark::DoNotOptimize( result );
         benchmark::DoNotOptimize( pResource );
     }
@@ -131,9 +135,17 @@ static void BM_ResourceCachedAcquireRelease( benchmark::State &state )
             context.type,
             path,
             &handle );
+        if ( acquireResult != resource_error_t::OK ) {
+            state.SkipWithError( "resource acquire failed" );
+            break;
+        }
         resource_error_t releaseResult = Res_Release(
             &context.manager,
             handle );
+        if ( releaseResult != resource_error_t::OK ) {
+            state.SkipWithError( "resource release failed" );
+            break;
+        }
         benchmark::DoNotOptimize( acquireResult );
         benchmark::DoNotOptimize( releaseResult );
         benchmark::DoNotOptimize( handle );
@@ -155,9 +167,17 @@ static void BM_ResourceLoadUnload( benchmark::State &state )
             context.type,
             path,
             &handle );
+        if ( acquireResult != resource_error_t::OK ) {
+            state.SkipWithError( "resource load failed" );
+            break;
+        }
         resource_error_t releaseResult = Res_Release(
             &context.manager,
             handle );
+        if ( releaseResult != resource_error_t::OK ) {
+            state.SkipWithError( "resource unload failed" );
+            break;
+        }
         benchmark::DoNotOptimize( acquireResult );
         benchmark::DoNotOptimize( releaseResult );
         benchmark::ClobberMemory();
