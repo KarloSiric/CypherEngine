@@ -16,12 +16,18 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherFileSystem.h"
+#include "CypherFileSystem_Runtime.h"
 #include "CypherPak.h"
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <future>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <utility>
 
 namespace fs = cypher::engine::fs;
 namespace pak = cypher::engine;
@@ -121,6 +127,201 @@ bool TraceResolvedThroughMount( const fs::resolve_trace_t &trace, const fs::moun
     }
 
     return false;
+}
+
+bool CheckCancelledReadBufferLifetime( const char *virtualPath )
+{
+    char buffer[128]{};
+    std::memset( buffer, '?', sizeof( buffer ) );
+    fs::async_request_t request = fs::CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST;
+    fs::async_result_t result{};
+    bool passed = true;
+    {
+        // The worker enters FS_ReadEntireFile through this same recursive mutex.
+        // Holding it makes cancellation-before-completion deterministic, without
+        // depending on disk speed, file size, scheduler timing, or sleeps.
+        std::lock_guard<std::recursive_mutex> lock( fs::FS_RuntimeMutex() );
+        if ( !CheckError( fs::FS_ReadAsync( virtualPath, buffer, sizeof( buffer ), request ),
+                          fs::fs_error_t::OK, "submit blocked cancellable read" ) ) {
+            return false;
+        }
+        passed = CheckError( fs::FS_CancelAsync( request ), fs::fs_error_t::OK,
+                             "request cancellation while read worker is blocked" ) && passed;
+        passed = CheckError( fs::FS_PollAsync( request, result ), fs::fs_error_t::OK,
+                             "poll cancelled but unfinished read" ) && passed;
+        passed = Check( result.status == fs::async_status_t::RUNNING &&
+                        result.error == fs::fs_error_t::OK && result.nBytesTransferred == 0u,
+                        "cancellation does not report terminal status while worker owns buffer" ) && passed;
+        passed = Check( buffer[0] == '?', "blocked worker has not accessed read buffer" ) && passed;
+        passed = CheckError( fs::FS_CancelAsync( request ), fs::fs_error_t::ERR_CANCELLED,
+                             "duplicate cancellation remains rejected" ) && passed;
+    }
+
+    // Always join the worker before this buffer leaves scope, even when an earlier
+    // assertion failed. A failing regression must not introduce its own lifetime bug.
+    passed = CheckError( fs::FS_WaitAsync( request, result ), fs::fs_error_t::OK,
+                         "wait for cancelled read to release buffer" ) && passed;
+    passed = Check( result.status == fs::async_status_t::CANCELLED &&
+                    result.error == fs::fs_error_t::ERR_CANCELLED && result.nBytesTransferred == 0u,
+                    "completed cancelled read reports terminal cancellation" ) && passed;
+
+    std::memset( buffer, '#', sizeof( buffer ) );
+    passed = CheckError( fs::FS_PollAsync( request, result ), fs::fs_error_t::OK,
+                         "poll cached cancellation" ) && passed;
+    passed = Check( result.status == fs::async_status_t::CANCELLED &&
+                    result.error == fs::fs_error_t::ERR_CANCELLED && result.nBytesTransferred == 0u,
+                    "terminal cancellation remains stable across polls" ) && passed;
+    return passed;
+}
+
+bool CheckShutdownClosesAsyncAdmission()
+{
+    fs::fs_error_t readSubmission = fs::fs_error_t::ERR_NOT_IMPLEMENTED;
+    fs::fs_error_t writeSubmission = fs::fs_error_t::ERR_NOT_IMPLEMENTED;
+    fs::async_request_t readRequest = 99u;
+    fs::async_request_t writeRequest = 99u;
+    char buffer[16]{};
+
+    // A deferred future is a test barrier: shutdown executes it synchronously at
+    // its drain point, after taking the worker snapshot and releasing the mutex.
+    // A second thread then exercises public admission during that exact interval.
+    auto probe = std::async( std::launch::deferred, [&]() {
+        std::thread submitter( [&]() {
+            readSubmission = fs::FS_ReadAsync( "shutdown/probe.bin", buffer, sizeof( buffer ), readRequest );
+            writeSubmission = fs::FS_WriteAsync( "shutdown/probe.bin", "probe", 5u, writeRequest );
+
+            // If admission regresses, finish accepted work before the shutdown
+            // clears its slot and before the test's borrowed buffer leaves scope.
+            fs::async_result_t result{};
+            if ( readSubmission == fs::fs_error_t::OK ) {
+                fs::FS_WaitAsync( readRequest, result );
+            }
+            if ( writeSubmission == fs::fs_error_t::OK ) {
+                fs::FS_WaitAsync( writeRequest, result );
+            }
+        } );
+        submitter.join();
+        return fs::async_worker_result_t{ fs::fs_error_t::OK, 0u };
+    } ).share();
+
+    bool inserted = false;
+    {
+        std::lock_guard<std::recursive_mutex> lock( fs::FS_RuntimeMutex() );
+        auto &state = fs::FS_RuntimeState();
+        for ( auto &slot : state.pAsyncRequests ) {
+            if ( !slot.used ) {
+                slot.handle = state.nextAsyncRequest++;
+                slot.status = fs::async_status_t::RUNNING;
+                slot.used = true;
+                slot.future = probe;
+                inserted = true;
+                break;
+            }
+        }
+    }
+    if ( !Check( inserted, "install deterministic shutdown drain barrier" ) ) {
+        return false;
+    }
+
+    bool passed = CheckError( fs::FS_Shutdown(), fs::fs_error_t::OK, "shutdown drains admitted requests" );
+    passed = CheckError( readSubmission, fs::fs_error_t::ERR_NOT_INIT, "shutdown rejects new async reads" ) && passed;
+    passed = CheckError( writeSubmission, fs::fs_error_t::ERR_NOT_INIT, "shutdown rejects new async writes" ) && passed;
+    passed = Check( readRequest == fs::CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST &&
+                    writeRequest == fs::CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST,
+                    "rejected shutdown submissions leave invalid handles" ) && passed;
+    passed = Check( !fs::FS_IsInitialized(), "shutdown finishes clearing runtime state" ) && passed;
+
+    // A new lifecycle must reopen admission. No mount is needed to distinguish
+    // successful submission from the worker's expected missing-file result.
+    if ( !CheckError( fs::FS_Init(), fs::fs_error_t::OK, "reinitialize after draining shutdown" ) ) {
+        return false;
+    }
+    fs::async_request_t reopenedRequest = fs::CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST;
+    const auto submitResult = fs::FS_ReadAsync( "missing.bin", buffer, sizeof( buffer ), reopenedRequest );
+    passed = CheckError( submitResult, fs::fs_error_t::OK, "reinitialization reopens async admission" ) && passed;
+    if ( submitResult == fs::fs_error_t::OK ) {
+        fs::async_result_t result{};
+        passed = CheckError( fs::FS_WaitAsync( reopenedRequest, result ), fs::fs_error_t::OK,
+                             "wait for request from new lifecycle" ) && passed;
+        passed = Check( result.status == fs::async_status_t::FAILED && result.error == fs::fs_error_t::ERR_PATH_NOT_FOUND,
+                        "new lifecycle executes admitted request" ) && passed;
+    }
+    return CheckError( fs::FS_Shutdown(), fs::fs_error_t::OK, "shutdown new lifecycle" ) && passed;
+}
+
+bool CheckCancelledAsyncSlotReuse( const char *virtualPath )
+{
+    std::promise<fs::async_worker_result_t> workerCompletion;
+    const auto future = workerCompletion.get_future().share();
+    std::array<fs::async_request_state_t, fs::CYPHER_FILESYSTEM_MAX_ASYNC_REQUESTS> savedSlots{};
+    {
+        std::lock_guard<std::recursive_mutex> lock( fs::FS_RuntimeMutex() );
+        auto &state = fs::FS_RuntimeState();
+        for ( std::size_t i = 0u; i < savedSlots.size(); ++i ) {
+            savedSlots[i] = std::move( state.pAsyncRequests[i] );
+            auto &slot = state.pAsyncRequests[i];
+            slot = {};
+            slot.used = true;
+            slot.handle = state.nextAsyncRequest++;
+            slot.status = fs::async_status_t::RUNNING;
+            slot.cancelled = true;
+            slot.future = future;
+        }
+    }
+
+    // A promise controls completion without a worker, sleeps, or disk-speed assumptions.
+    // Every slot is cancelled, but none may be reclaimed while its future is pending.
+    const char text[] = "reclaimed async slot\n";
+    fs::async_request_t prematureRequest = 99u;
+    const auto prematureSubmission = fs::FS_WriteAsync( virtualPath, text, sizeof( text ) - 1u, prematureRequest );
+    bool passed = CheckError( prematureSubmission, fs::fs_error_t::ERR_OUT_OF_MEMORY,
+                              "unfinished cancelled requests retain async slots" );
+    passed = Check( prematureRequest == fs::CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST,
+                    "full-table rejection leaves an invalid handle" ) && passed;
+
+    workerCompletion.set_value( { fs::fs_error_t::OK, 0u } );
+    fs::async_result_t result{};
+    // If readiness protection regresses, drain any unexpectedly accepted work before
+    // restoring the saved table. A failing test must not destroy a running future.
+    if ( prematureSubmission == fs::fs_error_t::OK ) {
+        passed = CheckError( fs::FS_WaitAsync( prematureRequest, result ), fs::fs_error_t::OK,
+                             "drain prematurely admitted request" ) && passed;
+    }
+
+    // The private slots still report RUNNING because nobody polled them. Their ready
+    // futures make cancel-and-forget requests safe to recycle through public submit.
+    fs::async_request_t reusedRequest = fs::CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST;
+    const auto reusedSubmission = fs::FS_WriteAsync( virtualPath, text, sizeof( text ) - 1u, reusedRequest );
+    passed = CheckError( reusedSubmission, fs::fs_error_t::OK,
+                         "ready cancelled requests are reclaimed without prior polling" ) && passed;
+    if ( reusedSubmission == fs::fs_error_t::OK ) {
+        passed = Check( reusedRequest != fs::CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST,
+                        "reclaimed slot receives a public handle" ) && passed;
+        passed = CheckError( fs::FS_WaitAsync( reusedRequest, result ), fs::fs_error_t::OK,
+                             "wait for work submitted into reclaimed slot" ) && passed;
+        passed = Check( result.status == fs::async_status_t::COMPLETE &&
+                        result.error == fs::fs_error_t::OK && result.nBytesTransferred == sizeof( text ) - 1u,
+                        "reclaimed slot executes new write successfully" ) && passed;
+        char buffer[sizeof( text )]{};
+        cypher::engine::common::u64 bytesRead = 0u;
+        passed = CheckError( fs::FS_ReadEntireFile( virtualPath, buffer, sizeof( buffer ), bytesRead ),
+                             fs::fs_error_t::OK, "read reclaimed-slot output" ) && passed;
+        passed = Check( bytesRead == sizeof( text ) - 1u && std::memcmp( buffer, text, sizeof( text ) - 1u ) == 0,
+                        "reclaimed slot writes the expected bytes" ) && passed;
+    }
+
+    {
+        std::lock_guard<std::recursive_mutex> lock( fs::FS_RuntimeMutex() );
+        auto &state = fs::FS_RuntimeState();
+        for ( std::size_t i = 0u; i < savedSlots.size(); ++i ) {
+            state.pAsyncRequests[i] = std::move( savedSlots[i] );
+        }
+    }
+    if ( reusedSubmission == fs::fs_error_t::OK || prematureSubmission == fs::fs_error_t::OK ) {
+        passed = CheckError( fs::FS_DeleteFile( virtualPath ), fs::fs_error_t::OK,
+                             "delete reclaimed-slot output" ) && passed;
+    }
+    return passed;
 }
 
 }       // namespace
@@ -224,6 +425,16 @@ int main()
         return 1;
     }
     if ( !Check( nBytesWritten == std::strlen( text ), "write count" ) ) {
+        return 1;
+    }
+    const auto nativeHandle = file.pNativeHandle;
+    if ( !CheckError( fs::FS_Open( "profiles/player1/reopened.cfg", fs::open_mode_t::WRITE_TEXT, file ),
+                      fs::fs_error_t::ERR_INVALID_ARGUMENT, "reject reopening a live native file" ) ) {
+        return 1;
+    }
+    if ( !Check( file.pNativeHandle == nativeHandle && file.backend == fs::file_backend_t::OS_FILE &&
+                 file.cursor == nBytesWritten && file.writable,
+                 "reopening preserves native file ownership and cursor" ) ) {
         return 1;
     }
     if ( !CheckError( fs::FS_Close( file ), fs::fs_error_t::OK, "close file" ) ) {
@@ -408,6 +619,16 @@ int main()
         return 1;
     }
     if ( !Check( nPackageBytesRead == 4u && std::memcmp( pPackageHandleBuffer, "pack", 4u ) == 0, "package file prefix bytes" ) ) {
+        return 1;
+    }
+    const auto packageHandle = packageFile.pNativeHandle;
+    if ( !CheckError( fs::FS_Open( "game/package_only.cfg", fs::open_mode_t::READ_BINARY, packageFile ),
+                      fs::fs_error_t::ERR_INVALID_ARGUMENT, "reject reopening a live package file" ) ) {
+        return 1;
+    }
+    if ( !Check( packageFile.pNativeHandle == packageHandle && packageFile.backend == fs::file_backend_t::PACKAGE_FILE &&
+                 packageFile.cursor == 4u && packageFile.readable,
+                 "reopening preserves package file ownership and cursor" ) ) {
         return 1;
     }
     if ( !CheckError( fs::FS_Tell( packageFile, nPackagePosition ), fs::fs_error_t::OK, "tell package file after read" ) ) {
@@ -648,6 +869,10 @@ int main()
         return 1;
     }
 
+    if ( !CheckCancelledReadBufferLifetime( "profiles/player1/config.cfg" ) ) {
+        return 1;
+    }
+
     TraceStep( "async write" );
 
     const char szAsyncText[] = "async write\n";
@@ -669,6 +894,11 @@ int main()
         return 1;
     }
     if ( !CheckError( fs::FS_DeleteFile( "profiles/player1/async.cfg" ), fs::fs_error_t::OK, "delete async written file" ) ) {
+        return 1;
+    }
+
+    TraceStep( "cancelled async slot reuse" );
+    if ( !CheckCancelledAsyncSlotReuse( "profiles/player1/reclaimed.cfg" ) ) {
         return 1;
     }
 
@@ -742,7 +972,7 @@ int main()
     if ( !CheckError( fs::FS_Unmount( readMount ), fs::fs_error_t::OK, "unmount by handle" ) ) {
         return 1;
     }
-    if ( !CheckError( fs::FS_Shutdown(), fs::fs_error_t::OK, "shutdown" ) ) {
+    if ( !CheckShutdownClosesAsyncAdmission() ) {
         return 1;
     }
 
