@@ -31,6 +31,9 @@
 #elif CYPHER_PLATFORM_POSIX
     #include <sys/mman.h>
     #include <unistd.h>
+    #if CYPHER_PLATFORM_MACOS
+        #include <mach/mach.h>
+    #endif
     #if !defined( MAP_ANON ) && defined( MAP_ANONYMOUS )
         #define MAP_ANON MAP_ANONYMOUS
     #endif
@@ -95,6 +98,22 @@ u64 PlatformMemory_PageCountToBytes( long nPageCount, usize nPageSize ) noexcept
     return nCount * nSize;
 }
 
+#if CYPHER_PLATFORM_MACOS
+u64 PlatformMemory_UnsignedPageCountToBytes( u64 nPageCount, usize nPageSize ) noexcept
+{
+    const u64 nSize = static_cast<u64>( nPageSize );
+    if ( nSize == 0u || nPageCount > CY_U64_MAX / nSize ) {
+        return nSize == 0u ? 0u : CY_U64_MAX;
+    }
+    return nPageCount * nSize;
+}
+
+u64 PlatformMemory_SaturatingAdd( u64 nLeft, u64 nRight ) noexcept
+{
+    return nLeft > CY_U64_MAX - nRight ? CY_U64_MAX : nLeft + nRight;
+}
+#endif
+
 } // namespace
 
 platform_memory_info_t Cy_PlatformMemoryGetInfo() noexcept
@@ -124,7 +143,33 @@ platform_memory_info_t Cy_PlatformMemoryGetInfo() noexcept
         info.nTotalPhysicalBytes =
             PlatformMemory_PageCountToBytes( ::sysconf( _SC_PHYS_PAGES ), info.nPageSize );
     #endif
-    #if defined( _SC_AVPHYS_PAGES )
+    #if CYPHER_PLATFORM_MACOS
+        vm_statistics64_data_t vmStatistics{};
+        mach_msg_type_number_t nStatisticCount = HOST_VM_INFO64_COUNT;
+        const host_t host = ::mach_host_self();
+        const kern_return_t result = ::host_statistics64(
+            host,
+            HOST_VM_INFO64,
+            reinterpret_cast<host_info64_t>( &vmStatistics ),
+            &nStatisticCount );
+        ( void )::mach_port_deallocate( ::mach_task_self(), host );
+
+        if ( result == KERN_SUCCESS ) {
+            // Inactive pages are immediately reclaimable for new allocations.
+            // Mach already includes speculative pages in free_count, so adding
+            // speculative_count separately would overstate available memory.
+            const u64 nAvailablePageCount = PlatformMemory_SaturatingAdd(
+                static_cast<u64>( vmStatistics.free_count ),
+                static_cast<u64>( vmStatistics.inactive_count ) );
+            info.nAvailablePhysicalBytes = PlatformMemory_UnsignedPageCountToBytes(
+                nAvailablePageCount,
+                info.nPageSize );
+            if ( info.nTotalPhysicalBytes != 0u &&
+                 info.nAvailablePhysicalBytes > info.nTotalPhysicalBytes ) {
+                info.nAvailablePhysicalBytes = info.nTotalPhysicalBytes;
+            }
+        }
+    #elif defined( _SC_AVPHYS_PAGES )
         info.nAvailablePhysicalBytes =
             PlatformMemory_PageCountToBytes( ::sysconf( _SC_AVPHYS_PAGES ), info.nPageSize );
     #endif
