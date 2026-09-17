@@ -38,6 +38,7 @@ is returned.
 namespace cypher::engine
 {
 
+// Rejects an already-owned reader with ERR_INVALID_STATE, preserving its archive.
 pak_error_t Pak_OpenReader(
     const char *szArchivePath,
     common::u32 flags,
