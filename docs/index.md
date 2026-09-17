@@ -26,25 +26,28 @@ This is the navigation root for CypherEngine.
 
 Read these in order when resuming work:
 
-1. [current_status.md](current_status.md)
-2. [six_month_engine_plan.md](six_month_engine_plan.md)
-3. [master_plan.md](master_plan.md)
-4. [development_phases.md](development_phases.md)
-5. [roadmap.md](roadmap.md)
-6. [project_structure.md](project_structure.md)
-7. [architecture.md](architecture.md)
-8. [cyphercommon_architecture.md](cyphercommon_architecture.md)
-9. [function_pointer_policy.md](function_pointer_policy.md)
-10. [subsystems.md](subsystems.md)
-11. [subsystem_source_catalog.md](subsystem_source_catalog.md)
-12. [toolchain_plan.md](toolchain_plan.md)
-13. [tool_suite.md](tool_suite.md)
-14. [source2_tooling_reference.md](source2_tooling_reference.md)
-15. [map_authoring_and_mason.md](map_authoring_and_mason.md)
-16. [picasso_v1_design.md](picasso_v1_design.md)
-17. [formats/CYKV.md](formats/CYKV.md)
-18. [reference_engine_lessons.md](reference_engine_lessons.md)
-19. [security_model.md](security_model.md)
+1. [CYPHERENGINE_REFERENCE_MANUAL.md](CYPHERENGINE_REFERENCE_MANUAL.md)
+2. [current_status.md](current_status.md)
+3. [six_month_engine_plan.md](six_month_engine_plan.md)
+4. [master_plan.md](master_plan.md)
+5. [development_phases.md](development_phases.md)
+6. [roadmap.md](roadmap.md)
+7. [project_structure.md](project_structure.md)
+8. [architecture.md](architecture.md)
+9. [cyphercommon_architecture.md](cyphercommon_architecture.md)
+10. [function_pointer_policy.md](function_pointer_policy.md)
+11. [subsystems.md](subsystems.md)
+12. [subsystem_source_catalog.md](subsystem_source_catalog.md)
+13. [toolchain_plan.md](toolchain_plan.md)
+14. [tool_suite.md](tool_suite.md)
+15. [source2_tooling_reference.md](source2_tooling_reference.md)
+16. [map_authoring_and_mason.md](map_authoring_and_mason.md)
+17. [picasso_v1_design.md](picasso_v1_design.md)
+18. [formats/CYKV.md](formats/CYKV.md)
+19. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
+20. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
+21. [reference_engine_lessons.md](reference_engine_lessons.md)
+22. [security_model.md](security_model.md)
 
 API docs:
 
@@ -54,6 +57,7 @@ API docs:
 
 Reference docs:
 
+- [CYPHERENGINE_REFERENCE_MANUAL.md](CYPHERENGINE_REFERENCE_MANUAL.md)
 - [build_guide.md](build_guide.md)
 - [coding_style.md](coding_style.md)
 - [reference_policy.md](reference_policy.md)
@@ -72,6 +76,12 @@ Project memory:
 
 ## What each document is for
 
+- `CYPHERENGINE_REFERENCE_MANUAL`
+  - primary public reference for engine architecture, data lifecycle, formats,
+    versions, limits, toolchain, diagnostics, security, and compatibility
+  - complete format catalog separating implemented, partial, planned, and
+    proposed behavior
+  - contributor checklists, glossary, source-of-truth links, and external lessons
 - `current_status`
   - what is active now
   - what is done-for-now
@@ -140,6 +150,15 @@ Project memory:
   - normative CYKV 1 grammar and semantic rules
   - document headers, comments, scalar types, canonical output, and limits
   - boundary between Tier1 parsing and Tier2 schema validation
+- `formats/CYKV_2_PROPOSAL`
+  - researched proposal for bounded includes, base composition, typed constants,
+    build conditionals, exact numeric intent, optional non-finite values,
+    provenance, hashing, limits, and a self-identifying binary generation
+  - explicit separation from implemented CYKV 1 behavior
+- `formats/INPUT_ACTIONS`
+  - proposed `.cyinput`, `.cyinput_c`/`CYIN`, and `.cybindings` family
+  - action, context, control, trigger, processor, conflict, accessibility,
+    gamepad, user-override, compiler, runtime, and migration contracts
 - `CYPHER_RESOURCE_COMPILER`
   - exact version 1 commands, parameters, output modes, and exit codes
   - source-to-cooked shader flow and response-file syntax
