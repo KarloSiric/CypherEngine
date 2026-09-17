@@ -12,6 +12,8 @@
 //  History:
 //  - Created by Karlo Siric on 2026-08-12
 //  - Added render-asset version and compatibility status on 2026-09-17
+//  - Added input, gameplay-data, presentation, user-state, and generated-record
+//    candidates alongside the reference manual on 2026-09-17
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -25,12 +27,16 @@
 | Label | Meaning |
 | --- | --- |
 | Implemented | The named parser, schema, reader, writer, or compiler route exists and is tested. |
+| Partial | A real working slice exists, but one or more documented end-to-end layers remain unavailable. |
 | Active | A frozen lower-level contract exists and the next integration layer is being implemented. |
 | Planned | Purpose and provisional name are recorded; the source or binary layout is not frozen. |
+| Proposal | Responsibility and candidate identity are under review and may change. |
 
 A format can have different maturity at each layer. The detailed source syntax,
 binary layouts, limits, and deliberate compiler gates live in
-[Renderer Asset Contracts](RENDER_ASSETS.md).
+[Renderer Asset Contracts](RENDER_ASSETS.md). The complete cross-subsystem
+inventory, admission policy, and compatibility guidance live in the
+[CypherEngine Reference Manual](../CYPHERENGINE_REFERENCE_MANUAL.md).
 
 ## Foundation And Configuration
 
@@ -41,6 +47,19 @@ binary layouts, limits, and deliberate compiler gates live in
 | User settings | `.cysettings` | None | Implemented |
 | Command/CVar script | `.cfg` / `.cycfg` | None | Implemented runtime family |
 | Generic cooked resource | N/A | `CYRS` container V1 | Implemented |
+| Self-hosted schema | `.cyschema` | Compiled schema/registry data | Proposal; current schema descriptors remain C++ owned |
+| Schema-selected gameplay data | `.cydata` | `.cydata_c` | Proposal for weapons, enemies, items, waves, difficulty, modes, and other typed records |
+
+## Input And User Controls
+
+| Purpose | Source/runtime | Cooked | Status |
+| --- | --- | --- | --- |
+| Project action maps and defaults | `.cyinput`, proposed `cypher.input` V1 | `.cyinput_c`, proposed `CYIN` V1 in CYRS | Proposal; System keyboard/text/mouse events exist, Input runtime/compiler do not |
+| User binding overrides | `.cybindings`, proposed `cypher.input_bindings` V1 | None | Proposal; writable sparse overrides, never packaged |
+
+The input family is documented in [Input Actions And Bindings](INPUT_ACTIONS.md).
+It uses action terminology because keyboard, mouse, wheel, gamepad, chords,
+composites, contexts, processors, and accessibility exceed a keyboard key map.
 
 ## Renderer Vertical Slice
 
@@ -81,21 +100,44 @@ are forbidden.
 | --- | --- | --- | --- |
 | Skeleton | `.cyskel` | `.cyskel_c` | Planned |
 | Animation clip | `.cyanim` | `.cyanim_c` | Planned |
+| Animation graph/evaluator | `.cyanimgraph` | `.cyanimgraph_c` | Proposal; separate from clip/sample data |
 | Particle system | `.cyparticle` | `.cyparticle_c` | Planned |
-| Sound recipe/event | `.cysnd` | `.cysnd_c` | Planned |
+| Sound sample/stream recipe | `.cysnd` | `.cysnd_c` | Planned |
+| Audio event/rule stack | `.cyaudioevent` provisional | Cooked event resource | Proposal; exact name not frozen |
+| Audio mixer/bus graph | `.cymix` provisional | Cooked mixer graph | Proposal; exact name not frozen |
 | Font recipe | `.cyfont` | `.cyfont_c` | Planned |
+| Localization catalog | `.cyloc` | `.cyloc_c` | Proposal |
+| Captions/subtitles | `.cycaption` | `.cycaption_c` | Proposal |
 | UI layout/style | `.cyui` | `.cyui_c` | Planned |
+| Post-processing profile | `.cypostfx` | `.cypostfx_c` | Proposal |
 | Cinematic sequence | `.cycine` | `.cycine_c` | Planned |
 
 ## Distribution
 
 | Purpose | Format | Status |
 | --- | --- | --- |
-| Package archive | `.cypak` | Deterministic V10 reader/writer and FileSystem mount implemented with uncompressed payloads and per-file hashes; compression, archive signatures, and a formal external specification remain future work |
-| Resource/build manifest | `.cymanifest` | Planned |
+| Package archive | `.cypak` | V10 reader/writer and FileSystem mount implemented with sorted uncompressed payloads and per-file hashes; timestamp serialization currently prevents a full reproducibility claim; compression, archive hashes/signatures, and a formal external specification remain future work |
+| Resource/build/release manifests | `.cymanifest` with exact schema IDs | Planned; resource, preload, package, and release responsibilities must remain distinct |
+| Mod/add-on metadata | `.cymod` | Proposal |
+| Plug-in/module metadata | `.cyplugin` | Proposal |
 | Derived-data cache | Internal | Planned |
+
+## Generated Runtime Records And Tool-Local State
+
+| Purpose | Format | Status |
+| --- | --- | --- |
+| Replay/demo | `.cyreplay`, proposed `CYRP` | Proposal; generated versioned runtime record, not an authored/cooked pair |
+| Save/checkpoint/profile | `.cysave`, proposed `CYSV` | Proposal; generated writable record with migration and backup policy |
+| Per-map editor state | `.cymap.user` provisional | Planned local sidecar; normally excluded from source control |
+| Recovery journal/autosave | Internal | Planned tool-operational format |
+| Asset/dependency/cook database | Internal, likely query-oriented storage | Planned; no public `.cyassetmeta` sidecar is approved |
 
 Names marked planned remain provisional until a real runtime consumer defines
 the data it needs. Source, idTech, CryEngine, and other engines are references
 for responsibility boundaries and production lessons, not field-by-field or
 binary-layout templates.
+
+Candidate families do not authorize placeholder implementations. Each must pass
+the manual's format-admission checklist, including a real producer and consumer,
+versioning, bounded validation, deterministic identity, diagnostics, migration,
+tests, tooling, and ownership.
