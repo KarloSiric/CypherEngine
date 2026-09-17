@@ -86,6 +86,10 @@ __pycache__/
 
 # Asset pipeline outputs
 *.cyshader_c
+*.cytex_c
+*.cymat_c
+*.cymap_c
+*.cymesh_c
 /data/**/*.rmdl
 /data/**/*.rtex
 /data/**/*.rpak
