@@ -1,0 +1,593 @@
+@cykv 1
+@schema "cypher.map" 1
+
+{
+  "map_id" = "ce7037c8-114a-46bf-97ec-eb46e4fdbced"
+  "dimensions" = {
+    "width" = 64u
+    "height" = 64u
+  }
+  "metrics" = {
+    "cell_size" = 2.0
+    "level_height" = 3.0
+  }
+  "cells" = [
+    {
+      "x" = 25u
+      "y" = 25u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 26u
+      "y" = 25u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 27u
+      "y" = 25u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 28u
+      "y" = 25u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 25u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 25u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 26u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 27u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 28u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 32u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 33u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 34u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 35u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 36u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 37u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 38u
+      "y" = 26u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 25u
+      "y" = 27u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 26u
+      "y" = 27u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 27u
+      "y" = 27u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 28u
+      "y" = 27u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 27u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 32u
+      "y" = 27u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 35u
+      "y" = 27u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 36u
+      "y" = 27u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 37u
+      "y" = 27u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 38u
+      "y" = 27u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 25u
+      "y" = 28u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 26u
+      "y" = 28u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 27u
+      "y" = 28u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 28u
+      "y" = 28u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 28u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 32u
+      "y" = 28u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 35u
+      "y" = 28u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 36u
+      "y" = 28u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 37u
+      "y" = 28u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 38u
+      "y" = 28u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 29u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 32u
+      "y" = 29u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 35u
+      "y" = 29u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 36u
+      "y" = 29u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 37u
+      "y" = 29u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 38u
+      "y" = 29u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 30u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 32u
+      "y" = 30u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 33u
+      "y" = 30u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 34u
+      "y" = 30u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 35u
+      "y" = 30u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 36u
+      "y" = 30u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 37u
+      "y" = 30u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 38u
+      "y" = 30u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 31u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 35u
+      "y" = 31u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 32u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 35u
+      "y" = 32u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 33u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 35u
+      "y" = 33u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 34u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 35u
+      "y" = 34u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 35u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 35u
+      "y" = 35u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 29u
+      "y" = 36u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 30u
+      "y" = 36u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 31u
+      "y" = 36u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 32u
+      "y" = 36u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 33u
+      "y" = 36u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 34u
+      "y" = 36u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 35u
+      "y" = 36u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 36u
+      "y" = 36u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 37u
+      "y" = 36u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 38u
+      "y" = 36u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    },
+    {
+      "x" = 39u
+      "y" = 36u
+      "floor_level" = 0
+      "wall_height_levels" = 1u
+      "material_slot" = 3u
+      "flags" = 1u
+    }
+  ]
+  "markers" = []
+}
