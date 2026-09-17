@@ -75,6 +75,41 @@ vfs_t MakeVfs( memory_vfs_t &storage ) noexcept
     return { &ops, &storage, VFS_CAPABILITY_READ_ALL };
 }
 
+u64 BindingId( string_view_t name ) noexcept
+{
+    u64 value = 0u;
+    REQUIRE( CookedShader_MakeLogicalBindingId( name, &value ) );
+    return value;
+}
+
+content_hash_t MakeShaderInterface(
+    cooked_shader_binding_source_t ( &bindings )[2] )
+{
+    bindings[0].name = Text( "AlbedoMap" );
+    bindings[0].kind = render_shader_binding_kind_t::SAMPLED_TEXTURE;
+    bindings[0].resourceType = render_shader_resource_type_t::TEXTURE_2D;
+    bindings[0].stageMask = RENDER_SHADER_STAGE_MASK_FRAGMENT;
+    bindings[0].flags =
+        COOKED_SHADER_BINDING_FLAG_REQUIRED |
+        COOKED_SHADER_BINDING_FLAG_MATERIAL;
+    bindings[0].nLogicalBinding = BindingId( bindings[0].name );
+
+    bindings[1].name = Text( "Roughness" );
+    bindings[1].kind = render_shader_binding_kind_t::VALUE;
+    bindings[1].valueType = render_shader_value_type_t::F32;
+    bindings[1].stageMask = RENDER_SHADER_STAGE_MASK_FRAGMENT;
+    bindings[1].flags = COOKED_SHADER_BINDING_FLAG_MATERIAL;
+    bindings[1].nLogicalBinding = BindingId( bindings[1].name );
+    bindings[1].iByteOffset = 0u;
+    bindings[1].cbByteSize = 4u;
+
+    content_hash_t interfaceHash{};
+    REQUIRE( CookedShader_ComputeInterfaceHash(
+        { { bindings, 2u } },
+        &interfaceHash ) );
+    return interfaceHash;
+}
+
 std::vector<byte> MakeShader()
 {
     constexpr char vertex[] =
@@ -92,11 +127,20 @@ std::vector<byte> MakeShader()
         reinterpret_cast<const byte *>( fragment ),
         sizeof( fragment )
     };
-    const usize cbRequired = CookedShader_RequiredSize( {}, { stages, 2u } );
-    std::vector<byte> file( cbRequired );
-    REQUIRE( CookedShader_Succeeded( CookedShader_Write(
+    cooked_shader_binding_source_t bindings[2]{};
+    MakeShaderInterface( bindings );
+    const cooked_shader_interface_source_t shaderInterface{
+        { bindings, 2u }
+    };
+    const usize cbRequired = CookedShader_RequiredSizeV3(
         {},
         { stages, 2u },
+        shaderInterface );
+    std::vector<byte> file( cbRequired );
+    REQUIRE( CookedShader_Succeeded( CookedShader_WriteV3(
+        {},
+        { stages, 2u },
+        shaderInterface,
         ContentHash_String( Text( "shaders/test.cyshader" ) ),
         { file.data(), file.size() } ) ) );
     return file;
@@ -130,23 +174,33 @@ std::vector<byte> MakeTexture()
 
 std::vector<byte> MakeMaterial()
 {
-    const cooked_material_texture_source_t texture{
-        Text( "AlbedoMap" ),
-        Text( "textures/test.cytex" )
-    };
-    cooked_material_parameter_source_t roughness{};
+    cooked_shader_binding_source_t shaderBindings[2]{};
+    const content_hash_t interfaceHash = MakeShaderInterface(
+        shaderBindings );
+
+    cooked_material_texture_source_v2_t texture{};
+    texture.binding = Text( "AlbedoMap" );
+    texture.texture = Text( "textures/test.cytex" );
+    texture.sampler = Text( "linear_wrap" );
+    texture.nLogicalBinding = BindingId( texture.binding );
+    texture.bHasSampler = CY_TRUE;
+
+    cooked_material_parameter_source_v2_t roughness{};
     roughness.name = Text( "Roughness" );
-    roughness.values[0] = 0.5;
-    roughness.nComponents = 1u;
-    const cooked_material_source_t material{
-        Text( "shaders/test.cyshader" ),
-        { &texture, 1u },
-        { &roughness, 1u },
-        COOKED_MATERIAL_FLAG_NONE
-    };
-    const usize cbRequired = CookedMaterial_RequiredSize( material );
+    roughness.nLogicalBinding = BindingId( roughness.name );
+    roughness.type = render_shader_value_type_t::F32;
+    roughness.iByteOffset = 0u;
+    roughness.cbByteSize = 4u;
+    roughness.floatingValues[0] = 0.5;
+
+    cooked_material_source_v2_t material{};
+    material.shader = Text( "shaders/test.cyshader" );
+    material.shaderInterfaceHash = interfaceHash;
+    material.textures = { &texture, 1u };
+    material.parameters = { &roughness, 1u };
+    const usize cbRequired = CookedMaterial_RequiredSizeV2( material );
     std::vector<byte> file( cbRequired );
-    REQUIRE( CookedMaterial_Succeeded( CookedMaterial_Write(
+    REQUIRE( CookedMaterial_Succeeded( CookedMaterial_WriteV2(
         material,
         ContentHash_String( Text( "materials/test.cymat" ) ),
         { file.data(), file.size() } ) ) );
@@ -251,14 +305,31 @@ TEST_CASE( "Cooked render resources load through VFS and retain borrowed views",
         materialHandle,
         &pMaterial ) == resource_error_t::OK );
     REQUIRE( pShader->nStages == 2u );
+    REQUIRE( pShader->nResourceVersion ==
+             CY_COOKED_SHADER_RESOURCE_VERSION_V3 );
+    REQUIRE( pShader->nBindings == 2u );
     REQUIRE( CookedShader_FindStage(
                  *pShader,
                  render_shader_stage_t::VERTEX )->code.pData[0] == '#' );
+    REQUIRE( CookedShader_FindBinding(
+                 *pShader,
+                 Text( "AlbedoMap" ) ) != nullptr );
     REQUIRE( pTexture->nMipLevels == 1u );
+    REQUIRE( pTexture->nResourceVersion ==
+             CY_COOKED_TEXTURE_RESOURCE_VERSION_V2 );
     REQUIRE( CookedTexture_FindMip( *pTexture, 0u )->pixels.pData[0] == 255u );
+    REQUIRE( pMaterial->nResourceVersion ==
+             CY_COOKED_MATERIAL_RESOURCE_VERSION_V2 );
     REQUIRE( StringView_Equals(
         pMaterial->shader,
         Text( "shaders/test.cyshader" ) ) );
+    REQUIRE( ContentHash_Equals(
+        pMaterial->shaderInterfaceHash,
+        pShader->interfaceHash ) );
+    const cooked_material_parameter_view_t *pRoughness =
+        CookedMaterial_FindParameter( *pMaterial, Text( "Roughness" ) );
+    REQUIRE( pRoughness != nullptr );
+    REQUIRE( pRoughness->floatingValues[0] == 0.5 );
 
     resource_handle_t textureAgain{};
     REQUIRE( Res_Acquire(
