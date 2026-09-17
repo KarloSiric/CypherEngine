@@ -27,6 +27,16 @@ Added
 - Added the first CypherEngine Reference Manual covering architecture, ownership,
   build/VFS behavior, format versions and fields, limits, compilers, runtime
   support, diagnostics, determinism, security, migration, checklists, and glossary.
+- Expanded the manual to edition 0.2 with exact source-field types, required
+  state, defaults, values, ranges, versions, and cross-field rules plus exact
+  binary headers, chunks, records, enums, flags, hashes, ordering, alignment,
+  limits, examples, and current compiler/runtime boundaries.
+- Added full contracts for CYKV text/tree packs, schemas, project/settings/config,
+  CYRS, shader, texture, material, map, input-proposal, and .cypak data. Reserved
+  format names now explicitly carry no frozen fields or compatibility promise.
+- Recorded known implementation/specification differences for CYKV, binary pack
+  identity, the two config grammars, gated source capabilities, and cooked
+  render data that the current runtime does not yet consume.
 - Added a researched CYKV 2 proposal for bounded includes, base composition,
   typed constants, explicit build conditionals, stronger numeric intent,
   schema-gated NaN/infinity, provenance, hashing, and binary identity while
