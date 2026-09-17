@@ -29,6 +29,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdlib>
+#include <limits>
 #include <string_view>
 #include <vector>
 
@@ -338,6 +339,24 @@ TEST_CASE( "Image codec failures leave destinations untouched",
                  limited,
                  &output ).status == image_codec_status_t::INVALID_DIMENSIONS );
     REQUIRE( ImageSurface_IsEmpty( &output ) );
+
+    const f32 nonFiniteComponents[]{
+        std::numeric_limits<f32>::quiet_NaN(),
+        std::numeric_limits<f32>::infinity()
+    };
+    for ( const f32 nonFinite : nonFiniteComponents ) {
+        const std::vector<f32> pixels{ nonFinite, 0.5f, 1.0f, 1.0f };
+        const std::vector<byte> exr = MakeExr( 1u, 1u, pixels );
+        const image_decode_result_t result = ImageCodec_Decode(
+            Block( exr ),
+            Allocator_GetSystem(),
+            {},
+            &output );
+        REQUIRE( result.status ==
+                 image_codec_status_t::NON_FINITE_COMPONENT );
+        REQUIRE( result.sourceFormat == image_file_format_t::EXR );
+        REQUIRE( ImageSurface_IsEmpty( &output ) );
+    }
 
     blob_t encoded{};
     const byte scalar = 42u;
