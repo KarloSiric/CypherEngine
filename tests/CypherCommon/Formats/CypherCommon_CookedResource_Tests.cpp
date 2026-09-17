@@ -270,6 +270,110 @@ TEST_CASE( "Cooked resource readers reject malformed input transactionally",
              cooked_resource_status_t::OUTPUT_TOO_SMALL );
 }
 
+TEST_CASE( "Cooked resource helpers reject aliased inputs and outputs",
+           "[CypherCommon][Formats][CookedResource][Aliasing]" )
+{
+    cooked_resource_header_t header = MakeHeader();
+    cooked_chunk_desc_t chunks[2]{};
+    MakeChunks( chunks );
+
+    const cooked_resource_header_t originalHeader = header;
+    REQUIRE( CookedResource_ValidateLayout(
+                 header,
+                 { chunks, 2u },
+                 header.cbFile,
+                 reinterpret_cast<usize *>( &header ) ) ==
+             cooked_resource_status_t::INVALID_ARGUMENT );
+    REQUIRE( header.magic == originalHeader.magic );
+    REQUIRE( header.cbFile == originalHeader.cbFile );
+
+    const cooked_chunk_desc_t originalFirstChunk = chunks[0];
+    REQUIRE( CookedResource_ValidateLayout(
+                 header,
+                 { chunks, 2u },
+                 header.cbFile,
+                 reinterpret_cast<usize *>( &chunks[0] ) ) ==
+             cooked_resource_status_t::INVALID_ARGUMENT );
+    REQUIRE( chunks[0].chunkType == originalFirstChunk.chunkType );
+    REQUIRE( chunks[0].iOffset == originalFirstChunk.iOffset );
+
+    alignas( cooked_resource_header_t ) byte headerStorage[320]{};
+    auto *pAliasedHeader =
+        reinterpret_cast<cooked_resource_header_t *>( headerStorage );
+    *pAliasedHeader = header;
+    byte headerSnapshot[sizeof( headerStorage )]{};
+    Cy_MemCopy(
+        headerSnapshot,
+        headerStorage,
+        sizeof( headerStorage ) );
+    REQUIRE( CookedResource_WriteLayout(
+                 *pAliasedHeader,
+                 { chunks, 2u },
+                 { headerStorage, sizeof( headerStorage ) } ).status ==
+             cooked_resource_status_t::INVALID_ARGUMENT );
+    REQUIRE( Cy_MemEqual(
+        headerStorage,
+        headerSnapshot,
+        sizeof( headerStorage ) ) );
+
+    alignas( cooked_chunk_desc_t ) byte chunkStorage[320]{};
+    auto *pAliasedChunks = reinterpret_cast<cooked_chunk_desc_t *>(
+        chunkStorage + CY_COOKED_RESOURCE_HEADER_SIZE );
+    pAliasedChunks[0] = chunks[0];
+    pAliasedChunks[1] = chunks[1];
+    byte chunkSnapshot[sizeof( chunkStorage )]{};
+    Cy_MemCopy(
+        chunkSnapshot,
+        chunkStorage,
+        sizeof( chunkStorage ) );
+    REQUIRE( CookedResource_WriteLayout(
+                 header,
+                 { pAliasedChunks, 2u },
+                 { chunkStorage, sizeof( chunkStorage ) } ).status ==
+             cooked_resource_status_t::INVALID_ARGUMENT );
+    REQUIRE( Cy_MemEqual(
+        chunkStorage,
+        chunkSnapshot,
+        sizeof( chunkStorage ) ) );
+
+    byte file[320]{};
+    REQUIRE( CookedResource_Succeeded(
+        WriteCompleteFile( header, chunks, file ) ) );
+    byte fileSnapshot[sizeof( file )]{};
+    Cy_MemCopy( fileSnapshot, file, sizeof( file ) );
+
+    auto *pFileHeader = reinterpret_cast<cooked_resource_header_t *>(
+        file + 208u );
+    cooked_chunk_desc_t decodedChunks[2]{};
+    REQUIRE( CookedResource_ReadLayout(
+                 { file, sizeof( file ) },
+                 pFileHeader,
+                 { decodedChunks, 2u } ).status ==
+             cooked_resource_status_t::INVALID_ARGUMENT );
+    REQUIRE( Cy_MemEqual( file, fileSnapshot, sizeof( file ) ) );
+
+    cooked_resource_header_t decodedHeader{};
+    auto *pFileChunks = reinterpret_cast<cooked_chunk_desc_t *>(
+        file + CY_COOKED_RESOURCE_HEADER_SIZE );
+    REQUIRE( CookedResource_ReadLayout(
+                 { file, sizeof( file ) },
+                 &decodedHeader,
+                 { pFileChunks, 2u } ).status ==
+             cooked_resource_status_t::INVALID_ARGUMENT );
+    REQUIRE( Cy_MemEqual( file, fileSnapshot, sizeof( file ) ) );
+
+    alignas( cooked_resource_header_t ) byte sharedOutput[256]{};
+    auto *pSharedHeader =
+        reinterpret_cast<cooked_resource_header_t *>( sharedOutput );
+    auto *pSharedChunks =
+        reinterpret_cast<cooked_chunk_desc_t *>( sharedOutput );
+    REQUIRE( CookedResource_ReadLayout(
+                 { file, sizeof( file ) },
+                 pSharedHeader,
+                 { pSharedChunks, 2u } ).status ==
+             cooked_resource_status_t::INVALID_ARGUMENT );
+}
+
 TEST_CASE( "Cooked resource contract constants and status names are stable",
            "[CypherCommon][Formats][CookedResource][Contract]" )
 {
