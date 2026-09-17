@@ -38,6 +38,7 @@ Log API
 Structured logging with severity levels, channels and optional file output.
 ================
 */
+// Uses the same candidate-file preparation and truncation policy as Log_SetConfig.
 log_error_t Log_Init( const config_t &config = {} );
 
 void Log_Shutdown();
@@ -46,6 +47,11 @@ bool Log_IsInitialized();
 
 config_t Log_GetConfig();       // Returns a synchronized snapshot, never a reference to live logger state.
 
+// Validate and open every candidate before truncating replacement files. Failure
+// preserves active config/handles; candidate opens may leave new empty files.
+// Final truncation failures return ERR_FILE_WRITE_FAILED and cannot restore bytes
+// already truncated in an earlier candidate. Unchanged sinks retain their handles;
+// a replacement sink naming the same file can still truncate shared contents.
 log_error_t Log_SetConfig( const config_t &config );
 
 log_error_t Log_LevelFromString( const char *szLevelName, level_t &levelOut );
