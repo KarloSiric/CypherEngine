@@ -198,6 +198,7 @@ common::bool_t LoadShader(
         pContext->lastDiagnostic.shaderStatus = result.status;
         pContext->lastDiagnostic.resourceStatus = result.resourceStatus;
         pContext->lastDiagnostic.iStage = result.iStage;
+        pContext->lastDiagnostic.iBinding = result.iBinding;
         pContext->lastDiagnostic.iChunk = result.iChunk;
         DestroyPayload( pPayload );
         return common::CY_FALSE;
@@ -256,6 +257,7 @@ common::bool_t LoadTexture(
         pContext->lastDiagnostic.textureStatus = result.status;
         pContext->lastDiagnostic.resourceStatus = result.resourceStatus;
         pContext->lastDiagnostic.iMip = result.iMip;
+        pContext->lastDiagnostic.iSubresource = result.iSubresource;
         pContext->lastDiagnostic.iChunk = result.iChunk;
         DestroyPayload( pPayload );
         return common::CY_FALSE;
@@ -313,6 +315,7 @@ common::bool_t LoadMaterial(
             render_asset_load_status_t::COOKED_FORMAT_INVALID;
         pContext->lastDiagnostic.materialStatus = result.status;
         pContext->lastDiagnostic.resourceStatus = result.resourceStatus;
+        pContext->lastDiagnostic.iFeature = result.iFeature;
         pContext->lastDiagnostic.iTexture = result.iTexture;
         pContext->lastDiagnostic.iParameter = result.iParameter;
         pContext->lastDiagnostic.iChunk = result.iChunk;
