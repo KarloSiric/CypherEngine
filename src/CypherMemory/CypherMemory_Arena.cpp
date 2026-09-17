@@ -17,6 +17,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherMemory_Arena.h"
+#include "CypherMemory_Log.h"
 #include "CypherLog.h"
 #include "CypherSystem_Public.h"
 
@@ -74,7 +75,8 @@ void Mem_ArenaRecordAllocationTrace(
     trace.size = size;
     trace.alignment = alignment;
     trace.nUsedAfter = arena.used;
-    trace.nAllocationIndex = arena.nAllocationCount + arena.nFailedAllocationCount + 1u;
+    // Both success and failure counters are incremented before recording.
+    trace.nAllocationIndex = arena.nAllocationCount + arena.nFailedAllocationCount;
     trace.error = error;
     trace.failed = failed;
 
@@ -221,6 +223,9 @@ mem_error_t Mem_ArenaInit( arena_t &arena, const arena_desc_t &arenaDesc )
         return mem_error_t::ERR_INVALID_ARGUMENT;
     }
 
+    // Publish a fresh lifetime only after backing acquisition succeeds. Calls made
+    // before initialization may already have recorded failed allocation traces.
+    arena = arena_t{};
     arena.name = arenaDesc.name;
     arena.base = static_cast<common::byte *>( memory );
 
@@ -243,7 +248,36 @@ mem_error_t Mem_ArenaInit( arena_t &arena, const arena_desc_t &arenaDesc )
     arena.initialized = true;
     arena.pOwnsMemory = pOwnsMemory;
 
-    LOG_INFO( log::channel_t::MEMORY, "arena '%s' initialized: capacity=%zu bytes, committed=%zu bytes, backing=%u.", arena.name ? arena.name : "<unnamed>", arena.capacity, arena.committed, static_cast<common::u32>( arena.backing ) );
+    char capacityText[32]{};
+    char committedText[32]{};
+    detail::Mem_LogFormatByteCount( arena.capacity, capacityText );
+    detail::Mem_LogFormatByteCount( arena.committed, committedText );
+
+    // Individual arenas are diagnostic detail. Mem_Init emits the INFO-level
+    // aggregate once the complete seven-arena transaction succeeds.
+    if ( arena.backing == arena_backing_t::ARENA_VIRTUAL_MEMORY ) {
+        LOG_DEBUG(
+            log::channel_t::MEMORY,
+            "arena ready: name='%s', backing=%s, reserved=%s, committed=%s.",
+            arena.name ? arena.name : "<unnamed>",
+            detail::Mem_LogArenaBackingName( arena.backing ),
+            capacityText,
+            committedText );
+    } else if ( arena.backing == arena_backing_t::ARENA_HEAP ) {
+        LOG_DEBUG(
+            log::channel_t::MEMORY,
+            "arena ready: name='%s', backing=%s, allocated=%s.",
+            arena.name ? arena.name : "<unnamed>",
+            detail::Mem_LogArenaBackingName( arena.backing ),
+            capacityText );
+    } else {
+        LOG_DEBUG(
+            log::channel_t::MEMORY,
+            "arena ready: name='%s', backing=%s, capacity=%s.",
+            arena.name ? arena.name : "<unnamed>",
+            detail::Mem_LogArenaBackingName( arena.backing ),
+            capacityText );
+    }
 
     return mem_error_t::OK;
 }
@@ -254,12 +288,18 @@ void Mem_ArenaShutdown( arena_t &arena )
         return ;
     }
 
-    LOG_INFO( log::channel_t::MEMORY, "arena '%s' shutdown: used=%zu bytes, peak=%zu bytes, allocations=%llu, failed=%llu.",
-                     arena.name ? arena.name : "<unnamed>",
-                     arena.used,
-                     arena.nPeakUsed,
-                     static_cast<unsigned long long>( arena.nAllocationCount ),
-                     static_cast<unsigned long long>( arena.nFailedAllocationCount ) );
+    char usedText[32]{};
+    char peakText[32]{};
+    detail::Mem_LogFormatByteCount( arena.used, usedText );
+    detail::Mem_LogFormatByteCount( arena.nPeakUsed, peakText );
+    LOG_DEBUG(
+        log::channel_t::MEMORY,
+        "arena shutdown: name='%s', used=%s, peak=%s, allocations=%llu, failures=%llu.",
+        arena.name ? arena.name : "<unnamed>",
+        usedText,
+        peakText,
+        static_cast<unsigned long long>( arena.nAllocationCount ),
+        static_cast<unsigned long long>( arena.nFailedAllocationCount ) );
 
     if ( ( arena.flags & CYPHER_MEMORY_ARENA_FLAG_CLEAR_ON_SHUTDOWN ) != 0u && arena.base != nullptr && arena.used > 0u ) {
         std::memset( arena.base, 0, arena.used );
@@ -286,25 +326,17 @@ void Mem_ArenaReset( arena_t &arena )
         return ;
     }
 
-    if  ( ( arena.flags & CYPHER_MEMORY_ARENA_FLAG_CLEAR_ON_RESET ) != 0 ) {
-        common::usize nClearSize = arena.used;
-        if ( arena.backing == arena_backing_t::ARENA_VIRTUAL_MEMORY &&
-             ( arena.flags & CYPHER_MEMORY_ARENA_FLAG_DECOMMIT_ON_RESET ) != 0u &&
-             nClearSize > arena.initialCommit ) {
-            nClearSize = arena.initialCommit;
-        }
-
-        if ( nClearSize > 0u ) {
-            std::memset( arena.base, 0, nClearSize );
-        }
+    // The reset reports this attempt's result, not a previous decommit failure.
+    arena.lastError = mem_error_t::OK;
+    if ( ( arena.flags & CYPHER_MEMORY_ARENA_FLAG_CLEAR_ON_RESET ) != 0u && arena.used > 0u ) {
+        // Decommit may only revoke access; discarding the underlying bytes is
+        // best effort on POSIX. Clear while all used pages are still accessible.
+        std::memset( arena.base, 0, arena.used );
     }
 
     Mem_ArenaDecommitToInitialCommit( arena );
 
     arena.used = 0u;
-    if ( arena.lastError != mem_error_t::ERR_MEMORY_DECOMMIT ) {
-        arena.lastError = mem_error_t::OK;
-    }
 }
 
 arena_stats_t Mem_ArenaStats( const arena_t &arena )
@@ -333,6 +365,8 @@ void Mem_ArenaResetCounters( arena_t &arena )
     arena.nPeakUsed = arena.used;
     arena.nAllocationCount = 0u;
     arena.nFailedAllocationCount = 0u;
+    arena.nAllocationTraceIndex = 0u;
+    arena.nAllocationTraceCount = 0u;
     arena.lastError = mem_error_t::OK;
 }
 
