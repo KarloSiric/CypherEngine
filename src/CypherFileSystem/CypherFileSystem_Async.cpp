@@ -58,8 +58,9 @@ async_request_state_t *FindAsyncRequest( runtime_state_t &state, async_request_t
 
 async_request_state_t *AllocateAsyncRequest( runtime_state_t &state )
 {
-    // Prefer a never-used slot, then reclaim a terminal slot whose worker is known to
-    // have stopped.  A future that is not ready still owns live worker state.
+    // Prefer a never-used slot, then reclaim terminal or cancelled requests whose
+    // workers have stopped. Cancellation may still be RUNNING until the next poll.
+    // A future that is not ready still owns live worker state.
     for ( common::u32 i = 0u; i < CYPHER_FILESYSTEM_MAX_ASYNC_REQUESTS; ++i ) {
         async_request_state_t &slot = state.pAsyncRequests[i];
         if ( !slot.used ) {
@@ -73,7 +74,7 @@ async_request_state_t *AllocateAsyncRequest( runtime_state_t &state )
         async_request_state_t &slot = state.pAsyncRequests[i];
         if ( slot.status == async_status_t::COMPLETE ||
              slot.status == async_status_t::FAILED ||
-             slot.status == async_status_t::CANCELLED ) {
+             slot.status == async_status_t::CANCELLED || slot.cancelled ) {
             if ( slot.future.valid() &&
                  slot.future.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready ) {
                 continue;
@@ -134,8 +135,10 @@ async_worker_result_t WriteAsyncWorker(
 async_result_t BuildPendingAsyncResult( const async_request_state_t &slot )
 {
     async_result_t result{};
-    result.status = slot.cancelled ? async_status_t::CANCELLED : slot.status;
-    result.error = slot.cancelled ? fs_error_t::ERR_CANCELLED : fs_error_t::OK;
+    // A cancellation request cannot release the caller's buffer while the worker
+    // still owns it. Only BuildCompletedAsyncResult publishes a terminal state.
+    result.status = slot.status;
+    result.error = fs_error_t::OK;
     result.nBytesTransferred = 0u;
     return result;
 }
@@ -203,7 +206,7 @@ fs_error_t FS_ReadAsync(
     std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     requestOut = CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST;
 
-    if ( !FS_RuntimeState().initialized ) {
+    if ( !FS_RuntimeState().initialized || FS_RuntimeState().shuttingDown ) {
         return fs_error_t::ERR_NOT_INIT;
     }
     if ( szVirtualPath == nullptr || szVirtualPath[0] == '\0' ) {
@@ -248,7 +251,7 @@ fs_error_t FS_WriteAsync(
     std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
     requestOut = CYPHER_FILESYSTEM_INVALID_ASYNC_REQUEST;
 
-    if ( !FS_RuntimeState().initialized ) {
+    if ( !FS_RuntimeState().initialized || FS_RuntimeState().shuttingDown ) {
         return fs_error_t::ERR_NOT_INIT;
     }
     if ( szVirtualPath == nullptr || szVirtualPath[0] == '\0' ) {
@@ -383,21 +386,22 @@ fs_error_t FS_CancelAsync( async_request_t request )
     if ( slot == nullptr || !slot->future.valid() ) {
         return fs_error_t::ERR_INVALID_HANDLE;
     }
-    if ( slot->status == async_status_t::COMPLETE ||
+    if ( slot->cancelled || slot->status == async_status_t::COMPLETE ||
          slot->status == async_status_t::FAILED ||
          slot->status == async_status_t::CANCELLED ) {
         return fs_error_t::ERR_CANCELLED;
     }
 
-    // std::future has no portable preemption operation.  Mark the public result as
-    // cancelled and let the worker finish before its slot can be reclaimed.
+    // std::future has no portable preemption operation. Record the request while
+    // retaining RUNNING status until the worker finishes using borrowed storage.
     slot->cancelled = true;
-    slot->status = async_status_t::CANCELLED;
     return fs_error_t::OK;
 }
 
 void FS_ShutdownAsyncRequests()
 {
+    // FS_Shutdown has already closed admission under the runtime mutex, so this
+    // snapshot covers every worker that can still hold caller-owned storage.
     std::shared_future<async_worker_result_t> futures[CYPHER_FILESYSTEM_MAX_ASYNC_REQUESTS]{};
     common::u32 nFutureCount = 0u;
 
