@@ -1,0 +1,7 @@
+glslang provides CMake targets:
+
+    find_package(glslang CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE glslang::glslang glslang::glslang-default-resource-limits glslang::SPIRV)
+
+Cypher's shader-tools feature requires glslang[exceptions]. This keeps the
+static library's libc++ exception ABI compatible with engine and test targets.
