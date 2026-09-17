@@ -27,6 +27,7 @@ order must not depend on pointer values, locale, or process state.
 #include "CypherCommon_KeyValueWriterInternal.h"
 
 #include "CypherCommon_KeyValueInternal.h"
+#include "CypherCommon_HashXXH.h"
 #include "CypherCommon_Sort.h"
 #include "CypherCommon_StringConvert.h"
 #include "CypherCommon_StringEscape.h"
@@ -71,6 +72,10 @@ struct canonical_child_t {
     usize iOriginal{ 0u };                // Stable tie-breaker for duplicate-name corruption.
 };
 
+struct canonical_hash_sink_t {
+    hash_xxh3_stream_t stream{}; // Incremental XXH3-128 canonical byte stream.
+};
+
 struct canonical_child_less_t {
     CYPHER_NODISCARD bool_t operator()(
         const canonical_child_t &left,
@@ -101,6 +106,19 @@ CYPHER_NODISCARD bool_t BufferSink(
         sink.cchWritten += cchCopy;
     }
     return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t CanonicalHashSink(
+    string_view_t text,
+    void *pUserData ) noexcept
+{
+    if ( pUserData == nullptr || !StringView_IsValid( text ) ) {
+        return CY_FALSE;
+    }
+    auto &sink = *static_cast<canonical_hash_sink_t *>( pUserData );
+    return HashXXH3_StreamUpdate(
+        &sink.stream,
+        BinaryBlock_FromData( text.pData, text.cchLength ) );
 }
 
 void Fail( writer_t &writer, key_value_write_status_t status ) noexcept
@@ -686,6 +704,46 @@ key_value_write_result_t KeyValue_WriteTextToSink(
         pfnWrite,
         pUserData,
         CY_FALSE );
+}
+
+key_value_canonical_hash_result_t KeyValue_HashCanonicalDocument(
+    const key_value_document_t *pDocument ) noexcept
+{
+    key_value_canonical_hash_result_t result{};
+    if ( pDocument == nullptr ) {
+        result.status = key_value_write_status_t::INVALID_ARGUMENT;
+        return result;
+    }
+
+    canonical_hash_sink_t sink{};
+    if ( !HashXXH3_StreamInit(
+             &sink.stream,
+             hash_xxh3_stream_mode_t::HASH_128 ) ) {
+        result.status = key_value_write_status_t::SINK_FAILED;
+        return result;
+    }
+
+    key_value_write_options_t options{};
+    options.flags = KEY_VALUE_WRITE_FLAG_CANONICAL;
+    const key_value_write_result_t written = KeyValue_WriteTextToSink(
+        KeyValue_Root( pDocument ),
+        options,
+        CanonicalHashSink,
+        &sink );
+    result.status = written.status;
+    result.cbHashed = written.cchWritten;
+    if ( written.status != key_value_write_status_t::OK ) {
+        return result;
+    }
+
+    hash128_t hash{};
+    if ( !HashXXH3_StreamDigest128( &sink.stream, &hash ) ) {
+        result.status = key_value_write_status_t::SINK_FAILED;
+        result.cbHashed = 0u;
+        return result;
+    }
+    result.hash = { hash.low, hash.high };
+    return result;
 }
 
 const char *KeyValue_WriteStatusName(
