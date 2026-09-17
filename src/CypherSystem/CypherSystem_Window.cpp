@@ -39,6 +39,18 @@ bool Window_DimensionFitsSDL( const common::u32 value ) noexcept
     return value <= static_cast<common::u32>( std::numeric_limits<int>::max() );
 }
 
+template <common::usize Capacity>
+void Window_CopyDiagnosticString( char ( &destination )[Capacity], const char *source ) noexcept
+{
+    static_assert( Capacity > 0u );
+    const char *safeSource = source != nullptr ? source : "";
+    const common::usize length = std::min(
+        std::strlen( safeSource ),
+        Capacity - 1u );
+    std::memcpy( destination, safeSource, length );
+    destination[length] = '\0';
+}
+
 bool Window_SizeLimitsAreValid( const window_size_limits_t &limits ) noexcept
 {
     if ( !Window_DimensionFitsSDL( limits.minimumWidth ) ||
@@ -782,6 +794,32 @@ sys_error_t Sys_GetPrimaryDisplay( sys_display_id_t &displayOut ) noexcept
     }
 
     displayOut = static_cast<sys_display_id_t>( displayId );
+    return sys_error_t::OK;
+}
+
+sys_error_t Sys_GetPlatformBackendInfo( platform_backend_info_t &infoOut ) noexcept
+{
+    infoOut = {};
+    if ( !Sys_IsInitialized() ) {
+        return sys_error_t::ERR_NOT_INIT;
+    }
+
+    const sys_error_t videoResult = Window_EnsureVideoSubsystem();
+    if ( videoResult != sys_error_t::OK ) {
+        return videoResult;
+    }
+
+    Window_CopyDiagnosticString( infoOut.name, "SDL" );
+    infoOut.compiledVersionMajor = SDL_MAJOR_VERSION;
+    infoOut.compiledVersionMinor = SDL_MINOR_VERSION;
+    infoOut.compiledVersionPatch = SDL_MICRO_VERSION;
+
+    const int runtimeVersion = SDL_GetVersion();
+    infoOut.runtimeVersionMajor = static_cast<common::u32>( SDL_VERSIONNUM_MAJOR( runtimeVersion ) );
+    infoOut.runtimeVersionMinor = static_cast<common::u32>( SDL_VERSIONNUM_MINOR( runtimeVersion ) );
+    infoOut.runtimeVersionPatch = static_cast<common::u32>( SDL_VERSIONNUM_MICRO( runtimeVersion ) );
+    Window_CopyDiagnosticString( infoOut.revision, SDL_GetRevision() );
+    Window_CopyDiagnosticString( infoOut.videoDriver, SDL_GetCurrentVideoDriver() );
     return sys_error_t::OK;
 }
 
