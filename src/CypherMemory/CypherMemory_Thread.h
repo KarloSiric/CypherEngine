@@ -20,8 +20,21 @@
 ================
 Thread Contract
 
-Thread-local memory state borrows backing storage from the memory system and must be released
-before thread exit. Cross-thread frees follow the owning allocator's synchronization policy.
+These wrappers serialize binding, allocator operations, and diagnostic snapshots
+through one mutex. They borrow the allocator and never extend its lifetime.
+
+All access to a bound allocator must use the same wrapper; separate wrappers or
+direct allocator calls do not share this lock. The owner must keep the allocator
+and its backing storage alive until operations and payload users have finished.
+Unbind waits for in-flight wrapper operations and rejects later operations until
+rebound; it does not free outstanding allocations. Reset still requires callers
+to finish using every allocation it invalidates. Rebinding to a different backing
+allocator requires caller coordination for outstanding pointers.
+
+LastError is a synchronized snapshot of the most recent wrapper operation, not a
+thread-local result. Another thread may replace it between an operation and the
+query. Public state fields require external exclusion for direct access. Do not
+hold the wrapper mutex while calling its functions; the mutex is non-recursive.
 ================
 */
 
@@ -54,21 +67,21 @@ struct memory_mutex_t {
 
 struct thread_safe_arena_t {
     arena_t *arena{ nullptr };                              // Borrowed arena protected by mutex.
-    memory_mutex_t mutex{};                                 // Serializes all operations through this wrapper.
+    mutable memory_mutex_t mutex{};                         // Serializes all operations, including const snapshots.
     mem_error_t lastError{ mem_error_t::OK };               // Wrapper-level result of the latest operation.
     bool initialized{ false };                              // Binding is active and arena is valid.
 };
 
 struct thread_safe_pool_t {
     pool_t *pool{ nullptr };                                // Borrowed pool protected by mutex.
-    memory_mutex_t mutex{};                                 // Serializes all operations through this wrapper.
+    mutable memory_mutex_t mutex{};                         // Serializes all operations, including const snapshots.
     mem_error_t lastError{ mem_error_t::OK };               // Wrapper-level result of the latest operation.
     bool initialized{ false };                              // Binding is active and pool is valid.
 };
 
 struct thread_safe_bucket_t {
     bucket_t *bucket{ nullptr };                            // Borrowed bucket protected by mutex.
-    memory_mutex_t mutex{};                                 // Serializes all operations through this wrapper.
+    mutable memory_mutex_t mutex{};                         // Serializes all operations, including const snapshots.
     mem_error_t lastError{ mem_error_t::OK };               // Wrapper-level result of the latest operation.
     bool initialized{ false };                              // Binding is active and bucket is valid.
 };
