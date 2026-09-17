@@ -20,7 +20,8 @@
         "LIBRARY_PATH": ""
       },
       "cacheVariables": {
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "VCPKG_OVERLAY_PORTS": "${sourceDir}/cmake/vcpkg-ports"
       }
     },
     {
@@ -157,6 +158,30 @@
         "CYPHERENGINE_BUILD_PICASSO": "ON",
         "VCPKG_MANIFEST_FEATURES": "image-import;shader-tools;tests"
       }
+    },
+    {
+      "name": "tile-editor-debug",
+      "inherits": "base",
+      "displayName": "CypherTileEditor Qt6 Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CYPHERENGINE_BUILD_TESTS": "ON",
+        "CYPHERENGINE_BUILD_TOOLS": "ON",
+        "CYPHERENGINE_BUILD_TILE_EDITOR": "ON",
+        "VCPKG_MANIFEST_FEATURES": "image-import;shader-tools;tests"
+      }
+    },
+    {
+      "name": "tile-editor-release",
+      "inherits": "base",
+      "displayName": "CypherTileEditor Qt6 Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CYPHERENGINE_BUILD_TESTS": "ON",
+        "CYPHERENGINE_BUILD_TOOLS": "ON",
+        "CYPHERENGINE_BUILD_TILE_EDITOR": "ON",
+        "VCPKG_MANIFEST_FEATURES": "image-import;shader-tools;tests"
+      }
     }
   ],
   "buildPresets": [
@@ -207,6 +232,14 @@
     {
       "name": "picasso-debug",
       "configurePreset": "picasso-debug"
+    },
+    {
+      "name": "tile-editor-debug",
+      "configurePreset": "tile-editor-debug"
+    },
+    {
+      "name": "tile-editor-release",
+      "configurePreset": "tile-editor-release"
     }
   ],
   "testPresets": [
@@ -269,6 +302,20 @@
     {
       "name": "picasso-debug",
       "configurePreset": "picasso-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "tile-editor-debug",
+      "configurePreset": "tile-editor-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "tile-editor-release",
+      "configurePreset": "tile-editor-release",
       "output": {
         "outputOnFailure": true
       }
