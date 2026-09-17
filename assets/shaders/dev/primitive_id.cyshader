@@ -1,0 +1,7 @@
+@cykv 1
+@schema "cypher.shader" 1
+{
+    language = "glsl"
+    vertex = "shaders/dev/debug_mesh.vert"
+    fragment = "shaders/dev/primitive_id.frag"
+}
