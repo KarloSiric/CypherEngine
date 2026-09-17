@@ -492,4 +492,44 @@ render_error_t R_GetVertexInputInfo(
     return render_error_t::OK;
 }
 
+render_error_t R_VertexInputResolveForDraw(
+    const render_vertex_input_handle_t vertexInput,
+    backend_vertex_input_t *nativeOut,
+    render_vertex_input_info_t *infoOut ) noexcept
+{
+    if ( nativeOut != nullptr ) *nativeOut = {};
+    if ( infoOut != nullptr ) *infoOut = {};
+    if ( nativeOut == nullptr || infoOut == nullptr ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    if ( !tr.initialized || !vertexInputSystem.initialized ) {
+        return render_error_t::ERR_NOT_INITIALIZED;
+    }
+
+    ::cypher::common::handle32_t tableHandle{};
+    vertex_input_record_t *record = nullptr;
+    const render_error_t resolveResult = R_ResolveVertexInput(
+        vertexInput, tableHandle, record );
+    if ( resolveResult != render_error_t::OK ) return resolveResult;
+
+    for ( ::cypher::common::u32 i = 0u; i < record->info.vertexBufferCount; ++i ) {
+        render_buffer_info_t bufferInfo{};
+        const render_error_t result = R_GetBufferInfo(
+            record->info.vertexBuffers[i].buffer, &bufferInfo );
+        if ( result != render_error_t::OK ) return result;
+        if ( bufferInfo.mapped ) return render_error_t::ERR_RESOURCE_BUSY;
+    }
+    if ( ::cypher::common::Cy_Handle64IsValid( record->info.indexBuffer.buffer ) ) {
+        render_buffer_info_t bufferInfo{};
+        const render_error_t result = R_GetBufferInfo(
+            record->info.indexBuffer.buffer, &bufferInfo );
+        if ( result != render_error_t::OK ) return result;
+        if ( bufferInfo.mapped ) return render_error_t::ERR_RESOURCE_BUSY;
+    }
+
+    *nativeOut = record->native;
+    *infoOut = record->info;
+    return render_error_t::OK;
+}
+
 } // namespace cypher::engine::render
