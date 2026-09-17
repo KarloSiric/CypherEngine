@@ -399,6 +399,11 @@ pak_error_t ValidateLoadedIndex( const pak_reader_t &reader )
         }
 
         const char *path = EntryPath( reader, entry );
+        // The serialized length must describe the whole path, not a prefix that
+        // happens to end before an otherwise valid terminator at szPathEnd.
+        if ( std::memchr( path, '\0', entry.nPathSize ) != nullptr ) {
+            return pak_error_t::ERR_INVALID_INDEX;
+        }
         char szNormalizedPath[CYPHER_PAK_MAX_PATH_LENGTH]{};
         const pak_error_t normalizeResult = NormalizeVirtualPath( path, szNormalizedPath, sizeof( szNormalizedPath ) );
         if ( normalizeResult != pak_error_t::OK ) {
@@ -418,13 +423,14 @@ pak_error_t ValidateLoadedIndex( const pak_reader_t &reader )
         if ( entry.compression != static_cast<common::u32>( pak_compression_t::NONE ) ) {
             return pak_error_t::ERR_UNSUPPORTED_COMPRESSION;
         }
-        if ( ( entry.flags & CYPHER_PAK_ENTRY_COMPRESSED ) == 0u && entry.nStoredSize != entry.nUnpackedSize ) {
+        if ( ( entry.flags & CYPHER_PAK_ENTRY_COMPRESSED ) != 0u || entry.nStoredSize != entry.nUnpackedSize ) {
             return pak_error_t::ERR_ARCHIVE_CORRUPT;
         }
-        if ( !RangeInside( entry.nDataOffset, entry.nStoredSize, reader.header.nArchiveSize ) ) {
-            return pak_error_t::ERR_ARCHIVE_CORRUPT;
-        }
-        if ( entry.nDataOffset < reader.header.nDataOffset ) {
+        // Archive containment alone would allow a payload to escape the declared
+        // data section into trailing bytes. Check a relative range after its base.
+        if ( entry.nDataOffset < reader.header.nDataOffset ||
+             !RangeInside( entry.nDataOffset - reader.header.nDataOffset,
+                           entry.nStoredSize, reader.header.nDataSize ) ) {
             return pak_error_t::ERR_ARCHIVE_CORRUPT;
         }
 
@@ -566,7 +572,11 @@ pak_error_t Pak_OpenReader(
     const common::u32 flags,
     pak_reader_t &reader )
 {
-    // Initialization is transactional: a failed open always leaves a zeroed reader.
+    if ( reader.open || reader.pNativeFile != nullptr || reader.entries != nullptr ||
+         reader.stringTable != nullptr || reader.handle != CYPHER_PAK_INVALID_HANDLE ) {
+        return pak_error_t::ERR_INVALID_STATE;
+    }
+    // Initialization of an unowned reader is transactional: failure releases it.
     reader = {};
 
     if ( szArchivePath == nullptr || szArchivePath[0] == '\0' ) {
