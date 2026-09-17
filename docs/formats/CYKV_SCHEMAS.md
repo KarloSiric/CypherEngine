@@ -8,10 +8,11 @@
 //  Purpose: Defines the Tier2 schema architecture used with CYKV documents.
 //  Details: This document records descriptor ownership, validation behavior,
 //           diagnostics, registry lookup, configuration policy, and the initial
-//           project and user-settings contracts.
+//           project, settings, and renderer-source contracts.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-10
+//  - Updated renderer schema version inventory on 2026-09-17
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -207,15 +208,23 @@ stream. Neither format should absorb the other's responsibility.
 
 ## Renderer Source Schemas
 
-The first domain family now uses the Tier2 foundation:
+The renderer domain family uses exact version dispatch through the Tier2
+foundation:
 
-- `cypher.shader` version 1 for `.cyshader`
-- `cypher.texture` version 1 for `.cytex`
-- `cypher.material` version 1 for `.cymat`
+- `cypher.shader` versions 1 and 2 for `.cyshader`
+- `cypher.texture` versions 1 and 2 for `.cytex`
+- `cypher.material` versions 1 and 2 for `.cymat`
 
-Material texture and parameter maps use the generic dynamic object-member rule.
-Canonical path and identifier checks are shared through `DataValidation`; typed
-decoders apply extension, duplicate, default, and cross-field policies. See
+Version 1 descriptors remain frozen compatibility contracts. Version 2 adds
+typed shader interfaces, explicit texture processing/residency policy, and
+inheritable material recipes without changing CYKV language version 1. A caller
+must select the descriptor named by the document header; it must not validate a
+V2 document against a V1 descriptor or fall back after a version mismatch.
+
+Shader interface/feature maps and material feature/texture/parameter maps use
+the generic dynamic object-member rule. Canonical path and identifier checks are
+shared through `DataValidation`; typed decoders apply extension, duplicate,
+default, and cross-field policies. See
 [RENDER_ASSETS.md](RENDER_ASSETS.md) for the exact contracts.
 
 ## Deferred Work
@@ -227,7 +236,7 @@ These features are intentionally not claimed by the current Tier2 foundation:
 - schema-level default insertion and generic normalization
 - schema migration execution
 - resource-reference resolution
-- reflection metadata and editor presentation hints
+- generic schema-introspection metadata and editor presentation hints
 - cross-document and domain-specific invariants
 - lossless syntax trees and node source maps
 - a headless `cykv` or `cyschemac` executable
