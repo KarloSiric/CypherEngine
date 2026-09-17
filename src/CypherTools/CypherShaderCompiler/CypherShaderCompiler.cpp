@@ -19,12 +19,14 @@
 
 #include "CypherShaderCompiler.h"
 
+#include "CypherCommon_Align.h"
 #include "CypherCommon_Allocator.h"
 #include "CypherCommon_Blob.h"
 #include "CypherCommon_CookedShader.h"
 #include "CypherCommon_DataValidation.h"
 #include "CypherCommon_FileIo.h"
 #include "CypherCommon_KeyValueParser.h"
+#include "CypherCommon_KeyValueWriter.h"
 #include "CypherCommon_RenderAsset.h"
 #include "CypherCommon_String.h"
 #include "CypherCommon_StringFormat.h"
@@ -36,8 +38,13 @@
 
 #include <glslang/Include/glslang_c_interface.h>
 #include <glslang/Public/resource_limits_c.h>
+#include <spirv_cross/spirv_cross.hpp>
+#include <spirv_cross/spirv_cross_c.h>
 
 #include <cstring>
+#include <exception>
+#include <new>
+#include <string>
 
 namespace cypher::tools
 {
@@ -194,13 +201,32 @@ struct shader_stage_work_t {
     shader_include_context_t includes{};
 };
 
+struct shader_recipe_work_t {
+    u32 nSchemaVersion{ 0u };
+    format_version_t nCookedVersion{ 0u };
+    render_shader_language_t language{ render_shader_language_t::GLSL };
+    string_view_t vertexSource{};
+    string_view_t fragmentSource{};
+    string_view_t vertexEntry{};
+    string_view_t fragmentEntry{};
+    const string_view_t *pDefines{ nullptr };
+    usize nDefines{ 0u };
+};
+
 struct shader_compile_work_t {
     text_buffer_t recipeDiagnosticPath{};
     text_buffer_t outputNativePath{};
     text_buffer_t recipeText{};
     text_buffer_t definePreamble{};
     key_value_document_owner_t document{};
-    render_shader_source_view_t recipe{};
+    render_shader_source_view_t recipeV1{};
+    render_shader_source_v2_view_t recipeV2{};
+    shader_recipe_work_t recipe{};
+    cooked_shader_binding_source_t
+        bindings[CY_COOKED_SHADER_MAX_BINDINGS]{};
+    flags32_t reflectedStageMasks[CY_COOKED_SHADER_MAX_BINDINGS]{};
+    u32 nBindings{ 0u };
+    content_hash_t interfaceHash{};
     shader_include_cache_t includeCache{};
     shader_stage_work_t stages[CY_COOKED_SHADER_MAX_STAGES]{};
     blob_t cooked{};
@@ -505,16 +531,182 @@ CYPHER_NODISCARD tool_status_t ReportReadFailure(
 }
 
 CYPHER_NODISCARD bool_t BuildDefinePreamble(
-    const render_shader_source_view_t &recipe,
+    const string_view_t *pDefines,
+    usize nDefines,
     text_buffer_t &preamble ) noexcept
 {
-    for ( usize iDefine = 0u; iDefine < recipe.nDefines; ++iDefine ) {
+    for ( usize iDefine = 0u; iDefine < nDefines; ++iDefine ) {
         if ( !TextBuffer_Append( &preamble, ShaderText( "#define " ) ) ||
-             !TextBuffer_Append( &preamble, recipe.defines[iDefine] ) ||
+             !TextBuffer_Append( &preamble, pDefines[iDefine] ) ||
              !TextBuffer_Append( &preamble, ShaderText( " 1\n" ) ) ) {
             return CY_FALSE;
         }
     }
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD render_shader_resource_type_t ShaderTextureResourceType(
+    render_shader_texture_type_t type ) noexcept
+{
+    switch ( type ) {
+        case render_shader_texture_type_t::TEXTURE_2D:
+            return render_shader_resource_type_t::TEXTURE_2D;
+        case render_shader_texture_type_t::TEXTURE_CUBE:
+            return render_shader_resource_type_t::TEXTURE_CUBE;
+        case render_shader_texture_type_t::TEXTURE_2D_ARRAY:
+            return render_shader_resource_type_t::TEXTURE_2D_ARRAY;
+        case render_shader_texture_type_t::TEXTURE_3D:
+            return render_shader_resource_type_t::TEXTURE_3D;
+    }
+    return render_shader_resource_type_t::NONE;
+}
+
+CYPHER_NODISCARD render_shader_value_type_t ShaderParameterValueType(
+    render_shader_parameter_type_t type ) noexcept
+{
+    switch ( type ) {
+        case render_shader_parameter_type_t::BOOL:
+            return render_shader_value_type_t::BOOL;
+        case render_shader_parameter_type_t::I32:
+            return render_shader_value_type_t::I32;
+        case render_shader_parameter_type_t::U32:
+            return render_shader_value_type_t::U32;
+        case render_shader_parameter_type_t::F32:
+            return render_shader_value_type_t::F32;
+        case render_shader_parameter_type_t::F32X2:
+            return render_shader_value_type_t::F32X2;
+        case render_shader_parameter_type_t::F32X3:
+        case render_shader_parameter_type_t::COLOR3:
+            return render_shader_value_type_t::F32X3;
+        case render_shader_parameter_type_t::F32X4:
+        case render_shader_parameter_type_t::COLOR4:
+            return render_shader_value_type_t::F32X4;
+        case render_shader_parameter_type_t::MAT3:
+            return render_shader_value_type_t::F32X3X3;
+        case render_shader_parameter_type_t::MAT4:
+            return render_shader_value_type_t::F32X4X4;
+    }
+    return render_shader_value_type_t::NONE;
+}
+
+CYPHER_NODISCARD bool_t AppendLogicalBinding(
+    shader_compile_work_t &work,
+    const cooked_shader_binding_source_t &binding ) noexcept
+{
+    if ( work.nBindings >= CY_COOKED_SHADER_MAX_BINDINGS ||
+         binding.nLogicalBinding == 0u ) {
+        return CY_FALSE;
+    }
+    for ( u32 iBinding = 0u; iBinding < work.nBindings; ++iBinding ) {
+        if ( work.bindings[iBinding].nLogicalBinding == binding.nLogicalBinding ) {
+            return CY_FALSE;
+        }
+    }
+    work.bindings[work.nBindings++] = binding;
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD flags32_t MaterialBindingFlags(
+    bool_t bRequired ) noexcept
+{
+    return COOKED_SHADER_BINDING_FLAG_MATERIAL |
+           ( bRequired ? COOKED_SHADER_BINDING_FLAG_REQUIRED : 0u );
+}
+
+CYPHER_NODISCARD bool_t BuildV2CookedInterface(
+    shader_compile_work_t &work ) noexcept
+{
+    work.nBindings = 0u;
+    work.interfaceHash = {};
+    for ( flags32_t &stageMask : work.reflectedStageMasks ) {
+        stageMask = RENDER_SHADER_STAGE_MASK_NONE;
+    }
+
+    for ( usize iTexture = 0u;
+          iTexture < work.recipeV2.nTextures;
+          ++iTexture ) {
+        const render_shader_texture_interface_v2_view_t &source =
+            work.recipeV2.textures[iTexture];
+        cooked_shader_binding_source_t binding{};
+        binding.name = source.name;
+        binding.kind = render_shader_binding_kind_t::SAMPLED_TEXTURE;
+        binding.resourceType = ShaderTextureResourceType( source.type );
+        // CYSH and CYMT currently share conservative material visibility. Physical
+        // stage use is tracked separately below so their interface hashes agree.
+        binding.stageMask = RENDER_SHADER_STAGE_MASK_ALL_GRAPHICS;
+        binding.flags = MaterialBindingFlags( source.bRequired );
+        if ( binding.resourceType == render_shader_resource_type_t::NONE ||
+             !CookedShader_MakeLogicalBindingId(
+                 binding.name,
+                 &binding.nLogicalBinding ) ||
+             !AppendLogicalBinding( work, binding ) ) {
+            return CY_FALSE;
+        }
+    }
+
+    // Material constants use one deterministic packed block. Parameters are laid
+    // out in canonical name order: scalars align to 4 bytes, vec2 to 8 bytes, and
+    // vec3/vec4/matrices to 16 bytes. Storage uses padded vec3/color3 (16 bytes),
+    // mat3 as three padded vec4 columns (48 bytes), and mat4 as 64 bytes.
+    usize parameterOrder[CY_RENDER_SHADER_MAX_INTERFACE_PARAMETERS]{};
+    for ( usize iParameter = 0u;
+          iParameter < work.recipeV2.nParameters;
+          ++iParameter ) {
+        parameterOrder[iParameter] = iParameter;
+    }
+    for ( usize iParameter = 1u;
+          iParameter < work.recipeV2.nParameters;
+          ++iParameter ) {
+        const usize value = parameterOrder[iParameter];
+        usize iInsert = iParameter;
+        while ( iInsert != 0u &&
+                StringView_Compare(
+                    work.recipeV2.parameters[value].name,
+                    work.recipeV2.parameters[
+                        parameterOrder[iInsert - 1u] ].name ) < 0 ) {
+            parameterOrder[iInsert] = parameterOrder[iInsert - 1u];
+            --iInsert;
+        }
+        parameterOrder[iInsert] = value;
+    }
+
+    usize cbParameterBlock = 0u;
+    for ( usize iOrdered = 0u;
+          iOrdered < work.recipeV2.nParameters;
+          ++iOrdered ) {
+        const render_shader_parameter_interface_v2_view_t &source =
+            work.recipeV2.parameters[parameterOrder[iOrdered]];
+        cooked_shader_binding_source_t binding{};
+        binding.name = source.name;
+        binding.kind = render_shader_binding_kind_t::VALUE;
+        binding.valueType = ShaderParameterValueType( source.type );
+        binding.stageMask = RENDER_SHADER_STAGE_MASK_ALL_GRAPHICS;
+        binding.flags = MaterialBindingFlags( source.bRequired );
+        const u32 cbAlignment = CookedShader_ValueTypeStorageAlignment(
+            binding.valueType );
+        const u32 cbStorage = CookedShader_ValueTypeStorageSize(
+            binding.valueType );
+        usize iAlignedOffset = 0u;
+        if ( cbAlignment == 0u || cbStorage == 0u ||
+             !Cy_AlignUpChecked(
+                 cbParameterBlock,
+                 cbAlignment,
+                 iAlignedOffset ) ||
+             iAlignedOffset > CY_U32_MAX ||
+             cbStorage > CY_U32_MAX - iAlignedOffset ) {
+            return CY_FALSE;
+        }
+        binding.iByteOffset = static_cast<u32>( iAlignedOffset );
+        binding.cbByteSize = cbStorage;
+        cbParameterBlock = iAlignedOffset + cbStorage;
+        if ( !CookedShader_MakeLogicalBindingId(
+                 binding.name,
+                 &binding.nLogicalBinding ) ||
+             !AppendLogicalBinding( work, binding ) ) {
+            return CY_FALSE;
+        }
+    }
+
     return CY_TRUE;
 }
 
@@ -1085,10 +1277,366 @@ CYPHER_NODISCARD const char *GlslangLog(
     return pLog != nullptr && pLog[0] != '\0' ? pLog : nullptr;
 }
 
+CYPHER_NODISCARD string_view_t StdStringView(
+    const std::string &text ) noexcept
+{
+    return { text.data(), text.size() };
+}
+
+CYPHER_NODISCARD flags32_t ShaderStageMask(
+    render_shader_stage_t stage ) noexcept
+{
+    switch ( stage ) {
+        case render_shader_stage_t::VERTEX:
+            return RENDER_SHADER_STAGE_MASK_VERTEX;
+        case render_shader_stage_t::FRAGMENT:
+            return RENDER_SHADER_STAGE_MASK_FRAGMENT;
+    }
+    return RENDER_SHADER_STAGE_MASK_NONE;
+}
+
+CYPHER_NODISCARD cooked_shader_binding_source_t *FindAuthoredBinding(
+    shader_compile_work_t &work,
+    string_view_t name ) noexcept
+{
+    for ( u32 iBinding = 0u; iBinding < work.nBindings; ++iBinding ) {
+        if ( StringView_Equals( work.bindings[iBinding].name, name ) ) {
+            return &work.bindings[iBinding];
+        }
+    }
+    return nullptr;
+}
+
+CYPHER_NODISCARD tool_status_t ReportInterfaceMismatch(
+    const tool_compile_request_t &request,
+    tool_report_t &report,
+    string_view_t prefix,
+    string_view_t name,
+    string_view_t suffix,
+    string_view_t path,
+    string_view_t hint ) noexcept
+{
+    char message[512]{};
+    const string_format_result_t formatted = StringFormat_Printf(
+        message,
+        sizeof( message ),
+        "%.*s `%.*s`%.*s",
+        static_cast<int>( prefix.cchLength ),
+        prefix.pData,
+        static_cast<int>( name.cchLength ),
+        name.pData,
+        static_cast<int>( suffix.cchLength ),
+        suffix.pData );
+    EmitDiagnostic(
+        request,
+        report,
+        CY_SHADER_DIAGNOSTIC_INTERFACE_FAILED,
+        tool_diagnostic_severity_t::ERROR,
+        tool_diagnostic_category_t::VALIDATION,
+        formatted.status == string_format_status_t::OK
+            ? StringView_FromCString( message )
+            : ShaderText( "Shader interface does not match active linked GLSL." ),
+        path,
+        1u,
+        1u,
+        hint );
+    return tool_status_t::VALIDATION_FAILED;
+}
+
+CYPHER_NODISCARD render_shader_resource_type_t ReflectedTextureType(
+    const spirv_cross::Compiler &compiler,
+    const spirv_cross::SPIRType &type )
+{
+    if ( type.basetype != spirv_cross::SPIRType::SampledImage ||
+         !type.array.empty() || type.image.depth || type.image.ms ||
+         type.image.sampled != 1u ) {
+        return render_shader_resource_type_t::NONE;
+    }
+
+    const spirv_cross::SPIRType &component = compiler.get_type(
+        type.image.type );
+    if ( component.basetype != spirv_cross::SPIRType::Float ) {
+        return render_shader_resource_type_t::NONE;
+    }
+
+    switch ( type.image.dim ) {
+        case spv::Dim2D:
+            return type.image.arrayed
+                ? render_shader_resource_type_t::TEXTURE_2D_ARRAY
+                : render_shader_resource_type_t::TEXTURE_2D;
+        case spv::Dim3D:
+            return !type.image.arrayed
+                ? render_shader_resource_type_t::TEXTURE_3D
+                : render_shader_resource_type_t::NONE;
+        case spv::DimCube:
+            return !type.image.arrayed
+                ? render_shader_resource_type_t::TEXTURE_CUBE
+                : render_shader_resource_type_t::NONE;
+        default:
+            return render_shader_resource_type_t::NONE;
+    }
+}
+
+CYPHER_NODISCARD render_shader_value_type_t ReflectedValueType(
+    const spirv_cross::SPIRType &type ) noexcept
+{
+    if ( !type.array.empty() ) {
+        return render_shader_value_type_t::NONE;
+    }
+    if ( type.basetype == spirv_cross::SPIRType::Boolean &&
+         type.vecsize == 1u && type.columns == 1u ) {
+        return render_shader_value_type_t::BOOL;
+    }
+    if ( type.width != 32u ) {
+        return render_shader_value_type_t::NONE;
+    }
+    if ( type.basetype == spirv_cross::SPIRType::Int &&
+         type.vecsize == 1u && type.columns == 1u ) {
+        return render_shader_value_type_t::I32;
+    }
+    if ( type.basetype == spirv_cross::SPIRType::UInt &&
+         type.vecsize == 1u && type.columns == 1u ) {
+        return render_shader_value_type_t::U32;
+    }
+    if ( type.basetype != spirv_cross::SPIRType::Float ) {
+        return render_shader_value_type_t::NONE;
+    }
+    if ( type.columns == 1u ) {
+        switch ( type.vecsize ) {
+            case 1u: return render_shader_value_type_t::F32;
+            case 2u: return render_shader_value_type_t::F32X2;
+            case 3u: return render_shader_value_type_t::F32X3;
+            case 4u: return render_shader_value_type_t::F32X4;
+            default: return render_shader_value_type_t::NONE;
+        }
+    }
+    if ( type.columns == 3u && type.vecsize == 3u ) {
+        return render_shader_value_type_t::F32X3X3;
+    }
+    if ( type.columns == 4u && type.vecsize == 4u ) {
+        return render_shader_value_type_t::F32X4X4;
+    }
+    return render_shader_value_type_t::NONE;
+}
+
+CYPHER_NODISCARD tool_status_t ReflectStageInterfaceV2(
+    const tool_compile_request_t &request,
+    tool_report_t &report,
+    glslang_program_t *pProgram,
+    shader_stage_work_t &stage,
+    shader_compile_work_t &work ) noexcept
+{
+    glslang_program_SPIRV_generate( pProgram, stage.glslangStage );
+    const usize nWords = glslang_program_SPIRV_get_size( pProgram );
+    const u32 *pWords = glslang_program_SPIRV_get_ptr( pProgram );
+    if ( pWords == nullptr || nWords < 5u ) {
+        const char *pLog = glslang_program_SPIRV_get_messages( pProgram );
+        EmitDiagnostic(
+            request,
+            report,
+            CY_SHADER_DIAGNOSTIC_TOOLCHAIN_FAILED,
+            tool_diagnostic_severity_t::FATAL,
+            tool_diagnostic_category_t::COMPILER,
+            pLog != nullptr && pLog[0] != '\0'
+                ? StringView_FromCString( pLog )
+                : ShaderText( "glslang did not produce a valid SPIR-V reflection module." ),
+            stage.virtualPath );
+        return tool_status_t::INTERNAL_ERROR;
+    }
+
+    const flags32_t stageMask = ShaderStageMask( stage.stage );
+    if ( stageMask == RENDER_SHADER_STAGE_MASK_NONE ) {
+        EmitDiagnostic(
+            request,
+            report,
+            CY_SHADER_DIAGNOSTIC_TOOLCHAIN_FAILED,
+            tool_diagnostic_severity_t::FATAL,
+            tool_diagnostic_category_t::INTERNAL,
+            ShaderText( "Shader reflection received an unsupported stage." ),
+            stage.virtualPath );
+        return tool_status_t::INTERNAL_ERROR;
+    }
+
+    try {
+        const spirv_cross::Compiler compiler( pWords, nWords );
+        const auto active = compiler.get_active_interface_variables();
+        const spirv_cross::ShaderResources resources =
+            compiler.get_shader_resources( active );
+
+        for ( const spirv_cross::Resource &resource :
+              resources.sampled_images ) {
+            const string_view_t name = StdStringView( resource.name );
+            cooked_shader_binding_source_t *pBinding = FindAuthoredBinding(
+                work,
+                name );
+            if ( pBinding == nullptr ||
+                 pBinding->kind !=
+                     render_shader_binding_kind_t::SAMPLED_TEXTURE ) {
+                return ReportInterfaceMismatch(
+                    request,
+                    report,
+                    ShaderText( "Active GLSL sampled image" ),
+                    name,
+                    ShaderText(
+                        " has no matching interface.textures declaration." ),
+                    stage.virtualPath,
+                    ShaderText(
+                        "Declare the active combined sampler as a texture with the same name and dimension." ) );
+            }
+            const spirv_cross::SPIRType &type = compiler.get_type(
+                resource.type_id );
+            const render_shader_resource_type_t reflectedType =
+                ReflectedTextureType( compiler, type );
+            if ( reflectedType == render_shader_resource_type_t::NONE ||
+                 reflectedType != pBinding->resourceType ||
+                 pBinding->nArrayElements != 1u ) {
+                return ReportInterfaceMismatch(
+                    request,
+                    report,
+                    ShaderText( "GLSL sampled image" ),
+                    name,
+                    ShaderText(
+                        " does not match its authored texture dimension or binding-array shape." ),
+                    request.input,
+                    ShaderText(
+                        "Use an active float sampler2D, samplerCube, sampler2DArray, or sampler3D matching interface.textures; shadow, multisample, integer, and descriptor-array samplers are not representable yet." ) );
+            }
+            const usize iBinding = static_cast<usize>(
+                pBinding - work.bindings );
+            work.reflectedStageMasks[iBinding] |= stageMask;
+        }
+
+        for ( const spirv_cross::Resource &resource :
+              resources.gl_plain_uniforms ) {
+            const string_view_t name = StdStringView( resource.name );
+            cooked_shader_binding_source_t *pBinding = FindAuthoredBinding(
+                work,
+                name );
+            if ( pBinding == nullptr ||
+                 pBinding->kind != render_shader_binding_kind_t::VALUE ) {
+                return ReportInterfaceMismatch(
+                    request,
+                    report,
+                    ShaderText( "Active GLSL uniform" ),
+                    name,
+                    ShaderText(
+                        " has no matching interface.parameters declaration." ),
+                    stage.virtualPath,
+                    ShaderText(
+                        "Declare the active plain uniform as a parameter with the same name and value type." ) );
+            }
+            const spirv_cross::SPIRType &type = compiler.get_type(
+                resource.type_id );
+            const render_shader_value_type_t reflectedType =
+                ReflectedValueType( type );
+            if ( reflectedType == render_shader_value_type_t::NONE ||
+                 reflectedType != pBinding->valueType ||
+                 pBinding->nArrayElements != 1u ) {
+                return ReportInterfaceMismatch(
+                    request,
+                    report,
+                    ShaderText( "GLSL uniform" ),
+                    name,
+                    ShaderText(
+                        " does not match its authored parameter type or binding-array shape." ),
+                    request.input,
+                    ShaderText(
+                        "Use a non-array bool, int, uint, float, vec2, vec3, vec4, mat3, or mat4 matching interface.parameters." ) );
+            }
+            const usize iBinding = static_cast<usize>(
+                pBinding - work.bindings );
+            work.reflectedStageMasks[iBinding] |= stageMask;
+        }
+    } catch ( const std::bad_alloc & ) {
+        EmitDiagnostic(
+            request,
+            report,
+            CY_SHADER_DIAGNOSTIC_TOOLCHAIN_FAILED,
+            tool_diagnostic_severity_t::FATAL,
+            tool_diagnostic_category_t::INTERNAL,
+            ShaderText( "Out of memory while reflecting linked shader resources." ),
+            stage.virtualPath );
+        return tool_status_t::OUT_OF_MEMORY;
+    } catch ( const std::exception &error ) {
+        const char *pMessage = error.what();
+        EmitDiagnostic(
+            request,
+            report,
+            CY_SHADER_DIAGNOSTIC_TOOLCHAIN_FAILED,
+            tool_diagnostic_severity_t::FATAL,
+            tool_diagnostic_category_t::COMPILER,
+            pMessage != nullptr && pMessage[0] != '\0'
+                ? StringView_FromCString( pMessage )
+                : ShaderText( "SPIRV-Cross reflection failed." ),
+            stage.virtualPath );
+        return tool_status_t::INTERNAL_ERROR;
+    } catch ( ... ) {
+        EmitDiagnostic(
+            request,
+            report,
+            CY_SHADER_DIAGNOSTIC_TOOLCHAIN_FAILED,
+            tool_diagnostic_severity_t::FATAL,
+            tool_diagnostic_category_t::COMPILER,
+            ShaderText( "SPIRV-Cross reflection failed with an unknown error." ),
+            stage.virtualPath );
+        return tool_status_t::INTERNAL_ERROR;
+    }
+    return tool_status_t::OK;
+}
+
+CYPHER_NODISCARD tool_status_t FinalizeReflectedInterfaceV2(
+    const tool_compile_request_t &request,
+    tool_report_t &report,
+    shader_compile_work_t &work ) noexcept
+{
+    for ( u32 iBinding = 0u; iBinding < work.nBindings; ++iBinding ) {
+        const cooked_shader_binding_source_t &binding = work.bindings[iBinding];
+        if ( work.reflectedStageMasks[iBinding] !=
+             RENDER_SHADER_STAGE_MASK_NONE ) {
+            continue;
+        }
+        const bool_t bTexture = binding.kind ==
+            render_shader_binding_kind_t::SAMPLED_TEXTURE;
+        return ReportInterfaceMismatch(
+            request,
+            report,
+            bTexture
+                ? ShaderText( "Authored texture" )
+                : ShaderText( "Authored parameter" ),
+            binding.name,
+            ShaderText( " is absent or inactive in linked GLSL." ),
+            request.input,
+            bTexture
+                ? ShaderText(
+                      "Declare and actively sample a matching combined sampler uniform in at least one stage, or remove the texture declaration." )
+                : ShaderText(
+                      "Declare and actively read a matching plain uniform in at least one stage, or remove the parameter declaration." ) );
+    }
+
+    const cooked_shader_interface_source_t shaderInterface{
+        { work.bindings, work.nBindings }
+    };
+    if ( !CookedShader_ComputeInterfaceHash(
+             shaderInterface,
+             &work.interfaceHash ) ) {
+        EmitDiagnostic(
+            request,
+            report,
+            CY_SHADER_DIAGNOSTIC_TOOLCHAIN_FAILED,
+            tool_diagnostic_severity_t::FATAL,
+            tool_diagnostic_category_t::INTERNAL,
+            ShaderText( "Reflected shader interface could not be canonicalized." ),
+            request.input );
+        return tool_status_t::INTERNAL_ERROR;
+    }
+    return tool_status_t::OK;
+}
+
 CYPHER_NODISCARD tool_status_t CompileStage(
     const tool_compile_request_t &request,
     tool_report_t &report,
     const text_buffer_t &preamble,
+    bool_t bGenerateSpirv,
     shader_stage_work_t &stage ) noexcept
 {
     stage.includes.pReport = &report;
@@ -1098,7 +1646,7 @@ CYPHER_NODISCARD tool_status_t CompileStage(
         stage.glslangStage,
         GLSLANG_CLIENT_OPENGL,
         GLSLANG_TARGET_OPENGL_450,
-        GLSLANG_TARGET_NONE,
+        bGenerateSpirv ? GLSLANG_TARGET_SPV : GLSLANG_TARGET_NONE,
         GLSLANG_TARGET_SPV_1_0,
         TextBuffer_CStr( &stage.source ),
         static_cast<int>( stage.nGlslVersion ),
@@ -1107,7 +1655,8 @@ CYPHER_NODISCARD tool_status_t CompileStage(
         true,
         static_cast<glslang_messages_t>(
             GLSLANG_MSG_DEFAULT_BIT |
-            GLSLANG_MSG_DISPLAY_ERROR_COLUMN ),
+            GLSLANG_MSG_DISPLAY_ERROR_COLUMN |
+            ( bGenerateSpirv ? GLSLANG_MSG_SPV_RULES_BIT : 0 ) ),
         glslang_default_resource(),
         { &RejectSystemInclude, &ResolveLocalInclude, &ReleaseInclude },
         &stage.includes
@@ -1124,6 +1673,12 @@ CYPHER_NODISCARD tool_status_t CompileStage(
             ShaderText( "glslang could not create a shader compiler object." ),
             stage.virtualPath );
         return tool_status_t::INTERNAL_ERROR;
+    }
+    if ( bGenerateSpirv ) {
+        glslang_shader_set_options(
+            stage.compiler.pShader,
+            GLSLANG_SHADER_AUTO_MAP_BINDINGS |
+                GLSLANG_SHADER_AUTO_MAP_LOCATIONS );
     }
     glslang_shader_set_preamble(
         stage.compiler.pShader,
@@ -1247,8 +1802,12 @@ CYPHER_NODISCARD tool_status_t CompileStage(
 CYPHER_NODISCARD tool_status_t LinkProgram(
     const tool_compile_request_t &request,
     tool_report_t &report,
-    shader_stage_work_t ( &stages )[CY_COOKED_SHADER_MAX_STAGES] ) noexcept
+    shader_compile_work_t &work ) noexcept
 {
+    shader_stage_work_t ( &stages )[CY_COOKED_SHADER_MAX_STAGES] =
+        work.stages;
+    const bool_t bReflectInterface = work.recipe.nSchemaVersion ==
+        CY_RENDER_ASSET_SCHEMA_VERSION_V2;
     glslang_program_owner_t program{};
     program.pProgram = glslang_program_create();
     if ( program.pProgram == nullptr ) {
@@ -1272,7 +1831,8 @@ CYPHER_NODISCARD tool_status_t LinkProgram(
 
     const int messages = GLSLANG_MSG_DEFAULT_BIT |
                          GLSLANG_MSG_DISPLAY_ERROR_COLUMN |
-                         GLSLANG_MSG_VALIDATE_CROSS_STAGE_IO_BIT;
+                         GLSLANG_MSG_VALIDATE_CROSS_STAGE_IO_BIT |
+                         ( bReflectInterface ? GLSLANG_MSG_SPV_RULES_BIT : 0 );
     if ( !glslang_program_link( program.pProgram, messages ) ) {
         const char *pLog = GlslangLog( program.pProgram );
         EmitDiagnostic(
@@ -1286,31 +1846,111 @@ CYPHER_NODISCARD tool_status_t LinkProgram(
                 : ShaderText( "GLSL vertex/fragment interface linking failed." ) );
         return tool_status_t::VALIDATION_FAILED;
     }
-    return tool_status_t::OK;
+    if ( !bReflectInterface ) {
+        return tool_status_t::OK;
+    }
+    if ( !glslang_program_map_io( program.pProgram ) ) {
+        const char *pLog = GlslangLog( program.pProgram );
+        EmitDiagnostic(
+            request,
+            report,
+            CY_SHADER_DIAGNOSTIC_INTERFACE_FAILED,
+            tool_diagnostic_severity_t::ERROR,
+            tool_diagnostic_category_t::COMPILER,
+            pLog != nullptr
+                ? StringView_FromCString( pLog )
+                : ShaderText( "glslang could not assign deterministic reflection bindings." ),
+            request.input );
+        return tool_status_t::VALIDATION_FAILED;
+    }
+    for ( shader_stage_work_t &stage : stages ) {
+        const tool_status_t status = ReflectStageInterfaceV2(
+            request,
+            report,
+            program.pProgram,
+            stage,
+            work );
+        if ( ToolStatus_Failed( status ) ) {
+            return status;
+        }
+    }
+    return FinalizeReflectedInterfaceV2( request, report, work );
 }
 
-CYPHER_NODISCARD content_hash_t ToolchainHash() noexcept
+CYPHER_NODISCARD content_hash_t GlslangToolchainHash() noexcept
 {
     glslang_version_t version{};
     glslang_get_version( &version );
-    char identity[128]{};
+    char identity[192]{};
     const string_format_result_t formatted = StringFormat_Printf(
         identity,
         sizeof( identity ),
-        "glslang-%d.%d.%d-%s",
+        "glslang-%d.%d.%d-%s-vcpkg-%s-build-%s",
         version.major,
         version.minor,
         version.patch,
-        version.flavor != nullptr ? version.flavor : "" );
+        version.flavor != nullptr ? version.flavor : "",
+        CYPHER_VCPKG_BASELINE,
+        CYPHER_GLSLANG_BUILD_CONTRACT );
     return formatted.status == string_format_status_t::OK
         ? ContentHash_String( StringView_FromCString( identity ) )
         : CY_CONTENT_HASH_INVALID;
 }
 
-CYPHER_NODISCARD content_hash_t CompilerHash() noexcept
+CYPHER_NODISCARD content_hash_t ReflectionToolchainHash() noexcept
 {
-    return ContentHash_String(
-        ShaderText( "cypher.shader-compiler.api1.compiler2" ) );
+    // SPIRV-Cross does not publish a runtime version string through its C++
+    // interface. The public C ABI version identifies the reflection contract,
+    // while the pinned vcpkg baseline identifies the exact dependency graph
+    // used to build the compiler. Together they make upgrades cache-visible.
+    char identity[192]{};
+    const string_format_result_t formatted = StringFormat_Printf(
+        identity,
+        sizeof( identity ),
+        "spirv-cross-c-api-%u.%u.%u-vcpkg-%s",
+        SPVC_C_API_VERSION_MAJOR,
+        SPVC_C_API_VERSION_MINOR,
+        SPVC_C_API_VERSION_PATCH,
+        CYPHER_VCPKG_BASELINE );
+    return formatted.status == string_format_status_t::OK
+        ? ContentHash_String( StringView_FromCString( identity ) )
+        : CY_CONTENT_HASH_INVALID;
+}
+
+CYPHER_NODISCARD content_hash_t CompilerHash(
+    u32 nSchemaVersion,
+    format_version_t nCookedVersion ) noexcept
+{
+    char identity[128]{};
+    const string_format_result_t formatted = StringFormat_Printf(
+        identity,
+        sizeof( identity ),
+        "cypher.shader-compiler.api%u.compiler%u.schema%u.cysh%u",
+        CY_SHADER_COMPILER_API_VERSION,
+        CY_SHADER_COMPILER_VERSION,
+        nSchemaVersion,
+        nCookedVersion );
+    return formatted.status == string_format_status_t::OK
+        ? ContentHash_String( StringView_FromCString( identity ) )
+        : CY_CONTENT_HASH_INVALID;
+}
+
+CYPHER_NODISCARD content_hash_t ConfigurationHash(
+    const tool_context_t &context ) noexcept
+{
+    // Target controls the accepted GLSL ceiling, and profile is a semantic
+    // build input. Keep this identity visible as a configuration dependency so
+    // cache diagnostics can distinguish it from compiler/toolchain changes.
+    content_hash_t hash = ContentHash_String(
+        ShaderText( "cypher-shader-build-configuration-v1" ) );
+    hash = ContentHash_Combine(
+        hash,
+        ContentHash_String( StringView_FromCString(
+            ToolTarget_Name( context.target ) ) ) );
+    return ContentHash_Combine(
+        hash,
+        ContentHash_String( StringView_FromCString(
+            ToolProfile_Name( context.profile ) ) ) );
 }
 
 void EmitDependencies(
@@ -1318,7 +1958,9 @@ void EmitDependencies(
     const shader_compile_work_t &work,
     content_hash_t recipeHash,
     content_hash_t compilerHash,
-    content_hash_t toolchainHash ) noexcept
+    content_hash_t glslangToolchainHash,
+    content_hash_t reflectionToolchainHash,
+    content_hash_t configurationHash ) noexcept
 {
     const tool_dependency_t directDependencies[]{
         {
@@ -1366,13 +2008,34 @@ void EmitDependencies(
         {
             ShaderText( "toolchain/glslang" ),
             tool_dependency_kind_t::TOOLCHAIN,
-            toolchainHash,
+            glslangToolchainHash,
             TOOL_DEPENDENCY_FLAG_REQUIRED
         }
     };
     for ( const tool_dependency_t &dependency : toolchainDependencies ) {
         ToolHost_EmitDependency( request.pInvocation->pHost, dependency );
     }
+    if ( work.recipe.nSchemaVersion ==
+         CY_RENDER_ASSET_SCHEMA_VERSION_V2 ) {
+        const tool_dependency_t reflectionDependency{
+            ShaderText( "toolchain/spirv-cross" ),
+            tool_dependency_kind_t::TOOLCHAIN,
+            reflectionToolchainHash,
+            TOOL_DEPENDENCY_FLAG_REQUIRED
+        };
+        ToolHost_EmitDependency(
+            request.pInvocation->pHost,
+            reflectionDependency );
+    }
+    const tool_dependency_t configurationDependency{
+        ShaderText( "configuration/shader-target-profile" ),
+        tool_dependency_kind_t::CONFIGURATION,
+        configurationHash,
+        TOOL_DEPENDENCY_FLAG_REQUIRED
+    };
+    ToolHost_EmitDependency(
+        request.pInvocation->pHost,
+        configurationDependency );
 }
 
 CYPHER_NODISCARD bool_t ProbeShader(
@@ -1390,6 +2053,10 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
     tool_report_t *pReport,
     void * ) noexcept
 {
+    if ( pReport == nullptr || request.pInvocation == nullptr ||
+         request.pInvocation->pContext == nullptr ) {
+        return tool_status_t::INVALID_ARGUMENT;
+    }
     tool_report_t &report = *pReport;
     report.nInputsDiscovered = 1u;
     tool_sequence_t sequence = 1u;
@@ -1567,12 +2234,71 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
     }
 
     schema_diagnostic_t diagnostics[CY_SHADER_COMPILER_SCHEMA_DIAGNOSTICS]{};
-    const render_asset_decode_result_t decoded = RenderShaderSource_Decode(
-        work.document.pDocument,
-        {},
-        diagnostics,
-        CYPHER_ARRAY_COUNT( diagnostics ),
-        &work.recipe );
+    const key_value_document_header_t documentHeader =
+        KeyValue_DocumentHeader( work.document.pDocument );
+    render_asset_decode_result_t decoded{};
+    switch ( documentHeader.nSchemaVersion ) {
+        case CY_RENDER_ASSET_SCHEMA_VERSION_V1:
+            decoded = RenderShaderSource_Decode(
+                work.document.pDocument,
+                {},
+                diagnostics,
+                CYPHER_ARRAY_COUNT( diagnostics ),
+                &work.recipeV1 );
+            if ( RenderAsset_DecodeSucceeded( decoded ) ) {
+                work.recipe.nSchemaVersion =
+                    CY_RENDER_ASSET_SCHEMA_VERSION_V1;
+                work.recipe.nCookedVersion =
+                    CY_COOKED_SHADER_RESOURCE_VERSION_V2;
+                work.recipe.language = work.recipeV1.language;
+                work.recipe.vertexSource = work.recipeV1.vertexSource;
+                work.recipe.fragmentSource = work.recipeV1.fragmentSource;
+                work.recipe.vertexEntry = ShaderText( "main" );
+                work.recipe.fragmentEntry = ShaderText( "main" );
+                work.recipe.pDefines = work.recipeV1.defines;
+                work.recipe.nDefines = work.recipeV1.nDefines;
+            }
+            break;
+        case CY_RENDER_ASSET_SCHEMA_VERSION_V2:
+            decoded = RenderShaderSourceV2_Decode(
+                work.document.pDocument,
+                {},
+                diagnostics,
+                CYPHER_ARRAY_COUNT( diagnostics ),
+                &work.recipeV2 );
+            if ( RenderAsset_DecodeSucceeded( decoded ) ) {
+                work.recipe.nSchemaVersion =
+                    CY_RENDER_ASSET_SCHEMA_VERSION_V2;
+                work.recipe.nCookedVersion =
+                    CY_COOKED_SHADER_RESOURCE_VERSION_V3;
+                work.recipe.language = work.recipeV2.language;
+                work.recipe.vertexSource = work.recipeV2.vertex.source;
+                work.recipe.fragmentSource = work.recipeV2.fragment.source;
+                work.recipe.vertexEntry = work.recipeV2.vertex.entry;
+                work.recipe.fragmentEntry = work.recipeV2.fragment.entry;
+                work.recipe.pDefines = work.recipeV2.defines;
+                work.recipe.nDefines = work.recipeV2.nDefines;
+            }
+            break;
+        default:
+            EmitDiagnostic(
+                request,
+                report,
+                CY_SHADER_DIAGNOSTIC_SCHEMA_FAILED,
+                tool_diagnostic_severity_t::ERROR,
+                tool_diagnostic_category_t::SCHEMA,
+                ShaderText( "Shader schema version must be 1 or 2." ),
+                request.input,
+                parsed.schemaVersionLocation.nLine,
+                parsed.schemaVersionLocation.nColumn );
+            MarkFailed( report );
+            EmitFailureProgress(
+                request,
+                sequence,
+                tool_status_t::VALIDATION_FAILED,
+                nCompleted );
+            return tool_status_t::VALIDATION_FAILED;
+    }
     if ( !RenderAsset_DecodeSucceeded( decoded ) ) {
         if ( decoded.validation.nDiagnosticsWritten != 0u ) {
             for ( usize iDiagnostic = 0u;
@@ -1620,14 +2346,41 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
                     sourceLocation.nColumn );
             }
         } else {
+            char message[512]{};
+            const string_view_t statusName = StringView_FromCString(
+                RenderAsset_DecodeStatusName( decoded.status ) );
+            string_format_result_t formatted{};
+            if ( decoded.field.cchLength != 0u &&
+                 decoded.iElement != CY_INVALID_SIZE ) {
+                formatted = StringFormat_Printf(
+                    message,
+                    sizeof( message ),
+                    "%.*s at %.*s[%zu]",
+                    static_cast<int>( statusName.cchLength ),
+                    statusName.pData,
+                    static_cast<int>( decoded.field.cchLength ),
+                    decoded.field.pData,
+                    decoded.iElement );
+            } else if ( decoded.field.cchLength != 0u ) {
+                formatted = StringFormat_Printf(
+                    message,
+                    sizeof( message ),
+                    "%.*s at %.*s",
+                    static_cast<int>( statusName.cchLength ),
+                    statusName.pData,
+                    static_cast<int>( decoded.field.cchLength ),
+                    decoded.field.pData );
+            }
             EmitDiagnostic(
                 request,
                 report,
                 CY_SHADER_DIAGNOSTIC_SCHEMA_FAILED,
                 tool_diagnostic_severity_t::ERROR,
                 tool_diagnostic_category_t::SCHEMA,
-                StringView_FromCString(
-                    RenderAsset_DecodeStatusName( decoded.status ) ),
+                decoded.field.cchLength != 0u &&
+                        formatted.status == string_format_status_t::OK
+                    ? StringView_FromCString( message )
+                    : statusName,
                 request.input );
         }
         MarkFailed( report );
@@ -1638,7 +2391,112 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
             nCompleted );
         return tool_status_t::VALIDATION_FAILED;
     }
-    if ( !BuildDefinePreamble( work.recipe, work.definePreamble ) ) {
+    if ( work.recipe.nSchemaVersion == CY_RENDER_ASSET_SCHEMA_VERSION_V2 ) {
+        if ( !StringView_Equals(
+                 work.recipe.vertexEntry,
+                 ShaderText( "main" ) ) ||
+             !StringView_Equals(
+                 work.recipe.fragmentEntry,
+                 ShaderText( "main" ) ) ) {
+            EmitDiagnostic(
+                request,
+                report,
+                CY_SHADER_DIAGNOSTIC_UNSUPPORTED_ENTRY_POINT,
+                tool_diagnostic_severity_t::ERROR,
+                tool_diagnostic_category_t::COMPILER,
+                ShaderText(
+                    "OpenGL GLSL cooked sources currently require `main` for both stages." ),
+                request.input,
+                1u,
+                1u,
+                ShaderText(
+                    "Rename the authored entry point to `main`; CYSH V3 does not persist an alternate runtime entry point." ) );
+            MarkFailed( report );
+            EmitFailureProgress(
+                request,
+                sequence,
+                tool_status_t::VALIDATION_FAILED,
+                nCompleted );
+            return tool_status_t::VALIDATION_FAILED;
+        }
+        if ( work.recipeV2.nSamplers != 0u ) {
+            const string_view_t samplerName =
+                work.recipeV2.samplers[0].name;
+            char message[512]{};
+            const string_format_result_t formatted = StringFormat_Printf(
+                message,
+                sizeof( message ),
+                "Independent sampler `%.*s` has no versioned texture association.",
+                static_cast<int>( samplerName.cchLength ),
+                samplerName.pData );
+            EmitDiagnostic(
+                request,
+                report,
+                CY_SHADER_DIAGNOSTIC_UNSUPPORTED_SAMPLERS,
+                tool_diagnostic_severity_t::ERROR,
+                tool_diagnostic_category_t::VALIDATION,
+                formatted.status == string_format_status_t::OK
+                    ? StringView_FromCString( message )
+                    : ShaderText(
+                          "Independent shader samplers are not representable by the current cooked interface." ),
+                request.input,
+                1u,
+                1u,
+                ShaderText(
+                    "Remove interface.samplers and declare each active GLSL combined sampler under interface.textures; independent sampler association requires a future schema." ) );
+            MarkFailed( report );
+            EmitFailureProgress(
+                request,
+                sequence,
+                tool_status_t::VALIDATION_FAILED,
+                nCompleted );
+            return tool_status_t::VALIDATION_FAILED;
+        }
+        if ( work.recipeV2.nFeatures != 0u ) {
+            EmitDiagnostic(
+                request,
+                report,
+                CY_SHADER_DIAGNOSTIC_UNSUPPORTED_FEATURES,
+                tool_diagnostic_severity_t::ERROR,
+                tool_diagnostic_category_t::COMPILER,
+                ShaderText(
+                    "Shader features require a cooked variant table, which CYSH V3 does not contain." ),
+                request.input,
+                1u,
+                1u,
+                ShaderText(
+                    "Remove `features` until a versioned shader-variant contract is available." ) );
+            MarkFailed( report );
+            EmitFailureProgress(
+                request,
+                sequence,
+                tool_status_t::VALIDATION_FAILED,
+                nCompleted );
+            return tool_status_t::VALIDATION_FAILED;
+        }
+        if ( !BuildV2CookedInterface( work ) ) {
+            EmitDiagnostic(
+                request,
+                report,
+                CY_SHADER_DIAGNOSTIC_INTERFACE_FAILED,
+                tool_diagnostic_severity_t::ERROR,
+                tool_diagnostic_category_t::COMPILER,
+                ShaderText(
+                    "Shader logical interface could not be canonicalized or packed." ),
+                request.input );
+            MarkFailed( report );
+            EmitFailureProgress(
+                request,
+                sequence,
+                tool_status_t::VALIDATION_FAILED,
+                nCompleted );
+            return tool_status_t::VALIDATION_FAILED;
+        }
+    }
+    if ( !BuildDefinePreamble(
+             work.recipe.pDefines,
+             work.recipe.nDefines,
+             work.definePreamble ) ) {
         EmitDiagnostic(
             request,
             report,
@@ -1815,6 +2673,8 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
             request,
             report,
             work.definePreamble,
+            work.recipe.nSchemaVersion ==
+                CY_RENDER_ASSET_SCHEMA_VERSION_V2,
             work.stages[iStage] );
         if ( ToolStatus_Failed( status ) ) {
             MarkFailed( report );
@@ -1822,7 +2682,7 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
             return status;
         }
     }
-    tool_status_t status = LinkProgram( request, report, work.stages );
+    tool_status_t status = LinkProgram( request, report, work );
     if ( ToolStatus_Failed( status ) ) {
         MarkFailed( report );
         EmitFailureProgress( request, sequence, status, nCompleted );
@@ -1841,10 +2701,19 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
         return tool_status_t::CANCELLED;
     }
 
-    const content_hash_t recipeHash = ContentHash_String(
-        TextBuffer_View( &work.recipeText ) );
-    const content_hash_t compilerHash = CompilerHash();
-    const content_hash_t toolchainHash = ToolchainHash();
+    const key_value_canonical_hash_result_t canonicalRecipe =
+        KeyValue_HashCanonicalDocument( work.document.pDocument );
+    const content_hash_t recipeHash = canonicalRecipe.hash;
+    const content_hash_t compilerHash = CompilerHash(
+        work.recipe.nSchemaVersion,
+        work.recipe.nCookedVersion );
+    const content_hash_t glslangToolchainHash = GlslangToolchainHash();
+    const bool_t bReflectInterface = work.recipe.nSchemaVersion ==
+        CY_RENDER_ASSET_SCHEMA_VERSION_V2;
+    const content_hash_t reflectionToolchainHash = bReflectInterface
+        ? ReflectionToolchainHash()
+        : CY_CONTENT_HASH_INVALID;
+    const content_hash_t configurationHash = ConfigurationHash( context );
     content_hash_t sourceHash = ContentHash_Combine(
         compilerHash,
         recipeHash );
@@ -1854,6 +2723,12 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
     sourceHash = ContentHash_Combine(
         sourceHash,
         work.stages[1].sourceHash );
+    if ( work.recipe.nCookedVersion ==
+         CY_COOKED_SHADER_RESOURCE_VERSION_V3 ) {
+        sourceHash = ContentHash_Combine(
+            sourceHash,
+            work.interfaceHash );
+    }
     for ( usize iFile = 0u;
           iFile < work.includeCache.nFiles;
           ++iFile ) {
@@ -1863,12 +2738,27 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
             ContentHash_String( TextBuffer_View( &file.virtualPath ) ) );
         sourceHash = ContentHash_Combine( sourceHash, file.sourceHash );
     }
-    sourceHash = ContentHash_Combine( sourceHash, toolchainHash );
-    if ( !ContentHash_IsValid( recipeHash ) ||
+    sourceHash = ContentHash_Combine(
+        sourceHash,
+        glslangToolchainHash );
+    if ( bReflectInterface ) {
+        sourceHash = ContentHash_Combine(
+            sourceHash,
+            reflectionToolchainHash );
+    }
+    sourceHash = ContentHash_Combine( sourceHash, configurationHash );
+    if ( canonicalRecipe.status != key_value_write_status_t::OK ||
+         !ContentHash_IsValid( recipeHash ) ||
          !ContentHash_IsValid( compilerHash ) ||
-         !ContentHash_IsValid( toolchainHash ) ||
+         !ContentHash_IsValid( glslangToolchainHash ) ||
+         ( bReflectInterface &&
+           !ContentHash_IsValid( reflectionToolchainHash ) ) ||
+         !ContentHash_IsValid( configurationHash ) ||
          !ContentHash_IsValid( work.stages[0].sourceHash ) ||
          !ContentHash_IsValid( work.stages[1].sourceHash ) ||
+         ( work.recipe.nCookedVersion ==
+               CY_COOKED_SHADER_RESOURCE_VERSION_V3 &&
+           !ContentHash_IsValid( work.interfaceHash ) ) ||
          !ContentHash_IsValid( sourceHash ) ) {
         EmitDiagnostic(
             request,
@@ -1908,9 +2798,19 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
         cookedStages,
         CY_COOKED_SHADER_MAX_STAGES
     };
-    const usize cbCooked = CookedShader_RequiredSize(
-        shaderDesc,
-        stageSpan );
+    const cooked_shader_interface_source_t shaderInterface{
+        { work.bindings, work.nBindings }
+    };
+    const bool_t bWriteV3 = work.recipe.nCookedVersion ==
+        CY_COOKED_SHADER_RESOURCE_VERSION_V3;
+    const usize cbCooked = bWriteV3
+        ? CookedShader_RequiredSizeV3(
+              shaderDesc,
+              stageSpan,
+              shaderInterface )
+        : CookedShader_RequiredSize(
+              shaderDesc,
+              stageSpan );
     if ( cbCooked == 0u || !Blob_Resize( &work.cooked, cbCooked ) ) {
         EmitDiagnostic(
             request,
@@ -1931,11 +2831,18 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
             ? tool_status_t::INTERNAL_ERROR
             : tool_status_t::OUT_OF_MEMORY;
     }
-    const cooked_shader_result_t cooked = CookedShader_Write(
-        shaderDesc,
-        stageSpan,
-        sourceHash,
-        Blob_WritableSpan( &work.cooked ) );
+    const cooked_shader_result_t cooked = bWriteV3
+        ? CookedShader_WriteV3(
+              shaderDesc,
+              stageSpan,
+              shaderInterface,
+              sourceHash,
+              Blob_WritableSpan( &work.cooked ) )
+        : CookedShader_Write(
+              shaderDesc,
+              stageSpan,
+              sourceHash,
+              Blob_WritableSpan( &work.cooked ) );
     if ( !CookedShader_Succeeded( cooked ) ) {
         EmitDiagnostic(
             request,
@@ -1994,7 +2901,9 @@ CYPHER_NODISCARD tool_status_t ExecuteShaderCompiler(
         work,
         recipeHash,
         compilerHash,
-        toolchainHash );
+        glslangToolchainHash,
+        reflectionToolchainHash,
+        configurationHash );
     if ( !bDryRun ) {
         const tool_artifact_t artifact{
             request.output,
