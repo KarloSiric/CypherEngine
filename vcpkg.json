@@ -100,9 +100,14 @@
       "dependencies": []
     },
     "shader-tools": {
-      "description": "Offline GLSL validation/preprocessing and future SPIR-V compilation and reflection support.",
+      "description": "Offline GLSL preprocessing, linked validation, SPIR-V generation, and physical interface reflection.",
       "dependencies": [
-        "glslang",
+        {
+          "name": "glslang",
+          "features": [
+            "exceptions"
+          ]
+        },
         "shaderc",
         "spirv-cross"
       ]
