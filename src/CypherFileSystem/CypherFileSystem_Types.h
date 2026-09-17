@@ -113,7 +113,7 @@ enum class async_status_t : common::u8 {
     PENDING,     // Request is queued but work has not begun.
     RUNNING,     // Worker is currently performing I/O.
     COMPLETE,    // Transfer completed successfully.
-    CANCELLED,   // Cancellation won before successful publication.
+    CANCELLED,   // Worker stopped; cancellation overrides its transfer result.
     FAILED       // Worker completed with an fs_error_t failure.
 };
 
