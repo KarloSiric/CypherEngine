@@ -5,9 +5,10 @@
 //
 //  File: src/CypherRender/OpenGL/CypherRender_OpenGL.cpp
 //  Purpose: Implements the first hardware renderer backend using OpenGL 4.1.
-//  Details: CypherSystem owns native SDL context operations. This file owns
-//           GLAD, OpenGL capability discovery, frame clear/presentation, and
-//           all backend state visible through the generic dispatch table.
+//  Details: CypherSystem owns standalone SDL context operations; tool hosts
+//           may instead lend an existing context through public callbacks.
+//           This file owns GLAD, capability discovery, frame work, and backend
+//           state visible through the generic dispatch table.
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -16,7 +17,10 @@
 #include "CypherRender_OpenGL.h"
 
 #include "CypherRender_OpenGL_Buffer.h"
+#include "CypherRender_OpenGL_Draw.h"
 #include "CypherRender_OpenGL_Local.h"
+#include "CypherRender_OpenGL_Shader.h"
+#include "CypherRender_OpenGL_Texture.h"
 #include "CypherRender_OpenGL_VertexInput.h"
 
 #include "CypherSystem/CypherSystem_OpenGL.h"
@@ -39,8 +43,36 @@ namespace
 // GLAD asks for native entry points by name; System keeps SDL out of Renderer.
 GLADapiproc GL_LoadProc( const char *name ) noexcept
 {
+    if ( glState.usesHostSurface ) {
+        return glState.hostSurface.ResolveProcAddress != nullptr
+            ? reinterpret_cast<GLADapiproc>(
+                glState.hostSurface.ResolveProcAddress(
+                    name, glState.hostSurface.userData ) )
+            : nullptr;
+    }
     return reinterpret_cast<GLADapiproc>(
         ::cypher::engine::sys::GLimp_GetProcAddress( name ) );
+}
+
+bool GL_ActivateContext() noexcept
+{
+    if ( glState.usesHostSurface ) {
+        return glState.hostSurface.ActivateContext != nullptr &&
+            glState.hostSurface.ActivateContext(
+                glState.hostSurface.userData );
+    }
+    return glState.window != nullptr &&
+        ::cypher::engine::sys::GLimp_MakeCurrent(
+            *glState.window,
+            glState.context ) == ::cypher::engine::sys::sys_error_t::OK;
+}
+
+bool GL_PrepareFrameTarget() noexcept
+{
+    return !glState.usesHostSurface ||
+        glState.hostSurface.PrepareFrame == nullptr ||
+        glState.hostSurface.PrepareFrame(
+            glState.hostSurface.userData );
 }
 
 template <::cypher::common::usize Capacity>
@@ -65,12 +97,13 @@ bool GL_CopyDriverString(
 }
 
 bool GL_VersionAtLeast(
-    const ::cypher::engine::sys::gl_context_info_t &contextInfo,
+    const ::cypher::common::u16 actualMajor,
+    const ::cypher::common::u16 actualMinor,
     const ::cypher::common::u8 major,
     const ::cypher::common::u8 minor ) noexcept
 {
-    return contextInfo.majorVersion > major ||
-        ( contextInfo.majorVersion == major && contextInfo.minorVersion >= minor );
+    return actualMajor > major ||
+        ( actualMajor == major && actualMinor >= minor );
 }
 
 // Core-profile extension lookup avoids the deprecated GL_EXTENSIONS string.
@@ -152,20 +185,22 @@ bool GL_QueryLimits( render_limits_t &limitsOut ) noexcept
 
 // Advertises only features callable through the GLAD profile compiled here.
 render_capability_flags_t GL_QueryCapabilities(
-    const ::cypher::engine::sys::gl_context_info_t &contextInfo,
+    const ::cypher::common::u16 apiMajorVersion,
+    const ::cypher::common::u16 apiMinorVersion,
+    const bool sRGBFramebuffer,
     const render_limits_t &limits ) noexcept
 {
     render_capability_flags_t capabilities = R_CAPABILITY_RASTERIZATION;
 
-    if ( GL_VersionAtLeast( contextInfo, 3u, 1u ) ) capabilities |= R_CAPABILITY_INSTANCING;
-    if ( GL_VersionAtLeast( contextInfo, 4u, 0u ) ) capabilities |= R_CAPABILITY_DRAW_INDIRECT;
-    if ( GL_VersionAtLeast( contextInfo, 3u, 2u ) ) capabilities |= R_CAPABILITY_GEOMETRY_SHADER;
-    if ( GL_VersionAtLeast( contextInfo, 4u, 0u ) ) capabilities |= R_CAPABILITY_TESSELLATION_SHADER;
-    if ( GL_VersionAtLeast( contextInfo, 3u, 0u ) ) capabilities |= R_CAPABILITY_TEXTURE_ARRAYS;
-    if ( GL_VersionAtLeast( contextInfo, 4u, 0u ) ) capabilities |= R_CAPABILITY_CUBE_MAP_ARRAYS;
-    if ( GL_VersionAtLeast( contextInfo, 3u, 0u ) ) capabilities |= R_CAPABILITY_FLOAT_RENDER_TARGETS;
-    if ( GL_VersionAtLeast( contextInfo, 3u, 3u ) ) capabilities |= R_CAPABILITY_GPU_TIMESTAMPS;
-    if ( contextInfo.sRGBFramebuffer ) capabilities |= R_CAPABILITY_SRGB_FRAMEBUFFER;
+    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 3u, 1u ) ) capabilities |= R_CAPABILITY_INSTANCING;
+    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 4u, 0u ) ) capabilities |= R_CAPABILITY_DRAW_INDIRECT;
+    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 3u, 2u ) ) capabilities |= R_CAPABILITY_GEOMETRY_SHADER;
+    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 4u, 0u ) ) capabilities |= R_CAPABILITY_TESSELLATION_SHADER;
+    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 3u, 0u ) ) capabilities |= R_CAPABILITY_TEXTURE_ARRAYS;
+    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 4u, 0u ) ) capabilities |= R_CAPABILITY_CUBE_MAP_ARRAYS;
+    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 3u, 0u ) ) capabilities |= R_CAPABILITY_FLOAT_RENDER_TARGETS;
+    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 3u, 3u ) ) capabilities |= R_CAPABILITY_GPU_TIMESTAMPS;
+    if ( sRGBFramebuffer ) capabilities |= R_CAPABILITY_SRGB_FRAMEBUFFER;
     if ( limits.maxSamples >= 2u ) capabilities |= R_CAPABILITY_MULTISAMPLING;
 
     if ( GL_HasExtension( "GL_EXT_texture_filter_anisotropic" ) ||
@@ -197,6 +232,24 @@ render_error_t GL_ApplyPresentMode(
     const render_present_mode_t requestedMode,
     render_present_mode_t &actualModeOut ) noexcept
 {
+    if ( glState.usesHostSurface ) {
+        if ( glState.hostSurface.SetPresentMode == nullptr ) {
+            actualModeOut = glState.hostSurface.presentMode;
+            return requestedMode == actualModeOut
+                ? render_error_t::OK
+                : render_error_t::ERR_UNSUPPORTED;
+        }
+
+        actualModeOut = glState.hostSurface.presentMode;
+        return glState.hostSurface.SetPresentMode(
+            requestedMode,
+            &actualModeOut,
+            glState.hostSurface.userData ) &&
+            actualModeOut < render_present_mode_t::COUNT
+            ? render_error_t::OK
+            : render_error_t::ERR_PRESENT_FAILED;
+    }
+
     using namespace ::cypher::engine::sys;
 
     actualModeOut = requestedMode;
@@ -305,7 +358,8 @@ render_error_t GL_Init(
 
     gl_context_info_t contextInfo{};
     if ( GLimp_QueryContextInfo( contextInfo ) != sys_error_t::OK ||
-         !GL_VersionAtLeast( contextInfo, 4u, 1u ) ) {
+         !GL_VersionAtLeast(
+             contextInfo.majorVersion, contextInfo.minorVersion, 4u, 1u ) ) {
         (void)GLimp_DestroyContext( context );
         return render_error_t::ERR_BACKEND_VERSION_UNSUPPORTED;
     }
@@ -350,7 +404,9 @@ render_error_t GL_Init(
     glState.presentMode = actualPresentMode;
 
     const render_capability_flags_t capabilities = GL_QueryCapabilities(
-        contextInfo,
+        contextInfo.majorVersion,
+        contextInfo.minorVersion,
+        contextInfo.sRGBFramebuffer,
         limits );
     if ( config.sRGBFramebuffer &&
          ( capabilities & R_CAPABILITY_SRGB_FRAMEBUFFER ) == 0u ) {
@@ -394,7 +450,139 @@ render_error_t GL_Init(
     return render_error_t::OK;
 }
 
-// Drains native work and destroys the context before Host destroys its window.
+/*
+================
+GL_InitHostSurface
+
+Borrows a current-capable context from an editor host. The backend owns every
+resource created through CypherRender, but never destroys the context and never
+presents when the host omitted a Present callback.
+================
+*/
+render_error_t GL_InitHostSurface(
+    const render_host_surface_desc_t &surface,
+    const render_config_t &config,
+    render_info_t &infoOut,
+    void *backendState ) noexcept
+{
+    infoOut = {};
+    if ( backendState != &glState ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    if ( glState.initialized ) {
+        return render_error_t::ERR_ALREADY_INITIALIZED;
+    }
+    if ( surface.backend != render_backend_t::OPENGL ||
+         surface.ActivateContext == nullptr ||
+         surface.ResolveProcAddress == nullptr ) {
+        return render_error_t::ERR_WINDOW_INCOMPATIBLE;
+    }
+
+    glState.hostSurface = surface;
+    glState.config = config;
+    glState.drawableExtent = surface.drawableExtent;
+    glState.usesHostSurface = true;
+
+    if ( !GL_ActivateContext() ) {
+        glState = {};
+        return render_error_t::ERR_CONTEXT_ACTIVATE_FAILED;
+    }
+    if ( gladLoadGL( GL_LoadProc ) == 0 || GLAD_GL_VERSION_4_1 == 0 ) {
+        glState = {};
+        return render_error_t::ERR_ENTRYPOINT_LOAD_FAILED;
+    }
+    if ( !GL_VersionAtLeast(
+            surface.apiMajorVersion, surface.apiMinorVersion, 4u, 1u ) ) {
+        glState = {};
+        return render_error_t::ERR_BACKEND_VERSION_UNSUPPORTED;
+    }
+
+    GL_ClearErrors();
+    GLint actualMajor = 0;
+    GLint actualMinor = 0;
+    glGetIntegerv( GL_MAJOR_VERSION, &actualMajor );
+    glGetIntegerv( GL_MINOR_VERSION, &actualMinor );
+    render_limits_t limits{};
+    const bool stringsAvailable =
+        GL_CopyDriverString( glState.apiName, glGetString( GL_VERSION ) ) &&
+        GL_CopyDriverString( glState.deviceName, glGetString( GL_RENDERER ) ) &&
+        GL_CopyDriverString( glState.vendorName, glGetString( GL_VENDOR ) ) &&
+        GL_CopyDriverString( glState.driverVersion, glGetString( GL_VERSION ) ) &&
+        GL_CopyDriverString(
+            glState.shadingLanguageVersion,
+            glGetString( GL_SHADING_LANGUAGE_VERSION ) );
+    if ( !stringsAvailable || actualMajor <= 0 || actualMinor < 0 ||
+         static_cast<::cypher::common::u16>( actualMajor ) != surface.apiMajorVersion ||
+         static_cast<::cypher::common::u16>( actualMinor ) != surface.apiMinorVersion ||
+         !GL_QueryLimits( limits ) ) {
+        glState = {};
+        return render_error_t::ERR_DEVICE_QUERY_FAILED;
+    }
+
+    constexpr char apiName[] = "OpenGL";
+    std::memcpy( glState.apiName, apiName, sizeof( apiName ) );
+    glState.limits = limits;
+    glState.initialized = true;
+
+    render_present_mode_t actualPresentMode = surface.presentMode;
+    const render_error_t presentResult = GL_ApplyPresentMode(
+        config.presentMode,
+        actualPresentMode );
+    if ( presentResult != render_error_t::OK ) {
+        glState = {};
+        return presentResult;
+    }
+    glState.presentMode = actualPresentMode;
+
+    const render_capability_flags_t capabilities = GL_QueryCapabilities(
+        surface.apiMajorVersion,
+        surface.apiMinorVersion,
+        surface.sRGBFramebuffer,
+        limits );
+    if ( config.sRGBFramebuffer &&
+         ( capabilities & R_CAPABILITY_SRGB_FRAMEBUFFER ) == 0u ) {
+        glState = {};
+        return render_error_t::ERR_CAPABILITY_MISSING;
+    }
+    if ( config.sampleCount != surface.sampleCount ) {
+        glState = {};
+        return render_error_t::ERR_CAPABILITY_MISSING;
+    }
+
+    glViewport(
+        0,
+        0,
+        static_cast<GLsizei>( surface.drawableExtent.width ),
+        static_cast<GLsizei>( surface.drawableExtent.height ) );
+    if ( surface.sRGBFramebuffer ) glEnable( GL_FRAMEBUFFER_SRGB );
+    else glDisable( GL_FRAMEBUFFER_SRGB );
+    if ( surface.sampleCount > 0u ) glEnable( GL_MULTISAMPLE );
+    else glDisable( GL_MULTISAMPLE );
+    const render_error_t nativeResult = GL_CheckErrors( config.validation );
+    if ( nativeResult != render_error_t::OK ) {
+        glState = {};
+        return nativeResult;
+    }
+
+    infoOut.backend = render_backend_t::OPENGL;
+    infoOut.mode = render_mode_t::RASTER;
+    infoOut.presentMode = actualPresentMode;
+    infoOut.capabilities = capabilities;
+    infoOut.drawableExtent = surface.drawableExtent;
+    infoOut.limits = limits;
+    infoOut.apiMajorVersion = surface.apiMajorVersion;
+    infoOut.apiMinorVersion = surface.apiMinorVersion;
+    infoOut.sampleCount = surface.sampleCount;
+    infoOut.accelerated = surface.accelerated;
+    infoOut.apiName = glState.apiName;
+    infoOut.deviceName = glState.deviceName;
+    infoOut.vendorName = glState.vendorName;
+    infoOut.driverVersion = glState.driverVersion;
+    infoOut.shadingLanguageVersion = glState.shadingLanguageVersion;
+    return render_error_t::OK;
+}
+
+// Drains native work and destroys only a backend-owned standalone context.
 render_error_t GL_Shutdown( void *backendState ) noexcept
 {
     if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;
@@ -402,16 +590,14 @@ render_error_t GL_Shutdown( void *backendState ) noexcept
     if ( glState.frameActive ) return render_error_t::ERR_FRAME_ALREADY_ACTIVE;
 
     render_error_t result = render_error_t::ERR_CONTEXT_ACTIVATE_FAILED;
-    if ( glState.window != nullptr &&
-         ::cypher::engine::sys::GLimp_MakeCurrent(
-             *glState.window,
-             glState.context ) == ::cypher::engine::sys::sys_error_t::OK ) {
+    if ( GL_ActivateContext() ) {
         glFinish();
         result = GL_CheckErrors( glState.config.validation );
     }
 
-    if ( ::cypher::engine::sys::GLimp_DestroyContext( glState.context ) !=
-         ::cypher::engine::sys::sys_error_t::OK ) {
+    if ( !glState.usesHostSurface &&
+         ::cypher::engine::sys::GLimp_DestroyContext( glState.context ) !=
+             ::cypher::engine::sys::sys_error_t::OK ) {
         return render_error_t::ERR_DEVICE_LOST;
     }
 
@@ -425,7 +611,8 @@ render_error_t GL_BeginFrame(
     void *backendState ) noexcept
 {
     if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;
-    if ( !glState.initialized || glState.window == nullptr ) {
+    if ( !glState.initialized ||
+         ( !glState.usesHostSurface && glState.window == nullptr ) ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
     if ( glState.frameActive ) return render_error_t::ERR_FRAME_ALREADY_ACTIVE;
@@ -438,10 +625,11 @@ render_error_t GL_BeginFrame(
              std::numeric_limits<GLsizei>::max() ) ) {
         return render_error_t::ERR_VIEW_INVALID;
     }
-    if ( ::cypher::engine::sys::GLimp_MakeCurrent(
-            *glState.window,
-            glState.context ) != ::cypher::engine::sys::sys_error_t::OK ) {
+    if ( !GL_ActivateContext() ) {
         return render_error_t::ERR_CONTEXT_ACTIVATE_FAILED;
+    }
+    if ( !GL_PrepareFrameTarget() ) {
+        return render_error_t::ERR_PRESENT_TARGET_LOST;
     }
 
     GL_ClearErrors();
@@ -452,6 +640,12 @@ render_error_t GL_BeginFrame(
         static_cast<GLsizei>( frameInfo.drawableExtent.height ) );
 
     GLbitfield clearMask = 0u;
+    // Clear operations honor write masks. A previous depth-read-only pipeline
+    // must not prevent this frame from clearing its depth attachment.
+    glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+    glDepthMask( GL_TRUE );
+    glStencilMask( ~0u );
+    glDisable( GL_SCISSOR_TEST );
     if ( ( frameInfo.clearFlags & R_CLEAR_COLOR ) != 0u ) {
         glClearColor(
             frameInfo.clearColor.red,
@@ -506,10 +700,7 @@ render_error_t GL_Resize(
              std::numeric_limits<GLsizei>::max() ) ) {
         return render_error_t::ERR_RESIZE_FAILED;
     }
-    if ( glState.window == nullptr ||
-         ::cypher::engine::sys::GLimp_MakeCurrent(
-             *glState.window,
-             glState.context ) != ::cypher::engine::sys::sys_error_t::OK ) {
+    if ( !GL_ActivateContext() ) {
         return render_error_t::ERR_CONTEXT_ACTIVATE_FAILED;
     }
 
@@ -530,19 +721,36 @@ render_error_t GL_Resize(
 render_error_t GL_EndFrame( void *backendState ) noexcept
 {
     if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;
-    if ( !glState.initialized || glState.window == nullptr ) {
+    if ( !glState.initialized ||
+         ( !glState.usesHostSurface && glState.window == nullptr ) ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
     if ( !glState.frameActive ) return render_error_t::ERR_FRAME_NOT_ACTIVE;
 
-    const render_error_t nativeResult = GL_CheckErrors( glState.config.validation );
-    const ::cypher::engine::sys::sys_error_t presentResult =
-        ::cypher::engine::sys::GLimp_SwapWindow( *glState.window );
+    render_error_t nativeResult = GL_CheckErrors( glState.config.validation );
+    bool presentSucceeded = true;
+    if ( glState.usesHostSurface ) {
+        if ( glState.hostSurface.Present != nullptr ) {
+            presentSucceeded = glState.hostSurface.Present(
+                glState.hostSurface.userData );
+        } else {
+            // Widget hosts composite their target after paint returns. Flush is
+            // sufficient; swapping here would race or double-present the host.
+            glFlush();
+            if ( nativeResult == render_error_t::OK ) {
+                nativeResult = GL_CheckErrors( glState.config.validation );
+            }
+        }
+    } else {
+        presentSucceeded = ::cypher::engine::sys::GLimp_SwapWindow(
+            *glState.window ) == ::cypher::engine::sys::sys_error_t::OK;
+    }
     glState.frameActive = false;
 
     if ( nativeResult != render_error_t::OK ) return nativeResult;
-    return presentResult == ::cypher::engine::sys::sys_error_t::OK
-        ? render_error_t::OK : render_error_t::ERR_PRESENT_FAILED;
+    return presentSucceeded
+        ? render_error_t::OK
+        : render_error_t::ERR_PRESENT_FAILED;
 }
 
 // Changes swap policy outside a frame and records any supported fallback mode.
@@ -555,10 +763,7 @@ render_error_t GL_SetPresentMode(
     if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;
     if ( !glState.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
     if ( glState.frameActive ) return render_error_t::ERR_FRAME_ALREADY_ACTIVE;
-    if ( glState.window == nullptr ||
-         ::cypher::engine::sys::GLimp_MakeCurrent(
-             *glState.window,
-             glState.context ) != ::cypher::engine::sys::sys_error_t::OK ) {
+    if ( !GL_ActivateContext() ) {
         return render_error_t::ERR_CONTEXT_ACTIVATE_FAILED;
     }
 
@@ -575,10 +780,7 @@ render_error_t GL_WaitIdle( void *backendState ) noexcept
     if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;
     if ( !glState.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
     if ( glState.frameActive ) return render_error_t::ERR_FRAME_ALREADY_ACTIVE;
-    if ( glState.window == nullptr ||
-         ::cypher::engine::sys::GLimp_MakeCurrent(
-             *glState.window,
-             glState.context ) != ::cypher::engine::sys::sys_error_t::OK ) {
+    if ( !GL_ActivateContext() ) {
         return render_error_t::ERR_CONTEXT_ACTIVATE_FAILED;
     }
 
@@ -595,6 +797,7 @@ const backend_api_t glBackend = {
     .name = "OpenGL 4.1",
     .ConfigureWindow = GL_ConfigureWindow,
     .Init = GL_Init,
+    .InitHostSurface = GL_InitHostSurface,
     .Shutdown = GL_Shutdown,
     .BeginFrame = GL_BeginFrame,
     .Resize = GL_Resize,
@@ -610,6 +813,13 @@ const backend_api_t glBackend = {
     .DestroyBuffer = GL_DestroyBuffer,
     .CreateVertexInput = GL_CreateVertexInput,
     .DestroyVertexInput = GL_DestroyVertexInput,
+    .CreateShader = GL_CreateShader,
+    .DestroyShader = GL_DestroyShader,
+    .CreateGraphicsPipeline = GL_CreateGraphicsPipeline,
+    .DestroyGraphicsPipeline = GL_DestroyGraphicsPipeline,
+    .DrawIndexed = GL_DrawIndexed,
+    .CreateTexture2D = GL_CreateTexture2D,
+    .DestroyTexture = GL_DestroyTexture,
     .state = &glState
 };
 
