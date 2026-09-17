@@ -1,0 +1,93 @@
+@cykv 1
+@schema "cypher.map" 3
+
+// Two flat landings joined by a three-cell-wide staircase rising east.
+// Each cell is 4 units wide; the 2-unit rise uses eight 0.25-unit steps.
+{
+  "map_id" = "90c1f58b-2aa5-4026-b5c0-8ac364a61655"
+  "dimensions" = { "width" = 14u "height" = 12u }
+  "metrics" = { "cell_size" = 4.0 "level_height" = 2.0 }
+  "materials" = [
+    { "slot" = 1u "path" = "materials/dev/brick.cymat" },
+    { "slot" = 2u "path" = "materials/dev/grid.cymat" },
+    { "slot" = 3u "path" = "materials/dev/hazard.cymat" }
+  ]
+  "cells" = [
+    { "x" = 1u "y" = 2u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 2u "y" = 2u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 3u "y" = 2u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 4u "y" = 2u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 5u "y" = 2u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 7u "y" = 2u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 8u "y" = 2u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 9u "y" = 2u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 10u "y" = 2u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 11u "y" = 2u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 1u "y" = 3u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 2u "y" = 3u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 3u "y" = 3u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 4u "y" = 3u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 5u "y" = 3u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 7u "y" = 3u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 8u "y" = 3u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 9u "y" = 3u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 10u "y" = 3u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 11u "y" = 3u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 1u "y" = 4u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 2u "y" = 4u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 3u "y" = 4u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 4u "y" = 4u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 5u "y" = 4u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 6u "y" = 4u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 3u "flags" = 1u "shape" = "stairs_east" "stair_steps" = 8u },
+    { "x" = 7u "y" = 4u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 8u "y" = 4u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 9u "y" = 4u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 10u "y" = 4u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 11u "y" = 4u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 1u "y" = 5u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 2u "y" = 5u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 3u "y" = 5u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 4u "y" = 5u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 5u "y" = 5u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 6u "y" = 5u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 3u "flags" = 1u "shape" = "stairs_east" "stair_steps" = 8u },
+    { "x" = 7u "y" = 5u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 8u "y" = 5u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 9u "y" = 5u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 10u "y" = 5u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 11u "y" = 5u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 1u "y" = 6u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 2u "y" = 6u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 3u "y" = 6u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 4u "y" = 6u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 5u "y" = 6u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 6u "y" = 6u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 3u "flags" = 1u "shape" = "stairs_east" "stair_steps" = 8u },
+    { "x" = 7u "y" = 6u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 8u "y" = 6u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 9u "y" = 6u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 10u "y" = 6u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 11u "y" = 6u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 1u "y" = 7u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 2u "y" = 7u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 3u "y" = 7u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 4u "y" = 7u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 5u "y" = 7u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 7u "y" = 7u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 8u "y" = 7u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 9u "y" = 7u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 10u "y" = 7u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 11u "y" = 7u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 1u "y" = 8u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 2u "y" = 8u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 3u "y" = 8u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 4u "y" = 8u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 5u "y" = 8u "floor_level" = 0 "wall_height_levels" = 1u "material_slot" = 1u "flags" = 1u },
+    { "x" = 7u "y" = 8u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 8u "y" = 8u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 9u "y" = 8u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 10u "y" = 8u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u },
+    { "x" = 11u "y" = 8u "floor_level" = 1 "wall_height_levels" = 1u "material_slot" = 2u "flags" = 1u }
+  ]
+  "markers" = [
+    { "id" = "c679dd4a-35a2-4fe6-82fd-6536b89fcc18" "kind" = "player_spawn" "x" = 3u "y" = 5u "yaw_degrees" = 0.0 }
+  ]
+}
