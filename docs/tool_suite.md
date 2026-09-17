@@ -140,11 +140,11 @@ not code or UI to copy.
 | QC Eyes | Mason Character Setup workspace | Mason workspace | Planned | Configure eye placement, gaze limits, head targeting, mouth setup, and facial metadata. |
 | Faceposer | Mason Choreography workspace | Mason/focused Qt launch | Planned | Author dialogue, phonemes, facial poses, gestures, actors, cameras, and timed gameplay events. |
 | DMXConvert/DMXEdit | CYKV Convert and Migrate tools | Headless CLI plus CypherScope | Planned | Convert, normalize, migrate, inspect, and compare structured source documents. |
-| VTEX | CypherTextureCompiler | Headless CLI/library | Implemented v1 | Import PNG/JPEG/EXR and cook canonical mip chains and color-space metadata; compression and platform variants are later versions. |
+| VTEX | CypherTextureCompiler | Headless CLI/library | Implemented v2 | Import PNG/JPEG/EXR, validate typed V2 recipes, and cook deterministic multidimensional texture metadata, mip residency, alpha policy, and streaming subresources; block compression and preserved source containers remain later versions. |
 | VTF2TGA and texture utilities | CypherImageConverter | Headless CLI/library | Planned | Convert and inspect supported source and cooked image representations. |
 | Height2Normal/Height2SSBump | Mason Texture Lab | Mason/focused Qt launch | Planned | Generate and preview normal, height, mask, and derived material textures. |
 | Material Editor | Picasso Material workspace and Mason Material workspace | Picasso Qt app plus Mason workspace | Decided | Author typed materials and previews through one shared editor core; graphs, render states, and reflection arrive with renderer contracts. |
-| ShaderCompile | CypherShaderCompiler | Headless CLI/library | Implemented v1 | Preprocess, parse, link, and deterministically cook bounded OpenGL GLSL graphics programs; reflection and permutations are later versions. |
+| ShaderCompile | CypherShaderCompiler | Headless CLI/library | Implemented v2 | Preprocess, parse, link, reflect active material resources, prove them against typed CYKV interfaces, and deterministically cook bounded OpenGL GLSL graphics programs; permutation tables remain a later version. |
 | Particle Editor | Mason VFX workspace | Mason/focused Qt launch | Decided | Author particle systems, emitters, curves, modules, events, and previews. |
 | VSoundEdit | Mason Audio workspace | Mason/focused Qt launch | Decided | Edit sound assets, loops, spatial properties, buses, mixers, soundscapes, and reverb zones. |
 | CaptionCompiler | CypherCaptionCompiler | Headless CLI/library | Planned | Validate and compile subtitle, closed-caption, timing, and localization data. |
@@ -309,9 +309,9 @@ response/config files suitable for CI.
 | `CypherModelCompiler` | Decided | glTF/GLB and model source metadata | Produce `.cymesh_c`, `.cyskel_c`, collision, LOD, sockets, and morph metadata. |
 | `CypherAnimationCompiler` | Planned | Animation source and skeleton mapping | Produce `.cyanim_c` with events, root motion, compression, and retarget data. |
 | `CypherAnimationGraphCompiler` | Planned | Animation graph, subgraph, parameter, tag, and authority source | Validate graph ownership and produce a compact runtime evaluator resource. |
-| `CypherTextureCompiler` | Implemented v1 | PNG/JPEG/EXR and `.cytex` metadata | Produce deterministic `.cytex_c` RGBA8/RGBA32F mip chains and color-space metadata; compression/KTX/platform variants remain deferred. |
-| `CypherMaterialCompiler` | Implemented v1 | `.cymat` | Validate typed shader/texture recipes and produce canonical `.cymat_c`; reflected shader compatibility remains deferred. |
-| `CypherShaderCompiler` | Implemented v1 | Desktop GLSL and `.cyshader` metadata | Preprocess, parse, cross-stage link, validate, and produce deterministic `.cyshader_c`; reflection/permutations remain deferred. |
+| `CypherTextureCompiler` | Implemented v2 | PNG/JPEG/EXR and `.cytex` metadata | Produce deterministic `.cytex_c` RGBA8/RGBA32F mip chains, color/alpha policy, subresource tables, and streaming residency metadata; block compression and preserved source containers remain deferred. |
+| `CypherMaterialCompiler` | Implemented v2 | Layered `.cymat`, `.cyshader`, and `.cytex` contracts | Resolve bounded inheritance and removals, validate typed defaults/ranges and texture contracts against the exact shader interface hash, and produce canonical `.cymat_c`; shader variants and surface resources remain gated. |
+| `CypherShaderCompiler` | Implemented v2 | Desktop GLSL and `.cyshader` metadata | Preprocess, parse, cross-stage link, reflect active sampled images/plain uniforms through SPIR-V, validate them bidirectionally against CYKV, and produce deterministic `.cyshader_c`; variant tables and independent samplers remain gated. |
 | `CypherVFXCompiler` | Planned | Particle/VFX source documents | Validate modules and produce cooked effect data. |
 | `CypherAudioCompiler` | Planned | WAV/FLAC/other approved sources and sound metadata | Normalize, encode, analyze loudness, build seek/stream data, and produce `.cysnd_c`. |
 | `CypherAudioGraphCompiler` | Planned | Sound events, containers, rule stacks, buses, and mix graphs | Validate references and produce runtime event/mixer graph resources. |
