@@ -42,6 +42,121 @@ target_link_libraries(CypherImageCodec
         ${CYPHER_TEXTURE_TOOL_LINK_LIBS}
 )
 
+# CypherTileMapCore owns the authored map document shared by the standalone
+# Qt editor, the future in-game ImGui editor, and the map compiler. Its public
+# headers expose Tier1 allocator, vector, and unique-ID types, so CommonTier1
+# must remain a PUBLIC dependency for downstream include and link propagation.
+add_library(CypherTileMapCore STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/CypherTileCamera.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/CypherTileCamera.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/CypherTileMapDocument.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/CypherTileMapDocument.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/CypherTileMapGeometry.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/CypherTileMapGeometry.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/CypherTileMapMaterials.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/CypherTileMapMaterials.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/CypherTileMapSerialization.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/CypherTileMapSerialization.cpp"
+)
+add_library(Cypher::TileMapCore ALIAS CypherTileMapCore)
+target_compile_features(CypherTileMapCore PUBLIC cxx_std_20)
+target_include_directories(CypherTileMapCore
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core"
+)
+target_link_libraries(CypherTileMapCore
+    PUBLIC
+        Cypher::CommonTier1
+        Cypher::Math
+    PRIVATE
+        Cypher::CommonTier2
+)
+
+# Shared editor/runtime adapter for validated cooked material assets.
+add_library(CypherTileMaterialPreview STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/CypherTileMaterialPreview.cpp")
+add_library(Cypher::TileMaterialPreview ALIAS CypherTileMaterialPreview)
+target_compile_features(CypherTileMaterialPreview PUBLIC cxx_std_20)
+target_link_libraries(CypherTileMaterialPreview PUBLIC Cypher::TileMapCore Cypher::Render
+    Cypher::RenderFormats Cypher::VfsDirectory)
+
+option(CYPHERENGINE_BUILD_TILE_EDITOR "Build the Qt6 CypherTileEditor authoring tool" OFF)
+if (CYPHERENGINE_BUILD_TILE_EDITOR)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui OpenGLWidgets Svg Widgets)
+
+    add_library(CypherTileEditorGui STATIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileMapProperties.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorConfig.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTilePiecePalette.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileMaterialBrowser.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileOrthoMaterials.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/CypherTileEditorResources.qrc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorTheme.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorTheme.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorIcons.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorIcons.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorSettingsDialog.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorSettingsDialog.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileConsole.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileConsole.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileShellRunner.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileShellRunner.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileDocumentBridge.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileDocumentBridge.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileCanvas.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileCanvas.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileGrid.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileOrthoView.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileOrthoView.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileViewWorkspace.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileViewWorkspace.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileRenderViewport.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileRenderViewport.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorMainWindow.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorMainWindow.cpp"
+    )
+    add_library(Cypher::TileEditorGui ALIAS CypherTileEditorGui)
+    target_compile_features(CypherTileEditorGui PUBLIC cxx_std_20)
+    target_compile_definitions(CypherTileEditorGui PRIVATE
+        CYPHER_TILE_EDITOR_ASSET_SOURCE_DIR="${CYPHERENGINE_ROOT_DIR}/assets")
+    target_include_directories(CypherTileEditorGui
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor"
+            "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui"
+    )
+    target_link_libraries(CypherTileEditorGui
+        PUBLIC
+            Cypher::TileMapCore
+            Cypher::TileMaterialPreview
+            Cypher::Render
+            Cypher::Math
+            Qt6::Core
+            Qt6::Gui
+            Qt6::OpenGLWidgets
+            Qt6::Svg
+            Qt6::Widgets
+    )
+    set_target_properties(CypherTileEditorGui PROPERTIES
+        AUTOMOC ON
+        AUTORCC ON
+    )
+
+    add_executable(CypherTileEditor
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/main.cpp"
+    )
+    add_executable(Cypher::TileEditor ALIAS CypherTileEditor)
+    target_compile_features(CypherTileEditor PRIVATE cxx_std_20)
+    target_link_libraries(CypherTileEditor PRIVATE Cypher::TileEditorGui)
+    set_target_properties(CypherTileEditor PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME "CypherTileEditor"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.cypherengine.tileeditor"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        WIN32_EXECUTABLE TRUE
+    )
+endif()
+
 add_library(PicassoCore STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Core/PicassoChannel.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Picasso/Core/PicassoMaterialImport.cpp"
@@ -182,6 +297,110 @@ target_compile_features(CypherResourceCompiler PRIVATE cxx_std_20)
 target_link_libraries(CypherResourceCompiler PRIVATE Cypher::ResourceCompilerCore)
 
 if (CYPHERENGINE_BUILD_TESTS)
+    add_executable(cypher_tile_map_core_tests
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMultiSelectionCore_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileCameraOptions_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMapProperties_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileCameraFraming_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileRegion_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileCamera_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMapCore_Tests.cpp"
+    )
+    target_link_libraries(cypher_tile_map_core_tests
+        PRIVATE
+            Catch2::Catch2WithMain
+            Cypher::TileMapCore
+    )
+    add_test(NAME cypher_tile_map_core_tests COMMAND cypher_tile_map_core_tests)
+    set_tests_properties(cypher_tile_map_core_tests PROPERTIES LABELS "CypherTools;TileMap;Unit")
+
+    add_executable(cypher_tile_map_serialization_tests
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMaterialBindings_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMapSerialization_Tests.cpp"
+    )
+    target_link_libraries(cypher_tile_map_serialization_tests
+        PRIVATE
+            Catch2::Catch2WithMain
+            Cypher::TileMapCore
+    )
+    add_test(
+        NAME cypher_tile_map_serialization_tests
+        COMMAND cypher_tile_map_serialization_tests
+    )
+    set_tests_properties(
+        cypher_tile_map_serialization_tests
+        PROPERTIES LABELS "CypherTools;TileMap;Serialization"
+    )
+
+    if (CYPHERENGINE_BUILD_TILE_EDITOR)
+        add_executable(cypher_tile_workspace_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMultiSelectionCanvas_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMultiSelectionViews_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMultiSelectionWorkspace_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileDuplicateViews_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileQuietDisplayPreferences_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileNavigationPreferences_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileConfigurationProfiles_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileCameraOptionsViewport_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileCameraNavigationWorkspace_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileOrthoMaterials_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileOrthoMaterialViews_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMaterialDisplayPreferences_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMapPropertiesWorkspace_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMapPropertiesWidget_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileEditorConfig_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileViewOrder_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTilePiecePalette_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileViewReadability_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMaterialBrowser_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMaterialPreview_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileRegionWorkspace_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileSelection_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTilePicking_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileOrthoNavigation_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileStairs_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileCameraViewport_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileWorkspace_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileValidation_Tests.cpp"
+        )
+        target_link_libraries(cypher_tile_workspace_tests PRIVATE
+            Catch2::Catch2WithMain Cypher::TileEditorGui)
+        add_test(NAME cypher_tile_workspace_tests COMMAND cypher_tile_workspace_tests)
+        set_tests_properties(cypher_tile_workspace_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+            LABELS "CypherTools;TileMap;Qt;Workspace;Validation"
+            TIMEOUT 20
+        )
+        add_executable(cypher_tile_console_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileConsole_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileShellRunner_Tests.cpp"
+        )
+        target_link_libraries(cypher_tile_console_tests
+            PRIVATE
+                Catch2::Catch2WithMain
+                Cypher::TileEditorGui
+        )
+        add_test(
+            NAME cypher_tile_console_tests
+            COMMAND cypher_tile_console_tests
+        )
+        set_tests_properties(cypher_tile_console_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+            LABELS "CypherTools;TileMap;Qt;Console"
+        )
+
+        add_test(
+            NAME cypher_tile_editor_smoke
+            COMMAND CypherTileEditor --smoke-test
+                "${CYPHERENGINE_ROOT_DIR}/assets/maps/tile_editor_demo.cymap"
+        )
+        set_tests_properties(cypher_tile_editor_smoke PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+            LABELS "CypherTools;TileMap;Qt;Smoke"
+            TIMEOUT 20
+        )
+    endif()
+
     add_executable(cypher_shader_compiler_tests
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherShaderCompiler/CypherShaderCompiler_Tests.cpp"
     )
@@ -344,8 +563,11 @@ if (CYPHERENGINE_BUILD_TESTS)
 endif()
 
 set(CYPHER_REGISTERED_TOOL_PRODUCTS_VALUE
-    "CypherShaderCompiler;CypherTextureCompiler;CypherMaterialCompiler;CypherResourceCompiler"
+    "CypherShaderCompiler;CypherTextureCompiler;CypherMaterialCompiler;CypherResourceCompiler;CypherTileMapCore"
 )
+if (CYPHERENGINE_BUILD_TILE_EDITOR)
+    list(APPEND CYPHER_REGISTERED_TOOL_PRODUCTS_VALUE "CypherTileEditor")
+endif()
 if (CYPHERENGINE_BUILD_PICASSO)
     list(APPEND CYPHER_REGISTERED_TOOL_PRODUCTS_VALUE "Picasso")
 endif()
