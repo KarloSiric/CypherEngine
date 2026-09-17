@@ -24,6 +24,11 @@
 
 #include "CypherRender_Error.h"
 #include "CypherRender_Buffer.h"
+#include "CypherRender_Draw.h"
+#include "CypherRender_HostSurface.h"
+#include "CypherRender_Pipeline.h"
+#include "CypherRender_Shader.h"
+#include "CypherRender_Texture.h"
 #include "CypherRender_Types.h"
 #include "CypherRender_VertexInput.h"
 #include "CypherSystem/CypherSystem_Window.h"
@@ -61,14 +66,27 @@ CYPHER_NODISCARD render_error_t R_ConfigureWindow(
 
     Renderer lifecycle
 
-Host creates the System window after R_ConfigureWindow, then passes that owning
-window record to R_Init. The renderer borrows the window; it owns and destroys
-its graphics context/device before Host destroys the window.
+For a standalone surface, Host creates the System window after
+R_ConfigureWindow, then passes that owning window record to R_Init. The renderer
+borrows the window and owns its graphics context/device.
+
+For an embedded surface, the tool creates and owns the context, then passes a
+callback descriptor to R_InitHostSurface. In both paths the owning host object
+must outlive R_Shutdown.
 
 ===============================================================================
 */
 CYPHER_NODISCARD render_error_t R_Init(
     ::cypher::engine::sys::window_t &window,
+    const render_config_t &config ) noexcept;
+
+// Initializes against a graphics context owned by an editor or embedding host.
+// The host must destroy that context only after R_Shutdown has returned.
+CYPHER_NODISCARD render_error_t R_ValidateHostSurface(
+    const render_host_surface_desc_t &surface ) noexcept;
+
+CYPHER_NODISCARD render_error_t R_InitHostSurface(
+    const render_host_surface_desc_t &surface,
     const render_config_t &config ) noexcept;
 
 CYPHER_NODISCARD render_error_t R_Shutdown() noexcept;
