@@ -38,6 +38,15 @@ struct runtime_state_t {
 
 static runtime_state_t s_CfgRuntimeState;
 
+// Separate from service state so a command callback cannot reset recursion
+// accounting by shutting down/reinitializing Config inside an active load.
+static common::u32 s_nCfgLoadDepth{ 0u };
+
+struct config_load_scope_t {
+	config_load_scope_t() { ++s_nCfgLoadDepth; }
+	~config_load_scope_t() { --s_nCfgLoadDepth; }
+};
+
 constexpr const char *CYPHER_CONFIG_DEFAULT_PATH  = "config/default.cfg";
 constexpr const char *CYPHER_CONFIG_AUTOEXEC_PATH = "config/autoexec.cfg";
 
@@ -53,7 +62,7 @@ cfg_error_t Cfg_Init() {
 	}
 	s_CfgRuntimeState = {};
 	s_CfgRuntimeState.initialized = true;
-	LOG_INFO( log::channel_t::CFG, "config system initialized." );
+	LOG_DEBUG( log::channel_t::CFG, "config service ready." );
 	return cfg_error_t::OK;
 }
 
@@ -79,7 +88,10 @@ Cfg_LoadFile
 Loads a cfg file through FS and executes it one line at a time.
 ================
 */
-cfg_error_t Cfg_LoadFile( const char *path, const bool required ) {
+cfg_error_t Cfg_LoadFile( const char *path, const bool required, bool *loadedOut ) {
+	if ( loadedOut != nullptr ) {
+		*loadedOut = false;
+	}
 	if ( path == nullptr || path[0] == '\0' ) {
 		LOG_ERROR( log::channel_t::CFG, "config load failed: invalid path." );
 		return cfg_error_t::ERR_INVALID_PATH;
@@ -88,41 +100,63 @@ cfg_error_t Cfg_LoadFile( const char *path, const bool required ) {
 		LOG_ERROR( log::channel_t::CFG, "config load failed for '%s': config system is not initialized.", path );
 		return cfg_error_t::ERR_NOT_INIT;
 	}
+	if ( s_nCfgLoadDepth >= CYPHER_CONFIG_MAX_EXEC_DEPTH ) {
+		LOG_ERROR( log::channel_t::CFG, "config '%s' exceeds the exec nesting limit.", path );
+		return cfg_error_t::ERR_PARSE_FAILED;
+	}
+	const config_load_scope_t loadScope{};
 
     fs::file_t file{};
 
     const fs::fs_error_t openResult = fs::FS_Open( path, fs::open_mode_t::READ_TEXT, file );
     if ( openResult != fs::fs_error_t::OK ) {
-        if ( required ) {
-            LOG_ERROR( log::channel_t::CFG, "required config '%s' failed to open: %s.", path, fs::FS_ErrorDesc( openResult ) );
-        } else {
+        const bool optionalAndMissing =
+            !required && openResult == fs::fs_error_t::ERR_PATH_NOT_FOUND;
+        if ( optionalAndMissing ) {
             LOG_DEBUG( log::channel_t::CFG, "optional config '%s' not loaded: %s.", path, fs::FS_ErrorDesc( openResult ) );
+            return cfg_error_t::OK;
         }
-        return required ? cfg_error_t::ERR_FILE_OPEN_FAILED : cfg_error_t::OK;
+
+        LOG_ERROR(
+            log::channel_t::CFG,
+            "%s config '%s' failed to open: %s.",
+            required ? "required" : "optional",
+            path,
+            fs::FS_ErrorDesc( openResult ) );
+        return cfg_error_t::ERR_FILE_OPEN_FAILED;
     }
 
     if ( file.size == 0u ) {
         fs::FS_Close( file );
-        LOG_INFO( log::channel_t::CFG, "config '%s' loaded: empty file.", path );
+        if ( loadedOut != nullptr ) {
+            *loadedOut = true;
+        }
+        LOG_DEBUG( log::channel_t::CFG, "config loaded: path='%s', size_bytes=0.", path );
         return cfg_error_t::OK;
     }
 
     if ( file.size >= CYPHER_CONFIG_MAX_FILE_SIZE ) {
+        const common::u64 fileSize = file.size;
         fs::FS_Close( file );
         LOG_ERROR( log::channel_t::CFG, "config '%s' failed: file too large (%llu bytes).",
                           path,
-                          static_cast<unsigned long long>( file.size ) );
+                          static_cast<unsigned long long>( fileSize ) );
         return cfg_error_t::ERR_IO_ERROR;
     }
 
     char buffer[CYPHER_CONFIG_MAX_FILE_SIZE]{};
     common::u64 nBytesRead{};
 
-    const fs::fs_error_t readResult = fs::FS_Read( file, buffer, file.size, nBytesRead );
+    const common::u64 expectedSize = file.size;
+    const fs::fs_error_t readResult = fs::FS_Read( file, buffer, expectedSize, nBytesRead );
     const fs::fs_error_t closeResult = fs::FS_Close( file );
 
     if ( readResult != fs::fs_error_t::OK ) {
         LOG_ERROR( log::channel_t::CFG, "config '%s' failed: read failed: %s.", path, fs::FS_ErrorDesc( readResult ) );
+        return cfg_error_t::ERR_IO_ERROR;
+    }
+    if ( nBytesRead != expectedSize ) {
+        LOG_ERROR( log::channel_t::CFG, "config '%s' failed: file changed or ended before the expected byte count.", path );
         return cfg_error_t::ERR_IO_ERROR;
     }
 
@@ -131,6 +165,9 @@ cfg_error_t Cfg_LoadFile( const char *path, const bool required ) {
         return cfg_error_t::ERR_IO_ERROR;
     }
 
+    if ( std::memchr( buffer, '\0', static_cast<common::usize>( nBytesRead ) ) != nullptr ) {
+        return cfg_error_t::ERR_INVALID_LINE;
+    }
     buffer[nBytesRead] = '\0';
     cfg_error_t result = cfg_error_t::OK;
 
@@ -166,9 +203,14 @@ cfg_error_t Cfg_LoadFile( const char *path, const bool required ) {
     }
 
     if ( result == cfg_error_t::OK ) {
-        LOG_INFO( log::channel_t::CFG, "config '%s' loaded successfully (%llu bytes).",
-                         path,
-                         static_cast<unsigned long long>( nBytesRead ) );
+        if ( loadedOut != nullptr ) {
+            *loadedOut = true;
+        }
+        LOG_DEBUG(
+            log::channel_t::CFG,
+            "config loaded: path='%s', size_bytes=%llu.",
+            path,
+            static_cast<unsigned long long>( nBytesRead ) );
     }
 
     return result;
@@ -214,7 +256,14 @@ cfg_error_t Cfg_ExecuteLine( const char *nCommandLine ) {
         return cfg_error_t::ERR_INVALID_LINE;
     }
 	char line[CYPHER_CONFIG_MAX_LINE_LENGTH] {};
-	std::strncpy( line, nCommandLine, sizeof( line ) - 1 );
+	common::usize length = 0u;
+	while ( length < sizeof( line ) && nCommandLine[length] != '\0' ) {
+		++length;
+	}
+	if ( length == sizeof( line ) ) {
+		return cfg_error_t::ERR_INVALID_LINE;
+	}
+	std::memcpy( line, nCommandLine, length + 1u );
 
 	char *cursor = line;
 	while ( std::isspace( static_cast<unsigned char>( *cursor ) ) ) {
@@ -270,13 +319,21 @@ cfg_error_t Cfg_ExecuteLine( const char *nCommandLine ) {
 			if ( cursor[i] != '"' ) {
 				return cfg_error_t::ERR_PARSE_FAILED;
 			}
+			cursor += i + 1u;
 		} else {
 			while ( cursor[i] != '\0' && !std::isspace( static_cast<unsigned char>( cursor[i] ) ) && ( i + 1u ) < sizeof( szExecPath ) ) {
 				szExecPath[i] = cursor[i];
 				++i;
 			}
+			cursor += i;
 		}
 		szExecPath[i] = '\0';
+		while ( std::isspace( static_cast<unsigned char>( *cursor ) ) ) {
+			++cursor;
+		}
+		if ( *cursor != '\0' ) {
+			return cfg_error_t::ERR_PARSE_FAILED;
+		}
 		return Cfg_LoadFile( szExecPath, false );
 	}
 	if ( std::strcmp( command, "set" ) == 0 || std::strcmp( command, "seta" ) == 0 ) {
@@ -292,6 +349,9 @@ cfg_error_t Cfg_ExecuteLine( const char *nCommandLine ) {
 			szCvarName[i++] = *cursor++;
 		}
 		szCvarName[i] = '\0';
+		if ( *cursor != '\0' && !std::isspace( static_cast<unsigned char>( *cursor ) ) ) {
+			return cfg_error_t::ERR_PARSE_FAILED;
+		}
 
 		if ( szCvarName[0] == '\0' ) {
 			return cfg_error_t::ERR_PARSE_FAILED;
@@ -313,13 +373,21 @@ cfg_error_t Cfg_ExecuteLine( const char *nCommandLine ) {
 			if ( cursor[i] != '"' ) {
 				return cfg_error_t::ERR_PARSE_FAILED;
 			}
+			cursor += i + 1u;
 		} else {
 			while ( cursor[i] != '\0' && !std::isspace( static_cast<unsigned char>( cursor[i] ) ) && ( i + 1u ) < sizeof( cvarValue ) ) {
 				cvarValue[i] = cursor[i];
 				++i;
 			}
+			cursor += i;
 		}
 		cvarValue[i] = '\0';
+		while ( std::isspace( static_cast<unsigned char>( *cursor ) ) ) {
+			++cursor;
+		}
+		if ( *cursor != '\0' ) {
+			return cfg_error_t::ERR_PARSE_FAILED;
+		}
 		if ( cvarValue[0] == '\0' ) {
 			return cfg_error_t::ERR_PARSE_FAILED;
 		}
