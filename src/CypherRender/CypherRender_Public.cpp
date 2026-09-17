@@ -50,6 +50,92 @@ bool R_IsFrameInfoValid( const render_frame_info_t &frameInfo ) noexcept
     return true;
 }
 
+bool R_IsSampleCountValid( const ::cypher::common::u8 sampleCount ) noexcept
+{
+    return sampleCount != 1u && sampleCount <= 64u &&
+        ( sampleCount == 0u || ( sampleCount & ( sampleCount - 1u ) ) == 0u );
+}
+
+render_error_t R_CommitBackendInitialization(
+    const backend_api_t *backend,
+    ::cypher::engine::sys::window_t *window,
+    const render_config_t &config,
+    const render_info_t &info ) noexcept
+{
+    const bool malformedInfo = backend == nullptr ||
+        info.backend != backend->backend ||
+        info.apiName == nullptr || info.apiName[0] == '\0' ||
+        info.deviceName == nullptr || info.deviceName[0] == '\0' ||
+        info.vendorName == nullptr || info.vendorName[0] == '\0' ||
+        info.driverVersion == nullptr || info.driverVersion[0] == '\0' ||
+        info.shadingLanguageVersion == nullptr || info.shadingLanguageVersion[0] == '\0' ||
+        !R_IsExtentValid( info.drawableExtent, false );
+    const bool missingCapabilities =
+        ( info.capabilities & config.requiredCapabilities ) != config.requiredCapabilities;
+    const bool accelerationMissing = config.requireAcceleration && !info.accelerated;
+    if ( malformedInfo || missingCapabilities || accelerationMissing ) {
+        if ( backend != nullptr ) (void)backend->Shutdown( backend->state );
+        if ( malformedInfo ) return render_error_t::ERR_DEVICE_QUERY_FAILED;
+        return render_error_t::ERR_CAPABILITY_MISSING;
+    }
+
+    // Publish the backend to private resource modules for rollback, but keep
+    // the public renderer unavailable until every resource table is ready.
+    tr.backend = backend;
+    tr.window = window;
+    tr.config = config;
+    tr.info = info;
+
+    const render_error_t bufferInitResult = R_BufferSystemInit();
+    if ( bufferInitResult != render_error_t::OK ) {
+        (void)backend->Shutdown( backend->state );
+        tr = {};
+        return bufferInitResult;
+    }
+
+    const render_error_t vertexInputInitResult = R_VertexInputSystemInit();
+    if ( vertexInputInitResult != render_error_t::OK ) {
+        (void)R_BufferSystemShutdown();
+        (void)backend->Shutdown( backend->state );
+        tr = {};
+        return vertexInputInitResult;
+    }
+
+    const render_error_t shaderInitResult = R_ShaderSystemInit();
+    if ( shaderInitResult != render_error_t::OK ) {
+        (void)R_VertexInputSystemShutdown();
+        (void)R_BufferSystemShutdown();
+        (void)backend->Shutdown( backend->state );
+        tr = {};
+        return shaderInitResult;
+    }
+
+    const render_error_t pipelineInitResult = R_PipelineSystemInit();
+    if ( pipelineInitResult != render_error_t::OK ) {
+        (void)R_ShaderSystemShutdown();
+        (void)R_VertexInputSystemShutdown();
+        (void)R_BufferSystemShutdown();
+        (void)backend->Shutdown( backend->state );
+        tr = {};
+        return pipelineInitResult;
+    }
+
+    const render_error_t textureInitResult = R_TextureSystemInit();
+    if ( textureInitResult != render_error_t::OK ) {
+        (void)R_PipelineSystemShutdown();
+        (void)R_ShaderSystemShutdown();
+        (void)R_VertexInputSystemShutdown();
+        (void)R_BufferSystemShutdown();
+        (void)backend->Shutdown( backend->state );
+        tr = {};
+        return textureInitResult;
+    }
+
+    tr.initialized = true;
+    tr.frameActive = false;
+    return render_error_t::OK;
+}
+
 } // namespace
 
 render_config_t R_DefaultConfig() noexcept
@@ -69,9 +155,7 @@ render_error_t R_ValidateConfig( const render_config_t &config ) noexcept
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
 
-    if ( config.sampleCount == 1u || config.sampleCount > 64u ||
-         ( config.sampleCount != 0u &&
-           ( config.sampleCount & ( config.sampleCount - 1u ) ) != 0u ) ) {
+    if ( !R_IsSampleCountValid( config.sampleCount ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
 
@@ -142,42 +226,75 @@ render_error_t R_Init(
         return initResult;
     }
 
-    const bool malformedInfo = info.backend != backend->backend ||
-        info.apiName == nullptr || info.apiName[0] == '\0' ||
-        info.deviceName == nullptr || info.deviceName[0] == '\0' ||
-        info.vendorName == nullptr || info.vendorName[0] == '\0' ||
-        info.driverVersion == nullptr || info.driverVersion[0] == '\0' ||
-        info.shadingLanguageVersion == nullptr || info.shadingLanguageVersion[0] == '\0' ||
-        !R_IsExtentValid( info.drawableExtent, false );
-    const bool missingCapabilities =
-        ( info.capabilities & config.requiredCapabilities ) != config.requiredCapabilities;
-    const bool accelerationMissing = config.requireAcceleration && !info.accelerated;
-    if ( malformedInfo || missingCapabilities || accelerationMissing ) {
-        (void)backend->Shutdown( backend->state );
-        if ( malformedInfo ) return render_error_t::ERR_DEVICE_QUERY_FAILED;
-        return render_error_t::ERR_CAPABILITY_MISSING;
+    return R_CommitBackendInitialization(
+        backend, &window, config, info );
+}
+
+render_error_t R_ValidateHostSurface(
+    const render_host_surface_desc_t &surface ) noexcept
+{
+    if ( surface.backend == render_backend_t::AUTO ||
+         surface.backend >= render_backend_t::COUNT ||
+         !R_IsExtentValid( surface.drawableExtent, false ) ||
+         surface.presentMode >= render_present_mode_t::COUNT ||
+         surface.apiMajorVersion == 0u ||
+         !R_IsSampleCountValid( surface.sampleCount ) ||
+         surface.ActivateContext == nullptr ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
     }
 
-    const render_error_t bufferInitResult = R_BufferSystemInit();
-    if ( bufferInitResult != render_error_t::OK ) {
-        (void)backend->Shutdown( backend->state );
-        return bufferInitResult;
+    // OpenGL is the only hosted backend in this milestone. A future explicit
+    // backend may validate a different procedure/device callback set here.
+    if ( surface.backend == render_backend_t::OPENGL &&
+         surface.ResolveProcAddress == nullptr ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
     }
 
-    const render_error_t vertexInputInitResult = R_VertexInputSystemInit();
-    if ( vertexInputInitResult != render_error_t::OK ) {
-        (void)R_BufferSystemShutdown();
-        (void)backend->Shutdown( backend->state );
-        return vertexInputInitResult;
-    }
-
-    tr.backend = backend;
-    tr.window = &window;
-    tr.config = config;
-    tr.info = info;
-    tr.initialized = true;
-    tr.frameActive = false;
     return render_error_t::OK;
+}
+
+render_error_t R_InitHostSurface(
+    const render_host_surface_desc_t &surface,
+    const render_config_t &config ) noexcept
+{
+    if ( tr.initialized ) {
+        return render_error_t::ERR_ALREADY_INITIALIZED;
+    }
+
+    const render_error_t configResult = R_ValidateConfig( config );
+    if ( configResult != render_error_t::OK ) {
+        return configResult;
+    }
+    const render_error_t surfaceResult = R_ValidateHostSurface( surface );
+    if ( surfaceResult != render_error_t::OK ) {
+        return surfaceResult;
+    }
+    if ( config.backend != render_backend_t::AUTO &&
+         config.backend != surface.backend ) {
+        return render_error_t::ERR_WINDOW_INCOMPATIBLE;
+    }
+
+    render_config_t selectedConfig = config;
+    selectedConfig.backend = surface.backend;
+    const backend_api_t *backend = nullptr;
+    const render_error_t selectionResult = R_SelectBackend(
+        selectedConfig, &backend );
+    if ( selectionResult != render_error_t::OK ) {
+        return selectionResult;
+    }
+    if ( backend->backend != surface.backend ) {
+        return render_error_t::ERR_WINDOW_INCOMPATIBLE;
+    }
+
+    render_info_t info{};
+    const render_error_t initResult = backend->InitHostSurface(
+        surface, selectedConfig, info, backend->state );
+    if ( initResult != render_error_t::OK ) {
+        return initResult;
+    }
+
+    return R_CommitBackendInitialization(
+        backend, nullptr, selectedConfig, info );
 }
 
 render_error_t R_Shutdown() noexcept
@@ -190,12 +307,18 @@ render_error_t R_Shutdown() noexcept
     }
 
     const render_error_t idleResult = tr.backend->WaitIdle( tr.backend->state );
+    const render_error_t pipelineResult = R_PipelineSystemShutdown();
+    const render_error_t textureResult = R_TextureSystemShutdown();
+    const render_error_t shaderResult = R_ShaderSystemShutdown();
     const render_error_t vertexInputResult = R_VertexInputSystemShutdown();
     const render_error_t bufferResult = R_BufferSystemShutdown();
     const render_error_t shutdownResult = tr.backend->Shutdown( tr.backend->state );
 
     tr = {};
     if ( shutdownResult != render_error_t::OK ) return shutdownResult;
+    if ( pipelineResult != render_error_t::OK ) return pipelineResult;
+    if ( textureResult != render_error_t::OK ) return textureResult;
+    if ( shaderResult != render_error_t::OK ) return shaderResult;
     if ( vertexInputResult != render_error_t::OK ) return vertexInputResult;
     if ( bufferResult != render_error_t::OK ) return bufferResult;
     return idleResult;
