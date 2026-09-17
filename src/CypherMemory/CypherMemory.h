@@ -20,8 +20,9 @@
 ================
 Memory Contract
 
-The memory front end routes explicit allocation, reallocation, and free requests to the selected
-backend. Memory allocated by one backend must be released through that same ownership domain.
+The memory front end owns seven global arenas with explicit lifetime roles. Accessors select
+the arena for an allocation; callers use the arena API and respect that arena's reset lifetime.
+Initialization creates all arenas transactionally, and shutdown releases their backing.
 ================
 */
 
@@ -65,7 +66,7 @@ enum class memory_tag_t : common::u8 {
 struct memory_tag_stats_t {
     const char *name{ nullptr };                            // Static display name for the tag.
     common::usize used{ 0u };                               // Current attributed live bytes.
-    common::usize nPeakUsed{ 0u };                          // Highest attributed live-byte count.
+    common::usize nPeakUsed{ 0u };                          // Sum of arena high-water marks, not a simultaneous tag peak.
     common::u64 nAllocationCount{ 0u };                     // Successful attributed allocations.
     common::u64 nFailedAllocationCount{ 0u };               // Failed attributed allocation attempts.
 };
@@ -93,7 +94,7 @@ struct memory_stats_t {
     common::usize nTotalCapacity{ 0u };                     // Sum of configured arena capacities.
     common::usize totalCommitted{ 0u };                     // Sum of currently accessible backing bytes.
     common::usize nTotalUsed{ 0u };                         // Sum of current arena cursors.
-    common::usize nPeakUsed{ 0u };                          // Highest aggregate usage observed by the system.
+    common::usize nPeakUsed{ 0u };                          // Highest aggregate usage sampled by Mem_Stats since initialization.
 
     arena_stats_t permanentStats{};                         // Process-lifetime arena snapshot.
     arena_stats_t frameStats{};                             // Per-frame arena snapshot.
