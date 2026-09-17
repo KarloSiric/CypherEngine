@@ -21,7 +21,7 @@
 #include "CypherLog.h"
 
 #include <cctype>      // std::tolower for bool parsing.
-#include <cstdlib>     // atoi / atof numeric conversion.
+#include <cstdlib>     // Defined-range strto* numeric conversion.
 #include <cstring>     // strcmp / strncpy for cvar storage.
 
 namespace cypher::engine::cvar {
@@ -42,9 +42,43 @@ cvar_error_t Cvar_Init() {
 	s_CvarRegistry = {};
 	s_CvarRegistry.initialized = true;
 
-	LOG_INFO( log::channel_t::CVAR, "cvar system initialized." );
+	LOG_DEBUG( log::channel_t::CVAR, "cvar registry ready." );
 
 	return cvar_error_t::OK;
+}
+
+/*
+================
+Cvar_IsInitialized
+================
+*/
+bool Cvar_IsInitialized()
+{
+	return s_CvarRegistry.initialized;
+}
+
+/*
+================
+Cvar_Count
+================
+*/
+common::u32 Cvar_Count()
+{
+	return s_CvarRegistry.initialized ? s_CvarRegistry.nCvarCount : 0u;
+}
+
+/*
+================
+Cvar_GetByIndex
+================
+*/
+const cvar_t *Cvar_GetByIndex( const common::u32 index )
+{
+	if ( !s_CvarRegistry.initialized || index >= s_CvarRegistry.nCvarCount ) {
+		return nullptr;
+	}
+
+	return &s_CvarRegistry.cvars[index];
 }
 
 /*
@@ -75,7 +109,31 @@ bool Cvar_ParseBool( const char *value ) {
 		return true;
 	}
 
-	return ( std::atoi( lower ) != 0 );
+	// Numeric text can exceed the temporary word buffer or the range of int.
+	return ( std::strtoll( value, nullptr, 10 ) != 0 );
+}
+
+/*
+================
+Cvar_ParseFloat
+
+Accepts a floating-point value only when strtof consumes the complete string.
+This prevents ordinary text that begins with a special token, such as "info",
+from being cached as infinity through the accepted "inf" prefix.
+================
+*/
+common::f32 Cvar_ParseFloat( const char *value ) {
+	if ( value == nullptr || value[0] == '\0' ) {
+		return 0.0f;
+	}
+
+	char *end = nullptr;
+	const common::f32 parsed = std::strtof( value, &end );
+	if ( end == value || end == nullptr || end[0] != '\0' ) {
+		return 0.0f;
+	}
+
+	return parsed;
 }
 
 /*
@@ -98,6 +156,9 @@ cvar_error_t Cvar_Register( const char *name, const char *defaultValue, flags_t 
 
 	if ( defaultValue == nullptr || defaultValue[0] == '\0' ) {
 		LOG_ERROR( log::channel_t::CVAR, "cvar register failed for '%s': invalid default value.", name );
+		return cvar_error_t::ERR_INVALID_DEFAULT_VALUE;
+	}
+	if ( std::strlen( defaultValue ) >= sizeof( s_CvarRegistry.cvars[0].valueString ) ) {
 		return cvar_error_t::ERR_INVALID_DEFAULT_VALUE;
 	}
 
@@ -133,8 +194,8 @@ cvar_error_t Cvar_Register( const char *name, const char *defaultValue, flags_t 
 	std::strncpy( entry.defaultString, defaultValue, sizeof( entry.defaultString ) - 1 );
 	entry.valueString[sizeof( entry.valueString ) - 1] = '\0';
 	entry.defaultString[sizeof( entry.defaultString ) - 1] = '\0';
-	entry.valueInt = std::atoi( defaultValue );
-	entry.valueFloat = std::atof( defaultValue );
+	entry.valueInt = static_cast<common::u32>( std::strtoull( entry.valueString, nullptr, 10 ) );
+	entry.valueFloat = Cvar_ParseFloat( entry.valueString );
 	entry.flags = flags;
 	entry.valueBool = Cvar_ParseBool( entry.valueString );
 	s_CvarRegistry.nCvarCount++;
@@ -193,14 +254,25 @@ cvar_error_t Cvar_Set( const char *name, const char *value ) {
         return cvar_error_t::ERR_CHEAT_PROTECTED;
     }
 
-    std::strncpy( target->valueString, value, sizeof( target->valueString ) - 1 );
-    target->valueString[sizeof( target->valueString ) - 1u] = '\0';
+    const common::usize length = std::strlen( value );
+    if ( length >= sizeof( target->valueString ) ) {
+        return cvar_error_t::ERR_INVALID_CVAR;
+    }
+    // Callers may reuse a view returned by Cvar_GetString, including a suffix.
+    // Stage it before mutation so overlapping input never reaches strncpy.
+    char valueCopy[sizeof( target->valueString )]{};
+    std::memcpy( valueCopy, value, length + 1u );
+    std::memcpy( target->valueString, valueCopy, sizeof( valueCopy ) );
 
-    target->valueInt = static_cast<common::u32>( std::atoi( target->valueString ) );
-    target->valueFloat = static_cast<common::f32>( std::atof( target->valueString ) );
+    target->valueInt = static_cast<common::u32>( std::strtoull( target->valueString, nullptr, 10 ) );
+    target->valueFloat = Cvar_ParseFloat( target->valueString );
     target->valueBool = Cvar_ParseBool( target->valueString );
 
-    target->flags = static_cast<flags_t>( static_cast<common::u32>( target->flags ) | CYPHER_CVAR_MODIFIED );
+    common::u32 flags = static_cast<common::u32>( target->flags ) & ~CYPHER_CVAR_MODIFIED;
+    if ( std::strcmp( target->valueString, target->defaultString ) != 0 ) {
+        flags |= CYPHER_CVAR_MODIFIED;
+    }
+    target->flags = static_cast<flags_t>( flags );
 
     LOG_DEBUG( log::channel_t::CVAR, "cvar '%s' set to '%s'.", name, target->valueString );
 
