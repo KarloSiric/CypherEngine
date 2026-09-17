@@ -25,6 +25,12 @@
 #include <cstring>     // std::strcmp / std::strncmp for level and sink config checks.
 #include <mutex>       // std::mutex and std::lock_guard serialize logger state and sink access.
 
+#if CYPHER_PLATFORM_WINDOWS
+    #include <io.h>     // _fileno and _chsize_s for deferred file truncation.
+#else
+    #include <unistd.h> // fileno and ftruncate for deferred file truncation.
+#endif
+
 namespace cypher::engine::log
 {
 
@@ -55,6 +61,7 @@ static runtime_state_t s_LogRuntimeState;
 struct prepared_sink_t {
     std::FILE *pFileHandle{ nullptr };
     bool bOwnsFileHandle{ false };
+    bool bTruncateOnCommit{ false };
 };
 
 struct prepared_file_sinks_t {
@@ -83,12 +90,40 @@ namespace cypher::engine::log
 
 /*
 ================
-Log_FileOpenMode
+Log_ValidateConfig
 ================
 */
-const char *Log_FileOpenMode( const file_mode_t bFileMode )
+static bool Log_SinkConfigIsValid( const sink_config_t &sink, const bool fileBacked )
 {
-    return ( bFileMode == file_mode_t::APPEND ) ? "a" : "w";
+    if ( !sink.enabled ) {
+        return true;
+    }
+    if ( sink.nMinLevel >= level_t::COUNT ||
+         ( sink.format != format_mode_t::COMPACT &&
+           sink.format != format_mode_t::DETAILED &&
+           sink.format != format_mode_t::CONSOLE ) ||
+         ( sink.flush != flush_policy_t::NEVER && sink.flush != flush_policy_t::ERRORS_AND_ABOVE &&
+           sink.flush != flush_policy_t::EVERY_MESSAGE ) ) {
+        return false;
+    }
+    return !fileBacked ||
+        ( ( sink.file == file_mode_t::APPEND || sink.file == file_mode_t::TRUNCATE ) &&
+          sink.path[0] != '\0' && std::memchr( sink.path, '\0', sizeof( sink.path ) ) != nullptr );
+}
+
+static log_error_t Log_ValidateConfig( const config_t &config )
+{
+    if ( config.nMinLevel >= level_t::COUNT ||
+         ( config.szSourcePath != source_path_mode_t::BASENAME && config.szSourcePath != source_path_mode_t::FULL_PATH ) ||
+         !Log_SinkConfigIsValid( config.terminal, false ) ||
+         !Log_SinkConfigIsValid( config.engineFile, true ) ||
+         !Log_SinkConfigIsValid( config.errorFile, true ) ||
+         !Log_SinkConfigIsValid( config.consoleFile, true ) ||
+         !Log_SinkConfigIsValid( config.editorFile, true ) ||
+         !Log_SinkConfigIsValid( config.gameFile, true ) ) {
+        return log_error_t::ERR_INVALID_CONFIG;
+    }
+    return log_error_t::OK;
 }
 
 /*
@@ -134,7 +169,9 @@ log_error_t Log_OpenFileSink( const sink_config_t &pSinkConfig, std::FILE *&pFil
     if ( pSinkConfig.path[0] == '\0' ) {
         return log_error_t::ERR_INVALID_CONFIG;
     }
-    pFileHandle = std::fopen( pSinkConfig.path, Log_FileOpenMode( pSinkConfig.file ) );
+    // Preparation must not erase existing bytes if a later sink cannot open.
+    // Append handles also keep writes correct when multiple sinks name one file.
+    pFileHandle = std::fopen( pSinkConfig.path, "a" );
     if ( pFileHandle == nullptr ) {
         return log_error_t::ERR_FILE_OPEN_FAILED;
     }
@@ -186,6 +223,7 @@ log_error_t Log_PrepareFileSink(
 
     const log_error_t openResult = Log_OpenFileSink( requestedConfig, preparedSink.pFileHandle );
     preparedSink.bOwnsFileHandle = openResult == log_error_t::OK;
+    preparedSink.bTruncateOnCommit = preparedSink.bOwnsFileHandle && requestedConfig.file == file_mode_t::TRUNCATE;
     return openResult;
 }
 
@@ -231,6 +269,11 @@ log_error_t Log_PrepareFileSinks(
     prepared_file_sinks_t &preparedSinks )
 {
     preparedSinks = {};
+
+    const log_error_t validationResult = Log_ValidateConfig( requestedConfig );
+    if ( validationResult != log_error_t::OK ) {
+        return validationResult;
+    }
 
     log_error_t result = Log_PrepareFileSink(
         activeState.config.engineFile,
@@ -281,6 +324,50 @@ log_error_t Log_PrepareFileSinks(
         return result;
     }
 
+    return log_error_t::OK;
+}
+
+// All paths have opened before this point. Flush active buffers before truncating
+// any candidate because an active sink may refer to the same underlying file.
+static log_error_t Log_ApplyPreparedTruncations(
+    const runtime_state_t &activeState,
+    prepared_file_sinks_t &preparedSinks )
+{
+    prepared_sink_t *sinks[] = {
+        &preparedSinks.engineFile, &preparedSinks.errorFile, &preparedSinks.consoleFile,
+        &preparedSinks.editorFile, &preparedSinks.gameFile
+    };
+    bool hasTruncation = false;
+    for ( const prepared_sink_t *sink : sinks ) {
+        hasTruncation = hasTruncation || sink->bTruncateOnCommit;
+    }
+    if ( !hasTruncation ) {
+        return log_error_t::OK;
+    }
+    std::FILE *activeHandles[] = {
+        activeState.pEngineFileHandle, activeState.pErrorFileHandle, activeState.pConsoleFileHandle,
+        activeState.pEditorFileHandle, activeState.pGameFileHandle
+    };
+    for ( std::FILE *handle : activeHandles ) {
+        if ( handle != nullptr && std::fflush( handle ) != 0 ) {
+            return log_error_t::ERR_FILE_WRITE_FAILED;
+        }
+    }
+    for ( prepared_sink_t *sink : sinks ) {
+        if ( !sink->bTruncateOnCommit ) {
+            continue;
+        }
+#if CYPHER_PLATFORM_WINDOWS
+        const bool truncated = ::_chsize_s( ::_fileno( sink->pFileHandle ), 0 ) == 0;
+#else
+        const bool truncated = ::ftruncate( ::fileno( sink->pFileHandle ), 0 ) == 0;
+#endif
+        if ( !truncated ) {
+            // Earlier successful truncations cannot be undone. Runtime handle
+            // ownership and configuration are not committed on this failure.
+            return log_error_t::ERR_FILE_WRITE_FAILED;
+        }
+    }
     return log_error_t::OK;
 }
 
@@ -428,6 +515,12 @@ log_error_t Log_Init( const config_t &config )
         return openResult;
     }
 
+    const log_error_t truncateResult = Log_ApplyPreparedTruncations( s_LogRuntimeState, preparedSinks );
+    if ( truncateResult != log_error_t::OK ) {
+        Log_ClosePreparedFileSinks( preparedSinks );
+        return truncateResult;
+    }
+
     Log_CommitPreparedFileSinks( s_LogRuntimeState, preparedSinks );
     s_LogRuntimeState.config = config;
     s_LogRuntimeState.initialized = true;
@@ -546,6 +639,12 @@ log_error_t Log_SetConfig( const config_t &config )
     const log_error_t updateResult = Log_PrepareFileSinks( s_LogRuntimeState, config, preparedSinks );
     if ( updateResult != log_error_t::OK ) {
         return updateResult;
+    }
+
+    const log_error_t truncateResult = Log_ApplyPreparedTruncations( s_LogRuntimeState, preparedSinks );
+    if ( truncateResult != log_error_t::OK ) {
+        Log_ClosePreparedFileSinks( preparedSinks );
+        return truncateResult;
     }
 
     Log_CommitPreparedFileSinks( s_LogRuntimeState, preparedSinks );
@@ -707,7 +806,26 @@ void Log_Emitfv( const level_t level, const channel_t channel,
     record.timestamp = std::time( nullptr );
 
     const char *bSafeFormat = format ? format : "<null format>";
-    std::vsnprintf( record.message, sizeof( record.message ), bSafeFormat, args );
+    const int written = std::vsnprintf(
+        record.message,
+        sizeof( record.message ),
+        bSafeFormat,
+        args );
+
+    if ( written < 0 ) {
+        std::snprintf(
+            record.message,
+            sizeof( record.message ),
+            "<log message formatting failed>" );
+    } else if ( static_cast<common::usize>( written ) >= sizeof( record.message ) ) {
+        constexpr char truncationSuffix[] = " [truncated]";
+        constexpr common::usize suffixLength = sizeof( truncationSuffix ) - 1u;
+        constexpr common::usize suffixOffset = CYPHER_LOG_MESSAGE_MAX - 1u - suffixLength;
+        std::memcpy(
+            record.message + suffixOffset,
+            truncationSuffix,
+            sizeof( truncationSuffix ) );
+    }
 
     Log_Emit( record );
 }
