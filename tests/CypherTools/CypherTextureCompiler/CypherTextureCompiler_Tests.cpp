@@ -136,10 +136,13 @@ struct host_capture_t {
     u32 nLastDiagnosticColumn{ 0u };
     tool_status_t reportedStatus{ tool_status_t::INTERNAL_ERROR };
     content_hash_t artifactHash{};
+    content_hash_t configurationHash{};
+    std::string lastDiagnosticMessage{};
     bool_t bSawRecipeDependency{ CY_FALSE };
     bool_t bSawImageDependency{ CY_FALSE };
     bool_t bSawCompilerDependency{ CY_FALSE };
     bool_t bSawToolchainDependency{ CY_FALSE };
+    bool_t bSawConfigurationDependency{ CY_FALSE };
     bool_t bSawCompletedProgress{ CY_FALSE };
 };
 
@@ -152,6 +155,12 @@ void CaptureDiagnostic(
     capture.lastDiagnostic = diagnostic.code;
     capture.nLastDiagnosticLine = diagnostic.source.nLine;
     capture.nLastDiagnosticColumn = diagnostic.source.nColumn;
+    capture.lastDiagnosticMessage.clear();
+    if ( diagnostic.message.pData != nullptr ) {
+        capture.lastDiagnosticMessage.assign(
+            diagnostic.message.pData,
+            diagnostic.message.cchLength );
+    }
     if ( diagnostic.severity == tool_diagnostic_severity_t::ERROR ||
          diagnostic.severity == tool_diagnostic_severity_t::FATAL ) {
         ++capture.nErrors;
@@ -182,6 +191,12 @@ void CaptureDependency(
     capture.bSawToolchainDependency |= StringView_Equals(
         dependency.path,
         TestText( "toolchain/image-import" ) );
+    if ( StringView_Equals(
+             dependency.path,
+             TestText( "configuration/texture-target-profile" ) ) ) {
+        capture.bSawConfigurationDependency = CY_TRUE;
+        capture.configurationHash = dependency.contentHash;
+    }
 }
 
 void CaptureArtifact(
@@ -410,6 +425,38 @@ void WriteRecipe(
     project.WriteText( "textures/panel.cytex", recipe.c_str() );
 }
 
+void WriteRecipeV2(
+    const temporary_project_t &project,
+    const char *pSource,
+    const char *pOptions = "",
+    const char *pUsage = "color",
+    const char *pColorSpace = "srgb" )
+{
+    const std::string recipe =
+        "@cykv 1\n"
+        "@schema \"cypher.texture\" 2\n"
+        "{\n"
+        "    source = \"" + std::string( pSource ) + "\"\n"
+        "    type = \"2d\"\n"
+        "    usage = \"" + std::string( pUsage ) + "\"\n"
+        "    color_space = \"" + std::string( pColorSpace ) + "\"\n" +
+        pOptions + "\n}\n";
+    project.WriteText( "textures/panel.cytex", recipe.c_str() );
+}
+
+cooked_texture_target_t ExpectedCookedTarget(
+    tool_target_t target ) noexcept
+{
+    if ( target.platform == tool_platform_t::MACOS ) {
+        return cooked_texture_target_t::APPLE;
+    }
+    if ( target.platform == tool_platform_t::WINDOWS ||
+         target.platform == tool_platform_t::LINUX ) {
+        return cooked_texture_target_t::DESKTOP;
+    }
+    return cooked_texture_target_t::PORTABLE;
+}
+
 void ReadBlob( const std::string &path, blob_t &blob )
 {
     REQUIRE( Blob_Init( &blob, Allocator_GetSystem() ) );
@@ -432,12 +479,55 @@ TEST_CASE( "Texture compiler descriptor owns `.cytex` inputs",
         CypherTextureCompiler_Descriptor();
     REQUIRE( pCompiler != nullptr );
     CHECK( ToolCompiler_CheckDescriptor( *pCompiler ) == tool_status_t::OK );
+    CHECK( pCompiler->nApiVersion == CY_TEXTURE_COMPILER_API_VERSION );
+    CHECK( pCompiler->nCompilerVersion == CY_TEXTURE_COMPILER_VERSION );
     CHECK( ToolCompiler_SupportsInput(
         *pCompiler,
         TestText( "textures/panel.cytex" ) ) );
     CHECK_FALSE( ToolCompiler_SupportsInput(
         *pCompiler,
         TestText( "materials/panel.cymat" ) ) );
+}
+
+TEST_CASE( "Texture compiler preflights decoded mip-chain capacity",
+           "[CypherTools][TextureCompiler][Mips][Capacity]" )
+{
+    u32 nMipLevels = 77u;
+    u64 cbMipData = 99u;
+    REQUIRE( CypherTextureCompiler_CalculateMipDataSize(
+        5632u,
+        5632u,
+        16u,
+        CY_TRUE,
+        &nMipLevels,
+        &cbMipData ) );
+    REQUIRE( nMipLevels == CookedTexture_FullMipCount( 5632u, 5632u ) );
+    REQUIRE( cbMipData > CY_COOKED_TEXTURE_MAX_TOTAL_DATA_SIZE );
+
+    u32 nSingleLevel = 0u;
+    u64 cbSingleLevel = 0u;
+    REQUIRE( CypherTextureCompiler_CalculateMipDataSize(
+        5632u,
+        5632u,
+        16u,
+        CY_FALSE,
+        &nSingleLevel,
+        &cbSingleLevel ) );
+    REQUIRE( nSingleLevel == 1u );
+    REQUIRE( cbSingleLevel == 507510784u );
+    REQUIRE( cbSingleLevel <= CY_COOKED_TEXTURE_MAX_TOTAL_DATA_SIZE );
+
+    nMipLevels = 77u;
+    cbMipData = 99u;
+    REQUIRE_FALSE( CypherTextureCompiler_CalculateMipDataSize(
+        0u,
+        1u,
+        4u,
+        CY_TRUE,
+        &nMipLevels,
+        &cbMipData ) );
+    REQUIRE( nMipLevels == 77u );
+    REQUIRE( cbMipData == 99u );
 }
 
 TEST_CASE( "Texture compiler imports PNG and emits a complete mip chain",
@@ -462,11 +552,13 @@ TEST_CASE( "Texture compiler imports PNG and emits a complete mip chain",
     CHECK( report.nSucceeded == 1u );
     CHECK( report.nFailed == 0u );
     CHECK( report.nArtifacts == 1u );
-    CHECK( fixture.capture.nDependencies == 4u );
+    CHECK( fixture.capture.nDependencies == 5u );
     CHECK( fixture.capture.bSawRecipeDependency );
     CHECK( fixture.capture.bSawImageDependency );
     CHECK( fixture.capture.bSawCompilerDependency );
     CHECK( fixture.capture.bSawToolchainDependency );
+    CHECK( fixture.capture.bSawConfigurationDependency );
+    CHECK( ContentHash_IsValid( fixture.capture.configurationHash ) );
     CHECK( fixture.capture.bSawCompletedProgress );
 
     blob_t cooked{};
@@ -477,12 +569,23 @@ TEST_CASE( "Texture compiler imports PNG and emits a complete mip chain",
     cooked_texture_view_t texture{};
     REQUIRE( CookedTexture_Succeeded(
         CookedTexture_Read( Blob_Block( &cooked ), &texture ) ) );
+    CHECK( texture.nResourceVersion ==
+           CY_COOKED_TEXTURE_RESOURCE_VERSION_V2 );
     CHECK( texture.desc.nWidth == 2u );
     CHECK( texture.desc.nHeight == 2u );
     CHECK( texture.desc.nMipLevels == 2u );
     CHECK( texture.desc.pixelFormat ==
            render_texture_pixel_format_t::RGBA8_SRGB );
+    CHECK( texture.desc.storageFormat == render_format_t::RGBA8_SRGB );
     CHECK( texture.desc.usage == render_texture_usage_t::COLOR );
+    CHECK( texture.desc.alphaMode ==
+           cooked_texture_alpha_mode_t::STRAIGHT );
+    CHECK( texture.desc.target ==
+           ExpectedCookedTarget( fixture.context.target ) );
+    CHECK( texture.desc.residency ==
+           cooked_texture_residency_t::FULLY_RESIDENT );
+    CHECK( texture.desc.nResidentMipLevels == 2u );
+    CHECK( texture.desc.nStreamingPriority == 0u );
     REQUIRE( texture.mips[0].pixels.cbSize == pixels.size() );
     CHECK( Cy_MemEqual(
         texture.mips[0].pixels.pData,
@@ -503,10 +606,19 @@ TEST_CASE( "Texture compiler output is deterministic and dry runs do not write",
     project.WriteBinary(
         "textures/source/panel.png",
         MakePng( 3u, 5u, pixels ) );
-    WriteRecipe(
-        project,
-        "textures/source/panel.png",
-        "    usage = \"data\"\n    generate_mips = true" );
+    project.WriteText(
+        "textures/panel.cytex",
+        "@cykv 1\n"
+        "@schema \"cypher.texture\" 2\n"
+        "{\n"
+        "    source = \"textures/source/panel.png\"\n"
+        "    type = \"2d\"\n"
+        "    usage = \"data\"\n"
+        "    color_space = \"linear\"\n"
+        "    alpha = { mode = \"data\" }\n"
+        "    mips = { mode = \"generate\" filter = \"box\" edge = \"clamp\" }\n"
+        "    output = { format = \"auto\" quality = \"balanced\" }\n"
+        "}\n" );
 
     compiler_fixture_t fixture{ project };
     tool_report_t firstReport{};
@@ -535,7 +647,266 @@ TEST_CASE( "Texture compiler output is deterministic and dry runs do not write",
     CHECK( dryReport.nArtifacts == 0u );
     CHECK( dryReport.cbWritten == 0u );
     CHECK( fixture.capture.nArtifacts == 0u );
-    CHECK( fixture.capture.nDependencies == 4u );
+    CHECK( fixture.capture.nDependencies == 5u );
+}
+
+TEST_CASE( "Texture compiler ignores authoring-only CYKV formatting",
+           "[CypherTools][TextureCompiler][Determinism][CYKV]" )
+{
+    temporary_project_t project{};
+    std::vector<byte> pixels( 4u * 4u * 4u, 91u );
+    for ( usize iPixel = 0u; iPixel < 16u; ++iPixel ) {
+        pixels[iPixel * 4u + 3u] = 255u;
+    }
+    project.WriteBinary(
+        "textures/source/panel.png",
+        MakePng( 4u, 4u, pixels ) );
+    project.WriteText(
+        "textures/panel.cytex",
+        "@cykv 1\n"
+        "@schema \"cypher.texture\" 2\n"
+        "{\n"
+        "    source = \"textures/source/panel.png\"\n"
+        "    type = \"2d\"\n"
+        "    usage = \"data\"\n"
+        "    color_space = \"linear\"\n"
+        "    alpha = { mode = \"data\" }\n"
+        "    mips = { mode = \"generate\" filter = \"box\" edge = \"clamp\" }\n"
+        "    output = { format = \"auto\" quality = \"balanced\" }\n"
+        "}\n" );
+
+    compiler_fixture_t fixture{ project };
+    tool_report_t firstReport{};
+    tool_report_t reformattedReport{};
+    REQUIRE( fixture.Compile(
+        TestText( "textures/canonical.cytex_c" ),
+        firstReport ) == tool_status_t::OK );
+
+    project.WriteText(
+        "textures/panel.cytex",
+        "@cykv 1\n"
+        "@schema \"cypher.texture\" 2\n"
+        "{ // Reordering, whitespace, and comments are authoring-only.\n"
+        "    output = { format = \"auto\" quality = \"balanced\" }\n"
+        "    mips = { mode = \"generate\" filter = \"box\" edge = \"clamp\" }\n"
+        "    color_space = \"linear\"\n"
+        "    alpha = { mode = \"data\" }\n"
+        "    usage = \"data\"\n"
+        "    type = \"2d\"\n"
+        "    source = \"textures/source/panel.png\" // same source\n"
+        "}\n" );
+    REQUIRE( fixture.Compile(
+        TestText( "textures/reformatted.cytex_c" ),
+        reformattedReport ) == tool_status_t::OK );
+
+    blob_t canonical{};
+    blob_t reformatted{};
+    ReadBlob(
+        project.OutputPath( "textures/canonical.cytex_c" ),
+        canonical );
+    ReadBlob(
+        project.OutputPath( "textures/reformatted.cytex_c" ),
+        reformatted );
+    REQUIRE( canonical.cbSize == reformatted.cbSize );
+    CHECK( Cy_MemEqual(
+        canonical.pData,
+        reformatted.pData,
+        canonical.cbSize ) );
+}
+
+TEST_CASE( "Texture compiler identities include target and build profile",
+           "[CypherTools][TextureCompiler][Identity][Configuration]" )
+{
+    temporary_project_t project{};
+    const std::vector<byte> pixels( 2u * 2u * 4u, 255u );
+    project.WriteBinary(
+        "textures/source/panel.png",
+        MakePng( 2u, 2u, pixels ) );
+    WriteRecipeV2(
+        project,
+        "textures/source/panel.png",
+        "    mips = { mode = \"none\" }" );
+
+    compiler_fixture_t fixture{ project };
+    fixture.context.target = {
+        tool_platform_t::LINUX,
+        tool_architecture_t::X64
+    };
+    fixture.context.profile = tool_profile_t::DEVELOPMENT;
+    tool_report_t linuxDevelopmentReport{};
+    REQUIRE( fixture.Compile(
+        TestText( "textures/linux-development.cytex_c" ),
+        linuxDevelopmentReport ) == tool_status_t::OK );
+    const content_hash_t linuxDevelopmentConfiguration =
+        fixture.capture.configurationHash;
+
+    fixture.capture = {};
+    fixture.context.target = {
+        tool_platform_t::MACOS,
+        tool_architecture_t::ARM64
+    };
+    tool_report_t macDevelopmentReport{};
+    REQUIRE( fixture.Compile(
+        TestText( "textures/mac-development.cytex_c" ),
+        macDevelopmentReport ) == tool_status_t::OK );
+    const content_hash_t macDevelopmentConfiguration =
+        fixture.capture.configurationHash;
+
+    fixture.capture = {};
+    fixture.context.target = {
+        tool_platform_t::LINUX,
+        tool_architecture_t::X64
+    };
+    fixture.context.profile = tool_profile_t::SHIPPING;
+    tool_report_t linuxShippingReport{};
+    REQUIRE( fixture.Compile(
+        TestText( "textures/linux-shipping.cytex_c" ),
+        linuxShippingReport ) == tool_status_t::OK );
+    const content_hash_t linuxShippingConfiguration =
+        fixture.capture.configurationHash;
+
+    blob_t linuxDevelopment{};
+    blob_t macDevelopment{};
+    blob_t linuxShipping{};
+    ReadBlob(
+        project.OutputPath( "textures/linux-development.cytex_c" ),
+        linuxDevelopment );
+    ReadBlob(
+        project.OutputPath( "textures/mac-development.cytex_c" ),
+        macDevelopment );
+    ReadBlob(
+        project.OutputPath( "textures/linux-shipping.cytex_c" ),
+        linuxShipping );
+    cooked_texture_view_t linuxDevelopmentTexture{};
+    cooked_texture_view_t macDevelopmentTexture{};
+    cooked_texture_view_t linuxShippingTexture{};
+    REQUIRE( CookedTexture_Succeeded( CookedTexture_Read(
+        Blob_Block( &linuxDevelopment ),
+        &linuxDevelopmentTexture ) ) );
+    REQUIRE( CookedTexture_Succeeded( CookedTexture_Read(
+        Blob_Block( &macDevelopment ),
+        &macDevelopmentTexture ) ) );
+    REQUIRE( CookedTexture_Succeeded( CookedTexture_Read(
+        Blob_Block( &linuxShipping ),
+        &linuxShippingTexture ) ) );
+
+    CHECK( linuxDevelopmentTexture.desc.target ==
+           cooked_texture_target_t::DESKTOP );
+    CHECK( macDevelopmentTexture.desc.target ==
+           cooked_texture_target_t::APPLE );
+    CHECK_FALSE( ContentHash_Equals(
+        linuxDevelopmentTexture.sourceHash,
+        macDevelopmentTexture.sourceHash ) );
+    CHECK_FALSE( ContentHash_Equals(
+        linuxDevelopmentTexture.sourceHash,
+        linuxShippingTexture.sourceHash ) );
+    CHECK_FALSE( ContentHash_Equals(
+        linuxDevelopmentConfiguration,
+        macDevelopmentConfiguration ) );
+    CHECK_FALSE( ContentHash_Equals(
+        linuxDevelopmentConfiguration,
+        linuxShippingConfiguration ) );
+}
+
+TEST_CASE( "Texture V2 compiles rich policy into streamed CYTX metadata",
+           "[CypherTools][TextureCompiler][V2][Streaming]" )
+{
+    temporary_project_t project{};
+    std::vector<byte> pixels( 4u * 4u * 4u, 173u );
+    project.WriteBinary(
+        "textures/source/panel.png",
+        MakePng( 4u, 4u, pixels ) );
+    WriteRecipeV2(
+        project,
+        "textures/source/panel.png",
+        "    alpha = { mode = \"mask\" cutoff = 0.42 }\n"
+        "    mips = { mode = \"generate\" filter = \"box\" edge = \"clamp\" }\n"
+        "    output = { format = \"uncompressed\" quality = \"production\" }\n"
+        "    streaming = { class = \"world\" resident_mips = 2u }" );
+
+    compiler_fixture_t fixture{ project };
+    fixture.context.target = {
+        tool_platform_t::LINUX,
+        tool_architecture_t::X64
+    };
+    tool_report_t report{};
+    REQUIRE( fixture.Compile(
+                 TestText( "textures/panel.cytex_c" ),
+                 report ) == tool_status_t::OK );
+
+    blob_t cooked{};
+    ReadBlob( project.OutputPath( "textures/panel.cytex_c" ), cooked );
+    cooked_texture_view_t texture{};
+    REQUIRE( CookedTexture_Succeeded(
+        CookedTexture_Read( Blob_Block( &cooked ), &texture ) ) );
+    CHECK( texture.nResourceVersion ==
+           CY_COOKED_TEXTURE_RESOURCE_VERSION_V2 );
+    CHECK( texture.desc.storageFormat == render_format_t::RGBA8_SRGB );
+    CHECK( texture.desc.alphaMode == cooked_texture_alpha_mode_t::MASK );
+    CHECK( std::fabs( texture.desc.alphaCutoff - 0.42f ) < 0.00001f );
+    CHECK( texture.desc.target == cooked_texture_target_t::DESKTOP );
+    CHECK( texture.desc.residency ==
+           cooked_texture_residency_t::MIP_STREAMED );
+    CHECK( texture.desc.nMipLevels == 3u );
+    CHECK( texture.desc.nSubresources == 3u );
+    CHECK( texture.desc.nResidentMipLevels == 2u );
+    CHECK( texture.desc.iResidentFirstSubresource == 1u );
+    CHECK( texture.desc.nResidentSubresources == 2u );
+    CHECK( texture.desc.cbResidentData == 20u );
+    // The compiler's stable class table maps world to neutral priority 128.
+    CHECK( texture.desc.nStreamingPriority == 128u );
+    cooked_texture_subresource_view_t mip2{};
+    REQUIRE( CookedTexture_GetSubresource(
+        texture,
+        2u,
+        0u,
+        0u,
+        0u,
+        &mip2 ) );
+    CHECK( mip2.nWidth == 1u );
+    CHECK( mip2.nHeight == 1u );
+    CHECK( mip2.cbRowPitch == 4u );
+    CHECK( mip2.cbSlicePitch == 4u );
+}
+
+TEST_CASE( "Texture V2 supports no-mip data resources",
+           "[CypherTools][TextureCompiler][V2][NoMips]" )
+{
+    temporary_project_t project{};
+    std::vector<byte> pixels( 4u * 4u * 4u, 67u );
+    project.WriteBinary(
+        "textures/source/panel.png",
+        MakePng( 4u, 4u, pixels ) );
+    WriteRecipeV2(
+        project,
+        "textures/source/panel.png",
+        "    alpha = { mode = \"data\" }\n"
+        "    mips = { mode = \"none\" }\n"
+        "    output = { format = \"auto\" quality = \"fast\" }\n"
+        "    streaming = { class = \"ui\" resident_mips = 1u }",
+        "data",
+        "linear" );
+
+    compiler_fixture_t fixture{ project };
+    tool_report_t report{};
+    REQUIRE( fixture.Compile(
+                 TestText( "textures/panel.cytex_c" ),
+                 report ) == tool_status_t::OK );
+    blob_t cooked{};
+    ReadBlob( project.OutputPath( "textures/panel.cytex_c" ), cooked );
+    cooked_texture_view_t texture{};
+    REQUIRE( CookedTexture_Succeeded(
+        CookedTexture_Read( Blob_Block( &cooked ), &texture ) ) );
+    CHECK( texture.desc.nMipLevels == 1u );
+    CHECK( texture.desc.nSubresources == 1u );
+    CHECK( texture.desc.storageFormat == render_format_t::RGBA8_UNORM );
+    CHECK( texture.desc.alphaMode == cooked_texture_alpha_mode_t::DATA );
+    CHECK( ( texture.desc.flags & COOKED_TEXTURE_FLAG_GENERATED_MIPS ) == 0u );
+    CHECK( texture.desc.residency ==
+           cooked_texture_residency_t::MIP_STREAMED );
+    CHECK( texture.desc.nResidentMipLevels == 1u );
+    // UI is deliberately above world in the stable scheduling table.
+    CHECK( texture.desc.nStreamingPriority == 224u );
 }
 
 TEST_CASE( "Texture compiler imports JPEG as canonical RGBA8",
@@ -643,6 +1014,258 @@ TEST_CASE( "Texture compiler normal-map mips remain normalized",
     CHECK( std::fabs( nLength - 1.0f ) < 0.02f );
 }
 
+TEST_CASE( "Texture compiler box filtering preserves odd-size texel area",
+           "[CypherTools][TextureCompiler][Mip][OddDimensions]" )
+{
+    temporary_project_t project{};
+    const std::vector<byte> pixels{
+        0u,   0u, 0u, 255u,
+        0u,   0u, 0u, 255u,
+        255u, 0u, 0u, 255u,
+        255u, 0u, 0u, 255u,
+        255u, 0u, 0u, 255u
+    };
+    project.WriteBinary(
+        "textures/source/panel.png",
+        MakePng( 5u, 1u, pixels ) );
+    WriteRecipeV2(
+        project,
+        "textures/source/panel.png",
+        "    alpha = { mode = \"data\" }\n"
+        "    mips = { mode = \"generate\" filter = \"box\" }",
+        "data",
+        "linear" );
+
+    compiler_fixture_t fixture{ project };
+    tool_report_t report{};
+    REQUIRE( fixture.Compile(
+        TestText( "textures/panel.cytex_c" ),
+        report ) == tool_status_t::OK );
+    blob_t cooked{};
+    ReadBlob( project.OutputPath( "textures/panel.cytex_c" ), cooked );
+    cooked_texture_view_t texture{};
+    REQUIRE( CookedTexture_Succeeded(
+        CookedTexture_Read( Blob_Block( &cooked ), &texture ) ) );
+    cooked_texture_subresource_view_t mip1{};
+    REQUIRE( CookedTexture_GetSubresource(
+        texture,
+        1u,
+        0u,
+        0u,
+        0u,
+        &mip1 ) );
+    REQUIRE( mip1.nWidth == 2u );
+    REQUIRE( mip1.pixels.cbSize == 8u );
+    // Destination texel zero covers source texels 0, 1, and half of 2:
+    // (0 + 0 + 0.5 * 255) / 2.5 = 51.
+    CHECK( mip1.pixels.pData[0] == 51u );
+    CHECK( mip1.pixels.pData[4] == 255u );
+}
+
+TEST_CASE( "Texture compiler filters straight alpha through premultiplied color",
+           "[CypherTools][TextureCompiler][Mip][StraightAlpha]" )
+{
+    temporary_project_t project{};
+    const std::vector<byte> pixels{
+        255u, 0u, 0u, 255u,
+        0u, 0u, 255u, 0u
+    };
+    project.WriteBinary(
+        "textures/source/panel.png",
+        MakePng( 2u, 1u, pixels ) );
+    WriteRecipeV2(
+        project,
+        "textures/source/panel.png",
+        "    alpha = { mode = \"straight\" }\n"
+        "    mips = { mode = \"generate\" filter = \"box\" }" );
+
+    compiler_fixture_t fixture{ project };
+    tool_report_t report{};
+    REQUIRE( fixture.Compile(
+        TestText( "textures/panel.cytex_c" ),
+        report ) == tool_status_t::OK );
+    blob_t cooked{};
+    ReadBlob( project.OutputPath( "textures/panel.cytex_c" ), cooked );
+    cooked_texture_view_t texture{};
+    REQUIRE( CookedTexture_Succeeded(
+        CookedTexture_Read( Blob_Block( &cooked ), &texture ) ) );
+    cooked_texture_subresource_view_t mip1{};
+    REQUIRE( CookedTexture_GetSubresource(
+        texture,
+        1u,
+        0u,
+        0u,
+        0u,
+        &mip1 ) );
+    REQUIRE( mip1.pixels.cbSize == 4u );
+    CHECK( mip1.pixels.pData[0] == 255u );
+    CHECK( mip1.pixels.pData[1] == 0u );
+    CHECK( mip1.pixels.pData[2] == 0u );
+    CHECK( mip1.pixels.pData[3] == 128u );
+}
+
+TEST_CASE( "Texture compiler renormalizes floating-point normal-map mips",
+           "[CypherTools][TextureCompiler][Mip][EXR][NormalMap]" )
+{
+    temporary_project_t project{};
+    const std::vector<f32> pixels{
+        0.5f, 0.5f, 1.0f, 1.0f,
+        1.0f, 0.5f, 0.5f, 1.0f
+    };
+    project.WriteBinary(
+        "textures/source/panel.exr",
+        MakeExr( 2u, 1u, pixels ) );
+    WriteRecipeV2(
+        project,
+        "textures/source/panel.exr",
+        "    alpha = { mode = \"none\" }\n"
+        "    mips = { mode = \"generate\" filter = \"box\" }",
+        "normal",
+        "linear" );
+
+    compiler_fixture_t fixture{ project };
+    tool_report_t report{};
+    REQUIRE( fixture.Compile(
+        TestText( "textures/panel.cytex_c" ),
+        report ) == tool_status_t::OK );
+    blob_t cooked{};
+    ReadBlob( project.OutputPath( "textures/panel.cytex_c" ), cooked );
+    cooked_texture_view_t texture{};
+    REQUIRE( CookedTexture_Succeeded(
+        CookedTexture_Read( Blob_Block( &cooked ), &texture ) ) );
+    cooked_texture_subresource_view_t mip1{};
+    REQUIRE( CookedTexture_GetSubresource(
+        texture,
+        1u,
+        0u,
+        0u,
+        0u,
+        &mip1 ) );
+    REQUIRE( mip1.pixels.cbSize == 16u );
+    const f32 nx = ReadLittleF32( mip1.pixels.pData ) * 2.0f - 1.0f;
+    const f32 ny = ReadLittleF32( mip1.pixels.pData + 4u ) * 2.0f - 1.0f;
+    const f32 nz = ReadLittleF32( mip1.pixels.pData + 8u ) * 2.0f - 1.0f;
+    const f32 nLength = std::sqrt( nx * nx + ny * ny + nz * nz );
+    CHECK( std::fabs( nLength - 1.0f ) < 0.0001f );
+    CHECK( std::fabs( nx - 0.7071067f ) < 0.0001f );
+    CHECK( std::fabs( ny ) < 0.0001f );
+    CHECK( std::fabs( nz - 0.7071067f ) < 0.0001f );
+}
+
+TEST_CASE( "Texture V2 rejects policies that the current importer cannot honor",
+           "[CypherTools][TextureCompiler][V2][Policy][Diagnostics]" )
+{
+    struct policy_case_t {
+        const char *pName;
+        const char *pSource;
+        const char *pOptions;
+        tool_diagnostic_code_t expectedDiagnostic;
+        const char *pExpectedMessage;
+    };
+    const policy_case_t cases[]{
+        {
+            "kaiser filter",
+            "textures/source/panel.png",
+            "    mips = { mode = \"generate\" filter = \"kaiser\" }",
+            CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_POLICY,
+            "box mip filter"
+        },
+        {
+            "lanczos filter",
+            "textures/source/panel.png",
+            "    mips = { mode = \"generate\" filter = \"lanczos\" }",
+            CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_POLICY,
+            "box mip filter"
+        },
+        {
+            "repeat edge",
+            "textures/source/panel.png",
+            "    mips = { mode = \"generate\" edge = \"repeat\" }",
+            CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_POLICY,
+            "clamped mip edges"
+        },
+        {
+            "mirror edge",
+            "textures/source/panel.png",
+            "    mips = { mode = \"generate\" edge = \"mirror\" }",
+            CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_POLICY,
+            "clamped mip edges"
+        },
+        {
+            "alpha coverage",
+            "textures/source/panel.png",
+            "    alpha = { mode = \"mask\" }\n"
+            "    mips = { mode = \"generate\" preserve_alpha_coverage = true }",
+            CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_POLICY,
+            "Alpha-coverage"
+        },
+        {
+            "alpha dilation",
+            "textures/source/panel.png",
+            "    alpha = { mode = \"straight\" dilate_rgb = true }",
+            CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_POLICY,
+            "RGB dilation"
+        },
+        {
+            "DDS preserve",
+            "textures/source/panel.dds",
+            "    mips = { mode = \"preserve\" }",
+            CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_PRESERVED_IMAGE,
+            "DDS/KTX2"
+        },
+        {
+            "KTX2 preserve",
+            "textures/source/panel.ktx2",
+            "    mips = { mode = \"preserve\" }",
+            CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_PRESERVED_IMAGE,
+            "DDS/KTX2"
+        }
+    };
+
+    for ( const policy_case_t &policy : cases ) {
+        INFO( policy.pName );
+        temporary_project_t project{};
+        WriteRecipeV2( project, policy.pSource, policy.pOptions );
+        compiler_fixture_t fixture{ project };
+        tool_report_t report{};
+        CHECK( fixture.Compile(
+                   TestText( "textures/panel.cytex_c" ),
+                   report ) == tool_status_t::VALIDATION_FAILED );
+        CHECK( fixture.capture.lastDiagnostic == policy.expectedDiagnostic );
+        CHECK( fixture.capture.lastDiagnosticMessage.find(
+                   policy.pExpectedMessage ) != std::string::npos );
+        CHECK_FALSE( std::filesystem::exists(
+            project.output / "textures/panel.cytex_c" ) );
+    }
+}
+
+TEST_CASE( "Texture V2 rejects resident tails larger than the generated chain",
+           "[CypherTools][TextureCompiler][V2][Streaming][Diagnostics]" )
+{
+    temporary_project_t project{};
+    std::vector<byte> pixels( 2u * 2u * 4u, 255u );
+    project.WriteBinary(
+        "textures/source/panel.png",
+        MakePng( 2u, 2u, pixels ) );
+    WriteRecipeV2(
+        project,
+        "textures/source/panel.png",
+        "    mips = { mode = \"generate\" filter = \"box\" }\n"
+        "    streaming = { class = \"world\" resident_mips = 3u }" );
+
+    compiler_fixture_t fixture{ project };
+    tool_report_t report{};
+    CHECK( fixture.Compile(
+               TestText( "textures/panel.cytex_c" ),
+               report ) == tool_status_t::VALIDATION_FAILED );
+    CHECK( fixture.capture.lastDiagnostic ==
+           CY_TEXTURE_DIAGNOSTIC_INVALID_STREAMING_POLICY );
+    CHECK( fixture.capture.lastDiagnosticMessage.find( "resident_mips" ) !=
+           std::string::npos );
+    CHECK_FALSE( std::filesystem::exists(
+        project.output / "textures/panel.cytex_c" ) );
+}
+
 TEST_CASE( "Texture compiler rejects malformed input and locates schema errors",
            "[CypherTools][TextureCompiler][Invalid][Diagnostics]" )
 {
@@ -667,7 +1290,7 @@ TEST_CASE( "Texture compiler rejects malformed input and locates schema errors",
         temporary_project_t project{};
         project.WriteText(
             "textures/panel.cytex",
-            "@cykv 1\n@schema \"cypher.texture\" 2\n"
+            "@cykv 1\n@schema \"cypher.texture\" 99\n"
             "{ source = \"textures/source/panel.png\" }\n" );
         compiler_fixture_t fixture{ project };
         tool_report_t report{};
