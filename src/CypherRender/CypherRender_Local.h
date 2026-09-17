@@ -68,6 +68,33 @@ CYPHER_NODISCARD render_error_t R_BufferReleaseReference(
 CYPHER_NODISCARD render_error_t R_VertexInputSystemInit() noexcept;
 CYPHER_NODISCARD render_error_t R_VertexInputSystemShutdown() noexcept;
 
+// Draw resolution rejects geometry whose retained buffers are CPU-mapped.
+CYPHER_NODISCARD render_error_t R_VertexInputResolveForDraw(
+    render_vertex_input_handle_t vertexInput,
+    CY_OUT backend_vertex_input_t *nativeOut,
+    CY_OUT render_vertex_input_info_t *infoOut ) noexcept;
+
+CYPHER_NODISCARD render_error_t R_ShaderSystemInit() noexcept;
+CYPHER_NODISCARD render_error_t R_ShaderSystemShutdown() noexcept;
+CYPHER_NODISCARD render_error_t R_ShaderAcquireReference(
+    render_shader_handle_t shader,
+    CY_OUT backend_shader_t *nativeOut ) noexcept;
+CYPHER_NODISCARD render_error_t R_ShaderReleaseReference(
+    render_shader_handle_t shader ) noexcept;
+
+CYPHER_NODISCARD render_error_t R_TextureSystemInit() noexcept;
+CYPHER_NODISCARD render_error_t R_TextureSystemShutdown() noexcept;
+CYPHER_NODISCARD render_error_t R_TextureResolveForDraw(
+    render_texture_handle_t texture, CY_OUT backend_texture_t *nativeOut,
+    CY_OUT render_texture_info_t *infoOut ) noexcept;
+
+CYPHER_NODISCARD render_error_t R_PipelineSystemInit() noexcept;
+CYPHER_NODISCARD render_error_t R_PipelineSystemShutdown() noexcept;
+CYPHER_NODISCARD render_error_t R_PipelineResolveForDraw(
+    render_pipeline_handle_t pipeline,
+    CY_OUT backend_pipeline_t *nativeOut,
+    CY_OUT render_pipeline_info_t *infoOut ) noexcept;
+
 } // namespace cypher::engine::render
 
 #endif // CYPHER_ENGINE_RENDER_LOCAL_H
