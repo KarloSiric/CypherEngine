@@ -16,7 +16,7 @@
 # //////////////////////////////////////////////////////////////////////////
 
 CompileFlags:
-  CompilationDatabase: out/build/debug
+  CompilationDatabase: out/build/tile-editor-debug
 
 ---
 If:
