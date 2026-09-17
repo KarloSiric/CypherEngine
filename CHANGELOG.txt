@@ -20,27 +20,142 @@ CypherEngine Changelog
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
-[Unreleased] - 2026-08-27
+[Unreleased] - 2026-09-17
 -------------------------
 
 Added
-- Added focused CypherLog lifecycle, sink replacement, and concurrency tests.
-- Declared the next CypherSystem lifecycle, cooperative quit, bootstrap output, and fatal-output boundary.
+- Added CYKV V2 source schemas and typed decoders for shader, texture, and
+  material recipes while retaining exact V1 dispatch.
+- Added semantic canonical CYKV hashing so comments, whitespace, member order,
+  and equivalent number spelling do not invalidate cooker caches.
+- Added CYSH V3 logical reflection, stable binding IDs, stage/type metadata,
+  deterministic constant packing, canonical interface hashes, and physical GLSL
+  resource verification through glslang SPIR-V and SPIRV-Cross.
+- Added CYTX V2 texture semantics, multidimensional subresource metadata,
+  independent payload hashes, target/residency data, exact lookup, and explicit
+  V1 read compatibility.
+- Added CYMT V2 bounded inheritance, cycle detection, null removals, partial
+  overrides, render state, UV transforms, typed values, packed constants,
+  interface identity, and strict shader/texture cross-validation.
+- Added deterministic compiler identities covering formats, target/profile,
+  dependencies, glslang ABI, SPIRV-Cross, image libraries, and vcpkg baseline.
+- Added generation-checked runtime shader programs created from validated cooked
+  CYSH views, with native OpenGL compile/link ownership and rollback.
+- Added immutable graphics pipelines, shader retention, reflected uniform-block
+  checks, optional sampler2D declarations, and fixed depth/cull/blend state.
+- Added immediate validated indexed triangle drawing and immutable RGBA8 2D
+  sampled textures with sRGB/linear storage, mip generation, repeat/clamp
+  addressing, and generation-safe lifetime.
+- Added the public-only rotating cube example and finite hidden-frame renderer
+  smoke mode.
+- Added a live tile-map preview that loads authored CYKV maps, generates blockout
+  boxes, uses cooked materials/textures, and reloads changed dependencies while
+  preserving the last valid state.
+- Added R_InitHostSurface for borrowing an editor-owned OpenGL context,
+  procedure resolver, framebuffer preparation, and presentation policy.
+- Added CypherTileMapCore with transactional documents, validation, grouped
+  edits, undo/redo, dirty revisions, deterministic persistence, and generated
+  floor/wall/door/cliff/stair geometry.
+- Added operational cypher.map V1-V3 source formats. V1 stores sparse cells and
+  markers, V2 adds cardinal stairs, and V3 adds stable material-slot to .cymat
+  bindings. The writer emits V3 and reads all generations.
+- Added the Qt 6 CypherTileEditor with Top, Front, Side, and embedded 3D views;
+  adaptive grids and rulers; fly/orbit camera; selection, paint, erase, fill,
+  rectangle, line, spawn, door, eyedropper, room/piece stamps, and construction
+  layers.
+- Added exact sparse multiselection, move/copy/rotate/elevate/delete/bulk
+  property operations, map-property editing, cross-view synchronization, and
+  transactional collision/capacity/allocation failure handling.
+- Added project material discovery/cooking/binding, cooked base-color previews,
+  shared bounded texture caches, textured orthographic/3D display, diagnostic
+  fallback, and live dependency reload.
+- Added Tile Editor docks, object filtering, command console, asynchronous local
+  shell, configurable workspace/camera/canvas/map defaults, custom shortcuts,
+  import/export profiles, eleven themes, offline icons, and license records.
+- Added renderer, format/compiler, runtime subsystem, and Tile Editor tests and
+  benchmarks for normal behavior, compatibility, hostile input, determinism,
+  rollback, ownership, concurrency, live graphics, and allocation failure.
+- Added the complete sectioned Host startup manifest for product/build, System,
+  process, seven memory arenas, FileSystem, Command, CVar, Config, Log, runtime
+  policy, SDL/window/display, I/O, timings, and READY state.
+- Added renderer first-draw, hosted-surface, non-renderer validation, execution
+  plan, Tile Editor research, and expanded proprietary-format documentation.
+- Added authored cube/tile shaders, development textures/materials, V1-V3 map
+  examples, and automatic asset cooking for example/editor targets.
 
 Changed
-- Serialized CypherLog state, sink access, configuration updates, writes, and shutdown.
-- Changed Log_GetConfig to return a synchronized value snapshot.
-- Made file-sink replacement transactional and preserved active sinks when a replacement fails.
-- Guarded target-specific System translation units so clangd can index them safely on non-target hosts.
-- Replaced several broad Tier0/Tier1 includes with direct dependencies.
+- Advanced current cooked render identities from CYSH/CYTX/CYMT 2/1/1 to
+  3/2/2 while preserving explicit old-version readers.
+- Changed texture mip generation to filter sRGB in linear space, handle straight
+  alpha through premultiplied color, renormalize normal maps, and weight odd
+  dimensions by exact texel area.
+- Replaced the previous ad-hoc renderer route with explicit frontend/backend,
+  shader, pipeline, texture, draw, standalone-surface, and hosted-surface
+  contracts.
+- Updated current status from the pre-shader renderer audit to the completed
+  standalone first-draw/textured-blockout state; real Host and World integration
+  remain the next game-facing boundary.
+- Updated the format catalog to distinguish implemented Tile Editor .cymap V1-V3
+  source from the planned .cymap_c runtime world.
+- Added generated CYTX, CYMT, map, and mesh cooked outputs to source-control
+  ignore rules.
+- Reformatted startup INFO output into aligned sections and a READY block.
+  Routine INFO lines omit repetitive prefixes; warnings/errors stay explicit and
+  file sinks retain detailed records.
+- Serialized Log state/configuration/sink access, changed Log_GetConfig to return
+  a snapshot, and made sink replacement transactional.
+- Split System platform services by target, consolidated platform queries, and
+  standardized runtime subsystem prefixes.
 
 Fixed
-- Fixed logger races between writers, configuration updates, and shutdown.
-- Fixed the CypherSystem noexcept declaration mismatch and restored Sys_IsInitialized in the public header.
+- Fixed CYRS alias/range handling and hostile shader binding counts before output
+  publication or caller-memory traversal.
+- Fixed renderer shader, pipeline, draw, and texture failures so native objects
+  and retained references roll back before public handle publication.
+- Fixed macOS available-memory accounting, arena clear-before-decommit, stale
+  diagnostics, trace indexing, scratch errors, and allocator-wrapper races.
+- Fixed async FileSystem cancellation/borrow lifetime, shutdown admission, and
+  live native/package handle reopen preservation.
+- Hardened Pak bounds, paths, compression consistency, truncation, hashes,
+  temporary publication, replacement failure, and reader/writer ownership.
+- Fixed Command/Config/CVar truncation, recursion, NUL/trailing input, aliasing,
+  full-token numeric parsing, and default-value modified-state restoration.
+- Fixed Log timestamps, truncation reporting, configuration races, failed sink
+  replacement, and premature file truncation.
+- Fixed Tile Editor invalid edit, allocation failure, interrupted gesture, map
+  decode, material reload, and preview failure paths to preserve prior state.
 
 Verified
-- Verified the complete Debug build and all 223 registered tests on Apple Silicon macOS.
-- Repeated the concurrent CypherLog suite 25 times and verified it under ASan/UBSan.
+- Reconfigured and rebuilt the complete tile-editor-debug graph, then passed all
+  272 registered CTest entries in 25.45 seconds, including native OpenGL smoke,
+  Tile Editor workspace, map/material preview, render-asset compiler, and
+  ResourceCompiler process/corpus coverage.
+- Built the six changed Release benchmark targets and smoke-ran all 44 cases
+  across CYSH, CYTX, CYMT, canonical CYKV hashing, Memory, and Resource runtime.
+  This verifies benchmark execution and is not a comparative performance result.
+- Verified 232 selected non-renderer tests in Debug and ASan/UBSan plus the
+  allocator-wrapper, Log, and FileSystem suites under ThreadSanitizer.
+- Verified eight runtime pool cases and 58,552 assertions in Debug and
+  ASan/UBSan; ran four Release pool workloads for five repetitions.
+- Ran 33 Release non-renderer workloads across five executables for five
+  repetitions without reported workload errors.
+- Added focused format/compiler, renderer ownership/native smoke, hosted-context,
+  texture sampling, map serialization, editor interaction, and rollback evidence.
+- The authoritative commands, counts, timing context, and limitations live in
+  CHANGELOG.md and the linked validation documents.
+
+Known limitations
+- The production CypherEngine Host does not yet own the working renderer draw
+  path or an executable World loop.
+- Renderer native work targets desktop OpenGL 4.1, one singleton surface,
+  triangle lists, one uniform block, and one optional sampler2D.
+- Shader variants, independent samplers, compressed/advanced texture cooking,
+  generalized material binding, .cysurface, and hot reload remain gated.
+- .cymap is an editor source format; .cymap_c, runtime World loading, general
+  meshes/entities, visibility, navigation, physics, and world streaming remain
+  future work.
+- Current checked-in render recipes use source schema V1; V2 end-to-end behavior
+  is principally covered by focused compiler fixtures.
 
 [0.1.0] - 2026-07-04
 --------------------
