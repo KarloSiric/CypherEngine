@@ -108,7 +108,7 @@ struct resource_manager_stats_t {
     common::u32 cResourceCapacity{ 0u };         // Configured record capacity.
     common::u32 cTypeCapacity{ 0u };             // Configured loader capacity.
     common::u32 cRegisteredTypes{ 0u };          // Loader registrations currently live.
-    common::u32 cLiveResources{ 0u };            // Records currently outside the free list.
+    common::u32 cLiveResources{ 0u };            // Successfully published resources; excludes in-progress/failed loads.
     common::u32 cPeakLiveResources{ 0u };        // High-water mark since initialization.
     common::u64 cLoadAttempts{ 0u };             // Calls that entered a loader callback.
     common::u64 cSuccessfulLoads{ 0u };           // Payloads successfully published.
