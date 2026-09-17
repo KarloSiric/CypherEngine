@@ -1,0 +1,55 @@
+<RCC>
+    <qresource prefix="/cypher/tile-editor/icons">
+        <file alias="material-library.svg">Resources/Icons/material-library.svg</file>
+        <file alias="validate-map.svg">Resources/Icons/validate-map.svg</file>
+        <file alias="build-map.svg">Resources/Icons/build-map.svg</file>
+        <file alias="run-map.svg">Resources/Icons/run-map.svg</file>
+        <file alias="stop-map.svg">Resources/Icons/stop-map.svg</file>
+        <file alias="editor-select.svg">Resources/Icons/editor-select.svg</file>
+
+        <file alias="panel-right.svg">Resources/Icons/panel-right.svg</file>
+        <file alias="panel-left.svg">Resources/Icons/panel-left.svg</file>
+        <file alias="object-tree.svg">Resources/Icons/object-tree.svg</file>
+
+        <file alias="file-plus.svg">Resources/Icons/tabler/file-plus.svg</file>
+        <file alias="folder-open.svg">Resources/Icons/tabler/folder-open.svg</file>
+        <file alias="device-floppy.svg">Resources/Icons/tabler/device-floppy.svg</file>
+        <file alias="arrow-back-up.svg">Resources/Icons/tabler/arrow-back-up.svg</file>
+        <file alias="arrow-forward-up.svg">Resources/Icons/tabler/arrow-forward-up.svg</file>
+        <file alias="pointer.svg">Resources/Icons/tabler/pointer.svg</file>
+        <file alias="brush.svg">Resources/Icons/tabler/brush.svg</file>
+        <file alias="eraser.svg">Resources/Icons/tabler/eraser.svg</file>
+        <file alias="rectangle.svg">Resources/Icons/tabler/rectangle.svg</file>
+        <file alias="rubber-stamp.svg">Resources/Icons/tabler/rubber-stamp.svg</file>
+        <file alias="map-pin-plus.svg">Resources/Icons/tabler/map-pin-plus.svg</file>
+        <file alias="door.svg">Resources/Icons/tabler/door.svg</file>
+        <file alias="texture.svg">Resources/Icons/tabler/texture.svg</file>
+        <file alias="grid-3x3.svg">Resources/Icons/tabler/grid-3x3.svg</file>
+        <file alias="checklist.svg">Resources/Icons/tabler/checklist.svg</file>
+        <file alias="cube.svg">Resources/Icons/tabler/cube.svg</file>
+        <file alias="perspective.svg">Resources/Icons/tabler/perspective.svg</file>
+        <file alias="focus-centered.svg">Resources/Icons/tabler/focus-centered.svg</file>
+        <file alias="adjustments-horizontal.svg">Resources/Icons/tabler/adjustments-horizontal.svg</file>
+        <file alias="search.svg">Resources/Icons/tabler/search.svg</file>
+        <file alias="terminal-2.svg">Resources/Icons/tabler/terminal-2.svg</file>
+        <file alias="hand-move.svg">Resources/Icons/tabler/hand-move.svg</file>
+        <file alias="color-picker.svg">Resources/Icons/tabler/color-picker.svg</file>
+        <file alias="line.svg">Resources/Icons/tabler/line.svg</file>
+        <file alias="bucket.svg">Resources/Icons/tabler/bucket.svg</file>
+        <file alias="layout-grid.svg">Resources/Icons/tabler/layout-grid.svg</file>
+        <file alias="player-play.svg">Resources/Icons/tabler/player-play.svg</file>
+        <file alias="arrows-move.svg">Resources/Icons/tabler/arrows-move.svg</file>
+        <file alias="copy.svg">Resources/Icons/tabler/copy.svg</file>
+        <file alias="trash.svg">Resources/Icons/tabler/trash.svg</file>
+        <file alias="rotate-clockwise.svg">Resources/Icons/tabler/rotate-clockwise.svg</file>
+        <file alias="arrow-up.svg">Resources/Icons/tabler/arrow-up.svg</file>
+        <file alias="arrow-down.svg">Resources/Icons/tabler/arrow-down.svg</file>
+    </qresource>
+    <qresource prefix="/cypher/tile-editor/licenses">
+        <file alias="lucide.txt">Resources/Icons/LUCIDE_LICENSE.txt</file>
+        <file alias="tabler.txt">Resources/Icons/tabler/LICENSE</file>
+    </qresource>
+    <qresource prefix="/cypher/tile-editor/theme">
+        <file alias="editor.qss">Resources/editor.qss</file>
+    </qresource>
+</RCC>
