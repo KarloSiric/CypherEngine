@@ -22,7 +22,7 @@
 #include "CypherLog.h"
 
 #include <cctype>      // std::isspace while tokenizing command lines.
-#include <cstring>     // strcmp / strncpy for fixed command strings.
+#include <cstring>     // strcmp / memcpy for fixed command strings.
 
 namespace cypher::engine::cmd
 {
@@ -45,7 +45,7 @@ cmd_error_t Cmd_Init( ) {
     s_CmdRegistry.nCmdCount = 0;
     s_CmdRegistry.initialized = true;
 
-    LOG_INFO( log::channel_t::CMD, "command system initialized." );
+    LOG_DEBUG( log::channel_t::CMD, "command registry ready." );
 
     return cmd_error_t::OK;
 }
@@ -68,6 +68,40 @@ void Cmd_Shutdown() {
     s_CmdRegistry.initialized = false;
 
     return ;
+}
+
+/*
+================
+Cmd_IsInitialized
+================
+*/
+bool Cmd_IsInitialized()
+{
+    return s_CmdRegistry.initialized;
+}
+
+/*
+================
+Cmd_Count
+================
+*/
+common::u32 Cmd_Count()
+{
+    return s_CmdRegistry.initialized ? s_CmdRegistry.nCmdCount : 0u;
+}
+
+/*
+================
+Cmd_GetByIndex
+================
+*/
+const cmd_t *Cmd_GetByIndex( const common::u32 index )
+{
+    if ( !s_CmdRegistry.initialized || index >= s_CmdRegistry.nCmdCount ) {
+        return nullptr;
+    }
+
+    return &s_CmdRegistry.cmdCommands[index];
 }
 
 /*
@@ -153,12 +187,14 @@ Splits a mutable command line into argv-style tokens.
 ================
 */
 cmd_error_t Cmd_Parse( char *nCommandLine, common::u32 &argc, char **argv ) {
-
+    argc = 0u;
     if ( nCommandLine == nullptr || nCommandLine[0] == '\0' ) {
         LOG_ERROR( log::channel_t::CMD, "command parse failed: invalid command line." );
         return cmd_error_t::ERR_INVALID_COMMAND;
     }
-    argc = 0;
+    if ( argv == nullptr ) {
+        return cmd_error_t::ERR_PARSE_FAILED;
+    }
     char *pCursorPtr = nCommandLine;
     while ( *pCursorPtr != '\0' ) {
         while ( *pCursorPtr != '\0' && std::isspace( static_cast<unsigned char>( *pCursorPtr ) ) ) {
@@ -168,6 +204,7 @@ cmd_error_t Cmd_Parse( char *nCommandLine, common::u32 &argc, char **argv ) {
             break;
         }
         if ( argc >= CYPHER_COMMAND_MAX_ARGUMENTS ) {
+            argc = 0u;
             return cmd_error_t::ERR_PARSE_FAILED;
         }
         argv[argc++] = pCursorPtr;
@@ -204,8 +241,16 @@ cmd_error_t Cmd_Execute( const char *nCommandLine ) {
     }
     common::u32 nCmdArgc{};
     char *ppszCmdArgv[CYPHER_COMMAND_MAX_ARGUMENTS]{};
-    char buffer[1024]{};
-    strncpy( buffer, nCommandLine, sizeof( buffer ) - 1 );
+    char buffer[CYPHER_COMMAND_MAX_LINE_LENGTH]{};
+    common::usize length = 0u;
+    while ( length < sizeof( buffer ) && nCommandLine[length] != '\0' ) {
+        ++length;
+    }
+    if ( length == sizeof( buffer ) ) {
+        LOG_ERROR( log::channel_t::CMD, "command execute failed: input exceeds command storage." );
+        return cmd_error_t::ERR_PARSE_FAILED;
+    }
+    std::memcpy( buffer, nCommandLine, length + 1u );
     cmd_error_t err = Cmd_Parse( buffer, nCmdArgc, ppszCmdArgv );
     if ( err != cmd_error_t::OK ) {
         COM_ERRORF( Cmd_ErrorCode( err ), "Cmd_Execute: Cmd_Parse: invalid parsing command line." );
