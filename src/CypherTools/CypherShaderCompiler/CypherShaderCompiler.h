@@ -28,7 +28,7 @@ namespace cypher::tools
 {
 
 inline constexpr cypher::common::u32 CY_SHADER_COMPILER_API_VERSION = 1u;
-inline constexpr cypher::common::u32 CY_SHADER_COMPILER_VERSION = 2u;
+inline constexpr cypher::common::u32 CY_SHADER_COMPILER_VERSION = 5u;
 
 enum shader_compiler_diagnostic_code_t :
     cypher::common::tool_diagnostic_code_t {
@@ -46,7 +46,11 @@ enum shader_compiler_diagnostic_code_t :
     CY_SHADER_DIAGNOSTIC_TOOLCHAIN_FAILED,
     CY_SHADER_DIAGNOSTIC_INCLUDE_FAILED,
     CY_SHADER_DIAGNOSTIC_UNSUPPORTED_GLSL_PROFILE,
-    CY_SHADER_DIAGNOSTIC_GLSL_PROFILE_MISMATCH
+    CY_SHADER_DIAGNOSTIC_GLSL_PROFILE_MISMATCH,
+    CY_SHADER_DIAGNOSTIC_UNSUPPORTED_ENTRY_POINT,
+    CY_SHADER_DIAGNOSTIC_UNSUPPORTED_FEATURES,
+    CY_SHADER_DIAGNOSTIC_INTERFACE_FAILED,
+    CY_SHADER_DIAGNOSTIC_UNSUPPORTED_SAMPLERS
 };
 
 // Returns the process-lifetime descriptor registered by CypherResourceCompiler.
