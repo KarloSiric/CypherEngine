@@ -20,8 +20,9 @@
 ================
 Thread Implementation Notes
 
-Thread-local memory state borrows backing storage from the memory system and must be released
-before thread exit. Cross-thread frees follow the owning allocator's synchronization policy.
+Binding checks, allocator calls, and last-error publication share one critical
+section. The mutex protects wrapper operations, not the lifetime of borrowed
+backing storage or the caller's use of returned payloads.
 ================
 */
 
@@ -56,6 +57,7 @@ void Mem_MutexUnlock( memory_mutex_t &mutex )
 
 mem_error_t Mem_ThreadSafeArenaBind( thread_safe_arena_t &threadSafeArena, arena_t &arena )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeArena.mutex.nativeMutex );
     // Binding transfers no ownership; the arena must outlive the wrapper and all users.
     if ( threadSafeArena.initialized ) {
         threadSafeArena.lastError = mem_error_t::ERR_ALREADY_INITIALIZED;
@@ -77,11 +79,10 @@ mem_error_t Mem_ThreadSafeArenaBind( thread_safe_arena_t &threadSafeArena, arena
 void Mem_ThreadSafeArenaUnbind( thread_safe_arena_t &threadSafeArena )
 {
     // Serialize publication of the unbound state with in-flight wrapper operations.
-    Mem_MutexLock( threadSafeArena.mutex );
+    const std::lock_guard<std::mutex> lock( threadSafeArena.mutex.nativeMutex );
     threadSafeArena.arena = nullptr;
     threadSafeArena.lastError = mem_error_t::OK;
     threadSafeArena.initialized = false;
-    Mem_MutexUnlock( threadSafeArena.mutex );
 }
 
 void *Mem_ThreadSafeArenaAlloc( thread_safe_arena_t &threadSafeArena,
@@ -98,16 +99,15 @@ void *Mem_ThreadSafeArenaAllocDebug( thread_safe_arena_t &threadSafeArena,
                                               const char *function,
                                               common::i32 line )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeArena.mutex.nativeMutex );
     if ( !threadSafeArena.initialized || threadSafeArena.arena == nullptr ) {
         threadSafeArena.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         return Mem_ThreadSafeAllocFail( nullptr, threadSafeArena.lastError, "arena wrapper is not initialized" );
     }
 
     // Keep the allocator mutation and last-error snapshot in one critical section.
-    Mem_MutexLock( threadSafeArena.mutex );
     void *memory = Mem_ArenaAllocDebug( *threadSafeArena.arena, size, alignment, file, function, line );
     threadSafeArena.lastError = Mem_ArenaLastError( *threadSafeArena.arena );
-    Mem_MutexUnlock( threadSafeArena.mutex );
 
     return memory;
 }
@@ -126,34 +126,33 @@ void *Mem_ThreadSafeArenaAllocZeroDebug( thread_safe_arena_t &threadSafeArena,
                                                   const char *function,
                                                   common::i32 line )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeArena.mutex.nativeMutex );
     if ( !threadSafeArena.initialized || threadSafeArena.arena == nullptr ) {
         threadSafeArena.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         return Mem_ThreadSafeAllocFail( nullptr, threadSafeArena.lastError, "arena wrapper is not initialized" );
     }
 
-    Mem_MutexLock( threadSafeArena.mutex );
     void *memory = Mem_ArenaAllocZeroDebug( *threadSafeArena.arena, size, alignment, file, function, line );
     threadSafeArena.lastError = Mem_ArenaLastError( *threadSafeArena.arena );
-    Mem_MutexUnlock( threadSafeArena.mutex );
 
     return memory;
 }
 
 void Mem_ThreadSafeArenaReset( thread_safe_arena_t &threadSafeArena )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeArena.mutex.nativeMutex );
     if ( !threadSafeArena.initialized || threadSafeArena.arena == nullptr ) {
         threadSafeArena.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         return;
     }
 
-    Mem_MutexLock( threadSafeArena.mutex );
     Mem_ArenaReset( *threadSafeArena.arena );
     threadSafeArena.lastError = Mem_ArenaLastError( *threadSafeArena.arena );
-    Mem_MutexUnlock( threadSafeArena.mutex );
 }
 
 arena_stats_t Mem_ThreadSafeArenaStats( thread_safe_arena_t &threadSafeArena )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeArena.mutex.nativeMutex );
     arena_stats_t stats{};
 
     if ( !threadSafeArena.initialized || threadSafeArena.arena == nullptr ) {
@@ -161,21 +160,21 @@ arena_stats_t Mem_ThreadSafeArenaStats( thread_safe_arena_t &threadSafeArena )
         return stats;
     }
 
-    Mem_MutexLock( threadSafeArena.mutex );
     stats = Mem_ArenaStats( *threadSafeArena.arena );
     threadSafeArena.lastError = Mem_ArenaLastError( *threadSafeArena.arena );
-    Mem_MutexUnlock( threadSafeArena.mutex );
 
     return stats;
 }
 
 mem_error_t Mem_ThreadSafeArenaLastError( const thread_safe_arena_t &threadSafeArena )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeArena.mutex.nativeMutex );
     return threadSafeArena.lastError;
 }
 
 mem_error_t Mem_ThreadSafePoolBind( thread_safe_pool_t &threadSafePool, pool_t &pool )
 {
+    const std::lock_guard<std::mutex> lock( threadSafePool.mutex.nativeMutex );
     // The wrapper serializes access but does not extend the pool's lifetime.
     if ( threadSafePool.initialized ) {
         threadSafePool.lastError = mem_error_t::ERR_ALREADY_INITIALIZED;
@@ -197,11 +196,10 @@ mem_error_t Mem_ThreadSafePoolBind( thread_safe_pool_t &threadSafePool, pool_t &
 void Mem_ThreadSafePoolUnbind( thread_safe_pool_t &threadSafePool )
 {
     // Pool free-list and bitmap state must change under the same lock.
-    Mem_MutexLock( threadSafePool.mutex );
+    const std::lock_guard<std::mutex> lock( threadSafePool.mutex.nativeMutex );
     threadSafePool.pool = nullptr;
     threadSafePool.lastError = mem_error_t::OK;
     threadSafePool.initialized = false;
-    Mem_MutexUnlock( threadSafePool.mutex );
 }
 
 void *Mem_ThreadSafePoolAlloc( thread_safe_pool_t &threadSafePool )
@@ -214,15 +212,14 @@ void *Mem_ThreadSafePoolAllocDebug( thread_safe_pool_t &threadSafePool,
                                              const char *function,
                                              common::i32 line )
 {
+    const std::lock_guard<std::mutex> lock( threadSafePool.mutex.nativeMutex );
     if ( !threadSafePool.initialized || threadSafePool.pool == nullptr ) {
         threadSafePool.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         return Mem_ThreadSafeAllocFail( nullptr, threadSafePool.lastError, "pool wrapper is not initialized" );
     }
 
-    Mem_MutexLock( threadSafePool.mutex );
     void *memory = Mem_PoolAllocDebug( *threadSafePool.pool, file, function, line );
     threadSafePool.lastError = Mem_PoolLastError( *threadSafePool.pool );
-    Mem_MutexUnlock( threadSafePool.mutex );
 
     return memory;
 }
@@ -237,15 +234,14 @@ void *Mem_ThreadSafePoolAllocZeroDebug( thread_safe_pool_t &threadSafePool,
                                                  const char *function,
                                                  common::i32 line )
 {
+    const std::lock_guard<std::mutex> lock( threadSafePool.mutex.nativeMutex );
     if ( !threadSafePool.initialized || threadSafePool.pool == nullptr ) {
         threadSafePool.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         return Mem_ThreadSafeAllocFail( nullptr, threadSafePool.lastError, "pool wrapper is not initialized" );
     }
 
-    Mem_MutexLock( threadSafePool.mutex );
     void *memory = Mem_PoolAllocZeroDebug( *threadSafePool.pool, file, function, line );
     threadSafePool.lastError = Mem_PoolLastError( *threadSafePool.pool );
-    Mem_MutexUnlock( threadSafePool.mutex );
 
     return memory;
 }
@@ -261,33 +257,32 @@ mem_error_t Mem_ThreadSafePoolFreeDebug( thread_safe_pool_t &threadSafePool,
                                                    const char *function,
                                                    common::i32 line )
 {
+    const std::lock_guard<std::mutex> lock( threadSafePool.mutex.nativeMutex );
     if ( !threadSafePool.initialized || threadSafePool.pool == nullptr ) {
         threadSafePool.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         return threadSafePool.lastError;
     }
 
-    Mem_MutexLock( threadSafePool.mutex );
     threadSafePool.lastError = Mem_PoolFreeDebug( *threadSafePool.pool, ptr, file, function, line );
-    Mem_MutexUnlock( threadSafePool.mutex );
 
     return threadSafePool.lastError;
 }
 
 void Mem_ThreadSafePoolReset( thread_safe_pool_t &threadSafePool )
 {
+    const std::lock_guard<std::mutex> lock( threadSafePool.mutex.nativeMutex );
     if ( !threadSafePool.initialized || threadSafePool.pool == nullptr ) {
         threadSafePool.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         return;
     }
 
-    Mem_MutexLock( threadSafePool.mutex );
     Mem_PoolReset( *threadSafePool.pool );
     threadSafePool.lastError = Mem_PoolLastError( *threadSafePool.pool );
-    Mem_MutexUnlock( threadSafePool.mutex );
 }
 
 pool_stats_t Mem_ThreadSafePoolStats( thread_safe_pool_t &threadSafePool )
 {
+    const std::lock_guard<std::mutex> lock( threadSafePool.mutex.nativeMutex );
     pool_stats_t stats{};
 
     if ( !threadSafePool.initialized || threadSafePool.pool == nullptr ) {
@@ -295,21 +290,21 @@ pool_stats_t Mem_ThreadSafePoolStats( thread_safe_pool_t &threadSafePool )
         return stats;
     }
 
-    Mem_MutexLock( threadSafePool.mutex );
     stats = Mem_PoolStats( *threadSafePool.pool );
     threadSafePool.lastError = Mem_PoolLastError( *threadSafePool.pool );
-    Mem_MutexUnlock( threadSafePool.mutex );
 
     return stats;
 }
 
 mem_error_t Mem_ThreadSafePoolLastError( const thread_safe_pool_t &threadSafePool )
 {
+    const std::lock_guard<std::mutex> lock( threadSafePool.mutex.nativeMutex );
     return threadSafePool.lastError;
 }
 
 mem_error_t Mem_ThreadSafeBucketBind( thread_safe_bucket_t &threadSafeBucket, bucket_t &bucket )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeBucket.mutex.nativeMutex );
     // All class pools are protected as one bucket ownership domain.
     if ( threadSafeBucket.initialized ) {
         threadSafeBucket.lastError = mem_error_t::ERR_ALREADY_INITIALIZED;
@@ -331,11 +326,10 @@ mem_error_t Mem_ThreadSafeBucketBind( thread_safe_bucket_t &threadSafeBucket, bu
 void Mem_ThreadSafeBucketUnbind( thread_safe_bucket_t &threadSafeBucket )
 {
     // Class selection and the selected pool allocation are one atomic wrapper operation.
-    Mem_MutexLock( threadSafeBucket.mutex );
+    const std::lock_guard<std::mutex> lock( threadSafeBucket.mutex.nativeMutex );
     threadSafeBucket.bucket = nullptr;
     threadSafeBucket.lastError = mem_error_t::OK;
     threadSafeBucket.initialized = false;
-    Mem_MutexUnlock( threadSafeBucket.mutex );
 }
 
 void *Mem_ThreadSafeBucketAlloc( thread_safe_bucket_t &threadSafeBucket,
@@ -352,15 +346,14 @@ void *Mem_ThreadSafeBucketAllocDebug( thread_safe_bucket_t &threadSafeBucket,
                                                const char *function,
                                                common::i32 line )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeBucket.mutex.nativeMutex );
     if ( !threadSafeBucket.initialized || threadSafeBucket.bucket == nullptr ) {
         threadSafeBucket.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         return Mem_ThreadSafeAllocFail( nullptr, threadSafeBucket.lastError, "bucket wrapper is not initialized" );
     }
 
-    Mem_MutexLock( threadSafeBucket.mutex );
     void *memory = Mem_BucketAllocDebug( *threadSafeBucket.bucket, size, alignment, file, function, line );
     threadSafeBucket.lastError = Mem_BucketLastError( *threadSafeBucket.bucket );
-    Mem_MutexUnlock( threadSafeBucket.mutex );
 
     return memory;
 }
@@ -379,15 +372,14 @@ void *Mem_ThreadSafeBucketAllocZeroDebug( thread_safe_bucket_t &threadSafeBucket
                                                    const char *function,
                                                    common::i32 line )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeBucket.mutex.nativeMutex );
     if ( !threadSafeBucket.initialized || threadSafeBucket.bucket == nullptr ) {
         threadSafeBucket.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         return Mem_ThreadSafeAllocFail( nullptr, threadSafeBucket.lastError, "bucket wrapper is not initialized" );
     }
 
-    Mem_MutexLock( threadSafeBucket.mutex );
     void *memory = Mem_BucketAllocZeroDebug( *threadSafeBucket.bucket, size, alignment, file, function, line );
     threadSafeBucket.lastError = Mem_BucketLastError( *threadSafeBucket.bucket );
-    Mem_MutexUnlock( threadSafeBucket.mutex );
 
     return memory;
 }
@@ -403,33 +395,32 @@ mem_error_t Mem_ThreadSafeBucketFreeDebug( thread_safe_bucket_t &threadSafeBucke
                                                      const char *function,
                                                      common::i32 line )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeBucket.mutex.nativeMutex );
     if ( !threadSafeBucket.initialized || threadSafeBucket.bucket == nullptr ) {
         threadSafeBucket.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         return threadSafeBucket.lastError;
     }
 
-    Mem_MutexLock( threadSafeBucket.mutex );
     threadSafeBucket.lastError = Mem_BucketFreeDebug( *threadSafeBucket.bucket, ptr, file, function, line );
-    Mem_MutexUnlock( threadSafeBucket.mutex );
 
     return threadSafeBucket.lastError;
 }
 
 void Mem_ThreadSafeBucketReset( thread_safe_bucket_t &threadSafeBucket )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeBucket.mutex.nativeMutex );
     if ( !threadSafeBucket.initialized || threadSafeBucket.bucket == nullptr ) {
         threadSafeBucket.lastError = mem_error_t::ERR_NOT_INITIALIZED;
         return;
     }
 
-    Mem_MutexLock( threadSafeBucket.mutex );
     Mem_BucketReset( *threadSafeBucket.bucket );
     threadSafeBucket.lastError = Mem_BucketLastError( *threadSafeBucket.bucket );
-    Mem_MutexUnlock( threadSafeBucket.mutex );
 }
 
 bucket_stats_t Mem_ThreadSafeBucketStats( thread_safe_bucket_t &threadSafeBucket )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeBucket.mutex.nativeMutex );
     bucket_stats_t stats{};
 
     if ( !threadSafeBucket.initialized || threadSafeBucket.bucket == nullptr ) {
@@ -437,16 +428,15 @@ bucket_stats_t Mem_ThreadSafeBucketStats( thread_safe_bucket_t &threadSafeBucket
         return stats;
     }
 
-    Mem_MutexLock( threadSafeBucket.mutex );
     stats = Mem_BucketStats( *threadSafeBucket.bucket );
     threadSafeBucket.lastError = Mem_BucketLastError( *threadSafeBucket.bucket );
-    Mem_MutexUnlock( threadSafeBucket.mutex );
 
     return stats;
 }
 
 mem_error_t Mem_ThreadSafeBucketLastError( const thread_safe_bucket_t &threadSafeBucket )
 {
+    const std::lock_guard<std::mutex> lock( threadSafeBucket.mutex.nativeMutex );
     return threadSafeBucket.lastError;
 }
 
