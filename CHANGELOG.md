@@ -227,6 +227,41 @@ paths from fields and formats that are deliberately reserved for later work.
   region, workspace, settings, console, shell, hosted-renderer, and live-preview
   test coverage.
 
+#### Editor systems and TrenchBroom research
+
+- Added a pinned source-level TrenchBroom editor-systems manual covering the
+  document model, commands, tool gestures, picking, selection, snapping,
+  transforms, geometry, materials and UVs, entities, groups, linked instances,
+  layers, visibility, history, persistence, recovery, validation, assets,
+  compilation, rendering caches, large-map behavior, and testing obligations.
+- Added an exhaustive geometry companion covering 99 implementation and test
+  files with 310 checked immutable source references. It records convex
+  half-edge topology, plane/hull construction, clipping and numerical healing,
+  intersection and SAT, snapping, every audited geometry edit and CSG operation,
+  primitive/sweep/patch construction, UV projection and locking, failure
+  semantics, complexity, and an independent Cypher verification plan.
+- Added an exhaustive UI and command companion covering 517 relevant files and
+  84,368 indexed lines with 454 checked file/line references. It records the
+  exact menu hierarchy, toolbars, panels, inspectors, preferences, dialogs,
+  local menus, status surfaces, 20 validator categories, compilation workflow,
+  67 pointer/UV gestures, and all 179 static user-facing commands with default
+  bindings and pinned source locations. Context, state, and execution behavior
+  are described analytically without bulk-copying internal source expressions.
+- Added a 53-source comparison with Hammer/Source 2 and Dota's tile editor,
+  GtkRadiant/Q3Radiant, J.A.C.K., Blender, and Unity ProBuilder. It identifies
+  semantic tile rules, reference-safe prefabs, controlled topology editing,
+  terrain/blend data, paths, decal projectors, region builds, and navigable
+  diagnostics that materially extend the TrenchBroom-centered baseline.
+- Added separate staged implementation programs for CypherTileEditor and Mason,
+  a current capability matrix, production acceptance gates, performance and
+  fuzzing plans, and explicit contracts for ECS, collision/physics, triggers,
+  audio, particles, lights, visibility, navigation/pathfinding, resources,
+  cooking, frame ownership, and map unload.
+- Recorded that the audit is source-derived, non-clean-room research of a
+  `GPL-3.0-or-later` project. The stated engineering boundary requires original
+  Cypher implementation, APIs, layouts, names, and fixtures, preserves upstream
+  provenance, and leaves distribution/licensing conclusions to legal review.
+
 #### Runtime foundations, startup, build, assets, and documentation
 
 - Added dedicated Command, CVar, Config, Memory pool/arena/scratch/thread/runtime,

@@ -45,6 +45,11 @@ This document is authoritative for the map pipeline. More general engine build
 order remains in `master_plan.md`, `development_phases.md`, and
 `toolchain_plan.md`.
 
+The pinned source-level editor research, complete geometry algorithm audit,
+command/UI inventory, comparison with other editors, and staged TileEditor and
+Mason implementation gates live in
+[trenchbroom_editor_systems_research.md](trenchbroom_editor_systems_research.md).
+
 ## Core Decision
 
 CypherEngine will use a source-and-cooked content pipeline:

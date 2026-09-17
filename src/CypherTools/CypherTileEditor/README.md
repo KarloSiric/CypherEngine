@@ -19,6 +19,10 @@ The authored map remains the source of truth. Generated geometry is derived data
 
 CypherRender does not parse editor documents. This boundary allows the editor and runtime renderer to evolve independently while both consume the same explicit map build result.
 
+The source-level editor study and implementation program for extending this tool
+without turning its cell document into Mason's future scene graph are documented
+in [TrenchBroom Editor Systems Research](../../../docs/trenchbroom_editor_systems_research.md).
+
 ## Build and run
 
 The development build requires Qt 6.5 or newer with the Core, Gui, Widgets,

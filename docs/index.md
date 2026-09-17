@@ -42,12 +42,13 @@ Read these in order when resuming work:
 14. [tool_suite.md](tool_suite.md)
 15. [source2_tooling_reference.md](source2_tooling_reference.md)
 16. [map_authoring_and_mason.md](map_authoring_and_mason.md)
-17. [picasso_v1_design.md](picasso_v1_design.md)
-18. [formats/CYKV.md](formats/CYKV.md)
-19. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
-20. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
-21. [reference_engine_lessons.md](reference_engine_lessons.md)
-22. [security_model.md](security_model.md)
+17. [trenchbroom_editor_systems_research.md](trenchbroom_editor_systems_research.md)
+18. [picasso_v1_design.md](picasso_v1_design.md)
+19. [formats/CYKV.md](formats/CYKV.md)
+20. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
+21. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
+22. [reference_engine_lessons.md](reference_engine_lessons.md)
+23. [security_model.md](security_model.md)
 
 API docs:
 
@@ -62,6 +63,10 @@ Reference docs:
 - [coding_style.md](coding_style.md)
 - [reference_policy.md](reference_policy.md)
 - [reference_engine_lessons.md](reference_engine_lessons.md)
+- [trenchbroom_editor_systems_research.md](trenchbroom_editor_systems_research.md)
+- [trenchbroom_geometry_algorithms.md](trenchbroom_geometry_algorithms.md)
+- [trenchbroom_ui_command_inventory.md](trenchbroom_ui_command_inventory.md)
+- [editor_comparison_beyond_trenchbroom.md](editor_comparison_beyond_trenchbroom.md)
 
 Project memory:
 
@@ -141,6 +146,28 @@ Project memory:
   - `.cymap`, `CypherMapCompiler`, and `.cymap_c` architecture
   - hybrid brush, mesh, BSP, visibility, and world-compilation policy
   - Mason workspaces, editing model, validation, testing, and build order
+- `trenchbroom_editor_systems_research`
+  - pinned source-level study of TrenchBroom's map-editing architecture,
+    documented authoring surface, and implementation behavior
+  - TileEditor and Mason capability mapping, staged implementation programs,
+    subsystem contracts, build workflow, robustness requirements, and gates
+  - explicit non-clean-room provenance and engineering boundary for studying
+    `GPL-3.0-or-later` reference code; distribution still requires legal review
+- `trenchbroom_geometry_algorithms`
+  - exhaustive convex-solid, clipping, CSG, transform, topology-editing, shape,
+    patch, UV, picking, snapping, transaction, and geometry-test audit
+  - pinned implementation/test references plus an original Cypher architecture
+    and verification plan
+- `trenchbroom_ui_command_inventory`
+  - exact menu, toolbar, panel, inspector, preference, dialog, context-menu,
+    status, validation, compilation, and launch inventory
+  - all 179 static user-facing commands with default bindings and pinned source
+    references, plus contextual behavior and all audited pointer/UV gestures
+- `editor_comparison_beyond_trenchbroom`
+  - primary-source comparison with Hammer/Source 2, Dota's tile editor,
+    GtkRadiant/Q3Radiant, J.A.C.K., Blender, and Unity ProBuilder
+  - semantic tile, prefab, mesh, terrain, path, projector, build-diagnostic,
+    collaboration, adoption, and deferral lessons for TileEditor and Mason
 - `picasso_v1_design`
   - approved Qt 6 Texture and Material workspace composition
   - Hammer-influenced dark visual language and semantic accent roles
