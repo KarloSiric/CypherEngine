@@ -40,6 +40,9 @@ namespace pak = ::cypher::engine;
 
 namespace {
 
+constexpr int FS_LOG_VIRTUAL_ROOT_LIMIT = 128;
+constexpr int FS_LOG_PHYSICAL_ROOT_LIMIT = 512;
+
 fs_error_t PakErrorToFs( const pak::pak_error_t error )
 {
     // Keep package details behind the filesystem boundary.  Callers should not need
@@ -253,7 +256,17 @@ fs_error_t FS_MountDirectoryWithHandle(
     }
     nOutHandle = mount.handle;
 
-    LOG_INFO( log::channel_t::FS, "mounted '%s' -> '%s' handle=%u flags=0x%x priority=%u.", szNormalizedVirtualRoot[0] ? szNormalizedVirtualRoot : "<root>", szPhysicalPath, mount.handle, flags, priority );
+    LOG_DEBUG(
+        log::channel_t::FS,
+        "mount ready: type=directory, virtual_root='%.*s', virtual_root_truncated=%s, physical_root='%.*s', physical_root_truncated=%s, access=read_only, optional=%s, priority=%u.",
+        FS_LOG_VIRTUAL_ROOT_LIMIT,
+        szNormalizedVirtualRoot[0] ? szNormalizedVirtualRoot : "<root>",
+        nVirtualRootLength > static_cast<common::u32>( FS_LOG_VIRTUAL_ROOT_LIMIT ) ? "true" : "false",
+        FS_LOG_PHYSICAL_ROOT_LIMIT,
+        szPhysicalPath,
+        nPhysicalPathLength > static_cast<common::u32>( FS_LOG_PHYSICAL_ROOT_LIMIT ) ? "true" : "false",
+        ( flags & CYPHER_FILESYSTEM_MOUNT_OPTIONAL ) != 0u ? "true" : "false",
+        priority );
     return fs_error_t::OK;
 }
 
