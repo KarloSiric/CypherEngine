@@ -143,7 +143,8 @@ enum class arena_backing_t : common::u8 {
 ================
 Arena Description
 
-Creation request for an arena that owns its backing memory.
+Creation request for an arena. Heap and virtual backing are owned; external
+buffers remain caller-owned and must outlive the arena.
 ================
 */
 struct arena_desc_t {
@@ -265,6 +266,7 @@ void Mem_ArenaShutdown( arena_t &arena );
 
 arena_stats_t Mem_ArenaStats( const arena_t &arena );
 
+// Begin a fresh statistics/trace window without invalidating live allocations.
 void Mem_ArenaResetCounters( arena_t &arena );
 
 void Mem_ArenaReset( arena_t &arena );
