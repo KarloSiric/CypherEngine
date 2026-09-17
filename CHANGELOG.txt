@@ -24,6 +24,19 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Added the first CypherEngine Reference Manual covering architecture, ownership,
+  build/VFS behavior, format versions and fields, limits, compilers, runtime
+  support, diagnostics, determinism, security, migration, checklists, and glossary.
+- Added a researched CYKV 2 proposal for bounded includes, base composition,
+  typed constants, explicit build conditionals, stronger numeric intent,
+  schema-gated NaN/infinity, provenance, hashing, and binary identity while
+  keeping CYKV 1 frozen.
+- Added the proposed .cyinput -> .cyinput_c/CYIN and writable .cybindings family
+  for typed actions, contexts, keyboard/mouse/gamepad schemes, conflicts,
+  accessibility, user overrides, focus recovery, and deterministic runtime data.
+- Expanded the format catalog with missing gameplay-data, localization, caption,
+  animation-graph, audio, post-processing, replay, save, mod, plug-in, and
+  tool-local families, and corrected the cypak V10 reproducibility claim.
 - Added CYKV V2 source schemas and typed decoders for shader, texture, and
   material recipes while retaining exact V1 dispatch.
 - Added semantic canonical CYKV hashing so comments, whitespace, member order,
