@@ -5,8 +5,8 @@
 //
 //  File: benchmarks/CypherCommon/Formats/CypherCommon_CookedMaterial_Bench.cpp
 //  Purpose: Benchmarks cooked material serialization, validation, and lookup.
-//  Details: Measures canonical CYMT writes, strict borrowed-view reads, and
-//           binary parameter lookup over representative material sizes.
+//  Details: Measures CYMT V2 state/interface packaging, strict borrowed-view
+//           reads, and name/ID parameter lookup over representative materials.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-13
@@ -38,11 +38,20 @@ struct material_fixture_t {
     std::vector<std::string> textureNames{};
     std::vector<std::string> texturePaths{};
     std::vector<std::string> parameterNames{};
-    std::vector<cooked_material_texture_source_t> textures{};
-    std::vector<cooked_material_parameter_source_t> parameters{};
-    cooked_material_source_t material{};
+    std::vector<cooked_material_texture_source_v2_t> textures{};
+    std::vector<cooked_material_parameter_source_v2_t> parameters{};
+    cooked_material_feature_source_v2_t features[2]{};
+    cooked_material_source_v2_t material{};
     std::vector<byte> file{};
 };
+
+u64 BindingId( string_view_t name ) noexcept
+{
+    u64 value = 0u;
+    return CookedShader_MakeLogicalBindingId( name, &value )
+        ? value
+        : 0u;
+}
 
 material_fixture_t MakeMaterialFixture( usize nParameters )
 {
@@ -65,10 +74,16 @@ material_fixture_t MakeMaterialFixture( usize nParameters )
             iTexture );
         fixture.textureNames[iTexture] = name;
         fixture.texturePaths[iTexture] = path;
-        fixture.textures[iTexture] = {
-            View( fixture.textureNames[iTexture] ),
-            View( fixture.texturePaths[iTexture] )
-        };
+        cooked_material_texture_source_v2_t &texture =
+            fixture.textures[iTexture];
+        texture.binding = View( fixture.textureNames[iTexture] );
+        texture.texture = View( fixture.texturePaths[iTexture] );
+        texture.sampler = { "linear_wrap", 11u };
+        texture.nLogicalBinding = BindingId( texture.binding );
+        texture.nUvSet = static_cast<u32>( iTexture & 1u );
+        texture.uvScale[0] = 1.0 + static_cast<f64>( iTexture ) * 0.125;
+        texture.uvScale[1] = texture.uvScale[0];
+        texture.bHasSampler = CY_TRUE;
     }
 
     fixture.parameterNames.resize( nParameters );
@@ -78,21 +93,37 @@ material_fixture_t MakeMaterialFixture( usize nParameters )
         std::snprintf( name, sizeof( name ), "Parameter%02zu", iParameter );
         fixture.parameterNames[iParameter] = name;
 
-        cooked_material_parameter_source_t &parameter =
+        cooked_material_parameter_source_v2_t &parameter =
             fixture.parameters[iParameter];
         parameter.name = View( fixture.parameterNames[iParameter] );
-        parameter.type = render_material_parameter_type_t::VECTOR;
-        parameter.nComponents = 4u;
-        parameter.values[0] = static_cast<f64>( iParameter ) * 0.125;
-        parameter.values[1] = 0.25;
-        parameter.values[2] = 0.5;
-        parameter.values[3] = 1.0;
+        parameter.nLogicalBinding = BindingId( parameter.name );
+        parameter.type = render_shader_value_type_t::F32X4;
+        parameter.iByteOffset = static_cast<u32>( iParameter * 16u );
+        parameter.cbByteSize = 16u;
+        parameter.floatingValues[0] =
+            static_cast<f64>( iParameter ) * 0.125;
+        parameter.floatingValues[1] = 0.25;
+        parameter.floatingValues[2] = 0.5;
+        parameter.floatingValues[3] = 1.0;
     }
+
+    fixture.features[0].name = { "alpha_test", 10u };
+    fixture.features[0].type =
+        cooked_material_feature_value_type_t::BOOL;
+    fixture.features[0].bValue = CY_TRUE;
+    fixture.features[1].name = { "quality", 7u };
+    fixture.features[1].type =
+        cooked_material_feature_value_type_t::ENUM;
+    fixture.features[1].enumValue = { "high", 4u };
 
     fixture.material.shader = {
         "shaders/benchmark.cyshader",
         sizeof( "shaders/benchmark.cyshader" ) - 1u
     };
+    fixture.material.shaderInterfaceHash = ContentHash_String(
+        { "benchmark.shader.interface.v1",
+          sizeof( "benchmark.shader.interface.v1" ) - 1u } );
+    fixture.material.features = { fixture.features, 2u };
     fixture.material.textures = {
         fixture.textures.data(),
         fixture.textures.size()
@@ -102,9 +133,9 @@ material_fixture_t MakeMaterialFixture( usize nParameters )
         fixture.parameters.size()
     };
 
-    const usize cbFile = CookedMaterial_RequiredSize( fixture.material );
+    const usize cbFile = CookedMaterial_RequiredSizeV2( fixture.material );
     fixture.file.resize( cbFile );
-    const cooked_material_result_t written = CookedMaterial_Write(
+    const cooked_material_result_t written = CookedMaterial_WriteV2(
         fixture.material,
         {},
         { fixture.file.data(), fixture.file.size() } );
@@ -124,7 +155,7 @@ void BM_CookedMaterialWrite( benchmark::State &state )
     }
 
     for ( auto _ : state ) {
-        const cooked_material_result_t result = CookedMaterial_Write(
+        const cooked_material_result_t result = CookedMaterial_WriteV2(
             fixture.material,
             {},
             { fixture.file.data(), fixture.file.size() } );
@@ -178,8 +209,32 @@ void BM_CookedMaterialFindParameter( benchmark::State &state )
     state.SetItemsProcessed( state.iterations() );
 }
 
+void BM_CookedMaterialFindParameterById( benchmark::State &state )
+{
+    material_fixture_t fixture = MakeMaterialFixture(
+        static_cast<usize>( state.range( 0 ) ) );
+    cooked_material_view_t view{};
+    if ( fixture.file.empty() ||
+         !CookedMaterial_Succeeded( CookedMaterial_Read(
+             { fixture.file.data(), fixture.file.size() },
+             &view ) ) ) {
+        state.SkipWithError( "failed to create cooked material view" );
+        return;
+    }
+
+    const u64 nLogicalBinding =
+        view.parameters[view.nParameters - 1u].nLogicalBinding;
+    for ( auto _ : state ) {
+        const cooked_material_parameter_view_t *pParameter =
+            CookedMaterial_FindParameterById( view, nLogicalBinding );
+        benchmark::DoNotOptimize( pParameter );
+    }
+    state.SetItemsProcessed( state.iterations() );
+}
+
 } // namespace
 
 BENCHMARK( BM_CookedMaterialWrite )->Arg( 4 )->Arg( 16 )->Arg( 64 );
 BENCHMARK( BM_CookedMaterialRead )->Arg( 4 )->Arg( 16 )->Arg( 64 );
 BENCHMARK( BM_CookedMaterialFindParameter )->Arg( 4 )->Arg( 16 )->Arg( 64 );
+BENCHMARK( BM_CookedMaterialFindParameterById )->Arg( 4 )->Arg( 16 )->Arg( 64 );
