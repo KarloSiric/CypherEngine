@@ -42,6 +42,9 @@ namespace pak = ::cypher::engine;
 
 namespace {
 
+constexpr int FS_LOG_VIRTUAL_ROOT_LIMIT = 128;
+constexpr int FS_LOG_PHYSICAL_ROOT_LIMIT = 512;
+
 fs_error_t PakErrorToFs( const pak::pak_error_t error )
 {
     // Do not leak package-specific result codes through the filesystem API.
@@ -193,7 +196,17 @@ fs_error_t FS_MountPackage(
         return insertResult;
     }
 
-    LOG_INFO( log::channel_t::FS, "mounted package '%s' -> '%s' handle=%u flags=0x%x priority=%u.", szNormalizedVirtualRoot[0] ? szNormalizedVirtualRoot : "<root>", szPackagePath, mount.handle, flags, priority );
+    LOG_DEBUG(
+        log::channel_t::FS,
+        "mount ready: type=package, virtual_root='%.*s', virtual_root_truncated=%s, physical_root='%.*s', physical_root_truncated=%s, access=read_only, optional=%s, priority=%u.",
+        FS_LOG_VIRTUAL_ROOT_LIMIT,
+        szNormalizedVirtualRoot[0] ? szNormalizedVirtualRoot : "<root>",
+        std::strlen( szNormalizedVirtualRoot ) > static_cast<common::usize>( FS_LOG_VIRTUAL_ROOT_LIMIT ) ? "true" : "false",
+        FS_LOG_PHYSICAL_ROOT_LIMIT,
+        szPackagePath,
+        nPackagePathLen > static_cast<common::u32>( FS_LOG_PHYSICAL_ROOT_LIMIT ) ? "true" : "false",
+        ( flags & CYPHER_FILESYSTEM_MOUNT_OPTIONAL ) != 0u ? "true" : "false",
+        priority );
     return fs_error_t::OK;
 }
 
