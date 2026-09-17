@@ -48,6 +48,8 @@ static_assert( std::is_trivially_copyable_v<render::render_vertex_input_info_t> 
 static_assert( std::is_trivially_copyable_v<render::render_config_t> );
 static_assert( std::is_trivially_copyable_v<render::render_info_t> );
 static_assert( std::is_trivially_copyable_v<render::render_frame_info_t> );
+static_assert( std::is_trivially_copyable_v<render::render_host_surface_desc_t> );
+static_assert( std::is_standard_layout_v<render::render_host_surface_desc_t> );
 static_assert( std::is_standard_layout_v<render::backend_api_t> );
 static_assert( render::R_BACKEND_API_SIZE == sizeof( render::backend_api_t ) );
 
@@ -56,6 +58,9 @@ using configure_window_fn_t = render::render_error_t (*)(
     sys::window_desc_t & ) noexcept;
 using init_fn_t = render::render_error_t (*)(
     sys::window_t &,
+    const render::render_config_t & ) noexcept;
+using init_host_surface_fn_t = render::render_error_t (*)(
+    const render::render_host_surface_desc_t &,
     const render::render_config_t & ) noexcept;
 using begin_frame_fn_t = render::render_error_t (*)(
     const render::render_frame_info_t & ) noexcept;
@@ -74,6 +79,9 @@ static_assert( std::is_same_v<
     decltype( &render::R_ConfigureWindow ),
     configure_window_fn_t> );
 static_assert( std::is_same_v<decltype( &render::R_Init ), init_fn_t> );
+static_assert( std::is_same_v<
+    decltype( &render::R_InitHostSurface ),
+    init_host_surface_fn_t> );
 static_assert( std::is_same_v<decltype( &render::R_BeginFrame ), begin_frame_fn_t> );
 static_assert( std::is_same_v<
     decltype( &render::R_SetPresentMode ),
@@ -83,7 +91,7 @@ static_assert( std::is_same_v<decltype( &render::R_CreateBuffer ), create_buffer
 static_assert( std::is_same_v<
     decltype( &render::R_CreateVertexInput ),
     create_vertex_input_fn_t> );
-static_assert( render::R_BACKEND_API_VERSION == 3u );
+static_assert( render::R_BACKEND_API_VERSION == 6u );
 
 int main()
 {
