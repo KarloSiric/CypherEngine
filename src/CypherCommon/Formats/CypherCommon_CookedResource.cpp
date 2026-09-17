@@ -238,11 +238,23 @@ cooked_resource_status_t CookedResource_ValidateLayout(
     u64 cbActualFile,
     usize *pInvalidChunk ) noexcept
 {
+    if ( !Span_IsValid( chunks ) ||
+         chunks.nCount > CY_COOKED_RESOURCE_MAX_CHUNKS ||
+         ( pInvalidChunk != nullptr &&
+           ( Cy_MemRangesOverlap(
+                 &header,
+                 sizeof( header ),
+                 pInvalidChunk,
+                 sizeof( *pInvalidChunk ) ) ||
+             Cy_MemRangesOverlap(
+                 chunks.pData,
+                 chunks.nCount * sizeof( cooked_chunk_desc_t ),
+                 pInvalidChunk,
+                 sizeof( *pInvalidChunk ) ) ) ) ) {
+        return cooked_resource_status_t::INVALID_ARGUMENT;
+    }
     if ( pInvalidChunk != nullptr ) {
         *pInvalidChunk = CY_INVALID_SIZE;
-    }
-    if ( !Span_IsValid( chunks ) ) {
-        return cooked_resource_status_t::INVALID_ARGUMENT;
     }
 
     const cooked_resource_status_t headerStatus = ValidateHeader( header );
@@ -309,6 +321,19 @@ cooked_resource_result_t CookedResource_WriteLayout(
     }
     if ( output.nCount < result.cbRequired ) {
         result.status = cooked_resource_status_t::OUTPUT_TOO_SMALL;
+        return result;
+    }
+    if ( Cy_MemRangesOverlap(
+             output.pData,
+             result.cbRequired,
+             &header,
+             sizeof( header ) ) ||
+         Cy_MemRangesOverlap(
+             output.pData,
+             result.cbRequired,
+             chunks.pData,
+             chunks.nCount * sizeof( cooked_chunk_desc_t ) ) ) {
+        result.status = cooked_resource_status_t::INVALID_ARGUMENT;
         return result;
     }
 
@@ -378,6 +403,26 @@ cooked_resource_result_t CookedResource_ReadLayout(
     }
     if ( chunksOut.nCount < header.nChunks ) {
         result.status = cooked_resource_status_t::OUTPUT_TOO_SMALL;
+        return result;
+    }
+    const usize cbChunkOutput = static_cast<usize>( header.nChunks ) *
+                                sizeof( cooked_chunk_desc_t );
+    if ( Cy_MemRangesOverlap(
+             input.pData,
+             input.cbSize,
+             pHeaderOut,
+             sizeof( *pHeaderOut ) ) ||
+         Cy_MemRangesOverlap(
+             input.pData,
+             input.cbSize,
+             chunksOut.pData,
+             cbChunkOutput ) ||
+         Cy_MemRangesOverlap(
+             pHeaderOut,
+             sizeof( *pHeaderOut ),
+             chunksOut.pData,
+             cbChunkOutput ) ) {
+        result.status = cooked_resource_status_t::INVALID_ARGUMENT;
         return result;
     }
 
