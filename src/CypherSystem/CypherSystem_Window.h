@@ -30,6 +30,9 @@ namespace cypher::engine::sys
 {
 
 constexpr common::u32 SYS_MAX_DISPLAY_NAME_LENGTH = 128u; // Includes the trailing null byte.
+constexpr common::u32 SYS_MAX_PLATFORM_BACKEND_NAME_LENGTH = 32u; // Includes the trailing null byte.
+constexpr common::u32 SYS_MAX_PLATFORM_BACKEND_REVISION_LENGTH = 128u; // Includes the trailing null byte.
+constexpr common::u32 SYS_MAX_VIDEO_DRIVER_NAME_LENGTH = 64u; // Includes the trailing null byte.
 
 using sys_display_id_t = common::u32;
 constexpr sys_display_id_t SYS_INVALID_DISPLAY_ID = 0u; // SDL and Cypher both reserve zero as invalid.
@@ -120,6 +123,21 @@ struct display_list_result_t {
     common::u32 displaysWritten{ 0u };  // Number copied into the caller's bounded array.
 };
 
+// Copied identity for the native window/event backend. SDL types and headers
+// remain private to CypherSystem while Host diagnostics can verify the linked
+// runtime and selected desktop video driver.
+struct platform_backend_info_t {
+    char name[SYS_MAX_PLATFORM_BACKEND_NAME_LENGTH]{};
+    common::u32 compiledVersionMajor{ 0u };
+    common::u32 compiledVersionMinor{ 0u };
+    common::u32 compiledVersionPatch{ 0u };
+    common::u32 runtimeVersionMajor{ 0u };
+    common::u32 runtimeVersionMinor{ 0u };
+    common::u32 runtimeVersionPatch{ 0u };
+    char revision[SYS_MAX_PLATFORM_BACKEND_REVISION_LENGTH]{};
+    char videoDriver[SYS_MAX_VIDEO_DRIVER_NAME_LENGTH]{};
+};
+
 struct window_size_limits_t {
     common::u32 minimumWidth{ 0u };  // Zero leaves the platform minimum unchanged.
     common::u32 minimumHeight{ 0u }; // Zero leaves the platform minimum unchanged.
@@ -194,6 +212,10 @@ CYPHER_NODISCARD sys_error_t Sys_GetDisplays(
 // Returns the desktop's current primary display identifier.
 CYPHER_NODISCARD sys_error_t Sys_GetPrimaryDisplay(
     sys_display_id_t &displayOut ) noexcept;
+
+// Returns SDL compile/runtime identity and the current native video driver.
+CYPHER_NODISCARD sys_error_t Sys_GetPlatformBackendInfo(
+    platform_backend_info_t &infoOut ) noexcept;
 
 // Copies volatile platform display data into an engine-owned value record.
 CYPHER_NODISCARD sys_error_t Sys_GetDisplayInfo(
