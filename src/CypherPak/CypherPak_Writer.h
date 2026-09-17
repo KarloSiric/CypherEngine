@@ -61,6 +61,7 @@ pak_error_t Pak_CreateArchive(
     const pak_source_file_t *files,
     common::u32 nFileCount );
 
+// Rejects an already-owned writer with ERR_INVALID_STATE, preserving its inputs.
 pak_error_t Pak_BeginWriter(
     const pak_writer_config_t &config,
     pak_writer_t &writer );
