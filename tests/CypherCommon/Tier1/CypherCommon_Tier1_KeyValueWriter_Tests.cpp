@@ -201,3 +201,64 @@ TEST_CASE( "KeyValue writer reports truncation and sink failure",
         StringView_FromCString( "SIZE_OVERFLOW" ) ) );
     KeyValue_DestroyDocument( pDocument );
 }
+
+TEST_CASE( "KeyValue canonical hashes identify semantic documents",
+           "[CypherCommon][Tier1][KeyValueWriter][Hash]" )
+{
+    constexpr string_view_t firstText{
+        "@cykv 1\n@schema \"cypher.test\" 1\n"
+        "{ zulu = 7 alpha = 7u text = \"same\" }",
+        sizeof( "@cykv 1\n@schema \"cypher.test\" 1\n"
+                "{ zulu = 7 alpha = 7u text = \"same\" }" ) - 1u
+    };
+    constexpr string_view_t reorderedText{
+        "@cykv 1\n@schema \"cypher.test\" 1\n"
+        "{ // formatting and order are authoring-only\n"
+        "  text = \"same\"\n  alpha = 7u\n  zulu = 7\n}",
+        sizeof( "@cykv 1\n@schema \"cypher.test\" 1\n"
+                "{ // formatting and order are authoring-only\n"
+                "  text = \"same\"\n  alpha = 7u\n  zulu = 7\n}" ) - 1u
+    };
+    constexpr string_view_t changedText{
+        "@cykv 1\n@schema \"cypher.test\" 1\n"
+        "{ zulu = 8 alpha = 7u text = \"same\" }",
+        sizeof( "@cykv 1\n@schema \"cypher.test\" 1\n"
+                "{ zulu = 8 alpha = 7u text = \"same\" }" ) - 1u
+    };
+
+    key_value_document_t *pFirst = KeyValue_CreateDocument( {} );
+    key_value_document_t *pReordered = KeyValue_CreateDocument( {} );
+    key_value_document_t *pChanged = KeyValue_CreateDocument( {} );
+    REQUIRE( pFirst != nullptr );
+    REQUIRE( pReordered != nullptr );
+    REQUIRE( pChanged != nullptr );
+    REQUIRE( KeyValue_ParseText( firstText, {}, pFirst ).status ==
+             key_value_parse_status_t::OK );
+    REQUIRE( KeyValue_ParseText( reorderedText, {}, pReordered ).status ==
+             key_value_parse_status_t::OK );
+    REQUIRE( KeyValue_ParseText( changedText, {}, pChanged ).status ==
+             key_value_parse_status_t::OK );
+
+    const key_value_canonical_hash_result_t first =
+        KeyValue_HashCanonicalDocument( pFirst );
+    const key_value_canonical_hash_result_t reordered =
+        KeyValue_HashCanonicalDocument( pReordered );
+    const key_value_canonical_hash_result_t changed =
+        KeyValue_HashCanonicalDocument( pChanged );
+    REQUIRE( first.status == key_value_write_status_t::OK );
+    REQUIRE( reordered.status == key_value_write_status_t::OK );
+    REQUIRE( changed.status == key_value_write_status_t::OK );
+    REQUIRE( first.cbHashed == reordered.cbHashed );
+    REQUIRE( ContentHash_IsValid( first.hash ) );
+    REQUIRE( ContentHash_Equals( first.hash, reordered.hash ) );
+    REQUIRE_FALSE( ContentHash_Equals( first.hash, changed.hash ) );
+
+    const key_value_canonical_hash_result_t invalid =
+        KeyValue_HashCanonicalDocument( nullptr );
+    REQUIRE( invalid.status == key_value_write_status_t::INVALID_ARGUMENT );
+    REQUIRE_FALSE( ContentHash_IsValid( invalid.hash ) );
+
+    KeyValue_DestroyDocument( pChanged );
+    KeyValue_DestroyDocument( pReordered );
+    KeyValue_DestroyDocument( pFirst );
+}
