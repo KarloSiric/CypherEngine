@@ -25,6 +25,18 @@ namespace sys = ::cypher::engine::sys;
 namespace
 {
 
+bool ActivateTestHostContext( void * ) noexcept
+{
+    return true;
+}
+
+render::render_host_proc_t ResolveTestHostProcedure(
+    const char *,
+    void * ) noexcept
+{
+    return nullptr;
+}
+
 render::render_vertex_layout_t MakeInterleavedVertexLayout()
 {
     render::render_vertex_layout_t layout{};
@@ -118,6 +130,64 @@ TEST_CASE( "configuration validation rejects contradictory and unknown policy" )
     CHECK( render::R_ValidateConfig( config ) == render::render_error_t::ERR_UNSUPPORTED );
 }
 
+TEST_CASE( "host surface validation rejects incomplete or ambiguous ownership" )
+{
+    render::render_host_surface_desc_t surface{};
+    CHECK( render::R_ValidateHostSurface( surface ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+
+    surface.backend = render::render_backend_t::OPENGL;
+    surface.drawableExtent = { 640u, 360u };
+    surface.apiMajorVersion = 4u;
+    surface.apiMinorVersion = 1u;
+    surface.accelerated = true;
+    surface.ActivateContext = ActivateTestHostContext;
+    surface.ResolveProcAddress = ResolveTestHostProcedure;
+    CHECK( render::R_ValidateHostSurface( surface ) ==
+        render::render_error_t::OK );
+
+    render::render_host_surface_desc_t malformed = surface;
+    malformed.drawableExtent.width = 0u;
+    CHECK( render::R_ValidateHostSurface( malformed ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+
+    malformed = surface;
+    malformed.backend = render::render_backend_t::AUTO;
+    CHECK( render::R_ValidateHostSurface( malformed ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+
+    malformed = surface;
+    malformed.apiMajorVersion = 0u;
+    CHECK( render::R_ValidateHostSurface( malformed ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+
+    malformed = surface;
+    malformed.presentMode = render::render_present_mode_t::COUNT;
+    CHECK( render::R_ValidateHostSurface( malformed ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+
+    malformed = surface;
+    malformed.ActivateContext = nullptr;
+    CHECK( render::R_ValidateHostSurface( malformed ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+
+    malformed = surface;
+    malformed.ResolveProcAddress = nullptr;
+    CHECK( render::R_ValidateHostSurface( malformed ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+
+    malformed = surface;
+    malformed.sampleCount = 3u;
+    CHECK( render::R_ValidateHostSurface( malformed ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+
+    render::render_config_t incompatible = render::R_DefaultConfig();
+    incompatible.backend = render::render_backend_t::SOFTWARE;
+    CHECK( render::R_InitHostSurface( surface, incompatible ) ==
+        render::render_error_t::ERR_WINDOW_INCOMPATIBLE );
+    CHECK_FALSE( render::R_IsInitialized() );
+}
+
 TEST_CASE( "backend selection returns one complete concrete OpenGL table" )
 {
     render::render_config_t config = render::R_DefaultConfig();
@@ -135,6 +205,9 @@ TEST_CASE( "backend selection returns one complete concrete OpenGL table" )
     malformed.structSize -= 1u;
     CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
     malformed = *backend;
+    malformed.InitHostSurface = nullptr;
+    CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
+    malformed = *backend;
     malformed.BeginFrame = nullptr;
     CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
     malformed = *backend;
@@ -142,6 +215,21 @@ TEST_CASE( "backend selection returns one complete concrete OpenGL table" )
     CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
     malformed = *backend;
     malformed.CreateVertexInput = nullptr;
+    CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
+    malformed = *backend;
+    malformed.CreateShader = nullptr;
+    CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
+    malformed = *backend;
+    malformed.DestroyShader = nullptr;
+    CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
+    malformed = *backend;
+    malformed.CreateGraphicsPipeline = nullptr;
+    CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
+    malformed = *backend;
+    malformed.DestroyGraphicsPipeline = nullptr;
+    CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
+    malformed = *backend;
+    malformed.DrawIndexed = nullptr;
     CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
     malformed = *backend;
     malformed.state = nullptr;
