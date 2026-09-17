@@ -27,23 +27,24 @@ This is the navigation root for CypherEngine.
 Read these in order when resuming work:
 
 1. [current_status.md](current_status.md)
-2. [master_plan.md](master_plan.md)
-3. [development_phases.md](development_phases.md)
-4. [roadmap.md](roadmap.md)
-5. [project_structure.md](project_structure.md)
-6. [architecture.md](architecture.md)
-7. [cyphercommon_architecture.md](cyphercommon_architecture.md)
-8. [function_pointer_policy.md](function_pointer_policy.md)
-9. [subsystems.md](subsystems.md)
-10. [subsystem_source_catalog.md](subsystem_source_catalog.md)
-11. [toolchain_plan.md](toolchain_plan.md)
-12. [tool_suite.md](tool_suite.md)
-13. [source2_tooling_reference.md](source2_tooling_reference.md)
-14. [map_authoring_and_mason.md](map_authoring_and_mason.md)
-15. [picasso_v1_design.md](picasso_v1_design.md)
-16. [formats/CYKV.md](formats/CYKV.md)
-17. [reference_engine_lessons.md](reference_engine_lessons.md)
-18. [security_model.md](security_model.md)
+2. [six_month_engine_plan.md](six_month_engine_plan.md)
+3. [master_plan.md](master_plan.md)
+4. [development_phases.md](development_phases.md)
+5. [roadmap.md](roadmap.md)
+6. [project_structure.md](project_structure.md)
+7. [architecture.md](architecture.md)
+8. [cyphercommon_architecture.md](cyphercommon_architecture.md)
+9. [function_pointer_policy.md](function_pointer_policy.md)
+10. [subsystems.md](subsystems.md)
+11. [subsystem_source_catalog.md](subsystem_source_catalog.md)
+12. [toolchain_plan.md](toolchain_plan.md)
+13. [tool_suite.md](tool_suite.md)
+14. [source2_tooling_reference.md](source2_tooling_reference.md)
+15. [map_authoring_and_mason.md](map_authoring_and_mason.md)
+16. [picasso_v1_design.md](picasso_v1_design.md)
+17. [formats/CYKV.md](formats/CYKV.md)
+18. [reference_engine_lessons.md](reference_engine_lessons.md)
+19. [security_model.md](security_model.md)
 
 API docs:
 
@@ -60,6 +61,9 @@ Reference docs:
 
 Project memory:
 
+- [Non-renderer pool validation, 2026-09-16](non_renderer_validation_2026-09-16.md)
+- [Non-renderer runtime work log](non_renderer_work_log.md)
+
 - [../CHANGELOG.md](../CHANGELOG.md)
 - [devlog/2026-04.md](devlog/2026-04.md)
 - [adr/0001-coop-first-listen-server-architecture.md](adr/0001-coop-first-listen-server-architecture.md)
@@ -72,6 +76,10 @@ Project memory:
   - what is active now
   - what is done-for-now
   - what is intentionally deferred
+- `six_month_engine_plan`
+  - evidence-backed audit of the current repository and subsystem folders
+  - active renderer sequence from cooked shaders through the first cube and materials
+  - vertical-slice dependencies, month gates, risks, and realistic outcomes
 - `master_plan`
   - the full long-term implementation schedule
   - concrete near-term dates
