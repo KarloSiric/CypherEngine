@@ -99,11 +99,11 @@ mem_error_t Mem_ScratchEnd( scratch_scope_t &scope )
 
     // Rewind invalidates every allocation made by this scope and any nested work above it.
     const mem_error_t rewindResult = Mem_ArenaRewind( *scope.arena, scope.marker );
-    scope.lastError = rewindResult;
 
     const char *name = scope.name;
     scope = {};
     scope.name = name;
+    scope.lastError = rewindResult;
 
     return rewindResult;
 }
