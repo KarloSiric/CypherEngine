@@ -28,6 +28,8 @@ fixed-width fields.
 
 #include "CypherPak_Writer.h"
 #include "CypherPak_Compression.h"
+#include "CypherCommon_FileIo.h"
+#include "CypherCommon_Process.h"
 
 #include <algorithm>
 #include <atomic>
@@ -52,6 +54,7 @@ constexpr common::u64 FNV1A64_PRIME = 1099511628211ull;
 constexpr common::u64 IO_CHUNK_SIZE = 64u * 1024u;
 
 std::atomic<common::u32> s_NextWriterHandle{ 1u };
+std::atomic<common::u64> s_NextTemporaryFile{ 0u };
 
 struct source_file_copy_t {
     std::string szVirtualPath;                              // Owned package-relative path supplied by the caller.
@@ -276,12 +279,12 @@ bool ReadExact( std::FILE *file, void *buffer, const common::u64 size )
     return true;
 }
 
-bool WriteExact( std::FILE *file, const void *buffer, const common::u64 size )
+bool WriteExact( ::cypher::common::stream_t &stream, const void *buffer, const common::u64 size )
 {
     if ( size == 0u ) {
         return true;
     }
-    if ( file == nullptr || buffer == nullptr ) {
+    if ( buffer == nullptr ) {
         return false;
     }
 
@@ -290,7 +293,8 @@ bool WriteExact( std::FILE *file, const void *buffer, const common::u64 size )
     while ( remaining > 0u ) {
         const common::u64 chunk64 = remaining < IO_CHUNK_SIZE ? remaining : IO_CHUNK_SIZE;
         const common::usize chunk = static_cast<common::usize>( chunk64 );
-        if ( std::fwrite( read, 1u, chunk, file ) != chunk ) {
+        if ( ::cypher::common::Stream_WriteExact( &stream, read, chunk ) !=
+             ::cypher::common::stream_status_t::OK ) {
             return false;
         }
         read += chunk;
@@ -300,20 +304,62 @@ bool WriteExact( std::FILE *file, const void *buffer, const common::u64 size )
     return true;
 }
 
-pak_error_t WriteZeros( std::FILE *file, const common::u64 count )
+pak_error_t WriteZeros( ::cypher::common::stream_t &stream, const common::u64 count )
 {
     common::u8 zeros[4096]{};
     common::u64 remaining = count;
 
     while ( remaining > 0u ) {
         const common::u64 chunk64 = remaining < sizeof( zeros ) ? remaining : sizeof( zeros );
-        if ( !WriteExact( file, zeros, chunk64 ) ) {
+        if ( !WriteExact( stream, zeros, chunk64 ) ) {
             return pak_error_t::ERR_FILE_WRITE_FAILED;
         }
         remaining -= chunk64;
     }
 
     return pak_error_t::OK;
+}
+
+pak_error_t OpenTemporaryArchive(
+    const char *destination,
+    std::string &temporaryPath,
+    ::cypher::common::native_file_t *&fileOut )
+{
+    namespace io = ::cypher::common;
+    fileOut = nullptr;
+
+    // Follow ToolArtifactWriter's exclusive sibling-file pattern. A PID and
+    // sequence avoid collisions; exclusive creation remains the ownership proof.
+    for ( common::u32 attempt = 0u; attempt < 64u; ++attempt ) {
+        char suffix[96]{};
+        const int suffixSize = std::snprintf(
+            suffix, sizeof( suffix ), ".cytmp.%llu.%llu",
+            static_cast<unsigned long long>( io::Cy_ProcessGetCurrentId() ),
+            static_cast<unsigned long long>( s_NextTemporaryFile.fetch_add( 1u, std::memory_order_relaxed ) ) );
+        if ( suffixSize < 0 || static_cast<common::usize>( suffixSize ) >= sizeof( suffix ) ) {
+            return pak_error_t::ERR_BUFFER_TOO_SMALL;
+        }
+        try {
+            temporaryPath = destination;
+            temporaryPath += suffix;
+        } catch ( const std::bad_alloc & ) {
+            return pak_error_t::ERR_OUT_OF_MEMORY;
+        }
+
+        const io::string_view_t path{ temporaryPath.data(), temporaryPath.size() };
+        fileOut = io::FileIo_OpenNative(
+            path,
+            io::FILE_OPEN_FLAG_WRITE | io::FILE_OPEN_FLAG_CREATE | io::FILE_OPEN_FLAG_EXCLUSIVE,
+            io::Allocator_GetSystem() );
+        if ( fileOut != nullptr ) {
+            return pak_error_t::OK;
+        }
+        if ( !io::FileIo_NativeExists( path ) ) {
+            return pak_error_t::ERR_FILE_OPEN_FAILED;
+        }
+        // A pre-existing staging path belongs to someone else; never remove it.
+    }
+    return pak_error_t::ERR_FILE_OPEN_FAILED;
 }
 
 common::u64 FileModifiedTimeUtc( const std::filesystem::path &path )
@@ -674,15 +720,22 @@ pak_error_t BuildArchive(
         }
     }
 
-    std::FILE *archive = std::fopen( szArchivePath, "wb" );
-    if ( archive == nullptr ) {
-        return pak_error_t::ERR_FILE_OPEN_FAILED;
+    namespace io = ::cypher::common;
+    std::string temporaryPath;
+    io::native_file_t *nativeArchive = nullptr;
+    result = OpenTemporaryArchive( szArchivePath, temporaryPath, nativeArchive );
+    if ( result != pak_error_t::OK ) {
+        return result;
     }
+    io::stream_t archive = io::FileIo_AsStream( nativeArchive );
+    const io::string_view_t temporaryPathView{ temporaryPath.data(), temporaryPath.size() };
 
-    // A partial archive is never a valid artifact; remove it on every write failure.
+    // Until replacement succeeds, only this owned staging file may be removed.
+    // The previous destination remains readable throughout construction.
     auto fail = [&]( const pak_error_t error ) {
-        std::fclose( archive );
-        std::filesystem::remove( szOutputPath, ec );
+        io::FileIo_CloseNative( nativeArchive );
+        nativeArchive = nullptr;
+        (void)io::FileIo_RemoveNative( temporaryPathView );
         return error;
     };
 
@@ -748,9 +801,18 @@ pak_error_t BuildArchive(
         }
     }
 
-    if ( std::fclose( archive ) != 0 ) {
-        std::filesystem::remove( szOutputPath, ec );
-        return pak_error_t::ERR_FILE_CLOSE_FAILED;
+    if ( io::Stream_Flush( &archive ) != io::stream_status_t::OK ) {
+        return fail( pak_error_t::ERR_FILE_WRITE_FAILED );
+    }
+    io::FileIo_CloseNative( nativeArchive );
+    nativeArchive = nullptr;
+
+    // FileIo owns the POSIX/Win32 replacement differences. Sibling staging keeps
+    // both names on one filesystem; replacement is the only publication point.
+    if ( !io::FileIo_ReplaceNative(
+             temporaryPathView, { szArchivePath, std::strlen( szArchivePath ) } ) ) {
+        (void)io::FileIo_RemoveNative( temporaryPathView );
+        return pak_error_t::ERR_IO_ERROR;
     }
 
     return pak_error_t::OK;
@@ -799,6 +861,10 @@ pak_error_t Pak_BeginWriter(
     const pak_writer_config_t &config,
     pak_writer_t &writer )
 {
+    if ( writer.open || writer.pBuilderState != nullptr || writer.pNativeFile != nullptr ||
+         writer.handle != CYPHER_PAK_INVALID_HANDLE ) {
+        return pak_error_t::ERR_INVALID_STATE;
+    }
     writer = {};
 
     if ( config.szArchivePath == nullptr || config.szArchivePath[0] == '\0' ) {
