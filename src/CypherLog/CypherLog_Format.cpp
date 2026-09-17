@@ -41,7 +41,7 @@ const char *Log_LevelColor( const level_t level )
         case level_t::INFO:    return "\033[37m";
         case level_t::WARNING: return "\033[33m";
         case level_t::ERR:     return "\033[31m";
-        case level_t::FATAL:   return "\033[35m";
+        case level_t::FATAL:   return "\033[1;31m";
         default:               return "";
     }
 }
@@ -77,21 +77,114 @@ log_error_t Log_FormatCompact(
     char *bufferOut,
     const common::usize nOutBufferSize )
 {
+    char timestampBuffer[32]{};
+    if ( pSinkConfig.bIncludeTimestamps ) {
+        Log_FormatTimestamp( record, timestampBuffer, sizeof( timestampBuffer ) );
+    }
+
     const char *colorBegin = pSinkConfig.bColorEnabled ? Log_LevelColor( record.level ) : "";
     const char *colorEnd = pSinkConfig.bColorEnabled ? "\033[0m" : "";
 
-    const int written = std::snprintf(
-        bufferOut,
-        nOutBufferSize,
-        "%s[%s][%s] %s%s\n",
-        colorBegin,
-        Log_LevelName( record.level ),
-        Log_ChannelName( record.channel ),
-        record.message,
-        colorEnd
-    );
+    int written = 0;
+    if ( timestampBuffer[0] != '\0' ) {
+        written = std::snprintf(
+            bufferOut,
+            nOutBufferSize,
+            "%s[%s][%s][%s] %s%s\n",
+            colorBegin,
+            timestampBuffer,
+            Log_LevelName( record.level ),
+            Log_ChannelName( record.channel ),
+            record.message,
+            colorEnd
+        );
+    } else {
+        written = std::snprintf(
+            bufferOut,
+            nOutBufferSize,
+            "%s[%s][%s] %s%s\n",
+            colorBegin,
+            Log_LevelName( record.level ),
+            Log_ChannelName( record.channel ),
+            record.message,
+            colorEnd
+        );
+    }
 
-    return ( written < 0 ) ? log_error_t::ERR_FORMAT_FAILED : log_error_t::OK;
+    return ( written < 0 || static_cast<common::usize>( written ) >= nOutBufferSize )
+        ? log_error_t::ERR_FORMAT_FAILED
+        : log_error_t::OK;
+}
+
+/*
+================
+Log_FormatConsole
+
+Keeps routine INFO output visually quiet for the interactive engine console.
+Warnings and errors retain explicit severity/channel metadata, while file sinks
+can continue using COMPACT or DETAILED for fully self-describing records.
+================
+*/
+log_error_t Log_FormatConsole(
+    const record_t &record,
+    const sink_config_t &pSinkConfig,
+    char *bufferOut,
+    const common::usize nOutBufferSize )
+{
+    char timestampBuffer[32]{};
+    if ( pSinkConfig.bIncludeTimestamps ) {
+        Log_FormatTimestamp( record, timestampBuffer, sizeof( timestampBuffer ) );
+    }
+
+    const bool plainInformation = record.level == level_t::INFO;
+    const bool colorRecord = pSinkConfig.bColorEnabled && !plainInformation;
+    const char *colorBegin = colorRecord ? Log_LevelColor( record.level ) : "";
+    const char *colorEnd = colorRecord ? "\033[0m" : "";
+
+    int written = 0;
+    if ( plainInformation && timestampBuffer[0] != '\0' ) {
+        written = std::snprintf(
+            bufferOut,
+            nOutBufferSize,
+            "%s[%s] %s%s\n",
+            colorBegin,
+            timestampBuffer,
+            record.message,
+            colorEnd );
+    } else if ( plainInformation ) {
+        written = std::snprintf(
+            bufferOut,
+            nOutBufferSize,
+            "%s%s%s\n",
+            colorBegin,
+            record.message,
+            colorEnd );
+    } else if ( timestampBuffer[0] != '\0' ) {
+        written = std::snprintf(
+            bufferOut,
+            nOutBufferSize,
+            "%s[%s][%s][%s] %s%s\n",
+            colorBegin,
+            timestampBuffer,
+            Log_LevelName( record.level ),
+            Log_ChannelName( record.channel ),
+            record.message,
+            colorEnd );
+    } else {
+        written = std::snprintf(
+            bufferOut,
+            nOutBufferSize,
+            "%s[%s][%s] %s%s\n",
+            colorBegin,
+            Log_LevelName( record.level ),
+            Log_ChannelName( record.channel ),
+            record.message,
+            colorEnd );
+    }
+
+    return ( written < 0 || static_cast<common::usize>( written ) >= nOutBufferSize )
+        ? log_error_t::ERR_FORMAT_FAILED
+        : log_error_t::OK;
 }
 
 /*
@@ -196,7 +289,9 @@ log_error_t Log_FormatDetailed(
         );
     }
 
-    return ( written < 0 ) ? log_error_t::ERR_FORMAT_FAILED : log_error_t::OK;
+    return ( written < 0 || static_cast<common::usize>( written ) >= nOutBufferSize )
+        ? log_error_t::ERR_FORMAT_FAILED
+        : log_error_t::OK;
 }
 
 /*
@@ -226,6 +321,8 @@ log_error_t Log_FormatRecord(
             return Log_FormatCompact( record, pSinkConfig, bufferOut, nOutBufferSize );
         case format_mode_t::DETAILED:
             return Log_FormatDetailed( record, pSinkConfig, config, bufferOut, nOutBufferSize );
+        case format_mode_t::CONSOLE:
+            return Log_FormatConsole( record, pSinkConfig, bufferOut, nOutBufferSize );
         default:
             return log_error_t::ERR_FORMAT_FAILED;
     }
