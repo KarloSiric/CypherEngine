@@ -7,7 +7,8 @@
 //  Purpose: Tests synchronous runtime resource ownership and lookup.
 //  Details: Coverage protects registration, cache identity, reference counts,
 //           failure rollback, stale generations, shutdown order, capacity reuse,
-//           dependency cycles, and public output transactions.
+//           dependency cycles, callback reentrancy, allocator ownership, nested
+//           dependency cleanup, and public output transactions.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-12
@@ -44,6 +45,7 @@ struct test_backend_t {
     u32 unloadOrder[TEST_PAYLOAD_CAPACITY]{};
     bool_t bFailLoad{ CY_FALSE };
     bool_t bReturnPayloadOnFailure{ CY_FALSE };
+    bool_t bReturnNullOnSuccess{ CY_FALSE };
     resource_manager_t *pManager{ nullptr };
     resource_type_id_t type{ 0u };
     bool_t bAcquireSelf{ CY_FALSE };
@@ -85,7 +87,7 @@ bool_t TestLoad(
         return CY_FALSE;
     }
 
-    *ppResourceOut = &payload;
+    *ppResourceOut = backend.bReturnNullOnSuccess ? nullptr : &payload;
     return CY_TRUE;
 }
 
@@ -154,6 +156,164 @@ void *FailAllocate( void *, usize, usize ) noexcept
 
 void NoopFree( void *, void *, usize, usize ) noexcept
 {
+}
+
+struct dependency_payload_t {
+    u32 iNode{ 0u };
+    resource_handle_t dependency{};
+};
+
+struct dependency_backend_t {
+    resource_manager_t *pManager{ nullptr };
+    resource_type_id_t type{ 0u };
+    dependency_payload_t payloads[2]{ { 0u, {} }, { 1u, {} } };
+    u32 cLoads{ 0u };
+    u32 cUnloads{ 0u };
+    u32 unloadOrder[4]{};
+    bool_t bFailParent{ CY_FALSE };
+    resource_error_t dependencyGetResult{ resource_error_t::INTERNAL_ERROR };
+    resource_error_t dependencyReleaseResult{ resource_error_t::INTERNAL_ERROR };
+};
+
+bool_t DependencyLoad(
+    void *pUserData,
+    resource_id_t,
+    resource_type_id_t,
+    string_view_t path,
+    void **ppResourceOut ) noexcept
+{
+    auto &backend = *static_cast<dependency_backend_t *>( pUserData );
+    const bool_t bParent = StringView_Equals(
+        path, StringView_FromCString( "parent" ) );
+    dependency_payload_t &payload = backend.payloads[bParent ? 0u : 1u];
+    ++backend.cLoads;
+    // Even a failed parent transfers its partial payload so its unload callback
+    // can release the successfully acquired child.
+    *ppResourceOut = &payload;
+    if ( bParent ) {
+        const resource_error_t result = Res_Acquire(
+            backend.pManager, backend.type,
+            StringView_FromCString( "child" ), &payload.dependency );
+        return result == resource_error_t::OK && !backend.bFailParent;
+    }
+    return CY_TRUE;
+}
+
+void DependencyUnload( void *pUserData, void *pResource ) noexcept
+{
+    auto &backend = *static_cast<dependency_backend_t *>( pUserData );
+    auto &payload = *static_cast<dependency_payload_t *>( pResource );
+    backend.unloadOrder[backend.cUnloads++] = payload.iNode;
+    if ( ResourceHandle_IsValid( payload.dependency ) ) {
+        void *pDependency = nullptr;
+        backend.dependencyGetResult = Res_Get(
+            backend.pManager, payload.dependency, &pDependency );
+        backend.dependencyReleaseResult = Res_Release(
+            backend.pManager, payload.dependency );
+        payload.dependency = CY_RESOURCE_HANDLE_INVALID;
+    }
+}
+
+struct lifecycle_probe_t {
+    resource_error_t init{ resource_error_t::OK };
+    resource_error_t shutdown{ resource_error_t::OK };
+    resource_error_t registerType{ resource_error_t::OK };
+    resource_error_t unregisterType{ resource_error_t::OK };
+    resource_type_slot_t typeSlot{ 1u };
+};
+
+struct callback_backend_t {
+    resource_manager_t *pManager{ nullptr };
+    resource_loader_t loader{};
+    lifecycle_probe_t loadProbe{};
+    lifecycle_probe_t unloadProbe{};
+    resource_handle_t handle{};
+    resource_handle_t reacquired{ ResourceHandle_Make( 0u, 1u, 1u ) };
+    resource_error_t getDuringUnload{ resource_error_t::OK };
+    resource_error_t retainDuringUnload{ resource_error_t::OK };
+    resource_error_t releaseDuringUnload{ resource_error_t::OK };
+    resource_error_t acquireDuringUnload{ resource_error_t::OK };
+    void *pBorrowedDuringUnload{ reinterpret_cast<void *>( 0x1u ) };
+    u32 payload{ 42u };
+};
+
+void ProbeLifecycle(
+    callback_backend_t &backend,
+    lifecycle_probe_t &probe ) noexcept
+{
+    probe.init = Res_Init( backend.pManager, Res_DefaultConfig() );
+    probe.shutdown = Res_Shutdown( backend.pManager );
+    probe.registerType = Res_RegisterType(
+        backend.pManager, backend.loader, &probe.typeSlot );
+    probe.unregisterType = Res_UnregisterType(
+        backend.pManager, backend.loader.type );
+}
+
+bool_t CallbackLoad(
+    void *pUserData,
+    resource_id_t,
+    resource_type_id_t,
+    string_view_t,
+    void **ppResourceOut ) noexcept
+{
+    auto &backend = *static_cast<callback_backend_t *>( pUserData );
+    ProbeLifecycle( backend, backend.loadProbe );
+    *ppResourceOut = &backend.payload;
+    return CY_TRUE;
+}
+
+void CallbackUnload( void *pUserData, void * ) noexcept
+{
+    auto &backend = *static_cast<callback_backend_t *>( pUserData );
+    ProbeLifecycle( backend, backend.unloadProbe );
+    backend.getDuringUnload = Res_Get(
+        backend.pManager, backend.handle, &backend.pBorrowedDuringUnload );
+    backend.retainDuringUnload = Res_Retain( backend.pManager, backend.handle );
+    backend.releaseDuringUnload = Res_Release( backend.pManager, backend.handle );
+    backend.acquireDuringUnload = Res_Acquire(
+        backend.pManager, backend.loader.type,
+        StringView_FromCString( "callback" ), &backend.reacquired );
+}
+
+void CheckLifecycleProbe( const lifecycle_probe_t &probe )
+{
+    CHECK( probe.init == resource_error_t::ALREADY_INITIALIZED );
+    CHECK( probe.shutdown == resource_error_t::REENTRANT_LIFECYCLE );
+    CHECK( probe.registerType == resource_error_t::REENTRANT_LIFECYCLE );
+    CHECK( probe.unregisterType == resource_error_t::REENTRANT_LIFECYCLE );
+    CHECK( probe.typeSlot == CY_RESOURCE_TYPE_SLOT_INVALID );
+}
+
+struct allocation_probe_t {
+    u32 cAllocations{ 0u };
+    u32 cFrees{ 0u };
+    void *pAllocation{ nullptr };
+    usize cbAllocation{ 0u };
+    usize nAlignment{ 0u };
+    bool_t bFreeMetadataMatched{ CY_FALSE };
+};
+
+void *AllocateOnce( void *pUserData, usize cbSize, usize nAlignment ) noexcept
+{
+    auto &probe = *static_cast<allocation_probe_t *>( pUserData );
+    if ( ++probe.cAllocations != 1u ) {
+        return nullptr;
+    }
+    probe.pAllocation = Allocator_Allocate(
+        Allocator_GetSystem(), cbSize, nAlignment );
+    probe.cbAllocation = cbSize;
+    probe.nAlignment = nAlignment;
+    return probe.pAllocation;
+}
+
+void FreeTracked(
+    void *pUserData, void *pMemory, usize cbSize, usize nAlignment ) noexcept
+{
+    auto &probe = *static_cast<allocation_probe_t *>( pUserData );
+    ++probe.cFrees;
+    probe.bFreeMetadataMatched = pMemory == probe.pAllocation &&
+        cbSize == probe.cbAllocation && nAlignment == probe.nAlignment;
+    Allocator_Free( Allocator_GetSystem(), pMemory, cbSize, nAlignment );
 }
 
 } // namespace
@@ -603,4 +763,222 @@ TEST_CASE( "Public operations reject invalid paths and reset outputs",
     REQUIRE( std::strcmp(
         Res_ErrorName( resource_error_t::INVALID_HANDLE ),
         "INVALID_HANDLE" ) == 0 );
+}
+
+TEST_CASE( "Dependent resources remain usable during parent teardown",
+           "[CypherEngine][Resource][Lifetime]" )
+{
+    dependency_backend_t backend{};
+    manager_scope_t scope{ TestConfig( 2u, 1u ) };
+    backend.pManager = &scope.manager;
+    backend.type = TestType();
+    const resource_loader_t loader{
+        backend.type, DependencyLoad, DependencyUnload, &backend
+    };
+    REQUIRE( Res_RegisterType( &scope.manager, loader ) == resource_error_t::OK );
+
+    resource_handle_t parent{};
+    REQUIRE( Res_Acquire(
+        &scope.manager, backend.type,
+        StringView_FromCString( "parent" ), &parent ) == resource_error_t::OK );
+    REQUIRE( backend.cLoads == 2u );
+    REQUIRE( Res_GetStats( &scope.manager ).cLiveResources == 2u );
+    const resource_handle_t child = backend.payloads[0].dependency;
+    REQUIRE( Res_IsAlive( &scope.manager, child ) );
+
+    SECTION( "Final release recursively unloads the owned dependency" )
+    {
+        REQUIRE( Res_Release( &scope.manager, parent ) == resource_error_t::OK );
+        const resource_manager_stats_t stats = Res_GetStats( &scope.manager );
+        REQUIRE( stats.cLiveResources == 0u );
+        REQUIRE( stats.cPeakLiveResources == 2u );
+        REQUIRE( stats.cUnloads == 2u );
+    }
+    SECTION( "Forced shutdown permits releasing dependencies in unload callbacks" )
+    {
+        REQUIRE( Res_Shutdown( &scope.manager ) == resource_error_t::OK );
+    }
+
+    REQUIRE( backend.cUnloads == 2u );
+    REQUIRE( backend.unloadOrder[0] == 0u );
+    REQUIRE( backend.unloadOrder[1] == 1u );
+    REQUIRE( backend.dependencyGetResult == resource_error_t::OK );
+    REQUIRE( backend.dependencyReleaseResult == resource_error_t::OK );
+    REQUIRE_FALSE( Res_IsAlive( &scope.manager, parent ) );
+    REQUIRE_FALSE( Res_IsAlive( &scope.manager, child ) );
+}
+
+TEST_CASE( "Failed parent loads clean dependencies and allow retrying the same identity",
+           "[CypherEngine][Resource][Lifetime]" )
+{
+    dependency_backend_t backend{};
+    manager_scope_t scope{ TestConfig( 2u, 1u ) };
+    backend.pManager = &scope.manager;
+    backend.type = TestType();
+    backend.bFailParent = CY_TRUE;
+    const resource_loader_t loader{
+        backend.type, DependencyLoad, DependencyUnload, &backend
+    };
+    REQUIRE( Res_RegisterType( &scope.manager, loader ) == resource_error_t::OK );
+
+    resource_handle_t parent = ResourceHandle_Make( 0u, 1u, 1u );
+    const string_view_t path = StringView_FromCString( "parent" );
+    REQUIRE( Res_Acquire( &scope.manager, backend.type, path, &parent ) ==
+             resource_error_t::LOAD_FAILED );
+    REQUIRE_FALSE( ResourceHandle_IsValid( parent ) );
+    REQUIRE( backend.cUnloads == 2u );
+    REQUIRE( backend.dependencyGetResult == resource_error_t::OK );
+    REQUIRE( backend.dependencyReleaseResult == resource_error_t::OK );
+    const resource_manager_stats_t failedStats = Res_GetStats( &scope.manager );
+    REQUIRE( failedStats.cLiveResources == 0u );
+    REQUIRE( failedStats.cLoadAttempts == 2u );
+    REQUIRE( failedStats.cSuccessfulLoads == 1u );
+    REQUIRE( failedStats.cFailedLoads == 1u );
+    // Failed parent cleanup is not a published-resource unload statistic.
+    REQUIRE( failedStats.cUnloads == 1u );
+
+    backend.bFailParent = CY_FALSE;
+    REQUIRE( Res_Acquire( &scope.manager, backend.type, path, &parent ) ==
+             resource_error_t::OK );
+    REQUIRE( Res_Release( &scope.manager, parent ) == resource_error_t::OK );
+    REQUIRE( backend.cLoads == 4u );
+    REQUIRE( backend.cUnloads == 4u );
+    REQUIRE( Res_GetStats( &scope.manager ).cLiveResources == 0u );
+}
+
+TEST_CASE( "Callbacks cannot mutate manager lifecycle or resurrect an unloading resource",
+           "[CypherEngine][Resource][Lifetime]" )
+{
+    callback_backend_t backend{};
+    manager_scope_t scope{ TestConfig( 1u, 1u ) };
+    backend.pManager = &scope.manager;
+    backend.loader = { TestType(), CallbackLoad, CallbackUnload, &backend };
+    REQUIRE( Res_RegisterType( &scope.manager, backend.loader ) ==
+             resource_error_t::OK );
+    REQUIRE( Res_Acquire(
+        &scope.manager, backend.loader.type,
+        StringView_FromCString( "callback" ), &backend.handle ) ==
+        resource_error_t::OK );
+    CheckLifecycleProbe( backend.loadProbe );
+
+    SECTION( "Final release" )
+    {
+        REQUIRE( Res_Release( &scope.manager, backend.handle ) ==
+                 resource_error_t::OK );
+        REQUIRE( Res_GetStats( &scope.manager ).cRegisteredTypes == 1u );
+        REQUIRE( Res_GetStats( &scope.manager ).cUnloads == 1u );
+    }
+    SECTION( "Forced shutdown" )
+    {
+        REQUIRE( Res_Shutdown( &scope.manager ) == resource_error_t::OK );
+    }
+
+    CheckLifecycleProbe( backend.unloadProbe );
+    REQUIRE( backend.getDuringUnload == resource_error_t::RESOURCE_BUSY );
+    REQUIRE( backend.retainDuringUnload == resource_error_t::RESOURCE_BUSY );
+    REQUIRE( backend.releaseDuringUnload == resource_error_t::RESOURCE_BUSY );
+    REQUIRE( backend.acquireDuringUnload == resource_error_t::RESOURCE_BUSY );
+    REQUIRE( backend.pBorrowedDuringUnload == nullptr );
+    REQUIRE_FALSE( ResourceHandle_IsValid( backend.reacquired ) );
+}
+
+TEST_CASE( "A loader reporting success without a payload rolls back its identity",
+           "[CypherEngine][Resource]" )
+{
+    test_backend_t backend{};
+    manager_scope_t scope{ TestConfig( 1u, 1u ) };
+    const resource_type_id_t type = TestType();
+    REQUIRE( Res_RegisterType( &scope.manager, TestLoader( backend, type ) ) ==
+             resource_error_t::OK );
+    backend.bReturnNullOnSuccess = CY_TRUE;
+    resource_handle_t handle = ResourceHandle_Make( 0u, 1u, 1u );
+    const string_view_t path = StringView_FromCString( "empty" );
+    REQUIRE( Res_Acquire( &scope.manager, type, path, &handle ) ==
+             resource_error_t::LOAD_FAILED );
+    REQUIRE_FALSE( ResourceHandle_IsValid( handle ) );
+    REQUIRE( backend.cUnloads == 0u );
+    REQUIRE( Res_GetStats( &scope.manager ).cFailedLoads == 1u );
+    REQUIRE( Res_GetStats( &scope.manager ).cLiveResources == 0u );
+
+    backend.bReturnNullOnSuccess = CY_FALSE;
+    REQUIRE( Res_Acquire( &scope.manager, type, path, &handle ) ==
+             resource_error_t::OK );
+    REQUIRE( backend.cLoads == 2u );
+    REQUIRE( Res_Release( &scope.manager, handle ) == resource_error_t::OK );
+    REQUIRE( backend.cUnloads == 1u );
+}
+
+TEST_CASE( "Resource manager uses one allocation with matching release metadata",
+           "[CypherEngine][Resource][Allocation]" )
+{
+    allocation_probe_t probe{};
+    const allocator_t allocator{ AllocateOnce, nullptr, FreeTracked, &probe };
+    test_backend_t backend{};
+    resource_manager_config_t config = TestConfig( 1u, 1u );
+    config.pAllocator = &allocator;
+    manager_scope_t scope{ config };
+    REQUIRE( probe.cAllocations == 1u );
+    REQUIRE( scope.manager.pAllocator == &allocator );
+    REQUIRE( scope.manager.pImplementation == probe.pAllocation );
+    REQUIRE( scope.manager.cbAllocation == probe.cbAllocation );
+
+    const resource_type_id_t type = TestType();
+    REQUIRE( Res_RegisterType( &scope.manager, TestLoader( backend, type ) ) ==
+             resource_error_t::OK );
+    const string_view_t path = StringView_FromCString( "bounded" );
+    for ( u32 iLoad = 0u; iLoad < 16u; ++iLoad ) {
+        resource_handle_t owner{};
+        resource_handle_t cached{};
+        REQUIRE( Res_Acquire( &scope.manager, type, path, &owner ) ==
+                 resource_error_t::OK );
+        REQUIRE( Res_Acquire( &scope.manager, type, path, &cached ) ==
+                 resource_error_t::OK );
+        REQUIRE( ResourceHandle_Equals( owner, cached ) );
+        REQUIRE( Res_Release( &scope.manager, cached ) == resource_error_t::OK );
+        REQUIRE( Res_Release( &scope.manager, owner ) == resource_error_t::OK );
+    }
+    REQUIRE( probe.cAllocations == 1u );
+    REQUIRE( probe.cFrees == 0u );
+    REQUIRE( Res_Shutdown( &scope.manager ) == resource_error_t::OK );
+    REQUIRE( probe.cFrees == 1u );
+    REQUIRE( probe.bFreeMetadataMatched );
+    REQUIRE( scope.manager.pImplementation == nullptr );
+    REQUIRE( scope.manager.pAllocator == nullptr );
+    REQUIRE( scope.manager.cbAllocation == 0u );
+}
+
+TEST_CASE( "Wrong-type handles preserve live payloads and clear rejected outputs",
+           "[CypherEngine][Resource]" )
+{
+    test_backend_t backend{};
+    manager_scope_t scope{ TestConfig( 1u, 1u ) };
+    const resource_type_id_t type = TestType();
+    REQUIRE( Res_RegisterType( &scope.manager, TestLoader( backend, type ) ) ==
+             resource_error_t::OK );
+    resource_handle_t handle{};
+    REQUIRE( Res_Acquire(
+        &scope.manager, type, StringView_FromCString( "typed" ), &handle ) ==
+        resource_error_t::OK );
+    const resource_handle_t wrongType = ResourceHandle_Make(
+        ResourceHandle_Slot( handle ), ResourceHandle_Generation( handle ),
+        ResourceHandle_TypeSlot( handle ) + 1u );
+    REQUIRE( Res_Retain( &scope.manager, wrongType ) ==
+             resource_error_t::INVALID_HANDLE );
+    REQUIRE( Res_Release( &scope.manager, wrongType ) ==
+             resource_error_t::INVALID_HANDLE );
+    void *pPayload = reinterpret_cast<void *>( 0x1u );
+    REQUIRE( Res_Get( &scope.manager, wrongType, &pPayload ) ==
+             resource_error_t::INVALID_HANDLE );
+    REQUIRE( pPayload == nullptr );
+    resource_info_t info{};
+    info.cReferences = 42u;
+    REQUIRE( Res_GetInfo( &scope.manager, wrongType, &info ) ==
+             resource_error_t::INVALID_HANDLE );
+    REQUIRE( info.cReferences == 0u );
+    REQUIRE_FALSE( ResourceHandle_IsValid( info.handle ) );
+    REQUIRE( Res_IsAlive( &scope.manager, handle ) );
+    REQUIRE( Res_GetInfo( &scope.manager, handle, &info ) == resource_error_t::OK );
+    REQUIRE( info.cReferences == 1u );
+    REQUIRE( backend.cUnloads == 0u );
+    REQUIRE( Res_Release( &scope.manager, handle ) == resource_error_t::OK );
 }
