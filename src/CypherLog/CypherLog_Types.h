@@ -80,7 +80,8 @@ enum class sink_flag_t : common::u32 {
 
 enum class format_mode_t : common::u8 {
     COMPACT,    // Severity, channel, and message only unless enabled otherwise.
-    DETAILED    // Full timestamp and source-oriented diagnostic format.
+    DETAILED,   // Full timestamp and source-oriented diagnostic format.
+    CONSOLE     // Plain INFO presentation; diagnostic severities retain level and channel.
 };
 
 enum class channel_t : common::u8 {
@@ -158,7 +159,7 @@ struct config_t {
     sink_config_t terminal{
         true,
         level_t::INFO,
-        format_mode_t::COMPACT,
+        format_mode_t::CONSOLE,
         flush_policy_t::ERRORS_AND_ABOVE,
         file_mode_t::TRUNCATE,
         false,
