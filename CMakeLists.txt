@@ -18,6 +18,26 @@
 
 cmake_minimum_required(VERSION 3.20)
 
+# glslang is consumed as a static C++ library. The Cypher overlay enables the
+# same libc++ exception ABI used by the engine and Catch2 so weak STL symbols do
+# not cross an incompatible ABI boundary in sanitizer builds. This must be set
+# before project() loads the vcpkg toolchain. Preserve any caller-provided
+# overlays after the project-owned port.
+set(cypher_vcpkg_overlay_ports
+    "${CMAKE_CURRENT_LIST_DIR}/cmake/vcpkg-ports")
+if (DEFINED VCPKG_OVERLAY_PORTS AND NOT VCPKG_OVERLAY_PORTS STREQUAL "")
+    list(APPEND cypher_vcpkg_overlay_ports ${VCPKG_OVERLAY_PORTS})
+endif()
+if (DEFINED ENV{VCPKG_OVERLAY_PORTS} AND
+    NOT "$ENV{VCPKG_OVERLAY_PORTS}" STREQUAL "")
+    list(APPEND cypher_vcpkg_overlay_ports $ENV{VCPKG_OVERLAY_PORTS})
+endif()
+list(REMOVE_DUPLICATES cypher_vcpkg_overlay_ports)
+set(VCPKG_OVERLAY_PORTS
+    "${cypher_vcpkg_overlay_ports}"
+    CACHE STRING "vcpkg overlay ports used by CypherEngine" FORCE)
+unset(cypher_vcpkg_overlay_ports)
+
 # Meson-based dependencies must not mix Apple's archiver with a GNU ranlib
 # injected earlier in PATH by Homebrew or MacPorts.
 if (CMAKE_HOST_APPLE)
@@ -382,12 +402,19 @@ set(CYPHERSYSTEM_SOURCES
 set(CYPHERRENDER_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Backend.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Buffer.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Texture.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Draw.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Error.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Pipeline.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Public.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Shader.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_VertexInput.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_VertexLayout.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Buffer.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Texture.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Draw.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Shader.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Util.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_VertexInput.cpp"
 )
@@ -401,6 +428,7 @@ set(CYPHERRENDER_HEADERS
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Command.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Draw.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Error.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_HostSurface.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Local.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Pipeline.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Public.h"
@@ -410,7 +438,9 @@ set(CYPHERRENDER_HEADERS
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_VertexLayout.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Buffer.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Draw.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Local.h"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Shader.h"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_VertexInput.h"
 )
 
@@ -485,7 +515,9 @@ target_include_directories(CypherRender
         "${CYPHERENGINE_SRC_DIR}/CypherRender"
 )
 target_link_libraries(CypherRender
-    PUBLIC Cypher::System
+    PUBLIC
+        Cypher::System
+        Cypher::RenderFormats
     PRIVATE
         CypherCommonTier1
         Cypher::ThirdPartyGlad
@@ -617,7 +649,10 @@ target_include_directories(CypherPak
         "${CYPHERENGINE_SRC_DIR}"
         "${CYPHERENGINE_SRC_DIR}/CypherPak"
 )
-target_link_libraries(CypherPak PUBLIC Cypher::CommonTier0)
+target_link_libraries(CypherPak
+    PUBLIC Cypher::CommonTier0
+    PRIVATE Cypher::CommonTier1
+)
 
 add_library(CypherToolFramework STATIC ${CYPHERTOOLFRAMEWORK_SOURCES})
 add_library(Cypher::ToolFramework ALIAS CypherToolFramework)
@@ -1916,6 +1951,39 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_OpenGL_Smoke_Tests.cpp"
             Cypher::Render
         )
+        target_link_libraries(cypher_render_opengl_smoke_tests PRIVATE Cypher::ThirdPartyGlad)
+        cypher_add_common_catch_test(
+            cypher_render_host_surface_opengl_smoke_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_HostSurface_OpenGL_Smoke_Tests.cpp"
+            Cypher::Render
+        )
+        set_tests_properties(cypher_render_host_surface_opengl_smoke_tests PROPERTIES TIMEOUT 30)
+        cypher_add_common_catch_test(
+            cypher_render_opengl_shader_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_OpenGL_Shader_Tests.cpp"
+            Cypher::Render
+        )
+        target_link_libraries(cypher_render_opengl_shader_tests PRIVATE Cypher::ThirdPartyGlad)
+        set_tests_properties(cypher_render_opengl_shader_tests PROPERTIES TIMEOUT 20)
+        cypher_add_common_catch_test(
+            cypher_render_shader_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_Shader_Tests.cpp"
+            Cypher::Render
+        )
+        set_tests_properties(cypher_render_shader_tests PROPERTIES TIMEOUT 20)
+        cypher_add_common_catch_test(
+            cypher_render_draw_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_Draw_Tests.cpp"
+            Cypher::Render
+        )
+        set_tests_properties(cypher_render_draw_tests PROPERTIES TIMEOUT 20)
+        cypher_add_common_catch_test(
+            cypher_render_texture_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_Texture_Tests.cpp"
+            Cypher::Render
+        )
+        set_tests_properties(cypher_render_texture_tests PROPERTIES TIMEOUT 20)
+        set_tests_properties(cypher_render_opengl_smoke_tests PROPERTIES TIMEOUT 30)
         add_executable(cypher_system_window_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_Window_Tests.cpp"
         )
@@ -1941,6 +2009,108 @@ if (CYPHERENGINE_BUILD_TESTS)
         )
         add_test(NAME cypher_log_tests COMMAND cypher_log_tests)
         set_tests_properties(cypher_log_tests PROPERTIES TIMEOUT 20)
+
+        # Runtime pools are separate from Common Tier1 memory_pool_t and need
+        # their own ownership and failure-path coverage.
+        add_executable(cypher_memory_pool_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherMemory/CypherMemory_Pool_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Arena.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Pool.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
+        )
+        target_include_directories(cypher_memory_pool_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_memory_pool_tests
+            PRIVATE Catch2::Catch2WithMain Cypher::System Threads::Threads
+        )
+        add_test(NAME cypher_memory_pool_tests COMMAND cypher_memory_pool_tests)
+        set_tests_properties(cypher_memory_pool_tests PROPERTIES TIMEOUT 30)
+
+        add_executable(cypher_memory_arena_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherMemory/CypherMemory_Arena_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Arena.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
+        )
+        target_include_directories(cypher_memory_arena_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_memory_arena_tests
+            PRIVATE Catch2::Catch2WithMain Cypher::System Threads::Threads
+        )
+        add_test(NAME cypher_memory_arena_tests COMMAND cypher_memory_arena_tests)
+        set_tests_properties(cypher_memory_arena_tests PROPERTIES TIMEOUT 30)
+
+        add_executable(cypher_memory_scratch_bucket_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherMemory/CypherMemory_ScratchBucket_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Scratch.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Bucket.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Arena.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Pool.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
+        )
+        target_include_directories(cypher_memory_scratch_bucket_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_memory_scratch_bucket_tests
+            PRIVATE Catch2::Catch2WithMain Cypher::System Threads::Threads
+        )
+        add_test(NAME cypher_memory_scratch_bucket_tests COMMAND cypher_memory_scratch_bucket_tests)
+        set_tests_properties(cypher_memory_scratch_bucket_tests PROPERTIES TIMEOUT 30)
+
+        add_executable(cypher_memory_thread_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherMemory/CypherMemory_Thread_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Thread.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Bucket.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Arena.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Pool.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
+        )
+        target_include_directories(cypher_memory_thread_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_memory_thread_tests
+            PRIVATE Catch2::Catch2WithMain Cypher::System Threads::Threads
+        )
+        add_test(NAME cypher_memory_thread_tests COMMAND cypher_memory_thread_tests)
+        set_tests_properties(cypher_memory_thread_tests PROPERTIES TIMEOUT 30)
+
+        add_executable(cypher_memory_runtime_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherMemory/CypherMemory_Runtime_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Arena.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
+        )
+        target_include_directories(cypher_memory_runtime_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_memory_runtime_tests
+            PRIVATE Catch2::Catch2WithMain Cypher::System Threads::Threads
+        )
+        add_test(NAME cypher_memory_runtime_tests COMMAND cypher_memory_runtime_tests)
+        set_tests_properties(cypher_memory_runtime_tests PROPERTIES TIMEOUT 30)
+
+        add_executable(cypher_command_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommand/CypherCommand_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommand/CypherCommand.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Engine/CypherCommon_Print.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
+        )
+        target_include_directories(cypher_command_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_command_tests
+            PRIVATE Catch2::Catch2WithMain Cypher::System Threads::Threads
+        )
+        add_test(NAME cypher_command_tests COMMAND cypher_command_tests)
+        set_tests_properties(cypher_command_tests PROPERTIES TIMEOUT 30)
+
+        add_executable(cypher_cvar_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCVar/CypherCVar_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCVar/CypherCVar.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
+        )
+        target_include_directories(cypher_cvar_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_cvar_tests
+            PRIVATE Catch2::Catch2WithMain Cypher::System Threads::Threads
+        )
+        add_test(NAME cypher_cvar_tests COMMAND cypher_cvar_tests)
+        set_tests_properties(cypher_cvar_tests PROPERTIES TIMEOUT 30)
     else()
         message(STATUS "Catch2 not found. Skipping Catch2-based CypherCommon tests.")
     endif()
@@ -1965,6 +2135,27 @@ if (CYPHERENGINE_BUILD_TESTS)
     target_include_directories(cypher_filesystem_smoke PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
     target_link_libraries(cypher_filesystem_smoke PRIVATE Cypher::Pak Cypher::System)
     add_test(NAME cypher_filesystem_smoke COMMAND cypher_filesystem_smoke)
+
+    if (Catch2_FOUND)
+        set(CYPHER_CONFIG_TEST_FILESYSTEM_SOURCES ${CYPHERENGINE_FILESYSTEM_SMOKE_SOURCES})
+        list(REMOVE_ITEM CYPHER_CONFIG_TEST_FILESYSTEM_SOURCES
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherFileSystem/CypherFileSystem_Smoke.cpp"
+        )
+        add_executable(cypher_config_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherConfig/CypherConfig_Tests.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherConfig/CypherConfig.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCVar/CypherCVar.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommand/CypherCommand.cpp"
+            "${CYPHERENGINE_SRC_DIR}/CypherCommon/Engine/CypherCommon_Print.cpp"
+            ${CYPHER_CONFIG_TEST_FILESYSTEM_SOURCES}
+        )
+        target_include_directories(cypher_config_tests PRIVATE ${CYPHERENGINE_INCLUDE_DIRS})
+        target_link_libraries(cypher_config_tests
+            PRIVATE Catch2::Catch2WithMain Cypher::Pak Cypher::System Threads::Threads
+        )
+        add_test(NAME cypher_config_tests COMMAND cypher_config_tests)
+        set_tests_properties(cypher_config_tests PROPERTIES TIMEOUT 30)
+    endif()
 
     add_executable(cypher_pak_smoke
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherPak/CypherPak_Smoke.cpp"
@@ -2580,4 +2771,137 @@ if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherTools/CMakeLists.txt")
     endif()
 else()
     message(STATUS "No src/CypherTools/CMakeLists.txt yet. Tool targets will be added in a later phase.")
+endif()
+
+# Explicit first-draw example. Shader cooking belongs to the offline tool; the
+# runtime consumes only CYSH bytes through the VFS and renderer public API.
+add_executable(cypher_render_cube EXCLUDE_FROM_ALL
+    "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_Cube.cpp"
+)
+target_link_libraries(cypher_render_cube PRIVATE
+    Cypher::Render Cypher::VfsDirectory Cypher::Math
+)
+set(CYPHER_RENDER_CUBE_SHADER
+    "${CMAKE_BINARY_DIR}/cooked/render_smoke/cube.cyshader_c")
+target_compile_definitions(cypher_render_cube PRIVATE
+    CYPHER_RENDER_CUBE_SHADER_PATH="${CYPHER_RENDER_CUBE_SHADER}"
+)
+if (TARGET CypherResourceCompiler)
+    add_custom_command(
+        OUTPUT "${CYPHER_RENDER_CUBE_SHADER}"
+        COMMAND $<TARGET_FILE:CypherResourceCompiler> compile
+            --source-root "${CYPHERENGINE_ROOT_DIR}/assets"
+            --output-root "${CMAKE_BINARY_DIR}/cooked"
+            --color never --progress none render_smoke/cube.cyshader
+        DEPENDS CypherResourceCompiler
+            "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/cube.cyshader"
+            "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/cube.vert"
+            "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/cube.frag"
+        COMMENT "Cooking the first-draw cube shader"
+        VERBATIM
+    )
+    add_custom_target(cypher_render_cube_shader DEPENDS "${CYPHER_RENDER_CUBE_SHADER}")
+    add_dependencies(cypher_render_cube cypher_render_cube_shader)
+endif()
+
+# CypherTileEditor development preview. The editor/core owns authored map
+# semantics and box generation; the renderer sees only ordinary model
+# transforms and a shared cube mesh. This target therefore proves the bridge
+# without teaching CypherRender how to parse editor documents.
+if (CYPHERENGINE_BUILD_TILE_EDITOR AND TARGET CypherTileMapCore)
+    add_executable(cypher_tile_map_preview
+        "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_TileMap.cpp"
+    )
+    target_link_libraries(cypher_tile_map_preview PRIVATE
+        Cypher::TileMaterialPreview
+        Cypher::Render
+        Cypher::VfsDirectory
+        Cypher::Math
+        Cypher::TileMapCore
+    )
+    target_compile_definitions(cypher_tile_map_preview PRIVATE
+        CYPHER_RENDER_TILE_MAP_SHADER_PATH="${CYPHER_RENDER_CUBE_SHADER}"
+        CYPHER_RENDER_TILE_MAP_PATH="${CYPHERENGINE_ROOT_DIR}/assets/maps/tile_editor_demo.cymap"
+    )
+    if (TARGET cypher_render_cube_shader)
+        add_dependencies(cypher_tile_map_preview cypher_render_cube_shader)
+        set(CYPHER_TILE_MAP_PREVIEW_STAGED_SHADER
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/render_smoke/cube.cyshader_c")
+        add_custom_command(
+            OUTPUT "${CYPHER_TILE_MAP_PREVIEW_STAGED_SHADER}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory
+                "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/render_smoke"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${CYPHER_RENDER_CUBE_SHADER}"
+                "${CYPHER_TILE_MAP_PREVIEW_STAGED_SHADER}"
+            DEPENDS "${CYPHER_RENDER_CUBE_SHADER}"
+            COMMENT "Staging the tile-map preview shader"
+            VERBATIM
+        )
+        add_custom_target(cypher_tile_map_preview_shader_stage
+            DEPENDS "${CYPHER_TILE_MAP_PREVIEW_STAGED_SHADER}")
+        add_dependencies(
+            cypher_tile_map_preview
+            cypher_tile_map_preview_shader_stage)
+    endif()
+    set(CYPHER_TILE_MATERIAL_OUTPUTS)
+    set(CYPHER_TILE_MATERIAL_INPUTS shaders/tile_surface.cyshader
+        textures/dev/grid.cytex textures/dev/brick.cytex textures/dev/hazard.cytex
+        materials/dev/grid.cymat materials/dev/brick.cymat materials/dev/hazard.cymat)
+    set(CYPHER_TILE_MATERIAL_SOURCES
+        "${CYPHERENGINE_ROOT_DIR}/assets/shaders/tile_surface.vert"
+        "${CYPHERENGINE_ROOT_DIR}/assets/shaders/tile_surface.frag")
+    foreach(asset IN LISTS CYPHER_TILE_MATERIAL_INPUTS)
+        list(APPEND CYPHER_TILE_MATERIAL_OUTPUTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/${asset}_c")
+        list(APPEND CYPHER_TILE_MATERIAL_SOURCES "${CYPHERENGINE_ROOT_DIR}/assets/${asset}")
+    endforeach()
+    foreach(texture grid brick hazard)
+        list(APPEND CYPHER_TILE_MATERIAL_SOURCES "${CYPHERENGINE_ROOT_DIR}/assets/textures/dev/${texture}.png")
+    endforeach()
+    add_custom_command(OUTPUT ${CYPHER_TILE_MATERIAL_OUTPUTS}
+        COMMAND $<TARGET_FILE:CypherResourceCompiler> compile
+            -s "${CYPHERENGINE_ROOT_DIR}/assets" -o "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources"
+            --color never --progress none ${CYPHER_TILE_MATERIAL_INPUTS}
+        DEPENDS CypherResourceCompiler ${CYPHER_TILE_MATERIAL_SOURCES}
+        COMMENT "Cooking tile editor material and texture assets" VERBATIM)
+    add_custom_target(cypher_tile_material_assets DEPENDS ${CYPHER_TILE_MATERIAL_OUTPUTS})
+    add_dependencies(cypher_tile_map_preview cypher_tile_material_assets)
+
+    if (TARGET CypherTileEditor)
+        # F6 is a first-class editor workflow. Building the application also
+        # builds and stages the renderer companion it launches.
+        add_dependencies(CypherTileEditor cypher_tile_map_preview)
+        if (TARGET cypher_tile_map_preview_shader_stage)
+            add_dependencies(
+                CypherTileEditor
+                cypher_tile_map_preview_shader_stage)
+        endif()
+    endif()
+
+    if (CYPHERENGINE_BUILD_TESTS)
+        add_test(
+            NAME cypher_tile_map_preview_smoke
+            COMMAND cypher_tile_map_preview --hidden --frames 4
+        )
+        set_tests_properties(cypher_tile_map_preview_smoke PROPERTIES
+            LABELS "CypherTools;TileMap;Renderer;Smoke"
+            TIMEOUT 45
+        )
+        add_test(
+            NAME cypher_tile_stairs_preview_smoke
+            COMMAND cypher_tile_map_preview --hidden --frames 4
+                --map "${CYPHERENGINE_ROOT_DIR}/assets/maps/tile_editor_stairs.cymap"
+                --camera-speed 12 --camera-sensitivity 0.25 --camera-fov 70
+        )
+        add_test(NAME cypher_tile_material_preview_smoke
+            COMMAND cypher_tile_map_preview --hidden --frames 4
+                --map "${CYPHERENGINE_ROOT_DIR}/assets/maps/tile_editor_materials.cymap"
+                --asset-root "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources")
+        set_tests_properties(cypher_tile_material_preview_smoke PROPERTIES
+            LABELS "CypherTools;TileMap;Renderer;Materials;Smoke" TIMEOUT 45)
+        set_tests_properties(cypher_tile_stairs_preview_smoke PROPERTIES
+            LABELS "CypherTools;TileMap;Renderer;Smoke"
+            TIMEOUT 45
+        )
+    endif()
 endif()
