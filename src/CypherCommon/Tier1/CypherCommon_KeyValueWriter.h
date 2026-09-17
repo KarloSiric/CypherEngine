@@ -21,6 +21,7 @@
     #pragma once
 #endif
 
+#include "CypherCommon_ContentHash.h"
 #include "CypherCommon_KeyValue.h"
 
 namespace cypher::common
@@ -58,6 +59,14 @@ struct key_value_write_result_t {
     usize cchRequired{ 0u }; // Complete character count even after truncation.
 };
 
+struct key_value_canonical_hash_result_t {
+    key_value_write_status_t status{
+        key_value_write_status_t::OK
+    }; // Canonical serialization/hash status.
+    content_hash_t hash{}; // Hash of the complete canonical CYKV document.
+    usize cbHashed{ 0u };  // Canonical bytes supplied to the streaming hash.
+};
+
 // Canonical mode emits compact text, sorts object members byte-wise by key,
 // and suppresses the optional final newline so one tree has one representation.
 
@@ -78,6 +87,14 @@ key_value_write_result_t KeyValue_WriteTextToSink(
     const key_value_write_options_t &options,
     key_value_write_fn_t pfnWrite,
     void *pUserData ) noexcept;
+
+// Hashes the complete canonical document, including its CYKV/schema header,
+// without allocating a second full-size text buffer. Object insertion order,
+// whitespace, comments, and non-canonical numeric spelling therefore do not
+// affect the result after parsing into the same semantic document.
+CYPHER_NODISCARD CYPHER_COMMON_API
+key_value_canonical_hash_result_t KeyValue_HashCanonicalDocument(
+    const key_value_document_t *pDocument ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
 const char *KeyValue_WriteStatusName(
