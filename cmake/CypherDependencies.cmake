@@ -18,6 +18,29 @@
 
 include_guard(GLOBAL)
 
+function(cypher_read_vcpkg_baseline out_baseline)
+    set(cypher_vcpkg_manifest "${CYPHERENGINE_ROOT_DIR}/vcpkg.json")
+    if (NOT EXISTS "${cypher_vcpkg_manifest}")
+        message(FATAL_ERROR
+            "The vcpkg manifest is required to construct deterministic toolchain identities."
+        )
+    endif()
+
+    file(READ "${cypher_vcpkg_manifest}" cypher_vcpkg_manifest_json)
+    string(JSON cypher_vcpkg_baseline
+        ERROR_VARIABLE cypher_vcpkg_baseline_error
+        GET "${cypher_vcpkg_manifest_json}" builtin-baseline
+    )
+    if (cypher_vcpkg_baseline_error)
+        message(FATAL_ERROR
+            "vcpkg.json does not contain a valid builtin-baseline: "
+            "${cypher_vcpkg_baseline_error}"
+        )
+    endif()
+
+    set(${out_baseline} "${cypher_vcpkg_baseline}" PARENT_SCOPE)
+endfunction()
+
 function(cypher_configure_vendored_dependencies)
     set(cypher_imgui_dir "${CYPHERENGINE_THIRDPARTY_DIR}/imgui")
     if (EXISTS "${cypher_imgui_dir}/imgui.cpp")
@@ -134,15 +157,42 @@ endfunction()
 
 function(cypher_configure_shader_tool_dependencies out_link_libraries)
     find_package(glslang CONFIG REQUIRED)
+    find_package(spirv_cross_core CONFIG REQUIRED)
+    cypher_read_vcpkg_baseline(cypher_vcpkg_baseline)
+
+    set(cypher_glslang_contract_file
+        "${glslang_DIR}/cypher-build-contract.cmake")
+    if (NOT EXISTS "${cypher_glslang_contract_file}")
+        message(FATAL_ERROR
+            "The Cypher glslang overlay contract is missing. Configure vcpkg "
+            "with ${CYPHERENGINE_ROOT_DIR}/cmake/vcpkg-ports and reinstall "
+            "the shader-tools manifest feature."
+        )
+    endif()
+    include("${cypher_glslang_contract_file}")
+    if (NOT GLSLANG_CYPHER_BUILD_CONTRACT STREQUAL "exceptions-v1")
+        message(FATAL_ERROR
+            "Cypher shader tools require glslang build contract exceptions-v1; "
+            "the installed package reports '${GLSLANG_CYPHER_BUILD_CONTRACT}'."
+        )
+    endif()
 
     if (NOT TARGET CypherThirdPartyShaderCompiler)
         add_library(CypherThirdPartyShaderCompiler INTERFACE)
         add_library(Cypher::ThirdPartyShaderCompiler ALIAS CypherThirdPartyShaderCompiler)
+        target_compile_definitions(
+            CypherThirdPartyShaderCompiler
+            INTERFACE
+                "CYPHER_VCPKG_BASELINE=\"${cypher_vcpkg_baseline}\""
+                "CYPHER_GLSLANG_BUILD_CONTRACT=\"${GLSLANG_CYPHER_BUILD_CONTRACT}\""
+        )
         target_link_libraries(
             CypherThirdPartyShaderCompiler
             INTERFACE
                 glslang::glslang
                 glslang::glslang-default-resource-limits
+                glslang::SPIRV
+                spirv-cross-core
         )
     endif()
 
@@ -153,6 +203,7 @@ function(cypher_configure_texture_tool_dependencies out_link_libraries)
     find_package(PNG CONFIG REQUIRED)
     find_package(libjpeg-turbo CONFIG REQUIRED)
     find_package(tinyexr CONFIG REQUIRED)
+    cypher_read_vcpkg_baseline(cypher_vcpkg_baseline)
 
     if (TARGET libjpeg-turbo::turbojpeg)
         set(cypher_turbojpeg_target libjpeg-turbo::turbojpeg)
@@ -167,6 +218,11 @@ function(cypher_configure_texture_tool_dependencies out_link_libraries)
     if (NOT TARGET CypherThirdPartyImageImport)
         add_library(CypherThirdPartyImageImport INTERFACE)
         add_library(Cypher::ThirdPartyImageImport ALIAS CypherThirdPartyImageImport)
+        target_compile_definitions(
+            CypherThirdPartyImageImport
+            INTERFACE
+                "CYPHER_VCPKG_BASELINE=\"${cypher_vcpkg_baseline}\""
+        )
         target_link_libraries(
             CypherThirdPartyImageImport
             INTERFACE
