@@ -28,7 +28,7 @@ namespace cypher::tools
 {
 
 inline constexpr cypher::common::u32 CY_TEXTURE_COMPILER_API_VERSION = 1u;
-inline constexpr cypher::common::u32 CY_TEXTURE_COMPILER_VERSION = 1u;
+inline constexpr cypher::common::u32 CY_TEXTURE_COMPILER_VERSION = 4u;
 
 enum texture_compiler_diagnostic_code_t :
     cypher::common::tool_diagnostic_code_t {
@@ -44,8 +44,25 @@ enum texture_compiler_diagnostic_code_t :
     CY_TEXTURE_DIAGNOSTIC_MIP_GENERATION_FAILED,
     CY_TEXTURE_DIAGNOSTIC_COOK_FAILED,
     CY_TEXTURE_DIAGNOSTIC_WRITE_FAILED,
-    CY_TEXTURE_DIAGNOSTIC_TOOLCHAIN_FAILED
+    CY_TEXTURE_DIAGNOSTIC_TOOLCHAIN_FAILED,
+    CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_POLICY,
+    CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_PRESERVED_IMAGE,
+    CY_TEXTURE_DIAGNOSTIC_INVALID_STREAMING_POLICY,
+    CY_TEXTURE_DIAGNOSTIC_CAPACITY_EXCEEDED
 };
+
+// Computes the exact decoded byte footprint and level count for a tight 2D mip
+// chain. Outputs are transactional. The caller applies the cooked-format byte
+// ceiling so this query can also explain an over-capacity source before any
+// derived mip storage is allocated.
+CYPHER_NODISCARD
+cypher::common::bool_t CypherTextureCompiler_CalculateMipDataSize(
+    cypher::common::u32 nWidth,
+    cypher::common::u32 nHeight,
+    cypher::common::u32 cbPixel,
+    cypher::common::bool_t bGenerateMips,
+    cypher::common::u32 *pMipLevelsOut,
+    cypher::common::u64 *pDataSizeOut ) noexcept;
 
 // Returns the process-lifetime descriptor registered by CypherResourceCompiler.
 CYPHER_NODISCARD
