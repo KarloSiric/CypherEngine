@@ -6,7 +6,7 @@
 //  File: benchmarks/CypherCommon/Tier1/CypherCommon_KeyValue_Bench.cpp
 //  Purpose: Benchmarks the native CYKV text and binary data paths.
 //  Details: Measures complete transactional parsing, deterministic text writing,
-//           binary packing, and validated transactional unpacking.
+//           canonical semantic hashing, binary packing, and validated unpacking.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-10
@@ -132,6 +132,30 @@ static void BM_KeyValue_WriteText( benchmark::State &state )
     KeyValue_DestroyDocument( pDocument );
 }
 
+static void BM_KeyValue_HashCanonicalDocument( benchmark::State &state )
+{
+    key_value_document_t *pDocument = ParseBenchDocument();
+    if ( pDocument == nullptr ) {
+        state.SkipWithError( "Unable to parse CYKV benchmark document" );
+        return;
+    }
+    usize cbHashed = 0u;
+    for ( auto _ : state ) {
+        key_value_canonical_hash_result_t hashed =
+            KeyValue_HashCanonicalDocument( pDocument );
+        if ( hashed.status != key_value_write_status_t::OK ) {
+            state.SkipWithError( "Unable to hash canonical CYKV document" );
+            break;
+        }
+        cbHashed = hashed.cbHashed;
+        benchmark::DoNotOptimize( hashed.hash.low );
+        benchmark::DoNotOptimize( hashed.hash.high );
+        benchmark::ClobberMemory();
+    }
+    SetBytes( state, cbHashed );
+    KeyValue_DestroyDocument( pDocument );
+}
+
 static void BM_KeyValue_PackWrite( benchmark::State &state )
 {
     key_value_document_t *pDocument = ParseBenchDocument();
@@ -190,5 +214,6 @@ static void BM_KeyValue_PackRead( benchmark::State &state )
 
 BENCHMARK( BM_KeyValue_ParseText );
 BENCHMARK( BM_KeyValue_WriteText );
+BENCHMARK( BM_KeyValue_HashCanonicalDocument );
 BENCHMARK( BM_KeyValue_PackWrite );
 BENCHMARK( BM_KeyValue_PackRead );
