@@ -1,0 +1,7 @@
+@cykv 1
+@schema "cypher.material" 1
+{
+    shader = "shaders/tile_surface.cyshader"
+    textures = { base_color = "textures/dev/diagnostics/diag_world_units.cytex" }
+    parameters = { tint = [1.00, 1.00, 1.00, 1.00] uv_scale = [1.00, 1.00] }
+}

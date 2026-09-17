@@ -1,0 +1,8 @@
+@cykv 1
+@schema "cypher.texture" 1
+{
+    source = "textures/dev/semantics/sem_light_volume.png"
+    usage = "color"
+    color_space = "srgb"
+    generate_mips = true
+}

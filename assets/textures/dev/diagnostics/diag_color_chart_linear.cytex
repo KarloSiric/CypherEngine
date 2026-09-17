@@ -1,0 +1,8 @@
+@cykv 1
+@schema "cypher.texture" 1
+{
+    source = "textures/dev/diagnostics/diag_color_chart_srgb.png"
+    usage = "color"
+    color_space = "linear"
+    generate_mips = false
+}
