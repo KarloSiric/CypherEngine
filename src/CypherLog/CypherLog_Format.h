@@ -56,6 +56,12 @@ log_error_t Log_FormatCompact(
     char *bufferOut,
     const common::usize nOutBufferSize );
 
+log_error_t Log_FormatConsole(
+    const record_t &record,
+    const sink_config_t &pSinkConfig,
+    char *bufferOut,
+    const common::usize nOutBufferSize );
+
 bool Log_FormatTimestamp( const record_t &record, char *bufferOut, const common::usize nOutBufferSize );
 
 const char *Log_LevelColor( const level_t level );
