@@ -69,7 +69,10 @@ struct render_asset_load_diagnostic_t {
     common::resource_id_t id{};                             // Stable ID of the resource being loaded.
     common::resource_type_id_t type{ 0u };                 // Type supplied by the resource manager.
     common::usize iStage{ common::CY_INVALID_SIZE };       // Invalid shader-stage index, when applicable.
+    common::usize iBinding{ common::CY_INVALID_SIZE };     // Invalid shader-interface binding index.
     common::usize iMip{ common::CY_INVALID_SIZE };         // Invalid texture-mip index, when applicable.
+    common::usize iSubresource{ common::CY_INVALID_SIZE }; // Invalid texture subresource index.
+    common::usize iFeature{ common::CY_INVALID_SIZE };     // Invalid material feature index.
     common::usize iTexture{ common::CY_INVALID_SIZE };     // Invalid material texture-binding index.
     common::usize iParameter{ common::CY_INVALID_SIZE };   // Invalid material parameter index.
     common::usize iChunk{ common::CY_INVALID_SIZE };       // Invalid cooked-container chunk index.
