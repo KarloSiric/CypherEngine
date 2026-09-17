@@ -67,9 +67,26 @@ constexpr common::u32 CYPHER_CVAR_REGISTER_ALLOWED_FLAGS =
 /*
 ================
 Cvar API
+
+Names are borrowed. Values must fit the 256-byte storage including termination;
+oversized values are rejected without mutation. The integer cache uses strtoull
+prefix-conversion semantics followed by unsigned narrowing. The floating-point
+cache accepts a strtof conversion only when it consumes the complete value;
+nonnumeric or trailing text caches as zero. A complete but out-of-range token
+can still produce infinity. Consumers remain responsible for their setting's
+range and finite-value policy. CYPHER_CVAR_MODIFIED always reflects whether the
+current value text differs from the registered default text.
 ================
 */
 cvar_error_t Cvar_Init();
+
+// Read-only registry diagnostics. Indexed entries follow registration order and
+// remain borrowed from the registry until CVar-system shutdown.
+bool Cvar_IsInitialized();
+
+common::u32 Cvar_Count();
+
+const cvar_t *Cvar_GetByIndex( common::u32 index );
 
 cvar_error_t Cvar_Register( const char *name, const char *defaultValue, flags_t flags );
 
