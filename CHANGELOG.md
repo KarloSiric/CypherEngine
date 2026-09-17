@@ -36,6 +36,19 @@ paths from fields and formats that are deliberately reserved for later work.
   guidance, versioning policy, complete source/cooked format catalog, current
   schema fields, limits, compiler/runtime support, diagnostics, determinism,
   security, migration rules, contributor checklists, glossary, and source index.
+- Expanded the manual to edition 0.2 as a field-complete format specification:
+  every implemented authored field now records its CYKV type, required state,
+  default, accepted values, range, version, and cross-field rules; every frozen
+  binary header, chunk, record, enum, flag, hash, order, alignment, and hard
+  limit is tabulated with current compiler and runtime capability boundaries.
+- Documented complete examples and exact contracts for CYKV text and tree packs,
+  Tier2 schemas, project/settings/config files, CYRS, shaders, textures,
+  materials, maps, input proposals, and `.cypak` archives. Reserved format names
+  now state explicitly that they have no frozen fields or compatibility promise.
+- Recorded implementation/specification differences instead of hiding them,
+  including CYKV key and float-output drift, tree-pack identity gaps, the two
+  distinct config grammars, source declarations that current render compilers
+  deliberately gate, and cooked data that the current renderer does not consume.
 - Added a CYKV 2 design proposal informed by Valve's published KeyValues and
   Data Model contracts. The proposal defines bounded VFS includes, explicit base
   composition, typed constants, build-context conditionals, numeric-type policy,
