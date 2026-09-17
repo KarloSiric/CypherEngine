@@ -2845,18 +2845,32 @@ if (CYPHERENGINE_BUILD_TILE_EDITOR AND TARGET CypherTileMapCore)
             cypher_tile_map_preview_shader_stage)
     endif()
     set(CYPHER_TILE_MATERIAL_OUTPUTS)
-    set(CYPHER_TILE_MATERIAL_INPUTS shaders/tile_surface.cyshader
-        textures/dev/grid.cytex textures/dev/brick.cytex textures/dev/hazard.cytex
-        materials/dev/grid.cymat materials/dev/brick.cymat materials/dev/hazard.cymat)
+    set(CYPHER_TILE_MATERIAL_MANIFEST
+        "${CYPHERENGINE_ROOT_DIR}/assets/tileeditor_dev_pack.rsp")
+    file(STRINGS "${CYPHER_TILE_MATERIAL_MANIFEST}"
+        CYPHER_TILE_MATERIAL_MANIFEST_LINES)
+    set(CYPHER_TILE_MATERIAL_INPUTS)
+    foreach(asset IN LISTS CYPHER_TILE_MATERIAL_MANIFEST_LINES)
+        string(STRIP "${asset}" asset)
+        if (NOT asset OR asset MATCHES "^#")
+            continue()
+        endif()
+        list(APPEND CYPHER_TILE_MATERIAL_INPUTS "${asset}")
+    endforeach()
+    file(GLOB_RECURSE CYPHER_TILE_MATERIAL_IMAGE_SOURCES CONFIGURE_DEPENDS
+        "${CYPHERENGINE_ROOT_DIR}/assets/textures/dev/*.png")
+    file(GLOB CYPHER_TILE_DEV_SHADER_STAGE_SOURCES CONFIGURE_DEPENDS
+        "${CYPHERENGINE_ROOT_DIR}/assets/shaders/dev/*.vert"
+        "${CYPHERENGINE_ROOT_DIR}/assets/shaders/dev/*.frag")
     set(CYPHER_TILE_MATERIAL_SOURCES
+        "${CYPHER_TILE_MATERIAL_MANIFEST}"
         "${CYPHERENGINE_ROOT_DIR}/assets/shaders/tile_surface.vert"
-        "${CYPHERENGINE_ROOT_DIR}/assets/shaders/tile_surface.frag")
+        "${CYPHERENGINE_ROOT_DIR}/assets/shaders/tile_surface.frag"
+        ${CYPHER_TILE_DEV_SHADER_STAGE_SOURCES}
+        ${CYPHER_TILE_MATERIAL_IMAGE_SOURCES})
     foreach(asset IN LISTS CYPHER_TILE_MATERIAL_INPUTS)
         list(APPEND CYPHER_TILE_MATERIAL_OUTPUTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/${asset}_c")
         list(APPEND CYPHER_TILE_MATERIAL_SOURCES "${CYPHERENGINE_ROOT_DIR}/assets/${asset}")
-    endforeach()
-    foreach(texture grid brick hazard)
-        list(APPEND CYPHER_TILE_MATERIAL_SOURCES "${CYPHERENGINE_ROOT_DIR}/assets/textures/dev/${texture}.png")
     endforeach()
     add_custom_command(OUTPUT ${CYPHER_TILE_MATERIAL_OUTPUTS}
         COMMAND $<TARGET_FILE:CypherResourceCompiler> compile
@@ -2879,6 +2893,43 @@ if (CYPHERENGINE_BUILD_TILE_EDITOR AND TARGET CypherTileMapCore)
     endif()
 
     if (CYPHERENGINE_BUILD_TESTS)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        add_test(
+            NAME cypher_tile_dev_texture_sources
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CYPHERENGINE_ROOT_DIR}/tools/asset_content/generate_tileeditor_dev_textures.py"
+                --check)
+        add_test(
+            NAME cypher_tile_dev_asset_recipes
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CYPHERENGINE_ROOT_DIR}/tools/asset_content/generate_tileeditor_dev_recipes.py"
+                --check)
+        add_test(
+            NAME cypher_tile_dev_asset_invariants
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CYPHERENGINE_ROOT_DIR}/tools/asset_content/verify_tileeditor_dev_pack.py")
+        add_test(
+            NAME cypher_tile_dev_lab_source
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CYPHERENGINE_ROOT_DIR}/tools/asset_content/generate_tileeditor_dev_lab.py"
+                --check)
+        add_test(
+            NAME cypher_tile_dev_asset_compile_validation
+            COMMAND $<TARGET_FILE:CypherResourceCompiler> validate
+                -s "${CYPHERENGINE_ROOT_DIR}/assets"
+                --target host --profile development
+                --color never --progress none
+                ${CYPHER_TILE_MATERIAL_INPUTS})
+        set_tests_properties(
+            cypher_tile_dev_texture_sources
+            cypher_tile_dev_asset_recipes
+            cypher_tile_dev_asset_invariants
+            cypher_tile_dev_lab_source
+            cypher_tile_dev_asset_compile_validation
+            PROPERTIES
+                LABELS "CypherTools;TileMap;Materials;Assets"
+                TIMEOUT 60)
+
         add_test(
             NAME cypher_tile_map_preview_smoke
             COMMAND cypher_tile_map_preview --hidden --frames 4
@@ -2897,8 +2948,14 @@ if (CYPHERENGINE_BUILD_TILE_EDITOR AND TARGET CypherTileMapCore)
             COMMAND cypher_tile_map_preview --hidden --frames 4
                 --map "${CYPHERENGINE_ROOT_DIR}/assets/maps/tile_editor_materials.cymap"
                 --asset-root "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources")
+        add_test(NAME cypher_tile_dev_lab_preview_smoke
+            COMMAND cypher_tile_map_preview --hidden --frames 4
+                --map "${CYPHERENGINE_ROOT_DIR}/assets/maps/tile_editor_dev_lab.cymap"
+                --asset-root "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources")
         set_tests_properties(cypher_tile_material_preview_smoke PROPERTIES
             LABELS "CypherTools;TileMap;Renderer;Materials;Smoke" TIMEOUT 45)
+        set_tests_properties(cypher_tile_dev_lab_preview_smoke PROPERTIES
+            LABELS "CypherTools;TileMap;Renderer;Materials;Assets;Smoke" TIMEOUT 45)
         set_tests_properties(cypher_tile_stairs_preview_smoke PROPERTIES
             LABELS "CypherTools;TileMap;Renderer;Smoke"
             TIMEOUT 45
