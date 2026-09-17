@@ -118,6 +118,7 @@ cmake --build --preset bench-release
 - [docs/subsystems.md](docs/subsystems.md)
 - [docs/coding_style.md](docs/coding_style.md)
 - [docs/reference_engine_lessons.md](docs/reference_engine_lessons.md)
+- [docs/TILEEDITOR_DEVELOPMENT_KIT.md](docs/TILEEDITOR_DEVELOPMENT_KIT.md)
 - [CHANGELOG.md](CHANGELOG.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 

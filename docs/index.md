@@ -43,12 +43,13 @@ Read these in order when resuming work:
 15. [source2_tooling_reference.md](source2_tooling_reference.md)
 16. [map_authoring_and_mason.md](map_authoring_and_mason.md)
 17. [trenchbroom_editor_systems_research.md](trenchbroom_editor_systems_research.md)
-18. [picasso_v1_design.md](picasso_v1_design.md)
-19. [formats/CYKV.md](formats/CYKV.md)
-20. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
-21. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
-22. [reference_engine_lessons.md](reference_engine_lessons.md)
-23. [security_model.md](security_model.md)
+18. [TILEEDITOR_DEVELOPMENT_KIT.md](TILEEDITOR_DEVELOPMENT_KIT.md)
+19. [picasso_v1_design.md](picasso_v1_design.md)
+20. [formats/CYKV.md](formats/CYKV.md)
+21. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
+22. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
+23. [reference_engine_lessons.md](reference_engine_lessons.md)
+24. [security_model.md](security_model.md)
 
 API docs:
 
@@ -67,6 +68,7 @@ Reference docs:
 - [trenchbroom_geometry_algorithms.md](trenchbroom_geometry_algorithms.md)
 - [trenchbroom_ui_command_inventory.md](trenchbroom_ui_command_inventory.md)
 - [editor_comparison_beyond_trenchbroom.md](editor_comparison_beyond_trenchbroom.md)
+- [TILEEDITOR_DEVELOPMENT_KIT.md](TILEEDITOR_DEVELOPMENT_KIT.md)
 
 Project memory:
 
@@ -168,6 +170,11 @@ Project memory:
     GtkRadiant/Q3Radiant, J.A.C.K., Blender, and Unity ProBuilder
   - semantic tile, prefab, mesh, terrain, path, projector, build-diagnostic,
     collaboration, adoption, and deferral lessons for TileEditor and Mason
+- `TILEEDITOR_DEVELOPMENT_KIT`
+  - live TileEditor material, texture, and shader compatibility contract
+  - complete diagnostic, semantic-label, blockout, and surface catalog
+  - deterministic generation, batch cooking, provenance, and validation
+  - known preview discrepancies and the asset program for all ten Mason modules
 - `picasso_v1_design`
   - approved Qt 6 Texture and Material workspace composition
   - Hammer-influenced dark visual language and semantic accent roles

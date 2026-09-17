@@ -227,6 +227,43 @@ paths from fields and formats that are deliberately reserved for later work.
   region, workspace, settings, console, shell, hosted-renderer, and live-preview
   test coverage.
 
+#### TileEditor Development Kit
+
+- Added a production-organized development library with 45 opaque RGBA8 PNG
+  sources, 47 V1 texture recipes, and 65 V1 material recipes. The library covers
+  UV orientation, repetition, mirroring, density, seams, NPOT input, mipmaps,
+  color space, axes, neutral values, missing resources, blockout roles, semantic
+  authoring labels, and readable level-design surfaces.
+- Added nine surface families for cast concrete, blue painted steel, gray
+  masonry, rubber stud flooring, wood planks, ceramic tiles, warm plaster,
+  asphalt, and red/white hazard panels while retaining the original grid,
+  brick, and yellow/black hazard paths.
+- Added deterministic Python generators for 38 procedural PNGs, all generated
+  `.cytex`/`.cymat` recipes, and the development-lab map. Each generator has a
+  byte-exact `--check` mode.
+- Added source-image verification for PNG CRCs, RGBA8 decoding, opacity,
+  dimensions, high-detail repeat-edge continuity, recipe source closure,
+  globally unique material-browser labels, manifest cardinality, and manifest
+  input existence.
+- Added six GLSL 410 development shaders for unlit base-color, UV gradient,
+  procedural UV checker, object normals, world normals, and primitive IDs.
+  They compile as standalone diagnostics while current TileEditor materials
+  continue to use the exact supported `tile_surface` shader.
+- Added `tileeditor_dev_pack.rsp` as the single 119-input batch manifest and
+  changed the CMake asset target to read it, track all dev PNG/GLSL sources, and
+  stage the complete cooked pack during a normal TileEditor build.
+- Added `tile_editor_dev_lab.cymap`, a deterministic V3 integration scene with
+  110 cells, 25 material bindings, 24 separated material plinths, varied floor
+  and wall heights, all cardinal stair directions, 2/8/16/32 tread counts, four
+  doors, high-slot and duplicate-path coverage, one unknown slot, and a spawn.
+- Added six asset-specific CTest checks, including a hidden four-frame dev-lab
+  render smoke, plus a repeatable pack benchmark for full validation and clean
+  cooking.
+- Added the complete TileEditor Development Kit reference covering its live V1
+  compatibility contract, catalogs, provenance, regeneration, compilation,
+  deterministic validation, benchmark procedure, current preview discrepancies,
+  and the future asset/test corpus for all ten Mason modules.
+
 #### Editor systems and TrenchBroom research
 
 - Added a pinned source-level TrenchBroom editor-systems manual covering the
