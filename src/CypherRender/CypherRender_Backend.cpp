@@ -34,6 +34,7 @@ bool R_IsBackendValid( const backend_api_t *backend ) noexcept
     // rejected as one unit rather than failing later through a null call.
     return backend->ConfigureWindow != nullptr &&
         backend->Init != nullptr &&
+        backend->InitHostSurface != nullptr &&
         backend->Shutdown != nullptr &&
         backend->BeginFrame != nullptr &&
         backend->Resize != nullptr &&
@@ -49,6 +50,12 @@ bool R_IsBackendValid( const backend_api_t *backend ) noexcept
         backend->DestroyBuffer != nullptr &&
         backend->CreateVertexInput != nullptr &&
         backend->DestroyVertexInput != nullptr &&
+        backend->CreateShader != nullptr &&
+        backend->DestroyShader != nullptr &&
+        backend->CreateGraphicsPipeline != nullptr &&
+        backend->DestroyGraphicsPipeline != nullptr &&
+        backend->DrawIndexed != nullptr &&
+        ( ( backend->CreateTexture2D == nullptr ) == ( backend->DestroyTexture == nullptr ) ) &&
         backend->state != nullptr;
 }
 
