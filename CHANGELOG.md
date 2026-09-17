@@ -29,6 +29,30 @@ paths from fields and formats that are deliberately reserved for later work.
 
 ### Added
 
+#### Engine and format reference manual
+
+- Added the first edition of the CypherEngine Reference Manual with a navigable
+  table of contents, architecture and ownership boundaries, build and VFS
+  guidance, versioning policy, complete source/cooked format catalog, current
+  schema fields, limits, compiler/runtime support, diagnostics, determinism,
+  security, migration rules, contributor checklists, glossary, and source index.
+- Added a CYKV 2 design proposal informed by Valve's published KeyValues and
+  Data Model contracts. The proposal defines bounded VFS includes, explicit base
+  composition, typed constants, build-context conditionals, numeric-type policy,
+  schema-gated non-finite values, source provenance, semantic/provenance hashes,
+  a self-identifying binary generation, and hostile-input limits while keeping
+  CYKV 1 frozen.
+- Added a complete proposed input-format family: source-controlled `.cyinput`,
+  cooked `.cyinput_c`/`CYIN`, and writable `.cybindings`. The contract separates
+  physical controls from text input and covers actions, contexts, schemes,
+  keyboard/mouse/gamepad controls, chords, composites, processors, conflict
+  policy, accessibility, focus loss, user migration, and deterministic runtime
+  tables.
+- Expanded the format catalog with gameplay-data, localization, captions,
+  animation-graph, audio-event/mixer, post-processing, replay, save, mod,
+  plug-in, and tool-local candidate families. Corrected the `.cypak` V10 status
+  so timestamp-dependent output is not described as fully reproducible.
+
 #### Render-asset formats and compilers
 
 - Added V2 CYKV schemas and owned typed decoders for `.cyshader`, `.cytex`,
