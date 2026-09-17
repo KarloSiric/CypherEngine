@@ -174,6 +174,7 @@ const char *FS_GetWritePath();
 File I/O
 ================
 */
+// file must be empty/closed. A live file is preserved and returns ERR_INVALID_ARGUMENT.
 fs_error_t FS_Open(
     const char *pszVirtualPath,
     open_mode_t mode,
@@ -293,6 +294,13 @@ Async And Streaming
 
 The first implementation can be simple worker-thread file reads. Later this
 becomes the streaming layer for textures, audio, levels and packages.
+
+Read buffers remain borrowed until Poll/Wait reports COMPLETE, FAILED, or
+CANCELLED, or until FS_Shutdown returns OK after draining admitted workers.
+Cancel requests a result change; it does not stop in-flight I/O or release the
+read buffer. Poll keeps reporting RUNNING until the worker finishes.
+Once shutdown begins, new async submissions return ERR_NOT_INIT with an invalid
+request handle. Already-admitted workers finish before runtime storage is cleared.
 ================
 */
 fs_error_t FS_ReadAsync(
