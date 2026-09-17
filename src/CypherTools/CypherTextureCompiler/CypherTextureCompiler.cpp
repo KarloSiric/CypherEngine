@@ -26,6 +26,7 @@
 #include "CypherCommon_ImageCodec.h"
 #include "CypherCommon_ImageView.h"
 #include "CypherCommon_KeyValueParser.h"
+#include "CypherCommon_KeyValueWriter.h"
 #include "CypherCommon_MemoryOps.h"
 #include "CypherCommon_RenderAsset.h"
 #include "CypherCommon_StringFormat.h"
@@ -41,6 +42,10 @@
 
 #include <cmath>
 #include <cstring>
+
+#ifndef CYPHER_VCPKG_BASELINE
+    #define CYPHER_VCPKG_BASELINE "untracked"
+#endif
 
 namespace cypher::tools
 {
@@ -88,13 +93,236 @@ struct decoded_image_t {
     blob_t pixels{};
 };
 
+struct texture_recipe_t {
+    u32 nSchemaVersion{ CY_RENDER_ASSET_SCHEMA_VERSION_V1 };
+    string_view_t source{};
+    render_texture_usage_t usage{ render_texture_usage_t::COLOR };
+    render_texture_color_space_t colorSpace{
+        render_texture_color_space_t::SRGB
+    };
+    cooked_texture_alpha_mode_t alphaMode{
+        cooked_texture_alpha_mode_t::STRAIGHT
+    };
+    f32 alphaCutoff{ 0.5f };
+    render_texture_mip_mode_t mipMode{
+        render_texture_mip_mode_t::GENERATE
+    };
+    render_texture_mip_filter_t mipFilter{
+        render_texture_mip_filter_t::BOX
+    };
+    render_texture_edge_mode_t edgeMode{
+        render_texture_edge_mode_t::CLAMP
+    };
+    render_texture_output_format_t outputFormat{
+        render_texture_output_format_t::AUTO
+    };
+    render_texture_output_quality_t outputQuality{
+        render_texture_output_quality_t::BALANCED
+    };
+    string_view_t streamingClass{};
+    u32 nResidentMipLevels{ 0u };
+    u32 nStreamingPriority{ 0u };
+    bool_t bPreserveAlphaCoverage{ CY_FALSE };
+    bool_t bDilateRgb{ CY_FALSE };
+    bool_t bStreaming{ CY_FALSE };
+};
+
+enum class texture_policy_status_t : u8 {
+    OK = 0u,
+    UNSUPPORTED_MIP_FILTER,
+    UNSUPPORTED_EDGE_MODE,
+    UNSUPPORTED_ALPHA_COVERAGE,
+    UNSUPPORTED_ALPHA_DILATION,
+    UNSUPPORTED_PRESERVED_IMPORT
+};
+
+CYPHER_NODISCARD cooked_texture_alpha_mode_t ConvertAlphaMode(
+    render_texture_alpha_mode_t mode ) noexcept
+{
+    switch ( mode ) {
+        case render_texture_alpha_mode_t::NONE:
+            return cooked_texture_alpha_mode_t::NONE;
+        case render_texture_alpha_mode_t::STRAIGHT:
+            return cooked_texture_alpha_mode_t::STRAIGHT;
+        case render_texture_alpha_mode_t::PREMULTIPLIED:
+            return cooked_texture_alpha_mode_t::PREMULTIPLIED;
+        case render_texture_alpha_mode_t::MASK:
+            return cooked_texture_alpha_mode_t::MASK;
+        case render_texture_alpha_mode_t::DATA:
+            return cooked_texture_alpha_mode_t::DATA;
+    }
+    return cooked_texture_alpha_mode_t::NONE;
+}
+
+CYPHER_NODISCARD u32 StreamingPriority(
+    string_view_t resourceClass ) noexcept
+{
+    // These stable values are serialized scheduling hints. Known classes leave
+    // deliberate gaps for future policy tiers. Unknown valid identifiers use
+    // neutral world priority; changing this table requires a compiler bump.
+    if ( StringView_Equals( resourceClass, TextureText( "critical" ) ) ) {
+        return 255u;
+    }
+    if ( StringView_Equals( resourceClass, TextureText( "ui" ) ) ) {
+        return 224u;
+    }
+    if ( StringView_Equals( resourceClass, TextureText( "character" ) ) ) {
+        return 192u;
+    }
+    if ( StringView_Equals( resourceClass, TextureText( "world" ) ) ) {
+        return 128u;
+    }
+    if ( StringView_Equals( resourceClass, TextureText( "effects" ) ) ) {
+        return 96u;
+    }
+    if ( StringView_Equals( resourceClass, TextureText( "background" ) ) ) {
+        return 32u;
+    }
+    return 128u;
+}
+
+void NormalizeRecipe(
+    const render_texture_source_view_t &source,
+    texture_recipe_t &recipeOut ) noexcept
+{
+    texture_recipe_t recipe{};
+    recipe.nSchemaVersion = CY_RENDER_ASSET_SCHEMA_VERSION_V1;
+    recipe.source = source.source;
+    recipe.usage = source.usage;
+    recipe.colorSpace = source.colorSpace;
+    recipe.alphaMode = source.usage == render_texture_usage_t::COLOR
+        ? cooked_texture_alpha_mode_t::STRAIGHT
+        : source.usage == render_texture_usage_t::DATA
+            ? cooked_texture_alpha_mode_t::DATA
+            : cooked_texture_alpha_mode_t::NONE;
+    recipe.mipMode = source.bGenerateMips
+        ? render_texture_mip_mode_t::GENERATE
+        : render_texture_mip_mode_t::NONE;
+    recipeOut = recipe;
+}
+
+void NormalizeRecipe(
+    const render_texture_source_v2_view_t &source,
+    texture_recipe_t &recipeOut ) noexcept
+{
+    texture_recipe_t recipe{};
+    recipe.nSchemaVersion = CY_RENDER_ASSET_SCHEMA_VERSION_V2;
+    recipe.source = source.source;
+    recipe.usage = source.usage;
+    recipe.colorSpace = source.colorSpace;
+    recipe.alphaMode = ConvertAlphaMode( source.alpha.mode );
+    recipe.alphaCutoff = static_cast<f32>( source.alpha.cutoff );
+    recipe.mipMode = source.mips.mode;
+    recipe.mipFilter = source.mips.filter;
+    recipe.edgeMode = source.mips.edge;
+    recipe.outputFormat = source.output.format;
+    recipe.outputQuality = source.output.quality;
+    recipe.streamingClass = source.streaming.resourceClass;
+    recipe.nResidentMipLevels = static_cast<u32>(
+        source.streaming.nResidentMipCount );
+    recipe.nStreamingPriority = source.streaming.bEnabled
+        ? StreamingPriority( source.streaming.resourceClass )
+        : 0u;
+    recipe.bPreserveAlphaCoverage = source.mips.bPreserveAlphaCoverage;
+    recipe.bDilateRgb = source.alpha.bDilateRgb;
+    recipe.bStreaming = source.streaming.bEnabled;
+    recipeOut = recipe;
+}
+
+CYPHER_NODISCARD texture_policy_status_t ValidateTexturePolicy(
+    const texture_recipe_t &recipe ) noexcept
+{
+    if ( StringPath_HasExtension(
+             recipe.source,
+             TextureText( ".dds" ),
+             CY_TRUE ) ||
+         StringPath_HasExtension(
+             recipe.source,
+             TextureText( ".ktx2" ),
+             CY_TRUE ) ||
+         recipe.mipMode == render_texture_mip_mode_t::PRESERVE ) {
+        return texture_policy_status_t::UNSUPPORTED_PRESERVED_IMPORT;
+    }
+    if ( recipe.mipFilter != render_texture_mip_filter_t::BOX ) {
+        return texture_policy_status_t::UNSUPPORTED_MIP_FILTER;
+    }
+    if ( recipe.edgeMode != render_texture_edge_mode_t::CLAMP ) {
+        return texture_policy_status_t::UNSUPPORTED_EDGE_MODE;
+    }
+    if ( recipe.bPreserveAlphaCoverage ) {
+        return texture_policy_status_t::UNSUPPORTED_ALPHA_COVERAGE;
+    }
+    if ( recipe.bDilateRgb ) {
+        return texture_policy_status_t::UNSUPPORTED_ALPHA_DILATION;
+    }
+    return texture_policy_status_t::OK;
+}
+
+CYPHER_NODISCARD string_view_t PolicyDiagnosticMessage(
+    texture_policy_status_t status ) noexcept
+{
+    switch ( status ) {
+        case texture_policy_status_t::UNSUPPORTED_MIP_FILTER:
+            return TextureText(
+                "Texture compiler currently supports only the box mip filter." );
+        case texture_policy_status_t::UNSUPPORTED_EDGE_MODE:
+            return TextureText(
+                "Texture compiler currently supports only clamped mip edges." );
+        case texture_policy_status_t::UNSUPPORTED_ALPHA_COVERAGE:
+            return TextureText(
+                "Alpha-coverage-preserving mip generation is not implemented." );
+        case texture_policy_status_t::UNSUPPORTED_ALPHA_DILATION:
+            return TextureText(
+                "Transparent-pixel RGB dilation is not implemented." );
+        case texture_policy_status_t::UNSUPPORTED_PRESERVED_IMPORT:
+            return TextureText(
+                "DDS/KTX2 container and preserved-mip import is not implemented." );
+        case texture_policy_status_t::OK:
+            break;
+    }
+    return TextureText( "Texture policy is unsupported." );
+}
+
+CYPHER_NODISCARD cooked_texture_target_t CookedTarget(
+    tool_target_t target ) noexcept
+{
+    switch ( target.platform ) {
+        case tool_platform_t::WINDOWS:
+        case tool_platform_t::LINUX:
+            return cooked_texture_target_t::DESKTOP;
+        case tool_platform_t::MACOS:
+            return cooked_texture_target_t::APPLE;
+        case tool_platform_t::UNKNOWN:
+            break;
+    }
+    return cooked_texture_target_t::PORTABLE;
+}
+
+CYPHER_NODISCARD render_format_t SelectStorageFormat(
+    const texture_recipe_t &recipe,
+    render_texture_pixel_format_t pixelFormat ) noexcept
+{
+    // AUTO intentionally resolves to the same uncompressed storage as the
+    // explicit UNCOMPRESSED policy until target compressors are implemented.
+    switch ( recipe.outputFormat ) {
+        case render_texture_output_format_t::AUTO:
+        case render_texture_output_format_t::UNCOMPRESSED:
+            break;
+    }
+    return pixelFormat == render_texture_pixel_format_t::RGBA32_FLOAT
+        ? render_format_t::RGBA32_FLOAT
+        : pixelFormat == render_texture_pixel_format_t::RGBA8_SRGB
+            ? render_format_t::RGBA8_SRGB
+            : render_format_t::RGBA8_UNORM;
+}
+
 struct texture_compile_work_t {
     text_buffer_t recipeDiagnosticPath{};
     text_buffer_t sourceDiagnosticPath{};
     text_buffer_t outputNativePath{};
     text_buffer_t recipeText{};
     key_value_document_owner_t document{};
-    render_texture_source_view_t recipe{};
+    texture_recipe_t recipe{};
     blob_t sourceBytes{};
     decoded_image_t image{};
     blob_t mipStorage[CY_COOKED_TEXTURE_MAX_MIP_LEVELS]{};
@@ -422,6 +650,7 @@ CYPHER_NODISCARD bool_t GenerateNextMip8(
     const cooked_texture_mip_source_t &source,
     bool_t bSrgb,
     bool_t bNormal,
+    bool_t bStraightAlpha,
     blob_t &dest,
     cooked_texture_mip_source_t &mipOut ) noexcept
 {
@@ -434,63 +663,102 @@ CYPHER_NODISCARD bool_t GenerateNextMip8(
 
     for ( u32 y = 0u; y < nHeight; ++y ) {
         for ( u32 x = 0u; x < nWidth; ++x ) {
-            f32 sums[4]{};
-            u32 nSamples = 0u;
-            const u32 syBegin = static_cast<u32>(
-                static_cast<u64>( y ) * source.nHeight / nHeight );
+            f64 sums[4]{};
+            u64 nTotalWeight = 0u;
+            // Boundaries use exact rational coordinates. A 5 -> 2 reduction,
+            // for example, gives the shared center texel half weight in each
+            // destination texel instead of assigning it wholly to one side.
+            const u64 yBegin = static_cast<u64>( y ) * source.nHeight;
+            const u64 yEnd = static_cast<u64>( y + 1u ) * source.nHeight;
+            const u32 syBegin = static_cast<u32>( yBegin / nHeight );
             const u32 syEnd = static_cast<u32>(
-                static_cast<u64>( y + 1u ) * source.nHeight / nHeight );
-            const u32 sxBegin = static_cast<u32>(
-                static_cast<u64>( x ) * source.nWidth / nWidth );
+                ( yEnd + nHeight - 1u ) / nHeight );
+            const u64 xBegin = static_cast<u64>( x ) * source.nWidth;
+            const u64 xEnd = static_cast<u64>( x + 1u ) * source.nWidth;
+            const u32 sxBegin = static_cast<u32>( xBegin / nWidth );
             const u32 sxEnd = static_cast<u32>(
-                static_cast<u64>( x + 1u ) * source.nWidth / nWidth );
+                ( xEnd + nWidth - 1u ) / nWidth );
             for ( u32 sy = syBegin; sy < syEnd; ++sy ) {
+                const u64 sourceYBegin = static_cast<u64>( sy ) * nHeight;
+                const u64 sourceYEnd = static_cast<u64>( sy + 1u ) * nHeight;
+                const u64 overlapYBegin =
+                    yBegin > sourceYBegin ? yBegin : sourceYBegin;
+                const u64 overlapYEnd =
+                    yEnd < sourceYEnd ? yEnd : sourceYEnd;
+                const u64 weightY = overlapYEnd - overlapYBegin;
                 for ( u32 sx = sxBegin; sx < sxEnd; ++sx ) {
+                    const u64 sourceXBegin = static_cast<u64>( sx ) * nWidth;
+                    const u64 sourceXEnd = static_cast<u64>( sx + 1u ) * nWidth;
+                    const u64 overlapXBegin =
+                        xBegin > sourceXBegin ? xBegin : sourceXBegin;
+                    const u64 overlapXEnd =
+                        xEnd < sourceXEnd ? xEnd : sourceXEnd;
+                    const u64 weight = weightY *
+                        ( overlapXEnd - overlapXBegin );
                     const byte *pPixel = source.pixels.pData +
                         static_cast<usize>( sy ) * source.cbRowPitch + sx * 4u;
-                    for ( u32 iChannel = 0u; iChannel < 4u; ++iChannel ) {
-                        f32 value = static_cast<f32>( pPixel[iChannel] ) / 255.0f;
-                        if ( bSrgb && iChannel < 3u ) {
-                            value = SrgbToLinear( value );
+                    const f64 alpha =
+                        static_cast<f64>( pPixel[3] ) / 255.0;
+                    for ( u32 iChannel = 0u; iChannel < 3u; ++iChannel ) {
+                        f64 value =
+                            static_cast<f64>( pPixel[iChannel] ) / 255.0;
+                        if ( bSrgb ) {
+                            value = SrgbToLinear(
+                                static_cast<f32>( value ) );
                         }
-                        if ( bNormal && iChannel < 3u ) {
-                            value = value * 2.0f - 1.0f;
+                        if ( bNormal ) {
+                            value = value * 2.0 - 1.0;
                         }
-                        sums[iChannel] += value;
+                        if ( bStraightAlpha && !bNormal ) {
+                            value *= alpha;
+                        }
+                        sums[iChannel] +=
+                            value * static_cast<f64>( weight );
                     }
-                    ++nSamples;
+                    sums[3] += alpha * static_cast<f64>( weight );
+                    nTotalWeight += weight;
                 }
             }
 
             byte *pDest = dest.pData +
                 ( static_cast<usize>( y ) * nWidth + x ) * 4u;
+            const f64 flTotalWeight = static_cast<f64>( nTotalWeight );
             if ( bNormal ) {
-                f32 nx = sums[0] / nSamples;
-                f32 ny = sums[1] / nSamples;
-                f32 nz = sums[2] / nSamples;
-                const f32 nLength = std::sqrt( nx * nx + ny * ny + nz * nz );
-                if ( nLength > 0.000001f ) {
+                f64 nx = sums[0] / flTotalWeight;
+                f64 ny = sums[1] / flTotalWeight;
+                f64 nz = sums[2] / flTotalWeight;
+                const f64 nLength = std::sqrt( nx * nx + ny * ny + nz * nz );
+                if ( nLength > 0.000001 ) {
                     nx /= nLength;
                     ny /= nLength;
                     nz /= nLength;
                 } else {
-                    nx = 0.0f;
-                    ny = 0.0f;
-                    nz = 1.0f;
+                    nx = 0.0;
+                    ny = 0.0;
+                    nz = 1.0;
                 }
-                pDest[0] = QuantizeUnorm8( nx * 0.5f + 0.5f );
-                pDest[1] = QuantizeUnorm8( ny * 0.5f + 0.5f );
-                pDest[2] = QuantizeUnorm8( nz * 0.5f + 0.5f );
+                pDest[0] = QuantizeUnorm8(
+                    static_cast<f32>( nx * 0.5 + 0.5 ) );
+                pDest[1] = QuantizeUnorm8(
+                    static_cast<f32>( ny * 0.5 + 0.5 ) );
+                pDest[2] = QuantizeUnorm8(
+                    static_cast<f32>( nz * 0.5 + 0.5 ) );
             } else {
                 for ( u32 iChannel = 0u; iChannel < 3u; ++iChannel ) {
-                    f32 value = sums[iChannel] / nSamples;
+                    f64 value = bStraightAlpha
+                        ? sums[3] > 0.000000001
+                            ? sums[iChannel] / sums[3]
+                            : 0.0
+                        : sums[iChannel] / flTotalWeight;
                     if ( bSrgb ) {
-                        value = LinearToSrgb( value );
+                        value = LinearToSrgb( static_cast<f32>( value ) );
                     }
-                    pDest[iChannel] = QuantizeUnorm8( value );
+                    pDest[iChannel] = QuantizeUnorm8(
+                        static_cast<f32>( value ) );
                 }
             }
-            pDest[3] = QuantizeUnorm8( sums[3] / nSamples );
+            pDest[3] = QuantizeUnorm8(
+                static_cast<f32>( sums[3] / flTotalWeight ) );
         }
     }
     mipOut = {
@@ -505,6 +773,8 @@ CYPHER_NODISCARD bool_t GenerateNextMip8(
 
 CYPHER_NODISCARD bool_t GenerateNextMipFloat(
     const cooked_texture_mip_source_t &source,
+    bool_t bNormal,
+    bool_t bStraightAlpha,
     blob_t &dest,
     cooked_texture_mip_source_t &mipOut ) noexcept
 {
@@ -517,36 +787,97 @@ CYPHER_NODISCARD bool_t GenerateNextMipFloat(
 
     for ( u32 y = 0u; y < nHeight; ++y ) {
         for ( u32 x = 0u; x < nWidth; ++x ) {
-            f32 sums[4]{};
-            u32 nSamples = 0u;
-            const u32 syBegin = static_cast<u32>(
-                static_cast<u64>( y ) * source.nHeight / nHeight );
+            f64 sums[4]{};
+            u64 nTotalWeight = 0u;
+            const u64 yBegin = static_cast<u64>( y ) * source.nHeight;
+            const u64 yEnd = static_cast<u64>( y + 1u ) * source.nHeight;
+            const u32 syBegin = static_cast<u32>( yBegin / nHeight );
             const u32 syEnd = static_cast<u32>(
-                static_cast<u64>( y + 1u ) * source.nHeight / nHeight );
-            const u32 sxBegin = static_cast<u32>(
-                static_cast<u64>( x ) * source.nWidth / nWidth );
+                ( yEnd + nHeight - 1u ) / nHeight );
+            const u64 xBegin = static_cast<u64>( x ) * source.nWidth;
+            const u64 xEnd = static_cast<u64>( x + 1u ) * source.nWidth;
+            const u32 sxBegin = static_cast<u32>( xBegin / nWidth );
             const u32 sxEnd = static_cast<u32>(
-                static_cast<u64>( x + 1u ) * source.nWidth / nWidth );
+                ( xEnd + nWidth - 1u ) / nWidth );
             for ( u32 sy = syBegin; sy < syEnd; ++sy ) {
+                const u64 sourceYBegin = static_cast<u64>( sy ) * nHeight;
+                const u64 sourceYEnd = static_cast<u64>( sy + 1u ) * nHeight;
+                const u64 overlapYBegin =
+                    yBegin > sourceYBegin ? yBegin : sourceYBegin;
+                const u64 overlapYEnd =
+                    yEnd < sourceYEnd ? yEnd : sourceYEnd;
+                const u64 weightY = overlapYEnd - overlapYBegin;
                 for ( u32 sx = sxBegin; sx < sxEnd; ++sx ) {
+                    const u64 sourceXBegin = static_cast<u64>( sx ) * nWidth;
+                    const u64 sourceXEnd = static_cast<u64>( sx + 1u ) * nWidth;
+                    const u64 overlapXBegin =
+                        xBegin > sourceXBegin ? xBegin : sourceXBegin;
+                    const u64 overlapXEnd =
+                        xEnd < sourceXEnd ? xEnd : sourceXEnd;
+                    const u64 weight = weightY *
+                        ( overlapXEnd - overlapXBegin );
                     const byte *pPixel = source.pixels.pData +
                         static_cast<usize>( sy ) * source.cbRowPitch + sx * 16u;
+                    f32 components[4]{};
                     for ( u32 iChannel = 0u; iChannel < 4u; ++iChannel ) {
-                        f32 value = 0.0f;
                         Cy_MemCopy(
-                            &value,
+                            &components[iChannel],
                             pPixel + iChannel * sizeof( f32 ),
-                            sizeof( value ) );
-                        sums[iChannel] += Cy_LittleToHostF32( value );
+                            sizeof( components[iChannel] ) );
+                        components[iChannel] = Cy_LittleToHostF32(
+                            components[iChannel] );
                     }
-                    ++nSamples;
+                    const f64 alpha = components[3];
+                    for ( u32 iChannel = 0u; iChannel < 3u; ++iChannel ) {
+                        f64 value = components[iChannel];
+                        if ( bNormal ) {
+                            value = value * 2.0 - 1.0;
+                        } else if ( bStraightAlpha ) {
+                            value *= alpha;
+                        }
+                        sums[iChannel] +=
+                            value * static_cast<f64>( weight );
+                    }
+                    sums[3] += alpha * static_cast<f64>( weight );
+                    nTotalWeight += weight;
                 }
             }
             byte *pDest = dest.pData +
                 ( static_cast<usize>( y ) * nWidth + x ) * 16u;
+            const f64 flTotalWeight = static_cast<f64>( nTotalWeight );
+            f64 output[4]{
+                sums[0] / flTotalWeight,
+                sums[1] / flTotalWeight,
+                sums[2] / flTotalWeight,
+                sums[3] / flTotalWeight
+            };
+            if ( bNormal ) {
+                const f64 nLength = std::sqrt(
+                    output[0] * output[0] +
+                    output[1] * output[1] +
+                    output[2] * output[2] );
+                if ( nLength > 0.000001 ) {
+                    output[0] /= nLength;
+                    output[1] /= nLength;
+                    output[2] /= nLength;
+                } else {
+                    output[0] = 0.0;
+                    output[1] = 0.0;
+                    output[2] = 1.0;
+                }
+                output[0] = output[0] * 0.5 + 0.5;
+                output[1] = output[1] * 0.5 + 0.5;
+                output[2] = output[2] * 0.5 + 0.5;
+            } else if ( bStraightAlpha ) {
+                for ( u32 iChannel = 0u; iChannel < 3u; ++iChannel ) {
+                    output[iChannel] = sums[3] > 0.000000001
+                        ? sums[iChannel] / sums[3]
+                        : 0.0;
+                }
+            }
             for ( u32 iChannel = 0u; iChannel < 4u; ++iChannel ) {
                 const f32 value = Cy_HostToLittleF32(
-                    sums[iChannel] / nSamples );
+                    static_cast<f32>( output[iChannel] ) );
                 Cy_MemCopy(
                     pDest + iChannel * sizeof( f32 ),
                     &value,
@@ -564,15 +895,33 @@ CYPHER_NODISCARD bool_t GenerateNextMipFloat(
     return CY_TRUE;
 }
 
-CYPHER_NODISCARD bool_t BuildMipChain(
+enum class mip_chain_status_t : u8 {
+    OK = 0u,
+    INVALID_PLAN,
+    CAPACITY_EXCEEDED,
+    OUT_OF_MEMORY
+};
+
+CYPHER_NODISCARD mip_chain_status_t BuildMipChain(
     texture_compile_work_t &work ) noexcept
 {
-    work.nMipLevels = work.recipe.bGenerateMips
-        ? CookedTexture_FullMipCount( work.image.nWidth, work.image.nHeight )
-        : 1u;
-    if ( work.nMipLevels == 0u ||
+    u64 cbMipData = 0u;
+    const u32 cbPixel = work.image.pixelFormat ==
+            render_texture_pixel_format_t::RGBA32_FLOAT
+        ? 16u
+        : 4u;
+    if ( !CypherTextureCompiler_CalculateMipDataSize(
+             work.image.nWidth,
+             work.image.nHeight,
+             cbPixel,
+             work.recipe.mipMode == render_texture_mip_mode_t::GENERATE,
+             &work.nMipLevels,
+             &cbMipData ) ||
          work.nMipLevels > CY_COOKED_TEXTURE_MAX_MIP_LEVELS ) {
-        return CY_FALSE;
+        return mip_chain_status_t::INVALID_PLAN;
+    }
+    if ( cbMipData > CY_COOKED_TEXTURE_MAX_TOTAL_DATA_SIZE ) {
+        return mip_chain_status_t::CAPACITY_EXCEEDED;
     }
     work.mips[0] = {
         work.image.nWidth,
@@ -585,34 +934,46 @@ CYPHER_NODISCARD bool_t BuildMipChain(
         work.recipe.colorSpace == render_texture_color_space_t::SRGB;
     const bool_t bNormal =
         work.recipe.usage == render_texture_usage_t::NORMAL;
+    const bool_t bStraightAlpha =
+        work.recipe.alphaMode == cooked_texture_alpha_mode_t::STRAIGHT;
     for ( usize iMip = 1u; iMip < work.nMipLevels; ++iMip ) {
         const bool_t bGenerated =
             work.image.pixelFormat == render_texture_pixel_format_t::RGBA32_FLOAT
                 ? GenerateNextMipFloat(
                       work.mips[iMip - 1u],
+                      bNormal,
+                      bStraightAlpha,
                       work.mipStorage[iMip],
                       work.mips[iMip] )
                 : GenerateNextMip8(
                       work.mips[iMip - 1u],
                       bSrgb,
                       bNormal,
+                      bStraightAlpha,
                       work.mipStorage[iMip],
                       work.mips[iMip] );
         if ( !bGenerated ) {
-            return CY_FALSE;
+            return mip_chain_status_t::OUT_OF_MEMORY;
         }
     }
-    return CY_TRUE;
+    return mip_chain_status_t::OK;
 }
 
 CYPHER_NODISCARD content_hash_t CompilerHash() noexcept
 {
-    const u32 identity[]{
+    char identity[160]{};
+    const string_format_result_t formatted = StringFormat_Printf(
+        identity,
+        sizeof( identity ),
+        "cypher.texture-compiler.api%u.compiler%u.schema%u-%u.cytx%u",
         CY_TEXTURE_COMPILER_API_VERSION,
         CY_TEXTURE_COMPILER_VERSION,
-        CY_RENDER_TEXTURE_RESOURCE_VERSION
-    };
-    return ContentHash_Data( BinaryBlock_FromData( identity, sizeof( identity ) ) );
+        CY_RENDER_ASSET_SCHEMA_VERSION_V1,
+        CY_RENDER_ASSET_SCHEMA_VERSION_V2,
+        CY_RENDER_TEXTURE_RESOURCE_VERSION );
+    return formatted.status == string_format_status_t::OK
+        ? ContentHash_String( StringView_FromCString( identity ) )
+        : CY_CONTENT_HASH_INVALID;
 }
 
 CYPHER_NODISCARD content_hash_t ToolchainHash() noexcept
@@ -620,7 +981,25 @@ CYPHER_NODISCARD content_hash_t ToolchainHash() noexcept
     return ContentHash_String( TextureText(
         "libpng:" PNG_LIBPNG_VER_STRING
         ";libjpeg-turbo:" CYPHER_STRINGIFY( TURBOJPEG_VERSION_NUMBER )
-        ";tinyexr:vcpkg" ) );
+        ";tinyexr:vcpkg-baseline:" CYPHER_VCPKG_BASELINE ) );
+}
+
+CYPHER_NODISCARD content_hash_t ConfigurationHash(
+    const tool_context_t &context ) noexcept
+{
+    // Target and profile are semantic build inputs. Keep them separate from the
+    // compiler implementation identity so dependency reports can explain a
+    // rebuild caused by an invocation configuration change.
+    content_hash_t hash = ContentHash_String(
+        TextureText( "cypher-texture-build-configuration-v1" ) );
+    hash = ContentHash_Combine(
+        hash,
+        ContentHash_String( StringView_FromCString(
+            ToolTarget_Name( context.target ) ) ) );
+    return ContentHash_Combine(
+        hash,
+        ContentHash_String( StringView_FromCString(
+            ToolProfile_Name( context.profile ) ) ) );
 }
 
 void EmitDependencies(
@@ -629,7 +1008,8 @@ void EmitDependencies(
     content_hash_t recipeHash,
     content_hash_t imageHash,
     content_hash_t compilerHash,
-    content_hash_t toolchainHash ) noexcept
+    content_hash_t toolchainHash,
+    content_hash_t configurationHash ) noexcept
 {
     const tool_dependency_t dependencies[]{
         { request.input, tool_dependency_kind_t::SOURCE, recipeHash,
@@ -641,6 +1021,9 @@ void EmitDependencies(
           TOOL_DEPENDENCY_FLAG_REQUIRED },
         { TextureText( "toolchain/image-import" ),
           tool_dependency_kind_t::TOOLCHAIN, toolchainHash,
+          TOOL_DEPENDENCY_FLAG_REQUIRED },
+        { TextureText( "configuration/texture-target-profile" ),
+          tool_dependency_kind_t::CONFIGURATION, configurationHash,
           TOOL_DEPENDENCY_FLAG_REQUIRED }
     };
     for ( const tool_dependency_t &dependency : dependencies ) {
@@ -818,12 +1201,36 @@ CYPHER_NODISCARD tool_status_t ExecuteTextureCompiler(
     }
 
     schema_diagnostic_t diagnostics[CY_TEXTURE_COMPILER_SCHEMA_DIAGNOSTICS]{};
-    const render_asset_decode_result_t decoded = RenderTextureSource_Decode(
-        work.document.pDocument,
-        {},
-        diagnostics,
-        CYPHER_ARRAY_COUNT( diagnostics ),
-        &work.recipe );
+    render_asset_decode_result_t decoded{};
+    const key_value_document_header_t documentHeader =
+        KeyValue_DocumentHeader( work.document.pDocument );
+    if ( documentHeader.nSchemaVersion ==
+         CY_RENDER_ASSET_SCHEMA_VERSION_V2 ) {
+        render_texture_source_v2_view_t source{};
+        decoded = RenderTextureSourceV2_Decode(
+            work.document.pDocument,
+            {},
+            diagnostics,
+            CYPHER_ARRAY_COUNT( diagnostics ),
+            &source );
+        if ( RenderAsset_DecodeSucceeded( decoded ) ) {
+            NormalizeRecipe( source, work.recipe );
+        }
+    } else {
+        // Version 1 remains the compatibility path. Unknown versions are sent
+        // through this decoder as well so its standard schema-version location
+        // and diagnostic remain authoritative.
+        render_texture_source_view_t source{};
+        decoded = RenderTextureSource_Decode(
+            work.document.pDocument,
+            {},
+            diagnostics,
+            CYPHER_ARRAY_COUNT( diagnostics ),
+            &source );
+        if ( RenderAsset_DecodeSucceeded( decoded ) ) {
+            NormalizeRecipe( source, work.recipe );
+        }
+    }
     if ( !RenderAsset_DecodeSucceeded( decoded ) ) {
         if ( decoded.validation.nDiagnosticsWritten != 0u ) {
             const schema_diagnostic_t &diagnostic = diagnostics[0];
@@ -875,6 +1282,26 @@ CYPHER_NODISCARD tool_status_t ExecuteTextureCompiler(
             tool_diagnostic_category_t::SCHEMA,
             StringView_FromCString(
                 RenderAsset_DecodeStatusName( decoded.status ) ),
+            request.input );
+    }
+
+    const texture_policy_status_t policyStatus = ValidateTexturePolicy(
+        work.recipe );
+    if ( policyStatus != texture_policy_status_t::OK ) {
+        const bool_t bPreservedImport =
+            policyStatus ==
+            texture_policy_status_t::UNSUPPORTED_PRESERVED_IMPORT;
+        return Fail(
+            request,
+            report,
+            sequence,
+            nCompleted,
+            tool_status_t::VALIDATION_FAILED,
+            bPreservedImport
+                ? CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_PRESERVED_IMAGE
+                : CY_TEXTURE_DIAGNOSTIC_UNSUPPORTED_POLICY,
+            tool_diagnostic_category_t::COMPILER,
+            PolicyDiagnosticMessage( policyStatus ),
             request.input );
     }
 
@@ -936,19 +1363,53 @@ CYPHER_NODISCARD tool_status_t ExecuteTextureCompiler(
             tool_diagnostic_category_t::COMPILER,
             TextureText( "Texture source image is malformed or unsupported." ),
             work.recipe.source,
-            TextureText( "Version 1 accepts PNG, JPEG, TGA, and finite RGBA EXR images." ) );
+            TextureText( "The current importer accepts PNG, JPEG, TGA, and finite RGBA EXR images." ) );
     }
-    if ( !BuildMipChain( work ) ) {
+    const mip_chain_status_t mipStatus = BuildMipChain( work );
+    if ( mipStatus != mip_chain_status_t::OK ) {
+        const bool_t bCapacityExceeded =
+            mipStatus == mip_chain_status_t::CAPACITY_EXCEEDED;
         return Fail(
             request,
             report,
             sequence,
             nCompleted,
-            tool_status_t::OUT_OF_MEMORY,
-            CY_TEXTURE_DIAGNOSTIC_MIP_GENERATION_FAILED,
-            tool_diagnostic_category_t::COMPILER,
-            TextureText( "Texture mip chain could not be generated." ),
-            work.recipe.source );
+            bCapacityExceeded
+                ? tool_status_t::VALIDATION_FAILED
+                : mipStatus == mip_chain_status_t::OUT_OF_MEMORY
+                    ? tool_status_t::OUT_OF_MEMORY
+                    : tool_status_t::VALIDATION_FAILED,
+            bCapacityExceeded
+                ? CY_TEXTURE_DIAGNOSTIC_CAPACITY_EXCEEDED
+                : CY_TEXTURE_DIAGNOSTIC_MIP_GENERATION_FAILED,
+            bCapacityExceeded
+                ? tool_diagnostic_category_t::VALIDATION
+                : tool_diagnostic_category_t::COMPILER,
+            bCapacityExceeded
+                ? TextureText(
+                      "Decoded texture mip data exceeds the 512 MiB CYTX limit." )
+                : TextureText( "Texture mip chain could not be generated." ),
+            work.recipe.source,
+            bCapacityExceeded
+                ? TextureText(
+                      "Reduce source dimensions, use a smaller decoded pixel format, or disable generated mips." )
+                : string_view_t{} );
+    }
+    if ( work.recipe.bStreaming &&
+         work.recipe.nResidentMipLevels > work.nMipLevels ) {
+        return Fail(
+            request,
+            report,
+            sequence,
+            nCompleted,
+            tool_status_t::VALIDATION_FAILED,
+            CY_TEXTURE_DIAGNOSTIC_INVALID_STREAMING_POLICY,
+            tool_diagnostic_category_t::VALIDATION,
+            TextureText(
+                "Texture streaming resident_mips exceeds the generated mip count." ),
+            request.input,
+            TextureText(
+                "Reduce streaming.resident_mips or generate a larger mip chain." ) );
     }
 
     ++nCompleted;
@@ -959,16 +1420,35 @@ CYPHER_NODISCARD tool_status_t ExecuteTextureCompiler(
         tool_status_t::OK,
         nCompleted,
         TextureText( "Build cooked resource" ) );
-    const content_hash_t recipeHash = ContentHash_String(
-        TextBuffer_View( &work.recipeText ) );
+    const key_value_canonical_hash_result_t canonicalRecipe =
+        KeyValue_HashCanonicalDocument( work.document.pDocument );
+    char recipeHeaderIdentity[384]{};
+    const string_format_result_t formattedRecipeHeader = StringFormat_Printf(
+        recipeHeaderIdentity,
+        sizeof( recipeHeaderIdentity ),
+        "cykv%u.schema.%.*s.%u",
+        documentHeader.nLanguageVersion,
+        static_cast<int>( documentHeader.schemaId.cchLength ),
+        documentHeader.schemaId.pData,
+        documentHeader.nSchemaVersion );
+    content_hash_t recipeHash = formattedRecipeHeader.status ==
+            string_format_status_t::OK
+        ? ContentHash_String( StringView_FromCString( recipeHeaderIdentity ) )
+        : CY_CONTENT_HASH_INVALID;
+    recipeHash = ContentHash_Combine( recipeHash, canonicalRecipe.hash );
     const content_hash_t imageHash = ContentHash_Data(
         Blob_Block( &work.sourceBytes ) );
     const content_hash_t compilerHash = CompilerHash();
     const content_hash_t toolchainHash = ToolchainHash();
+    const content_hash_t configurationHash = ConfigurationHash( context );
     content_hash_t sourceHash = ContentHash_Combine( compilerHash, recipeHash );
     sourceHash = ContentHash_Combine( sourceHash, imageHash );
     sourceHash = ContentHash_Combine( sourceHash, toolchainHash );
-    if ( !ContentHash_IsValid( sourceHash ) ) {
+    sourceHash = ContentHash_Combine( sourceHash, configurationHash );
+    if ( canonicalRecipe.status != key_value_write_status_t::OK ||
+         !ContentHash_IsValid( recipeHash ) ||
+         !ContentHash_IsValid( configurationHash ) ||
+         !ContentHash_IsValid( sourceHash ) ) {
         return Fail(
             request,
             report,
@@ -989,9 +1469,28 @@ CYPHER_NODISCARD tool_status_t ExecuteTextureCompiler(
                 ? render_texture_pixel_format_t::RGBA8_SRGB
                 : render_texture_pixel_format_t::RGBA8_UNORM;
     }
+    // Output quality still participates in the canonical source identity even
+    // though the current uncompressed paths do not need an encoder quality.
+    texture.storageFormat = SelectStorageFormat(
+        work.recipe,
+        texture.pixelFormat );
     texture.usage = work.recipe.usage;
     texture.colorSpace = work.recipe.colorSpace;
-    texture.flags = work.recipe.bGenerateMips && work.nMipLevels > 1u
+    texture.alphaMode = work.recipe.alphaMode;
+    texture.alphaCutoff = work.recipe.alphaCutoff;
+    texture.target = CookedTarget( context.target );
+    texture.residency = work.recipe.bStreaming
+        ? cooked_texture_residency_t::MIP_STREAMED
+        : cooked_texture_residency_t::FULLY_RESIDENT;
+    texture.nResidentMipLevels = work.recipe.bStreaming
+        ? work.recipe.nResidentMipLevels
+        : 0u;
+    texture.nStreamingPriority = work.recipe.bStreaming
+        ? work.recipe.nStreamingPriority
+        : 0u;
+    texture.flags =
+        work.recipe.mipMode == render_texture_mip_mode_t::GENERATE &&
+        work.nMipLevels > 1u
         ? COOKED_TEXTURE_FLAG_GENERATED_MIPS
         : COOKED_TEXTURE_FLAG_NONE;
     texture.nWidth = work.image.nWidth;
@@ -1001,7 +1500,35 @@ CYPHER_NODISCARD tool_status_t ExecuteTextureCompiler(
         work.mips,
         work.nMipLevels
     };
-    const usize cbCooked = CookedTexture_RequiredSize( texture, mipSpan );
+    cooked_texture_subresource_source_t
+        subresources[CY_COOKED_TEXTURE_MAX_MIP_LEVELS]{};
+    const span_t<const cooked_texture_subresource_source_t> subresourceSpan{
+        subresources,
+        work.nMipLevels
+    };
+    if ( work.recipe.nSchemaVersion == CY_RENDER_ASSET_SCHEMA_VERSION_V2 ) {
+        for ( u32 iMip = 0u; iMip < work.nMipLevels; ++iMip ) {
+            const cooked_texture_mip_source_t &mip = work.mips[iMip];
+            subresources[iMip] = {
+                iMip,
+                0u,
+                0u,
+                0u,
+                mip.nWidth,
+                mip.nHeight,
+                mip.nDepth,
+                mip.cbRowPitch,
+                mip.cbRowPitch * mip.nHeight,
+                mip.pixels
+            };
+        }
+    }
+    const usize cbCooked =
+        work.recipe.nSchemaVersion == CY_RENDER_ASSET_SCHEMA_VERSION_V2
+            ? CookedTexture_RequiredSizeSubresources(
+                  texture,
+                  subresourceSpan )
+            : CookedTexture_RequiredSize( texture, mipSpan );
     if ( cbCooked == 0u || !Blob_Resize( &work.cooked, cbCooked ) ) {
         return Fail(
             request,
@@ -1015,11 +1542,18 @@ CYPHER_NODISCARD tool_status_t ExecuteTextureCompiler(
             tool_diagnostic_category_t::COMPILER,
             TextureText( "Cooked texture size is invalid or could not be allocated." ) );
     }
-    const cooked_texture_result_t cooked = CookedTexture_Write(
-        texture,
-        mipSpan,
-        sourceHash,
-        Blob_WritableSpan( &work.cooked ) );
+    const cooked_texture_result_t cooked =
+        work.recipe.nSchemaVersion == CY_RENDER_ASSET_SCHEMA_VERSION_V2
+            ? CookedTexture_WriteSubresources(
+                  texture,
+                  subresourceSpan,
+                  sourceHash,
+                  Blob_WritableSpan( &work.cooked ) )
+            : CookedTexture_Write(
+                  texture,
+                  mipSpan,
+                  sourceHash,
+                  Blob_WritableSpan( &work.cooked ) );
     if ( !CookedTexture_Succeeded( cooked ) ) {
         return Fail(
             request,
@@ -1066,7 +1600,8 @@ CYPHER_NODISCARD tool_status_t ExecuteTextureCompiler(
         recipeHash,
         imageHash,
         compilerHash,
-        toolchainHash );
+        toolchainHash,
+        configurationHash );
     if ( !bDryRun ) {
         const tool_artifact_t artifact{
             request.output,
@@ -1116,6 +1651,48 @@ const tool_compiler_desc_t g_textureCompiler{
 };
 
 } // namespace
+
+bool_t CypherTextureCompiler_CalculateMipDataSize(
+    u32 nWidth,
+    u32 nHeight,
+    u32 cbPixel,
+    bool_t bGenerateMips,
+    u32 *pMipLevelsOut,
+    u64 *pDataSizeOut ) noexcept
+{
+    if ( nWidth == 0u || nHeight == 0u || cbPixel == 0u ||
+         pMipLevelsOut == nullptr || pDataSizeOut == nullptr ) {
+        return CY_FALSE;
+    }
+
+    u32 nLevels = 0u;
+    u64 cbTotal = 0u;
+    u32 nLevelWidth = nWidth;
+    u32 nLevelHeight = nHeight;
+    for ( ;; ) {
+        const u64 nPixels =
+            static_cast<u64>( nLevelWidth ) * nLevelHeight;
+        if ( nPixels > CY_U64_MAX / cbPixel ) {
+            return CY_FALSE;
+        }
+        const u64 cbLevel = nPixels * cbPixel;
+        if ( cbLevel > CY_U64_MAX - cbTotal ) {
+            return CY_FALSE;
+        }
+        cbTotal += cbLevel;
+        ++nLevels;
+        if ( !bGenerateMips ||
+             ( nLevelWidth == 1u && nLevelHeight == 1u ) ) {
+            break;
+        }
+        nLevelWidth = nLevelWidth > 1u ? nLevelWidth / 2u : 1u;
+        nLevelHeight = nLevelHeight > 1u ? nLevelHeight / 2u : 1u;
+    }
+
+    *pMipLevelsOut = nLevels;
+    *pDataSizeOut = cbTotal;
+    return CY_TRUE;
+}
 
 const tool_compiler_desc_t *CypherTextureCompiler_Descriptor() noexcept
 {
