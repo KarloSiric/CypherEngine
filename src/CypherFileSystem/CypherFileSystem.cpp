@@ -35,6 +35,8 @@ namespace pak = ::cypher::engine;
 
 namespace {
 
+constexpr int FS_LOG_PATH_LIMIT = 640;
+
 struct package_file_state_t {
 	common::u8 *data{ nullptr };
 	common::u64 size{ 0u };
@@ -94,7 +96,7 @@ fs_error_t FS_Init() {
 	state.nextAsyncRequest = 1u;
 	state.nNextWatchHandle = 1u;
 
-	LOG_INFO( log::channel_t::FS, "filesystem initialized." );
+	LOG_DEBUG( log::channel_t::FS, "filesystem service ready." );
 
 	return fs_error_t::OK;
 }
@@ -112,6 +114,12 @@ fs_error_t FS_Shutdown() {
 			LOG_WARNING( log::channel_t::FS, "filesystem shutdown requested while not initialized." );
 			return fs_error_t::ERR_NOT_INIT;
 		}
+		if ( state.shuttingDown ) {
+			return fs_error_t::ERR_NOT_INIT;
+		}
+		// Close async admission before releasing the lock. Existing workers still
+		// need initialized synchronous services until their futures have completed.
+		state.shuttingDown = true;
 	}
 
 	FS_ShutdownAsyncRequests();
@@ -175,7 +183,12 @@ fs_error_t FS_SetWritePath( const char *szPhysicalPath ) {
 	}
 
 	std::memcpy( state.szWritePath, szPhysicalPath, nPhysicalPathLength + 1u );
-	LOG_INFO( log::channel_t::FS, "write path set to '%s'.", state.szWritePath );
+	LOG_DEBUG(
+		log::channel_t::FS,
+		"write root ready: physical_root='%.*s', physical_root_truncated=%s.",
+		FS_LOG_PATH_LIMIT,
+		state.szWritePath,
+		std::strlen( state.szWritePath ) > static_cast<common::usize>( FS_LOG_PATH_LIMIT ) ? "true" : "false" );
 	return fs_error_t::OK;
 }
 
@@ -231,6 +244,9 @@ fs_error_t FS_Open( const char *szVirtualPath, open_mode_t mode, file_t &file ) 
 	std::lock_guard<std::recursive_mutex> lock( FS_RuntimeMutex() );
 	if ( !FS_RuntimeState().initialized ) {
 		return fs_error_t::ERR_NOT_INIT;
+	}
+	if ( file.pNativeHandle != nullptr ) {
+		return fs_error_t::ERR_INVALID_ARGUMENT;
 	}
 	file = {};
 	if ( szVirtualPath == nullptr || szVirtualPath[0] == '\0' ) {
