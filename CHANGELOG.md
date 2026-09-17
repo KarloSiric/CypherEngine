@@ -21,9 +21,352 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
-## [Unreleased] - 2026-08-27
+## [Unreleased] - 2026-09-17
+
+This integration entry records the executable work added after the September 16
+development snapshot below. It distinguishes working source/compiler/runtime
+paths from fields and formats that are deliberately reserved for later work.
 
 ### Added
+
+#### Render-asset formats and compilers
+
+- Added V2 CYKV schemas and owned typed decoders for `.cyshader`, `.cytex`,
+  and `.cymat`, while retaining exact V1 schema dispatch and compatibility
+  routes.
+- Added canonical semantic CYKV document hashing. Comments, whitespace, object
+  member order, and equivalent numeric spelling no longer change cooker cache
+  identity; schema identity and every typed value remain part of the hash.
+- Added shader V2 stage objects, authored entry declarations, logical textures,
+  samplers, typed parameters, defaults, scalar ranges, required flags, feature
+  declarations, and bounded variant budgets.
+- Advanced the current cooked shader resource from `CYSH` V2 to V3 with
+  canonical logical binding records, stable 64-bit binding IDs, stage masks,
+  value/resource types, array metadata, material offsets/storage sizes, an
+  interface hash, `SHRF` reflection data, and canonical `SHST` names.
+- Added glslang SPIR-V generation and SPIRV-Cross reflection as validation
+  stages. Authored shader bindings and active linked GLSL resources must agree
+  bidirectionally in name, kind, type, image dimension, array shape, and stage
+  visibility.
+- Added texture V2 source policy for type, semantic usage, color space, five
+  alpha modes, mask cutoff, mip mode/filter/edge behavior, output intent,
+  quality, streaming class, priority, and resident coarse-mip count.
+- Advanced the current cooked texture resource from `CYTX` V1 to V2 with a
+  128-byte metadata header, stable storage formats, independently hashed
+  subresources, row/slice pitch, target profile, residency metadata, and
+  canonical `mip -> frame -> layer -> face` ordering.
+- Added a cooked texture contract for 1D, 2D, 3D, cube, array, frame, mip, and
+  block-compressed layouts, plus exact bounded subresource lookup. The current
+  compiler intentionally emits the supported uncompressed 2D subset.
+- Added material V2 source data for bounded base-material inheritance, cycle
+  rejection, partial overrides, `null` removals, domains, alpha/two-sided/shadow
+  state, sampler presets, UV transforms, features, and Boolean/integer/float/
+  vector/color/matrix values.
+- Advanced the current cooked material resource from `CYMT` V1 to V2 with
+  fully resolved render state, shader-interface and variant hashes, stable
+  binding IDs, reflected value offsets and sizes, packed constant bytes,
+  texture/UV records, and canonical strings.
+- Added cross-format compilation that validates material bindings against the
+  exact `CYSH` V3 interface and checks referenced `CYTX` V2 texture type,
+  usage, and color-space semantics before publication.
+- Added deterministic compiler identities covering source/cooked generations,
+  target and build profile, dependency content, glslang and its exception ABI,
+  SPIRV-Cross, image libraries, compiler implementation versions, and the pinned
+  vcpkg baseline.
+- Added an exceptions-enabled local glslang overlay so preprocessing, linking,
+  SPIR-V generation, and diagnostics use one explicit build contract.
+- Added malformed-input, compatibility, determinism, maximum-count, aliasing,
+  transactional-failure, cross-format, range/type, strict-warning, sanitizer,
+  and benchmark coverage for the render formats and compilers.
+- Added direct benchmarks for canonical CYKV hashing, shader binding lookup by
+  name and ID, texture subresource lookup, and material parameter lookup.
+- Added explicit NaN/infinity EXR rejection coverage that proves a failed image
+  import leaves the destination surface empty.
+
+#### Renderer runtime and first visible draws
+
+- Added generation- and type-checked runtime shader handles created
+  synchronously from validated cooked `CYSH` views.
+- Added native OpenGL vertex/fragment compilation, linked program ownership,
+  bounded driver diagnostics, complete partial-failure rollback, metadata
+  copying, stale-handle rejection, and shutdown cleanup.
+- Added the first immutable graphics-pipeline contract with vertex-layout
+  agreement, depth test/write state, back-face culling, front-face orientation,
+  source-alpha blending, one exact reflected uniform block, and one optional
+  sampled `sampler2D`.
+- Added shader reference retention by live pipelines so native programs cannot
+  be destroyed while a pipeline still depends on them.
+- Added immediate backend-neutral indexed triangle submission with validation
+  for frame state, object types/generations, layout equality, index and vertex
+  ranges, mapped buffers, uniform-buffer size, and sampled-texture requirements.
+- Added the OpenGL draw path with explicit fixed-function state application,
+  uniform-block binding, sampled-image binding, and indexed submission.
+- Added generation-checked immutable RGBA8 2D textures with sRGB/linear storage,
+  optional mip generation, repeat/clamp addressing, linear/trilinear filtering,
+  metadata queries, transactional creation, and deterministic destruction.
+- Added draw-time texture lifetime/type checks and OpenGL smoke coverage for
+  sampled output, uniform changes, depth clear/write restoration, and cooked
+  shader program linking.
+- Added `cypher_render_cube`, an offline-cooked and VFS-loaded vertical slice
+  that renders a rotating lit UV-grid cube through only public System, Common,
+  and Renderer APIs.
+- Added deterministic finite-frame and hidden-window modes for renderer smoke
+  runs, fixed-step animation, resize/minimize handling, timeouts, and shared
+  cleanup after successful or partial initialization.
+- Added `cypher_tile_map_preview`, which transactionally loads an authored
+  `.cymap`, builds renderer-neutral boxes, draws them through the same indexed
+  cube path, resolves the current cooked material/texture preview subset, and
+  reloads changed map/material dependencies without discarding the last valid
+  state or camera pose.
+- Added `R_InitHostSurface` and a host-surface callback contract for borrowing
+  an editor-owned OpenGL context, procedure resolver, framebuffer preparation,
+  optional presentation, and optional present-mode changes.
+- Added a live hosted-surface smoke test and a Qt `QOpenGLWidget` integration
+  guide. A missing Present callback now flushes rendering and leaves composition
+  to the owning framework.
+
+#### CypherTileEditor and the `.cymap` source format
+
+- Added `CypherTileMapCore`, a Qt-free authoring layer for bounded map
+  documents, grouped edit transactions, undo/redo, dirty/saved revisions,
+  validation, allocation-failure rollback, deterministic persistence, and
+  renderer-neutral blockout geometry.
+- Added operational `cypher.map` source schemas V1, V2, and V3. The reader
+  accepts all three versions and the writer emits V3.
+- Added V1 map identity, dimensions, physical cell/level metrics, sparse active
+  cells, floor elevation, wall height, material slots, flags, player spawn, and
+  stable door markers.
+- Added V2 flat/cardinal stair shapes and bounded tread counts.
+- Added V3 stable numeric material-slot bindings to canonical `.cymat` paths.
+- Added deterministic row-major cell output, stable marker/material ordering,
+  sparse empty-cell omission, complete temporary-state validation, older-version
+  compatibility, and transactional failure behavior.
+- Added generated floor, exposed-boundary wall, cliff, door, and stair boxes.
+  Authored documents remain the source of truth and generated geometry remains
+  derived data.
+- Added Select, Paint, Erase, Rectangle, Line, Fill, Spawn, Door, Pan, and
+  eyedropper tools plus grouped strokes and room/piece stamps.
+- Added room, corridor, corner, junction, stair, door, and boundary-height piece
+  presets with rotation and one-transaction stamping.
+- Added exact sparse multi-selection shared by Top, Front, Side, 3D, object tree,
+  and property inspectors.
+- Added transactional move, duplicate, rotate, elevate, wall-height, delete,
+  select-all, floor-presence, material, shape, and stair-count operations with
+  collision, capacity, arithmetic, and bounds validation before mutation.
+- Added map-property editing for dimensions, cell size, and level height with
+  undo/redo and shrink rejection when authored content would be lost.
+- Added Top XY, Front XZ, Side YZ, and embedded 3D panes; duplicate orthographic
+  views; pane relocation; maximize/restore; persisted order/sizes/visibility;
+  per-pane controls; and shared selection highlighting.
+- Added adaptive zero-anchored grids, coordinate rulers, view metrics, material
+  identification, depth cues, configurable internal seams, and semantic X/Y/Z
+  axes.
+- Added fly/orbit camera navigation, RMB look, WASD/QE movement, speed modifiers,
+  pan, pointer-anchored zoom, selection/map framing, player-spawn positioning,
+  exact direction presets, level movement, auto-orbit, and session bookmarks.
+- Added Front/Side fixed construction layers and single-click 3D painting,
+  erasing, marker placement, eyedropper behavior, geometry picking, and floor
+  plane construction inside map bounds.
+- Added an embedded `QOpenGLWidget` CypherRender viewport that rebuilds from
+  in-memory edits, throttles continuous stroke updates, and preserves the Qt
+  context/framebuffer ownership boundary.
+- Added project material discovery, dependency cooking, map-slot binding,
+  clearing, refresh, application to selected cells, cooked base-color preview,
+  tint/UV transforms, shared texture caches, bounded memory, and diagnostic
+  fallback for damaged or missing resources.
+- Added textured previews in Top, Front, Side, embedded 3D, and the external
+  runtime map preview, with transactional refresh and live dependency reload.
+- Added a command console, history, completion, validation/build/run commands,
+  and an asynchronous local shell with streamed stdout/stderr, working-directory
+  control, stop/restart/clear/copy, and nonblocking process ownership.
+- Added Materials & Pieces, All Objects, Properties, and Console docks; object
+  filtering; synchronized multiselection; configurable layout; eleven color
+  themes; bundled offline SVG resources; and recorded icon licenses/provenance.
+- Added readable atomic `editor.ini` configuration plus native `QSettings`
+  state, import/export profiles, live Apply/OK/Cancel/Restore Defaults behavior,
+  camera/canvas/workspace/map-default settings, custom shortcuts, and
+  shortcut-conflict validation.
+- Added focused core, serialization, material, camera, navigation, selection,
+  region, workspace, settings, console, shell, hosted-renderer, and live-preview
+  test coverage.
+
+#### Runtime foundations, startup, build, assets, and documentation
+
+- Added dedicated Command, CVar, Config, Memory pool/arena/scratch/thread/runtime,
+  FileSystem, Pak, Log, Resource, System, and Host-focused regression coverage.
+- Added ordered and shuffled pool benchmarks plus arena write/clear/reset and
+  expanded Resource/render-format benchmarks.
+- Expanded the live Host startup report into product/build, System/process,
+  seven-arena Memory, core services, FileSystem, Command, CVar, Config, Log,
+  runtime policy, SDL/window/display, startup I/O, timing, and final READY
+  sections.
+- Added read-only Command/CVar enumeration and copied platform/backend identity
+  queries so Host diagnostics report owned subsystem state through public APIs.
+- Added Debug and Release targets/presets for the renderer examples,
+  `CypherTileMapCore`, Tile Editor GUI, and focused editor tests.
+- Added automatic shader/material/texture cooking for renderer and editor
+  examples and optional Qt 6 Core, Gui, Widgets, OpenGLWidgets, and Svg wiring.
+- Added authored cube and tile-surface GLSL recipes, brick/grid/hazard
+  texture/material recipes, three deterministic 128x128 RGBA development
+  textures, and V1/V2/V3 map examples.
+- Added the non-renderer validation report and work log, renderer first-draw
+  guide, host-surface embedding guide, six-month execution plan, Tile Editor
+  reference/navigation research, and expanded format/catalog/schema documents.
+- Updated the project status, documentation index, tool inventory, clangd
+  configuration, dependency manifest, and format maturity descriptions around
+  the executable state of the repository.
+
+### Changed
+
+- Canonical CYKV hashing now ignores authoring-only ordering and formatting while
+  preserving schema identity and all semantic values used by cooker caches.
+- Texture mip generation now filters sRGB in linear space, filters straight
+  alpha through premultiplied color, renormalizes RGBA8/RGBA32F normal vectors,
+  and uses exact area weights for odd dimensions.
+- Shader and material constant records now share one canonical name-sorted ABI,
+  including padded `vec3` storage and three padded `mat3` columns.
+- Render resource versions advanced from `CYSH/CYTX/CYMT = 2/1/1` to
+  `3/2/2`; explicit compatibility readers remain responsible for older files.
+- The format catalog now distinguishes the implemented Tile Editor `.cymap`
+  V1-V3 source format from the still-planned `.cymap_c` and World runtime.
+- The project resume status now records the completed standalone shader,
+  pipeline, draw, texture, cube, hosted-surface, and Tile Editor slices while
+  retaining the real Host/World integration gap.
+- Generated cooked texture, material, map, and mesh outputs now join cooked
+  shaders in the source-control ignore policy.
+- Runtime startup INFO output now uses fixed named sections, aligned hierarchy,
+  wrapped descriptions, and a distinct READY block. Routine INFO lines omit
+  repetitive prefixes while warnings/errors remain explicit and file sinks keep
+  detailed metadata.
+- The current Tile Editor map remains a bounded blockout document with one floor
+  surface per X/Y cell; arbitrary mesh/brush topology and stacked floors remain
+  outside this source format.
+
+### Fixed
+
+- Rejected aliased `CYRS` input/output ranges transactionally and applied
+  shader binding limits before range arithmetic or caller-memory traversal.
+- Fixed arena clear-before-decommit behavior, stale diagnostics, trace indexing,
+  scratch error retention, and allocator-wrapper synchronization.
+- Fixed asynchronous FileSystem cancellation publishing completion while a
+  worker still borrowed caller memory, shutdown admitting new work, and live
+  native/package handles being silently replaced during reopen.
+- Hardened Pak bounds, path, compression, truncation, payload-hash, reader/writer
+  ownership, temporary publication, replacement failure, and staging cleanup.
+- Fixed Command/Config/CVar truncation, recursive config bounds, trailing
+  arguments, embedded-NUL input, overlapping CVar source text, full-token numeric
+  parsing, and modified-state restoration.
+- Fixed macOS available-memory reporting with overflow-safe Mach VM accounting.
+- Fixed Log timestamp handling, producer and formatter truncation reporting,
+  configuration races, failed sink replacement, early file truncation, and
+  concurrent writes/reconfiguration/shutdown.
+- Fixed renderer shader, pipeline, draw, and texture failure paths so native
+  objects and retained references roll back before a public handle is published.
+- Fixed editor operations so allocation failures, invalid transforms, malformed
+  map/material dependencies, interrupted gestures, and failed reloads preserve
+  the previous document, selection, history, preview, and saved revision.
+
+### Verified
+
+- Retained the independently completed non-renderer result: 232 selected CTest
+  entries passed in Debug and ASan/UBSan; allocator-wrapper, Log, and FileSystem
+  suites passed under ThreadSanitizer.
+- Retained the runtime pool result: eight cases and 58,552 assertions passed in
+  Debug and ASan/UBSan; four Release pool workloads ran for five repetitions.
+- Retained the Release non-renderer baseline: 33 workloads across five
+  executables ran for five repetitions without reported workload errors.
+- Added focused format/compiler evidence for canonical hashing, `CYSH` V3,
+  `CYTX` V2, `CYMT` V2, reflection agreement, inherited material resolution,
+  semantic texture validation, malformed input, compatibility, and lookup paths.
+- Added renderer contract/native smoke coverage for shader ownership, compile/
+  link rollback, pipeline dependencies, indexed validation, sampled textures,
+  hosted contexts, uniform changes, and framebuffer pixel results.
+- Reconfigured and rebuilt the complete `tile-editor-debug` graph after the
+  dependency, format, renderer, and editor changes, then passed all 272
+  registered CTest entries. The 25.45-second final run included native OpenGL
+  smoke tests, the 182-case Tile Editor workspace executable, map/material
+  previews, all three render-asset compilers, and ResourceCompiler process and
+  shader-corpus integration tests.
+- Built the six changed Release benchmark targets and smoke-ran all 44 registered
+  cases across `CYSH`, `CYTX`, `CYMT`, canonical CYKV hashing, Memory, and the
+  Resource runtime. This run verifies executable benchmark coverage; it is not
+  recorded as a comparative performance baseline.
+
+### Known limitations
+
+- The real `CypherEngine` Host does not yet run the standalone renderer draw
+  path or own an executable World submission loop.
+- Renderer native work currently targets the OpenGL 4.1 desktop baseline and a
+  singleton frontend with one standalone or hosted surface.
+- The first pipeline supports triangle lists, one optional uniform block, and one
+  optional `sampler2D`; command recording, render graphs, render targets,
+  instancing, base vertex, primitive restart, mesh-resource loading, generalized
+  material binding, and shader hot reload remain future work.
+- Shader variants, alternate entries, independent samplers, and unsupported
+  resource shapes remain compiler errors until their cooked/runtime contracts
+  exist.
+- Texture cooking currently emits uncompressed 2D RGBA8/RGBA32F. DDS/KTX2
+  preservation, compressed output, advanced filters/edge policies, coverage
+  preservation, and RGB dilation remain gated.
+- Material features and `.cysurface` remain gated, and the renderer preview
+  consumes only the bounded base-color/tint/UV subset.
+- `.cymap` is an operational editor source format. There is no production
+  `.cymap_c`, runtime World loader, visibility/navigation/collision partition,
+  arbitrary brush/mesh editor, or general entity serialization yet.
+- Tile maps retain one floor surface per X/Y cell; walls derive from cell
+  boundaries and stairs remain straight cardinal pieces.
+- Current checked-in shader, texture, and material recipes use schema V1 and
+  exercise compatibility routes. V2 end-to-end coverage currently comes mainly
+  from focused compiler fixtures.
+- CypherPak payload compression, compressed indexes, archive signatures, and
+  crash-durable publication remain unimplemented.
+
+## [Development snapshot] - 2026-09-16
+
+This development snapshot consolidates notable repository work from roughly
+2026-08-07 through 2026-09-15. Planned work is intentionally excluded.
+
+### Added
+- Added a sectioned live startup manifest covering product/build identity,
+  System/process state, all seven memory arenas, FileSystem policy and mounts,
+  Command and CVar registries, config sources, Log sinks and routing, runtime
+  policy, SDL/window/display state, startup I/O, and per-stage timings.
+- Added read-only Command/CVar registry enumeration and copied SDL backend
+  identity queries so Host diagnostics report registered and platform-owned state
+  without reaching into subsystem internals.
+- Added a dedicated runtime `CypherMemory` pool test target covering borrowed
+  external/arena storage, alignment, exhaustion/reuse, rejected operations,
+  overflow, counters/reset, zero allocation, and deterministic payload checks
+  across allocation-bitmap boundaries.
+- Added pool benchmarks for shuffled free order at 64, 1,024, and 16,384 slots,
+  and failure reporting for both ordered and shuffled pool workloads.
+- Added the backend-neutral renderer frontend and OpenGL implementation for
+  lifecycle, capability discovery, clear/present, resize, presentation policy,
+  and explicit System-owned native window/context integration boundaries.
+- Added generation- and type-checked renderer buffers with OpenGL storage,
+  update, map/unmap, query, destruction, shutdown cleanup, tests, and benchmarks.
+- Added vertex-format and layout validation plus generation-checked vertex-input
+  objects backed by OpenGL vertex arrays, including retained buffer ownership,
+  stale/wrong-type handle coverage, smoke tests, and benchmarks.
+- Added focused `CypherSystem` runtime, window, event-queue, OpenGL-context, death
+  helper, and benchmark coverage around the rebuilt renderer platform boundary.
+- Added a first-party image-processing layer covering formats, owned surfaces,
+  borrowed views, codecs, conversion, resize, mip generation, processing,
+  tests, and Release benchmarks.
+- Added the initial Picasso texture/material authoring core and Qt application,
+  including channel and texture-set models, paint operations, canvas/console/
+  workspace UI, licensed icon assets, and focused core/console/document tests.
+  This is an initial tool slice, not a completed production editor.
+- Added explicit build targets and presets for verified Common, image, resource,
+  render-format, tool-framework, ResourceCompiler, render-asset compiler, and
+  Picasso components.
+- Added the World/renderer ownership ADR, detailed Host/Renderer and World module
+  maps, and reserved `CypherWorld` public/private headers and responsibility
+  documents. World remains contract-only; no runtime World operations are
+  claimed.
+- Added an evidence-backed six-month execution plan covering current subsystem
+  status, vertical slices, dependencies, renderer order, measurable repository
+  size, estimate uncertainty, monthly gates, risks, and explicit deferrals.
 - Added focused `CypherLog` tests for lifecycle state, synchronized configuration
   snapshots, failed sink replacement, concurrent writers, and concurrent runtime
   configuration updates.
@@ -119,6 +462,27 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - Added the authoring-versus-cooked format direction for `.cymap`, `.cyscene`, `.cytex_c`, `.cymesh_c`, `.cyanim_c`, `.cybsp_c`, `.cypkg`, and related Cypher data formats.
 
 ### Changed
+- Reworked the live startup presentation into fixed-width named sections with
+  aligned parent/child fields, wrapped descriptions, readable memory-arena rows,
+  and a distinct final READY block while retaining the complete diagnostic
+  inventory.
+- Added a console log format that prints routine INFO records without repetitive
+  severity/channel prefixes or ANSI color wrappers; warnings and errors remain
+  visibly prefixed and colored, while file sinks keep detailed metadata.
+- Replaced the previous ad-hoc renderer shader, mesh, camera, and draw path with
+  an explicit frontend/backend architecture. The new foundation is intentionally
+  not yet feature-equivalent: runtime shader programs, pipelines, and public
+  draws remain the next milestones.
+- Split System platform services into target-specific Windows, POSIX, macOS, and
+  Linux translation units and consolidated compile-time target queries in the
+  Common platform contract.
+- Standardized runtime entry-point naming around `Sys_`, `FS_`, `Log_`, `Cmd_`,
+  `Cvar_`, `Cfg_`, `Mem_`, `Res_`, `Host_`, `R_`, and backend `GL_` prefixes.
+- Strengthened ResourceCompiler output handling and reporting while reusing the
+  shared texture, material, VFS, and transactional-publication contracts.
+- Updated current-status and documentation navigation to identify runtime shader
+  programs from cooked `CYSH` resources as the active milestone, followed by
+  pipeline/draw/first cube and then reflection/material bindings.
 - Made `CypherLog` runtime state, configuration, sink handles, and writes mutually
   exclusive so renderer, resource, networking, and worker threads can log without
   racing reconfiguration or shutdown.
@@ -148,6 +512,32 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - Updated the toolchain plan with concrete library, format, and wrapping rules for engine runtime, asset tools, and the future Mason editor.
 
 ### Fixed
+- Fixed macOS physical-memory diagnostics returning zero available bytes by
+  querying Mach VM statistics with overflow-safe page accounting.
+- Fixed CVar float caching accepting a valid numeric prefix of ordinary text,
+  including `info` as infinity, and made the modified flag clear when a value is
+  restored to its registered default.
+- Fixed optional config loading suppressing every open error; only a genuinely
+  missing optional path is now skipped.
+- Fixed compact Log sinks ignoring their timestamp setting, made compact and
+  detailed formatters reject truncated output records, and mark messages that
+  exceed the logger's owned record buffer instead of silently shortening them.
+- Fixed runtime arena clearing before virtual decommit, stale reset diagnostics,
+  allocation-trace indexing, and scratch-scope error retention.
+- Fixed allocator-wrapper races between allocation/free, binding changes, and
+  diagnostic reads; operations now return the result protected by their own lock.
+- Fixed FileSystem cancellation reporting a terminal result before the read
+  worker released its caller buffer, shutdown admitting new asynchronous work
+  while draining, and reopening an owned file discarding its handle.
+- Hardened Pak entry bounds/compression/path validation and reader/writer reopen
+  ownership; archive output now uses an exclusive temporary sibling and replaces
+  the destination only after successful writing and flushing.
+- Fixed silent Command/Config/CVar truncation, unchecked nested config execution,
+  trailing config arguments, embedded-NUL config files, overlapping CVar input,
+  and out-of-range numeric parsing through `atoi`/`atof`.
+- Fixed Log candidate preparation truncating existing files before a later sink
+  failed to open; added configuration validation before file operations. Final
+  truncation across multiple files remains explicitly non-atomic.
 - Fixed logger data races between record emission, configuration reads, sink
   replacement, initialization, and shutdown.
 - Fixed failed logger reconfiguration so an invalid replacement sink no longer
@@ -157,6 +547,20 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   `Sys_IsInitialized()` declaration.
 
 ### Verified
+- Verified the final non-renderer pass on 2026-09-16: all 232 selected CTest
+  entries pass in Debug and ASan/UBSan, and the three ThreadSanitizer suites
+  (allocator wrappers, Log, FileSystem) pass. Ran 33 Release workloads across
+  five executables with five repetitions each and no workload errors. See the
+  [runtime work log](docs/non_renderer_work_log.md) for scope, reproduction,
+  measured timings, and remaining platform/contract limits.
+- Verified the dedicated runtime pool target in Debug and ASan/UBSan on
+  2026-09-16: eight cases and 58,552 assertions pass in each configuration.
+  Built and ran four Release pool workloads for five repetitions each; results,
+  commands, and measurement limits are recorded in
+  [the non-renderer validation report](docs/non_renderer_validation_2026-09-16.md).
+- Historical validation evidence: the existing Debug CTest log records all 235
+  registered tests passing on Apple Silicon macOS on 2026-09-15. This is the
+  pre-change baseline, not a fresh full-suite run of the 2026-09-16 changes.
 - Verified the complete Debug build and all 223 registered tests on Apple Silicon
   macOS after the logger synchronization and direct-include changes.
 - Repeated the concurrent `CypherLog` suite 25 consecutive times without failure
