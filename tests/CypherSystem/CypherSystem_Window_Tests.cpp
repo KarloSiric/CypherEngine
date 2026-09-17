@@ -71,6 +71,14 @@ TEST_CASE( "System translates SDL window and input events", "[CypherSystem][Wind
     };
     REQUIRE( Sys_Init( initInfo ) == sys_error_t::OK );
 
+    platform_backend_info_t backendInfo{};
+    REQUIRE( Sys_GetPlatformBackendInfo( backendInfo ) == sys_error_t::OK );
+    REQUIRE( std::strcmp( backendInfo.name, "SDL" ) == 0 );
+    REQUIRE( backendInfo.compiledVersionMajor > 0u );
+    REQUIRE( backendInfo.runtimeVersionMajor > 0u );
+    REQUIRE( backendInfo.revision[0] != '\0' );
+    REQUIRE( backendInfo.videoDriver[0] != '\0' );
+
     display_list_result_t displayList{};
     REQUIRE( Sys_GetDisplays( nullptr, 0u, displayList ) == sys_error_t::OK );
     REQUIRE( displayList.displaysRequired > 0u );
