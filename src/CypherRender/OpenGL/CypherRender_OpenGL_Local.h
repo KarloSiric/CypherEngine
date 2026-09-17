@@ -17,10 +17,14 @@
 #define CYPHER_ENGINE_RENDER_OPENGL_LOCAL_H
 #pragma once
 
+#include "CypherCommon/Formats/CypherCommon_CookedShader.h"
 #include "CypherRender/CypherRender_Error.h"
+#include "CypherRender/CypherRender_HostSurface.h"
 #include "CypherRender/CypherRender_Types.h"
 #include "CypherSystem/CypherSystem_OpenGL.h"
 #include "CypherSystem/CypherSystem_Window.h"
+
+#include <glad/gl.h>
 
 namespace cypher::engine::render
 {
@@ -41,6 +45,7 @@ inline constexpr ::cypher::common::usize GL_STRING_CAPACITY = 256u;
 struct gl_state_t {
     ::cypher::engine::sys::window_t *window{ nullptr }; // Borrowed Host-owned presentation window.
     ::cypher::engine::sys::gl_context_t context{};      // Native context owned by this backend.
+    render_host_surface_desc_t hostSurface{};           // Copied callbacks for a host-owned context.
     render_config_t config{};                           // Validated frontend startup policy.
     render_limits_t limits{};                           // Device limits queried after GLAD startup.
     render_extent_t drawableExtent{};                   // Current default-framebuffer dimensions.
@@ -48,6 +53,7 @@ struct gl_state_t {
     ::cypher::common::u64 activeFrameIndex{ 0u };        // Diagnostic identity of the active frame.
     bool initialized{ false };                          // Context and entry points are ready.
     bool frameActive{ false };                          // BeginFrame has no matching EndFrame.
+    bool usesHostSurface{ false };                      // Context/presentation are borrowed from a tool host.
 
     char apiName[GL_STRING_CAPACITY]{};                 // Stable strings borrowed by render_info_t.
     char deviceName[GL_STRING_CAPACITY]{};
@@ -62,6 +68,14 @@ extern gl_state_t glState;
 void GL_ClearErrors() noexcept;
 CYPHER_NODISCARD render_error_t GL_CheckErrors(
     render_validation_t validation ) noexcept;
+
+// Compiles one cooked stage on the renderer thread with this context current.
+// Failure leaves shaderOut zero. Success transfers a temporary native stage to
+// the caller, which must delete it after linking or rolling back program creation.
+CYPHER_NODISCARD render_error_t GL_CompileShaderStage(
+    const ::cypher::common::cooked_shader_stage_view_t &stage,
+    const char *debugName,
+    GLuint &shaderOut ) noexcept;
 
 } // namespace cypher::engine::render
 
