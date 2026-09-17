@@ -18,6 +18,10 @@
 #pragma once
 
 #include "CypherRender_Buffer.h"
+#include "CypherRender_Texture.h"
+#include "CypherRender_HostSurface.h"
+#include "CypherRender_Shader.h"
+#include "CypherRender_Pipeline.h"
 #include "CypherRender_VertexInput.h"
 #include "CypherSystem/CypherSystem_Window.h"
 
@@ -34,14 +38,13 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version three adds immutable vertex-input objects. OpenGL implements each one
-as a VAO, while the frontend contract remains independent of that native type.
-Texture, shader, pipeline, command, and draw callbacks remain absent until their
-public descriptors and ownership rules have been designed.
+Version six adds immutable 2D textures and one sampled binding per draw. Linked
+shaders, immutable graphics pipelines, immediate indexed draws, and all native
+object tokens remain behind this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 3u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 6u;
 
 /*
 ================
@@ -104,6 +107,75 @@ struct backend_vertex_input_desc_t {
     const char *debugName{ nullptr };
 };
 
+/*
+================
+Backend shader token
+
+Identifies one complete backend-owned shader program. The frontend stores this
+token in its shader record and exposes a separate generational public handle.
+
+For OpenGL, the token identifies the linked program. Temporary stage objects
+remain private to shader creation.
+
+Zero is reserved for an invalid token. The helper below checks only that
+sentinel; frontend ownership and handle validation establish object lifetime.
+================
+*/
+struct backend_shader_t {
+    ::cypher::common::u64 value{ 0u };
+};
+
+inline constexpr backend_shader_t R_INVALID_BACKEND_SHADER{};
+
+CYPHER_NODISCARD constexpr bool R_IsBackendShaderValid(
+    const backend_shader_t shader ) noexcept
+{
+    return shader.value != R_INVALID_BACKEND_SHADER.value;
+}
+
+struct backend_texture_t {
+    ::cypher::common::u64 value{ 0u };
+};
+inline constexpr backend_texture_t R_INVALID_BACKEND_TEXTURE{};
+
+struct backend_pipeline_t {
+    ::cypher::common::u64 value{ 0u };
+};
+
+inline constexpr backend_pipeline_t R_INVALID_BACKEND_PIPELINE{};
+
+CYPHER_NODISCARD constexpr bool R_IsBackendPipelineValid(
+    const backend_pipeline_t pipeline ) noexcept
+{
+    return pipeline.value != R_INVALID_BACKEND_PIPELINE.value;
+}
+
+// Names are borrowed for the duration of creation; no pointer is retained.
+struct backend_pipeline_desc_t {
+    backend_shader_t shader{};
+    render_vertex_layout_t vertexLayout{};
+    bool depthTest{ true };
+    bool depthWrite{ true };
+    bool cullBackFaces{ true };
+    bool frontCounterClockwise{ true };
+    bool alphaBlend{ false };
+    const char *uniformBlockName{ nullptr };
+    ::cypher::common::u32 uniformBlockBytes{ 0u };
+    const char *debugName{ nullptr };
+    const char *sampledTextureName{ nullptr }; // Optional sampler2D at unit zero.
+};
+
+struct backend_draw_indexed_desc_t {
+    backend_pipeline_t pipeline{};
+    backend_vertex_input_t vertexInput{};
+    backend_buffer_t uniformBuffer{};
+    backend_texture_t sampledTexture{};
+    render_index_type_t indexType{ render_index_type_t::UINT16 };
+    ::cypher::common::u64 indexByteOffset{ 0u };
+    ::cypher::common::u32 indexCount{ 0u };
+    ::cypher::common::u32 vertexCount{ 0u };
+};
+
 // Selects graphics-related native-window attributes before Sys_CreateWindow.
 using backend_configure_window_fn_t = render_error_t (*)(
     const render_config_t &config,
@@ -113,6 +185,13 @@ using backend_configure_window_fn_t = render_error_t (*)(
 // Creates the native device/context and returns a stable capability snapshot.
 using backend_init_fn_t = render_error_t (*)(
     ::cypher::engine::sys::window_t &window,
+    const render_config_t &config,
+    render_info_t &infoOut,
+    void *backendState ) noexcept;
+
+// Initializes against a host-owned graphics context and presentation surface.
+using backend_init_host_surface_fn_t = render_error_t (*)(
+    const render_host_surface_desc_t &surface,
     const render_config_t &config,
     render_info_t &infoOut,
     void *backendState ) noexcept;
@@ -200,6 +279,56 @@ using backend_destroy_vertex_input_fn_t = render_error_t (*)(
     backend_vertex_input_t vertexInput,
     void *backendState ) noexcept;
 
+/*
+================
+Backend shader creation
+
+Consumes the cooked view, its referenced stage bytes, and the optional debug
+name synchronously. Neither the descriptor nor borrowed pointers may be
+retained after the call returns. Cooked stage sizes include one trailing NUL;
+native source upload uses an explicit length excluding that terminator.
+
+Success publishes one complete backend-owned program through shaderOut.
+Failure leaves shaderOut invalid and releases objects created by the attempt.
+The frontend owns destruction if later registration of that program fails.
+================
+*/
+using backend_create_shader_fn_t = render_error_t (*)(
+    const render_shader_desc_t &description,
+    backend_shader_t &shaderOut,
+    void *backendState ) noexcept;
+
+/*
+================
+Backend shader destruction
+
+Releases the program represented by the token. The frontend must first ensure
+that no live renderer object retains a dependency on this shader.
+================
+*/
+using backend_destroy_shader_fn_t = render_error_t (*)(
+    backend_shader_t shader,
+    void *backendState ) noexcept;
+
+using backend_create_graphics_pipeline_fn_t = render_error_t (*)(
+    const backend_pipeline_desc_t &description,
+    backend_pipeline_t &pipelineOut,
+    void *backendState ) noexcept;
+
+using backend_destroy_graphics_pipeline_fn_t = render_error_t (*)(
+    backend_pipeline_t pipeline,
+    void *backendState ) noexcept;
+
+using backend_draw_indexed_fn_t = render_error_t (*)(
+    const backend_draw_indexed_desc_t &description,
+    void *backendState ) noexcept;
+
+using backend_create_texture_2d_fn_t = render_error_t (*)(
+    const render_texture_desc_t &, const render_texture_data_t &,
+    backend_texture_t &, void * ) noexcept;
+using backend_destroy_texture_fn_t = render_error_t (*)(
+    backend_texture_t, void * ) noexcept;
+
 struct backend_api_t {
     ::cypher::common::u32 apiVersion{ 0u };              // Must equal R_BACKEND_API_VERSION.
     ::cypher::common::u32 structSize{ 0u };              // Exact table size rejects ABI layout mismatches.
@@ -208,6 +337,7 @@ struct backend_api_t {
 
     backend_configure_window_fn_t ConfigureWindow{ nullptr }; // Pre-window native attribute selection.
     backend_init_fn_t Init{ nullptr };                         // Device/context creation and discovery.
+    backend_init_host_surface_fn_t InitHostSurface{ nullptr }; // Borrows an editor-owned device/context.
     backend_shutdown_fn_t Shutdown{ nullptr };                 // Final backend-owned object destruction.
     backend_begin_frame_fn_t BeginFrame{ nullptr };             // Opens one frame and clears attachments.
     backend_resize_fn_t Resize{ nullptr };                      // Applies a drawable-size transition.
@@ -225,6 +355,16 @@ struct backend_api_t {
 
     backend_create_vertex_input_fn_t CreateVertexInput{ nullptr }; // Creates native vertex-input state.
     backend_destroy_vertex_input_fn_t DestroyVertexInput{ nullptr }; // Releases native vertex-input state.
+
+    backend_create_shader_fn_t CreateShader{ nullptr };
+    backend_destroy_shader_fn_t DestroyShader{ nullptr };
+    backend_create_graphics_pipeline_fn_t CreateGraphicsPipeline{ nullptr };
+    backend_destroy_graphics_pipeline_fn_t DestroyGraphicsPipeline{ nullptr };
+    backend_draw_indexed_fn_t DrawIndexed{ nullptr };
+
+    // Both callbacks may be absent for a backend without sampled images.
+    backend_create_texture_2d_fn_t CreateTexture2D{ nullptr };
+    backend_destroy_texture_fn_t DestroyTexture{ nullptr };
 
     void *state{ nullptr }; // Backend-owned runtime passed back unchanged to every callback.
 };
