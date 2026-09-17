@@ -20,170 +20,153 @@
 
 # CypherEngine Current Status
 
-## Project state
+Snapshot date: 2026-09-17
 
-CypherEngine is still in early foundation stage, but the runtime stack is now more real than the old docs implied.
+This resume point describes the integrated working tree after the first visible
+renderer slices, the render-asset V2 expansion, and the first CypherTileEditor
+workspace. The non-renderer verification below remains the independently
+completed September 16 pass.
 
-`CypherEngine` is the native engine runtime currently living in this repository.
+The detailed evidence, dependency gates, folder audit, and six-month projection
+live in [six_month_engine_plan.md](six_month_engine_plan.md). This file remains the
+short resume point.
 
-Current code snapshot:
+## Project State
 
-- early runtime modules live under `src/CypherEngine/`
-- build succeeds through CMake
-- the executable target is `CypherEngine`
-- the runtime can create a window, initialize OpenGL, load shaders, and submit a basic mesh path
-- a CryEngine-inspired future subsystem skeleton now exists for editor, tools, resources, world, input, physics, audio, AI, animation, networking, scripting, and profiling
-- Common tiers, math, security, VFS, resource contracts, render formats, and the
-  tool framework are independently linkable static libraries
+CypherEngine now has a complete standalone rendering proof from authored GLSL
+through offline cooking, VFS loading, validated `CYSH`, native OpenGL program
+creation, immutable pipeline state, indexed drawing, and a visible textured
+cube. A second example turns authored `.cymap` data into blockout geometry and
+can resolve a bounded cooked material/texture preview path. CypherTileEditor
+embeds the same renderer in a Qt-owned OpenGL surface.
 
-## What exists now
+The engine still lacks an integrated game-facing runtime slice. The real
+`CypherEngine` Host creates a System window and reports complete startup state,
+but it does not yet initialize and frame `CypherRender`, own a World, submit
+runtime objects, or drive player input and gameplay. The examples and editor are
+working vertical slices; they do not replace Host/World integration.
 
-- foundational types and shared error surface
-- common formatted print/error helpers
-- memory arenas and pools with benchmark coverage
-- logging runtime
-- early platform runtime helpers
-- host lifecycle scaffold
-- SDL3 window creation and event polling
-- filesystem mount/read path
-- CypherPak package archive path
-- synchronous `CypherResource` runtime with type registration, generation-safe
-  handles, cache identity, reference counting, transactional load rollback, and
-  deterministic shutdown
-- Tier2 static schemas with exact version lookup, dynamic object maps, bounded
-  validation diagnostics, and shared identifier/resource-path checks
-- renderer source contracts for `.cyshader`, `.cytex`, and `.cymat`
-- a versioned, explicitly serialized cooked-resource header and chunk table
-- a deterministic `CYSH` cooked shader payload with validated OpenGL GLSL stage
-  views and no native graphics API objects in Common
-- a deterministic `CYTX` cooked texture payload with bounded PNG/JPEG/EXR import,
-  semantic mip generation, independently hashed mip chunks, and strict readers
-- a deterministic `CYMT` cooked material payload with canonical shader/texture
-  references, typed values, hash validation, and binary-search lookups
-- OpenGL context bootstrap through GLAD
-- renderer lifecycle, shader, mesh, camera, and draw-list path
-- vector, matrix, quaternion, bounds, ray, plane, and frustum math
-- command system backend
-- cvar system backend
-- cfg loading/execution backend
-- documentation/process system
-- shared ToolFramework contracts for descriptors, invocations, compiler
-  dispatch, structured host events, reports, CLI parsing/display, response files,
-  terminal handling, and cooperative interrupt cancellation
-- a deterministic `.cyshader` compiler backed by glslang, with exact CYKV/schema
-  validation, dependency reporting, cross-stage interface checks, transactional
-  `.cyshader_c` publication, and an embeddable compiler descriptor
-- independently linkable `.cytex` and `.cymat` compiler modules registered with
-  the same ResourceCompiler registry
-- `CypherResourceCompiler` 1.0.0 with compile/validate and live compiler/format
-  discovery commands, shared VFS directory and wildcard inputs, response files,
-  zsh completion, branded descriptor-driven help, text/NDJSON output,
-  terminal-aware ANSI color, aggregate progress and reports, cancellation,
-  stable exit codes, and process integration tests
-- Catch2 tests and Google Benchmark targets for the current foundation
+## What Exists Now
 
-## What is done-for-now
+- explicit CMake targets for Common tiers, Math, Security, Image, RenderFormats,
+  VFS, ResourceSystem, ResourceRuntime, render-asset resources, Pak,
+  ToolFramework, System, and Render
+- the native `CypherEngine` process with Host, Log, Memory, FileSystem, Pak,
+  Command, CVar, Config, System windowing/events, and a thin entry point
+- deterministic `CYRS`, `CYSH` V2/V3, `CYTX` V1/V2, and `CYMT` V1/V2 cooked
+  formats with compatibility readers, strict validation, tests, and benchmarks
+- `CypherResourceCompiler` plus shader, texture, and material compiler modules
+- VFS-backed render-resource loaders returning manager-owned cooked views
+- renderer lifecycle, backend dispatch, OpenGL capability/context bootstrap,
+  frame clear/present, buffers, vertex formats/layouts, VAO-backed vertex inputs,
+  native programs from cooked shaders, immutable graphics pipelines, immediate
+  indexed drawing, and immutable RGBA8 2D textures
+- standalone cooked-shader cube and live `.cymap` preview examples, including
+  finite hidden-frame smoke modes, resize handling, ordered cleanup, material
+  reload, and public-API-only rendering
+- a host-surface renderer boundary that borrows a framework-owned OpenGL context
+  and presentation target without exposing Qt or native handles in the renderer API
+- CypherTileEditor core and Qt workspace with deterministic `.cymap` V1-V3
+  persistence, validation, undo/redo, generated blockout geometry, orthographic
+  and embedded 3D views, sparse selections and transforms, stairs, doors, spawn
+  markers, material slots/previews, settings, console, and focused tests
+- Picasso texture/material authoring core and Qt GUI with focused tests; further
+  product work is not on the current runtime critical path
+- World/renderer ownership decisions and reserved World module boundaries, but
+  no executable World operation or target
 
-- `CypherCommon`
-  - type aliases
-  - sentinel values
-  - packed subsystem error representation
-  - formatted print/error helpers
-- `CypherMemory`
-  - arena allocator API in progress
-  - size helpers
-  - allocation flags
-  - markers and rewind model
-  - allocation counters and stats direction
-- `CypherLog`
-  - runtime state
-  - level/channel filtering
-  - console/file output path
-- `CypherSystem`
-  - platform/compiler detection
-  - path construction
-  - monotonic time/sleep/local-time helper
-  - SDL3 window creation and event polling
-- `CypherHost`
-  - startup/shutdown ownership
-  - frame begin/update/render/end sequencing
-- `CypherFileSystem`
-  - mount table
-  - loose-file read/write path
-  - read-entire-file helper for shaders/assets
-- `CypherRender`
-  - init/shutdown state
-  - in-frame state validation
-  - error-coded lifecycle contract
-  - GL context bootstrap
-  - shader registry/loading
-  - mesh upload/draw path
-  - camera matrices
-  - draw-list submission
-- `CypherMath`
-  - vector/matrix/quaternion foundations
-  - bounds/ray/plane/frustum geometry helpers
-- `CypherCommand`
-  - command registry
-  - duplicate prevention
-  - fixed argument parsing
-  - callback execution
-- `CypherCVar`
-  - fixed registry
-  - typed cached values
-  - flags
-  - set/find/get path
-- `CypherConfig`
-  - file loading
-  - line execution
-  - `exec`
-  - `set`
-  - `seta`
-  - fallback command dispatch
+## What Is Done-For-Now
 
-## Active milestone
+- Common, Math, Security, Image, cooked format, VFS, resource, and tool contracts
+  needed by the active renderer slice
+- the deterministic shader/texture/material offline pipeline
+- synchronous resource manager ownership and VFS-backed cooked render assets
+- System window/OpenGL-context services
+- the first standalone OpenGL draw slice: cooked shader, program, pipeline,
+  vertex input, uniform update, indexed draw, sampled RGBA8 texture, and cleanup
+- Tile Editor source-map authoring, blockout geometry, and preview behavior for
+  the current pre-production scope
+- basic Host, Log, Memory, FileSystem, Pak, Command, CVar, and Config behavior
 
-`M6 - Offline Resource Pipeline Foundations`
+"Done-for-now" means sufficient to support the next slice, not a production
+completion claim.
 
-The current milestone prepares Common contracts, schemas, cooked layouts, VFS
-providers, and compiler modules before any renderer backend work begins. The
-provider-neutral VFS facade and loose-directory provider now have separate build
-targets, so compiler libraries need only the contract while source hosts opt in
-to native directory access.
+## Active Milestone
 
-## Immediate next tasks
+`Host + World integration after the standalone textured blockout proof`
 
-1. preserve the verified shader, texture, and material offline contracts
-2. replace the monolithic runtime source glob incrementally with explicit
-   subsystem targets and narrow public include surfaces
-3. preserve and extend the implemented VFS/`CypherResource` owned-load path for
-   `CYSH`, `CYTX`, and `CYMT`; validated views borrow manager-owned cooked blobs
-4. implement the first provider for the backend-neutral render-preview contract
-   while designing the renderer service/data contract together
-5. add a mesh contract only when the first visible renderer path establishes its
-   exact vertex, index, bounds, and material requirements
-6. preserve the approved dense Hammer-influenced Picasso V1 interface contract,
-   but defer its Qt 6 implementation until the renderer exposes a real preview
-   provider; Picasso will reuse both existing compiler libraries
-   and separate editor-neutral texture/material cores
+The renderer can now synchronously create generation-checked OpenGL programs,
+pipelines, textures, and indexed draws. The next runtime milestone is to put that
+working path behind the real Host lifecycle and a minimal World submission
+boundary. Renderer must continue to consume validated resource views and explicit
+draw data; it must not parse CYKV, discover paths, or own editor documents.
 
-## Explicitly not active yet
+## Immediate Next Tasks
 
-- real custom world/map runtime implementation
-- software, OpenGL, or Vulkan renderer expansion during the foundation milestone
+The following queue advances the working renderer/editor slices into the engine
+runtime without widening the renderer prematurely:
+
+1. integrate renderer configuration, initialization, frame ownership, resize,
+   minimized-window behavior, and shutdown into the real Host
+2. define the smallest executable World submission record needed by one blockout
+   map and keep authored Tile Editor data outside the renderer
+3. connect `CypherResource` dependency ownership to loaded shader, texture, and
+   material objects instead of resolving preview dependencies ad hoc
+4. turn the current bounded base-color preview into a versioned `CYSH`/`CYMT`/
+   `CYTX` runtime binding path with explicit failure and lifetime behavior
+5. add one checked-in V2 shader/texture/material content set and exercise it
+   through the command-line cooker and runtime consumer
+6. define `.cymesh` and `.cymap_c` only alongside their first real cooker and
+   World/runtime consumers
+7. prove one controllable graybox room before adding broader renderer features
+
+## Parallel Non-Renderer Track
+
+Owner: collaborator/agent. Scope: verify existing subsystem behavior, add useful
+benchmarks, and refine missing functionality in small dependency-ordered slices.
+Renderer implementation remains owned by the project author.
+
+Completed slice NR-01: dedicated correctness coverage for the runtime
+`src/CypherMemory` pool allocator. Eight test cases and 58,552 assertions pass in
+both Debug and ASan/UBSan. Release sequential/shuffled reuse benchmarks ran at
+selected capacities; [results and reproduction](non_renderer_validation_2026-09-16.md)
+record the limits of those local measurements. The Common Tier1 `memory_pool_t`
+tests exercise a different implementation and do not cover `Mem_Pool*`.
+
+The expanded runtime pass is complete: arena, scratch, bucket, allocator-wrapper
+and global-memory lifetimes; Resource load/teardown failures; Pak validation and
+publication; FileSystem async ownership/shutdown; Command/CVar/Config parsing;
+Log reconfiguration; and the sectioned live startup manifest. All 232 selected
+non-renderer CTest entries pass in both Debug and ASan/UBSan. Allocator wrappers,
+Log, and FileSystem also pass ThreadSanitizer. Five Release benchmark executables
+ran 33 workloads with five repetitions each and no reported workload errors.
+
+The [active work log](non_renderer_work_log.md) records exact checks, fixes, and
+limitations; subsequent items live in the
+[non-renderer queue](six_month_engine_plan.md#non-renderer-work-queue).
+Resume that queue for this track; an unfinished renderer milestone does not
+block isolated non-renderer correctness work.
+
+## Explicitly Not Active Yet
+
+- general shader variants, independent samplers, and unrestricted material binding
+- a general renderer command-buffer, render graph, Vulkan backend, advanced
+  lighting, shadows, or post-processing
+- general mesh/world streaming, visibility, navigation, and cooked map sections
 - client/server networking
-- gameplay loop
-- custom model/archive tooling and Qt material/texture authoring products
-- additional compiler products and custom editor workflows (the shared
-  ToolFramework, shader compiler, ResourceCompiler CLI, and planned product
-  source roots now exist)
+- general entity/component architecture
+- rigid-body physics, terrain, portals, streaming, animation, AI, or audio graphs
+- gameplay/combat loop
+- additional broad compiler products or unrelated Picasso/Mason expansion
 - VM/game-script runtime
 - full SIMD string/memory/math backend
 
-These are all intended, but they are not the current coding target.
+These remain possible future work; they are not the current coding target.
 
-## Resume rule
+## Resume Rule
 
-If work pauses, resume from this file first.
-
-Do not restart architecture design from scratch unless this file and the surrounding docs are intentionally updated with a new direction.
+If work pauses, resume from this file first. Then follow the immediate work queue
+and acceptance gates in
+[six_month_engine_plan.md](six_month_engine_plan.md) for the relevant track.
+Do not restart architecture design from scratch or expand into a new runtime
+subsystem before its stated dependencies and acceptance criteria are clear.
