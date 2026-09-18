@@ -50,14 +50,14 @@ Cypher::CommonTier1 + Cypher::Math
        CypherTileEditor GUI
 
 Mason -----------------------> Cypher::EditorGeometry
-CypherMapCompiler -----------> validated authoring snapshot
+CypherSceneCompiler ---------> validated authoring snapshot
 CypherWorld -----------------> cooked output only
 ```
 
-The initial TileEditor integration adds a second authored geometry layer rather
-than replacing the current dense tile grid. Tile primitives may generate editable
-meshes or be converted explicitly. Once converted, arbitrary mesh edits are the
-source of truth and do not silently round-trip into the original tile primitive.
+The initial TileEditor integration exercises shared geometry through transient
+adapters rather than replacing the current dense tile grid. An explicit Mason
+conversion creates a `.cyscene`; arbitrary mesh edits then belong to that scene
+and do not silently round-trip into the original tile primitive.
 
 The geometry core uses:
 
@@ -138,12 +138,12 @@ those paths work do operations arrive in dependency order:
   of abusing manifold mesh topology as universal storage.
 - Mason and focused tools receive identical topology, validation, and command
   behavior.
-- `CypherMapCompiler` can consume validated snapshots without Qt dependencies.
+- `CypherSceneCompiler` can consume validated snapshots without Qt dependencies.
 - `CypherWorld` remains free of editable topology and undo state.
 - Editor sources enter products only through explicit editor/tool targets and
   never become source files of the `CypherEngine` executable.
-- `.cymap` requires a future schema version before arbitrary geometry objects are
-  persisted; version 3 keeps its current meaning.
+- `.cymap` version 3 keeps its current tile-grid meaning. Arbitrary Mason geometry
+  is persisted by `.cyscene`, as fixed by ADR 0007.
 - File count and line count are planning observations, never completion criteria.
   New files are created when a responsibility has an implemented contract and
   focused tests, rather than as an empty thousand-file tree.

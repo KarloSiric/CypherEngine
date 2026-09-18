@@ -17,9 +17,9 @@ nodes, LOD selection, neighbor constraints, material-region references, height
 queries, and terrain residency decisions.
 
 Mason owns sculpting tools, editable layers, undo history, and source-document
-state. CypherMapCompiler converts that authoring state into chunked terrain data
-and precomputed LOD metadata. CypherRender owns the resulting GPU buffers and
-terrain pipelines.
+state in `.cyscene`. CypherSceneCompiler converts that authoring state into
+chunked `.cyscene_c` terrain data and precomputed LOD metadata. CypherRender owns
+the resulting GPU buffers and terrain pipelines.
 
 The runtime must prevent cracks between adjacent LODs, keep height/collision
 queries consistent with rendered terrain, and make streaming transitions

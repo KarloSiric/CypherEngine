@@ -446,10 +446,10 @@ Examples:
 Editable source formats and cooked runtime formats should be distinct.
 
 ```text
-.cymap       editable Mason map source
-.cymap_c     cooked map data
-.cyscene     editable scene source
-.cyscene_c   cooked scene data
+.cymap       editable CypherTileEditor grid source (`cypher.map` V1-V3)
+.cymap_c     optional future cooked tile-map data
+.cyscene     editable Mason scene/world source (`cypher.scene`)
+.cyscene_c   cooked Mason world data
 .cytex       texture source metadata
 .cytex_c     cooked texture
 .cymat       material source
@@ -475,7 +475,7 @@ Editable source formats and cooked runtime formats should be distinct.
 .cypak       packed game assets
 ```
 
-BSP-derived data is an optional compiler intermediate or `.cymap_c` chunk. It
+BSP-derived data is an optional compiler intermediate or `.cyscene_c` chunk. It
 is not a required standalone world format. See
 [map_authoring_and_mason.md](map_authoring_and_mason.md) for the authoritative
 map-source, compilation, runtime-world, and Mason design.

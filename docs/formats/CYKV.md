@@ -12,6 +12,7 @@
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-10
+//  - Clarified the CYDF profile and accepted CYKV 2 successor on 2026-09-18
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -25,6 +26,13 @@
 This document is the normative draft specification for Cypher KeyValues version
 1, abbreviated `CYKV 1`. Implementations must not describe themselves as CYKV 1
 conforming until the conformance tests derived from this document pass.
+
+CYKV 1 remains frozen. The accepted successor contract is
+[Cypher KeyValues 2](CYKV_2.md). Its Tier1 parser, typed constants, namespaced
+includes, exact-schema bases, source resolver, resolved writer, and canonical
+hash are implemented. Tier2 schema adoption, domain compilers, node provenance,
+and dependency manifests remain pending. A CYKV 1 reader must continue to reject
+`@cykv 2` and every version-2 directive rather than partially interpreting them.
 
 The terms **must**, **must not**, **required**, **should**, **should not**, and
 **may** describe requirements with their usual standards-document meanings.
@@ -46,9 +54,13 @@ universal runtime binary representation.
 ## Terminology Decision
 
 `CYKV` is the single name for the language, semantic data model, parser, and
-writer family. Older planning documents use `CYDF` for the serialized language
-and `CypherKeyValues` for its API. That split is retired because two names for
-one contract create needless ambiguity.
+writer family. `CYDF` now has one narrower meaning: the generic `.cydf`
+source-document profile encoded in CYKV. It is not an alternate language name,
+parser, or semantic model. See the [CYDF profile](CYDF.md).
+
+Older planning documents used `CYDF` for the serialization language and
+`CypherKeyValues` for its API. That language/API naming split remains retired.
+The accepted profile does not restore it.
 
 Domain files retain meaningful extensions such as `.cymap`, `.cymat`, and
 `.cyprefab`. Their `@schema` directive states what the CYKV document means.
@@ -65,9 +77,12 @@ CYKV source document
     -> specialized cooked binary resource
 ```
 
-For example, `facility.cymap` is a CYKV source document governed by the
-`cypher.map` schema. Its compiled runtime representation is `facility.cymap_c`.
-The cooked file is free to use a domain-specific chunk layout and magic value.
+For example, `facility.cymap` is a CypherTileEditor source document governed by
+the `cypher.map` schema. It has no required cooked counterpart; `.cymap_c`
+remains optional if a dedicated tile runtime is admitted. Mason instead owns
+`.cyscene` with the planned `cypher.scene` schema, and `CypherSceneCompiler`
+will produce the distinct `.cyscene_c` runtime-world resource. A cooked file is
+free to use a domain-specific chunk layout and magic value.
 
 ## Encoding
 
@@ -206,6 +221,8 @@ Object rules:
 - Commas and semicolons between object members are invalid.
 - Keys are case-sensitive.
 - Duplicate keys are always invalid.
+- Text parsing applies those two rules independently of the destination
+  document's optional case-insensitive post-publication lookup policy.
 - Empty keys are invalid.
 - Quoted keys may contain UTF-8 characters and characters unavailable to bare
   keys.
@@ -414,7 +431,9 @@ compiler, not the generic CYKV parser.
 CYKV 1 has no textual include or import directive. Composition uses explicit
 resource references, prefab references, submaps, or schema-defined inheritance.
 This keeps dependency discovery, cycle detection, cooker invalidation, and VFS
-resolution explicit.
+resolution explicit in version 1. CYKV 2 separately specifies bounded
+`#include`, `#base`, and typed `#define` resolution; those features do not
+retroactively change CYKV 1.
 
 ## Resource Limits
 
@@ -483,6 +502,12 @@ The number after `@cykv` is the language major version. A breaking grammar or
 semantic change requires a new number. CYKV 1 readers reject unknown language
 versions rather than guessing.
 
+Version 2 is now specified in [CYKV_2.md](CYKV_2.md). The current parser
+and source resolver implement the accepted typed definitions, imports, bases,
+resolved writing, and semantic hashing; the dedicated specification reports the
+remaining integration and provenance status. Specification acceptance and
+capability status stay separate.
+
 The schema version is independent. Schema migrations operate on parsed semantic
 documents and are explicit ordered transformations. A migration must never be
 performed silently during a read-only validation operation.
@@ -503,7 +528,7 @@ content. They must:
 - reject malformed escape sequences and unterminated comments or strings
 - avoid recursion beyond the configured depth
 - preserve the destination document on failure
-- never execute commands, scripts, or includes while parsing CYKV
+- never execute commands, scripts, or includes while parsing CYKV 1
 
 Cryptographic signatures, encryption, package trust, and multiplayer content
 policy are separate layers built on canonical or cooked bytes.

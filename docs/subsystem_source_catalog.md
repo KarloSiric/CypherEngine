@@ -557,7 +557,7 @@ CypherMaterialCompiler/         material validation and dependency cooking
 CypherMeshCompiler/             mesh import, optimization and cooking
 CypherAnimationCompiler/        skeleton/clip validation and cooking
 CypherAudioCompiler/            audio conversion and bank building
-CypherMapCompiler/              authored map to cooked world pipeline
+CypherSceneCompiler/            Mason .cyscene to .cyscene_c world pipeline
 CypherPackageTool/              package build, list, verify and extract
 CypherAssetInspector/           cooked-resource inspection and diagnostics
 CypherBuild/                    project-level asset/build orchestration
@@ -575,7 +575,7 @@ AssetBrowser/                   VFS-backed source/cooked asset browsing
 Inspector/                      reflection/schema-backed property editing
 Undo/                           transactions, history and recovery
 Preview/                        engine-hosted material/model/world previews
-Mason/                          world and map authoring workspaces
+Mason/                          .cyscene scene/world authoring workspaces
 Picasso/                        texture and material authoring workspaces
 Animation/                      skeleton, clip and graph authoring
 Particle/                       particle graph and preview tools

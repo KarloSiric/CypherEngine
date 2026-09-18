@@ -14,6 +14,7 @@
 //  - Added render-asset version and compatibility status on 2026-09-17
 //  - Added input, gameplay-data, presentation, user-state, and generated-record
 //    candidates alongside the reference manual on 2026-09-17
+//  - Accepted the CYKV 2 contract and CYDF generic profile on 2026-09-18
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -29,6 +30,7 @@
 | Implemented | The named parser, schema, reader, writer, or compiler route exists and is tested. |
 | Partial | A real working slice exists, but one or more documented end-to-end layers remain unavailable. |
 | Active | A frozen lower-level contract exists and the next integration layer is being implemented. |
+| Specified | The normative identity and behavior are accepted, while some or all implementation layers remain unavailable. |
 | Planned | Purpose and provisional name are recorded; the source or binary layout is not frozen. |
 | Proposal | Responsibility and candidate identity are under review and may change. |
 
@@ -37,18 +39,21 @@ binary layouts, limits, and deliberate compiler gates live in
 [Renderer Asset Contracts](RENDER_ASSETS.md). The complete cross-subsystem
 inventory, admission policy, and compatibility guidance live in the
 [CypherEngine Reference Manual](../CYPHERENGINE_REFERENCE_MANUAL.md).
+Language and generic-profile details live in [CYKV 1](CYKV.md),
+[CYKV 2](CYKV_2.md), and [CYDF](CYDF.md).
 
 ## Foundation And Configuration
 
 | Purpose | Source | Cooked/runtime | Status |
 | --- | --- | --- | --- |
-| Generic structured data | CYKV text V1 | CYKV binary pack where useful | Implemented |
+| Generic structured data language | CYKV text V1 and V2 | CYKV binary pack where useful | V1 implemented; V2 Tier1 definitions/includes/bases, resolver, resolved writer, and canonical hash implemented; Tier2 schemas, compilers, provenance, and manifests pending |
+| Generic schema-selected document profile | `.cydf`, encoded as CYKV | Schema-owned cooked resource when justified; no universal CYDF binary | Specified; dedicated dispatch, schemas, compilers, and consumers not implemented |
 | Project manifest | `.cyproject` | None | Implemented |
 | User settings | `.cysettings` | None | Implemented |
 | Command/CVar script | `.cfg` / `.cycfg` | None | Implemented runtime family |
 | Generic cooked resource | N/A | `CYRS` container V1 | Implemented |
 | Self-hosted schema | `.cyschema` | Compiled schema/registry data | Proposal; current schema descriptors remain C++ owned |
-| Schema-selected gameplay data | `.cydata` | `.cydata_c` | Proposal for weapons, enemies, items, waves, difficulty, modes, and other typed records |
+| Schema-selected gameplay data | `.cydf` with exact domain schema | Schema-owned cooked resource when justified | Specified CYDF use; `.cydata` and `.cydata_c` proposals withdrawn; first gameplay schema and consumer not implemented |
 
 ## Input And User Controls
 
@@ -87,8 +92,8 @@ are forbidden.
 
 | Purpose | Source | Cooked/runtime | Status |
 | --- | --- | --- | --- |
-| Map/world | `.cymap`: Tile Editor schemas V1, V2, and V3 | `.cymap_c` | Authored source, deterministic persistence, validation, generated blockout geometry, and editor/runtime preview implemented; shared cooker and production world runtime planned |
-| General scene | `.cyscene` | `.cyscene_c` | Planned |
+| Tile map | `.cymap`: `cypher.map` V1, V2, and V3 | `.cymap_c` only if a tile runtime product requires it | Authored source, deterministic persistence, validation, generated blockout geometry, and preview implemented in CypherTileEditor |
+| Mason scene/world | `.cyscene`: planned `cypher.scene` V1 | `.cyscene_c` | Planned; separate document model and compiler identity fixed by ADR 0007 |
 | Prefab/entity template | `.cyprefab` | `.cyprefab_c` | Planned |
 | Physics setup | `.cyphys` | `.cyphys_c` | Planned |
 | Navigation | `.cynav` | `.cynav_c` | Planned |

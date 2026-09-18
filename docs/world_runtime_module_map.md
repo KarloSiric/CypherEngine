@@ -47,7 +47,7 @@ an entity thinks, or how Mason edits a face.
 ## Runtime Data Flow
 
 ```text
-.cymap_c and cooked dependencies
+.cyscene_c and cooked dependencies
               |
               v
        CypherResource records
@@ -182,7 +182,7 @@ camera/view query ------------+
 
 ## Cooked Map Contract
 
-The eventual `.cymap_c` payload should provide independently bounded sections
+The eventual `.cyscene_c` payload should provide independently bounded sections
 for at least:
 
 - header, version, byte order, checksums, and target profile
@@ -223,7 +223,7 @@ invalid bounds, and invalid frame lifetimes are rejected.
 
 ### Gate 2: Cooked Static Map
 
-- Versioned `.cymap_c` header and bounded section reader.
+- Versioned `.cyscene_c` header and bounded section reader.
 - Static geometry, placements, dependencies, and spawn records.
 - Transactional map load/activation and complete rollback on failure.
 - Fully resident map; no asynchronous streaming yet.

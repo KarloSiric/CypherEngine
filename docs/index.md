@@ -12,6 +12,7 @@
 //
 //  History:
 //  - Created by Karlo Siric on 2026-04-20
+//  - Added the accepted CYKV 2 and CYDF references on 2026-09-18
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -48,10 +49,12 @@ Read these in order when resuming work:
 20. [TILEEDITOR_DEVELOPMENT_KIT.md](TILEEDITOR_DEVELOPMENT_KIT.md)
 21. [picasso_v1_design.md](picasso_v1_design.md)
 22. [formats/CYKV.md](formats/CYKV.md)
-23. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
-24. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
-25. [reference_engine_lessons.md](reference_engine_lessons.md)
-26. [security_model.md](security_model.md)
+23. [formats/CYKV_2.md](formats/CYKV_2.md)
+24. [formats/CYDF.md](formats/CYDF.md)
+25. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
+26. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
+27. [reference_engine_lessons.md](reference_engine_lessons.md)
+28. [security_model.md](security_model.md)
 
 API docs:
 
@@ -158,9 +161,11 @@ Project memory:
   - Source 2 capability-to-Cypher mapping and explicit scope exclusions
   - MASON long-form naming and vertical implementation order
 - `map_authoring_and_mason`
-  - CYKV-backed map authoring direction
-  - editable and cooked format families
-  - `.cymap`, `CypherMapCompiler`, and `.cymap_c` architecture
+  - separate CYKV-backed TileEditor and Mason authoring directions
+  - TileEditor `.cymap` / `cypher.map` and Mason `.cyscene` / `cypher.scene`
+    identities, including explicit tile-to-scene conversion
+  - `CypherSceneCompiler` and `.cyscene_c` runtime-world architecture, with an
+    optional `.cymap_c` only if a dedicated tile runtime is admitted
   - hybrid brush, mesh, BSP, visibility, and world-compilation policy
   - Mason workspaces, editing model, validation, testing, and build order
 - `trenchbroom_editor_systems_research`
@@ -199,11 +204,22 @@ Project memory:
   - normative CYKV 1 grammar and semantic rules
   - document headers, comments, scalar types, canonical output, and limits
   - boundary between Tier1 parsing and Tier2 schema validation
+- `formats/CYKV_2`
+  - accepted CYKV 2 language contract with its Tier1 parser and resolver implemented
+  - immutable typed `#define`, namespaced `#include`, and missing-value `#base`
+  - bounded dependency graphs, nested references, base precedence, resolved
+    writing, and canonical hashing
+  - exact separation between implemented Tier1 behavior and pending provenance,
+    manifests, Tier2 schema, CYDF registry, and compiler work
+- `formats/CYDF`
+  - generic `.cydf` source-document profile encoded by CYKV
+  - exact schema ownership, suitable uses, cooked-data boundary, and non-uses
+  - replacement for the unimplemented `.cydata` proposal without a second parser
 - `formats/CYKV_2_PROPOSAL`
-  - researched proposal for bounded includes, base composition, typed constants,
-    build conditionals, exact numeric intent, optional non-finite values,
-    provenance, hashing, limits, and a self-identifying binary generation
-  - explicit separation from implemented CYKV 1 behavior
+  - research record for further language evolution after the accepted V2 subset
+  - rejected candidate directive spellings are explicitly superseded by CYKV_2
+  - conditionals, exact numeric intent, optional non-finite values, and binary
+    evolution remain proposals rather than implemented behavior
 - `formats/INPUT_ACTIONS`
   - proposed `.cyinput`, `.cyinput_c`/`CYIN`, and `.cybindings` family
   - action, context, control, trigger, processor, conflict, accessibility,

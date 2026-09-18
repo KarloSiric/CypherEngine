@@ -20,6 +20,42 @@ CypherEngine Changelog
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
+[Unreleased] - 2026-09-18
+-------------------------
+
+Added
+- Added the accepted CYKV 2 Tier1 language path with immutable typed #define
+  values, declaration-before-use references, nested namespaced member access,
+  exact-case symbols, deep-copy expansion, stable errors, and bounded resource
+  accounting while retaining CYKV 1 for existing formats.
+- Added callback-driven, transactional #include and #base source resolution with
+  parent-relative VFS requests, canonical identity, deduplication, cycles,
+  dependency reporting, source-aware diagnostics, exact-schema base merging,
+  matching loader release, and explicit graph/path/data limits.
+- Added hard resolver ceilings for dependency depth, unique sources, and edges;
+  overflow-scale options now fail before allocation or recursive traversal.
+- Made authored CYKV/JSON key identity exact-case independently of a destination
+  document's optional case-insensitive lookup behavior.
+- Added resolved CYKV 2 writing and canonical semantic hashing plus focused
+  parser/resolver tests and Release benchmarks for typed expansion and an
+  in-memory dependency graph.
+- Added the normative CYKV 2 specification, the generic .cydf Cypher Data File
+  profile, and ADR 0007 for TileEditor/Mason document identity.
+
+Changed
+- Assigned .cymap and cypher.map V1-V3 to the deliberately small TileEditor grid
+  document. A future .cymap_c now requires a real tile-runtime consumer.
+- Assigned Mason professional scene/world authoring to .cyscene and planned
+  cypher.scene, CypherSceneCompiler, .cyscene_c, and CypherWorld identities.
+- Replaced the unimplemented .cydata proposal with .cydf for exact-schema generic
+  data. CYDF reuses CYKV and does not define a second parser or universal cooked
+  binary.
+- Kept token macros, expressions, conditionals, environment lookups, non-finite
+  literals, provenance, manifests, Tier2 adoption, and self-contained CYKV 2
+  binary packing outside the implemented deterministic subset.
+- Updated the reference manual, format catalog, toolchain/editor studies, module
+  maps, and tool documentation to use the same ownership and status language.
+
 [Unreleased] - 2026-09-17
 -------------------------
 

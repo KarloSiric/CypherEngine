@@ -280,7 +280,7 @@ Toolchain should come before full editor scale:
 - `CypherModelCompiler`
 - `CypherTextureCompiler`
 - `CypherMaterialCompiler`
-- `CypherMapCompiler`
+- `CypherSceneCompiler`
 - script compiler/assembler later if the VM path survives
 
 The editor starts after memory, filesystem, resource, renderer, input, and world

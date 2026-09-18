@@ -23,7 +23,69 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ## [Unreleased] - 2026-09-18
 
+### Added
+
+#### CYKV 2 source composition and CYDF
+
+- Implemented the accepted `@cykv 2` Tier1 language path while preserving
+  `@cykv 1` as the default for existing writers and runtime schemas.
+- Added immutable typed `#define NAME <value>` declarations, declaration-before-
+  use `$NAME` expansion, nested `$namespace.member` traversal, deep-copy value
+  semantics, exact-case symbol identity, root-object enforcement, and stable
+  duplicate, undefined, and definition-limit diagnostics.
+- Added callback-driven `KeyValue_ParseSource` resolution for namespaced
+  `#include "path" as alias` imports and exact-schema `#base "path"`
+  composition. Local values win, object members merge recursively, arrays and
+  scalars override as whole values, and earlier bases have priority over later
+  bases.
+- Added canonical virtual-path validation, parent-relative loader callbacks,
+  canonical-source deduplication, include/base cycle detection, matching release
+  callbacks, an optional dependency-edge sink, and bounded depth, source, edge,
+  aggregate-byte, path, definition, node, container, string, and merge budgets.
+- Added public resolver hard ceilings of 64 dependency edges below the root,
+  1,024 unique sources, and 8,192 dependency edges. Oversized and overflow-scale
+  option values now return `INVALID_ARGUMENT` before allocation or recursion.
+- Added transactional source resolution with source-aware diagnostics, authored
+  dependency spelling, exact byte/line/column locations, stable source-status
+  names, loader error propagation, and preservation of the previous destination
+  after every failure.
+- Added CYKV 2 resolved text output and canonical semantic hashing through the
+  existing writer/hash path. The output is the effective tree and deliberately
+  omits directives, definitions, references, comments, and source layout.
+- Added focused parser/resolver conformance coverage for typed values, nested and
+  whole-root imports, base precedence, exact-case behavior, parent-sensitive
+  resolution, repeated canonical sources, callback order, cycles, schemas,
+  conflicts, hostile paths, limits, allocation ownership, diagnostics, and
+  transactional rollback.
+- Made CYKV and JSON authored object-key validation exact-case independently of
+  a destination document's optional folded lookup policy, preserving valid
+  `Value`/`value` pairs while still rejecting exact duplicates.
+- Added Release benchmarks for typed-definition expansion at 1, 8, and 32 uses
+  and for an in-memory include/base resolution graph.
+- Added the normative CYKV 2 specification and the `.cydf` Cypher Data File
+  profile. CYDF is generic schema-selected authored data encoded by CYKV; it
+  does not introduce a second parser or a universal cooked `.cydf_c` resource.
+- Added ADR 0007, which permanently separates TileEditor `.cymap` /
+  `cypher.map` V1-V3 documents from Mason `.cyscene` / planned `cypher.scene`
+  documents and defines explicit tile-map-to-scene conversion.
+
 ### Changed
+
+#### Authoring-format ownership
+
+- Assigned `.cymap` exclusively to CypherTileEditor grid authoring and made a
+  future `.cymap_c` conditional on a real dedicated tile-runtime consumer.
+- Assigned professional 3D scene/world authoring to Mason `.cyscene`, with the
+  planned `CypherSceneCompiler -> .cyscene_c -> CypherWorld` pipeline.
+- Replaced the unimplemented `.cydata` / `.cydata_c` proposal with the narrower
+  `.cydf` profile and retained specialized extensions for assets and domains
+  that need their own editors, compilers, runtime layouts, or compatibility
+  policies.
+- Kept function-like macros, token substitution, conditionals, expressions,
+  environment/CVar access, non-finite numeric literals, lossless syntax trees,
+  node provenance, deterministic dependency manifests, Tier2 CYKV 2 schema
+  opt-in, and self-contained CYKV 2 binary packing outside the implemented
+  language subset until their consumers and deterministic contracts are proven.
 
 #### Runtime ownership and build structure
 
@@ -84,6 +146,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Documentation
 
+- Updated the reference manual, format catalog, CYKV schema guidance, toolchain
+  plan, tool inventory, Source 2 and TrenchBroom studies, subsystem catalog,
+  project structure, world/terrain notes, and TileEditor documentation to use
+  the same CYKV/CYDF and `.cymap`/`.cyscene` ownership boundaries.
+- Recorded Valve VDF, classic KeyValues, KeyValues3, and the pinned Source SDK
+  2013 loader as design references. The documentation distinguishes Valve's
+  appended `#include` and recursive missing-value `#base` behavior from
+  Cypher's namespaced typed imports, exact-schema bases, bounded VFS policy, and
+  Cypher-owned typed `#define` feature.
 - Added ADR 0006 for runtime subsystem structure, a source-module maturity map,
   the Mathlib readiness report, and the CryEngine 1 research report.
 - Updated architecture, subsystem, source-catalog, project-structure, coding-

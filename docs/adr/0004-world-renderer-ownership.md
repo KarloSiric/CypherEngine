@@ -60,12 +60,12 @@ because that phrase is easily confused with the complete engine or renderer.
 | `CypherWorld` | Loaded map state, spatial records, bounds, coarse visibility, terrain, portals, environment, and streaming decisions | Gameplay logic, physical simulation, native graphics objects, or editor history |
 | `CypherRender` | GPU objects, render passes, queues, sorting, batching, fine/GPU culling, backend commands, and presentation | Map traversal, terrain source data, portal graphs, or resource file loading |
 | Mason | Editable topology, heightmap layers, selection, undo, authoring views, and source documents | Shipping runtime structures or graphics API objects |
-| `CypherMapCompiler` | Conversion of `.cymap` source into validated cooked world payloads | Runtime object lifetime or live editor state |
+| `CypherSceneCompiler` | Conversion of Mason `.cyscene` source into validated cooked world payloads | Runtime object lifetime or live editor state |
 
 ### Dependency Direction
 
 ```text
-Mason -> CYKV .cymap -> CypherMapCompiler -> .cymap_c
+Mason -> CYKV .cyscene -> CypherSceneCompiler -> .cyscene_c
                                                 |
                                                 v
 Host -> CypherResource -> CypherWorld -> view submission -> CypherRender
@@ -132,7 +132,7 @@ the owning systems.
 ### Authoring And Runtime Geometry
 
 Mason operates on editable faces, meshes, terrain layers, optional CSG
-operations, and undoable commands. CypherMapCompiler validates and bakes that
+operations, and undoable commands. CypherSceneCompiler validates and bakes that
 state into runtime geometry, collision data, terrain chunks, spatial indexes,
 portal data, dependencies, and spawn records.
 

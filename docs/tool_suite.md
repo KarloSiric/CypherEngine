@@ -56,7 +56,7 @@ to capitalize every reference.
 ## Tool Naming Policy
 
 Cypher tools use full descriptive names as their authoritative product and
-executable names. Abbreviations such as `cymapc`, `cyshaderc`, and `cypkgcli`
+executable names. Abbreviations such as `cyscenec`, `cyshaderc`, and `cypkgcli`
 are not canonical names. They save little typing while making logs, process
 lists, crash reports, build targets, and documentation harder to understand.
 
@@ -64,10 +64,10 @@ The naming layers are:
 
 | Layer | Example | Rule |
 | --- | --- | --- |
-| Product | `CypherMapCompiler` | Public name used in documentation and diagnostics. |
-| Executable/CMake target | `CypherMapCompiler` | Exact cross-platform basename; Windows adds `.exe`. |
-| Reusable implementation library | `CypherMapCompilerCore` | Contains compiler behavior shared by the CLI and Mason. |
-| CMake alias | `Cypher::MapCompilerCore` | Namespaced link target for dependent code. |
+| Product | `CypherSceneCompiler` | Public name used in documentation and diagnostics. |
+| Executable/CMake target | `CypherSceneCompiler` | Exact cross-platform basename; Windows adds `.exe`. |
+| Reusable implementation library | `CypherSceneCompilerCore` | Contains compiler behavior shared by the CLI and Mason. |
+| CMake alias | `Cypher::SceneCompilerCore` | Namespaced link target for dependent code. |
 
 Compiler and processor names normally use one of these role suffixes:
 
@@ -128,9 +128,9 @@ not code or UI to copy.
 | --- | --- | --- | --- | --- |
 | Source SDK launcher/configuration | CypherProject | Qt 6 application | Proposed | Create, open, validate, and configure engine/game projects. |
 | Hammer | Mason Map and World workspace | Mason plus focused Qt launch | Decided | Author maps, scenes, geometry, entities, layers, prefabs, lighting, and gameplay volumes. |
-| VBSP | CypherMapCompiler geometry stage | Headless CLI/library | Decided | Compile source geometry and world records into runtime-ready structures. |
-| VVIS | CypherMapCompiler visibility stage | Headless CLI/library | Planned | Build portals, cells, PVS data, and other visibility acceleration. |
-| VRAD | CypherMapCompiler lighting stage | Headless CLI/library | Planned | Bake lightmaps, probes, static lighting, and diagnostics. |
+| VBSP | CypherSceneCompiler geometry stage | Headless CLI/library | Decided | Compile Mason scene geometry and world records into runtime-ready structures. |
+| VVIS | CypherSceneCompiler visibility stage | Headless CLI/library | Planned | Build portals, cells, PVS data, and other visibility acceleration. |
+| VRAD | CypherSceneCompiler lighting stage | Headless CLI/library | Planned | Bake lightmaps, probes, static lighting, and diagnostics. |
 | VMPI | CypherBuildWorker | Headless service | Deferred | Distribute expensive cooking, lighting, shader, and validation work. |
 | BSPZip | CypherPak map/package stage | Headless CLI/library | Planned | Attach or package map dependencies through the normal package pipeline. |
 | BSP inspection tools | CypherScope World Inspector | Qt 6 application mode | Planned | Inspect cooked world chunks, visibility, collision, entities, and dependencies. |
@@ -305,7 +305,7 @@ response/config files suitable for CI.
 | Working executable | Status | Inputs | Outputs and responsibility |
 | --- | --- | --- | --- |
 | `CypherResourceCompiler` | Decided | Resource manifests, file lists, and source assets | Coordinate importer/compiler dispatch, recursive and dependency-aware builds, caches, target profiles, loose output, and package updates. |
-| `CypherMapCompiler` | Decided | `.cymap` | Produce `.cymap_c` through geometry, entity, collision, visibility, lighting, nav, and packaging stages. |
+| `CypherSceneCompiler` | Decided | Mason `.cyscene` / planned `cypher.scene` V1 | Produce `.cyscene_c` through geometry, entity, collision, visibility, lighting, navigation, and packaging stages. |
 | `CypherModelCompiler` | Decided | glTF/GLB and model source metadata | Produce `.cymesh_c`, `.cyskel_c`, collision, LOD, sockets, and morph metadata. |
 | `CypherAnimationCompiler` | Planned | Animation source and skeleton mapping | Produce `.cyanim_c` with events, root motion, compression, and retarget data. |
 | `CypherAnimationGraphCompiler` | Planned | Animation graph, subgraph, parameter, tag, and authority source | Validate graph ownership and produce a compact runtime evaluator resource. |
@@ -317,14 +317,13 @@ response/config files suitable for CI.
 | `CypherAudioGraphCompiler` | Planned | Sound events, containers, rule stacks, buses, and mix graphs | Validate references and produce runtime event/mixer graph resources. |
 | `CypherFontCompiler` | Planned | Font sources and locale manifests | Produce `.cyfont_c`, atlases, glyph maps, fallback, and shaping metadata. |
 | `CypherCaptionCompiler` | Planned | Dialogue, subtitle, and localization source | Produce validated, timed, localized caption resources. |
-| `CypherNavigationCompiler` | Planned | Map geometry and `.cynav` overrides | Produce `.cynav_c` meshes, links, regions, costs, and debug data. |
+| `CypherNavigationCompiler` | Planned | Scene/world geometry and `.cynav` overrides | Produce `.cynav_c` meshes, links, regions, costs, and debug data. |
 | `CypherPhysicsCompiler` | Planned | Meshes and `.cyphys` source | Produce `.cyphys_c` collision shapes, materials, constraints, and mass properties. |
 | `CypherFlowCompiler` | Planned | `.cyflow` | Validate and compile mission/objective/event graphs. |
 | `CypherUICompiler` | Planned | `.cyui` layout/style source | Validate and compile runtime UI documents, localization references, and resources. |
 | `CypherScriptCompiler` | Planned | Lua source and binding metadata | Validate syntax/bindings, optionally produce bytecode, generate debug metadata, and build script manifests. |
 | `CypherInputCompiler` | Planned | Input/action source documents | Validate conflicts and produce platform-aware runtime action maps. |
 | `CypherLocalizationCompiler` | Planned | Localization tables and locale manifests | Validate keys, placeholders, plurals, coverage, encoding, and produce cooked string resources. |
-| `CypherSceneCompiler` | Planned | `.cyscene` | Compile scene instances, dependencies, streaming partitions, and runtime records. |
 | `CypherPrefabCompiler` | Planned | `.cyprefab` | Validate inheritance/overrides and produce runtime prefab/entity templates. |
 | `CypherPostFXCompiler` | Planned | PostFX layers, masks, LUT sources, exposure, and volume profiles | Preserve editable source while baking target-specific LUT and runtime post-process data. |
 | `CypherDataCompiler` | Planned | Schema-selected CYKV generic data | Produce bounded typed runtime records for gameplay and project-defined data families. |
@@ -350,8 +349,8 @@ response/config files suitable for CI.
 | `CypherDoctor` | Planned | Installed SDK, project, machine, and build environment | Diagnose missing dependencies, invalid configuration, stale caches, incompatible tools, and common setup failures. |
 
 Individual visibility and lighting stages should begin as internal
-`CypherMapCompiler` stages. They become separate executables only if distributed
-builds or specialized debugging requires it.
+`CypherSceneCompiler` stages. They become separate executables only if
+distributed builds or specialized debugging requires it.
 
 ## Importers And Interchange Tools
 
@@ -424,7 +423,7 @@ shared foundation that prevents every editor from reimplementing the same logic.
 
 | Source family | Primary editor | Primary compiler | Runtime product |
 | --- | --- | --- | --- |
-| `.cymap` | Mason Map | CypherMapCompiler | `.cymap_c` |
+| `.cymap` / `cypher.map` V1-V3 | CypherTileEditor | Optional future tile cooker, only if a dedicated tile runtime is admitted | Optional `.cymap_c`; no contract frozen |
 | `.cyscene` | Mason Scene/World | CypherSceneCompiler | `.cyscene_c` |
 | `.cyprefab` | Mason Entity/Prefab | CypherPrefabCompiler | Cooked prefab/entity records |
 | `.cymat` | Picasso Material / Mason Material | CypherMaterialCompiler | `.cymat_c` |
@@ -531,15 +530,17 @@ Exit condition: source documents can be authored and validated without a GUI.
 Exit condition: a source asset can be imported, cooked, inspected, loaded,
 reloaded, and diagnosed end to end.
 
-### Stage 3: Runtime World And Map Compiler
+### Stage 3: Runtime World And Scene Compiler
 
 - minimal runtime world
-- `.cymap` schema and typed document
-- CypherMapCompiler geometry/entity/collision path
+- smallest planned `cypher.scene` schema and typed `.cyscene` document
+- CypherSceneCompiler geometry/entity/collision path
 - cooked world loader
 - command-line playable test room
 
-Exit condition: a map can be built and played without Mason.
+Exit condition: a scene can be built and played without Mason. TileEditor's
+existing `.cymap` remains a separate grid source and may be converted explicitly
+into a new `.cyscene` for this path.
 
 ### Stage 4: Mason Foundation
 
@@ -549,11 +550,11 @@ Exit condition: a map can be built and played without Mason.
 - hierarchy, inspector, asset browser, console, diagnostics
 - selection, transforms, undo/redo, save, compile, and play
 
-Exit condition: Mason can edit, compile, and play the command-line test room.
+Exit condition: Mason can edit, compile, and play the command-line test scene.
 
 ### Stage 5: Production World Tools
 
-- complete map editing
+- complete scene/world editing
 - entities, prefabs, materials, lighting, navigation, physics, layers, and flow
 - incremental builds and hot reload
 - package/release path for the first complete arena

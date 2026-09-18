@@ -13,6 +13,7 @@
 //  History:
 //  - Created by Karlo Siric on 2026-09-17
 //  - Expanded into a field-complete format reference on 2026-09-17
+//  - Added the accepted CYKV 2 contract and CYDF profile on 2026-09-18
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -23,8 +24,8 @@
 
 | Manual property | Value |
 | --- | --- |
-| Edition | 0.2 living reference |
-| Snapshot | 2026-09-17 |
+| Edition | 0.3 living reference |
+| Snapshot | 2026-09-18 |
 | Engine | CypherEngine |
 | Game | REAP |
 | Language | C++20 with C-style, data-oriented subsystem contracts |
@@ -52,7 +53,7 @@ the manual does not make that feature available.
 9. [Format Admission Rules](#9-format-admission-rules)
 10. [Complete Format Catalog](#10-complete-format-catalog)
 11. [CYKV Language Reference](#11-cykv-language-reference)
-12. [CYKV Schema and Configuration Formats](#12-cykv-schema-and-configuration-formats)
+12. [CYKV Schemas, CYDF, and Configuration Formats](#12-cykv-schemas-cydf-and-configuration-formats)
 13. [CYRS Cooked-Resource Container](#13-cyrs-cooked-resource-container)
 14. [Shader Format](#14-shader-format)
 15. [Texture Format](#15-texture-format)
@@ -148,6 +149,7 @@ Every feature and format is assigned one of these labels:
 | **Implemented** | The named reader, writer, decoder, compiler, runtime consumer, or tool behavior exists and is tested. |
 | **Partial** | A real working slice exists, while listed parts of the end-to-end path remain unavailable. |
 | **Active** | A lower-level contract exists and its next integration layer is current work. |
+| **Specified** | Normative identity and behavior are accepted, while some or all implementation layers remain unavailable. |
 | **Planned** | Responsibility and provisional identity are documented, but the contract is not frozen. |
 | **Proposal** | A design is being evaluated. Names, syntax, versions, and responsibilities may change. |
 | **Reserved** | A field or name exists to prevent incompatible reuse, but the associated feature is unavailable. |
@@ -378,7 +380,7 @@ Cypher uses explicit version layers:
 
 | Layer | Example | Meaning |
 | --- | --- | --- |
-| Language | `@cykv 1` | Syntax and primitive typed-tree semantics |
+| Language | `@cykv 1` or `@cykv 2` | Syntax, primitive typed-tree semantics, and version-specific resolution rules |
 | Schema | `@schema "cypher.material" 2` | Domain fields and source semantics |
 | Compiler API | Material compiler API 1 | Tool host/compiler call contract |
 | Compiler implementation | Material compiler 2 | Source-to-cooked behavior generation |
@@ -479,7 +481,8 @@ Avoid proprietary wrappers where established source formats are already useful:
 
 | Purpose | Source | Cooked/generated | Status |
 | --- | --- | --- | --- |
-| Generic structured data | CYKV text V1 | CYKV binary pack V1 | Implemented, with documented binary identity gaps |
+| Generic structured data | CYKV text V1 and V2 | CYKV binary pack V1 | V1 implemented with documented binary identity gaps; V2 Tier1 parser/resolver/writer/hash implemented, schema/compiler adoption and provenance/manifests pending |
+| Generic schema-selected document | `.cydf`, encoded as CYKV | Schema-owned cooked route; no universal CYDF binary | Specified; dedicated dispatch, domain schemas, and consumers not implemented |
 | Project manifest | `.cyproject`, schema V1 | None | Schema and typed decoder implemented; application integration incomplete |
 | User settings | `.cysettings`, schema V1 | None | Display subset implemented; full settings service incomplete |
 | Commands/CVars | `.cfg` (`.cycfg` is a documented alias only) | None | Two unversioned command-stream APIs; Host uses `CypherConfig`/`.cfg`, Tier1 is test/benchmark-only, and no `.cycfg`-specific runtime exists |
@@ -487,7 +490,7 @@ Avoid proprietary wrappers where established source formats are already useful:
 | Shader | `.cyshader` V1/V2 | `.cyshader_c`, CYSH V2/V3 | Compiler and loader implemented; general runtime binding partial |
 | Texture | `.cytex` V1/V2 | `.cytex_c`: CYTX V1 read compatibility, V2 current/write | Compiler and loader implemented; general upload/streaming partial |
 | Material | `.cymat` V1/V2 | `.cymat_c`, CYMT V1/V2 | Compiler and loader implemented; production runtime binding partial |
-| Tile map | `.cymap` V1/V2/V3 | `.cymap_c` planned | Source editor/persistence/preview implemented |
+| Tile map | `.cymap`, `cypher.map` V1/V2/V3 | `.cymap_c` only if a tile runtime product requires it | Source editor/persistence/preview implemented; remains distinct from Mason scenes |
 | Package archive | N/A | `.cypak` V10 | Reader/writer/VFS mount implemented; important V10 gaps documented |
 
 ### 10.2 Planned format names already in the project catalog
@@ -496,7 +499,7 @@ Avoid proprietary wrappers where established source formats are already useful:
 | --- | --- | --- |
 | Surface definition | `.cysurface` | `.cysurface_c` |
 | Mesh | `.cymesh` | `.cymesh_c` |
-| Scene | `.cyscene` | `.cyscene_c` |
+| Mason scene/world | `.cyscene`, planned `cypher.scene` V1 | `.cyscene_c` |
 | Prefab/entity template | `.cyprefab` | `.cyprefab_c` |
 | Physics setup | `.cyphys` | `.cyphys_c` |
 | Navigation | `.cynav` | `.cynav_c` |
@@ -517,7 +520,7 @@ Avoid proprietary wrappers where established source formats are already useful:
 | 1 | Developer action maps | `.cyinput` -> `.cyinput_c` / CYIN | Proposal |
 | 1 | User binding overrides | `.cybindings` | Proposal |
 | 2 | Schema definition/registry | `.cyschema` | Proposal; CYKV 1 schema descriptors currently live in code |
-| 2 | Schema-selected gameplay data | `.cydata` -> `.cydata_c` | Proposal |
+| 2 | Schema-selected gameplay data | `.cydf` with exact domain schema | Specified CYDF use; `.cydata` and `.cydata_c` withdrawn; first gameplay schema/consumer not implemented |
 | 2 | Localization catalog | `.cyloc` -> `.cyloc_c` | Proposal |
 | 2 | Closed captions/subtitles | `.cycaption` -> `.cycaption_c` | Proposal |
 | 3 | Animation state/evaluation graph | `.cyanimgraph` -> cooked evaluator | Proposal |
@@ -535,11 +538,21 @@ Detailed prioritization appears in [Candidate and Missing Format Families](#20-c
 ## 11. CYKV Language Reference
 
 CYKV is CypherEngine's owned, typed, hierarchical authoring-data language. The
-current implementation is **CYKV language version 1**. It is used as the source
-representation for project data and resource recipes, then validated by an exact
-domain schema before a domain decoder or compiler consumes it. CYKV is not a
-script language, package format, database, or replacement for specialized cooked
-runtime resources.
+current production schemas, pack, and resource integrations use **CYKV language
+version 1**. Tier1 also implements the accepted CYKV 2 parser, dependency
+resolver, resolved writer, and canonical hash. CYKV is used as the source
+representation for project data and resource recipes, then validated by an
+exact domain schema before a domain decoder or compiler consumes it. CYKV is not
+a script language, package format, database, or replacement for specialized
+cooked runtime resources.
+
+The first [CYKV 2 contract](formats/CYKV_2.md) is accepted. Tier1 implements
+typed `#define` values, nested references, namespaced `#include`, missing-value
+`#base`, bounded callback-driven resolution, resolved writing, and canonical
+hashing. Node provenance, dependency manifests, Tier2 schema opt-in, CYDF domain
+dispatch, and resource-compiler adoption remain unavailable. The generic
+[CYDF profile](formats/CYDF.md) uses CYKV under `.cydf`; it does not add another
+language or parser.
 
 This section documents the behavior of the shipped Tier1 implementation. The
 dedicated [CYKV 1 draft specification](formats/CYKV.md) records the intended
@@ -548,6 +561,7 @@ build accepts and emits:
 
 - [semantic document and value API](../src/CypherCommon/Tier1/CypherCommon_KeyValue.h#L31-L162)
 - [bounded transactional parser API](../src/CypherCommon/Tier1/CypherCommon_KeyValueParser.h#L30-L91)
+- [bounded CYKV 2 source resolver API](../src/CypherCommon/Tier1/CypherCommon_KeyValueSource.h)
 - [deterministic writer and canonical hash API](../src/CypherCommon/Tier1/CypherCommon_KeyValueWriter.h#L30-L101)
 - [generic binary pack API](../src/CypherCommon/Tier1/CypherCommon_KeyValuePack.h#L38-L81)
 
@@ -557,7 +571,8 @@ The normal data path is:
 
 ```text
 UTF-8 CYKV source
-    -> Tier1 parse
+    -> versioned Tier1 parse
+    -> CYKV 2 dependency/reference resolution when selected
     -> owned typed document
     -> Tier2 exact schema validation
     -> domain decode or compilation
@@ -565,10 +580,11 @@ UTF-8 CYKV source
 ```
 
 The language version and schema version are independent. `@cykv 1` selects the
-grammar and primitive semantics described here. `@schema "cypher.material" 2`,
-for example, selects version 2 of one domain contract while the source still uses
-CYKV language version 1. A schema revision therefore does not require a CYKV
-language revision.
+frozen version-1 grammar. `@cykv 2` selects the accepted and implemented Tier1
+version-2 grammar and resolution path. `@schema
+"cypher.material" 2`, for example, selects version 2 of one domain contract while
+the source may still use CYKV language version 1. A schema revision therefore
+does not require a CYKV language revision.
 
 ### 11.2 Encoding and document framing
 
@@ -624,7 +640,8 @@ separator, or leading zero; both must be positive and fit in `u32`. A schema ID
 has at least two nonempty dotted components, and each component starts with
 `a`-`z`. The schema ID must be a normal double-quoted string, not a multiline
 string. Comments are not enabled while the two header lines are being read.
-Unknown CYKV versions return `UNSUPPORTED_VERSION`. The parser records schema ID
+Language versions 1 and 2 are recognized; every other CYKV version returns
+`UNSUPPORTED_VERSION`. The parser records schema ID
 and version without resolving their availability; a caller later validates
 against a selected descriptor or consults the optional Tier2 registry. Other
 `@` directives are not part of CYKV 1. Header parsing and its exact source locations are implemented
@@ -668,13 +685,19 @@ The semantic tree has nine exact value types
 
 The parser performs no implicit coercion. An `I64` is different from a `U64`; a
 numeric-looking string remains a string; and `null` remains a first-class value.
-The root of a native CYKV 1 text document is always an object.
+The root of a native CYKV 1 text document is always an object. CYKV 2 may spell
+the root as `$NAME` or a member-path reference only when the referenced
+immutable value expands to an object; the published semantic root remains an
+object.
 
 A document owns all nodes, member names, strings, binary blocks, and header data
 through one explicit allocator. Node pointers remain valid until the node is
 removed or the document is cleared or destroyed. Object lookup is case-sensitive
 by default. A document created with `bCaseInsensitiveKeys = CY_TRUE` folds ASCII
-case for lookup and duplicate detection while preserving the original spelling
+case for generic lookup after publication while preserving the original spelling.
+CYKV and JSON text parsing still validate key identity and duplicates with
+exact-case semantics, so the destination's lookup preference cannot change the
+accepted source language
 ([document options](../src/CypherCommon/Tier1/CypherCommon_KeyValue.h#L50-L61),
 [lookup comparison](../src/CypherCommon/Tier1/CypherCommon_KeyValue.cpp#L358-L365)).
 
@@ -693,6 +716,11 @@ object       = "{", trivia,
 member       = key, trivia, "=", trivia, value ;
 key          = bare-key | normal-string ;
 ```
+
+For CYKV 2, `$NAME` and `$symbol.member.child` are also accepted wherever a
+value is expected. Each member segment traverses an object; arrays are not
+indexable. A reference is never accepted as an object key or part of another
+token.
 
 The current parser's bare-key scanner accepts an ASCII letter, `_`, or a valid
 non-ASCII UTF-8 sequence at the start. Later bytes may additionally contain
@@ -802,7 +830,7 @@ rejects out-of-range and non-finite results. Negative zero is a valid finite
 binary64 value and its sign bit remains part of the semantic value.
 
 **`NaN`, `Inf`, and `Infinity` are not implemented CYKV values.** They are
-rejected by CYKV 1. The parser's number validation and exact signed/unsigned
+rejected by CYKV 1 and CYKV 2. The parser's number validation and exact signed/unsigned
 dispatch are in
 [CypherCommon_KeyValueParser.cpp](../src/CypherCommon/Tier1/CypherCommon_KeyValueParser.cpp#L1027-L1282).
 
@@ -822,7 +850,7 @@ remain separate resources rather than being embedded in authoring documents.
 
 `KeyValue_ParseText` accepts caller policy and resource limits. Its defaults are
 declared in
-[key_value_parse_options_t](../src/CypherCommon/Tier1/CypherCommon_KeyValueParser.h#L59-L70):
+[key_value_parse_options_t](../src/CypherCommon/Tier1/CypherCommon_KeyValueParser.h#L62-L74):
 
 | Option | Default | Exact effect in native CYKV parsing |
 | --- | ---: | --- |
@@ -837,11 +865,18 @@ declared in
 | `nMaxContainerValues` | 1,048,576 | Maximum direct children of one object or array |
 | `nMaxCommentDepth` | 64 | Maximum nested block-comment depth |
 | `cbMaxStringData` | 64 MiB | Maximum bytes allocated in the document data arena during parse |
+| `nMaxDefinitions` | 256 | Maximum completed local `#define` bindings, or combined include aliases and local definitions during source resolution; zero is valid policy that forbids CYKV 2 symbols |
 
 `cbMaxStringData` is an implementation-storage budget. Its reported
 `cbStringData` includes copied member names, strings, binary bytes, the schema ID,
 and the internal terminating NUL allocated for each copied string. It should not
 be interpreted as only the sum of logical user payload lengths.
+
+In CYKV 2, node/data limit enforcement includes private live definition storage,
+seeded include aliases, and expanded copies while parsing. A definition does not
+disappear from the hostile-input budget merely because it is absent from the
+published tree. The final `nNodesParsed` and `cbStringData` counters describe the
+published semantic document rather than private storage that has been released.
 
 The parser returns the first failure plus a source location, the exact locations
 of the language version, schema ID, and schema version, and final node/data
@@ -854,7 +889,7 @@ counters. Status values are:
 | `INPUT_LIMIT` | Source exceeds `cbMaxInput` |
 | `INVALID_ENCODING` | Invalid UTF-8, embedded NUL, or bare CR |
 | `INVALID_HEADER` | Missing or malformed required header syntax |
-| `UNSUPPORTED_VERSION` | `@cykv` declares a language version other than 1 |
+| `UNSUPPORTED_VERSION` | `@cykv` declares a language version other than 1 or 2 |
 | `INVALID_SCHEMA` | Malformed schema ID or schema version |
 | `LEXER_ERROR` | Tokenization failed |
 | `SYNTAX_ERROR` | Token sequence or scalar spelling violates CYKV grammar |
@@ -866,20 +901,25 @@ counters. Status values are:
 | `STRING_LIMIT` | A token or aggregate document data exceeds the configured budget |
 | `OUT_OF_MEMORY` | Temporary document allocation failed |
 | `TRAILING_INPUT` | Nontrivia tokens follow the root object |
+| `DUPLICATE_DEFINITION` | A CYKV 2 local definition repeats or collides with a seeded include alias |
+| `UNDEFINED_DEFINITION` | A `$NAME` or member-path use has no accessible completed symbol/member |
+| `DEFINITION_LIMIT` | Include aliases plus completed local definitions would exceed `nMaxDefinitions` |
 
 Parsing is transactional. It builds a sibling document with the destination's
 allocator, initial capacities, and key-comparison policy. Only a complete success
 moves that document into the destination; every failure preserves the previous
-destination tree
-([commit path](../src/CypherCommon/Tier1/CypherCommon_KeyValueParser.cpp#L1348-L1424)).
+destination tree. CYKV 2 definition storage is private temporary state and is
+destroyed after success or failure
+([parser transaction path](../src/CypherCommon/Tier1/CypherCommon_KeyValueParser.cpp)).
 
 ### 11.9 Text writing and canonical representation
 
 The writer accepts a root object that belongs to a structurally valid document
-with a CYKV 1 header. It can measure or write into a NUL-terminated bounded
-buffer, or stream fragments through a callback. Default options are pretty
-output, a final LF, four spaces per indentation level, and a maximum depth of
-128.
+with a CYKV 1 or CYKV 2 header. A CYKV 2 tree must already be resolved: the
+semantic document contains no directives, definitions, or reference nodes. The
+writer can measure or write into a NUL-terminated bounded buffer, or stream
+fragments through a callback. Default options are pretty output, a final LF,
+four spaces per indentation level, and a maximum depth of 128.
 
 | Writer flag | Behavior |
 | --- | --- |
@@ -891,7 +931,8 @@ output, a final LF, four spaces per indentation level, and a maximum depth of
 
 Canonical mode currently emits:
 
-- the exact `@cykv 1` and `@schema "id" version` header with LF;
+- the document's exact `@cykv 1` or `@cykv 2` and
+  `@schema "id" version` header with LF;
 - the root object immediately after the schema-header LF;
 - every object key as a quoted string;
 - object members sorted lexicographically by their key bytes, without mutating
@@ -1039,43 +1080,89 @@ parser. Callers that build documents directly must enforce the same invariants
 as the text parser before treating the tree as conforming CYKV
 ([insertion implementation](../src/CypherCommon/Tier1/CypherCommon_KeyValue.cpp#L382-L416)).
 
-### 11.12 Proposed language evolution — not implemented in CYKV 1
+### 11.12 Accepted CYKV 2 contract and further proposals
 
-The following items are design candidates for a later version. They are not
-accepted by the current parser and must not appear in production CYKV 1 files:
+The [normative CYKV 2 specification](formats/CYKV_2.md) accepts and Tier1
+implements this first language expansion:
 
-- dependency-aware `include` or `base` composition with VFS-only resolution,
-  explicit cycle/depth/byte limits, deterministic merge rules, and dependency
-  reporting to the cooker;
-- hygienic, bounded constants or macros expanded by an explicit preprocessing
-  phase, with expansion limits and origin-aware diagnostics;
-- additional domain-friendly scalar spellings such as stable resource-reference,
-  vector, color, duration, angle, or identifier types, provided their canonical
-  representation and schema semantics are specified first;
-- opt-in semantic `nan`, `+inf`, and `-inf` categories only for fields whose
-  future schema rule explicitly permits them, with fixed canonical spelling and
-  hashing rather than platform NaN payloads;
-- schema-authored defaults, migrations, deprecation replacements, editor hints,
-  and generated bindings; and
-- a lossless syntax tree/source map for comment-preserving editor writes.
+- top-level `#define NAME <typed CYKV value>` declarations with `$NAME`
+  references; constants are immutable typed values, not token macros;
+- `#include "relative/path.cydf" as namespace`, which imports a completely
+  resolved object root; bare `$namespace` copies the complete root, while
+  `$namespace.member.child` traverses nested object members;
+- `#base "relative/path"`, which recursively fills missing object members while
+  local values win, arrays and scalars remain whole values, and type disagreement
+  is an error;
+- multiple bases with priority `local > earlier base > later base`;
+- dependency directives after the two headers and before all local `#define`
+  declarations, followed by the root object; and
+- callback-owned VFS resolution, canonical path identities, unified cycle
+  detection, finite limits, an optional per-edge dependency sink, transactional
+  publication, resolved writing, and canonical semantic hashing.
 
-The safest evolution keeps the core semantic tree small and represents most
-engine concepts as schema-defined structures until a new primitive proves a
-clear correctness or tooling benefit. Includes and macros must run before
-canonical hashing and compilation, and their resolved dependencies must become
-part of source identity. Non-finite floats remain outside the current language:
-**CYKV 1 does not implement NaN or infinity.** Their schema-gated treatment is a
-CYKV 2 design candidate documented in
-[the language-evolution proposal](formats/CYKV_2_PROPOSAL.md#10-non-finite-floating-point),
-not an accepted V1 value.
+`KeyValue_ParseSource` resolves both dependency kinds through caller-provided
+open/release callbacks. The callback receives the requesting canonical path and
+the authored relative spelling and returns borrowed UTF-8 plus a normalized,
+root-confined canonical virtual path without C0/`DEL` control bytes or
+backslashes. Include schemas may differ from the local schema. Bases require an
+exact schema ID and schema version match. Local values win; earlier bases fill
+before later bases; objects recurse; arrays and scalars are whole values; and
+kind disagreement is `MERGE_CONFLICT`. Directive symbols, referenced member
+segments, authored object-key validation, and base-member matching are
+exact-case even if a generic destination document was configured for
+case-insensitive lookup.
 
-## 12. CYKV Schema and Configuration Formats
+The source defaults are a maximum dependency depth of 16 below the root, which
+admits 17 source levels at depths 0 through 16; 64 unique sources including the
+root; 256 dependency edges; 64 MiB of aggregate unique-source bytes; and 259
+bytes per authored or canonical path. Parser defaults continue to bound each
+source. Include aliases and local definitions share the 256-definition budget.
+The resolver rejects option values above its public hard ceilings before any
+scratch-array allocation or recursive walk: depth 64, 1,024 unique sources, and
+8,192 edges. Overflow-scale values return `INVALID_ARGUMENT` instead of reaching
+allocator assertions.
+
+The root is validated before any callback. An opened dependency is necessarily
+obtained through its incoming open and edge-sink calls, then its encoding,
+headers, and preamble-comment limits are validated before any outgoing
+dependency callback. Base copies are preflighted against node, data, container,
+and effective-depth budgets. The resolver reports stable path, open, graph,
+schema, merge, parser, sink, and allocation failures and preserves the previous
+destination on every failure. Its referenced-path diagnostic retains the
+authored directive operand, including for cycles, while copied diagnostic paths
+sanitize control bytes. `parseResult` contains the nested parser failure on
+`PARSE_FAILED` and final effective-tree node/data counts on success.
+
+The current writer and canonical hash accept the resolved CYKV 2 document and
+emit/hash the expanded effective tree. They do not reconstruct the original
+preamble. Per-node origin provenance, a lossless authoring tree, a deterministic
+serialized dependency manifest, a broader dependency-aware resolution hash,
+Tier2 schema opt-in, and resource-compiler adoption remain future work. Current
+production schemas and resource recipes therefore remain on CYKV 1.
+
+Conditionals, exact-width numeric node kinds, tagged values, a new packed
+generation, and opt-in `nan`, `+inf`, and `-inf` remain proposals in
+[CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md). Function-like macros, token
+pasting, stringification, arbitrary expressions, hidden host inputs, and
+transparent duplicate-key includes are excluded from the accepted subset.
+
+The core semantic tree should remain small; most engine concepts continue to be
+schema-defined structures. **CYKV 1 and the accepted first CYKV 2 contract both
+reject NaN and infinity.**
+
+## 12. CYKV Schemas, CYDF, and Configuration Formats
 
 Tier2 schemas give a parsed CYKV tree domain meaning. They validate exact header
 identity, types, members, ranges, and collection shape without mutating the
 document. Typed decoders then enforce domain-specific invariants and produce a
 small runtime view or value. Command configuration is a separate executable text
 family and does not use CYKV syntax.
+
+CYDF is the generic `.cydf` document profile encoded by CYKV. It has no separate
+grammar, parser, tree, or independent version. Exact identity remains the CYKV
+language version plus schema ID and schema version. CYDF replaces the unimplemented
+`.cydata` proposal; it does not define a universal `.cydf_c` resource. See
+[the CYDF profile](formats/CYDF.md) for its uses, exclusions, and cooking policy.
 
 ### 12.1 Tier2 static schema system
 
@@ -4432,18 +4519,20 @@ Implemented:
 - editor and standalone source preview;
 - V3 material bindings and bounded preview dependency loading.
 
-Missing:
+Missing or conditional:
 
-- `.cymap_c` identity and binary layout;
-- shared map compiler;
-- production World loader;
-- partition/streaming cells;
-- collision, visibility, navigation, and lighting sections;
-- general entities/components, script bindings, arbitrary brush/mesh placement;
-- runtime migration policy beyond the source reader.
+- an explicit **Convert Tile Map to Scene** path that creates a new `.cyscene`
+  without changing the `.cymap` source;
+- `.cymap_c`, a tile cooker, and a bounded tile-runtime reader only if a
+  dedicated tile runtime product is admitted; and
+- runtime migration policy beyond the source reader if that tile runtime is
+  ever introduced.
 
-No binary fields for `.cymap_c` are listed because no such contract exists. The
-name remains planned rather than implying an implementation.
+Partitioning, arbitrary topology, general entity/component persistence,
+visibility, navigation, lighting, and the production World loader belong to
+Mason's separate `.cyscene` -> `CypherSceneCompiler` -> `.cyscene_c` path. They
+are not missing fields to add to `cypher.map`. No binary fields for `.cymap_c`
+are listed because no such contract exists.
 
 
 ## 18. Input Actions and User Bindings
@@ -5043,7 +5132,10 @@ and code-generation behavior are proven.
 
 #### Generic typed gameplay data
 
-Candidate: `.cydata` -> `.cydata_c`, schema selected by document header.
+Accepted generic profile: `.cydf`, schema selected by document header. This
+replaces the unimplemented `.cydata` / `.cydata_c` proposal. CYDF does not imply
+a universal cooked extension; each schema selects direct validated consumption
+or a deliberate domain-owned cooked resource.
 
 Suitable content:
 
@@ -5213,19 +5305,20 @@ must not create placeholder files merely because an extension appears here.
 | `.cyui` | UI layout/style data | No fields frozen | UI runtime ownership, layout model, and event/data-binding contract |
 | `.cypostfx` | Post-processing profile and LUT dependencies | No fields frozen | Renderer post-processing graph and volume/transition model |
 | `.cycine` | Cinematic sequence | No fields frozen | Timeline runtime, tracks, events, binding, and seek policy |
-| `.cyscene` | World/scene composition | No fields frozen | World representation and entity/component persistence contract |
+| `.cyscene` | Mason world/scene composition using planned `cypher.scene` | No fields frozen | World representation and entity/component persistence contract |
 | `.cyprefab` | Reusable entity template | No fields frozen | Entity/component schema, override, inheritance, and identity policy |
 | `.cyphys` | Collision/physics setup | No fields frozen | Physics backend boundary, cooking targets, layers, and material policy |
 | `.cynav` | Navigation authoring/cooked data | No fields frozen | Navigation runtime, agent profiles, tile/update policy, and source geometry |
 | `.cyflow` | Mission or gameplay logic graph | No fields frozen | Gameplay execution model, node ABI, persistence, and debugging contract |
 | `.cyschema` | Data-authored schema definitions | No fields frozen | Bootstrapping/trust design and parity with the current C++ schema graph |
-| `.cydata` | Schema-selected gameplay data | No fields frozen | First real gameplay consumer and exact schema IDs |
+| `.cydf` | Generic schema-selected CYKV data | Profile accepted; no generic fields because each exact schema owns its contract | First real gameplay consumer, exact schema IDs, typed decoder, and deliberate cooked route |
 | `.cymanifest` | Resource, preload, package, or release manifests | Extension only; no shared fields | One exact schema ID/version per manifest purpose |
 | `.cymod` | Mod identity, dependencies, mounts, compatibility, and permissions | No fields frozen | Mod loader, trust model, dependency resolution, and packaging policy |
 | `.cyplugin` | Native/tool plug-in metadata | No fields frozen | Plug-in ABI/API, service registry, targets, permissions, and load phases |
 | `.cyreplay` / `CYRP` | Generated deterministic replay/demo record | Identity candidate only | Simulation command contract, ticks, checkpoints, build/resource identity |
 | `.cysave` / `CYSV` | Generated save/checkpoint/profile record | Identity candidate only | Persisted gameplay state, migrations, backup/recovery, and mod policy |
-| `.cymap_c` | Cooked map runtime resource | Planned name only | Runtime world consumer and a deliberate source-to-runtime lowering design |
+| `.cymap_c` | Optional cooked TileEditor grid resource | No contract frozen; admitted only if a dedicated tile runtime is required | Tile-runtime consumer, bounded writer/reader, version policy, and tests |
+| `.cyscene_c` | Cooked Mason scene/world resource | Planned identity; no binary fields frozen | `CypherSceneCompiler`, bounded world loader, chunk/version contract, and tests |
 | `.cymap.user` | Per-user editor state beside a map | Possible internal format only | Tile Editor persistence needs and a user-state location/merge policy |
 
 `.cyinput`, `.cyinput_c`/CYIN, and `.cybindings` have a more developed
@@ -5492,11 +5585,12 @@ The broader policy is in [security_model.md](security_model.md).
 
 ### 24.4 Dependency resolution security
 
-Future CYKV includes and other source dependencies must enforce:
+The accepted CYKV 2 contract requires includes, bases, and other source
+dependencies to enforce:
 
 - logical VFS paths;
 - no absolute native paths;
-- no `..` traversal;
+- no unresolved or above-root `..` traversal after loader canonicalization;
 - no URL/network fetch;
 - allowlisted source mounts;
 - cycle detection;
@@ -5504,6 +5598,11 @@ Future CYKV includes and other source dependencies must enforce:
 - complete dependency hashing;
 - include-chain diagnostics;
 - no environment/time/random hidden inputs.
+
+The current Tier1 resolver enforces callback-returned canonical relative paths,
+cycle and resource limits, and transactional failure. The caller's loader owns
+mount, symlink, network, and trust policy. Complete chain provenance and
+dependency-aware build hashing remain the accepted next toolchain layer.
 
 ## 25. Compatibility and Migration Policy
 
@@ -5653,6 +5752,7 @@ repository layout.
 | Canonical path | Normalized VFS-relative resource identity |
 | Canonical representation | One deterministic serialization for one semantic value |
 | Cooked resource | Offline-produced bounded runtime data |
+| CYDF | Generic `.cydf` source-document profile encoded by CYKV and selected by exact schema |
 | CYKV | Cypher KeyValues typed source-data language |
 | CYRS | Generic Cypher cooked-resource container |
 | Decoder | Converts a validated generic tree into a typed domain view/model |
@@ -5701,7 +5801,9 @@ repository layout.
 
 - [Format catalog](formats/FORMAT_CATALOG.md)
 - [CYKV 1 specification](formats/CYKV.md)
-- [CYKV 2 proposal](formats/CYKV_2_PROPOSAL.md)
+- [CYKV 2 specification](formats/CYKV_2.md)
+- [CYDF generic document profile](formats/CYDF.md)
+- [Further CYKV 2 evolution proposal](formats/CYKV_2_PROPOSAL.md)
 - [CYKV schemas](formats/CYKV_SCHEMAS.md)
 - [Renderer asset contracts](formats/RENDER_ASSETS.md)
 - [Input actions and bindings proposal](formats/INPUT_ACTIONS.md)

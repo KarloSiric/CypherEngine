@@ -66,7 +66,7 @@ CypherEngine/
 ├── game/
 ├── tools/
 │   ├── CypherAssetCompiler/
-│   ├── CypherMapCompiler/
+│   ├── CypherSceneCompiler/
 │   └── CypherResourceCompiler/
 ├── data/
 ├── config/

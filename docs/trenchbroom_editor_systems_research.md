@@ -2138,29 +2138,45 @@ and cannot drive an automatic quick fix. A successful build is published with
 an atomic manifest update only after all required outputs have been written and
 validated.
 
-### Required Cypher map pipeline
+### Required Cypher authoring pipelines
 
-The first useful end-to-end pipeline is:
+TileEditor and Mason share build infrastructure, but they do not share a source
+or cooked identity. The bounded tile path is:
 
 ```text
-.cymap authored snapshot
-    -> parse and schema validation
+.cymap authored snapshot (`cypher.map` V1-V3)
+    -> parse and tile-schema validation
+    -> deterministic tile geometry, materials, and markers
+    -> editor/runtime preview
+    -> optional dedicated tile cooker -> .cymap_c
+       only if a tile runtime product is explicitly admitted
+```
+
+Mason's production world path is distinct:
+
+```text
+.cyscene immutable snapshot (`cypher.scene` V1 planned)
+    -> parse and scene-schema validation
     -> stable object/component resolution
-    -> deterministic tile or world geometry
+    -> deterministic authored world geometry
     -> collision shapes and query acceleration
     -> entity and component spawn records
     -> visibility cells/portals or conservative fallback
     -> light and probe inputs
     -> audio, trigger, particle, and navigation records
-    -> dependency manifest and cooked .cymap_c sections
+    -> CypherSceneCompiler
+    -> dependency manifest and cooked .cyscene_c sections
     -> runtime validation
-    -> launch REAP with map and optional spawn override
+    -> launch REAP with scene and optional spawn override
 ```
 
 TileEditor may initially generate only geometry, material assignments, markers,
 and static collision. It should still use the same manifest and diagnostic
-protocol that Mason will extend. The runtime must never parse the editable
-document in a shipping build.
+protocol as Mason. Mason imports a tile map through an explicit conversion that
+creates a new `.cyscene` and leaves the `.cymap` unchanged. A shipping runtime
+must not parse an editable `.cyscene`; shipping a tile map likewise requires an
+explicitly admitted tile cooker and reader rather than silently treating it as
+a Mason scene.
 
 ### Build and launch interface
 
@@ -2789,11 +2805,13 @@ Exit gate: all old fixtures migrate, IDs stay stable through save/load and
 undo/redo, and incremental listeners produce the same derived state as a full
 rebuild.
 
-### T3: Compiler boundary and cooked map shell
+### T3: Optional tile compiler boundary and cooked map shell
 
-Create a headless map build entry point that accepts a canonical snapshot and
-emits a versioned sectioned product plus dependency manifest and structured
-diagnostics. Initial sections are:
+Execute this phase only if a dedicated tile runtime product is approved. If the
+production path instead converts a blockout into `.cyscene`, implement that
+deterministic converter and keep `.cymap` as TileEditor source. An admitted tile
+cooker accepts a canonical snapshot and emits a versioned sectioned product plus
+a dependency manifest and structured diagnostics. Initial sections are:
 
 - document/world metadata and source identity;
 - material/resource references;

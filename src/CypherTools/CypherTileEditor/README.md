@@ -4,7 +4,7 @@ CypherTileEditor is CypherEngine's first blockout map authoring workspace. It is
 
 The tool is deliberately split into two layers:
 
-- `Core/` owns the document, edit transactions, undo/redo history, validation, deterministic `.cymap` persistence, and geometry generation. It has no Qt dependency and is intended to be shared by a future Mason map workspace and an in-game ImGui front end.
+- `Core/` owns the TileEditor document, edit transactions, undo/redo history, validation, deterministic `.cymap` persistence, and geometry generation. It has no Qt dependency and may serve a future in-game tile front end. Mason owns a separate `.cyscene` document and reuses only extracted editor-geometry and command primitives, not the tile document model.
 - `Gui/` owns the standalone Qt presentation: canvas, embedded CypherRender viewport, docks, material and room-stamp palettes, inspector, console, settings, and configurable shortcuts.
 
 The authored map remains the source of truth. Generated geometry is derived data:
@@ -13,11 +13,12 @@ The authored map remains the source of truth. Generated geometry is derived data
 .cymap source
     -> validation
     -> floor, exposed-boundary, and door box generation
-    -> future map cooker / CypherWorld ingestion
-    -> CypherRender draw submission
+    -> editor and runtime preview
+    -> explicit Convert Tile Map to Scene -> new .cyscene for Mason
+    -> optional tile cooker -> .cymap_c only if a tile runtime is admitted
 ```
 
-CypherRender does not parse editor documents. This boundary allows the editor and runtime renderer to evolve independently while both consume the same explicit map build result.
+CypherRender does not parse editor documents. This boundary allows the editor and runtime renderer to evolve independently while both consume an explicit generated preview snapshot. Production scene/world loading belongs to `.cyscene_c`; `.cymap_c` remains optional rather than an alias for Mason output.
 
 The source-level editor study and implementation program for extending this tool
 without turning its cell document into Mason's future scene graph are documented
@@ -660,7 +661,11 @@ explicit upload of all compiler-generated mip levels remains future work.
 
 ## Scope
 
-This editor is for fast graybox maps and renderer/gameplay tests. It establishes the reusable document and command foundation for Mason, but it does not attempt to replace Mason's eventual arbitrary brush, mesh, entity-I/O, lighting, navigation, and world-partition workspaces.
+This editor is for fast graybox maps and renderer/gameplay tests. It exercises
+document and command patterns from which shared primitives can be extracted, but
+Mason keeps its own `.cyscene` document. TileEditor does not attempt to replace
+Mason's eventual arbitrary brush, mesh, entity-I/O, lighting, navigation, and
+world-partition workspaces.
 
 The [editor configuration and navigation reference research](../../../docs/tile_editor_reference_research.md)
 compares relevant NetRadiant, Hammer, J.A.C.K., TrenchBroom, and Q3Edit features.

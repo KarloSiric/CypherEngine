@@ -9,7 +9,7 @@
 //           Mason editor architecture.
 //  Details: This document separates editable source data from cooked runtime
 //           resources and records the intended workflow from CYKV through Mason,
-//           CypherMapCompiler, CypherWorld, and CypherPak delivery.
+//           CypherSceneCompiler, CypherWorld, and CypherPak delivery.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-08
@@ -27,11 +27,11 @@ This document records the agreed long-term direction for:
 
 - `CYKV`, the general Cypher data format
 - editable and cooked asset formats
-- `.cymap` map source documents
-- `.cymap_c` compiled runtime worlds
+- `.cyscene` Mason scene/world source documents
+- `.cyscene_c` compiled runtime worlds
 - the role of editable meshes, parametric blockout, BSP algorithms, visibility,
   collision, and lighting
-- `CypherMapCompiler` and related command-line tools
+- `CypherSceneCompiler` and related command-line tools
 - `Mason`, the long-term Qt 6 editor application
 - optional AI/MCP-assisted map authoring and review
 - optional real-time team collaboration and shared sessions
@@ -79,23 +79,23 @@ Loose development files or .cypak archives
 For maps specifically:
 
 ```text
-facility.cymap
+facility.cyscene
         |
         v
-CypherMapCompiler
+CypherSceneCompiler
         |
         v
-facility.cymap_c
+facility.cyscene_c
         |
         v
 CypherWorld runtime
 ```
 
-The editable `.cymap` file will be encoded using CYKV. Mason will edit a typed
-in-memory map document and serialize that document to CYKV. It will not edit the
+The editable `.cyscene` file will be encoded using CYKV. Mason will edit a typed
+in-memory scene document and serialize that document to CYKV. It will not edit the
 text file through ad hoc string replacement.
 
-The runtime will normally load `.cymap_c`. Shipping builds must not repeatedly
+The runtime will normally load `.cyscene_c`. Shipping builds must not repeatedly
 parse and transform a large text map when the same work can be performed once by
 an offline compiler.
 
@@ -117,18 +117,19 @@ of a typed data model. It is not itself a map format.
 
 The CYKV semantic document is the owned in-memory tree of objects, arrays, keys,
 and typed values. It intentionally discards comments and exact source spelling.
-A future Mason lossless syntax tree will preserve authoring trivia and map source
+A future Mason lossless syntax tree will preserve authoring trivia and scene source
 ranges to semantic nodes.
 
-### `.cymap`
+### `.cyscene`
 
-`.cymap` is an editable map source document with a map-specific schema. Its
-serialized representation uses CYKV, but its meaning comes from the CypherMap
-schema and map compiler.
+`.cyscene` is an editable Mason scene/world source document with a scene-specific
+schema. Its serialized representation uses CYKV, but its meaning comes from the
+`cypher.scene` schema and scene compiler. TileEditor's `.cymap` is a separate
+grid document fixed by ADR 0007.
 
-### `.cymap_c`
+### `.cyscene_c`
 
-`.cymap_c` is the compiled runtime world resource. It is binary, chunked,
+`.cyscene_c` is the compiled runtime world resource. It is binary, chunked,
 versioned, validated, and designed for efficient loading. It is not expected to
 preserve every piece of Mason-only editing state.
 
@@ -397,8 +398,8 @@ assignments without forcing every asset format to behave like a script.
 
 | Purpose | Editable/source | Cooked/runtime |
 | --- | --- | --- |
-| Map/world | `.cymap` | `.cymap_c` |
-| General scene | `.cyscene` | `.cyscene_c` |
+| TileEditor grid | `.cymap` | optional future `.cymap_c` |
+| Mason scene/world | `.cyscene` | `.cyscene_c` |
 | Prefab | `.cyprefab` | `.cyprefab_c` or folded into owning world |
 | Navigation authoring | `.cynav` | `.cynav_c` |
 | Mission/objective graph | `.cyflow` | `.cyflow_c` |
@@ -444,11 +445,11 @@ to import and cook them.
 `.cypak` is the existing CypherPak archive extension. The package file is a
 delivery container, not an authoring format and not a replacement for the VFS.
 
-## `.cymap` Source Document
+## `.cyscene` Source Document
 
 ### Required Top-Level Data
 
-A map source document should be capable of representing:
+A Mason scene source document should be capable of representing:
 
 - format and schema versions
 - stable map identity
@@ -475,10 +476,10 @@ The exact schema must be introduced incrementally. A field should not exist only
 because another engine happens to have a similarly named field.
 
 The following is a non-normative shape example. It illustrates the relationship
-between CYKV and the map schema; it does not freeze CYKV punctuation or spelling.
+between CYKV and the scene schema; it does not freeze CYKV punctuation or spelling.
 
 ```text
-cymap
+cyscene
 {
     format_version = 1
     schema_version = 1
@@ -550,7 +551,7 @@ object hierarchy.
 
 ### External Resource References
 
-`.cymap` should reference imported and reusable assets rather than embedding all
+`.cyscene` should reference imported and reusable assets rather than embedding all
 of their data:
 
 - model instances reference model or mesh resources
@@ -565,8 +566,8 @@ stable resource IDs and dependency metadata.
 
 ### Embedded Geometry
 
-Geometry authored directly in Mason may be embedded in `.cymap` because its
-editable topology is part of the map source. Imported high-density models should
+Geometry authored directly in Mason may be embedded in `.cyscene` because its
+editable topology is part of the scene source. Imported high-density models should
 remain external resources.
 
 If map files become too large, the solution is explicit submaps, layers, and
@@ -578,12 +579,12 @@ Personal state must not cause noisy shared map changes. Use a local sidecar such
 as:
 
 ```text
-facility.cymap
-facility.cymap.user
+facility.cyscene
+facility.cyscene.user
 ```
 
-The shared `.cymap` may contain intentional team-visible data such as named
-layers and annotations. The `.cymap.user` sidecar may contain:
+The shared `.cyscene` may contain intentional team-visible data such as named
+layers and annotations. The `.cyscene.user` sidecar may contain:
 
 - viewport cameras
 - current selection
@@ -720,7 +721,7 @@ BSP remains available as an internal technique for:
 If BSP-derived data is useful, it can appear as:
 
 - an intermediate compiler artifact
-- an optional `.cymap_c` chunk
+- an optional `.cyscene_c` chunk
 - a debugging visualization
 - a separately cached build product
 
@@ -728,15 +729,15 @@ The runtime renderer must not assume that every world is a classic BSP tree.
 Open areas, arbitrary meshes, streaming regions, and future terrain need other
 spatial representations.
 
-## CypherMapCompiler
+## CypherSceneCompiler
 
 ### Responsibilities
 
-`CypherMapCompiler` transforms a validated source document into runtime-ready
+`CypherSceneCompiler` transforms a validated source document into runtime-ready
 world data.
 
 ```text
-read .cymap
+read .cyscene
   -> parse CYKV
   -> validate schema and versions
   -> migrate supported older source versions
@@ -755,18 +756,18 @@ read .cymap
   -> build or attach navigation data
   -> compile entity spawn records
   -> partition world/streaming regions
-  -> write deterministic .cymap_c chunks
+  -> write deterministic .cyscene_c chunks
   -> emit dependency and diagnostic reports
 ```
 
 Not every stage must exist in the first usable compiler. The pipeline should
 make each stage explicit so later stages do not become hidden side effects.
 
-The first cooker may emit one chunked `.cymap_c`. The architecture must still
+The first cooker may emit one chunked `.cyscene_c`. The architecture must still
 treat world regions, entity records, visibility, collision, lighting, probes,
 and navigation as separate products. Once streaming or independent rebuilds
 justify it, those products may become child resources referenced by the cooked
-map descriptor without changing the editable `.cymap` model.
+scene descriptor without changing the editable `.cyscene` model.
 
 ### Build Profiles
 
@@ -796,7 +797,7 @@ requires:
 Correct full compilation comes first. Incremental compilation is added after the
 full dependency model is trustworthy.
 
-## `.cymap_c` Runtime Resource
+## `.cyscene_c` Runtime Resource
 
 ### Binary Contract
 
@@ -965,7 +966,7 @@ to apply and reverse it.
 user gesture
   -> editor command
   -> validate preconditions
-  -> mutate map document
+  -> mutate scene document
   -> record inverse or previous state
   -> mark dependencies and regions dirty
   -> notify views
@@ -987,7 +988,7 @@ The UI must not mutate arbitrary engine memory directly.
 Mason should eventually expose an optional, versioned editor-automation
 contract that can be consumed by local scripts, tests, and an MCP adapter. The
 MCP transport is only one client of that contract; AI-specific behavior must
-not be embedded in the map document, geometry kernel, or command system.
+not be embedded in the scene document, geometry kernel, or command system.
 
 The assisted-authoring path should support bounded operations such as:
 
@@ -1020,7 +1021,7 @@ Projects must remain completely usable when no AI service is configured.
 Q3Edit's experimental live MCP bridge is a useful public reference for revision
 checks, preview/apply separation, editor captures, atomic command batches, and
 normal undo integration. Cypher will design its own typed operations around
-Mason's mesh-first `.cymap` model rather than copying Q3Edit's Quake-specific
+Mason's mesh-first `.cyscene` model rather than copying Q3Edit's Quake-specific
 brush operations or trusting arbitrary local paths.
 
 ### Team Collaboration
@@ -1045,7 +1046,7 @@ Topology mutation should initially use short-lived ownership leases rather than
 pretending arbitrary concurrent mesh edits can always merge. Independent
 property edits may use optimistic revision checks where their command preconditions
 remain valid. Conflicts must be surfaced for a human decision; last-writer-wins
-is not acceptable for map source.
+is not acceptable for scene source.
 
 The collaboration service does not replace source control. Source control owns
 durable branches, reviews, and releases; a live session owns low-latency presence
@@ -1253,7 +1254,7 @@ valid output that crashes later.
 - canonical serialization golden files
 - fuzz testing when the parser contract stabilizes
 
-### CypherMap
+### Mason Scene Documents
 
 - schema validation tests
 - stable ID and reference tests
@@ -1354,12 +1355,12 @@ input fails safely.
 
 Exit condition: the game can consume a real world without Mason.
 
-### Phase 3: Minimal CypherMap Pipeline
+### Phase 3: Minimal CypherScene Pipeline
 
-- define the smallest `.cymap` schema
-- write the typed map document
+- define the smallest `.cyscene` schema
+- write the typed scene document
 - compile one mesh room, one material, one light, and one spawn point
-- write and load `.cymap_c`
+- write and load `.cyscene_c`
 - add deterministic compiler tests
 
 Exit condition: command-line compilation produces a playable map.
@@ -1437,10 +1438,10 @@ files, shaders, and game content.
 
 | Area | Approximate first-party LOC |
 | --- | ---: |
-| CYKV-backed map schema and serialization | 8k-20k |
-| Map document, identity, references, and migration | 10k-25k |
+| CYKV-backed scene schema and serialization | 8k-20k |
+| Scene document, identity, references, and migration | 10k-25k |
 | Editable-mesh topology and geometry kernel | 25k-70k |
-| Map compiler | 25k-80k |
+| Scene compiler | 25k-80k |
 | Cooked world loader, reload, and streaming foundation | 10k-30k |
 | Mason application/workspace foundation | 15k-35k |
 | Viewports, picking, selection, and gizmos | 25k-70k |
@@ -1473,7 +1474,7 @@ and are context, not targets.
 - do not clone Valve branding or UI assets
 - do not make CYKV a general gameplay programming language
 - do not make classic BSP mandatory for every map
-- do not make `.cymap` the shipping runtime representation
+- do not make `.cyscene` the shipping runtime representation
 - do not serialize raw C++ structs or pointers
 - do not hide compilers inside Qt callbacks
 - do not start the complete Mason UI before runtime world data exists
@@ -1520,10 +1521,10 @@ assets. `reference_policy.md` remains the legal and provenance policy.
 
 ## Final Direction
 
-CypherEngine will use CYKV as the typed source-data foundation. `.cymap` will be
-a CYKV-backed editable map document. Mason will visually edit a typed map model,
-not raw text. CypherMapCompiler will transform that source into a deterministic,
-chunked `.cymap_c` runtime world. Editable meshes are the primary authored
+CypherEngine will use CYKV as the typed source-data foundation. `.cyscene` will be
+a CYKV-backed editable Mason scene document. Mason will visually edit a typed
+scene model, not raw text. CypherSceneCompiler will transform that source into a
+deterministic, chunked `.cyscene_c` runtime world. Editable meshes are the primary authored
 geometry; parametric blockout tools generate or become meshes. BSP- and
 CSG-derived algorithms remain optional compiler techniques, while explicit
 runtime resources, visibility, collision, lighting, navigation, and streaming
