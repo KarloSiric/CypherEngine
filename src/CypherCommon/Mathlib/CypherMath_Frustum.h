@@ -50,6 +50,7 @@ enum class frustum_plane_t : common::u8 {
 inline constexpr u32 CY_FRUSTUM_PLANE_COUNT =
     static_cast<u32>( frustum_plane_t::COUNT ); // Six inward half-spaces.
 inline constexpr u32 CY_FRUSTUM_CORNER_COUNT = 8u; // Four near and four far corners.
+inline constexpr f32 CY_FRUSTUM_PLANE_UNIT_TOLERANCE = 1.0e-4f;
 
 struct frustum_t {
     plane_t planes[CY_FRUSTUM_PLANE_COUNT]; // Indexed by frustum_plane_t.
@@ -57,11 +58,20 @@ struct frustum_t {
 
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Frustum_IsFinite(
     frustum_t frustum ) noexcept;
+// frustum_t stores six active metric planes. Valid frusta therefore require all
+// six planes to be finite and unit length within the caller's tolerance.
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Frustum_IsValid(
+    frustum_t frustum, f32 planeNormalTolerance ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API plane_t Frustum_Plane(
     frustum_t frustum, frustum_plane_t which ) noexcept;
+// The fixed six-plane representation accepts finite-far projections only.
+// Infinite-far projection matrices are rejected because their far plane is
+// degenerate and cannot be represented by frustum_t.
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Frustum_TryFromViewProjection(
     mat4_t viewProjection, clip_depth_range_t depthRange,
     f32 minimumPlaneNormalLength, CY_OUT frustum_t *pFrustum ) noexcept;
+// Returns eight finite world-space corners. Infinite-far projections are
+// rejected because their far corners are homogeneous directions with w = 0.
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Frustum_TryCorners(
     mat4_t viewProjection, clip_depth_range_t depthRange,
     f32 minimumAbsInversePivot, f32 minimumAbsW,

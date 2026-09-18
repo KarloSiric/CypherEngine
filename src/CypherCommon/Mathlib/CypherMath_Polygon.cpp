@@ -29,7 +29,21 @@ namespace
 
 bool_t Polygon3ArgumentsValid( const vec3_t *pVertices, usize cVertices ) noexcept
 {
-    return pVertices != nullptr && cVertices >= 3u;
+    if ( pVertices == nullptr || cVertices < 3u ) {
+        return false;
+    }
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        if ( !Vec3_IsFinite( pVertices[i] ) ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool_t Polygon3BasisIsFinite( polygon3_basis_t basis ) noexcept
+{
+    return Vec3_IsFinite( basis.origin ) && Vec3_IsFinite( basis.tangent ) &&
+           Vec3_IsFinite( basis.bitangent ) && Vec3_IsFinite( basis.normal );
 }
 
 vec2_t Polygon3_ProjectPoint( vec3_t point, polygon3_basis_t basis ) noexcept
@@ -55,6 +69,7 @@ bool_t Polygon3_TryBasis(
     }
     *pBasis = {};
     if ( !Polygon3ArgumentsValid( pVertices, cVertices ) ||
+         !Scalar_IsFinite( minimumNormalLength ) ||
          minimumNormalLength < 0.0f ) {
         return false;
     }
@@ -65,9 +80,6 @@ bool_t Polygon3_TryBasis(
     for ( usize i = 0u; i < cVertices; ++i ) {
         const vec3_t current = pVertices[i];
         const vec3_t next = pVertices[( i + 1u ) % cVertices];
-        if ( !Vec3_IsFinite( current ) ) {
-            return false;
-        }
         newell.x += ( current.y - next.y ) * ( current.z + next.z );
         newell.y += ( current.z - next.z ) * ( current.x + next.x );
         newell.z += ( current.x - next.x ) * ( current.y + next.y );
@@ -96,8 +108,8 @@ bool_t Polygon3_IsPlanar(
     f32 distanceTolerance ) noexcept
 {
     if ( !Polygon3ArgumentsValid( pVertices, cVertices ) ||
-         distanceTolerance < 0.0f || !Vec3_IsFinite( basis.origin ) ||
-         !Vec3_IsFinite( basis.normal ) ) {
+         !Scalar_IsFinite( distanceTolerance ) || distanceTolerance < 0.0f ||
+         !Polygon3BasisIsFinite( basis ) ) {
         return false;
     }
     for ( usize i = 0u; i < cVertices; ++i ) {
@@ -166,7 +178,9 @@ bool_t Polygon3_TryAreaCentroid(
     }
     *pArea = 0.0f;
     *pCentroid = CY_VEC3_ZERO;
-    if ( !Polygon3ArgumentsValid( pVertices, cVertices ) || minimumAbsArea < 0.0 ) {
+    if ( !Polygon3ArgumentsValid( pVertices, cVertices ) ||
+         !Polygon3BasisIsFinite( basis ) ||
+         !Scalar_IsFinite( minimumAbsArea ) || minimumAbsArea < 0.0 ) {
         return false;
     }
 
@@ -194,12 +208,17 @@ bool_t Polygon3_TryAreaCentroid(
         return false;
     }
 
-    *pArea = static_cast<f32>( std::abs( signedAreaSum ) );
-    *pCentroid = Vec3_Make(
+    const f32 area = static_cast<f32>( std::abs( signedAreaSum ) );
+    const vec3_t centroid = Vec3_Make(
         static_cast<f32>( weightedX / signedAreaSum ),
         static_cast<f32>( weightedY / signedAreaSum ),
         static_cast<f32>( weightedZ / signedAreaSum ) );
-    return Vec3_IsFinite( *pCentroid );
+    if ( !Scalar_IsFinite( area ) || !Vec3_IsFinite( centroid ) ) {
+        return false;
+    }
+    *pArea = area;
+    *pCentroid = centroid;
+    return true;
 }
 
 bool_t Polygon3_IsConvex(
@@ -211,7 +230,10 @@ bool_t Polygon3_IsConvex(
     usize cProjectedScratch ) noexcept
 {
     if ( !Polygon3ArgumentsValid( pVertices, cVertices ) ||
-         pProjectedScratch == nullptr || cProjectedScratch < cVertices ) {
+         !Polygon3BasisIsFinite( basis ) ||
+         !Scalar_IsFinite( orientationTolerance ) ||
+         orientationTolerance < 0.0 || pProjectedScratch == nullptr ||
+         cProjectedScratch < cVertices ) {
         return false;
     }
     // Once projected into the polygon's local plane, the shared 2D winding
@@ -232,8 +254,10 @@ bool_t Polygon3_ContainsPoint(
     usize cProjectedScratch ) noexcept
 {
     if ( !Polygon3ArgumentsValid( pVertices, cVertices ) ||
-         pProjectedScratch == nullptr || cProjectedScratch < cVertices ||
-         planeTolerance < 0.0f ) {
+         !Polygon3BasisIsFinite( basis ) || !Vec3_IsFinite( point ) ||
+         !Scalar_IsFinite( planeTolerance ) || planeTolerance < 0.0f ||
+         !Scalar_IsFinite( boundaryTolerance ) || boundaryTolerance < 0.0f ||
+         pProjectedScratch == nullptr || cProjectedScratch < cVertices ) {
         return false;
     }
     const f32 planeDistance = Vec3_Dot(
@@ -265,7 +289,10 @@ polygon_triangulation_result_t Polygon3_Triangulate(
     usize cOutputIndices ) noexcept
 {
     if ( !Polygon3ArgumentsValid( pVertices, cVertices ) ||
-         pProjectedScratch == nullptr || cProjectedScratch < cVertices ) {
+         !Polygon3BasisIsFinite( basis ) ||
+         !Scalar_IsFinite( orientationTolerance ) ||
+         orientationTolerance < 0.0 || pProjectedScratch == nullptr ||
+         cProjectedScratch < cVertices ) {
         return { polygon_triangulation_status_t::INVALID_ARGUMENT, 0u, 0u };
     }
     Polygon3_ProjectToBasis( pVertices, cVertices, basis, pProjectedScratch );

@@ -352,7 +352,7 @@ mirror` means Cypher should not create a matching format merely for parity.
 | Animation Graph 2 | `vnmskel`, `vnmclip`, `vnmgraph`, `vnmvar` | Study skeleton/clip/graph separation and variation policy. |
 | Particle/VFX | `vpcf`, `vsnap` | Study effect definitions and auxiliary snapshots. |
 | Audio | `vsnd`, sound containers, `vsndevts`, `vsndstck`, `vmix` | Study sample, event, rule stack, container, and mix-graph separation. |
-| UI and web-like assets | `vcss`, `vxml`, `vpdi`, `vjs`, `vts`, `vsvg` | Study layout/style/resource separation. CyGUI need not use JavaScript or copy Panorama. |
+| UI and web-like assets | `vcss`, `vxml`, `vpdi`, `vjs`, `vts`, `vsvg` | Study layout/style/resource separation. Cypher UI need not use JavaScript or copy Panorama. |
 | Logic graphs | `vpulse` | Study visual graph compilation; use only where a graph improves a real workflow. |
 | Procedural objects | `vsmart` | Study parameterized prop rules after normal prefabs are proven. |
 | Dialogue and response | `vrr`, `vcd`, `vcdlist`, `vfe` | Study response selection, choreography, and facial data; design original Cypher formats. |

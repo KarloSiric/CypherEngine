@@ -51,27 +51,28 @@ Current and target runtime modules:
 - `CypherAI`
 - `CypherAnimation`
 - `CypherAudio`
+- `CypherFont`
+- `CypherUI`
 - `CypherCommon`
-- `CypherConsole`
 - `CypherCommand`
 - `CypherConfig`
 - `CypherCVar`
 - `CypherEntity`
 - `CypherFileSystem`
-- `CypherHost`
 - `CypherInput`
 - `CypherLog`
 - `CypherMath`
 - `CypherMemory`
 - `CypherNetwork`
 - `CypherPhysics`
-- `CypherPlatform`
-- `CypherProfile`
 - `CypherRender`
 - `CypherResource`
 - `CypherScript`
 - `CypherSystem`
 - `CypherWorld`
+
+`CypherHost` lives inside `src/CypherEngine/` because it composes these modules
+for the executable. It is not another peer implementation directory.
 
 Runtime-adjacent application and product modules:
 
@@ -122,11 +123,10 @@ Owns:
 
 - `CypherCommon` is the shared public/common foundation and contract layer
 - `CypherMemory` owns allocator and memory lifetime policy
-- `CypherPlatform` owns OS/window/time/platform-facing behavior and the SDL seam
-- `CypherSystem` owns high-level engine orchestration
+- `CypherSystem` owns OS/process/path/time/window/event/platform behavior and the SDL seam
+- `CypherHost` owns high-level engine composition and lifecycle orchestration
 - `CypherRender` owns GPU objects, passes, draw queues, backend commands, and presentation
 - `CypherFileSystem` owns path resolution, mounts, and file I/O
-- `CypherHost` owns top-level engine orchestration
 - `CypherResource` owns asset lifetime and resource handles
 - `CypherWorld` owns loaded map state, spatial records, coarse visibility, terrain, portals, environment, and world streaming decisions
 - `CypherEntity` owns entity/component identity and lifetime glue
@@ -135,10 +135,16 @@ Owns:
 - `CypherNetwork` owns transport and serialization primitives
 - `CypherPhysics` owns movement and shared simulation code
 - `CypherAudio` owns sound runtime
+- `CypherFont` owns shaping, font metrics, glyph caches, and renderer-neutral text data
+- `CypherUI` owns runtime HUD/menu layout, focus, navigation, and UI draw lists
 - `CypherAI` owns navigation/perception/behavior support
 - `CypherAnimation` owns skeleton/clip/pose evaluation
 - `CypherScript` is the bridge between engine runtime and `rvm`
 - `CypherEditor` owns the Qt editor application and editor-only workflows
+
+The visible developer console is a `CypherUI` surface over independent Command,
+CVar, and Log services. Low-level profiling primitives stay in Common until a
+real capture/aggregation service justifies another runtime target.
 
 CypherWorld produces immutable, renderer-neutral view submissions. CypherRender
 consumes those submissions but must not traverse the world, own terrain source
@@ -156,7 +162,7 @@ eventually contain:
 - shared format headers and chunk descriptors
 - public IDs, handles, descriptors and interface contracts
 - common data used by asset, resource, scene, world, entity, renderer, material,
-  texture, audio, physics, networking, GUI, tools and editor code
+  texture, audio, font, UI, physics, networking, tools and editor code
 
 It should not contain:
 
@@ -211,6 +217,17 @@ VirtualFileSystem + RenderFormats + ToolFramework
 Cypher::ResourceSystem -> Cypher::ResourceRuntime
 ```
 
+The runtime executable graph additionally follows:
+
+```text
+CypherEngine (main.cpp only)
+        -> Cypher::Host
+             -> explicit runtime subsystem libraries
+```
+
+The complete naming and module-creation decision is recorded in
+[`adr/0006-runtime-subsystem-structure.md`](adr/0006-runtime-subsystem-structure.md).
+
 ## Function pointer policy
 
 Function pointers are allowed where they form explicit C-style boundaries:
@@ -251,7 +268,7 @@ The durable lessons are:
 Target runtime stack:
 
 ```text
-Platform / Log / Memory
+System / Log / Memory
         ↓
 FileSystem / Pak / Command / CVar / Config
         ↓
@@ -278,7 +295,7 @@ Renderer / Audio / World / Script consumers
 
 ## Current implementation reality
 
-The current repository is much earlier than the target structure.
+The current repository is still earlier than the complete target structure.
 
 Today:
 
@@ -287,18 +304,19 @@ Today:
 - shader, texture, and material have tested source-to-cooked offline paths
 - the project has early SDL3 windowing, OpenGL bootstrap, shader, mesh, and camera foundations
 - command/cvar/cfg/filesystem subsystems already exist as early engine services
-- the top-level `CypherEngine` executable still uses a recursive runtime source
-  glob and a broad shared include-directory list; this is the principal boundary
-  weakness because one runtime subsystem can include another without declaring a
-  target dependency
-- that monolith should be split incrementally into explicit subsystem libraries,
-  beginning with the first runtime asset-loading and renderer contracts
+- the top-level `CypherEngine` executable contains only `main.cpp` and links the
+  explicit `Cypher::Host` production target
+- Log, Memory, runtime FileSystem, legacy Command/CVar/Config, and Host now have
+  explicit source manifests, include surfaces, and target dependencies
+- the remaining boundary debt is behavioral convergence between legacy runtime
+  services and the canonical instance-owned Common contracts, plus narrowing
+  public headers as real consumers prove the required surface
 - material/texture runtime ownership, real world content, and the playable loop
   remain future runtime work
 
 Do not copy CryEngine's historical directory tree or perform a broad rewrite.
-Extract one target at a time, make dependencies explicit, run its tests, and only
-then move the source out of the monolithic executable.
+Converge one behavior at a time, preserve tests, and keep every implementation
+owned by one explicit production target.
 
 ## Design philosophy
 

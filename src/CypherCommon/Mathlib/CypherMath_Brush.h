@@ -5,8 +5,8 @@
 //
 //  File: src/CypherCommon/Mathlib/CypherMath_Brush.h
 //  Purpose: Declares allocation-free convex brush construction helpers.
-//  Details: Brushes use outward-facing planes and define their interior as the
-//           nonpositive half-space. This matches map-authoring solid geometry.
+//  Details: Brushes use outward-facing unit planes and define their interior as
+//           the nonpositive half-space. This keeps tolerances in world units.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-11
@@ -42,6 +42,7 @@ struct brush_vertex_result_t {
 
 CYPHER_NODISCARD CYPHER_MATH_API usize Brush_MaximumVertexCandidates(
     usize cPlanes ) noexcept;
+// Brush half-space and intersection inputs must use normalized plane equations.
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Brush_ContainsPoint(
     CY_IN_READS( cPlanes ) const plane_t *pPlanes,
     usize cPlanes,
@@ -54,7 +55,7 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Brush_TryIntersectPlanes(
     f64 minimumAbsDeterminant,
     CY_OUT vec3_t *pPoint ) noexcept;
 
-// Enumerates unique vertices formed by triples of outward brush planes.
+// Enumerates unique vertices formed by triples of outward unit brush planes.
 CYPHER_NODISCARD CYPHER_MATH_API brush_vertex_result_t Brush_BuildVertices(
     CY_IN_READS( cPlanes ) const plane_t *pPlanes,
     usize cPlanes,

@@ -150,7 +150,7 @@ Target source formats:
 - PostFX layer, mask, LUT, exposure, and volume-profile source
 - typed generic CYKV data selected by schema identity
 - resource/preload manifests
-- CyGUI layout, style, and resource source
+- `.cyui` runtime UI layout, style, and resource source
 
 Target cooked formats:
 
@@ -174,7 +174,7 @@ Target cooked formats:
 - cooked PostFX profile and optional LUT data
 - cooked schema-selected generic data
 - cooked resource/preload manifests
-- cooked CyGUI documents and style resources
+- cooked `.cyui_c` runtime UI documents and style resources
 
 Extensions for the newly listed families are deliberately not reserved yet. A
 format name becomes authoritative only when its source schema, compiler, runtime

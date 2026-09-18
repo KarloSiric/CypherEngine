@@ -19,6 +19,8 @@
 #include "CypherMath_Scalar.h"
 #include "CypherCommon_Assert.h"
 
+#include <algorithm>
+
 namespace cypher::math
 {
 
@@ -30,10 +32,43 @@ bool_t Plane_IsFinite( plane_t value ) noexcept
     return Vec3_IsFinite( value.normal ) && Scalar_IsFinite( value.d );
 }
 
+bool_t Plane_IsValid( plane_t value, f32 minimumNormalLength ) noexcept
+{
+    if ( !Plane_IsFinite( value ) ||
+         !Scalar_IsFinite( minimumNormalLength ) || minimumNormalLength < 0.0f ) {
+        return false;
+    }
+
+    // Validity only needs a nondegenerate normal. Compare squared lengths in
+    // double precision so this query avoids normalization's square root and
+    // does not overflow for finite float coefficients near FLT_MAX.
+    const f64 x = static_cast<f64>( value.normal.x );
+    const f64 y = static_cast<f64>( value.normal.y );
+    const f64 z = static_cast<f64>( value.normal.z );
+    const f64 lengthSquared = x * x + y * y + z * z;
+    const f64 minimum = static_cast<f64>( minimumNormalLength );
+    return lengthSquared > minimum * minimum;
+}
+
 bool_t Plane_IsNormalized( plane_t value, f32 tolerance ) noexcept
 {
-    return Plane_IsFinite( value ) &&
-           Vec3_IsUnitLength( value.normal, tolerance );
+    if ( !Scalar_IsFinite( tolerance ) || tolerance < 0.0f ||
+         !Plane_IsFinite( value ) ) {
+        return false;
+    }
+
+    // Compare squared bounds in double precision. This is equivalent to an
+    // absolute tolerance on vector length without paying for a square root.
+    const f64 x = static_cast<f64>( value.normal.x );
+    const f64 y = static_cast<f64>( value.normal.y );
+    const f64 z = static_cast<f64>( value.normal.z );
+    const f64 lengthSquared = x * x + y * y + z * z;
+    const f64 tolerance64 = static_cast<f64>( tolerance );
+    const f64 minimumLength = std::max( 0.0, 1.0 - tolerance64 );
+    const f64 maximumLength = 1.0 + tolerance64;
+    return lengthSquared > 0.0 &&
+           lengthSquared >= minimumLength * minimumLength &&
+           lengthSquared <= maximumLength * maximumLength;
 }
 
 bool_t Plane_TryNormalize(
@@ -119,7 +154,9 @@ plane_side_t Plane_ClassifyPoint(
     CY_ASSERT_MSG(
         bValidTolerance,
         "Plane_ClassifyPoint requires a finite nonnegative tolerance." );
-    if ( !bValidTolerance ) {
+    if ( !bValidTolerance ||
+         !Plane_IsNormalized( unitPlane, CY_PLANE_UNIT_TOLERANCE ) ||
+         !Vec3_IsFinite( point ) ) {
         return plane_side_t::ON_PLANE;
     }
     const f32 distance = Plane_SignedDistance( unitPlane, point );

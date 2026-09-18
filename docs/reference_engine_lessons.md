@@ -25,6 +25,10 @@ public SDKs used as study material.
 
 It is a design guide, not an implementation source.
 
+The pinned, provenance-aware Far Cry/CryEngine 1 audit and its complete
+Cypher ownership mapping live in
+[cryengine1_subsystem_research.md](cryengine1_subsystem_research.md).
+
 ## Legal Boundary
 
 CypherEngine may study reference engines for subsystem boundaries, toolchain
@@ -66,7 +70,7 @@ explicit.
 
 Target boot order:
 
-1. core boot: platform, log, memory, filesystem
+1. core boot: System platform services, log, memory, filesystem
 2. service boot: command, cvar, config, resource, stream
 3. runtime boot: input, renderer, world, entity, audio, script
 4. product boot: game module or editor module

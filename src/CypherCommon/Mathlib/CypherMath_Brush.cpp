@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherMath_Brush.h"
+#include "CypherMath_Scalar.h"
 
 #include "CypherCommon_Assert.h"
 
@@ -35,6 +36,51 @@ struct vec3d_t {
     f64 z;
 };
 
+bool_t BrushPlanesAreNormalized(
+    const plane_t *pPlanes,
+    usize cPlanes ) noexcept
+{
+    if ( pPlanes == nullptr ) {
+        return false;
+    }
+    for ( usize i = 0u; i < cPlanes; ++i ) {
+        if ( !Plane_IsNormalized(
+                 pPlanes[i], CY_PLANE_UNIT_TOLERANCE ) ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool_t BrushVerticesAreFinite(
+    const vec3_t *pVertices,
+    usize cVertices ) noexcept
+{
+    if ( pVertices == nullptr ) {
+        return false;
+    }
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        if ( !Vec3_IsFinite( pVertices[i] ) ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool_t BrushContainsPointUnchecked(
+    const plane_t *pPlanes,
+    usize cPlanes,
+    vec3_t point,
+    f32 insideTolerance ) noexcept
+{
+    for ( usize i = 0u; i < cPlanes; ++i ) {
+        if ( Plane_SignedDistance( pPlanes[i], point ) > insideTolerance ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 vec3d_t CrossDouble( vec3_t a, vec3_t b ) noexcept
 {
     return {
@@ -49,6 +95,43 @@ f64 DotDouble( vec3_t a, vec3d_t b ) noexcept
     return static_cast<f64>( a.x ) * b.x +
            static_cast<f64>( a.y ) * b.y +
            static_cast<f64>( a.z ) * b.z;
+}
+
+bool_t BrushTryIntersectPlanesUnchecked(
+    plane_t a,
+    plane_t b,
+    plane_t c,
+    f64 minimumAbsDeterminant,
+    vec3_t *pPoint ) noexcept
+{
+    const vec3d_t crossBC = CrossDouble( b.normal, c.normal );
+    const vec3d_t crossCA = CrossDouble( c.normal, a.normal );
+    const vec3d_t crossAB = CrossDouble( a.normal, b.normal );
+
+    // Cramer's rule solves the three plane equations. A small determinant means
+    // the planes do not define a numerically stable unique point.
+    const f64 determinant = DotDouble( a.normal, crossBC );
+    if ( std::abs( determinant ) <= minimumAbsDeterminant ) {
+        return false;
+    }
+
+    const f64 inverseDeterminant = 1.0 / determinant;
+    const f64 x = ( -static_cast<f64>( a.d ) * crossBC.x -
+                    static_cast<f64>( b.d ) * crossCA.x -
+                    static_cast<f64>( c.d ) * crossAB.x ) * inverseDeterminant;
+    const f64 y = ( -static_cast<f64>( a.d ) * crossBC.y -
+                    static_cast<f64>( b.d ) * crossCA.y -
+                    static_cast<f64>( c.d ) * crossAB.y ) * inverseDeterminant;
+    const f64 z = ( -static_cast<f64>( a.d ) * crossBC.z -
+                    static_cast<f64>( b.d ) * crossCA.z -
+                    static_cast<f64>( c.d ) * crossAB.z ) * inverseDeterminant;
+    const vec3_t result = Vec3_Make(
+        static_cast<f32>( x ), static_cast<f32>( y ), static_cast<f32>( z ) );
+    if ( !Vec3_IsFinite( result ) ) {
+        return false;
+    }
+    *pPoint = result;
+    return true;
 }
 
 bool_t BrushVertexExists(
@@ -91,17 +174,14 @@ bool_t Brush_ContainsPoint(
     vec3_t point,
     f32 insideTolerance ) noexcept
 {
-    if ( pPlanes == nullptr || cPlanes < 4u || insideTolerance < 0.0f ||
+    if ( pPlanes == nullptr || cPlanes < 4u ||
+         !Scalar_IsFinite( insideTolerance ) || insideTolerance < 0.0f ||
          !Vec3_IsFinite( point ) ) {
         return false;
     }
-    for ( usize i = 0u; i < cPlanes; ++i ) {
-        if ( !Plane_IsFinite( pPlanes[i] ) ||
-             Plane_SignedDistance( pPlanes[i], point ) > insideTolerance ) {
-            return false;
-        }
-    }
-    return true;
+    return BrushPlanesAreNormalized( pPlanes, cPlanes ) &&
+           BrushContainsPointUnchecked(
+               pPlanes, cPlanes, point, insideTolerance );
 }
 
 bool_t Brush_TryIntersectPlanes(
@@ -117,39 +197,16 @@ bool_t Brush_TryIntersectPlanes(
         return false;
     }
     *pPoint = CY_VEC3_ZERO;
-    if ( minimumAbsDeterminant < 0.0 || !Plane_IsFinite( a ) ||
-         !Plane_IsFinite( b ) || !Plane_IsFinite( c ) ) {
+    if ( !Scalar_IsFinite( minimumAbsDeterminant ) ||
+         minimumAbsDeterminant < 0.0 ||
+         !Plane_IsNormalized( a, CY_PLANE_UNIT_TOLERANCE ) ||
+         !Plane_IsNormalized( b, CY_PLANE_UNIT_TOLERANCE ) ||
+         !Plane_IsNormalized( c, CY_PLANE_UNIT_TOLERANCE ) ) {
         return false;
     }
 
-    const vec3d_t crossBC = CrossDouble( b.normal, c.normal );
-    const vec3d_t crossCA = CrossDouble( c.normal, a.normal );
-    const vec3d_t crossAB = CrossDouble( a.normal, b.normal );
-
-    // Cramer's rule solves the three plane equations. A small determinant means
-    // the planes do not define a numerically stable unique point.
-    const f64 determinant = DotDouble( a.normal, crossBC );
-    if ( std::abs( determinant ) <= minimumAbsDeterminant ) {
-        return false;
-    }
-
-    const f64 inverseDeterminant = 1.0 / determinant;
-    const f64 x = ( -static_cast<f64>( a.d ) * crossBC.x -
-                    static_cast<f64>( b.d ) * crossCA.x -
-                    static_cast<f64>( c.d ) * crossAB.x ) * inverseDeterminant;
-    const f64 y = ( -static_cast<f64>( a.d ) * crossBC.y -
-                    static_cast<f64>( b.d ) * crossCA.y -
-                    static_cast<f64>( c.d ) * crossAB.y ) * inverseDeterminant;
-    const f64 z = ( -static_cast<f64>( a.d ) * crossBC.z -
-                    static_cast<f64>( b.d ) * crossCA.z -
-                    static_cast<f64>( c.d ) * crossAB.z ) * inverseDeterminant;
-    const vec3_t result = Vec3_Make(
-        static_cast<f32>( x ), static_cast<f32>( y ), static_cast<f32>( z ) );
-    if ( !Vec3_IsFinite( result ) ) {
-        return false;
-    }
-    *pPoint = result;
-    return true;
+    return BrushTryIntersectPlanesUnchecked(
+        a, b, c, minimumAbsDeterminant, pPoint );
 }
 
 brush_vertex_result_t Brush_BuildVertices(
@@ -163,9 +220,12 @@ brush_vertex_result_t Brush_BuildVertices(
 {
     brush_vertex_result_t result{};
     result.status = brush_build_status_t::INVALID_ARGUMENT;
-    if ( pPlanes == nullptr || cPlanes < 4u || pOutputVertices == nullptr ||
-         cOutputVertices == 0u || minimumAbsDeterminant < 0.0 ||
-         insideTolerance < 0.0f || mergeTolerance < 0.0f ) {
+    if ( cPlanes < 4u || pOutputVertices == nullptr || cOutputVertices == 0u ||
+         !Scalar_IsFinite( minimumAbsDeterminant ) ||
+         minimumAbsDeterminant < 0.0 || !Scalar_IsFinite( insideTolerance ) ||
+         insideTolerance < 0.0f || !Scalar_IsFinite( mergeTolerance ) ||
+         mergeTolerance < 0.0f ||
+         !BrushPlanesAreNormalized( pPlanes, cPlanes ) ) {
         return result;
     }
     
@@ -177,10 +237,10 @@ brush_vertex_result_t Brush_BuildVertices(
         for ( usize j = i + 1u; j + 1u < cPlanes; ++j ) {
             for ( usize k = j + 1u; k < cPlanes; ++k ) {
                 vec3_t candidate{};
-                if ( !Brush_TryIntersectPlanes(
+                if ( !BrushTryIntersectPlanesUnchecked(
                          pPlanes[i], pPlanes[j], pPlanes[k],
                          minimumAbsDeterminant, &candidate ) ||
-                     !Brush_ContainsPoint(
+                     !BrushContainsPointUnchecked(
                          pPlanes, cPlanes, candidate, insideTolerance ) ||
                      BrushVertexExists(
                          pOutputVertices, result.cVerticesWritten,
@@ -213,9 +273,13 @@ brush_vertex_result_t Brush_BuildFacePolygon(
 {
     brush_vertex_result_t result{};
     result.status = brush_build_status_t::INVALID_ARGUMENT;
-    if ( pBrushVertices == nullptr || cBrushVertices < 4u ||
-         pOutputVertices == nullptr || cOutputVertices == 0u ||
-         faceDistanceTolerance < 0.0f || minimumNormalLength < 0.0f ) {
+    if ( cBrushVertices < 4u || pOutputVertices == nullptr ||
+         cOutputVertices == 0u || !Scalar_IsFinite( faceDistanceTolerance ) ||
+         faceDistanceTolerance < 0.0f ||
+         !Scalar_IsFinite( minimumNormalLength ) ||
+         minimumNormalLength < 0.0f ||
+         !Plane_IsValid( outwardFacePlane, 0.0f ) ||
+         !BrushVerticesAreFinite( pBrushVertices, cBrushVertices ) ) {
         return result;
     }
 

@@ -265,7 +265,7 @@ separate executable provides a proven workflow benefit.
 | Choreography and Dialogue | Planned | Actors, speech, phonemes, facial poses, gestures, animation, cameras, events, subtitles, and timeline curves. |
 | VFX | Decided | Phase-aware particle graphs/modules, emitters, initializers, operators, renderers, curves, control points, events, ribbons, decals, preview, budgets, deterministic random streams, and platform quality levels. |
 | Audio | Decided | Waveform preview, trimming metadata, looping, samples, containers, events, rule stacks, emitters, attenuation, buses, mix graphs, effects, soundscapes, reverb, and profiling. |
-| UI and HUD | Planned | CyGUI documents, layouts, styles, fonts, localization, animation, input navigation, safe areas, and live game preview. |
+| UI and HUD | Planned | Cypher UI documents, layouts, styles, fonts, localization, animation, input navigation, safe areas, and live game preview. |
 | Font and Localization | Planned | Font import, glyph coverage, fallback, shaping tests, strings, plurals, subtitles, captions, and locale validation. |
 | Shader | Planned | Shader source metadata, permutations, includes, reflection, compile errors, disassembly, resource bindings, and preview fixtures. |
 | PostFX and Color | Planned | Ordered source layers, masks, opacity, tone mapping, exposure, color grading, LUT baking, fog, bloom, camera effects, volumes, transitions, global preview, and render-buffer comparison views. |
@@ -320,7 +320,7 @@ response/config files suitable for CI.
 | `CypherNavigationCompiler` | Planned | Map geometry and `.cynav` overrides | Produce `.cynav_c` meshes, links, regions, costs, and debug data. |
 | `CypherPhysicsCompiler` | Planned | Meshes and `.cyphys` source | Produce `.cyphys_c` collision shapes, materials, constraints, and mass properties. |
 | `CypherFlowCompiler` | Planned | `.cyflow` | Validate and compile mission/objective/event graphs. |
-| `CypherUICompiler` | Planned | CyGUI layout/style source | Validate and compile runtime UI documents, localization references, and resources. |
+| `CypherUICompiler` | Planned | `.cyui` layout/style source | Validate and compile runtime UI documents, localization references, and resources. |
 | `CypherScriptCompiler` | Planned | Lua source and binding metadata | Validate syntax/bindings, optionally produce bytecode, generate debug metadata, and build script manifests. |
 | `CypherInputCompiler` | Planned | Input/action source documents | Validate conflicts and produce platform-aware runtime action maps. |
 | `CypherLocalizationCompiler` | Planned | Localization tables and locale manifests | Validate keys, placeholders, plurals, coverage, encoding, and produce cooked string resources. |
@@ -442,7 +442,7 @@ shared foundation that prevents every editor from reimplementing the same logic.
 | `.cyphys` | Mason Physics Lab | CypherPhysicsCompiler | `.cyphys_c` |
 | `.cynav` | Mason Navigation | CypherNavigationCompiler | `.cynav_c` |
 | `.cyflow` | Mason Objective/Flow | CypherFlowCompiler | `.cyflow_c` |
-| CyGUI source | Mason UI/HUD | CypherUICompiler | Cooked UI resource |
+| `.cyui` source | Mason UI/HUD | CypherUICompiler | `.cyui_c` cooked UI resource |
 | Lua scripts and binding metadata | Mason Script | CypherScriptCompiler | Validated source or cooked bytecode plus debug metadata |
 | input/action source | Mason Input and Actions | CypherInputCompiler | Cooked action maps |
 | localization source | Mason Font and Localization | CypherLocalizationCompiler and CypherCaptionCompiler | Cooked strings, captions, and locale metadata |
@@ -469,7 +469,7 @@ Mason lists:
 | Generic typed data compiler/editor | Weapons, enemies, waves, response rules, and project-defined records need schema-driven authoring without bespoke formats for every type. | Planned |
 | Texture subrect and hotspot editor | Sprites, atlases, pivots, UI regions, and world-material hotspots require visual region authoring. | Planned as Texture Lab mode |
 | Character setup and facial tools | Bridges model flexes, gaze, mouth, dialogue, and choreography. | Planned |
-| UI/HUD authoring | CyGUI needs a visual workflow, localization preview, and input-navigation testing. | Planned |
+| UI/HUD authoring | Cypher UI needs a visual workflow, localization preview, and input-navigation testing. | Planned |
 | Font/localization/caption tools | Shipping text requires glyph, shaping, fallback, subtitle, and locale validation. | Planned |
 | Shader and permutation inspector | Renderer development requires reflection, compile diagnostics, disassembly, and variant control. | Planned |
 | PostFX/color-grading tools | Camera and atmosphere work need reproducible visual profiles and volume authoring. | Planned |

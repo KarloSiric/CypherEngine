@@ -37,19 +37,21 @@ Read these in order when resuming work:
 9. [cyphercommon_architecture.md](cyphercommon_architecture.md)
 10. [function_pointer_policy.md](function_pointer_policy.md)
 11. [subsystems.md](subsystems.md)
-12. [subsystem_source_catalog.md](subsystem_source_catalog.md)
-13. [toolchain_plan.md](toolchain_plan.md)
-14. [tool_suite.md](tool_suite.md)
-15. [source2_tooling_reference.md](source2_tooling_reference.md)
-16. [map_authoring_and_mason.md](map_authoring_and_mason.md)
-17. [trenchbroom_editor_systems_research.md](trenchbroom_editor_systems_research.md)
-18. [TILEEDITOR_DEVELOPMENT_KIT.md](TILEEDITOR_DEVELOPMENT_KIT.md)
-19. [picasso_v1_design.md](picasso_v1_design.md)
-20. [formats/CYKV.md](formats/CYKV.md)
-21. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
-22. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
-23. [reference_engine_lessons.md](reference_engine_lessons.md)
-24. [security_model.md](security_model.md)
+12. [cryengine1_subsystem_research.md](cryengine1_subsystem_research.md)
+13. [mathlib_runtime_readiness.md](mathlib_runtime_readiness.md)
+14. [subsystem_source_catalog.md](subsystem_source_catalog.md)
+15. [toolchain_plan.md](toolchain_plan.md)
+16. [tool_suite.md](tool_suite.md)
+17. [source2_tooling_reference.md](source2_tooling_reference.md)
+18. [map_authoring_and_mason.md](map_authoring_and_mason.md)
+19. [trenchbroom_editor_systems_research.md](trenchbroom_editor_systems_research.md)
+20. [TILEEDITOR_DEVELOPMENT_KIT.md](TILEEDITOR_DEVELOPMENT_KIT.md)
+21. [picasso_v1_design.md](picasso_v1_design.md)
+22. [formats/CYKV.md](formats/CYKV.md)
+23. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
+24. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
+25. [reference_engine_lessons.md](reference_engine_lessons.md)
+26. [security_model.md](security_model.md)
 
 API docs:
 
@@ -64,6 +66,8 @@ Reference docs:
 - [coding_style.md](coding_style.md)
 - [reference_policy.md](reference_policy.md)
 - [reference_engine_lessons.md](reference_engine_lessons.md)
+- [cryengine1_subsystem_research.md](cryengine1_subsystem_research.md)
+- [mathlib_runtime_readiness.md](mathlib_runtime_readiness.md)
 - [trenchbroom_editor_systems_research.md](trenchbroom_editor_systems_research.md)
 - [trenchbroom_geometry_algorithms.md](trenchbroom_geometry_algorithms.md)
 - [trenchbroom_ui_command_inventory.md](trenchbroom_ui_command_inventory.md)
@@ -80,6 +84,9 @@ Project memory:
 - [adr/0001-coop-first-listen-server-architecture.md](adr/0001-coop-first-listen-server-architecture.md)
 - [adr/0002-common-runtime-tool-boundaries.md](adr/0002-common-runtime-tool-boundaries.md)
 - [adr/0003-runtime-naming-and-target-ownership.md](adr/0003-runtime-naming-and-target-ownership.md)
+- [adr/0004-world-renderer-ownership.md](adr/0004-world-renderer-ownership.md)
+- [adr/0005-shared-editor-geometry-core.md](adr/0005-shared-editor-geometry-core.md)
+- [adr/0006-runtime-subsystem-structure.md](adr/0006-runtime-subsystem-structure.md)
 
 ## What each document is for
 
@@ -125,6 +132,14 @@ Project memory:
     tables belong
 - `subsystems`
   - what each module is responsible for
+- `cryengine1_subsystem_research`
+  - pinned, provenance-aware inventory of the Far Cry-era CryEngine 1 modules
+  - public project boundaries, factory/load relationships, and feature placement
+  - adopt/adapt/reject decisions and a staged mapping to Cypher-owned systems
+- `mathlib_runtime_readiness`
+  - normative coordinate, matrix, quaternion, projection, tolerance, and validity contracts
+  - verified test and benchmark baseline for renderer, World, tools, and simple projectile work
+  - explicit collision, character movement, large-world, determinism, and projection gaps
 - `subsystem_source_catalog`
   - concrete planned implementation-unit names for every top-level subsystem
   - source-file creation gates and dependency ownership rules

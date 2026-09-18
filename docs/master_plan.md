@@ -60,7 +60,6 @@ Current implemented or partially implemented systems:
 
 Current future subsystem folders exist for:
 
-- `CypherPlatform`
 - `CypherInput`
 - `CypherResource`
 - `CypherWorld`
@@ -71,8 +70,8 @@ Current future subsystem folders exist for:
 - `CypherAnimation`
 - `CypherNetwork`
 - `CypherScript`
-- `CypherProfile`
-- `CypherConsole`
+- `CypherFont`
+- `CypherUI`
 - `CypherEditor`
 - `CypherTools`
 
@@ -915,7 +914,7 @@ Approx final runtime LOC:
 
 - 20k-70k
 
-### CypherPlatform / CypherSystem / CypherHost
+### CypherSystem / CypherHost
 
 Purpose:
 
@@ -1237,11 +1236,12 @@ Approx final runtime/tool LOC:
 
 - 30k-120k
 
-### CypherProfile
+### Profiling And Capture
 
 Purpose:
 
-- performance visibility
+- performance visibility; starts from Common primitives and becomes a separate
+  service only when capture and trace export require one
 
 Implement:
 

@@ -39,12 +39,20 @@ inline constexpr transform_t CY_TRANSFORM_IDENTITY{
     CY_QUAT_IDENTITY,
     CY_VEC3_ONE
 };
+// Checked transform operations tolerate normal float rounding from quaternion
+// construction while still rejecting rotations that violate the unit contract.
+inline constexpr f32 CY_TRANSFORM_ROTATION_UNIT_TOLERANCE = 1.0e-4f;
 
 // Queries and application --------------------------------------------------------
 CYPHER_NODISCARD constexpr transform_t Transform_Make(
     vec3_t position, quat_t rotation, vec3_t scale ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Transform_IsFinite(
     transform_t value ) noexcept;
+// Valid runtime TRS data has a unit rotation and no scale axis at or below the
+// caller's degeneracy threshold. Negative scale remains valid for reflections.
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Transform_IsValid(
+    transform_t value, f32 rotationUnitTolerance,
+    f32 minimumAbsScale ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Transform_NearlyEquals(
     transform_t a, transform_t b,
     f32 linearAbsoluteTolerance, f32 linearRelativeTolerance,

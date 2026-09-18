@@ -169,6 +169,43 @@ TEST_CASE( "frustum corners invert both depth conventions",
     }
 }
 
+TEST_CASE( "finite frustum APIs deterministically reject infinite projections",
+           "[CypherCommon][Mathlib][Frustum][Projection][Validation]" )
+{
+    for ( const clip_depth_range_t depthRange : {
+              clip_depth_range_t::NEGATIVE_ONE_TO_ONE,
+              clip_depth_range_t::ZERO_TO_ONE } ) {
+        CAPTURE( depthRange );
+        mat4_t projection{};
+        REQUIRE( Mat4_TryPerspectiveInfiniteRH(
+            Angle_FromDegrees( 90.0f ), 1.0f, 1.0f,
+            depthRange, &projection ) );
+
+        frustum_t frustum{};
+        for ( plane_t &plane : frustum.planes ) {
+            plane = CY_PLANE_X;
+        }
+        REQUIRE_FALSE( Frustum_TryFromViewProjection(
+            projection, depthRange, 0.000001f, &frustum ) );
+        for ( plane_t plane : frustum.planes ) {
+            REQUIRE( Vec3_NearlyEquals(
+                plane.normal, CY_VEC3_ZERO, 0.0f, 0.0f ) );
+            REQUIRE( plane.d == 0.0f );
+        }
+
+        vec3_t corners[CY_FRUSTUM_CORNER_COUNT]{};
+        for ( vec3_t &corner : corners ) {
+            corner = CY_VEC3_ONE;
+        }
+        REQUIRE_FALSE( Frustum_TryCorners(
+            projection, depthRange, 0.0000001f, 0.0000001f, corners ) );
+        for ( vec3_t corner : corners ) {
+            REQUIRE( Vec3_NearlyEquals(
+                corner, CY_VEC3_ZERO, 0.0f, 0.0f ) );
+        }
+    }
+}
+
 TEST_CASE( "orthographic projection maps the declared depth interval",
            "[CypherCommon][Mathlib][Matrix4][Projection]" )
 {

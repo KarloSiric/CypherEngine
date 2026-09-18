@@ -71,6 +71,8 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Viewport_TryUnprojectPoint(
     CY_OUT vec3_t *pWorldPoint ) noexcept;
 
 // The returned origin lies on the near clip plane and direction is unit length.
+// This finite-endpoint API rejects infinite-far projections deterministically;
+// their far unprojection is a homogeneous direction rather than a finite point.
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Viewport_TryBuildPickingRay(
     mat4_t clipToWorld,
     viewport_rect_t viewport,

@@ -140,8 +140,8 @@ those paths work do operations arrive in dependency order:
   behavior.
 - `CypherMapCompiler` can consume validated snapshots without Qt dependencies.
 - `CypherWorld` remains free of editable topology and undo state.
-- The top-level runtime source glob must exclude `src/CypherEditor` so editor code
-  enters products only through explicit targets.
+- Editor sources enter products only through explicit editor/tool targets and
+  never become source files of the `CypherEngine` executable.
 - `.cymap` requires a future schema version before arbitrary geometry objects are
   persisted; version 3 keeps its current meaning.
 - File count and line count are planning observations, never completion criteria.

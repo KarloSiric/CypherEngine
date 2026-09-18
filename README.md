@@ -34,15 +34,18 @@ implementations.
 
 ## Current Milestone
 
-Current work is stabilizing the operating-system and diagnostic boundaries before
-expanding the runtime:
+Current work is making runtime ownership visible before the first World,
+Entity, Physics, Audio, Font, and UI vertical slices:
 
-- compile-time platform facts remain in `CypherCommon/Tier0`
-- engine-facing operating-system operations live behind `CypherSystem`
-- `CypherLog` serializes lifecycle, configuration, sink rotation, and writes
-- platform translation units remain isolated from non-target native headers
-- the next System work is cooperative quit handling, bootstrap/fatal output, and
-  a central fixed-capacity event queue
+- `CypherEngine` is a thin executable and `CypherHost` is its composition root
+- `CypherSystem` is the single operating-system and platform boundary
+- Log, Memory, FileSystem, Command, CVar, Config, and Host have explicit CMake
+  targets instead of being collected by an executable-wide source glob
+- `CypherWorld` remains the renderer-neutral spatial-world owner
+- `CypherMath` has a documented coordinate/numerical contract and a verified
+  test, sanitizer, and benchmark baseline
+- `CypherFont` and `CypherUI` have accepted ownership boundaries and must begin
+  with complete runtime text and interface slices
 
 ## Engineering Principles
 
@@ -60,9 +63,13 @@ expanding the runtime:
 | `src/CypherCommon` | Shared types, primitives, math, formats, and neutral contracts |
 | `src/CypherSystem` | Engine-facing operating-system services and target backends |
 | `src/CypherLog` | Structured logging, filtering, formatting, and output sinks |
+| `src/CypherMemory` | Runtime arenas, pools, scratch storage, and memory diagnostics |
+| `src/CypherFileSystem` / `src/CypherPak` | Runtime mounts, file access, watches, and package archives |
 | `src/CypherEngine/CypherHost` | High-level runtime startup, frame, and shutdown orchestration |
 | `src/CypherResource` | Runtime resource identity, loading, caching, and ownership |
 | `src/CypherRender` | Renderer-facing runtime implementation |
+| `src/CypherWorld` | Planned world ownership, spatial queries, visibility, environment, and streaming |
+| `src/CypherFont` / `src/CypherUI` | Planned renderer-neutral text and runtime interface systems |
 | `src/CypherTools` | Offline compiler and future authoring-tool products |
 | `tests` / `benchmarks` | Correctness, regression, and performance coverage |
 | `docs` | Architecture decisions, current status, formats, and development notes |
@@ -116,6 +123,9 @@ cmake --build --preset bench-release
 - [docs/architecture.md](docs/architecture.md)
 - [docs/cyphercommon_architecture.md](docs/cyphercommon_architecture.md)
 - [docs/subsystems.md](docs/subsystems.md)
+- [docs/cryengine1_subsystem_research.md](docs/cryengine1_subsystem_research.md)
+- [docs/mathlib_runtime_readiness.md](docs/mathlib_runtime_readiness.md)
+- [docs/adr/0006-runtime-subsystem-structure.md](docs/adr/0006-runtime-subsystem-structure.md)
 - [docs/coding_style.md](docs/coding_style.md)
 - [docs/reference_engine_lessons.md](docs/reference_engine_lessons.md)
 - [docs/TILEEDITOR_DEVELOPMENT_KIT.md](docs/TILEEDITOR_DEVELOPMENT_KIT.md)

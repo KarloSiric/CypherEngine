@@ -71,40 +71,22 @@ Public/                versioned cross-module interfaces when a binary boundary 
 Gate: code moves into Common only after at least two independent consumers need
 the same contract or primitive.
 
-## `CypherPlatform`
-
-```text
-CypherPlatform_API              CypherPlatform_Types
-CypherPlatform_Error            CypherPlatform_Runtime
-CypherPlatform_Window           CypherPlatform_Display
-CypherPlatform_EventPump        CypherPlatform_Clipboard
-CypherPlatform_Cursor           CypherPlatform_DynamicLibrary
-CypherPlatform_Process          CypherPlatform_Environment
-CypherPlatform_Path             CypherPlatform_VirtualMemory
-CypherPlatform_Thread           CypherPlatform_CrashContext
-Backends/SDL3                   Backends/Win32
-Backends/Linux                  Backends/MacOS
-```
-
-First slice: process startup, SDL3 window/events, dynamic libraries, paths, and
-virtual-memory calls with no OS types crossing the public boundary.
-
 ## `CypherSystem`
 
 ```text
-CypherSystem_API                CypherSystem_Types
-CypherSystem_Error              CypherSystem_State
-CypherSystem_Startup            CypherSystem_Shutdown
-CypherSystem_Frame              CypherSystem_Lifecycle
-CypherSystem_Service            CypherSystem_ServiceRegistry
-CypherSystem_Module             CypherSystem_ModuleRegistry
-CypherSystem_Event              CypherSystem_Clock
-CypherSystem_Paths              CypherSystem_BuildInfo
-CypherSystem_CommandLine        CypherSystem_Recovery
+CypherSystem_Public             CypherSystem_Error
+CypherSystem_Local              CypherSystem
+CypherSystem_Window             CypherSystem_OpenGL
+CypherSystem_POSIX/             CypherSystem_MacOS/
+CypherSystem_Linux/             CypherSystem_Win32/
 ```
 
-First slice: explicit initialization order and reverse-order shutdown for the
-minimum playable runtime.
+Implemented slice: process startup, paths, timing, virtual-memory forwarding,
+system information, native events, SDL3 displays/windows, dynamic libraries,
+and presentation contexts with no native types crossing the public boundary.
+
+There is no separate `CypherPlatform` module. `CypherHost`, documented under
+`CypherEngine`, owns engine lifecycle orchestration.
 
 ## `CypherMemory`
 
@@ -448,18 +430,6 @@ CypherCVar_Replication          CypherCVar_Permission
 CypherCVar_Completion           CypherCVar_Report
 ```
 
-## `CypherConsole`
-
-```text
-CypherConsole_API               CypherConsole_Types
-CypherConsole_Error             CypherConsole_Runtime
-CypherConsole_Model             CypherConsole_Line
-CypherConsole_Buffer            CypherConsole_Filter
-CypherConsole_History           CypherConsole_Input
-CypherConsole_Completion        CypherConsole_Render
-CypherConsole_Remote            CypherConsole_Report
-```
-
 ## `CypherConfig`
 
 ```text
@@ -472,26 +442,48 @@ CypherConfig_Migration          CypherConfig_Watch
 CypherConfig_Report
 ```
 
-Command, CVar, Console, and Config first slice: register commands and typed CVars,
-execute startup/user cfg files, expose completion/history, and render a basic
-Source-style developer console.
+Command, CVar, and Config first slice is implemented through the legacy runtime
+path. The next gate migrates Host to the instance-owned Common Tier1 command
+system. Console presentation belongs to `CypherUI`; it consumes Command, CVar,
+and Log without duplicating their registries.
 
-## `CypherProfile`
+Low-level profile clocks, counters, and scopes remain in Common. A separate
+capture target waits until frame aggregation, trace serialization, and a real
+viewer form one end-to-end use case.
+
+## `CypherFont`
 
 ```text
-CypherProfile_API               CypherProfile_Types
-CypherProfile_Error             CypherProfile_Clock
-CypherProfile_Zone              CypherProfile_Thread
-CypherProfile_Frame             CypherProfile_Counter
-CypherProfile_Memory            CypherProfile_GPU
-CypherProfile_Registry          CypherProfile_Buffer
-CypherProfile_Capture           CypherProfile_Serialize
-CypherProfile_Telemetry         CypherProfile_Overlay
-CypherProfile_Report
+CypherFont_Public               CypherFont_Types
+CypherFont_Error                CypherFont_Runtime
+CypherFont_Face                 CypherFont_Family
+CypherFont_Shaping              CypherFont_Fallback
+CypherFont_Metrics              CypherFont_Layout
+CypherFont_GlyphCache           CypherFont_Atlas
+CypherFont_Submission           CypherFont_Stats
 ```
 
-First slice: nested CPU zones, frame timings, counters, thread buffers, captures,
-and an in-engine overlay; GPU timings follow the render backend.
+First slice: load one versioned cooked font, shape and measure UTF-8 text with a
+defined fallback policy, fill a bounded glyph atlas, emit immutable text draw
+data, and display one runtime line through Render.
+
+## `CypherUI`
+
+```text
+CypherUI_Public                 CypherUI_Types
+CypherUI_Error                  CypherUI_Runtime
+CypherUI_Document               CypherUI_Element
+CypherUI_Layout                 CypherUI_Style
+CypherUI_Input                  CypherUI_Focus
+CypherUI_Navigation             CypherUI_Clip
+CypherUI_Animation              CypherUI_Binding
+CypherUI_Accessibility          CypherUI_Submission
+CypherUI_Console                CypherUI_Stats
+```
+
+First slice: one HUD or focusable menu with bounded storage, deterministic
+layout, keyboard/controller/pointer navigation, text through Font, resources
+through Resource, and a renderer-neutral draw list.
 
 ## `CypherClient`
 
@@ -503,8 +495,7 @@ CypherClient_Input              CypherClient_UserCommand
 CypherClient_Prediction         CypherClient_Interpolation
 CypherClient_View               CypherClient_Camera
 CypherClient_Render             CypherClient_Effects
-CypherClient_HUD                CypherClient_Menu
-CypherClient_Console            CypherClient_Network
+CypherClient_UIPresentation     CypherClient_Network
 CypherClient_Demo               CypherClient_Debug
 ```
 
@@ -542,19 +533,18 @@ one enemy, damage, death, respawn, snapshots, and a minimal HUD.
 
 ## `CypherEngine`
 
-`CypherEngine` is the executable/product host, not another general-purpose
-subsystem. Most implementation belongs in the modules above.
+`CypherEngine` is the executable product target, not another general-purpose
+subsystem. Its implemented source surface is deliberately small:
 
 ```text
-CypherEngine_Main               CypherEngine_Host
-CypherEngine_CommandLine        CypherEngine_Application
-CypherEngine_Bootstrap          CypherEngine_Runtime
-CypherEngine_Product            CypherEngine_BuildInfo
-CypherEngine_Dedicated          CypherEngine_ToolHost
+src/main.cpp                    CypherEngine executable
+CypherEngine/CypherHost/        CypherHost / Cypher::Host
 ```
 
-First slice: parse process options, construct the system host, select client,
-dedicated-server, or tool mode, and return a stable process exit code.
+The implemented slice constructs Host, runs its lifecycle, and returns a stable
+process exit code. Command-line/application-profile, dedicated-server, and tool
+host files are split out only when those modes add enough behavior to require a
+separate tested owner. Most runtime implementation remains in the modules above.
 
 ## `CypherTools`
 
@@ -606,10 +596,12 @@ compilers, resource loading, and a preview render path exist.
 2. Complete VFS, cooked resource loading, and shader/texture/material compilers.
 3. Establish the engine host and minimum renderer-neutral runtime contracts.
 4. Build the software reference renderer, then the OpenGL backend.
-5. Load one cooked world and implement entity, input, physics, audio, scripting,
-   client, and server vertical slices around one playable arena.
-6. Start Picasso only when it can consume real formats and render a real preview.
-7. Start Mason after world serialization, picking, transforms, rendering, undo,
+5. Load one cooked world and implement entity, input, physics, and audio
+   vertical slices around one playable arena.
+6. Add Font and UI through one working HUD/menu path, then add scripting,
+   client, and server roles only when the game loop needs them.
+7. Start Picasso only when it can consume real formats and render a real preview.
+8. Start Mason after world serialization, picking, transforms, rendering, undo,
    and compiler round trips exist headlessly.
 
 The catalog should be revised when implementation disproves an assumption. It

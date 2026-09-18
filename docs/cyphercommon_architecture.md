@@ -145,7 +145,7 @@ src/CypherCommon/
     SoundSystem/
     Physics/
     Network/
-    Gui/
+    UI/
     ToolFramework/
 ```
 
@@ -234,11 +234,12 @@ The shader, texture, and material compiler modules consume
 front end only coordinates their descriptors. This is the intended Common API
 model in working code.
 
-The outstanding architecture debt is the top-level `CypherEngine` executable:
-it still uses a recursive source glob and one broad include-directory list. That
-permits accidental cross-subsystem includes. Replace it incrementally with
-explicit runtime libraries and narrow include surfaces; do not perform a risky
-whole-tree rearrangement merely to resemble another engine's folders.
+The top-level `CypherEngine` executable now contains only `main.cpp` and links
+`Cypher::Host`. Log, Memory, runtime FileSystem, legacy Command/CVar/Config, and
+Host have explicit production targets and source manifests. Remaining debt is
+the behavior-preserving convergence of legacy services with canonical Common
+contracts and the continued narrowing of public include surfaces. Do not perform
+a risky whole-tree rearrangement merely to resemble another engine's folders.
 
 ## Naming Families
 

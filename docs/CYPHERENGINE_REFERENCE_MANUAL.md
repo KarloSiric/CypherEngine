@@ -5682,9 +5682,12 @@ repository layout.
 - [Subsystems](subsystems.md)
 - [Subsystem source catalog](subsystem_source_catalog.md)
 - [CypherCommon architecture](cyphercommon_architecture.md)
+- [CryEngine 1 subsystem research and Cypher mapping](cryengine1_subsystem_research.md)
+- [Mathlib runtime readiness](mathlib_runtime_readiness.md)
 - [World/runtime module map](world_runtime_module_map.md)
 - [Renderer/Host module map](renderer_host_module_map.md)
 - [Function-pointer policy](function_pointer_policy.md)
+- [ADR 0006: Runtime subsystem structure](adr/0006-runtime-subsystem-structure.md)
 
 ### 29.2 Build and toolchain
 

@@ -21,6 +21,75 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
+## [Unreleased] - 2026-09-18
+
+### Changed
+
+#### Runtime ownership and build structure
+
+- Replaced the recursive runtime source glob with explicit production targets
+  for Log, Memory, runtime FileSystem, legacy Command/CVar/Config, and Host.
+  `CypherEngine` now compiles only `main.cpp` and links the `Cypher::Host`
+  composition root.
+- Changed affected runtime tests and benchmarks to link the production targets
+  instead of compiling private copies of implementation files. This gives each
+  runtime source one build owner and makes dependency direction visible to CMake.
+- Fixed the long-standing Host/System/Platform overlap: `CypherHost` owns
+  process composition and lifecycle, while `CypherSystem` remains the sole
+  operating-system, window, event, timing, path, virtual-memory, and graphics-
+  surface boundary. The empty `CypherPlatform` runtime placeholder was retired.
+- Kept `CypherWorld` as the renderer-neutral spatial-world name. The historical
+  `3DEngine` label was rejected because it mixes scene ownership with an
+  ambiguous whole-engine/renderer meaning.
+- Retired the empty runtime `CypherConsole` and `CypherProfile` placeholders.
+  Console presentation belongs to the future runtime UI over independent Log,
+  Command, and CVar services; profiling primitives remain in Common until a
+  capture/aggregation service has a real consumer.
+- Added accepted architecture scaffolds for `CypherFont` and `CypherUI`, with
+  explicit ownership, dependency boundaries, non-ownership, implementation
+  gates, and first end-to-end vertical slices.
+
+#### CryEngine 1 subsystem study
+
+- Added a pinned, provenance-aware Far Cry-era CryEngine 1 subsystem audit.
+  The study separates official Crytek module descriptions and the public Mod
+  SDK from unlicensed full-tree mirrors, uses the latter only for structural
+  metadata, and prohibits implementation copying.
+- Cataloged runtime libraries, executables, tools, factories, load order, and
+  the historical placement of world, entity, physics, audio, input, scripting,
+  animation, font, networking, UI, particles, lights, visibility, and triggers.
+- Added an adopt/adapt/reject map for Cypher and a dependency-ordered sequence
+  for the missing runtime slices. Module size is now treated as a consequence
+  of coherent ownership and a working vertical slice rather than a quality
+  metric.
+
+#### Mathlib readiness and hardening
+
+- Added the normative CypherMath contract for axes, handedness, camera space,
+  matrix storage/multiplication, quaternion order, TRS composition, angle units,
+  clip-depth ranges, planes, rays, GPU packing, tolerances, large-world policy,
+  determinism, and SIMD.
+- Audited the complete Mathlib source, test, benchmark, and current-consumer
+  surface. Recorded what is ready for finite camera transforms, World Gate 1,
+  editor grids/picking, and simple projectiles, and what still belongs in
+  Physics, World, Renderer, or EditorGeometry.
+- Hardened checked geometry and numerical paths against non-finite inputs,
+  malformed spline arc tables, semantically invalid transforms, degenerate
+  planes, and invalid frusta. The fixed six-plane frustum and finite-endpoint
+  picking APIs now state and test their finite-far projection limitation.
+- Preserved authoring-path performance by validating polygon and brush inputs
+  once at public boundaries, using prevalidated internal operations in nested
+  loops, and exposing an explicit logarithmic spline lookup for tables already
+  validated at build or load time.
+
+### Documentation
+
+- Added ADR 0006 for runtime subsystem structure, a source-module maturity map,
+  the Mathlib readiness report, and the CryEngine 1 research report.
+- Updated architecture, subsystem, source-catalog, project-structure, coding-
+  style, milestone, status, and documentation-index pages to use the same
+  module names and ownership rules.
+
 ## [Unreleased] - 2026-09-17
 
 This integration entry records the executable work added after the September 16

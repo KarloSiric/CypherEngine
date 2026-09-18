@@ -20,6 +20,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <limits>
+
 using namespace cypher::math;
 using Catch::Approx;
 
@@ -73,6 +75,34 @@ TEST_CASE( "quadratic solving classifies repeated, linear, and absent roots",
     REQUIRE( Numerics_TrySolveQuadratic(
         0.0, 0.0, 0.0, 1.0e-15, 1.0e-12, &solution ) );
     REQUIRE( solution.count == polynomial_solution_count_t::INFINITE );
+}
+
+TEST_CASE( "quadratic solving rejects nonfinite tolerances",
+           "[CypherCommon][Mathlib][Numerics][Quadratic][Validation]" )
+{
+    const f64 invalidTolerances[]{
+        std::numeric_limits<f64>::quiet_NaN(),
+        std::numeric_limits<f64>::infinity(),
+        -1.0
+    };
+    for ( f64 invalid : invalidTolerances ) {
+        CAPTURE( invalid );
+        quadratic_solution_t solution{
+            polynomial_solution_count_t::TWO, 17.0, 19.0
+        };
+        REQUIRE_FALSE( Numerics_TrySolveQuadratic(
+            1.0, 0.0, -1.0, invalid, 0.0, &solution ) );
+        REQUIRE( solution.count == polynomial_solution_count_t::ZERO );
+        REQUIRE( solution.root0 == 0.0 );
+        REQUIRE( solution.root1 == 0.0 );
+
+        solution = { polynomial_solution_count_t::TWO, 17.0, 19.0 };
+        REQUIRE_FALSE( Numerics_TrySolveQuadratic(
+            1.0, 0.0, -1.0, 0.0, invalid, &solution ) );
+        REQUIRE( solution.count == polynomial_solution_count_t::ZERO );
+        REQUIRE( solution.root0 == 0.0 );
+        REQUIRE( solution.root1 == 0.0 );
+    }
 }
 
 TEST_CASE( "closest segment points cover crossing, skew, and point segments",
