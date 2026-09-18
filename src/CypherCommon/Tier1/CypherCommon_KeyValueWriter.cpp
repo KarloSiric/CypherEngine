@@ -535,7 +535,8 @@ CYPHER_NODISCARD bool_t WriteDocumentHeader(
 {
     const key_value_document_header_t header =
         KeyValue_DocumentHeader( pDocument );
-    if ( header.nLanguageVersion != CYKV_LANGUAGE_VERSION ||
+    if ( ( header.nLanguageVersion != CYKV_LANGUAGE_VERSION_1 &&
+           header.nLanguageVersion != CYKV_LANGUAGE_VERSION_2 ) ||
          header.nSchemaVersion == 0u ||
          !StringView_IsValid( header.schemaId ) ||
          header.schemaId.cchLength == 0u ) {

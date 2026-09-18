@@ -99,6 +99,21 @@ CYPHER_NODISCARD bool_t KeyValue_InternalTreeIsValid(
 CYPHER_NODISCARD key_value_document_t *KeyValue_InternalCreateLike(
     const key_value_document_t *pDocument ) noexcept;
 
+// Creates a document with the same allocator/capacity policy and an explicit
+// object-key lookup policy. Text parsers use exact-case temporary storage so a
+// destination's later lookup preference cannot change the accepted language.
+CYPHER_NODISCARD key_value_document_t *KeyValue_InternalCreateLike(
+    const key_value_document_t *pDocument,
+    bool_t bCaseInsensitiveKeys ) noexcept;
+
+// Copies only the source value into an existing destination node. The destination
+// keeps its current object key and sibling links. Parser transactions discard a
+// partially copied destination if allocation fails.
+CYPHER_NODISCARD bool_t KeyValue_InternalCopyValue(
+    key_value_document_t *pDestDocument,
+    key_value_t *pDest,
+    const key_value_t *pSource ) noexcept;
+
 void KeyValue_InternalMoveDocumentContents(
     key_value_document_t *pDest,
     key_value_document_t *pSource ) noexcept;

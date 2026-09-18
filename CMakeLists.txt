@@ -163,6 +163,7 @@ set(CYPHERCOMMON_TIER1_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_KeyValueJson.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_KeyValuePack.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_KeyValueParser.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_KeyValueSource.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_KeyValueWriter.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Lexer.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier1/CypherCommon_Localization.cpp"
@@ -1493,6 +1494,11 @@ if (CYPHERENGINE_BUILD_TESTS)
         cypher_add_common_catch_test(
             cypher_common_tier1_keyvalueparser_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_KeyValueParser_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier1_keyvaluesource_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_KeyValueSource_Tests.cpp"
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
