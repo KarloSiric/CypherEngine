@@ -1294,6 +1294,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::CommonTier1
         )
         cypher_add_common_catch_test(
+            cypher_common_tier1_generationpool_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_GenerationPool_Tests.cpp"
+            Cypher::CommonTier1
+        )
+        cypher_add_common_catch_test(
             cypher_common_tier1_stablehash_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier1/CypherCommon_Tier1_StableHash_Tests.cpp"
             Cypher::CommonTier1
@@ -2775,10 +2780,16 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
     endif()
 endif()
 
-if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherTools/CMakeLists.txt")
-    option(CYPHERENGINE_BUILD_TOOLS "Build tool targets" OFF)
-    if (CYPHERENGINE_BUILD_TOOLS)
+option(CYPHERENGINE_BUILD_TOOLS "Build tool targets" OFF)
+
+if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherEditor/Geometry/CMakeLists.txt")
+    if (CYPHERENGINE_BUILD_TESTS OR CYPHERENGINE_BUILD_TOOLS)
         add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherEditor/Geometry")
+    endif()
+endif()
+
+if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherTools/CMakeLists.txt")
+    if (CYPHERENGINE_BUILD_TOOLS)
         add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherTools")
     endif()
 else()

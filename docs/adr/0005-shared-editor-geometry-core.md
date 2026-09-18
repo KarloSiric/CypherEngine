@@ -71,8 +71,10 @@ The geometry core uses:
 - deterministic traversal and triangulation rules;
 - separate per-vertex, per-corner, per-edge, and per-face attribute streams;
 - separate canonical authoring representations for plane-defined convex brushes,
-  editable manifold meshes, planar polygons with holes, patches, and bounded
-  triangle soup;
+  editable manifold meshes, planar regions, patches, retained curve networks,
+  and height fields;
+- neutral triangle/polygon soup and stage-specific CSG records that never pretend
+  to be ordinary authored objects;
 - explicit, provenance-preserving conversion between representations;
 - separate brush and mesh CSG paths, with brush CSG delivered first;
 - CSG as an authoring operation over validated solids, not as the runtime world
@@ -83,7 +85,8 @@ The editor geometry layer is split conceptually into:
 1. Core identity, results, limits, allocators, and scratch contracts.
 2. Numerical kernel policy, quantization, robust predicates, controlled
    constructions, and deterministic ordering.
-3. Brush, mesh, planar polygon, patch, and triangle-soup representations.
+3. Brush, mesh, planar-region, patch, curve-network, and height-field source
+   representations plus neutral soup processing storage.
 4. Attribute schemas, storage, interpolation, texture locking, and propagation.
 5. Queries, planar arrangements, spatial indexes, and tessellation.
 6. Validation and explicit repair diagnostics.
@@ -94,11 +97,13 @@ The editor geometry layer is split conceptually into:
 10. Versioned authoring serialization and compiler-facing immutable cook
     products with complete source mapping.
 
-Curves, subdivision surfaces, sweeps, and displacement remain isolated
-procedural families that convert explicitly into source representations. Terrain,
-collision decomposition, navigation, lighting, visibility, acoustics, prefabs,
-entities, and live-sync are consumers or peer systems. They do not become
-unrelated methods on the mesh container or dependencies of this library.
+Curve networks and height fields retain canonical authoring state in their own
+representations. Curve evaluation, subdivision surfaces, sweeps, patches, and
+displacement remain isolated algorithm families that convert or update source
+representations explicitly. Terrain-domain layers, foliage, streaming, collision
+decomposition, navigation, lighting, visibility, acoustics, prefabs, entities,
+and live-sync are consumers or peer systems. They do not become unrelated methods
+on the mesh container or dependencies of this library.
 
 ## First vertical slice
 

@@ -33,6 +33,11 @@ bool IsFinitePositive( f64 value ) noexcept
 bool GeometryNumericalPolicy_IsValid(
     const geometry_numerical_policy_t &policy ) noexcept
 {
+    // Canonical lattice indices are formed in binary64 before checked integer
+    // conversion. Staying within 2^53 - 1 keeps every supported integer index
+    // exactly representable and makes ordering independent of rounded division.
+    constexpr f64 cLargestExactInteger = 9'007'199'254'740'991.0;
+
     const bool bFinitePositive =
         IsFinitePositive( policy.fCoordinateMagnitudeLimit ) &&
         IsFinitePositive( policy.fAbsoluteDistanceTolerance ) &&
@@ -52,8 +57,13 @@ bool GeometryNumericalPolicy_IsValid(
     const f64 fDistanceSquared =
         policy.fAbsoluteDistanceTolerance *
         policy.fAbsoluteDistanceTolerance;
+    const f64 cCanonicalSteps =
+        policy.fCoordinateMagnitudeLimit /
+        policy.fCanonicalQuantization;
     return policy.fRelativeDistanceTolerance < 1.0 &&
            policy.fAngularToleranceRadians < 1.0 &&
+           std::isfinite( cCanonicalSteps ) &&
+           cCanonicalSteps <= cLargestExactInteger &&
            policy.fAbsoluteDistanceTolerance <=
                policy.fCanonicalQuantization &&
            policy.fCanonicalQuantization <= policy.fMinimumEdgeLength &&
@@ -70,6 +80,9 @@ bool GeometryLimitPolicy_IsValid(
     const geometry_limit_policy_t &policy ) noexcept
 {
     const bool bNonZero =
+        policy.cBrushesMax > 0u &&
+        policy.cBrushSidesMax > 0u &&
+        policy.cBrushSidesPerBrushMax > 0u &&
         policy.cVerticesMax > 0u &&
         policy.cHalfEdgesMax > 0u &&
         policy.cEdgesMax > 0u &&
@@ -79,15 +92,34 @@ bool GeometryLimitPolicy_IsValid(
         policy.cIntersectionEventsMax > 0u &&
         policy.cJournalRecordsMax > 0u &&
         policy.cDiagnosticsMax > 0u &&
+        policy.cTraversalDepthMax > 0u &&
         policy.cbScratchMax > 0u;
     if ( !bNonZero ) {
         return false;
     }
 
-    // One manifold edge owns one or two half-edges; every face owns at least
-    // one loop. These relations reject policies that cannot describe their own
-    // advertised edge and face maxima.
-    return policy.cHalfEdgesMax >= policy.cEdgesMax &&
+    const u64 cHandleCapacityMax =
+        static_cast<u64>( common::CY_INVALID_INDEX );
+    const bool bHandleCountsEncodable =
+        policy.cBrushesMax <= cHandleCapacityMax &&
+        policy.cBrushSidesMax <= cHandleCapacityMax &&
+        policy.cBrushSidesPerBrushMax <= cHandleCapacityMax &&
+        policy.cVerticesMax <= cHandleCapacityMax &&
+        policy.cHalfEdgesMax <= cHandleCapacityMax &&
+        policy.cEdgesMax <= cHandleCapacityMax &&
+        policy.cLoopsMax <= cHandleCapacityMax &&
+        policy.cFacesMax <= cHandleCapacityMax &&
+        policy.cShellsMax <= cHandleCapacityMax;
+    if ( !bHandleCountsEncodable ) {
+        return false;
+    }
+
+    // A bounded 3D convex brush needs at least four sides, a closed manifold
+    // edge needs two half-edges, and every face needs at least one loop. These
+    // relations keep the advertised aggregate maxima mutually achievable.
+    return policy.cBrushesMax <= policy.cBrushSidesMax / 4u &&
+           policy.cBrushSidesPerBrushMax <= policy.cBrushSidesMax &&
+           policy.cEdgesMax <= policy.cHalfEdgesMax / 2u &&
            policy.cLoopsMax >= policy.cFacesMax;
 }
 

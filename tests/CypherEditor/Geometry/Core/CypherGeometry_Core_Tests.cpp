@@ -101,7 +101,33 @@ TEST_CASE( "geometry policy rejects incompatible and non-finite tolerances",
     REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
 
     policy = {};
+    policy.numerical.fCoordinateMagnitudeLimit = 1.0e10;
+    REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
+
+    policy = {};
     policy.limits.cHalfEdgesMax = policy.limits.cEdgesMax - 1u;
+    REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
+
+    policy = {};
+    policy.limits.cBrushSidesMax = policy.limits.cBrushesMax * 4u - 1u;
+    REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
+
+    policy = {};
+    policy.limits.cBrushSidesPerBrushMax =
+        policy.limits.cBrushSidesMax + 1u;
+    REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
+
+    policy = {};
+    policy.limits.cTraversalDepthMax = 0u;
+    REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
+
+    policy = {};
+    policy.limits.cHalfEdgesMax = policy.limits.cEdgesMax * 2u - 1u;
+    REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
+
+    policy = {};
+    policy.limits.cVerticesMax =
+        static_cast<common::u64>( common::CY_INVALID_INDEX ) + 1u;
     REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
 }
 

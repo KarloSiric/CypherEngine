@@ -11,10 +11,17 @@
 ##########################################################################
 
 add_library(CypherEditorGeometry STATIC
+    Core/CypherGeometry_Diagnostics.cpp
+    Core/CypherGeometry_Diagnostics.h
     Core/CypherGeometry_IdAllocator.cpp
     Core/CypherGeometry_IdAllocator.h
     Core/CypherGeometry_Policy.cpp
     Core/CypherGeometry_Policy.h
+    Core/CypherGeometry_Scratch.cpp
+    Core/CypherGeometry_Scratch.h
+    Core/CypherGeometry_Scratch.inl
+    Core/CypherGeometry_SourceIdRegistry.cpp
+    Core/CypherGeometry_SourceIdRegistry.h
     Core/CypherGeometry_Types.h
 )
 add_library(Cypher::EditorGeometry ALIAS CypherEditorGeometry)
@@ -34,6 +41,9 @@ target_link_libraries(CypherEditorGeometry
 if (CYPHERENGINE_BUILD_TESTS)
     add_executable(cypher_editor_geometry_contract_tests
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Core_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Diagnostics_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Scratch_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_SourceIdRegistry_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Types_Tests.cpp"
     )
     target_link_libraries(cypher_editor_geometry_contract_tests

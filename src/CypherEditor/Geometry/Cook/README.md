@@ -2,7 +2,9 @@
 
 ## Owns
 
-Immutable, revisioned, disposable products derived from validated source geometry, with complete source mapping and content hashes.
+Immutable, revisioned, disposable products derived from validated source
+geometry, with complete source mapping, content hashes, and deterministic
+dependency keys for bounded incremental invalidation.
 
 ## Does not own
 

@@ -2,11 +2,14 @@
 
 ## Owns
 
-Curve control points, basis/type, evaluation, arc-length tables, and frames for geometry generation.
+CurveNetwork evaluation from immutable source views, arc-length tables,
+parameter sampling, and stable frames for geometry generation.
 
 ## Does not own
 
-Editor path-tool interaction.
+Persistent control points, knots, rational weights, basis/type, parameter-domain
+identity, or editor path-tool interaction. Those authored fields belong to the
+CurveNetwork source representation.
 
 ## First acceptance gate
 

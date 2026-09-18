@@ -1,4 +1,4 @@
-# Representations / TriangleSoup
+# Intermediates / TriangleSoup
 
 ## Owns
 

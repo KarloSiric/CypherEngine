@@ -2,11 +2,13 @@
 
 ## Owns
 
-Bounded displacement fields, sampling, refinement policy, and source mapping.
+Bounded displacement modifier descriptors, sampling, refinement policy, and
+source mapping over immutable inputs.
 
 ## Does not own
 
-Terrain gameplay semantics or sculpt-brush input.
+Persistent HeightField tiles, samples, holes, or identity; terrain gameplay
+semantics; or sculpt-brush input.
 
 ## First acceptance gate
 

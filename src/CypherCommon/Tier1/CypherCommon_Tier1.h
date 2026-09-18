@@ -79,6 +79,7 @@
 #include "CypherCommon_Dictionary.h"
 #include "CypherCommon_PriorityQueue.h"
 #include "CypherCommon_HandleTable.h"
+#include "CypherCommon_GenerationPool.h"
 #include "CypherCommon_SparseSet.h"
 #include "CypherCommon_SoaContainer.h"
 

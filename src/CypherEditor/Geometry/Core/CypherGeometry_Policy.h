@@ -49,6 +49,9 @@ struct geometry_numerical_policy_t {
 // they consume unbounded memory. They are operation guards, not file-format
 // integer widths, and can be tightened by a host application.
 struct geometry_limit_policy_t {
+    u64 cBrushesMax{ 1'000'000u };
+    u64 cBrushSidesMax{ 32'000'000u };
+    u64 cBrushSidesPerBrushMax{ 4'096u };
     u64 cVerticesMax{ 1'000'000u };
     u64 cHalfEdgesMax{ 6'000'000u };
     u64 cEdgesMax{ 3'000'000u };
@@ -58,6 +61,7 @@ struct geometry_limit_policy_t {
     u64 cIntersectionEventsMax{ 8'000'000u };
     u64 cJournalRecordsMax{ 8'000'000u };
     u64 cDiagnosticsMax{ 4'096u };
+    u64 cTraversalDepthMax{ 4'096u };
     u64 cbScratchMax{ 2u * common::CY_GIB };
 };
 

@@ -2,7 +2,10 @@
 
 ## Owns
 
-Versioned authored-geometry schemas, stable-ID persistence, deterministic readers/writers, migration, bounds, and corrupt-input diagnostics.
+Versioned authored-geometry schemas, explicit stable wire discriminants,
+stable-ID persistence, deterministic readers/writers, migration, bounds, and
+corrupt-input diagnostics. Raw C++ enum ordinals, COUNT sentinels, and live
+handles are never serialized.
 
 ## Does not own
 

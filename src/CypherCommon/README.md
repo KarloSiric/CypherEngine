@@ -67,3 +67,13 @@ ToolFramework  editor-neutral and command-line tool contracts
 Do not recreate Tier0 or Tier1 functionality in parallel root folders. A
 subsystem folder receives code only when more than one consumer needs its shared
 contract.
+
+## Handle-backed storage
+
+`HandleTable` is the compact runtime container: it uses packed 16-bit slot and
+16-bit generation fields and intentionally wraps generations. `GenerationPool`
+is the wide authoring container: its tag-qualified handle uses a 32-bit slot and
+32-bit generation, accepts an explicit slot limit, and permanently retires a
+slot before generation wrap. Long-lived editor topology, undo references, and
+selection storage use the wide contract; compact runtime resources keep the
+existing packed ABI.

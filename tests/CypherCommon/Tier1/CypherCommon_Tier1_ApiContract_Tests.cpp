@@ -82,6 +82,21 @@ TEST_CASE( "Tier1 owning values reject implicit shallow copies",
     STATIC_REQUIRE_FALSE( is_copy_constructible_v<rb_tree_t<u32, u32>> );
 }
 
+TEST_CASE( "Tier1 wide generation handles remain tagged compact values",
+           "[CypherCommon][Tier1][ApiContract]" )
+{
+    struct first_tag_t {};
+    struct second_tag_t {};
+
+    STATIC_REQUIRE( sizeof( generation_handle_t<first_tag_t> ) == sizeof( u32 ) * 2u );
+    STATIC_REQUIRE( is_trivially_copyable_v<generation_handle_t<first_tag_t>> );
+    STATIC_REQUIRE_FALSE( is_same_v<
+        generation_handle_t<first_tag_t>,
+        generation_handle_t<second_tag_t>> );
+    STATIC_REQUIRE_FALSE( GenerationHandle_IsValid(
+        GENERATION_HANDLE_INVALID<first_tag_t> ) );
+}
+
 TEST_CASE( "Tier1 const containers expose read-only access",
            "[CypherCommon][Tier1][ApiContract]" )
 {

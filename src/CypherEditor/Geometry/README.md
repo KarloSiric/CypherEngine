@@ -5,11 +5,12 @@ CypherTileEditor, the future Mason map workspace, focused geometry tools, and th
 authoring side of the map compiler.
 
 The library does **not** force every authored object into one mesh topology.
-Brushes, editable meshes, planar polygons, patches, and triangle soup have
-different invariants and remain separate source representations. Conversion is
-explicit and records source provenance. Immutable cooked products are derived
-from those representations for rendering, collision, navigation, visibility,
-lighting, and compiler interchange.
+Brushes, editable meshes, planar regions, patches, retained curve networks, and
+height fields have different invariants and remain separate source
+representations. Triangle soup is neutral import and operation storage rather
+than an ordinary authored object. Conversion is explicit and records source
+provenance. Immutable cooked products are derived from validated snapshots for
+rendering, collision, navigation, visibility, lighting, and compiler interchange.
 
 ## Dependency rules
 
@@ -31,7 +32,9 @@ Forbidden dependencies:
 ## Shared contracts
 
 - Persistent authoring identity uses document-stable source IDs.
-- Live storage uses typed generation-checked handles, never persistent pointers.
+- Live storage uses representation-qualified generation handles, never
+  persistent pointers. Compact handles remain local to the document pool that
+  issued them; cross-document exchange uses source IDs and explicit remapping.
 - Topology and representation conversion publish explicit source remaps.
 - Mutations are transactional; failure leaves the source state unchanged.
 - Validation emits bounded diagnostics and never silently repairs geometry.
@@ -46,7 +49,8 @@ Forbidden dependencies:
 ```text
 Core/             identity, handles, results, budgets, allocation contracts
 Kernel/           scalar policy, quantization, predicates, constructions, ordering
-Representations/  Brush, Mesh, Polygon2D, Patch, and TriangleSoup source models
+Representations/  Brush, Mesh, PlanarRegion, Patch, Curve, and HeightField sources
+Intermediates/    bounded neutral soup and operation exchange records
 Attributes/       schemas, typed layers, UV/material/normal data and propagation
 Planar/           arrangements, holes, overlay, offset, constrained triangulation
 Queries/          ray casts, adjacency, containment, measurements, feature queries
@@ -61,9 +65,9 @@ Modifiers/        non-destructive mirror, arrays, bend, taper, sweep, rebuild
 Csg/              separate brush and mesh Boolean paths plus reconstruction stages
 Spatial/          editable indexes, caches, picking candidates, dirty regions
 Tessellation/     deterministic representation-to-triangle tessellation
-Procedural/       curve, sweep, patch, subdivision, and displacement generators
+Procedural/       sweep, patch, subdivision, displacement, and curve generators
 Serialization/    versioned authored geometry, stable IDs, deterministic migration
-Cook/             multiple immutable render/compiler/gameplay target products
+Cook/             dependency-tracked immutable render/compiler/gameplay products
 ```
 
 Every module directory contains an ownership contract and planned implementation

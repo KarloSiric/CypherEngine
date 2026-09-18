@@ -2,11 +2,13 @@
 
 ## Owns
 
-Geometry component references, sets, grow/shrink, connected, loop/ring, and mutation-remap behavior.
+Representation-qualified geometry component references, selectable-target views,
+sets, grow/shrink, connected, loop/ring, and mutation-remap behavior.
 
 ## Does not own
 
-Global selection routing, Qt models, gizmo state, or non-geometry scene objects.
+Internal topology-handle identity, global selection routing, Qt models, gizmo
+state, TileEditor cells, or non-geometry scene objects.
 
 ## First acceptance gate
 

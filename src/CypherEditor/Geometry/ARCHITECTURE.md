@@ -20,10 +20,19 @@ Different workflows require different canonical data:
 |---|---|---|
 | `BrushSolid` | intersection of oriented planes plus side attributes | Hammer/Quake-style convex blockout and CSG |
 | `EditableMesh` | vertices, edges, half-edges, loops, faces, and shells | freeform manifold surface editing |
-| `Polygon2D` | one outer contour plus zero or more holes in a plane frame | floor plans, caps, coplanar overlay, tile collision regions |
+| `PlanarRegion` | one or more polygons with holes in a shared plane frame | floor plans, caps, profiles, and tile collision regions |
 | `PatchSurface` | control points, basis/type, and evaluation parameters | curved walls, pipes, and authored curved surfaces |
+| `CurveNetwork` | retained curves, connectivity, basis-specific control data, and parameter domains | paths, sweeps, lofts, roads, rails, and pipes |
+| `HeightField` | bounded height samples, tiles, and hole masks | terrain-like authoring and deterministic surface generation |
+
+Neutral processing and derived output stay outside that source taxonomy:
+
+| Processing/output form | Contract | Primary use |
+|---|---|---|
 | `TriangleSoup` | bounded triangles with no manifold promise | import sanitation and temporary Boolean processing |
-| `CookedMesh` | immutable optimized triangles and source mappings | rendering and compiler interchange only |
+| `PolygonSoup` | bounded faces without authoritative adjacency | neutral exchange and repair input |
+| stage records | intersection graphs, arrangements, corefined meshes, cells, and boundary fragments | private checked CSG stages |
+| cooked products | immutable optimized data plus source mappings | rendering, collision, navigation, visibility, lighting, and compiler interchange |
 
 A brush remains a plane set. Moving a brush face changes its plane and
 reconstructs the boundary cache; it does not mutate an arbitrary half-edge mesh
@@ -50,14 +59,25 @@ into the original brush.
 
 Every authored geometry element may have a document-stable 64-bit source ID.
 Zero is invalid. IDs are monotonic within one document identity domain and are
-never recycled. Import, duplication, clipboard insertion, and merge allocate new
-IDs and publish a source-to-destination map.
+never recycled. A document records both every identity claimed during its domain
+lifetime and the currently live subset. Loading has one explicit registration
+phase; after it is sealed, undo may reactivate only a previously claimed retired
+identity. Import, duplication, clipboard insertion, and merge allocate new IDs
+and publish a source-to-destination map. Serialization persists the allocator's
+next/high-water value even when the object owning the highest issued ID has been
+deleted; rebuilding that value from live objects would permit identity reuse.
 
 Live storage uses typed `{slot, generation}` handles. A brush-side handle cannot
-be passed where a mesh-face handle is required. Removing an element advances or
-retires its slot generation before reuse, so stale handles fail. Persistent raw
-pointers and serialized slot indices are forbidden. Short-lived pointers returned
-by a checked pool lookup are invalidated according to that pool's mutation rules.
+be passed where a mesh-face handle is required, and a mesh vertex is a different
+C++ type from a planar vertex. Pools are owned by one geometry document. Compact
+handles deliberately omit a document ID and may only be resolved against the
+pool that issued them; cross-document operations use source IDs and remap tables.
+Removing an element advances or retires its slot generation before reuse, so
+stale handles fail without generation wraparound. Persistent raw pointers and
+serialized slot indices are forbidden. Short-lived pointers returned by a
+checked pool lookup are invalidated according to the Common Tier1 generation
+pool's mutation rules. Mutable documents have one writer; immutable revisioned
+snapshots are the cross-thread boundary.
 
 The Core contract also owns allocator and scratch-memory boundaries, status/result
 vocabulary, diagnostic budgets, and hard complexity limits. Allocation failure,
@@ -103,10 +123,10 @@ must not form hidden ownership cycles.
 0  Cypher::CommonTier1 + Cypher::Math
 1  Core
 2  Kernel
-3  Representations: Brush | Mesh | Polygon2D | Patch | TriangleSoup
-4  Attributes
+3  Source representations: Brush | Mesh | PlanarRegion | Patch | Curve | HeightField
+4  Intermediates + Attributes
 5  Planar + Queries + Spatial
-6  Validation + Tessellation
+6  Validation + Tessellation + neutral soup sanitation
 7  Transactions + Selection + Exchange
 8  Primitives + Operations/Euler + Operations
 9  Repair + Modifiers + Csg + Procedural
@@ -129,7 +149,8 @@ Important dependency rules:
   failure with witnesses. It has separate brush and mesh entry paths.
 - `Serialization` persists source representations and stable IDs, never live
   handles or renderer resources.
-- `Cook` consumes immutable validated snapshots and cannot mutate the document.
+- `Cook` consumes immutable validated snapshots, tracks source/policy dependency
+  keys, and cannot mutate the document.
 
 Every directory has a README that records narrower ownership, exclusions, and its
 first acceptance gate.
@@ -290,8 +311,8 @@ The following remain outside this library:
 - scene hierarchy, workplanes, object transforms, layers, prefabs, entities,
   triggers, lights, scripted connections, and global command history;
 - material/texture asset databases, thumbnails, and browser UI;
-- `.cymap` tile sets, grid types, layers, painting tools, terrain rules, and cell
-  metadata;
+- `.cymap` tile sets, grid types, layers, painting tools, terrain-domain rules,
+  foliage/biomes, and cell metadata;
 - renderer resources, physics simulation/decomposition, navmesh generation,
   lighting, PVS, acoustics, gameplay, autosave, build orchestration, and live IPC.
 
@@ -357,10 +378,11 @@ Development proceeds through complete vertical slices.
 - self-intersection and closed-solid queries;
 - explicit repair plans and adversarial/fuzz budgets.
 
-### Gate 8: Booleans and extended procedural geometry
+### Gate 8: Booleans and extended source geometry
 
 - brush regularized Booleans, followed later by mesh Booleans;
-- curves, sweeps, patches, subdivision, and displacement as isolated families;
+- persistent curve networks and height fields, plus sweeps, patches,
+  subdivision, and displacement as isolated families;
 - serialization, migrations, extended cook projections, and golden corpora.
 
 ## Test architecture
@@ -371,7 +393,8 @@ Tests mirror behavior rather than directory count:
 tests/CypherEditor/Geometry/
   Core/             identity, pools, policy, budgets, allocation failure
   Kernel/           predicate and construction adversarial cases
-  Representations/  brush, mesh, polygon, patch, and soup invariants
+  Representations/  canonical brush, mesh, planar, patch, curve, and heightfield invariants
+  Intermediates/    polygon/triangle soup validation, sanitation, and provenance
   Validation/       malformed fixtures and exact diagnostics
   Transactions/     preview, rollback, undo/redo, remap, provenance
   Operations/       preconditions, topology, attributes, inverse edits
