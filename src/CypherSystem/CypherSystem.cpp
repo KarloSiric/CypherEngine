@@ -24,6 +24,7 @@
 #include <cstdlib>    // std::abort for fatal termination.
 #include <cstring>    // std::strcmp and bounded startup copies.
 #include <mutex>      // Prevents interleaved bootstrap/fatal diagnostics.
+#include <new>        // Placement construction for process-state reset.
 #include <string>     // Temporary normalized path representation.
 #include <utility>    // std::move for resolved path ownership.
 
@@ -35,6 +36,16 @@ namespace {
 runtime_state_t sysState{}; // Process-wide System state; Host owns its lifetime.
 std::atomic_bool quitRequested{ false }; // Worker threads may request an orderly Host shutdown.
 std::mutex bootstrapOutputMutex{};       // Serializes complete emergency-output records.
+
+void Sys_ResetRuntimeState() noexcept
+{
+    // Reconstruct in place instead of assigning a complete temporary. GCC 13
+    // otherwise crashes while lowering the assignment of the fixed 256-entry
+    // event queue. Reconstruction preserves every default member initializer
+    // and automatically includes fields added to runtime_state_t in the future.
+    sysState.~runtime_state_t();
+    ::new ( static_cast<void *>( &sysState ) ) runtime_state_t{};
+}
 
 void Sys_DebugVPrintfUnlocked( const char *format, std::va_list arguments ) noexcept
 {
@@ -253,15 +264,15 @@ sys_error_t Sys_Init( const init_info_t &initInfo ) noexcept
         return sys_error_t::ERR_INVALID_ARGUMENT;
     }
 
-    sysState = runtime_state_t{};
+    Sys_ResetRuntimeState();
     const sys_error_t pathResult = Sys_PlatformBuildPaths( initInfo, sysState.paths );
     if ( pathResult != sys_error_t::OK ) {
-        sysState = runtime_state_t{};
+        Sys_ResetRuntimeState();
         return pathResult;
     }
 
     if ( ::cypher::common::Cy_SystemInfoInit() != ::cypher::common::CY_TRUE ) {
-        sysState = runtime_state_t{};
+        Sys_ResetRuntimeState();
         return sys_error_t::ERR_INTERNAL_ERROR;
     }
 
@@ -287,7 +298,7 @@ sys_error_t Sys_Shutdown() noexcept
     }
 
     Sys_WindowSubsystemShutdown();
-    sysState = runtime_state_t{};
+    Sys_ResetRuntimeState();
     quitRequested.store( false, std::memory_order_release );
     return sys_error_t::OK;
 }

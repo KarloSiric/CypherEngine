@@ -154,7 +154,7 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     CHECK_FALSE( render::R_IsShaderValid( failedShader ) );
     // Shader creation owns the source now; invalidate all borrowed cooked data.
     std::memset( bytes, 0, sizeof( bytes ) );
-    view = {};
+    view = common::cooked_shader_view_t{};
 
     const float vertices[9]{ -0.8f, -0.8f, 0.0f, 0.8f, -0.8f, 0.0f, 0.0f, 0.8f, 0.0f };
     const common::u16 indices[3]{ 0u, 1u, 2u };
