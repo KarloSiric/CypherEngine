@@ -140,7 +140,7 @@ TEST_CASE( "shader metadata is copied and destroyed handles remain stale", "[Cyp
     REQUIRE( render::R_CreateShader( { &cooked, nullptr }, &first ) == render::render_error_t::OK );
     CHECK( render::R_IsShaderValid( first ) );
     CHECK( common::Cy_Handle64Type( first ) == static_cast<common::u32>( render::render_object_type_t::SHADER ) );
-    cooked = {}; // The caller may release or reuse its cooked view after creation.
+    cooked = common::cooked_shader_view_t{}; // The caller may release or reuse its cooked view after creation.
     render::render_shader_info_t info{};
     REQUIRE( render::R_GetShaderInfo( first, &info ) == render::render_error_t::OK );
     CHECK( info.languageVersion == 410u );
