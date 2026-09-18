@@ -9,6 +9,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherTileShellRunner.h"
+#include "CypherTileConsoleColors.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -25,6 +26,7 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QStandardPaths>
 #include <QStyle>
 #include <QTextCharFormat>
@@ -32,12 +34,16 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include <algorithm>
+#include <utility>
+
 namespace cypher::tools::tile_editor
 {
 namespace
 {
 constexpr int COMMAND_HISTORY_LIMIT = 256;
 constexpr int OUTPUT_BLOCK_LIMIT = 10000;
+constexpr int OUTPUT_ENTRY_LIMIT = 10000;
 constexpr int TERMINATE_GRACE_PERIOD_MS = 1500;
 
 QString UnquoteEnvironmentPath( QString path )
@@ -101,14 +107,14 @@ CypherTileShellRunner::CypherTileShellRunner( QWidget *pParent )
     pRoot->setContentsMargins( 5, 5, 5, 5 );
     pRoot->setSpacing( 4 );
 
-    auto *pDirectoryRow = new QWidget( this );
-    pDirectoryRow->setObjectName( QStringLiteral( "TileShellDirectoryRow" ) );
-    auto *pDirectoryLayout = new QHBoxLayout( pDirectoryRow );
+    m_pDirectoryRow = new QWidget( this );
+    m_pDirectoryRow->setObjectName( QStringLiteral( "TileShellDirectoryRow" ) );
+    auto *pDirectoryLayout = new QHBoxLayout( m_pDirectoryRow );
     pDirectoryLayout->setContentsMargins( 0, 0, 0, 0 );
     pDirectoryLayout->setSpacing( 4 );
-    auto *pDirectoryLabel = new QLabel( tr( "Directory" ), pDirectoryRow );
+    auto *pDirectoryLabel = new QLabel( tr( "Directory" ), m_pDirectoryRow );
     pDirectoryLabel->setObjectName( QStringLiteral( "TileShellDirectoryLabel" ) );
-    m_pWorkingDirectory = new QLineEdit( pDirectoryRow );
+    m_pWorkingDirectory = new QLineEdit( m_pDirectoryRow );
     m_pWorkingDirectory->setObjectName(
         QStringLiteral( "TileShellWorkingDirectory" ) );
     m_pWorkingDirectory->setClearButtonEnabled( false );
@@ -117,20 +123,20 @@ CypherTileShellRunner::CypherTileShellRunner( QWidget *pParent )
     m_pWorkingDirectory->setToolTip(
         tr( "Working directory used by the next local shell command." ) );
     pDirectoryLabel->setBuddy( m_pWorkingDirectory );
-    m_pBrowseButton = new QPushButton( tr( "Choose…" ), pDirectoryRow );
+    m_pBrowseButton = new QPushButton( tr( "Choose…" ), m_pDirectoryRow );
     m_pBrowseButton->setObjectName( QStringLiteral( "TileShellBrowseDirectory" ) );
     m_pBrowseButton->setToolTip( tr( "Choose a working directory" ) );
     pDirectoryLayout->addWidget( pDirectoryLabel );
     pDirectoryLayout->addWidget( m_pWorkingDirectory, 1 );
     pDirectoryLayout->addWidget( m_pBrowseButton );
-    pRoot->addWidget( pDirectoryRow );
+    pRoot->addWidget( m_pDirectoryRow );
 
-    auto *pControlRow = new QWidget( this );
-    pControlRow->setObjectName( QStringLiteral( "TileShellControlRow" ) );
-    auto *pControlLayout = new QHBoxLayout( pControlRow );
+    m_pControlRow = new QWidget( this );
+    m_pControlRow->setObjectName( QStringLiteral( "TileShellControlRow" ) );
+    auto *pControlLayout = new QHBoxLayout( m_pControlRow );
     pControlLayout->setContentsMargins( 0, 0, 0, 0 );
     pControlLayout->setSpacing( 4 );
-    m_pShellLabel = new QLabel( pControlRow );
+    m_pShellLabel = new QLabel( m_pControlRow );
     m_pShellLabel->setObjectName( QStringLiteral( "TileShellProgram" ) );
     m_pShellLabel->setTextInteractionFlags( Qt::TextSelectableByMouse );
     m_pShellLabel->setFont(
@@ -144,23 +150,23 @@ CypherTileShellRunner::CypherTileShellRunner( QWidget *pParent )
         "Each command starts a non-interactive shell. Interactive terminal "
         "programs and PTY features are not supported." ) );
 
-    m_pRestartButton = new QPushButton( tr( "Restart" ), pControlRow );
+    m_pRestartButton = new QPushButton( tr( "Restart" ), m_pControlRow );
     m_pRestartButton->setObjectName( QStringLiteral( "TileShellRestart" ) );
     m_pRestartButton->setToolTip( tr( "Stop and rerun the last command" ) );
-    m_pStopButton = new QPushButton( tr( "Stop" ), pControlRow );
+    m_pStopButton = new QPushButton( tr( "Stop" ), m_pControlRow );
     m_pStopButton->setObjectName( QStringLiteral( "TileShellStop" ) );
     m_pStopButton->setToolTip(
         tr( "Terminate the running command, then force-stop it if necessary" ) );
-    m_pClearButton = new QPushButton( tr( "Clear" ), pControlRow );
+    m_pClearButton = new QPushButton( tr( "Clear" ), m_pControlRow );
     m_pClearButton->setObjectName( QStringLiteral( "TileShellClear" ) );
-    m_pCopyButton = new QPushButton( tr( "Copy Output" ), pControlRow );
+    m_pCopyButton = new QPushButton( tr( "Copy Output" ), m_pControlRow );
     m_pCopyButton->setObjectName( QStringLiteral( "TileShellCopyOutput" ) );
     pControlLayout->addWidget( m_pShellLabel, 1 );
     pControlLayout->addWidget( m_pRestartButton );
     pControlLayout->addWidget( m_pStopButton );
     pControlLayout->addWidget( m_pClearButton );
     pControlLayout->addWidget( m_pCopyButton );
-    pRoot->addWidget( pControlRow );
+    pRoot->addWidget( m_pControlRow );
 
     m_pOutput = new QPlainTextEdit( this );
     m_pOutput->setObjectName( QStringLiteral( "TileShellOutput" ) );
@@ -174,15 +180,15 @@ CypherTileShellRunner::CypherTileShellRunner( QWidget *pParent )
         "interactive terminal or PTY." ) );
     pRoot->addWidget( m_pOutput, 1 );
 
-    auto *pInputRow = new QWidget( this );
-    pInputRow->setObjectName( QStringLiteral( "TileShellInputRow" ) );
-    auto *pInputLayout = new QHBoxLayout( pInputRow );
+    m_pInputRow = new QWidget( this );
+    m_pInputRow->setObjectName( QStringLiteral( "TileShellInputRow" ) );
+    auto *pInputLayout = new QHBoxLayout( m_pInputRow );
     pInputLayout->setContentsMargins( 0, 0, 0, 0 );
     pInputLayout->setSpacing( 4 );
-    auto *pPrompt = new QLabel( QStringLiteral( "$" ), pInputRow );
+    auto *pPrompt = new QLabel( QStringLiteral( "$" ), m_pInputRow );
     pPrompt->setObjectName( QStringLiteral( "TileShellPrompt" ) );
     pPrompt->setFont( QFontDatabase::systemFont( QFontDatabase::FixedFont ) );
-    m_pInput = new QLineEdit( pInputRow );
+    m_pInput = new QLineEdit( m_pInputRow );
     m_pInput->setObjectName( QStringLiteral( "TileShellInput" ) );
     m_pInput->setFont( QFontDatabase::systemFont( QFontDatabase::FixedFont ) );
     m_pInput->setPlaceholderText(
@@ -190,14 +196,14 @@ CypherTileShellRunner::CypherTileShellRunner( QWidget *pParent )
     m_pInput->setToolTip( tr(
         "Runs this line through the displayed non-interactive local shell." ) );
     pPrompt->setBuddy( m_pInput );
-    m_pRunButton = new QPushButton( tr( "Run" ), pInputRow );
+    m_pRunButton = new QPushButton( tr( "Run" ), m_pInputRow );
     m_pRunButton->setObjectName( QStringLiteral( "TileShellRun" ) );
     m_pRunButton->setToolTip( tr( "Run the command" ) );
     m_pRunButton->setAutoDefault( false );
     pInputLayout->addWidget( pPrompt );
     pInputLayout->addWidget( m_pInput, 1 );
     pInputLayout->addWidget( m_pRunButton );
-    pRoot->addWidget( pInputRow );
+    pRoot->addWidget( m_pInputRow );
 
     m_pStatusLabel = new QLabel( this );
     m_pStatusLabel->setObjectName( QStringLiteral( "TileShellStatus" ) );
@@ -219,6 +225,7 @@ CypherTileShellRunner::CypherTileShellRunner( QWidget *pParent )
     connect( m_pRestartButton, &QPushButton::clicked,
              this, [this] { restartCommand(); } );
     connect( m_pClearButton, &QPushButton::clicked, this, [this] {
+        m_outputEntries.clear();
         m_pOutput->clear();
         updateControls();
     } );
@@ -303,6 +310,7 @@ CypherTileShellRunner::CypherTileShellRunner( QWidget *pParent )
         } );
 
     m_pInput->installEventFilter( this );
+    qApp->installEventFilter( this );
     setWorkingDirectory( QDir::currentPath() );
     setRunnerState(
         m_shellProgram.isEmpty() ? QStringLiteral( "error" )
@@ -334,6 +342,36 @@ void CypherTileShellRunner::setWorkingDirectory( const QString &directory )
     applyWorkingDirectory( directory );
 }
 
+void CypherTileShellRunner::setOutputCallback( output_callback_t callback )
+{
+    m_outputCallback = std::move( callback );
+}
+
+void CypherTileShellRunner::setIntegratedMode( bool bIntegrated )
+{
+    m_bIntegrated = bIntegrated;
+    // In standalone mode the constructor reports a missing shell in the
+    // runner's transcript. The parent console provides the same actionable
+    // diagnostic in its shared startup transcript, so do not retain a second
+    // invisible copy after this private transcript is hidden.
+    if ( bIntegrated ) {
+        m_outputEntries.clear();
+        m_pOutput->clear();
+    }
+    m_pOutput->setVisible( !bIntegrated );
+    m_pInputRow->setVisible( !bIntegrated );
+    m_pClearButton->setVisible( !bIntegrated );
+    m_pCopyButton->setVisible( !bIntegrated );
+    if ( auto *pRoot = qobject_cast<QVBoxLayout *>( layout() ) ) {
+        pRoot->setContentsMargins(
+            bIntegrated ? 0 : 5,
+            bIntegrated ? 0 : 5,
+            bIntegrated ? 0 : 5,
+            bIntegrated ? 2 : 5 );
+    }
+    updateControls();
+}
+
 void CypherTileShellRunner::executeCommand( const QString &command )
 {
     startCommand( command );
@@ -350,6 +388,11 @@ QString CypherTileShellRunner::shellProgram() const
     return m_shellProgram;
 }
 
+QString CypherTileShellRunner::workingDirectory() const
+{
+    return m_workingDirectory;
+}
+
 bool CypherTileShellRunner::isRunning() const
 {
     return m_pProcess != nullptr &&
@@ -358,6 +401,10 @@ bool CypherTileShellRunner::isRunning() const
 
 bool CypherTileShellRunner::eventFilter( QObject *pObject, QEvent *pEvent )
 {
+    if ( pObject == qApp && pEvent != nullptr &&
+         pEvent->type() == QEvent::ApplicationPaletteChange ) {
+        renderOutput();
+    }
     if ( pObject == m_pInput && pEvent->type() == QEvent::KeyPress ) {
         auto *pKey = static_cast<QKeyEvent *>( pEvent );
         if ( pKey->key() == Qt::Key_Up ) {
@@ -561,32 +608,83 @@ void CypherTileShellRunner::appendOutput(
     const QString &text, output_kind_t kind )
 {
     if ( text.isEmpty() ) return;
+    if ( m_outputCallback ) m_outputCallback( text, kind );
+
+    // The integrated editor console owns the only visible transcript. Keep
+    // this private document empty so output limits and copying describe the
+    // surface the user can actually see.
+    if ( m_bIntegrated ) {
+        updateControls();
+        return;
+    }
+
+    m_outputEntries.push_back( { text, kind } );
+    while ( m_outputEntries.size() > OUTPUT_ENTRY_LIMIT )
+        m_outputEntries.pop_front();
+    const detail::console_colors_t colors = detail::ConsoleThemeColors();
+    appendRenderedOutput( m_outputEntries.back(), colors, true );
+    updateControls();
+}
+
+void CypherTileShellRunner::appendRenderedOutput(
+    const output_entry_t &entry,
+    const detail::console_colors_t &colors,
+    bool bEnsureVisible )
+{
     QTextCharFormat format;
-    switch ( kind ) {
+    switch ( entry.kind ) {
         case output_kind_t::COMMAND:
-            format.setForeground( QColor( 104, 196, 204 ) );
+            format.setForeground( colors.accent );
             format.setFontWeight( QFont::DemiBold );
             break;
         case output_kind_t::STANDARD_OUTPUT:
-            format.setForeground( QColor( 212, 218, 222 ) );
+            format.setForeground( colors.text );
             break;
         case output_kind_t::STANDARD_ERROR:
-            format.setForeground( QColor( 239, 141, 102 ) );
+            format.setForeground( colors.warning );
             break;
         case output_kind_t::STATUS:
-            format.setForeground( QColor( 155, 164, 170 ) );
+            format.setForeground( colors.muted );
             break;
         case output_kind_t::ERROR:
-            format.setForeground( QColor( 239, 103, 103 ) );
+            format.setForeground( colors.error );
             format.setFontWeight( QFont::DemiBold );
             break;
     }
 
     QTextCursor cursor( m_pOutput->document() );
     cursor.movePosition( QTextCursor::End );
-    cursor.insertText( text, format );
+    cursor.insertText( entry.text, format );
+    if ( bEnsureVisible ) {
+        m_pOutput->setTextCursor( cursor );
+        m_pOutput->ensureCursorVisible();
+    }
+}
+
+void CypherTileShellRunner::renderOutput()
+{
+    if ( m_pOutput == nullptr || m_bIntegrated ) return;
+    QScrollBar *pScrollBar = m_pOutput->verticalScrollBar();
+    const int oldScroll = pScrollBar == nullptr ? 0 : pScrollBar->value();
+    const bool bWasAtBottom = pScrollBar == nullptr ||
+        oldScroll >= pScrollBar->maximum();
+
+    const detail::console_colors_t colors = detail::ConsoleThemeColors();
+    m_pOutput->setUpdatesEnabled( false );
+    m_pOutput->clear();
+    for ( const output_entry_t &entry : std::as_const( m_outputEntries ) )
+        appendRenderedOutput( entry, colors, false );
+
+    QTextCursor cursor( m_pOutput->document() );
+    cursor.movePosition( QTextCursor::End );
     m_pOutput->setTextCursor( cursor );
-    m_pOutput->ensureCursorVisible();
+    m_pOutput->setUpdatesEnabled( true );
+
+    if ( pScrollBar != nullptr ) {
+        if ( bWasAtBottom ) m_pOutput->ensureCursorVisible();
+        else pScrollBar->setValue(
+            std::min( oldScroll, pScrollBar->maximum() ) );
+    }
     updateControls();
 }
 

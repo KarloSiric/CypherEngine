@@ -311,6 +311,9 @@ TEST_CASE( "Locating a validation issue centers the visible Top clone while the 
     QTemporaryDir maps;
     CypherTileEditorMainWindow window;
     REQUIRE( window.openFilePath( MultiMap( maps ), false ) );
+    // This case specifically verifies that a hidden clone retains its own
+    // navigation transform; keep the optional linked-navigation mode disabled.
+    MultiAction( window, "view.linkOrthographicCameras" )->setChecked( false );
     auto *original = MultiWidget<CypherTileCanvas>( window, "CypherTileCanvas" );
     original->selectCell( { 2, 2 } );
     auto *shape = MultiWidget<QComboBox>( window, "TileSelectedShape" );
@@ -539,4 +542,32 @@ TEST_CASE( "Select All Authored and outliner multiselection share exact cell ide
     tree->clearSelection();
     CHECK_FALSE( canvas->hasSelection() );
     CHECK_FALSE( window.windowTitle().startsWith( '*' ) );
+}
+
+TEST_CASE( "Frame Active View frames the shared selection in Front and Side",
+    "[TileEditor][MultiSelection][Integration][Framing]" )
+{
+    MultiWorkspaceApplication();
+    multi_workspace_settings_t settings;
+    QTemporaryDir maps;
+    CypherTileEditorMainWindow window;
+    REQUIRE( window.openFilePath( MultiMap( maps ), false ) );
+    auto *canvas = MultiWidget<CypherTileCanvas>( window, "CypherTileCanvas" );
+    SelectSparse( *canvas );
+    auto *workspace = MultiWidget<CypherTileViewWorkspace>(
+        window, "TileEditorFourViews" );
+    auto *frame = MultiAction( window, "view.fit" );
+
+    for ( const auto entry : {
+              std::pair{ tile_editor_view_t::FRONT, "CypherTileFrontView" },
+              std::pair{ tile_editor_view_t::SIDE, "CypherTileSideView" } } ) {
+        auto *view = MultiWidget<CypherTileOrthoView>( window, entry.second );
+        view->resize( 720, 420 );
+        view->fitToView();
+        const qreal mapScale = view->pixelsPerUnit();
+        workspace->focusView( entry.first );
+        frame->trigger();
+        CHECK( workspace->activeWidget() == view );
+        CHECK( view->pixelsPerUnit() > mapScale );
+    }
 }

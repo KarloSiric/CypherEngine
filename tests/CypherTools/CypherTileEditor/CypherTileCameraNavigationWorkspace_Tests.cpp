@@ -23,17 +23,20 @@
 #include <QApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QKeyEvent>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QWheelEvent>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
+#include <optional>
 
 using namespace cypher::tools::tile_editor;
 namespace math = ::cypher::math;
@@ -58,6 +61,12 @@ struct tile_render_viewport_test_access_t
         return view.m_bUserNavigated;
     }
 
+    static bool advanceFlyNavigation( CypherTileRenderViewport &view,
+        float deltaSeconds, Qt::KeyboardModifiers modifiers = Qt::NoModifier )
+    {
+        return view.advanceFlyNavigation( deltaSeconds, modifiers );
+    }
+
     static void setCamera(
         CypherTileRenderViewport &view, const tile_camera_t &camera )
     {
@@ -70,6 +79,18 @@ struct tile_render_viewport_test_access_t
         auto &bookmark = *view.m_cameraBookmarks[static_cast<std::size_t>( slot )];
         bookmark.position.x = std::numeric_limits<float>::infinity();
         bookmark.orbitDistance = -1.0f;
+    }
+
+    static std::optional<math::vec3_t> orbitPivot(
+        const CypherTileRenderViewport &view )
+    {
+        return view.m_orbitPivot;
+    }
+
+    static std::optional<math::vec3_t> navigationOrbitPivot(
+        const CypherTileRenderViewport &view )
+    {
+        return view.m_navigationOrbitPivot;
     }
 };
 } // namespace cypher::tools::tile_editor
@@ -163,6 +184,24 @@ void PointerPress( CypherTileRenderViewport &view )
     const QPointF point{ 40.0, 40.0 };
     QMouseEvent event( QEvent::MouseButtonPress, point, point,
         Qt::RightButton, Qt::RightButton, Qt::NoModifier );
+    QApplication::sendEvent( &view, &event );
+}
+
+void PointerEvent( CypherTileRenderViewport &view, QEvent::Type type,
+    QPointF point, Qt::MouseButton button = Qt::RightButton,
+    Qt::KeyboardModifiers modifiers = Qt::NoModifier )
+{
+    QMouseEvent event( type, point, point,
+        type == QEvent::MouseMove ? Qt::NoButton : button,
+        type == QEvent::MouseButtonRelease ? Qt::NoButton : button,
+        modifiers );
+    QApplication::sendEvent( &view, &event );
+}
+
+void WheelEvent( CypherTileRenderViewport &view, int delta )
+{
+    QWheelEvent event( { 40.0, 40.0 }, { 40.0, 40.0 }, {}, { 0, delta },
+        Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false );
     QApplication::sendEvent( &view, &event );
 }
 
@@ -342,6 +381,56 @@ TEST_CASE( "Viewport presets stop captured navigation and camera levels follow t
     CheckPose( extremeView.camera(), extremeBefore );
 }
 
+TEST_CASE( "Captured fly navigation advances held keys continuously and releases them cleanly",
+    "[TileEditor][Camera][Navigation][Input]" )
+{
+    EnsureCameraNavigationApplication();
+    CypherTileRenderViewport view;
+    view.resize( 640, 480 );
+    view.setCameraSettings( {}, true );
+    const auto initial = view.camera();
+
+    PointerPress( view );
+    REQUIRE( view.isNavigating() );
+    QKeyEvent forwardPress(
+        QEvent::KeyPress, Qt::Key_W, Qt::NoModifier );
+    QApplication::sendEvent( &view, &forwardPress );
+    CHECK( forwardPress.isAccepted() );
+    // Merely pressing a key is not navigation. The deterministic frame tick
+    // owns movement and marks the inspection pose only after it actually moves.
+    CHECK_FALSE( tile_render_viewport_test_access_t::userNavigated( view ) );
+    REQUIRE( tile_render_viewport_test_access_t::advanceFlyNavigation(
+        view, 0.1f ) );
+    CHECK( tile_render_viewport_test_access_t::userNavigated( view ) );
+    CHECK( math::Vec3_NearlyEquals(
+        view.camera().position,
+        math::Vec3_Add( initial.position,
+            math::Vec3_Scale(
+                CypherTileCamera_Forward( initial ),
+                initial.settings.moveSpeed * 0.1f ) ),
+        0.00001f, 0.00001f ) );
+
+    const auto beforeFast = view.camera();
+    REQUIRE( tile_render_viewport_test_access_t::advanceFlyNavigation(
+        view, 0.1f, Qt::ShiftModifier ) );
+    CHECK( math::Vec3_Distance(
+        view.camera().position, beforeFast.position ) ==
+        Catch::Approx( beforeFast.settings.moveSpeed *
+            beforeFast.settings.fastMultiplier * 0.1f ) );
+
+    QKeyEvent forwardRelease(
+        QEvent::KeyRelease, Qt::Key_W, Qt::NoModifier );
+    QApplication::sendEvent( &view, &forwardRelease );
+    CHECK_FALSE( tile_render_viewport_test_access_t::advanceFlyNavigation(
+        view, 0.1f ) );
+    const auto stopped = view.camera();
+    PointerEvent( view, QEvent::MouseButtonRelease, { 40.0, 40.0 } );
+    REQUIRE_FALSE( view.isNavigating() );
+    CHECK_FALSE( tile_render_viewport_test_access_t::advanceFlyNavigation(
+        view, 0.1f ) );
+    CheckPose( view.camera(), stopped );
+}
+
 TEST_CASE( "Level camera respects navigation mode and cancelling auto orbit stops idle frames",
     "[TileEditor][Camera][Navigation][Timer]" )
 {
@@ -391,6 +480,68 @@ TEST_CASE( "Level camera respects navigation mode and cancelling auto orbit stop
     CHECK_FALSE( pTimer->isActive() );
     tile_render_viewport_test_access_t::setResourcesReady( view, false );
     view.hide();
+}
+
+TEST_CASE( "Persistent orbit uses selection fallback and retains its pivot for wheel zoom",
+    "[TileEditor][Camera][Navigation][Pivot]" )
+{
+    EnsureCameraNavigationApplication();
+    CypherTileDocumentBridge document;
+    tile_map_document_desc_t description{};
+    description.nWidth = description.nHeight = 16;
+    description.nCellSize = 2.0f;
+    description.nLevelHeight = 3.0f;
+    QString error;
+    REQUIRE( document.newDocument( description, &error ) );
+    REQUIRE( document.beginEdit( QStringLiteral( "Orbit selection fixture" ), &error ) );
+    REQUIRE( document.paintCell( { 2, 3 }, { 0, 1, 0 }, &error ) );
+    REQUIRE( document.commitEdit( &error ) );
+
+    CypherTileRenderViewport view;
+    view.resize( 640, 480 );
+    view.setDocumentBridge( &document );
+    view.setSelection( true, { 2, 3 } );
+    view.setCameraSettings( {}, false );
+
+    const math::vec3_t selectionCenter{
+        5.0f, 7.0f,
+        ( description.nLevelHeight - TILE_MAP_DEFAULT_FLOOR_THICKNESS ) * 0.5f };
+    // Deliver the event well outside the rendered map silhouette so picking
+    // deterministically misses and the selected-geometry fallback is used.
+    const QPointF pressPoint{ -100.0, -100.0 };
+    PointerEvent( view, QEvent::MouseButtonPress, pressPoint );
+    REQUIRE( view.isNavigating() );
+    const auto navigationPivot =
+        tile_render_viewport_test_access_t::navigationOrbitPivot( view );
+    REQUIRE( navigationPivot.has_value() );
+    CHECK( math::Vec3_NearlyEquals(
+        *navigationPivot, selectionCenter, 0.00001f, 0.00001f ) );
+
+    const auto beforeOrbit = view.camera();
+    const int drag = std::max( 1, QApplication::startDragDistance() ) + 12;
+    const QPointF dragPoint = pressPoint + QPointF( drag, 7.0 );
+    PointerEvent( view, QEvent::MouseMove, dragPoint );
+    CHECK_FALSE( math::Vec3_EqualsExact(
+        view.camera().position, beforeOrbit.position ) );
+    PointerEvent( view, QEvent::MouseButtonRelease, dragPoint );
+    CHECK_FALSE( view.isNavigating() );
+    REQUIRE( view.camera().mode == tile_camera_mode_t::ORBIT );
+    const auto retainedPivot =
+        tile_render_viewport_test_access_t::orbitPivot( view );
+    REQUIRE( retainedPivot.has_value() );
+    CHECK( math::Vec3_NearlyEquals(
+        *retainedPivot, selectionCenter, 0.00001f, 0.00001f ) );
+
+    const float radiusBeforeWheel = math::Vec3_Distance(
+        view.camera().position, selectionCenter );
+    WheelEvent( view, 120 );
+    CHECK( math::Vec3_Distance(
+        view.camera().position, selectionCenter ) < radiusBeforeWheel );
+    const auto afterWheelPivot =
+        tile_render_viewport_test_access_t::orbitPivot( view );
+    REQUIRE( afterWheelPivot.has_value() );
+    CHECK( math::Vec3_NearlyEquals(
+        *afterWheelPivot, selectionCenter, 0.00001f, 0.00001f ) );
 }
 
 TEST_CASE( "Camera bookmarks restore only pose and reject invalid slots",

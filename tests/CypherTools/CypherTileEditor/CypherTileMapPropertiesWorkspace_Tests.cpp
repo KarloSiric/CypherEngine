@@ -15,6 +15,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <QAction>
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QDir>
 #include <QDoubleSpinBox>
@@ -30,6 +31,8 @@
 #include <QStandardPaths>
 #include <QTabWidget>
 #include <QTemporaryDir>
+#include <QToolButton>
+#include <QTreeWidget>
 
 using namespace cypher::common;
 using namespace cypher::tools::tile_editor;
@@ -284,6 +287,69 @@ TEST_CASE( "One properties undo restores all fields and keeps editing history us
     CHECK( CypherTileMapDocument_CellHasFloor( saved.document(), { 8, 5 } ) );
     CHECK_FALSE( CypherTileMapDocument_CellHasFloor( saved.document(), { 7, 5 } ) );
     CHECK( CypherTileMapDocument_CellHasFloor( saved.document(), { 1, 1 } ) );
+}
+
+TEST_CASE( "Properties history tab follows the shared document undo cursor",
+           "[TileEditor][History][Integration]" )
+{
+    EnsureMapPropertiesApplication();
+    map_properties_settings_t settings;
+    QTemporaryDir maps;
+    const QString path = PropertiesFixture( maps );
+    CypherTileEditorMainWindow window;
+    REQUIRE( window.openFilePath( path, false ) );
+
+    auto *tabs = PropertiesWidget<QTabWidget>( window, "TileInspectorTabs" );
+    auto *history = PropertiesWidget<QWidget>( window, "TileHistoryPanel" );
+    const int historyTab = tabs->indexOf( history );
+    REQUIRE( historyTab >= 0 );
+    REQUIRE( tabs->count() == 5 );
+    CHECK( tabs->tabText( 0 ) == "Selection" );
+    CHECK( tabs->tabText( 1 ) == "Paint" );
+    CHECK( tabs->tabText( 2 ) == "Map" );
+    CHECK( tabs->tabText( 3 ).startsWith( "Checks" ) );
+    CHECK( tabs->tabText( historyTab ) == "History" );
+    CHECK( historyTab == 4 );
+
+    auto *tree = PropertiesWidget<QTreeWidget>( window, "TileHistoryTree" );
+    auto *badge = PropertiesWidget<QLabel>( window, "TileHistoryStateBadge" );
+    auto *undo = PropertiesWidget<QToolButton>( window, "TileHistoryUndo" );
+    auto *redo = PropertiesWidget<QToolButton>( window, "TileHistoryRedo" );
+    REQUIRE( tree->topLevelItemCount() == 1 );
+    CHECK( tree->selectionMode() == QAbstractItemView::NoSelection );
+    CHECK( tree->currentItem() == nullptr );
+    CHECK( tree->selectedItems().isEmpty() );
+    CHECK( tree->topLevelItem( 0 )->text( 0 ).contains( "Current document" ) );
+    CHECK( badge->text() == "SAVED" );
+    CHECK_FALSE( undo->isEnabled() );
+    CHECK_FALSE( redo->isEnabled() );
+
+    StageProperties( window, 14, 11, 2.5, 4.25 );
+    ApplyProperties( window );
+    REQUIRE( tree->topLevelItemCount() == 2 );
+    CHECK( tree->topLevelItem( 1 )->text( 0 ).contains( "Map properties" ) );
+    CHECK( tree->topLevelItem( 1 )->text( 1 ).contains( "Current" ) );
+    CHECK( tree->currentItem() == nullptr );
+    CHECK( tree->selectedItems().isEmpty() );
+    CHECK( badge->text() == "UNSAVED" );
+    CHECK( undo->isEnabled() );
+    CHECK_FALSE( redo->isEnabled() );
+
+    undo->click();
+    CheckPropertiesFields( window, 10, 8, 2.0, 3.0 );
+    CHECK( tree->currentItem() == nullptr );
+    CHECK( tree->selectedItems().isEmpty() );
+    CHECK( tree->topLevelItem( 0 )->text( 1 ).contains( "Current" ) );
+    CHECK( tree->topLevelItem( 1 )->text( 1 ).contains( "Redo" ) );
+    CHECK( badge->text() == "SAVED" );
+    CHECK( redo->isEnabled() );
+
+    redo->click();
+    CheckPropertiesFields( window, 14, 11, 2.5, 4.25 );
+    CHECK( tree->currentItem() == nullptr );
+    CHECK( tree->selectedItems().isEmpty() );
+    CHECK( tree->topLevelItem( 1 )->text( 1 ).contains( "Current" ) );
+    CHECK( badge->text() == "UNSAVED" );
 }
 
 TEST_CASE( "Rejected map shrink leaves the saved document and staged properties intact",

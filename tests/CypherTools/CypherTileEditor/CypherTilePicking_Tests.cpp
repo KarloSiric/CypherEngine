@@ -51,9 +51,14 @@ TEST_CASE( "3D picking chooses the nearest visible box regardless of storage ord
     const auto camera = PickingCamera();
     std::array boxes{ Box( 10, 0, 0, 1, 1 ), Box( 5, 0, 0, 2, 2 ), Box( -2, 0, 0, 3, 3 ) };
     tile_map_grid_coord_t hit{ -1, -1 };
-    REQUIRE( CypherTileRenderViewport_PickGeometry( camera, boxes, 0, 0, 1, hit ) );
+    math::vec3_t hitPoint{};
+    REQUIRE( CypherTileRenderViewport_PickGeometry(
+        camera, boxes, 0, 0, 1, hit, &hitPoint ) );
     CHECK( hit.x == 2 );
     CHECK( hit.y == 2 );
+    CHECK( hitPoint.x == Catch::Approx( 4.5f ) );
+    CHECK( hitPoint.y == Catch::Approx( 0.0f ) );
+    CHECK( hitPoint.z == Catch::Approx( 0.0f ) );
     std::swap( boxes[0], boxes[1] );
     REQUIRE( CypherTileRenderViewport_PickGeometry( camera, boxes, 0, 0, 1, hit ) );
     CHECK( hit.x == 2 );

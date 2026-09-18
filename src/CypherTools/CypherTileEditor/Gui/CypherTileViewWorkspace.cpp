@@ -69,7 +69,7 @@ CypherTileViewWorkspace::CypherTileViewWorkspace(
                               tr( "XZ FRONT" ), tr( "YZ SIDE" ) };
     const QStringList hints{
         tr( "Edit tiles · MMB or Space+LMB pans · wheel zooms at pointer" ),
-        tr( "RMB + WASD/QE to fly · Alt+RMB orbit · MMB pan · F frames selection" ),
+        tr( "RMB + WASD/QE fly · wheel dolly · RMB+wheel speed · Alt+RMB orbit" ),
         tr( "Author X/Z at the fixed Y construction slice · MMB/RMB or Space+LMB pans" ),
         tr( "Author Y/Z at the fixed X construction slice · MMB/RMB or Space+LMB pans" ) };
     // Keep IDs and shortcuts semantic; physical pane placement is independent.
@@ -342,7 +342,7 @@ void CypherTileViewWorkspace::updatePaneHeader( int pane )
     for ( auto *action : button->menu()->actions() )
         action->setChecked( action->data().toInt() == static_cast<int>( view ) );
     const QString hint = view == tile_editor_view_t::PERSPECTIVE
-        ? tr( "RMB + WASD/QE to fly · Alt+RMB orbit · MMB pan · One shared engine renderer" )
+        ? tr( "RMB + WASD/QE fly · wheel dolly · RMB+wheel speed · Alt+RMB orbit" )
         : view == tile_editor_view_t::TOP
             ? tr( "Edit tiles · MMB or Space+LMB pans · wheel zooms at pointer" )
             : view == tile_editor_view_t::FRONT

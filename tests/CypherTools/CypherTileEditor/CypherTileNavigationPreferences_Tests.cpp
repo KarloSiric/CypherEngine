@@ -14,6 +14,7 @@
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QKeySequenceEdit>
+#include <QLabel>
 #include <QPushButton>
 #include <QSettings>
 #include <QTableWidget>
@@ -66,6 +67,7 @@ TEST_CASE( "Camera navigation preferences normalize unsupported ranges and nonfi
     CHECK_FALSE( defaults.showActiveViewBorder );
     CHECK_FALSE( defaults.showCameraHints );
     CHECK_FALSE( defaults.cameraInvertWheel );
+    CHECK_FALSE( defaults.linkOrthographicCameras );
     auto input = defaults;
     input.cameraPanSensitivity = -2.0;
     input.cameraZoomSensitivity = 900.0;
@@ -102,6 +104,7 @@ TEST_CASE( "Camera and pane outline preferences survive both native and editable
     original.cameraZoomSensitivity = 0.45;
     original.cameraFastMultiplier = 6.5;
     original.cameraSlowMultiplier = 0.15;
+    original.linkOrthographicCameras = false;
     QSettings native( directory.filePath( "native.ini" ), QSettings::IniFormat );
     TileEditorPreferences_Save( native, original );
     const auto nativeLoaded = TileEditorPreferences_Load( native );
@@ -118,12 +121,14 @@ TEST_CASE( "Camera and pane outline preferences survive both native and editable
     CHECK( reloaded.cameraZoomSensitivity == Catch::Approx( 0.45 ) );
     CHECK( reloaded.cameraFastMultiplier == Catch::Approx( 6.5 ) );
     CHECK( reloaded.cameraSlowMultiplier == Catch::Approx( 0.15 ) );
+    CHECK_FALSE( reloaded.linkOrthographicCameras );
     QFile file( path );
     REQUIRE( file.open( QIODevice::ReadOnly ) );
     const auto source = file.readAll();
     CHECK( source.contains( "showActiveViewBorder=true" ) );
     CHECK( source.contains( "cameraPanSensitivity=1.75" ) );
     CHECK( source.contains( "showCameraHints=false" ) );
+    CHECK( source.contains( "linkOrthographicCameras=false" ) );
 }
 
 TEST_CASE( "Q3Edit pane theme uses unboxed surfaces and an opt-in active outline",
@@ -193,13 +198,15 @@ TEST_CASE( "Settings Apply delivers current camera and appearance edits without 
     auto *pBorder = dialog.findChild<QCheckBox *>( "TileSettingsShowActiveViewBorder" );
     auto *pHints = dialog.findChild<QCheckBox *>( "TileSettingsShowCameraHints" );
     auto *pInvert = dialog.findChild<QCheckBox *>( "TileSettingsCameraInvertWheel" );
+    auto *pLinked = dialog.findChild<QCheckBox *>( "TileSettingsLinkOrthographicCameras" );
     REQUIRE( pButtons ); REQUIRE( pPan ); REQUIRE( pZoom ); REQUIRE( pFast ); REQUIRE( pSlow );
-    REQUIRE( pBorder ); REQUIRE( pHints ); REQUIRE( pInvert );
+    REQUIRE( pBorder ); REQUIRE( pHints ); REQUIRE( pInvert ); REQUIRE( pLinked );
     int calls = 0;
     tile_editor_preferences_t applied;
     dialog.setApplyCallback( [&]( const tile_editor_preferences_t &value ) {
         ++calls;
         applied = value;
+        return true;
     } );
     dialog.show();
     pPan->setValue( 2.25 );
@@ -209,6 +216,7 @@ TEST_CASE( "Settings Apply delivers current camera and appearance edits without 
     pBorder->setChecked( true );
     pHints->setChecked( false );
     pInvert->setChecked( true );
+    pLinked->setChecked( false );
     pButtons->button( QDialogButtonBox::Apply )->click();
     CHECK( calls == 1 );
     CHECK( dialog.isVisible() );
@@ -219,11 +227,23 @@ TEST_CASE( "Settings Apply delivers current camera and appearance edits without 
     CHECK( applied.showActiveViewBorder );
     CHECK_FALSE( applied.showCameraHints );
     CHECK( applied.cameraInvertWheel );
+    CHECK_FALSE( applied.linkOrthographicCameras );
     pPan->setValue( 3.0 );
     pButtons->button( QDialogButtonBox::Cancel )->click();
     CHECK( calls == 1 );
     CHECK_FALSE( dialog.isVisible() );
     CHECK( applied.cameraPanSensitivity == Catch::Approx( 2.25 ) );
+}
+
+TEST_CASE( "Camera settings describe Shift as fly acceleration instead of a second pan chord",
+    "[TileEditor][Settings][Camera][Help]" )
+{
+    NavigationPreferencesApplication();
+    CypherTileEditorSettingsDialog dialog( tile_editor_preferences_t{} );
+    auto *pHelp = dialog.findChild<QLabel *>( "TileSettingsCameraHelp" );
+    REQUIRE( pHelp != nullptr );
+    CHECK( pHelp->text().contains( "Shift accelerates right-mouse flight" ) );
+    CHECK_FALSE( pHelp->text().contains( "Shift before pressing right mouse also pans" ) );
 }
 
 TEST_CASE( "Shortcut conflicts prevent Apply and restoring defaults resets navigation controls",
@@ -241,7 +261,10 @@ TEST_CASE( "Shortcut conflicts prevent Apply and restoring defaults resets navig
     auto *pCameraShortcut = ShortcutEditor( dialog, "camera.settings" );
     REQUIRE( pButtons ); REQUIRE( pCameraShortcut );
     int calls = 0;
-    dialog.setApplyCallback( [&]( const tile_editor_preferences_t & ) { ++calls; } );
+    dialog.setApplyCallback( [&]( const tile_editor_preferences_t & ) {
+        ++calls;
+        return true;
+    } );
     pCameraShortcut->setKeySequence( QKeySequence( "F" ) );
     CHECK_FALSE( pButtons->button( QDialogButtonBox::Apply )->isEnabled() );
     CHECK_FALSE( pButtons->button( QDialogButtonBox::Ok )->isEnabled() );
@@ -252,6 +275,7 @@ TEST_CASE( "Shortcut conflicts prevent Apply and restoring defaults resets navig
     CHECK_FALSE( restored.showActiveViewBorder );
     CHECK_FALSE( restored.cameraInvertWheel );
     CHECK_FALSE( restored.showCameraHints );
+    CHECK_FALSE( restored.linkOrthographicCameras );
     CHECK( restored.cameraPanSensitivity == Catch::Approx( 1.0 ) );
     CHECK( restored.cameraFastMultiplier == Catch::Approx( 4.0 ) );
     CHECK( restored.shortcuts.value( "camera.settings" ).isEmpty() );

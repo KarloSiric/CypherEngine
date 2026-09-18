@@ -16,9 +16,12 @@
 
 #include "CypherTileDocumentBridge.h"
 #include "CypherTileEditorSettingsDialog.h"
+#include "CypherTileOrthoCamera.h"
 
 #include <QPointF>
+#include <QPoint>
 #include <QSize>
+#include <QString>
 #include <QWidget>
 
 #include <functional>
@@ -46,7 +49,8 @@ enum class tile_canvas_tool_t : unsigned char {
     PAN,
     EYEDROPPER,
     LINE,
-    FILL
+    FILL,
+    STAMP
 };
 
 class CypherTileCanvas final : public QWidget
@@ -60,8 +64,10 @@ public:
         bool,
         tile_map_grid_coord_t )>;
     using zoom_callback_t = std::function<void( qreal )>;
+    using navigation_callback_t = std::function<void( const tile_ortho_camera_state_t & )>;
     using status_callback_t = std::function<void( const QString &, bool )>;
     using context_menu_callback_t = std::function<void( const QPoint & )>;
+    using stamp_callback_t = std::function<void( tile_map_grid_coord_t )>;
 
     explicit CypherTileCanvas( QWidget *pParent = nullptr );
 
@@ -83,8 +89,14 @@ public:
     void setMoveSelectionCallback( std::function<void( int, int, bool )> callback );
     void setCursorCallback( cursor_callback_t callback );
     void setZoomCallback( zoom_callback_t callback );
+    void setNavigationChangedCallback( navigation_callback_t callback );
     void setStatusCallback( status_callback_t callback );
     void setContextMenuCallback( context_menu_callback_t callback );
+    void setStampCallback( stamp_callback_t callback );
+    void setStampPreview(
+        const QSize &footprint,
+        std::span<const QPoint> cells,
+        const QString &label );
 
     bool hasSelection() const;
     tile_map_grid_coord_t selectedCell() const;
@@ -100,6 +112,8 @@ public:
 
     qreal zoomFactor() const;
     void setZoomFactor( qreal zoom );
+    tile_ortho_camera_state_t orthographicCameraState() const;
+    void synchronizeOrthographicCamera( const tile_ortho_camera_state_t &state );
     void fitToView();
     void fitSelection();
     bool isPanning() const;
@@ -134,6 +148,7 @@ private:
     void updateDragEndpoint( const QPointF &position );
     void notifySelection();
     void notifyChanged();
+    void notifyNavigationChanged();
     void report( const QString &message, bool bError = false );
     void updateCursorShape();
     bool isSelectedCell( tile_map_grid_coord_t coordinate ) const;
@@ -145,7 +160,7 @@ private:
     CypherTileDocumentBridge *m_pBridge{ nullptr };
     const tile_ortho_material_cache_t *m_pMaterialCache{ nullptr };
     tile_editor_preferences_t m_preferences{};
-    tile_canvas_tool_t m_tool{ tile_canvas_tool_t::PAINT };
+    tile_canvas_tool_t m_tool{ tile_canvas_tool_t::SELECT };
     tile_map_paint_t m_paint{};
     tile_map_marker_side_t m_doorSide{ tile_map_marker_side_t::NORTH };
 
@@ -175,6 +190,9 @@ private:
     tile_map_grid_coord_t m_selection{};
     tile_map_grid_rect_t m_selectionRect{};
     std::vector<tile_map_grid_coord_t> m_selectedCells{};
+    QSize m_stampFootprint{};
+    std::vector<QPoint> m_stampCells{};
+    QString m_stampLabel{};
 
     changed_callback_t m_changedCallback{};
     changed_callback_t m_previewChangedCallback{};
@@ -183,8 +201,10 @@ private:
     std::function<void( int, int, bool )> m_moveSelectionCallback{};
     cursor_callback_t m_cursorCallback{};
     zoom_callback_t m_zoomCallback{};
+    navigation_callback_t m_navigationCallback{};
     status_callback_t m_statusCallback{};
     context_menu_callback_t m_contextMenuCallback{};
+    stamp_callback_t m_stampCallback{};
 };
 
 } // namespace cypher::tools::tile_editor

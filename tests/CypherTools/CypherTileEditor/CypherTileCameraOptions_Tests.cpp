@@ -55,10 +55,14 @@ TEST_CASE( "Wheel sensitivity and inversion apply consistently in fly and orbit 
         sensitive.settings.zoomSensitivity = 2.0f;
         CypherTileCamera_Wheel( normal, 2 );
         CypherTileCamera_Wheel( sensitive, 1 );
+        CHECK( math::Vec3_NearlyEquals(
+            sensitive.position, normal.position, 0.00001f, 0.00001f ) );
         CHECK( sensitive.settings.moveSpeed == Catch::Approx( normal.settings.moveSpeed ) );
         CHECK( sensitive.orbitDistance == Catch::Approx( normal.orbitDistance ) );
         sensitive.settings.invertWheel = true;
         CypherTileCamera_Wheel( sensitive, 1 );
+        CHECK( math::Vec3_NearlyEquals(
+            sensitive.position, tile_camera_t{}.position, 0.00001f, 0.00001f ) );
         CHECK( sensitive.settings.moveSpeed == Catch::Approx( tile_camera_t{}.settings.moveSpeed ) );
         CHECK( sensitive.orbitDistance == Catch::Approx( tile_camera_t{}.orbitDistance ) );
     }
@@ -78,4 +82,3 @@ TEST_CASE( "Configured fast and slow movement multipliers preserve precision pri
     REQUIRE( CypherTileCamera_Move( camera, { 1, 0, 0, true, true }, 0.1f ) );
     CHECK( math::Vec3_Length( camera.position ) == Catch::Approx( 0.1f ) );
 }
-

@@ -30,8 +30,12 @@ public:
     void refresh();
     void cookSelected();
     void cancelPendingAssignment();
+    void setTargetSlot( unsigned short slot );
+    unsigned short targetSlot() const;
+    bool selectMaterial( const QString &path );
 
     void setAssignCallback( std::function<void( unsigned short, const QString & )> callback );
+    void setSlotResolver( std::function<unsigned short( const QString & )> callback );
     void setApplyCallback( std::function<void( unsigned short )> callback );
     void setReloadCallback( std::function<void( const QString & )> callback );
     void setStatusCallback( std::function<void( const QString &, bool )> callback );
@@ -59,8 +63,10 @@ private:
     QString m_compilerLog{};
     QString m_pendingAssignPath{};
     unsigned short m_pendingAssignSlot{ 0 };
+    bool m_automaticSlot{ true };
 
     std::function<void( unsigned short, const QString & )> m_assignCallback{};
+    std::function<unsigned short( const QString & )> m_slotResolver{};
     std::function<void( unsigned short )> m_applyCallback{};
     std::function<void( const QString & )> m_reloadCallback{};
     std::function<void( const QString &, bool )> m_statusCallback{};

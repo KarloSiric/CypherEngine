@@ -205,6 +205,98 @@ TEST_CASE( "Tile-map grouped edits collapse net-zero cell changes",
     CypherTileMapDocument_Shutdown( &document );
 }
 
+TEST_CASE( "Tile-map history exposes bounded read-only stack information",
+           "[CypherTools][TileMap][History][Introspection]" )
+{
+    tile_map_history_info_t history{ 99u, 99u, 99u, CY_TRUE };
+    tile_map_history_entry_info_t entry{
+        StringView_FromCString( "stale" ), 99u, 99u, 99u, 99u };
+    CHECK_FALSE( CypherTileMapDocument_HistoryInfo( nullptr, &history ) );
+    CHECK( history.nEntryCount == 0u );
+    CHECK_FALSE( CypherTileMapDocument_HistoryEntryInfo( nullptr, 0u, &entry ) );
+    CHECK( entry.label.cchLength == 0u );
+    CHECK_FALSE( CypherTileMapDocument_HistoryInfo( nullptr, nullptr ) );
+    CHECK_FALSE( CypherTileMapDocument_HistoryEntryInfo( nullptr, 0u, nullptr ) );
+
+    tile_map_document_t document{};
+    REQUIRE( CypherTileMapDocument_Init(
+                 &document,
+                 Allocator_GetSystem(),
+                 { 8u, 8u, 2.0f, 3.0f } ) ==
+             tile_map_document_status_t::OK );
+    CypherTileMapDocument_MarkSaved( &document );
+    const u64 savedRevision = document.nSavedRevision;
+
+    REQUIRE( CypherTileMapDocument_HistoryInfo( &document, &history ) );
+    CHECK( history.nEntryCount == 0u );
+    CHECK( history.iCursor == 0u );
+    CHECK( history.cbStoredChanges == 0u );
+    CHECK_FALSE( history.bEditGroupOpen );
+    CHECK_FALSE( CypherTileMapDocument_HistoryEntryInfo( &document, 0u, &entry ) );
+
+    REQUIRE( CypherTileMapDocument_BeginEditGroup(
+                 &document,
+                 StringView_FromCString( "Paint test room" ) ) ==
+             tile_map_document_status_t::OK );
+    REQUIRE( CypherTileMapDocument_PaintRect(
+                 &document,
+                 { 1, 1, 2u, 2u },
+                 {} ) == tile_map_document_status_t::OK );
+    REQUIRE( CypherTileMapDocument_HistoryInfo( &document, &history ) );
+    CHECK( history.nEntryCount == 0u );
+    CHECK( history.iCursor == 0u );
+    CHECK( history.bEditGroupOpen );
+    REQUIRE( CypherTileMapDocument_CommitEditGroup( &document ) ==
+             tile_map_document_status_t::OK );
+
+    REQUIRE( CypherTileMapDocument_HistoryInfo( &document, &history ) );
+    CHECK( history.nEntryCount == 1u );
+    CHECK( history.iCursor == 1u );
+    CHECK( history.cbStoredChanges > 0u );
+    CHECK_FALSE( history.bEditGroupOpen );
+    REQUIRE( CypherTileMapDocument_HistoryEntryInfo( &document, 0u, &entry ) );
+    CHECK( StringView_Equals(
+        entry.label,
+        StringView_FromCString( "Paint test room" ) ) );
+    CHECK( entry.nBeforeRevision == savedRevision );
+    CHECK( entry.nAfterRevision == document.nCurrentRevision );
+    CHECK( entry.nAffectedElementCount == 4u );
+    CHECK( entry.cbStoredChanges == history.cbStoredChanges );
+
+    REQUIRE( CypherTileMapDocument_Undo( &document ) ==
+             tile_map_document_status_t::OK );
+    REQUIRE( CypherTileMapDocument_HistoryInfo( &document, &history ) );
+    CHECK( history.nEntryCount == 1u );
+    CHECK( history.iCursor == 0u );
+    CHECK( document.nCurrentRevision == savedRevision );
+
+    REQUIRE( CypherTileMapDocument_BeginEditGroup(
+                 &document,
+                 StringView_FromCString( "Branch paint" ) ) ==
+             tile_map_document_status_t::OK );
+    REQUIRE( CypherTileMapDocument_PaintCell(
+                 &document,
+                 { 6, 6 },
+                 {} ) == tile_map_document_status_t::OK );
+    REQUIRE( CypherTileMapDocument_CommitEditGroup( &document ) ==
+             tile_map_document_status_t::OK );
+    REQUIRE( CypherTileMapDocument_HistoryInfo( &document, &history ) );
+    CHECK( history.nEntryCount == 1u );
+    CHECK( history.iCursor == 1u );
+    REQUIRE( CypherTileMapDocument_HistoryEntryInfo( &document, 0u, &entry ) );
+    CHECK( StringView_Equals(
+        entry.label,
+        StringView_FromCString( "Branch paint" ) ) );
+    CHECK( entry.nBeforeRevision == savedRevision );
+    CHECK( entry.nAffectedElementCount == 1u );
+
+    entry = { StringView_FromCString( "stale" ), 99u, 99u, 99u, 99u };
+    CHECK_FALSE( CypherTileMapDocument_HistoryEntryInfo( &document, 1u, &entry ) );
+    CHECK( entry.label.cchLength == 0u );
+    CHECK( entry.nBeforeRevision == 0u );
+    CypherTileMapDocument_Shutdown( &document );
+}
+
 TEST_CASE( "Tile-map door markers are queryable and undoable",
            "[CypherTools][TileMap][Door][History]" )
 {

@@ -3,13 +3,22 @@
 // Purpose: Verifies real piece footprints, atomic stamping and palette activation.
 //////////////////////////////////////////////////////////////////////////
 #include "CypherTilePiecePalette.h"
+#include "CypherTileCanvas.h"
+#include "CypherTileEditorMainWindow.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <QApplication>
+#include <QAction>
+#include <QComboBox>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMetaObject>
+#include <QMouseEvent>
+#include <QPushButton>
 #include <QSet>
+#include <QSpinBox>
+#include <QSettings>
+#include <QTemporaryDir>
 #include <limits>
 
 using namespace cypher::tools::tile_editor;
@@ -81,6 +90,7 @@ TEST_CASE( "Piece presets contain distinct room shapes and four explicit stair a
         }
         if ( piece.kind == tile_piece_kind_t::BOUNDARY ) CHECK( piece.wallLevels > 0 );
     }
+    CHECK( ids.size() >= 40 );
     CHECK( stairCount == 4 );
     CHECK( doorCount == 4 );
     CHECK( TileEditorPiece_Cells( Piece( "room.small" ) ).size() == 36 );
@@ -89,6 +99,10 @@ TEST_CASE( "Piece presets contain distinct room shapes and four explicit stair a
     CHECK( TileEditorPiece_Cells( Piece( "corridor.horizontal" ) ).size() == 36 );
     CHECK( TileEditorPiece_Cells( Piece( "corridor.vertical" ) ).size() == 36 );
     CHECK( TileEditorPiece_Cells( Piece( "junction.cross" ) ).size() == 20 );
+    CHECK( TileEditorPiece_Cells( Piece( "junction.cross.wide" ) ).size() == 45 );
+    CHECK( TileEditorPiece_Cells( Piece( "courtyard.small" ) ).size() == 48 );
+    CHECK( TileEditorPiece_Cells( Piece( "courtyard.large" ) ).size() == 80 );
+    CHECK( TileEditorPiece_Cells( Piece( "ushape.0" ) ).size() == 40 );
 }
 
 TEST_CASE( "Corner and T-junction footprints rotate clockwise without filling their cutouts",
@@ -118,6 +132,68 @@ TEST_CASE( "Corner and T-junction footprints rotate clockwise without filling th
     CHECK( TileEditorPiece_Cells( wrapped ) == TileEditorPiece_Cells( Piece( "corner.3" ) ) );
     wrapped.orientation = 5;
     CHECK( TileEditorPiece_Cells( wrapped ) == TileEditorPiece_Cells( Piece( "corner.1" ) ) );
+}
+
+TEST_CASE( "Parameterized footprints honor passage width and rotate rectangular bounds",
+           "[TileEditor][Pieces]" )
+{
+    const struct expectation_t
+    {
+        tile_piece_kind_t kind;
+        int cellCount;
+    } expectations[]{
+        { tile_piece_kind_t::CORNER, 36 },
+        { tile_piece_kind_t::T_JUNCTION, 36 },
+        { tile_piece_kind_t::CROSS, 36 },
+        { tile_piece_kind_t::COURTYARD, 54 },
+        { tile_piece_kind_t::U_SHAPE, 48 },
+    };
+    for ( const auto &expected : expectations )
+    {
+        tile_piece_t piece{ "test", "Test", expected.kind, { 8, 7 }, 0, 1, 3 };
+        INFO( static_cast<int>( expected.kind ) );
+        CHECK( TileEditorPiece_Cells( piece ).size() == expected.cellCount );
+        CHECK( TileEditorPiece_FootprintSize( piece ) == QSize( 8, 7 ) );
+        piece.orientation = 1;
+        CHECK( TileEditorPiece_Cells( piece ).size() == expected.cellCount );
+        CHECK( TileEditorPiece_FootprintSize( piece ) == QSize( 7, 8 ) );
+        for ( const QPoint &cell : TileEditorPiece_Cells( piece ) )
+        {
+            CHECK( cell.x() >= 0 );
+            CHECK( cell.x() < 7 );
+            CHECK( cell.y() >= 0 );
+            CHECK( cell.y() < 8 );
+        }
+    }
+
+    tile_piece_t invalid{ "invalid", "Invalid", tile_piece_kind_t::CORNER, { 8, 7 }, 0, 1, 0 };
+    CHECK( TileEditorPiece_Cells( invalid ).isEmpty() );
+    invalid = { "invalid", "Invalid", tile_piece_kind_t::COURTYARD, { 6, 6 }, 0, 1, 3 };
+    CHECK( TileEditorPiece_Cells( invalid ).isEmpty() );
+}
+
+TEST_CASE( "Placed footprint cells use rotated bounds and remain centered on the requested cell",
+           "[TileEditor][Pieces]" )
+{
+    tile_piece_t piece{ "custom", "Custom", tile_piece_kind_t::CORRIDOR, { 6, 2 }, 1 };
+    const auto placed = TileEditorPiece_PlacedCells( piece, { 10, 20 } );
+    REQUIRE( placed.size() == 12 );
+    CHECK( TileEditorPiece_FootprintSize( piece ) == QSize( 2, 6 ) );
+    int minimumX = std::numeric_limits<int>::max();
+    int maximumX = std::numeric_limits<int>::min();
+    int minimumY = std::numeric_limits<int>::max();
+    int maximumY = std::numeric_limits<int>::min();
+    for ( const auto &cell : placed )
+    {
+        minimumX = std::min( minimumX, static_cast<int>( cell.x ) );
+        maximumX = std::max( maximumX, static_cast<int>( cell.x ) );
+        minimumY = std::min( minimumY, static_cast<int>( cell.y ) );
+        maximumY = std::max( maximumY, static_cast<int>( cell.y ) );
+    }
+    CHECK( minimumX == 9 );
+    CHECK( maximumX == 10 );
+    CHECK( minimumY == 17 );
+    CHECK( maximumY == 22 );
 }
 
 TEST_CASE( "Stamping a rotated footprint authors only its cells as one undoable flat-floor edit",
@@ -202,22 +278,32 @@ TEST_CASE( "Invalid or out-of-bounds footprints leave the document and undo hist
     CHECK_FALSE( bridge.canUndo() );
 }
 
-TEST_CASE( "Room activation and oriented brush clicks emit the actual selected piece",
+TEST_CASE( "Preset clicks and the custom builder emit complete placement pieces",
            "[TileEditor][Pieces][Workspace]" )
 {
     EnsurePieceApplication();
     CypherTilePiecePalette palette;
     auto *list = palette.findChild<QListWidget *>( QStringLiteral( "TileStampPalette" ) );
     auto *filter = palette.findChild<QLineEdit *>( QStringLiteral( "TilePieceFilter" ) );
+    auto *kind = palette.findChild<QComboBox *>( QStringLiteral( "TilePieceCustomType" ) );
+    auto *width = palette.findChild<QSpinBox *>( QStringLiteral( "TilePieceCustomWidth" ) );
+    auto *depth = palette.findChild<QSpinBox *>( QStringLiteral( "TilePieceCustomDepth" ) );
+    auto *passage = palette.findChild<QSpinBox *>( QStringLiteral( "TilePieceCustomPassage" ) );
+    auto *orientation = palette.findChild<QComboBox *>( QStringLiteral( "TilePieceCustomOrientation" ) );
+    auto *activateCustom = palette.findChild<QPushButton *>( QStringLiteral( "TilePieceCustomActivate" ) );
     REQUIRE( list );
     REQUIRE( filter );
+    REQUIRE( kind );
+    REQUIRE( width );
+    REQUIRE( depth );
+    REQUIRE( passage );
+    REQUIRE( orientation );
+    REQUIRE( activateCustom );
     QList<tile_piece_t> selected;
     palette.setActivateCallback( [&]( const tile_piece_t &piece ) { selected.append( piece ); } );
     auto *room = PaletteItem( *list, "corner.2" );
     REQUIRE_FALSE( room->icon().isNull() );
     Activate( *list, room, "itemClicked" );
-    CHECK( selected.isEmpty() );
-    Activate( *list, room, "itemActivated" );
     REQUIRE( selected.size() == 1 );
     CHECK( selected.back().id == QStringLiteral( "corner.2" ) );
     CHECK( selected.back().orientation == 2 );
@@ -235,6 +321,21 @@ TEST_CASE( "Room activation and oriented brush clicks emit the actual selected p
     REQUIRE( selected.size() == 4 );
     CHECK( selected.back().wallLevels == 2 );
 
+    kind->setCurrentIndex( kind->findData( static_cast<int>( tile_piece_kind_t::COURTYARD ) ) );
+    width->setValue( 10 );
+    depth->setValue( 8 );
+    passage->setValue( 2 );
+    orientation->setCurrentIndex( orientation->findData( 1 ) );
+    activateCustom->click();
+    REQUIRE( selected.size() == 5 );
+    CHECK( selected.back().kind == tile_piece_kind_t::COURTYARD );
+    CHECK( selected.back().size == QSize( 10, 8 ) );
+    CHECK( selected.back().passageWidth == 2 );
+    CHECK( selected.back().orientation == 1 );
+    CHECK( selected.back().id == QStringLiteral( "custom.courtyard.10x8.p2.r1" ) );
+    CHECK( TileEditorPiece_FootprintSize( selected.back() ) == QSize( 8, 10 ) );
+    CHECK( TileEditorPiece_Cells( selected.back() ).size() == 56 );
+
     list->setCurrentItem( room );
     filter->setText( QStringLiteral( "sTaIrS" ) );
     CHECK( room->isHidden() );
@@ -244,7 +345,50 @@ TEST_CASE( "Room activation and oriented brush clicks emit the actual selected p
         if ( !list->item( index )->isHidden() ) ++visible;
     CHECK( visible == 4 );
     Activate( *list, room, "itemActivated" );
-    CHECK( selected.size() == 4 );
+    CHECK( selected.size() == 5 );
     filter->clear();
     CHECK_FALSE( room->isHidden() );
+}
+
+TEST_CASE( "The editor starts selection-first and places a chosen footprint with one map click",
+           "[TileEditor][Pieces][Workspace][DirectPlacement]" )
+{
+    EnsurePieceApplication();
+    QTemporaryDir settingsDirectory;
+    REQUIRE( settingsDirectory.isValid() );
+    QCoreApplication::setOrganizationName( QStringLiteral( "CypherTests" ) );
+    QCoreApplication::setApplicationName( QStringLiteral( "DirectPiecePlacement" ) );
+    QSettings::setDefaultFormat( QSettings::IniFormat );
+    QSettings::setPath( QSettings::IniFormat, QSettings::UserScope,
+                        settingsDirectory.path() );
+
+    CypherTileEditorMainWindow window;
+    auto *canvasWidget = window.findChild<QWidget *>( QStringLiteral( "CypherTileCanvas" ) );
+    auto *canvas = static_cast<CypherTileCanvas *>( canvasWidget );
+    auto *palette = window.findChild<QListWidget *>( QStringLiteral( "TileStampPalette" ) );
+    auto *select = window.findChild<QAction *>( QStringLiteral( "tool.select" ) );
+    auto *stamp = window.findChild<QAction *>( QStringLiteral( "tool.stamp" ) );
+    REQUIRE( canvas );
+    REQUIRE( palette );
+    REQUIRE( select );
+    REQUIRE( stamp );
+    CHECK( canvas->tool() == tile_canvas_tool_t::SELECT );
+    CHECK( select->isChecked() );
+
+    canvas->resize( 640, 480 );
+    canvas->selectCell( { 20, 20 }, true );
+    REQUIRE( canvas->selectedCells().size() == 1 );
+    Activate( *palette, PaletteItem( *palette, "room.small" ), "itemClicked" );
+    CHECK( canvas->tool() == tile_canvas_tool_t::STAMP );
+    CHECK( stamp->isChecked() );
+    CHECK( canvas->selectedCells().size() == 1 );
+
+    const QPointF center( canvas->width() * 0.5, canvas->height() * 0.5 );
+    QMouseEvent press( QEvent::MouseButtonPress, center, center,
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+    QApplication::sendEvent( canvas, &press );
+    REQUIRE( canvas->selectedCells().size() == 36 );
+    CHECK( canvas->tool() == tile_canvas_tool_t::STAMP );
+    CHECK( canvas->selectedCell().x == 17 );
+    CHECK( canvas->selectedCell().y == 17 );
 }

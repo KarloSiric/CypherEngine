@@ -180,30 +180,46 @@ CypherTileMaterialBrowser::CypherTileMaterialBrowser( QWidget *parent ) : QWidge
     connect( m_filter, &QLineEdit::textChanged, this, [this] { applyFilter(); } );
     connect( m_list, &QListWidget::currentItemChanged, this, [this] { updateSelection(); } );
 
-    auto *commands = new QGridLayout;
-    commands->addWidget( new QLabel( tr( "Map slot" ), this ), 0, 0 );
+    m_assign = new QPushButton( tr( "Use Material" ), this );
+    m_assign->setObjectName( "TileMaterialBind" );
+    m_assign->setToolTip( tr( "Prepare this material when needed, bind it to the map, and make it the current material." ) );
+    layout->addWidget( m_assign );
+
+    auto *advancedToggle = new QPushButton( tr( "Advanced slot bindings" ), this );
+    advancedToggle->setObjectName( "TileMaterialAdvancedToggle" );
+    advancedToggle->setCheckable( true );
+    advancedToggle->setChecked( false );
+    advancedToggle->setToolTip( tr( "Show direct map-slot and resource rebuild controls." ) );
+    layout->addWidget( advancedToggle );
+    auto *advancedPanel = new QWidget( this );
+    advancedPanel->setObjectName( "TileMaterialAdvancedPanel" );
+    auto *commands = new QGridLayout( advancedPanel );
+    commands->setContentsMargins( 0, 0, 0, 0 );
+    commands->addWidget( new QLabel( tr( "Map slot" ), advancedPanel ), 0, 0 );
     m_slot = new QSpinBox( this );
     m_slot->setObjectName( "TileProjectMaterialSlot" );
     m_slot->setRange( 0, 65535 );
     m_slot->setValue( 8 );
     commands->addWidget( m_slot, 0, 1 );
-    m_cook = new QPushButton( tr( "Update Material" ), this );
-    m_assign = new QPushButton( tr( "Use Material" ), this );
-    m_apply = new QPushButton( tr( "Apply to Selection" ), this );
-    m_clear = new QPushButton( tr( "Reset Slot" ), this );
+    m_cook = new QPushButton( tr( "Rebuild Preview" ), this );
+    m_apply = new QPushButton( tr( "Assign Slot to Selection" ), this );
+    m_clear = new QPushButton( tr( "Clear Binding" ), this );
     m_cook->setObjectName( "TileMaterialCook" );
-    m_assign->setObjectName( "TileMaterialBind" );
     m_apply->setObjectName( "TileMaterialApply" );
     m_clear->setObjectName( "TileMaterialClear" );
-    m_cook->setToolTip( tr( "Prepare this material and its textures for previewing and painting." ) );
-    m_assign->setToolTip( tr( "Bind this material to the map slot and select it for painting. Every tile using this slot will update." ) );
-    m_apply->setToolTip( tr( "Apply this slot to selected floors. Shape and height stay the same; Undo restores the previous materials." ) );
-    m_clear->setToolTip( tr( "Remove this slot's project material and use its blockout color. Tile assignments stay the same; Undo restores the binding." ) );
-    commands->addWidget( m_assign, 1, 0 );
-    commands->addWidget( m_apply, 1, 1 );
+    m_cook->setToolTip( tr( "Recompile the selected .cymat and its textures for editor previews." ) );
+    m_apply->setToolTip( tr( "Assign the target map slot to selected floors. This does not change which .cymat is bound to the slot." ) );
+    m_clear->setToolTip( tr( "Clear the target slot's project binding and restore its built-in blockout fallback. Tile assignments stay unchanged." ) );
+    commands->addWidget( m_apply, 1, 0, 1, 2 );
     commands->addWidget( m_cook, 2, 0 );
     commands->addWidget( m_clear, 2, 1 );
-    layout->addLayout( commands );
+    advancedPanel->setVisible( false );
+    connect( advancedToggle, &QPushButton::toggled, this,
+             [this, advancedPanel]( bool visible ) {
+        m_automaticSlot = !visible;
+        advancedPanel->setVisible( visible );
+    } );
+    layout->addWidget( advancedPanel );
     m_details = new QLabel( this );
     m_details->setObjectName( "TileMaterialDetails" );
     m_details->setWordWrap( true );
@@ -234,6 +250,7 @@ CypherTileMaterialBrowser::~CypherTileMaterialBrowser()
     // waitForFinished can deliver signals synchronously. Neither browser widgets
     // nor callbacks into the owning main window may be used during teardown.
     m_assignCallback = {};
+    m_slotResolver = {};
     m_applyCallback = {};
     m_reloadCallback = {};
     m_statusCallback = {};
@@ -249,6 +266,28 @@ CypherTileMaterialBrowser::~CypherTileMaterialBrowser()
 QString CypherTileMaterialBrowser::sourceRoot() const { return m_root->text(); }
 QString CypherTileMaterialBrowser::cookedRoot() const { return m_cookedRoot; }
 void CypherTileMaterialBrowser::cancelPendingAssignment() { m_pendingAssignPath.clear(); }
+void CypherTileMaterialBrowser::setTargetSlot( unsigned short slot )
+{
+    m_slot->setValue( static_cast<int>( slot ) );
+}
+unsigned short CypherTileMaterialBrowser::targetSlot() const
+{
+    return static_cast<unsigned short>( m_slot->value() );
+}
+bool CypherTileMaterialBrowser::selectMaterial( const QString &path )
+{
+    if ( path.isEmpty() ) return false;
+    if ( !m_filter->text().isEmpty() ) m_filter->clear();
+    for ( int row = 0; row < m_list->count(); ++row ) {
+        auto *item = m_list->item( row );
+        if ( item->data( Qt::UserRole ).toString() != path ) continue;
+        m_list->setCurrentItem( item );
+        m_list->scrollToItem( item, QAbstractItemView::PositionAtCenter );
+        m_list->setFocus( Qt::OtherFocusReason );
+        return true;
+    }
+    return false;
+}
 bool CypherTileMaterialBrowser::isBusy() const
 {
     return m_process != nullptr && m_process->state() != QProcess::NotRunning;
@@ -257,6 +296,10 @@ bool CypherTileMaterialBrowser::isBusy() const
 void CypherTileMaterialBrowser::setAssignCallback( std::function<void( unsigned short, const QString & )> callback )
 {
     m_assignCallback = std::move( callback );
+}
+void CypherTileMaterialBrowser::setSlotResolver( std::function<unsigned short( const QString & )> callback )
+{
+    m_slotResolver = std::move( callback );
 }
 void CypherTileMaterialBrowser::setApplyCallback( std::function<void( unsigned short )> callback )
 {
@@ -401,15 +444,19 @@ void CypherTileMaterialBrowser::assignSelected()
 {
     const QString path = selectedPath();
     if ( path.isEmpty() || isBusy() ) return;
+    const unsigned short targetSlot = m_automaticSlot && m_slotResolver
+        ? m_slotResolver( path )
+        : static_cast<unsigned short>( m_slot->value() );
+    m_slot->setValue( static_cast<int>( targetSlot ) );
     tile_material_preview_source_t source;
     std::string error;
     if ( !CypherTileMaterialPreview_Read( NativePath( m_cookedRoot ), path.toUtf8().toStdString(), source, error ) ) {
         m_pendingAssignPath = path;
-        m_pendingAssignSlot = static_cast<unsigned short>( m_slot->value() );
+        m_pendingAssignSlot = targetSlot;
         cookSelected();
         return;
     }
-    if ( m_assignCallback ) m_assignCallback( static_cast<unsigned short>( m_slot->value() ), path );
+    if ( m_assignCallback ) m_assignCallback( targetSlot, path );
 }
 
 void CypherTileMaterialBrowser::appendCompilerOutput( QProcess *process )

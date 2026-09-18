@@ -20,7 +20,9 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QWheelEvent>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -53,6 +55,13 @@ void PointerEvent( CypherTileRenderViewport &view, QEvent::Type type,
     QMouseEvent event( type, point, point,
         type == QEvent::MouseMove ? Qt::NoButton : button,
         type == QEvent::MouseButtonRelease ? Qt::NoButton : button, modifiers );
+    QApplication::sendEvent( &view, &event );
+}
+
+void WheelEvent( CypherTileRenderViewport &view, int delta )
+{
+    QWheelEvent event( { 40.0, 40.0 }, { 40.0, 40.0 }, {}, { 0, delta },
+        Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false );
     QApplication::sendEvent( &view, &event );
 }
 
@@ -248,16 +257,37 @@ TEST_CASE( "Stationary RMB opens 3D context options while RMB drag keeps navigat
     CHECK( contextMenus == 1 );
     CHECK( requestedPosition == start.toPoint() );
 
+    // Hand jitter below the platform's drag threshold remains a context click
+    // and must not rotate the camera.
+    const int dragThreshold = std::max( 1, QApplication::startDragDistance() );
+    const QPointF jittered = start + QPointF( std::max( 0, dragThreshold - 1 ), 0.0 );
+    PointerEvent( view, QEvent::MouseButtonPress, start );
+    PointerEvent( view, QEvent::MouseMove, jittered );
+    CheckSamePose( view.camera(), initialPose );
+    PointerEvent( view, QEvent::MouseButtonRelease, jittered );
+    QApplication::processEvents();
+    CHECK( contextMenus == 2 );
+
+    // Reaching the threshold applies the complete accumulated delta once.
+    const QPointF dragged = start + QPointF( dragThreshold, 0.0 );
     PointerEvent( view, QEvent::MouseButtonPress, start );
     REQUIRE( view.isNavigating() );
-    PointerEvent( view, QEvent::MouseMove, { 80.0, 60.0 } );
+    PointerEvent( view, QEvent::MouseMove, dragged );
     CHECK( view.isNavigating() );
     CHECK( view.camera().yawRadians != initialPose.yawRadians );
-    CHECK( view.camera().pitchRadians != initialPose.pitchRadians );
-    PointerEvent( view, QEvent::MouseButtonRelease, { 80.0, 60.0 } );
+    CHECK( view.camera().pitchRadians == initialPose.pitchRadians );
+    PointerEvent( view, QEvent::MouseButtonRelease, dragged );
     CHECK_FALSE( view.isNavigating() );
     QApplication::processEvents();
-    CHECK( contextMenus == 1 );
+    CHECK( contextMenus == 2 );
+
+    const float speedBefore = view.camera().settings.moveSpeed;
+    PointerEvent( view, QEvent::MouseButtonPress, start );
+    WheelEvent( view, 120 );
+    CHECK( view.camera().settings.moveSpeed > speedBefore );
+    PointerEvent( view, QEvent::MouseButtonRelease, start );
+    QApplication::processEvents();
+    CHECK( contextMenus == 2 );
 }
 
 TEST_CASE( "Viewport cancellation always ends camera navigation", "[TileEditor][Camera][Input]" )
@@ -311,6 +341,8 @@ TEST_CASE( "Camera adapter selects orbit and pan without moving on mode changes"
     CHECK( view.camera().position.y == before.position.y );
     CHECK( view.camera().position.z == before.position.z );
     PointerEvent( view, QEvent::MouseButtonRelease );
+    CHECK( view.camera().mode == before.mode );
+    CheckSamePose( view.camera(), before );
 
     view.setCameraSettings( tile_camera_settings_t{}, false );
     PointerEvent( view, QEvent::MouseButtonPress );

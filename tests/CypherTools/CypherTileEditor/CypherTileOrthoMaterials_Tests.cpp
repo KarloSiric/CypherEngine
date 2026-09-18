@@ -157,6 +157,14 @@ TEST_CASE( "Orthographic cache decodes tinted material once and shares duplicate
     CHECK( first->image.pixelColor( 0, 0 ) == QColor( 137, 0, 0 ) );
     CHECK( first->image.pixelColor( 1, 0 ) == QColor( 0, 188, 0 ) );
     CHECK( first->image.pixelColor( 0, 1 ) == QColor( 0, 0, 225 ) );
+    CHECK( first->textureWidth == 2u );
+    CHECK( first->textureHeight == 2u );
+    CHECK( first->sRGB );
+    CHECK_FALSE( first->generateMips );
+    CHECK( first->tint[0] == 0.25f );
+    CHECK( first->tint[1] == 0.5f );
+    CHECK( first->tint[2] == 0.75f );
+    CHECK( first->tint[3] == 1.0f );
     CHECK( first->uvScale[0] == 2.0f );
     CHECK( first->uvScale[1] == -1.0f );
     const QString description = TileOrthoMaterials_Describe( &cache, 8u );

@@ -2416,6 +2416,50 @@ usize CypherTileMapDocument_HistoryCount(
         : 0u;
 }
 
+bool_t CypherTileMapDocument_HistoryInfo(
+    const tile_map_document_t *pDocument,
+    tile_map_history_info_t *pInfoOut ) noexcept
+{
+    if ( pInfoOut == nullptr ) return CY_FALSE;
+    *pInfoOut = {};
+    if ( !CypherTileMapDocument_IsInitialized( pDocument ) ||
+         !TileMapHistory_IsValid( *pDocument ) ) {
+        return CY_FALSE;
+    }
+
+    const tile_map_history_state_t &history = *pDocument->pHistoryState;
+    pInfoOut->nEntryCount = history.nEntryCount;
+    pInfoOut->iCursor = history.iCursor;
+    pInfoOut->cbStoredChanges = history.cbHistory;
+    pInfoOut->bEditGroupOpen = history.bGroupOpen;
+    return CY_TRUE;
+}
+
+bool_t CypherTileMapDocument_HistoryEntryInfo(
+    const tile_map_document_t *pDocument,
+    usize iEntry,
+    tile_map_history_entry_info_t *pInfoOut ) noexcept
+{
+    if ( pInfoOut == nullptr ) return CY_FALSE;
+    *pInfoOut = {};
+    if ( !CypherTileMapDocument_IsInitialized( pDocument ) ||
+         !TileMapHistory_IsValid( *pDocument ) ||
+         iEntry >= pDocument->pHistoryState->nEntryCount ) {
+        return CY_FALSE;
+    }
+
+    const tile_map_history_entry_t &entry =
+        pDocument->pHistoryState->entries[iEntry];
+    pInfoOut->label = { entry.label, entry.cchLabel };
+    pInfoOut->nBeforeRevision = entry.nBeforeRevision;
+    pInfoOut->nAfterRevision = entry.nAfterRevision;
+    pInfoOut->nAffectedElementCount = entry.nChangeCount +
+        ( entry.pMaterialChange != nullptr ? 1u : 0u ) +
+        ( entry.pDescriptionChange != nullptr ? 1u : 0u );
+    pInfoOut->cbStoredChanges = entry.cbChanges;
+    return CY_TRUE;
+}
+
 tile_map_document_status_t CypherTileMapValidationReport_Init(
     tile_map_validation_report_t *pReport,
     const allocator_t *pAllocator ) noexcept

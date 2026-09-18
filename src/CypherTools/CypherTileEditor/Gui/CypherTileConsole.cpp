@@ -9,9 +9,12 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherTileConsole.h"
+#include "CypherTileConsoleColors.h"
+#include "CypherTileShellRunner.h"
 
 #include <QAbstractItemView>
 #include <QCompleter>
+#include <QDir>
 #include <QEvent>
 #include <QFontDatabase>
 #include <QHBoxLayout>
@@ -20,6 +23,7 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QRegularExpression>
+#include <QScrollBar>
 #include <QStringListModel>
 #include <QTextCharFormat>
 #include <QTextCursor>
@@ -31,6 +35,10 @@
 
 namespace cypher::tools::tile_editor
 {
+namespace
+{
+constexpr int TRANSCRIPT_ENTRY_LIMIT = 5000;
+}
 
 CypherTileConsole::CypherTileConsole( QWidget *pParent )
     : QWidget( pParent )
@@ -38,6 +46,15 @@ CypherTileConsole::CypherTileConsole( QWidget *pParent )
     auto *pRoot = new QVBoxLayout( this );
     pRoot->setContentsMargins( 0, 0, 0, 0 );
     pRoot->setSpacing( 0 );
+
+    m_pShellRunner = new CypherTileShellRunner( this );
+    m_pShellRunner->setIntegratedMode( true );
+    m_pShellRunner->setOutputCallback(
+        [this]( const QString &text,
+                CypherTileShellRunner::output_kind_t kind ) {
+            appendShellOutput( text, static_cast<int>( kind ) );
+        } );
+    pRoot->addWidget( m_pShellRunner );
 
     m_pOutput = new QPlainTextEdit( this );
     m_pOutput->setObjectName( QStringLiteral( "TileConsoleOutput" ) );
@@ -56,7 +73,8 @@ CypherTileConsole::CypherTileConsole( QWidget *pParent )
     pPrompt->setObjectName( QStringLiteral( "TileConsolePrompt" ) );
     m_pInput = new QLineEdit( pInputRow );
     m_pInput->setObjectName( QStringLiteral( "TileConsoleInput" ) );
-    m_pInput->setPlaceholderText( tr( "Enter a command; type 'help' to list commands" ) );
+    m_pInput->setPlaceholderText( tr(
+        "Editor command, or ! <local command>; type 'help' for commands" ) );
     m_pInput->setFont( QFontDatabase::systemFont( QFontDatabase::FixedFont ) );
     pInputLayout->addWidget( pPrompt );
     pInputLayout->addWidget( m_pInput, 1 );
@@ -99,6 +117,10 @@ CypherTileConsole::CypherTileConsole( QWidget *pParent )
     // Install this filter after QCompleter so history and explicit Tab
     // completion take precedence whenever the completion popup is hidden.
     m_pInput->installEventFilter( this );
+
+    qApp->installEventFilter( this );
+
+    appendStartupTranscript();
 }
 
 void CypherTileConsole::setExecuteCallback( execute_callback_t callback )
@@ -115,6 +137,12 @@ void CypherTileConsole::setCompletions( const QStringList &completions )
         const QString normalized = candidate.trimmed();
         if ( !normalized.isEmpty() ) m_completions.push_back( normalized );
     }
+    m_completions.append( {
+        QStringLiteral( "shell" ),
+        QStringLiteral( "shell <command>" ),
+        QStringLiteral( "shell_restart" ),
+        QStringLiteral( "shell_stop" )
+    } );
 
     std::sort(
         m_completions.begin(),
@@ -135,21 +163,115 @@ void CypherTileConsole::setCompletions( const QStringList &completions )
 
 void CypherTileConsole::appendInfo( const QString &message )
 {
-    append( QStringLiteral( "info" ), QColor( 190, 202, 207 ), message );
+    append( QStringLiteral( "info" ),
+            detail::console_color_role_t::INFO, message );
 }
 
 void CypherTileConsole::appendWarning( const QString &message )
 {
-    append( QStringLiteral( "warn" ), QColor( 229, 168, 77 ), message );
+    append( QStringLiteral( "warn" ),
+            detail::console_color_role_t::WARNING, message );
 }
 
 void CypherTileConsole::appendError( const QString &message )
 {
-    append( QStringLiteral( "error" ), QColor( 239, 103, 103 ), message );
+    append( QStringLiteral( "error" ),
+            detail::console_color_role_t::ERROR, message );
+}
+
+void CypherTileConsole::setWorkingDirectory( const QString &directory )
+{
+    if ( m_pShellRunner == nullptr ) return;
+    const QString previous = m_pShellRunner->workingDirectory();
+    m_pShellRunner->setWorkingDirectory( directory );
+    const QString current = m_pShellRunner->workingDirectory();
+    if ( !current.isEmpty() && current != previous ) {
+        append(
+            QStringLiteral( "workspace" ),
+            detail::console_color_role_t::MUTED,
+            QDir::toNativeSeparators( current ) );
+    }
+}
+
+void CypherTileConsole::executeShellCommand( const QString &command )
+{
+    const QString normalized = command.trimmed();
+    if ( normalized.isEmpty() ) {
+        appendWarning( tr(
+            "Local command is empty. Use ! <command> or shell <command>." ) );
+        return;
+    }
+    m_pShellRunner->executeCommand( normalized );
+}
+
+void CypherTileConsole::stopShellCommand()
+{
+    if ( m_pShellRunner != nullptr ) m_pShellRunner->stopCommand();
+}
+
+void CypherTileConsole::restartShellCommand()
+{
+    if ( m_pShellRunner != nullptr ) m_pShellRunner->restartCommand();
+}
+
+QString CypherTileConsole::shellProgram() const
+{
+    return m_pShellRunner == nullptr ? QString()
+                                     : m_pShellRunner->shellProgram();
+}
+
+QString CypherTileConsole::workingDirectory() const
+{
+    return m_pShellRunner == nullptr ? QString()
+                                     : m_pShellRunner->workingDirectory();
+}
+
+bool CypherTileConsole::isShellRunning() const
+{
+    return m_pShellRunner != nullptr && m_pShellRunner->isRunning();
+}
+
+void CypherTileConsole::appendStartupTranscript(
+    const QString &workspaceDirectory,
+    const QString &documentPath )
+{
+    append(
+        QStringLiteral( "session" ),
+        detail::console_color_role_t::ACCENT,
+        tr( "Cypher Tile Editor console initialized." ) );
+    append(
+        QStringLiteral( "session" ),
+        detail::console_color_role_t::MUTED,
+        shellProgram().isEmpty()
+            ? tr( "Local shell unavailable." )
+            : tr( "Local shell: %1" ).arg(
+                  QDir::toNativeSeparators( shellProgram() ) ) );
+    if ( shellProgram().isEmpty() ) {
+        append(
+            QStringLiteral( "process" ),
+            detail::console_color_role_t::ERROR,
+            tr( "No executable local shell was found. Configure SHELL or "
+                "COMSPEC with an absolute executable path." ) );
+    }
+    append(
+        QStringLiteral( "hint" ),
+        detail::console_color_role_t::MUTED,
+        tr( "Run editor commands directly. Prefix local commands with !, "
+            "or use shell <command>." ) );
+    if ( !workspaceDirectory.trimmed().isEmpty() ) {
+        setWorkingDirectory( workspaceDirectory );
+    }
+    if ( !documentPath.trimmed().isEmpty() ) {
+        append(
+            QStringLiteral( "document" ),
+            detail::console_color_role_t::MUTED,
+            QDir::toNativeSeparators( documentPath ) );
+    }
 }
 
 void CypherTileConsole::clear()
 {
+    m_transcript.clear();
     m_pOutput->clear();
 }
 
@@ -161,6 +283,10 @@ void CypherTileConsole::focusInput()
 
 bool CypherTileConsole::eventFilter( QObject *pObject, QEvent *pEvent )
 {
+    if ( pObject == qApp && pEvent != nullptr &&
+         pEvent->type() == QEvent::ApplicationPaletteChange ) {
+        renderTranscript();
+    }
     if ( pObject == m_pInput && pEvent->type() == QEvent::KeyPress ) {
         auto *pKey = static_cast<QKeyEvent *>( pEvent );
         const bool bCompletionVisible = m_pCompleter->popup()->isVisible();
@@ -216,26 +342,105 @@ bool CypherTileConsole::eventFilter( QObject *pObject, QEvent *pEvent )
 
 void CypherTileConsole::append(
     const QString &prefix,
-    const QColor &color,
+    detail::console_color_role_t colorRole,
     const QString &message )
+{
+    QString normalized = message;
+    while ( normalized.endsWith( QLatin1Char( '\n' ) ) ||
+            normalized.endsWith( QLatin1Char( '\r' ) ) ) {
+        normalized.chop( 1 );
+    }
+    m_transcript.push_back( {
+        QTime::currentTime().toString( QStringLiteral( "HH:mm:ss" ) ),
+        prefix,
+        normalized,
+        colorRole
+    } );
+    while ( m_transcript.size() > TRANSCRIPT_ENTRY_LIMIT )
+        m_transcript.pop_front();
+    const detail::console_colors_t colors = detail::ConsoleThemeColors();
+    appendRenderedEntry( m_transcript.back(), colors, true );
+}
+
+void CypherTileConsole::appendRenderedEntry(
+    const transcript_entry_t &entry,
+    const detail::console_colors_t &colors,
+    bool bEnsureVisible )
 {
     QTextCursor cursor( m_pOutput->document() );
     cursor.movePosition( QTextCursor::End );
     QTextCharFormat metadata;
-    metadata.setForeground( QColor( 125, 132, 136 ) );
+    metadata.setForeground( colors.muted );
     cursor.insertText(
-        QStringLiteral( "[%1] " ).arg( QTime::currentTime().toString(
-            QStringLiteral( "HH:mm:ss" ) ) ),
+        QStringLiteral( "[%1] " ).arg( entry.timestamp ),
         metadata );
     QTextCharFormat category;
-    category.setForeground( color );
+    category.setForeground(
+        detail::ConsoleRoleColor( colors, entry.colorRole ) );
     category.setFontWeight( QFont::DemiBold );
-    cursor.insertText( QStringLiteral( "%1: " ).arg( prefix ), category );
+    cursor.insertText(
+        QStringLiteral( "%1: " ).arg( entry.prefix ), category );
     QTextCharFormat body;
-    body.setForeground( color.lighter( 112 ) );
-    cursor.insertText( message + QLatin1Char( '\n' ), body );
+    body.setForeground(
+        detail::ConsoleBodyColor( colors, entry.colorRole ) );
+    cursor.insertText( entry.message + QLatin1Char( '\n' ), body );
+    if ( bEnsureVisible ) {
+        m_pOutput->setTextCursor( cursor );
+        m_pOutput->ensureCursorVisible();
+    }
+}
+
+void CypherTileConsole::renderTranscript()
+{
+    if ( m_pOutput == nullptr ) return;
+    QScrollBar *pScrollBar = m_pOutput->verticalScrollBar();
+    const int oldScroll = pScrollBar == nullptr ? 0 : pScrollBar->value();
+    const bool bWasAtBottom = pScrollBar == nullptr ||
+        oldScroll >= pScrollBar->maximum();
+
+    const detail::console_colors_t colors = detail::ConsoleThemeColors();
+    m_pOutput->setUpdatesEnabled( false );
+    m_pOutput->clear();
+    for ( const transcript_entry_t &entry : std::as_const( m_transcript ) )
+        appendRenderedEntry( entry, colors, false );
+
+    QTextCursor cursor( m_pOutput->document() );
+    cursor.movePosition( QTextCursor::End );
     m_pOutput->setTextCursor( cursor );
-    m_pOutput->ensureCursorVisible();
+    m_pOutput->setUpdatesEnabled( true );
+
+    if ( pScrollBar != nullptr ) {
+        if ( bWasAtBottom ) m_pOutput->ensureCursorVisible();
+        else pScrollBar->setValue(
+            std::min( oldScroll, pScrollBar->maximum() ) );
+    }
+}
+
+void CypherTileConsole::appendShellOutput( const QString &text, int kind )
+{
+    using output_kind_t = CypherTileShellRunner::output_kind_t;
+    switch ( static_cast<output_kind_t>( kind ) ) {
+        case output_kind_t::COMMAND:
+            append( QStringLiteral( "shell" ),
+                    detail::console_color_role_t::ACCENT, text );
+            break;
+        case output_kind_t::STANDARD_OUTPUT:
+            append( QStringLiteral( "stdout" ),
+                    detail::console_color_role_t::TEXT, text );
+            break;
+        case output_kind_t::STANDARD_ERROR:
+            append( QStringLiteral( "stderr" ),
+                    detail::console_color_role_t::WARNING, text );
+            break;
+        case output_kind_t::STATUS:
+            append( QStringLiteral( "process" ),
+                    detail::console_color_role_t::MUTED, text );
+            break;
+        case output_kind_t::ERROR:
+            append( QStringLiteral( "process" ),
+                    detail::console_color_role_t::ERROR, text );
+            break;
+    }
 }
 
 void CypherTileConsole::submit()
@@ -243,7 +448,6 @@ void CypherTileConsole::submit()
     const QString command = m_pInput->text().trimmed();
     if ( command.isEmpty() ) return;
 
-    append( QStringLiteral( "cmd" ), QColor( 103, 195, 204 ), command );
     if ( m_history.isEmpty() || m_history.back() != command ) {
         m_history.push_back( command );
         if ( m_history.size() > 256 ) m_history.pop_front();
@@ -254,6 +458,36 @@ void CypherTileConsole::submit()
     m_pCompleter->popup()->hide();
     m_pCompletionHint->hide();
     resetCompletionCycle();
+
+    if ( command.startsWith( QLatin1Char( '!' ) ) ) {
+        executeShellCommand( command.mid( 1 ) );
+        return;
+    }
+    if ( command.startsWith( QStringLiteral( "shell " ),
+                             Qt::CaseInsensitive ) ) {
+        executeShellCommand( command.mid( 6 ) );
+        return;
+    }
+    if ( command.compare( QStringLiteral( "shell" ),
+                          Qt::CaseInsensitive ) == 0 ) {
+        appendInfo( tr(
+            "The local shell shares this console. Use ! <command> or "
+            "shell <command>." ) );
+        return;
+    }
+    if ( command.compare( QStringLiteral( "shell_stop" ),
+                          Qt::CaseInsensitive ) == 0 ) {
+        stopShellCommand();
+        return;
+    }
+    if ( command.compare( QStringLiteral( "shell_restart" ),
+                          Qt::CaseInsensitive ) == 0 ) {
+        restartShellCommand();
+        return;
+    }
+
+    append( QStringLiteral( "cmd" ),
+            detail::console_color_role_t::ACCENT, command );
     if ( m_executeCallback ) m_executeCallback( command );
 }
 

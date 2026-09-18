@@ -14,27 +14,28 @@ struct color_t {
     const char *section;
     const char *key;
     const char *label;
+    const char *group;
     QColor tile_editor_preferences_t::*member;
 };
 inline constexpr color_t colors[] = {
-    { "Appearance", "uiBackgroundColor", "Editor background", &tile_editor_preferences_t::uiBackgroundColor },
-    { "Appearance", "panelColor", "Inset panels", &tile_editor_preferences_t::panelColor },
-    { "Appearance", "textColor", "Text", &tile_editor_preferences_t::textColor },
-    { "Appearance", "accentColor", "Active tools", &tile_editor_preferences_t::accentColor },
-    { "Appearance", "activeViewColor", "Active viewport border", &tile_editor_preferences_t::activeViewColor },
-    { "Viewport", "perspectiveColor", "3D background", &tile_editor_preferences_t::perspectiveColor },
-    { "Viewport", "canvasColor", "Orthographic background", &tile_editor_preferences_t::canvasColor },
-    { "Grid", "minorGridColor", "Minor grid", &tile_editor_preferences_t::minorGridColor },
-    { "Grid", "majorGridColor", "Major grid", &tile_editor_preferences_t::majorGridColor },
-    { "Viewport", "floorColor", "Untextured floor", &tile_editor_preferences_t::floorColor },
-    { "Viewport", "selectionColor", "Selected geometry", &tile_editor_preferences_t::selectionColor },
-    { "Viewport", "wireColor", "Floor outlines", &tile_editor_preferences_t::wireColor },
-    { "Viewport", "wallColor", "Wall outlines", &tile_editor_preferences_t::wallColor },
-    { "Viewport", "stairColor", "Stair outlines", &tile_editor_preferences_t::stairColor },
-    { "Viewport", "doorColor", "Door markers", &tile_editor_preferences_t::doorColor },
-    { "Grid", "axisXColor", "X axis", &tile_editor_preferences_t::axisXColor },
-    { "Grid", "axisYColor", "Y axis", &tile_editor_preferences_t::axisYColor },
-    { "Grid", "axisZColor", "Z axis", &tile_editor_preferences_t::axisZColor }
+    { "Appearance", "uiBackgroundColor", "Editor background", "Interface", &tile_editor_preferences_t::uiBackgroundColor },
+    { "Appearance", "panelColor", "Inset panels", "Interface", &tile_editor_preferences_t::panelColor },
+    { "Appearance", "textColor", "Text", "Interface", &tile_editor_preferences_t::textColor },
+    { "Appearance", "accentColor", "Active tools", "Interface", &tile_editor_preferences_t::accentColor },
+    { "Appearance", "activeViewColor", "Active viewport border", "Interface", &tile_editor_preferences_t::activeViewColor },
+    { "Viewport", "perspectiveColor", "3D background", "Viewports and grid", &tile_editor_preferences_t::perspectiveColor },
+    { "Viewport", "canvasColor", "Orthographic background", "Viewports and grid", &tile_editor_preferences_t::canvasColor },
+    { "Grid", "minorGridColor", "Minor grid", "Viewports and grid", &tile_editor_preferences_t::minorGridColor },
+    { "Grid", "majorGridColor", "Major grid", "Viewports and grid", &tile_editor_preferences_t::majorGridColor },
+    { "Viewport", "floorColor", "Untextured floor", "Geometry and selection", &tile_editor_preferences_t::floorColor },
+    { "Viewport", "selectionColor", "Selected geometry", "Geometry and selection", &tile_editor_preferences_t::selectionColor },
+    { "Viewport", "wireColor", "Floor outlines", "Geometry and selection", &tile_editor_preferences_t::wireColor },
+    { "Viewport", "wallColor", "Wall outlines", "Geometry and selection", &tile_editor_preferences_t::wallColor },
+    { "Viewport", "stairColor", "Stair outlines", "Geometry and selection", &tile_editor_preferences_t::stairColor },
+    { "Viewport", "doorColor", "Door markers", "Geometry and selection", &tile_editor_preferences_t::doorColor },
+    { "Grid", "axisXColor", "X axis", "Coordinate axes", &tile_editor_preferences_t::axisXColor },
+    { "Grid", "axisYColor", "Y axis", "Coordinate axes", &tile_editor_preferences_t::axisYColor },
+    { "Grid", "axisZColor", "Z axis", "Coordinate axes", &tile_editor_preferences_t::axisZColor }
 };
 struct integer_t {
     const char *section;
@@ -85,15 +86,20 @@ inline constexpr boolean_t booleans[] = {
     { "Viewport", "showMarkers", &tile_editor_preferences_t::showMarkers },
     { "Viewport", "wireframeOrtho", &tile_editor_preferences_t::wireframeOrtho },
     { "Viewport", "showInternalTileEdges", &tile_editor_preferences_t::showInternalTileEdges },
+    { "Viewport", "showFloorSurfaces", &tile_editor_preferences_t::showFloorSurfaces },
+    { "Viewport", "showWallHeight", &tile_editor_preferences_t::showWallHeight },
+    { "Viewport", "showWallThickness", &tile_editor_preferences_t::showWallThickness },
     { "Viewport", "showOrthoMaterials", &tile_editor_preferences_t::showOrthoMaterials },
     { "Viewport", "showMaterialLabels", &tile_editor_preferences_t::showMaterialLabels },
     { "Viewport", "showViewMetrics", &tile_editor_preferences_t::showViewMetrics },
+    { "Viewport", "showAuthoringFooter", &tile_editor_preferences_t::showAuthoringFooter },
     { "Viewport", "showCoordinateRulers", &tile_editor_preferences_t::showCoordinateRulers },
     { "Viewport", "showViewAxes", &tile_editor_preferences_t::showViewAxes },
     { "Viewport", "centerViewAxes", &tile_editor_preferences_t::centerViewAxes },
     { "Viewport", "depthCueWireframe", &tile_editor_preferences_t::depthCueWireframe },
     { "Workspace", "startMaximized", &tile_editor_preferences_t::startMaximized },
     { "Workspace", "frameMapOnOpen", &tile_editor_preferences_t::frameMapOnOpen },
+    { "Workspace", "linkOrthographicCameras", &tile_editor_preferences_t::linkOrthographicCameras },
     { "Workspace", "activateViewOnHover", &tile_editor_preferences_t::activateViewOnHover },
     { "Camera", "cameraInvertY", &tile_editor_preferences_t::cameraInvertY },
     { "Camera", "cameraInvertWheel", &tile_editor_preferences_t::cameraInvertWheel },

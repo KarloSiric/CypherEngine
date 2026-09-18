@@ -11,6 +11,7 @@
 #include "CypherTileCanvas.h"
 #include "CypherTileGrid.h"
 #include "CypherTileOrthoMaterials.h"
+#include "CypherTileViewportColors.h"
 
 #include "Core/CypherTileMapMaterials.h"
 #include "Core/CypherTileMapGeometry.h"
@@ -45,8 +46,8 @@ namespace cypher::tools::tile_editor
 namespace
 {
 
-constexpr qreal TILE_CANVAS_MIN_ZOOM = 0.05;
-constexpr qreal TILE_CANVAS_MAX_ZOOM = 128.0;
+constexpr qreal TILE_CANVAS_MIN_ZOOM = TILE_ORTHO_CAMERA_MIN_PIXELS_PER_CELL;
+constexpr qreal TILE_CANVAS_MAX_ZOOM = TILE_ORTHO_CAMERA_MAX_PIXELS_PER_CELL;
 constexpr int TILE_RULER_MAX_TICKS = 512;
 
 struct tile_ruler_tick_t {
@@ -77,58 +78,78 @@ void DrawCoordinateRulers(
         return left.screenPosition < right.screenPosition;
     } );
 
-    const QFontMetrics metrics( painter.font() );
-    int widestVerticalLabel = metrics.horizontalAdvance( axisNames );
-    for ( const auto &tick : verticalTicks )
-        widestVerticalLabel = std::max( widestVerticalLabel, metrics.horizontalAdvance( tick.label ) );
-    const int topHeight = metrics.height() + 9;
-    const int leftWidth = std::clamp( widestVerticalLabel + 10, 32, 76 );
-    const QColor background = preferences.panelColor;
-    const QColor edge = preferences.majorGridColor;
+    // Rulers are viewport overlays, not gutters. Draw only small edge ticks and
+    // text so the map continues beneath them and no continuous band steals
+    // usable drawing space.
+    QFont labelFont = painter.font();
+    if ( labelFont.pointSizeF() > 0.0 )
+        labelFont.setPointSizeF( std::max( 7.0, labelFont.pointSizeF() - 2.0 ) );
+    else if ( labelFont.pixelSize() > 0 )
+        labelFont.setPixelSize( std::max( 9, labelFont.pixelSize() - 2 ) );
+    const QFontMetrics metrics( labelFont );
+    constexpr qreal tickLength = 5.0;
+    constexpr qreal edgeMargin = 3.0;
+    const int axisWidth = metrics.horizontalAdvance( axisNames ) + 7;
+    const int axisHeight = metrics.height() + 2;
+    const auto feedback = TileEditorViewportColors_Derive(
+        preferences.canvasColor,
+        preferences.textColor,
+        preferences.accentColor );
+    const QColor readableText = TileEditorViewportColor_Readable(
+        preferences.textColor, preferences.canvasColor, 4.5 );
+    const QColor shadow = feedback.underlay;
+    const QColor tickColor = preferences.majorGridColor;
 
     painter.save();
+    painter.setFont( labelFont );
     painter.setRenderHint( QPainter::TextAntialiasing, true );
-    painter.fillRect( QRect( 0, 0, viewport.width(), topHeight ), background );
-    painter.fillRect( QRect( 0, topHeight, leftWidth, viewport.height() - topHeight ), background );
-    painter.setPen( QPen( edge, 1.0 ) );
-    painter.drawLine( leftWidth, topHeight - 1, viewport.width(), topHeight - 1 );
-    painter.drawLine( leftWidth - 1, topHeight, leftWidth - 1, viewport.height() );
+    painter.setPen( QPen( tickColor, 1.0 ) );
 
-    qreal previousRight = leftWidth - 4.0;
+    qreal previousRight = axisWidth + edgeMargin * 2.0;
     for ( const auto &tick : horizontalTicks ) {
         const int textWidth = metrics.horizontalAdvance( tick.label );
         const qreal textLeft = tick.screenPosition - textWidth * 0.5;
         const qreal textRight = textLeft + textWidth;
-        if ( tick.screenPosition < leftWidth || tick.screenPosition > viewport.width() ||
-             textLeft < previousRight + 4.0 || textRight > viewport.width() - 2.0 ) continue;
-        painter.setPen( preferences.textColor );
-        painter.drawText( QRectF( textLeft, 1.0, textWidth + 1.0, metrics.height() ),
-                          Qt::AlignCenter, tick.label );
-        painter.setPen( QPen( edge, 1.0 ) );
-        painter.drawLine( QPointF( tick.screenPosition, topHeight - 5.0 ),
-                          QPointF( tick.screenPosition, topHeight - 1.0 ) );
+        if ( tick.screenPosition < 0.0 || tick.screenPosition > viewport.width() ||
+             textLeft < previousRight + 5.0 || textRight > viewport.width() - edgeMargin ) continue;
+        painter.setPen( QPen( tickColor, 1.0 ) );
+        painter.drawLine( QPointF( tick.screenPosition, 0.0 ),
+                          QPointF( tick.screenPosition, tickLength ) );
+        const QRectF textRect( textLeft, tickLength + 1.0,
+                               textWidth + 1.0, metrics.height() );
+        painter.setPen( shadow );
+        painter.drawText( textRect.translated( 1.0, 1.0 ), Qt::AlignCenter, tick.label );
+        painter.setPen( readableText );
+        painter.drawText( textRect, Qt::AlignCenter, tick.label );
         previousRight = textRight;
     }
 
-    qreal previousBottom = topHeight - 2.0;
+    qreal previousBottom = axisHeight + edgeMargin * 2.0;
     for ( const auto &tick : verticalTicks ) {
         const qreal textTop = tick.screenPosition - metrics.height() * 0.5;
         const qreal textBottom = textTop + metrics.height();
-        if ( tick.screenPosition < topHeight || tick.screenPosition > viewport.height() ||
-             textTop < previousBottom + 2.0 || textBottom > viewport.height() - 2.0 ) continue;
-        painter.setPen( preferences.textColor );
-        painter.drawText( QRectF( 2.0, textTop, leftWidth - 9.0, metrics.height() ),
-                          Qt::AlignRight | Qt::AlignVCenter, tick.label );
-        painter.setPen( QPen( edge, 1.0 ) );
-        painter.drawLine( QPointF( leftWidth - 5.0, tick.screenPosition ),
-                          QPointF( leftWidth - 1.0, tick.screenPosition ) );
+        if ( tick.screenPosition < 0.0 || tick.screenPosition > viewport.height() ||
+             textTop < previousBottom + 3.0 || textBottom > viewport.height() - edgeMargin ) continue;
+        painter.setPen( QPen( tickColor, 1.0 ) );
+        painter.drawLine( QPointF( 0.0, tick.screenPosition ),
+                          QPointF( tickLength, tick.screenPosition ) );
+        const int textWidth = metrics.horizontalAdvance( tick.label );
+        const QRectF textRect( tickLength + 3.0, textTop,
+                               textWidth + 1.0, metrics.height() );
+        painter.setPen( shadow );
+        painter.drawText( textRect.translated( 1.0, 1.0 ), Qt::AlignLeft | Qt::AlignVCenter,
+                          tick.label );
+        painter.setPen( readableText );
+        painter.drawText( textRect, Qt::AlignLeft | Qt::AlignVCenter, tick.label );
         previousBottom = textBottom;
     }
 
-    painter.fillRect( QRect( 0, 0, leftWidth, topHeight ), background );
+    const QRectF axisRect( edgeMargin, edgeMargin, axisWidth, axisHeight );
+    painter.setPen( shadow );
+    painter.drawText( axisRect.translated( 1.0, 1.0 ), Qt::AlignLeft | Qt::AlignVCenter,
+                      axisNames );
     painter.setPen( preferences.accentColor );
-    painter.drawText( QRect( 2, 1, leftWidth - 4, topHeight - 3 ),
-                      Qt::AlignCenter, axisNames );
+    painter.drawText( axisRect, Qt::AlignLeft | Qt::AlignVCenter, axisNames );
     painter.restore();
 }
 
@@ -141,27 +162,23 @@ void DrawTopAxisIndicator(
 
     const QFontMetrics metrics( painter.font() );
     const int rulerInset = preferences.showCoordinateRulers
-        ? metrics.height() + 9 : 0;
-    constexpr qreal panelSize = 76.0;
+        ? metrics.height() + 5 : 0;
+    constexpr qreal panelSize = 58.0;
     constexpr qreal panelMargin = 8.0;
     const QRectF panel(
         viewport.width() - panelSize - panelMargin,
         rulerInset + panelMargin,
         panelSize,
         panelSize );
-    const QPointF origin = panel.topLeft() + QPointF( 21.0, 21.0 );
+    const QPointF origin = panel.topLeft() + QPointF( 12.0, 12.0 );
     constexpr qreal axisLength = 34.0;
-
-    QColor panelColor = preferences.panelColor;
-    panelColor.setAlpha( 218 );
-    QColor panelEdge = preferences.majorGridColor;
-    panelEdge.setAlpha( 220 );
 
     painter.save();
     painter.setRenderHint( QPainter::Antialiasing, true );
-    painter.setPen( QPen( panelEdge, 1.0 ) );
-    painter.setBrush( panelColor );
-    painter.drawRect( panel );
+    const QColor underlay = TileEditorViewportColors_Derive(
+        preferences.canvasColor,
+        preferences.textColor,
+        preferences.accentColor ).underlay;
 
     auto drawArrow = [&]( QPointF direction, const QColor &color,
                           const QString &label ) {
@@ -169,7 +186,7 @@ void DrawTopAxisIndicator(
         const QPointF perpendicular( -direction.y(), direction.x() );
         const QPointF arrowBase = endpoint - direction * 7.0;
 
-        painter.setPen( QPen( QColor( 0, 0, 0, 175 ), 4.5,
+        painter.setPen( QPen( underlay, 4.5,
                               Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) );
         painter.drawLine( origin, endpoint );
         painter.setPen( QPen( color, 2.25, Qt::SolidLine,
@@ -190,7 +207,7 @@ void DrawTopAxisIndicator(
     // authored row direction, and the blue dot denotes +Z toward the viewer.
     drawArrow( { 1.0, 0.0 }, preferences.axisXColor, QStringLiteral( "X" ) );
     drawArrow( { 0.0, 1.0 }, preferences.axisYColor, QStringLiteral( "Y" ) );
-    painter.setPen( QPen( QColor( 0, 0, 0, 180 ), 5.0 ) );
+    painter.setPen( QPen( underlay, 5.0 ) );
     painter.setBrush( preferences.axisZColor );
     painter.drawEllipse( origin, 5.0, 5.0 );
     painter.setPen( Qt::NoPen );
@@ -291,7 +308,9 @@ void DrawStairFootprint( QPainter &painter, const QRectF &rect,
     const QRectF inner = rect.adjusted( 2, 2, -2, -2 );
     const bool alongX = shape == tile_map_cell_shape_t::STAIRS_EAST || shape == tile_map_cell_shape_t::STAIRS_WEST;
     const int visibleSteps = std::clamp( steps, 2, std::max( 2, static_cast<int>( inner.width() / 3.0 ) ) );
-    painter.setPen( QPen( bWireframe ? stairColor : QColor( 20, 24, 28, 210 ), 1 ) );
+    QColor separator = TileEditorViewportColor_BestContrast( stairColor );
+    separator.setAlpha( 190 );
+    painter.setPen( QPen( bWireframe ? stairColor : separator, 1 ) );
     for ( int i = 1; i < visibleSteps; ++i ) {
         const qreal t = static_cast<qreal>( i ) / visibleSteps;
         if ( alongX ) painter.drawLine( QPointF( inner.left() + t * inner.width(), inner.top() ), QPointF( inner.left() + t * inner.width(), inner.bottom() ) );
@@ -324,7 +343,9 @@ void DrawDoor(
     const qreal leafWidth = std::clamp( cellRect.width() * 0.09, 2.0, 4.0 );
 
     if ( !bGhost ) {
-        QPen shadow( QColor( 15, 19, 22, 235 ), shadowWidth );
+        QColor shadowColor = TileEditorViewportColor_BestContrast( color );
+        shadowColor.setAlpha( 220 );
+        QPen shadow( shadowColor, shadowWidth );
         shadow.setCapStyle( Qt::RoundCap );
         painter.setPen( shadow );
         painter.drawLine( edge );
@@ -472,9 +493,30 @@ void CypherTileCanvas::setZoomCallback( zoom_callback_t callback )
     m_zoomCallback = std::move( callback );
 }
 
+void CypherTileCanvas::setNavigationChangedCallback( navigation_callback_t callback )
+{
+    m_navigationCallback = std::move( callback );
+}
+
 void CypherTileCanvas::setStatusCallback( status_callback_t callback )
 {
     m_statusCallback = std::move( callback );
+}
+
+void CypherTileCanvas::setStampCallback( stamp_callback_t callback )
+{
+    m_stampCallback = std::move( callback );
+}
+
+void CypherTileCanvas::setStampPreview(
+    const QSize &footprint,
+    std::span<const QPoint> cells,
+    const QString &label )
+{
+    m_stampFootprint = footprint;
+    m_stampCells.assign( cells.begin(), cells.end() );
+    m_stampLabel = label;
+    if ( m_tool == tile_canvas_tool_t::STAMP ) update();
 }
 
 void CypherTileCanvas::setContextMenuCallback( context_menu_callback_t callback )
@@ -631,6 +673,7 @@ void CypherTileCanvas::selectCell( tile_map_grid_coord_t coordinate, bool bCente
             QPointF( ( coordinate.x + 0.5 ) * m_zoom, ( coordinate.y + 0.5 ) * m_zoom );
         m_bHasFit = true;
         m_bUserNavigated = true;
+        notifyNavigationChanged();
     }
     update();
 }
@@ -644,6 +687,60 @@ void CypherTileCanvas::refreshDocument()
 qreal CypherTileCanvas::zoomFactor() const
 {
     return m_zoom;
+}
+
+tile_ortho_camera_state_t CypherTileCanvas::orthographicCameraState() const
+{
+    const auto *document = m_pBridge != nullptr ? m_pBridge->document() : nullptr;
+    const qreal cellSize = document != nullptr &&
+            CypherTileMapDocument_IsInitialized( document ) && document->nCellSize > 0.0f
+        ? document->nCellSize : 1.0;
+    tile_ortho_camera_state_t state;
+    state.pixelsPerWorldUnit = m_zoom / cellSize;
+    const QPointF viewportCenter(
+        width() * 0.5,
+        ( height() - TILE_ORTHO_CAMERA_BOTTOM_HUD_PIXELS ) * 0.5 );
+    state.centerX = ( viewportCenter.x() - m_origin.x() ) * cellSize / m_zoom;
+    state.centerY = ( viewportCenter.y() - m_origin.y() ) * cellSize / m_zoom;
+    state.axisMask = TILE_ORTHO_CAMERA_AXIS_X | TILE_ORTHO_CAMERA_AXIS_Y;
+    return state;
+}
+
+void CypherTileCanvas::synchronizeOrthographicCamera(
+    const tile_ortho_camera_state_t &state )
+{
+    if ( !std::isfinite( state.pixelsPerWorldUnit ) ||
+         state.pixelsPerWorldUnit <= 0.0 ) return;
+    const auto *document = m_pBridge != nullptr ? m_pBridge->document() : nullptr;
+    const qreal cellSize = document != nullptr &&
+            CypherTileMapDocument_IsInitialized( document ) && document->nCellSize > 0.0f
+        ? document->nCellSize : 1.0;
+    const auto current = orthographicCameraState();
+    qreal centerX = current.centerX;
+    qreal centerY = current.centerY;
+    if ( state.axisMask & TILE_ORTHO_CAMERA_AXIS_X ) centerX = state.centerX;
+    if ( state.axisMask & TILE_ORTHO_CAMERA_AXIS_Y ) centerY = state.centerY;
+    if ( !std::isfinite( centerX ) || !std::isfinite( centerY ) ) return;
+    const qreal zoom = std::clamp<qreal>(
+        state.pixelsPerWorldUnit * cellSize,
+        TILE_CANVAS_MIN_ZOOM,
+        TILE_CANVAS_MAX_ZOOM );
+    const QPointF viewportCenter(
+        width() * 0.5,
+        ( height() - TILE_ORTHO_CAMERA_BOTTOM_HUD_PIXELS ) * 0.5 );
+    m_zoom = zoom;
+    m_origin = QPointF(
+        viewportCenter.x() - centerX * zoom / cellSize,
+        viewportCenter.y() - centerY * zoom / cellSize );
+    m_bHasFit = true;
+    m_bUserNavigated = true;
+    update();
+}
+
+void CypherTileCanvas::notifyNavigationChanged()
+{
+    if ( m_navigationCallback )
+        m_navigationCallback( orthographicCameraState() );
 }
 
 void CypherTileCanvas::setZoomFactor( qreal zoom )
@@ -661,6 +758,7 @@ void CypherTileCanvas::setZoomFactor( qreal zoom )
     m_bHasFit = true;
     m_bUserNavigated = true;
     if ( m_zoomCallback ) m_zoomCallback( m_zoom );
+    notifyNavigationChanged();
     update();
 }
 
@@ -699,14 +797,20 @@ void CypherTileCanvas::fitToView()
         m_origin = QPointF( margin, margin );
     } else {
         const qreal horizontal = std::max<qreal>( 20.0, width() - margin * 2.0 ) / ( x1 - x0 );
-        const qreal vertical = std::max<qreal>( 20.0, height() - margin * 2.0 - 24.0 ) / ( y1 - y0 );
+        const qreal vertical = std::max<qreal>(
+            20.0,
+            height() - margin * 2.0 - TILE_ORTHO_CAMERA_BOTTOM_HUD_PIXELS ) /
+            ( y1 - y0 );
         m_zoom = std::clamp( std::min( horizontal, vertical ),
             TILE_CANVAS_MIN_ZOOM, TILE_CANVAS_MAX_ZOOM );
-        m_origin = QPointF( width() * 0.5 - ( x0 + x1 ) * 0.5 * m_zoom,
-                            ( height() - 24.0 ) * 0.5 - ( y0 + y1 ) * 0.5 * m_zoom );
+        m_origin = QPointF(
+            width() * 0.5 - ( x0 + x1 ) * 0.5 * m_zoom,
+            ( height() - TILE_ORTHO_CAMERA_BOTTOM_HUD_PIXELS ) * 0.5 -
+                ( y0 + y1 ) * 0.5 * m_zoom );
     }
     m_bHasFit = true;
     if ( m_zoomCallback ) m_zoomCallback( m_zoom );
+    notifyNavigationChanged();
     update();
 }
 
@@ -724,6 +828,7 @@ void CypherTileCanvas::fitSelection()
     m_bHasFit = true;
     m_bUserNavigated = true;
     if ( m_zoomCallback ) m_zoomCallback( m_zoom );
+    notifyNavigationChanged();
     update();
 }
 
@@ -781,12 +886,16 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
     QPainter painter( this );
     painter.fillRect( rect(), m_preferences.canvasColor );
     painter.setRenderHint( QPainter::Antialiasing, false );
+    const auto feedback = TileEditorViewportColors_Derive(
+        m_preferences.canvasColor,
+        m_preferences.textColor,
+        m_preferences.accentColor );
 
     const tile_map_document_t *pDocument =
         m_pBridge != nullptr ? m_pBridge->document() : nullptr;
     if ( pDocument == nullptr ||
          !CypherTileMapDocument_IsInitialized( pDocument ) ) {
-        painter.setPen( QColor( 150, 154, 156 ) );
+        painter.setPen( feedback.mutedText );
         painter.drawText( rect(), Qt::AlignCenter, tr( "No tile map is open" ) );
         return;
     }
@@ -847,7 +956,9 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
         const QPointF axes = m_preferences.centerViewAxes
             ? m_origin + QPointF( pDocument->nWidth * m_zoom * 0.5, pDocument->nHeight * m_zoom * 0.5 )
             : m_origin;
-        painter.setPen( QPen( QColor( 0, 0, 0, 130 ), 3.75 ) );
+        QColor axisUnderlay = feedback.underlay;
+        axisUnderlay.setAlpha( 145 );
+        painter.setPen( QPen( axisUnderlay, 3.75 ) );
         painter.drawLine( QPointF( 0, axes.y() ), QPointF( width(), axes.y() ) );
         painter.drawLine( QPointF( axes.x(), 0 ), QPointF( axes.x(), height() ) );
         painter.setPen( QPen( m_preferences.axisXColor, 1.75 ) );
@@ -866,13 +977,15 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
             const tile_map_cell_t *pCell = CypherTileMapDocument_CellAt(
                 pDocument, { x, y } );
             if ( pCell == nullptr ||
-                 ( pCell->flags & TILE_MAP_CELL_FLAG_FLOOR ) == 0u ) continue;
+                 ( pCell->flags & TILE_MAP_CELL_FLAG_FLOOR ) == 0u ||
+                 !m_preferences.showFloorSurfaces ) continue;
             const tile_map_material_definition_t material =
                 CypherTileMapMaterial_Resolve( pCell->nMaterialSlot );
             QColor fill = QColor::fromRgbF(
                 material.colorR,
                 material.colorG,
                 material.colorB );
+            if ( pCell->nMaterialSlot == 0u ) fill = m_preferences.floorColor;
             fill = fill.lighter( 100 + std::clamp<int>(
                 pCell->nFloorLevel * 5, -30, 45 ) );
             if ( m_preferences.wireframeOrtho ) { fill = m_preferences.wireColor; fill.setAlpha( 12 ); }
@@ -910,7 +1023,9 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
             // in every occupied tile hides the room silhouette, so reserve
             // the overlay for cells whose elevation carries information.
             if ( m_preferences.showViewMetrics && m_zoom >= 30.0 && pCell->nFloorLevel != 0 ) {
-                painter.setPen( QColor( 225, 234, 237, 180 ) );
+                QColor metricColor = feedback.mutedText;
+                metricColor.setAlpha( 205 );
+                painter.setPen( metricColor );
                 painter.drawText(
                     cell,
                     Qt::AlignCenter,
@@ -953,18 +1068,24 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
                     pCell->nFloorLevel > pNeighbor->nFloorLevel;
             };
             const bool hasWall = pCell->nWallHeightLevels > 0;
+            if ( !hasWall && !m_preferences.showFloorSurfaces ) continue;
             const QColor edgeColor = hasWall ? m_preferences.wallColor : m_preferences.wireColor;
             const qreal thickness = TILE_MAP_DEFAULT_WALL_THICKNESS / pDocument->nCellSize * m_zoom;
             auto drawEdge = [&]( QPointF a, QPointF b, QPointF inward ) {
-                painter.setPen( QPen( edgeColor, m_preferences.wireLineWidth + ( hasWall ? 0.6 : 0.0 ) ) );
+                const qreal wallEmphasis = hasWall
+                    ? std::max<qreal>( 1.0, m_preferences.wireLineWidth * 0.75 )
+                    : 0.0;
+                painter.setPen( QPen(
+                    edgeColor, m_preferences.wireLineWidth + wallEmphasis ) );
                 painter.drawLine( a, b );
-                if ( !hasWall || thickness < 2.5 ) return;
-                QColor fill = edgeColor; fill.setAlpha( 30 );
+                if ( !hasWall || !m_preferences.showWallThickness ||
+                     thickness < 2.5 ) return;
+                QColor fill = edgeColor; fill.setAlpha( 58 );
                 const QPointF offset = inward * thickness;
                 painter.setBrush( fill );
                 painter.setPen( Qt::NoPen );
                 painter.drawPolygon( QPolygonF{ a, b, b + offset, a + offset } );
-                QColor inner = edgeColor; inner.setAlpha( 150 );
+                QColor inner = edgeColor; inner.setAlpha( 210 );
                 painter.setPen( QPen( inner, m_preferences.wireLineWidth ) );
                 painter.drawLine( a + offset, b + offset );
             };
@@ -995,7 +1116,7 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
                 DoorCanOccupyEdge(
                     pDocument, pMarker->cell, pMarker->side )
                     ? m_preferences.doorColor
-                    : QColor( 226, 91, 82 ),
+                    : feedback.error,
                 false );
             continue;
         }
@@ -1003,8 +1124,11 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
         const QPointF center = gridToScreen( pMarker->cell ) +
             QPointF( m_zoom * 0.5, m_zoom * 0.5 );
         const qreal radius = std::clamp( m_zoom * 0.28, 5.0, 16.0 );
-        painter.setPen( QPen( QColor( 98, 218, 131 ), 2.0 ) );
-        painter.setBrush( QColor( 35, 82, 48, 220 ) );
+        painter.setPen( QPen( feedback.success, 2.0 ) );
+        QColor spawnFill = TileEditorViewportColor_Blend(
+            m_preferences.canvasColor, feedback.success, 0.42 );
+        spawnFill.setAlpha( 220 );
+        painter.setBrush( spawnFill );
         painter.drawEllipse( center, radius, radius );
         QTransform transform;
         transform.translate( center.x(), center.y() );
@@ -1014,7 +1138,7 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
         arrow.lineTo( -radius * 0.45, -radius * 0.5 );
         arrow.lineTo( -radius * 0.45, radius * 0.5 );
         arrow.closeSubpath();
-        painter.setBrush( QColor( 122, 240, 151 ) );
+        painter.setBrush( feedback.success );
         painter.drawPath( transform.map( arrow ) );
     }
 
@@ -1025,9 +1149,15 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
             m_origin.y() + preview.y * m_zoom,
             preview.nWidth * m_zoom,
             preview.nHeight * m_zoom );
-        if ( !m_bDraggingSelection && m_tool != tile_canvas_tool_t::LINE )
-            painter.fillRect( previewRect, QColor( 74, 157, 191, 72 ) );
-        painter.setPen( QPen( m_bDraggingSelection ? m_preferences.selectionColor : QColor( 105, 203, 238 ), 2.0, Qt::DashLine ) );
+        if ( !m_bDraggingSelection && m_tool != tile_canvas_tool_t::LINE ) {
+            QColor previewFill = feedback.info;
+            previewFill.setAlpha( 72 );
+            painter.fillRect( previewRect, previewFill );
+        }
+        painter.setPen( QPen(
+            m_bDraggingSelection ? m_preferences.selectionColor : feedback.info,
+            2.0,
+            Qt::DashLine ) );
         painter.setBrush( Qt::NoBrush );
         if ( m_tool == tile_canvas_tool_t::LINE ) {
             painter.drawLine( gridToScreen( m_dragAnchor ) + QPointF( m_zoom * 0.5, m_zoom * 0.5 ),
@@ -1036,10 +1166,45 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
     }
 
     if ( contains( m_hoverCell ) && !m_bPanning && !m_bDraggingRectangle && !m_bDraggingSelection && !m_bMovingSelection ) {
+        if ( m_tool == tile_canvas_tool_t::STAMP &&
+             m_stampFootprint.isValid() && !m_stampCells.empty() ) {
+            const int left = m_hoverCell.x - m_stampFootprint.width() / 2;
+            const int top = m_hoverCell.y - m_stampFootprint.height() / 2;
+            bool valid = true;
+            for ( const QPoint &relative : m_stampCells ) {
+                if ( !contains( { left + relative.x(), top + relative.y() } ) ) {
+                    valid = false;
+                    break;
+                }
+            }
+            const QColor stampColor = valid
+                ? m_preferences.selectionColor : feedback.error;
+            painter.setPen( QPen( stampColor.lighter( 125 ), 1.5, Qt::DashLine ) );
+            QColor stampFill = stampColor;
+            stampFill.setAlpha( valid ? 64 : 48 );
+            painter.setBrush( stampFill );
+            for ( const QPoint &relative : m_stampCells ) {
+                const tile_map_grid_coord_t cell{
+                    left + relative.x(), top + relative.y() };
+                const QRectF cellRect(
+                    gridToScreen( cell ), QSizeF( m_zoom, m_zoom ) );
+                if ( !cellRect.intersects( rect() ) ) continue;
+                if ( m_preferences.showOrthoMaterials && valid ) {
+                    TileOrthoMaterials_Paint(
+                        painter,
+                        cellRect.adjusted( 2.0, 2.0, -2.0, -2.0 ),
+                        m_pMaterialCache,
+                        m_paint.nMaterialSlot,
+                        0.28 );
+                    painter.setBrush( stampFill );
+                }
+                painter.drawRect( cellRect.adjusted( 1.5, 1.5, -1.5, -1.5 ) );
+            }
+        } else {
         const QRectF hoverRect(
             gridToScreen( m_hoverCell ),
             QSizeF( m_zoom, m_zoom ) );
-        QColor hoverColor( 225, 154, 68 );
+        QColor hoverColor = feedback.warning;
         if ( m_tool == tile_canvas_tool_t::PAINT ) {
             const tile_map_material_definition_t material =
                 CypherTileMapMaterial_Resolve( m_paint.nMaterialSlot );
@@ -1048,9 +1213,9 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
                 material.colorG,
                 material.colorB );
         } else if ( m_tool == tile_canvas_tool_t::ERASE ) {
-            hoverColor = QColor( 226, 91, 82 );
+            hoverColor = feedback.error;
         } else if ( m_tool == tile_canvas_tool_t::PLAYER_SPAWN ) {
-            hoverColor = QColor( 95, 218, 126 );
+            hoverColor = feedback.success;
         } else if ( m_tool == tile_canvas_tool_t::DOOR ) {
             const bool bRemoving = CypherTileMapDocument_DoorAt(
                 pDocument,
@@ -1061,7 +1226,7 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
                 m_hoverCell,
                 m_doorSide );
             hoverColor = bRemoving || !bValidPlacement
-                ? QColor( 226, 91, 82 ) : m_preferences.doorColor;
+                ? feedback.error : m_preferences.doorColor;
         }
         painter.setPen( QPen( hoverColor.lighter( 128 ), 1.5, Qt::DashLine ) );
         if ( m_preferences.showOrthoMaterials && m_tool == tile_canvas_tool_t::PAINT ) {
@@ -1088,6 +1253,7 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
                 m_doorSide,
                 hoverColor,
                 true );
+        }
         }
     }
 
@@ -1122,7 +1288,7 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
             const QRectF outline( gridToScreen( destination ), QSizeF( m_zoom, m_zoom ) );
             if ( !outline.intersects( rect() ) ) continue;
             painter.setPen( QPen( contains( destination ) ? m_preferences.selectionColor.lighter( 130 )
-                : QColor( 230, 88, 80 ), 2.0, Qt::DashLine ) );
+                : feedback.error, 2.0, Qt::DashLine ) );
             painter.drawRect( outline );
         }
     }
@@ -1134,9 +1300,12 @@ void CypherTileCanvas::paintEvent( QPaintEvent * )
     if ( !hudLines.isEmpty() ) {
         const int labelHeight = painter.fontMetrics().height() * hudLines.size() + 10;
         const QRect labelBounds( 0, height() - labelHeight, width(), labelHeight );
-        QColor background = m_preferences.canvasColor.darker( 135 ); background.setAlpha( 235 );
+        QColor background = TileEditorViewportColor_Blend(
+            m_preferences.canvasColor, m_preferences.panelColor, 0.72 );
+        background.setAlpha( 235 );
         painter.fillRect( labelBounds, background );
-        painter.setPen( m_preferences.wireColor.lighter( 125 ) );
+        painter.setPen( TileEditorViewportColor_Readable(
+            m_preferences.textColor, background, 4.5 ) );
         for ( int i = 0; i < hudLines.size(); ++i )
             painter.drawText( QRect( 8, labelBounds.y() + 4 + i * painter.fontMetrics().height(),
                 width() - 16, painter.fontMetrics().height() ), Qt::AlignLeft | Qt::AlignVCenter,
@@ -1292,6 +1461,11 @@ void CypherTileCanvas::mousePressEvent( QMouseEvent *pEvent )
         } else report( tr( "Pick a floor cell to sample its material and dimensions" ) );
         return;
     }
+    if ( m_tool == tile_canvas_tool_t::STAMP ) {
+        if ( m_stampCallback != nullptr ) m_stampCallback( coordinate );
+        else report( tr( "Choose a room or shape from the Pieces panel first." ), true );
+        return;
+    }
     if ( m_tool == tile_canvas_tool_t::FILL ) { fillRegion( coordinate ); return; }
 
     if ( m_tool == tile_canvas_tool_t::SELECT ) {
@@ -1386,15 +1560,24 @@ void CypherTileCanvas::mouseMoveEvent( QMouseEvent *pEvent )
             cancelInteraction();
             return;
         }
-        if ( m_bContextMenuCandidate &&
-             ( pEvent->position() - m_contextMenuPress ).manhattanLength() >=
-                 QApplication::startDragDistance() ) {
+        if ( m_bContextMenuCandidate ) {
+            const QPointF pressDelta = pEvent->position() - m_contextMenuPress;
+            if ( pressDelta.manhattanLength() < QApplication::startDragDistance() ) {
+                // A plain RMB press is ambiguous until it crosses the platform
+                // drag threshold. Keep the transform untouched so small hand
+                // jitter still produces a context click on release. m_lastMouse
+                // deliberately remains at the press point; crossing the threshold
+                // applies the complete accumulated displacement exactly once.
+                pEvent->accept();
+                return;
+            }
             m_bContextMenuCandidate = false;
         }
         m_origin += pEvent->position() - m_lastMouse;
         m_lastMouse = pEvent->position();
         m_bHasFit = true;
         m_bUserNavigated = true;
+        notifyNavigationChanged();
         update();
         return;
     }
@@ -1500,11 +1683,15 @@ void CypherTileCanvas::mouseReleaseEvent( QMouseEvent *pEvent )
 
 void CypherTileCanvas::wheelEvent( QWheelEvent *pEvent )
 {
-    const QPoint numDegrees = pEvent->angleDelta();
-    if ( numDegrees.y() == 0 ) return;
+    const qreal steps = pEvent->angleDelta().y() != 0
+        ? pEvent->angleDelta().y() / 120.0
+        : pEvent->pixelDelta().y() / 40.0;
+    if ( qFuzzyIsNull( steps ) ) {
+        pEvent->ignore();
+        return;
+    }
     const QPointF anchor = pEvent->position();
     const QPointF gridPoint = ( anchor - m_origin ) / m_zoom;
-    const qreal steps = numDegrees.y() / 120.0;
     m_zoom = std::clamp(
         m_zoom * std::pow( 1.15, steps ),
         TILE_CANVAS_MIN_ZOOM,
@@ -1513,6 +1700,7 @@ void CypherTileCanvas::wheelEvent( QWheelEvent *pEvent )
     m_bHasFit = true;
     m_bUserNavigated = true;
     if ( m_zoomCallback ) m_zoomCallback( m_zoom );
+    notifyNavigationChanged();
     update();
     pEvent->accept();
 }
@@ -1558,6 +1746,16 @@ void CypherTileCanvas::focusOutEvent( QFocusEvent *pEvent )
 
 bool CypherTileCanvas::event( QEvent *pEvent )
 {
+    if ( pEvent->type() == QEvent::ShortcutOverride ) {
+        const auto *pKey = static_cast<QKeyEvent *>( pEvent );
+        // Plain Space is a temporary viewport gesture. Shift+Space remains
+        // available to the configurable Maximize Viewport action.
+        if ( pKey->key() == Qt::Key_Space &&
+             pKey->modifiers() == Qt::NoModifier ) {
+            pEvent->accept();
+            return true;
+        }
+    }
     if ( pEvent->type() == QEvent::ToolTip ) {
         const QString description = materialDescription();
         if ( !description.isEmpty() ) {

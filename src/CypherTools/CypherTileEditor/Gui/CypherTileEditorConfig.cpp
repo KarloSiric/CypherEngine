@@ -209,4 +209,44 @@ bool TileEditorConfig_Save(
     }
     return true;
 }
+
+bool TileEditorConfig_MigrateIndependentOrthographicCameras(
+    QSettings &nativeSettings,
+    const QString &configurationPath,
+    tile_editor_preferences_t &inOutPreferences,
+    bool &outMigrated,
+    QString &error )
+{
+    static const QString marker = QStringLiteral(
+        "TileEditor/independentOrthographicCamerasV1" );
+    outMigrated = false;
+    error.clear();
+    if ( nativeSettings.value( marker, false ).toBool() ) return true;
+
+    // Refuse to replace a configuration that cannot be parsed. Main-window
+    // startup already performs this check, but keeping the migration itself
+    // transactional prevents future callers from silently repairing a user's
+    // invalid file by overwriting it.
+    auto candidate = inOutPreferences;
+    if ( !TileEditorConfig_Load( configurationPath, candidate, error ) )
+        return false;
+    candidate.linkOrthographicCameras = false;
+    if ( !TileEditorConfig_Save( configurationPath, candidate, error ) )
+        return false;
+
+    // The readable INI is canonical. Publish the same value to Qt's native
+    // cache only after its atomic replacement succeeds.
+    inOutPreferences = candidate;
+    TileEditorPreferences_Save( nativeSettings, candidate );
+    nativeSettings.setValue( marker, true );
+    nativeSettings.sync();
+    if ( nativeSettings.status() != QSettings::NoError ) {
+        error = QStringLiteral(
+            "The independent-view migration updated %1, but Qt could not update its native preferences cache." )
+                    .arg( configurationPath );
+        return false;
+    }
+    outMigrated = true;
+    return true;
+}
 } // namespace cypher::tools::tile_editor

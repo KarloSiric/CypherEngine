@@ -70,6 +70,7 @@ target_link_libraries(CypherTileMapCore
         Cypher::Math
     PRIVATE
         Cypher::CommonTier2
+        Cypher::EditorGeometry
 )
 
 # Shared editor/runtime adapter for validated cooked material assets.
@@ -90,19 +91,28 @@ if (CYPHERENGINE_BUILD_TILE_EDITOR)
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTilePiecePalette.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileMaterialBrowser.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileOrthoMaterials.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileSelectionMaterialInspector.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileSelectionMaterialInspector.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileHistoryPanel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileHistoryPanel.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/CypherTileEditorResources.qrc"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorTheme.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorTheme.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorUserThemes.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorUserThemes.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorIcons.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorIcons.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorSettingsDialog.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileEditorSettingsDialog.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileConsoleColors.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileConsole.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileConsole.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileShellRunner.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileShellRunner.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileDocumentBridge.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileDocumentBridge.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileOrthoCamera.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileViewportColors.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileCanvas.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileCanvas.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Gui/CypherTileGrid.h"
@@ -345,6 +355,7 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileCameraNavigationWorkspace_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileOrthoMaterials_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileOrthoMaterialViews_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileOrthoStructureDisplay_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMaterialDisplayPreferences_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMapPropertiesWorkspace_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMapPropertiesWidget_Tests.cpp"
@@ -353,6 +364,8 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTilePiecePalette_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileViewReadability_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMaterialBrowser_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileSelectionMaterialInspector_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileHistoryPanel_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMaterialPreview_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileRegionWorkspace_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileSelection_Tests.cpp"

@@ -97,9 +97,23 @@ bool CypherTileCamera_TranslateWorld(
     tile_camera_t &camera, ::cypher::math::vec3_t offset ) noexcept;
 void CypherTileCamera_ApplyLook(
     tile_camera_t &camera, float deltaX, float deltaY ) noexcept;
+// Rotates both the eye and camera basis around an explicit world-space point.
+// The pivot retains the same camera-space position, so orbiting a surface
+// under the pointer does not snap that surface to the center of the view.
+bool CypherTileCamera_OrbitAround( tile_camera_t &camera,
+    ::cypher::math::vec3_t pivot, float deltaX, float deltaY ) noexcept;
 void CypherTileCamera_Pan( tile_camera_t &camera,
     float deltaX, float deltaY, float viewportHeight ) noexcept;
+// Bare wheel navigation. Fly dollies along the current view direction; Orbit
+// changes the radius around the camera's implicit focus point.
 void CypherTileCamera_Wheel( tile_camera_t &camera, float ticks ) noexcept;
+// Changes orbit radius around an explicit picked pivot while preserving the
+// pivot's location in the image. Returns false for an invalid or zero gesture.
+bool CypherTileCamera_OrbitWheel( tile_camera_t &camera,
+    ::cypher::math::vec3_t pivot, float ticks ) noexcept;
+// RMB-look wheel input changes persistent fly speed without moving the eye.
+bool CypherTileCamera_AdjustMoveSpeed(
+    tile_camera_t &camera, float ticks ) noexcept;
 
 // Returns whether position changed. Invalid/negative dt produces no movement;
 // long stalls are capped at 100 ms. Combined directions cannot increase speed.

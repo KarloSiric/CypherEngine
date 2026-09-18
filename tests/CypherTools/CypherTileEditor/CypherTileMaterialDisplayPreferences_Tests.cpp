@@ -116,7 +116,7 @@ TEST_CASE( "Invalid material display configuration cannot partially replace curr
     }
 }
 
-TEST_CASE( "Material display controls use percentages and Restore Defaults stages all material options",
+TEST_CASE( "Material display controls use percentages and Reset All stages all material options",
     "[TileEditor][Materials][Settings]" )
 {
     MaterialPreferencesApplication();
@@ -149,6 +149,7 @@ TEST_CASE( "Material display controls use percentages and Restore Defaults stage
     dialog.setApplyCallback( [&]( const tile_editor_preferences_t &value ) {
         ++calls;
         applied = value;
+        return true;
     } );
     pButtons->button( QDialogButtonBox::RestoreDefaults )->click();
     CHECK( calls == 0 );

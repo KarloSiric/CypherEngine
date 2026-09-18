@@ -1,0 +1,7 @@
+@cykv 1
+@schema "cypher.material" 1
+{
+    shader = "shaders/tile_surface.cyshader"
+    textures = { base_color = "textures/blockout/service_panel.cytex" }
+    parameters = { tint = [1.0, 1.0, 1.0, 1.0] uv_scale = [1.0, 1.0] }
+}

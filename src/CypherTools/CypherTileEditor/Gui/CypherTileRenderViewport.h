@@ -60,7 +60,8 @@ bool CypherTileRenderViewport_PickGeometry(
     const tile_camera_t &camera,
     std::span<const tile_map_geometry_box_t> boxes,
     float normalizedX, float normalizedY, float aspect,
-    tile_map_grid_coord_t &cellOut ) noexcept;
+    tile_map_grid_coord_t &cellOut,
+    ::cypher::math::vec3_t *pHitPointOut = nullptr ) noexcept;
 
 bool CypherTileRenderViewport_PickPlane(
     const tile_camera_t &camera, float normalizedX, float normalizedY, float aspect,
@@ -76,6 +77,7 @@ public:
     using camera_change_callback_t = std::function<void( const tile_camera_settings_t &, bool flyMode )>;
     using auto_orbit_change_callback_t = std::function<void( bool enabled )>;
     using context_menu_callback_t = std::function<void( const QPoint & )>;
+    using stamp_callback_t = std::function<void( tile_map_grid_coord_t )>;
 
     explicit CypherTileRenderViewport( QWidget *pParent = nullptr );
     ~CypherTileRenderViewport() override;
@@ -93,6 +95,8 @@ public:
     void setDoorSide( tile_map_marker_side_t side );
     void setChangedCallback( std::function<void()> callback );
     void setPaintPickedCallback( std::function<void( const tile_map_paint_t & )> callback );
+    void setStampCallback( stamp_callback_t callback );
+    void setStampLabel( const QString &label );
     void refreshDocument();
     void setMaterialRoot( const QString &root );
     void setViewAppearance( const QColor &background, bool showMetrics );
@@ -165,9 +169,16 @@ private:
     QString findCookedShaderPath() const;
     void clearGeometry();
     void updateCameraBounds( bool bResetView );
+    bool selectedGeometryBounds(
+        ::cypher::math::vec3_t &minimumOut,
+        ::cypher::math::vec3_t &maximumOut ) const;
+    void resetOrbitPivotToViewFocus();
+    bool advanceFlyNavigation(
+        float deltaSeconds, Qt::KeyboardModifiers modifiers );
     void synchronizeFrameTimer();
     void stopNavigation();
     void setAutoOrbitState( bool enabled );
+    void updateInteractionTooltip();
     void updateCameraOverlay();
     void updateAxisTriad();
     void notifyCameraChange();
@@ -188,6 +199,8 @@ private:
     tile_map_marker_side_t m_doorSide{ tile_map_marker_side_t::NORTH };
     std::function<void()> m_changedCallback{};
     std::function<void( const tile_map_paint_t & )> m_paintPickedCallback{};
+    stamp_callback_t m_stampCallback{};
+    QString m_stampLabel{};
 
     ::cypher::engine::render::render_shader_handle_t m_shader{};
     ::cypher::engine::render::render_pipeline_handle_t m_pipeline{};
@@ -229,9 +242,17 @@ private:
     QSet<int> m_pressedKeys{};
     QPoint m_savedPointer{};
     bool m_bPointerCaptured{ false };
+    bool m_bKeyboardCaptured{ false };
     bool m_bAutoOrbit{ false };
     bool m_bUserNavigated{ false };
     QPoint m_lastMouse{};
+    QPoint m_pendingNavigationDelta{};
+    // The workspace pivot survives persistent-Orbit gestures so a later wheel
+    // event keeps zooming around the inspected point. The navigation pivot is
+    // provisional until a drag or wheel gesture actually changes the camera.
+    std::optional<::cypher::math::vec3_t> m_orbitPivot{};
+    std::optional<::cypher::math::vec3_t> m_navigationOrbitPivot{};
+    bool m_bNavigationChanged{ false };
     bool m_bContextMenuCandidate{ false };
     QPoint m_contextMenuGlobal{};
     QElapsedTimer m_frameClock{};

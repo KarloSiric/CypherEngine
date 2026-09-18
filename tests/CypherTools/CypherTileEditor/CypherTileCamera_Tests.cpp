@@ -28,6 +28,15 @@ math::vec3_t OrbitPivot( const tile::tile_camera_t &camera )
         math::Vec3_Scale( tile::CypherTileCamera_Forward( camera ), camera.orbitDistance ) );
 }
 
+math::vec3_t CameraSpacePoint(
+    const tile::tile_camera_t &camera, math::vec3_t point )
+{
+    const auto offset = math::Vec3_Subtract( point, camera.position );
+    return { math::Vec3_Dot( offset, tile::CypherTileCamera_Right( camera ) ),
+             math::Vec3_Dot( offset, tile::CypherTileCamera_Up( camera ) ),
+             math::Vec3_Dot( offset, tile::CypherTileCamera_Forward( camera ) ) };
+}
+
 void RequireSamePose( const tile::tile_camera_t &actual, const tile::tile_camera_t &expected )
 {
     REQUIRE( math::Vec3_EqualsExact( actual.position, expected.position ) );
@@ -180,13 +189,95 @@ TEST_CASE( "Mouse look clamps pitch and orbit manipulation holds its pivot", "[t
     REQUIRE( math::Vec3_NearlyEquals( OrbitPivot( camera ), pivot, 0.00001f, 0.00001f ) );
 }
 
-TEST_CASE( "Fly wheel adjusts speed without moving the eye and settings reject nonfinite values", "[tile][camera]" )
+TEST_CASE( "Explicit surface orbit preserves the picked point in camera space", "[tile][camera]" )
+{
+    tile::tile_camera_t camera{};
+    camera.position = { -3.0f, -4.0f, 2.0f };
+    camera.yawRadians = 0.35f;
+    camera.pitchRadians = -0.25f;
+    camera.mode = tile::tile_camera_mode_t::ORBIT;
+    const math::vec3_t pivot{ 4.0f, 1.5f, 1.0f };
+    const auto cameraSpaceBefore = CameraSpacePoint( camera, pivot );
+    const float radiusBefore = math::Vec3_Distance( camera.position, pivot );
+
+    REQUIRE( tile::CypherTileCamera_OrbitAround( camera, pivot, 45.0f, -18.0f ) );
+    CHECK( math::Vec3_NearlyEquals(
+        CameraSpacePoint( camera, pivot ), cameraSpaceBefore, 0.00001f, 0.00001f ) );
+    CHECK( math::Vec3_Distance( camera.position, pivot ) == Catch::Approx( radiusBefore ) );
+    CHECK( camera.orbitDistance == Catch::Approx( radiusBefore ) );
+
+    const auto afterOrbit = camera;
+    REQUIRE( tile::CypherTileCamera_OrbitWheel( camera, pivot, 2.0f ) );
+    CHECK( math::Vec3_Distance( camera.position, pivot ) < radiusBefore );
+    CHECK( math::Vec3_NearlyEquals(
+        CameraSpacePoint( camera, pivot ),
+        math::Vec3_Scale( CameraSpacePoint( afterOrbit, pivot ),
+            camera.orbitDistance / afterOrbit.orbitDistance ),
+        0.00001f, 0.00001f ) );
+
+    const auto valid = camera;
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    CHECK_FALSE( tile::CypherTileCamera_OrbitAround( camera, { nan, 0, 0 }, 1, 1 ) );
+    CHECK_FALSE( tile::CypherTileCamera_OrbitWheel( camera, pivot, nan ) );
+    RequireSamePose( camera, valid );
+}
+
+TEST_CASE( "Explicit orbit rejects unsupported near pivots without corrupting pose",
+    "[tile][camera][robustness]" )
+{
+    tile::tile_camera_t camera{};
+    camera.position = { 0.0f, 0.0f, 0.0f };
+    camera.yawRadians = 0.0f;
+    camera.pitchRadians = 0.0f;
+    camera.mode = tile::tile_camera_mode_t::ORBIT;
+    const auto before = camera;
+    const math::vec3_t tooClose{ 0.025f, 0.0f, 0.0f };
+
+    CHECK_FALSE( tile::CypherTileCamera_OrbitAround(
+        camera, tooClose, 15.0f, 8.0f ) );
+    RequireSamePose( camera, before );
+    CHECK_FALSE( tile::CypherTileCamera_OrbitWheel(
+        camera, tooClose, 1.0f ) );
+    RequireSamePose( camera, before );
+}
+
+TEST_CASE( "Implicit orbit wheel is transactional for invalid camera state",
+    "[tile][camera][robustness]" )
+{
+    tile::tile_camera_t camera{};
+    camera.mode = tile::tile_camera_mode_t::ORBIT;
+    const auto position = camera.position;
+    const auto yaw = camera.yawRadians;
+    const auto pitch = camera.pitchRadians;
+
+    camera.orbitDistance = std::numeric_limits<float>::quiet_NaN();
+    tile::CypherTileCamera_Wheel( camera, 1.0f );
+    CHECK( math::Vec3_EqualsExact( camera.position, position ) );
+    CHECK( camera.yawRadians == yaw );
+    CHECK( camera.pitchRadians == pitch );
+    CHECK( std::isnan( camera.orbitDistance ) );
+
+    camera.orbitDistance = 10.0f;
+    camera.position.x = std::numeric_limits<float>::max();
+    camera.yawRadians = 0.0f;
+    camera.pitchRadians = 0.0f;
+    const auto extreme = camera.position;
+    tile::CypherTileCamera_Wheel( camera, 40.0f );
+    CHECK( math::Vec3_EqualsExact( camera.position, extreme ) );
+    CHECK( camera.orbitDistance == 10.0f );
+}
+
+TEST_CASE( "Fly wheel dollies while RMB wheel adjusts speed without moving the eye", "[tile][camera]" )
 {
     tile::tile_camera_t camera{};
     const auto original = camera;
     tile::CypherTileCamera_Wheel( camera, 3 );
-    RequireSamePose( camera, original );
-    REQUIRE( camera.settings.moveSpeed > original.settings.moveSpeed );
+    REQUIRE_FALSE( math::Vec3_EqualsExact( camera.position, original.position ) );
+    REQUIRE( camera.settings.moveSpeed == original.settings.moveSpeed );
+    const auto afterDolly = camera;
+    REQUIRE( tile::CypherTileCamera_AdjustMoveSpeed( camera, 3 ) );
+    RequireSamePose( camera, afterDolly );
+    REQUIRE( camera.settings.moveSpeed > afterDolly.settings.moveSpeed );
     tile::tile_camera_settings_t invalid{};
     invalid.moveSpeed = std::numeric_limits<float>::quiet_NaN();
     invalid.lookSensitivity = std::numeric_limits<float>::infinity();

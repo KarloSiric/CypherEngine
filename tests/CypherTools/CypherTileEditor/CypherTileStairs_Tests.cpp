@@ -185,10 +185,12 @@ TEST_CASE( "Editor eyedropper and material palette preserve stair brush properti
     CHECK( steps->value() == 12 );
 
     palette->setCurrentItem( Material( window, 4 ) );
-    CHECK( canvas->tool() == tile_canvas_tool_t::PAINT );
+    CHECK( canvas->tool() == tile_canvas_tool_t::EYEDROPPER );
     CHECK( canvas->paint().shape == tile_map_cell_shape_t::STAIRS_EAST );
     CHECK( canvas->paint().nStairSteps == 12u );
     CHECK( canvas->paint().nMaterialSlot == 4u );
+    Action( window, "tool.paint" )->trigger();
+    CHECK( canvas->tool() == tile_canvas_tool_t::PAINT );
     ClickCell( *canvas, { 3, 0 } );
     SaveAndCheckCell( window, path, { 3, 0 }, tile_map_cell_shape_t::STAIRS_EAST, 12u, 4u );
 }
@@ -208,6 +210,10 @@ TEST_CASE( "Stair fill respects shape boundaries and inspector edits survive his
     ClickCell( *canvas, { 1, 1 } );
     auto *palette = window.findChild<QListWidget *>( QStringLiteral( "TileMaterialPalette" ) );
     REQUIRE( palette != nullptr );
+    // The eyedropper selects its source. Clear that selection before choosing
+    // a brush material so this palette click prepares Fill instead of applying
+    // only to the sampled stair and splitting the source region.
+    canvas->clearSelection();
     palette->setCurrentItem( Material( window, 4 ) );
     Action( window, "tool.fill" )->trigger();
     ClickCell( *canvas, { 1, 1 } );

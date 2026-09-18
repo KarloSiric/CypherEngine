@@ -42,6 +42,18 @@ int PeakRed( const QImage &frame, QPoint point )
             if ( frame.rect().contains( x, y ) ) peak = std::max( peak, frame.pixelColor( x, y ).red() );
     return peak;
 }
+
+int CountEdgeOverlayChanges( const QImage &before, const QImage &after )
+{
+    int changes = 0;
+    for ( int y = 0; y < after.height(); ++y ) {
+        for ( int x = 0; x < after.width(); ++x ) {
+            if ( ( y < 24 || x < 48 ) &&
+                 before.pixelColor( x, y ) != after.pixelColor( x, y ) ) ++changes;
+        }
+    }
+    return changes;
+}
 }
 
 TEST_CASE( "Empty maps use a configurable working scale regardless of document dimensions", "[TileEditor][Readability]" )
@@ -151,6 +163,7 @@ TEST_CASE( "Coordinate rulers are themed overlays independent of grid visibility
     preferences.showGrid = false;
     preferences.showViewMetrics = false;
     preferences.showMaterialLabels = false;
+    preferences.showViewAxes = false;
     preferences.canvasColor = QColor( 3, 7, 11 );
     preferences.panelColor = QColor( 47, 53, 61 );
     preferences.textColor = QColor( 241, 243, 245 );
@@ -169,8 +182,9 @@ TEST_CASE( "Coordinate rulers are themed overlays independent of grid visibility
     top.setPreferences( preferences );
     const QImage topWith = Render( top );
     CHECK( topWithout.pixelColor( top.width() - 2, 2 ) == preferences.canvasColor );
-    CHECK( topWith.pixelColor( top.width() - 2, 2 ) == preferences.panelColor );
-    CHECK( topWith.pixelColor( 2, top.height() - 2 ) == preferences.panelColor );
+    CHECK( topWith.pixelColor( top.width() - 2, 2 ) == preferences.canvasColor );
+    CHECK( topWith.pixelColor( 2, top.height() - 2 ) == preferences.canvasColor );
+    CHECK( CountEdgeOverlayChanges( topWithout, topWith ) > 0 );
     CHECK( topWith.pixelColor( top.width() / 2, top.height() / 2 ) ==
            topWithout.pixelColor( top.width() / 2, top.height() / 2 ) );
     CHECK( top.viewOrigin() == topOrigin );
@@ -188,8 +202,9 @@ TEST_CASE( "Coordinate rulers are themed overlays independent of grid visibility
     front.setPreferences( preferences );
     const QImage frontWith = Render( front );
     CHECK( frontWithout.pixelColor( front.width() - 2, 2 ) == preferences.canvasColor );
-    CHECK( frontWith.pixelColor( front.width() - 2, 2 ) == preferences.panelColor );
-    CHECK( frontWith.pixelColor( 2, front.height() - 2 ) == preferences.panelColor );
+    CHECK( frontWith.pixelColor( front.width() - 2, 2 ) == preferences.canvasColor );
+    CHECK( frontWith.pixelColor( 2, front.height() - 2 ) == preferences.canvasColor );
+    CHECK( CountEdgeOverlayChanges( frontWithout, frontWith ) > 0 );
     CHECK( frontWith.pixelColor( front.width() / 2, front.height() / 2 ) ==
            frontWithout.pixelColor( front.width() / 2, front.height() / 2 ) );
     CHECK( front.viewOrigin() == frontOrigin );
@@ -240,13 +255,49 @@ TEST_CASE( "Elevation rulers draw negative world-coordinate ticks after panning"
         const qreal negativeTickX = view.viewOrigin().x() - spacing * view.pixelsPerUnit();
         REQUIRE( negativeTickX > 40.0 );
         REQUIRE( negativeTickX < view.width() - 4.0 );
-        const int tickY = QFontMetrics( view.font() ).height() + 9 - 3;
+        const int tickY = 2;
         const QImage frame = Render( view );
         bool foundTick = false;
         for ( int x = qRound( negativeTickX ) - 1; x <= qRound( negativeTickX ) + 1; ++x )
             if ( frame.pixelColor( x, tickY ) == preferences.majorGridColor ) foundTick = true;
         CHECK( foundTick );
     }
+    CHECK_FALSE( document.isDirty() );
+}
+
+TEST_CASE( "Projected authoring footer is hidden by default and independently configurable",
+    "[TileEditor][Readability][Footer]" )
+{
+    EnsureReadabilityApplication();
+    CypherTileDocumentBridge document;
+    QString error;
+    REQUIRE( document.newDocument( { 16, 16, 2.0f, 2.0f }, &error ) );
+    document.markSaved();
+
+    tile_editor_preferences_t preferences{};
+    CHECK_FALSE( preferences.showAuthoringFooter );
+    preferences.showGrid = false;
+    preferences.showCoordinateRulers = false;
+    preferences.showViewAxes = false;
+    preferences.showViewMetrics = false;
+    preferences.showMaterialLabels = false;
+    preferences.canvasColor = QColor( 7, 13, 19 );
+
+    CypherTileOrthoView front( tile_editor_ortho_plane_t::FRONT );
+    front.resize( 520, 360 );
+    front.setTool( tile_canvas_tool_t::PAINT );
+    front.setPreferences( preferences );
+    front.setDocumentBridge( &document );
+    const QPointF origin = front.viewOrigin();
+    const QPoint sample( front.width() / 2, front.height() - 2 );
+    const QImage withoutFooter = Render( front );
+    CHECK( withoutFooter.pixelColor( sample ) == preferences.canvasColor );
+
+    preferences.showAuthoringFooter = true;
+    front.setPreferences( preferences );
+    const QImage withFooter = Render( front );
+    CHECK( withFooter.pixelColor( sample ) != preferences.canvasColor );
+    CHECK( front.viewOrigin() == origin );
     CHECK_FALSE( document.isDirty() );
 }
 

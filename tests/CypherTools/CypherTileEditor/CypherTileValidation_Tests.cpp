@@ -17,13 +17,16 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QDockWidget>
 #include <QEventLoop>
 #include <QImage>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMetaObject>
 #include <QMouseEvent>
+#include <QPlainTextEdit>
 #include <QSettings>
 #include <QTabWidget>
 #include <QTemporaryDir>
@@ -166,10 +169,16 @@ TEST_CASE( "Live checks follow spawn edits and history without manual validation
     auto *pList = window.findChild<QListWidget *>( QStringLiteral( "TileValidationList" ) );
     auto *pSummary = window.findChild<QLabel *>( QStringLiteral( "TileValidationSummary" ) );
     auto *pTabs = window.findChild<QTabWidget *>( QStringLiteral( "TileInspectorTabs" ) );
+    auto *pConsoleDock = window.findChild<QDockWidget *>(
+        QStringLiteral( "TileEditorConsoleDock" ) );
+    auto *pConsoleOutput = window.findChild<QPlainTextEdit *>(
+        QStringLiteral( "TileConsoleOutput" ) );
     REQUIRE( pCanvas != nullptr );
     REQUIRE( pList != nullptr );
     REQUIRE( pSummary != nullptr );
     REQUIRE( pTabs != nullptr );
+    REQUIRE( pConsoleDock != nullptr );
+    REQUIRE( pConsoleOutput != nullptr );
     QListWidgetItem *pMissing = FindDiagnostic( pList, "MISSING_PLAYER_SPAWN" );
     REQUIRE( pMissing != nullptr );
     CHECK_FALSE( pMissing->data( Qt::UserRole ).toBool() );
@@ -187,9 +196,84 @@ TEST_CASE( "Live checks follow spawn edits and history without manual validation
     CHECK( FindDiagnostic( pList, "MISSING_PLAYER_SPAWN" ) != nullptr );
     TriggerAction( window, "edit.redo" );
     CHECK( FindDiagnostic( pList, "MISSING_PLAYER_SPAWN" ) == nullptr );
+    pTabs->setCurrentIndex( 0 );
+    const int iInspectorPage = pTabs->currentIndex();
+    pConsoleDock->hide();
+    pConsoleOutput->clear();
     TriggerAction( window, "map.validate" );
-    CHECK( pTabs->currentWidget()->findChild<QListWidget *>( "TileValidationList" ) != nullptr );
+    CHECK_FALSE( pConsoleDock->isHidden() );
+    CHECK( pTabs->currentIndex() == iInspectorPage );
+    CHECK( pConsoleOutput->toPlainText().contains(
+        QStringLiteral( "Validate Map: checking" ) ) );
+    CHECK( pConsoleOutput->toPlainText().contains(
+        QStringLiteral( "Validate Map completed" ) ) );
     CHECK( pList->item( 0 )->text().contains( QStringLiteral( "structure, spawn, and door" ) ) );
+}
+
+TEST_CASE( "Geometry build reports progress in the unified console without navigating Properties",
+           "[CypherTools][CypherTileEditor][Validation][Console][Build]" )
+{
+    EnsureApplication();
+    QTemporaryDir directory;
+    REQUIRE( directory.isValid() );
+    CypherTileEditorMainWindow window;
+    REQUIRE( window.openFilePath( WriteMap( directory, true, false ), false ) );
+
+    auto *pTabs = window.findChild<QTabWidget *>(
+        QStringLiteral( "TileInspectorTabs" ) );
+    auto *pConsoleDock = window.findChild<QDockWidget *>(
+        QStringLiteral( "TileEditorConsoleDock" ) );
+    auto *pConsoleOutput = window.findChild<QPlainTextEdit *>(
+        QStringLiteral( "TileConsoleOutput" ) );
+    REQUIRE( pTabs != nullptr );
+    REQUIRE( pConsoleDock != nullptr );
+    REQUIRE( pConsoleOutput != nullptr );
+    CHECK( window.findChild<QTabWidget *>(
+        QStringLiteral( "TileConsoleTabs" ) ) == nullptr );
+
+    pTabs->setCurrentIndex( 1 );
+    const int iInspectorPage = pTabs->currentIndex();
+    pConsoleDock->hide();
+    pConsoleOutput->clear();
+    TriggerAction( window, "map.build" );
+
+    const QString transcript = pConsoleOutput->toPlainText();
+    CHECK_FALSE( pConsoleDock->isHidden() );
+    CHECK( pTabs->currentIndex() == iInspectorPage );
+    CHECK( transcript.contains( QStringLiteral( "Build Geometry: started" ) ) );
+    CHECK( transcript.contains( QStringLiteral( "Build Geometry [1/2]" ) ) );
+    CHECK( transcript.contains( QStringLiteral( "Build Geometry [2/2]" ) ) );
+    CHECK( transcript.contains( QStringLiteral( "Geometry build succeeded" ) ) );
+    CHECK( transcript.contains(
+        QStringLiteral( "Build Geometry: completed successfully" ) ) );
+}
+
+TEST_CASE( "Unified console help documents local shell controls",
+           "[CypherTools][CypherTileEditor][Console][Shell][Help]" )
+{
+    EnsureApplication();
+    CypherTileEditorMainWindow window;
+    auto *pConsoleInput = window.findChild<QLineEdit *>(
+        QStringLiteral( "TileConsoleInput" ) );
+    auto *pConsoleOutput = window.findChild<QPlainTextEdit *>(
+        QStringLiteral( "TileConsoleOutput" ) );
+    REQUIRE( pConsoleInput != nullptr );
+    REQUIRE( pConsoleOutput != nullptr );
+
+    pConsoleOutput->clear();
+    pConsoleInput->setText( QStringLiteral( "help" ) );
+    REQUIRE( QMetaObject::invokeMethod(
+        pConsoleInput, "returnPressed", Qt::DirectConnection ) );
+    const QString commandList = pConsoleOutput->toPlainText();
+    CHECK( commandList.contains( QStringLiteral( "shell_stop" ) ) );
+    CHECK( commandList.contains( QStringLiteral( "shell_restart" ) ) );
+
+    pConsoleOutput->clear();
+    pConsoleInput->setText( QStringLiteral( "help shell_stop" ) );
+    REQUIRE( QMetaObject::invokeMethod(
+        pConsoleInput, "returnPressed", Qt::DirectConnection ) );
+    CHECK( pConsoleOutput->toPlainText().contains(
+        QStringLiteral( "usage: shell_stop" ) ) );
 }
 
 TEST_CASE( "Live checks preview and cancel drag errors and locate committed issues",

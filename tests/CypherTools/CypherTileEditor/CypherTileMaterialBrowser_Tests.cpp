@@ -188,6 +188,24 @@ TEST_CASE( "Material filtering cannot leave a hidden cook or binding target",
     CHECK_FALSE( list->currentItem()->isHidden() );
 }
 
+TEST_CASE( "Project material slot controls stay behind an explicit advanced disclosure",
+           "[CypherTools][Qt][MaterialBrowser][Workflow]" )
+{
+    EnsureMaterialBrowserApplication();
+    browser_fixture_t fixture;
+    fixture.material( "stone.cymat" );
+    CypherTileMaterialBrowser browser;
+    auto *use = BrowserWidget<QPushButton>( browser, "TileMaterialBind" );
+    auto *toggle = BrowserWidget<QPushButton>( browser, "TileMaterialAdvancedToggle" );
+    auto *advanced = BrowserWidget<QWidget>( browser, "TileMaterialAdvancedPanel" );
+    CHECK( use->text() == QStringLiteral( "Use Material" ) );
+    CHECK( advanced->isHidden() );
+    toggle->click();
+    CHECK_FALSE( advanced->isHidden() );
+    toggle->click();
+    CHECK( advanced->isHidden() );
+}
+
 TEST_CASE( "Material roots reject invalid directories and escaping links without losing current assets",
            "[CypherTools][Qt][MaterialBrowser]" )
 {
@@ -445,4 +463,29 @@ TEST_CASE( "Cancelling a pending material assignment preserves prepared assets w
     use->click();
     CHECK( RunningCompiler( browser ) == nullptr );
     CHECK( assignments == 1 );
+}
+
+TEST_CASE( "Material browser can locate a bound project material from the selection inspector",
+           "[CypherTools][Qt][MaterialBrowser][SelectionInspector]" )
+{
+    EnsureMaterialBrowserApplication();
+    browser_fixture_t fixture;
+    fixture.material( "stone.cymat" );
+    fixture.material( "metal.cymat" );
+    CypherTileMaterialBrowser browser;
+    auto *filter = BrowserWidget<QLineEdit>( browser, "TileProjectMaterialFilter" );
+    auto *list = BrowserWidget<QListWidget>( browser, "TileProjectMaterialList" );
+    filter->setText( "metal" );
+    REQUIRE( list->currentItem() != nullptr );
+    REQUIRE( list->currentItem()->data( Qt::UserRole ).toString() ==
+        QStringLiteral( "metal.cymat" ) );
+    REQUIRE( browser.selectMaterial( QStringLiteral( "stone.cymat" ) ) );
+    CHECK( filter->text().isEmpty() );
+    REQUIRE( list->currentItem() != nullptr );
+    CHECK( list->currentItem()->data( Qt::UserRole ).toString() ==
+        QStringLiteral( "stone.cymat" ) );
+    browser.setTargetSlot( 37u );
+    CHECK( browser.targetSlot() == 37u );
+    CHECK( BrowserWidget<QSpinBox>( browser, "TileProjectMaterialSlot" )->value() == 37 );
+    CHECK_FALSE( browser.selectMaterial( QStringLiteral( "missing.cymat" ) ) );
 }

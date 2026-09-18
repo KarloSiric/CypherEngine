@@ -10,6 +10,7 @@
 
 #include "CypherTileRenderViewport.h"
 #include "CypherTileCanvas.h"
+#include "CypherTileViewportColors.h"
 
 #include "Core/CypherTileMapMaterials.h"
 
@@ -66,7 +67,12 @@ public:
         : QWidget( pParent )
     {
         setObjectName( QStringLiteral( "TileAxisTriad" ) );
-        setAttribute( Qt::WA_StyledBackground, true );
+        // The orientation triad floats over the rendered map. Painting an
+        // opaque card here hides useful geometry and makes the compact axis
+        // guide look like another panel.
+        setAttribute( Qt::WA_StyledBackground, false );
+        setAttribute( Qt::WA_TranslucentBackground, true );
+        setAutoFillBackground( false );
         setAttribute( Qt::WA_TransparentForMouseEvents, true );
         setFocusPolicy( Qt::NoFocus );
         resize( 88, 88 );
@@ -128,13 +134,16 @@ protected:
         QFont axisFont = painter.font();
         axisFont.setBold( true );
         painter.setFont( axisFont );
+        QColor underlay = TileEditorViewportColor_BestContrast(
+            palette().color( QPalette::Window ) );
+        underlay.setAlpha( 190 );
 
         for ( const auto &axis : axes ) {
             const QPointF endpoint = origin + axis.direction * axisScale;
             const qreal projectedLength = std::hypot(
                 axis.direction.x(), axis.direction.y() ) * axisScale;
             if ( projectedLength < 4.0 ) {
-                painter.setPen( QPen( QColor( 0, 0, 0, 190 ), 5.0 ) );
+                painter.setPen( QPen( underlay, 5.0 ) );
                 painter.setBrush( axis.color );
                 painter.drawEllipse( origin, 4.5, 4.5 );
                 painter.setPen( axis.color );
@@ -148,7 +157,7 @@ protected:
                 axis.direction.x(), axis.direction.y() );
             const QPointF perpendicular( -direction.y(), direction.x() );
             const QPointF arrowBase = endpoint - direction * 6.5;
-            painter.setPen( QPen( QColor( 0, 0, 0, 190 ), 4.5,
+            painter.setPen( QPen( underlay, 4.5,
                                   Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) );
             painter.drawLine( origin, endpoint );
             painter.setPen( QPen( axis.color, 2.25, Qt::SolidLine,
@@ -273,7 +282,8 @@ bool CypherTileRenderViewport_PickGeometry(
     const tile_camera_t &camera,
     std::span<const tile_map_geometry_box_t> boxes,
     float normalizedX, float normalizedY, float aspect,
-    tile_map_grid_coord_t &cellOut ) noexcept
+    tile_map_grid_coord_t &cellOut,
+    math::vec3_t *pHitPointOut ) noexcept
 {
     if ( !std::isfinite( normalizedX ) || !std::isfinite( normalizedY ) ||
          !std::isfinite( aspect ) || aspect <= 0.0f ||
@@ -326,6 +336,12 @@ bool CypherTileRenderViewport_PickGeometry(
             found = true;
         }
     }
+    if ( found && pHitPointOut != nullptr ) {
+        const math::vec3_t hitPoint = math::Vec3_Add(
+            camera.position, math::Vec3_Scale( direction, closestDepth ) );
+        if ( !math::Vec3_IsFinite( hitPoint ) ) return false;
+        *pHitPointOut = hitPoint;
+    }
     return found;
 }
 
@@ -362,9 +378,7 @@ CypherTileRenderViewport::CypherTileRenderViewport( QWidget *pParent )
     setFocusPolicy( Qt::StrongFocus );
     setMouseTracking( true );
     setMinimumSize( 160, 120 );
-    setToolTip( tr( "Left click selects map geometry. Hold right mouse: look + WASD, Q/E down/up; Shift fast, Ctrl slow. "
-                   "Alt+right mouse orbits; middle mouse pans; "
-                   "Use the Camera menu for navigation mode and shortcuts." ) );
+    updateInteractionTooltip();
 
     QSurfaceFormat format;
     format.setRenderableType( QSurfaceFormat::OpenGL );
@@ -413,6 +427,7 @@ void CypherTileRenderViewport::setDocumentBridge(
     CypherTileDocumentBridge *pBridge )
 {
     stopNavigation();
+    m_orbitPivot.reset();
     m_pBridge = pBridge;
     m_selectedCells.clear();
     m_bUserNavigated = false;
@@ -471,11 +486,23 @@ void CypherTileRenderViewport::setMultiSelectionCallback( multi_selection_callba
     m_multiSelectionCallback = std::move( callback );
 }
 
-void CypherTileRenderViewport::setTool( tile_canvas_tool_t tool ) { m_tool = tool; updateCameraOverlay(); }
+void CypherTileRenderViewport::setTool( tile_canvas_tool_t tool )
+{
+    m_tool = tool;
+    updateInteractionTooltip();
+    updateCameraOverlay();
+}
 void CypherTileRenderViewport::setPaint( const tile_map_paint_t &paint ) { m_paint = paint; updateCameraOverlay(); }
 void CypherTileRenderViewport::setDoorSide( tile_map_marker_side_t side ) { m_doorSide = side; }
 void CypherTileRenderViewport::setChangedCallback( std::function<void()> callback ) { m_changedCallback = std::move( callback ); }
 void CypherTileRenderViewport::setPaintPickedCallback( std::function<void( const tile_map_paint_t & )> callback ) { m_paintPickedCallback = std::move( callback ); }
+void CypherTileRenderViewport::setStampCallback( stamp_callback_t callback ) { m_stampCallback = std::move( callback ); }
+void CypherTileRenderViewport::setStampLabel( const QString &label )
+{
+    m_stampLabel = label;
+    updateInteractionTooltip();
+    updateCameraOverlay();
+}
 
 void CypherTileRenderViewport::setViewAppearance( const QColor &background, bool showMetrics )
 {
@@ -582,6 +609,8 @@ void CypherTileRenderViewport::setCameraSettings( const tile_camera_settings_t &
     m_bFlyMode = bFlyMode;
     CypherTileCamera_SetMode( m_camera, bFlyMode ? tile_camera_mode_t::FLY : tile_camera_mode_t::ORBIT );
     updateCameraBounds( !m_bUserNavigated );
+    if ( bFlyMode ) m_orbitPivot.reset();
+    else resetOrbitPivotToViewFocus();
     updateCameraOverlay();
     update();
 }
@@ -593,6 +622,8 @@ void CypherTileRenderViewport::setCameraMode( tile_camera_mode_t mode )
     setAutoOrbitState( false );
     m_bFlyMode = mode == tile_camera_mode_t::FLY;
     CypherTileCamera_SetMode( m_camera, mode );
+    if ( mode == tile_camera_mode_t::FLY ) m_orbitPivot.reset();
+    else resetOrbitPivotToViewFocus();
     synchronizeFrameTimer();
     notifyCameraChange();
     updateCameraOverlay();
@@ -621,6 +652,7 @@ void CypherTileRenderViewport::setCameraViewPreset(
     // their focus point. This is a transient pose command: the user's saved
     // Fly/Orbit navigation preference remains unchanged.
     CypherTileCamera_SetMode( m_camera, tile_camera_mode_t::ORBIT );
+    resetOrbitPivotToViewFocus();
     synchronizeFrameTimer();
     updateCameraOverlay();
     update();
@@ -634,6 +666,7 @@ void CypherTileRenderViewport::levelCamera()
     // an active Orbit view even when Fly is the saved navigation preference.
     CypherTileCamera_Level( m_camera );
     setAutoOrbitState( false );
+    if ( m_camera.mode == tile_camera_mode_t::ORBIT ) resetOrbitPivotToViewFocus();
     updateCameraOverlay();
     update();
 }
@@ -654,6 +687,10 @@ bool CypherTileRenderViewport::moveCameraLevel( int delta )
     setAutoOrbitState( false );
     m_bUserNavigated = true;
     m_camera.position = candidate.position;
+    if ( m_orbitPivot.has_value() ) {
+        *m_orbitPivot = math::Vec3_Add(
+            *m_orbitPivot, { 0.0f, 0.0f, static_cast<float>( verticalOffset ) } );
+    }
     updateCameraOverlay();
     update();
     return true;
@@ -667,6 +704,8 @@ void CypherTileRenderViewport::setAutoOrbitEnabled( bool enabled )
     CypherTileCamera_SetMode( m_camera, enabled
         ? tile_camera_mode_t::ORBIT
         : ( m_bFlyMode ? tile_camera_mode_t::FLY : tile_camera_mode_t::ORBIT ) );
+    if ( enabled || !m_bFlyMode ) resetOrbitPivotToViewFocus();
+    else m_orbitPivot.reset();
     m_bUserNavigated = true;
     m_nPreviousFrameNanoseconds = 0;
     synchronizeFrameTimer();
@@ -713,6 +752,8 @@ bool CypherTileRenderViewport::recallCameraBookmark( int slot )
     m_camera.pitchRadians = candidate.pitchRadians;
     m_camera.orbitDistance = candidate.orbitDistance;
     CypherTileCamera_SetMode( m_camera, candidate.mode );
+    if ( candidate.mode == tile_camera_mode_t::ORBIT ) resetOrbitPivotToViewFocus();
+    else m_orbitPivot.reset();
     m_bUserNavigated = true;
     updateCameraOverlay();
     update();
@@ -780,20 +821,8 @@ void CypherTileRenderViewport::notifyCameraChange()
 void CypherTileRenderViewport::frameSelection()
 {
     if ( m_selectedCells.empty() ) { fitCamera(); return; }
-    bool found = false;
     math::vec3_t minimum{}, maximum{};
-    for ( common::usize i = 0; i < common::Vector_Count( &m_geometry.boxes ); ++i ) {
-        const auto &box = m_geometry.boxes.pData[i];
-        if ( !SelectionContains( m_selectedCells, box.sourceCell ) ) continue;
-        const math::vec3_t lo{ box.centerX - box.halfExtentX, box.centerY - box.halfExtentY, box.centerZ - box.halfExtentZ };
-        const math::vec3_t hi{ box.centerX + box.halfExtentX, box.centerY + box.halfExtentY, box.centerZ + box.halfExtentZ };
-        if ( !found ) { minimum = lo; maximum = hi; found = true; }
-        else {
-            minimum = { std::min( minimum.x, lo.x ), std::min( minimum.y, lo.y ), std::min( minimum.z, lo.z ) };
-            maximum = { std::max( maximum.x, hi.x ), std::max( maximum.y, hi.y ), std::max( maximum.z, hi.z ) };
-        }
-    }
-    if ( !found ) { fitCamera(); return; }
+    if ( !selectedGeometryBounds( minimum, maximum ) ) { fitCamera(); return; }
     stopNavigation();
     setAutoOrbitState( false );
     m_bUserNavigated = true;
@@ -801,6 +830,7 @@ void CypherTileRenderViewport::frameSelection()
         static_cast<float>( std::max( width(), 1 ) ) / std::max( height(), 1 ) );
     // Selection determines framing, but clipping must still cover the map.
     updateCameraBounds( false );
+    resetOrbitPivotToViewFocus();
     updateCameraOverlay();
     update();
 }
@@ -843,6 +873,7 @@ bool CypherTileRenderViewport::goToPlayerSpawn()
     m_camera.pitchRadians = candidate.pitchRadians;
     m_bFlyMode = true;
     CypherTileCamera_SetMode( m_camera, tile_camera_mode_t::FLY );
+    m_orbitPivot.reset();
     notifyCameraChange();
     updateCameraOverlay();
     update();
@@ -908,16 +939,8 @@ void CypherTileRenderViewport::paintGL()
         CypherTileCamera_ApplyLook( m_camera, deltaSeconds * 0.14f / m_camera.settings.lookSensitivity, 0.0f );
     }
     updateAxisTriad();
-    if ( m_navigation == navigation_t::LOOK ) {
-        tile_camera_input_t input{};
-        input.forward = ( m_pressedKeys.contains( Qt::Key_W ) ? 1.0f : 0.0f ) - ( m_pressedKeys.contains( Qt::Key_S ) ? 1.0f : 0.0f );
-        input.right = ( m_pressedKeys.contains( Qt::Key_D ) ? 1.0f : 0.0f ) - ( m_pressedKeys.contains( Qt::Key_A ) ? 1.0f : 0.0f );
-        input.up = ( m_pressedKeys.contains( Qt::Key_E ) ? 1.0f : 0.0f ) - ( m_pressedKeys.contains( Qt::Key_Q ) ? 1.0f : 0.0f );
-        input.fast = QApplication::keyboardModifiers().testFlag( Qt::ShiftModifier );
-        input.slow = QApplication::keyboardModifiers().testFlag( Qt::ControlModifier );
-        CypherTileCamera_Move( m_camera, input, deltaSeconds );
-        updateCameraOverlay();
-    }
+    (void)advanceFlyNavigation(
+        deltaSeconds, QApplication::keyboardModifiers() );
 
     math::mat4_t view{};
     math::mat4_t projection{};
@@ -950,7 +973,9 @@ bool CypherTileRenderViewport::event( QEvent *pEvent )
         pEvent->accept();
         return true;
     }
-    if ( pEvent->type() == QEvent::WindowDeactivate || pEvent->type() == QEvent::UngrabMouse ) stopNavigation();
+    if ( pEvent->type() == QEvent::WindowDeactivate ||
+         pEvent->type() == QEvent::UngrabMouse ||
+         pEvent->type() == QEvent::UngrabKeyboard ) stopNavigation();
     return QOpenGLWidget::event( pEvent );
 }
 
@@ -976,12 +1001,19 @@ void CypherTileRenderViewport::mousePressEvent( QMouseEvent *pEvent )
                 }
             } else if ( m_pBridge != nullptr && m_pBridge->isInitialized() ) {
                 const bool supported = m_tool == tile_canvas_tool_t::PAINT || m_tool == tile_canvas_tool_t::ERASE ||
-                    m_tool == tile_canvas_tool_t::PLAYER_SPAWN || m_tool == tile_canvas_tool_t::DOOR || m_tool == tile_canvas_tool_t::EYEDROPPER;
-                const bool target = hit || ( m_tool == tile_canvas_tool_t::PAINT &&
+                    m_tool == tile_canvas_tool_t::PLAYER_SPAWN || m_tool == tile_canvas_tool_t::DOOR ||
+                    m_tool == tile_canvas_tool_t::EYEDROPPER || m_tool == tile_canvas_tool_t::STAMP;
+                const bool canPlaceOnPlane = m_tool == tile_canvas_tool_t::PAINT ||
+                    m_tool == tile_canvas_tool_t::STAMP;
+                const bool target = hit || ( canPlaceOnPlane &&
                     CypherTileRenderViewport_PickPlane( m_camera, normalizedX, normalizedY, viewportWidth / viewportHeight,
                         m_paint.nFloorLevel * m_pBridge->document()->nLevelHeight, *m_pBridge->document(), cell ) );
-                if ( !supported ) report( tr( "Use Paint, Erase, Spawn, Door or Eyedropper in 3D; drag drawing tools use orthographic views." ), false );
-                else if ( !target ) report( tr( "No map cell at the pointer. Paint can add cells on the brush floor plane inside map bounds." ), false );
+                if ( !supported ) report( tr( "Use Select, Place Piece, Paint, Erase, Spawn, Door or Eyedropper in 3D." ), false );
+                else if ( !target ) report( tr( "No map cell at the pointer. Paint and Place Piece can use the active floor plane inside map bounds." ), false );
+                else if ( m_tool == tile_canvas_tool_t::STAMP ) {
+                    if ( m_stampCallback ) m_stampCallback( cell );
+                    else report( tr( "Choose a room or shape from the Pieces panel first." ), true );
+                }
                 else if ( m_tool == tile_canvas_tool_t::EYEDROPPER ) {
                     const auto *picked = CypherTileMapDocument_CellAt( m_pBridge->document(), cell );
                     if ( picked != nullptr ) {
@@ -1033,14 +1065,58 @@ void CypherTileRenderViewport::mousePressEvent( QMouseEvent *pEvent )
     if ( m_navigation != navigation_t::PAN ) {
         CypherTileCamera_SetMode( m_camera, m_navigation == navigation_t::LOOK ? tile_camera_mode_t::FLY : tile_camera_mode_t::ORBIT );
     }
+    m_navigationOrbitPivot.reset();
+    m_bNavigationChanged = false;
+    m_pendingNavigationDelta = {};
+    if ( m_navigation == navigation_t::ORBIT ) {
+        const float viewportWidth = std::max( width(), 1 );
+        const float viewportHeight = std::max( height(), 1 );
+        const float normalizedX = static_cast<float>( pEvent->position().x() ) / viewportWidth * 2.0f - 1.0f;
+        const float normalizedY = 1.0f - static_cast<float>( pEvent->position().y() ) / viewportHeight * 2.0f;
+        tile_map_grid_coord_t ignoredCell{};
+        math::vec3_t hitPoint{};
+        if ( CypherTileRenderViewport_PickGeometry( m_camera,
+                 { m_geometry.boxes.pData, m_geometry.boxes.nCount },
+                 normalizedX, normalizedY, viewportWidth / viewportHeight,
+                 ignoredCell, &hitPoint ) ) {
+            m_navigationOrbitPivot = hitPoint;
+        } else {
+            math::vec3_t minimum{}, maximum{};
+            if ( selectedGeometryBounds( minimum, maximum ) ) {
+                m_navigationOrbitPivot = math::Vec3_Add(
+                    math::Vec3_Scale( minimum, 0.5f ),
+                    math::Vec3_Scale( maximum, 0.5f ) );
+            } else if ( !m_bTemporaryOrbit && m_orbitPivot.has_value() &&
+                        math::Vec3_IsFinite( *m_orbitPivot ) ) {
+                m_navigationOrbitPivot = m_orbitPivot;
+            } else {
+                const math::vec3_t implicitPivot = math::Vec3_Add(
+                    m_camera.position,
+                    math::Vec3_Scale( CypherTileCamera_Forward( m_camera ),
+                        m_camera.orbitDistance ) );
+                if ( math::Vec3_IsFinite( implicitPivot ) )
+                    m_navigationOrbitPivot = implicitPivot;
+            }
+        }
+    }
     m_lastMouse = pEvent->position().toPoint();
     m_savedPointer = pEvent->globalPosition().toPoint();
-    if ( m_navigation == navigation_t::LOOK &&
+    if ( m_navigation == navigation_t::LOOK && isVisible() &&
          QApplication::platformName() != QStringLiteral( "offscreen" ) && QApplication::platformName() != QStringLiteral( "minimal" ) ) {
-        m_bPointerCaptured = true;
         grabMouse( QCursor( Qt::BlankCursor ) );
-        m_lastMouse = rect().center();
-        QCursor::setPos( mapToGlobal( m_lastMouse ) );
+        m_bPointerCaptured = QWidget::mouseGrabber() == this;
+        // Camera flight is a modal pointer gesture. Keep its movement keys on
+        // the viewport even if a global QAction or native window chrome would
+        // otherwise take focus while RMB remains held. setFocus above remains
+        // the fallback on platforms that decline an explicit keyboard grab.
+        grabKeyboard();
+        m_bKeyboardCaptured = QWidget::keyboardGrabber() == this;
+        if ( m_bPointerCaptured ) {
+            m_lastMouse = rect().center();
+            QCursor::setPos( mapToGlobal( m_lastMouse ) );
+        } else {
+            setCursor( Qt::ClosedHandCursor );
+        }
     } else setCursor( Qt::ClosedHandCursor );
     m_nPreviousFrameNanoseconds = 0;
     synchronizeFrameTimer();
@@ -1054,13 +1130,53 @@ void CypherTileRenderViewport::mouseMoveEvent( QMouseEvent *pEvent )
     const QPoint current = pEvent->position().toPoint();
     const QPoint delta = current - m_lastMouse;
     if ( delta.isNull() ) { pEvent->accept(); return; }
-    m_bContextMenuCandidate = false;
-    m_bUserNavigated = true;
-    if ( m_navigation == navigation_t::PAN ) {
-        CypherTileCamera_Pan( m_camera, delta.x(), delta.y(), height() );
-    } else {
-        CypherTileCamera_ApplyLook( m_camera, delta.x(), delta.y() );
+    QPoint navigationDelta = delta;
+    if ( m_bContextMenuCandidate ) {
+        m_pendingNavigationDelta += delta;
+        const int threshold = std::max( 1, QApplication::startDragDistance() );
+        if ( m_pendingNavigationDelta.manhattanLength() < threshold ) {
+            if ( m_bPointerCaptured ) {
+                m_lastMouse = rect().center();
+                QCursor::setPos( mapToGlobal( m_lastMouse ) );
+            } else m_lastMouse = current;
+            pEvent->accept();
+            return;
+        }
+        navigationDelta = m_pendingNavigationDelta;
+        m_pendingNavigationDelta = {};
+        m_bContextMenuCandidate = false;
     }
+
+    bool changed = false;
+    if ( m_navigation == navigation_t::PAN ) {
+        const math::vec3_t before = m_camera.position;
+        CypherTileCamera_Pan(
+            m_camera, navigationDelta.x(), navigationDelta.y(), height() );
+        changed = !math::Vec3_EqualsExact( before, m_camera.position );
+        if ( changed && m_camera.mode == tile_camera_mode_t::ORBIT &&
+             m_orbitPivot.has_value() ) {
+            const math::vec3_t translation = math::Vec3_Subtract(
+                m_camera.position, before );
+            const math::vec3_t translatedPivot = math::Vec3_Add(
+                *m_orbitPivot, translation );
+            if ( math::Vec3_IsFinite( translatedPivot ) )
+                m_orbitPivot = translatedPivot;
+        }
+    } else if ( m_navigation == navigation_t::ORBIT &&
+                m_navigationOrbitPivot.has_value() ) {
+        changed = CypherTileCamera_OrbitAround(
+            m_camera, *m_navigationOrbitPivot,
+            navigationDelta.x(), navigationDelta.y() );
+    } else {
+        const auto before = m_camera;
+        CypherTileCamera_ApplyLook(
+            m_camera, navigationDelta.x(), navigationDelta.y() );
+        changed = before.yawRadians != m_camera.yawRadians ||
+            before.pitchRadians != m_camera.pitchRadians ||
+            !math::Vec3_EqualsExact( before.position, m_camera.position );
+    }
+    m_bNavigationChanged = m_bNavigationChanged || changed;
+    m_bUserNavigated = m_bUserNavigated || changed;
     if ( m_bPointerCaptured ) {
         m_lastMouse = rect().center();
         QCursor::setPos( mapToGlobal( m_lastMouse ) );
@@ -1072,16 +1188,30 @@ void CypherTileRenderViewport::mouseMoveEvent( QMouseEvent *pEvent )
 
 void CypherTileRenderViewport::stopNavigation()
 {
+    const navigation_t stoppedNavigation = m_navigation;
+    const bool temporaryOrbit = m_bTemporaryOrbit;
+    if ( stoppedNavigation == navigation_t::ORBIT &&
+         !temporaryOrbit && m_bNavigationChanged &&
+         m_navigationOrbitPivot.has_value() ) {
+        m_orbitPivot = m_navigationOrbitPivot;
+    }
     m_navigation = navigation_t::NONE;
     m_navigationButton = Qt::NoButton;
     m_bContextMenuCandidate = false;
+    m_pendingNavigationDelta = {};
     m_pressedKeys.clear();
     if ( m_bTemporaryOrbit ) {
         m_bTemporaryOrbit = false;
         CypherTileCamera_SetMode( m_camera, m_previousMode );
     }
+    m_navigationOrbitPivot.reset();
+    m_bNavigationChanged = false;
     const bool captured = m_bPointerCaptured;
     m_bPointerCaptured = false;
+    const bool keyboardCaptured = m_bKeyboardCaptured;
+    m_bKeyboardCaptured = false;
+    if ( keyboardCaptured && QWidget::keyboardGrabber() == this )
+        releaseKeyboard();
     if ( captured ) {
         if ( QWidget::mouseGrabber() == this ) releaseMouse();
         QCursor::setPos( m_savedPointer );
@@ -1119,17 +1249,38 @@ void CypherTileRenderViewport::wheelEvent( QWheelEvent *pEvent )
         QOpenGLWidget::wheelEvent( pEvent );
         return;
     }
-    const bool adjustedFlySpeed = m_camera.mode == tile_camera_mode_t::FLY;
-    CypherTileCamera_Wheel( m_camera, ticks );
+    if ( isNavigating() ) m_bContextMenuCandidate = false;
+    const bool adjustedFlySpeed = m_navigation == navigation_t::LOOK;
+    bool changed = false;
+    if ( adjustedFlySpeed ) {
+        const float previousSpeed = m_camera.settings.moveSpeed;
+        (void)CypherTileCamera_AdjustMoveSpeed( m_camera, ticks );
+        m_camera.settings.moveSpeed = std::clamp(
+            m_camera.settings.moveSpeed, 0.1f, 1000.0f );
+        changed = m_camera.settings.moveSpeed != previousSpeed;
+    } else if ( m_navigation == navigation_t::ORBIT &&
+                m_navigationOrbitPivot.has_value() ) {
+        changed = CypherTileCamera_OrbitWheel(
+            m_camera, *m_navigationOrbitPivot, ticks );
+        m_bNavigationChanged = m_bNavigationChanged || changed;
+    } else if ( m_camera.mode == tile_camera_mode_t::ORBIT &&
+                m_orbitPivot.has_value() ) {
+        changed = CypherTileCamera_OrbitWheel(
+            m_camera, *m_orbitPivot, ticks );
+    } else {
+        const auto before = m_camera;
+        CypherTileCamera_Wheel( m_camera, ticks );
+        changed = !math::Vec3_EqualsExact( before.position, m_camera.position ) ||
+            before.orbitDistance != m_camera.orbitDistance;
+    }
     // Auto orbit temporarily uses Orbit even when Fly is the saved preference.
     // Apply this gesture to the mode the user was actually viewing, then end
     // auto orbit and restore that preference.
     setAutoOrbitState( false );
     if ( adjustedFlySpeed ) {
-        m_camera.settings.moveSpeed = std::clamp( m_camera.settings.moveSpeed, 0.1f, 1000.0f );
-        notifyCameraChange();
+        if ( changed ) notifyCameraChange();
     }
-    m_bUserNavigated = true;
+    else if ( changed ) m_bUserNavigated = true;
     synchronizeFrameTimer();
     updateCameraOverlay();
     update();
@@ -1146,11 +1297,6 @@ void CypherTileRenderViewport::keyPressEvent( QKeyEvent *pEvent )
     }
     if ( isNavigating() ) {
         m_bContextMenuCandidate = false;
-        if ( pEvent->key() == Qt::Key_W || pEvent->key() == Qt::Key_A ||
-             pEvent->key() == Qt::Key_S || pEvent->key() == Qt::Key_D ||
-             pEvent->key() == Qt::Key_Q || pEvent->key() == Qt::Key_E ) {
-            m_bUserNavigated = true;
-        }
         m_pressedKeys.insert( pEvent->key() );
         pEvent->accept();
         return;
@@ -1647,7 +1793,88 @@ void CypherTileRenderViewport::updateCameraBounds( bool bResetView )
     if ( bResetView ) {
         CypherTileCamera_FrameBounds( m_camera, minimum, maximum,
             static_cast<float>( std::max( width(), 1 ) ) / std::max( height(), 1 ), true );
+        if ( m_camera.mode == tile_camera_mode_t::ORBIT ) resetOrbitPivotToViewFocus();
+        else m_orbitPivot.reset();
     } else CypherTileCamera_UpdateBounds( m_camera, minimum, maximum );
+}
+
+bool CypherTileRenderViewport::selectedGeometryBounds(
+    math::vec3_t &minimumOut, math::vec3_t &maximumOut ) const
+{
+    bool found = false;
+    for ( common::usize i = 0;
+          i < common::Vector_Count( &m_geometry.boxes ); ++i ) {
+        const auto &box = m_geometry.boxes.pData[i];
+        if ( !SelectionContains( m_selectedCells, box.sourceCell ) ) continue;
+        const math::vec3_t minimum{
+            box.centerX - box.halfExtentX,
+            box.centerY - box.halfExtentY,
+            box.centerZ - box.halfExtentZ };
+        const math::vec3_t maximum{
+            box.centerX + box.halfExtentX,
+            box.centerY + box.halfExtentY,
+            box.centerZ + box.halfExtentZ };
+        if ( !math::Vec3_IsFinite( minimum ) ||
+             !math::Vec3_IsFinite( maximum ) ) continue;
+        if ( !found ) {
+            minimumOut = minimum;
+            maximumOut = maximum;
+            found = true;
+        } else {
+            minimumOut = {
+                std::min( minimumOut.x, minimum.x ),
+                std::min( minimumOut.y, minimum.y ),
+                std::min( minimumOut.z, minimum.z ) };
+            maximumOut = {
+                std::max( maximumOut.x, maximum.x ),
+                std::max( maximumOut.y, maximum.y ),
+                std::max( maximumOut.z, maximum.z ) };
+        }
+    }
+    return found;
+}
+
+void CypherTileRenderViewport::resetOrbitPivotToViewFocus()
+{
+    if ( !math::Vec3_IsFinite( m_camera.position ) ||
+         !std::isfinite( m_camera.orbitDistance ) ||
+         m_camera.orbitDistance < 0.05f ) {
+        m_orbitPivot.reset();
+        return;
+    }
+    const math::vec3_t pivot = math::Vec3_Add(
+        m_camera.position,
+        math::Vec3_Scale(
+            CypherTileCamera_Forward( m_camera ), m_camera.orbitDistance ) );
+    if ( math::Vec3_IsFinite( pivot ) ) m_orbitPivot = pivot;
+    else m_orbitPivot.reset();
+}
+
+bool CypherTileRenderViewport::advanceFlyNavigation(
+    float deltaSeconds, Qt::KeyboardModifiers modifiers )
+{
+    if ( m_navigation != navigation_t::LOOK ) return false;
+    tile_camera_input_t input{};
+    input.forward =
+        ( m_pressedKeys.contains( Qt::Key_W ) ? 1.0f : 0.0f ) -
+        ( m_pressedKeys.contains( Qt::Key_S ) ? 1.0f : 0.0f );
+    input.right =
+        ( m_pressedKeys.contains( Qt::Key_D ) ? 1.0f : 0.0f ) -
+        ( m_pressedKeys.contains( Qt::Key_A ) ? 1.0f : 0.0f );
+    input.up =
+        ( m_pressedKeys.contains( Qt::Key_E ) ? 1.0f : 0.0f ) -
+        ( m_pressedKeys.contains( Qt::Key_Q ) ? 1.0f : 0.0f );
+    input.fast = m_pressedKeys.contains( Qt::Key_Shift ) ||
+        modifiers.testFlag( Qt::ShiftModifier );
+    input.slow = m_pressedKeys.contains( Qt::Key_Control ) ||
+        modifiers.testFlag( Qt::ControlModifier );
+    const bool moved = CypherTileCamera_Move(
+        m_camera, input, deltaSeconds );
+    if ( moved ) {
+        m_bUserNavigated = true;
+        updateCameraOverlay();
+    }
+    return moved;
 }
 
 void CypherTileRenderViewport::synchronizeFrameTimer()
@@ -1658,6 +1885,39 @@ void CypherTileRenderViewport::synchronizeFrameTimer()
         return;
     }
     m_pFrameTimer->stop();
+}
+
+void CypherTileRenderViewport::updateInteractionTooltip()
+{
+    QString primary;
+    switch ( m_tool ) {
+        case tile_canvas_tool_t::STAMP:
+            primary = tr( "Left click places %1 on visible geometry or the active floor plane." )
+                .arg( m_stampLabel.isEmpty() ? tr( "the current piece" ) : m_stampLabel );
+            break;
+        case tile_canvas_tool_t::PAINT:
+            primary = tr( "Left click paints the visible cell or the active floor plane." );
+            break;
+        case tile_canvas_tool_t::ERASE:
+            primary = tr( "Left click erases the visible cell." );
+            break;
+        case tile_canvas_tool_t::PLAYER_SPAWN:
+            primary = tr( "Left click visible geometry to place the player spawn." );
+            break;
+        case tile_canvas_tool_t::DOOR:
+            primary = tr( "Left click visible geometry to toggle the prepared door." );
+            break;
+        case tile_canvas_tool_t::EYEDROPPER:
+            primary = tr( "Left click visible geometry to pick its material and dimensions." );
+            break;
+        default:
+            primary = tr( "Left click selects visible map geometry." );
+            break;
+    }
+    setToolTip( tr( "%1 Hold right mouse to look and fly with WASD; Q/E move down/up; "
+                    "Shift is fast and Ctrl is precise. Alt+right mouse orbits, middle mouse pans, "
+                    "and the wheel dollies. With a selection, arrows move it, Page Up/Down changes "
+                    "elevation, Ctrl+D duplicates, and Ctrl+R rotates." ).arg( primary ) );
 }
 
 void CypherTileRenderViewport::updateCameraOverlay()
@@ -1679,9 +1939,13 @@ void CypherTileRenderViewport::updateCameraOverlay()
                     : m_camera.mode == tile_camera_mode_t::FLY ? tr( "Fly" ) : tr( "Orbit" ) )
                 .arg( m_camera.settings.moveSpeed, 0, 'f', 1 ) );
         }
+        if ( m_tool == tile_canvas_tool_t::STAMP ) {
+            lines.append( tr( "Place %1 · click geometry or the active floor plane · RMB + WASD/QE to fly" )
+                .arg( m_stampLabel.isEmpty() ? tr( "piece" ) : m_stampLabel ) );
+        }
         if ( m_showCameraHints ) {
             lines.append( m_camera.mode == tile_camera_mode_t::FLY
-                ? tr( "RMB + WASD/QE fly · MMB pan · Alt+RMB orbit · wheel speed · Camera menu" )
+                ? tr( "RMB + WASD/QE fly · wheel dolly · RMB+wheel speed · Alt+RMB orbit" )
                 : tr( "RMB orbit · MMB pan · wheel zoom · Camera menu" ) );
         }
     }

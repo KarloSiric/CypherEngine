@@ -4,6 +4,7 @@
 //////////////////////////////////////////////////////////////////////////
 #include "CypherTileCanvas.h"
 #include "Core/CypherTileMapMaterials.h"
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <QApplication>
 #include <QFocusEvent>
@@ -11,6 +12,7 @@
 #include <QKeyEvent>
 #include <QImage>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <cmath>
 #include <limits>
 
@@ -167,17 +169,60 @@ TEST_CASE( "Top-view pan owns its initiating button and never paints", "[TileEdi
     }
 }
 
-TEST_CASE( "Stationary RMB opens Top context options while RMB drag keeps panning",
+TEST_CASE( "Top Space navigation owns plain Space but leaves Shift Space to viewport maximize",
+    "[TileEditor][Navigation][Shortcuts]" )
+{
+    EnsureSelectionApplication();
+    SelectionFixture fixture;
+    QKeyEvent ordinary( QEvent::ShortcutOverride, Qt::Key_Space,
+                       Qt::NoModifier );
+    ordinary.setAccepted( false );
+    QApplication::sendEvent( &fixture.canvas, &ordinary );
+    CHECK( ordinary.isAccepted() );
+
+    QKeyEvent maximize( QEvent::ShortcutOverride, Qt::Key_Space,
+                       Qt::ShiftModifier );
+    maximize.setAccepted( false );
+    QApplication::sendEvent( &fixture.canvas, &maximize );
+    CHECK_FALSE( maximize.isAccepted() );
+}
+
+TEST_CASE( "Top smooth trackpad zoom stays anchored beneath the pointer",
+    "[TileEditor][Navigation][Trackpad]" )
+{
+    EnsureSelectionApplication();
+    SelectionFixture fixture;
+    const QPointF pointer( 170.0, 115.0 );
+    const QPointF beforeOrigin = fixture.canvas.viewOrigin();
+    const qreal beforeZoom = fixture.canvas.zoomFactor();
+    QWheelEvent zoom( pointer, pointer, QPoint( 0, 40 ), {},
+                      Qt::NoButton, Qt::NoModifier,
+                      Qt::NoScrollPhase, false );
+    QApplication::sendEvent( &fixture.canvas, &zoom );
+
+    const qreal expectedScale = 1.15;
+    CHECK( fixture.canvas.zoomFactor() ==
+           Catch::Approx( beforeZoom * expectedScale ) );
+    const QPointF expectedOrigin =
+        pointer - ( pointer - beforeOrigin ) * expectedScale;
+    CHECK( qAbs( fixture.canvas.viewOrigin().x() - expectedOrigin.x() ) < 0.00001 );
+    CHECK( qAbs( fixture.canvas.viewOrigin().y() - expectedOrigin.y() ) < 0.00001 );
+}
+
+TEST_CASE( "Top RMB waits for the platform drag threshold before panning",
     "[TileEditor][Navigation][ContextMenu]" )
 {
     EnsureSelectionApplication();
     SelectionFixture fixture;
     int contextMenus = 0;
+    int navigationChanges = 0;
     QPoint requestedPosition;
     fixture.canvas.setContextMenuCallback( [&]( const QPoint &globalPosition ) {
         ++contextMenus;
         requestedPosition = globalPosition;
     } );
+    fixture.canvas.setNavigationChangedCallback(
+        [&]( const tile_ortho_camera_state_t & ) { ++navigationChanges; } );
 
     const QPointF start = fixture.center( 3, 3 );
     const auto initialOrigin = fixture.canvas.viewOrigin();
@@ -192,22 +237,44 @@ TEST_CASE( "Stationary RMB opens Top context options while RMB drag keeps pannin
     QApplication::processEvents();
     CHECK( contextMenus == 1 );
     CHECK( requestedPosition == start.toPoint() );
+    CHECK( navigationChanges == 0 );
 
-    const QPointF dragDelta(
-        QApplication::startDragDistance() + 12,
-        -( QApplication::startDragDistance() + 4 ) );
+    const qreal dragThreshold = QApplication::startDragDistance();
+    REQUIRE( dragThreshold > 0.0 );
+    const QPointF jitterDelta( dragThreshold * 0.5, 0.0 );
     Mouse( fixture.canvas, QEvent::MouseButtonPress,
            start, Qt::RightButton, Qt::RightButton );
     REQUIRE( fixture.canvas.isPanning() );
     Mouse( fixture.canvas, QEvent::MouseMove,
-           start + dragDelta, Qt::NoButton, Qt::RightButton );
+           start + jitterDelta, Qt::NoButton, Qt::RightButton );
     CHECK( fixture.canvas.isPanning() );
-    CHECK( fixture.canvas.viewOrigin() == initialOrigin + dragDelta );
+    CHECK( fixture.canvas.viewOrigin() == initialOrigin );
+    CHECK( navigationChanges == 0 );
     Mouse( fixture.canvas, QEvent::MouseButtonRelease,
-           start + dragDelta, Qt::RightButton, Qt::NoButton );
+           start + jitterDelta, Qt::RightButton, Qt::NoButton );
+    QApplication::processEvents();
+    CHECK( contextMenus == 2 );
+
+    const QPointF thresholdDelta( dragThreshold, 0.0 );
+    const QPointF continuedDelta( dragThreshold + 7.0, -4.0 );
+    Mouse( fixture.canvas, QEvent::MouseButtonPress,
+           start, Qt::RightButton, Qt::RightButton );
+    Mouse( fixture.canvas, QEvent::MouseMove,
+           start + jitterDelta, Qt::NoButton, Qt::RightButton );
+    CHECK( fixture.canvas.viewOrigin() == initialOrigin );
+    Mouse( fixture.canvas, QEvent::MouseMove,
+           start + thresholdDelta, Qt::NoButton, Qt::RightButton );
+    CHECK( fixture.canvas.viewOrigin() == initialOrigin + thresholdDelta );
+    CHECK( navigationChanges == 1 );
+    Mouse( fixture.canvas, QEvent::MouseMove,
+           start + continuedDelta, Qt::NoButton, Qt::RightButton );
+    CHECK( fixture.canvas.viewOrigin() == initialOrigin + continuedDelta );
+    CHECK( navigationChanges == 2 );
+    Mouse( fixture.canvas, QEvent::MouseButtonRelease,
+           start + continuedDelta, Qt::RightButton, Qt::NoButton );
     CHECK_FALSE( fixture.canvas.isPanning() );
     QApplication::processEvents();
-    CHECK( contextMenus == 1 );
+    CHECK( contextMenus == 2 );
     CHECK_FALSE( fixture.document.isDirty() );
 }
 

@@ -9,31 +9,31 @@ QToolTip { color: @TEXT@; background: @INSET@; border: 1px solid @BORDER@; paddi
 QMenuBar { background: @CHROME@; border-bottom: 1px solid @EDGE@; padding: 1px 3px; }
 QMenuBar::item { padding: 2px 7px; }
 QMenuBar::item:selected { background: @HOVER@; }
-QMenu { background: @BACKGROUND@; border: 1px solid #626262; padding: 3px; }
+QMenu { background: @BACKGROUND@; border: 1px solid @BORDER@; padding: 3px; }
 QMenu::item { padding: 4px 25px 4px 22px; border-left: 2px solid transparent; }
 QMenu::item:selected { background: @INSET@; border-left-color: @ACCENT@; color: @SELECTED_TEXT@; }
 QMenu::item:disabled { color: @DISABLED@; }
 QMenu::separator { height: 1px; background: @HOVER@; margin: 4px 6px; }
 QMainWindow::separator { background: @EDGE@; width: 3px; height: 3px; }
-QMainWindow::separator:hover { background: #686868; }
+QMainWindow::separator:hover { background: @HOVER@; }
 QDockWidget { color: @TEXT@; font-weight: 600; border: 1px solid @EDGE@; }
 QDockWidget::title { background: @HEADER@; border-top: 1px solid @HIGHLIGHT_EDGE@; border-bottom: 1px solid @EDGE@; padding: 2px 5px; }
 QDockWidget::close-button, QDockWidget::float-button { border: 1px solid transparent; background: transparent; padding: 1px; }
-QDockWidget::close-button:hover, QDockWidget::float-button:hover { border-color: #666666; background: @INPUT@; }
+QDockWidget::close-button:hover, QDockWidget::float-button:hover { border-color: @BORDER@; background: @INPUT@; }
 
 /* Dense icon toolbars; the orange treatment identifies the selected tool. */
 QToolBar { background: @CHROME@; border: 0; border-bottom: 1px solid @EDGE@; spacing: 1px; padding: 1px; }
 QToolBar::separator { background: @INSET@; width: 1px; height: 1px; margin: 3px; }
 QToolButton, QPushButton { background: @BUTTON@; border: 1px solid @BORDER@; border-bottom-color: @INSET@; border-radius: 0; padding: 2px 5px; }
 QToolButton { border-radius: 2px; }
-QToolButton:hover, QPushButton:hover { background: @HOVER@; border-color: #777777; }
+QToolButton:hover, QPushButton:hover { background: @HOVER@; border-color: @HIGHLIGHT_EDGE@; }
 QToolButton:pressed, QPushButton:pressed { background: @INPUT@; border-color: @ACCENT@; }
 QToolButton:checked, QPushButton:checked { background: @EDGE@; border-color: @ACCENT@; color: @ACCENT_LIGHT@; }
 QToolButton:checked:hover, QPushButton:checked:hover { background: @CHECKED_HOVER@; border-color: @ACCENT_LIGHT@; }
-QToolButton:disabled, QPushButton:disabled { background: #343434; border-color: @BUTTON@; color: @DISABLED@; }
+QToolButton:disabled, QPushButton:disabled { background: @CHROME@; border-color: @BUTTON@; color: @DISABLED@; }
 QPushButton:default { border-color: @ACCENT@; }
 QToolBar QToolButton { background: transparent; border: 1px solid transparent; padding: 3px; }
-QToolBar QToolButton:hover { background: @BUTTON@; border-color: #6b6b6b; }
+QToolBar QToolButton:hover { background: @BUTTON@; border-color: @BORDER@; }
 QToolBar QToolButton:pressed { background: @EDGE@; border-color: @ACCENT@; }
 QToolBar QToolButton:checked { background: @EDGE@; border-color: @ACCENT@; color: @ACCENT_LIGHT@; }
 QToolBar QToolButton:checked:hover { background: @CHECKED_HOVER@; border-color: @ACCENT_LIGHT@; }
@@ -51,23 +51,27 @@ QWidget#TileViewHeader[active="true"] { background: @VIEW_HEADER_ACTIVE@; }
 QWidget#TileViewHeader QLabel { color: @TEXT_MUTED@; font-size: @HEADER_FONT@pt; font-weight: 500; }
 QWidget#TileViewHeader QLabel[tileViewNumber="true"] { color: @SELECTED_TEXT@; background: @DEEPEST@; border: 1px solid @EDGE@; min-width: 15px; min-height: 14px; padding: 0 2px; font-weight: 700; }
 QWidget#TileViewHeader QToolButton { padding: 0 2px; min-width: 14px; min-height: 15px; background: transparent; border-color: transparent; }
-QWidget#TileViewHeader QToolButton:hover { background: #505050; border-color: #777777; }
+QWidget#TileViewHeader QToolButton:hover { background: @HOVER@; border-color: @HIGHLIGHT_EDGE@; }
 QSplitter::handle { background: @EDGE@; }
-QSplitter::handle:hover { background: #626262; }
+QSplitter::handle:hover { background: @VIEW_GUTTER_HOVER@; }
 QSplitter#TileViewRows::handle:vertical { background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 @VIEW_GUTTER_LIGHT@, stop: 0.20 @VIEW_GUTTER@, stop: 0.80 @VIEW_GUTTER@, stop: 1 @VIEW_GUTTER_SHADOW@); border: 0; }
 QSplitter#TileViewRow0::handle:horizontal, QSplitter#TileViewRow1::handle:horizontal { background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 @VIEW_GUTTER_LIGHT@, stop: 0.20 @VIEW_GUTTER@, stop: 0.80 @VIEW_GUTTER@, stop: 1 @VIEW_GUTTER_SHADOW@); border: 0; }
 QSplitter#TileViewRows::handle:vertical:hover, QSplitter#TileViewRow0::handle:horizontal:hover, QSplitter#TileViewRow1::handle:horizontal:hover { background: @VIEW_GUTTER_HOVER@; }
 QOpenGLWidget#CypherTileRenderViewport { background: @PERSPECTIVE@; }
-QLabel#TileRenderOverlay { background: rgba(27, 27, 27, 220); color: @TEXT_MUTED@; border: 1px solid #555555; border-radius: 0; padding: 2px 5px; }
-QLabel#TileRenderOverlay[ready="true"] { color: @TEXT@; border-color: #656565; }
-QLabel#TileRenderOverlay[error="true"] { color: #f0aba5; background: rgba(58, 28, 26, 235); border-color: #b85b53; }
-QWidget#TileAxisTriad { background: rgba(27, 27, 27, 205); border: 1px solid @BORDER@; }
+QLabel#TileRenderOverlay { background: @OVERLAY_BG@; color: @TEXT_MUTED@; border: 1px solid @BORDER@; border-radius: 0; padding: 2px 5px; }
+QLabel#TileRenderOverlay[ready="true"] { color: @TEXT@; border-color: @HIGHLIGHT_EDGE@; }
+QLabel#TileRenderOverlay[error="true"] { color: @ERROR_TEXT@; background: @ERROR_BG@; border-color: @ERROR_BORDER@; }
+QWidget#TileAxisTriad { background: transparent; border: none; }
 
 /* Properties, lists, and compact settings forms. */
 QTabWidget::pane { border: 1px solid @EDGE@; background: @BACKGROUND@; }
 QTabBar::tab { color: @TEXT_MUTED@; background: @PANEL@; border: 1px solid @EDGE@; padding: 3px 7px; }
 QTabBar::tab:selected { color: @SELECTED_TEXT@; background: @INSET@; border-top-color: @ACCENT@; }
 QTabBar::tab:hover { background: @HOVER@; }
+QTabWidget#TileInspectorTabs::pane, QTabWidget#TileAssetTabs::pane { border: 0; border-top: 1px solid @EDGE@; background: @BACKGROUND@; }
+QTabBar#TileInspectorTabBar::tab, QTabBar#TileAssetTabBar::tab { color: @TEXT_MUTED@; background: @PANEL@; border: 0; border-right: 1px solid @EDGE@; border-bottom: 1px solid @EDGE@; padding: 4px 7px; }
+QTabBar#TileInspectorTabBar::tab:selected, QTabBar#TileAssetTabBar::tab:selected { color: @SELECTED_TEXT@; background: @INSET@; border-top: 2px solid @ACCENT@; border-bottom-color: @INSET@; }
+QTabBar#TileInspectorTabBar::tab:hover, QTabBar#TileAssetTabBar::tab:hover { color: @TEXT@; background: @HOVER@; }
 QTreeWidget, QListWidget, QTableWidget, QPlainTextEdit { background: @PANEL@; border: 1px solid @EDGE@; border-bottom-color: @BORDER@; outline: 0; alternate-background-color: @ALTERNATE@; }
 QTreeWidget::item, QListWidget::item { min-height: 15px; padding: 1px 4px; border-left: 2px solid transparent; }
 QTreeWidget::item:selected, QListWidget::item:selected { background: @INSET@; border-left-color: @ACCENT@; color: @SELECTED_TEXT@; }
@@ -79,13 +83,36 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QKeySequ
 QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled, QKeySequenceEdit:disabled { background: @INPUT@; color: @DISABLED@; border-color: @BORDER@; }
 QCheckBox { spacing: 4px; padding: 1px 0; }
 QLabel[muted="true"] { color: @TEXT_MUTED@; }
-QLabel[accent="true"] { color: #95c795; }
+QLabel[accent="true"] { color: @SUCCESS_TEXT@; }
+QLabel#TileSettingsThemeStatus[error="true"] { color: @ERROR_TEXT@; background: @ERROR_BG@; border: 1px solid @ERROR_BORDER@; padding: 4px; }
 QListWidget#TileProjectMaterialList, QListWidget#TileMaterialPalette, QListWidget#TileStampPalette { background: @INPUT@; border: 1px solid @DEEPEST@; }
 QListWidget#TileProjectMaterialList::item, QListWidget#TileMaterialPalette::item, QListWidget#TileStampPalette::item { min-height: 0; padding: 2px; color: @TEXT@; border: 1px solid transparent; }
-QListWidget#TileProjectMaterialList::item:hover, QListWidget#TileMaterialPalette::item:hover, QListWidget#TileStampPalette::item:hover { border-color: #777777; background: #3a3a3a; }
+QListWidget#TileProjectMaterialList::item:hover, QListWidget#TileMaterialPalette::item:hover, QListWidget#TileStampPalette::item:hover { border-color: @HIGHLIGHT_EDGE@; background: @HOVER@; }
 QListWidget#TileProjectMaterialList::item:selected, QListWidget#TileMaterialPalette::item:selected, QListWidget#TileStampPalette::item:selected { border-color: @ACCENT@; background: @EDGE@; color: @SELECTED_TEXT@; }
 QListWidget#TileValidationList::item { padding: 4px; }
-QLabel#TileValidationSummary { background: @INSET@; border: 1px solid #555555; padding: 4px; }
+QLabel#TileValidationSummary { background: @INSET@; border: 1px solid @BORDER@; padding: 4px; }
+QLabel#TileSelectionSummary { color: @SELECTED_TEXT@; background: @INSET@; border: 1px solid @EDGE@; border-left: 3px solid @ACCENT@; padding: 5px 7px; }
+QGroupBox#TileSelectionMaterialGroup { background: @CHROME@; }
+QWidget#TileSelectionMaterialInspector { background: @PANEL@; border: 1px solid @EDGE@; border-left: 3px solid @ACCENT@; }
+QWidget#TileSelectionMaterialInspector[materialState="none"] { border-left-color: @EDGE@; }
+QWidget#TileSelectionMaterialInspector[materialState="mixed"] { border-left-color: @TEXT_MUTED@; }
+QWidget#TileSelectionMaterialInspector[materialState="builtin"] { border-left-color: @ACCENT@; }
+QWidget#TileSelectionMaterialInspector[materialState="project"] { border-left-color: @SUCCESS_BORDER@; }
+QWidget#TileSelectionMaterialInspector[materialState="unavailable"] { border-left-color: @ERROR_BORDER@; }
+QLabel#TileSelectionMaterialPreview { background: @DEEPEST@; border: 1px solid @EDGE@; }
+QLabel#TileSelectionMaterialName { color: @SELECTED_TEXT@; font-weight: 600; font-size: @BODY_FONT@pt; }
+QLabel#TileSelectionMaterialStatus { color: @TEXT_MUTED@; }
+QLabel#TileSelectionMaterialDiagnostic[error="true"] { color: @ERROR_TEXT@; background: @ERROR_BG@; border: 1px solid @ERROR_BORDER@; padding: 4px; }
+QPushButton#TileSelectionMaterialUse, QPushButton#TileSelectionMaterialBrowse { padding: 3px 6px; }
+QLabel#TileHistoryStateBadge { background: @INSET@; border: 1px solid @EDGE@; color: @TEXT_MUTED@; font-weight: 700; padding: 2px 5px; }
+QLabel#TileHistoryStateBadge[historyState="saved"] { color: @SUCCESS_TEXT@; border-color: @SUCCESS_BORDER@; }
+QLabel#TileHistoryStateBadge[historyState="dirty"] { color: @ACCENT_LIGHT@; border-color: @ACCENT@; }
+QLabel#TileHistoryStateBadge[historyState="editing"] { color: @INFO_TEXT@; border-color: @INFO_BORDER@; }
+QLabel#TileHistoryStateBadge[historyState="none"] { color: @DISABLED@; border-color: @BORDER@; }
+QLabel#TileHistorySummary { color: @TEXT@; }
+QTreeWidget#TileHistoryTree { background: @INPUT@; border-left: 0; border-right: 0; }
+QLabel#TileHistoryDetails { background: @CHROME@; border: 0; border-top: 1px solid @EDGE@; padding: 5px; }
+QToolButton#TileHistoryUndo, QToolButton#TileHistoryRedo { min-height: 20px; }
 
 /* Console and status remain visually quiet. */
 QPlainTextEdit#TileConsoleOutput, QLineEdit#TileConsoleInput, QLabel#TileConsoleCompletionHint { font-size: @BODY_FONT@pt; }
@@ -94,27 +121,26 @@ QPlainTextEdit#TileConsoleOutput { background: @DEEPEST@; border: 0; padding: 5p
 QLineEdit#TileConsoleInput { background: transparent; border: 0; }
 QLabel#TileConsolePrompt { color: @ACCENT@; font-weight: 700; }
 QLabel#TileConsoleCompletionHint { color: @TEXT_MUTED@; padding-right: 4px; }
-QAbstractItemView#TileConsoleCompletionPopup { background: @INSET@; border: 1px solid #686868; outline: 0; padding: 2px; }
+QAbstractItemView#TileConsoleCompletionPopup { background: @INSET@; border: 1px solid @BORDER@; outline: 0; padding: 2px; }
 QAbstractItemView#TileConsoleCompletionPopup::item { min-height: 20px; padding: 3px 8px; }
 QAbstractItemView#TileConsoleCompletionPopup::item:selected { background: @INSET@; color: @SELECTED_TEXT@; }
-QTabWidget#TileConsoleTabs::pane { border: 0; border-top: 1px solid @EDGE@; }
 QWidget#TileShellRunner { background: @BACKGROUND@; }
 QWidget#TileShellDirectoryRow, QWidget#TileShellControlRow, QWidget#TileShellInputRow { background: @CHROME@; }
 QPlainTextEdit#TileShellOutput { background: @DEEPEST@; border: 1px solid @BORDER@; padding: 5px; }
 QLineEdit#TileShellInput, QLineEdit#TileShellWorkingDirectory { font-family: monospace; }
 QLineEdit#TileShellInput { background: @INPUT@; border-color: @EDGE@; }
-QLineEdit#TileShellWorkingDirectory[invalid="true"] { color: #f0aba5; border-color: #b85b53; }
+QLineEdit#TileShellWorkingDirectory[invalid="true"] { color: @ERROR_TEXT@; border-color: @ERROR_BORDER@; }
 QLabel#TileShellPrompt { color: @ACCENT@; font-weight: 700; }
 QLabel#TileShellStatus { color: @TEXT_MUTED@; padding: 1px 3px; }
-QWidget#TileShellRunner[state="running"] QLabel#TileShellStatus { color: #95c795; }
-QWidget#TileShellRunner[state="error"] QLabel#TileShellStatus { color: #f0aba5; }
+QWidget#TileShellRunner[state="running"] QLabel#TileShellStatus { color: @SUCCESS_TEXT@; }
+QWidget#TileShellRunner[state="error"] QLabel#TileShellStatus { color: @ERROR_TEXT@; }
 QStatusBar { background: @BUTTON@; border-top: 1px solid @EDGE@; min-height: 18px; }
 QStatusBar QLabel { padding: 0 5px; border-left: 1px solid @PANEL@; }
 
 QScrollBar:vertical { background: @INPUT@; width: 9px; }
 QScrollBar:horizontal { background: @INPUT@; height: 9px; }
-QScrollBar::handle:vertical { background: #626262; min-height: 28px; }
-QScrollBar::handle:horizontal { background: #626262; min-width: 28px; }
-QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover { background: #868686; }
+QScrollBar::handle:vertical { background: @BORDER@; min-height: 28px; }
+QScrollBar::handle:horizontal { background: @BORDER@; min-width: 28px; }
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover { background: @TEXT_MUTED@; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }

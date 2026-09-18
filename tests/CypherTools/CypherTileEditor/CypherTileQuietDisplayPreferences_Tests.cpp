@@ -71,6 +71,7 @@ TEST_CASE( "Viewport defaults are quiet while explicit display preferences persi
     QuietDisplayApplication();
     tile_editor_preferences_t preferences;
     CHECK_FALSE( preferences.showViewMetrics );
+    CHECK_FALSE( preferences.showAuthoringFooter );
     CHECK( preferences.showViewAxes );
     CHECK( preferences.axisXColor.red() > preferences.axisXColor.green() );
     CHECK( preferences.axisYColor.green() > preferences.axisYColor.red() );
@@ -83,6 +84,7 @@ TEST_CASE( "Viewport defaults are quiet while explicit display preferences persi
     CHECK( preferences.activateViewOnHover );
     CHECK( preferences.centerViewAxes );
     preferences.showViewMetrics = true;
+    preferences.showAuthoringFooter = true;
     preferences.showViewAxes = true;
     preferences.centerViewAxes = false;
     preferences.showCameraHints = true;
@@ -101,6 +103,7 @@ TEST_CASE( "Viewport defaults are quiet while explicit display preferences persi
     tile_editor_preferences_t reloaded;
     REQUIRE( TileEditorConfig_Load( path, reloaded, error ) );
     CHECK( reloaded.showViewMetrics );
+    CHECK( reloaded.showAuthoringFooter );
     CHECK( reloaded.showViewAxes );
     CHECK_FALSE( reloaded.centerViewAxes );
     CHECK( reloaded.showCameraHints );
@@ -110,9 +113,13 @@ TEST_CASE( "Viewport defaults are quiet while explicit display preferences persi
     CHECK( reloaded.activateViewOnHover );
     CypherTileEditorSettingsDialog dialog( reloaded );
     auto *axes = dialog.findChild<QCheckBox *>( "TileSettingsShowViewAxes" );
+    auto *authoringFooter = dialog.findChild<QCheckBox *>( "TileSettingsShowAuthoringFooter" );
     auto *center = dialog.findChild<QCheckBox *>( "TileSettingsCenterViewAxes" );
     auto *highlight = dialog.findChild<QCheckBox *>( "TileSettingsHighlightActiveView" );
-    REQUIRE( axes ); REQUIRE( center ); REQUIRE( highlight );
+    REQUIRE( axes ); REQUIRE( authoringFooter ); REQUIRE( center ); REQUIRE( highlight );
+    CHECK( authoringFooter->isChecked() );
+    authoringFooter->setChecked( false );
+    CHECK_FALSE( dialog.preferences().showAuthoringFooter );
     CHECK( center->isEnabled() );
     axes->setChecked( false );
     CHECK_FALSE( center->isEnabled() );

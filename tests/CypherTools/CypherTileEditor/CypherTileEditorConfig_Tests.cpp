@@ -4,6 +4,8 @@
 //////////////////////////////////////////////////////////////////////////
 #include "CypherTileEditorConfig.h"
 #include "CypherTileEditorTheme.h"
+#include "CypherTileEditorUserThemes.h"
+#include "CypherTileViewportColors.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -13,7 +15,9 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QLabel>
 #include <QPalette>
 #include <QPushButton>
@@ -188,6 +192,84 @@ TEST_CASE( "Editor config save failures cannot damage a previously written file"
     CHECK_FALSE( TileEditorConfig_Save( QString(), preferences, error ) );
 }
 
+TEST_CASE( "Legacy linked-camera profiles migrate once to independent view navigation",
+    "[TileEditor][Config][Migration][Navigation]" )
+{
+    ConfigApplication();
+    QTemporaryDir directory;
+    REQUIRE( directory.isValid() );
+    const QString nativePath = directory.filePath( QStringLiteral( "native.ini" ) );
+    const QString configurationPath = directory.filePath( QStringLiteral( "editor.ini" ) );
+    QSettings native( nativePath, QSettings::IniFormat );
+    tile_editor_preferences_t preferences;
+    preferences.linkOrthographicCameras = true;
+    TileEditorPreferences_Save( native, preferences );
+    QString error;
+    REQUIRE( TileEditorConfig_Save( configurationPath, preferences, error ) );
+
+    bool migrated = false;
+    REQUIRE( TileEditorConfig_MigrateIndependentOrthographicCameras(
+        native, configurationPath, preferences, migrated, error ) );
+    CHECK( migrated );
+    CHECK_FALSE( preferences.linkOrthographicCameras );
+    CHECK_FALSE( TileEditorPreferences_Load( native ).linkOrthographicCameras );
+    CHECK( native.value(
+        QStringLiteral( "TileEditor/independentOrthographicCamerasV1" ) ).toBool() );
+    tile_editor_preferences_t migratedConfiguration;
+    REQUIRE( TileEditorConfig_Load(
+        configurationPath, migratedConfiguration, error ) );
+    CHECK_FALSE( migratedConfiguration.linkOrthographicCameras );
+
+    // Once the migration marker exists, a deliberate user opt-in survives.
+    preferences.linkOrthographicCameras = true;
+    TileEditorPreferences_Save( native, preferences );
+    REQUIRE( TileEditorConfig_Save( configurationPath, preferences, error ) );
+    migrated = true;
+    REQUIRE( TileEditorConfig_MigrateIndependentOrthographicCameras(
+        native, configurationPath, preferences, migrated, error ) );
+    CHECK_FALSE( migrated );
+    CHECK( preferences.linkOrthographicCameras );
+    CHECK( TileEditorPreferences_Load( native ).linkOrthographicCameras );
+    tile_editor_preferences_t optedInConfiguration;
+    REQUIRE( TileEditorConfig_Load(
+        configurationPath, optedInConfiguration, error ) );
+    CHECK( optedInConfiguration.linkOrthographicCameras );
+}
+
+TEST_CASE( "Independent-view migration preserves an invalid editor configuration",
+    "[TileEditor][Config][Migration][Navigation]" )
+{
+    ConfigApplication();
+    QTemporaryDir directory;
+    REQUIRE( directory.isValid() );
+    const QString nativePath = directory.filePath( QStringLiteral( "native.ini" ) );
+    const QString configurationPath = directory.filePath( QStringLiteral( "editor.ini" ) );
+    const QByteArray malformed(
+        "[Editor]\nschemaVersion=1\n[Workspace]\n"
+        "linkOrthographicCameras=occasionally\n" );
+    WriteConfig( configurationPath, malformed );
+
+    QSettings native( nativePath, QSettings::IniFormat );
+    tile_editor_preferences_t preferences;
+    preferences.linkOrthographicCameras = true;
+    TileEditorPreferences_Save( native, preferences );
+
+    bool migrated = true;
+    QString error;
+    CHECK_FALSE( TileEditorConfig_MigrateIndependentOrthographicCameras(
+        native, configurationPath, preferences, migrated, error ) );
+    CHECK_FALSE( migrated );
+    CHECK_FALSE( error.isEmpty() );
+    CHECK( preferences.linkOrthographicCameras );
+    CHECK( TileEditorPreferences_Load( native ).linkOrthographicCameras );
+    CHECK_FALSE( native.contains(
+        QStringLiteral( "TileEditor/independentOrthographicCamerasV1" ) ) );
+
+    QFile preserved( configurationPath );
+    REQUIRE( preserved.open( QIODevice::ReadOnly ) );
+    CHECK( preserved.readAll() == malformed );
+}
+
 TEST_CASE( "Appearance controls and presets keep navigation preferences independent",
     "[TileEditor][Config][Settings]" )
 {
@@ -199,13 +281,12 @@ TEST_CASE( "Appearance controls and presets keep navigation preferences independ
     original.shortcuts.insert( "tool.fill", QKeySequence( "Alt+G" ) );
     CypherTileEditorSettingsDialog dialog( original );
     auto *preset = dialog.findChild<QComboBox *>( "TileSettingsColorPreset" );
-    auto *apply = dialog.findChild<QPushButton *>( "TileSettingsApplyColorPreset" );
     auto *font = dialog.findChild<QSpinBox *>( "TileSettingsUiFontPointSize" );
     auto *icons = dialog.findChild<QSpinBox *>( "TileSettingsUiIconSize" );
     auto *width = dialog.findChild<QDoubleSpinBox *>( "TileSettingsWireLineWidth" );
     auto *metrics = dialog.findChild<QCheckBox *>( "TileSettingsShowViewMetrics" );
     auto *splitter = dialog.findChild<QSpinBox *>( "TileSettingsViewSplitterWidth" );
-    REQUIRE( preset ); REQUIRE( apply ); REQUIRE( font ); REQUIRE( icons ); REQUIRE( width ); REQUIRE( metrics );
+    REQUIRE( preset ); REQUIRE( font ); REQUIRE( icons ); REQUIRE( width ); REQUIRE( metrics );
     REQUIRE( splitter );
     CHECK( tile_editor_preferences_t{}.viewSplitterWidth == 6 );
     CHECK( splitter->minimum() == 3 );
@@ -213,7 +294,6 @@ TEST_CASE( "Appearance controls and presets keep navigation preferences independ
     CHECK( splitter->value() == 6 );
     CHECK( dialog.preferences().canvasColor == original.canvasColor );
     preset->setCurrentIndex( preset->findData( "slate" ) );
-    apply->click();
     font->setValue( 14 );
     icons->setValue( 30 );
     width->setValue( 2.1 );
@@ -238,6 +318,232 @@ TEST_CASE( "Appearance controls and presets keep navigation preferences independ
     CHECK_FALSE( dialog.preferences().showViewMetrics );
     CHECK( dialog.preferences().canvasColor == tile_editor_preferences_t{}.canvasColor );
     CHECK( dialog.preferences().viewSplitterWidth == 6 );
+}
+
+TEST_CASE( "Portable user themes round trip only semantic colors",
+    "[TileEditor][Config][Theme][UserTheme]" )
+{
+    ConfigApplication();
+    QTemporaryDir directory;
+    REQUIRE( directory.isValid() );
+    const QString path = directory.filePath( "nested/night-shift.cytheme" );
+    tile_editor_preferences_t source;
+    source.uiBackgroundColor = QColor( "#17202a" );
+    source.panelColor = QColor( "#111820" );
+    source.accentColor = QColor( "#e39a36" );
+    source.canvasColor = QColor( "#18324a" );
+    source.floorColor = QColor( "#7f9aaa" );
+    source.axisZColor = QColor( "#65a9f1" );
+    source.cameraMoveSpeed = 91.0;
+    source.uiFontPointSize = 17;
+    source.shortcuts.insert( "tool.fill", QKeySequence( "Alt+G" ) );
+    QString error;
+    REQUIRE( TileEditorUserTheme_Save( path, "Night Shift", source, error ) );
+    CHECK( error.isEmpty() );
+
+    QFile file( path );
+    REQUIRE( file.open( QIODevice::ReadOnly ) );
+    const QByteArray bytes = file.readAll();
+    CHECK( bytes.contains( "[Theme]" ) );
+    CHECK( bytes.contains( "[Colors]" ) );
+    CHECK( bytes.contains( "name=\"Night Shift\"" ) );
+    CHECK( bytes.contains( "accentColor=\"#e39a36\"" ) );
+    CHECK_FALSE( bytes.contains( "Camera" ) );
+    CHECK_FALSE( bytes.contains( "Shortcuts" ) );
+    CHECK_FALSE( bytes.contains( "uiFontPointSize" ) );
+
+    tile_editor_user_theme_t loaded;
+    REQUIRE( TileEditorUserTheme_Load( path, loaded, error ) );
+    CHECK( loaded.name == "Night Shift" );
+    CHECK( loaded.path == QFileInfo( path ).absoluteFilePath() );
+    CHECK( loaded.colors.uiBackgroundColor == source.uiBackgroundColor );
+    CHECK( loaded.colors.panelColor == source.panelColor );
+    CHECK( loaded.colors.accentColor == source.accentColor );
+    CHECK( loaded.colors.canvasColor == source.canvasColor );
+    CHECK( loaded.colors.floorColor == source.floorColor );
+    CHECK( loaded.colors.axisZColor == source.axisZColor );
+
+    tile_editor_preferences_t destination;
+    destination.cameraMoveSpeed = 37.5;
+    destination.uiFontPointSize = 13;
+    destination.showGrid = false;
+    destination.shortcuts.insert( "tool.fill", QKeySequence( "Ctrl+Shift+F" ) );
+    TileEditorTheme_CopyColors( destination, loaded.colors );
+    CHECK( destination.accentColor == source.accentColor );
+    CHECK( destination.canvasColor == source.canvasColor );
+    CHECK( destination.cameraMoveSpeed == Catch::Approx( 37.5 ) );
+    CHECK( destination.uiFontPointSize == 13 );
+    CHECK_FALSE( destination.showGrid );
+    CHECK( destination.shortcuts.value( "tool.fill" ) == QKeySequence( "Ctrl+Shift+F" ) );
+}
+
+TEST_CASE( "User theme discovery is deterministic and malformed themes are transactional",
+    "[TileEditor][Config][Theme][UserTheme]" )
+{
+    ConfigApplication();
+    QTemporaryDir directory;
+    REQUIRE( directory.isValid() );
+    QString error;
+    tile_editor_preferences_t colors;
+    colors.accentColor = QColor( "#f09b36" );
+    REQUIRE( TileEditorUserTheme_Save(
+        directory.filePath( "z.cytheme" ), "Zulu", colors, error ) );
+    colors.accentColor = QColor( "#69b9dd" );
+    REQUIRE( TileEditorUserTheme_Save(
+        directory.filePath( "a.cytheme" ), "Alpha", colors, error ) );
+    WriteConfig( directory.filePath( "broken.cytheme" ),
+        "[Theme]\nschemaVersion=1\nname=Broken\n[Colors]\naccentColor=not-a-color\n" );
+
+    QStringList errors;
+    const auto themes = TileEditorUserThemes_Discover( directory.path(), &errors );
+    REQUIRE( themes.size() == 2 );
+    CHECK( themes[0].name == "Alpha" );
+    CHECK( themes[1].name == "Zulu" );
+    REQUIRE( errors.size() == 1 );
+    CHECK( ( errors.first().contains( "missing required color" ) ||
+             errors.first().contains( "invalid" ) ) );
+
+    tile_editor_user_theme_t unchanged;
+    unchanged.name = "Keep Me";
+    unchanged.path = "sentinel";
+    unchanged.colors.canvasColor = QColor( "#123456" );
+    CHECK_FALSE( TileEditorUserTheme_Load(
+        directory.filePath( "broken.cytheme" ), unchanged, error ) );
+    CHECK( unchanged.name == "Keep Me" );
+    CHECK( unchanged.path == "sentinel" );
+    CHECK( unchanged.colors.canvasColor == QColor( "#123456" ) );
+    CHECK( QFileInfo( TileEditorUserThemes_PathForName(
+        directory.path(), "  My / Wild : Theme  " ) ).fileName() == "my-wild-theme.cytheme" );
+}
+
+TEST_CASE( "User themes accept only opaque hexadecimal RGB values",
+    "[TileEditor][Config][Theme][UserTheme]" )
+{
+    ConfigApplication();
+    QTemporaryDir directory;
+    REQUIRE( directory.isValid() );
+    const QString path = directory.filePath( "strict.cytheme" );
+    tile_editor_preferences_t colors;
+    QString error;
+    REQUIRE( TileEditorUserTheme_Save( path, "Strict", colors, error ) );
+
+    QFile file( path );
+    REQUIRE( file.open( QIODevice::ReadOnly ) );
+    QByteArray bytes = file.readAll();
+    file.close();
+    REQUIRE( bytes.contains( "#e1a03e" ) );
+    bytes.replace( "#e1a03e", "orange" );
+    WriteConfig( path, bytes );
+
+    tile_editor_user_theme_t unchanged;
+    unchanged.name = "Sentinel";
+    unchanged.path = "sentinel";
+    unchanged.colors.accentColor = QColor( "#123456" );
+    CHECK_FALSE( TileEditorUserTheme_Load( path, unchanged, error ) );
+    CHECK( error.contains( "opaque #RRGGBB" ) );
+    CHECK( unchanged.name == "Sentinel" );
+    CHECK( unchanged.path == "sentinel" );
+    CHECK( unchanged.colors.accentColor == QColor( "#123456" ) );
+}
+
+TEST_CASE( "Viewport feedback colors remain readable for light and dark themes",
+    "[TileEditor][Config][Theme][Viewport]" )
+{
+    for ( const QColor background : { QColor( "#0b1015" ), QColor( "#edf0f3" ) } ) {
+        const bool dark = TileEditorViewportColor_Luminance( background ) < 0.5;
+        const auto colors = TileEditorViewportColors_Derive(
+            background,
+            dark ? QColor( "#dce0e5" ) : QColor( "#252a31" ),
+            QColor( "#e1a03e" ) );
+        CHECK( TileEditorViewportColor_Contrast( colors.mutedText, background ) >= 3.0 );
+        CHECK( TileEditorViewportColor_Contrast( colors.warning, background ) >= 3.0 );
+        CHECK( TileEditorViewportColor_Contrast( colors.error, background ) >= 3.0 );
+        CHECK( TileEditorViewportColor_Contrast( colors.success, background ) >= 3.0 );
+        CHECK( TileEditorViewportColor_Contrast( colors.info, background ) >= 3.0 );
+        CHECK( TileEditorViewportColor_Contrast( colors.underlay, background ) >= 4.5 );
+    }
+}
+
+TEST_CASE( "Theme selection previews colors immediately without changing editor behavior",
+    "[TileEditor][Config][Settings][Theme][Preview]" )
+{
+    ConfigApplication();
+    tile_editor_preferences_t original;
+    original.cameraMoveSpeed = 27.0;
+    original.showGrid = false;
+    original.shortcuts.insert( "tool.fill", QKeySequence( "Alt+G" ) );
+    CypherTileEditorSettingsDialog dialog( original );
+    int previewCount = 0;
+    tile_editor_preferences_t previewed;
+    dialog.setPreviewCallback( [&]( const tile_editor_preferences_t &value ) {
+        ++previewCount;
+        previewed = value;
+    } );
+    auto *selector = dialog.findChild<QComboBox *>( "TileSettingsColorPreset" );
+    auto *reset = dialog.findChild<QPushButton *>( "TileSettingsResetColors" );
+    auto *cameraSpeed = dialog.findChild<QDoubleSpinBox *>( "TileSettingsCameraSpeed" );
+    REQUIRE( selector );
+    REQUIRE( reset );
+    REQUIRE( cameraSpeed );
+    cameraSpeed->setValue( 88.0 ); // Staged outside Appearance; live theme preview must ignore it.
+    selector->setCurrentIndex( selector->findData( "blueprint-blue" ) );
+    REQUIRE( previewCount == 1 );
+    CHECK( previewed.canvasColor == QColor( "#163047" ) );
+    CHECK( previewed.cameraMoveSpeed == Catch::Approx( 27.0 ) );
+    CHECK_FALSE( previewed.showGrid );
+    CHECK( previewed.shortcuts.value( "tool.fill" ) == QKeySequence( "Alt+G" ) );
+    reset->click();
+    REQUIRE( previewCount == 2 );
+    CHECK( previewed.canvasColor == tile_editor_preferences_t{}.canvasColor );
+    CHECK( previewed.cameraMoveSpeed == Catch::Approx( 27.0 ) );
+}
+
+TEST_CASE( "Unmatched color edits are identified as a custom theme",
+    "[TileEditor][Config][Settings][Theme]" )
+{
+    ConfigApplication();
+    tile_editor_preferences_t custom;
+    custom.canvasColor = QColor( "#123456" );
+    custom.accentColor = QColor( "#abcdef" );
+    CypherTileEditorSettingsDialog dialog( custom );
+    auto *selector = dialog.findChild<QComboBox *>( "TileSettingsColorPreset" );
+    auto *remove = dialog.findChild<QPushButton *>( "TileSettingsDeleteTheme" );
+    REQUIRE( selector );
+    REQUIRE( remove );
+    CHECK( selector->currentText() == "Custom (modified)" );
+    CHECK_FALSE( remove->isEnabled() );
+    CHECK( dialog.findChild<QPushButton *>( "TileSettingsApplyColorPreset" ) == nullptr );
+}
+
+TEST_CASE( "Theme selector never chooses its separator when user themes exist",
+    "[TileEditor][Config][Settings][Theme]" )
+{
+    ConfigApplication();
+    const QString directory = TileEditorUserThemes_DefaultDirectory();
+    REQUIRE( QDir().mkpath( directory ) );
+    const QString path = QDir( directory ).filePath(
+        QStringLiteral( "separator-regression-%1.cytheme" )
+            .arg( QCoreApplication::applicationPid() ) );
+    struct file_cleanup_t {
+        QString path;
+        ~file_cleanup_t() { QFile::remove( path ); }
+    } cleanup{ path };
+
+    QString error;
+    tile_editor_preferences_t savedTheme;
+    TileEditorPreferences_ApplyColorPreset( savedTheme, QStringLiteral( "midnight" ) );
+    REQUIRE( TileEditorUserTheme_Save(
+        path, QStringLiteral( "Separator Regression" ), savedTheme, error ) );
+
+    tile_editor_preferences_t unmatched;
+    unmatched.canvasColor = QColor( "#123456" );
+    unmatched.accentColor = QColor( "#abcdef" );
+    CypherTileEditorSettingsDialog dialog( unmatched );
+    auto *selector = dialog.findChild<QComboBox *>( "TileSettingsColorPreset" );
+    REQUIRE( selector );
+    CHECK( selector->currentIndex() >= 0 );
+    CHECK( selector->currentText() == QStringLiteral( "Custom (modified)" ) );
+    CHECK_FALSE( selector->currentText().isEmpty() );
 }
 
 TEST_CASE( "Native preferences retain new appearance fields and theme applies without unresolved tokens",

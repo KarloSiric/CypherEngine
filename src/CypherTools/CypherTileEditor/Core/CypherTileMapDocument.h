@@ -230,6 +230,28 @@ struct tile_map_validation_report_t {
 
 struct tile_map_history_state_t;
 
+// A stable read-only description of the bounded history stack. The cursor is
+// a state boundary in [0, nEntryCount]: entries before it are applied and
+// entries at or after it are available to redo. The active edit group is not
+// published as a committed entry until it is committed.
+struct tile_map_history_info_t {
+    usize nEntryCount{ 0u };
+    usize iCursor{ 0u };
+    usize cbStoredChanges{ 0u };
+    bool_t bEditGroupOpen{ CY_FALSE };
+};
+
+// Labels and revision numbers are borrowed from the document and remain valid
+// until the next document mutation. Frontends must copy the label if it needs
+// to survive an edit, undo, redo, load, or shutdown.
+struct tile_map_history_entry_info_t {
+    string_view_t label{};
+    u64 nBeforeRevision{ 0u };
+    u64 nAfterRevision{ 0u };
+    usize nAffectedElementCount{ 0u };
+    usize cbStoredChanges{ 0u };
+};
+
 struct tile_map_document_t {
     tile_map_document_t() noexcept = default;
     CYPHER_NO_COPY_MOVE( tile_map_document_t );
@@ -499,6 +521,18 @@ CYPHER_NODISCARD string_view_t CypherTileMapDocument_RedoLabel(
 
 CYPHER_NODISCARD usize CypherTileMapDocument_HistoryCount(
     const tile_map_document_t *pDocument ) noexcept;
+
+// Reads the committed stack without allocating or exposing internal ownership.
+// False means the document/output is invalid, or an entry index is outside the
+// current bounded stack. Entry information never includes a live edit group.
+CYPHER_NODISCARD bool_t CypherTileMapDocument_HistoryInfo(
+    const tile_map_document_t *pDocument,
+    tile_map_history_info_t *pInfoOut ) noexcept;
+
+CYPHER_NODISCARD bool_t CypherTileMapDocument_HistoryEntryInfo(
+    const tile_map_document_t *pDocument,
+    usize iEntry,
+    tile_map_history_entry_info_t *pInfoOut ) noexcept;
 
 CYPHER_NODISCARD tile_map_document_status_t
 CypherTileMapValidationReport_Init(

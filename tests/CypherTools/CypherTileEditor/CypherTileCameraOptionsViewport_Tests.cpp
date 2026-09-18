@@ -131,12 +131,17 @@ TEST_CASE( "Camera user controls report preferences without moving the view or e
     CHECK( reported.moveSpeed == 20.0f );
     const int beforeWheel = changes;
     Wheel( view, 120 );
+    CHECK( changes == beforeWheel );
+    CHECK( view.camera().settings.moveSpeed == 20.0f );
+    CHECK_FALSE( math::Vec3_EqualsExact( view.camera().position, before.position ) );
+    const auto afterDolly = view.camera();
+    Pointer( view, QEvent::MouseButtonPress, { 40, 40 }, Qt::RightButton );
+    REQUIRE( view.isNavigating() );
+    Wheel( view, 120 );
     CHECK( changes == beforeWheel + 1 );
     CHECK( reported.moveSpeed > 20.0f );
     CHECK( reported.moveSpeed == view.camera().settings.moveSpeed );
-    CHECK( math::Vec3_EqualsExact( view.camera().position, before.position ) );
-    Pointer( view, QEvent::MouseButtonPress, { 40, 40 }, Qt::RightButton );
-    REQUIRE( view.isNavigating() );
+    CHECK( math::Vec3_EqualsExact( view.camera().position, afterDolly.position ) );
     view.setCameraSettings( reported, fly );
     CHECK( view.isNavigating() );
     CHECK( changes == beforeWheel + 1 );
@@ -180,14 +185,25 @@ TEST_CASE( "Editor speed bounds and optional camera hints match persisted contro
 {
     EnsureApplication();
     CypherTileRenderViewport view;
+    int preferenceChanges = 0;
+    view.setCameraChangeCallback(
+        [&]( const tile_camera_settings_t &, bool ) { ++preferenceChanges; } );
     view.setMoveSpeed( 2000 );
     CHECK( view.camera().settings.moveSpeed == 1000.0f );
+    const int afterMaximumCommand = preferenceChanges;
+    Pointer( view, QEvent::MouseButtonPress, { 40, 40 }, Qt::RightButton );
     Wheel( view, 1200 );
     CHECK( view.camera().settings.moveSpeed == 1000.0f );
+    CHECK( preferenceChanges == afterMaximumCommand );
+    Pointer( view, QEvent::MouseButtonRelease, { 40, 40 }, Qt::RightButton );
     view.setMoveSpeed( -5 );
     CHECK( view.camera().settings.moveSpeed == 0.1f );
+    const int afterMinimumCommand = preferenceChanges;
+    Pointer( view, QEvent::MouseButtonPress, { 40, 40 }, Qt::RightButton );
     Wheel( view, -1200 );
     CHECK( view.camera().settings.moveSpeed == 0.1f );
+    CHECK( preferenceChanges == afterMinimumCommand );
+    Pointer( view, QEvent::MouseButtonRelease, { 40, 40 }, Qt::RightButton );
     auto *overlay = view.findChild<QLabel *>( QStringLiteral( "TileRenderOverlay" ) );
     REQUIRE( overlay );
     view.setViewAppearance( QColor( "#101820" ), true );
@@ -209,6 +225,9 @@ TEST_CASE( "3D orientation triad uses camera-relative RGB axes and obeys display
     view.resize( 640, 480 );
     auto *triad = view.findChild<QWidget *>( QStringLiteral( "TileAxisTriad" ) );
     REQUIRE( triad );
+    CHECK( triad->testAttribute( Qt::WA_TranslucentBackground ) );
+    CHECK_FALSE( triad->testAttribute( Qt::WA_StyledBackground ) );
+    CHECK_FALSE( triad->autoFillBackground() );
 
     const QColor xColor( 241, 51, 61 );
     const QColor yColor( 47, 222, 99 );
@@ -218,6 +237,7 @@ TEST_CASE( "3D orientation triad uses camera-relative RGB axes and obeys display
     QImage perspective( triad->size(), QImage::Format_ARGB32_Premultiplied );
     perspective.fill( Qt::transparent );
     triad->render( &perspective );
+    CHECK( perspective.pixelColor( 0, 0 ).alpha() == 0 );
     CHECK( CountColor( perspective, xColor ) > 0 );
     CHECK( CountColor( perspective, yColor ) > 0 );
     CHECK( CountColor( perspective, zColor ) > 0 );

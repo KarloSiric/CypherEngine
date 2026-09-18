@@ -32,7 +32,12 @@ struct tile_ortho_material_t {
     QString label{};
     QString path{};
     QString error{};
+    u32 textureWidth{ 0u };
+    u32 textureHeight{ 0u };
+    float tint[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
     float uvScale[2]{ 1.0f, 1.0f };
+    bool sRGB{ true };
+    bool generateMips{ false };
     bool bound{ false };
 };
 

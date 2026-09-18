@@ -31,6 +31,7 @@ class QCheckBox;
 class QComboBox;
 class QLabel;
 class QDialogButtonBox;
+class QPushButton;
 
 namespace cypher::tools::tile_editor
 {
@@ -73,6 +74,9 @@ struct tile_editor_preferences_t {
     bool showActiveViewBorder{ false };
     bool highlightActiveView{ false };
     bool showViewMetrics{ false };
+    // Projected-authoring instructions are useful while learning the tool,
+    // but should not permanently consume the bottom of every 2D viewport.
+    bool showAuthoringFooter{ false };
     bool showCoordinateRulers{ true };
     bool showViewAxes{ true };
     bool centerViewAxes{ true };
@@ -85,11 +89,17 @@ struct tile_editor_preferences_t {
     bool showMarkers{ true };
     bool wireframeOrtho{ true };
     bool showInternalTileEdges{ false };
+    bool showFloorSurfaces{ true };
+    bool showWallHeight{ true };
+    bool showWallThickness{ true };
     bool showOrthoMaterials{ true };
     bool showMaterialLabels{ false };
     double orthoMaterialOpacity{ 0.8 };
     bool startMaximized{ true };
     bool frameMapOnOpen{ true };
+    // Each pane owns its pan and zoom by default. Linked navigation remains an
+    // explicit opt-in for workflows that need matching 2D camera transforms.
+    bool linkOrthographicCameras{ false };
     // Professional multi-view editors route viewport input to the pane under
     // the pointer. Keep this enabled by default so navigation and authoring
     // shortcuts do not require a preparatory click.
@@ -119,6 +129,10 @@ tile_editor_preferences_t TileEditorPreferences_Normalize( tile_editor_preferenc
 // Presets replace colors only; navigation, key bindings, and map defaults remain authored.
 void TileEditorPreferences_ApplyColorPreset(
     tile_editor_preferences_t &preferences, const QString &presetId );
+// Copies only controls that the Appearance page previews live.
+void TileEditorPreferences_CopyAppearance(
+    tile_editor_preferences_t &destination,
+    const tile_editor_preferences_t &source );
 tile_editor_preferences_t TileEditorPreferences_Load( QSettings &settings );
 void TileEditorPreferences_Save(
     QSettings &settings,
@@ -132,15 +146,31 @@ public:
         QWidget *pParent = nullptr );
 
     tile_editor_preferences_t preferences() const;
-    void setApplyCallback( std::function<void( const tile_editor_preferences_t & )> callback );
+    void setApplyCallback( std::function<bool( const tile_editor_preferences_t & )> callback );
+    void setPreviewCallback( std::function<void( const tile_editor_preferences_t & )> callback );
 
 private:
     class ColorButton;
+    void applySelectedTheme();
+    void deleteSelectedTheme();
+    void exportCurrentTheme();
+    void importTheme();
+    void markThemeModified();
+    void previewAppearance();
+    void refreshThemeChoices( const QString &selectedPath = {} );
+    void saveCurrentTheme();
+    void setAppearanceColors( const tile_editor_preferences_t &preferences );
+    void updateThemeActions();
     void updateShortcutConflicts();
 
     tile_editor_preferences_t m_preferences{};
-    std::function<void( const tile_editor_preferences_t & )> m_applyCallback{};
+    std::function<bool( const tile_editor_preferences_t & )> m_applyCallback{};
+    std::function<void( const tile_editor_preferences_t & )> m_previewCallback{};
     QMap<QString, ColorButton *> m_appearanceColors{};
+    QComboBox *m_pThemeSelector{ nullptr };
+    QPushButton *m_pDeleteTheme{ nullptr };
+    QPushButton *m_pExportTheme{ nullptr };
+    QLabel *m_pThemeStatus{ nullptr };
     QSpinBox *m_pUiFontPointSize{ nullptr };
     QSpinBox *m_pUiIconSize{ nullptr };
     QCheckBox *m_pShowActiveViewBorder{ nullptr };
@@ -148,6 +178,7 @@ private:
     QSpinBox *m_pEmptyViewCellPixels{ nullptr };
     QSpinBox *m_pViewSplitterWidth{ nullptr };
     QCheckBox *m_pShowViewMetrics{ nullptr };
+    QCheckBox *m_pShowAuthoringFooter{ nullptr };
     QCheckBox *m_pShowCoordinateRulers{ nullptr };
     QCheckBox *m_pShowViewAxes{ nullptr };
     QCheckBox *m_pCenterViewAxes{ nullptr };
@@ -162,11 +193,15 @@ private:
     QCheckBox *m_pShowMarkers{ nullptr };
     QCheckBox *m_pWireframeOrtho{ nullptr };
     QCheckBox *m_pInternalTileEdges{ nullptr };
+    QCheckBox *m_pShowFloorSurfaces{ nullptr };
+    QCheckBox *m_pShowWallHeight{ nullptr };
+    QCheckBox *m_pShowWallThickness{ nullptr };
     QCheckBox *m_pShowOrthoMaterials{ nullptr };
     QCheckBox *m_pShowMaterialLabels{ nullptr };
     QDoubleSpinBox *m_pOrthoMaterialOpacity{ nullptr };
     QCheckBox *m_pStartMaximized{ nullptr };
     QCheckBox *m_pFrameMapOnOpen{ nullptr };
+    QCheckBox *m_pLinkOrthographicCameras{ nullptr };
     QCheckBox *m_pActivateViewOnHover{ nullptr };
     QCheckBox *m_pCameraInvertY{ nullptr };
     QCheckBox *m_pCameraInvertWheel{ nullptr };

@@ -11,6 +11,7 @@
 #include "CypherTileEditorSettingsDialog.h"
 #include "CypherTileEditorConfig.h"
 #include "CypherTileEditorPreferenceFields.h"
+#include "CypherTileEditorUserThemes.h"
 
 #include "Core/CypherTileMapDocument.h"
 
@@ -19,15 +20,24 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QKeySequenceEdit>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QHBoxLayout>
 #include <QSpinBox>
+#include <QStyle>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -41,6 +51,15 @@ namespace cypher::tools::tile_editor
 
 namespace
 {
+
+constexpr int THEME_KIND_ROLE = Qt::UserRole + 1;
+// Keep every real theme kind non-zero. Qt separators have no data for this
+// role, and QVariant::toInt() maps that missing value to zero. Reserving zero
+// prevents a separator from being mistaken for a built-in theme and selected
+// as the current (blank) combo-box item.
+constexpr int BUILT_IN_THEME = 1;
+constexpr int USER_THEME = 2;
+constexpr int MODIFIED_THEME = 3;
 
 int GridSpacing( int value )
 {
@@ -298,24 +317,45 @@ void TileEditorPreferences_ApplyColorPreset(
     for ( const auto &field : preference_fields::colors ) preferences.*field.member = preset.*field.member;
 }
 
+void TileEditorPreferences_CopyAppearance(
+    tile_editor_preferences_t &destination,
+    const tile_editor_preferences_t &source )
+{
+    const auto normalized = TileEditorPreferences_Normalize( source );
+    for ( const auto &field : preference_fields::colors )
+        destination.*field.member = normalized.*field.member;
+    destination.uiFontPointSize = normalized.uiFontPointSize;
+    destination.uiIconSize = normalized.uiIconSize;
+    destination.showActiveViewBorder = normalized.showActiveViewBorder;
+    destination.highlightActiveView = normalized.highlightActiveView;
+}
+
 class CypherTileEditorSettingsDialog::ColorButton final : public QPushButton
 {
 public:
     explicit ColorButton( const QColor &color, QWidget *pParent = nullptr )
-        : QPushButton( pParent ), m_color( color )
+        : QPushButton( pParent ), m_color( color.toRgb() )
     {
+        m_color.setAlpha( 255 );
         setMinimumWidth( 130 );
         updatePresentation();
         connect( this, &QPushButton::clicked, this, [this] {
-            const QColor chosen = QColorDialog::getColor(
-                m_color,
-                this,
-                tr( "Choose Color" ),
-                QColorDialog::ShowAlphaChannel );
-            if ( chosen.isValid() ) {
+            const QColor original = m_color;
+            QColorDialog picker( m_color, this );
+            picker.setWindowTitle( tr( "Choose Color" ) );
+            connect( &picker, &QColorDialog::currentColorChanged, this,
+                     [this]( const QColor &chosen ) {
+                if ( !chosen.isValid() ) return;
                 m_color = chosen;
                 updatePresentation();
+                if ( m_changed ) m_changed();
+            } );
+            if ( picker.exec() != QDialog::Accepted ) {
+                m_color = original;
+                updatePresentation();
+                if ( m_changed ) m_changed();
             }
+            if ( m_finished ) m_finished();
         } );
     }
 
@@ -323,26 +363,39 @@ public:
 
     void setColor( const QColor &color )
     {
-        m_color = color;
+        m_color = color.toRgb();
+        m_color.setAlpha( 255 );
         updatePresentation();
+    }
+
+    void setChangedCallback( std::function<void()> callback )
+    {
+        m_changed = std::move( callback );
+    }
+
+    void setFinishedCallback( std::function<void()> callback )
+    {
+        m_finished = std::move( callback );
     }
 
 private:
     void updatePresentation()
     {
-        setText( m_color.name( QColor::HexArgb ) );
+        setText( m_color.name( QColor::HexRgb ) );
         const int luminance = ( 299 * m_color.red() +
                                 587 * m_color.green() +
                                 114 * m_color.blue() ) / 1000;
         setStyleSheet( QStringLiteral(
             "QPushButton { background: %1; color: %2; }" )
             .arg(
-                m_color.name( QColor::HexArgb ),
+                m_color.name( QColor::HexRgb ),
                 luminance > 145 ? QStringLiteral( "#111111" )
                                 : QStringLiteral( "#ffffff" ) ) );
     }
 
     QColor m_color{};
+    std::function<void()> m_changed{};
+    std::function<void()> m_finished{};
 };
 
 QList<tile_editor_shortcut_definition_t> TileEditorShortcutDefinitions()
@@ -379,6 +432,7 @@ QList<tile_editor_shortcut_definition_t> TileEditorShortcutDefinitions()
         { QStringLiteral( "tool.rectangle" ), QObject::tr( "Rectangle Tool" ), QKeySequence( QStringLiteral( "R" ) ) },
         { QStringLiteral( "tool.line" ), QObject::tr( "Line Tool" ), QKeySequence( QStringLiteral( "L" ) ) },
         { QStringLiteral( "tool.fill" ), QObject::tr( "Fill Tool" ), QKeySequence( QStringLiteral( "G" ) ) },
+        { QStringLiteral( "tool.stamp" ), QObject::tr( "Place Piece Tool" ), QKeySequence( QStringLiteral( "T" ) ) },
         { QStringLiteral( "tool.spawn" ), QObject::tr( "Player Spawn Tool" ), QKeySequence( QStringLiteral( "P" ) ) },
         { QStringLiteral( "tool.door" ), QObject::tr( "Door Tool" ), QKeySequence( QStringLiteral( "D" ) ) },
         { QStringLiteral( "view.layout2d" ), QObject::tr( "Show 2D Layout" ), QKeySequence( QStringLiteral( "Ctrl+1" ) ) },
@@ -390,7 +444,7 @@ QList<tile_editor_shortcut_definition_t> TileEditorShortcutDefinitions()
         { QStringLiteral( "view.side" ), QObject::tr( "Focus Side View" ), QKeySequence( QStringLiteral( "Ctrl+5" ) ) },
         { QStringLiteral( "view.maximize" ), QObject::tr( "Maximize Active View / Restore" ), QKeySequence( QStringLiteral( "Shift+Space" ) ) },
         { QStringLiteral( "view.console" ), QObject::tr( "Toggle Console" ), QKeySequence( QStringLiteral( "Ctrl+`" ) ) },
-        { QStringLiteral( "view.shell" ), QObject::tr( "Open Local Shell Runner" ), QKeySequence( QStringLiteral( "Ctrl+Shift+`" ) ) },
+        { QStringLiteral( "view.shell" ), QObject::tr( "Focus Local Shell in Console" ), QKeySequence( QStringLiteral( "Ctrl+Shift+`" ) ) },
         { QStringLiteral( "view.rulers" ), QObject::tr( "Toggle Coordinate Rulers" ), QKeySequence( QStringLiteral( "Ctrl+Shift+R" ) ) },
         { QStringLiteral( "view.axes" ), QObject::tr( "Toggle XYZ Coordinate Axes" ), QKeySequence( QStringLiteral( "Ctrl+Shift+X" ) ) },
         { QStringLiteral( "view.assets" ), QObject::tr( "Toggle Materials and Pieces" ), {} },
@@ -497,35 +551,64 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
     : QDialog( pParent ), m_preferences( TileEditorPreferences_Normalize( preferences ) )
 {
     setWindowTitle( tr( "Tile Editor Settings" ) );
-    resize( 760, 720 );
+    resize( 840, 780 );
+    setMinimumSize( 700, 600 );
 
     auto *pRoot = new QVBoxLayout( this );
     auto *pTabs = new QTabWidget( this );
 
     auto *pAppearancePage = new QWidget( pTabs );
     auto *pAppearanceLayout = new QVBoxLayout( pAppearancePage );
+    auto *pThemeGroup = new QGroupBox( tr( "Color themes" ), pAppearancePage );
+    pThemeGroup->setObjectName( QStringLiteral( "TileSettingsThemeStudio" ) );
+    auto *pThemeLayout = new QVBoxLayout( pThemeGroup );
     auto *pPresetRow = new QHBoxLayout();
-    auto *pPreset = new QComboBox( pAppearancePage );
-    pPreset->setObjectName( QStringLiteral( "TileSettingsColorPreset" ) );
-    for ( const auto &preset : TileEditorColorPresetDefinitions() )
-        pPreset->addItem( preset.label, preset.id );
-    auto *pApplyPreset = new QPushButton( tr( "Apply Color Preset" ), pAppearancePage );
-    pApplyPreset->setObjectName( QStringLiteral( "TileSettingsApplyColorPreset" ) );
-    pApplyPreset->setToolTip( tr( "Replace the colors below. Layout, controls and shortcuts stay unchanged. Press Apply or OK to save." ) );
-    pPresetRow->addWidget( pPreset, 1 );
-    pPresetRow->addWidget( pApplyPreset );
-    pAppearanceLayout->addLayout( pPresetRow );
+    m_pThemeSelector = new QComboBox( pThemeGroup );
+    m_pThemeSelector->setObjectName( QStringLiteral( "TileSettingsColorPreset" ) );
+    m_pThemeSelector->setSizeAdjustPolicy( QComboBox::AdjustToMinimumContentsLengthWithIcon );
+    m_pThemeSelector->setMinimumContentsLength( 22 );
+    m_pThemeSelector->setToolTip( tr(
+        "Selecting a palette previews it immediately. Camera, layout, shortcuts, "
+        "grid behavior and map defaults stay unchanged." ) );
+    pPresetRow->addWidget( m_pThemeSelector, 1 );
+    pThemeLayout->addLayout( pPresetRow );
+
+    auto *pThemeActions = new QHBoxLayout();
+    auto *pSaveTheme = new QPushButton( tr( "Save As…" ), pThemeGroup );
+    pSaveTheme->setObjectName( QStringLiteral( "TileSettingsSaveTheme" ) );
+    auto *pImportTheme = new QPushButton( tr( "Import…" ), pThemeGroup );
+    pImportTheme->setObjectName( QStringLiteral( "TileSettingsImportTheme" ) );
+    m_pExportTheme = new QPushButton( tr( "Export Current…" ), pThemeGroup );
+    m_pExportTheme->setObjectName( QStringLiteral( "TileSettingsExportTheme" ) );
+    m_pDeleteTheme = new QPushButton( tr( "Delete" ), pThemeGroup );
+    m_pDeleteTheme->setObjectName( QStringLiteral( "TileSettingsDeleteTheme" ) );
+    pThemeActions->addWidget( pSaveTheme );
+    pThemeActions->addWidget( pImportTheme );
+    pThemeActions->addWidget( m_pExportTheme );
+    pThemeActions->addStretch( 1 );
+    pThemeActions->addWidget( m_pDeleteTheme );
+    pThemeLayout->addLayout( pThemeActions );
+    m_pThemeStatus = new QLabel( pThemeGroup );
+    m_pThemeStatus->setObjectName( QStringLiteral( "TileSettingsThemeStatus" ) );
+    m_pThemeStatus->setWordWrap( true );
+    m_pThemeStatus->setTextInteractionFlags( Qt::TextSelectableByMouse );
+    m_pThemeStatus->setProperty( "muted", true );
+    pThemeLayout->addWidget( m_pThemeStatus );
+    pAppearanceLayout->addWidget( pThemeGroup );
+
     auto *pAppearanceScroll = new QScrollArea( pAppearancePage );
     pAppearanceScroll->setWidgetResizable( true );
     pAppearanceScroll->setFrameShape( QFrame::NoFrame );
     auto *pAppearanceContent = new QWidget( pAppearanceScroll );
-    auto *pAppearanceForm = new QFormLayout( pAppearanceContent );
-    m_pUiFontPointSize = new QSpinBox( pAppearanceContent );
+    auto *pAppearanceContentLayout = new QVBoxLayout( pAppearanceContent );
+    auto *pInterfaceGroup = new QGroupBox( tr( "Interface scale and focus" ), pAppearanceContent );
+    auto *pAppearanceForm = new QFormLayout( pInterfaceGroup );
+    m_pUiFontPointSize = new QSpinBox( pInterfaceGroup );
     m_pUiFontPointSize->setObjectName( QStringLiteral( "TileSettingsUiFontPointSize" ) );
     m_pUiFontPointSize->setRange( 9, 18 );
     m_pUiFontPointSize->setSuffix( tr( " pt" ) );
     m_pUiFontPointSize->setValue( m_preferences.uiFontPointSize );
-    m_pUiIconSize = new QSpinBox( pAppearanceContent );
+    m_pUiIconSize = new QSpinBox( pInterfaceGroup );
     m_pUiIconSize->setObjectName( QStringLiteral( "TileSettingsUiIconSize" ) );
     m_pUiIconSize->setRange( 16, 40 );
     m_pUiIconSize->setSingleStep( 2 );
@@ -533,26 +616,47 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
     m_pUiIconSize->setValue( m_preferences.uiIconSize );
     pAppearanceForm->addRow( tr( "Interface text and control size" ), m_pUiFontPointSize );
     pAppearanceForm->addRow( tr( "Toolbar icon size" ), m_pUiIconSize );
-    m_pShowActiveViewBorder = new QCheckBox( tr( "Show active viewport border" ), pAppearanceContent );
+    m_pShowActiveViewBorder = new QCheckBox( tr( "Show active viewport border" ), pInterfaceGroup );
     m_pShowActiveViewBorder->setObjectName( QStringLiteral( "TileSettingsShowActiveViewBorder" ) );
     m_pShowActiveViewBorder->setChecked( m_preferences.showActiveViewBorder );
     m_pShowActiveViewBorder->setToolTip( tr(
         "Outline the active pane using the Active viewport border color below. "
         "Header highlighting is configured separately." ) );
     pAppearanceForm->addRow( m_pShowActiveViewBorder );
-    m_pHighlightActiveView = new QCheckBox( tr( "Highlight active viewport header" ), pAppearanceContent );
+    m_pHighlightActiveView = new QCheckBox( tr( "Highlight active viewport header" ), pInterfaceGroup );
     m_pHighlightActiveView->setObjectName( QStringLiteral( "TileSettingsHighlightActiveView" ) );
     m_pHighlightActiveView->setChecked( m_preferences.highlightActiveView );
     m_pHighlightActiveView->setToolTip( tr(
         "Use a different title-bar background for the pane receiving input. "
         "This does not enable activation when hovering over a pane." ) );
     pAppearanceForm->addRow( m_pHighlightActiveView );
+    pAppearanceContentLayout->addWidget( pInterfaceGroup );
+
+    QMap<QString, QFormLayout *> colorGroups;
+    for ( const QString &groupName : {
+              tr( "Interface" ),
+              tr( "Viewports and grid" ),
+              tr( "Geometry and selection" ),
+              tr( "Coordinate axes" ) } ) {
+        auto *pGroup = new QGroupBox( groupName, pAppearanceContent );
+        pGroup->setObjectName( QStringLiteral( "TileSettingsColorGroup_%1" )
+                                  .arg( groupName.simplified().replace( QLatin1Char( ' ' ), QLatin1Char( '_' ) ) ) );
+        auto *pForm = new QFormLayout( pGroup );
+        pForm->setFieldGrowthPolicy( QFormLayout::AllNonFixedFieldsGrow );
+        colorGroups.insert( groupName, pForm );
+        pAppearanceContentLayout->addWidget( pGroup );
+    }
     for ( const auto &field : preference_fields::colors ) {
         auto *pColor = new ColorButton( m_preferences.*field.member, pAppearanceContent );
         pColor->setObjectName( QStringLiteral( "TileSettingsColor_%1" ).arg( QString::fromLatin1( field.key ) ) );
         m_appearanceColors.insert( QString::fromLatin1( field.key ), pColor );
-        pAppearanceForm->addRow( tr( field.label ), pColor );
+        colorGroups.value( tr( field.group ) )->addRow( tr( field.label ), pColor );
     }
+    auto *pResetColors = new QPushButton( tr( "Reset to Radiant Dark" ), pAppearanceContent );
+    pResetColors->setObjectName( QStringLiteral( "TileSettingsResetColors" ) );
+    pResetColors->setToolTip( tr( "Reset only theme colors. All other editor settings stay unchanged." ) );
+    pAppearanceContentLayout->addWidget( pResetColors, 0, Qt::AlignLeft );
+    pAppearanceContentLayout->addStretch( 1 );
     m_pCanvasColor = m_appearanceColors.value( QStringLiteral( "canvasColor" ) );
     m_pMinorGridColor = m_appearanceColors.value( QStringLiteral( "minorGridColor" ) );
     m_pMajorGridColor = m_appearanceColors.value( QStringLiteral( "majorGridColor" ) );
@@ -568,11 +672,25 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
     pConfigHint->setTextInteractionFlags( Qt::TextSelectableByMouse );
     pConfigHint->setProperty( "muted", true );
     pAppearanceLayout->addWidget( pConfigHint );
-    connect( pApplyPreset, &QPushButton::clicked, this, [this, pPreset] {
-        auto preset = m_preferences;
-        TileEditorPreferences_ApplyColorPreset( preset, pPreset->currentData().toString() );
-        for ( const auto &field : preference_fields::colors )
-            m_appearanceColors.value( QString::fromLatin1( field.key ) )->setColor( preset.*field.member );
+    refreshThemeChoices();
+    connect( m_pThemeSelector, qOverload<int>( &QComboBox::currentIndexChanged ),
+             this, [this] {
+        updateThemeActions();
+        applySelectedTheme();
+    } );
+    connect( pSaveTheme, &QPushButton::clicked,
+             this, [this] { saveCurrentTheme(); } );
+    connect( pImportTheme, &QPushButton::clicked,
+             this, [this] { importTheme(); } );
+    connect( m_pExportTheme, &QPushButton::clicked,
+             this, [this] { exportCurrentTheme(); } );
+    connect( m_pDeleteTheme, &QPushButton::clicked,
+             this, [this] { deleteSelectedTheme(); } );
+    connect( pResetColors, &QPushButton::clicked, this, [this] {
+        setAppearanceColors( tile_editor_preferences_t{} );
+        refreshThemeChoices();
+        m_pThemeStatus->setText( tr( "Default colors are being previewed. Press Apply or OK to save them." ) );
+        previewAppearance();
     } );
     pTabs->addTab( pAppearancePage, tr( "Appearance" ) );
 
@@ -644,6 +762,30 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
     m_pInternalTileEdges->setChecked( m_preferences.showInternalTileEdges );
     m_pInternalTileEdges->setToolTip( tr( "Disable for clean room outlines. Material, height and shape boundaries remain visible." ) );
     pGridForm->addRow( m_pInternalTileEdges );
+    m_pShowFloorSurfaces = new QCheckBox(
+        tr( "Show floor and stair surfaces in 2D views" ), pGridPage );
+    m_pShowFloorSurfaces->setObjectName(
+        QStringLiteral( "TileSettingsShowFloorSurfaces" ) );
+    m_pShowFloorSurfaces->setChecked( m_preferences.showFloorSurfaces );
+    m_pShowFloorSurfaces->setToolTip( tr(
+        "Hide walkable floor and stair surfaces while preserving generated wall outlines, markers and editing." ) );
+    pGridForm->addRow( m_pShowFloorSurfaces );
+    m_pShowWallHeight = new QCheckBox(
+        tr( "Show wall height in Front and Side views" ), pGridPage );
+    m_pShowWallHeight->setObjectName(
+        QStringLiteral( "TileSettingsShowWallHeight" ) );
+    m_pShowWallHeight->setChecked( m_preferences.showWallHeight );
+    m_pShowWallHeight->setToolTip( tr(
+        "Draw the generated vertical wall bodies in elevation views. Top-view wall outlines remain available." ) );
+    pGridForm->addRow( m_pShowWallHeight );
+    m_pShowWallThickness = new QCheckBox(
+        tr( "Show true wall thickness in 2D views" ), pGridPage );
+    m_pShowWallThickness->setObjectName(
+        QStringLiteral( "TileSettingsShowWallThickness" ) );
+    m_pShowWallThickness->setChecked( m_preferences.showWallThickness );
+    m_pShowWallThickness->setToolTip( tr(
+        "Draw wall strips using the same physical thickness as generated map geometry. Disable for single-line technical outlines." ) );
+    pGridForm->addRow( m_pShowWallThickness );
     pGridForm->addRow( m_pShowOrthoMaterials );
     pGridForm->addRow( m_pShowMaterialLabels );
     pGridForm->addRow( tr( "2D material opacity" ), m_pOrthoMaterialOpacity );
@@ -653,6 +795,11 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
     m_pShowViewMetrics = new QCheckBox( tr( "Show viewport coordinates, scale and geometry metrics" ), pGridPage );
     m_pShowViewMetrics->setObjectName( QStringLiteral( "TileSettingsShowViewMetrics" ) );
     m_pShowViewMetrics->setChecked( m_preferences.showViewMetrics );
+    m_pShowAuthoringFooter = new QCheckBox( tr( "Show authoring guidance in 2D view footers" ), pGridPage );
+    m_pShowAuthoringFooter->setObjectName( QStringLiteral( "TileSettingsShowAuthoringFooter" ) );
+    m_pShowAuthoringFooter->setChecked( m_preferences.showAuthoringFooter );
+    m_pShowAuthoringFooter->setToolTip( tr(
+        "Show the fixed construction slice and projected editing constraint at the bottom of Front and Side views." ) );
     m_pShowCoordinateRulers = new QCheckBox( tr( "Show coordinate rulers in 2D views" ), pGridPage );
     m_pShowCoordinateRulers->setObjectName( QStringLiteral( "TileSettingsShowCoordinateRulers" ) );
     m_pShowCoordinateRulers->setChecked( m_preferences.showCoordinateRulers );
@@ -690,6 +837,7 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
     m_pEmptyViewCellPixels->setValue( m_preferences.emptyViewCellPixels );
     m_pEmptyViewCellPixels->setToolTip( tr( "Initial framing scale for maps without geometry. Larger values make nearby cells easier to see." ) );
     pGridForm->addRow( m_pShowViewMetrics );
+    pGridForm->addRow( m_pShowAuthoringFooter );
     pGridForm->addRow( m_pShowCoordinateRulers );
     pGridForm->addRow( m_pShowViewAxes );
     pGridForm->addRow( m_pCenterViewAxes );
@@ -722,6 +870,17 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
     m_pStartMaximized->setChecked( preferences.startMaximized );
     m_pFrameMapOnOpen = new QCheckBox( tr( "Frame all views when opening or creating a map" ), pDocumentPage );
     m_pFrameMapOnOpen->setChecked( preferences.frameMapOnOpen );
+    m_pLinkOrthographicCameras = new QCheckBox(
+        tr( "Link pan and zoom across 2D views" ),
+        pDocumentPage );
+    m_pLinkOrthographicCameras->setObjectName(
+        QStringLiteral( "TileSettingsLinkOrthographicCameras" ) );
+    m_pLinkOrthographicCameras->setChecked(
+        preferences.linkOrthographicCameras );
+    m_pLinkOrthographicCameras->setToolTip( tr(
+        "Optional. When enabled, Top, Front and Side share compatible pan axes "
+        "and zoom scale. Leave this disabled when every pane should keep an "
+        "independent camera." ) );
     m_pActivateViewOnHover = new QCheckBox(
         tr( "Route shortcuts and navigation to the viewport under the pointer" ),
         pDocumentPage );
@@ -741,6 +900,7 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
         "Six pixels matches the default compact four-view layout." ) );
     pDocumentForm->addRow( m_pStartMaximized );
     pDocumentForm->addRow( m_pFrameMapOnOpen );
+    pDocumentForm->addRow( m_pLinkOrthographicCameras );
     pDocumentForm->addRow( m_pActivateViewOnHover );
     pDocumentForm->addRow( tr( "Viewport separator thickness" ), m_pViewSplitterWidth );
     pTabs->addTab( pDocumentPage, tr( "Workspace" ) );
@@ -796,7 +956,7 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
         tr( "Scales middle mouse panning in the 3D view. A value of 1 follows the normal screen-space distance." ) );
     m_pCameraZoomSensitivity = makeMultiplier( "TileSettingsCameraZoomSensitivity", 0.1, 5.0,
         m_preferences.cameraZoomSensitivity, 0.1,
-        tr( "Scales wheel adjustment of fly speed or orbit distance in the 3D view. It does not change field of view." ) );
+        tr( "Scales Fly dolly, right-mouse fly-speed adjustment and Orbit distance in the 3D view. It does not change field of view." ) );
     m_pCameraFastMultiplier = makeMultiplier( "TileSettingsCameraFastMultiplier", 1.0, 20.0,
         m_preferences.cameraFastMultiplier, 0.5,
         tr( "Multiplies fly movement speed while Shift is held." ) );
@@ -814,7 +974,7 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
     pCameraForm->addRow( tr( "Movement speed" ), m_pCameraMoveSpeed );
     pCameraForm->addRow( tr( "Mouse sensitivity" ), m_pCameraLookSensitivity );
     pCameraForm->addRow( tr( "Pan sensitivity" ), m_pCameraPanSensitivity );
-    pCameraForm->addRow( tr( "Wheel sensitivity" ), m_pCameraZoomSensitivity );
+    pCameraForm->addRow( tr( "Wheel navigation sensitivity" ), m_pCameraZoomSensitivity );
     pCameraForm->addRow( tr( "Shift speed multiplier" ), m_pCameraFastMultiplier );
     pCameraForm->addRow( tr( "Ctrl speed multiplier" ), m_pCameraSlowMultiplier );
     pCameraForm->addRow( tr( "Field of view" ), m_pCameraFieldOfView );
@@ -825,10 +985,12 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
         "Hold the right mouse button in the 3D view to look around and use W/A/S/D to move. "
         "Q moves down and E moves up. After pressing right mouse, hold Shift to move faster or Ctrl to move slower.\n\n"
         "Alt + right mouse drag orbits the map. Middle mouse drag pans the camera. "
-        "Holding Shift before pressing right mouse also pans. "
-        "The mouse wheel changes fly speed in Fly mode or camera distance in Orbit mode.\n\n"
+        "Shift accelerates right-mouse flight regardless of whether it is pressed before or after the mouse button. "
+        "The mouse wheel dollies in Fly mode. While right-mouse look is held, the wheel changes fly speed. "
+        "In Orbit mode it changes camera distance around the inspected point.\n\n"
         "Use Apply to save changes without closing Settings. "
         "Cancel discards only changes made since the last Apply." ), pCameraPage );
+    pCameraHint->setObjectName( QStringLiteral( "TileSettingsCameraHelp" ) );
     pCameraHint->setWordWrap( true );
     pCameraHint->setProperty( "muted", true );
     pCameraForm->addRow( pCameraHint );
@@ -880,6 +1042,9 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
             QDialogButtonBox::RestoreDefaults,
         this );
     m_pButtons = pButtons;
+    pButtons->button( QDialogButtonBox::RestoreDefaults )->setText( tr( "Reset All Settings" ) );
+    pButtons->button( QDialogButtonBox::RestoreDefaults )->setToolTip( tr(
+        "Reset appearance, viewport, camera, workspace, map defaults and every shortcut." ) );
     connect( pButtons->button( QDialogButtonBox::RestoreDefaults ), &QPushButton::clicked, this, [this] {
         const tile_editor_preferences_t defaults{};
         for ( const auto &field : preference_fields::colors )
@@ -889,6 +1054,7 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
         m_pShowActiveViewBorder->setChecked( defaults.showActiveViewBorder );
         m_pHighlightActiveView->setChecked( defaults.highlightActiveView );
         m_pShowViewMetrics->setChecked( defaults.showViewMetrics );
+        m_pShowAuthoringFooter->setChecked( defaults.showAuthoringFooter );
         m_pShowCoordinateRulers->setChecked( defaults.showCoordinateRulers );
         m_pShowViewAxes->setChecked( defaults.showViewAxes );
         m_pCenterViewAxes->setChecked( defaults.centerViewAxes );
@@ -908,11 +1074,15 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
         m_pShowMarkers->setChecked( true );
         m_pWireframeOrtho->setChecked( defaults.wireframeOrtho );
         m_pInternalTileEdges->setChecked( defaults.showInternalTileEdges );
+        m_pShowFloorSurfaces->setChecked( defaults.showFloorSurfaces );
+        m_pShowWallHeight->setChecked( defaults.showWallHeight );
+        m_pShowWallThickness->setChecked( defaults.showWallThickness );
         m_pShowOrthoMaterials->setChecked( defaults.showOrthoMaterials );
         m_pShowMaterialLabels->setChecked( defaults.showMaterialLabels );
         m_pOrthoMaterialOpacity->setValue( defaults.orthoMaterialOpacity * 100.0 );
         m_pStartMaximized->setChecked( true );
         m_pFrameMapOnOpen->setChecked( true );
+        m_pLinkOrthographicCameras->setChecked( defaults.linkOrthographicCameras );
         m_pActivateViewOnHover->setChecked( defaults.activateViewOnHover );
         m_pCameraMoveSpeed->setValue( defaults.cameraMoveSpeed );
         m_pCameraLookSensitivity->setValue( defaults.cameraLookSensitivity );
@@ -932,17 +1102,303 @@ CypherTileEditorSettingsDialog::CypherTileEditorSettingsDialog(
             static_cast<QKeySequenceEdit *>( m_pShortcutTable->cellWidget( i, 1 ) )
                 ->setKeySequence( definitions[i].defaultSequence );
         }
+        refreshThemeChoices();
+        m_pThemeStatus->setText( tr(
+            "All editor defaults are staged. Press Apply or OK to save them." ) );
+        previewAppearance();
     } );
     connect( pButtons->button( QDialogButtonBox::Apply ), &QPushButton::clicked, this, [this] {
         updateShortcutConflicts();
         if ( !m_pShortcutConflict->text().isEmpty() ) return;
-        m_preferences = this->preferences();
-        if ( m_applyCallback ) m_applyCallback( m_preferences );
+        const auto candidate = this->preferences();
+        if ( !m_applyCallback || m_applyCallback( candidate ) )
+            m_preferences = candidate;
     } );
     connect( pButtons, &QDialogButtonBox::accepted, this, &QDialog::accept );
     connect( pButtons, &QDialogButtonBox::rejected, this, &QDialog::reject );
     pRoot->addWidget( pButtons );
+    for ( ColorButton *pColor : std::as_const( m_appearanceColors ) )
+    {
+        pColor->setChangedCallback( [this] {
+            markThemeModified();
+            previewAppearance();
+        } );
+        pColor->setFinishedCallback( [this] { refreshThemeChoices(); } );
+    }
+    for ( QSpinBox *pSpin : { m_pUiFontPointSize, m_pUiIconSize } ) {
+        connect( pSpin, qOverload<int>( &QSpinBox::valueChanged ),
+                 this, [this] { previewAppearance(); } );
+    }
+    connect( m_pShowActiveViewBorder, &QCheckBox::toggled,
+             this, [this] { previewAppearance(); } );
+    connect( m_pHighlightActiveView, &QCheckBox::toggled,
+             this, [this] { previewAppearance(); } );
     updateShortcutConflicts();
+}
+
+void CypherTileEditorSettingsDialog::setAppearanceColors(
+    const tile_editor_preferences_t &preferences )
+{
+    const auto normalized = TileEditorPreferences_Normalize( preferences );
+    for ( const auto &field : preference_fields::colors ) {
+        if ( auto *pColor = m_appearanceColors.value( QString::fromLatin1( field.key ) ) )
+            pColor->setColor( normalized.*field.member );
+    }
+}
+
+void CypherTileEditorSettingsDialog::previewAppearance()
+{
+    if ( !m_previewCallback ) return;
+    auto preview = m_preferences;
+    TileEditorPreferences_CopyAppearance( preview, preferences() );
+    m_previewCallback( preview );
+}
+
+void CypherTileEditorSettingsDialog::refreshThemeChoices( const QString &selectedPath )
+{
+    if ( m_pThemeSelector == nullptr ) return;
+    const QSignalBlocker blocker( m_pThemeSelector );
+    m_pThemeSelector->clear();
+    for ( const auto &preset : TileEditorColorPresetDefinitions() ) {
+        m_pThemeSelector->addItem( preset.label, preset.id );
+        m_pThemeSelector->setItemData(
+            m_pThemeSelector->count() - 1, BUILT_IN_THEME, THEME_KIND_ROLE );
+    }
+
+    QStringList errors;
+    const auto themes = TileEditorUserThemes_Discover(
+        TileEditorUserThemes_DefaultDirectory(), &errors );
+    if ( !themes.isEmpty() ) m_pThemeSelector->insertSeparator( m_pThemeSelector->count() );
+    for ( const auto &theme : themes ) {
+        m_pThemeSelector->addItem( theme.name, theme.path );
+        const int index = m_pThemeSelector->count() - 1;
+        m_pThemeSelector->setItemData( index, USER_THEME, THEME_KIND_ROLE );
+        m_pThemeSelector->setItemData( index, theme.path, Qt::ToolTipRole );
+    }
+
+    int selection = -1;
+    if ( !selectedPath.isEmpty() ) {
+        for ( int i = 0; i < m_pThemeSelector->count(); ++i ) {
+            if ( m_pThemeSelector->itemData( i, THEME_KIND_ROLE ).toInt() == USER_THEME &&
+                 QFileInfo( m_pThemeSelector->itemData( i ).toString() ) == QFileInfo( selectedPath ) ) {
+                selection = i;
+                break;
+            }
+        }
+    }
+    auto current = m_preferences;
+    for ( const auto &field : preference_fields::colors ) {
+        if ( const auto *pColor = m_appearanceColors.value( QString::fromLatin1( field.key ) ) )
+            current.*field.member = pColor->color();
+    }
+    if ( selection < 0 ) {
+        for ( int i = 0; i < m_pThemeSelector->count(); ++i ) {
+            tile_editor_preferences_t candidate = current;
+            if ( m_pThemeSelector->itemData( i, THEME_KIND_ROLE ).toInt() == BUILT_IN_THEME ) {
+                TileEditorPreferences_ApplyColorPreset(
+                    candidate, m_pThemeSelector->itemData( i ).toString() );
+            } else if ( m_pThemeSelector->itemData( i, THEME_KIND_ROLE ).toInt() == USER_THEME ) {
+                const auto match = std::find_if( themes.cbegin(), themes.cend(), [&]( const auto &theme ) {
+                    return QFileInfo( theme.path ) == QFileInfo( m_pThemeSelector->itemData( i ).toString() );
+                } );
+                if ( match == themes.cend() ) continue;
+                TileEditorTheme_CopyColors( candidate, match->colors );
+            } else continue;
+            bool equal = true;
+            for ( const auto &field : preference_fields::colors )
+                equal = equal && candidate.*field.member == current.*field.member;
+            if ( equal ) {
+                selection = i;
+                break;
+            }
+        }
+    }
+    if ( selection < 0 ) {
+        if ( m_pThemeSelector->count() > 0 )
+            m_pThemeSelector->insertSeparator( m_pThemeSelector->count() );
+        m_pThemeSelector->addItem( tr( "Custom (modified)" ), QString() );
+        selection = m_pThemeSelector->count() - 1;
+        m_pThemeSelector->setItemData( selection, MODIFIED_THEME, THEME_KIND_ROLE );
+    }
+    m_pThemeSelector->setCurrentIndex( selection );
+    updateThemeActions();
+    if ( !errors.isEmpty() ) {
+        m_pThemeStatus->setText( tr( "%1 invalid theme file(s) were skipped. %2" )
+                                     .arg( errors.size() )
+                                     .arg( errors.first() ) );
+        m_pThemeStatus->setProperty( "error", true );
+        m_pThemeStatus->style()->unpolish( m_pThemeStatus );
+        m_pThemeStatus->style()->polish( m_pThemeStatus );
+    } else {
+        m_pThemeStatus->setProperty( "error", false );
+    }
+}
+
+void CypherTileEditorSettingsDialog::updateThemeActions()
+{
+    if ( m_pThemeSelector == nullptr ) return;
+    const int kind = m_pThemeSelector->currentData( THEME_KIND_ROLE ).toInt();
+    const bool userTheme = kind == USER_THEME;
+    if ( m_pDeleteTheme != nullptr ) m_pDeleteTheme->setEnabled( userTheme );
+    if ( m_pExportTheme != nullptr ) m_pExportTheme->setEnabled( true );
+    if ( m_pThemeStatus == nullptr ) return;
+    m_pThemeStatus->setProperty( "error", false );
+    if ( kind == MODIFIED_THEME ) {
+        m_pThemeStatus->setText( tr(
+            "The current colors do not match a saved theme. Save As keeps this palette for reuse." ) );
+    } else if ( userTheme ) {
+        m_pThemeStatus->setText( tr( "User theme: %1" )
+                                     .arg( m_pThemeSelector->currentData().toString() ) );
+    } else {
+        m_pThemeStatus->setText( tr(
+            "Built-in palette. Selection previews immediately; Save As creates an editable user theme." ) );
+    }
+    m_pThemeStatus->style()->unpolish( m_pThemeStatus );
+    m_pThemeStatus->style()->polish( m_pThemeStatus );
+}
+
+void CypherTileEditorSettingsDialog::markThemeModified()
+{
+    if ( m_pThemeSelector == nullptr ) return;
+    int index = m_pThemeSelector->findData( MODIFIED_THEME, THEME_KIND_ROLE );
+    if ( index < 0 ) {
+        if ( m_pThemeSelector->count() > 0 )
+            m_pThemeSelector->insertSeparator( m_pThemeSelector->count() );
+        m_pThemeSelector->addItem( tr( "Custom (modified)" ), QString() );
+        index = m_pThemeSelector->count() - 1;
+        m_pThemeSelector->setItemData( index, MODIFIED_THEME, THEME_KIND_ROLE );
+    }
+    m_pThemeSelector->setCurrentIndex( index );
+}
+
+void CypherTileEditorSettingsDialog::applySelectedTheme()
+{
+    if ( m_pThemeSelector == nullptr || m_pThemeSelector->currentIndex() < 0 ) return;
+    auto candidate = preferences();
+    const int kind = m_pThemeSelector->currentData( THEME_KIND_ROLE ).toInt();
+    if ( kind == BUILT_IN_THEME ) {
+        TileEditorPreferences_ApplyColorPreset(
+            candidate, m_pThemeSelector->currentData().toString() );
+        m_pThemeStatus->setText( tr( "%1 is being previewed. Press Apply or OK to save it." )
+                                     .arg( m_pThemeSelector->currentText() ) );
+    } else if ( kind == USER_THEME ) {
+        tile_editor_user_theme_t theme;
+        QString error;
+        if ( !TileEditorUserTheme_Load(
+                 m_pThemeSelector->currentData().toString(), theme, error ) ) {
+            QMessageBox::warning( this, tr( "Load Theme" ), error );
+            refreshThemeChoices();
+            return;
+        }
+        TileEditorTheme_CopyColors( candidate, theme.colors );
+        m_pThemeStatus->setText( tr( "%1 is being previewed. Press Apply or OK to save it." )
+                                     .arg( theme.name ) );
+    } else return;
+    setAppearanceColors( candidate );
+    previewAppearance();
+}
+
+void CypherTileEditorSettingsDialog::saveCurrentTheme()
+{
+    QString initial = m_pThemeSelector != nullptr
+        ? m_pThemeSelector->currentText() : tr( "Custom Theme" );
+    if ( m_pThemeSelector != nullptr &&
+         m_pThemeSelector->currentData( THEME_KIND_ROLE ).toInt() == BUILT_IN_THEME )
+        initial += tr( " Custom" );
+    else if ( m_pThemeSelector != nullptr &&
+              m_pThemeSelector->currentData( THEME_KIND_ROLE ).toInt() == MODIFIED_THEME )
+        initial = tr( "Custom Theme" );
+    bool accepted = false;
+    const QString name = QInputDialog::getText(
+        this, tr( "Save Color Theme" ), tr( "Theme name" ),
+        QLineEdit::Normal, initial, &accepted ).simplified();
+    if ( !accepted || name.isEmpty() ) return;
+    const QString path = TileEditorUserThemes_PathForName(
+        TileEditorUserThemes_DefaultDirectory(), name );
+    if ( QFileInfo::exists( path ) &&
+         QMessageBox::question(
+             this, tr( "Replace Theme" ),
+             tr( "A theme named %1 already exists. Replace it?" ).arg( name ),
+             QMessageBox::Yes | QMessageBox::No, QMessageBox::No ) != QMessageBox::Yes ) return;
+    QString error;
+    if ( !TileEditorUserTheme_Save( path, name, preferences(), error ) ) {
+        QMessageBox::warning( this, tr( "Save Theme" ), error );
+        return;
+    }
+    refreshThemeChoices( path );
+    m_pThemeStatus->setText( tr( "Saved user theme: %1" ).arg( path ) );
+}
+
+void CypherTileEditorSettingsDialog::importTheme()
+{
+    const QString sourcePath = QFileDialog::getOpenFileName(
+        this, tr( "Import Color Theme" ), QString(),
+        tr( "Cypher Color Themes (*.cytheme);;All Files (*)" ) );
+    if ( sourcePath.isEmpty() ) return;
+    tile_editor_user_theme_t imported;
+    QString error;
+    if ( !TileEditorUserTheme_Load( sourcePath, imported, error ) ) {
+        QMessageBox::warning( this, tr( "Import Theme" ), error );
+        return;
+    }
+    const QString destination = TileEditorUserThemes_PathForName(
+        TileEditorUserThemes_DefaultDirectory(), imported.name );
+    if ( QFileInfo::exists( destination ) &&
+         QFileInfo( destination ) != QFileInfo( sourcePath ) &&
+         QMessageBox::question(
+             this, tr( "Replace Theme" ),
+             tr( "The user theme %1 already exists. Replace it?" ).arg( imported.name ),
+             QMessageBox::Yes | QMessageBox::No, QMessageBox::No ) != QMessageBox::Yes ) return;
+    if ( !TileEditorUserTheme_Save(
+             destination, imported.name, imported.colors, error ) ) {
+        QMessageBox::warning( this, tr( "Import Theme" ), error );
+        return;
+    }
+    refreshThemeChoices( destination );
+    applySelectedTheme();
+}
+
+void CypherTileEditorSettingsDialog::exportCurrentTheme()
+{
+    QString suggested = m_pThemeSelector != nullptr
+        ? m_pThemeSelector->currentText() : tr( "Cypher Theme" );
+    if ( m_pThemeSelector != nullptr &&
+         m_pThemeSelector->currentData( THEME_KIND_ROLE ).toInt() == MODIFIED_THEME )
+        suggested = tr( "Custom Theme" );
+    suggested = QFileInfo( TileEditorUserThemes_PathForName( QString(), suggested ) ).fileName();
+    QString path = QFileDialog::getSaveFileName(
+        this, tr( "Export Current Color Theme" ), suggested,
+        tr( "Cypher Color Themes (*.cytheme)" ) );
+    if ( path.isEmpty() ) return;
+    if ( !path.endsWith( QStringLiteral( ".cytheme" ), Qt::CaseInsensitive ) )
+        path += QStringLiteral( ".cytheme" );
+    QString name = QFileInfo( path ).completeBaseName();
+    if ( m_pThemeSelector != nullptr && !m_pThemeSelector->currentText().isEmpty() &&
+         m_pThemeSelector->currentData( THEME_KIND_ROLE ).toInt() != MODIFIED_THEME )
+        name = m_pThemeSelector->currentText();
+    QString error;
+    if ( !TileEditorUserTheme_Save( path, name, preferences(), error ) )
+        QMessageBox::warning( this, tr( "Export Theme" ), error );
+    else
+        m_pThemeStatus->setText( tr( "Exported current colors to %1" ).arg( path ) );
+}
+
+void CypherTileEditorSettingsDialog::deleteSelectedTheme()
+{
+    if ( m_pThemeSelector == nullptr ||
+         m_pThemeSelector->currentData( THEME_KIND_ROLE ).toInt() != USER_THEME ) return;
+    const QString path = m_pThemeSelector->currentData().toString();
+    if ( QMessageBox::question(
+             this, tr( "Delete User Theme" ),
+             tr( "Delete the user theme %1?" ).arg( m_pThemeSelector->currentText() ),
+             QMessageBox::Yes | QMessageBox::No, QMessageBox::No ) != QMessageBox::Yes ) return;
+    if ( !QFile::remove( path ) ) {
+        QMessageBox::warning(
+            this, tr( "Delete Theme" ), tr( "Could not delete theme file: %1" ).arg( path ) );
+        return;
+    }
+    refreshThemeChoices();
+    m_pThemeStatus->setText( tr( "User theme deleted. Current colors are unchanged." ) );
 }
 
 void CypherTileEditorSettingsDialog::updateShortcutConflicts()
@@ -968,9 +1424,15 @@ void CypherTileEditorSettingsDialog::updateShortcutConflicts()
 }
 
 void CypherTileEditorSettingsDialog::setApplyCallback(
-    std::function<void( const tile_editor_preferences_t & )> callback )
+    std::function<bool( const tile_editor_preferences_t & )> callback )
 {
     m_applyCallback = std::move( callback );
+}
+
+void CypherTileEditorSettingsDialog::setPreviewCallback(
+    std::function<void( const tile_editor_preferences_t & )> callback )
+{
+    m_previewCallback = std::move( callback );
 }
 
 tile_editor_preferences_t CypherTileEditorSettingsDialog::preferences() const
@@ -983,6 +1445,7 @@ tile_editor_preferences_t CypherTileEditorSettingsDialog::preferences() const
     result.showActiveViewBorder = m_pShowActiveViewBorder->isChecked();
     result.highlightActiveView = m_pHighlightActiveView->isChecked();
     result.showViewMetrics = m_pShowViewMetrics->isChecked();
+    result.showAuthoringFooter = m_pShowAuthoringFooter->isChecked();
     result.showCoordinateRulers = m_pShowCoordinateRulers->isChecked();
     result.showViewAxes = m_pShowViewAxes->isChecked();
     result.centerViewAxes = m_pCenterViewAxes->isChecked();
@@ -1002,11 +1465,15 @@ tile_editor_preferences_t CypherTileEditorSettingsDialog::preferences() const
     result.showMarkers = m_pShowMarkers->isChecked();
     result.wireframeOrtho = m_pWireframeOrtho->isChecked();
     result.showInternalTileEdges = m_pInternalTileEdges->isChecked();
+    result.showFloorSurfaces = m_pShowFloorSurfaces->isChecked();
+    result.showWallHeight = m_pShowWallHeight->isChecked();
+    result.showWallThickness = m_pShowWallThickness->isChecked();
     result.showOrthoMaterials = m_pShowOrthoMaterials->isChecked();
     result.showMaterialLabels = m_pShowMaterialLabels->isChecked();
     result.orthoMaterialOpacity = m_pOrthoMaterialOpacity->value() / 100.0;
     result.startMaximized = m_pStartMaximized->isChecked();
     result.frameMapOnOpen = m_pFrameMapOnOpen->isChecked();
+    result.linkOrthographicCameras = m_pLinkOrthographicCameras->isChecked();
     result.activateViewOnHover = m_pActivateViewOnHover->isChecked();
     result.cameraMoveSpeed = m_pCameraMoveSpeed->value();
     result.cameraLookSensitivity = m_pCameraLookSensitivity->value();

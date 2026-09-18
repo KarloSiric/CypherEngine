@@ -11,8 +11,9 @@
 #include "CypherTileEditorMainWindow.h"
 
 #include "CypherTileConsole.h"
-#include "CypherTileShellRunner.h"
 #include "CypherTileMaterialBrowser.h"
+#include "CypherTileSelectionMaterialInspector.h"
+#include "CypherTileHistoryPanel.h"
 #include "CypherTilePiecePalette.h"
 #include "CypherTileEditorConfig.h"
 #include "CypherTileMapProperties.h"
@@ -43,6 +44,7 @@
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFile>
@@ -67,6 +69,7 @@
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QStatusBar>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
 #include <QToolBar>
@@ -296,11 +299,14 @@ CypherTileEditorMainWindow::CypherTileEditorMainWindow( QWidget *pParent )
     QString configurationError;
     const QString configurationPath = TileEditorConfig_DefaultPath();
     const bool hadConfiguration = QFileInfo::exists( configurationPath );
-    if ( TileEditorConfig_Load( configurationPath, m_preferences, configurationError ) && !hadConfiguration )
+    const bool configurationLoaded = TileEditorConfig_Load(
+        configurationPath, m_preferences, configurationError );
+    if ( configurationLoaded && !hadConfiguration )
         TileEditorConfig_Save( configurationPath, m_preferences, configurationError );
     // One-time presentation update for the user's existing desktop profile.
     // Later user choices and imported profiles retain full control of these options.
-    if ( QCoreApplication::organizationName() == QStringLiteral( "CypherEngine" ) &&
+    if ( configurationLoaded &&
+         QCoreApplication::organizationName() == QStringLiteral( "CypherEngine" ) &&
          QCoreApplication::applicationName() == QStringLiteral( "CypherTileEditor" ) &&
          !settings.value( "TileEditor/quietWorkspaceV1", false ).toBool() ) {
         m_preferences.showViewMetrics = false;
@@ -318,7 +324,8 @@ CypherTileEditorMainWindow::CypherTileEditorMainWindow( QWidget *pParent )
     // stored this option as false. Upgrade those profiles once so the pane
     // beneath the pointer receives navigation and authoring shortcuts without
     // first requiring a click. Users can still opt out afterward in Settings.
-    if ( QCoreApplication::organizationName() == QStringLiteral( "CypherEngine" ) &&
+    if ( configurationLoaded &&
+         QCoreApplication::organizationName() == QStringLiteral( "CypherEngine" ) &&
          QCoreApplication::applicationName() == QStringLiteral( "CypherTileEditor" ) &&
          !settings.value( "TileEditor/pointerRoutedViewportsV1", false ).toBool() ) {
         m_preferences.activateViewOnHover = true;
@@ -327,6 +334,23 @@ CypherTileEditorMainWindow::CypherTileEditorMainWindow( QWidget *pParent )
         TileEditorPreferences_Save( settings, m_preferences );
         if ( TileEditorConfig_Save( configurationPath, m_preferences, configurationError ) )
             settings.setValue( "TileEditor/pointerRoutedViewportsV1", true );
+    }
+    // Early editor builds linked every 2D camera by default. That made local
+    // inspection frustrating because panning or zooming one pane displaced the
+    // others. Migrate existing desktop profiles once to independent cameras;
+    // users can deliberately enable linking afterward from View or Settings.
+    if ( configurationLoaded &&
+         QCoreApplication::organizationName() == QStringLiteral( "CypherEngine" ) &&
+         QCoreApplication::applicationName() == QStringLiteral( "CypherTileEditor" ) &&
+         !settings.value( "TileEditor/independentOrthographicCamerasV1", false ).toBool() ) {
+        bool migrated = false;
+        QString migrationError;
+        if ( !TileEditorConfig_MigrateIndependentOrthographicCameras(
+                 settings, configurationPath, m_preferences,
+                 migrated, migrationError ) ) {
+            if ( !configurationError.isEmpty() ) configurationError += QLatin1Char( '\n' );
+            configurationError += migrationError;
+        }
     }
     m_recentFiles = settings.value(
         QStringLiteral( "TileEditor/recentFiles" ) ).toStringList();
@@ -362,10 +386,14 @@ CypherTileEditorMainWindow::CypherTileEditorMainWindow( QWidget *pParent )
         // map. Keep only this placeholder clean; File > New remains unsaved.
         m_document.markSaved();
     }
+    m_syncingOrthographicCameras = true;
     m_pCanvas->setDocumentBridge( &m_document );
     m_pRenderViewport->setDocumentBridge( &m_document );
     if ( m_pFrontView != nullptr ) m_pFrontView->setDocumentBridge( &m_document );
     if ( m_pSideView != nullptr ) m_pSideView->setDocumentBridge( &m_document );
+    m_syncingOrthographicCameras = false;
+    if ( m_preferences.frameMapOnOpen ) frameAllOrthographicViews();
+    else synchronizeOrthographicCamerasFromActive();
     restoreWorkspace();
     refreshOrthoMaterials();
     rebuildRecentMenu();
@@ -397,8 +425,12 @@ bool CypherTileEditorMainWindow::openFilePath(
     m_pRenderViewport->clearCameraBookmarks();
     synchronizeCameraActions();
     refreshOrthoMaterials();
+    m_syncingOrthographicCameras = true;
     for ( auto *view : m_topViews ) view->setDocumentBridge( &m_document );
     for ( auto *view : m_orthoViews ) view->setDocumentBridge( &m_document );
+    m_syncingOrthographicCameras = false;
+    if ( m_preferences.frameMapOnOpen ) frameAllOrthographicViews();
+    else synchronizeOrthographicCamerasFromActive();
     if ( m_preferences.frameMapOnOpen ) m_pRenderViewport->setDocumentBridge( &m_document );
     else m_pRenderViewport->refreshDocument();
     m_pConstructionX->setMaximum( static_cast<int>( m_document.document()->nWidth ) - 1 );
@@ -500,16 +532,13 @@ void CypherTileEditorMainWindow::createActions()
         this, [this] { resetWorkspaceLayout(); } );
     const auto addPreset = [this]( const char *id, const QString &label, const QString &preset ) {
         connect( createAction( id, label ), &QAction::triggered, this, [this, preset] {
-            TileEditorPreferences_ApplyColorPreset( m_preferences, preset );
-            applyPreferences();
-            QSettings settings;
-            TileEditorPreferences_Save( settings, m_preferences );
-            QString error;
-            if ( !TileEditorConfig_Save( TileEditorConfig_DefaultPath(), m_preferences, error ) ) appendError( error );
+            auto preferences = m_preferences;
+            TileEditorPreferences_ApplyColorPreset( preferences, preset );
+            (void)applyEditorSettings( preferences );
         } );
     };
-    addPreset( "view.slatePalette", tr( "Use Slate Grid Palette" ), "slate" );
-    addPreset( "view.radiantPalette", tr( "Use Radiant Dark Palette" ), "radiant-dark" );
+    addPreset( "view.slatePalette", tr( "Use Slate Color Theme" ), "slate" );
+    addPreset( "view.radiantPalette", tr( "Use Radiant Dark Color Theme" ), "radiant-dark" );
     connect( createAction( "app.openConfig", tr( "Open Editor Configuration…" ) ), &QAction::triggered, this, [this] {
         const auto path = TileEditorConfig_DefaultPath();
         if ( !QFileInfo::exists( path ) ) {
@@ -561,6 +590,9 @@ void CypherTileEditorMainWindow::createActions()
     QAction *pAdaptiveGrid = createAction( QStringLiteral( "view.adaptiveGrid" ), tr( "Adaptive Grid Density" ), true );
     QAction *pRulers = createAction( QStringLiteral( "view.rulers" ), tr( "Show Coordinate Rulers" ), true );
     QAction *pAxes = createAction( QStringLiteral( "view.axes" ), tr( "Show XYZ Coordinate Axes" ), true );
+    QAction *pLinkedOrtho = createAction(
+        QStringLiteral( "view.linkOrthographicCameras" ),
+        tr( "Link 2D View Navigation" ), true );
     auto *materials = createAction( "view.orthoMaterials", tr( "Show Materials in 2D Views" ), true );
     materials->setIcon( CypherTileEditorIcon_Create( tile_editor_icon_t::MATERIAL ) );
     materials->setToolTip( tr(
@@ -602,6 +634,11 @@ void CypherTileEditorMainWindow::createActions()
         applyPreferences();
         savePreferences();
     } );
+    connect( pLinkedOrtho, &QAction::toggled, this, [this]( bool enabled ) {
+        m_preferences.linkOrthographicCameras = enabled;
+        applyPreferences();
+        savePreferences();
+    } );
     connect( createAction( QStringLiteral( "app.settings" ), tr( "Editor &Settings..." ) ),
              &QAction::triggered, this, [this] { showSettings(); } );
     connect( createAction( QStringLiteral( "view.fit" ), tr( "Frame Active View" ) ),
@@ -623,8 +660,7 @@ void CypherTileEditorMainWindow::createActions()
     } );
     connect( createAction( QStringLiteral( "view.fitAll" ), tr( "Frame All Views" ) ),
              &QAction::triggered, this, [this] {
-        for ( auto *view : m_topViews ) view->fitToView();
-        for ( auto *view : m_orthoViews ) view->fitToView();
+        frameAllOrthographicViews();
         m_pRenderViewport->fitCamera();
     } );
     connect( createAction( QStringLiteral( "view.four" ), tr( "&Four Views" ) ),
@@ -648,7 +684,9 @@ void CypherTileEditorMainWindow::createActions()
         m_pViewWorkspace->focusView( tile_editor_view_t::PERSPECTIVE );
     } );
     QAction *pConsole = createAction(
-        QStringLiteral( "view.console" ), tr( "Command Console" ), true );
+        QStringLiteral( "view.console" ), tr( "Console" ), true );
+    pConsole->setToolTip( tr(
+        "Show the unified editor log, command prompt, and local shell" ) );
     pConsole->setChecked( true );
     connect( pConsole, &QAction::toggled, this, [this]( bool bVisible ) {
         if ( m_pConsoleDock != nullptr ) {
@@ -657,16 +695,11 @@ void CypherTileEditorMainWindow::createActions()
         }
     } );
     QAction *pShell = createAction(
-        QStringLiteral( "view.shell" ), tr( "Open Local Shell Runner" ) );
+        QStringLiteral( "view.shell" ), tr( "Focus Local Shell in Console" ) );
     pShell->setToolTip( tr(
-        "Open the asynchronous zsh/bash command runner in the Console dock" ) );
+        "Open the unified Console; prefix local commands with ! or use shell <command>" ) );
     connect( pShell, &QAction::triggered, this, [this] {
-        if ( m_pConsoleDock == nullptr || m_pConsoleTabs == nullptr ||
-             m_pShellRunner == nullptr ) return;
-        m_pConsoleDock->show();
-        m_pConsoleDock->raise();
-        m_pConsoleTabs->setCurrentWidget( m_pShellRunner );
-        m_pShellRunner->focusInput();
+        revealConsole( true );
     } );
 
     m_pToolActions = new QActionGroup( this );
@@ -686,7 +719,8 @@ void CypherTileEditorMainWindow::createActions()
         { "tool.pan", "Pan", tile_canvas_tool_t::PAN },
         { "tool.eyedropper", "Pick Material and Dimensions", tile_canvas_tool_t::EYEDROPPER },
         { "tool.line", "Paint Line", tile_canvas_tool_t::LINE },
-        { "tool.fill", "Fill Region", tile_canvas_tool_t::FILL }
+        { "tool.fill", "Fill Region", tile_canvas_tool_t::FILL },
+        { "tool.stamp", "Place Piece", tile_canvas_tool_t::STAMP }
     };
     for ( const tool_spec_t &tool : tools ) {
         QAction *pAction = createAction(
@@ -699,7 +733,7 @@ void CypherTileEditorMainWindow::createActions()
             setTool( tool.tool );
         } );
     }
-    m_actions.value( QStringLiteral( "tool.paint" ) )->setChecked( true );
+    m_actions.value( QStringLiteral( "tool.select" ) )->setChecked( true );
 
     QAction *pQuit = createAction( QStringLiteral( "file.quit" ), tr( "&Quit" ) );
     pQuit->setShortcut( QKeySequence::Quit );
@@ -732,6 +766,7 @@ void CypherTileEditorMainWindow::createActions()
     setIcon( "tool.eyedropper", tile_editor_icon_t::EYEDROPPER );
     setIcon( "tool.line", tile_editor_icon_t::LINE );
     setIcon( "tool.fill", tile_editor_icon_t::FILL );
+    setIcon( "tool.stamp", tile_editor_icon_t::STAMP );
     setIcon( "view.console", tile_editor_icon_t::CONSOLE );
     setIcon( "view.shell", tile_editor_icon_t::CONSOLE );
     setIcon( "tool.select", tile_editor_icon_t::SELECT );
@@ -804,6 +839,7 @@ void CypherTileEditorMainWindow::buildMenus()
     pView->addAction( m_actions.value( QStringLiteral( "view.adaptiveGrid" ) ) );
     pView->addAction( m_actions.value( QStringLiteral( "view.rulers" ) ) );
     pView->addAction( m_actions.value( QStringLiteral( "view.axes" ) ) );
+    pView->addAction( m_actions.value( QStringLiteral( "view.linkOrthographicCameras" ) ) );
     pView->addAction( m_actions.value( "view.orthoMaterials" ) );
     pView->addAction( m_actions.value( "view.materialLabels" ) );
     pView->addAction( m_actions.value( QStringLiteral( "view.frameSelection" ) ) );
@@ -1178,6 +1214,8 @@ void CypherTileEditorMainWindow::buildWorkspace()
             : std::span<const tile_map_grid_coord_t>(), modifiers );
     } );
     m_pRenderViewport->setChangedCallback( [this] { onDocumentChanged(); } );
+    m_pRenderViewport->setStampCallback(
+        [this]( tile_map_grid_coord_t center ) { placeActivePiece( center ); } );
     m_pRenderViewport->setPaintPickedCallback( [this]( const tile_map_paint_t &paint ) {
         m_pCanvas->setPaint( paint ); if ( m_paintPicked ) m_paintPicked( paint ); synchronizeAuthoring();
     } );
@@ -1225,6 +1263,8 @@ void CypherTileEditorMainWindow::configureTopView( CypherTileCanvas *view )
         else synchronizeSelection();
     } );
     view->setMoveSelectionCallback( [this]( int dx, int dy, bool copy ) { translateSelection( dx, dy, copy ); } );
+    view->setStampCallback(
+        [this]( tile_map_grid_coord_t center ) { placeActivePiece( center ); } );
     view->setPaintPickedCallback( [this]( const tile_map_paint_t &paint ) {
         m_pCanvas->setPaint( paint );
         if ( m_paintPicked ) m_paintPicked( paint );
@@ -1237,6 +1277,10 @@ void CypherTileEditorMainWindow::configureTopView( CypherTileCanvas *view )
     view->setZoomCallback( [this]( qreal zoom ) {
         if ( m_pStatusZoom ) m_pStatusZoom->setText( tr( "%1 px/cell" ).arg( zoom, 0, 'f', 1 ) );
     } );
+    view->setNavigationChangedCallback(
+        [this, view]( const tile_ortho_camera_state_t &state ) {
+            synchronizeOrthographicCameras( view, state );
+        } );
     view->setStatusCallback( [this]( const QString &message, bool error ) {
         setStatus( message, error ); if ( error ) appendError( message );
     } );
@@ -1269,10 +1313,22 @@ void CypherTileEditorMainWindow::configureOrthoView( CypherTileOrthoView *view )
         if ( m_pViewWorkspace != nullptr )
             m_pViewWorkspace->showPaneContextMenu( view, globalPosition );
     } );
+    view->setNavigationChangedCallback(
+        [this, view]( const tile_ortho_camera_state_t &state ) {
+            synchronizeOrthographicCameras( view, state );
+        } );
     view->setPaintPickedCallback( [this]( const tile_map_paint_t &paint ) {
         m_pCanvas->setPaint( paint );
         if ( m_paintPicked ) m_paintPicked( paint );
         synchronizeAuthoring();
+    } );
+    view->setStampCallback( [this]( tile_map_grid_coord_t center, i16 floorLevel ) {
+        auto paint = m_pCanvas->paint();
+        paint.nFloorLevel = floorLevel;
+        m_pCanvas->setPaint( paint );
+        if ( m_paintPicked ) m_paintPicked( paint );
+        synchronizeAuthoring();
+        placeActivePiece( center );
     } );
 }
 
@@ -1297,6 +1353,7 @@ QWidget *CypherTileEditorMainWindow::createWorkspaceView( tile_editor_view_t typ
     applyShortcuts();
     synchronizeSelection();
     synchronizeAuthoring();
+    synchronizeOrthographicCamerasFromActive();
     return created;
 }
 
@@ -1328,12 +1385,108 @@ void CypherTileEditorMainWindow::synchronizeAuthoring()
         m_pConstructionY ? m_pConstructionY->value() : 0 };
     for ( auto *view : m_topViews ) {
         view->setTool( tool ); view->setPaint( paint ); view->setDoorSide( m_pCanvas->doorSide() );
+        if ( m_activePiece.has_value() ) {
+            const auto cells = TileEditorPiece_Cells( *m_activePiece );
+            view->setStampPreview(
+                TileEditorPiece_FootprintSize( *m_activePiece ),
+                std::span<const QPoint>( cells.constData(), static_cast<size_t>( cells.size() ) ),
+                m_activePiece->label );
+        } else {
+            view->setStampPreview( {}, {}, {} );
+        }
     }
     for ( auto *view : m_orthoViews ) {
         view->setTool( tool ); view->setPaint( paint ); view->setConstructionCell( construction );
         view->setDoorSide( m_pCanvas->doorSide() );
     }
-    if ( m_pRenderViewport ) { m_pRenderViewport->setTool( tool ); m_pRenderViewport->setPaint( paint ); m_pRenderViewport->setDoorSide( m_pCanvas->doorSide() ); }
+    if ( m_pRenderViewport ) {
+        m_pRenderViewport->setTool( tool );
+        m_pRenderViewport->setPaint( paint );
+        m_pRenderViewport->setDoorSide( m_pCanvas->doorSide() );
+        m_pRenderViewport->setStampLabel(
+            m_activePiece.has_value() ? m_activePiece->label : QString() );
+    }
+}
+
+void CypherTileEditorMainWindow::synchronizeOrthographicCameras(
+    QWidget *source,
+    const tile_ortho_camera_state_t &state )
+{
+    if ( !m_preferences.linkOrthographicCameras ||
+         m_syncingOrthographicCameras ) return;
+    auto linkedState = state;
+    if ( m_document.isInitialized() ) {
+        const auto range = TileOrthoCamera_CommonScaleRange(
+            m_document.document()->nCellSize );
+        linkedState.pixelsPerWorldUnit = std::clamp(
+            linkedState.pixelsPerWorldUnit,
+            range.minimum,
+            range.maximum );
+    }
+    const bool sourceRequiresClamp =
+        !qFuzzyCompare( linkedState.pixelsPerWorldUnit,
+                        state.pixelsPerWorldUnit );
+    m_syncingOrthographicCameras = true;
+    for ( auto *view : m_topViews ) {
+        if ( view != source || sourceRequiresClamp )
+            view->synchronizeOrthographicCamera( linkedState );
+    }
+    for ( auto *view : m_orthoViews ) {
+        if ( view != source || sourceRequiresClamp )
+            view->synchronizeOrthographicCamera( linkedState );
+    }
+    m_syncingOrthographicCameras = false;
+}
+
+void CypherTileEditorMainWindow::synchronizeOrthographicCamerasFromActive()
+{
+    if ( !m_preferences.linkOrthographicCameras || m_pCanvas == nullptr ) return;
+    QWidget *active = m_pViewWorkspace != nullptr
+        ? m_pViewWorkspace->activeWidget() : nullptr;
+    for ( auto *view : m_topViews ) {
+        if ( view == active ) {
+            synchronizeOrthographicCameras(
+                view, view->orthographicCameraState() );
+            return;
+        }
+    }
+    for ( auto *view : m_orthoViews ) {
+        if ( view == active ) {
+            synchronizeOrthographicCameras(
+                view, view->orthographicCameraState() );
+            return;
+        }
+    }
+    synchronizeOrthographicCameras(
+        m_pCanvas, m_pCanvas->orthographicCameraState() );
+}
+
+void CypherTileEditorMainWindow::frameAllOrthographicViews()
+{
+    const bool wasSynchronizing = m_syncingOrthographicCameras;
+    m_syncingOrthographicCameras = true;
+    for ( auto *view : m_topViews ) view->fitToView();
+    for ( auto *view : m_orthoViews ) view->fitToView();
+    m_syncingOrthographicCameras = wasSynchronizing;
+    if ( wasSynchronizing || !m_preferences.linkOrthographicCameras ||
+         m_pCanvas == nullptr ) return;
+
+    tile_ortho_camera_state_t canonical =
+        m_pCanvas->orthographicCameraState();
+    canonical.axisMask = TILE_ORTHO_CAMERA_AXIS_X |
+        TILE_ORTHO_CAMERA_AXIS_Y | TILE_ORTHO_CAMERA_AXIS_Z;
+    if ( m_pFrontView != nullptr )
+        canonical.centerZ =
+            m_pFrontView->orthographicCameraState().centerZ;
+    for ( auto *view : m_topViews )
+        canonical.pixelsPerWorldUnit = std::min(
+            canonical.pixelsPerWorldUnit,
+            view->orthographicCameraState().pixelsPerWorldUnit );
+    for ( auto *view : m_orthoViews )
+        canonical.pixelsPerWorldUnit = std::min(
+            canonical.pixelsPerWorldUnit,
+            view->orthographicCameraState().pixelsPerWorldUnit );
+    synchronizeOrthographicCameras( nullptr, canonical );
 }
 
 void CypherTileEditorMainWindow::frameView( tile_editor_view_t view )
@@ -1344,13 +1497,13 @@ void CypherTileEditorMainWindow::frameView( tile_editor_view_t view )
     }
     for ( auto *ortho : m_orthoViews ) if ( ortho == active &&
         ( view == tile_editor_view_t::FRONT || view == tile_editor_view_t::SIDE ) ) {
-        ortho->fitToView(); return;
+        ortho->fitSelection(); return;
     }
     switch ( view ) {
         case tile_editor_view_t::TOP: m_pCanvas->fitToView(); break;
         case tile_editor_view_t::PERSPECTIVE: m_pRenderViewport->frameSelection(); break;
-        case tile_editor_view_t::FRONT: m_pFrontView->fitToView(); break;
-        case tile_editor_view_t::SIDE: m_pSideView->fitToView(); break;
+        case tile_editor_view_t::FRONT: m_pFrontView->fitSelection(); break;
+        case tile_editor_view_t::SIDE: m_pSideView->fitSelection(); break;
     }
 }
 
@@ -1373,6 +1526,9 @@ void CypherTileEditorMainWindow::refreshOrthoMaterials( bool force )
     if ( !TileOrthoMaterials_Refresh( m_orthoMaterials, *m_document.document(), root, force ) ) return;
     for ( auto *view : m_topViews ) view->update();
     for ( auto *view : m_orthoViews ) view->update();
+    if ( m_pSelectionMaterial != nullptr && m_pCanvas != nullptr )
+        m_pSelectionMaterial->setSelection( m_document.document(),
+            m_pCanvas->selectedCells(), &m_orthoMaterials );
 }
 
 void CypherTileEditorMainWindow::buildToolsDock()
@@ -1394,6 +1550,7 @@ void CypherTileEditorMainWindow::buildToolsDock()
     auto *pFloor = new QSpinBox( pPaint );
     auto *pWall = new QSpinBox( pPaint );
     m_pPaintMaterialSlot = new QSpinBox( pPaint );
+    m_pPaintMaterialSlot->setObjectName( QStringLiteral( "TilePaintMaterialSlot" ) );
     pFloor->setRange(
         std::numeric_limits<i16>::min(),
         std::numeric_limits<i16>::max() );
@@ -1448,7 +1605,7 @@ void CypherTileEditorMainWindow::buildToolsDock()
     pPaintForm->addRow( tr( "Stair steps" ), pSteps );
     pPaintForm->addRow( tr( "Floor level" ), pFloor );
     pPaintForm->addRow( tr( "Wall levels" ), pWall );
-    pPaintForm->addRow( tr( "Material slot" ), m_pPaintMaterialSlot );
+    pPaintForm->addRow( tr( "Paint slot" ), m_pPaintMaterialSlot );
     m_pConstructionX = new QSpinBox( pPaint );
     m_pConstructionY = new QSpinBox( pPaint );
     m_pConstructionX->setObjectName( "TileConstructionColumn" );
@@ -1540,11 +1697,22 @@ void CypherTileEditorMainWindow::buildToolsDock()
         if ( pCurrent == nullptr ) return;
         m_pPaintMaterialSlot->setValue(
             pCurrent->data( Qt::UserRole ).toInt() );
-        setTool( tile_canvas_tool_t::PAINT );
-        setStatus( tr( "Paint material: %1" ).arg( pCurrent->text() ) );
+        if ( m_pCanvas->hasSelection() ) {
+            applyMaterialToSelection( static_cast<unsigned short>(
+                pCurrent->data( Qt::UserRole ).toUInt() ) );
+            setStatus( tr( "Applied %1 to the selected geometry" )
+                .arg( pCurrent->text() ) );
+        } else {
+            setStatus( tr( "Current material: %1 · new geometry will use it" )
+                .arg( pCurrent->text() ) );
+        }
     } );
     connect( m_pPaintMaterialSlot, qOverload<int>( &QSpinBox::valueChanged ),
              this, [this]( int nSlot ) {
+        // Keep the palette indicator synchronized without treating this
+        // programmatic current-item change as an explicit material assignment.
+        // In particular, "Use for Paint" must never rewrite selected geometry.
+        const QSignalBlocker blockPaletteActivation( m_pMaterialList );
         for ( int iItem = 0; iItem < m_pMaterialList->count(); ++iItem ) {
             QListWidgetItem *pItem = m_pMaterialList->item( iItem );
             if ( pItem->data( Qt::UserRole ).toInt() == nSlot ) {
@@ -1552,7 +1720,9 @@ void CypherTileEditorMainWindow::buildToolsDock()
                 return;
             }
         }
-        m_pMaterialList->clearSelection();
+        // clearSelection() leaves QListWidget::currentItem() intact. A project
+        // material has no corresponding built-in row, so clear both states.
+        m_pMaterialList->setCurrentItem( nullptr );
     } );
     connect( m_pMaterialFilter, &QLineEdit::textChanged, this,
              [this]( const QString &text ) {
@@ -1589,13 +1759,8 @@ void CypherTileEditorMainWindow::buildToolsDock()
             pWall->setValue( piece.wallLevels );
             setTool( tile_canvas_tool_t::RECTANGLE );
         } else {
-            if ( !m_pCanvas->hasSelection() ) { appendWarning( tr( "Select a cell in Top to anchor the footprint." ) ); return; }
-            QString error;
-            if ( !TileEditorPiece_Stamp( m_document, piece, m_pCanvas->selectedCell(), m_pCanvas->paint(), error ) ) {
-                appendWarning( error ); return;
-            }
-            m_pCanvas->refreshDocument();
-            onDocumentChanged();
+            activatePiece( piece );
+            return;
         }
         setStatus( tr( "%1 selected" ).arg( piece.label ) );
     } );
@@ -1612,12 +1777,22 @@ void CypherTileEditorMainWindow::buildToolsDock()
     pLayout->removeWidget( pStamps );
     auto *tabs = new QTabWidget( pDock );
     tabs->setObjectName( QStringLiteral( "TileAssetTabs" ) );
+    tabs->setDocumentMode( true );
+    tabs->setUsesScrollButtons( true );
+    tabs->setElideMode( Qt::ElideRight );
+    tabs->tabBar()->setObjectName( QStringLiteral( "TileAssetTabBar" ) );
+    tabs->tabBar()->setExpanding( false );
     pMaterials->setTitle( QString() );
-    tabs->addTab( pMaterials, tr( "Blockout Palette" ) );
-    tabs->addTab( pStamps, tr( "Room Pieces" ) );
+    tabs->addTab( pStamps, tr( "Build" ) );
+    tabs->setTabToolTip( 0, tr( "Place reusable and parameterized map pieces" ) );
+    tabs->addTab( pMaterials, tr( "Materials" ) );
+    tabs->setTabToolTip( 1, tr( "Choose the current blockout material or apply it to selected geometry" ) );
     m_pMaterialBrowser = new CypherTileMaterialBrowser( tabs );
-    tabs->insertTab( 0, m_pMaterialBrowser, tr( "Project Materials" ) );
-    tabs->setCurrentWidget( m_pMaterialBrowser );
+    tabs->addTab( m_pMaterialBrowser, tr( "Project Materials" ) );
+    tabs->setTabToolTip( 2, tr( "Import project .cymat assets; direct slot bindings are available under Advanced" ) );
+    tabs->setCurrentWidget( pStamps );
+    m_pMaterialBrowser->setSlotResolver(
+        [this]( const QString &path ) { return resolveProjectMaterialSlot( path ); } );
     m_pMaterialBrowser->setAssignCallback( [this]( unsigned short slot, const QString &path ) { bindProjectMaterial( slot, path ); } );
     m_pMaterialBrowser->setApplyCallback( [this]( unsigned short slot ) { applyMaterialToSelection( slot ); } );
     m_pMaterialBrowser->setStatusCallback( [this]( const QString &message, bool error ) { if ( error ) appendError( message ); else appendInfo( message ); } );
@@ -1644,7 +1819,7 @@ void CypherTileEditorMainWindow::buildInspectorDock()
     auto *pDock = new QDockWidget( tr( "PROPERTIES" ), this );
     m_pInspectorDock = pDock;
     pDock->setObjectName( QStringLiteral( "TileEditorInspectorDock" ) );
-    pDock->setMinimumWidth( 265 );
+    pDock->setMinimumWidth( 320 );
     auto *pContainer = new QWidget( pDock );
     auto *pContainerLayout = new QVBoxLayout( pContainer );
     pContainerLayout->setContentsMargins( 5, 5, 5, 5 );
@@ -1656,35 +1831,33 @@ void CypherTileEditorMainWindow::buildInspectorDock()
         "Checks update while editing and after undo/redo. Checks cover document "
         "structure, player spawn, and door placement. Spawn warnings do not block "
         "geometry rendering. Connectivity and gameplay collision are not checked." ) );
-    pContainerLayout->addWidget( m_pValidationSummary );
     auto *pTabs = new QTabWidget( pContainer );
     m_pInspectorTabs = pTabs;
     pTabs->setObjectName( QStringLiteral( "TileInspectorTabs" ) );
+    pTabs->setDocumentMode( true );
+    pTabs->setUsesScrollButtons( true );
+    pTabs->setElideMode( Qt::ElideRight );
+    pTabs->tabBar()->setObjectName( QStringLiteral( "TileInspectorTabBar" ) );
+    pTabs->tabBar()->setExpanding( false );
     pContainerLayout->addWidget( pTabs, 1 );
 
     auto *pInspector = new QWidget( pTabs );
     auto *pInspectorLayout = new QVBoxLayout( pInspector );
     pInspectorLayout->setContentsMargins( 7, 7, 7, 7 );
-    auto *pDocumentGroup = new QGroupBox( tr( "Document" ), pInspector );
-    auto *pDocumentForm = new QFormLayout( pDocumentGroup );
-    m_pDocumentSize = new QLabel( tr( "—" ), pDocumentGroup );
-    pDocumentForm->addRow( tr( "Grid" ), m_pDocumentSize );
-    auto *pEditMap = new QPushButton( tr( "Edit Map Properties…" ), pDocumentGroup );
-    pEditMap->setObjectName( QStringLiteral( "TileEditMapProperties" ) );
-    connect( pEditMap, &QPushButton::clicked, this, [this] { showMapProperties(); } );
-    pDocumentForm->addRow( pEditMap );
-    pInspectorLayout->addWidget( pDocumentGroup );
+    pInspectorLayout->setSpacing( 7 );
+    m_pSelectionLabel = new QLabel( tr( "No selection" ), pInspector );
+    m_pSelectionLabel->setObjectName( QStringLiteral( "TileSelectionSummary" ) );
+    m_pSelectionLabel->setWordWrap( true );
+    m_pSelectionLabel->setTextInteractionFlags( Qt::TextSelectableByMouse );
+    pInspectorLayout->addWidget( m_pSelectionLabel );
 
-    auto *pCellGroup = new QGroupBox( tr( "Selected Tiles" ), pInspector );
+    auto *pCellGroup = new QGroupBox( tr( "Geometry" ), pInspector );
     auto *pCellForm = new QFormLayout( pCellGroup );
-    m_pSelectionLabel = new QLabel( tr( "No selection" ), pCellGroup );
     m_pFloorEnabled = new QCheckBox( tr( "Playable floor" ), pCellGroup );
     m_pFloorLevel = new QSpinBox( pCellGroup );
     m_pWallHeight = new QSpinBox( pCellGroup );
     m_pMaterialSlot = new QSpinBox( pCellGroup );
     m_pSpawnYaw = new QDoubleSpinBox( pCellGroup );
-    m_pSelectionLabel->setObjectName( "TileSelectionSummary" );
-    m_pSelectionLabel->setWordWrap( true );
     m_pFloorEnabled->setObjectName( "TileSelectionFloorEnabled" );
     m_pFloorLevel->setObjectName( "TileSelectionFloorLevel" );
     m_pWallHeight->setObjectName( "TileSelectionWallHeight" );
@@ -1706,7 +1879,6 @@ void CypherTileEditorMainWindow::buildInspectorDock()
         static_cast<double>( std::numeric_limits<f32>::max() ) );
     m_pSpawnYaw->setDecimals( 6 );
     m_pSpawnYaw->setSuffix( tr( "°" ) );
-    pCellForm->addRow( tr( "Coordinate" ), m_pSelectionLabel );
     pCellForm->addRow( QString(), m_pFloorEnabled );
     pCellForm->addRow( tr( "Shape" ), m_pCellShape );
     pCellForm->addRow( tr( "Stair steps" ), m_pStairSteps );
@@ -1714,11 +1886,59 @@ void CypherTileEditorMainWindow::buildInspectorDock()
     pCellForm->addRow( tr( "Wall levels" ), m_pWallHeight );
     pCellForm->addRow( tr( "Material slot" ), m_pMaterialSlot );
     pCellForm->addRow( tr( "Spawn yaw" ), m_pSpawnYaw );
-    auto *propertyHint = new QLabel( tr( "Mixed fields keep their individual values until edited. Each changed field applies to every selected floor. Playable floor creates or removes floors in the selected cells." ), pCellGroup );
+    auto *propertyHint = new QLabel( tr(
+        "Edits apply to every selected floor. Mixed fields remain unchanged until you edit that field." ),
+        pCellGroup );
     propertyHint->setWordWrap( true );
     propertyHint->setProperty( "muted", true );
     pCellForm->addRow( propertyHint );
+    auto *pMaterialGroup = new QGroupBox( tr( "Surface Material" ), pInspector );
+    pMaterialGroup->setObjectName( QStringLiteral( "TileSelectionMaterialGroup" ) );
+    auto *pMaterialLayout = new QVBoxLayout( pMaterialGroup );
+    pMaterialLayout->setContentsMargins( 0, 0, 0, 0 );
+    m_pSelectionMaterial = new CypherTileSelectionMaterialInspector( pMaterialGroup );
+    m_pSelectionMaterial->setUseForPaintCallback( [this]( u16 slot ) {
+        m_pPaintMaterialSlot->setValue( slot );
+        setStatus( tr( "Material slot %1 is current for new geometry" ).arg( slot ) );
+    } );
+    m_pSelectionMaterial->setBrowseCallback( [this]( u16 slot, const QString &path ) {
+        m_pAssetsDock->show();
+        m_pAssetsDock->raise();
+        auto *assetTabs = qobject_cast<QTabWidget *>( m_pMaterialBrowser->parentWidget() );
+        if ( !path.isEmpty() ) {
+            if ( assetTabs != nullptr ) assetTabs->setCurrentWidget( m_pMaterialBrowser );
+            m_pMaterialBrowser->setTargetSlot( slot );
+            if ( m_pMaterialBrowser->selectMaterial( path ) ) {
+                setStatus( tr( "Located %1" ).arg( path ) );
+            } else {
+                setStatus( tr( "Bound material is outside the current material browser: %1" )
+                    .arg( path ), true );
+            }
+            return;
+        }
+        if ( assetTabs != nullptr && m_pMaterialList != nullptr ) {
+            QWidget *page = m_pMaterialList;
+            while ( page->parentWidget() != nullptr && page->parentWidget() != assetTabs )
+                page = page->parentWidget();
+            if ( page->parentWidget() == assetTabs ) assetTabs->setCurrentWidget( page );
+        }
+        for ( int row = 0; row < m_pMaterialList->count(); ++row ) {
+            auto *item = m_pMaterialList->item( row );
+            if ( item->data( Qt::UserRole ).toUInt() != slot ) continue;
+            // Locate is navigation only. Programmatic reveal must not trigger
+            // the palette's explicit paint-material activation workflow.
+            const QSignalBlocker blockPaletteActivation( m_pMaterialList );
+            m_pMaterialList->setCurrentItem( item );
+            m_pMaterialList->scrollToItem( item, QAbstractItemView::PositionAtCenter );
+            setStatus( tr( "Located blockout material slot %1" ).arg( slot ) );
+            return;
+        }
+        setStatus( tr( "Material slot %1 has no palette entry" ).arg( slot ), true );
+    } );
+    pMaterialLayout->addWidget( m_pSelectionMaterial );
+    pInspectorLayout->addWidget( pMaterialGroup );
     pInspectorLayout->addWidget( pCellGroup );
+
     auto *pTransform = new QGroupBox( tr( "Selection Transform" ), pInspector );
     auto *pTransformLayout = new QFormLayout( pTransform );
     m_pOffsetX = new QSpinBox( pTransform );
@@ -1748,7 +1968,9 @@ void CypherTileEditorMainWindow::buildInspectorDock()
     }
     wallButtons->addStretch();
     pTransformLayout->addRow( tr( "Wall height" ), wallButtons );
-    auto *pTransformHint = new QLabel( tr( "V: select. Drag a box in Top/Front/Side. Shift adds, Ctrl/Cmd toggles, Alt removes. Drag selected tiles in Top to move. Arrows: move. Page Up/Down: floor elevation. Shift+Page Up/Down: wall height. Walls move with their owning tiles." ), pTransform );
+    auto *pTransformHint = new QLabel( tr(
+        "Select geometry in any map view. Drag in Top or use the arrow keys to move it; Page Up/Down changes floor level, and Shift + Page Up/Down changes wall height." ),
+        pTransform );
     pTransformHint->setWordWrap( true );
     pTransformHint->setProperty( "muted", true );
     pTransformLayout->addRow( pTransformHint );
@@ -1759,7 +1981,11 @@ void CypherTileEditorMainWindow::buildInspectorDock()
     pSelectionScroll->setFrameShape( QFrame::NoFrame );
     pSelectionScroll->setWidget( pInspector );
     pTabs->addTab( pSelectionScroll, tr( "Selection" ) );
+    pTabs->setTabToolTip( pTabs->count() - 1,
+        tr( "Inspect and edit the current geometry selection" ) );
     pTabs->addTab( m_pPaintPanel, tr( "Paint" ) );
+    pTabs->setTabToolTip( pTabs->count() - 1,
+        tr( "Choose paint, shape, construction-layer, and piece defaults" ) );
 
     auto *pMapScroll = new QScrollArea( pTabs );
     pMapScroll->setWidgetResizable( true );
@@ -1771,6 +1997,8 @@ void CypherTileEditorMainWindow::buildInspectorDock()
     pMapScroll->setWidget( m_pMapProperties );
     m_pMapPropertiesPage = pMapScroll;
     pTabs->addTab( pMapScroll, tr( "Map" ) );
+    pTabs->setTabToolTip( pTabs->count() - 1,
+        tr( "Edit live map dimensions, world metrics, and identity" ) );
 
     auto connectInspector = [this]( QSpinBox *spin, flags32_t field ) {
         spin->setKeyboardTracking( false );
@@ -1803,6 +2031,8 @@ void CypherTileEditorMainWindow::buildInspectorDock()
     auto *pValidation = new QWidget( pTabs );
     auto *pValidationLayout = new QVBoxLayout( pValidation );
     pValidationLayout->setContentsMargins( 7, 7, 7, 7 );
+    pValidationLayout->setSpacing( 6 );
+    pValidationLayout->addWidget( m_pValidationSummary );
     m_pValidationList = new QListWidget( pValidation );
     m_pValidationList->setObjectName( QStringLiteral( "TileValidationList" ) );
     m_pValidationList->setAlternatingRowColors( true );
@@ -1828,7 +2058,16 @@ void CypherTileEditorMainWindow::buildInspectorDock()
     pValidationCommands->addWidget( pValidate );
     pValidationCommands->addWidget( pBuild );
     pValidationLayout->addLayout( pValidationCommands );
-    pTabs->addTab( pValidation, tr( "Validation" ) );
+    pTabs->addTab( pValidation, tr( "Checks" ) );
+    pTabs->setTabToolTip( pTabs->count() - 1,
+        tr( "Inspect live validation diagnostics and build geometry" ) );
+
+    m_pHistoryPanel = new CypherTileHistoryPanel( pTabs );
+    m_pHistoryPanel->setUndoCallback( [this] { undo(); } );
+    m_pHistoryPanel->setRedoCallback( [this] { redo(); } );
+    pTabs->addTab( m_pHistoryPanel, tr( "History" ) );
+    pTabs->setTabToolTip( pTabs->count() - 1,
+        tr( "Inspect committed edit actions and undo or redo them" ) );
 
     pDock->setWidget( pContainer );
     addDockWidget( Qt::RightDockWidgetArea, pDock );
@@ -1844,19 +2083,51 @@ void CypherTileEditorMainWindow::bindProjectMaterial( unsigned short slot, const
         appendError( tr( "Could not bind material: %1" ).arg( QString::fromLatin1( CypherTileMapDocument_StatusName( result ) ) ) );
         return;
     }
-    onDocumentChanged();
     if ( path.isEmpty() ) {
+        onDocumentChanged();
         setStatus( tr( "Cleared material binding for slot %1" ).arg( slot ) );
     } else {
         m_pPaintMaterialSlot->setValue( slot );
-        setTool( tile_canvas_tool_t::PAINT );
-        setStatus( tr( "%1 bound to map slot %2; ready to paint" ).arg( path ).arg( slot ) );
+        if ( m_pCanvas->hasSelection() ) {
+            // "Use Material" is the ordinary authoring command. Binding the
+            // resource and then leaving an existing selection unchanged made
+            // the project-material browser feel like a low-level slot editor.
+            // Apply the newly resolved slot immediately, matching the built-in
+            // material palette. Both edits remain independently undoable.
+            applyMaterialToSelection( slot );
+            setStatus( tr( "Applied %1 to the selected geometry" ).arg( path ) );
+        } else {
+            onDocumentChanged();
+        }
+        if ( !m_pCanvas->hasSelection() ) {
+            setStatus( tr( "%1 is current for new geometry" ).arg( path ) );
+        }
     }
+}
+
+unsigned short CypherTileEditorMainWindow::resolveProjectMaterialSlot(
+    const QString &path ) const
+{
+    if ( !m_document.isInitialized() ) return 32u;
+    const auto *document = m_document.document();
+    for ( usize i = 0; i < Vector_Count( &document->materialBindings ); ++i ) {
+        const auto &binding = document->materialBindings.pData[i];
+        if ( QString::fromUtf8( binding.path ) == path ) return binding.nSlot;
+    }
+    // Slots 0–31 are reserved for the stable blockout palette and future
+    // built-in editor diagnostics. Project assets receive the first free slot
+    // automatically; the Advanced panel can still override it explicitly.
+    for ( unsigned int slot = 32u; slot <= 65535u; ++slot ) {
+        if ( CypherTileMapDocument_FindMaterialBinding(
+                 document, static_cast<u16>( slot ) ) == nullptr )
+            return static_cast<unsigned short>( slot );
+    }
+    return 65535u;
 }
 
 void CypherTileEditorMainWindow::applyMaterialToSelection( unsigned short slot )
 {
-    if ( !m_pCanvas->hasSelection() ) { appendWarning( tr( "Select cells in Top before applying a material." ) ); return; }
+    if ( !m_pCanvas->hasSelection() ) { appendWarning( tr( "Select map geometry before applying a material." ) ); return; }
     tile_map_selection_patch_t patch{};
     patch.fields = TILE_MAP_SELECTION_PROPERTY_MATERIAL;
     patch.nMaterialSlot = slot;
@@ -1867,6 +2138,46 @@ void CypherTileEditorMainWindow::applyMaterialToSelection( unsigned short slot )
     m_pCanvas->refreshDocument();
     onDocumentChanged();
     setStatus( tr( "Applied material slot %1 to selected floors" ).arg( slot ) );
+}
+
+void CypherTileEditorMainWindow::activatePiece( const tile_piece_t &piece )
+{
+    if ( TileEditorPiece_Cells( piece ).isEmpty() ) {
+        appendWarning( tr( "%1 is a specialized placement tool, not a floor footprint." )
+            .arg( piece.label ) );
+        return;
+    }
+    m_activePiece = piece;
+    setTool( tile_canvas_tool_t::STAMP );
+    setStatus( tr( "%1 ready · click in any viewport to place · T reuses the current piece" )
+        .arg( piece.label ) );
+}
+
+void CypherTileEditorMainWindow::placeActivePiece( tile_map_grid_coord_t center )
+{
+    if ( !m_activePiece.has_value() ) {
+        appendWarning( tr( "Choose a room or shape in Build before using Place Piece." ) );
+        return;
+    }
+    QString error;
+    if ( !TileEditorPiece_Stamp(
+             m_document,
+             *m_activePiece,
+             center,
+             m_pCanvas->paint(),
+             error ) ) {
+        setStatus( error, true );
+        appendWarning( error );
+        return;
+    }
+    const auto placed = TileEditorPiece_PlacedCells( *m_activePiece, center );
+    std::vector<tile_map_grid_coord_t> selection;
+    selection.reserve( static_cast<size_t>( placed.size() ) );
+    for ( const auto cell : placed ) selection.push_back( cell );
+    m_pCanvas->setSelectedCells( selection );
+    onDocumentChanged();
+    setStatus( tr( "Placed %1 at %2, %3 · click again to continue" )
+        .arg( m_activePiece->label ).arg( center.x ).arg( center.y ) );
 }
 
 void CypherTileEditorMainWindow::buildOutlinerDock()
@@ -2082,27 +2393,17 @@ void CypherTileEditorMainWindow::buildConsoleDock()
 {
     m_pConsoleDock = new QDockWidget( tr( "CONSOLE" ), this );
     m_pConsoleDock->setObjectName( QStringLiteral( "TileEditorConsoleDock" ) );
-    m_pConsoleTabs = new QTabWidget( m_pConsoleDock );
-    m_pConsoleTabs->setObjectName( QStringLiteral( "TileConsoleTabs" ) );
-    m_pConsoleTabs->setDocumentMode( true );
-    m_pConsoleTabs->setMinimumHeight( 150 );
-    m_pConsole = new CypherTileConsole( m_pConsoleTabs );
+    m_pConsole = new CypherTileConsole( m_pConsoleDock );
+    m_pConsole->setMinimumHeight( 150 );
     m_pConsole->setExecuteCallback(
         [this]( const QString &line ) { executeCommandLine( line ); } );
-    m_pShellRunner = new CypherTileShellRunner( m_pConsoleTabs );
     QString shellDirectory = QDir::currentPath();
 #ifdef CYPHER_TILE_EDITOR_ASSET_SOURCE_DIR
     QDir sourceRoot( QString::fromUtf8( CYPHER_TILE_EDITOR_ASSET_SOURCE_DIR ) );
     if ( sourceRoot.cdUp() ) shellDirectory = sourceRoot.absolutePath();
 #endif
-    m_pShellRunner->setWorkingDirectory( shellDirectory );
-    const int editorTab = m_pConsoleTabs->addTab( m_pConsole, tr( "EDITOR COMMANDS" ) );
-    const int shellTab = m_pConsoleTabs->addTab( m_pShellRunner, tr( "LOCAL SHELL" ) );
-    m_pConsoleTabs->setTabToolTip( editorTab,
-        tr( "Commands that operate on the current tile-map editor session" ) );
-    m_pConsoleTabs->setTabToolTip( shellTab,
-        tr( "Run one asynchronous zsh/bash command at a time in a selected directory" ) );
-    m_pConsoleDock->setWidget( m_pConsoleTabs );
+    m_pConsole->setWorkingDirectory( shellDirectory );
+    m_pConsoleDock->setWidget( m_pConsole );
     addDockWidget( Qt::BottomDockWidgetArea, m_pConsoleDock );
     connect( m_pConsoleDock, &QDockWidget::visibilityChanged,
              this, [this]( bool bVisible ) {
@@ -2179,7 +2480,7 @@ void CypherTileEditorMainWindow::setTool( tile_canvas_tool_t tool )
     }
     static constexpr const char *names[]{
         "Select", "Paint Floor", "Erase", "Rectangle", "Player Spawn", "Door",
-        "Pan", "Pick Material and Dimensions", "Paint Line", "Fill Region"
+        "Pan", "Pick Material and Dimensions", "Paint Line", "Fill Region", "Place Piece"
     };
     const int iTool = static_cast<int>( tool );
     if ( iTool >= 0 && iTool < static_cast<int>( std::size( names ) ) ) {
@@ -2227,7 +2528,8 @@ void CypherTileEditorMainWindow::applyPreferences()
     for ( const auto &entry : { std::pair{ "view.orthoMaterials", m_preferences.showOrthoMaterials },
                                std::pair{ "view.materialLabels", m_preferences.showMaterialLabels },
                                std::pair{ "view.rulers", m_preferences.showCoordinateRulers },
-                               std::pair{ "view.axes", m_preferences.showViewAxes } } ) {
+                               std::pair{ "view.axes", m_preferences.showViewAxes },
+                               std::pair{ "view.linkOrthographicCameras", m_preferences.linkOrthographicCameras } } ) {
         auto *action = m_actions.value( QString::fromLatin1( entry.first ) );
         const QSignalBlocker blocker( action );
         action->setChecked( entry.second );
@@ -2250,6 +2552,10 @@ void CypherTileEditorMainWindow::applyPreferences()
         const QSignalBlocker blocker( pAutoGrid );
         pAutoGrid->setChecked( m_preferences.adaptiveGrid );
     }
+    const bool linkBecameEnabled = m_preferences.linkOrthographicCameras &&
+        !m_bAppliedOrthographicLink;
+    m_bAppliedOrthographicLink = m_preferences.linkOrthographicCameras;
+    if ( linkBecameEnabled ) synchronizeOrthographicCamerasFromActive();
 }
 
 void CypherTileEditorMainWindow::savePreferences()
@@ -2262,27 +2568,61 @@ void CypherTileEditorMainWindow::savePreferences()
 
 void CypherTileEditorMainWindow::showSettings( bool cameraPage )
 {
+    // Preview is intentionally transient. Apply advances the rollback point;
+    // Cancel restores the last committed state without writing either settings
+    // backend, so experimenting with a palette is always reversible.
+    tile_editor_preferences_t committedPreferences = m_preferences;
     CypherTileEditorSettingsDialog dialog( m_preferences, this );
     if ( cameraPage ) {
         auto *tabs = dialog.findChild<QTabWidget *>();
         for ( int i = 0; tabs && i < tabs->count(); ++i )
             if ( tabs->tabText( i ) == tr( "Camera" ) ) tabs->setCurrentIndex( i );
     }
-    dialog.setApplyCallback( [this]( const tile_editor_preferences_t &preferences ) { applyEditorSettings( preferences ); } );
-    if ( dialog.exec() != QDialog::Accepted ) return;
-    applyEditorSettings( dialog.preferences() );
+    dialog.setPreviewCallback( [this, &committedPreferences]( const tile_editor_preferences_t &preferences ) {
+        auto preview = committedPreferences;
+        TileEditorPreferences_CopyAppearance( preview, preferences );
+        m_preferences = TileEditorPreferences_Normalize( preview );
+        applyPreferences();
+    } );
+    dialog.setApplyCallback( [this, &committedPreferences]( const tile_editor_preferences_t &preferences ) {
+        if ( applyEditorSettings( preferences ) ) {
+            committedPreferences = m_preferences;
+            return true;
+        } else {
+            m_preferences = committedPreferences;
+            applyPreferences();
+            return false;
+        }
+    } );
+    if ( dialog.exec() != QDialog::Accepted ) {
+        m_preferences = committedPreferences;
+        applyPreferences();
+        return;
+    }
+    if ( !applyEditorSettings( dialog.preferences() ) ) {
+        m_preferences = committedPreferences;
+        applyPreferences();
+    }
 }
 
-void CypherTileEditorMainWindow::applyEditorSettings( const tile_editor_preferences_t &preferences )
+bool CypherTileEditorMainWindow::applyEditorSettings( const tile_editor_preferences_t &preferences )
 {
-    m_preferences = TileEditorPreferences_Normalize( preferences );
-    QSettings settings;
+    const auto candidate = TileEditorPreferences_Normalize( preferences );
     QString error;
-    const bool saved = TileEditorConfig_Save( TileEditorConfig_DefaultPath(), m_preferences, error );
-    if ( !saved ) appendError( error );
+    if ( !TileEditorConfig_Save( TileEditorConfig_DefaultPath(), candidate, error ) ) {
+        appendError( error );
+        setStatus( tr( "Editor settings were not saved; the previous settings remain active" ), true );
+        return false;
+    }
+    m_preferences = candidate;
+    QSettings settings;
     TileEditorPreferences_Save( settings, m_preferences );
+    settings.sync();
+    if ( settings.status() != QSettings::NoError )
+        appendWarning( tr( "Native settings cache could not be updated; editor.ini remains authoritative." ) );
     applyPreferences();
-    setStatus( saved ? tr( "Editor settings saved" ) : tr( "Settings applied, but editor.ini could not be saved" ), !saved );
+    setStatus( tr( "Editor settings saved" ) );
+    return true;
 }
 
 bool CypherTileEditorMainWindow::importConfigurationProfile( const QString &path, QString *pErrorOut )
@@ -2378,8 +2718,12 @@ void CypherTileEditorMainWindow::newMap()
     synchronizeCameraActions();
     m_pMaterialBrowser->cancelPendingAssignment();
     refreshOrthoMaterials();
+    m_syncingOrthographicCameras = true;
     for ( auto *view : m_topViews ) view->setDocumentBridge( &m_document );
     for ( auto *view : m_orthoViews ) view->setDocumentBridge( &m_document );
+    m_syncingOrthographicCameras = false;
+    if ( m_preferences.frameMapOnOpen ) frameAllOrthographicViews();
+    else synchronizeOrthographicCamerasFromActive();
     if ( m_preferences.frameMapOnOpen ) m_pRenderViewport->setDocumentBridge( &m_document );
     else m_pRenderViewport->refreshDocument();
     m_pConstructionX->setMaximum( static_cast<int>( m_document.document()->nWidth ) - 1 );
@@ -2602,6 +2946,7 @@ void CypherTileEditorMainWindow::updateWindowState()
     refreshOutliner();
     const tile_map_document_t *pDocument = m_document.document();
     m_pMapProperties->setDocument( pDocument );
+    m_pHistoryPanel->setDocument( pDocument );
     const QString name = m_document.filePath().isEmpty()
         ? tr( "Untitled.cymap" )
         : QFileInfo( m_document.filePath() ).fileName();
@@ -2610,9 +2955,6 @@ void CypherTileEditorMainWindow::updateWindowState()
     if ( pDocument != nullptr && m_document.isInitialized() ) {
         const QString dimensions = tr( "%1 x %2" )
             .arg( pDocument->nWidth ).arg( pDocument->nHeight );
-        m_pDocumentSize->setText( tr( "%1 cells · %2 units/cell" )
-            .arg( dimensions )
-            .arg( pDocument->nCellSize, 0, 'f', 2 ) );
         m_pStatusDocument->setText( dimensions );
     }
 
@@ -2660,10 +3002,14 @@ void CypherTileEditorMainWindow::updateInspector(
         if ( firstFloor->nStairSteps != value->nStairSteps ) mixed |= TILE_MAP_SELECTION_PROPERTY_STAIR_STEPS;
     }
     m_pSelectionLabel->setText( valid
-        ? tr( "%1 cells · %2 floors\nBounds %3, %4 · %5 × %6" )
-            .arg( selected.size() ).arg( floors ).arg( rectangle.x ).arg( rectangle.y )
+        ? tr( "%1 %2 · %3 %4\nBounds %5, %6 · %7 × %8" )
+            .arg( selected.size() )
+            .arg( selected.size() == 1u ? tr( "cell" ) : tr( "cells" ) )
+            .arg( floors )
+            .arg( floors == 1u ? tr( "floor" ) : tr( "floors" ) )
+            .arg( rectangle.x ).arg( rectangle.y )
             .arg( rectangle.nWidth ).arg( rectangle.nHeight )
-        : tr( "No selection" ) );
+        : tr( "No geometry selected" ) );
     for ( const char *id : { "edit.move", "edit.moveLeft", "edit.moveRight", "edit.moveUp", "edit.moveDown",
             "edit.duplicate", "edit.copyOffset", "edit.delete", "edit.rotate", "edit.raise", "edit.lower",
             "edit.wallRaise", "edit.wallLower" } )
@@ -2706,6 +3052,9 @@ void CypherTileEditorMainWindow::updateInspector(
         spawn->cell.x == coordinate.x && spawn->cell.y == coordinate.y;
     m_pSpawnYaw->setEnabled( spawnSelected );
     m_pSpawnYaw->setValue( spawnSelected ? spawn->yawDegrees : 0.0 );
+    if ( m_pSelectionMaterial != nullptr )
+        m_pSelectionMaterial->setSelection( m_document.document(), selected,
+            &m_orthoMaterials );
     m_bUpdatingInspector = false;
 }
 
@@ -2788,8 +3137,8 @@ void CypherTileEditorMainWindow::updateValidationPanel()
             QStringLiteral( "color: %1;" ).arg( color.name() ) );
         const int nIssues = m_nValidationErrors + m_nValidationWarnings;
         m_pInspectorTabs->setTabText( m_pInspectorTabs->indexOf( m_pValidationList->parentWidget() ), nIssues == 0
-            ? tr( "Validation" )
-            : tr( "Validation (%1)" ).arg( nIssues ) );
+            ? tr( "Checks" )
+            : tr( "Checks (%1)" ).arg( nIssues ) );
     };
     auto showFailure = [this, &showSummary, &errorColor]( const QString &message ) {
         auto *pItem = new QListWidgetItem( message, m_pValidationList );
@@ -2868,31 +3217,31 @@ void CypherTileEditorMainWindow::updateValidationPanel()
 
 bool CypherTileEditorMainWindow::validateMap( bool bAnnounceSuccess )
 {
-    // Console and live panel must describe one result. A second independent
-    // validation could disagree with the panel if report allocation failed.
+    revealConsole();
+    QElapsedTimer elapsed;
+    elapsed.start();
+    appendInfo( tr( "Validate Map: checking document structure, player spawn, doors, and material bindings…" ) );
+
+    // The passive Checks page and the console must describe the same report.
+    // Do not navigate to that page: explicit operations belong in the shared
+    // console, while Checks remains available when the user chooses it.
     updateValidationPanel();
-    m_pInspectorTabs->setCurrentWidget( m_pValidationList->parentWidget() );
-    if ( auto *pDock = findChild<QDockWidget *>(
-             QStringLiteral( "TileEditorInspectorDock" ) ) ) {
-        pDock->show();
-        pDock->raise();
-    }
     if ( !m_bValidationCompleted ) {
         appendError( m_pValidationList->count() > 0
             ? m_pValidationList->item( 0 )->text()
             : tr( "Validation could not run." ) );
+        appendError( tr( "Validate Map failed after %1 ms." ).arg( elapsed.elapsed() ) );
         setStatus( tr( "Map checks unavailable" ), true );
         return false;
     }
-    const bool bValid = m_nValidationErrors == 0 && m_nValidationWarnings == 0;
-    if ( bValid ) {
+    const bool bHasIssues = m_nValidationErrors != 0 ||
+                            m_nValidationWarnings != 0;
+    const bool bGeometryValid = m_nValidationErrors == 0;
+    if ( !bHasIssues ) {
         if ( bAnnounceSuccess ) {
             appendInfo( tr( "Document structure, spawn, and door checks passed." ) );
         }
-        setStatus( tr( "Map checks passed" ) );
     } else {
-        appendInfo( tr( "Map checks: %1 error(s), %2 warning(s)." )
-            .arg( m_nValidationErrors ).arg( m_nValidationWarnings ) );
         for ( int i = 0; i < m_pValidationList->count(); ++i ) {
             const QListWidgetItem *pItem = m_pValidationList->item( i );
             if ( pItem->data( Qt::UserRole + 3 ).toInt() == 2 ) {
@@ -2901,56 +3250,58 @@ bool CypherTileEditorMainWindow::validateMap( bool bAnnounceSuccess )
                 appendWarning( pItem->text() );
             }
         }
-        setStatus( m_pValidationSummary->text(), m_nValidationErrors != 0 );
     }
-    return bValid;
+    appendInfo( tr( "Validate Map completed in %1 ms: %2 error(s), %3 warning(s)." )
+        .arg( elapsed.elapsed() )
+        .arg( m_nValidationErrors )
+        .arg( m_nValidationWarnings ) );
+    setStatus( bHasIssues ? m_pValidationSummary->text()
+                          : tr( "Map checks passed" ),
+               m_nValidationErrors != 0 );
+    return bGeometryValid;
 }
 
 void CypherTileEditorMainWindow::buildMap()
 {
+    revealConsole();
+    QElapsedTimer elapsed;
+    elapsed.start();
+    appendInfo( tr( "Build Geometry: started for %1." ).arg(
+        m_document.filePath().isEmpty()
+            ? tr( "Untitled.cymap" )
+            : QFileInfo( m_document.filePath() ).fileName() ) );
+
     if ( !m_document.isInitialized() ) {
         appendError( tr( "No initialized map to build." ) );
         return;
     }
 
+    appendInfo( tr( "Build Geometry [1/2]: validating authored map data…" ) );
     updateValidationPanel();
-    tile_map_validation_report_t validation{};
-    const tile_map_document_status_t validationInitialized =
-        CypherTileMapValidationReport_Init(
-            &validation,
-            Allocator_GetSystem() );
-    if ( validationInitialized != tile_map_document_status_t::OK ) {
-        appendError( tr( "Could not allocate a geometry validation report: %1" )
-            .arg( QString::fromLatin1(
-                CypherTileMapDocument_StatusName( validationInitialized ) ) ) );
+    if ( !m_bValidationCompleted ) {
+        appendError( m_pValidationList->count() > 0
+            ? m_pValidationList->item( 0 )->text()
+            : tr( "Geometry validation could not run." ) );
+        appendError( tr( "Build Geometry stopped because validation was unavailable." ) );
+        setStatus( tr( "Geometry validation unavailable" ), true );
         return;
     }
-    const tile_map_document_status_t validated =
-        CypherTileMapDocument_Validate(
-            m_document.document(),
-            &validation );
-    bool bGeometryBlocked = validated != tile_map_document_status_t::OK;
-    if ( validated != tile_map_document_status_t::OK ) {
-        appendError( tr( "Geometry validation could not run: %1" ).arg(
-            QString::fromLatin1(
-                CypherTileMapDocument_StatusName( validated ) ) ) );
-    } else {
-        for ( usize i = 0u; i < Vector_Count( &validation.diagnostics ); ++i ) {
-            const tile_map_validation_diagnostic_t *pDiagnostic =
-                Vector_At( &validation.diagnostics, i );
-            if ( pDiagnostic == nullptr ) continue;
-            appendWarning( ValidationMessage( *pDiagnostic ) );
-            bGeometryBlocked = bGeometryBlocked ||
-                GeometryDiagnosticIsBlocking( pDiagnostic->code );
-        }
+    for ( int i = 0; i < m_pValidationList->count(); ++i ) {
+        const QListWidgetItem *pItem = m_pValidationList->item( i );
+        const int severity = pItem->data( Qt::UserRole + 3 ).toInt();
+        if ( severity == 2 ) appendError( pItem->text() );
+        else if ( severity == 1 ) appendWarning( pItem->text() );
     }
-    CypherTileMapValidationReport_Shutdown( &validation );
-    if ( bGeometryBlocked ) {
+    if ( m_nValidationErrors != 0 ) {
         appendError( tr(
-            "Geometry build stopped because the map has structural errors." ) );
+            "Build Geometry stopped: %1 structural error(s) must be fixed first." )
+            .arg( m_nValidationErrors ) );
         setStatus( tr( "Geometry build blocked by structural validation" ), true );
         return;
     }
+    appendInfo( tr( "Build Geometry [1/2]: validation passed with %1 warning(s)." )
+        .arg( m_nValidationWarnings ) );
+    appendInfo( tr( "Build Geometry [2/2]: generating floor, wall, door, and stair boxes…" ) );
 
     tile_map_geometry_t geometry{};
     const tile_map_document_status_t initialized = CypherTileMapGeometry_Init(
@@ -2996,6 +3347,8 @@ void CypherTileEditorMainWindow::buildMap()
             .arg( geometry.boundsMaxZ, 0, 'f', 2 );
     }
     appendInfo( summary );
+    appendInfo( tr( "Build Geometry: completed successfully in %1 ms." )
+        .arg( elapsed.elapsed() ) );
     setStatus( tr( "Built %1 floor + %2 wall + %3 door boxes" )
         .arg( nFloorBoxes ).arg( nWallBoxes ).arg( nDoorBoxes ) );
     CypherTileMapGeometry_Shutdown( &geometry );
@@ -3231,14 +3584,37 @@ void CypherTileEditorMainWindow::registerCommands()
          QStringLiteral( "clear" ),
          [this]( const QStringList & ) { m_pConsole->clear(); } );
     add( QStringLiteral( "shell" ),
-         tr( "Open the asynchronous local shell runner." ),
-         QStringLiteral( "shell" ),
+         tr( "Run a local shell command in the shared console." ),
+         QStringLiteral( "shell <command>" ),
          [this]( const QStringList &arguments ) {
-        if ( arguments.size() != 1 ) {
-            appendError( tr( "usage: shell" ) );
+        if ( arguments.size() < 2 ) {
+            appendInfo( tr(
+                "The local shell shares this console. Use ! <command> or "
+                "shell <command>." ) );
             return;
         }
-        m_actions.value( QStringLiteral( "view.shell" ) )->trigger();
+        m_pConsole->executeShellCommand(
+            arguments.mid( 1 ).join( QLatin1Char( ' ' ) ) );
+    } );
+    add( QStringLiteral( "shell_stop" ),
+         tr( "Stop the local command currently running in the shared console." ),
+         QStringLiteral( "shell_stop" ),
+         [this]( const QStringList &arguments ) {
+        if ( arguments.size() != 1 ) {
+            appendError( tr( "usage: shell_stop" ) );
+            return;
+        }
+        m_pConsole->stopShellCommand();
+    } );
+    add( QStringLiteral( "shell_restart" ),
+         tr( "Rerun the most recent local command in the shared console." ),
+         QStringLiteral( "shell_restart" ),
+         [this]( const QStringList &arguments ) {
+        if ( arguments.size() != 1 ) {
+            appendError( tr( "usage: shell_restart" ) );
+            return;
+        }
+        m_pConsole->restartShellCommand();
     } );
     for ( const bool bImport : { true, false } ) {
         const QString command = bImport ? QStringLiteral( "config_import" ) : QStringLiteral( "config_export" );
@@ -3606,6 +3982,14 @@ void CypherTileEditorMainWindow::executeCommandLine( const QString &line )
         return;
     }
     iCommand->execute( arguments );
+}
+
+void CypherTileEditorMainWindow::revealConsole( bool bFocusInput )
+{
+    if ( m_pConsoleDock == nullptr || m_pConsole == nullptr ) return;
+    m_pConsoleDock->show();
+    m_pConsoleDock->raise();
+    if ( bFocusInput ) m_pConsole->focusInput();
 }
 
 void CypherTileEditorMainWindow::appendInfo( const QString &message )

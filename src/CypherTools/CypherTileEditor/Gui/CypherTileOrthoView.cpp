@@ -12,6 +12,7 @@
 #include "CypherTileCanvas.h"
 #include "CypherTileGrid.h"
 #include "CypherTileOrthoMaterials.h"
+#include "CypherTileViewportColors.h"
 
 #include "Core/CypherTileMapMaterials.h"
 
@@ -39,8 +40,8 @@ namespace cypher::tools::tile_editor
 namespace
 {
 
-constexpr qreal MIN_PIXELS_PER_UNIT = 0.0001;
-constexpr qreal MAX_PIXELS_PER_UNIT = 1024.0;
+constexpr qreal MIN_PIXELS_PER_UNIT = TILE_ORTHO_CAMERA_MIN_PIXELS_PER_UNIT;
+constexpr qreal MAX_PIXELS_PER_UNIT = TILE_ORTHO_CAMERA_MAX_PIXELS_PER_UNIT;
 constexpr int TILE_RULER_MAX_TICKS = 512;
 
 struct tile_ruler_tick_t {
@@ -71,58 +72,78 @@ void DrawCoordinateRulers(
         return left.screenPosition < right.screenPosition;
     } );
 
-    const QFontMetrics metrics( painter.font() );
-    int widestVerticalLabel = metrics.horizontalAdvance( axisNames );
-    for ( const auto &tick : verticalTicks )
-        widestVerticalLabel = std::max( widestVerticalLabel, metrics.horizontalAdvance( tick.label ) );
-    const int topHeight = metrics.height() + 9;
-    const int leftWidth = std::clamp( widestVerticalLabel + 10, 32, 76 );
-    const QColor background = preferences.panelColor;
-    const QColor edge = preferences.majorGridColor;
+    // Rulers are viewport overlays, not gutters. Draw only small edge ticks and
+    // text so the map continues beneath them and no continuous band steals
+    // usable drawing space.
+    QFont labelFont = painter.font();
+    if ( labelFont.pointSizeF() > 0.0 )
+        labelFont.setPointSizeF( std::max( 7.0, labelFont.pointSizeF() - 2.0 ) );
+    else if ( labelFont.pixelSize() > 0 )
+        labelFont.setPixelSize( std::max( 9, labelFont.pixelSize() - 2 ) );
+    const QFontMetrics metrics( labelFont );
+    constexpr qreal tickLength = 5.0;
+    constexpr qreal edgeMargin = 3.0;
+    const int axisWidth = metrics.horizontalAdvance( axisNames ) + 7;
+    const int axisHeight = metrics.height() + 2;
+    const auto feedback = TileEditorViewportColors_Derive(
+        preferences.canvasColor,
+        preferences.textColor,
+        preferences.accentColor );
+    const QColor readableText = TileEditorViewportColor_Readable(
+        preferences.textColor, preferences.canvasColor, 4.5 );
+    const QColor shadow = feedback.underlay;
+    const QColor tickColor = preferences.majorGridColor;
 
     painter.save();
+    painter.setFont( labelFont );
     painter.setRenderHint( QPainter::TextAntialiasing, true );
-    painter.fillRect( QRect( 0, 0, viewport.width(), topHeight ), background );
-    painter.fillRect( QRect( 0, topHeight, leftWidth, viewport.height() - topHeight ), background );
-    painter.setPen( QPen( edge, 1.0 ) );
-    painter.drawLine( leftWidth, topHeight - 1, viewport.width(), topHeight - 1 );
-    painter.drawLine( leftWidth - 1, topHeight, leftWidth - 1, viewport.height() );
+    painter.setPen( QPen( tickColor, 1.0 ) );
 
-    qreal previousRight = leftWidth - 4.0;
+    qreal previousRight = axisWidth + edgeMargin * 2.0;
     for ( const auto &tick : horizontalTicks ) {
         const int textWidth = metrics.horizontalAdvance( tick.label );
         const qreal textLeft = tick.screenPosition - textWidth * 0.5;
         const qreal textRight = textLeft + textWidth;
-        if ( tick.screenPosition < leftWidth || tick.screenPosition > viewport.width() ||
-             textLeft < previousRight + 4.0 || textRight > viewport.width() - 2.0 ) continue;
-        painter.setPen( preferences.textColor );
-        painter.drawText( QRectF( textLeft, 1.0, textWidth + 1.0, metrics.height() ),
-                          Qt::AlignCenter, tick.label );
-        painter.setPen( QPen( edge, 1.0 ) );
-        painter.drawLine( QPointF( tick.screenPosition, topHeight - 5.0 ),
-                          QPointF( tick.screenPosition, topHeight - 1.0 ) );
+        if ( tick.screenPosition < 0.0 || tick.screenPosition > viewport.width() ||
+             textLeft < previousRight + 5.0 || textRight > viewport.width() - edgeMargin ) continue;
+        painter.setPen( QPen( tickColor, 1.0 ) );
+        painter.drawLine( QPointF( tick.screenPosition, 0.0 ),
+                          QPointF( tick.screenPosition, tickLength ) );
+        const QRectF textRect( textLeft, tickLength + 1.0,
+                               textWidth + 1.0, metrics.height() );
+        painter.setPen( shadow );
+        painter.drawText( textRect.translated( 1.0, 1.0 ), Qt::AlignCenter, tick.label );
+        painter.setPen( readableText );
+        painter.drawText( textRect, Qt::AlignCenter, tick.label );
         previousRight = textRight;
     }
 
-    qreal previousBottom = topHeight - 2.0;
+    qreal previousBottom = axisHeight + edgeMargin * 2.0;
     for ( const auto &tick : verticalTicks ) {
         const qreal textTop = tick.screenPosition - metrics.height() * 0.5;
         const qreal textBottom = textTop + metrics.height();
-        if ( tick.screenPosition < topHeight || tick.screenPosition > viewport.height() ||
-             textTop < previousBottom + 2.0 || textBottom > viewport.height() - 2.0 ) continue;
-        painter.setPen( preferences.textColor );
-        painter.drawText( QRectF( 2.0, textTop, leftWidth - 9.0, metrics.height() ),
-                          Qt::AlignRight | Qt::AlignVCenter, tick.label );
-        painter.setPen( QPen( edge, 1.0 ) );
-        painter.drawLine( QPointF( leftWidth - 5.0, tick.screenPosition ),
-                          QPointF( leftWidth - 1.0, tick.screenPosition ) );
+        if ( tick.screenPosition < 0.0 || tick.screenPosition > viewport.height() ||
+             textTop < previousBottom + 3.0 || textBottom > viewport.height() - edgeMargin ) continue;
+        painter.setPen( QPen( tickColor, 1.0 ) );
+        painter.drawLine( QPointF( 0.0, tick.screenPosition ),
+                          QPointF( tickLength, tick.screenPosition ) );
+        const int textWidth = metrics.horizontalAdvance( tick.label );
+        const QRectF textRect( tickLength + 3.0, textTop,
+                               textWidth + 1.0, metrics.height() );
+        painter.setPen( shadow );
+        painter.drawText( textRect.translated( 1.0, 1.0 ), Qt::AlignLeft | Qt::AlignVCenter,
+                          tick.label );
+        painter.setPen( readableText );
+        painter.drawText( textRect, Qt::AlignLeft | Qt::AlignVCenter, tick.label );
         previousBottom = textBottom;
     }
 
-    painter.fillRect( QRect( 0, 0, leftWidth, topHeight ), background );
+    const QRectF axisRect( edgeMargin, edgeMargin, axisWidth, axisHeight );
+    painter.setPen( shadow );
+    painter.drawText( axisRect.translated( 1.0, 1.0 ), Qt::AlignLeft | Qt::AlignVCenter,
+                      axisNames );
     painter.setPen( preferences.accentColor );
-    painter.drawText( QRect( 2, 1, leftWidth - 4, topHeight - 3 ),
-                      Qt::AlignCenter, axisNames );
+    painter.drawText( axisRect, Qt::AlignLeft | Qt::AlignVCenter, axisNames );
     painter.restore();
 }
 
@@ -136,21 +157,16 @@ void DrawOrthoAxisIndicator(
 
     const QFontMetrics metrics( painter.font() );
     const int rulerInset = preferences.showCoordinateRulers
-        ? metrics.height() + 9 : 0;
-    constexpr qreal panelSize = 76.0;
+        ? metrics.height() + 5 : 0;
+    constexpr qreal panelSize = 58.0;
     constexpr qreal panelMargin = 8.0;
     const QRectF panel(
         viewport.width() - panelSize - panelMargin,
         rulerInset + panelMargin,
         panelSize,
         panelSize );
-    const QPointF origin = panel.bottomLeft() + QPointF( 21.0, -20.0 );
+    const QPointF origin = panel.bottomLeft() + QPointF( 12.0, -12.0 );
     constexpr qreal axisLength = 35.0;
-
-    QColor panelColor = preferences.panelColor;
-    panelColor.setAlpha( 218 );
-    QColor panelEdge = preferences.majorGridColor;
-    panelEdge.setAlpha( 220 );
     const bool front = plane == tile_editor_ortho_plane_t::FRONT;
     const QColor horizontalColor = front
         ? preferences.axisXColor : preferences.axisYColor;
@@ -163,16 +179,17 @@ void DrawOrthoAxisIndicator(
 
     painter.save();
     painter.setRenderHint( QPainter::Antialiasing, true );
-    painter.setPen( QPen( panelEdge, 1.0 ) );
-    painter.setBrush( panelColor );
-    painter.drawRect( panel );
+    const QColor underlay = TileEditorViewportColors_Derive(
+        preferences.canvasColor,
+        preferences.textColor,
+        preferences.accentColor ).underlay;
 
     auto drawArrow = [&]( QPointF direction, const QColor &color,
                           const QString &label ) {
         const QPointF endpoint = origin + direction * axisLength;
         const QPointF perpendicular( -direction.y(), direction.x() );
         const QPointF arrowBase = endpoint - direction * 7.0;
-        painter.setPen( QPen( QColor( 0, 0, 0, 175 ), 4.5,
+        painter.setPen( QPen( underlay, 4.5,
                               Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) );
         painter.drawLine( origin, endpoint );
         painter.setPen( QPen( color, 2.25, Qt::SolidLine,
@@ -194,7 +211,7 @@ void DrawOrthoAxisIndicator(
     // The third axis is perpendicular to this projection. The center dot and
     // label keep the complete XYZ color language visible without implying that
     // the hidden coordinate can be chosen from this viewport.
-    painter.setPen( QPen( QColor( 0, 0, 0, 180 ), 5.0 ) );
+    painter.setPen( QPen( underlay, 5.0 ) );
     painter.setBrush( hiddenColor );
     painter.drawEllipse( origin, 5.0, 5.0 );
     painter.setPen( Qt::NoPen );
@@ -362,11 +379,81 @@ void CypherTileOrthoView::fitToView()
             MIN_PIXELS_PER_UNIT, MAX_PIXELS_PER_UNIT );
         const qreal centerHorizontal = ( minimumHorizontal + maximumHorizontal ) * 0.5;
         const qreal centerHeight = ( minimumHeight + maximumHeight ) * 0.5;
-        m_origin = QPointF( width() * 0.5 - centerHorizontal * m_pixelsPerUnit,
-                           ( height() - 24.0 ) * 0.5 + centerHeight * m_pixelsPerUnit );
+        m_origin = QPointF(
+            width() * 0.5 - centerHorizontal * m_pixelsPerUnit,
+            ( height() - TILE_ORTHO_CAMERA_BOTTOM_HUD_PIXELS ) * 0.5 +
+                centerHeight * m_pixelsPerUnit );
     }
     m_bHasFit = true;
     m_bUserNavigated = false;
+    notifyNavigationChanged();
+    update();
+}
+
+void CypherTileOrthoView::fitSelection()
+{
+    if ( m_selectedCells.empty() || m_pBridge == nullptr ||
+         !m_pBridge->isInitialized() || width() <= 0 || height() <= 0 ) {
+        fitToView();
+        return;
+    }
+
+    bool found = false;
+    qreal minimumHorizontal = 0.0;
+    qreal maximumHorizontal = 0.0;
+    qreal minimumHeight = 0.0;
+    qreal maximumHeight = 0.0;
+    const bool front = m_plane == tile_editor_ortho_plane_t::FRONT;
+    for ( usize index = 0; index < Vector_Count( &m_geometry.boxes ); ++index ) {
+        const auto &box = m_geometry.boxes.pData[index];
+        if ( !isSelected( box ) ) continue;
+        const qreal horizontal = front ? box.centerX : box.centerY;
+        const qreal halfWidth = front ? box.halfExtentX : box.halfExtentY;
+        const qreal boxMinimumHorizontal = horizontal - halfWidth;
+        const qreal boxMaximumHorizontal = horizontal + halfWidth;
+        const qreal boxMinimumHeight = box.centerZ - box.halfExtentZ;
+        const qreal boxMaximumHeight = box.centerZ + box.halfExtentZ;
+        if ( !found ) {
+            minimumHorizontal = boxMinimumHorizontal;
+            maximumHorizontal = boxMaximumHorizontal;
+            minimumHeight = boxMinimumHeight;
+            maximumHeight = boxMaximumHeight;
+            found = true;
+        } else {
+            minimumHorizontal = std::min( minimumHorizontal, boxMinimumHorizontal );
+            maximumHorizontal = std::max( maximumHorizontal, boxMaximumHorizontal );
+            minimumHeight = std::min( minimumHeight, boxMinimumHeight );
+            maximumHeight = std::max( maximumHeight, boxMaximumHeight );
+        }
+    }
+    if ( !found ) {
+        // Empty placement cells do not have a Z extent in this projection.
+        // Use the normal map frame rather than inventing an elevation.
+        fitToView();
+        return;
+    }
+
+    const auto &document = *m_pBridge->document();
+    const qreal horizontalExtent = std::max<qreal>(
+        document.nCellSize, maximumHorizontal - minimumHorizontal );
+    const qreal heightExtent = std::max<qreal>(
+        document.nLevelHeight, maximumHeight - minimumHeight );
+    const qreal availableWidth = std::max( 20, width() - 88 );
+    const qreal availableHeight = std::max( 20, height() - 112 );
+    m_pixelsPerUnit = std::clamp(
+        std::min( availableWidth / horizontalExtent,
+                  availableHeight / heightExtent ),
+        MIN_PIXELS_PER_UNIT, MAX_PIXELS_PER_UNIT );
+    const qreal centerHorizontal =
+        ( minimumHorizontal + maximumHorizontal ) * 0.5;
+    const qreal centerHeight = ( minimumHeight + maximumHeight ) * 0.5;
+    m_origin = QPointF(
+        width() * 0.5 - centerHorizontal * m_pixelsPerUnit,
+        ( height() - TILE_ORTHO_CAMERA_BOTTOM_HUD_PIXELS ) * 0.5 +
+            centerHeight * m_pixelsPerUnit );
+    m_bHasFit = true;
+    m_bUserNavigated = true;
+    notifyNavigationChanged();
     update();
 }
 
@@ -440,6 +527,64 @@ void CypherTileOrthoView::setPreviewChangedCallback( std::function<void()> callb
 void CypherTileOrthoView::setPaintPickedCallback( std::function<void( const tile_map_paint_t & )> callback ) { m_paintPickedCallback = std::move( callback ); }
 void CypherTileOrthoView::setStatusCallback( std::function<void( const QString &, bool )> callback ) { m_statusCallback = std::move( callback ); }
 void CypherTileOrthoView::setContextMenuCallback( context_menu_callback_t callback ) { m_contextMenuCallback = std::move( callback ); }
+void CypherTileOrthoView::setNavigationChangedCallback( navigation_callback_t callback ) { m_navigationCallback = std::move( callback ); }
+void CypherTileOrthoView::setStampCallback( stamp_callback_t callback ) { m_stampCallback = std::move( callback ); }
+
+tile_ortho_camera_state_t CypherTileOrthoView::orthographicCameraState() const
+{
+    tile_ortho_camera_state_t state;
+    state.pixelsPerWorldUnit = m_pixelsPerUnit;
+    const QPointF viewportCenter(
+        width() * 0.5,
+        ( height() - TILE_ORTHO_CAMERA_BOTTOM_HUD_PIXELS ) * 0.5 );
+    const qreal horizontal = ( viewportCenter.x() - m_origin.x() ) / m_pixelsPerUnit;
+    state.centerZ = ( m_origin.y() - viewportCenter.y() ) / m_pixelsPerUnit;
+    if ( m_plane == tile_editor_ortho_plane_t::FRONT ) {
+        state.centerX = horizontal;
+        state.axisMask = TILE_ORTHO_CAMERA_AXIS_X | TILE_ORTHO_CAMERA_AXIS_Z;
+    } else {
+        state.centerY = horizontal;
+        state.axisMask = TILE_ORTHO_CAMERA_AXIS_Y | TILE_ORTHO_CAMERA_AXIS_Z;
+    }
+    return state;
+}
+
+void CypherTileOrthoView::synchronizeOrthographicCamera(
+    const tile_ortho_camera_state_t &state )
+{
+    if ( !std::isfinite( state.pixelsPerWorldUnit ) ||
+         state.pixelsPerWorldUnit <= 0.0 ) return;
+    const auto current = orthographicCameraState();
+    qreal horizontal = m_plane == tile_editor_ortho_plane_t::FRONT
+        ? current.centerX : current.centerY;
+    qreal centerHeight = current.centerZ;
+    const unsigned char horizontalAxis = m_plane == tile_editor_ortho_plane_t::FRONT
+        ? TILE_ORTHO_CAMERA_AXIS_X : TILE_ORTHO_CAMERA_AXIS_Y;
+    if ( state.axisMask & horizontalAxis )
+        horizontal = m_plane == tile_editor_ortho_plane_t::FRONT
+            ? state.centerX : state.centerY;
+    if ( state.axisMask & TILE_ORTHO_CAMERA_AXIS_Z ) centerHeight = state.centerZ;
+    if ( !std::isfinite( horizontal ) || !std::isfinite( centerHeight ) ) return;
+    const QPointF viewportCenter(
+        width() * 0.5,
+        ( height() - TILE_ORTHO_CAMERA_BOTTOM_HUD_PIXELS ) * 0.5 );
+    m_pixelsPerUnit = std::clamp<qreal>(
+        state.pixelsPerWorldUnit,
+        MIN_PIXELS_PER_UNIT,
+        MAX_PIXELS_PER_UNIT );
+    m_origin = QPointF(
+        viewportCenter.x() - horizontal * m_pixelsPerUnit,
+        viewportCenter.y() + centerHeight * m_pixelsPerUnit );
+    m_bHasFit = true;
+    m_bUserNavigated = true;
+    update();
+}
+
+void CypherTileOrthoView::notifyNavigationChanged()
+{
+    if ( m_navigationCallback )
+        m_navigationCallback( orthographicCameraState() );
+}
 
 void CypherTileOrthoView::setConstructionCell( tile_map_grid_coord_t cell )
 {
@@ -458,6 +603,7 @@ bool CypherTileOrthoView::supportsProjectedAuthoring() const
         case tile_canvas_tool_t::PLAYER_SPAWN:
         case tile_canvas_tool_t::DOOR:
         case tile_canvas_tool_t::EYEDROPPER:
+        case tile_canvas_tool_t::STAMP:
             return true;
         case tile_canvas_tool_t::SELECT:
         case tile_canvas_tool_t::PAN:
@@ -506,6 +652,11 @@ void CypherTileOrthoView::updateInteractionDescription()
     } else if ( m_tool == tile_canvas_tool_t::FILL ) {
         description = tr( "Fill requires the Top view because hidden-axis connectivity is ambiguous. "
             "Middle/right drag or Space + left drag pans; wheel zooms at the pointer." );
+    } else if ( m_tool == tile_canvas_tool_t::STAMP ) {
+        description = tr( "Click to place the current footprint along this %1 view's fixed %2 slice at %3. "
+            "The vertical pointer position chooses the new floor level. Middle/right drag or Space + left drag pans." )
+            .arg( front ? tr( "Front" ) : tr( "Side" ), front ? tr( "Y" ) : tr( "X" ) )
+            .arg( slice );
     } else {
         description = tr( "This view authors %1 while keeping the hidden %2 coordinate fixed at %3. "
             "Vertical position sets floor level Z when the stroke begins; dragging edits only the visible horizontal axis. "
@@ -543,6 +694,18 @@ void CypherTileOrthoView::beginAuthoring( const QPointF &position )
     tile_map_grid_coord_t cell;
     if ( !constructionCellAt( position, cell ) ) {
         if ( m_statusCallback ) m_statusCallback( tr( "The construction cell lies outside this map." ), true );
+        return;
+    }
+    if ( m_tool == tile_canvas_tool_t::STAMP ) {
+        i16 level{};
+        if ( !floorLevelAt( position, level ) ) {
+            if ( m_statusCallback ) m_statusCallback(
+                tr( "The chosen floor level is outside the supported range." ), true );
+            return;
+        }
+        if ( m_stampCallback ) m_stampCallback( cell, level );
+        else if ( m_statusCallback ) m_statusCallback(
+            tr( "Choose a room or shape from the Build panel first." ), true );
         return;
     }
     if ( m_tool == tile_canvas_tool_t::EYEDROPPER ) {
@@ -665,6 +828,40 @@ QRectF CypherTileOrthoView::projectedBox( const tile_map_geometry_box_t &box ) c
         worldToScreen( horizontal + halfWidth, box.centerZ - box.halfExtentZ ) );
 }
 
+QRectF CypherTileOrthoView::displayedBox(
+    const tile_map_geometry_box_t &box ) const
+{
+    QRectF projected = projectedBox( box ).normalized();
+    if ( box.kind != tile_map_geometry_box_kind_t::WALL ||
+         m_preferences.showWallThickness ) return projected;
+
+    // A wall that faces this orthographic camera keeps its authored span.
+    // An edge-on wall collapses to a technical center line when physical
+    // thickness is disabled, instead of pretending that the wall is absent.
+    const bool edgeOn = m_plane == tile_editor_ortho_plane_t::FRONT
+        ? box.side == tile_map_geometry_side_t::EAST ||
+          box.side == tile_map_geometry_side_t::WEST
+        : box.side == tile_map_geometry_side_t::NORTH ||
+          box.side == tile_map_geometry_side_t::SOUTH;
+    if ( !edgeOn ) return projected;
+    const qreal center = projected.center().x();
+    const qreal technicalWidth = std::max<qreal>( 1.0, m_preferences.wireLineWidth );
+    projected.setLeft( center - technicalWidth * 0.5 );
+    projected.setRight( center + technicalWidth * 0.5 );
+    return projected;
+}
+
+bool CypherTileOrthoView::isBoxVisible(
+    const tile_map_geometry_box_t &box ) const
+{
+    if ( ( box.kind == tile_map_geometry_box_kind_t::FLOOR ||
+           box.kind == tile_map_geometry_box_kind_t::STAIR ) &&
+         !m_preferences.showFloorSurfaces ) return false;
+    if ( box.kind == tile_map_geometry_box_kind_t::WALL &&
+         !m_preferences.showWallHeight ) return false;
+    return true;
+}
+
 qreal CypherTileOrthoView::depth( const tile_map_geometry_box_t &box ) const
 {
     return m_plane == tile_editor_ortho_plane_t::FRONT
@@ -681,8 +878,9 @@ const tile_map_geometry_box_t *CypherTileOrthoView::boxAt( const QPointF &positi
 {
     for ( auto i = m_drawOrder.rbegin(); i != m_drawOrder.rend(); ++i ) {
         const auto &box = m_geometry.boxes.pData[*i];
+        if ( !isBoxVisible( box ) ) continue;
         // Match selection tolerance, including thin floor slabs at overview zoom.
-        if ( projectedBox( box ).adjusted( -2.0, -2.0, 2.0, 2.0 ).contains( position ) )
+        if ( displayedBox( box ).adjusted( -2.0, -2.0, 2.0, 2.0 ).contains( position ) )
             return &box;
     }
     return nullptr;
@@ -693,13 +891,17 @@ void CypherTileOrthoView::paintEvent( QPaintEvent * )
     QPainter painter( this );
     painter.fillRect( rect(), m_preferences.canvasColor );
     painter.setRenderHint( QPainter::Antialiasing, false );
+    const auto feedback = TileEditorViewportColors_Derive(
+        m_preferences.canvasColor,
+        m_preferences.textColor,
+        m_preferences.accentColor );
     if ( m_pBridge == nullptr || !m_pBridge->isInitialized() ) {
-        painter.setPen( QColor( 160, 173, 186 ) );
+        painter.setPen( feedback.mutedText );
         painter.drawText( rect(), Qt::AlignCenter, tr( "No tile map is open" ) );
         return;
     }
     if ( !m_geometryError.isEmpty() ) {
-        painter.setPen( QColor( 235, 129, 108 ) );
+        painter.setPen( feedback.error );
         painter.drawText( rect().adjusted( 12, 12, -12, -12 ),
                           Qt::AlignCenter | Qt::TextWordWrap, m_geometryError );
         return;
@@ -782,15 +984,31 @@ void CypherTileOrthoView::paintEvent( QPaintEvent * )
 
     // Inspection wires retain depth cues. With materials enabled, nearest
     // surfaces cover farther surfaces to agree with selection and the HUD.
-    const qreal nearDepth = m_drawOrder.empty() ? 0.0 : depth( m_geometry.boxes.pData[m_drawOrder.back()] );
-    const qreal farDepth = m_drawOrder.empty() ? 0.0 : depth( m_geometry.boxes.pData[m_drawOrder.front()] );
+    qreal nearDepth = 0.0;
+    qreal farDepth = 0.0;
+    bool hasVisibleDepth = false;
+    for ( const usize index : m_drawOrder ) {
+        const auto &box = m_geometry.boxes.pData[index];
+        if ( !isBoxVisible( box ) ) continue;
+        const qreal boxDepth = depth( box );
+        if ( !hasVisibleDepth ) {
+            nearDepth = farDepth = boxDepth;
+            hasVisibleDepth = true;
+        } else {
+            nearDepth = std::min( nearDepth, boxDepth );
+            farDepth = std::max( farDepth, boxDepth );
+        }
+    }
     const qreal depthRange = std::max<qreal>( 0.0001, farDepth - nearDepth );
     for ( const usize index : m_drawOrder ) {
         const tile_map_geometry_box_t &box = m_geometry.boxes.pData[index];
-        const QRectF projected = projectedBox( box );
+        if ( !isBoxVisible( box ) ) continue;
+        const QRectF projected = displayedBox( box );
         if ( !projected.intersects( QRectF( rect() ) ) ) continue;
         const tile_map_material_definition_t material = CypherTileMapMaterial_Resolve( box.nMaterialSlot );
         QColor fill = QColor::fromRgbF( material.colorR, material.colorG, material.colorB );
+        if ( box.kind == tile_map_geometry_box_kind_t::FLOOR && box.nMaterialSlot == 0u )
+            fill = m_preferences.floorColor;
         QColor edge = m_preferences.wireColor;
         if ( box.kind == tile_map_geometry_box_kind_t::WALL ) edge = m_preferences.wallColor;
         else if ( box.kind == tile_map_geometry_box_kind_t::STAIR ) edge = m_preferences.stairColor;
@@ -821,13 +1039,21 @@ void CypherTileOrthoView::paintEvent( QPaintEvent * )
             }
             painter.setBrush( Qt::NoBrush );
         } else if ( m_preferences.wireframeOrtho ) {
-            painter.setBrush( Qt::NoBrush );
+            if ( box.kind == tile_map_geometry_box_kind_t::WALL ) {
+                QColor wallFill = edge;
+                wallFill.setAlpha( 42 );
+                painter.setBrush( wallFill );
+            } else {
+                painter.setBrush( Qt::NoBrush );
+            }
         } else {
             fill.setAlpha( box.kind == tile_map_geometry_box_kind_t::WALL ? 24 : 105 );
             painter.setBrush( fill );
         }
         const qreal lineWidth = m_preferences.wireLineWidth +
-            ( box.kind == tile_map_geometry_box_kind_t::DOOR ? 0.5 : 0.0 );
+            ( box.kind == tile_map_geometry_box_kind_t::WALL
+                ? std::max<qreal>( 1.0, m_preferences.wireLineWidth * 0.75 )
+                : box.kind == tile_map_geometry_box_kind_t::DOOR ? 0.5 : 0.0 );
         painter.setPen( QPen( edge, lineWidth ) );
         painter.drawRect( projected );
     }
@@ -837,7 +1063,8 @@ void CypherTileOrthoView::paintEvent( QPaintEvent * )
     painter.setPen( QPen( m_preferences.selectionColor, 2.0 ) );
     for ( const usize index : m_drawOrder ) {
         const tile_map_geometry_box_t &box = m_geometry.boxes.pData[index];
-        if ( isSelected( box ) ) painter.drawRect( projectedBox( box ) );
+        if ( isBoxVisible( box ) && isSelected( box ) )
+            painter.drawRect( displayedBox( box ) );
     }
 
     // Front/Side cannot derive the hidden map coordinate from the projection.
@@ -899,17 +1126,20 @@ void CypherTileOrthoView::paintEvent( QPaintEvent * )
     painter.setPen( m_preferences.wireColor.lighter( 125 ) );
     QStringList hudLines;
     if ( m_preferences.showViewMetrics ) hudLines = viewMetrics().split( QLatin1Char( '\n' ) );
-    if ( supportsProjectedAuthoring() ) {
+    if ( m_preferences.showAuthoringFooter && supportsProjectedAuthoring() ) {
         const QPointF *position = m_bCursorInside ? &m_cursorPosition : nullptr;
         QString construction = constructionSliceDescription( position );
         if ( m_tool == tile_canvas_tool_t::EYEDROPPER )
             construction += tr( " · PICK FROM THIS SLICE" );
         else if ( m_tool == tile_canvas_tool_t::PLAYER_SPAWN || m_tool == tile_canvas_tool_t::DOOR )
             construction += tr( " · PLACE ON EXISTING CELL" );
+        else if ( m_tool == tile_canvas_tool_t::STAMP )
+            construction += tr( " · CLICK TO PLACE FOOTPRINT" );
         else
             construction += tr( " · DRAG HORIZONTAL AXIS ONLY" );
         hudLines.prepend( construction );
-    } else if ( m_tool == tile_canvas_tool_t::FILL ) {
+    } else if ( m_preferences.showAuthoringFooter &&
+                m_tool == tile_canvas_tool_t::FILL ) {
         hudLines.prepend( tr( "FILL USES XY TOP · hidden-axis connectivity is ambiguous in this projection" ) );
     }
     const QString material = materialDescription();
@@ -919,7 +1149,8 @@ void CypherTileOrthoView::paintEvent( QPaintEvent * )
         const QRect bounds( 0, height() - labelHeight, width(), labelHeight );
         QColor background = m_preferences.canvasColor.darker( 135 ); background.setAlpha( 235 );
         painter.fillRect( bounds, background );
-        if ( supportsProjectedAuthoring() || m_tool == tile_canvas_tool_t::FILL ) {
+        if ( m_preferences.showAuthoringFooter &&
+             ( supportsProjectedAuthoring() || m_tool == tile_canvas_tool_t::FILL ) ) {
             const QColor sliceColor = m_plane == tile_editor_ortho_plane_t::FRONT
                 ? m_preferences.axisYColor : m_preferences.axisXColor;
             painter.fillRect( QRect( bounds.left(), bounds.top(), 4, bounds.height() ), sliceColor );
@@ -984,7 +1215,8 @@ QString CypherTileOrthoView::materialDescription() const
     const bool hovered = pBox != nullptr;
     if ( pBox == nullptr && !m_selectedCells.empty() ) {
         for ( auto i = m_drawOrder.rbegin(); i != m_drawOrder.rend(); ++i ) {
-            if ( isSelected( m_geometry.boxes.pData[*i] ) ) {
+            if ( isBoxVisible( m_geometry.boxes.pData[*i] ) &&
+                 isSelected( m_geometry.boxes.pData[*i] ) ) {
                 pBox = &m_geometry.boxes.pData[*i];
                 break;
             }
@@ -1107,14 +1339,21 @@ void CypherTileOrthoView::mouseMoveEvent( QMouseEvent *pEvent )
             pEvent->accept();
             return;
         }
-        if ( m_bContextMenuCandidate &&
-             ( pEvent->position() - m_contextMenuPress ).manhattanLength() >=
-                 QApplication::startDragDistance() ) {
+        if ( m_bContextMenuCandidate ) {
+            const QPointF pressDelta = pEvent->position() - m_contextMenuPress;
+            if ( pressDelta.manhattanLength() < QApplication::startDragDistance() ) {
+                // Preserve a context click through normal pointer jitter. Keeping
+                // m_lastMouse at the press point lets the first real drag event
+                // apply the full accumulated displacement after the threshold.
+                pEvent->accept();
+                return;
+            }
             m_bContextMenuCandidate = false;
         }
         m_origin += pEvent->position() - m_lastMouse;
         m_lastMouse = pEvent->position();
         m_bUserNavigated = true;
+        notifyNavigationChanged();
         update();
         pEvent->accept();
         return;
@@ -1299,15 +1538,25 @@ void CypherTileOrthoView::wheelEvent( QWheelEvent *pEvent )
         pEvent->ignore();
         return;
     }
+    qreal minimumScale = MIN_PIXELS_PER_UNIT;
+    qreal maximumScale = MAX_PIXELS_PER_UNIT;
+    if ( m_preferences.linkOrthographicCameras && m_pBridge != nullptr &&
+         m_pBridge->isInitialized() ) {
+        const auto range = TileOrthoCamera_CommonScaleRange(
+            m_pBridge->document()->nCellSize );
+        minimumScale = range.minimum;
+        maximumScale = range.maximum;
+    }
     const qreal scale = std::clamp(
         m_pixelsPerUnit * std::pow( 1.18, delta ),
-        MIN_PIXELS_PER_UNIT, MAX_PIXELS_PER_UNIT );
+        minimumScale, maximumScale );
     const QPointF position = pEvent->position();
     const QPointF projectedWorld = ( position - m_origin ) / m_pixelsPerUnit;
     m_origin = position - projectedWorld * scale;
     m_pixelsPerUnit = scale;
     m_bUserNavigated = true;
     m_bHasFit = true;
+    notifyNavigationChanged();
     update();
     pEvent->accept();
 }

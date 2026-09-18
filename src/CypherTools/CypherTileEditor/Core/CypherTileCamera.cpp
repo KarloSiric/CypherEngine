@@ -55,8 +55,9 @@ void CypherTileCamera_SetSettings(
 
 void CypherTileCamera_SetMode( tile_camera_t &camera, tile_camera_mode_t mode ) noexcept
 {
-    // Eye and orientation are canonical in both modes. The orbit pivot is
-    // always eye + forward * distance, so switching modes cannot jump the view.
+    // Eye and orientation are canonical in both modes. Between gestures the
+    // implicit focus is eye + forward * distance, so switching modes cannot
+    // jump the view. Input adapters may own an explicit workspace pivot.
     camera.mode = mode;
 }
 
@@ -288,6 +289,57 @@ void CypherTileCamera_ApplyLook( tile_camera_t &camera, float deltaX, float delt
     }
 }
 
+bool CypherTileCamera_OrbitAround( tile_camera_t &camera,
+    math::vec3_t pivot, float deltaX, float deltaY ) noexcept
+{
+    if ( !math::Vec3_IsFinite( camera.position ) ||
+         !math::Vec3_IsFinite( pivot ) ||
+         !std::isfinite( camera.yawRadians ) ||
+         !std::isfinite( camera.pitchRadians ) ||
+         !std::isfinite( deltaX ) || !std::isfinite( deltaY ) ||
+         ( deltaX == 0.0f && deltaY == 0.0f ) ) return false;
+
+    const math::vec3_t offset = math::Vec3_Subtract( camera.position, pivot );
+    const float radius = math::Vec3_Length( offset );
+    // OrbitWheel and the projection both use 0.05 as the nearest supported
+    // inspection distance. Reject a closer pivot transactionally instead of
+    // storing a distance that disagrees with the actual eye-to-pivot radius.
+    if ( !std::isfinite( radius ) || radius < 0.05f || radius > 100000000.0f )
+        return false;
+
+    const math::vec3_t oldRight = CypherTileCamera_Right( camera );
+    const math::vec3_t oldForward = CypherTileCamera_Forward( camera );
+    const math::vec3_t oldUp = CypherTileCamera_Up( camera );
+    const math::vec3_t localOffset{
+        math::Vec3_Dot( offset, oldRight ),
+        math::Vec3_Dot( offset, oldUp ),
+        math::Vec3_Dot( offset, oldForward ) };
+
+    tile_camera_t candidate = camera;
+    // ApplyLook already owns sensitivity, inversion, yaw wrapping and the
+    // pitch limit. Keep the candidate in Fly so it changes orientation only;
+    // the explicit-pivot position is reconstructed below.
+    candidate.mode = tile_camera_mode_t::FLY;
+    CypherTileCamera_ApplyLook( candidate, deltaX, deltaY );
+    const math::vec3_t rotatedOffset = math::Vec3_Add(
+        math::Vec3_Add(
+            math::Vec3_Scale( CypherTileCamera_Right( candidate ), localOffset.x ),
+            math::Vec3_Scale( CypherTileCamera_Up( candidate ), localOffset.y ) ),
+        math::Vec3_Scale( CypherTileCamera_Forward( candidate ), localOffset.z ) );
+    const math::vec3_t position = math::Vec3_Add( pivot, rotatedOffset );
+    if ( !math::Vec3_IsFinite( position ) ) return false;
+    const bool changed = !math::Vec3_EqualsExact( position, camera.position ) ||
+        candidate.yawRadians != camera.yawRadians ||
+        candidate.pitchRadians != camera.pitchRadians;
+    if ( !changed ) return false;
+
+    camera.position = position;
+    camera.yawRadians = candidate.yawRadians;
+    camera.pitchRadians = candidate.pitchRadians;
+    camera.orbitDistance = radius;
+    return true;
+}
+
 void CypherTileCamera_Pan( tile_camera_t &camera,
     float deltaX, float deltaY, float viewportHeight ) noexcept
 {
@@ -305,20 +357,75 @@ void CypherTileCamera_Pan( tile_camera_t &camera,
 
 void CypherTileCamera_Wheel( tile_camera_t &camera, float ticks ) noexcept
 {
-    if ( !std::isfinite( ticks ) ) return;
+    if ( !std::isfinite( ticks ) ||
+         !std::isfinite( camera.settings.zoomSensitivity ) ) return;
     const float exponent = std::clamp( ticks, -40.0f, 40.0f ) * 0.15f *
         camera.settings.zoomSensitivity * ( camera.settings.invertWheel ? -1.0f : 1.0f );
     if ( camera.mode == tile_camera_mode_t::FLY ) {
-        camera.settings.moveSpeed = std::clamp(
-            camera.settings.moveSpeed * std::exp( exponent ), 0.05f, 100000.0f );
+        if ( exponent == 0.0f ||
+             !std::isfinite( camera.settings.moveSpeed ) ) return;
+        const float distance = camera.settings.moveSpeed * exponent;
+        CypherTileCamera_TranslateWorld( camera,
+            math::Vec3_Scale( CypherTileCamera_Forward( camera ), distance ) );
         return;
     }
+    if ( !math::Vec3_IsFinite( camera.position ) ||
+         !std::isfinite( camera.yawRadians ) ||
+         !std::isfinite( camera.pitchRadians ) ||
+         !std::isfinite( camera.orbitDistance ) ||
+         camera.orbitDistance < 0.05f || camera.orbitDistance > 100000000.0f )
+        return;
     const float previousDistance = camera.orbitDistance;
-    camera.orbitDistance = std::clamp(
+    const float distance = std::clamp(
         previousDistance * std::exp( -exponent ), 0.05f, 100000000.0f );
-    camera.position = math::Vec3_Add( camera.position,
+    const math::vec3_t position = math::Vec3_Add( camera.position,
         math::Vec3_Scale( CypherTileCamera_Forward( camera ),
-            previousDistance - camera.orbitDistance ) );
+            previousDistance - distance ) );
+    if ( !std::isfinite( distance ) || !math::Vec3_IsFinite( position ) ||
+         ( distance != previousDistance &&
+           math::Vec3_EqualsExact( position, camera.position ) ) ) return;
+    camera.orbitDistance = distance;
+    camera.position = position;
+}
+
+bool CypherTileCamera_OrbitWheel( tile_camera_t &camera,
+    math::vec3_t pivot, float ticks ) noexcept
+{
+    if ( !math::Vec3_IsFinite( camera.position ) ||
+         !math::Vec3_IsFinite( pivot ) || !std::isfinite( ticks ) ||
+         !std::isfinite( camera.settings.zoomSensitivity ) ) return false;
+    const math::vec3_t offset = math::Vec3_Subtract( camera.position, pivot );
+    const float previousDistance = math::Vec3_Length( offset );
+    if ( !std::isfinite( previousDistance ) || previousDistance < 0.05f ||
+         previousDistance > 100000000.0f ) return false;
+    const float exponent = std::clamp( ticks, -40.0f, 40.0f ) * 0.15f *
+        camera.settings.zoomSensitivity * ( camera.settings.invertWheel ? -1.0f : 1.0f );
+    if ( exponent == 0.0f ) return false;
+    const float distance = std::clamp(
+        previousDistance * std::exp( -exponent ), 0.05f, 100000000.0f );
+    const math::vec3_t position = math::Vec3_Add(
+        pivot, math::Vec3_Scale( offset, distance / previousDistance ) );
+    if ( !math::Vec3_IsFinite( position ) ||
+         math::Vec3_EqualsExact( position, camera.position ) ) return false;
+    camera.position = position;
+    camera.orbitDistance = distance;
+    return true;
+}
+
+bool CypherTileCamera_AdjustMoveSpeed(
+    tile_camera_t &camera, float ticks ) noexcept
+{
+    if ( !std::isfinite( ticks ) ||
+         !std::isfinite( camera.settings.moveSpeed ) ||
+         !std::isfinite( camera.settings.zoomSensitivity ) ) return false;
+    const float exponent = std::clamp( ticks, -40.0f, 40.0f ) * 0.15f *
+        camera.settings.zoomSensitivity * ( camera.settings.invertWheel ? -1.0f : 1.0f );
+    if ( exponent == 0.0f ) return false;
+    const float speed = std::clamp(
+        camera.settings.moveSpeed * std::exp( exponent ), 0.05f, 100000.0f );
+    if ( speed == camera.settings.moveSpeed ) return false;
+    camera.settings.moveSpeed = speed;
+    return true;
 }
 
 bool CypherTileCamera_Move( tile_camera_t &camera,

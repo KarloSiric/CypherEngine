@@ -80,7 +80,6 @@ void CypherTileEditorTheme_Apply(
         application.setStyle( QStyleFactory::create( QStringLiteral( "Fusion" ) ) );
         application.setProperty( "TileEditorFusionInstalled", true );
     }
-    application.setProperty( "TileEditorAccentColor", prefs.accentColor );
     QFont font = application.font();
     font.setPointSize( prefs.uiFontPointSize );
     application.setFont( font );
@@ -93,6 +92,35 @@ void CypherTileEditorTheme_Apply(
     const QColor selectionBackground = Blend( prefs.panelColor, prefs.accentColor, 0.12 );
     const QColor inset = Blend( prefs.panelColor, Qt::black, 0.16 );
     const QColor edge = Blend( prefs.panelColor, Qt::black, 0.32 );
+    const double statusSaturation = std::clamp(
+        prefs.accentColor.hslSaturationF() < 0.0
+            ? 0.70
+            : prefs.accentColor.hslSaturationF(),
+        0.58,
+        0.90 );
+    const bool darkChrome = prefs.uiBackgroundColor.lightnessF() < 0.5;
+    const double statusLightness = darkChrome ? 0.68 : 0.36;
+    const QColor errorBase = QColor::fromHslF(
+        0.010, statusSaturation, statusLightness );
+    const QColor successBase = QColor::fromHslF(
+        0.365, statusSaturation, statusLightness );
+    const QColor infoBase = QColor::fromHslF(
+        0.565, statusSaturation, statusLightness );
+    const QColor errorText = Blend( prefs.textColor, errorBase, 0.58 );
+    const QColor errorBackground = Blend( prefs.panelColor, errorBase, 0.13 );
+    const QColor errorBorder = Blend( border, errorBase, 0.52 );
+    const QColor successText = Blend( prefs.textColor, successBase, 0.48 );
+    const QColor successBorder = Blend( border, successBase, 0.48 );
+    const QColor infoText = Blend( prefs.textColor, infoBase, 0.48 );
+    const QColor infoBorder = Blend( border, infoBase, 0.48 );
+    application.setProperty( "TileEditorTextColor", prefs.textColor );
+    application.setProperty( "TileEditorMutedColor", muted );
+    application.setProperty( "TileEditorConsoleBackgroundColor", inset );
+    application.setProperty( "TileEditorAccentColor", prefs.accentColor );
+    application.setProperty( "TileEditorWarningColor", prefs.accentColor );
+    application.setProperty( "TileEditorErrorColor", errorText );
+    application.setProperty( "TileEditorSuccessColor", successText );
+    application.setProperty( "TileEditorInfoColor", infoText );
     QPalette palette;
     palette.setColor( QPalette::Window, prefs.uiBackgroundColor );
     palette.setColor( QPalette::WindowText, prefs.textColor );
@@ -124,20 +152,6 @@ void CypherTileEditorTheme_Apply(
     auto color = [&]( const char *token, const QColor &value ) {
         style.replace( QString::fromLatin1( token ), value.name( QColor::HexRgb ) );
     };
-    if ( prefs.panelColor.lightness() > prefs.textColor.lightness() ) {
-        // Legacy fixed chrome shades were chosen for dark themes. Resolve
-        // their hover/disabled/overlay states against the light palette too.
-        color( "#343434", Blend( prefs.uiBackgroundColor, prefs.textColor, 0.025 ) );
-        color( "#3a3a3a", Blend( prefs.panelColor, prefs.textColor, 0.09 ) );
-        color( "#505050", Blend( button, prefs.textColor, 0.055 ) );
-        for ( const char *shade : { "#555555", "#626262", "#656565", "#666666", "#686868", "#6b6b6b", "#777777" } )
-            color( shade, Blend( prefs.panelColor, prefs.textColor, 0.36 ) );
-        color( "#868686", Blend( prefs.panelColor, prefs.textColor, 0.55 ) );
-        color( "#95c795", QColor( "#2c6f37" ) );
-        style.replace( QStringLiteral( "rgba(27, 27, 27, 220)" ), inset.name( QColor::HexRgb ) );
-        style.replace( QStringLiteral( "rgba(58, 28, 26, 235)" ), QStringLiteral( "#fae3df" ) );
-        color( "#f0aba5", QColor( "#8c2920" ) );
-    }
     color( "@BACKGROUND@", prefs.uiBackgroundColor );
     color( "@CHROME@", Blend( prefs.uiBackgroundColor, prefs.textColor, 0.012 ) );
     color( "@PANEL@", prefs.panelColor );
@@ -174,6 +188,14 @@ void CypherTileEditorTheme_Apply(
     color( "@TEXT_MUTED@", muted );
     color( "@DISABLED@", disabled );
     color( "@PERSPECTIVE@", prefs.perspectiveColor );
+    color( "@OVERLAY_BG@", Blend( prefs.perspectiveColor, prefs.textColor, 0.055 ) );
+    color( "@ERROR_TEXT@", errorText );
+    color( "@ERROR_BG@", errorBackground );
+    color( "@ERROR_BORDER@", errorBorder );
+    color( "@SUCCESS_TEXT@", successText );
+    color( "@SUCCESS_BORDER@", successBorder );
+    color( "@INFO_TEXT@", infoText );
+    color( "@INFO_BORDER@", infoBorder );
     style.replace( QStringLiteral( "@HEADER_FONT@" ), QString::number( std::max( 9, prefs.uiFontPointSize - 1 ) ) );
     style.replace( QStringLiteral( "@BODY_FONT@" ), QString::number( prefs.uiFontPointSize ) );
     application.setStyleSheet( ScaleMetrics( style, static_cast<double>( prefs.uiFontPointSize ) / 9.0 ) );

@@ -348,6 +348,7 @@ TEST_CASE( "Front and Side expose their fixed hidden-axis construction slice eve
         view.resize( 640, 360 );
         tile_editor_preferences_t preferences;
         preferences.showViewMetrics = false;
+        preferences.showAuthoringFooter = true;
         preferences.showCoordinateRulers = false;
         view.setPreferences( preferences );
         view.setDocumentBridge( &document );
@@ -517,4 +518,69 @@ TEST_CASE( "3D Paint creates a cell on empty construction plane while modifiers 
     CHECK( view.camera().mode == tile_camera_mode_t::ORBIT );
     Mouse( view, QEvent::MouseButtonRelease, target, Qt::RightButton, Qt::AltModifier );
     CHECK( view.camera().mode == mode );
+}
+
+TEST_CASE( "3D Place Piece publishes an empty-plane target while modifiers remain selection",
+           "[TileEditor][ViewAuthoring][Pieces][MultiSelection]" )
+{
+    EnsureMultiViewApplication();
+    CypherTileDocumentBridge document;
+    NewMap( document );
+    CypherTileRenderViewport view;
+    view.resize( 640, 480 );
+    view.setDocumentBridge( &document );
+    view.setPaint( { 0, 1, 5 } );
+    view.setStampLabel( QStringLiteral( "Small Room" ) );
+    view.setTool( tile_canvas_tool_t::STAMP );
+
+    int placements = 0;
+    int selections = 0;
+    tile_map_grid_coord_t placedCell{ -1, -1 };
+    bool selectedHit = true;
+    Qt::KeyboardModifiers selectedModifiers{};
+    view.setStampCallback( [&]( tile_map_grid_coord_t cell ) {
+        ++placements;
+        placedCell = cell;
+    } );
+    view.setMultiSelectionCallback(
+        [&]( bool hit, auto, auto modifiers ) {
+            ++selections;
+            selectedHit = hit;
+            selectedModifiers = modifiers;
+        } );
+
+    QPointF target;
+    tile_map_grid_coord_t targetCell{};
+    bool found = false;
+    for ( int iy = -8; iy <= 8 && !found; ++iy ) {
+        for ( int ix = -8; ix <= 8 && !found; ++ix ) {
+            const float x = ix * 0.1f;
+            const float y = iy * 0.1f;
+            if ( CypherTileRenderViewport_PickPlane(
+                     view.camera(), x, y, 640.0f / 480.0f, 0.0f,
+                     *document.document(), targetCell ) ) {
+                target = PixelForRay( view, x, y );
+                found = true;
+            }
+        }
+    }
+    REQUIRE( found );
+
+    Mouse( view, QEvent::MouseButtonPress, target, Qt::LeftButton );
+    CHECK( placements == 1 );
+    CHECK( placedCell.x == targetCell.x );
+    CHECK( placedCell.y == targetCell.y );
+    CHECK( selections == 0 );
+    CHECK_FALSE( CypherTileMapDocument_CellHasFloor(
+        document.document(), targetCell ) );
+    CHECK( view.toolTip().contains( QStringLiteral( "Small Room" ) ) );
+    CHECK( view.toolTip().contains( QStringLiteral( "WASD" ) ) );
+    CHECK( view.toolTip().contains( QStringLiteral( "Page Up/Down" ) ) );
+
+    Mouse( view, QEvent::MouseButtonPress, target, Qt::LeftButton,
+           Qt::ControlModifier );
+    CHECK( placements == 1 );
+    CHECK( selections == 1 );
+    CHECK_FALSE( selectedHit );
+    CHECK( selectedModifiers == Qt::ControlModifier );
 }

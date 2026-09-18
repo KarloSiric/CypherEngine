@@ -53,3 +53,7 @@ CypherResourceCompiler compile \
 ```
 
 Cooked `*_c` files belong in build/cache output and must not be committed.
+
+The original, smaller procedural starter pack remains in `textures/blockout/`,
+with matching recipes in `materials/blockout/`. It is retained for existing
+maps and focused tests while the Development Kit becomes the primary library.

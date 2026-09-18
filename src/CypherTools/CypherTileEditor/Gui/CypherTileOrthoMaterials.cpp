@@ -64,6 +64,12 @@ tile_ortho_material_t ReadMaterial( const QString &root, const QString &path )
         result.error = QString::fromStdString( error );
         return result;
     }
+    result.textureWidth = source.width;
+    result.textureHeight = source.height;
+    result.sRGB = source.sRGB;
+    result.generateMips = source.generateMips;
+    std::copy_n( source.tint, 4, result.tint );
+    std::copy_n( source.uvScale, 2, result.uvScale );
     const u64 requiredBytes = static_cast<u64>( source.width ) * source.height * 4u;
     if ( source.width == 0u || source.height == 0u ||
          source.width > static_cast<u32>( std::numeric_limits<int>::max() / 4 ) ||
@@ -120,7 +126,6 @@ tile_ortho_material_t ReadMaterial( const QString &root, const QString &path )
         ? QColor( static_cast<int>( sumR / sumA ), static_cast<int>( sumG / sumA ),
               static_cast<int>( sumB / sumA ) )
         : QColor( Qt::transparent );
-    std::copy_n( source.uvScale, 2, result.uvScale );
     result.textureBrush = QBrush( result.image );
     return result;
 }

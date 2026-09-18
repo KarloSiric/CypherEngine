@@ -702,6 +702,9 @@ list(FILTER CYPHERENGINE_SOURCES
     EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherTools/"
 )
 list(FILTER CYPHERENGINE_SOURCES
+    EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherEditor/"
+)
+list(FILTER CYPHERENGINE_SOURCES
     EXCLUDE REGEX "^${CYPHERENGINE_SRC_DIR}/CypherResource/"
 )
 list(FILTER CYPHERENGINE_SOURCES
@@ -2767,6 +2770,7 @@ endif()
 if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherTools/CMakeLists.txt")
     option(CYPHERENGINE_BUILD_TOOLS "Build tool targets" OFF)
     if (CYPHERENGINE_BUILD_TOOLS)
+        add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherEditor/Geometry")
         add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherTools")
     endif()
 else()
@@ -2844,6 +2848,23 @@ if (CYPHERENGINE_BUILD_TILE_EDITOR AND TARGET CypherTileMapCore)
             cypher_tile_map_preview
             cypher_tile_map_preview_shader_stage)
     endif()
+    # Source IDs keep each texture recipe, material recipe, and PNG together.
+    # The Project Materials browser discovers recipes recursively. The generated
+    # development-kit manifest is authoritative; this additional list stages the
+    # smaller legacy blockout pack used by existing maps and tests.
+    set(CYPHER_TILE_BLOCKOUT_MATERIAL_IDS
+        blockout/ceiling_panel
+        blockout/concrete_light
+        blockout/concrete_worn
+        blockout/floor_checker
+        blockout/floor_tile
+        blockout/metal_grate
+        blockout/metal_panel
+        blockout/service_panel
+        blockout/trim_blue
+        blockout/trim_orange
+        blockout/wall_ribbed
+        blockout/warning_red)
     set(CYPHER_TILE_MATERIAL_OUTPUTS)
     set(CYPHER_TILE_MATERIAL_MANIFEST
         "${CYPHERENGINE_ROOT_DIR}/assets/tileeditor_dev_pack.rsp")
@@ -2868,6 +2889,13 @@ if (CYPHERENGINE_BUILD_TILE_EDITOR AND TARGET CypherTileMapCore)
         "${CYPHERENGINE_ROOT_DIR}/assets/shaders/tile_surface.frag"
         ${CYPHER_TILE_DEV_SHADER_STAGE_SOURCES}
         ${CYPHER_TILE_MATERIAL_IMAGE_SOURCES})
+    foreach(material_id IN LISTS CYPHER_TILE_BLOCKOUT_MATERIAL_IDS)
+        list(APPEND CYPHER_TILE_MATERIAL_INPUTS
+            "textures/${material_id}.cytex"
+            "materials/${material_id}.cymat")
+        list(APPEND CYPHER_TILE_MATERIAL_SOURCES
+            "${CYPHERENGINE_ROOT_DIR}/assets/textures/${material_id}.png")
+    endforeach()
     foreach(asset IN LISTS CYPHER_TILE_MATERIAL_INPUTS)
         list(APPEND CYPHER_TILE_MATERIAL_OUTPUTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/${asset}_c")
         list(APPEND CYPHER_TILE_MATERIAL_SOURCES "${CYPHERENGINE_ROOT_DIR}/assets/${asset}")

@@ -17,6 +17,7 @@
 #include "Core/CypherTileMapGeometry.h"
 #include "CypherTileDocumentBridge.h"
 #include "CypherTileEditorSettingsDialog.h"
+#include "CypherTileOrthoCamera.h"
 
 #include <QPointF>
 #include <QRectF>
@@ -53,6 +54,8 @@ public:
     using multi_selection_callback_t = std::function<void( bool, tile_map_grid_coord_t, Qt::KeyboardModifiers )>;
     using selection_cells_callback_t = std::function<void( const std::vector<tile_map_grid_coord_t> &, Qt::KeyboardModifiers )>;
     using context_menu_callback_t = std::function<void( const QPoint & )>;
+    using navigation_callback_t = std::function<void( const tile_ortho_camera_state_t & )>;
+    using stamp_callback_t = std::function<void( tile_map_grid_coord_t, i16 )>;
 
     explicit CypherTileOrthoView(
         tile_editor_ortho_plane_t plane,
@@ -65,6 +68,7 @@ public:
     void setMaterialCache( const tile_ortho_material_cache_t *pCache );
     void refreshDocument();
     void fitToView();
+    void fitSelection();
     void setSelection( bool bHasSelection, tile_map_grid_coord_t coordinate );
     void setSelectionRect( bool bHasSelection, tile_map_grid_rect_t region );
     void setSelectedCells( std::span<const tile_map_grid_coord_t> cells );
@@ -81,10 +85,15 @@ public:
     void setPaintPickedCallback( std::function<void( const tile_map_paint_t & )> callback );
     void setStatusCallback( std::function<void( const QString &, bool )> callback );
     void setContextMenuCallback( context_menu_callback_t callback );
+    void setNavigationChangedCallback( navigation_callback_t callback );
+    void setStampCallback( stamp_callback_t callback );
     void setPanToolEnabled( bool enabled );
     QPointF viewOrigin() const { return m_origin; }
     bool isPanning() const { return m_bPanning; }
     qreal pixelsPerUnit() const { return m_pixelsPerUnit; }
+    tile_editor_ortho_plane_t plane() const { return m_plane; }
+    tile_ortho_camera_state_t orthographicCameraState() const;
+    void synchronizeOrthographicCamera( const tile_ortho_camera_state_t &state );
     QString viewMetrics() const;
     QString materialDescription() const;
 
@@ -103,6 +112,8 @@ protected:
 private:
     QPointF worldToScreen( qreal horizontal, qreal height ) const;
     QRectF projectedBox( const tile_map_geometry_box_t &box ) const;
+    QRectF displayedBox( const tile_map_geometry_box_t &box ) const;
+    bool isBoxVisible( const tile_map_geometry_box_t &box ) const;
     qreal depth( const tile_map_geometry_box_t &box ) const;
     bool isSelected( const tile_map_geometry_box_t &box ) const;
     const tile_map_geometry_box_t *boxAt( const QPointF &position ) const;
@@ -118,6 +129,7 @@ private:
     void applyAuthoring( const QPointF &position );
     void finishAuthoring( bool commit );
     void notifyAuthoringPreview();
+    void notifyNavigationChanged();
 
     tile_editor_ortho_plane_t m_plane;
     CypherTileDocumentBridge *m_pBridge{ nullptr };
@@ -162,9 +174,11 @@ private:
     std::function<void( const tile_map_paint_t & )> m_paintPickedCallback{};
     std::function<void( const QString &, bool )> m_statusCallback{};
     context_menu_callback_t m_contextMenuCallback{};
+    navigation_callback_t m_navigationCallback{};
     selection_callback_t m_selectionCallback{};
     multi_selection_callback_t m_multiSelectionCallback{};
     selection_cells_callback_t m_selectionCellsCallback{};
+    stamp_callback_t m_stampCallback{};
 };
 
 } // namespace cypher::tools::tile_editor

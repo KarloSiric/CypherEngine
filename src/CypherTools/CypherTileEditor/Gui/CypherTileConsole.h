@@ -14,7 +14,7 @@
     #pragma once
 #endif
 
-#include <QColor>
+#include <QList>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
@@ -32,6 +32,13 @@ class QStringListModel;
 namespace cypher::tools::tile_editor
 {
 
+class CypherTileShellRunner;
+namespace detail
+{
+enum class console_color_role_t;
+struct console_colors_t;
+}
+
 class CypherTileConsole final : public QWidget
 {
 public:
@@ -47,6 +54,19 @@ public:
     void appendInfo( const QString &message );
     void appendWarning( const QString &message );
     void appendError( const QString &message );
+    // Editor commands and local shell output share this transcript. Shell
+    // commands can also be submitted from the common input with either
+    // `! command` or `shell command`.
+    void setWorkingDirectory( const QString &directory );
+    void executeShellCommand( const QString &command );
+    void stopShellCommand();
+    void restartShellCommand();
+    [[nodiscard]] QString shellProgram() const;
+    [[nodiscard]] QString workingDirectory() const;
+    [[nodiscard]] bool isShellRunning() const;
+    void appendStartupTranscript(
+        const QString &workspaceDirectory = {},
+        const QString &documentPath = {} );
     void clear();
     void focusInput();
 
@@ -54,7 +74,23 @@ protected:
     bool eventFilter( QObject *pObject, QEvent *pEvent ) override;
 
 private:
-    void append( const QString &prefix, const QColor &color, const QString &message );
+    struct transcript_entry_t {
+        QString timestamp{};
+        QString prefix{};
+        QString message{};
+        detail::console_color_role_t colorRole{};
+    };
+
+    void append(
+        const QString &prefix,
+        detail::console_color_role_t colorRole,
+        const QString &message );
+    void appendRenderedEntry(
+        const transcript_entry_t &entry,
+        const detail::console_colors_t &colors,
+        bool bEnsureVisible );
+    void renderTranscript();
+    void appendShellOutput( const QString &text, int kind );
     void submit();
     void navigateHistory( int direction );
     void refreshCompletions( bool bExplicitRequest = false );
@@ -66,6 +102,7 @@ private:
     QPlainTextEdit *m_pOutput{ nullptr };
     QLineEdit *m_pInput{ nullptr };
     QLabel *m_pCompletionHint{ nullptr };
+    CypherTileShellRunner *m_pShellRunner{ nullptr };
     QCompleter *m_pCompleter{ nullptr };
     QStringListModel *m_pCompletionModel{ nullptr };
     execute_callback_t m_executeCallback{};
@@ -76,6 +113,7 @@ private:
     QString m_completionCyclePrefix{};
     int m_iCompletionRow{ -1 };
     bool m_bCompletionCycling{ false };
+    QList<transcript_entry_t> m_transcript{};
 };
 
 } // namespace cypher::tools::tile_editor

@@ -7,6 +7,8 @@
 
 #include "CypherTileEditorSettingsDialog.h"
 
+class QSettings;
+
 namespace cypher::tools::tile_editor
 {
 QString TileEditorConfig_DefaultPath();
@@ -20,4 +22,13 @@ bool TileEditorConfig_Load(
 // dock placement, recent documents, and other native workspace state stay separate.
 bool TileEditorConfig_Save(
     const QString &path, const tile_editor_preferences_t &preferences, QString &error );
+
+// One-time migration for profiles created while linked 2D navigation was the
+// default. A completed migration never overrides a later explicit user choice.
+bool TileEditorConfig_MigrateIndependentOrthographicCameras(
+    QSettings &nativeSettings,
+    const QString &configurationPath,
+    tile_editor_preferences_t &inOutPreferences,
+    bool &outMigrated,
+    QString &error );
 } // namespace cypher::tools::tile_editor

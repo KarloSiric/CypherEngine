@@ -58,6 +58,31 @@ Open the included renderer-ready example directly:
     ./assets/maps/tile_editor_demo.cymap
 ```
 
+## Fast blockout workflow
+
+The ordinary workflow is piece-first rather than paint-first:
+
+1. Open **Materials & Pieces > Build** and single-click a room, corridor,
+   junction, courtyard, stair, door, or boundary preset. The custom-footprint
+   builder can produce the same families at any size from 1–64 cells, with
+   configurable passage width and quarter-turn orientation.
+2. Click in Top, Front, Side, or 3D Map to place it. Floor footprints are
+   previewed in Top before placement, remain active for repeated placement,
+   reject out-of-bounds edits atomically, and become the current selection.
+3. Move the selection with the arrow keys, raise or lower it with Page Up/Down,
+   change wall height with Shift+Page Up/Down, rotate with Ctrl+R, duplicate
+   with Ctrl+D, or edit exact values in Properties. The same commands work
+   while the 3D Map pane is active.
+4. Click a material while geometry is selected to apply it immediately. With
+   no selection, that material becomes the current material used by newly
+   placed pieces. Material choice does not need a numeric slot; direct slot
+   binding and resource rebuild controls live under **Advanced slot bindings**.
+5. Use **Build Geometry** to validate and regenerate renderer-neutral boxes,
+   then run **Runtime Preview** when an external renderer check is needed.
+
+Paint, line, fill, and rectangle remain available as explicit low-level tools
+for corrections. They are not required to assemble a test map.
+
 The **3D Map** panel is an in-process WYSIWYG view of the current map driven by the
 real CypherRender API. It rebuilds from the in-memory document during paint
 strokes (at most every 40 ms) and immediately after committed edits, so it does
@@ -81,8 +106,13 @@ visible; closing a pane hides it without destroying its camera or pan state, and
 right-click and release without dragging inside any viewport, to open the same
 view-type, framing, maximize, visibility, and restore commands. A right-button
 drag keeps its existing navigation behavior. Click a pane's view title to choose
-Top, 3D, Front, or Side. Multiple panes may independently show the same 2D projection, each
-with its own pan and zoom while sharing the map, tools, and exact selection.
+Top, 3D, Front, or Side. Multiple panes may independently show the same 2D projection while
+sharing the map, tools, and exact selection. Every pane owns its pan and zoom by default, so
+navigating one view leaves the other views exactly where they were. **View > Link 2D View
+Navigation** is an explicit opt-in: when enabled, Top, Front, Side, and duplicate 2D panes
+share pixels per world unit and only the world-center axes common to both projections (XY,
+XZ, or YZ). The source viewport keeps pointer-centered zoom anchored. The same option is
+available under **Settings > Workspace**.
 Choosing 3D relocates the existing renderer pane rather than creating another
 renderer; its camera and graphics context are preserved. View choices, pane
 order, visibility, and splitter sizes persist between sessions. Reset Workspace
@@ -98,12 +128,22 @@ In the 3D Map panel, hold **right mouse** to look and fly with **WASD**;
 **Q/E** move down/up along world Z. Once right-mouse fly navigation is engaged,
 **Shift** moves four times faster and **Ctrl** moves at one-quarter speed by
 default; both multipliers are configurable. Diagonal input cannot increase speed.
+The viewport owns both pointer and keyboard input for the duration of this
+captured flight gesture, so menu shortcuts cannot steal a held movement key.
+If the platform refuses an explicit keyboard grab, normal viewport focus
+remains the fallback; an actual focus loss cancels the gesture cleanly.
 Release right mouse or press **Escape** to stop navigation and restore the pointer.
 Losing focus, hiding the pane, or changing documents also releases navigation.
 **Alt+right mouse** temporarily orbits and **middle mouse** pans. Shift has one
 meaning during right-mouse flight regardless of key order: it accelerates movement.
-The wheel changes fly speed in Fly mode and camera distance in Orbit mode;
-high-resolution trackpad scrolling is supported. Fly/Orbit switching is available
+Orbit begins at the surface under the pointer; an empty-space press falls back
+to the selected geometry center and then the current inspection pivot. That
+pivot remains fixed after release, so later Orbit-wheel zoom continues around
+the same visible point. Small right-button hand jitter below the platform drag
+threshold remains a context click and does not move the camera.
+The wheel dollies through the map in Fly mode. While right-mouse look is held,
+the wheel changes persistent fly speed; in Orbit mode it changes distance around
+the inspected point. High-resolution trackpad scrolling is supported. Fly/Orbit switching is available
 from the Camera menu and can be bound under **Settings > Shortcuts**. It is
 unbound by default so Tab retains normal focus traversal. **F** frames selected-region geometry,
 or the whole map without a selection. The pane's frame button and **Frame All
@@ -129,26 +169,29 @@ shortcuts in Settings; the preset and bookmark actions start unbound.
 The 3D camera centers the projected bounds with padding; empty orthographic
 views start at a readable, configurable pixels-per-cell scale.
 
-The icon-only left rail provides Select (V), Paint (B), Erase (E), Rectangle
-(R), Spawn (P), Door (D), Pan (H), Pick Material and Dimensions (I), Line (L),
-and Fill (G). Fill follows connected cells with the same material, floor level,
-and wall height; an empty region fills only empty cells. Line/fill each form
-one undo entry. Double-click a room footprint in the pieces palette to stamp
-it around the selected cell. Palette swatches show the actual blockout colors;
-these remain available in **Blockout Palette**. **Project Materials** displays actual cooked texture thumbnails.
+The icon-only left rail provides Select (V), Place Piece (T), Paint (B), Erase
+(E), Rectangle (R), Spawn (P), Door (D), Pan (H), Pick Material and Dimensions
+(I), Line (L), and Fill (G). Fill follows connected cells with the same
+material, floor level, and wall height; an empty region fills only empty cells.
+Line/fill each form one undo entry. Palette swatches show the actual blockout
+colors; cooked project materials display decoded texture thumbnails.
 
 The compact workspace keeps a slim icon rail on the left. On the right,
 **Materials & Pieces** and **All Objects** share the upper dock tabs, with
-**Properties** below. Materials & Pieces contains **Project Materials / Blockout
-Palette / Room Pieces** tabs. **Console** is a separate bottom dock with two
-tabs: **Editor Commands** controls the current map/editor session, while **Local
-Shell** runs one asynchronous zsh/bash command at a time with an editable working
-directory, history, streamed stdout/stderr, exit status, stop, restart, clear,
-and copy controls. The shell tab is deliberately a noninteractive command runner;
-programs that require a PTY are outside its contract. Type `shell` in Editor
-Commands or use **View > Open Local Shell Runner** to switch to it. The dock is
-hidden by default. Properties contains Selection, Paint, Map, and Validation
-tabs. Filter the object tree by type, coordinate, level, or numeric material
+**Properties** below. Materials & Pieces opens on **Build**, followed by
+**Materials** and **Project Materials**. **Console** is a separate bottom dock that combines editor and
+local-shell functions in one surface. Editor commands, validation/build output,
+local-shell commands, streamed stdout/stderr, and process status share one
+transcript and one input. Enter editor commands normally; prefix a local command with `!`, or
+use `shell <command>`. The inline shell controls retain the editable working
+directory, shell path, status, Stop, and Restart actions. It deliberately runs
+one noninteractive zsh/bash command at a time; programs that require a PTY are
+outside its contract. **View > Focus Local Shell in Console** opens the same
+dock and focuses its common input. The console prints its session, shell, and
+workspace initialization when the editor starts. The dock is hidden by default.
+Properties contains **Selection**, **Paint**, **Map**,
+**Checks**, and **History** tabs. Filter the object tree by type, coordinate,
+level, or numeric material
 slot. It supports multiple selected rows, synchronized with the owning cells in
 every pane; a floor, door, and spawn at the same cell represent one selected cell.
 Double-click an object to frame it in 3D. The tree shows at most 1,024 matching
@@ -157,7 +200,7 @@ rows; filtering searches the whole document.
 geometry is preserved while the old dock arrangement migrates once.
 The top toolbar has icon toggles for the console, assets/pieces, object tree,
 properties, and left tool rail. A checked icon indicates an open panel; hover
-an icon for its label. Project Materials is initially selected in the assets dock.
+an icon for its label. Build is initially selected in the assets dock.
 The tiled-library icon controls the **Materials & Pieces panel**; the separate
 diagonal-texture icon controls material rendering inside the 2D views. Both use
 the configured accent color while checked, so panel visibility and viewport
@@ -167,14 +210,18 @@ Preview uses a red square.
 These toggles and the configuration open/reload actions can also receive custom
 keys in Settings > Shortcuts; new actions are unbound until assigned.
 
-The searchable Room Pieces palette provides 24 presets: rooms, straight
-corridors, four orientations each of corner and T junction footprints, a cross
-junction, four stair directions, four door sides, and two boundary wall heights.
-Single-click a stair, door, or wall preset to prepare its tool and orientation.
-Double-click a room or corridor footprint to stamp it around the selected cell.
-Stamps preserve the current material and elevation, reject out-of-bounds
-placement before editing, and undo as one operation. Wall corners follow the
-generated boundary of the footprint; these are not standalone brush meshes.
+The searchable Build palette provides 45 ready-to-place presets: five rooms,
+six straight corridors, narrow and wide oriented corners and T junctions,
+cross junctions, courtyard rings, U-shaped rooms, four stair directions, four
+door sides, and two boundary wall heights. Its parameterized builder creates
+rooms, corridors, corners, T/cross junctions, courtyards, and U-shapes at
+arbitrary supported dimensions, passage widths, and orientations. This yields
+thousands of useful footprints without burying the workflow under thousands of
+nearly identical static icons. Single-clicking a floor footprint activates
+repeat placement in every map view. Stamps preserve the current material and
+elevation, reject out-of-bounds placement before editing, select the authored
+cells, and undo as one operation. Wall corners follow the generated boundary of
+the footprint; they are derived geometry rather than standalone brush meshes.
 
 Use **Select (V)** and left-drag in Top to select an inclusive rectangle, including
 empty placement cells; click an unselected cell to replace the selection with
@@ -237,11 +284,14 @@ chooses the floor level at the start of a paint stroke. That level stays fixed
 throughout the stroke. Paint and Erase support continuous strokes; Rectangle
 and Line create one-cell-wide runs along the fixed row or column. Spawn, Door,
 and the eyedropper also target that construction layer. Fill remains a Top tool.
-While an authoring tool is active, the pane always shows its fixed hidden-axis
-slice and stroke floor level, even when viewport metrics are disabled. A dashed
-cell ghost previews the exact fixed-slice target under the pointer. The slice is
-colored for the hidden axis: green Y in Front and red X in Side. Attempting Fill
-in Front or Side explains that hidden-axis connectivity must be chosen in Top.
+While an authoring tool is active, a dashed cell ghost previews the exact
+fixed-slice target under the pointer. The fixed coordinate also remains exposed
+through the viewport property and tooltip. Enable **Show authoring guidance in
+2D view footers** when the persistent `AUTHOR X/Z · FIXED Y...` or
+`AUTHOR Y/Z · FIXED X...` explanation is useful; it defaults off so the
+footer does not consume drawing space. Its stripe uses green for hidden Y in
+Front and red for hidden X in Side. Attempting Fill in Front or Side explains
+that hidden-axis connectivity must be chosen in Top when this guidance is on.
 The document still stores one floor per cell: changing its elevation replaces
 that cell's level rather than creating stacked floors.
 
@@ -266,7 +316,9 @@ zooming in reveals finer lines. Settings controls the minimum screen spacing
 remain anchored to authored coordinates; enable viewport metrics to show the
 current grid interval, coordinates, scale, and selection information.
 Coordinate rulers are a separate display option. When enabled, Top shows world
-X/Y numbers and Front/Side show X/Z or Y/Z numbers in themed top and left bands.
+X/Y numbers and Front/Side show X/Z or Y/Z numbers as compact ticks and labels
+along the top and left edges. They are transparent overlays: no full-width or
+full-height gutter is reserved, so map geometry remains visible beneath them.
 Their label interval coarsens automatically as the view zooms out, remains
 anchored to authored world zero, and does not alter grid snapping or map metrics.
 New preferences use **Radiant Dark**: charcoal panels, dark blue orthographic
@@ -277,15 +329,38 @@ Charcoal**, **Radiant Light**, **Midnight**, **Warm Workshop**, **Blueprint
 Blue**, **Graphite**, **High Contrast Dark**, **Coastal Dusk**, and **Sandstone
 Light**. The collection covers neutral, warm, blue, high-contrast, and light
 workspaces, with individual UI, grid, axis, floor, wall, stair, and door colors
-remaining editable. Applying a preset replaces colors only; navigation,
+remaining editable. Selecting a theme previews it immediately; navigation,
 display toggles, document defaults, and shortcuts remain unchanged. Default
 text is 11 pt with 24 px toolbar icons; both sizes are configurable.
+Use **Save As…** to store the current colors as a reusable user theme, or use
+**Import…**, **Export Current…**, and **Delete** to manage portable `.cytheme`
+files. Theme files contain only opaque semantic colors. They cannot change
+camera behavior, shortcuts, layout, map dimensions, or project paths. Manual
+color edits appear as **Custom (modified)**, and **Reset to Radiant Dark** resets
+only colors. Apply or OK commits the preview; Cancel restores the appearance
+from the last successful Apply. Widget state colors, console severity colors,
+viewport feedback, and axis underlays are derived from the selected palette so
+light and dark custom themes remain readable. Material and texture colors stay
+authored map content and are not recolored by the editor theme.
 Orthographic views draw the grid behind geometry, distinguish wall thickness
 and stair direction, and optionally dim distant geometry in Front and Side.
 Depth cues improve overlapping wireframes; they are not hidden-line removal.
 Disable internal tile seams in Canvas & Grid for cleaner Top wireframes while
 retaining material, elevation, and shape boundaries.
 Grid display spacing does not resample the authored map or change cell size.
+
+**Settings > Canvas & Grid** also separates three structural display concerns.
+**Show floor and stair surfaces** controls projected slabs and treads,
+**Show vertical wall height** controls wall bodies in Front and Side, and
+**Show physical wall thickness** controls the generated wall strips. All three
+default on and persist as `Viewport/showFloorSurfaces`,
+`Viewport/showWallHeight`, and `Viewport/showWallThickness` in `editor.ini`.
+Turning wall thickness off collapses edge-on walls to a technical line; turning
+floor surfaces off leaves wall boundaries available for a clean wall-only plan.
+Walls use a heavier outer line, a subtle strip fill, and a distinct inner edge
+so floors and enclosing structure remain readable at the same zoom. Hidden
+Front/Side structure is excluded from picking, selection outlines, depth cues,
+and material identification as well as paint.
 
 Colored coordinate axes and hover activation are enabled by default; viewport
 metrics, material identification, camera hints, and active-pane highlighting
@@ -321,10 +396,19 @@ section and exported editor profiles. Display changes do not modify the map.
 The orthographic previews are flat and unlit: Top displays the material over
 each tile footprint, including stair footprints; Front and Side display it over
 the projected generated boxes. The 3D pane remains the lit CypherRender view.
-Rebinding, undo/redo, and material cooking in Project Materials update the panes
+Rebinding, undo/redo, and material cooking in Materials update the panes
 without reopening the map. Use the material browser's **Refresh** after external
 cooking. A shared cache limits thumbnails to 256 pixels per axis, shares duplicate
 material images, and performs no asset reads during painting or navigation.
+
+Selecting geometry in Top, Front, Side, 3D, or the object tree publishes the
+same **Surface Material** card at the top of Properties > Selection. The card
+shows the actual cached material thumbnail, slot and binding, built-in fallback,
+texture dimensions, color space, mip state, tint, UV scale, and any cooked-asset
+diagnostic. Mixed selections report their distinct slots instead of pretending
+that one material applies to all cells. **Use for Paint** explicitly copies that
+slot into the paint defaults; **Locate Material** only reveals the corresponding
+project asset or blockout swatch and does not change the active tool.
 
 **Edit > Open Editor Configuration** opens the readable `editor.ini` in the
 platform's application configuration directory. On macOS the standard profile
@@ -342,7 +426,7 @@ replace the file atomically, so a failed save preserves the previous file.
 **Settings > Apply** activates and saves the current settings while keeping the
 dialog open. **OK** applies and closes. **Cancel** discards only edits made since
 the last Apply; already-applied settings remain active. Duplicate shortcuts
-disable both Apply and OK until resolved. **Restore Defaults** stages all editor
+disable both Apply and OK until resolved. **Reset All Settings** stages all editor
 preference defaults for inspection; Apply or OK commits them. Color presets
 continue to replace colors only. The Settings dialog is modal: close it to test
 camera input after applying navigation changes.
@@ -374,7 +458,7 @@ preserves the current editing workspace and authored map.
 | Movement speed | 0.1–1000 world units/second |
 | Look sensitivity | 0.01–2 degrees/pixel |
 | Pan sensitivity | 0.1–5 times normal middle-mouse pan |
-| Wheel sensitivity | 0.1–5 times fly-speed adjustment or orbit-distance adjustment |
+| Wheel navigation sensitivity | 0.1–5 times fly dolly, RMB-held speed adjustment, or orbit-distance adjustment |
 | Shift speed multiplier | 1–20 times movement speed; default 4 |
 | Ctrl speed multiplier | 0.01–1 times movement speed; default 0.25 |
 | Vertical field of view | 30–100 degrees |
@@ -406,7 +490,9 @@ suggestions, and **Enter** to execute a command. Useful commands include
 `validate`, `build`, `preview`, `preview_stop`, `camera_spawn`, `frame_selection`,
 `camera_view top`, `camera_level up`, `camera_bookmark store 1`,
 `camera_auto_orbit on`, and `shape stairs_east 8` (also flat,
-stairs_north/south/west).
+stairs_north/south/west). Local commands use `! command` or `shell command`;
+`shell_stop` terminates the active process and `shell_restart` reruns the last
+command.
 
 ## Editing model
 
@@ -472,7 +558,14 @@ cells prevents a mesh rebuild from silently changing entity identity or
 behavior. Place spawns and doors on flat landings. A spawn on stairs reports a
 gameplay warning; a door on stairs is an unsupported placement that blocks build.
 
-Drag edits and room stamps are grouped into transactions. One drag or one stamp therefore creates one undo entry. Saving records the current revision; later edits make the document dirty until it is saved again or undone back to the saved revision.
+Drag edits and room stamps are grouped into transactions. One drag or one stamp
+therefore creates one undo entry. Saving records the current revision; later
+edits make the document dirty until it is saved again or undone back to the
+saved revision. **Properties > History** shows the retained action timeline,
+the applied/redo boundary, current and saved revisions, affected-record counts,
+and the bounded storage used by each action. Its Undo and Redo buttons use the
+same editor commands as the menu and toolbar, so every view, validation result,
+material card, object row, and runtime-preview snapshot refreshes together.
 
 ## Source format
 
@@ -491,9 +584,12 @@ remain in native settings. None enter `.cymap`, keeping project content
 deterministic across users.
 
 Validation distinguishes structural geometry errors from authoring warnings.
-The live summary stays visible above the Inspector tabs. Counts and diagnostics
+The live summary and full issue list live together in the **Checks** tab. Counts and diagnostics
 update during painting, cancellation, undo and redo. Double-click a diagnostic
-to locate its cell; F7 opens the full results. The supported checks cover the
+to locate its cell. F7 or **Validate Map** opens the Console, writes the complete
+diagnostic transcript, and leaves the current Properties page unchanged.
+**Build Geometry** also opens the Console and reports its validation and geometry
+generation stages there. The supported checks cover the
 document structure, spawn and door placement; they do not check connectivity,
 collision, or full gameplay reachability. A failed geometry build clears the
 displayed mesh so stale geometry cannot be mistaken for the current map.
@@ -509,19 +605,28 @@ textures included with the project. CMake builds the resource compiler and cooks
 these assets alongside the editor; the browser seeds an editable per-project
 cache from those staged outputs.
 
+The browser also includes a twelve-material procedural starter pack under
+`materials/blockout/`: light and worn concrete, ceiling and wall panels, two
+floor treatments, two metal treatments, a service panel, blue and orange route
+trims, and a red warning surface. The corresponding 128 x 128 textures are
+original Cypher Engine assets generated deterministically by
+`textures/blockout/generate_blockout_textures.py`. They provide recognizable
+graybox categories and orientation cues without importing production art from
+another game or editor.
+
 1. Choose the asset source directory with **Asset Root…**. Paths in the map are
    relative to that directory, for example `materials/dev/grid.cymat`.
-2. Pick a numeric **Map slot**, select a recipe in **Project Materials**, and
-   choose **Use Material** or double-click the recipe. If its cooked material is
+2. Pick a numeric **Target map slot**, select a recipe in **Materials**, and
+   choose **Bind + Paint** or double-click the recipe. If its cooked material is
    missing or unreadable, the editor prepares it and its declared texture/shader
    dependencies asynchronously with `CypherResourceCompiler`, then binds it on
    success. No separate manual cook is needed to start using a material.
 3. The bound slot becomes the active paint material and the editor switches to
    Paint. Binding is undoable and changes every cell already using that slot.
-   **Reset Slot** removes the binding, restoring its blockout color without
+   **Clear Binding** removes the binding, restoring its blockout color without
    changing cells' numeric slot assignments. Failed preparation keeps the
    previous binding and reports the compiler error in the console.
-4. Use **Apply to Selection** to change only the material slot of the exact
+4. Use **Assign Slot to Selection** to change only the material slot of the exact
    selected floor cells in one undoable action. This preserves elevation, wall
    height, shape, tread count, and unselected holes.
 5. Save the `.cymap`; its slot-to-resource bindings travel with the map. Launch
@@ -536,8 +641,8 @@ no face UV editor or world-space texel-density policy yet. Alpha, normal maps,
 PBR lighting, cubemaps, and arbitrary shader contracts are outside this first
 material path. Door markers retain their diagnostic orange appearance.
 
-The browser's cooked cache is separate from source assets. Use **Update
-Material** after changing a recipe, texture, or shader source: **Use Material**
+The browser's cooked cache is separate from source assets. Use **Rebuild
+Preview** after changing a recipe, texture, or shader source: **Bind + Paint**
 reuses a readable cached result and does not check source freshness. **Refresh**
 rescans recipes and reloads the embedded view, including externally cooked
 changes. Successful material preparation updates the embedded view;

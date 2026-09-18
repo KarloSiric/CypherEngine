@@ -18,12 +18,14 @@
 #include "CypherTileDocumentBridge.h"
 #include "CypherTileEditorSettingsDialog.h"
 #include "CypherTileOrthoMaterials.h"
+#include "CypherTilePiecePalette.h"
 
 #include <QMainWindow>
 #include <QMap>
 #include <QStringList>
 
 #include <functional>
+#include <optional>
 #include <vector>
 
 class QAction;
@@ -47,8 +49,9 @@ namespace cypher::tools::tile_editor
 {
 
 class CypherTileConsole;
-class CypherTileShellRunner;
 class CypherTileMaterialBrowser;
+class CypherTileSelectionMaterialInspector;
+class CypherTileHistoryPanel;
 class CypherTileMapProperties;
 class CypherTileRenderViewport;
 class CypherTileOrthoView;
@@ -84,13 +87,21 @@ private:
     void configureOrthoView( CypherTileOrthoView *view );
     void synchronizeSelection();
     void synchronizeAuthoring();
+    void synchronizeOrthographicCameras(
+        QWidget *source,
+        const tile_ortho_camera_state_t &state );
+    void synchronizeOrthographicCamerasFromActive();
+    void frameAllOrthographicViews();
     void buildToolsDock();
     void buildInspectorDock();
     void buildConsoleDock();
     void buildStatusBar();
     void buildOutlinerDock();
     void bindProjectMaterial( unsigned short slot, const QString &path );
+    unsigned short resolveProjectMaterialSlot( const QString &path ) const;
     void applyMaterialToSelection( unsigned short slot );
+    void activatePiece( const tile_piece_t &piece );
+    void placeActivePiece( tile_map_grid_coord_t center );
     void refreshOutliner();
     void resetWorkspaceLayout();
     void translateSelection( int dx, int dy, bool copy = false );
@@ -110,7 +121,7 @@ private:
     void applyPreferences();
     void savePreferences();
     void showSettings( bool cameraPage = false );
-    void applyEditorSettings( const tile_editor_preferences_t &preferences );
+    bool applyEditorSettings( const tile_editor_preferences_t &preferences );
     void buildCameraMenu();
     void synchronizeCameraActions();
 
@@ -146,6 +157,7 @@ private:
     bool writePreviewSnapshot();
 
     void executeCommandLine( const QString &line );
+    void revealConsole( bool bFocusInput = false );
     void appendInfo( const QString &message );
     void appendWarning( const QString &message );
     void appendError( const QString &message );
@@ -161,16 +173,19 @@ private:
     std::vector<CypherTileCanvas *> m_topViews{};
     std::vector<CypherTileOrthoView *> m_orthoViews{};
     std::function<void( const tile_map_paint_t & )> m_paintPicked{};
+    std::optional<tile_piece_t> m_activePiece{};
     bool m_syncingSelection{ false };
+    bool m_syncingOrthographicCameras{ false };
+    bool m_bAppliedOrthographicLink{ false };
     CypherTileViewWorkspace *m_pViewWorkspace{ nullptr };
     QTimer *m_pDocumentPreviewTimer{ nullptr };
     QTimer *m_pCameraPreferenceTimer{ nullptr };
     CypherTileConsole *m_pConsole{ nullptr };
-    CypherTileShellRunner *m_pShellRunner{ nullptr };
-    QTabWidget *m_pConsoleTabs{ nullptr };
     QDockWidget *m_pConsoleDock{ nullptr };
     QDockWidget *m_pAssetsDock{ nullptr };
     CypherTileMaterialBrowser *m_pMaterialBrowser{ nullptr };
+    CypherTileSelectionMaterialInspector *m_pSelectionMaterial{ nullptr };
+    CypherTileHistoryPanel *m_pHistoryPanel{ nullptr };
     CypherTileMapProperties *m_pMapProperties{ nullptr };
     QWidget *m_pMapPropertiesPage{ nullptr };
     QDockWidget *m_pInspectorDock{ nullptr };
@@ -194,7 +209,6 @@ private:
     QMap<QString, command_entry_t> m_commands{};
     QStringList m_recentFiles{};
 
-    QLabel *m_pDocumentSize{ nullptr };
     QLabel *m_pSelectionLabel{ nullptr };
     QCheckBox *m_pFloorEnabled{ nullptr };
     QSpinBox *m_pFloorLevel{ nullptr };
