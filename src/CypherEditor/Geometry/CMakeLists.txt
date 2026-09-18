@@ -4,30 +4,37 @@
 #  Copyright (c) 2026 Karlo Siric. All rights reserved.
 #
 #  File: src/CypherEditor/Geometry/CMakeLists.txt
-#  Purpose: Registers the shared Qt-free editor geometry target.
-#  Details: The initial interface target establishes ownership while topology
-#           implementation is developed file by file with focused tests.
+#  Purpose: Builds the shared Qt-free editor geometry runtime.
+#  Details: Source identity and policy form the first compiled Core slice;
+#           topology is added through focused vertical slices and tests.
 #
 ##########################################################################
 
-add_library(CypherEditorGeometry INTERFACE)
+add_library(CypherEditorGeometry STATIC
+    Core/CypherGeometry_IdAllocator.cpp
+    Core/CypherGeometry_IdAllocator.h
+    Core/CypherGeometry_Policy.cpp
+    Core/CypherGeometry_Policy.h
+    Core/CypherGeometry_Types.h
+)
 add_library(Cypher::EditorGeometry ALIAS CypherEditorGeometry)
 
-target_compile_features(CypherEditorGeometry INTERFACE cxx_std_20)
+target_compile_features(CypherEditorGeometry PUBLIC cxx_std_20)
 target_include_directories(CypherEditorGeometry
-    INTERFACE
+    PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/Core"
 )
 target_link_libraries(CypherEditorGeometry
-    INTERFACE
+    PUBLIC
         Cypher::CommonTier1
         Cypher::Math
 )
 
 if (CYPHERENGINE_BUILD_TESTS)
     add_executable(cypher_editor_geometry_contract_tests
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/CypherGeometry_Types_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Core_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Types_Tests.cpp"
     )
     target_link_libraries(cypher_editor_geometry_contract_tests
         PRIVATE
@@ -42,4 +49,3 @@ if (CYPHERENGINE_BUILD_TESTS)
         LABELS "CypherEditor;Geometry;Contract"
     )
 endif()
-

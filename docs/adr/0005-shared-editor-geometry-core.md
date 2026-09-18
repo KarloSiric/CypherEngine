@@ -70,62 +70,72 @@ The geometry core uses:
 - explicit repair commands instead of silent healing;
 - deterministic traversal and triangulation rules;
 - separate per-vertex, per-corner, per-edge, and per-face attribute streams;
-- a mesh-first persistent authoring representation;
-- CSG as an authoring operation over validated closed volumes, not as the runtime
-  world representation.
+- separate canonical authoring representations for plane-defined convex brushes,
+  editable manifold meshes, planar polygons with holes, patches, and bounded
+  triangle soup;
+- explicit, provenance-preserving conversion between representations;
+- separate brush and mesh CSG paths, with brush CSG delivered first;
+- CSG as an authoring operation over validated solids, not as the runtime world
+  representation.
 
 The editor geometry layer is split conceptually into:
 
-1. Core identity, results, numerical policy, allocators, and scratch contracts.
-2. Mesh topology: vertices, half-edges, edges, loops, faces, shells, and meshes.
-3. Validation and explicit repair diagnostics.
-4. Topology transactions, remapping, selection provenance, and undo deltas.
-5. Primitive generation.
-6. Local mesh operations such as split, collapse, weld, extrude, inset, knife,
-   bridge, chamfer, and bevel.
-7. Robust Boolean arrangement, classification, and reconstruction.
-8. Attribute propagation, UVs, normals, tangents, materials, and creases.
-9. Spatial indexing, component picking, and snapping candidates.
-10. Deterministic triangulation and compiler-facing immutable snapshots.
+1. Core identity, results, limits, allocators, and scratch contracts.
+2. Numerical kernel policy, quantization, robust predicates, controlled
+   constructions, and deterministic ordering.
+3. Brush, mesh, planar polygon, patch, and triangle-soup representations.
+4. Attribute schemas, storage, interpolation, texture locking, and propagation.
+5. Queries, planar arrangements, spatial indexes, and tessellation.
+6. Validation and explicit repair diagnostics.
+7. Transactions, remapping, geometry selection, and exchange fragments.
+8. Primitive generation, local operations, conversions, and modifiers.
+9. Separate brush and mesh Boolean arrangement, classification, and
+   reconstruction pipelines.
+10. Versioned authoring serialization and compiler-facing immutable cook
+    products with complete source mapping.
 
-Curves, subdivision surfaces, sweeps, displacement sculpting, terrain, collision
-decomposition, navigation, lighting, visibility, acoustics, prefabs, entities,
-and live-sync are consumers or later peer systems. They do not become unrelated
-methods on the base half-edge container.
+Curves, subdivision surfaces, sweeps, and displacement remain isolated
+procedural families that convert explicitly into source representations. Terrain,
+collision decomposition, navigation, lighting, visibility, acoustics, prefabs,
+entities, and live-sync are consumers or peer systems. They do not become
+unrelated methods on the mesh container or dependencies of this library.
 
 ## First vertical slice
 
-The first implementation gate is deliberately small and complete:
+The first implementation path is deliberately small and brush-first:
 
 ```text
-create one box
-  -> validate a closed orientable manifold
-  -> traverse deterministic face loops
-  -> triangulate through Cypher::Math
-  -> apply and undo one topology transaction
+create one six-plane convex brush box
+  -> reconstruct and validate its closed boundary
+  -> traverse brush sides deterministically
+  -> tessellate to twelve source-mapped triangles
+  -> drag one side plane through a preview/commit transaction
+  -> preserve world-locked texture projection
   -> generate from one TileEditor cell or room piece
-  -> render and pick stable topology elements
+  -> render and pick stable brush elements
 ```
 
-Only after that path works do operations arrive in dependency order:
+Editable manifold mesh storage follows as a separate representation. Its first
+fixture has 8 vertices, 12 edges, 24 half-edges, 6 loops, 6 faces, one shell,
+Euler characteristic 2, outward orientation, and positive volume. Only after
+those paths work do operations arrive in dependency order:
 
-1. vertex movement;
-2. edge split;
-3. edge collapse and explicit weld;
-4. face split;
-5. face extrusion;
-6. plane knife and optional cap;
-7. inset;
-8. loop bridge;
-9. chamfer and bevel;
-10. closed-volume classification;
-11. Boolean union, difference, and intersection;
-12. subdivision, sweeps, displacement, and sculpting.
+1. brush plane clipping, face dragging, and brush intersection/subtraction;
+2. mesh vertex movement;
+3. edge and face split;
+4. edge collapse and explicit weld;
+5. face extrusion, plane knife/cap, inset, and loop bridge;
+6. chamfer, bevel, and solidify;
+7. planar arrangements, coplanar overlay, and closed-volume classification;
+8. general mesh Boolean union, difference, and intersection;
+9. subdivision, sweeps, patches, and displacement.
 
 ## Consequences
 
 - TileEditor can test the future Mason geometry workflow immediately without
   becoming Mason or replacing its tile workflow.
+- Brush editing keeps planes and per-side texture projection canonical instead
+  of abusing manifold mesh topology as universal storage.
 - Mason and focused tools receive identical topology, validation, and command
   behavior.
 - `CypherMapCompiler` can consume validated snapshots without Qt dependencies.
@@ -166,4 +176,3 @@ clipboard transfer, undo snapshots, compaction, or stale-reference checks.
 Rejected because implicit welding or capping can change authored intent. Normal
 operations preserve invariants or roll back; repair and sanitation are explicit,
 undoable workflows.
-

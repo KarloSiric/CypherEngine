@@ -5,8 +5,8 @@
 //
 //  File: CypherGeometry_Types.h
 //  Purpose: Defines identity and result vocabulary for editable geometry.
-//  Details: Persistent source IDs survive serialization and undo; live topology
-//           handles carry a slot generation and remain local to an owning mesh.
+//  Details: Persistent source IDs survive serialization and undo; live storage
+//           handles carry a slot generation and remain local to their owner.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-09-18
@@ -41,20 +41,40 @@ struct geometry_source_id_t {
 
 inline constexpr geometry_source_id_t GEOMETRY_SOURCE_ID_INVALID{};
 
+// Authored representations retain different canonical data and invariants.
+// Cooked meshes are derived products and therefore are deliberately absent.
+enum class geometry_representation_kind_t : u8 {
+    BRUSH_SOLID = 0u,
+    EDITABLE_MESH,
+    POLYGON_2D,
+    PATCH_SURFACE,
+    TRIANGLE_SOUP,
+    COUNT
+};
+
 enum class geometry_element_kind_t : u8 {
-    MESH = 0u,
+    BRUSH = 0u,
+    BRUSH_SIDE,
+    MESH,
     SHELL,
     VERTEX,
     HALF_EDGE,
     EDGE,
     LOOP,
     FACE,
+    POLYGON_2D,
+    CONTOUR,
+    PATCH,
+    CONTROL_POINT,
+    TRIANGLE_SOUP,
+    TRIANGLE,
     COUNT
 };
 
-// Live handles are meaningful only to their owning mesh. Generation zero and
-// the all-one slot are invalid. Separate template instantiations prevent a face
-// handle from being passed accidentally where a vertex handle is required.
+// Live handles are meaningful only to their owning representation pool.
+// Generation zero and the all-one slot are invalid. Separate template
+// instantiations prevent a face handle from being passed accidentally where a
+// vertex, brush-side, or control-point handle is required.
 template<geometry_element_kind_t kind_v>
 struct geometry_handle_t {
     u32 nSlot{ common::CY_INVALID_INDEX };
@@ -63,6 +83,10 @@ struct geometry_handle_t {
 
 using geometry_mesh_handle_t =
     geometry_handle_t<geometry_element_kind_t::MESH>;
+using geometry_brush_handle_t =
+    geometry_handle_t<geometry_element_kind_t::BRUSH>;
+using geometry_brush_side_handle_t =
+    geometry_handle_t<geometry_element_kind_t::BRUSH_SIDE>;
 using geometry_shell_handle_t =
     geometry_handle_t<geometry_element_kind_t::SHELL>;
 using geometry_vertex_handle_t =
@@ -75,6 +99,18 @@ using geometry_loop_handle_t =
     geometry_handle_t<geometry_element_kind_t::LOOP>;
 using geometry_face_handle_t =
     geometry_handle_t<geometry_element_kind_t::FACE>;
+using geometry_polygon_2d_handle_t =
+    geometry_handle_t<geometry_element_kind_t::POLYGON_2D>;
+using geometry_contour_handle_t =
+    geometry_handle_t<geometry_element_kind_t::CONTOUR>;
+using geometry_patch_handle_t =
+    geometry_handle_t<geometry_element_kind_t::PATCH>;
+using geometry_control_point_handle_t =
+    geometry_handle_t<geometry_element_kind_t::CONTROL_POINT>;
+using geometry_triangle_soup_handle_t =
+    geometry_handle_t<geometry_element_kind_t::TRIANGLE_SOUP>;
+using geometry_triangle_handle_t =
+    geometry_handle_t<geometry_element_kind_t::TRIANGLE>;
 
 template<geometry_element_kind_t kind_v>
 inline constexpr geometry_handle_t<kind_v> GEOMETRY_HANDLE_INVALID{};
@@ -125,6 +161,13 @@ template<geometry_element_kind_t kind_v>
            static_cast<u8>( geometry_element_kind_t::COUNT );
 }
 
+[[nodiscard]] constexpr bool GeometryRepresentationKind_IsValid(
+    geometry_representation_kind_t kind ) noexcept
+{
+    return static_cast<u8>( kind ) <
+           static_cast<u8>( geometry_representation_kind_t::COUNT );
+}
+
 [[nodiscard]] constexpr bool GeometryElementRef_IsValid(
     geometry_element_ref_t ref ) noexcept
 {
@@ -142,4 +185,3 @@ static_assert( std::is_trivially_copyable_v<geometry_vertex_handle_t> );
 } // namespace cypher::editor::geometry
 
 #endif // CYPHER_EDITOR_GEOMETRY_TYPES_H
-

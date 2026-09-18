@@ -1,13 +1,15 @@
 # Cypher Editor Geometry
 
-`Cypher::EditorGeometry` is the Qt-free authoring geometry library shared by
+`Cypher::EditorGeometry` is the Qt-free authoring-geometry library shared by
 CypherTileEditor, the future Mason map workspace, focused geometry tools, and the
-map compiler's authoring-side validation path.
+authoring side of the map compiler.
 
-It is not a renderer, physics engine, runtime world representation, UI toolkit,
-or source-file parser. It owns editable topology and geometry mutations. Consumers
-adapt its immutable preview/cook products to their own renderer, document, or
-compiler contracts.
+The library does **not** force every authored object into one mesh topology.
+Brushes, editable meshes, planar polygons, patches, and triangle soup have
+different invariants and remain separate source representations. Conversion is
+explicit and records source provenance. Immutable cooked products are derived
+from those representations for rendering, collision, navigation, visibility,
+lighting, and compiler interchange.
 
 ## Dependency rules
 
@@ -18,48 +20,65 @@ Allowed public dependencies:
 
 Forbidden dependencies:
 
-- Qt
-- CypherTileEditor GUI types
-- Mason workspace types
-- renderer backend objects
-- `CypherWorld` mutable state
-- physics-engine objects
-- platform/window APIs
+- Qt and editor-widget types;
+- CypherTileEditor or Mason document types;
+- camera/input/tool/gizmo state;
+- renderer backend objects;
+- mutable `CypherWorld` state;
+- physics-engine objects;
+- platform/window APIs.
 
-## Storage rules
+## Shared contracts
 
 - Persistent authoring identity uses document-stable source IDs.
-- Live adjacency uses generation-checked handles, never persistent pointers.
-- Mutations are transactional and publish topology remaps on commit.
-- Invalid operations leave the source state unchanged.
-- Validation reports bounded diagnostics; it does not silently repair geometry.
-- Runtime triangle/index buffers are derived products and never become the source
-  topology.
+- Live storage uses typed generation-checked handles, never persistent pointers.
+- Topology and representation conversion publish explicit source remaps.
+- Mutations are transactional; failure leaves the source state unchanged.
+- Validation emits bounded diagnostics and never silently repairs geometry.
+- Brush planes remain canonical for brush editing; reconstructed polygons are
+  caches, not a replacement source of truth.
+- Editable meshes own explicit adjacency; temporary/import triangle soup does
+  not pretend to satisfy mesh manifold invariants.
+- Runtime triangle/index buffers are disposable cooked products.
 
-## Planned module ownership
+## Module ownership
 
 ```text
-Core/          IDs, handles, status, numerical policy, scratch contracts
-Topology/      mesh, vertex, half-edge, edge, loop, face, shell storage
-Validation/    invariants, diagnostics, sanitation and explicit repair plans
-Transactions/  mutation journal, remapping, undo/redo payloads
-Primitives/    boxes, wedges, prisms, cylinders, arches, stairs
-Operations/    split, collapse, weld, extrude, inset, knife, bridge, bevel
-Csg/           intersection arrangement, classification, Boolean reconstruction
-Attributes/    UVs, normals, tangents, materials, smoothing and crease data
-Spatial/       editable BVH, component picking, snapping candidate queries
-Cook/          deterministic triangulation and immutable compiler snapshots
+Core/             identity, handles, results, budgets, allocation contracts
+Kernel/           scalar policy, quantization, predicates, constructions, ordering
+Representations/  Brush, Mesh, Polygon2D, Patch, and TriangleSoup source models
+Attributes/       schemas, typed layers, UV/material/normal data and propagation
+Planar/           arrangements, holes, overlay, offset, constrained triangulation
+Queries/          ray casts, adjacency, containment, measurements, feature queries
+Validation/       structural, geometric, representation, and solid diagnostics
+Repair/           explicit previewable and undoable repair plans
+Transactions/     preview journals, invertible deltas, remapping, provenance
+Selection/        geometry-component sets and topology-aware selection queries
+Exchange/         fragments, import sanitation, clone/extract/insert boundaries
+Primitives/       deterministic parametric brush, mesh, polygon, and patch sources
+Operations/       transform, cutting, topology, modeling, conversion, Euler edits
+Modifiers/        non-destructive mirror, arrays, bend, taper, sweep, rebuild
+Csg/              separate brush and mesh Boolean paths plus reconstruction stages
+Spatial/          editable indexes, caches, picking candidates, dirty regions
+Tessellation/     deterministic representation-to-triangle tessellation
+Procedural/       curve, sweep, patch, subdivision, and displacement generators
+Serialization/    versioned authored geometry, stable IDs, deterministic migration
+Cook/             multiple immutable render/compiler/gameplay target products
 ```
 
-Only `Core/` is introduced in the initial scaffold. Each additional directory is
-added with its first implemented vertical slice and focused tests. The complete
-roadmap and the TileEditor/Mason ownership decision are recorded in
-`docs/adr/0005-shared-editor-geometry-core.md`.
+Every module directory contains an ownership contract and planned implementation
+units. Source files are added only with an implemented contract and focused tests;
+the scaffold deliberately contains no empty C++ placeholders.
 
-## First implementation gate
+Read [ARCHITECTURE.md](ARCHITECTURE.md) for the representation contracts,
+dependency layers, operation and CSG pipelines, implementation gates, test plan,
+and the strict TileEditor/Mason boundary. The shared-library decision is recorded
+in [ADR 0005](../../../docs/adr/0005-shared-editor-geometry-core.md).
 
-The first real topology slice must create one box, validate it as a closed
-orientable manifold, traverse all face loops deterministically, triangulate it,
-undo one mutation, and expose stable IDs to a TileEditor adapter. General CSG does
-not begin before this gate passes.
+## First implementation path
 
+The first useful vertical path is brush-first: define the kernel policy, create a
+plane-defined convex box, reconstruct and validate its boundary, clip and drag one
+face transactionally, preserve texture projection, tessellate deterministically,
+cook a render preview with source mapping, and expose it through a TileEditor
+adapter. General editable-mesh Boolean CSG begins only after those contracts pass.
