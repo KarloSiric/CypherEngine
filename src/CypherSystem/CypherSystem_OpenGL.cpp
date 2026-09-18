@@ -135,6 +135,15 @@ bool GLimp_GetAttribute( const SDL_GLAttr attribute, int &valueOut ) noexcept {
 	return false;
 }
 
+void GLimp_GetOptionalAttribute( const SDL_GLAttr attribute, int &valueOut ) noexcept {
+	valueOut = 0;
+	if ( !SDL_GL_GetAttribute( attribute, &valueOut ) ) {
+		// Some valid platform contexts cannot report every SDL capability hint.
+		// The public context record uses conservative defaults for those fields.
+		(void)SDL_ClearError();
+	}
+}
+
 bool GLimp_StoreByte( const int value, common::u8 &valueOut ) noexcept {
 	if ( value < 0 || value > static_cast<int>( std::numeric_limits<common::u8>::max() ) ) {
 		return false;
@@ -328,8 +337,22 @@ sys_error_t GLimp_QueryContextInfo( gl_context_info_t &infoOut ) noexcept {
 	int sRGBFramebuffer = 0;
 	int accelerated = 0;
 
-	const bool querySucceeded =
-		GLimp_GetAttribute( SDL_GL_CONTEXT_MAJOR_VERSION, majorVersion ) && GLimp_GetAttribute( SDL_GL_CONTEXT_MINOR_VERSION, minorVersion ) && GLimp_GetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, profile ) && GLimp_GetAttribute( SDL_GL_CONTEXT_FLAGS, contextFlags ) && GLimp_GetAttribute( SDL_GL_RED_SIZE, redBits ) && GLimp_GetAttribute( SDL_GL_GREEN_SIZE, greenBits ) && GLimp_GetAttribute( SDL_GL_BLUE_SIZE, blueBits ) && GLimp_GetAttribute( SDL_GL_ALPHA_SIZE, alphaBits ) && GLimp_GetAttribute( SDL_GL_DEPTH_SIZE, depthBits ) && GLimp_GetAttribute( SDL_GL_STENCIL_SIZE, stencilBits ) && GLimp_GetAttribute( SDL_GL_MULTISAMPLEBUFFERS, multisampleBuffers ) && GLimp_GetAttribute( SDL_GL_MULTISAMPLESAMPLES, sampleCount ) && GLimp_GetAttribute( SDL_GL_DOUBLEBUFFER, doubleBuffered ) && GLimp_GetAttribute( SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, sRGBFramebuffer ) && GLimp_GetAttribute( SDL_GL_ACCELERATED_VISUAL, accelerated );
+	const bool requiredQueriesSucceeded =
+		GLimp_GetAttribute( SDL_GL_CONTEXT_MAJOR_VERSION, majorVersion ) && GLimp_GetAttribute( SDL_GL_CONTEXT_MINOR_VERSION, minorVersion ) && GLimp_GetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, profile ) && GLimp_GetAttribute( SDL_GL_CONTEXT_FLAGS, contextFlags ) && GLimp_GetAttribute( SDL_GL_RED_SIZE, redBits ) && GLimp_GetAttribute( SDL_GL_GREEN_SIZE, greenBits ) && GLimp_GetAttribute( SDL_GL_BLUE_SIZE, blueBits ) && GLimp_GetAttribute( SDL_GL_ALPHA_SIZE, alphaBits ) && GLimp_GetAttribute( SDL_GL_DEPTH_SIZE, depthBits ) && GLimp_GetAttribute( SDL_GL_STENCIL_SIZE, stencilBits ) && GLimp_GetAttribute( SDL_GL_DOUBLEBUFFER, doubleBuffered );
+
+	if ( !requiredQueriesSucceeded ) {
+		return sys_error_t::ERR_GRAPHICS_OPERATION_FAILED;
+	}
+
+	// MSAA, sRGB, and acceleration are capabilities rather than context
+	// identity. SDL cannot query all of them on every valid WGL/GLX/CGL
+	// context, so an unavailable report maps to the conservative zero value.
+	GLimp_GetOptionalAttribute( SDL_GL_MULTISAMPLEBUFFERS, multisampleBuffers );
+	if ( multisampleBuffers != 0 ) {
+		GLimp_GetOptionalAttribute( SDL_GL_MULTISAMPLESAMPLES, sampleCount );
+	}
+	GLimp_GetOptionalAttribute( SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, sRGBFramebuffer );
+	GLimp_GetOptionalAttribute( SDL_GL_ACCELERATED_VISUAL, accelerated );
 
 	gl_context_info_t actual{};
 	actual.profile = GLimp_ProfileFromSDL( profile );
@@ -338,10 +361,25 @@ sys_error_t GLimp_QueryContextInfo( gl_context_info_t &infoOut ) noexcept {
 	actual.sRGBFramebuffer = sRGBFramebuffer != 0;
 	actual.accelerated = accelerated != 0;
 
-	const bool valuesFit = querySucceeded && actual.profile != gl_profile_t::NONE && GLimp_StoreByte( majorVersion, actual.majorVersion ) && GLimp_StoreByte( minorVersion, actual.minorVersion ) && GLimp_StoreByte( redBits, actual.redBits ) && GLimp_StoreByte( greenBits, actual.greenBits ) && GLimp_StoreByte( blueBits, actual.blueBits ) && GLimp_StoreByte( alphaBits, actual.alphaBits ) && GLimp_StoreByte( depthBits, actual.depthBits ) && GLimp_StoreByte( stencilBits, actual.stencilBits ) && GLimp_StoreByte( multisampleBuffers == 0 ? 0 : sampleCount, actual.sampleCount );
+	const bool valuesFit =
+		actual.profile != gl_profile_t::NONE &&
+		GLimp_StoreByte( majorVersion, actual.majorVersion ) &&
+		GLimp_StoreByte( minorVersion, actual.minorVersion ) &&
+		GLimp_StoreByte( redBits, actual.redBits ) &&
+		GLimp_StoreByte( greenBits, actual.greenBits ) &&
+		GLimp_StoreByte( blueBits, actual.blueBits ) &&
+		GLimp_StoreByte( alphaBits, actual.alphaBits ) &&
+		GLimp_StoreByte( depthBits, actual.depthBits ) &&
+		GLimp_StoreByte( stencilBits, actual.stencilBits );
 
 	if ( !valuesFit ) {
 		return sys_error_t::ERR_GRAPHICS_OPERATION_FAILED;
+	}
+
+	const int effectiveSampleCount =
+		multisampleBuffers != 0 && sampleCount > 0 ? sampleCount : 0;
+	if ( !GLimp_StoreByte( effectiveSampleCount, actual.sampleCount ) ) {
+		actual.sampleCount = 0u;
 	}
 
 	infoOut = actual;

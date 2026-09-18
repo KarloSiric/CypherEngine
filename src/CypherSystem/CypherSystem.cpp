@@ -253,15 +253,15 @@ sys_error_t Sys_Init( const init_info_t &initInfo ) noexcept
         return sys_error_t::ERR_INVALID_ARGUMENT;
     }
 
-    sysState = {};
+    sysState = runtime_state_t{};
     const sys_error_t pathResult = Sys_PlatformBuildPaths( initInfo, sysState.paths );
     if ( pathResult != sys_error_t::OK ) {
-        sysState = {};
+        sysState = runtime_state_t{};
         return pathResult;
     }
 
     if ( ::cypher::common::Cy_SystemInfoInit() != ::cypher::common::CY_TRUE ) {
-        sysState = {};
+        sysState = runtime_state_t{};
         return sys_error_t::ERR_INTERNAL_ERROR;
     }
 
@@ -287,7 +287,7 @@ sys_error_t Sys_Shutdown() noexcept
     }
 
     Sys_WindowSubsystemShutdown();
-    sysState = {};
+    sysState = runtime_state_t{};
     quitRequested.store( false, std::memory_order_release );
     return sys_error_t::OK;
 }
@@ -343,6 +343,12 @@ void Sys_VError( const char *format, std::va_list arguments ) noexcept
         std::fflush( stderr );
     }
 
+    // The MSVC Debug CRT may otherwise open an Abort/Retry/Ignore dialog. A
+    // fatal engine path must terminate unattended tools, tests, and services
+    // deterministically after Cypher has emitted its own diagnostic.
+#if CYPHER_PLATFORM_WINDOWS
+    (void)_set_abort_behavior( 0u, _WRITE_ABORT_MSG | _CALL_REPORTFAULT );
+#endif
     std::abort();
 }
 

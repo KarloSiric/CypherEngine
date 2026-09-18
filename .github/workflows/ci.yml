@@ -61,6 +61,7 @@ jobs:
           ./.deps/vcpkg/vcpkg install --dry-run \
             --x-manifest-root=. \
             --x-install-root=out/vcpkg-manifest-check \
+            --overlay-ports="$PWD/cmake/vcpkg-ports" \
             --x-feature=archive-tools \
             --x-feature=asset-import-fallback \
             --x-feature=audio \

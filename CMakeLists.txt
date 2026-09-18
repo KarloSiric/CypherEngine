@@ -1960,7 +1960,6 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_HostSurface_OpenGL_Smoke_Tests.cpp"
             Cypher::Render
         )
-        set_tests_properties(cypher_render_host_surface_opengl_smoke_tests PROPERTIES TIMEOUT 30)
         cypher_add_common_catch_test(
             cypher_render_opengl_shader_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_OpenGL_Shader_Tests.cpp"
@@ -1986,7 +1985,16 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::Render
         )
         set_tests_properties(cypher_render_texture_tests PROPERTIES TIMEOUT 20)
-        set_tests_properties(cypher_render_opengl_smoke_tests PROPERTIES TIMEOUT 30)
+        # Catch2 returns 4 when a graphics test intentionally skips because the
+        # CI host has no compatible display/context. CTest must distinguish that
+        # environmental skip from a real assertion failure.
+        set_tests_properties(
+            cypher_render_opengl_smoke_tests
+            cypher_render_host_surface_opengl_smoke_tests
+            PROPERTIES
+                SKIP_RETURN_CODE 4
+                TIMEOUT 30
+        )
         add_executable(cypher_system_window_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_Window_Tests.cpp"
         )

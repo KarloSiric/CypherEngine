@@ -382,7 +382,9 @@ if (CYPHERENGINE_BUILD_TESTS)
         set_tests_properties(cypher_tile_workspace_tests PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
             LABELS "CypherTools;TileMap;Qt;Workspace;Validation"
-            TIMEOUT 20
+            # This aggregate currently covers more than 220 Qt test cases and
+            # takes about 35 seconds on the reference macOS development host.
+            TIMEOUT 60
         )
         add_executable(cypher_tile_console_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileConsole_Tests.cpp"
