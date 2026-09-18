@@ -2,11 +2,14 @@
 
 ## Owns
 
-Extrude, inset, bevel, chamfer, knife, loop cut, subdivide, solidify, sweep, lathe, and loft compositions.
+Transactional extrude, inset, bevel, chamfer, knife, loop cut, subdivide,
+solidify, and orchestration that bakes/collapses sweep, lathe, loft, or modifier
+evaluation into canonical source representations.
 
 ## Does not own
 
-General Boolean evaluation or permanent procedural parameter ownership.
+General Boolean evaluation, the pure Procedural evaluator, or permanent
+procedural parameter ownership.
 
 ## First acceptance gate
 

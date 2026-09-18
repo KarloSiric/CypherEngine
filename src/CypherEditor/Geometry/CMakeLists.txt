@@ -57,5 +57,6 @@ if (CYPHERENGINE_BUILD_TESTS)
     )
     set_tests_properties(cypher_editor_geometry_contract_tests PROPERTIES
         LABELS "CypherEditor;Geometry;Contract"
+        TIMEOUT 30
     )
 endif()

@@ -2,7 +2,10 @@
 
 ## Owns
 
-Editable BVH, derived triangle caches, local refit/rebuild, component picking, overlap, snapping candidates, and dirty-region tracking.
+Source/component bounds, editable BVH, local refit/rebuild, component picking,
+overlap, snapping candidates, and dirty-region tracking. Derived triangle pick
+caches are admitted only after the corresponding Tessellation contract exists;
+they retain source mapping and snapshot revision.
 
 ## Does not own
 

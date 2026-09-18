@@ -49,22 +49,24 @@ Forbidden dependencies:
 ```text
 Core/             identity, handles, results, budgets, allocation contracts
 Kernel/           scalar policy, quantization, predicates, constructions, ordering
+Attributes/       low-level schemas/storage plus operation-level propagation
 Representations/  Brush, Mesh, PlanarRegion, Patch, Curve, and HeightField sources
 Intermediates/    bounded neutral soup and operation exchange records
-Attributes/       schemas, typed layers, UV/material/normal data and propagation
+Primitives/       pure deterministic brush, mesh, polygon, and patch generators
+Document/         geometry pools, revisions, publication, immutable snapshots
+Transactions/     preview journals, invertible deltas, remapping, provenance
 Planar/           arrangements, holes, overlay, offset, constrained triangulation
 Queries/          ray casts, adjacency, containment, measurements, feature queries
 Validation/       structural, geometric, representation, and solid diagnostics
-Repair/           explicit previewable and undoable repair plans
-Transactions/     preview journals, invertible deltas, remapping, provenance
-Selection/        geometry-component sets and topology-aware selection queries
-Exchange/         fragments, import sanitation, clone/extract/insert boundaries
-Primitives/       deterministic parametric brush, mesh, polygon, and patch sources
-Operations/       transform, cutting, topology, modeling, conversion, Euler edits
-Modifiers/        non-destructive mirror, arrays, bend, taper, sweep, rebuild
-Csg/              separate brush and mesh Boolean paths plus reconstruction stages
-Spatial/          editable indexes, caches, picking candidates, dirty regions
 Tessellation/     deterministic representation-to-triangle tessellation
+Selection/        geometry-component sets and topology-aware selection queries
+Exchange/         fragments, sanitation, clone/extract/insert boundaries
+Spatial/          editable indexes, caches, picking candidates, dirty regions
+Constraints/      deterministic snapping and transform-constraint resolution
+Repair/           explicit previewable and undoable repair plans
+Operations/       transform, cutting, topology, modeling, conversion, Euler edits
+Modifiers/        optional retained non-destructive recipes when justified
+Csg/              separate brush and mesh Boolean paths plus reconstruction stages
 Procedural/       sweep, patch, subdivision, displacement, and curve generators
 Serialization/    versioned authored geometry, stable IDs, deterministic migration
 Cook/             dependency-tracked immutable render/compiler/gameplay products
@@ -75,9 +77,11 @@ units. Source files are added only with an implemented contract and focused test
 the scaffold deliberately contains no empty C++ placeholders.
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) for the representation contracts,
-dependency layers, operation and CSG pipelines, implementation gates, test plan,
-and the strict TileEditor/Mason boundary. The shared-library decision is recorded
-in [ADR 0005](../../../docs/adr/0005-shared-editor-geometry-core.md).
+dependency layers, operation and CSG pipelines, and the strict TileEditor/Mason
+boundary. [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) defines the measurable
+delivery gates, snippet workflow, and test/benchmark policy. The shared-library
+decision is recorded in
+[ADR 0005](../../../docs/adr/0005-shared-editor-geometry-core.md).
 
 ## First implementation path
 

@@ -2,11 +2,13 @@
 
 ## Owns
 
-Cooked triangle and product records back to source element, source representation, and document object IDs.
+Cooked triangle and product records back to geometry root/component source IDs
+and source representation kinds.
 
 ## Does not own
 
-Human-readable diagnostic presentation.
+Mason/CypherTileEditor object IDs, live handles, human-readable diagnostic
+presentation, or the host adapter that joins a geometry root to a scene object.
 
 ## First acceptance gate
 

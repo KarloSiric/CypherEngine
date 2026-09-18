@@ -10,4 +10,7 @@ The editor-wide command history spanning entities, materials, settings, and docu
 
 ## First acceptance gate
 
-Repeated drag updates collapse into one commit; invalid or allocation-failed edits restore the byte-equivalent authored state.
+Repeated preview replacement of one canonical brush value collapses into one
+commit and one inverse delta; cancel, invalid input, stale revision, and
+allocation failure restore the exact authored state. Real face-drag integration
+belongs to the later brush-edit gate.

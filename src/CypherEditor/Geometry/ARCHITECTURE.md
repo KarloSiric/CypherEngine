@@ -121,28 +121,44 @@ must not form hidden ownership cycles.
 
 ```text
 0  Cypher::CommonTier1 + Cypher::Math
-1  Core
-2  Kernel
-3  Source representations: Brush | Mesh | PlanarRegion | Patch | Curve | HeightField
-4  Intermediates + Attributes
-5  Planar + Queries + Spatial
-6  Validation + Tessellation + neutral soup sanitation
-7  Transactions + Selection + Exchange
-8  Primitives + Operations/Euler + Operations
-9  Repair + Modifiers + Csg + Procedural
-10 Serialization + Cook
+1  Core identity, results, limits, diagnostics, scratch, operation context
+2  Kernel + low-level Attributes schema/storage
+3  Source representations + Intermediates + pure Primitives
+4  geometry-local Document store + immutable Snapshot
+5  Transactions + typed ChangeSet/remap/provenance
+6  Queries + Planar
+7  Validation + Tessellation
+8  Selection + Exchange/Sanitation + Spatial + Constraints
+9  Attribute propagation + Operations/Euler
+10 leaf Operations + pure Brush/Mesh CSG + Procedural evaluators + Repair plans
+11 composed Modeling/Conversion + Repair application + optional Modifiers
+12 Serialization + Cook
 ```
 
 Important dependency rules:
 
 - Representations own data and invariants; they do not know about tools or Qt.
-- `Validation` emits bounded diagnostics and proposed repair descriptors. It does
-  not mutate the object it validates.
-- `Repair` applies an explicitly selected plan through `Transactions`.
+- Low-level `Attributes` defines schemas, domains, and storage used by source
+  representations. Propagation/evaluation sits above topology-changing edits.
+- Low-level `Primitives` use only Kernel and checked representation builders to
+  generate source inputs without mutating a document. Architectural creation
+  commands that require clipping or CSG live above those algorithms.
+- `Document` owns geometry representation pools, identity, revisions, and
+  immutable snapshots. It is not the Mason or TileEditor scene document.
+- `Validation` emits bounded diagnostics and stable repair hints. It does not
+  construct Repair-owned plans or mutate the object it validates.
+- `Repair` translates diagnostics into an explicitly selected plan and applies
+  it through `Transactions`.
 - `Operations` publish created/deleted/split/merged mappings and attribute
   provenance. They never update a GUI selection directly.
 - `Selection` contains geometry-component set/query logic. The host owns global
   selection across geometry, entities, materials, and scene objects.
+- `Spatial` publishes bounds indices and derived pick proxies after the required
+  representation/tessellation data exists. It does not own input routing.
+- `Constraints` deterministically resolves grid, angle, and component snap
+  candidates. The host owns active modes, workplanes, and gestures.
+- `Exchange/Sanitation` orchestrates bounded neutral input: Intermediates own raw
+  records, Validation reports faults, and checked builders publish sources.
 - `Tessellation` derives triangles with source mapping; it never replaces the
   source representation.
 - `Csg` consumes validated inputs and publishes a checked representation or a
@@ -188,8 +204,10 @@ Conversion  brush-to-mesh, face-to-patch, polygon extrusion, triangulation,
 
 Small Euler operations state strict preconditions and postconditions. Higher-level
 operations compose those primitives rather than rewriting adjacency independently.
-Modifiers such as mirror, arrays, bend, taper, and sweep-along-path retain editable
-parameters until the host explicitly collapses them into a representation.
+Transient evaluation followed by an explicit transactional bake is the default
+for mirror, arrays, bend, taper, and sweep-along-path. A modifier retains editable
+parameters only after a real workflow justifies an approved persistent recipe
+source kind with versioned serialization and collapse provenance.
 
 ## Attribute propagation
 
@@ -321,69 +339,28 @@ or neutral interchange. They never become geometry dependencies.
 
 ## Delivery gates
 
-Development proceeds through complete vertical slices.
+Development proceeds through the measurable vertical slices in
+[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). The dependency order is:
 
-### Gate 0: foundational Core
+```text
+Core closeout
+  -> double-precision Kernel and attribute schema
+  -> plane-defined Brush + box primitive
+  -> geometry Document/Snapshot/Transactions
+  -> Queries/Tessellation/Spatial/Selection/Constraints
+  -> brush edits and early Brush CSG
+  -> first Serialization/Cook/TileEditor slice
+  -> EditableMesh topology and Euler edits
+  -> Planar/Sanitation/Modeling/Repair
+  -> staged Mesh CSG
+  -> extended source/procedural families
+  -> incremental peer-facing Cook
+```
 
-- source-ID allocation;
-- typed source and live-handle vocabulary for every representation;
-- numerical and complexity policy;
-- result/diagnostic and allocator/scratch contracts;
-- typed generation pools with allocation-failure and stale-handle tests.
-
-### Gate 1: plane-defined convex brush
-
-- brush and side storage;
-- six-plane box generation and reconstruction;
-- convexity, boundedness, orientation, and structural validation;
-- deterministic side/face traversal and source provenance.
-
-### Gate 2: brush tessellation and cook
-
-- the box becomes exactly 12 outward triangles;
-- source-side mapping, material/UV seams, bounds, and content hash;
-- repeated and cross-configuration determinism tests.
-
-### Gate 3: first preview transaction
-
-- drag one brush side by updating its plane;
-- reconstruct and validate on every preview update;
-- preserve world-locked texture projection;
-- commit one invertible delta or cancel exactly;
-- invalid/degenerate updates leave committed state unchanged.
-
-### Gate 4: TileEditor vertical slice
-
-- create a brush from one selected tile element;
-- render, component-pick, transform, undo, and rebuild it through the adapter;
-- preserve the existing grid workflow and `.cymap` version 3 semantics.
-
-### Gate 5: editable mesh foundation
-
-- generation pools for vertex, half-edge, edge, loop, face, shell, and mesh;
-- checked builder and deterministic traversal;
-- canonical box acceptance: 8 vertices, 12 edges, 24 half-edges, 6 loops,
-  6 faces, one shell, Euler characteristic 2, outward orientation, positive
-  signed volume, and valid twin/next/face/origin relationships.
-
-### Gate 6: atomic mesh operations
-
-- move vertex, edge split, face split, edge collapse, explicit weld, and dissolve;
-- exact undo/redo, remap, provenance, attribute propagation, and local BVH update;
-- then extrude, plane cut/cap, inset, bridge, chamfer, bevel, and solidify.
-
-### Gate 7: planar and CSG prerequisites
-
-- polygons with holes, arrangements, overlay, constrained triangulation;
-- self-intersection and closed-solid queries;
-- explicit repair plans and adversarial/fuzz budgets.
-
-### Gate 8: Booleans and extended source geometry
-
-- brush regularized Booleans, followed later by mesh Booleans;
-- persistent curve networks and height fields, plus sweeps, patches,
-  subdivision, and displacement as isolated families;
-- serialization, migrations, extended cook projections, and golden corpora.
+Each gate defines an observable completion criterion, malformed and budget
+cases, required provenance, and the exact point where tests, golden fixtures,
+fuzzing, or benchmarks become meaningful. A gate does not close because its
+directory exists or a happy-path generator produces visible output.
 
 ## Test architecture
 
@@ -404,7 +381,8 @@ tests/CypherEditor/Geometry/
   Cook/             triangle/source maps, seams, hashes, snapshots
   Fuzz/             parser, builder, operations, overlay, Boolean sequences
   Golden/           reviewed source and cooked neutral fixtures
-  Benchmarks/       large edits, BVH updates, CSG stages, cook throughput
+benchmarks/CypherEditor/Geometry/
+  measured large edits, BVH updates, CSG stages, and cook throughput
 ```
 
 Every mutating test validates before and after, checks the exact affected region,

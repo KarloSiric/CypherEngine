@@ -29,8 +29,8 @@ This document records the agreed long-term direction for:
 - editable and cooked asset formats
 - `.cymap` map source documents
 - `.cymap_c` compiled runtime worlds
-- the role of editable meshes, parametric blockout, BSP algorithms, visibility,
-  collision, and lighting
+- the role of plane-defined brush solids, editable meshes, parametric blockout,
+  BSP algorithms, visibility, collision, and lighting
 - `CypherMapCompiler` and related command-line tools
 - `Mason`, the long-term Qt 6 editor application
 - optional AI/MCP-assisted map authoring and review
@@ -209,10 +209,10 @@ array layout, or Valve's tool assets.
 ### CypherEngine Lesson
 
 CypherEngine should preserve the strongest parts of both generations without
-preserving Source 1's authored brush representation:
+forcing every source object through one universal brush or mesh model:
 
-- fast grid-based blockout using boxes and other parametric primitives that
-  produce editable mesh geometry
+- fast grid-based blockout using canonical plane-defined brush solids and pure
+  parametric generators that publish a checked source representation
 - direct object, vertex, edge, and face editing
 - arbitrary imported mesh instances
 - deterministic offline compilation
@@ -221,9 +221,12 @@ preserving Source 1's authored brush representation:
 - a chunked runtime world resource
 - a WYSIWYG editor using the real engine
 
-This is a mesh-first world-authoring pipeline. It does not reject BSP or CSG as
-compiler algorithms, and it does not make classic BSP brushes the persistent
-source representation.
+This is a mixed-representation world-authoring pipeline. `BrushSolid` is a
+canonical plane-defined source for convex architectural blockout and early brush
+CSG. `EditableMesh` is a separate canonical source for freeform topology.
+Planar regions, patches, curves, and height fields retain their own invariants.
+An authored brush does not imply that collision, visibility, or the runtime
+world must use a Source-style BSP tree.
 
 ## Design Principles
 
@@ -457,8 +460,8 @@ A map source document should be capable of representing:
 - world settings
 - object hierarchy
 - layers and shared visibility groups
-- editable world meshes and parametric blockout primitives
-- editable polygon meshes
+- plane-defined brush solids and editable polygon meshes
+- TileEditor tile/room-piece records and any approved procedural recipe sources
 - entities and components
 - imported model instances
 - prefab instances
@@ -534,8 +537,10 @@ The expected object categories include:
 map root
 group
 layer
+brush solid
 editable mesh
-parametric primitive
+tile/blockout piece (host schema)
+procedural recipe (only after its source contract is approved)
 entity
 model instance
 prefab instance
@@ -599,18 +604,24 @@ The sidecar is normally excluded from source control.
 ### Parametric Blockout Primitives
 
 Boxes, wedges, cylinders, arches, and similar tools provide a fast grid-based
-workflow for rooms, corridors, stairs, walls, triggers, and blockouts. In Mason,
-these are not Source 1-style BSP brushes. A primitive either generates an
-editable polygon mesh immediately or remains a parametric object with an
-explicit conversion-to-mesh operation.
+workflow for rooms, corridors, stairs, walls, triggers, and blockouts. A pure
+primitive generator publishes the canonical source representation appropriate
+to its invariants: commonly `BrushSolid` for convex architectural pieces,
+`EditableMesh` for freeform topology, or Patch/Curve/HeightField for their
+specialized domains.
+
+Initial primitive descriptors are transient command inputs. CypherTileEditor may
+retain tile or room-piece parameters in its own document and regenerate shared
+geometry. Mason adds a persistent versioned `ProceduralRecipe` source only after
+an exercised workflow proves that parameter editing must survive independently
+of evaluated geometry; it is not assumed for every creation tool.
 
 This distinction matters:
 
 - object creation can remain as fast as classic Hammer blockout
-- the persistent geometry model stays compatible with vertex, edge, and face
-  editing
-- concavity is represented by normal mesh topology rather than illegal brush
-  state
+- freeform geometry remains compatible with vertex, edge, and face editing
+- a convex brush remains plane-defined; concavity is represented by multiple
+  brushes or explicit mesh topology rather than illegal brush state
 - collision and visibility behavior are explicit properties or compiler inputs,
   not implicit consequences of being a brush
 - BSP or CSG may still consume closed manifold mesh volumes during compilation
@@ -651,7 +662,7 @@ an editor concern. Runtime vertex/index buffers use compiler-generated indices.
 
 CypherMath supplies representation-independent numerical operations. Mason's
 editable topology and commands belong in an editor geometry library above it.
-The mesh-first workflow requires:
+The mixed-representation workflow requires:
 
 - point/vector, matrix, quaternion, transform, ray, plane, bounds, triangle,
   polygon, clipping, UV, viewport, snapping, and gizmo foundations
@@ -948,7 +959,8 @@ predictable.
 - move, rotate, scale, and pivot editing
 - grid, surface, vertex, and angle snapping
 - duplicate, group, layer, hide, lock, and delete
-- create parametric blockout primitives and convert them to meshes
+- create parametric blockout primitives into their checked source
+  representation, with explicit brush-to-mesh conversion when requested
 - cut and split meshes and closed volumes
 - extrude, inset, bevel, split, merge, and weld mesh elements
 - assign and align materials
@@ -1020,8 +1032,8 @@ Projects must remain completely usable when no AI service is configured.
 Q3Edit's experimental live MCP bridge is a useful public reference for revision
 checks, preview/apply separation, editor captures, atomic command batches, and
 normal undo integration. Cypher will design its own typed operations around
-Mason's mesh-first `.cymap` model rather than copying Q3Edit's Quake-specific
-brush operations or trusting arbitrary local paths.
+Mason's mixed-representation `.cymap` model rather than copying Q3Edit's
+Quake-specific data contracts or trusting arbitrary local paths.
 
 ### Team Collaboration
 
@@ -1486,8 +1498,8 @@ Before stable map and cooked-resource version 1, decide and document:
 - schema-to-reflection integration beyond the current static Tier2 descriptors
 - stable ID width and generation policy
 - coordinate system, units, and precision
-- parametric primitive policy and geometric tolerances
-- editable mesh topology representation
+- admission criteria and wire schema for persistent `ProceduralRecipe` sources
+- editable-mesh wire compatibility and migration policy
 - map/submap/layer composition rules
 - visibility algorithm and runtime representation
 - world-region and streaming policy
@@ -1523,11 +1535,14 @@ assets. `reference_policy.md` remains the legal and provenance policy.
 CypherEngine will use CYKV as the typed source-data foundation. `.cymap` will be
 a CYKV-backed editable map document. Mason will visually edit a typed map model,
 not raw text. CypherMapCompiler will transform that source into a deterministic,
-chunked `.cymap_c` runtime world. Editable meshes are the primary authored
-geometry; parametric blockout tools generate or become meshes. BSP- and
-CSG-derived algorithms remain optional compiler techniques, while explicit
-runtime resources, visibility, collision, lighting, navigation, and streaming
-remain independent systems.
+chunked `.cymap_c` runtime world. Plane-defined brush solids and editable meshes
+are both canonical authored geometry, while planar regions, patches, curves,
+height fields, and any approved procedural recipes keep representation-specific
+invariants. Parametric blockout tools publish the appropriate checked source;
+conversion between source families is explicit. BSP- and CSG-derived algorithms
+remain optional compiler techniques, while explicit runtime resources,
+visibility, collision, lighting, navigation, and streaming remain independent
+systems.
 
 The first milestone is not a visually complete Hammer replacement. It is a
 complete vertical path in which one real map can be authored, validated,

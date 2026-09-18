@@ -2,12 +2,18 @@
 
 ## Owns
 
-Non-destructive mirror, linear/radial array, bend, taper, sweep-along-path, and parametric rebuild records plus deterministic evaluation.
+Optional retained recipes for non-destructive mirror, linear/radial array, bend,
+taper, and procedural evaluation, if an exercised authoring workflow justifies
+persistent parameter ownership. A recipe records versioned inputs, source
+dependencies, policy, and evaluation provenance.
 
 ## Does not own
 
-Base mesh adjacency or host scene-object stacks.
+The underlying procedural evaluator, base mesh adjacency, transactional
+bake/collapse, or host scene-object stacks.
 
 ## First acceptance gate
 
-Evaluate a mirror and bounded array reproducibly, then collapse them explicitly through Exchange.
+After retained recipes are approved, evaluate a mirror and bounded array
+reproducibly through Procedural and collapse them transactionally through
+Operations while preserving provenance.

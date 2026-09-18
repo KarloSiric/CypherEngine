@@ -2,7 +2,9 @@
 
 ## Owns
 
-Neutral fragments for extract, insert, clone, duplicate, clipboard, import sanitation, and cross-document source-ID remapping.
+Neutral fragments for extract, insert, clone, duplicate, clipboard, and
+cross-document source-ID remapping. `Sanitation` orchestrates bounded neutral
+input through Intermediates, Validation, and checked representation builders.
 
 ## Does not own
 

@@ -2,7 +2,13 @@
 
 ## Owns
 
-Typed attribute schemas and storage by representation domain, interpolation, propagation, provenance, UV projection, texture locking, normals, tangents, materials, smoothing, and creases.
+Two dependency levels with an explicit boundary:
+
+- `Schema` owns typed domains, descriptors, values, opaque material references,
+  UV projection records, and bounded representation storage;
+- `Propagation` owns operation-specific interpolation, generated-face policy,
+  texture locking, normals/tangents, smoothing, creases, conflicts, and
+  provenance.
 
 ## Does not own
 
@@ -10,4 +16,6 @@ Material asset loading, shader binding, or texture-browser UI.
 
 ## First acceptance gate
 
-Preserve material and world-locked texture projection through a transactional brush face drag and deterministic tessellation.
+Validate deterministic brush-side schema/storage first, then preserve material
+and world-locked texture projection through a transactional brush-side drag and
+deterministic tessellation.

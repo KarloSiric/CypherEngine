@@ -13,4 +13,7 @@ TileEditor `.cymap` document semantics or cooked runtime formats.
 
 ## First acceptance gate
 
-Round-trip every source representation byte-deterministically and reject malformed data within fixed budgets.
+Round-trip the first brush/document source byte-deterministically and reject
+malformed data within fixed budgets. Every later source representation must add
+its explicit wire schema and migration coverage before that representation's
+delivery gate closes.

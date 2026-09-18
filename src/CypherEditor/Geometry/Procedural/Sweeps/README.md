@@ -2,7 +2,10 @@
 
 ## Owns
 
-Profile-along-path, lathe, and loft generation with seam and frame policy.
+Pure profile-along-path, lathe, and loft evaluation with seam, frame,
+tessellation, and provenance policy. It evaluates supplied parameters; it does
+not decide whether those parameters are transient command inputs or retained by
+a Modifier/source recipe.
 
 ## Does not own
 
