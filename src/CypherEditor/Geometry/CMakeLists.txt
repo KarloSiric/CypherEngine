@@ -25,6 +25,8 @@ add_library(CypherEditorGeometry STATIC
     Core/CypherGeometry_Types.h
     Kernel/CypherGeometry_Kernel_Classification.cpp
     Kernel/CypherGeometry_Kernel_Classification.h
+    Kernel/CypherGeometry_Kernel_CoordinateKey.cpp
+    Kernel/CypherGeometry_Kernel_CoordinateKey.h
 )
 add_library(Cypher::EditorGeometry ALIAS CypherEditorGeometry)
 
@@ -49,6 +51,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_SourceIdRegistry_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Types_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Kernel/CypherGeometry_Kernel_Classification_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Kernel/CypherGeometry_Kernel_CoordinateKey_Tests.cpp"
     )
     target_link_libraries(cypher_editor_geometry_contract_tests
         PRIVATE
