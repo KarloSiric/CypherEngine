@@ -68,6 +68,7 @@ Reference docs:
 - [trenchbroom_geometry_algorithms.md](trenchbroom_geometry_algorithms.md)
 - [trenchbroom_ui_command_inventory.md](trenchbroom_ui_command_inventory.md)
 - [editor_comparison_beyond_trenchbroom.md](editor_comparison_beyond_trenchbroom.md)
+- [darkradiant_geometry_baseline.md](darkradiant_geometry_baseline.md)
 - [TILEEDITOR_DEVELOPMENT_KIT.md](TILEEDITOR_DEVELOPMENT_KIT.md)
 
 Project memory:
@@ -155,6 +156,11 @@ Project memory:
     subsystem contracts, build workflow, robustness requirements, and gates
   - explicit non-clean-room provenance and engineering boundary for studying
     `GPL-3.0-or-later` reference code; distribution still requires legal review
+- `darkradiant_geometry_baseline`
+  - empirical size baseline for a mature Radiant-class geometry foundation
+    (~25k physical lines), measured at DarkRadiant 3.9.0 and cross-checked
+    against NetRadiant, used to calibrate CypherEditorGeometry scope
+  - records file names and line counts only; no algorithms or source excerpts
 - `trenchbroom_geometry_algorithms`
   - exhaustive convex-solid, clipping, CSG, transform, topology-editing, shape,
     patch, UV, picking, snapping, transaction, and geometry-test audit
