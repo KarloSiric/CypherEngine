@@ -23,6 +23,8 @@ add_library(CypherEditorGeometry STATIC
     Core/CypherGeometry_SourceIdRegistry.cpp
     Core/CypherGeometry_SourceIdRegistry.h
     Core/CypherGeometry_Types.h
+    Kernel/CypherGeometry_Kernel_Classification.cpp
+    Kernel/CypherGeometry_Kernel_Classification.h
 )
 add_library(Cypher::EditorGeometry ALIAS CypherEditorGeometry)
 
@@ -31,6 +33,7 @@ target_include_directories(CypherEditorGeometry
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/Core"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Kernel"
 )
 target_link_libraries(CypherEditorGeometry
     PUBLIC
@@ -45,6 +48,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Scratch_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_SourceIdRegistry_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Types_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Kernel/CypherGeometry_Kernel_Classification_Tests.cpp"
     )
     target_link_libraries(cypher_editor_geometry_contract_tests
         PRIVATE

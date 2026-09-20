@@ -47,13 +47,13 @@ bool GeometryNumericalPolicy_IsValid(
         IsFinitePositive( policy.fAngularToleranceRadians ) &&
         IsFinitePositive( policy.fPlanarityTolerance ) &&
         IsFinitePositive( policy.fCoplanarDistanceTolerance ) &&
+        IsFinitePositive( policy.fUnitNormalTolerance ) &&
         IsFinitePositive( policy.fSnapDistance ) &&
         IsFinitePositive( policy.fWeldDistance ) &&
         IsFinitePositive( policy.fCanonicalQuantization );
     if ( !bFinitePositive ) {
         return false;
     }
-
     const f64 fDistanceSquared =
         policy.fAbsoluteDistanceTolerance *
         policy.fAbsoluteDistanceTolerance;
@@ -62,6 +62,7 @@ bool GeometryNumericalPolicy_IsValid(
         policy.fCanonicalQuantization;
     return policy.fRelativeDistanceTolerance < 1.0 &&
            policy.fAngularToleranceRadians < 1.0 &&
+           policy.fUnitNormalTolerance < 1.0 &&
            std::isfinite( cCanonicalSteps ) &&
            cCanonicalSteps <= cLargestExactInteger &&
            policy.fAbsoluteDistanceTolerance <=
@@ -72,6 +73,8 @@ bool GeometryNumericalPolicy_IsValid(
            policy.fAbsoluteDistanceTolerance <= policy.fPlanarityTolerance &&
            policy.fAbsoluteDistanceTolerance <=
                policy.fCoplanarDistanceTolerance &&
+           policy.fAbsoluteDistanceTolerance <=
+               policy.fUnitNormalTolerance &&
            fDistanceSquared <= policy.fMinimumFaceArea &&
            policy.fSnapDistance < policy.fCoordinateMagnitudeLimit;
 }
@@ -97,7 +100,6 @@ bool GeometryLimitPolicy_IsValid(
     if ( !bNonZero ) {
         return false;
     }
-
     const u64 cHandleCapacityMax =
         static_cast<u64>( common::CY_INVALID_INDEX );
     const bool bHandleCountsEncodable =

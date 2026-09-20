@@ -40,6 +40,9 @@ struct geometry_numerical_policy_t {
     f64 fAngularToleranceRadians{ 1.0e-8 };
     f64 fPlanarityTolerance{ 1.0e-7 };
     f64 fCoplanarDistanceTolerance{ 1.0e-7 };
+    // Maximum allowed deviation of |plane.normal| from 1.0 before Kernel
+    // classification refuses to trust a plane as metrically normalized.
+    f64 fUnitNormalTolerance{ 1.0e-7 };
     f64 fSnapDistance{ 1.0e-4 };
     f64 fWeldDistance{ 1.0e-6 };
     f64 fCanonicalQuantization{ 1.0e-8 };
@@ -51,7 +54,13 @@ struct geometry_numerical_policy_t {
 struct geometry_limit_policy_t {
     u64 cBrushesMax{ 1'000'000u };
     u64 cBrushSidesMax{ 32'000'000u };
-    u64 cBrushSidesPerBrushMax{ 4'096u };
+    // Brush boundary reconstruction enumerates plane triples and tests each
+    // candidate against every plane, so its cost grows as sides^4. At 256 that
+    // is roughly 7e8 operations -- already slow but survivable for a one-off
+    // authoring operation; 4096 would be about 4.7e13 and would hang rather
+    // than fail predictably, which defeats the purpose of a limit. Raise this
+    // only alongside a construction algorithm that is not quartic.
+    u64 cBrushSidesPerBrushMax{ 256u };
     u64 cVerticesMax{ 1'000'000u };
     u64 cHalfEdgesMax{ 6'000'000u };
     u64 cEdgesMax{ 3'000'000u };

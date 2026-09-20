@@ -105,6 +105,15 @@ TEST_CASE( "geometry policy rejects incompatible and non-finite tolerances",
     REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
 
     policy = {};
+    policy.numerical.fUnitNormalTolerance = 1.5;
+    REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
+
+    policy = {};
+    policy.numerical.fUnitNormalTolerance =
+        policy.numerical.fAbsoluteDistanceTolerance * 0.5;
+    REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
+
+    policy = {};
     policy.limits.cHalfEdgesMax = policy.limits.cEdgesMax - 1u;
     REQUIRE_FALSE( GeometryPolicy_IsValid( policy ) );
 
