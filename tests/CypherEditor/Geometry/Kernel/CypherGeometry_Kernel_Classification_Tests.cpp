@@ -26,9 +26,11 @@ namespace cypher::editor::geometry {
 
 using cypher::math::Planed_Flip;
 using cypher::math::Planed_Make;
+using cypher::math::Vec2d_Make;
 using cypher::math::Vec3d_Make;
 using cypher::math::f64;
 using cypher::math::planed_t;
+using cypher::math::vec2d_t;
 using cypher::math::vec3d_t;
 
 namespace {
@@ -199,6 +201,131 @@ TEST_CASE( "Kernel_ClassifyPoint rejects a plane normal outside the unit-length 
 	const geometry_classify_result_t nonUnitResult = Kernel_ClassifyPoint(
 		policy, nonUnit, Vec3d_Make( 0.0, 0.0, 1.0 ) );
 	REQUIRE( nonUnitResult.status == geometry_status_t::INVALID_ARGUMENT );
+}
+
+//==========================================================================
+// Exact orientation wrappers
+//==========================================================================
+
+TEST_CASE( "Kernel_Orient2D reports turn direction and exact collinearity",
+		   "[editor][geometry][kernel]" ) {
+	const geometry_numerical_policy_t policy{};
+	const vec2d_t a = Vec2d_Make( 0.0, 0.0 );
+	const vec2d_t b = Vec2d_Make( 1.0, 0.0 );
+
+	const geometry_classify_result_t left =
+		Kernel_Orient2D( policy, a, b, Vec2d_Make( 0.0, 1.0 ) );
+	REQUIRE( left.status == geometry_status_t::OK );
+	REQUIRE( left.orientation == geometry_orientation_t::POSITIVE );
+
+	const geometry_classify_result_t right =
+		Kernel_Orient2D( policy, a, b, Vec2d_Make( 0.0, -1.0 ) );
+	REQUIRE( right.status == geometry_status_t::OK );
+	REQUIRE( right.orientation == geometry_orientation_t::NEGATIVE );
+
+	const geometry_classify_result_t collinear =
+		Kernel_Orient2D( policy, a, b, Vec2d_Make( 2.0, 0.0 ) );
+	REQUIRE( collinear.status == geometry_status_t::OK );
+	REQUIRE( collinear.orientation == geometry_orientation_t::ON_PLANE );
+}
+
+TEST_CASE( "Kernel_Orient3D reports sidedness and exact coplanarity",
+		   "[editor][geometry][kernel]" ) {
+	const geometry_numerical_policy_t policy{};
+	const vec3d_t a = Vec3d_Make( 0.0, 0.0, 0.0 );
+	const vec3d_t b = Vec3d_Make( 1.0, 0.0, 0.0 );
+	const vec3d_t c = Vec3d_Make( 0.0, 1.0, 0.0 );
+
+	REQUIRE( Kernel_Orient3D( policy, a, b, c, Vec3d_Make( 0.0, 0.0, -1.0 ) )
+				 .orientation == geometry_orientation_t::POSITIVE );
+	REQUIRE( Kernel_Orient3D( policy, a, b, c, Vec3d_Make( 0.0, 0.0, 1.0 ) )
+				 .orientation == geometry_orientation_t::NEGATIVE );
+
+	const geometry_classify_result_t coplanar =
+		Kernel_Orient3D( policy, a, b, c, Vec3d_Make( 0.5, 0.5, 0.0 ) );
+	REQUIRE( coplanar.status == geometry_status_t::OK );
+	REQUIRE( coplanar.orientation == geometry_orientation_t::ON_PLANE );
+}
+
+TEST_CASE( "orientation wrappers separate genuine degeneracy from invalid input",
+		   "[editor][geometry][kernel]" ) {
+	// This is the entire reason these wrappers exist. CypherMath's Orient2D and
+	// Orient3D return a bare i32, and 0 means BOTH "exactly degenerate" and
+	// "input was rejected" -- a caller acting on that cannot tell a real
+	// collinear triple from a NaN that leaked in, and would treat corrupt input
+	// as a legitimate geometric fact. Here the two are distinguishable.
+	const geometry_numerical_policy_t policy{};
+	const f64 nan = std::numeric_limits<f64>::quiet_NaN();
+
+	const geometry_classify_result_t genuinelyCollinear = Kernel_Orient2D(
+		policy, Vec2d_Make( 0.0, 0.0 ), Vec2d_Make( 1.0, 1.0 ),
+		Vec2d_Make( 2.0, 2.0 ) );
+	const geometry_classify_result_t invalid = Kernel_Orient2D(
+		policy, Vec2d_Make( nan, 0.0 ), Vec2d_Make( 1.0, 1.0 ),
+		Vec2d_Make( 2.0, 2.0 ) );
+
+	// Raw predicates cannot tell these apart -- both are 0.
+	REQUIRE( cypher::math::Orient2D(
+				 Vec2d_Make( 0.0, 0.0 ), Vec2d_Make( 1.0, 1.0 ),
+				 Vec2d_Make( 2.0, 2.0 ) ) == 0 );
+	REQUIRE( cypher::math::Orient2D(
+				 Vec2d_Make( nan, 0.0 ), Vec2d_Make( 1.0, 1.0 ),
+				 Vec2d_Make( 2.0, 2.0 ) ) == 0 );
+
+	// The wrapper can.
+	REQUIRE( genuinelyCollinear.status == geometry_status_t::OK );
+	REQUIRE( genuinelyCollinear.orientation == geometry_orientation_t::ON_PLANE );
+	REQUIRE( invalid.status == geometry_status_t::NUMERIC_FAILURE );
+
+	const geometry_classify_result_t invalid3D = Kernel_Orient3D(
+		policy, Vec3d_Make( nan, 0.0, 0.0 ), Vec3d_Make( 1.0, 0.0, 0.0 ),
+		Vec3d_Make( 0.0, 1.0, 0.0 ), Vec3d_Make( 0.0, 0.0, 1.0 ) );
+	REQUIRE( invalid3D.status == geometry_status_t::NUMERIC_FAILURE );
+}
+
+TEST_CASE( "orientation wrappers reject coordinates beyond the policy limit",
+		   "[editor][geometry][kernel]" ) {
+	const geometry_numerical_policy_t policy{};
+	const f64 beyond = policy.fCoordinateMagnitudeLimit * 2.0;
+
+	REQUIRE( Kernel_Orient2D(
+				 policy, Vec2d_Make( beyond, 0.0 ), Vec2d_Make( 1.0, 0.0 ),
+				 Vec2d_Make( 0.0, 1.0 ) )
+				 .status == geometry_status_t::LIMIT_EXCEEDED );
+
+	REQUIRE( Kernel_Orient3D(
+				 policy, Vec3d_Make( 0.0, 0.0, 0.0 ), Vec3d_Make( 1.0, 0.0, 0.0 ),
+				 Vec3d_Make( 0.0, beyond, 0.0 ), Vec3d_Make( 0.0, 0.0, 1.0 ) )
+				 .status == geometry_status_t::LIMIT_EXCEEDED );
+}
+
+TEST_CASE( "Kernel_ClassifyPoint refuses a policy tolerance it cannot trust",
+		   "[editor][geometry][kernel]" ) {
+	// Planed_ClassifyPoint answers ON_PLANE when handed a non-finite or
+	// negative tolerance. Reporting that with status OK would be a confident
+	// answer derived from nothing, so the tolerance is checked before use.
+	geometry_numerical_policy_t policy{};
+	const planed_t ground = Planed_Make( Vec3d_Make( 0.0, 0.0, 1.0 ), 0.0 );
+	const vec3d_t point = Vec3d_Make( 0.0, 0.0, 5.0 );
+
+	policy.fCoplanarDistanceTolerance = std::numeric_limits<f64>::quiet_NaN();
+	REQUIRE( Kernel_ClassifyPoint( policy, ground, point ).status ==
+			 geometry_status_t::INVALID_ARGUMENT );
+
+	policy = {};
+	policy.fCoplanarDistanceTolerance = -1.0;
+	REQUIRE( Kernel_ClassifyPoint( policy, ground, point ).status ==
+			 geometry_status_t::INVALID_ARGUMENT );
+
+	policy = {};
+	policy.fUnitNormalTolerance = std::numeric_limits<f64>::quiet_NaN();
+	REQUIRE( Kernel_ClassifyPoint( policy, ground, point ).status ==
+			 geometry_status_t::INVALID_ARGUMENT );
+
+	// A sane policy on the same inputs must still succeed.
+	policy = {};
+	REQUIRE( Kernel_ClassifyPoint( policy, ground, point ).status ==
+			 geometry_status_t::OK );
 }
 
 } // namespace cypher::editor::geometry

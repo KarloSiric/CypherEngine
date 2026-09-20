@@ -24,7 +24,7 @@
 
 #include "CypherGeometry_Policy.h"
 #include "CypherGeometry_Types.h"
-
+#include "CypherMath_Predicates.h"
 #include "CypherMath_Plane.h"
 
 namespace cypher::editor::geometry 
@@ -56,6 +56,39 @@ CYPHER_NODISCARD geometry_classify_result_t Kernel_ClassifyPoint(
     const geometry_numerical_policy_t &policy,
     cypher::math::planed_t plane,
     cypher::math::vec3d_t point ) noexcept;
+
+// Exact orientation with a distinguishable failure result.
+//
+// This is the piece that makes CypherMath's Orient2D/Orient3D safe to act on.
+// Those return a bare i32, so 0 means both "exactly degenerate" and "input was
+// rejected" -- a caller cannot tell a real collinear triple from a NaN that
+// leaked in. Here the two separate cleanly: status OK with ON_PLANE means the
+// points genuinely are degenerate, and any other status means no orientation
+// was produced at all.
+//
+// Unlike Kernel_ClassifyPoint there is no tolerance to source from policy: the
+// predicates are exact, so policy contributes only the coordinate range over
+// which an exact answer is meaningful. That is also why these cannot be
+// "nearly" degenerate -- the answer is the true sign or nothing.
+//
+// For Orient2D the result reads as a turn direction: POSITIVE when c lies left
+// of the directed line a->b, NEGATIVE when right, and ON_PLANE when the three
+// points are exactly collinear. The enum is shared with plane classification
+// rather than duplicated, so ON_PLANE carries the 2D reading "on the line".
+CYPHER_NODISCARD geometry_classify_result_t Kernel_Orient2D(
+    const geometry_numerical_policy_t &policy,
+    cypher::math::vec2d_t a,
+    cypher::math::vec2d_t b,
+    cypher::math::vec2d_t c ) noexcept;
+
+// POSITIVE when d lies below the plane through a, b, c under CypherMath's
+// right-handed winding, NEGATIVE when above, ON_PLANE when exactly coplanar.
+CYPHER_NODISCARD geometry_classify_result_t Kernel_Orient3D(
+    const geometry_numerical_policy_t &policy,
+    cypher::math::vec3d_t a,
+    cypher::math::vec3d_t b,
+    cypher::math::vec3d_t c,
+    cypher::math::vec3d_t d ) noexcept;
 
 }               // namespace cypher::editor::geometry
 #endif              // ENDIF CYPHER_EDITOR_GEOMETRY_KERNEL_CLASSIFICATION_H
