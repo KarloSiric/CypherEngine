@@ -268,3 +268,99 @@ TEST_CASE( "transform gizmo queries hit axis, plane, and rotation handles",
         ray, CY_VEC3_ZERO, CY_VEC3_UP, 2.0f, 0.1f,
         0.000001f, notFinite, &ringHit ) );
 }
+
+TEST_CASE( "binary64 planar UV mapping round-trips through projection",
+           "[CypherCommon][Mathlib][UV][Binary64]" )
+{
+    planar_uv_mappingd_t mapping{};
+    REQUIRE( Uvd_TryBuildPlanarMapping(
+        Vec3d_Make( 1.0, 2.0, 3.0 ), CY_VEC3D_UP, CY_VEC3D_FORWARD,
+        Vec2d_Make( 2.0, 4.0 ), 0.0, Vec2d_Make( 0.5, -0.25 ), 1e-12,
+        &mapping ) );
+
+    // The basis must be orthonormal, or projection and unprojection would not
+    // be inverses of one another.
+    REQUIRE( Vec3d_Dot( mapping.uAxis, mapping.vAxis ) ==
+             Approx( 0.0 ).margin( 1e-12 ) );
+    REQUIRE( Vec3d_Dot( mapping.uAxis, mapping.normal ) ==
+             Approx( 0.0 ).margin( 1e-12 ) );
+
+    const vec3d_t world = Vec3d_Make( 5.0, 2.0, -7.0 );
+    vec2d_t uv{};
+    REQUIRE( Uvd_TryProjectPlanarPoint( mapping, world, 1e-12, &uv ) );
+
+    vec3d_t recovered{};
+    REQUIRE( Uvd_TryUnprojectPlanarPoint( mapping, uv, 0.0, 1e-12, &recovered ) );
+
+    // Unprojection lands on the mapping plane, so only the in-plane components
+    // are expected to survive the round trip.
+    const vec3d_t delta = Vec3d_Subtract( recovered, world );
+    REQUIRE( Vec3d_Dot( delta, mapping.uAxis ) == Approx( 0.0 ).margin( 1e-9 ) );
+    REQUIRE( Vec3d_Dot( delta, mapping.vAxis ) == Approx( 0.0 ).margin( 1e-9 ) );
+}
+
+TEST_CASE( "binary64 UV projection holds precision far from the world origin",
+           "[CypherCommon][Mathlib][UV][Binary64]" )
+{
+    // This is the reason the authoring mapping is binary64 at all. World-locked
+    // texturing must not drift on geometry placed far out in the level; an f32
+    // origin has a ULP near 0.008 at this magnitude, which is visible swimming.
+    const f64 farAway = 100000.0;
+    planar_uv_mappingd_t mapping{};
+    REQUIRE( Uvd_TryBuildPlanarMapping(
+        Vec3d_Make( farAway, farAway, 0.0 ), CY_VEC3D_UP, CY_VEC3D_FORWARD,
+        Vec2d_Make( 1.0, 1.0 ), 0.0, CY_VEC2D_ZERO, 1e-12, &mapping ) );
+
+    // A one-millimetre step must still register as a one-millimetre UV step.
+    const vec3d_t base = Vec3d_Make( farAway, farAway, 0.0 );
+    const vec3d_t stepped = Vec3d_Add( base, Vec3d_Scale( mapping.uAxis, 0.001 ) );
+    vec2d_t baseUv{};
+    vec2d_t steppedUv{};
+    REQUIRE( Uvd_TryProjectPlanarPoint( mapping, base, 1e-12, &baseUv ) );
+    REQUIRE( Uvd_TryProjectPlanarPoint( mapping, stepped, 1e-12, &steppedUv ) );
+    REQUIRE( ( steppedUv.x - baseUv.x ) == Approx( 0.001 ).margin( 1e-12 ) );
+}
+
+TEST_CASE( "binary64 UV mapping rejects degenerate and non-finite input",
+           "[CypherCommon][Mathlib][UV][Binary64]" )
+{
+    const f64 nan = std::numeric_limits<f64>::quiet_NaN();
+    planar_uv_mappingd_t mapping{};
+
+    // A zero-length normal has no plane to map onto.
+    REQUIRE_FALSE( Uvd_TryBuildPlanarMapping(
+        CY_VEC3D_ZERO, CY_VEC3D_ZERO, CY_VEC3D_FORWARD, Vec2d_Make( 1.0, 1.0 ),
+        0.0, CY_VEC2D_ZERO, 1e-12, &mapping ) );
+
+    // A zero UV scale would divide the projection by zero.
+    REQUIRE_FALSE( Uvd_TryBuildPlanarMapping(
+        CY_VEC3D_ZERO, CY_VEC3D_UP, CY_VEC3D_FORWARD, Vec2d_Make( 0.0, 1.0 ),
+        0.0, CY_VEC2D_ZERO, 1e-12, &mapping ) );
+
+    REQUIRE_FALSE( Uvd_TryBuildPlanarMapping(
+        Vec3d_Make( nan, 0.0, 0.0 ), CY_VEC3D_UP, CY_VEC3D_FORWARD,
+        Vec2d_Make( 1.0, 1.0 ), 0.0, CY_VEC2D_ZERO, 1e-12, &mapping ) );
+}
+
+TEST_CASE( "a hint parallel to the normal still yields a deterministic basis",
+           "[CypherCommon][Mathlib][UV][Binary64]" )
+{
+    // Nothing survives projecting the hint onto the plane here, so the fallback
+    // basis decides the result. It must be identical every time, or a face's
+    // texture would rotate between rebuilds of the same brush.
+    planar_uv_mappingd_t first{};
+    planar_uv_mappingd_t second{};
+    REQUIRE( Uvd_TryBuildPlanarMapping(
+        CY_VEC3D_ZERO, CY_VEC3D_UP, CY_VEC3D_UP, Vec2d_Make( 1.0, 1.0 ),
+        0.0, CY_VEC2D_ZERO, 1e-12, &first ) );
+    REQUIRE( Uvd_TryBuildPlanarMapping(
+        CY_VEC3D_ZERO, CY_VEC3D_UP, CY_VEC3D_UP, Vec2d_Make( 1.0, 1.0 ),
+        0.0, CY_VEC2D_ZERO, 1e-12, &second ) );
+
+    REQUIRE( first.uAxis.x == second.uAxis.x );
+    REQUIRE( first.uAxis.y == second.uAxis.y );
+    REQUIRE( first.uAxis.z == second.uAxis.z );
+    REQUIRE( first.vAxis.x == second.vAxis.x );
+    REQUIRE( first.vAxis.y == second.vAxis.y );
+    REQUIRE( first.vAxis.z == second.vAxis.z );
+}

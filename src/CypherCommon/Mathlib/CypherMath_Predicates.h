@@ -54,6 +54,11 @@ using common::i32;
 
 // Exact sign of twice the signed area of triangle (a, b, c). +1 when c is left of
 // the directed line a->b, -1 when right, 0 when exactly collinear.
+//
+// Returns 0 for non-finite input as well. The i32 result has no room for a
+// distinct error value, so a caller that must tell "degenerate" apart from
+// "invalid" has to validate the inputs itself first -- Cypher::EditorGeometry's
+// Kernel layer is where that validation belongs for authored geometry.
 CYPHER_NODISCARD CYPHER_MATH_API i32 Orient2D(
     vec2d_t a, vec2d_t b, vec2d_t c ) noexcept;
 

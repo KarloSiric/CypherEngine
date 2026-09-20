@@ -140,6 +140,16 @@ void ExactCross(
 
 i32 Orient2D( vec2d_t a, vec2d_t b, vec2d_t c ) noexcept
 {
+    // Non-finite input must be rejected before the filter, not after. Every
+    // comparison against NaN is false, so NaN would slip past the fast path,
+    // reach the exact fallback, and be skipped by ExpansionSign -- yielding 0,
+    // which is indistinguishable from a genuinely collinear answer. A predicate
+    // that reports confident degeneracy for garbage is worse than one that is
+    // slow, because the caller acts on the result and corrupts topology.
+    if ( !Vec2d_IsFinite( a ) || !Vec2d_IsFinite( b ) || !Vec2d_IsFinite( c ) ) {
+        return 0;
+    }
+
     const f64 acx = a.x - c.x;
     const f64 acy = a.y - c.y;
     const f64 bcx = b.x - c.x;
@@ -177,6 +187,13 @@ i32 Orient2D( vec2d_t a, vec2d_t b, vec2d_t c ) noexcept
 
 i32 Orient3D( vec3d_t a, vec3d_t b, vec3d_t c, vec3d_t d ) noexcept
 {
+    // See Orient2D: non-finite input would otherwise be reported as exact
+    // coplanarity rather than rejected.
+    if ( !Vec3d_IsFinite( a ) || !Vec3d_IsFinite( b ) ||
+         !Vec3d_IsFinite( c ) || !Vec3d_IsFinite( d ) ) {
+        return 0;
+    }
+
     const f64 adx = a.x - d.x;
     const f64 ady = a.y - d.y;
     const f64 adz = a.z - d.z;

@@ -278,3 +278,39 @@ TEST_CASE( "Orient3D handles degenerate zero-volume inputs without producing NaN
     REQUIRE( Orient3D( p, p, p, p ) == 0 );
     REQUIRE( Orient3D( p, p, Vec3d_Make( 4.0, 5.0, 6.0 ), Vec3d_Make( 7.0, 8.0, 9.0 ) ) == 0 );
 }
+
+TEST_CASE( "orientation predicates reject non-finite input up front",
+           "[CypherCommon][Mathlib][Predicates]" )
+{
+    // Without an explicit guard these slip through: every comparison against
+    // NaN is false, so NaN passes the filter untouched, reaches the exact
+    // fallback, and is skipped by ExpansionSign -- producing 0. The guard makes
+    // that rejection deliberate instead of accidental, and avoids running a
+    // 192-term exact expansion over garbage.
+    //
+    // NOTE: 0 is also the legitimate "exactly degenerate" answer. The i32
+    // result cannot distinguish the two, so a caller needing that distinction
+    // must validate first; Cypher::EditorGeometry's Kernel owns that for
+    // authored geometry.
+    const f64 nan = std::numeric_limits<f64>::quiet_NaN();
+    const f64 infinity = std::numeric_limits<f64>::infinity();
+
+    REQUIRE( Orient2D( Vec2d_Make( nan, 0.0 ), Vec2d_Make( 1.0, 0.0 ),
+                       Vec2d_Make( 0.0, 1.0 ) ) == 0 );
+    REQUIRE( Orient2D( Vec2d_Make( 0.0, 0.0 ), Vec2d_Make( infinity, 0.0 ),
+                       Vec2d_Make( 0.0, 1.0 ) ) == 0 );
+    REQUIRE( Orient2D( Vec2d_Make( 0.0, 0.0 ), Vec2d_Make( 1.0, 0.0 ),
+                       Vec2d_Make( 0.0, -infinity ) ) == 0 );
+
+    REQUIRE( Orient3D( Vec3d_Make( nan, 0.0, 0.0 ), Vec3d_Make( 1.0, 0.0, 0.0 ),
+                       Vec3d_Make( 0.0, 1.0, 0.0 ),
+                       Vec3d_Make( 0.0, 0.0, 1.0 ) ) == 0 );
+    REQUIRE( Orient3D( Vec3d_Make( 0.0, 0.0, 0.0 ), Vec3d_Make( 1.0, 0.0, 0.0 ),
+                       Vec3d_Make( 0.0, infinity, 0.0 ),
+                       Vec3d_Make( 0.0, 0.0, 1.0 ) ) == 0 );
+
+    // Finite input next to the same call sites must still resolve normally --
+    // the guard must not have swallowed the valid path.
+    REQUIRE( Orient2D( Vec2d_Make( 0.0, 0.0 ), Vec2d_Make( 1.0, 0.0 ),
+                       Vec2d_Make( 0.0, 1.0 ) ) == 1 );
+}
