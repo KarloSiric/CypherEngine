@@ -381,6 +381,7 @@ set(CYPHERMATH_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Predicates.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Quaternion.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Quantization.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Random.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Ray.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Scalar.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Snap.cpp"
@@ -1920,6 +1921,11 @@ if (CYPHERENGINE_BUILD_TESTS)
         cypher_add_common_catch_test(
             cypher_common_mathlib_authoring_properties_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_AuthoringProperties_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_common_mathlib_random_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_Random_Tests.cpp"
             Cypher::Math
         )
         cypher_add_common_catch_test(
