@@ -44,10 +44,22 @@ struct vec2_t {
     f32 y; // Vertical, V, or second planar component.
 };
 
+// Binary64 authoring vector. Geometry authoring keeps this precision until an
+// explicit checked cook/runtime conversion requests vec2_t.
+struct vec2d_t {
+    f64 x;
+    f64 y;
+};
+
 inline constexpr vec2_t CY_VEC2_ZERO{ 0.0f, 0.0f }; // Additive identity.
 inline constexpr vec2_t CY_VEC2_ONE{ 1.0f, 1.0f };  // Unit value on both axes.
 inline constexpr vec2_t CY_VEC2_X{ 1.0f, 0.0f };    // Positive X basis direction.
 inline constexpr vec2_t CY_VEC2_Y{ 0.0f, 1.0f };    // Positive Y basis direction.
+
+inline constexpr vec2d_t CY_VEC2D_ZERO{ 0.0, 0.0 };
+inline constexpr vec2d_t CY_VEC2D_ONE{ 1.0, 1.0 };
+inline constexpr vec2d_t CY_VEC2D_X{ 1.0, 0.0 };
+inline constexpr vec2d_t CY_VEC2D_Y{ 0.0, 1.0 };
 
 // Construction and component access ---------------------------------------------
 CYPHER_NODISCARD constexpr vec2_t Vec2_Make( f32 x, f32 y ) noexcept;
@@ -84,10 +96,22 @@ CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_Min( vec2_t a, vec2_t b ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_Max( vec2_t a, vec2_t b ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_Clamp(
     vec2_t value, vec2_t minimum, vec2_t maximum ) noexcept;
+// NOTE: Adding double precisions values
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_Abs( vec2d_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_Min( vec2d_t a, vec2d_t b ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_Max( vec2d_t a, vec2d_t b ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_Clamp(
+    vec2d_t value, vec2d_t minimum, vec2d_t maximum ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_Floor( vec2_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_Ceil( vec2_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_Round( vec2_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_Truncate( vec2_t value ) noexcept;
+
+// NOTE: Adding double precision values
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_Floor( vec2d_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_Ceil( vec2d_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_Round( vec2d_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_Truncate( vec2d_t value ) noexcept;
 
 // Geometric operations ----------------------------------------------------------
 CYPHER_NODISCARD constexpr f32 Vec2_Dot( vec2_t a, vec2_t b ) noexcept;
@@ -98,6 +122,13 @@ CYPHER_NODISCARD constexpr f32 Vec2_DistanceSquared( vec2_t a, vec2_t b ) noexce
 CYPHER_NODISCARD CYPHER_MATH_API f32 Vec2_Distance( vec2_t a, vec2_t b ) noexcept;
 CYPHER_NODISCARD constexpr vec2_t Vec2_PerpendicularCCW( vec2_t value ) noexcept;
 CYPHER_NODISCARD constexpr vec2_t Vec2_PerpendicularCW( vec2_t value ) noexcept;
+
+// NOTE: Adding geometrical double precision calculations
+CYPHER_NODISCARD constexpr f64 Vec2d_DistanceSquared( vec2d_t a, vec2d_t b ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2d_TryDistance(
+    vec2d_t a, vec2d_t b, CY_OUT f64 *pDistance ) noexcept;
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_PerpendicularCCW( vec2d_t value ) noexcept;
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_PerpendicularCW( vec2d_t value ) noexcept;
 
 CYPHER_NODISCARD CYPHER_MATH_API vec2_t Vec2_NormalizeUnchecked( vec2_t value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2_TryNormalize(
@@ -124,10 +155,107 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2_TryAngleBetween(
     vec2_t a, vec2_t b, f32 minimumLength,
     CY_OUT f32 *pAngleRadians ) noexcept;
 
+// Binary64 authoring subset -----------------------------------------------------
+// Raw constexpr arithmetic follows IEEE-754 and does not validate operands;
+// LengthSquared may overflow. TryLength and TryNormalize scale before squaring,
+// reject non-finite or unrepresentable results, and reset outputs on failure.
+// TryLength accepts the zero vector. TryNormalize requires length > minimumLength.
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_Make( f64 x, f64 y ) noexcept;
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_Splat( f64 value ) noexcept;
+
+// NOTE: Construction/access and precision-conversion group, filled in late —
+// this was skipped when it was originally planned; adding now to close the gap.
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_FromArray(
+    CY_IN_READS( 2 ) const f64 *pValues ) noexcept;
+CYPHER_MATH_API void Vec2d_Store(
+    vec2d_t value, CY_OUT_WRITES( 2 ) f64 *pValues ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Vec2d_Component(
+    vec2d_t value, u32 iComponent ) noexcept;
+CYPHER_MATH_API void Vec2d_SetComponent(
+    CY_INOUT vec2d_t *pValue, u32 iComponent, f64 value ) noexcept;
+
+// Widening is exact and lossless; narrowing is checked because it can overflow
+// f32's representable range even when the f64 source is perfectly finite.
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_FromVec2( vec2_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2d_TryToVec2(
+    vec2d_t value, CY_OUT vec2_t *pResult ) noexcept;
+
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2d_IsFinite( vec2d_t value ) noexcept;
+CYPHER_NODISCARD constexpr bool_t Vec2d_EqualsExact(
+    vec2d_t a, vec2d_t b ) noexcept;
+
+// NOTE: Adding because it is important for the later on iterations that will come.
+// NOTE: Mason editor math requires these..
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2d_NearlyEquals(
+    vec2d_t a, vec2d_t b, f64 absoluteTolerance, f64 relativeTolerance ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2d_IsNearZero(
+    vec2d_t value, f64 tolerance ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2d_IsUnitLength(
+    vec2d_t value, f64 tolerance ) noexcept;
+
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_Add(
+    vec2d_t a, vec2d_t b ) noexcept;
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_Subtract(
+    vec2d_t a, vec2d_t b ) noexcept;
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_Scale(
+    vec2d_t value, f64 scale ) noexcept;
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_DivideScalar(
+    vec2d_t value, f64 divisor ) noexcept;
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_Negate( vec2d_t value ) noexcept;
+
+// NOTE: Component-wise arithmetic missing a header prototype before this pass;
+// definitions already existed in the .inl.
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_MultiplyComponents(
+    vec2d_t a, vec2d_t b ) noexcept;
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_DivideComponents(
+    vec2d_t a, vec2d_t b ) noexcept;
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_MulAdd(
+    vec2d_t a, vec2d_t b, f64 scale ) noexcept;
+
+CYPHER_NODISCARD constexpr f64 Vec2d_Dot( vec2d_t a, vec2d_t b ) noexcept;
+CYPHER_NODISCARD constexpr f64 Vec2d_Cross( vec2d_t a, vec2d_t b ) noexcept;
+CYPHER_NODISCARD constexpr f64 Vec2d_LengthSquared( vec2d_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2d_TryLength(
+    vec2d_t value, CY_OUT f64 *pLength ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2d_TryNormalize(
+    vec2d_t value, f64 minimumLength, CY_OUT vec2d_t *pNormalized,
+    CY_OUT_OPTIONAL f64 *pOriginalLength ) noexcept;
+
+// NOTE: Adding double precision for geoemtrical needs and proper smooth movement
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_Lerp( vec2d_t a, vec2d_t b, f64 t ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_LerpClamped(
+    vec2d_t a, vec2d_t b, f64 t ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_MoveTowards(
+    vec2d_t current, vec2d_t target, f64 maximumDistance ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec2d_t Vec2d_ClampLength(
+    vec2d_t value, f64 minimumLength, f64 maximumLength ) noexcept;
+
+// NOTE: Adding projections with double precisions
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_ProjectOntoUnit(
+    vec2d_t value, vec2d_t unitDirection ) noexcept;
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_RejectFromUnit(
+    vec2d_t value, vec2d_t unitDirection ) noexcept;
+CYPHER_NODISCARD constexpr vec2d_t Vec2d_ReflectUnitNormal(
+    vec2d_t incident, vec2d_t unitNormal ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2d_TryProjectOnto(
+    vec2d_t value, vec2d_t onto, f64 minimumLength,
+    CY_OUT vec2d_t *pProjected ) noexcept;
+CYPHER_NODISCARD constexpr bool_t Vec2d_LexicographicLess( vec2d_t a, vec2d_t b ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Vec2d_TryAngleBetween(
+    vec2d_t a, vec2d_t b, f64 minimumLength,
+    CY_OUT f64 *pAngleRadians ) noexcept;
+
+
 static_assert( sizeof( vec2_t ) == 8u );
 static_assert( alignof( vec2_t ) == alignof( f32 ) );
 static_assert( std::is_standard_layout_v<vec2_t> );
 static_assert( std::is_trivially_copyable_v<vec2_t> );
+
+static_assert( sizeof( vec2d_t ) == 16u );
+static_assert( alignof( vec2d_t ) == alignof( f64 ) );
+static_assert( std::is_standard_layout_v<vec2d_t> );
+static_assert( std::is_trivial_v<vec2d_t> );
+static_assert( std::is_trivially_copyable_v<vec2d_t> );
 
 } // namespace cypher::math
 

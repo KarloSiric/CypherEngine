@@ -106,6 +106,29 @@ CYPHER_NODISCARD CYPHER_MATH_API volume_relation_t Intersection_FrustumSphere(
 CYPHER_NODISCARD CYPHER_MATH_API volume_relation_t Intersection_FrustumAabb(
     frustum_t frustum, aabb_t bounds, f32 distanceTolerance ) noexcept;
 
+// Double-precision authoring constructions ---------------------------------------
+// Unlike the ray/frustum queries above (runtime, f32), these support authoritative
+// brush-plane construction and are consumed directly by Brushd_BuildVertices. This
+// is a targeted addition, not a full-file f64 conversion -- ray/frustum culling
+// stays f32 runtime.
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Intersection_TryLinePlaneD(
+    vec3d_t pointOnLine, vec3d_t lineDirection, planed_t plane,
+    f64 minimumAbsDenominator, CY_OUT f64 *pParameter,
+    CY_OUT_OPTIONAL vec3d_t *pPoint ) noexcept;
+// pConditioningOut receives the raw determinant magnitude even on failure, so a
+// caller can distinguish "cleanly solved" from "solved but nearly degenerate".
+//
+// PRECONDITION: the three plane normals must be unit length. The determinant is
+// the scalar triple product of the normals, so it scales with the product of
+// their lengths -- with non-unit normals the same minimumAbsDeterminant silently
+// means a different conditioning threshold, and pConditioningOut is no longer
+// comparable between calls. Only finiteness is validated at runtime; normalize
+// with Planed_TryNormalize first. Note that Brushd_BuildVertices forwards its
+// caller's planes here unchanged and does not normalize on your behalf.
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Intersection_TryThreePlanesD(
+    planed_t a, planed_t b, planed_t c, f64 minimumAbsDeterminant,
+    CY_OUT vec3d_t *pPoint, CY_OUT_OPTIONAL f64 *pConditioningOut ) noexcept;
+
 static_assert( sizeof( ray_interval_t ) == sizeof( f32 ) * 2u );
 static_assert( sizeof( ray_triangle_hit_t ) == sizeof( f32 ) * 3u );
 static_assert( std::is_trivially_copyable_v<ray_interval_t> );

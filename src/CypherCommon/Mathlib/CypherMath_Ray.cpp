@@ -133,4 +133,40 @@ f32 Segment_DistanceSquaredToPoint(
     return Vec3_DistanceSquared( Segment_ClosestPoint( segment, point ), point );
 }
 
+//==========================================================================
+// Binary64 authoring segment
+//==========================================================================
+
+bool_t Segmentd_IsFinite( segmentd_t segment ) noexcept
+{
+    return Vec3d_IsFinite( segment.start ) && Vec3d_IsFinite( segment.end );
+}
+
+bool_t Segmentd_TryLength( segmentd_t segment, f64 *pLength ) noexcept
+{
+    return Vec3d_TryLength( Segmentd_Direction( segment ), pLength );
+}
+
+vec3d_t Segmentd_ClosestPoint( segmentd_t segment, vec3d_t point ) noexcept
+{
+    const vec3d_t direction = Segmentd_Direction( segment );
+    const f64 denominator = Vec3d_LengthSquared( direction );
+    if ( !Scalar_IsFinite( denominator ) || denominator <= 0.0 ) {
+        // A zero-length segment has one valid closest point: its shared endpoint.
+        return segment.start;
+    }
+    // Saturating the line projection restricts the result to the segment.
+    const f64 t = Scalar_Saturate(
+        Vec3d_Dot( Vec3d_Subtract( point, segment.start ), direction ) /
+        denominator );
+    return Segmentd_PointAt( segment, t );
+}
+
+f64 Segmentd_DistanceSquaredToPoint(
+    segmentd_t segment,
+    vec3d_t point ) noexcept
+{
+    return Vec3d_DistanceSquared( Segmentd_ClosestPoint( segment, point ), point );
+}
+
 } // namespace cypher::math

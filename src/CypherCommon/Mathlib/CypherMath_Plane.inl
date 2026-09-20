@@ -68,6 +68,38 @@ constexpr vec3_t Plane_ProjectPointUnit(
             Plane_SignedDistance( unitPlane, point ) ) );
 }
 
+constexpr planed_t Planed_Make( vec3d_t normal, f64 d ) noexcept
+{
+    return { normal, d };
+}
+
+constexpr planed_t Planed_Flip( planed_t value ) noexcept
+{
+    return Planed_Make( Vec3d_Negate( value.normal ), -value.d );
+}
+
+constexpr f64 Planed_SignedDistance( planed_t plane, vec3d_t point ) noexcept
+{
+    return Vec3d_Dot( plane.normal, point ) + plane.d;
+}
+
+constexpr vec3d_t Planed_ProjectPointUnit(
+    planed_t unitPlane,
+    vec3d_t point ) noexcept
+{
+    return Vec3d_Subtract(
+        point,
+        Vec3d_Scale(
+            unitPlane.normal,
+            Planed_SignedDistance( unitPlane, point ) ) );
+}
+
+constexpr planed_t Planed_FromPlane( plane_t value ) noexcept
+{
+    return Planed_Make(
+        Vec3d_FromVec3( value.normal ), static_cast<f64>( value.d ) );
+}
+
 } // namespace cypher::math
 
 #endif // CYPHER_COMMON_MATH_PLANE_INL

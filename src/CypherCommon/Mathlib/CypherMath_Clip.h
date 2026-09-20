@@ -66,6 +66,33 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Clip_TrySegmentAgainstConvexPlanes(
     f32 minimumAbsDenominator,
     CY_OUT segment_clip_result_t *pResult ) noexcept;
 
+// Binary64 authoring clipping -----------------------------------------------------
+// Needed for Gate 5's brush face clip/slice/bisect; brush face polygons and their
+// clipped boundaries are authored in double precision.
+struct segmentd_clip_result_t {
+    segmentd_t segment; // Retained segment in world space.
+    f64 parameterEnter; // Entry parameter on the original [0, 1] segment.
+    f64 parameterExit;  // Exit parameter on the original [0, 1] segment.
+};
+
+// Input and output arrays must not overlap; maximum output is cVertices + 1.
+CYPHER_NODISCARD CYPHER_MATH_API polygon_clip_result_t
+Clip_PolygonAgainstPlaneD(
+    CY_IN_READS( cVertices ) const vec3d_t *pVertices,
+    usize cVertices,
+    planed_t outwardPlane,
+    f64 insideTolerance,
+    CY_OUT_WRITES( cOutputVertices ) vec3d_t *pOutputVertices,
+    usize cOutputVertices ) noexcept;
+
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Clip_TrySegmentAgainstConvexPlanesD(
+    segmentd_t segment,
+    CY_IN_READS( cPlanes ) const planed_t *pPlanes,
+    usize cPlanes,
+    f64 insideTolerance,
+    f64 minimumAbsDenominator,
+    CY_OUT segmentd_clip_result_t *pResult ) noexcept;
+
 } // namespace cypher::math
 
 #endif // CYPHER_COMMON_MATH_CLIP_H

@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherMath_Brush.h"
+#include "CypherMath_Intersection.h"
 
 #include "CypherCommon_Assert.h"
 
@@ -29,26 +30,27 @@ namespace cypher::math
 namespace
 {
 
-struct vec3d_t {
-    f64 x;
-    f64 y;
-    f64 z;
-};
-
 vec3d_t CrossDouble( vec3_t a, vec3_t b ) noexcept
 {
-    return {
-        static_cast<f64>( a.y ) * b.z - static_cast<f64>( a.z ) * b.y,
-        static_cast<f64>( a.z ) * b.x - static_cast<f64>( a.x ) * b.z,
-        static_cast<f64>( a.x ) * b.y - static_cast<f64>( a.y ) * b.x
-    };
+    return Vec3d_Cross(
+        Vec3d_Make(
+            static_cast<f64>( a.x ),
+            static_cast<f64>( a.y ),
+            static_cast<f64>( a.z ) ),
+        Vec3d_Make(
+            static_cast<f64>( b.x ),
+            static_cast<f64>( b.y ),
+            static_cast<f64>( b.z ) ) );
 }
 
 f64 DotDouble( vec3_t a, vec3d_t b ) noexcept
 {
-    return static_cast<f64>( a.x ) * b.x +
-           static_cast<f64>( a.y ) * b.y +
-           static_cast<f64>( a.z ) * b.z;
+    return Vec3d_Dot(
+        Vec3d_Make(
+            static_cast<f64>( a.x ),
+            static_cast<f64>( a.y ),
+            static_cast<f64>( a.z ) ),
+        b );
 }
 
 bool_t BrushVertexExists(
@@ -59,6 +61,20 @@ bool_t BrushVertexExists(
 {
     for ( usize i = 0u; i < cVertices; ++i ) {
         if ( Vec3_DistanceSquared( pVertices[i], candidate ) <= mergeToleranceSquared ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool_t BrushdVertexExists(
+    const vec3d_t *pVertices,
+    usize cVertices,
+    vec3d_t candidate,
+    f64 mergeToleranceSquared ) noexcept
+{
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        if ( Vec3d_DistanceSquared( pVertices[i], candidate ) <= mergeToleranceSquared ) {
             return true;
         }
     }
@@ -299,6 +315,181 @@ bool_t Brush_TryBounds(
             return false;
         }
         bounds = Aabb_ExpandPoint( bounds, pVertices[i] );
+    }
+    *pBounds = bounds;
+    return true;
+}
+
+//==========================================================================
+// Binary64 authoring brush
+//==========================================================================
+
+bool_t Brushd_ContainsPoint(
+    const planed_t *pPlanes,
+    usize cPlanes,
+    vec3d_t point,
+    f64 insideTolerance ) noexcept
+{
+    if ( pPlanes == nullptr || cPlanes < 4u || insideTolerance < 0.0 ||
+         !Vec3d_IsFinite( point ) ) {
+        return false;
+    }
+    for ( usize i = 0u; i < cPlanes; ++i ) {
+        if ( !Planed_IsFinite( pPlanes[i] ) ||
+             Planed_SignedDistance( pPlanes[i], point ) > insideTolerance ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+brush_vertex_result_t Brushd_BuildVertices(
+    const planed_t *pPlanes,
+    usize cPlanes,
+    f64 minimumAbsDeterminant,
+    f64 insideTolerance,
+    f64 mergeTolerance,
+    vec3d_t *pOutputVertices,
+    usize cOutputVertices ) noexcept
+{
+    brush_vertex_result_t result{};
+    result.status = brush_build_status_t::INVALID_ARGUMENT;
+    if ( pPlanes == nullptr || cPlanes < 4u || pOutputVertices == nullptr ||
+         cOutputVertices == 0u || minimumAbsDeterminant < 0.0 ||
+         insideTolerance < 0.0 || mergeTolerance < 0.0 ) {
+        return result;
+    }
+
+    const f64 mergeToleranceSquared = mergeTolerance * mergeTolerance;
+
+    // Enumerate plane triples, then keep only intersections inside every
+    // outward-facing half-space. Spatial merging collapses shared triples.
+    for ( usize i = 0u; i + 2u < cPlanes; ++i ) {
+        for ( usize j = i + 1u; j + 1u < cPlanes; ++j ) {
+            for ( usize k = j + 1u; k < cPlanes; ++k ) {
+                vec3d_t candidate{};
+                if ( !Intersection_TryThreePlanesD(
+                         pPlanes[i], pPlanes[j], pPlanes[k],
+                         minimumAbsDeterminant, &candidate, nullptr ) ||
+                     !Brushd_ContainsPoint(
+                         pPlanes, cPlanes, candidate, insideTolerance ) ||
+                     BrushdVertexExists(
+                         pOutputVertices, result.cVerticesWritten,
+                         candidate, mergeToleranceSquared ) ) {
+                    continue;
+                }
+                if ( result.cVerticesWritten >= cOutputVertices ) {
+                    result.status = brush_build_status_t::INSUFFICIENT_CAPACITY;
+                    return result;
+                }
+                pOutputVertices[result.cVerticesWritten++] = candidate;
+            }
+        }
+    }
+
+    result.status = result.cVerticesWritten >= 4u
+        ? brush_build_status_t::OK
+        : brush_build_status_t::DEGENERATE;
+    return result;
+}
+
+brush_vertex_result_t Brushd_BuildFacePolygon(
+    planed_t outwardFacePlane,
+    const vec3d_t *pBrushVertices,
+    usize cBrushVertices,
+    f64 faceDistanceTolerance,
+    f64 minimumNormalLength,
+    vec3d_t *pOutputVertices,
+    usize cOutputVertices ) noexcept
+{
+    brush_vertex_result_t result{};
+    result.status = brush_build_status_t::INVALID_ARGUMENT;
+    if ( pBrushVertices == nullptr || cBrushVertices < 4u ||
+         pOutputVertices == nullptr || cOutputVertices == 0u ||
+         faceDistanceTolerance < 0.0 || minimumNormalLength < 0.0 ) {
+        return result;
+    }
+
+    planed_t face{};
+    if ( !Planed_TryNormalize( outwardFacePlane, minimumNormalLength, &face ) ) {
+        result.status = brush_build_status_t::DEGENERATE;
+        return result;
+    }
+    for ( usize i = 0u; i < cBrushVertices; ++i ) {
+        if ( std::abs( Planed_SignedDistance( face, pBrushVertices[i] ) ) <=
+             faceDistanceTolerance ) {
+            if ( result.cVerticesWritten >= cOutputVertices ) {
+                result.status = brush_build_status_t::INSUFFICIENT_CAPACITY;
+                return result;
+            }
+            pOutputVertices[result.cVerticesWritten++] = pBrushVertices[i];
+        }
+    }
+    if ( result.cVerticesWritten < 3u ) {
+        result.status = brush_build_status_t::DEGENERATE;
+        return result;
+    }
+
+    vec3d_t centroid = CY_VEC3D_ZERO;
+    for ( usize i = 0u; i < result.cVerticesWritten; ++i ) {
+        centroid = Vec3d_Add( centroid, pOutputVertices[i] );
+    }
+
+    centroid = Vec3d_Scale(
+        centroid, 1.0 / static_cast<f64>( result.cVerticesWritten ) );
+
+    vec3d_t tangent{};
+    vec3d_t bitangent{};
+    Vec3d_BuildOrthonormalBasis( face.normal, &tangent, &bitangent );
+
+    // Sort face vertices by polar angle around their centroid. The resulting
+    // winding follows the outward face basis and is ready for triangulation.
+    for ( usize i = 1u; i < result.cVerticesWritten; ++i ) {
+        const vec3d_t value = pOutputVertices[i];
+        const vec3d_t relative = Vec3d_Subtract( value, centroid );
+        const f64 angle = std::atan2(
+            Vec3d_Dot( relative, bitangent ),
+            Vec3d_Dot( relative, tangent ) );
+        usize j = i;
+        while ( j > 0u ) {
+            const vec3d_t previousRelative = Vec3d_Subtract(
+                pOutputVertices[j - 1u], centroid );
+            const f64 previousAngle = std::atan2(
+                Vec3d_Dot( previousRelative, bitangent ),
+                Vec3d_Dot( previousRelative, tangent ) );
+            if ( previousAngle <= angle ) {
+                break;
+            }
+            pOutputVertices[j] = pOutputVertices[j - 1u];
+            --j;
+        }
+        pOutputVertices[j] = value;
+    }
+
+    result.status = brush_build_status_t::OK;
+    return result;
+}
+
+bool_t Brushd_TryBounds(
+    const vec3d_t *pVertices,
+    usize cVertices,
+    aabbd_t *pBounds ) noexcept
+{
+    const bool_t bValidOutput = pBounds != nullptr;
+    CY_ASSERT_MSG( bValidOutput, "Brushd_TryBounds requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pBounds = CY_AABBD_EMPTY;
+    if ( pVertices == nullptr || cVertices == 0u ) {
+        return false;
+    }
+    aabbd_t bounds = CY_AABBD_EMPTY;
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        if ( !Vec3d_IsFinite( pVertices[i] ) ) {
+            return false;
+        }
+        bounds = Aabbd_ExpandPoint( bounds, pVertices[i] );
     }
     *pBounds = bounds;
     return true;

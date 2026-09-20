@@ -380,4 +380,107 @@ volume_relation_t Intersection_FrustumAabb(
         : volume_relation_t::INSIDE;
 }
 
+//==========================================================================
+// Double-precision authoring constructions
+//==========================================================================
+
+bool_t Intersection_TryLinePlaneD(
+    vec3d_t pointOnLine,
+    vec3d_t lineDirection,
+    planed_t plane,
+    f64 minimumAbsDenominator,
+    f64 *pParameter,
+    vec3d_t *pPoint ) noexcept
+{
+    const bool_t bValidOutput = pParameter != nullptr;
+    const bool_t bValidTolerance = Scalar_IsFinite( minimumAbsDenominator ) &&
+                                   minimumAbsDenominator >= 0.0;
+    CY_ASSERT_MSG(
+        bValidOutput, "Intersection_TryLinePlaneD requires output storage." );
+    CY_ASSERT_MSG(
+        bValidTolerance,
+        "Intersection_TryLinePlaneD requires a finite nonnegative threshold." );
+    if ( pPoint != nullptr ) {
+        *pPoint = CY_VEC3D_ZERO;
+    }
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pParameter = 0.0;
+    if ( !bValidTolerance || !Vec3d_IsFinite( pointOnLine ) ||
+         !Vec3d_IsFinite( lineDirection ) || !Planed_IsFinite( plane ) ) {
+        return false;
+    }
+
+    const f64 denominator = Vec3d_Dot( plane.normal, lineDirection );
+    if ( Scalar_Abs( denominator ) <= minimumAbsDenominator ) {
+        return false;
+    }
+    const f64 t = -Planed_SignedDistance( plane, pointOnLine ) / denominator;
+    if ( !Scalar_IsFinite( t ) ) {
+        return false;
+    }
+    *pParameter = t;
+    if ( pPoint != nullptr ) {
+        const vec3d_t point = Vec3d_MulAdd( pointOnLine, lineDirection, t );
+        if ( !Vec3d_IsFinite( point ) ) {
+            return false;
+        }
+        *pPoint = point;
+    }
+    return true;
+}
+
+bool_t Intersection_TryThreePlanesD(
+    planed_t a,
+    planed_t b,
+    planed_t c,
+    f64 minimumAbsDeterminant,
+    vec3d_t *pPoint,
+    f64 *pConditioningOut ) noexcept
+{
+    const bool_t bValidOutput = pPoint != nullptr;
+    CY_ASSERT_MSG(
+        bValidOutput, "Intersection_TryThreePlanesD requires output storage." );
+    if ( pConditioningOut != nullptr ) {
+        *pConditioningOut = 0.0;
+    }
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pPoint = CY_VEC3D_ZERO;
+    if ( minimumAbsDeterminant < 0.0 || !Planed_IsFinite( a ) ||
+         !Planed_IsFinite( b ) || !Planed_IsFinite( c ) ) {
+        return false;
+    }
+
+    const vec3d_t crossBC = Vec3d_Cross( b.normal, c.normal );
+    const vec3d_t crossCA = Vec3d_Cross( c.normal, a.normal );
+    const vec3d_t crossAB = Vec3d_Cross( a.normal, b.normal );
+
+    // Cramer's rule solves the three plane equations. A small determinant means
+    // the planes do not define a numerically stable unique point.
+    const f64 determinant = Vec3d_Dot( a.normal, crossBC );
+    if ( pConditioningOut != nullptr ) {
+        *pConditioningOut = Scalar_Abs( determinant );
+    }
+    if ( !Scalar_IsFinite( determinant ) ||
+         Scalar_Abs( determinant ) <= minimumAbsDeterminant ) {
+        return false;
+    }
+
+    const f64 inverseDeterminant = 1.0 / determinant;
+    const vec3d_t weighted = Vec3d_Add(
+        Vec3d_Add(
+            Vec3d_Scale( crossBC, -a.d ),
+            Vec3d_Scale( crossCA, -b.d ) ),
+        Vec3d_Scale( crossAB, -c.d ) );
+    const vec3d_t point = Vec3d_Scale( weighted, inverseDeterminant );
+    if ( !Vec3d_IsFinite( point ) ) {
+        return false;
+    }
+    *pPoint = point;
+    return true;
+}
+
 } // namespace cypher::math

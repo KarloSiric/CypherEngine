@@ -19,6 +19,8 @@
 #include "CypherMath_Scalar.h"
 #include "CypherCommon_Assert.h"
 
+#include <limits>
+
 namespace cypher::math
 {
 
@@ -165,6 +167,170 @@ bool_t Plane_TryTransform(
     return Plane_TryFromPointNormal(
         transformedPoint, transformedNormal,
         minimumNormalLength, pTransformed );
+}
+
+//==========================================================================
+// Binary64 authoring plane
+//==========================================================================
+
+bool_t Planed_IsFinite( planed_t value ) noexcept
+{
+    return Vec3d_IsFinite( value.normal ) && Scalar_IsFinite( value.d );
+}
+
+bool_t Planed_IsNormalized( planed_t value, f64 tolerance ) noexcept
+{
+    return Planed_IsFinite( value ) &&
+           Vec3d_IsUnitLength( value.normal, tolerance );
+}
+
+bool_t Planed_TryNormalize(
+    planed_t value,
+    f64 minimumNormalLength,
+    planed_t *pNormalized ) noexcept
+{
+    const bool_t bValidOutput = pNormalized != nullptr;
+    CY_ASSERT_MSG( bValidOutput, "Planed_TryNormalize requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pNormalized = CY_PLANED_Z;
+
+    vec3d_t normal{};
+    f64 originalLength = 0.0;
+    if ( !Scalar_IsFinite( value.d ) ||
+         !Vec3d_TryNormalize(
+             value.normal, minimumNormalLength, &normal, &originalLength ) ) {
+        return false;
+    }
+    // Dividing both n and d by the same length preserves the plane equation.
+    const planed_t normalized = Planed_Make( normal, value.d / originalLength );
+    if ( !Planed_IsFinite( normalized ) ) {
+        return false;
+    }
+    *pNormalized = normalized;
+    return true;
+}
+
+bool_t Planed_TryFromPointNormal(
+    vec3d_t point,
+    vec3d_t normal,
+    f64 minimumNormalLength,
+    planed_t *pPlane ) noexcept
+{
+    const bool_t bValidOutput = pPlane != nullptr;
+    CY_ASSERT_MSG(
+        bValidOutput,
+        "Planed_TryFromPointNormal requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pPlane = CY_PLANED_Z;
+
+    vec3d_t unitNormal{};
+    if ( !Vec3d_IsFinite( point ) ||
+         !Vec3d_TryNormalize(
+             normal, minimumNormalLength, &unitNormal, nullptr ) ) {
+        return false;
+    }
+    *pPlane = Planed_Make( unitNormal, -Vec3d_Dot( unitNormal, point ) );
+    return true;
+}
+
+bool_t Planed_TryFromTriangle(
+    vec3d_t a,
+    vec3d_t b,
+    vec3d_t c,
+    f64 minimumTwiceArea,
+    planed_t *pPlane ) noexcept
+{
+    const bool_t bValidOutput = pPlane != nullptr;
+    CY_ASSERT_MSG( bValidOutput, "Planed_TryFromTriangle requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pPlane = CY_PLANED_Z;
+    const vec3d_t normal = Vec3d_Cross(
+        Vec3d_Subtract( b, a ),
+        Vec3d_Subtract( c, a ) );
+    return Planed_TryFromPointNormal(
+        a, normal, minimumTwiceArea, pPlane );
+}
+
+plane_side_t Planed_ClassifyPoint(
+    planed_t unitPlane,
+    vec3d_t point,
+    f64 distanceTolerance ) noexcept
+{
+    const bool_t bValidTolerance = Scalar_IsFinite( distanceTolerance ) &&
+                                   distanceTolerance >= 0.0;
+    CY_ASSERT_MSG(
+        bValidTolerance,
+        "Planed_ClassifyPoint requires a finite nonnegative tolerance." );
+    if ( !bValidTolerance ) {
+        return plane_side_t::ON_PLANE;
+    }
+    const f64 distance = Planed_SignedDistance( unitPlane, point );
+    if ( distance > distanceTolerance ) {
+        return plane_side_t::POSITIVE;
+    }
+    if ( distance < -distanceTolerance ) {
+        return plane_side_t::NEGATIVE;
+    }
+    return plane_side_t::ON_PLANE;
+}
+
+bool_t Planed_TryTransform(
+    planed_t plane,
+    affine3d_t transform,
+    f64 minimumAbsDeterminant,
+    f64 minimumNormalLength,
+    planed_t *pTransformed ) noexcept
+{
+    const bool_t bValidOutput = pTransformed != nullptr;
+    CY_ASSERT_MSG( bValidOutput, "Planed_TryTransform requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pTransformed = CY_PLANED_Z;
+
+    planed_t unitPlane{};
+    if ( !Planed_TryNormalize( plane, minimumNormalLength, &unitPlane ) ) {
+        return false;
+    }
+    const vec3d_t pointOnPlane = Vec3d_Scale( unitPlane.normal, -unitPlane.d );
+    const vec3d_t transformedPoint =
+        Affine3d_TransformPoint( transform, pointOnPlane );
+    vec3d_t transformedNormal{};
+    if ( !Affine3d_TryTransformNormal(
+             transform, unitPlane.normal, minimumAbsDeterminant,
+             &transformedNormal ) ) {
+        return false;
+    }
+    return Planed_TryFromPointNormal(
+        transformedPoint, transformedNormal,
+        minimumNormalLength, pTransformed );
+}
+
+bool_t Planed_TryToPlane( planed_t value, plane_t *pResult ) noexcept
+{
+    const bool_t bValidOutput = pResult != nullptr;
+    CY_ASSERT_MSG( bValidOutput, "Planed_TryToPlane requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pResult = CY_PLANE_Z;
+
+    vec3_t narrowedNormal{};
+    if ( !Vec3d_TryToVec3( value.normal, &narrowedNormal ) ) {
+        return false;
+    }
+    constexpr f64 kMaxF32AsF64 = static_cast<f64>( std::numeric_limits<f32>::max() );
+    if ( !Scalar_IsFinite( value.d ) || Scalar_Abs( value.d ) > kMaxF32AsF64 ) {
+        return false;
+    }
+    *pResult = Plane_Make( narrowedNormal, static_cast<f32>( value.d ) );
+    return true;
 }
 
 } // namespace cypher::math

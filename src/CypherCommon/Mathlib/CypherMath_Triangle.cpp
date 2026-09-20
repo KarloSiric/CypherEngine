@@ -209,4 +209,210 @@ vec3_t Triangle3_ClosestPoint( triangle3_t triangle, vec3_t point ) noexcept
             Vec3_Scale( edgeAC, weightC ) ) );
 }
 
+//==========================================================================
+// Binary64 authoring triangle
+//==========================================================================
+
+bool_t Triangle3d_IsFinite( triangle3d_t triangle ) noexcept
+{
+    return Vec3d_IsFinite( triangle.a ) &&
+           Vec3d_IsFinite( triangle.b ) &&
+           Vec3d_IsFinite( triangle.c );
+}
+
+f64 Triangle3d_TwiceArea( triangle3d_t triangle ) noexcept
+{
+    return Scalar_Sqrt(
+        Vec3d_LengthSquared( Triangle3d_NormalUnnormalized( triangle ) ) );
+}
+
+f64 Triangle3d_Area( triangle3d_t triangle ) noexcept
+{
+    return Triangle3d_TwiceArea( triangle ) * 0.5;
+}
+
+bool_t Triangle3d_TryNormal(
+    triangle3d_t triangle,
+    f64 minimumTwiceArea,
+    vec3d_t *pUnitNormal ) noexcept
+{
+    const bool_t bValidOutput = pUnitNormal != nullptr;
+    CY_ASSERT_MSG( bValidOutput, "Triangle3d_TryNormal requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    return Vec3d_TryNormalize(
+        Triangle3d_NormalUnnormalized( triangle ),
+        minimumTwiceArea, pUnitNormal, nullptr );
+}
+
+bool_t Triangle3d_TryPlane(
+    triangle3d_t triangle,
+    f64 minimumTwiceArea,
+    planed_t *pPlane ) noexcept
+{
+    return Planed_TryFromTriangle(
+        triangle.a, triangle.b, triangle.c,
+        minimumTwiceArea, pPlane );
+}
+
+bool_t Triangle3d_TryBarycentric(
+    triangle3d_t triangle,
+    vec3d_t point,
+    f64 minimumAbsDenominator,
+    vec3d_t *pBarycentric ) noexcept
+{
+    const bool_t bValidOutput = pBarycentric != nullptr;
+    const bool_t bValidThreshold = Scalar_IsFinite( minimumAbsDenominator ) &&
+                                   minimumAbsDenominator >= 0.0;
+    CY_ASSERT_MSG(
+        bValidOutput,
+        "Triangle3d_TryBarycentric requires output storage." );
+    CY_ASSERT_MSG(
+        bValidThreshold,
+        "Triangle3d_TryBarycentric requires a finite nonnegative threshold." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pBarycentric = CY_VEC3D_ZERO;
+    if ( !bValidThreshold || !Triangle3d_IsFinite( triangle ) ||
+         !Vec3d_IsFinite( point ) ) {
+        return false;
+    }
+
+    const vec3d_t edge0 = Vec3d_Subtract( triangle.b, triangle.a );
+    const vec3d_t edge1 = Vec3d_Subtract( triangle.c, triangle.a );
+    const vec3d_t offset = Vec3d_Subtract( point, triangle.a );
+    const f64 dot00 = Vec3d_Dot( edge0, edge0 );
+    const f64 dot01 = Vec3d_Dot( edge0, edge1 );
+    const f64 dot11 = Vec3d_Dot( edge1, edge1 );
+    const f64 dot20 = Vec3d_Dot( offset, edge0 );
+    const f64 dot21 = Vec3d_Dot( offset, edge1 );
+    const f64 denominator = dot00 * dot11 - dot01 * dot01;
+    // The Gram determinant approaches zero as the triangle becomes degenerate.
+    if ( !Scalar_IsFinite( denominator ) ||
+         Scalar_Abs( denominator ) <= minimumAbsDenominator ) {
+        return false;
+    }
+
+    const f64 inverseDenominator = 1.0 / denominator;
+    const f64 weightB = ( dot11 * dot20 - dot01 * dot21 ) * inverseDenominator;
+    const f64 weightC = ( dot00 * dot21 - dot01 * dot20 ) * inverseDenominator;
+    *pBarycentric = Vec3d_Make( 1.0 - weightB - weightC, weightB, weightC );
+    return Vec3d_IsFinite( *pBarycentric );
+}
+
+bool_t Triangle3d_ContainsPoint(
+    triangle3d_t triangle,
+    vec3d_t point,
+    f64 minimumTwiceArea,
+    f64 planeTolerance,
+    f64 barycentricTolerance ) noexcept
+{
+    const bool_t bValidTolerances =
+        Scalar_IsFinite( planeTolerance ) && planeTolerance >= 0.0 &&
+        Scalar_IsFinite( barycentricTolerance ) && barycentricTolerance >= 0.0;
+    CY_ASSERT_MSG(
+        bValidTolerances,
+        "Triangle3d_ContainsPoint requires finite nonnegative tolerances." );
+    if ( !bValidTolerances ) {
+        return false;
+    }
+
+    planed_t plane{};
+    if ( !Triangle3d_TryPlane( triangle, minimumTwiceArea, &plane ) ||
+         Scalar_Abs( Planed_SignedDistance( plane, point ) ) > planeTolerance ) {
+        return false;
+    }
+    vec3d_t barycentric{};
+    const f64 denominatorThreshold = minimumTwiceArea * minimumTwiceArea;
+    if ( !Triangle3d_TryBarycentric(
+             triangle, point, denominatorThreshold, &barycentric ) ) {
+        return false;
+    }
+    return barycentric.x >= -barycentricTolerance &&
+           barycentric.y >= -barycentricTolerance &&
+           barycentric.z >= -barycentricTolerance;
+}
+
+vec3d_t Triangle3d_ClosestPoint( triangle3d_t triangle, vec3d_t point ) noexcept
+{
+    const vec3d_t edgeAB = Vec3d_Subtract( triangle.b, triangle.a );
+    const vec3d_t edgeAC = Vec3d_Subtract( triangle.c, triangle.a );
+    const vec3d_t fromA = Vec3d_Subtract( point, triangle.a );
+    const f64 d1 = Vec3d_Dot( edgeAB, fromA );
+    const f64 d2 = Vec3d_Dot( edgeAC, fromA );
+    if ( d1 <= 0.0 && d2 <= 0.0 ) {
+        return triangle.a;
+    }
+
+    const vec3d_t fromB = Vec3d_Subtract( point, triangle.b );
+    const f64 d3 = Vec3d_Dot( edgeAB, fromB );
+    const f64 d4 = Vec3d_Dot( edgeAC, fromB );
+    if ( d3 >= 0.0 && d4 <= d3 ) {
+        return triangle.b;
+    }
+
+    const f64 vertexCRegion = d1 * d4 - d3 * d2;
+    if ( vertexCRegion <= 0.0 && d1 >= 0.0 && d3 <= 0.0 ) {
+        const f64 t = d1 / ( d1 - d3 );
+        return Vec3d_MulAdd( triangle.a, edgeAB, t );
+    }
+
+    const vec3d_t fromC = Vec3d_Subtract( point, triangle.c );
+    const f64 d5 = Vec3d_Dot( edgeAB, fromC );
+    const f64 d6 = Vec3d_Dot( edgeAC, fromC );
+    if ( d6 >= 0.0 && d5 <= d6 ) {
+        return triangle.c;
+    }
+
+    const f64 vertexBRegion = d5 * d2 - d1 * d6;
+    if ( vertexBRegion <= 0.0 && d2 >= 0.0 && d6 <= 0.0 ) {
+        const f64 t = d2 / ( d2 - d6 );
+        return Vec3d_MulAdd( triangle.a, edgeAC, t );
+    }
+
+    const f64 vertexARegion = d3 * d6 - d5 * d4;
+    if ( vertexARegion <= 0.0 &&
+         ( d4 - d3 ) >= 0.0 && ( d5 - d6 ) >= 0.0 ) {
+        const vec3d_t edgeBC = Vec3d_Subtract( triangle.c, triangle.b );
+        const f64 t = ( d4 - d3 ) /
+                      ( ( d4 - d3 ) + ( d5 - d6 ) );
+        return Vec3d_MulAdd( triangle.b, edgeBC, t );
+    }
+
+    const f64 inverseSum =
+        1.0 / ( vertexARegion + vertexBRegion + vertexCRegion );
+    const f64 weightB = vertexBRegion * inverseSum;
+    const f64 weightC = vertexCRegion * inverseSum;
+    return Vec3d_Add(
+        triangle.a,
+        Vec3d_Add(
+            Vec3d_Scale( edgeAB, weightB ),
+            Vec3d_Scale( edgeAC, weightC ) ) );
+}
+
+bool_t Triangle3d_TryToTriangle3(
+    triangle3d_t value, triangle3_t *pResult ) noexcept
+{
+    const bool_t bValidOutput = pResult != nullptr;
+    CY_ASSERT_MSG(
+        bValidOutput, "Triangle3d_TryToTriangle3 requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pResult = Triangle3_Make( CY_VEC3_ZERO, CY_VEC3_ZERO, CY_VEC3_ZERO );
+
+    vec3_t narrowedA{};
+    vec3_t narrowedB{};
+    vec3_t narrowedC{};
+    if ( !Vec3d_TryToVec3( value.a, &narrowedA ) ||
+         !Vec3d_TryToVec3( value.b, &narrowedB ) ||
+         !Vec3d_TryToVec3( value.c, &narrowedC ) ) {
+        return false;
+    }
+    *pResult = Triangle3_Make( narrowedA, narrowedB, narrowedC );
+    return true;
+}
+
 } // namespace cypher::math

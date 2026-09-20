@@ -98,6 +98,73 @@ static_assert( sizeof( aabb_t ) == sizeof( f32 ) * 6u );
 static_assert( std::is_standard_layout_v<aabb_t> );
 static_assert( std::is_trivially_copyable_v<aabb_t> );
 
+// Binary64 authoring bounds ---------------------------------------------------------
+struct aabbd_t {
+    vec3d_t minimum; // Inclusive minimum on each world or local axis.
+    vec3d_t maximum; // Inclusive maximum on each world or local axis.
+};
+
+// Reversed extrema let the first expanded point initialize all six bounds.
+inline constexpr aabbd_t CY_AABBD_EMPTY{
+    { common::CY_F64_MAX, common::CY_F64_MAX, common::CY_F64_MAX },
+    { -common::CY_F64_MAX, -common::CY_F64_MAX, -common::CY_F64_MAX }
+};
+
+// Construction -------------------------------------------------------------------
+CYPHER_NODISCARD constexpr aabbd_t Aabbd_Make(
+    vec3d_t minimum, vec3d_t maximum ) noexcept;
+CYPHER_NODISCARD constexpr aabbd_t Aabbd_FromPoint( vec3d_t point ) noexcept;
+CYPHER_NODISCARD constexpr bool_t Aabbd_IsEmpty( aabbd_t bounds ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Aabbd_IsFinite(
+    aabbd_t bounds ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Aabbd_IsValid(
+    aabbd_t bounds ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API aabbd_t Aabbd_FromCenterExtents(
+    vec3d_t center, vec3d_t extents ) noexcept;
+
+// Expansion and set operations ---------------------------------------------------
+CYPHER_NODISCARD CYPHER_MATH_API aabbd_t Aabbd_ExpandPoint(
+    aabbd_t bounds, vec3d_t point ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API aabbd_t Aabbd_ExpandAabb(
+    aabbd_t bounds, aabbd_t other ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API aabbd_t Aabbd_Union(
+    aabbd_t a, aabbd_t b ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API aabbd_t Aabbd_Intersection(
+    aabbd_t a, aabbd_t b ) noexcept;
+
+// Spatial queries ----------------------------------------------------------------
+CYPHER_NODISCARD constexpr bool_t Aabbd_ContainsPoint(
+    aabbd_t bounds, vec3d_t point ) noexcept;
+CYPHER_NODISCARD constexpr bool_t Aabbd_ContainsAabb(
+    aabbd_t outer, aabbd_t inner ) noexcept;
+CYPHER_NODISCARD constexpr bool_t Aabbd_Overlaps(
+    aabbd_t a, aabbd_t b ) noexcept;
+
+CYPHER_NODISCARD CYPHER_MATH_API vec3d_t Aabbd_Center( aabbd_t bounds ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec3d_t Aabbd_Size( aabbd_t bounds ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec3d_t Aabbd_Extents( aabbd_t bounds ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Aabbd_Volume( aabbd_t bounds ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Aabbd_SurfaceArea( aabbd_t bounds ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec3d_t Aabbd_Corner(
+    aabbd_t bounds, u32 iCorner ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec3d_t Aabbd_ClosestPoint(
+    aabbd_t bounds, vec3d_t point ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Aabbd_DistanceSquaredToPoint(
+    aabbd_t bounds, vec3d_t point ) noexcept;
+
+// Eight transformed corners are enclosed conservatively by the output AABB.
+CYPHER_NODISCARD CYPHER_MATH_API aabbd_t Aabbd_TransformAffine(
+    aabbd_t bounds, affine3d_t transform ) noexcept;
+
+// Precision conversion ------------------------------------------------------------
+CYPHER_NODISCARD constexpr aabbd_t Aabbd_FromAabb( aabb_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Aabbd_TryToAabb(
+    aabbd_t value, CY_OUT aabb_t *pResult ) noexcept;
+
+static_assert( sizeof( aabbd_t ) == sizeof( f64 ) * 6u );
+static_assert( std::is_standard_layout_v<aabbd_t> );
+static_assert( std::is_trivially_copyable_v<aabbd_t> );
+
 } // namespace cypher::math
 
 #ifndef CYPHER_COMMON_MATH_BOUNDS_INL

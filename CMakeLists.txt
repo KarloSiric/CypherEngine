@@ -367,6 +367,7 @@ set(CYPHERMATH_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Bounds.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Brush.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Clip.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Expansion.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Frustum.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_FixedPoint.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Geometry2D.cpp"
@@ -377,6 +378,7 @@ set(CYPHERMATH_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Numerics.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Plane.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Polygon.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Predicates.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Quaternion.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Quantization.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Ray.cpp"
@@ -674,6 +676,18 @@ target_include_directories(CypherMath
 )
 target_compile_definitions(CypherMath PUBLIC CYPHER_MATH_STATIC=1)
 target_link_libraries(CypherMath PUBLIC Cypher::CommonTier0)
+if (NOT MSVC)
+    # Expansion/Predicates rely on TwoSum/TwoDiff/TwoProduct being exact under
+    # plain IEEE-754 double arithmetic; GCC/Clang may otherwise silently fuse
+    # unrelated add+multiply pairs into an FMA, which would break that exactness
+    # everywhere except the one deliberate std::fma call in TwoProduct itself.
+    set_source_files_properties(
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Expansion.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherCommon/Mathlib/CypherMath_Predicates.cpp"
+        PROPERTIES
+            COMPILE_OPTIONS "-ffp-contract=off"
+    )
+endif()
 
 add_library(CypherSecurity STATIC ${CYPHERSECURITY_SOURCES})
 add_library(Cypher::Security ALIAS CypherSecurity)
@@ -1906,6 +1920,11 @@ if (CYPHERENGINE_BUILD_TESTS)
         cypher_add_common_catch_test(
             cypher_common_mathlib_authoring_properties_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_AuthoringProperties_Tests.cpp"
+            Cypher::Math
+        )
+        cypher_add_common_catch_test(
+            cypher_common_mathlib_predicates_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Mathlib/CypherCommon_Mathlib_Predicates_Tests.cpp"
             Cypher::Math
         )
         cypher_add_common_catch_test(

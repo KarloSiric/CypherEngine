@@ -19,6 +19,7 @@
 #include "CypherCommon_Assert.h"
 
 #include <algorithm>
+#include <limits>
 
 namespace cypher::math
 {
@@ -29,6 +30,11 @@ namespace
 CYPHER_NODISCARD bool_t Vec2_ValidTolerance( f32 tolerance ) noexcept
 {
     return Scalar_IsFinite( tolerance ) && tolerance >= 0.0f;
+}
+
+CYPHER_NODISCARD bool_t Vec2d_ValidMinimumLength( f64 minimumLength ) noexcept
+{
+    return Scalar_IsFinite( minimumLength ) && minimumLength >= 0.0;
 }
 
 CYPHER_NODISCARD bool_t Vec2_NormalizeFinite(
@@ -51,6 +57,34 @@ CYPHER_NODISCARD bool_t Vec2_NormalizeFinite(
     *pNormalized = Vec2_DivideScalar( scaled, scaledLength );
     *pLength = maximumComponent * scaledLength;
     return Vec2_IsFinite( *pNormalized );
+}
+
+CYPHER_NODISCARD bool_t Vec2d_NormalizeFinite(
+    vec2d_t value,
+    vec2d_t *pNormalized,
+    f64 *pLength ) noexcept
+{
+    const f64 maximumComponent = Scalar_Max(
+        Scalar_Abs( value.x ), Scalar_Abs( value.y ) );
+    if ( maximumComponent == 0.0 ) {
+        *pNormalized = CY_VEC2D_ZERO;
+        *pLength = 0.0;
+        return false;
+    }
+
+    const vec2d_t scaled = Vec2d_DivideScalar( value, maximumComponent );
+    const f64 scaledLength = Scalar_Sqrt( Vec2d_LengthSquared( scaled ) );
+    const vec2d_t normalized = Vec2d_DivideScalar( scaled, scaledLength );
+    const f64 length = maximumComponent * scaledLength;
+    if ( !Vec2d_IsFinite( normalized ) || !Scalar_IsFinite( length ) ) {
+        *pNormalized = CY_VEC2D_ZERO;
+        *pLength = 0.0;
+        return false;
+    }
+
+    *pNormalized = normalized;
+    *pLength = length;
+    return true;
 }
 
 } // namespace
@@ -99,6 +133,99 @@ bool_t Vec2_IsFinite( vec2_t value ) noexcept
     return Scalar_IsFinite( value.x ) && Scalar_IsFinite( value.y );
 }
 
+// NOTE: Construction/access and precision-conversion group, filled in late.
+vec2d_t Vec2d_FromArray( const f64 *pValues ) noexcept
+{
+    CY_ASSERT_MSG( pValues != nullptr, "Vec2d_FromArray requires source storage." );
+    return pValues != nullptr ? Vec2d_Make( pValues[0], pValues[1] ) : CY_VEC2D_ZERO;
+}
+
+void Vec2d_Store( vec2d_t value, f64 *pValues ) noexcept
+{
+    CY_ASSERT_MSG( pValues != nullptr, "Vec2d_Store requires destination storage." );
+    if ( pValues != nullptr ) {
+        pValues[0] = value.x;
+        pValues[1] = value.y;
+    }
+}
+
+f64 Vec2d_Component( vec2d_t value, u32 iComponent ) noexcept
+{
+    CY_ASSERT_MSG( iComponent < 2u, "Vec2d_Component index is outside the vector." );
+    switch ( iComponent ) {
+        case 0u: return value.x;
+        case 1u: return value.y;
+        default: return 0.0;
+    }
+}
+
+void Vec2d_SetComponent( vec2d_t *pValue, u32 iComponent, f64 value ) noexcept
+{
+    CY_ASSERT_MSG( pValue != nullptr, "Vec2d_SetComponent requires vector storage." );
+    CY_ASSERT_MSG( iComponent < 2u, "Vec2d_SetComponent index is outside the vector." );
+    if ( pValue == nullptr ) {
+        return;
+    }
+    if ( iComponent == 0u ) {
+        pValue->x = value;
+    } else if ( iComponent == 1u ) {
+        pValue->y = value;
+    }
+}
+
+bool_t Vec2d_TryToVec2( vec2d_t value, vec2_t *pResult ) noexcept
+{
+    const bool_t bValidOutput = pResult != nullptr;
+    CY_ASSERT_MSG( bValidOutput, "Vec2d_TryToVec2 requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pResult = CY_VEC2_ZERO;
+    if ( !Vec2d_IsFinite( value ) ) {
+        return false;
+    }
+    constexpr f64 kMaxF32AsF64 = static_cast<f64>( std::numeric_limits<f32>::max() );
+    if ( Scalar_Abs( value.x ) > kMaxF32AsF64 || Scalar_Abs( value.y ) > kMaxF32AsF64 ) {
+        return false;
+    }
+    *pResult = Vec2_Make( static_cast<f32>( value.x ), static_cast<f32>( value.y ) );
+    return true;
+}
+
+bool_t Vec2d_IsFinite( vec2d_t value ) noexcept
+{
+    return Scalar_IsFinite( value.x ) && Scalar_IsFinite( value.y );
+}
+
+bool_t Vec2d_TryLength( vec2d_t value, f64 *pLength ) noexcept
+{
+    const bool_t bValidOutput = pLength != nullptr;
+    CY_ASSERT_MSG( bValidOutput, "Vec2d_TryLength requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pLength = 0.0;
+    if ( !Vec2d_IsFinite( value ) ) {
+        return false;
+    }
+    if ( Vec2d_EqualsExact( value, CY_VEC2D_ZERO ) ) {
+        return true;
+    }
+
+    vec2d_t ignoredNormalized{};
+    f64 length = 0.0;
+    if ( !Vec2d_NormalizeFinite( value, &ignoredNormalized, &length ) ) {
+        return false;
+    }
+    *pLength = length;
+    return true;
+}
+
+bool_t Vec2d_TryDistance( vec2d_t a, vec2d_t b, f64 *pDistance ) noexcept
+{
+    return Vec2d_TryLength( Vec2d_Subtract( a, b ), pDistance );
+}
+
 bool_t Vec2_NearlyEquals(
     vec2_t a,
     vec2_t b,
@@ -107,6 +234,13 @@ bool_t Vec2_NearlyEquals(
 {
     return Scalar_NearlyEquals( a.x, b.x, absoluteTolerance, relativeTolerance ) &&
            Scalar_NearlyEquals( a.y, b.y, absoluteTolerance, relativeTolerance );
+}
+
+// NOTE: Added these new!
+bool_t Vec2d_NearlyEquals( vec2d_t a, vec2d_t b, f64 absoluteTolerance, f64 relativeTolerance ) noexcept
+{
+    // FIXME: using now the 64 bit 8 byte version for this case!
+    return Scalar_NearlyEquals( a.x, b.x, absoluteTolerance, relativeTolerance ) && Scalar_NearlyEquals( a.y, b.y, absoluteTolerance, relativeTolerance );
 }
 
 bool_t Vec2_IsNearZero( vec2_t value, f32 tolerance ) noexcept
@@ -124,6 +258,21 @@ bool_t Vec2_IsNearZero( vec2_t value, f32 tolerance ) noexcept
     return !Vec2_NormalizeFinite( value, &normalized, &length ) || length <= tolerance;
 }
 
+bool_t Vec2d_IsNearZero( vec2d_t value, f64 tolerance ) noexcept
+{
+    const bool_t bValidTolerance = Vec2d_ValidMinimumLength( tolerance );
+    CY_ASSERT_MSG(
+        bValidTolerance,
+        "Vec2d_IsNearZero requires a finite nonnegative tolerance." );
+    if ( !bValidTolerance || !Vec2d_IsFinite( value ) ) {
+        return false;
+    }
+
+    vec2d_t normalized{};
+    f64 length = 0.0;
+    return !Vec2d_NormalizeFinite( value, &normalized, &length ) || length <= tolerance;
+}
+
 bool_t Vec2_IsUnitLength( vec2_t value, f32 tolerance ) noexcept
 {
     const bool_t bValidTolerance = Vec2_ValidTolerance( tolerance );
@@ -138,6 +287,22 @@ bool_t Vec2_IsUnitLength( vec2_t value, f32 tolerance ) noexcept
     f32 length = 0.0f;
     return Vec2_NormalizeFinite( value, &normalized, &length ) &&
            Scalar_Abs( length - 1.0f ) <= tolerance;
+}
+
+bool_t Vec2d_IsUnitLength( vec2d_t value, f64 tolerance ) noexcept
+{
+    const bool_t bValidTolerance = Vec2d_ValidMinimumLength( tolerance );
+    CY_ASSERT_MSG(
+        bValidTolerance,
+        "Vec2d_IsUnitLength requires a finite nonnegative tolerance." );
+    if ( !bValidTolerance || !Vec2d_IsFinite( value ) ) {
+        return false;
+    }
+
+    vec2d_t normalized{};
+    f64 length = 0.0;
+    return Vec2d_NormalizeFinite( value, &normalized, &length ) &&
+           Scalar_Abs( length - 1.0 ) <= tolerance;
 }
 
 vec2_t Vec2_Abs( vec2_t value ) noexcept
@@ -167,6 +332,33 @@ vec2_t Vec2_Clamp( vec2_t value, vec2_t minimum, vec2_t maximum ) noexcept
         Scalar_Clamp( value.y, minimum.y, maximum.y ) );
 }
 
+vec2d_t Vec2d_Abs( vec2d_t value ) noexcept 
+{
+    return Vec2d_Make( Scalar_Abs( value.x ), Scalar_Abs( value.y ) );
+}
+
+vec2d_t Vec2d_Min( vec2d_t a, vec2d_t b ) noexcept 
+{
+    return Vec2d_Make( Scalar_Min( a.x, b.x ), Scalar_Min( a.y, b.y ) );
+}
+
+vec2d_t Vec2d_Max( vec2d_t a, vec2d_t b ) noexcept
+{
+    return Vec2d_Make( Scalar_Max( a.x, b.x ), Scalar_Max( a.y, b.y ) );
+}
+
+vec2d_t Vec2d_Clamp( vec2d_t value, vec2d_t minimum, vec2d_t maximum ) noexcept
+{
+    const bool_t bValidBounds = minimum.x <= maximum.x && minimum.y <= maximum.y;
+    CY_ASSERT_MSG( bValidBounds, "Vec2d_Clamp requires ordered component bounds." );
+    if ( !bValidBounds ) {
+        return value;
+    }
+    return Vec2d_Make(
+        Scalar_Clamp( value.x, minimum.x, maximum.x ),
+        Scalar_Clamp( value.y, minimum.y, maximum.y ) );
+}
+
 vec2_t Vec2_Floor( vec2_t value ) noexcept
 {
     return Vec2_Make( Scalar_Floor( value.x ), Scalar_Floor( value.y ) );
@@ -185,6 +377,27 @@ vec2_t Vec2_Round( vec2_t value ) noexcept
 vec2_t Vec2_Truncate( vec2_t value ) noexcept
 {
     return Vec2_Make( Scalar_Truncate( value.x ), Scalar_Truncate( value.y ) );
+}
+
+// NOTE: Double precisions values added!!!
+vec2d_t Vec2d_Floor( vec2d_t value ) noexcept
+{
+    return Vec2d_Make( Scalar_Floor( value.x ), Scalar_Floor( value.y ) );
+}
+
+vec2d_t Vec2d_Ceil( vec2d_t value ) noexcept
+{
+    return Vec2d_Make( Scalar_Ceil( value.x ), Scalar_Ceil( value.y ) );
+}
+
+vec2d_t Vec2d_Round( vec2d_t value ) noexcept
+{
+    return Vec2d_Make( Scalar_Round( value.x ), Scalar_Round( value.y ) );
+}
+
+vec2d_t Vec2d_Truncate( vec2d_t value ) noexcept
+{
+    return Vec2d_Make( Scalar_Truncate( value.x ), Scalar_Truncate( value.y ) );
 }
 
 f32 Vec2_Length( vec2_t value ) noexcept
@@ -244,9 +457,53 @@ bool_t Vec2_TryNormalize(
     return true;
 }
 
+bool_t Vec2d_TryNormalize(
+    vec2d_t value,
+    f64 minimumLength,
+    vec2d_t *pNormalized,
+    f64 *pOriginalLength ) noexcept
+{
+    const bool_t bValidOutput = pNormalized != nullptr;
+    const bool_t bValidMinimum = Vec2d_ValidMinimumLength( minimumLength );
+    CY_ASSERT_MSG( bValidOutput, "Vec2d_TryNormalize requires output storage." );
+    CY_ASSERT_MSG(
+        bValidMinimum,
+        "Vec2d_TryNormalize requires a finite nonnegative minimum length." );
+    if ( pOriginalLength != nullptr ) {
+        *pOriginalLength = 0.0;
+    }
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pNormalized = CY_VEC2D_ZERO;
+    if ( !bValidMinimum || !Vec2d_IsFinite( value ) ) {
+        return false;
+    }
+
+    vec2d_t normalized{};
+    f64 length = 0.0;
+    if ( !Vec2d_NormalizeFinite( value, &normalized, &length ) ) {
+        return false;
+    }
+    if ( pOriginalLength != nullptr ) {
+        *pOriginalLength = length;
+    }
+    if ( length <= minimumLength ) {
+        return false;
+    }
+
+    *pNormalized = normalized;
+    return true;
+}
+
 vec2_t Vec2_LerpClamped( vec2_t a, vec2_t b, f32 t ) noexcept
 {
     return Vec2_Lerp( a, b, Scalar_Saturate( t ) );
+}
+
+vec2d_t Vec2d_LerpClamped( vec2d_t a, vec2d_t b, f64 t ) noexcept
+{
+    return Vec2d_Lerp( a, b, Scalar_Saturate( t ) );
 }
 
 vec2_t Vec2_MoveTowards( vec2_t current, vec2_t target, f32 maximumDistance ) noexcept
@@ -277,6 +534,34 @@ vec2_t Vec2_MoveTowards( vec2_t current, vec2_t target, f32 maximumDistance ) no
         ? target
         : Vec2_MulAdd( current, direction, maximumDistance );
 }
+/**************** NOTE: Duble precisions for proper lerping movement, geometrical needs */
+vec2d_t Vec2d_MoveTowards( vec2d_t current, vec2d_t target, f64 maximumDistance ) noexcept
+{
+    const bool_t bValidDistance = Vec2d_ValidMinimumLength( maximumDistance );
+    CY_ASSERT_MSG(
+        bValidDistance,
+        "Vec2d_MoveTowards requires a finite nonnegative maximum distance." );
+    if ( !bValidDistance ) {
+        return current;
+    }
+
+    const vec2d_t displacement = Vec2d_Subtract( target, current );
+    if ( Vec2d_EqualsExact( displacement, CY_VEC2D_ZERO ) ) {
+        return target;
+    }
+    if ( !Vec2d_IsFinite( displacement ) ) {
+        return current;
+    }
+
+    vec2d_t direction{};
+    f64 distance = 0.0;
+    if ( !Vec2d_NormalizeFinite( displacement, &direction, &distance ) ) {
+        return current;
+    }
+    return distance <= maximumDistance
+        ? target
+        : Vec2d_MulAdd( current, direction, maximumDistance );
+}
 
 vec2_t Vec2_ClampLength( vec2_t value, f32 minimumLength, f32 maximumLength ) noexcept
 {
@@ -300,6 +585,32 @@ vec2_t Vec2_ClampLength( vec2_t value, f32 minimumLength, f32 maximumLength ) no
     }
     if ( length > maximumLength ) {
         return Vec2_Scale( normalized, maximumLength );
+    }
+    return value;
+}
+// NOTE: Double precision for proper clamping
+vec2d_t Vec2d_ClampLength( vec2d_t value, f64 minimumLength, f64 maximumLength ) noexcept
+{
+    const bool_t bValidBounds = Vec2d_ValidMinimumLength( minimumLength ) &&
+                                Vec2d_ValidMinimumLength( maximumLength ) &&
+                                minimumLength <= maximumLength;
+    CY_ASSERT_MSG(
+        bValidBounds,
+        "Vec2d_ClampLength requires finite nonnegative ordered bounds." );
+    if ( !bValidBounds || !Vec2d_IsFinite( value ) ) {
+        return value;
+    }
+
+    vec2d_t normalized{};
+    f64 length = 0.0;
+    if ( !Vec2d_NormalizeFinite( value, &normalized, &length ) ) {
+        return value;
+    }
+    if ( length < minimumLength ) {
+        return Vec2d_Scale( normalized, minimumLength );
+    }
+    if ( length > maximumLength ) {
+        return Vec2d_Scale( normalized, maximumLength );
     }
     return value;
 }
@@ -336,6 +647,36 @@ bool_t Vec2_TryProjectOnto(
     return true;
 }
 
+/* NOTE: DOuble precisions proejction onto!! ******************/
+bool_t Vec2d_TryProjectOnto(
+    vec2d_t value, vec2d_t onto, f64 minimumLength, vec2d_t *pProjected ) noexcept
+{
+    const bool_t bValidOutput = pProjected != nullptr;
+    const bool_t bValidMinimum = Vec2d_ValidMinimumLength( minimumLength );
+    CY_ASSERT_MSG( bValidOutput, "Vec2d_TryProjectOnto requires output storage." );
+    CY_ASSERT_MSG(
+        bValidMinimum,
+        "Vec2d_TryProjectOnto requires a finite nonnegative minimum length." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pProjected = CY_VEC2D_ZERO;
+    if ( !bValidMinimum || !Vec2d_IsFinite( value ) ) {
+        return false;
+    }
+
+    vec2d_t unitDirection{};
+    if ( !Vec2d_TryNormalize( onto, minimumLength, &unitDirection, nullptr ) ) {
+        return false;
+    }
+    const vec2d_t projected = Vec2d_ProjectOntoUnit( value, unitDirection );
+    if ( !Vec2d_IsFinite( projected ) ) {
+        return false;
+    }
+    *pProjected = projected;
+    return true;
+}
+
 bool_t Vec2_TryAngleBetween(
     vec2_t a,
     vec2_t b,
@@ -365,6 +706,36 @@ bool_t Vec2_TryAngleBetween(
     // Floating-point dot products can drift just outside [-1, 1]; the clamped
     // inverse cosine keeps parallel vectors from producing NaN.
     *pAngleRadians = Scalar_AcosClamped( Vec2_Dot( normalizedA, normalizedB ) );
+    return true;
+}
+
+bool_t Vec2d_TryAngleBetween(
+    vec2d_t a,
+    vec2d_t b,
+    f64 minimumLength,
+    f64 *pAngleRadians ) noexcept
+{
+    const bool_t bValidOutput = pAngleRadians != nullptr;
+    const bool_t bValidMinimum = Vec2d_ValidMinimumLength( minimumLength );
+    CY_ASSERT_MSG( bValidOutput, "Vec2d_TryAngleBetween requires output storage." );
+    CY_ASSERT_MSG(
+        bValidMinimum,
+        "Vec2d_TryAngleBetween requires a finite nonnegative minimum length." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pAngleRadians = 0.0;
+    if ( !bValidMinimum ) {
+        return false;
+    }
+
+    vec2d_t normalizedA{};
+    vec2d_t normalizedB{};
+    if ( !Vec2d_TryNormalize( a, minimumLength, &normalizedA, nullptr ) ||
+         !Vec2d_TryNormalize( b, minimumLength, &normalizedB, nullptr ) ) {
+        return false;
+    }
+    *pAngleRadians = Scalar_AcosClamped( Vec2d_Dot( normalizedA, normalizedB ) );
     return true;
 }
 

@@ -34,6 +34,14 @@ void RequireVec2( vec2_t value, f32 x, f32 y, f32 margin = 0.00005f )
     REQUIRE( value.y == Approx( y ).margin( margin ) );
 }
 
+void RequireVec3d(
+    vec3d_t value, f64 x, f64 y, f64 z, f64 margin = 1e-9 )
+{
+    REQUIRE( value.x == Approx( x ).margin( margin ) );
+    REQUIRE( value.y == Approx( y ).margin( margin ) );
+    REQUIRE( value.z == Approx( z ).margin( margin ) );
+}
+
 void RequireVec3(
     vec3_t value,
     f32 x,
@@ -143,6 +151,53 @@ TEST_CASE( "segments clip against a convex brush interval",
         Segment_Make( Vec3_Make( -3.0f, 2.0f, 0.0f ),
                       Vec3_Make( 3.0f, 2.0f, 0.0f ) ),
         planes, 6u, 0.0f, 0.000001f, &result ) );
+}
+
+TEST_CASE( "polygon binary64 clipping retains the requested plane half-space",
+           "[CypherCommon][Mathlib][Editor][Clip][Binary64]" )
+{
+    constexpr vec3d_t polygon[]{
+        { -2.0, -1.0, 0.0 },
+        { 2.0, -1.0, 0.0 },
+        { 2.0, 1.0, 0.0 },
+        { -2.0, 1.0, 0.0 }
+    };
+    vec3d_t output[5]{};
+    const polygon_clip_result_t result = Clip_PolygonAgainstPlaneD(
+        polygon, 4u, Planed_Make( CY_VEC3D_FORWARD, 0.0 ),
+        0.0, output, 5u );
+    REQUIRE( result.status == polygon_clip_status_t::OK );
+    REQUIRE( result.cVerticesWritten == 4u );
+    for ( usize i = 0u; i < result.cVerticesWritten; ++i ) {
+        REQUIRE( output[i].x <= 1e-9 );
+    }
+}
+
+TEST_CASE( "segments binary64 clip against a convex brush interval",
+           "[CypherCommon][Mathlib][Editor][Clip][Binary64]" )
+{
+    constexpr planed_t planes[]{
+        { { 1.0, 0.0, 0.0 }, -1.0 },
+        { { -1.0, 0.0, 0.0 }, -1.0 },
+        { { 0.0, 1.0, 0.0 }, -1.0 },
+        { { 0.0, -1.0, 0.0 }, -1.0 },
+        { { 0.0, 0.0, 1.0 }, -1.0 },
+        { { 0.0, 0.0, -1.0 }, -1.0 }
+    };
+    segmentd_clip_result_t result{};
+    REQUIRE( Clip_TrySegmentAgainstConvexPlanesD(
+        Segmentd_Make( Vec3d_Make( -3.0, 0.0, 0.0 ),
+                       Vec3d_Make( 3.0, 0.0, 0.0 ) ),
+        planes, 6u, 0.0, 1e-9, &result ) );
+    RequireVec3d( result.segment.start, -1.0, 0.0, 0.0 );
+    RequireVec3d( result.segment.end, 1.0, 0.0, 0.0 );
+    REQUIRE( result.parameterEnter == Approx( 1.0 / 3.0 ) );
+    REQUIRE( result.parameterExit == Approx( 2.0 / 3.0 ) );
+
+    REQUIRE_FALSE( Clip_TrySegmentAgainstConvexPlanesD(
+        Segmentd_Make( Vec3d_Make( -3.0, 2.0, 0.0 ),
+                       Vec3d_Make( 3.0, 2.0, 0.0 ) ),
+        planes, 6u, 0.0, 1e-9, &result ) );
 }
 
 TEST_CASE( "planar UV projection is reversible with scale, rotation, and offset",

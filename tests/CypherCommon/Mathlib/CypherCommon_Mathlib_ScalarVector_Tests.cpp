@@ -20,6 +20,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <limits>
 
 using namespace cypher::math;
@@ -44,6 +45,24 @@ void RequireVec3(
     REQUIRE( value.x == Approx( x ).margin( margin ) );
     REQUIRE( value.y == Approx( y ).margin( margin ) );
     REQUIRE( value.z == Approx( z ).margin( margin ) );
+}
+
+void RequireVec2d( vec2d_t value, f64 x, f64 y, f64 epsilon = 1.0e-14 )
+{
+    REQUIRE( value.x == Approx( x ).epsilon( epsilon ) );
+    REQUIRE( value.y == Approx( y ).epsilon( epsilon ) );
+}
+
+void RequireVec3d(
+    vec3d_t value,
+    f64 x,
+    f64 y,
+    f64 z,
+    f64 epsilon = 1.0e-14 )
+{
+    REQUIRE( value.x == Approx( x ).epsilon( epsilon ) );
+    REQUIRE( value.y == Approx( y ).epsilon( epsilon ) );
+    REQUIRE( value.z == Approx( z ).epsilon( epsilon ) );
 }
 
 } // namespace
@@ -140,6 +159,167 @@ TEST_CASE( "Vector2 planar products and perpendiculars use counter-clockwise sig
     REQUIRE( Vec2_Cross( x, y ) == 1.0f );
     RequireVec2( Vec2_PerpendicularCCW( x ), 0.0f, 1.0f );
     RequireVec2( Vec2_PerpendicularCW( x ), 0.0f, -1.0f );
+}
+
+TEST_CASE( "binary64 vector finite checks and equality reject invalid data",
+           "[CypherCommon][Mathlib][Vector][Binary64]" )
+{
+    const f64 infinity = std::numeric_limits<f64>::infinity();
+    const f64 nan = std::numeric_limits<f64>::quiet_NaN();
+    const f64 maximum = std::numeric_limits<f64>::max();
+
+    REQUIRE( Vec2d_IsFinite( Vec2d_Make( maximum, -maximum ) ) );
+    REQUIRE_FALSE( Vec2d_IsFinite( Vec2d_Make( nan, 0.0 ) ) );
+    REQUIRE_FALSE( Vec2d_IsFinite( Vec2d_Make( 0.0, infinity ) ) );
+    REQUIRE_FALSE( Vec2d_IsFinite( Vec2d_Make( -infinity, 0.0 ) ) );
+
+    REQUIRE( Vec3d_IsFinite( Vec3d_Make( maximum, 0.0, -maximum ) ) );
+    REQUIRE_FALSE( Vec3d_IsFinite( Vec3d_Make( nan, 0.0, 0.0 ) ) );
+    REQUIRE_FALSE( Vec3d_IsFinite( Vec3d_Make( 0.0, infinity, 0.0 ) ) );
+    REQUIRE_FALSE( Vec3d_IsFinite( Vec3d_Make( 0.0, 0.0, -infinity ) ) );
+
+    REQUIRE( Vec2d_EqualsExact( Vec2d_Make( 0.0, -0.0 ), CY_VEC2D_ZERO ) );
+    REQUIRE( Vec3d_EqualsExact(
+        Vec3d_Make( 1.0, 2.0, 3.0 ), Vec3d_Make( 1.0, 2.0, 3.0 ) ) );
+    REQUIRE_FALSE( Vec3d_EqualsExact(
+        Vec3d_Make( 1.0, 2.0, 3.0 ),
+        Vec3d_Make( 1.0, 2.0, std::nextafter( 3.0, infinity ) ) ) );
+    REQUIRE_FALSE( Vec3d_EqualsExact(
+        Vec3d_Make( nan, 2.0, 3.0 ), Vec3d_Make( nan, 2.0, 3.0 ) ) );
+}
+
+TEST_CASE( "binary64 checked lengths survive extreme finite magnitudes",
+           "[CypherCommon][Mathlib][Vector][Binary64][Length]" )
+{
+    f64 length = -1.0;
+    REQUIRE( Vec2d_TryLength( CY_VEC2D_ZERO, &length ) );
+    REQUIRE( length == 0.0 );
+
+    REQUIRE( Vec2d_TryLength( Vec2d_Make( 3.0e300, 4.0e300 ), &length ) );
+    REQUIRE( length / 1.0e300 == Approx( 5.0 ).epsilon( 1.0e-14 ) );
+    REQUIRE( Vec2d_TryLength( Vec2d_Make( 3.0e-300, 4.0e-300 ), &length ) );
+    REQUIRE( length / 1.0e-300 == Approx( 5.0 ).epsilon( 1.0e-14 ) );
+
+    REQUIRE( Vec3d_TryLength( Vec3d_Make( 2.0e300, 3.0e300, 6.0e300 ), &length ) );
+    REQUIRE( length / 1.0e300 == Approx( 7.0 ).epsilon( 1.0e-14 ) );
+    REQUIRE( Vec3d_TryLength( Vec3d_Make( 2.0e-300, 3.0e-300, 6.0e-300 ), &length ) );
+    REQUIRE( length / 1.0e-300 == Approx( 7.0 ).epsilon( 1.0e-14 ) );
+
+    const f64 subnormal = std::numeric_limits<f64>::denorm_min();
+    REQUIRE( Vec2d_TryLength(
+        Vec2d_Make( 3.0 * subnormal, 4.0 * subnormal ), &length ) );
+    REQUIRE( length == 5.0 * subnormal );
+    REQUIRE( Vec3d_TryLength(
+        Vec3d_Make( subnormal, 0.0, 0.0 ), &length ) );
+    REQUIRE( length == subnormal );
+
+    const f64 maximum = std::numeric_limits<f64>::max();
+    REQUIRE( Vec3d_TryLength( Vec3d_Make( maximum, 0.0, 0.0 ), &length ) );
+    REQUIRE( length == maximum );
+
+    length = 12.0;
+    REQUIRE_FALSE( Vec2d_TryLength(
+        Vec2d_Make( maximum, maximum ),
+        &length ) );
+    REQUIRE( length == 0.0 );
+
+    length = 12.0;
+    REQUIRE_FALSE( Vec3d_TryLength(
+        Vec3d_Make( std::numeric_limits<f64>::infinity(), 0.0, 0.0 ),
+        &length ) );
+    REQUIRE( length == 0.0 );
+}
+
+TEST_CASE( "binary64 checked normalization has deterministic failure outputs",
+           "[CypherCommon][Mathlib][Vector][Binary64][Normalize]" )
+{
+    vec2d_t normalized2 = CY_VEC2D_ONE;
+    f64 originalLength = -1.0;
+    REQUIRE( Vec2d_TryNormalize(
+        Vec2d_Make( -3.0e300, 4.0e300 ), 0.0,
+        &normalized2, &originalLength ) );
+    RequireVec2d( normalized2, -0.6, 0.8 );
+    REQUIRE( originalLength / 1.0e300 == Approx( 5.0 ).epsilon( 1.0e-14 ) );
+
+    REQUIRE( Vec2d_TryNormalize(
+        Vec2d_Make( 3.0e-300, 4.0e-300 ), 0.0,
+        &normalized2, nullptr ) );
+    RequireVec2d( normalized2, 0.6, 0.8 );
+
+    const f64 subnormal = std::numeric_limits<f64>::denorm_min();
+    REQUIRE( Vec2d_TryNormalize(
+        Vec2d_Make( 3.0 * subnormal, 4.0 * subnormal ), 0.0,
+        &normalized2, &originalLength ) );
+    RequireVec2d( normalized2, 0.6, 0.8 );
+    REQUIRE( originalLength == 5.0 * subnormal );
+
+    vec3d_t normalized3 = CY_VEC3D_ONE;
+    REQUIRE( Vec3d_TryNormalize(
+        Vec3d_Make( 2.0e300, 3.0e300, 6.0e300 ), 0.0,
+        &normalized3, &originalLength ) );
+    RequireVec3d( normalized3, 2.0 / 7.0, 3.0 / 7.0, 6.0 / 7.0 );
+    REQUIRE( Vec3d_Dot( normalized3, normalized3 ) ==
+             Approx( 1.0 ).epsilon( 1.0e-14 ) );
+    REQUIRE( originalLength / 1.0e300 == Approx( 7.0 ).epsilon( 1.0e-14 ) );
+
+    REQUIRE( Vec3d_TryNormalize(
+        Vec3d_Make( 2.0e-300, -3.0e-300, 6.0e-300 ), 0.0,
+        &normalized3, nullptr ) );
+    RequireVec3d( normalized3, 2.0 / 7.0, -3.0 / 7.0, 6.0 / 7.0 );
+
+    normalized3 = CY_VEC3D_ONE;
+    originalLength = -1.0;
+    REQUIRE_FALSE( Vec3d_TryNormalize(
+        CY_VEC3D_ZERO, 0.0, &normalized3, &originalLength ) );
+    REQUIRE( Vec3d_EqualsExact( normalized3, CY_VEC3D_ZERO ) );
+    REQUIRE( originalLength == 0.0 );
+
+    normalized3 = CY_VEC3D_ONE;
+    originalLength = -1.0;
+    REQUIRE_FALSE( Vec3d_TryNormalize(
+        Vec3d_Make( 3.0, 4.0, 0.0 ), 5.0,
+        &normalized3, &originalLength ) );
+    REQUIRE( Vec3d_EqualsExact( normalized3, CY_VEC3D_ZERO ) );
+    REQUIRE( originalLength == Approx( 5.0 ) );
+
+    REQUIRE( Vec3d_TryNormalize(
+        Vec3d_Make( 3.0, 4.0, 0.0 ), std::nextafter( 5.0, 0.0 ),
+        &normalized3, &originalLength ) );
+    RequireVec3d( normalized3, 0.6, 0.8, 0.0 );
+    REQUIRE( originalLength == Approx( 5.0 ) );
+
+    normalized3 = CY_VEC3D_ONE;
+    REQUIRE_FALSE( Vec3d_TryNormalize(
+        Vec3d_Make( 3.0, 4.0, 0.0 ),
+        std::nextafter( 5.0, std::numeric_limits<f64>::infinity() ),
+        &normalized3, &originalLength ) );
+    REQUIRE( Vec3d_EqualsExact( normalized3, CY_VEC3D_ZERO ) );
+    REQUIRE( originalLength == Approx( 5.0 ) );
+
+    normalized3 = CY_VEC3D_ONE;
+    originalLength = 12.0;
+    REQUIRE_FALSE( Vec3d_TryNormalize(
+        Vec3d_Make( std::numeric_limits<f64>::max(),
+                    std::numeric_limits<f64>::max(), 0.0 ),
+        0.0, &normalized3, &originalLength ) );
+    REQUIRE( Vec3d_EqualsExact( normalized3, CY_VEC3D_ZERO ) );
+    REQUIRE( originalLength == 0.0 );
+
+    normalized2 = CY_VEC2D_ONE;
+    originalLength = 12.0;
+    REQUIRE_FALSE( Vec2d_TryNormalize(
+        Vec2d_Make( std::numeric_limits<f64>::quiet_NaN(), 1.0 ), 0.0,
+        &normalized2, &originalLength ) );
+    REQUIRE( Vec2d_EqualsExact( normalized2, CY_VEC2D_ZERO ) );
+    REQUIRE( originalLength == 0.0 );
+
+    normalized3 = CY_VEC3D_ONE;
+    originalLength = 12.0;
+    REQUIRE_FALSE( Vec3d_TryNormalize(
+        Vec3d_Make( 1.0, std::numeric_limits<f64>::infinity(), 0.0 ), 0.0,
+        &normalized3, &originalLength ) );
+    REQUIRE( Vec3d_EqualsExact( normalized3, CY_VEC3D_ZERO ) );
+    REQUIRE( originalLength == 0.0 );
 }
 
 TEST_CASE( "Vector4 perspective divide succeeds and fails deterministically",

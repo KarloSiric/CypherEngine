@@ -87,6 +87,37 @@ CYPHER_NODISCARD constexpr ray_t Ray_TransformAffine(
 CYPHER_NODISCARD constexpr segment_t Segment_TransformAffine(
     segment_t segment, affine3_t transform ) noexcept;
 
+// Binary64 authoring segment ------------------------------------------------------
+// ray_t stays f32 (screen-space picking); segmentd_t is added because a mesh edge
+// or clipped brush boundary is itself a double-precision segment. No rayd_t yet --
+// no authoring consumer needs an infinite double-precision ray.
+struct segmentd_t {
+    vec3d_t start; // Point corresponding to normalized parameter t = 0.
+    vec3d_t end;   // Point corresponding to normalized parameter t = 1.
+};
+
+CYPHER_NODISCARD constexpr segmentd_t Segmentd_Make(
+    vec3d_t start, vec3d_t end ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Segmentd_IsFinite(
+    segmentd_t segment ) noexcept;
+
+CYPHER_NODISCARD constexpr vec3d_t Segmentd_Direction(
+    segmentd_t segment ) noexcept;
+CYPHER_NODISCARD constexpr vec3d_t Segmentd_PointAt(
+    segmentd_t segment, f64 t ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Segmentd_TryLength(
+    segmentd_t segment, CY_OUT f64 *pLength ) noexcept;
+CYPHER_NODISCARD constexpr f64 Segmentd_LengthSquared(
+    segmentd_t segment ) noexcept;
+
+CYPHER_NODISCARD CYPHER_MATH_API vec3d_t Segmentd_ClosestPoint(
+    segmentd_t segment, vec3d_t point ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Segmentd_DistanceSquaredToPoint(
+    segmentd_t segment, vec3d_t point ) noexcept;
+
+CYPHER_NODISCARD constexpr segmentd_t Segmentd_TransformAffine(
+    segmentd_t segment, affine3d_t transform ) noexcept;
+
 static_assert( sizeof( ray_t ) == sizeof( f32 ) * 6u );
 static_assert( sizeof( segment_t ) == sizeof( f32 ) * 6u );
 static_assert( std::is_standard_layout_v<ray_t> );

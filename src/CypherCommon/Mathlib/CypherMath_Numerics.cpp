@@ -28,24 +28,17 @@ namespace cypher::math
 namespace
 {
 
-struct vec3d_t {
-    f64 x;
-    f64 y;
-    f64 z;
-};
-
 vec3d_t SubtractDouble( vec3_t a, vec3_t b ) noexcept
 {
-    return {
-        static_cast<f64>( a.x ) - b.x,
-        static_cast<f64>( a.y ) - b.y,
-        static_cast<f64>( a.z ) - b.z
-    };
+    return Vec3d_Make(
+        static_cast<f64>( a.x ) - static_cast<f64>( b.x ),
+        static_cast<f64>( a.y ) - static_cast<f64>( b.y ),
+        static_cast<f64>( a.z ) - static_cast<f64>( b.z ) );
 }
 
 f64 DotDouble( vec3d_t a, vec3d_t b ) noexcept
 {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
+    return Vec3d_Dot( a, b );
 }
 
 vec3_t SegmentPointDouble( segment_t segment, f64 parameter ) noexcept

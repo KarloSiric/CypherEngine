@@ -40,6 +40,19 @@ vec2_t Polygon3_ProjectPoint( vec3_t point, polygon3_basis_t basis ) noexcept
         Vec3_Dot( relative, basis.bitangent ) );
 }
 
+bool_t Polygon3dArgumentsValid( const vec3d_t *pVertices, usize cVertices ) noexcept
+{
+    return pVertices != nullptr && cVertices >= 3u;
+}
+
+vec2d_t Polygon3d_ProjectPoint( vec3d_t point, polygon3d_basis_t basis ) noexcept
+{
+    const vec3d_t relative = Vec3d_Subtract( point, basis.origin );
+    return Vec2d_Make(
+        Vec3d_Dot( relative, basis.tangent ),
+        Vec3d_Dot( relative, basis.bitangent ) );
+}
+
 } // namespace
 
 bool_t Polygon3_TryBasis(
@@ -256,7 +269,8 @@ polygon_triangulation_result_t Polygon3_Triangulate(
     const vec3_t *pVertices,
     usize cVertices,
     polygon3_basis_t basis,
-    f64 orientationTolerance,
+    f64 distanceTolerance,
+    f64 areaTolerance,
     vec2_t *pProjectedScratch,
     usize cProjectedScratch,
     u32 *pIndexScratch,
@@ -272,7 +286,253 @@ polygon_triangulation_result_t Polygon3_Triangulate(
     return Polygon2_Triangulate(
         pProjectedScratch,
         cVertices,
-        orientationTolerance,
+        distanceTolerance,
+        areaTolerance,
+        pIndexScratch,
+        cIndexScratch,
+        pOutputIndices,
+        cOutputIndices );
+}
+
+//==========================================================================
+// Binary64 authoring surface
+//==========================================================================
+
+bool_t Polygon3d_TryBasis(
+    const vec3d_t *pVertices,
+    usize cVertices,
+    f64 minimumNormalLength,
+    polygon3d_basis_t *pBasis ) noexcept
+{
+    const bool_t bValidOutput = pBasis != nullptr;
+    CY_ASSERT_MSG( bValidOutput, "Polygon3d_TryBasis requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pBasis = {};
+    if ( !Polygon3dArgumentsValid( pVertices, cVertices ) ||
+         minimumNormalLength < 0.0 ) {
+        return false;
+    }
+
+    // Newell's method accumulates a stable area-weighted normal from the whole
+    // boundary instead of trusting one possibly skinny triangle.
+    vec3d_t newell = CY_VEC3D_ZERO;
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        const vec3d_t current = pVertices[i];
+        const vec3d_t next = pVertices[( i + 1u ) % cVertices];
+        if ( !Vec3d_IsFinite( current ) ) {
+            return false;
+        }
+        newell.x += ( current.y - next.y ) * ( current.z + next.z );
+        newell.y += ( current.z - next.z ) * ( current.x + next.x );
+        newell.z += ( current.x - next.x ) * ( current.y + next.y );
+    }
+
+    vec3d_t normal{};
+    if ( !Vec3d_TryNormalize( newell, minimumNormalLength, &normal, nullptr ) ) {
+        return false;
+    }
+
+    polygon3d_basis_t basis{};
+    basis.origin = pVertices[0];
+    basis.normal = normal;
+    Vec3d_BuildOrthonormalBasis( normal, &basis.tangent, &basis.bitangent );
+    if ( !Vec3d_IsFinite( basis.tangent ) || !Vec3d_IsFinite( basis.bitangent ) ) {
+        return false;
+    }
+    *pBasis = basis;
+    return true;
+}
+
+bool_t Polygon3d_IsPlanar(
+    const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    f64 distanceTolerance ) noexcept
+{
+    if ( !Polygon3dArgumentsValid( pVertices, cVertices ) ||
+         distanceTolerance < 0.0 || !Vec3d_IsFinite( basis.origin ) ||
+         !Vec3d_IsFinite( basis.normal ) ) {
+        return false;
+    }
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        const f64 distance = Vec3d_Dot(
+            basis.normal,
+            Vec3d_Subtract( pVertices[i], basis.origin ) );
+        if ( !Scalar_IsFinite( distance ) || std::abs( distance ) > distanceTolerance ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void Polygon3d_ProjectToBasis(
+    const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    vec2d_t *pProjected ) noexcept
+{
+    const bool_t bValidPointers = cVertices == 0u ||
+        ( pVertices != nullptr && pProjected != nullptr );
+    CY_ASSERT_MSG(
+        bValidPointers, "Polygon3d_ProjectToBasis received invalid storage." );
+    if ( !bValidPointers ) {
+        return;
+    }
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        pProjected[i] = Polygon3d_ProjectPoint( pVertices[i], basis );
+    }
+}
+
+bool_t Polygon3d_TryPlane(
+    const vec3d_t *pVertices,
+    usize cVertices,
+    f64 minimumNormalLength,
+    planed_t *pPlane ) noexcept
+{
+    const bool_t bValidOutput = pPlane != nullptr;
+    CY_ASSERT_MSG( bValidOutput, "Polygon3d_TryPlane requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pPlane = CY_PLANED_Z;
+
+    polygon3d_basis_t basis{};
+    if ( !Polygon3d_TryBasis( pVertices, cVertices, minimumNormalLength, &basis ) ) {
+        return false;
+    }
+    *pPlane = Planed_Make(
+        basis.normal,
+        -Vec3d_Dot( basis.normal, basis.origin ) );
+    return true;
+}
+
+bool_t Polygon3d_TryAreaCentroid(
+    const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    f64 minimumAbsArea,
+    f64 *pArea,
+    vec3d_t *pCentroid ) noexcept
+{
+    const bool_t bValidOutput = pArea != nullptr && pCentroid != nullptr;
+    CY_ASSERT_MSG(
+        bValidOutput, "Polygon3d_TryAreaCentroid requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pArea = 0.0;
+    *pCentroid = CY_VEC3D_ZERO;
+    if ( !Polygon3dArgumentsValid( pVertices, cVertices ) || minimumAbsArea < 0.0 ) {
+        return false;
+    }
+
+    // Form a triangle fan around vertex zero. Signed areas preserve winding so
+    // weighted centroids remain correct for either orientation.
+    const vec3d_t origin = pVertices[0];
+    f64 signedAreaSum = 0.0;
+    f64 weightedX = 0.0;
+    f64 weightedY = 0.0;
+    f64 weightedZ = 0.0;
+    for ( usize i = 1u; i + 1u < cVertices; ++i ) {
+        const vec3d_t edgeA = Vec3d_Subtract( pVertices[i], origin );
+        const vec3d_t edgeB = Vec3d_Subtract( pVertices[i + 1u], origin );
+        const f64 signedTriangleArea =
+            0.5 * Vec3d_Dot( Vec3d_Cross( edgeA, edgeB ), basis.normal );
+        const vec3d_t triangleCentroid = Vec3d_Scale(
+            Vec3d_Add( Vec3d_Add( origin, pVertices[i] ), pVertices[i + 1u] ),
+            1.0 / 3.0 );
+        signedAreaSum += signedTriangleArea;
+        weightedX += triangleCentroid.x * signedTriangleArea;
+        weightedY += triangleCentroid.y * signedTriangleArea;
+        weightedZ += triangleCentroid.z * signedTriangleArea;
+    }
+    if ( std::abs( signedAreaSum ) <= minimumAbsArea ) {
+        return false;
+    }
+
+    *pArea = std::abs( signedAreaSum );
+    *pCentroid = Vec3d_Make(
+        weightedX / signedAreaSum,
+        weightedY / signedAreaSum,
+        weightedZ / signedAreaSum );
+    return Vec3d_IsFinite( *pCentroid );
+}
+
+bool_t Polygon3d_IsConvex(
+    const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    f64 orientationTolerance,
+    vec2d_t *pProjectedScratch,
+    usize cProjectedScratch ) noexcept
+{
+    if ( !Polygon3dArgumentsValid( pVertices, cVertices ) ||
+         pProjectedScratch == nullptr || cProjectedScratch < cVertices ) {
+        return false;
+    }
+    // Once projected into the polygon's local plane, the shared 2D winding
+    // predicate handles edges and boundary tolerance consistently.
+    Polygon3d_ProjectToBasis( pVertices, cVertices, basis, pProjectedScratch );
+    return Polygon2d_IsConvex( pProjectedScratch, cVertices, orientationTolerance );
+}
+
+bool_t Polygon3d_ContainsPoint(
+    const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    vec3d_t point,
+    f64 planeTolerance,
+    f64 boundaryTolerance,
+    bool_t bIncludeBoundary,
+    vec2d_t *pProjectedScratch,
+    usize cProjectedScratch ) noexcept
+{
+    if ( !Polygon3dArgumentsValid( pVertices, cVertices ) ||
+         pProjectedScratch == nullptr || cProjectedScratch < cVertices ||
+         planeTolerance < 0.0 ) {
+        return false;
+    }
+    const f64 planeDistance = Vec3d_Dot(
+        basis.normal,
+        Vec3d_Subtract( point, basis.origin ) );
+    if ( std::abs( planeDistance ) > planeTolerance ) {
+        return false;
+    }
+
+    Polygon3d_ProjectToBasis( pVertices, cVertices, basis, pProjectedScratch );
+    return Polygon2d_ContainsPoint(
+        pProjectedScratch,
+        cVertices,
+        Polygon3d_ProjectPoint( point, basis ),
+        boundaryTolerance,
+        bIncludeBoundary );
+}
+
+polygon_triangulation_result_t Polygon3d_Triangulate(
+    const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    f64 distanceTolerance,
+    f64 areaTolerance,
+    vec2d_t *pProjectedScratch,
+    usize cProjectedScratch,
+    u32 *pIndexScratch,
+    usize cIndexScratch,
+    u32 *pOutputIndices,
+    usize cOutputIndices ) noexcept
+{
+    if ( !Polygon3dArgumentsValid( pVertices, cVertices ) ||
+         pProjectedScratch == nullptr || cProjectedScratch < cVertices ) {
+        return { polygon_triangulation_status_t::INVALID_ARGUMENT, 0u, 0u };
+    }
+    Polygon3d_ProjectToBasis( pVertices, cVertices, basis, pProjectedScratch );
+    return Polygon2d_Triangulate(
+        pProjectedScratch,
+        cVertices,
+        distanceTolerance,
+        areaTolerance,
         pIndexScratch,
         cIndexScratch,
         pOutputIndices,

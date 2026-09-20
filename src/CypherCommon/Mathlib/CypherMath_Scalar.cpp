@@ -151,12 +151,27 @@ f32 Scalar_Sin( f32 radians ) noexcept { return std::sin( radians ); }
 f32 Scalar_Cos( f32 radians ) noexcept { return std::cos( radians ); }
 f32 Scalar_Tan( f32 radians ) noexcept { return std::tan( radians ); }
 
+f64 Scalar_Sin( f64 radians ) noexcept { return std::sin( radians ); }
+f64 Scalar_Cos( f64 radians ) noexcept { return std::cos( radians ); }
+f64 Scalar_Tan( f64 radians ) noexcept { return std::tan( radians ); }
+
 void Scalar_SinCos( f32 radians, f32 *pSin, f32 *pCos ) noexcept
 {
     const bool_t bValidOutputs = pSin != nullptr && pCos != nullptr && pSin != pCos;
     CY_ASSERT_MSG( bValidOutputs, "Scalar_SinCos requires distinct output storage." );
     if ( !bValidOutputs ) {
         return;
+    }
+    *pSin = std::sin( radians );
+    *pCos = std::cos( radians );
+}
+
+void Scalar_SinCos( f64 radians, f64 *pSin, f64 *pCos ) noexcept
+{
+    const bool_t bValidOutputs = pSin != nullptr && pCos != nullptr && pSin != pCos;
+    CY_ASSERT_MSG( bValidOutputs, "Scalar_SinCos requires distinct output storage." );
+    if ( !bValidOutputs ) {
+        return ;
     }
     *pSin = std::sin( radians );
     *pCos = std::cos( radians );
@@ -173,6 +188,19 @@ f32 Scalar_AcosClamped( f32 value ) noexcept
 }
 
 f32 Scalar_Atan2( f32 y, f32 x ) noexcept { return std::atan2( y, x ); }
+
+f64 Scalar_AsinClamped( f64 value ) noexcept
+{
+    return std::asin( Scalar_Clamp( value, -1.0, 1.0 ) );
+}
+
+f64 Scalar_AcosClamped( f64 value ) noexcept
+{
+    return std::acos( Scalar_Clamp( value, -1.0, 1.0 ) );
+}
+
+f64 Scalar_Atan2( f64 y, f64 x ) noexcept { return std::atan2( y, x ); }
+
 f32 Scalar_Floor( f32 value ) noexcept { return std::floor( value ); }
 f32 Scalar_Ceil( f32 value ) noexcept { return std::ceil( value ); }
 f32 Scalar_Round( f32 value ) noexcept { return std::round( value ); }
@@ -197,6 +225,43 @@ f32 Scalar_Repeat( f32 value, f32 length ) noexcept
     // interval used for angles and periodic editor values.
     const f32 repeated = value - std::floor( value / length ) * length;
     return repeated < length ? repeated : 0.0f;
+}
+
+
+// NOTE: Double precisions additions !!!
+f64 Scalar_Floor( f64 value ) noexcept { return std::floor( value ); }
+f64 Scalar_Ceil( f64 value ) noexcept { return std::ceil( value ); }
+f64 Scalar_Round( f64 value ) noexcept { return std::round( value ); }
+f64 Scalar_Truncate( f64 value ) noexcept { return std::trunc( value ); }
+
+f64 Scalar_Fmod( f64 value, f64 divisor ) noexcept
+{
+    const bool_t bValidDivisor = std::isfinite( divisor ) && divisor != 0.0;
+    CY_ASSERT_MSG( bValidDivisor, "Scalar_Fmod requires a finite nonzero divisor." );
+    return bValidDivisor ? std::fmod( value, divisor ) : 0.0;
+}
+
+f64 Scalar_Repeat( f64 value, f64 length ) noexcept
+{
+    const bool_t bValidLength = std::isfinite( length ) && length > 0.0;
+    CY_ASSERT_MSG( bValidLength, "Scalar_Repeat requires a finite positive length." );
+    if ( !bValidLength || !std::isfinite( value ) ) {
+        return 0.0;
+    }
+
+    const f64 repeated = value - std::floor( value / length ) * length;
+    return repeated < length ? repeated : 0.0;
+}
+
+f64 Scalar_WrapRadiansPositive( f64 radians ) noexcept
+{
+    return Scalar_Repeat( radians, CY_TAU_D );
+}
+
+f64 Scalar_WrapRadiansSigned( f64 radians ) noexcept
+{
+    const f64 wrapped = Scalar_WrapRadiansPositive( radians + CY_PI_D );
+    return wrapped - CY_PI_D;
 }
 
 f32 Scalar_WrapRadiansPositive( f32 radians ) noexcept
@@ -255,6 +320,57 @@ f32 Scalar_MoveTowards( f32 current, f32 target, f32 maximumDelta ) noexcept
     }
 
     const f32 difference = target - current;
+    if ( std::fabs( difference ) <= maximumDelta ) {
+        return target;
+    }
+    return current + Scalar_Sign( difference ) * maximumDelta;
+}
+
+// NOTE:_ DOUBLE PRECISIONS!!!
+
+f64 Scalar_InverseLerp( f64 a, f64 b, f64 value ) noexcept
+{
+    const f64 range = b - a;
+    CY_ASSERT_MSG( range != 0.0, "Scalar_InverseLerp requires distinct endpoints." );
+    return range != 0.0 ? ( value - a ) / range : 0.0;
+}
+
+f64 Scalar_Remap(
+    f64 value,
+    f64 sourceMinimum,
+    f64 sourceMaximum,
+    f64 destinationMinimum,
+    f64 destinationMaximum ) noexcept
+{
+    return Scalar_Lerp(
+        destinationMinimum,
+        destinationMaximum,
+        Scalar_InverseLerp( sourceMinimum, sourceMaximum, value ) );
+}
+
+f64 Scalar_SmoothStep( f64 edge0, f64 edge1, f64 value ) noexcept
+{
+    const f64 t = Scalar_Saturate( Scalar_InverseLerp( edge0, edge1, value ) );
+    return t * t * ( 3.0 - 2.0 * t );
+}
+
+f64 Scalar_SmootherStep( f64 edge0, f64 edge1, f64 value ) noexcept
+{
+    const f64 t = Scalar_Saturate( Scalar_InverseLerp( edge0, edge1, value ) );
+    return t * t * t * ( t * ( t * 6.0 - 15.0 ) + 10.0 );
+}
+
+f64 Scalar_MoveTowards( f64 current, f64 target, f64 maximumDelta ) noexcept
+{
+    const bool_t bValidDelta = std::isfinite( maximumDelta ) && maximumDelta >= 0.0;
+    CY_ASSERT_MSG(
+        bValidDelta,
+        "Scalar_MoveTowards requires a finite nonnegative maximum delta." );
+    if ( !bValidDelta ) {
+        return current;
+    }
+
+    const f64 difference = target - current;
     if ( std::fabs( difference ) <= maximumDelta ) {
         return target;
     }

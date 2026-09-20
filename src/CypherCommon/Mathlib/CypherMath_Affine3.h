@@ -93,6 +93,71 @@ static_assert( alignof( affine3_t ) == alignof( f32 ) );
 static_assert( std::is_standard_layout_v<affine3_t> );
 static_assert( std::is_trivially_copyable_v<affine3_t> );
 
+// Binary64 authoring affine transform ---------------------------------------------
+// No mat3d_t/mat4d_t exists yet (deferred, no consumer), so this type stands alone:
+// it is built from and reasoned about purely in terms of vec3d_t columns. Rotation
+// composition still happens in f32 via quaternion/Affine3 and crosses the precision
+// boundary through Affine3d_FromAffine3 at the point it needs to apply to double
+// geometry. Affine3_Index is reused as-is: it is pure integer index arithmetic with
+// no dependency on the component type.
+struct affine3d_t {
+    f64 m[12]; // Four column-major vec3d columns: linear basis then translation.
+};
+
+inline constexpr affine3d_t CY_AFFINE3D_IDENTITY{ {
+    1.0, 0.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0,
+    0.0, 0.0, 0.0
+} };
+
+// Construction and component access ---------------------------------------------
+CYPHER_NODISCARD constexpr affine3d_t Affine3d_FromColumns(
+    vec3d_t column0, vec3d_t column1, vec3d_t column2,
+    vec3d_t translation ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Affine3d_Component(
+    affine3d_t value, u32 row, u32 column ) noexcept;
+CYPHER_MATH_API void Affine3d_SetComponent(
+    CY_INOUT affine3d_t *pValue, u32 row, u32 column, f64 component ) noexcept;
+CYPHER_NODISCARD constexpr vec3d_t Affine3d_Column(
+    affine3d_t value, u32 column ) noexcept;
+CYPHER_NODISCARD constexpr vec3d_t Affine3d_Translation( affine3d_t value ) noexcept;
+
+// Precision conversion ------------------------------------------------------------
+CYPHER_NODISCARD constexpr affine3d_t Affine3d_FromAffine3( affine3_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Affine3d_TryToAffine3(
+    affine3d_t value, CY_OUT affine3_t *pResult ) noexcept;
+
+// Queries and application --------------------------------------------------------
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Affine3d_IsFinite(
+    affine3d_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Affine3d_NearlyEquals(
+    affine3d_t a, affine3d_t b,
+    f64 absoluteTolerance, f64 relativeTolerance ) noexcept;
+
+CYPHER_NODISCARD constexpr affine3d_t Affine3d_Multiply(
+    affine3d_t a, affine3d_t b ) noexcept;
+CYPHER_NODISCARD constexpr vec3d_t Affine3d_TransformPoint(
+    affine3d_t transform, vec3d_t point ) noexcept;
+CYPHER_NODISCARD constexpr vec3d_t Affine3d_TransformDirection(
+    affine3d_t transform, vec3d_t direction ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Affine3d_TryTransformNormal(
+    affine3d_t transform, vec3d_t normal, f64 minimumAbsDeterminant,
+    CY_OUT vec3d_t *pTransformed ) noexcept;
+
+// Common transform construction -------------------------------------------------
+CYPHER_NODISCARD constexpr affine3d_t Affine3d_FromTranslation(
+    vec3d_t translation ) noexcept;
+CYPHER_NODISCARD constexpr affine3d_t Affine3d_FromScale( vec3d_t scale ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Affine3d_TryInverse(
+    affine3d_t value, f64 minimumAbsDeterminant,
+    CY_OUT affine3d_t *pInverse ) noexcept;
+
+static_assert( sizeof( affine3d_t ) == sizeof( f64 ) * 12u );
+static_assert( alignof( affine3d_t ) == alignof( f64 ) );
+static_assert( std::is_standard_layout_v<affine3d_t> );
+static_assert( std::is_trivially_copyable_v<affine3d_t> );
+
 } // namespace cypher::math
 
 #ifndef CYPHER_COMMON_MATH_AFFINE3_INL

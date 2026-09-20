@@ -74,6 +74,58 @@ static_assert( sizeof( triangle3_t ) == sizeof( f32 ) * 9u );
 static_assert( std::is_standard_layout_v<triangle3_t> );
 static_assert( std::is_trivially_copyable_v<triangle3_t> );
 
+// Binary64 authoring triangle -------------------------------------------------------
+struct triangle3d_t {
+    vec3d_t a; // First winding vertex.
+    vec3d_t b; // Second winding vertex.
+    vec3d_t c; // Third winding vertex; (b-a)x(c-a) defines the front normal.
+};
+
+// Basic geometry ------------------------------------------------------------------
+CYPHER_NODISCARD constexpr triangle3d_t Triangle3d_Make(
+    vec3d_t a, vec3d_t b, vec3d_t c ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Triangle3d_IsFinite(
+    triangle3d_t triangle ) noexcept;
+CYPHER_NODISCARD constexpr vec3d_t Triangle3d_Centroid(
+    triangle3d_t triangle ) noexcept;
+CYPHER_NODISCARD constexpr vec3d_t Triangle3d_NormalUnnormalized(
+    triangle3d_t triangle ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Triangle3d_TwiceArea(
+    triangle3d_t triangle ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Triangle3d_Area(
+    triangle3d_t triangle ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Triangle3d_TryNormal(
+    triangle3d_t triangle, f64 minimumTwiceArea,
+    CY_OUT vec3d_t *pUnitNormal ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Triangle3d_TryPlane(
+    triangle3d_t triangle, f64 minimumTwiceArea,
+    CY_OUT planed_t *pPlane ) noexcept;
+
+// Point queries -------------------------------------------------------------------
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Triangle3d_TryBarycentric(
+    triangle3d_t triangle, vec3d_t point, f64 minimumAbsDenominator,
+    CY_OUT vec3d_t *pBarycentric ) noexcept;
+CYPHER_NODISCARD constexpr vec3d_t Triangle3d_PointFromBarycentric(
+    triangle3d_t triangle, vec3d_t barycentric ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Triangle3d_ContainsPoint(
+    triangle3d_t triangle, vec3d_t point,
+    f64 minimumTwiceArea, f64 planeTolerance,
+    f64 barycentricTolerance ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API vec3d_t Triangle3d_ClosestPoint(
+    triangle3d_t triangle, vec3d_t point ) noexcept;
+CYPHER_NODISCARD constexpr triangle3d_t Triangle3d_TransformAffine(
+    triangle3d_t triangle, affine3d_t transform ) noexcept;
+
+// Precision conversion ------------------------------------------------------------
+CYPHER_NODISCARD constexpr triangle3d_t Triangle3d_FromTriangle3(
+    triangle3_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Triangle3d_TryToTriangle3(
+    triangle3d_t value, CY_OUT triangle3_t *pResult ) noexcept;
+
+static_assert( sizeof( triangle3d_t ) == sizeof( f64 ) * 9u );
+static_assert( std::is_standard_layout_v<triangle3d_t> );
+static_assert( std::is_trivially_copyable_v<triangle3d_t> );
+
 } // namespace cypher::math
 
 #ifndef CYPHER_COMMON_MATH_TRIANGLE_INL

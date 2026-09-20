@@ -94,8 +94,75 @@ Polygon3_Triangulate(
     CY_IN_READS( cVertices ) const vec3_t *pVertices,
     usize cVertices,
     polygon3_basis_t basis,
-    f64 orientationTolerance,
+    f64 distanceTolerance,
+    f64 areaTolerance,
     CY_OUT_WRITES( cProjectedScratch ) vec2_t *pProjectedScratch,
+    usize cProjectedScratch,
+    CY_OUT_WRITES( cIndexScratch ) u32 *pIndexScratch,
+    usize cIndexScratch,
+    CY_OUT_WRITES( cOutputIndices ) u32 *pOutputIndices,
+    usize cOutputIndices ) noexcept;
+
+// Binary64 authoring surface ---------------------------------------------------
+struct polygon3d_basis_t {
+    vec3d_t origin;    // Projection origin, normally the first polygon vertex.
+    vec3d_t tangent;   // Unit local X axis in the polygon plane.
+    vec3d_t bitangent; // Unit local Y axis in the polygon plane.
+    vec3d_t normal;    // Unit winding normal, tangent cross bitangent.
+};
+
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Polygon3d_TryBasis(
+    CY_IN_READS( cVertices ) const vec3d_t *pVertices,
+    usize cVertices,
+    f64 minimumNormalLength,
+    CY_OUT polygon3d_basis_t *pBasis ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Polygon3d_IsPlanar(
+    CY_IN_READS( cVertices ) const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    f64 distanceTolerance ) noexcept;
+CYPHER_MATH_API void Polygon3d_ProjectToBasis(
+    CY_IN_READS( cVertices ) const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    CY_OUT_WRITES( cVertices ) vec2d_t *pProjected ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Polygon3d_TryPlane(
+    CY_IN_READS( cVertices ) const vec3d_t *pVertices,
+    usize cVertices,
+    f64 minimumNormalLength,
+    CY_OUT planed_t *pPlane ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Polygon3d_TryAreaCentroid(
+    CY_IN_READS( cVertices ) const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    f64 minimumAbsArea,
+    CY_OUT f64 *pArea,
+    CY_OUT vec3d_t *pCentroid ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Polygon3d_IsConvex(
+    CY_IN_READS( cVertices ) const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    f64 orientationTolerance,
+    CY_OUT_WRITES( cProjectedScratch ) vec2d_t *pProjectedScratch,
+    usize cProjectedScratch ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Polygon3d_ContainsPoint(
+    CY_IN_READS( cVertices ) const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    vec3d_t point,
+    f64 planeTolerance,
+    f64 boundaryTolerance,
+    bool_t bIncludeBoundary,
+    CY_OUT_WRITES( cProjectedScratch ) vec2d_t *pProjectedScratch,
+    usize cProjectedScratch ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API polygon_triangulation_result_t
+Polygon3d_Triangulate(
+    CY_IN_READS( cVertices ) const vec3d_t *pVertices,
+    usize cVertices,
+    polygon3d_basis_t basis,
+    f64 distanceTolerance,
+    f64 areaTolerance,
+    CY_OUT_WRITES( cProjectedScratch ) vec2d_t *pProjectedScratch,
     usize cProjectedScratch,
     CY_OUT_WRITES( cIndexScratch ) u32 *pIndexScratch,
     usize cIndexScratch,

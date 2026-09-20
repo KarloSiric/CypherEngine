@@ -86,6 +86,58 @@ constexpr triangle3_t Triangle3_TransformAffine(
         Affine3_TransformPoint( transform, triangle.c ) );
 }
 
+constexpr triangle3d_t Triangle3d_Make(
+    vec3d_t a,
+    vec3d_t b,
+    vec3d_t c ) noexcept
+{
+    return { a, b, c };
+}
+
+constexpr vec3d_t Triangle3d_Centroid( triangle3d_t triangle ) noexcept
+{
+    return Vec3d_Scale(
+        Vec3d_Add( Vec3d_Add( triangle.a, triangle.b ), triangle.c ),
+        1.0 / 3.0 );
+}
+
+constexpr vec3d_t Triangle3d_NormalUnnormalized(
+    triangle3d_t triangle ) noexcept
+{
+    return Vec3d_Cross(
+        Vec3d_Subtract( triangle.b, triangle.a ),
+        Vec3d_Subtract( triangle.c, triangle.a ) );
+}
+
+constexpr vec3d_t Triangle3d_PointFromBarycentric(
+    triangle3d_t triangle,
+    vec3d_t barycentric ) noexcept
+{
+    return Vec3d_Add(
+        Vec3d_Add(
+            Vec3d_Scale( triangle.a, barycentric.x ),
+            Vec3d_Scale( triangle.b, barycentric.y ) ),
+        Vec3d_Scale( triangle.c, barycentric.z ) );
+}
+
+constexpr triangle3d_t Triangle3d_TransformAffine(
+    triangle3d_t triangle,
+    affine3d_t transform ) noexcept
+{
+    return Triangle3d_Make(
+        Affine3d_TransformPoint( transform, triangle.a ),
+        Affine3d_TransformPoint( transform, triangle.b ),
+        Affine3d_TransformPoint( transform, triangle.c ) );
+}
+
+constexpr triangle3d_t Triangle3d_FromTriangle3( triangle3_t value ) noexcept
+{
+    return Triangle3d_Make(
+        Vec3d_FromVec3( value.a ),
+        Vec3d_FromVec3( value.b ),
+        Vec3d_FromVec3( value.c ) );
+}
+
 } // namespace cypher::math
 
 #endif // CYPHER_COMMON_MATH_TRIANGLE_INL

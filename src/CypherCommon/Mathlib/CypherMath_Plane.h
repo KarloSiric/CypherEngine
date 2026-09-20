@@ -82,6 +82,61 @@ static_assert( sizeof( plane_t ) == sizeof( f32 ) * 4u );
 static_assert( std::is_standard_layout_v<plane_t> );
 static_assert( std::is_trivially_copyable_v<plane_t> );
 
+// Binary64 authoring plane ---------------------------------------------------------
+// BrushSolid is a set of oriented planes, so this is the most direct dependency of
+// the whole double-precision authoring path. plane_side_t is precision-agnostic
+// (a pure classification enum) and is reused as-is for planed_t.
+struct planed_t {
+    vec3d_t normal; // Plane orientation; unit length for metric distance queries.
+    f64 d;          // Constant in dot(normal, point) + d = 0.
+};
+
+inline constexpr planed_t CY_PLANED_X{ CY_VEC3D_FORWARD, 0.0 };
+inline constexpr planed_t CY_PLANED_Y{ CY_VEC3D_LEFT, 0.0 };
+inline constexpr planed_t CY_PLANED_Z{ CY_VEC3D_UP, 0.0 };
+
+// Construction and normalization ------------------------------------------------
+CYPHER_NODISCARD constexpr planed_t Planed_Make(
+    vec3d_t normal, f64 d ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Planed_IsFinite(
+    planed_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Planed_IsNormalized(
+    planed_t value, f64 tolerance ) noexcept;
+CYPHER_NODISCARD constexpr planed_t Planed_Flip( planed_t value ) noexcept;
+
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Planed_TryNormalize(
+    planed_t value, f64 minimumNormalLength,
+    CY_OUT planed_t *pNormalized ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Planed_TryFromPointNormal(
+    vec3d_t point, vec3d_t normal, f64 minimumNormalLength,
+    CY_OUT planed_t *pPlane ) noexcept;
+// Triangle winding a->b->c determines the positive normal by the right-hand rule.
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Planed_TryFromTriangle(
+    vec3d_t a, vec3d_t b, vec3d_t c, f64 minimumTwiceArea,
+    CY_OUT planed_t *pPlane ) noexcept;
+
+// Classification and transformation ---------------------------------------------
+CYPHER_NODISCARD constexpr f64 Planed_SignedDistance(
+    planed_t plane, vec3d_t point ) noexcept;
+CYPHER_NODISCARD constexpr vec3d_t Planed_ProjectPointUnit(
+    planed_t unitPlane, vec3d_t point ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API plane_side_t Planed_ClassifyPoint(
+    planed_t unitPlane, vec3d_t point, f64 distanceTolerance ) noexcept;
+
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Planed_TryTransform(
+    planed_t plane, affine3d_t transform,
+    f64 minimumAbsDeterminant, f64 minimumNormalLength,
+    CY_OUT planed_t *pTransformed ) noexcept;
+
+// Precision conversion ------------------------------------------------------------
+CYPHER_NODISCARD constexpr planed_t Planed_FromPlane( plane_t value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Planed_TryToPlane(
+    planed_t value, CY_OUT plane_t *pResult ) noexcept;
+
+static_assert( sizeof( planed_t ) == sizeof( f64 ) * 4u );
+static_assert( std::is_standard_layout_v<planed_t> );
+static_assert( std::is_trivially_copyable_v<planed_t> );
+
 } // namespace cypher::math
 
 #ifndef CYPHER_COMMON_MATH_PLANE_INL

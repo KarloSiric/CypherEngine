@@ -156,6 +156,16 @@ CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_AsinClamped( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_AcosClamped( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Atan2( f32 y, f32 x ) noexcept;
 
+/* NOTE: Adding specialized double precision scalars */
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Sin( f64 radians ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Cos( f64 radians ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Tan( f64 radians ) noexcept;
+CYPHER_MATH_API void Scalar_SinCos(
+    f64 radians, CY_OUT f64 *pSin, CY_OUT f64 *pCos ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_AsinClamped( f64 value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_AcosClamped( f64 value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Atan2( f64 y, f64 x ) noexcept;
+
 // Rounding and wrapping ----------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Floor( f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Ceil( f32 value ) noexcept;
@@ -165,6 +175,17 @@ CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Fmod( f32 value, f32 divisor ) noexc
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_Repeat( f32 value, f32 length ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_WrapRadiansPositive( f32 radians ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_WrapRadiansSigned( f32 radians ) noexcept;
+
+/* NOTE: Adding for double precisions specialized functions for geometry Mason requirements. */
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Floor( f64 value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Ceil( f64 value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Round( f64 value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Truncate( f64 value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Fmod( f64 value, f64 divisor ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Repeat( f64 value, f64 length ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_WrapRadiansPositive( f64 radians ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_WrapRadiansSigned( f64 radians ) noexcept;
+
 
 // Mapping and smooth motion ------------------------------------------------------
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_InverseLerp(
@@ -178,6 +199,19 @@ CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_SmootherStep(
     f32 edge0, f32 edge1, f32 value ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API f32 Scalar_MoveTowards(
     f32 current, f32 target, f32 maximumDelta ) noexcept;
+
+/* NOTE: Adding for double precisions specialized functions for geometry Mason requirements. */
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_InverseLerp(
+    f64 a, f64 b, f64 value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_Remap(
+    f64 value, f64 sourceMinimum, f64 sourceMaximum,
+    f64 destinationMinimum, f64 destinationMaximum ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_SmoothStep(
+    f64 edge0, f64 edge1, f64 value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_SmootherStep(
+    f64 edge0, f64 edge1, f64 value ) noexcept;
+CYPHER_NODISCARD CYPHER_MATH_API f64 Scalar_MoveTowards(
+    f64 current, f64 target, f64 maximumDelta ) noexcept;
 
 } // namespace cypher::math
 

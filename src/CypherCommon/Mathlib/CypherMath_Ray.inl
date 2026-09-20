@@ -90,6 +90,35 @@ constexpr segment_t Segment_TransformAffine(
         Affine3_TransformPoint( transform, segment.end ) );
 }
 
+constexpr segmentd_t Segmentd_Make( vec3d_t start, vec3d_t end ) noexcept
+{
+    return { start, end };
+}
+
+constexpr vec3d_t Segmentd_Direction( segmentd_t segment ) noexcept
+{
+    return Vec3d_Subtract( segment.end, segment.start );
+}
+
+constexpr vec3d_t Segmentd_PointAt( segmentd_t segment, f64 t ) noexcept
+{
+    return Vec3d_Lerp( segment.start, segment.end, t );
+}
+
+constexpr f64 Segmentd_LengthSquared( segmentd_t segment ) noexcept
+{
+    return Vec3d_LengthSquared( Segmentd_Direction( segment ) );
+}
+
+constexpr segmentd_t Segmentd_TransformAffine(
+    segmentd_t segment,
+    affine3d_t transform ) noexcept
+{
+    return Segmentd_Make(
+        Affine3d_TransformPoint( transform, segment.start ),
+        Affine3d_TransformPoint( transform, segment.end ) );
+}
+
 } // namespace cypher::math
 
 #endif // CYPHER_COMMON_MATH_RAY_INL

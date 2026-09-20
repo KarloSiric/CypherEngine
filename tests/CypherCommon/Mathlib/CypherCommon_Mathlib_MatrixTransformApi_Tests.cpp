@@ -37,6 +37,14 @@ void RequireVec3(
     REQUIRE( value.z == Approx( z ).margin( margin ) );
 }
 
+void RequireVec3d(
+    vec3d_t value, f64 x, f64 y, f64 z, f64 margin = 1e-9 )
+{
+    REQUIRE( value.x == Approx( x ).margin( margin ) );
+    REQUIRE( value.y == Approx( y ).margin( margin ) );
+    REQUIRE( value.z == Approx( z ).margin( margin ) );
+}
+
 void RequireVec4(
     vec4_t value, f32 x, f32 y, f32 z, f32 w,
     f32 margin = 0.00002f )
@@ -206,6 +214,82 @@ TEST_CASE( "Affine3 conversion and normal transformation reject invalid inputs",
     REQUIRE( Affine3_NearlyEquals(
         Affine3_FromQuaternion( CY_QUAT_IDENTITY ),
         CY_AFFINE3_IDENTITY, 0.0f, 0.0f ) );
+}
+
+TEST_CASE( "Affine3 binary64 storage constructors and transforms preserve affine meaning",
+           "[CypherCommon][Mathlib][Affine3][Binary64][API]" )
+{
+    affine3d_t affine = Affine3d_FromColumns(
+        Vec3d_Make( 2.0, 0.0, 0.0 ),
+        Vec3d_Make( 0.0, 3.0, 0.0 ),
+        Vec3d_Make( 0.0, 0.0, 4.0 ),
+        Vec3d_Make( 5.0, 6.0, 7.0 ) );
+    // Affine3_Index is pure integer index arithmetic; reused as-is for affine3d_t.
+    REQUIRE( Affine3_Index( 2u, 3u ) == 11u );
+    REQUIRE( Affine3d_Component( affine, 1u, 1u ) == 3.0 );
+    RequireVec3d( Affine3d_Column( affine, 2u ), 0.0, 0.0, 4.0 );
+    RequireVec3d( Affine3d_Translation( affine ), 5.0, 6.0, 7.0 );
+    REQUIRE( Affine3d_IsFinite( affine ) );
+    RequireVec3d( Affine3d_TransformDirection( affine, CY_VEC3D_ONE ), 2.0, 3.0, 4.0 );
+
+    Affine3d_SetComponent( &affine, 0u, 3u, 8.0 );
+    REQUIRE( Affine3d_Component( affine, 0u, 3u ) == 8.0 );
+    RequireVec3d( Affine3d_Translation( affine ), 8.0, 6.0, 7.0 );
+    RequireVec3d( Affine3d_TransformPoint( affine, CY_VEC3D_ZERO ), 8.0, 6.0, 7.0 );
+
+    const affine3d_t translationOnly = Affine3d_FromTranslation( Vec3d_Make( 1.0, 2.0, 3.0 ) );
+    const affine3d_t composed = Affine3d_Multiply( translationOnly, affine );
+    RequireVec3d( Affine3d_Translation( composed ), 9.0, 8.0, 10.0 );
+
+    STATIC_REQUIRE( Vec3d_EqualsExact(
+        Affine3d_TransformDirection(
+            Affine3d_FromScale( Vec3d_Make( 2.0, 3.0, 4.0 ) ), CY_VEC3D_ONE ),
+        Vec3d_Make( 2.0, 3.0, 4.0 ) ) );
+}
+
+TEST_CASE( "Affine3 binary64 conversion normal and inverse transformation reject invalid inputs",
+           "[CypherCommon][Mathlib][Affine3][Binary64][API]" )
+{
+    const affine3_t scaleF32 = Affine3_FromScale( Vec3_Make( 2.0f, 3.0f, 4.0f ) );
+    const affine3d_t scale = Affine3d_FromAffine3( scaleF32 );
+
+    affine3_t narrowed{};
+    REQUIRE( Affine3d_TryToAffine3( scale, &narrowed ) );
+    REQUIRE( Affine3_NearlyEquals( narrowed, scaleF32, 0.0f, 0.0f ) );
+
+    affine3_t failedNarrow{};
+    REQUIRE_FALSE( Affine3d_TryToAffine3(
+        Affine3d_FromScale( Vec3d_Make( 1.0e300, 1.0, 1.0 ) ), &failedNarrow ) );
+
+    vec3d_t normal{};
+    REQUIRE( Affine3d_TryTransformNormal( scale, CY_VEC3D_UP, 1e-9, &normal ) );
+    RequireVec3d( normal, 0.0, 0.0, 0.25 );
+    REQUIRE_FALSE( Affine3d_TryTransformNormal(
+        Affine3d_FromScale( Vec3d_Make( 0.0, 1.0, 1.0 ) ),
+        CY_VEC3D_UP, 1e-9, &normal ) );
+    REQUIRE( Vec3d_EqualsExact( normal, CY_VEC3D_ZERO ) );
+
+    affine3d_t inverse{};
+    REQUIRE( Affine3d_TryInverse( scale, 1e-9, &inverse ) );
+    const affine3d_t roundTrip = Affine3d_Multiply( inverse, scale );
+    REQUIRE( Affine3d_NearlyEquals( roundTrip, CY_AFFINE3D_IDENTITY, 1e-9, 0.0 ) );
+    REQUIRE_FALSE( Affine3d_TryInverse(
+        Affine3d_FromScale( Vec3d_Make( 0.0, 1.0, 1.0 ) ), 1e-9, &inverse ) );
+
+    // A transform with translation must invert exactly, not just its linear part.
+    const affine3d_t withTranslation = Affine3d_FromColumns(
+        Vec3d_Make( 2.0, 0.0, 0.0 ), Vec3d_Make( 0.0, 2.0, 0.0 ), Vec3d_Make( 0.0, 0.0, 2.0 ),
+        Vec3d_Make( 4.0, 6.0, 8.0 ) );
+    affine3d_t translatedInverse{};
+    REQUIRE( Affine3d_TryInverse( withTranslation, 1e-9, &translatedInverse ) );
+    RequireVec3d(
+        Affine3d_TransformPoint( translatedInverse, Vec3d_Make( 4.0, 6.0, 8.0 ) ),
+        0.0, 0.0, 0.0 );
+    RequireVec3d(
+        Affine3d_TransformPoint(
+            withTranslation,
+            Affine3d_TransformPoint( translatedInverse, Vec3d_Make( 10.0, 10.0, 10.0 ) ) ),
+        10.0, 10.0, 10.0 );
 }
 
 TEST_CASE( "quaternion value arithmetic and normalization preserve components",

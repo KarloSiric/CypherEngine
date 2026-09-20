@@ -86,6 +86,56 @@ constexpr bool_t Aabb_Overlaps( aabb_t a, aabb_t b ) noexcept
            a.minimum.z <= b.maximum.z && a.maximum.z >= b.minimum.z;
 }
 
+constexpr aabbd_t Aabbd_Make( vec3d_t minimum, vec3d_t maximum ) noexcept
+{
+    return { minimum, maximum };
+}
+
+constexpr aabbd_t Aabbd_FromPoint( vec3d_t point ) noexcept
+{
+    return Aabbd_Make( point, point );
+}
+
+constexpr bool_t Aabbd_IsEmpty( aabbd_t bounds ) noexcept
+{
+    return bounds.minimum.x > bounds.maximum.x ||
+           bounds.minimum.y > bounds.maximum.y ||
+           bounds.minimum.z > bounds.maximum.z;
+}
+
+constexpr bool_t Aabbd_ContainsPoint( aabbd_t bounds, vec3d_t point ) noexcept
+{
+    return !Aabbd_IsEmpty( bounds ) &&
+           point.x >= bounds.minimum.x && point.x <= bounds.maximum.x &&
+           point.y >= bounds.minimum.y && point.y <= bounds.maximum.y &&
+           point.z >= bounds.minimum.z && point.z <= bounds.maximum.z;
+}
+
+constexpr bool_t Aabbd_ContainsAabb( aabbd_t outer, aabbd_t inner ) noexcept
+{
+    return !Aabbd_IsEmpty( outer ) && !Aabbd_IsEmpty( inner ) &&
+           inner.minimum.x >= outer.minimum.x &&
+           inner.minimum.y >= outer.minimum.y &&
+           inner.minimum.z >= outer.minimum.z &&
+           inner.maximum.x <= outer.maximum.x &&
+           inner.maximum.y <= outer.maximum.y &&
+           inner.maximum.z <= outer.maximum.z;
+}
+
+constexpr bool_t Aabbd_Overlaps( aabbd_t a, aabbd_t b ) noexcept
+{
+    return !Aabbd_IsEmpty( a ) && !Aabbd_IsEmpty( b ) &&
+           a.minimum.x <= b.maximum.x && a.maximum.x >= b.minimum.x &&
+           a.minimum.y <= b.maximum.y && a.maximum.y >= b.minimum.y &&
+           a.minimum.z <= b.maximum.z && a.maximum.z >= b.minimum.z;
+}
+
+constexpr aabbd_t Aabbd_FromAabb( aabb_t value ) noexcept
+{
+    return Aabbd_Make(
+        Vec3d_FromVec3( value.minimum ), Vec3d_FromVec3( value.maximum ) );
+}
+
 } // namespace cypher::math
 
 #endif // CYPHER_COMMON_MATH_BOUNDS_INL

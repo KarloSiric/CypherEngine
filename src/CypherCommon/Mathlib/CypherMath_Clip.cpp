@@ -41,6 +41,19 @@ bool_t AppendVertex(
     return true;
 }
 
+bool_t AppendVertexD(
+    vec3d_t vertex,
+    vec3d_t *pOutputVertices,
+    usize cOutputVertices,
+    usize *pWritten ) noexcept
+{
+    if ( *pWritten >= cOutputVertices ) {
+        return false;
+    }
+    pOutputVertices[( *pWritten )++] = vertex;
+    return true;
+}
+
 } // namespace
 
 polygon_clip_result_t Clip_PolygonAgainstPlane(
@@ -176,6 +189,144 @@ bool_t Clip_TrySegmentAgainstConvexPlanes(
             Segment_PointAt( segment, static_cast<f32>( exit ) ) ),
         static_cast<f32>( enter ),
         static_cast<f32>( exit )
+    };
+    return true;
+}
+
+//==========================================================================
+// Binary64 authoring clipping
+//==========================================================================
+
+polygon_clip_result_t Clip_PolygonAgainstPlaneD(
+    const vec3d_t *pVertices,
+    usize cVertices,
+    planed_t outwardPlane,
+    f64 insideTolerance,
+    vec3d_t *pOutputVertices,
+    usize cOutputVertices ) noexcept
+{
+    polygon_clip_result_t result{};
+    result.status = polygon_clip_status_t::INVALID_ARGUMENT;
+    if ( pVertices == nullptr || cVertices < 3u || pOutputVertices == nullptr ||
+         pVertices == pOutputVertices || cOutputVertices == 0u ||
+         !Planed_IsFinite( outwardPlane ) || insideTolerance < 0.0 ||
+         !Scalar_IsFinite( insideTolerance ) ) {
+        return result;
+    }
+
+    // Sutherland-Hodgman treats the polygon as a closed edge loop, so the
+    // first examined edge runs from the final input vertex to vertex zero.
+    vec3d_t previous = pVertices[cVertices - 1u];
+    if ( !Vec3d_IsFinite( previous ) ) {
+        return result;
+    }
+    f64 previousDistance = Planed_SignedDistance( outwardPlane, previous );
+    bool_t bPreviousInside = previousDistance <= insideTolerance;
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        const vec3d_t current = pVertices[i];
+        if ( !Vec3d_IsFinite( current ) ) {
+            result.cVerticesWritten = 0u;
+            return result;
+        }
+        const f64 currentDistance = Planed_SignedDistance( outwardPlane, current );
+        const bool_t bCurrentInside = currentDistance <= insideTolerance;
+
+        if ( bCurrentInside != bPreviousInside ) {
+            // An inside/outside transition contributes the point where the
+            // edge crosses the tolerated plane boundary.
+            const f64 denominator = currentDistance - previousDistance;
+            if ( denominator != 0.0 ) {
+                const f64 parameter = std::clamp(
+                    ( insideTolerance - previousDistance ) / denominator,
+                    0.0, 1.0 );
+                const vec3d_t intersection = Vec3d_Lerp(
+                    previous, current, parameter );
+                if ( !AppendVertexD(
+                         intersection, pOutputVertices, cOutputVertices,
+                         &result.cVerticesWritten ) ) {
+                    result.status = polygon_clip_status_t::INSUFFICIENT_CAPACITY;
+                    return result;
+                }
+            }
+        }
+        if ( bCurrentInside &&
+             !AppendVertexD(
+                 current, pOutputVertices, cOutputVertices,
+                 &result.cVerticesWritten ) ) {
+            result.status = polygon_clip_status_t::INSUFFICIENT_CAPACITY;
+            return result;
+        }
+
+        previous = current;
+        previousDistance = currentDistance;
+        bPreviousInside = bCurrentInside;
+    }
+
+    result.status = result.cVerticesWritten >= 3u
+        ? polygon_clip_status_t::OK
+        : polygon_clip_status_t::FULLY_CLIPPED;
+    return result;
+}
+
+bool_t Clip_TrySegmentAgainstConvexPlanesD(
+    segmentd_t segment,
+    const planed_t *pPlanes,
+    usize cPlanes,
+    f64 insideTolerance,
+    f64 minimumAbsDenominator,
+    segmentd_clip_result_t *pResult ) noexcept
+{
+    const bool_t bValidOutput = pResult != nullptr;
+    CY_ASSERT_MSG( bValidOutput,
+        "Clip_TrySegmentAgainstConvexPlanesD requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pResult = {};
+    if ( !Segmentd_IsFinite( segment ) || pPlanes == nullptr || cPlanes == 0u ||
+         insideTolerance < 0.0 || minimumAbsDenominator < 0.0 ||
+         !Scalar_IsFinite( insideTolerance ) ||
+         !Scalar_IsFinite( minimumAbsDenominator ) ) {
+        return false;
+    }
+
+    const vec3d_t direction = Segmentd_Direction( segment );
+    f64 enter = 0.0; // Earliest surviving parameter on the segment.
+    f64 exit = 1.0;  // Latest surviving parameter on the segment.
+    for ( usize i = 0u; i < cPlanes; ++i ) {
+        if ( !Planed_IsFinite( pPlanes[i] ) ) {
+            return false;
+        }
+        const f64 startDistance = Planed_SignedDistance( pPlanes[i], segment.start );
+        const f64 denominator = Vec3d_Dot( pPlanes[i].normal, direction );
+        if ( std::abs( denominator ) <= minimumAbsDenominator ) {
+            // A parallel segment is either wholly outside this half-space or
+            // imposes no additional restriction on the current interval.
+            if ( startDistance > insideTolerance ) {
+                return false;
+            }
+            continue;
+        }
+
+        const f64 parameter = ( insideTolerance - startDistance ) / denominator;
+        if ( denominator < 0.0 ) {
+            enter = std::max( enter, parameter );
+        } else {
+            exit = std::min( exit, parameter );
+        }
+        if ( enter > exit ) {
+            return false;
+        }
+    }
+
+    enter = std::clamp( enter, 0.0, 1.0 );
+    exit = std::clamp( exit, 0.0, 1.0 );
+    *pResult = {
+        Segmentd_Make(
+            Segmentd_PointAt( segment, enter ),
+            Segmentd_PointAt( segment, exit ) ),
+        enter,
+        exit
     };
     return true;
 }

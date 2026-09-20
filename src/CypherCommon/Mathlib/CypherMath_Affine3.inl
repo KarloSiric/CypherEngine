@@ -135,6 +135,86 @@ constexpr mat4_t Affine3_ToMat4( affine3_t value ) noexcept
         Vec4_FromVec3( Affine3_Translation( value ), 1.0f ) );
 }
 
+constexpr affine3d_t Affine3d_FromColumns(
+    vec3d_t column0,
+    vec3d_t column1,
+    vec3d_t column2,
+    vec3d_t translation ) noexcept
+{
+    return { {
+        column0.x, column0.y, column0.z,
+        column1.x, column1.y, column1.z,
+        column2.x, column2.y, column2.z,
+        translation.x, translation.y, translation.z
+    } };
+}
+
+constexpr vec3d_t Affine3d_Column( affine3d_t value, u32 column ) noexcept
+{
+    return Vec3d_Make(
+        value.m[Affine3_Index( 0u, column )],
+        value.m[Affine3_Index( 1u, column )],
+        value.m[Affine3_Index( 2u, column )] );
+}
+
+constexpr vec3d_t Affine3d_Translation( affine3d_t value ) noexcept
+{
+    return Affine3d_Column( value, 3u );
+}
+
+constexpr vec3d_t Affine3d_TransformDirection(
+    affine3d_t transform,
+    vec3d_t direction ) noexcept
+{
+    return Vec3d_Add(
+        Vec3d_Add(
+            Vec3d_Scale( Affine3d_Column( transform, 0u ), direction.x ),
+            Vec3d_Scale( Affine3d_Column( transform, 1u ), direction.y ) ),
+        Vec3d_Scale( Affine3d_Column( transform, 2u ), direction.z ) );
+}
+
+constexpr vec3d_t Affine3d_TransformPoint(
+    affine3d_t transform,
+    vec3d_t point ) noexcept
+{
+    return Vec3d_Add(
+        Affine3d_TransformDirection( transform, point ),
+        Affine3d_Translation( transform ) );
+}
+
+constexpr affine3d_t Affine3d_Multiply( affine3d_t a, affine3d_t b ) noexcept
+{
+    return Affine3d_FromColumns(
+        Affine3d_TransformDirection( a, Affine3d_Column( b, 0u ) ),
+        Affine3d_TransformDirection( a, Affine3d_Column( b, 1u ) ),
+        Affine3d_TransformDirection( a, Affine3d_Column( b, 2u ) ),
+        Affine3d_TransformPoint( a, Affine3d_Translation( b ) ) );
+}
+
+constexpr affine3d_t Affine3d_FromTranslation( vec3d_t translation ) noexcept
+{
+    return Affine3d_FromColumns(
+        CY_VEC3D_FORWARD, CY_VEC3D_LEFT, CY_VEC3D_UP, translation );
+}
+
+constexpr affine3d_t Affine3d_FromScale( vec3d_t scale ) noexcept
+{
+    return Affine3d_FromColumns(
+        Vec3d_Make( scale.x, 0.0, 0.0 ),
+        Vec3d_Make( 0.0, scale.y, 0.0 ),
+        Vec3d_Make( 0.0, 0.0, scale.z ),
+        CY_VEC3D_ZERO );
+}
+
+constexpr affine3d_t Affine3d_FromAffine3( affine3_t value ) noexcept
+{
+    return Affine3d_FromColumns(
+        Vec3d_FromVec3( Affine3_Column( value, 0u ) ),
+        Vec3d_FromVec3( Affine3_Column( value, 1u ) ),
+        Vec3d_FromVec3( Affine3_Column( value, 2u ) ),
+        Vec3d_FromVec3( Affine3_Translation( value ) ) );
+}
+
 } // namespace cypher::math
 
 #endif // CYPHER_COMMON_MATH_AFFINE3_INL

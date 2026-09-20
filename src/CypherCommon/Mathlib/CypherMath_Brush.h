@@ -79,6 +79,49 @@ CYPHER_NODISCARD CYPHER_MATH_API bool_t Brush_TryBounds(
     usize cVertices,
     CY_OUT aabb_t *pBounds ) noexcept;
 
+// Binary64 authoring brush ---------------------------------------------------------
+// Brush_MaximumVertexCandidates and brush_vertex_result_t/brush_build_status_t are
+// precision-agnostic (pure counting and status vocabulary) and are reused as-is.
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Brushd_ContainsPoint(
+    CY_IN_READS( cPlanes ) const planed_t *pPlanes,
+    usize cPlanes,
+    vec3d_t point,
+    f64 insideTolerance ) noexcept;
+
+// Enumerates unique vertices formed by triples of outward brush planes. Internally
+// calls Intersection_TryThreePlanesD rather than re-deriving Cramer's rule.
+//
+// PRECONDITION: plane normals must be unit length. Planes are forwarded to
+// Intersection_TryThreePlanesD unchanged, where minimumAbsDeterminant is only a
+// meaningful conditioning threshold for unit normals.
+//
+// COMPLEXITY: enumerates all plane triples and tests each candidate against
+// every plane, so cost grows as cPlanes^4. Intended for authoring-scale brushes
+// (roughly 6-30 sides); see geometry_limit_policy_t::cBrushSidesPerBrushMax.
+CYPHER_NODISCARD CYPHER_MATH_API brush_vertex_result_t Brushd_BuildVertices(
+    CY_IN_READS( cPlanes ) const planed_t *pPlanes,
+    usize cPlanes,
+    f64 minimumAbsDeterminant,
+    f64 insideTolerance,
+    f64 mergeTolerance,
+    CY_OUT_WRITES( cOutputVertices ) vec3d_t *pOutputVertices,
+    usize cOutputVertices ) noexcept;
+
+// Filters and orders existing brush vertices counter-clockwise around a face normal.
+CYPHER_NODISCARD CYPHER_MATH_API brush_vertex_result_t Brushd_BuildFacePolygon(
+    planed_t outwardFacePlane,
+    CY_IN_READS( cBrushVertices ) const vec3d_t *pBrushVertices,
+    usize cBrushVertices,
+    f64 faceDistanceTolerance,
+    f64 minimumNormalLength,
+    CY_OUT_WRITES( cOutputVertices ) vec3d_t *pOutputVertices,
+    usize cOutputVertices ) noexcept;
+
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Brushd_TryBounds(
+    CY_IN_READS( cVertices ) const vec3d_t *pVertices,
+    usize cVertices,
+    CY_OUT aabbd_t *pBounds ) noexcept;
+
 } // namespace cypher::math
 
 #endif // CYPHER_COMMON_MATH_BRUSH_H

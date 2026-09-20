@@ -38,6 +38,14 @@ void RequireVec3(
     REQUIRE( value.z == Approx( z ).margin( margin ) );
 }
 
+void RequireVec3d(
+    vec3d_t value, f64 x, f64 y, f64 z, f64 margin = 1e-9 )
+{
+    REQUIRE( value.x == Approx( x ).margin( margin ) );
+    REQUIRE( value.y == Approx( y ).margin( margin ) );
+    REQUIRE( value.z == Approx( z ).margin( margin ) );
+}
+
 } // namespace
 
 TEST_CASE( "ray-plane intersection honors the ray parameter interval",
@@ -186,4 +194,45 @@ TEST_CASE( "orthographic projection maps the declared depth interval",
         0.000001f, &farPoint ) );
     RequireVec3( nearPoint, -1.0f, -1.0f, 0.0f );
     RequireVec3( farPoint, 1.0f, 1.0f, 1.0f );
+}
+
+TEST_CASE( "line-plane binary64 intersection matches the analytic parameter",
+           "[CypherCommon][Mathlib][Intersection][Plane][Binary64]" )
+{
+    const planed_t plane = Planed_Make( CY_VEC3D_FORWARD, -5.0 );
+    f64 t = 0.0;
+    vec3d_t point{};
+    REQUIRE( Intersection_TryLinePlaneD(
+        CY_VEC3D_ZERO, Vec3d_Make( 2.0, 0.0, 0.0 ), plane, 1e-9, &t, &point ) );
+    REQUIRE( t == Approx( 2.5 ) );
+    RequireVec3d( point, 5.0, 0.0, 0.0 );
+
+    // A direction parallel to the plane never crosses it.
+    REQUIRE_FALSE( Intersection_TryLinePlaneD(
+        CY_VEC3D_ZERO, CY_VEC3D_LEFT, plane, 1e-9, &t, nullptr ) );
+}
+
+TEST_CASE( "three-plane binary64 intersection reports its own conditioning",
+           "[CypherCommon][Mathlib][Intersection][Plane][Binary64]" )
+{
+    vec3d_t point{};
+    f64 conditioning = -1.0;
+    REQUIRE( Intersection_TryThreePlanesD(
+        Planed_Make( CY_VEC3D_FORWARD, -1.0 ),
+        Planed_Make( CY_VEC3D_LEFT, -2.0 ),
+        Planed_Make( CY_VEC3D_UP, -3.0 ),
+        1e-9, &point, &conditioning ) );
+    RequireVec3d( point, 1.0, 2.0, 3.0 );
+    REQUIRE( conditioning == Approx( 1.0 ) ); // Orthonormal basis planes: |det| == 1.
+
+    // Two parallel planes never define a unique point; conditioning still reports
+    // how close the determinant was, even on failure.
+    conditioning = -1.0;
+    REQUIRE_FALSE( Intersection_TryThreePlanesD(
+        Planed_Make( CY_VEC3D_FORWARD, -1.0 ),
+        Planed_Make( CY_VEC3D_FORWARD, -2.0 ),
+        Planed_Make( CY_VEC3D_UP, -3.0 ),
+        1e-9, &point, &conditioning ) );
+    REQUIRE( Vec3d_EqualsExact( point, CY_VEC3D_ZERO ) );
+    REQUIRE( conditioning == Approx( 0.0 ).margin( 1e-9 ) );
 }

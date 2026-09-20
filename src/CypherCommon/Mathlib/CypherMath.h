@@ -60,5 +60,7 @@ tolerances are part of each public operation's contract.
 #include "CypherMath_FixedPoint.h"
 #include "CypherMath_Quantization.h"
 #include "CypherMath_Gizmo.h"
+#include "CypherMath_Expansion.h"
+#include "CypherMath_Predicates.h"
 
 #endif // CYPHER_COMMON_MATH_H
