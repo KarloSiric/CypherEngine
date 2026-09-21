@@ -478,8 +478,9 @@ polygon_triangulation_result_t Polygon2_Triangulate(
     polygon_triangulation_result_t result{};
     result.status = polygon_triangulation_status_t::INVALID_ARGUMENT;
     if ( !PolygonArgumentsValid( pVertices, cVertices ) ||
-         !Scalar_IsFinite( orientationTolerance ) ||
-         orientationTolerance < 0.0 || pOutputIndices == nullptr ) {
+         !Scalar_IsFinite( distanceTolerance ) ||
+         distanceTolerance < 0.0 || areaTolerance < 0.0 ||
+         pOutputIndices == nullptr ) {
         return result;
     }
     if ( pScratchIndices == nullptr || cScratchIndices < cVertices ) {
@@ -493,13 +494,13 @@ polygon_triangulation_result_t Polygon2_Triangulate(
         return result;
     }
     if ( !PolygonIsSimpleUnchecked(
-             pVertices, cVertices, static_cast<f32>( orientationTolerance ) ) ) {
+             pVertices, cVertices, static_cast<f32>( distanceTolerance ) ) ) {
         result.status = polygon_triangulation_status_t::NOT_SIMPLE;
         return result;
     }
 
     const f64 signedArea = PolygonSignedAreaUnchecked( pVertices, cVertices );
-    if ( std::abs( signedArea ) <= orientationTolerance ) {
+    if ( std::abs( signedArea ) <= areaTolerance ) {
         result.status = polygon_triangulation_status_t::DEGENERATE;
         return result;
     }

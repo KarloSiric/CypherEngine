@@ -31,12 +31,6 @@ namespace cypher::math
 namespace
 {
 
-struct vec3d_t {
-    f64 x;
-    f64 y;
-    f64 z;
-};
-
 bool_t BrushPlanesAreNormalized(
     const plane_t *pPlanes,
     usize cPlanes ) noexcept

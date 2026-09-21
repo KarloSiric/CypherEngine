@@ -304,8 +304,9 @@ polygon_triangulation_result_t Polygon3_Triangulate(
 {
     if ( !Polygon3ArgumentsValid( pVertices, cVertices ) ||
          !Polygon3BasisIsFinite( basis ) ||
-         !Scalar_IsFinite( orientationTolerance ) ||
-         orientationTolerance < 0.0 || pProjectedScratch == nullptr ||
+         !Scalar_IsFinite( distanceTolerance ) ||
+         distanceTolerance < 0.0 || areaTolerance < 0.0 ||
+         pProjectedScratch == nullptr ||
          cProjectedScratch < cVertices ) {
         return { polygon_triangulation_status_t::INVALID_ARGUMENT, 0u, 0u };
     }
