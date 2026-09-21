@@ -30,6 +30,9 @@
 
 namespace cypher::editor::geometry {
 
+using namespace cypher::common;
+using namespace cypher::editor;
+
 using common::u32;
 using common::u64;
 using common::u8;

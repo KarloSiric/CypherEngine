@@ -2798,6 +2798,12 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         )
 
         cypher_add_common_benchmark(
+            cypher_editor_geometry_brush_boundary_bench
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherEditor/Geometry/CypherGeometry_BrushBoundary_Bench.cpp"
+            Cypher::EditorGeometry
+        )
+
+        cypher_add_common_benchmark(
             cypher_system_bench
             "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherSystem/CypherSystem_Bench.cpp"
             Cypher::System

@@ -31,6 +31,14 @@ add_library(CypherEditorGeometry STATIC
     Kernel/CypherGeometry_Kernel_Classification.h
     Kernel/CypherGeometry_Kernel_CoordinateKey.cpp
     Kernel/CypherGeometry_Kernel_CoordinateKey.h
+    Representations/Brush/CypherGeometry_BrushSolid.cpp
+    Representations/Brush/CypherGeometry_BrushSolid.h
+    Representations/Brush/CypherGeometry_BrushBoundary.cpp
+    Representations/Brush/CypherGeometry_BrushBoundary.h
+    Representations/Brush/CypherGeometry_BrushGenerator.cpp
+    Representations/Brush/CypherGeometry_BrushGenerator.h
+    Representations/Brush/CypherGeometry_BrushValidation.cpp
+    Representations/Brush/CypherGeometry_BrushValidation.h
 )
 add_library(Cypher::EditorGeometry ALIAS CypherEditorGeometry)
 
@@ -41,6 +49,7 @@ target_include_directories(CypherEditorGeometry
         "${CMAKE_CURRENT_SOURCE_DIR}/Core"
         "${CMAKE_CURRENT_SOURCE_DIR}/Kernel"
         "${CMAKE_CURRENT_SOURCE_DIR}/Attributes/Schema"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Representations/Brush"
 )
 target_link_libraries(CypherEditorGeometry
     PUBLIC
@@ -58,6 +67,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Kernel/CypherGeometry_Kernel_Classification_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Kernel/CypherGeometry_Kernel_CoordinateKey_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Attributes/CypherGeometry_Attributes_Schema_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushSolid_Tests.cpp"
     )
     target_link_libraries(cypher_editor_geometry_contract_tests
         PRIVATE
