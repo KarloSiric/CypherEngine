@@ -1,0 +1,9 @@
+@cykv 3
+@schema "cypher.tilemap" 1
+
+/*
+Adding commnets and commenting this out... later will add for testing purposes and etc... 
+{
+    "map_id" = ""
+}
+*/

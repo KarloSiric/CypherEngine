@@ -152,7 +152,7 @@ render_error_t R_ValidateVertexLayout(
         }
         bindingSeen[binding.binding] = true;
     }
-
+    
     for ( ::cypher::common::u32 i = 0u; i < layout.attributeCount; ++i ) {
         const render_vertex_attribute_desc_t &attribute = layout.attributes[i];
         render_vertex_format_info_t formatInfo{};
