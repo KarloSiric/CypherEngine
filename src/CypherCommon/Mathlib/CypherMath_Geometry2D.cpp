@@ -80,7 +80,15 @@ bool_t PointInTriangleInclusive(
 
 bool_t PolygonArgumentsValid( const vec2_t *pVertices, usize cVertices ) noexcept
 {
-    return pVertices != nullptr && cVertices >= 3u;
+    if ( pVertices == nullptr || cVertices < 3u ) {
+        return false;
+    }
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        if ( !Vec2_IsFinite( pVertices[i] ) ) {
+            return false;
+        }
+    }
+    return true;
 }
 
 f64 ClampUnitD( f64 value ) noexcept
@@ -124,28 +132,11 @@ bool_t PolygonArgumentsValidD( const vec2d_t *pVertices, usize cVertices ) noexc
     return pVertices != nullptr && cVertices >= 3u;
 }
 
-} // namespace
-
-f64 Geometry2D_Orientation( vec2_t a, vec2_t b, vec2_t c ) noexcept
-{
-    const f64 abX = static_cast<f64>( b.x ) - a.x;
-    const f64 abY = static_cast<f64>( b.y ) - a.y;
-    const f64 acX = static_cast<f64>( c.x ) - a.x;
-    const f64 acY = static_cast<f64>( c.y ) - a.y;
-    return abX * acY - abY * acX;
-}
-
-bool_t Geometry2D_PointOnSegment(
+bool_t PointOnSegmentUnchecked(
     vec2_t point,
     segment2_t segment,
     f32 tolerance ) noexcept
 {
-    if ( tolerance < 0.0f || !Scalar_IsFinite( tolerance ) ||
-         !Vec2_IsFinite( point ) || !Vec2_IsFinite( segment.start ) ||
-         !Vec2_IsFinite( segment.end ) ) {
-        return false;
-    }
-
     if ( std::abs( Geometry2D_Orientation( segment.start, segment.end, point ) ) >
          static_cast<f64>( tolerance ) ) {
         return false;
@@ -158,16 +149,13 @@ bool_t Geometry2D_PointOnSegment(
     return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY;
 }
 
-segment2_intersection_t Geometry2D_IntersectSegments(
+segment2_intersection_t IntersectSegmentsUnchecked(
     segment2_t a,
     segment2_t b,
     f32 tolerance ) noexcept
 {
     segment2_intersection_t result{};
     result.kind = segment2_intersection_kind_t::NONE;
-    if ( tolerance < 0.0f || !Scalar_IsFinite( tolerance ) ) {
-        return result;
-    }
 
     const vec2_t r = Vec2_Subtract( a.end, a.start );
     const vec2_t s = Vec2_Subtract( b.end, b.start );
@@ -189,7 +177,7 @@ segment2_intersection_t Geometry2D_IntersectSegments(
         return result;
     }
     if ( rLengthSquared <= tolerance64 * tolerance64 ) {
-        if ( Geometry2D_PointOnSegment( a.start, b, tolerance ) ) {
+        if ( PointOnSegmentUnchecked( a.start, b, tolerance ) ) {
             result.kind = segment2_intersection_kind_t::POINT;
             result.point0 = a.start;
             result.parameterB0 = static_cast<f32>( ClampUnit( SegmentParameter( b, a.start ) ) );
@@ -197,7 +185,7 @@ segment2_intersection_t Geometry2D_IntersectSegments(
         return result;
     }
     if ( sLengthSquared <= tolerance64 * tolerance64 ) {
-        if ( Geometry2D_PointOnSegment( b.start, a, tolerance ) ) {
+        if ( PointOnSegmentUnchecked( b.start, a, tolerance ) ) {
             result.kind = segment2_intersection_kind_t::POINT;
             result.point0 = b.start;
             result.parameterA0 = static_cast<f32>( ClampUnit( SegmentParameter( a, b.start ) ) );
@@ -250,17 +238,88 @@ segment2_intersection_t Geometry2D_IntersectSegments(
     return result;
 }
 
-f64 Polygon2_SignedArea( const vec2_t *pVertices, usize cVertices ) noexcept
+f64 PolygonSignedAreaUnchecked( const vec2_t *pVertices, usize cVertices ) noexcept
 {
-    if ( !PolygonArgumentsValid( pVertices, cVertices ) ) {
-        return 0.0;
-    }
-
     f64 twiceArea = 0.0;
     for ( usize i = 0u; i < cVertices; ++i ) {
         twiceArea += Cross2( pVertices[i], pVertices[( i + 1u ) % cVertices] );
     }
     return twiceArea * 0.5;
+}
+
+bool_t PolygonIsSimpleUnchecked(
+    const vec2_t *pVertices,
+    usize cVertices,
+    f32 tolerance ) noexcept
+{
+    // Non-adjacent edge intersections make the polygon self-intersecting.
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        const usize iNext = ( i + 1u ) % cVertices;
+        if ( Vec2_DistanceSquared( pVertices[i], pVertices[iNext] ) <=
+             tolerance * tolerance ) {
+            return false;
+        }
+        const segment2_t a{ pVertices[i], pVertices[iNext] };
+        for ( usize j = i + 1u; j < cVertices; ++j ) {
+            const usize jNext = ( j + 1u ) % cVertices;
+            if ( i == j || iNext == j || jNext == i ) {
+                continue;
+            }
+            const segment2_t b{ pVertices[j], pVertices[jNext] };
+            if ( IntersectSegmentsUnchecked( a, b, tolerance ).kind !=
+                 segment2_intersection_kind_t::NONE ) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+f64 Geometry2D_Orientation( vec2_t a, vec2_t b, vec2_t c ) noexcept
+{
+    const f64 abX = static_cast<f64>( b.x ) - a.x;
+    const f64 abY = static_cast<f64>( b.y ) - a.y;
+    const f64 acX = static_cast<f64>( c.x ) - a.x;
+    const f64 acY = static_cast<f64>( c.y ) - a.y;
+    return abX * acY - abY * acX;
+}
+
+bool_t Geometry2D_PointOnSegment(
+    vec2_t point,
+    segment2_t segment,
+    f32 tolerance ) noexcept
+{
+    if ( tolerance < 0.0f || !Scalar_IsFinite( tolerance ) ||
+         !Vec2_IsFinite( point ) || !Vec2_IsFinite( segment.start ) ||
+         !Vec2_IsFinite( segment.end ) ) {
+        return false;
+    }
+    return PointOnSegmentUnchecked( point, segment, tolerance );
+}
+
+segment2_intersection_t Geometry2D_IntersectSegments(
+    segment2_t a,
+    segment2_t b,
+    f32 tolerance ) noexcept
+{
+    segment2_intersection_t result{};
+    result.kind = segment2_intersection_kind_t::NONE;
+    if ( tolerance < 0.0f || !Scalar_IsFinite( tolerance ) ||
+         !Vec2_IsFinite( a.start ) || !Vec2_IsFinite( a.end ) ||
+         !Vec2_IsFinite( b.start ) || !Vec2_IsFinite( b.end ) ) {
+        return result;
+    }
+    return IntersectSegmentsUnchecked( a, b, tolerance );
+}
+
+f64 Polygon2_SignedArea( const vec2_t *pVertices, usize cVertices ) noexcept
+{
+    if ( !PolygonArgumentsValid( pVertices, cVertices ) ) {
+        return 0.0;
+    }
+    return PolygonSignedAreaUnchecked( pVertices, cVertices );
 }
 
 bool_t Polygon2_TryCentroid(
@@ -275,7 +334,8 @@ bool_t Polygon2_TryCentroid(
         return false;
     }
     *pCentroid = CY_VEC2_ZERO;
-    if ( !PolygonArgumentsValid( pVertices, cVertices ) || minimumAbsArea < 0.0 ) {
+    if ( !PolygonArgumentsValid( pVertices, cVertices ) ||
+         !Scalar_IsFinite( minimumAbsArea ) || minimumAbsArea < 0.0 ) {
         return false;
     }
 
@@ -295,10 +355,14 @@ bool_t Polygon2_TryCentroid(
     }
 
     const f64 divisor = 3.0 * twiceArea;
-    *pCentroid = Vec2_Make(
+    const vec2_t centroid = Vec2_Make(
         static_cast<f32>( weightedX / divisor ),
         static_cast<f32>( weightedY / divisor ) );
-    return Vec2_IsFinite( *pCentroid );
+    if ( !Vec2_IsFinite( centroid ) ) {
+        return false;
+    }
+    *pCentroid = centroid;
+    return true;
 }
 
 bool_t Polygon2_ContainsPoint(
@@ -309,7 +373,8 @@ bool_t Polygon2_ContainsPoint(
     bool_t bIncludeBoundary ) noexcept
 {
     if ( !PolygonArgumentsValid( pVertices, cVertices ) ||
-         boundaryTolerance < 0.0f || !Vec2_IsFinite( point ) ) {
+         !Scalar_IsFinite( boundaryTolerance ) || boundaryTolerance < 0.0f ||
+         !Vec2_IsFinite( point ) ) {
         return false;
     }
 
@@ -318,7 +383,7 @@ bool_t Polygon2_ContainsPoint(
     bool_t bInside = false;
     for ( usize i = 0u, j = cVertices - 1u; i < cVertices; j = i++ ) {
         const segment2_t edge{ pVertices[j], pVertices[i] };
-        if ( Geometry2D_PointOnSegment( point, edge, boundaryTolerance ) ) {
+        if ( PointOnSegmentUnchecked( point, edge, boundaryTolerance ) ) {
             return bIncludeBoundary;
         }
 
@@ -342,31 +407,11 @@ bool_t Polygon2_IsSimple(
     usize cVertices,
     f32 tolerance ) noexcept
 {
-    if ( !PolygonArgumentsValid( pVertices, cVertices ) || tolerance < 0.0f ) {
+    if ( !PolygonArgumentsValid( pVertices, cVertices ) ||
+         !Scalar_IsFinite( tolerance ) || tolerance < 0.0f ) {
         return false;
     }
-
-    // Non-adjacent edge intersections make the polygon self-intersecting.
-    for ( usize i = 0u; i < cVertices; ++i ) {
-        const usize iNext = ( i + 1u ) % cVertices;
-        if ( Vec2_DistanceSquared( pVertices[i], pVertices[iNext] ) <=
-             tolerance * tolerance ) {
-            return false;
-        }
-        const segment2_t a{ pVertices[i], pVertices[iNext] };
-        for ( usize j = i + 1u; j < cVertices; ++j ) {
-            const usize jNext = ( j + 1u ) % cVertices;
-            if ( i == j || iNext == j || jNext == i ) {
-                continue;
-            }
-            const segment2_t b{ pVertices[j], pVertices[jNext] };
-            if ( Geometry2D_IntersectSegments( a, b, tolerance ).kind !=
-                 segment2_intersection_kind_t::NONE ) {
-                return false;
-            }
-        }
-    }
-    return true;
+    return PolygonIsSimpleUnchecked( pVertices, cVertices, tolerance );
 }
 
 bool_t Polygon2_IsConvex(
@@ -375,6 +420,7 @@ bool_t Polygon2_IsConvex(
     f64 orientationTolerance ) noexcept
 {
     if ( !PolygonArgumentsValid( pVertices, cVertices ) ||
+         !Scalar_IsFinite( orientationTolerance ) ||
          orientationTolerance < 0.0 ) {
         return false;
     }
@@ -432,8 +478,8 @@ polygon_triangulation_result_t Polygon2_Triangulate(
     polygon_triangulation_result_t result{};
     result.status = polygon_triangulation_status_t::INVALID_ARGUMENT;
     if ( !PolygonArgumentsValid( pVertices, cVertices ) ||
-         distanceTolerance < 0.0 || areaTolerance < 0.0 ||
-         pOutputIndices == nullptr ) {
+         !Scalar_IsFinite( orientationTolerance ) ||
+         orientationTolerance < 0.0 || pOutputIndices == nullptr ) {
         return result;
     }
     if ( pScratchIndices == nullptr || cScratchIndices < cVertices ) {
@@ -446,14 +492,14 @@ polygon_triangulation_result_t Polygon2_Triangulate(
         result.status = polygon_triangulation_status_t::INSUFFICIENT_OUTPUT;
         return result;
     }
-    if ( !Polygon2_IsSimple(
-             pVertices, cVertices, static_cast<f32>( distanceTolerance ) ) ) {
+    if ( !PolygonIsSimpleUnchecked(
+             pVertices, cVertices, static_cast<f32>( orientationTolerance ) ) ) {
         result.status = polygon_triangulation_status_t::NOT_SIMPLE;
         return result;
     }
 
-    const f64 signedArea = Polygon2_SignedArea( pVertices, cVertices );
-    if ( std::abs( signedArea ) <= areaTolerance ) {
+    const f64 signedArea = PolygonSignedAreaUnchecked( pVertices, cVertices );
+    if ( std::abs( signedArea ) <= orientationTolerance ) {
         result.status = polygon_triangulation_status_t::DEGENERATE;
         return result;
     }

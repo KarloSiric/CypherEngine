@@ -109,6 +109,11 @@ CYKV with domain-specific schemas; they are not interchangeable merely because
 they share a parser. The complete map and Mason direction is documented in
 [map_authoring_and_mason.md](map_authoring_and_mason.md).
 
+Generic schema-selected records use the `.cydf` profile. CYDF is encoded by
+CYKV, replaces the earlier unimplemented `.cydata` proposal, and does not define
+a second parser or universal cooked resource. See
+[formats/CYDF.md](formats/CYDF.md).
+
 The Source 2 capability study in
 [source2_tooling_reference.md](source2_tooling_reference.md) reinforces four
 rules:
@@ -136,8 +141,8 @@ only editable copy of a resource.
 
 Target source formats:
 
-- `.cymap` editable Mason map source
-- `.cyscene` editable scene source
+- `.cymap` editable CypherTileEditor grid source using `cypher.map` V1-V3
+- `.cyscene` editable Mason scene/world source using planned `cypher.scene` V1
 - `.cyprefab` prefab/entity template
 - `.cymat` material source
 - `.cyshader` shader source metadata
@@ -148,14 +153,15 @@ Target source formats:
 - VFX module-graph source
 - audio event, rule-stack, and mix-graph source
 - PostFX layer, mask, LUT, exposure, and volume-profile source
-- typed generic CYKV data selected by schema identity
+- `.cydf` generic CYKV data selected by exact schema identity
 - resource/preload manifests
-- CyGUI layout, style, and resource source
+- `.cyui` runtime UI layout, style, and resource source
 
 Target cooked formats:
 
-- `.cymap_c` cooked map data
-- `.cyscene_c` cooked scene data
+- `.cymap_c` optional cooked tile-map data, only if a dedicated tile runtime is
+  admitted
+- `.cyscene_c` cooked Mason scene/world data produced by `CypherSceneCompiler`
 - `.cytex_c` cooked texture
 - `.cymat_c` cooked material
 - `.cymesh_c` cooked mesh
@@ -174,15 +180,15 @@ Target cooked formats:
 - cooked PostFX profile and optional LUT data
 - cooked schema-selected generic data
 - cooked resource/preload manifests
-- cooked CyGUI documents and style resources
+- cooked `.cyui_c` runtime UI documents and style resources
 
 Extensions for the newly listed families are deliberately not reserved yet. A
 format name becomes authoritative only when its source schema, compiler, runtime
 consumer, version policy, and tests exist.
 
 BSP-derived CSG, portal, visibility, or collision data may be an intermediate
-compiler artifact or an optional chunk inside `.cymap_c`. It is not a mandatory
-parallel world format.
+compiler artifact or an optional chunk inside `.cyscene_c`. It is not a
+mandatory parallel world format.
 
 All cooked formats should share a predictable binary skeleton:
 
@@ -216,14 +222,17 @@ Recommended order:
 3. instantiate static objects and entity spawn data from it
 4. add collision and trace data once movement needs it
 5. add visibility/spatial partition data once renderer pressure needs it
-6. build `CypherMapCompiler` when hand-authored source data needs cooking
+6. build `CypherSceneCompiler` when hand-authored Mason scene data needs cooking
 7. build editor-side tooling only when the runtime world path already exists
 
 Important rule:
 
 - the runtime world contract comes before the editor
 - the editor edits real engine data, not a disconnected fake format
-- `.cymap` is CYKV-backed editable source; `.cymap_c` is the normal runtime map
+- `.cymap` remains CypherTileEditor's bounded grid source; `.cymap_c` is optional
+  and belongs only to a future dedicated tile runtime
+- `.cyscene` is Mason's CYKV-backed scene/world source; `.cyscene_c` is the
+  planned runtime world compiled by `CypherSceneCompiler`
 - brushes and BSP algorithms remain tools, not the universal world container
 
 ## Models

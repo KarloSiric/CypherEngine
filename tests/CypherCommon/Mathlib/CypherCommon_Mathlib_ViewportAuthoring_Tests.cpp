@@ -106,6 +106,32 @@ TEST_CASE( "viewport projection and picking preserve Cypher world axes",
     REQUIRE_FALSE( projected.bInsideClipVolume );
 }
 
+TEST_CASE( "finite picking rays deterministically reject infinite projections",
+           "[CypherCommon][Mathlib][Editor][Viewport][Validation]" )
+{
+    constexpr viewport_rect_t viewport{ 0.0f, 0.0f, 800.0f, 600.0f };
+    for ( const clip_depth_range_t depthRange : {
+              clip_depth_range_t::NEGATIVE_ONE_TO_ONE,
+              clip_depth_range_t::ZERO_TO_ONE } ) {
+        CAPTURE( depthRange );
+        mat4_t projection{};
+        REQUIRE( Mat4_TryPerspectiveInfiniteRH(
+            Angle_FromDegrees( 75.0f ), 4.0f / 3.0f, 0.25f,
+            depthRange, &projection ) );
+        mat4_t clipToWorld{};
+        REQUIRE( Mat4_TryInverse( projection, 0.0000001f, &clipToWorld ) );
+
+        ray_t ray = Ray_Make( CY_VEC3_ONE, CY_VEC3_FORWARD );
+        REQUIRE_FALSE( Viewport_TryBuildPickingRay(
+            clipToWorld, viewport, viewport_origin_t::TOP_LEFT, depthRange,
+            Vec2_Make( 400.0f, 300.0f ), 0.0000001f, 0.0000001f, &ray ) );
+        REQUIRE( Vec3_NearlyEquals(
+            ray.origin, CY_VEC3_ZERO, 0.0f, 0.0f ) );
+        REQUIRE( Vec3_NearlyEquals(
+            ray.direction, CY_VEC3_ZERO, 0.0f, 0.0f ) );
+    }
+}
+
 TEST_CASE( "polygon clipping retains the requested plane half-space",
            "[CypherCommon][Mathlib][Editor][Clip]" )
 {

@@ -48,6 +48,22 @@ bool_t Frustum_IsFinite( frustum_t frustum ) noexcept
     return true;
 }
 
+bool_t Frustum_IsValid(
+    frustum_t frustum,
+    f32 planeNormalTolerance ) noexcept
+{
+    if ( !Scalar_IsFinite( planeNormalTolerance ) ||
+         planeNormalTolerance < 0.0f ) {
+        return false;
+    }
+    for ( plane_t plane : frustum.planes ) {
+        if ( !Plane_IsNormalized( plane, planeNormalTolerance ) ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 plane_t Frustum_Plane( frustum_t frustum, frustum_plane_t which ) noexcept
 {
     const u32 index = FrustumPlaneIndex( which );
@@ -163,6 +179,10 @@ bool_t Frustum_TryTransform(
         return false;
     }
     *pTransformed = {};
+    if ( !Frustum_IsValid(
+             frustum, CY_FRUSTUM_PLANE_UNIT_TOLERANCE ) ) {
+        return false;
+    }
 
     // Build into a temporary so one non-invertible plane leaves no partial result.
     frustum_t result{};

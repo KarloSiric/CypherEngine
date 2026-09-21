@@ -117,6 +117,7 @@
 /* Structured data and interchange. */
 #include "CypherCommon_KeyValue.h"
 #include "CypherCommon_KeyValueParser.h"
+#include "CypherCommon_KeyValueSource.h"
 #include "CypherCommon_KeyValueWriter.h"
 #include "CypherCommon_KeyValueJson.h"
 #include "CypherCommon_KeyValuePack.h"

@@ -43,12 +43,19 @@ struct plane_t {
 inline constexpr plane_t CY_PLANE_X{ CY_VEC3_FORWARD, 0.0f }; // Plane through origin normal to X.
 inline constexpr plane_t CY_PLANE_Y{ CY_VEC3_LEFT, 0.0f };    // Plane through origin normal to Y.
 inline constexpr plane_t CY_PLANE_Z{ CY_VEC3_UP, 0.0f };      // Plane through origin normal to Z.
+// Unit-plane consumers accept normal float construction error, but reject
+// coefficient-scaled plane equations whose tolerances would cease to be metric.
+inline constexpr f32 CY_PLANE_UNIT_TOLERANCE = 1.0e-4f;
 
 // Construction and normalization ------------------------------------------------
 CYPHER_NODISCARD constexpr plane_t Plane_Make(
     vec3_t normal, f32 d ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Plane_IsFinite(
     plane_t value ) noexcept;
+// A valid plane has finite coefficients and a normal longer than the caller's
+// degeneracy threshold. It is not necessarily normalized.
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Plane_IsValid(
+    plane_t value, f32 minimumNormalLength ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Plane_IsNormalized(
     plane_t value, f32 tolerance ) noexcept;
 CYPHER_NODISCARD constexpr plane_t Plane_Flip( plane_t value ) noexcept;

@@ -21,6 +21,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <limits>
 
 using namespace cypher::math;
 using Catch::Approx;
@@ -299,6 +300,62 @@ TEST_CASE( "self-intersecting polygons binary64 are rejected",
         polygon_triangulation_status_t::NOT_SIMPLE );
 }
 
+TEST_CASE( "planar geometry rejects nonfinite coordinates and tolerances",
+           "[CypherCommon][Mathlib][Editor][Geometry2D][Validation]" )
+{
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 infinity = std::numeric_limits<f32>::infinity();
+    const vec2_t triangle[]{
+        Vec2_Make( 0.0f, 0.0f ),
+        Vec2_Make( 2.0f, 0.0f ),
+        Vec2_Make( 0.0f, 2.0f )
+    };
+
+    for ( f32 invalid : { nan, infinity, -1.0f } ) {
+        CAPTURE( invalid );
+        REQUIRE( Geometry2D_IntersectSegments(
+            { triangle[0], triangle[1] }, { triangle[1], triangle[2] },
+            invalid ).kind == segment2_intersection_kind_t::NONE );
+        REQUIRE_FALSE( Polygon2_ContainsPoint(
+            triangle, 3u, Vec2_Make( 0.25f, 0.25f ), invalid, true ) );
+        REQUIRE_FALSE( Polygon2_IsSimple( triangle, 3u, invalid ) );
+    }
+
+    for ( f64 invalid : {
+              std::numeric_limits<f64>::quiet_NaN(),
+              std::numeric_limits<f64>::infinity(), -1.0 } ) {
+        CAPTURE( invalid );
+        vec2_t centroid = CY_VEC2_ONE;
+        REQUIRE_FALSE( Polygon2_TryCentroid(
+            triangle, 3u, invalid, &centroid ) );
+        REQUIRE( Vec2_NearlyEquals(
+            centroid, CY_VEC2_ZERO, 0.0f, 0.0f ) );
+        REQUIRE_FALSE( Polygon2_IsConvex( triangle, 3u, invalid ) );
+
+        u32 scratch[3]{};
+        u32 indices[3]{};
+        REQUIRE( Polygon2_Triangulate(
+            triangle, 3u, invalid, scratch, 3u, indices, 3u ).status ==
+            polygon_triangulation_status_t::INVALID_ARGUMENT );
+    }
+
+    const segment2_intersection_t invalidSegment = Geometry2D_IntersectSegments(
+        { Vec2_Make( nan, 0.0f ), Vec2_Make( 1.0f, 0.0f ) },
+        { Vec2_Make( 0.0f, -1.0f ), Vec2_Make( 0.0f, 1.0f ) },
+        0.000001f );
+    REQUIRE( invalidSegment.kind == segment2_intersection_kind_t::NONE );
+    REQUIRE( Vec2_IsFinite( invalidSegment.point0 ) );
+
+    const vec2_t invalidPolygon[]{
+        Vec2_Make( 0.0f, 0.0f ),
+        Vec2_Make( infinity, 0.0f ),
+        Vec2_Make( 0.0f, 1.0f )
+    };
+    REQUIRE( Polygon2_SignedArea( invalidPolygon, 3u ) == 0.0 );
+    REQUIRE_FALSE( Polygon2_IsSimple( invalidPolygon, 3u, 0.000001f ) );
+    REQUIRE_FALSE( Polygon2_IsConvex( invalidPolygon, 3u, 0.000001 ) );
+}
+
 TEST_CASE( "planar 3D polygons derive a basis, area, and triangulation",
            "[CypherCommon][Mathlib][Editor][Polygon3]" )
 {
@@ -327,6 +384,21 @@ TEST_CASE( "planar 3D polygons derive a basis, area, and triangulation",
         projected, 4u, scratch, 4u, indices, 6u );
     REQUIRE( result.status == polygon_triangulation_status_t::OK );
     REQUIRE( result.cTriangles == 2u );
+
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f64 infinity = std::numeric_limits<f64>::infinity();
+    REQUIRE_FALSE( Polygon3_IsPlanar( polygon, 4u, basis, nan ) );
+    REQUIRE_FALSE( Polygon3_TryAreaCentroid(
+        polygon, 4u, basis, infinity, &area, &centroid ) );
+    REQUIRE_FALSE( Polygon3_IsConvex(
+        polygon, 4u, basis, infinity, projected, 4u ) );
+    REQUIRE_FALSE( Polygon3_ContainsPoint(
+        polygon, 4u, basis, centroid, 0.000001f, nan, true,
+        projected, 4u ) );
+    REQUIRE( Polygon3_Triangulate(
+        polygon, 4u, basis, infinity,
+        projected, 4u, scratch, 4u, indices, 6u ).status ==
+        polygon_triangulation_status_t::INVALID_ARGUMENT );
 }
 
 TEST_CASE( "planar 3D binary64 polygons derive a basis, area, and triangulation",
@@ -392,6 +464,24 @@ TEST_CASE( "convex brush planes recover a cube and each face",
     REQUIRE_FALSE( Brush_ContainsPoint(
         planes, 6u, Vec3_Make( 1.1f, 0.0f, 0.0f ), 0.0f ) );
 
+    plane_t scaledPlanes[6]{};
+    for ( usize i = 0u; i < 6u; ++i ) {
+        scaledPlanes[i] = planes[i];
+    }
+    scaledPlanes[0].normal = Vec3_Scale( scaledPlanes[0].normal, 2.0f );
+    scaledPlanes[0].d *= 2.0f;
+    REQUIRE_FALSE( Brush_ContainsPoint(
+        scaledPlanes, 6u, CY_VEC3_ZERO, 0.0f ) );
+    REQUIRE( Brush_BuildVertices(
+        scaledPlanes, 6u, 0.000001, 0.00001f, 0.00001f,
+        vertices, 20u ).status == brush_build_status_t::INVALID_ARGUMENT );
+    vec3_t scaledIntersection = CY_VEC3_ONE;
+    REQUIRE_FALSE( Brush_TryIntersectPlanes(
+        scaledPlanes[0], scaledPlanes[2], scaledPlanes[4],
+        0.000001, &scaledIntersection ) );
+    REQUIRE( Vec3_NearlyEquals(
+        scaledIntersection, CY_VEC3_ZERO, 0.0f, 0.0f ) );
+
     aabb_t bounds{};
     REQUIRE( Brush_TryBounds( vertices, result.cVerticesWritten, &bounds ) );
     RequireVec3( bounds.minimum, -1.0f, -1.0f, -1.0f );
@@ -404,6 +494,43 @@ TEST_CASE( "convex brush planes recover a cube and each face",
             0.00001f, 0.000001f, face, 8u );
         REQUIRE( faceResult.status == brush_build_status_t::OK );
         REQUIRE( faceResult.cVerticesWritten == 4u );
+    }
+
+    const f32 invalidTolerances[]{
+        std::numeric_limits<f32>::quiet_NaN(),
+        std::numeric_limits<f32>::infinity(),
+        -1.0f
+    };
+    for ( f32 invalid : invalidTolerances ) {
+        CAPTURE( invalid );
+        REQUIRE_FALSE( Brush_ContainsPoint(
+            planes, 6u, Vec3_Make( 10.0f, 0.0f, 0.0f ), invalid ) );
+        REQUIRE( Brush_BuildVertices(
+            planes, 6u, 0.000001, invalid, 0.00001f,
+            vertices, 20u ).status == brush_build_status_t::INVALID_ARGUMENT );
+        REQUIRE( Brush_BuildVertices(
+            planes, 6u, 0.000001, 0.00001f, invalid,
+            vertices, 20u ).status == brush_build_status_t::INVALID_ARGUMENT );
+
+        vec3_t face[8]{};
+        REQUIRE( Brush_BuildFacePolygon(
+            planes[0], vertices, result.cVerticesWritten,
+            invalid, 0.000001f, face, 8u ).status ==
+            brush_build_status_t::INVALID_ARGUMENT );
+    }
+
+    for ( f64 invalid : {
+              std::numeric_limits<f64>::quiet_NaN(),
+              std::numeric_limits<f64>::infinity(), -1.0 } ) {
+        CAPTURE( invalid );
+        vec3_t intersection = CY_VEC3_ONE;
+        REQUIRE_FALSE( Brush_TryIntersectPlanes(
+            planes[0], planes[2], planes[4], invalid, &intersection ) );
+        REQUIRE( Vec3_NearlyEquals(
+            intersection, CY_VEC3_ZERO, 0.0f, 0.0f ) );
+        REQUIRE( Brush_BuildVertices(
+            planes, 6u, invalid, 0.00001f, 0.00001f,
+            vertices, 20u ).status == brush_build_status_t::INVALID_ARGUMENT );
     }
 }
 
@@ -493,6 +620,7 @@ TEST_CASE( "Bezier splitting and arc tables preserve curve endpoints",
         curve, 33u, samples, 33u, &table ) );
     REQUIRE( table.cSamplesWritten == 33u );
     REQUIRE( table.totalLength > Vec3_Distance( curve.p0, curve.p3 ) );
+    REQUIRE( Spline_ArcTableIsValid( samples, table.cSamplesWritten ) );
     for ( usize i = 1u; i < table.cSamplesWritten; ++i ) {
         REQUIRE( samples[i].distance >= samples[i - 1u].distance );
     }
@@ -501,4 +629,41 @@ TEST_CASE( "Bezier splitting and arc tables preserve curve endpoints",
     REQUIRE( Spline_TryArcParameterAtDistance(
         samples, table.cSamplesWritten, table.totalLength * 0.5f, &parameter ) );
     REQUIRE( parameter == Approx( 0.5f ).margin( 0.02f ) );
+    REQUIRE( Spline_ArcParameterAtDistanceUnchecked(
+        samples, table.cSamplesWritten, table.totalLength * 0.5f ) ==
+        Approx( parameter ) );
+
+    cubic_bezier3_t nonfiniteCurve = curve;
+    nonfiniteCurve.p2.x = std::numeric_limits<f32>::infinity();
+    spline_arc_table_result_t invalidResult{ 99u, 99.0f };
+    REQUIRE_FALSE( Spline_TryBuildBezierArcTable(
+        nonfiniteCurve, 33u, samples, 33u, &invalidResult ) );
+    REQUIRE( invalidResult.cSamplesWritten == 0u );
+    REQUIRE( invalidResult.totalLength == 0.0f );
+}
+
+TEST_CASE( "arc-table lookup rejects malformed serialized tables",
+           "[CypherCommon][Mathlib][Editor][Spline][Validation]" )
+{
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const spline_arc_sample_t valid[]{
+        { 0.0f, 0.0f }, { 0.5f, 2.0f }, { 1.0f, 4.0f }
+    };
+    REQUIRE( Spline_ArcTableIsValid( valid, 3u ) );
+
+    const spline_arc_sample_t malformed[][3]{
+        { { 0.0f, 0.0f }, { 0.5f, nan }, { 1.0f, 4.0f } },
+        { { 0.0f, 0.0f }, { 0.5f, 3.0f }, { 1.0f, 2.0f } },
+        { { 0.0f, 0.0f }, { 0.75f, 2.0f }, { 0.5f, 4.0f } },
+        { { 0.0f, 0.0f }, { 1.25f, 2.0f }, { 1.0f, 4.0f } },
+        { { 0.0f, -1.0f }, { 0.5f, 2.0f }, { 1.0f, 4.0f } },
+        { { 0.0f, 0.0f }, { 0.5f, 2.0f }, { 0.75f, 4.0f } }
+    };
+    for ( const auto &table : malformed ) {
+        REQUIRE_FALSE( Spline_ArcTableIsValid( table, 3u ) );
+        f32 parameter = 123.0f;
+        REQUIRE_FALSE( Spline_TryArcParameterAtDistance(
+            table, 3u, 1.0f, &parameter ) );
+        REQUIRE( parameter == 0.0f );
+    }
 }

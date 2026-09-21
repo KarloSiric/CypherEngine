@@ -92,17 +92,31 @@ CYPHER_NODISCARD CYPHER_MATH_API vec3_t Spline_CatmullRomDerivative(
     catmull_rom3_t curve, f32 t, f32 tension ) noexcept;
 
 // Arc-length approximation -------------------------------------------------------
+// A complete table starts at {0, 0}, ends at parameter 1, contains only finite
+// samples, and has nondecreasing parameters and cumulative distances.
+CYPHER_NODISCARD CYPHER_MATH_API bool_t Spline_ArcTableIsValid(
+    CY_IN_READS( cSamples ) const spline_arc_sample_t *pSamples,
+    usize cSamples ) noexcept;
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Spline_TryBuildBezierArcTable(
     cubic_bezier3_t curve,
     usize cSamples,
     CY_OUT_WRITES( cSampleCapacity ) spline_arc_sample_t *pSamples,
     usize cSampleCapacity,
     CY_OUT spline_arc_table_result_t *pResult ) noexcept;
+// Validates the complete table before performing the distance lookup.
 CYPHER_NODISCARD CYPHER_MATH_API bool_t Spline_TryArcParameterAtDistance(
     CY_IN_READS( cSamples ) const spline_arc_sample_t *pSamples,
     usize cSamples,
     f32 distance,
     CY_OUT f32 *pParameter ) noexcept;
+// O(log n) lookup for a table already accepted by Spline_ArcTableIsValid or
+// produced successfully by Spline_TryBuildBezierArcTable. Invalid inputs are a
+// programmer error and are asserted in checked builds.
+CYPHER_NODISCARD CYPHER_MATH_API f32
+Spline_ArcParameterAtDistanceUnchecked(
+    CY_IN_READS( cSamples ) const spline_arc_sample_t *pSamples,
+    usize cSamples,
+    f32 distance ) noexcept;
 
 } // namespace cypher::math
 

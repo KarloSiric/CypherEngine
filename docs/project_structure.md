@@ -39,9 +39,10 @@ CypherEngine/
 │   ├── CypherAI/
 │   ├── CypherAnimation/
 │   ├── CypherAudio/
+│   ├── CypherFont/
+│   ├── CypherUI/
 │   ├── CypherCommand/
 │   ├── CypherConfig/
-│   ├── CypherConsole/
 │   ├── CypherCVar/
 │   ├── CypherEntity/
 │   ├── CypherFileSystem/
@@ -51,8 +52,6 @@ CypherEngine/
 │   ├── CypherNetwork/
 │   ├── CypherPak/
 │   ├── CypherPhysics/
-│   ├── CypherPlatform/
-│   ├── CypherProfile/
 │   ├── CypherRender/
 │   ├── CypherResource/
 │   ├── CypherScript/
@@ -67,7 +66,7 @@ CypherEngine/
 ├── game/
 ├── tools/
 │   ├── CypherAssetCompiler/
-│   ├── CypherMapCompiler/
+│   ├── CypherSceneCompiler/
 │   └── CypherResourceCompiler/
 ├── data/
 ├── config/
@@ -82,15 +81,11 @@ CypherEngine/
 - `src/CypherCommon`
   - shared public/common foundation, custom runtime utilities, primitive types, handles, format headers, and public subsystem contracts
 - `src/CypherSystem`
-  - central engine lifetime orchestration; long-term replacement for host-style bootstrapping
-- `src/CypherPlatform`
-  - OS/window/platform backends; current platform code can migrate here later
+  - OS, process, path, timing, event, display, window, virtual-memory, dynamic-library, and presentation-surface services
 - `src/CypherMemory`
   - arenas, pools, memory stats, diagnostics, and allocator backends
 - `src/CypherFileSystem`
   - mounted paths, virtual paths, file handles, archive/package access
-- `src/CypherConsole`
-  - developer console front-end over commands and CVars
 - `src/CypherCommand`
   - command registration and execution
 - `src/CypherCVar`
@@ -111,6 +106,10 @@ CypherEngine/
   - collision, traces, physics bodies, simulation, and movement helpers
 - `src/CypherAudio`
   - audio devices, mixers, sound resources, playback, and spatial audio
+- `src/CypherFont`
+  - font faces, shaping, fallback, metrics, measurement, glyph cache/atlas policy, and renderer-neutral text data
+- `src/CypherUI`
+  - runtime HUD/menu layout, styling, focus, navigation, accessibility, and renderer-neutral UI draw lists
 - `src/CypherAI`
   - navigation, perception, behavior, and combat decision systems
 - `src/CypherAnimation`
@@ -119,8 +118,6 @@ CypherEngine/
   - sockets, packets, channels, replication, prediction, and sessions
 - `src/CypherScript`
   - VM/native bridge and gameplay scripting integration
-- `src/CypherProfile`
-  - profiling scopes, counters, telemetry, and memory/performance reporting
 - `src/CypherEditor`
   - Qt editor application, viewports, inspectors, asset browser, world editing tools
 - `src/CypherTools`
@@ -195,7 +192,7 @@ src/CypherCommon/
 ├── Audio/
 ├── Physics/
 ├── Network/
-├── Gui/
+├── UI/
 ├── Tools/
 └── Editor/
 ```
@@ -226,9 +223,10 @@ Most internal modules should begin as static libraries. Shared-library or
 function-table boundaries should be introduced only where runtime replacement,
 plugins, process separation, or a stable ABI requires them.
 
-`CypherSystem` currently contains some platform/window code. Long term,
-platform-specific code should migrate into `CypherPlatform`, leaving
-`CypherSystem` free to become the central engine orchestration layer.
+`CypherSystem` is the operating-system and platform boundary. Platform-specific
+implementation files remain private inside that module. `CypherHost` is the
+central engine composition and lifecycle layer, so a second `CypherPlatform`
+target would duplicate the working System API.
 
 The former `src/CypherEngine/CypherMath` tree was an unbuilt legacy duplicate.
 `src/CypherCommon/Mathlib` and the `Cypher::Math` target are the canonical math
@@ -236,6 +234,11 @@ implementation shared by the runtime and tools.
 
 Empty future folders may exist before implementation. They are architectural
 parking spaces, not a promise that those systems are complete.
+
+The authoritative module status, including which folders are scaffolds, is in
+[`src/README.md`](../src/README.md). New top-level module folders should normally
+arrive with their first working vertical slice; `CypherFont` and `CypherUI` have
+boundary READMEs because their names and dependencies are now fixed by ADR 0006.
 
 ## Key architectural message
 

@@ -30,7 +30,10 @@ namespace cypher::common
 
 // Recursive CYKV operations reject deeper trees to keep stack use bounded.
 inline constexpr usize CY_KEY_VALUE_MAX_DEPTH = 512u;
-inline constexpr u32 CYKV_LANGUAGE_VERSION = 1u;
+inline constexpr u32 CYKV_LANGUAGE_VERSION_1 = 1u;
+inline constexpr u32 CYKV_LANGUAGE_VERSION_2 = 2u;
+// Existing writers and runtime schemas remain on CYKV 1 until their v2 contracts land.
+inline constexpr u32 CYKV_LANGUAGE_VERSION = CYKV_LANGUAGE_VERSION_1;
 
 enum class key_value_type_t : u8 {
     NULL_VALUE = 0u, // Explicit null scalar.
@@ -57,7 +60,9 @@ struct key_value_document_desc_t {
     const allocator_t *pAllocator{ nullptr }; // Owns nodes and copied data.
     usize nInitialNodes{ 128u };               // First node-arena capacity.
     usize cbInitialStrings{ 8u * CY_KIB };     // First data-arena capacity.
-    bool_t bCaseInsensitiveKeys{ CY_FALSE };   // Fold ASCII object keys during lookup.
+    // Affects generic lookup after publication. Authored CYKV/JSON validation
+    // and duplicate detection always use exact-case key identity.
+    bool_t bCaseInsensitiveKeys{ CY_FALSE };
 };
 
 CYPHER_NODISCARD CYPHER_COMMON_API

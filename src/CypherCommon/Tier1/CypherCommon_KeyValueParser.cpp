@@ -64,8 +64,13 @@ struct parser_t {
     lexer_t lexer{};                       // Lexer and source cursor owned by this parse.
     token_t token{};                       // Current token supplied to recursive productions.
     key_value_parse_options_t options{};   // Caller limits and accepted syntax extensions.
-    key_value_document_t *pDocument{ nullptr }; // Temporary document under construction.
+    key_value_document_t *pDocument{ nullptr }; // Document receiving the current value.
+    key_value_document_t *pOutputDocument{ nullptr }; // Transactional result document.
+    key_value_document_t *pDefinitions{ nullptr }; // Private CYKV 2 definition values.
+    key_value_t *pDefinitionBeingParsed{ nullptr }; // Excluded until declaration completes.
     key_value_parse_result_t result{};     // Sticky first error plus resource counters.
+    u32 nLanguageVersion{ 0u };            // Selects the active CYKV grammar revision.
+    usize nDefinitions{ 0u };              // Completed immutable local definitions.
     usize iPreviousTokenEnd{ 0u };         // Detects required CYKV whitespace between members.
     bool_t bStrictJson{ CY_FALSE };         // Selects JSON grammar instead of CYKV grammar.
     bool_t bAtEnd{ CY_FALSE };              // Lexer has emitted its terminal state.
@@ -131,6 +136,25 @@ CYPHER_NODISCARD bool_t HasTriviaBeforeCurrent(
 {
     return parser.bHasToken &&
            parser.token.range.begin.iByte > parser.iPreviousTokenEnd;
+}
+
+CYPHER_NODISCARD bool_t HasHorizontalSpaceBeforeCurrent(
+    const parser_t &parser ) noexcept
+{
+    if ( !HasTriviaBeforeCurrent( parser ) ) {
+        return CY_FALSE;
+    }
+    bool_t bSawHorizontalSpace = CY_FALSE;
+    for ( usize iByte = parser.iPreviousTokenEnd;
+          iByte < parser.token.range.begin.iByte;
+          ++iByte ) {
+        const char ch = parser.lexer.source.pData[iByte];
+        if ( ch == '\r' || ch == '\n' ) {
+            return CY_FALSE;
+        }
+        bSawHorizontalSpace |= ch == ' ' || ch == '\t';
+    }
+    return bSawHorizontalSpace;
 }
 
 CYPHER_NODISCARD bool_t IsPunctuation(
@@ -267,6 +291,65 @@ CYPHER_NODISCARD bool_t IsSchemaId( string_view_t schemaId ) noexcept
         }
     }
     return bSawDot && !bAtComponentStart;
+}
+
+CYPHER_NODISCARD bool_t IsDefinitionName( string_view_t name ) noexcept
+{
+    if ( !StringView_IsValid( name ) || name.cchLength == 0u ||
+         ( !Char_IsAlphaAscii( name.pData[0] ) && name.pData[0] != '_' ) ) {
+        return CY_FALSE;
+    }
+    for ( usize iByte = 1u; iByte < name.cchLength; ++iByte ) {
+        if ( !Char_IsAlphaNumericAscii( name.pData[iByte] ) &&
+             name.pData[iByte] != '_' ) {
+            return CY_FALSE;
+        }
+    }
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t IsDefinitionMemberName( string_view_t name ) noexcept
+{
+    if ( !StringView_IsValid( name ) || name.cchLength == 0u ||
+         ( !Char_IsAlphaAscii( name.pData[0] ) && name.pData[0] != '_' ) ) {
+        return CY_FALSE;
+    }
+    for ( usize iByte = 1u; iByte < name.cchLength; ++iByte ) {
+        if ( !Char_IsAlphaNumericAscii( name.pData[iByte] ) &&
+             name.pData[iByte] != '_' && name.pData[iByte] != '-' ) {
+            return CY_FALSE;
+        }
+    }
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t IsDefinitionPath( string_view_t path ) noexcept
+{
+    if ( !StringView_IsValid( path ) || path.cchLength == 0u ) {
+        return CY_FALSE;
+    }
+    usize iBegin = 0u;
+    bool_t bFirst = CY_TRUE;
+    while ( iBegin < path.cchLength ) {
+        usize iEnd = iBegin;
+        while ( iEnd < path.cchLength && path.pData[iEnd] != '.' ) {
+            ++iEnd;
+        }
+        const string_view_t segment{
+            path.pData + iBegin,
+            iEnd - iBegin
+        };
+        if ( ( bFirst && !IsDefinitionName( segment ) ) ||
+             ( !bFirst && !IsDefinitionMemberName( segment ) ) ) {
+            return CY_FALSE;
+        }
+        bFirst = CY_FALSE;
+        if ( iEnd == path.cchLength ) {
+            return CY_TRUE;
+        }
+        iBegin = iEnd + 1u;
+    }
+    return CY_FALSE;
 }
 
 CYPHER_NODISCARD bool_t ParseHeaderVersion(
@@ -665,10 +748,12 @@ CYPHER_NODISCARD bool_t ParseDocumentHeader(
         FailCurrent( parser, key_value_parse_status_t::INVALID_HEADER );
         return CY_FALSE;
     }
-    if ( nLanguageVersion != CYKV_LANGUAGE_VERSION ) {
+    if ( nLanguageVersion != CYKV_LANGUAGE_VERSION_1 &&
+         nLanguageVersion != CYKV_LANGUAGE_VERSION_2 ) {
         FailCurrent( parser, key_value_parse_status_t::UNSUPPORTED_VERSION );
         return CY_FALSE;
     }
+    parser.nLanguageVersion = nLanguageVersion;
     if ( !Advance( parser ) || !IsNewlineToken( parser ) ||
          !Advance( parser ) || !IsPunctuation( parser, '@' ) ||
          !Advance( parser ) || !TokenEqualsIdentifier( parser, "schema" ) ||
@@ -736,16 +821,314 @@ CYPHER_NODISCARD bool_t ParseDocumentHeader(
 
 CYPHER_NODISCARD bool_t CheckLimits( parser_t &parser ) noexcept
 {
-    // Limits are rechecked after every mutation because strings and nodes are cumulative.
-    parser.result.nNodesParsed = KeyValue_InternalNodeCount( parser.pDocument );
-    parser.result.cbStringData = KeyValue_InternalDataSize( parser.pDocument );
-    if ( parser.result.nNodesParsed > parser.options.nMaxNodes ) {
+    // Definition storage is private parse state, but still counts against the same
+    // hostile-input budgets while it is live. Its synthetic root is excluded.
+    const usize nOutputNodes = KeyValue_InternalNodeCount(
+        parser.pOutputDocument );
+    const usize nDefinitionNodes = parser.pDefinitions != nullptr
+        ? KeyValue_InternalNodeCount( parser.pDefinitions ) - 1u
+        : 0u;
+    const usize cbOutputData = KeyValue_InternalDataSize(
+        parser.pOutputDocument );
+    const usize cbDefinitionData = parser.pDefinitions != nullptr
+        ? KeyValue_InternalDataSize( parser.pDefinitions )
+        : 0u;
+
+    const bool_t bNodeOverflow = nOutputNodes > CY_USIZE_MAX - nDefinitionNodes;
+    const bool_t bDataOverflow = cbOutputData > CY_USIZE_MAX - cbDefinitionData;
+    parser.result.nNodesParsed = bNodeOverflow
+        ? CY_USIZE_MAX
+        : nOutputNodes + nDefinitionNodes;
+    parser.result.cbStringData = bDataOverflow
+        ? CY_USIZE_MAX
+        : cbOutputData + cbDefinitionData;
+    if ( bNodeOverflow || parser.result.nNodesParsed > parser.options.nMaxNodes ) {
         FailCurrent( parser, key_value_parse_status_t::NODE_LIMIT );
         return CY_FALSE;
     }
-    if ( parser.result.cbStringData > parser.options.cbMaxStringData ) {
+    if ( bDataOverflow ||
+         parser.result.cbStringData > parser.options.cbMaxStringData ) {
         FailCurrent( parser, key_value_parse_status_t::STRING_LIMIT );
         return CY_FALSE;
+    }
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t CanAllocateNode( parser_t &parser ) noexcept
+{
+    if ( !CheckLimits( parser ) ) {
+        return CY_FALSE;
+    }
+    if ( parser.result.nNodesParsed >= parser.options.nMaxNodes ) {
+        FailCurrent( parser, key_value_parse_status_t::NODE_LIMIT );
+        return CY_FALSE;
+    }
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t EnsureDefinitionStorage(
+    parser_t &parser ) noexcept
+{
+    if ( parser.pDefinitions != nullptr ) {
+        return CY_TRUE;
+    }
+    const key_value_document_t *pOutput = parser.pOutputDocument;
+    parser.pDefinitions = KeyValue_CreateDocument({
+        pOutput->pAllocator,
+        pOutput->nInitialNodes,
+        pOutput->cbInitialData,
+        // CYKV directive symbols and qualified member paths are always exact-
+        // case, independently of a generic document's lookup policy.
+        CY_FALSE
+    });
+    if ( parser.pDefinitions == nullptr ||
+         !KeyValue_SetRootType(
+             parser.pDefinitions,
+             key_value_type_t::OBJECT ) ) {
+        if ( parser.pDefinitions != nullptr ) {
+            KeyValue_DestroyDocument( parser.pDefinitions );
+            parser.pDefinitions = nullptr;
+        }
+        FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+        return CY_FALSE;
+    }
+    return CY_TRUE;
+}
+
+struct copied_value_cost_t {
+    usize nAdditionalNodes{ 0u };       // Source descendants; destination already exists.
+    usize cbAdditionalData{ 0u };      // Copied strings, binary bytes, and object keys.
+    usize nMaxContainerDepth{ 0u };    // Deepest container offset from source root.
+    bool_t bHasContainer{ CY_FALSE };
+};
+
+CYPHER_NODISCARD bool_t AddCopyCost(
+    usize &total,
+    usize amount ) noexcept
+{
+    if ( amount > CY_USIZE_MAX - total ) {
+        return CY_FALSE;
+    }
+    total += amount;
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t MeasureCopiedValue(
+    const key_value_t *pValue,
+    usize nRelativeDepth,
+    copied_value_cost_t &cost ) noexcept
+{
+    if ( pValue->type == key_value_type_t::OBJECT ||
+         pValue->type == key_value_type_t::ARRAY ) {
+        cost.bHasContainer = CY_TRUE;
+        if ( nRelativeDepth > cost.nMaxContainerDepth ) {
+            cost.nMaxContainerDepth = nRelativeDepth;
+        }
+    } else if ( pValue->type == key_value_type_t::STRING ) {
+        if ( pValue->value.bytes.cbSize == CY_USIZE_MAX ||
+             !AddCopyCost(
+                 cost.cbAdditionalData,
+                 pValue->value.bytes.cbSize + 1u ) ) {
+            return CY_FALSE;
+        }
+    } else if ( pValue->type == key_value_type_t::BINARY &&
+                !AddCopyCost(
+                    cost.cbAdditionalData,
+                    pValue->value.bytes.cbSize ) ) {
+        return CY_FALSE;
+    }
+
+    for ( const key_value_t *pChild = pValue->pFirstChild;
+          pChild != nullptr;
+          pChild = pChild->pNext ) {
+        if ( !AddCopyCost( cost.nAdditionalNodes, 1u ) ) {
+            return CY_FALSE;
+        }
+        if ( pValue->type == key_value_type_t::OBJECT &&
+             ( pChild->cchName == CY_USIZE_MAX ||
+               !AddCopyCost(
+                   cost.cbAdditionalData,
+                   pChild->cchName + 1u ) ) ) {
+            return CY_FALSE;
+        }
+        if ( nRelativeDepth == CY_USIZE_MAX ||
+             !MeasureCopiedValue(
+                 pChild,
+                 nRelativeDepth + 1u,
+                 cost ) ) {
+            return CY_FALSE;
+        }
+    }
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t CopyDefinitionValue(
+    parser_t &parser,
+    key_value_t *pDest,
+    const key_value_t *pSource,
+    usize nDepth ) noexcept
+{
+    copied_value_cost_t cost{};
+    if ( !MeasureCopiedValue( pSource, 0u, cost ) ) {
+        FailCurrent( parser, key_value_parse_status_t::NODE_LIMIT );
+        return CY_FALSE;
+    }
+    if ( cost.bHasContainer &&
+         ( nDepth > parser.options.nMaxDepth ||
+           cost.nMaxContainerDepth > parser.options.nMaxDepth - nDepth ) ) {
+        FailCurrent( parser, key_value_parse_status_t::DEPTH_LIMIT );
+        return CY_FALSE;
+    }
+    if ( !CheckLimits( parser ) ) {
+        return CY_FALSE;
+    }
+    if ( cost.nAdditionalNodes >
+         parser.options.nMaxNodes - parser.result.nNodesParsed ) {
+        FailCurrent( parser, key_value_parse_status_t::NODE_LIMIT );
+        return CY_FALSE;
+    }
+    if ( cost.cbAdditionalData >
+         parser.options.cbMaxStringData - parser.result.cbStringData ) {
+        FailCurrent( parser, key_value_parse_status_t::STRING_LIMIT );
+        return CY_FALSE;
+    }
+    if ( !KeyValue_InternalCopyValue(
+             parser.pDocument,
+             pDest,
+             pSource ) ) {
+        FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+        return CY_FALSE;
+    }
+    return CheckLimits( parser );
+}
+
+CYPHER_NODISCARD bool_t ParseDefinitionReference(
+    parser_t &parser,
+    key_value_t *pValue,
+    usize nDepth ) noexcept
+{
+    // '$' is deliberately meaningful only in value position and only in CYKV 2.
+    if ( !Advance( parser ) || HasTriviaBeforeCurrent( parser ) ||
+         parser.token.kind != token_kind_t::IDENTIFIER ||
+         !IsDefinitionPath( parser.token.lexeme ) ) {
+        if ( parser.result.status == key_value_parse_status_t::OK ) {
+            FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+        }
+        return CY_FALSE;
+    }
+
+    const string_view_t path = parser.token.lexeme;
+    usize iSegmentEnd = 0u;
+    while ( iSegmentEnd < path.cchLength &&
+            path.pData[iSegmentEnd] != '.' ) {
+        ++iSegmentEnd;
+    }
+    const key_value_t *pDefinition = parser.pDefinitions != nullptr
+        ? KeyValue_Find(
+            KeyValue_Root( parser.pDefinitions ),
+            { path.pData, iSegmentEnd } )
+        : nullptr;
+    if ( pDefinition == parser.pDefinitionBeingParsed ) {
+        pDefinition = nullptr;
+    }
+    usize iSegmentBegin = iSegmentEnd < path.cchLength
+        ? iSegmentEnd + 1u
+        : path.cchLength;
+    while ( pDefinition != nullptr && iSegmentBegin < path.cchLength ) {
+        iSegmentEnd = iSegmentBegin;
+        while ( iSegmentEnd < path.cchLength &&
+                path.pData[iSegmentEnd] != '.' ) {
+            ++iSegmentEnd;
+        }
+        pDefinition = KeyValue_Type( pDefinition ) == key_value_type_t::OBJECT
+            ? KeyValue_Find(
+                pDefinition,
+                {
+                    path.pData + iSegmentBegin,
+                    iSegmentEnd - iSegmentBegin
+                } )
+            : nullptr;
+        iSegmentBegin = iSegmentEnd < path.cchLength
+            ? iSegmentEnd + 1u
+            : path.cchLength;
+    }
+    if ( pDefinition == nullptr ) {
+        FailCurrent(
+            parser,
+            key_value_parse_status_t::UNDEFINED_DEFINITION );
+        return CY_FALSE;
+    }
+    if ( !CopyDefinitionValue(
+             parser,
+             pValue,
+             pDefinition,
+             nDepth ) ) {
+        return CY_FALSE;
+    }
+    return Advance( parser );
+}
+
+CYPHER_NODISCARD bool_t SeedDefinitions(
+    parser_t &parser,
+    const key_value_definition_seed_t *pSeeds,
+    usize nSeeds ) noexcept
+{
+    if ( nSeeds == 0u ) {
+        return CY_TRUE;
+    }
+    if ( parser.bStrictJson ||
+         parser.nLanguageVersion != CYKV_LANGUAGE_VERSION_2 ||
+         pSeeds == nullptr ) {
+        FailCurrent( parser, key_value_parse_status_t::INVALID_ARGUMENT );
+        return CY_FALSE;
+    }
+    if ( nSeeds > parser.options.nMaxDefinitions ) {
+        FailCurrent( parser, key_value_parse_status_t::DEFINITION_LIMIT );
+        return CY_FALSE;
+    }
+    if ( nSeeds != 0u && !EnsureDefinitionStorage( parser ) ) {
+        return CY_FALSE;
+    }
+    for ( usize iSeed = 0u; iSeed < nSeeds; ++iSeed ) {
+        const key_value_definition_seed_t &seed = pSeeds[iSeed];
+        if ( !IsDefinitionName( seed.name ) ||
+             !KeyValue_InternalTreeIsValid( seed.pValue ) ) {
+            FailCurrent( parser, key_value_parse_status_t::INVALID_ARGUMENT );
+            return CY_FALSE;
+        }
+        if ( KeyValue_Find(
+                 KeyValue_Root( parser.pDefinitions ),
+                 seed.name ) != nullptr ) {
+            FailCurrent(
+                parser,
+                key_value_parse_status_t::DUPLICATE_DEFINITION );
+            return CY_FALSE;
+        }
+        if ( !CanAllocateNode( parser ) ) {
+            return CY_FALSE;
+        }
+        key_value_t *pDefinition = KeyValue_ObjectInsert(
+            parser.pDefinitions,
+            KeyValue_Root( parser.pDefinitions ),
+            seed.name,
+            key_value_type_t::NULL_VALUE );
+        if ( pDefinition == nullptr ) {
+            FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+            return CY_FALSE;
+        }
+        if ( !CheckLimits( parser ) ) {
+            return CY_FALSE;
+        }
+        key_value_document_t *pPreviousDocument = parser.pDocument;
+        parser.pDocument = parser.pDefinitions;
+        const bool_t bCopied = CopyDefinitionValue(
+            parser,
+            pDefinition,
+            seed.pValue,
+            0u );
+        parser.pDocument = pPreviousDocument;
+        if ( !bCopied ) return CY_FALSE;
+        ++parser.nDefinitions;
     }
     return CY_TRUE;
 }
@@ -817,10 +1200,8 @@ CYPHER_NODISCARD bool_t ParseObject(
             ReleaseDecoded( parser, decodedName );
             return CY_FALSE;
         }
-        if ( KeyValue_InternalNodeCount( parser.pDocument ) >=
-             parser.options.nMaxNodes ) {
+        if ( !CanAllocateNode( parser ) ) {
             ReleaseDecoded( parser, decodedName );
-            FailCurrent( parser, key_value_parse_status_t::NODE_LIMIT );
             return CY_FALSE;
         }
         if ( pObject->nChildren >= parser.options.nMaxContainerValues ) {
@@ -894,9 +1275,7 @@ CYPHER_NODISCARD bool_t ParseArray(
 
     // Arrays always use commas, including CYKV; the option only permits a final comma.
     while ( !parser.bAtEnd ) {
-        if ( KeyValue_InternalNodeCount( parser.pDocument ) >=
-             parser.options.nMaxNodes ) {
-            FailCurrent( parser, key_value_parse_status_t::NODE_LIMIT );
+        if ( !CanAllocateNode( parser ) ) {
             return CY_FALSE;
         }
         if ( pArray->nChildren >= parser.options.nMaxContainerValues ) {
@@ -1298,6 +1677,11 @@ bool_t ParseValue(
     if ( IsPunctuation( parser, '[' ) ) {
         return ParseArray( parser, pValue, nDepth );
     }
+    if ( !parser.bStrictJson &&
+         parser.nLanguageVersion == CYKV_LANGUAGE_VERSION_2 &&
+         IsPunctuation( parser, '$' ) ) {
+        return ParseDefinitionReference( parser, pValue, nDepth );
+    }
     if ( parser.token.kind == token_kind_t::STRING ) {
         return ParseStringValue( parser, pValue );
     }
@@ -1320,6 +1704,81 @@ bool_t ParseValue(
     }
     FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
     return CY_FALSE;
+}
+
+CYPHER_NODISCARD bool_t ParseDefinitionPreamble(
+    parser_t &parser ) noexcept
+{
+    while ( IsPunctuation( parser, '#' ) ) {
+        if ( !Advance( parser ) ||
+             HasTriviaBeforeCurrent( parser ) ||
+             !TokenEqualsIdentifier( parser, "define" ) ||
+             !Advance( parser ) ||
+             !HasHorizontalSpaceBeforeCurrent( parser ) ||
+             parser.token.kind != token_kind_t::IDENTIFIER ||
+             !IsDefinitionName( parser.token.lexeme ) ) {
+            if ( parser.result.status == key_value_parse_status_t::OK ) {
+                FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+            }
+            return CY_FALSE;
+        }
+
+        const string_view_t name = parser.token.lexeme;
+        if ( parser.pDefinitions != nullptr &&
+             KeyValue_Find(
+                 KeyValue_Root( parser.pDefinitions ),
+                 name ) != nullptr ) {
+            FailCurrent(
+                parser,
+                key_value_parse_status_t::DUPLICATE_DEFINITION );
+            return CY_FALSE;
+        }
+        if ( parser.nDefinitions >= parser.options.nMaxDefinitions ) {
+            FailCurrent(
+                parser,
+                key_value_parse_status_t::DEFINITION_LIMIT );
+            return CY_FALSE;
+        }
+        if ( !EnsureDefinitionStorage( parser ) || !Advance( parser ) ||
+             !HasHorizontalSpaceBeforeCurrent( parser ) ) {
+            if ( parser.result.status == key_value_parse_status_t::OK ) {
+                FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+            }
+            return CY_FALSE;
+        }
+        if ( !CanAllocateNode( parser ) ) {
+            return CY_FALSE;
+        }
+
+        key_value_t *pDefinition = KeyValue_ObjectInsert(
+            parser.pDefinitions,
+            KeyValue_Root( parser.pDefinitions ),
+            name,
+            key_value_type_t::NULL_VALUE );
+        if ( pDefinition == nullptr ) {
+            FailCurrent( parser, key_value_parse_status_t::OUT_OF_MEMORY );
+            return CY_FALSE;
+        }
+        if ( !CheckLimits( parser ) ) {
+            return CY_FALSE;
+        }
+
+        key_value_document_t *pPreviousDocument = parser.pDocument;
+        parser.pDocument = parser.pDefinitions;
+        parser.pDefinitionBeingParsed = pDefinition;
+        const bool_t bParsed = ParseValue( parser, pDefinition, 0u );
+        parser.pDefinitionBeingParsed = nullptr;
+        parser.pDocument = pPreviousDocument;
+        if ( !bParsed ) {
+            return CY_FALSE;
+        }
+        if ( !parser.bAtEnd && !HasTriviaBeforeCurrent( parser ) ) {
+            FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+            return CY_FALSE;
+        }
+        ++parser.nDefinitions;
+    }
+    return CY_TRUE;
 }
 
 CYPHER_NODISCARD bool_t InitializeParser(
@@ -1345,9 +1804,11 @@ CYPHER_NODISCARD bool_t InitializeParser(
 
 } // namespace
 
-key_value_parse_result_t KeyValue_InternalParseText(
+key_value_parse_result_t KeyValue_InternalParseTextWithDefinitions(
     string_view_t text,
     const key_value_parse_options_t &options,
+    const key_value_definition_seed_t *pSeeds,
+    usize nSeeds,
     key_value_document_t *pDocument,
     bool_t bStrictJson ) noexcept
 {
@@ -1362,7 +1823,8 @@ key_value_parse_result_t KeyValue_InternalParseText(
          options.nMaxNodes == 0u ||
          options.nMaxContainerValues == 0u ||
          options.nMaxCommentDepth == 0u ||
-         options.cbMaxStringData == 0u ) {
+         options.cbMaxStringData == 0u ||
+         ( nSeeds != 0u && pSeeds == nullptr ) ) {
         invalid.status = key_value_parse_status_t::INVALID_ARGUMENT;
         if ( StringView_IsValid( text ) &&
              options.cbMaxInput != 0u &&
@@ -1373,7 +1835,11 @@ key_value_parse_result_t KeyValue_InternalParseText(
     }
 
     // Build transactionally: only a fully valid temporary tree replaces the destination.
-    key_value_document_t *pTemporary = KeyValue_InternalCreateLike( pDocument );
+    // CYKV and JSON object keys are exact-case language identities. Preserve a
+    // destination's optional folded lookup behavior only after publication.
+    key_value_document_t *pTemporary = KeyValue_InternalCreateLike(
+        pDocument,
+        CY_FALSE );
     if ( pTemporary == nullptr ) {
         invalid.status = key_value_parse_status_t::OUT_OF_MEMORY;
         return invalid;
@@ -1381,6 +1847,7 @@ key_value_parse_result_t KeyValue_InternalParseText(
     parser_t parser{};
     parser.options = options;
     parser.pDocument = pTemporary;
+    parser.pOutputDocument = pTemporary;
     parser.bStrictJson = bStrictJson;
     if ( !ValidateSourceEncoding( parser, text ) ||
          !InitializeParser( parser, text ) ) {
@@ -1401,15 +1868,39 @@ key_value_parse_result_t KeyValue_InternalParseText(
         return parser.result;
     }
 
-    if ( ( !bStrictJson ||
-           !HasFlag( parser, KEY_VALUE_PARSE_FLAG_ALLOW_ROOT_VALUE ) ) &&
-         !IsPunctuation( parser, '{' ) ) {
-        FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
-    } else {
-        static_cast<void>( ParseValue(
-            parser,
-            KeyValue_Root( pTemporary ),
-            0u ) );
+    bool_t bPreambleReady = CY_TRUE;
+    if ( !bStrictJson &&
+         parser.nLanguageVersion == CYKV_LANGUAGE_VERSION_2 ) {
+        bPreambleReady = SeedDefinitions( parser, pSeeds, nSeeds ) &&
+                         ParseDefinitionPreamble( parser );
+    } else if ( nSeeds != 0u ) {
+        FailCurrent( parser, key_value_parse_status_t::INVALID_ARGUMENT );
+        bPreambleReady = CY_FALSE;
+    }
+    if ( bPreambleReady ) {
+        const bool_t bRequiresObjectRoot =
+            !bStrictJson ||
+            !HasFlag( parser, KEY_VALUE_PARSE_FLAG_ALLOW_ROOT_VALUE );
+        const bool_t bCykv2RootReference =
+            !bStrictJson &&
+            parser.nLanguageVersion == CYKV_LANGUAGE_VERSION_2 &&
+            IsPunctuation( parser, '$' );
+        if ( bRequiresObjectRoot &&
+             !IsPunctuation( parser, '{' ) &&
+             !bCykv2RootReference ) {
+            FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+        } else {
+            static_cast<void>( ParseValue(
+                parser,
+                KeyValue_Root( pTemporary ),
+                0u ) );
+            if ( parser.result.status == key_value_parse_status_t::OK &&
+                 bRequiresObjectRoot &&
+                 KeyValue_Type( KeyValue_Root( pTemporary ) ) !=
+                    key_value_type_t::OBJECT ) {
+                FailCurrent( parser, key_value_parse_status_t::SYNTAX_ERROR );
+            }
+        }
     }
     if ( parser.result.status == key_value_parse_status_t::OK &&
          !parser.bAtEnd ) {
@@ -1420,8 +1911,26 @@ key_value_parse_result_t KeyValue_InternalParseText(
     if ( parser.result.status == key_value_parse_status_t::OK ) {
         KeyValue_InternalMoveDocumentContents( pDocument, pTemporary );
     }
+    if ( parser.pDefinitions != nullptr ) {
+        KeyValue_DestroyDocument( parser.pDefinitions );
+    }
     KeyValue_DestroyDocument( pTemporary );
     return parser.result;
+}
+
+key_value_parse_result_t KeyValue_InternalParseText(
+    string_view_t text,
+    const key_value_parse_options_t &options,
+    key_value_document_t *pDocument,
+    bool_t bStrictJson ) noexcept
+{
+    return KeyValue_InternalParseTextWithDefinitions(
+        text,
+        options,
+        nullptr,
+        0u,
+        pDocument,
+        bStrictJson );
 }
 
 key_value_parse_result_t KeyValue_ParseText(
@@ -1455,6 +1964,12 @@ const char *KeyValue_ParseStatusName(
         case key_value_parse_status_t::STRING_LIMIT:   return "STRING_LIMIT";
         case key_value_parse_status_t::OUT_OF_MEMORY:  return "OUT_OF_MEMORY";
         case key_value_parse_status_t::TRAILING_INPUT: return "TRAILING_INPUT";
+        case key_value_parse_status_t::DUPLICATE_DEFINITION:
+            return "DUPLICATE_DEFINITION";
+        case key_value_parse_status_t::UNDEFINED_DEFINITION:
+            return "UNDEFINED_DEFINITION";
+        case key_value_parse_status_t::DEFINITION_LIMIT:
+            return "DEFINITION_LIMIT";
     }
     return "UNKNOWN_KEY_VALUE_PARSE_STATUS";
 }

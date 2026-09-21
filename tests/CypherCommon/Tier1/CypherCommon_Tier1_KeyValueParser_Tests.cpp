@@ -168,7 +168,7 @@ TEST_CASE( "CYKV parser enforces headers and structural separators",
     REQUIRE( ParseStatus( "\n@cykv 1\n@schema \"cypher.test\" 1\n{}" ) ==
              key_value_parse_status_t::INVALID_HEADER );
     REQUIRE( ParseStatus(
-        "@cykv 2\n@schema \"cypher.test\" 1\n{}" ) ==
+        "@cykv 3\n@schema \"cypher.test\" 1\n{}" ) ==
         key_value_parse_status_t::UNSUPPORTED_VERSION );
     REQUIRE( ParseStatus(
         "@cykv 1\n@schema \"invalid\" 1\n{}" ) ==
@@ -185,6 +185,259 @@ TEST_CASE( "CYKV parser enforces headers and structural separators",
     REQUIRE( ParseStatus(
         "@cykv 1\n@schema \"cypher.test\" 1\n{ a = [1, 2,] }" ) ==
         key_value_parse_status_t::OK );
+}
+
+TEST_CASE( "CYKV authored keys stay exact-case with folded destination lookup",
+           "[CypherCommon][Tier1][CYKV][Conformance][Case]" )
+{
+    key_value_document_t *pDocument = KeyValue_CreateDocument({
+        nullptr,
+        128u,
+        8u * CY_KIB,
+        CY_TRUE
+    });
+    REQUIRE( pDocument != nullptr );
+
+    constexpr const char *pSource =
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "{ Value = 1 value = 2 }";
+    const key_value_parse_result_t result = KeyValue_ParseText(
+        StringView_FromCString( pSource ),
+        {},
+        pDocument );
+    REQUIRE( result.status == key_value_parse_status_t::OK );
+    key_value_t *pRoot = KeyValue_Root( pDocument );
+    REQUIRE( KeyValue_ChildCount( pRoot ) == 2u );
+    CHECK( StringView_Equals(
+        KeyValue_Name( KeyValue_ChildAt( pRoot, 0u ) ),
+        StringView_FromCString( "Value" ) ) );
+    CHECK( StringView_Equals(
+        KeyValue_Name( KeyValue_ChildAt( pRoot, 1u ) ),
+        StringView_FromCString( "value" ) ) );
+    // The caller's post-publication lookup preference remains intact.
+    CHECK( KeyValue_Find(
+        pRoot,
+        StringView_FromCString( "VALUE" ) ) != nullptr );
+
+    constexpr const char *pExactDuplicate =
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "{ Value = 1 Value = 2 }";
+    const key_value_parse_result_t duplicate = KeyValue_ParseText(
+        StringView_FromCString( pExactDuplicate ),
+        {},
+        pDocument );
+    CHECK( duplicate.status == key_value_parse_status_t::DUPLICATE_KEY );
+    // Failed parsing remains transactional.
+    CHECK( KeyValue_ChildCount( KeyValue_Root( pDocument ) ) == 2u );
+
+    KeyValue_DestroyDocument( pDocument );
+}
+
+TEST_CASE( "CYKV 2 expands immutable typed local definitions",
+           "[CypherCommon][Tier1][CYKV][Definitions]" )
+{
+    constexpr const char *pSource = R"cykv(@cykv 2
+@schema "cypher.test" 1
+#define ENABLED true
+#define COUNT 42u
+#define RATIO 1.5
+#define TITLE "local value"
+#define PAYLOAD hex"00ff80"
+#define RECORD {
+    title = $TITLE
+    payload = $PAYLOAD
+    values = [null, $COUNT, $RATIO]
+}
+#define RECORD_ALIAS $RECORD
+{
+    enabled = $ENABLED
+    count = $COUNT
+    first = $RECORD
+    second = $RECORD_ALIAS
+}
+)cykv";
+
+    key_value_document_t *pDocument = CreateDocument();
+    const key_value_parse_result_t result = KeyValue_ParseText(
+        StringView_FromCString( pSource ),
+        {},
+        pDocument );
+    REQUIRE( result.status == key_value_parse_status_t::OK );
+    REQUIRE( KeyValue_DocumentHeader( pDocument ).nLanguageVersion ==
+             CYKV_LANGUAGE_VERSION_2 );
+
+    key_value_t *pRoot = KeyValue_Root( pDocument );
+    REQUIRE( KeyValue_ChildCount( pRoot ) == 4u );
+    bool_t enabled = CY_FALSE;
+    REQUIRE( KeyValue_GetBool(
+        FindRequired( pRoot, "enabled" ),
+        &enabled ) );
+    CHECK( enabled );
+    u64 count = 0u;
+    REQUIRE( KeyValue_GetU64( FindRequired( pRoot, "count" ), &count ) );
+    CHECK( count == 42u );
+
+    key_value_t *pFirst = FindRequired( pRoot, "first" );
+    key_value_t *pSecond = FindRequired( pRoot, "second" );
+    REQUIRE( pFirst != pSecond );
+    REQUIRE( KeyValue_Type( pFirst ) == key_value_type_t::OBJECT );
+    REQUIRE( KeyValue_Type( pSecond ) == key_value_type_t::OBJECT );
+    REQUIRE( KeyValue_ChildCount( pFirst ) == 3u );
+    REQUIRE( KeyValue_ChildCount( pSecond ) == 3u );
+
+    binary_block_t payload{};
+    REQUIRE( KeyValue_GetBinary(
+        FindRequired( pFirst, "payload" ),
+        &payload ) );
+    REQUIRE( payload.cbSize == 3u );
+    CHECK( payload.pData[0] == 0x00u );
+    CHECK( payload.pData[1] == 0xFFu );
+    CHECK( payload.pData[2] == 0x80u );
+
+    key_value_t *pValues = FindRequired( pFirst, "values" );
+    REQUIRE( KeyValue_Type( pValues ) == key_value_type_t::ARRAY );
+    REQUIRE( KeyValue_ChildCount( pValues ) == 3u );
+    REQUIRE( KeyValue_Type( KeyValue_ChildAt( pValues, 0u ) ) ==
+             key_value_type_t::NULL_VALUE );
+    REQUIRE( KeyValue_GetU64( KeyValue_ChildAt( pValues, 1u ), &count ) );
+    CHECK( count == 42u );
+    f64 ratio = 0.0;
+    REQUIRE( KeyValue_GetF64( KeyValue_ChildAt( pValues, 2u ), &ratio ) );
+    CHECK( ratio == 1.5 );
+
+    // Each expansion owns a deep copy; editing one result cannot mutate another.
+    REQUIRE( KeyValue_SetString(
+        pDocument,
+        FindRequired( pFirst, "title" ),
+        StringView_FromCString( "changed" ) ) );
+    string_view_t secondTitle{};
+    REQUIRE( KeyValue_GetString(
+        FindRequired( pSecond, "title" ),
+        &secondTitle ) );
+    CHECK( StringView_Equals(
+        secondTitle,
+        StringView_FromCString( "local value" ) ) );
+
+    KeyValue_DestroyDocument( pDocument );
+}
+
+TEST_CASE( "CYKV 2 definitions are ordered unique and bounded",
+           "[CypherCommon][Tier1][CYKV][Definitions][Limits]" )
+{
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n{}" ) ==
+        key_value_parse_status_t::OK );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define ROOT { value = 1 }\n$ROOT" ) ==
+        key_value_parse_status_t::OK );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define ROOT [1, 2]\n$ROOT" ) ==
+        key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define A $B\n#define B 1\n{ value = $A }" ) ==
+        key_value_parse_status_t::UNDEFINED_DEFINITION );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define A $A\n{ value = $A }" ) ==
+        key_value_parse_status_t::UNDEFINED_DEFINITION );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define A 1\n#define A 2\n{ value = $A }" ) ==
+        key_value_parse_status_t::DUPLICATE_DEFINITION );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n{ value = $MISSING }" ) ==
+        key_value_parse_status_t::UNDEFINED_DEFINITION );
+
+    key_value_parse_options_t options{};
+    REQUIRE( options.nMaxDefinitions == 256u );
+    options.nMaxDefinitions = 1u;
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define A 1\n#define B 2\n{ value = $A }",
+        options ) == key_value_parse_status_t::DEFINITION_LIMIT );
+
+    options = {};
+    options.nMaxDefinitions = 0u;
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n{}",
+        options ) == key_value_parse_status_t::OK );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define A 1\n{ value = $A }",
+        options ) == key_value_parse_status_t::DEFINITION_LIMIT );
+
+    options = {};
+    options.nMaxNodes = 6u;
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define RECORD { a = 1 b = 2 }\n{ copy = $RECORD }",
+        options ) == key_value_parse_status_t::NODE_LIMIT );
+
+    options = {};
+    options.cbMaxStringData = 31u;
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define TEXT \"1234\"\n{ copy = $TEXT }",
+        options ) == key_value_parse_status_t::STRING_LIMIT );
+
+    options = {};
+    options.nMaxDepth = 1u;
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define NESTED { child = { value = 1 } }\n"
+        "{ outer = { copy = $NESTED } }",
+        options ) == key_value_parse_status_t::DEPTH_LIMIT );
+}
+
+TEST_CASE( "CYKV 2 local definitions do not enable token macros",
+           "[CypherCommon][Tier1][CYKV][Definitions][Conformance]" )
+{
+    REQUIRE( ParseStatus(
+        "@cykv 1\n@schema \"cypher.test\" 1\n"
+        "#define A 1\n{ value = 1 }" ) ==
+        key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( ParseStatus(
+        "@cykv 1\n@schema \"cypher.test\" 1\n{ value = $A }" ) ==
+        key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define F(x) 1\n{ value = 1 }" ) ==
+        key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "# define A 1\n{ value = 1 }" ) ==
+        key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define A\n1\n{ value = $A }" ) ==
+        key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define A 1\n#define B $A##suffix\n{ value = $B }" ) ==
+        key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define KEY \"field\"\n{ $KEY = 1 }" ) ==
+        key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#include \"other.cykv\"\n{}" ) ==
+        key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#base \"base.cykv\"\n{}" ) ==
+        key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "#define A 1\n{ value = $ A }" ) ==
+        key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( ParseStatus(
+        "@cykv 2\n@schema \"cypher.test\" 1\n"
+        "{}\n#define LATE 1" ) ==
+        key_value_parse_status_t::TRAILING_INPUT );
 }
 
 TEST_CASE( "CYKV parser preserves exact numeric types",
@@ -283,10 +536,13 @@ TEST_CASE( "CYKV parser failure preserves the destination document",
 
     const key_value_parse_result_t result = KeyValue_ParseText(
         StringView_FromCString(
-            "@cykv 1\n@schema \"cypher.test\" 1\n{ broken = [1, 2, }" ),
+            "@cykv 2\n@schema \"cypher.test\" 1\n"
+            "#define ALLOCATED { nested = \"temporary\" }\n"
+            "{ broken = $MISSING }" ),
         {},
         pDocument );
-    REQUIRE( result.status == key_value_parse_status_t::SYNTAX_ERROR );
+    REQUIRE( result.status ==
+             key_value_parse_status_t::UNDEFINED_DEFINITION );
 
     const key_value_document_header_t header =
         KeyValue_DocumentHeader( pDocument );
@@ -342,4 +598,8 @@ TEST_CASE( "CYKV parser reports encoding lexical and trailing failures",
         StringView_FromCString( KeyValue_ParseStatusName(
             key_value_parse_status_t::INVALID_HEADER ) ),
         StringView_FromCString( "INVALID_HEADER" ) ) );
+    REQUIRE( StringView_Equals(
+        StringView_FromCString( KeyValue_ParseStatusName(
+            key_value_parse_status_t::UNDEFINED_DEFINITION ) ),
+        StringView_FromCString( "UNDEFINED_DEFINITION" ) ) );
 }

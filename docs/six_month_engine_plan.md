@@ -611,7 +611,6 @@ texturing, and a render graph remain deferred.
 | --- | --- | --- |
 | `src/CypherCommon` | **Implemented in many bounded libraries.** Tier0/1/2, Math, Security, Image, formats, VFS contracts, ResourceSystem, ToolFramework, tests, and benchmarks exist. Breadth is not a claim that every utility is production-complete. | Freeze broad expansion. Fix only defects or missing primitives encountered by the active renderer/World slice. |
 | `src/CypherSystem` | **Implemented/partial.** Explicit target owns platform services, SDL windows/events, OpenGL context services, and target-specific translation units. Focused runtime/window/event/OpenGL tests exist. | Support Host renderer lifecycle, drawable resize/minimize, and clean rollback. Avoid moving renderer policy into System. |
-| `src/CypherPlatform` | **Scaffold only.** Native runtime ownership was consolidated under System and Common target queries. | Keep empty during this horizon. Do not create a competing platform abstraction without an ADR-backed need. |
 | `src/CypherLog` | **Implemented for the current phase.** Runtime filtering, sinks, formatting, synchronized configuration, transactional sink replacement, and concurrency tests exist. | Maintenance only. Preserve emergency/bootstrap output separation when System fatal paths are completed. |
 | `src/CypherMemory` | **Implemented/partial.** Arena, pool, bucket, scratch, and thread-aware code plus benchmarks exist; runtime pool tests pass in Debug and ASan/UBSan. Common also has separate allocator primitives. | Use existing allocators in active systems. Record real lifetime pressure before consolidating or expanding either memory family. |
 | `src/CypherFileSystem` | **Implemented legacy runtime path.** Mount/read/write/package/discovery/watch/async modules and smoke coverage exist. A newer provider-neutral Common VFS also exists. | Do not extend both APIs. Use Common VFS for cooked assets; schedule incremental legacy migration only after first cube. |
@@ -640,8 +639,8 @@ texturing, and a render graph remain deferred.
 | `src/CypherAnimation` | **Scaffold only.** | Deferred. Static meshes and camera movement are enough for the target slice. |
 | `src/CypherAI` | **Scaffold only.** | Deferred. A stationary target can exercise damage without navigation or behavior systems. |
 | `src/CypherScript` | **Scaffold only.** | Deferred. Do not start RVM or a native/script bridge before game-facing APIs stabilize. |
-| `src/CypherProfile` | **Scaffold only.** | Use existing Common timing/profile primitives first. Promote a dedicated subsystem only when frame/resource/World timings need aggregation and UI. |
-| `src/CypherConsole` | **Scaffold only.** | Deferred UI. Command/CVar/Config and log output already provide the needed diagnostic backbone. |
+| `src/CypherFont` | **Architecture scaffold.** | Add only with the cooked-font, shaping, measurement, atlas, and rendered-text vertical slice from ADR 0006. |
+| `src/CypherUI` | **Architecture scaffold.** | Add only after Input and Font can support one complete runtime HUD or menu. Console presentation becomes one UI surface. |
 | `src/CypherEditor` | **Scaffold only.** | Deferred. Picasso lives under Tools; Mason and a unified editor wait for a stable runtime preview and World data contract. |
 
 ## Size And Completion Estimates

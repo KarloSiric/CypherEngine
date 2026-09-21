@@ -373,6 +373,34 @@ TEST_CASE( "TRS validation matrix conversion inverse and interpolation are compl
         Quat_FromUnitAxisAngle( CY_VEC3_UP, Angle_FromDegrees( 90.0f ) ),
         Vec3_Splat( 4.0f ) );
     REQUIRE( Transform_IsFinite( a ) );
+    REQUIRE( Transform_IsValid( a, 0.00001f, 0.000001f ) );
+    REQUIRE_FALSE( Transform_IsValid(
+        Transform_Make(
+            CY_VEC3_ZERO, Quat_Make( 0.0f, 0.0f, 0.0f, 2.0f ), CY_VEC3_ONE ),
+        0.00001f, 0.000001f ) );
+    REQUIRE_FALSE( Transform_IsValid(
+        Transform_Make(
+            CY_VEC3_ZERO, CY_QUAT_IDENTITY, Vec3_Make( 1.0f, 0.0f, 1.0f ) ),
+        0.00001f, 0.000001f ) );
+    REQUIRE( Transform_IsValid(
+        Transform_Make(
+            CY_VEC3_ZERO, CY_QUAT_IDENTITY, Vec3_Make( -1.0f, 2.0f, 3.0f ) ),
+        0.00001f, 0.000001f ) );
+    REQUIRE_FALSE( Transform_IsValid(
+        a, std::numeric_limits<f32>::infinity(), 0.000001f ) );
+
+    const transform_t nonUnitRotation = Transform_Make(
+        CY_VEC3_ZERO, Quat_Make( 0.0f, 0.0f, 0.0f, 2.0f ), CY_VEC3_ONE );
+    vec3_t invalidInverse = CY_VEC3_ONE;
+    REQUIRE_FALSE( Transform_TryInversePoint(
+        nonUnitRotation, CY_VEC3_ONE, 0.000001f, &invalidInverse ) );
+    REQUIRE( Vec3_NearlyEquals(
+        invalidInverse, CY_VEC3_ZERO, 0.0f, 0.0f ) );
+    affine3_t invalidAffine{};
+    REQUIRE_FALSE( Transform_TryInverseAffine(
+        nonUnitRotation, 0.000001f, &invalidAffine ) );
+    REQUIRE( Affine3_NearlyEquals(
+        invalidAffine, CY_AFFINE3_IDENTITY, 0.0f, 0.0f ) );
     REQUIRE( Transform_HasUniformScale( a, 0.00001f ) );
     REQUIRE_FALSE( Transform_HasUniformScale(
         Transform_Make( CY_VEC3_ZERO, CY_QUAT_IDENTITY,

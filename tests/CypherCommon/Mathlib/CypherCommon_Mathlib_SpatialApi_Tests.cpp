@@ -122,6 +122,16 @@ TEST_CASE( "plane finite normalization and triangle construction preserve windin
     const plane_t unnormalized = Plane_Make(
         Vec3_Make( 0.0f, 0.0f, 2.0f ), -6.0f );
     REQUIRE( Plane_IsFinite( unnormalized ) );
+    REQUIRE( Plane_IsValid( unnormalized, 0.000001f ) );
+    REQUIRE_FALSE( Plane_IsValid(
+        Plane_Make( CY_VEC3_ZERO, 0.0f ), 0.000001f ) );
+    REQUIRE_FALSE( Plane_IsNormalized(
+        Plane_Make( CY_VEC3_ZERO, 0.0f ), 1.0f ) );
+    REQUIRE_FALSE( Plane_IsValid(
+        Plane_Make(
+            Vec3_Make( std::numeric_limits<f32>::quiet_NaN(), 0.0f, 0.0f ),
+            0.0f ),
+        0.000001f ) );
     plane_t normalized{};
     REQUIRE( Plane_TryNormalize(
         unnormalized, 0.000001f, &normalized ) );
@@ -322,6 +332,7 @@ TEST_CASE( "frustum access and affine transformation preserve valid planes",
         clip_depth_range_t::NEGATIVE_ONE_TO_ONE,
         0.000001f, &frustum ) );
     REQUIRE( Frustum_IsFinite( frustum ) );
+    REQUIRE( Frustum_IsValid( frustum, 0.0001f ) );
     const plane_t nearPlane = Frustum_Plane(
         frustum, frustum_plane_t::NEAR );
     REQUIRE( Plane_IsFinite( nearPlane ) );
@@ -333,9 +344,28 @@ TEST_CASE( "frustum access and affine transformation preserve valid planes",
         Affine3_FromTranslation( Vec3_Make( 3.0f, 4.0f, 5.0f ) ),
         0.000001f, 0.000001f, &transformed ) );
     REQUIRE( Frustum_IsFinite( transformed ) );
+    REQUIRE( Frustum_IsValid( transformed, 0.0001f ) );
     for ( u32 i = 0u; i < CY_FRUSTUM_PLANE_COUNT; ++i ) {
         REQUIRE( Plane_IsNormalized(
             Frustum_Plane( transformed, static_cast<frustum_plane_t>( i ) ),
             0.0001f ) );
     }
+
+    frustum_t degenerate = frustum;
+    degenerate.planes[static_cast<u32>( frustum_plane_t::FAR )] =
+        Plane_Make( CY_VEC3_ZERO, 0.0f );
+    REQUIRE( Frustum_IsFinite( degenerate ) );
+    REQUIRE_FALSE( Frustum_IsValid( degenerate, 0.0001f ) );
+
+    frustum_t nonNormalized = frustum;
+    nonNormalized.planes[static_cast<u32>( frustum_plane_t::LEFT )].normal =
+        Vec3_Scale(
+            nonNormalized.planes[static_cast<u32>( frustum_plane_t::LEFT )].normal,
+            2.0f );
+    REQUIRE_FALSE( Frustum_IsValid( nonNormalized, 0.0001f ) );
+    REQUIRE_FALSE( Frustum_TryTransform(
+        nonNormalized, CY_AFFINE3_IDENTITY,
+        0.000001f, 0.000001f, &transformed ) );
+    REQUIRE_FALSE( Frustum_IsValid(
+        transformed, CY_FRUSTUM_PLANE_UNIT_TOLERANCE ) );
 }

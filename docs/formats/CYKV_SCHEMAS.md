@@ -13,6 +13,7 @@
 //  History:
 //  - Created by Karlo Siric on 2026-08-10
 //  - Updated renderer schema version inventory on 2026-09-17
+//  - Linked the accepted CYKV 2 resolver boundary on 2026-09-18
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -27,14 +28,18 @@ The Tier2 static schema foundation, project manifest decoder, and user-settings
 decoder described here are implemented. This remains the first schema layer,
 not the final reflection or schema-authoring system.
 
-The normative language grammar remains in [CYKV.md](CYKV.md). Tier2 never changes
-whether a CYKV token or document is syntactically valid.
+The normative language grammars are [CYKV 1](CYKV.md) and
+[CYKV 2](CYKV_2.md). Tier2 never changes whether a CYKV token, directive,
+reference, dependency, or document is valid. The current Tier2 implementation
+accepts CYKV 1 documents only. Tier1 CYKV 2 resolution is implemented, while
+schema language-version opt-in and domain integration remain pending.
 
 ## Dependency Boundary
 
 ```text
 CYKV UTF-8 source
-    -> Tier1 lexer/parser
+    -> versioned Tier1 lexer/parser
+    -> CYKV 2 dependency/reference resolver when selected
     -> owned semantic document
     -> Tier2 exact schema lookup
     -> bounded schema validation
@@ -240,6 +245,8 @@ These features are intentionally not claimed by the current Tier2 foundation:
 - cross-document and domain-specific invariants
 - lossless syntax trees and node source maps
 - a headless `cykv` or `cyschemac` executable
+- CYKV 2 language-version opt-in and domain integration
+- CYKV 2 node provenance and deterministic dependency manifests
 
 The next schema should be added only with its first real consumer. Map, entity,
 and remaining asset schemas must follow their runtime contracts rather than

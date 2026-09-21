@@ -70,7 +70,9 @@ bool_t Numerics_TrySolveQuadratic(
     *pSolution = {};
     pSolution->count = polynomial_solution_count_t::ZERO;
     if ( !Scalar_IsFinite( a ) || !Scalar_IsFinite( b ) ||
-         !Scalar_IsFinite( c ) || coefficientTolerance < 0.0 ||
+         !Scalar_IsFinite( c ) || !Scalar_IsFinite( coefficientTolerance ) ||
+         coefficientTolerance < 0.0 ||
+         !Scalar_IsFinite( discriminantTolerance ) ||
          discriminantTolerance < 0.0 ) {
         return false;
     }

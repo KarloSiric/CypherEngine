@@ -12,6 +12,7 @@
 //
 //  History:
 //  - Created by Karlo Siric on 2026-04-20
+//  - Added the accepted CYKV 2 and CYDF references on 2026-09-18
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -37,19 +38,23 @@ Read these in order when resuming work:
 9. [cyphercommon_architecture.md](cyphercommon_architecture.md)
 10. [function_pointer_policy.md](function_pointer_policy.md)
 11. [subsystems.md](subsystems.md)
-12. [subsystem_source_catalog.md](subsystem_source_catalog.md)
-13. [toolchain_plan.md](toolchain_plan.md)
-14. [tool_suite.md](tool_suite.md)
-15. [source2_tooling_reference.md](source2_tooling_reference.md)
-16. [map_authoring_and_mason.md](map_authoring_and_mason.md)
-17. [trenchbroom_editor_systems_research.md](trenchbroom_editor_systems_research.md)
-18. [TILEEDITOR_DEVELOPMENT_KIT.md](TILEEDITOR_DEVELOPMENT_KIT.md)
-19. [picasso_v1_design.md](picasso_v1_design.md)
-20. [formats/CYKV.md](formats/CYKV.md)
-21. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
-22. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
-23. [reference_engine_lessons.md](reference_engine_lessons.md)
-24. [security_model.md](security_model.md)
+12. [cryengine1_subsystem_research.md](cryengine1_subsystem_research.md)
+13. [mathlib_runtime_readiness.md](mathlib_runtime_readiness.md)
+14. [subsystem_source_catalog.md](subsystem_source_catalog.md)
+15. [toolchain_plan.md](toolchain_plan.md)
+16. [tool_suite.md](tool_suite.md)
+17. [source2_tooling_reference.md](source2_tooling_reference.md)
+18. [map_authoring_and_mason.md](map_authoring_and_mason.md)
+19. [trenchbroom_editor_systems_research.md](trenchbroom_editor_systems_research.md)
+20. [TILEEDITOR_DEVELOPMENT_KIT.md](TILEEDITOR_DEVELOPMENT_KIT.md)
+21. [picasso_v1_design.md](picasso_v1_design.md)
+22. [formats/CYKV.md](formats/CYKV.md)
+23. [formats/CYKV_2.md](formats/CYKV_2.md)
+24. [formats/CYDF.md](formats/CYDF.md)
+25. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
+26. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
+27. [reference_engine_lessons.md](reference_engine_lessons.md)
+28. [security_model.md](security_model.md)
 
 API docs:
 
@@ -64,6 +69,8 @@ Reference docs:
 - [coding_style.md](coding_style.md)
 - [reference_policy.md](reference_policy.md)
 - [reference_engine_lessons.md](reference_engine_lessons.md)
+- [cryengine1_subsystem_research.md](cryengine1_subsystem_research.md)
+- [mathlib_runtime_readiness.md](mathlib_runtime_readiness.md)
 - [trenchbroom_editor_systems_research.md](trenchbroom_editor_systems_research.md)
 - [trenchbroom_geometry_algorithms.md](trenchbroom_geometry_algorithms.md)
 - [trenchbroom_ui_command_inventory.md](trenchbroom_ui_command_inventory.md)
@@ -81,6 +88,9 @@ Project memory:
 - [adr/0001-coop-first-listen-server-architecture.md](adr/0001-coop-first-listen-server-architecture.md)
 - [adr/0002-common-runtime-tool-boundaries.md](adr/0002-common-runtime-tool-boundaries.md)
 - [adr/0003-runtime-naming-and-target-ownership.md](adr/0003-runtime-naming-and-target-ownership.md)
+- [adr/0004-world-renderer-ownership.md](adr/0004-world-renderer-ownership.md)
+- [adr/0005-shared-editor-geometry-core.md](adr/0005-shared-editor-geometry-core.md)
+- [adr/0006-runtime-subsystem-structure.md](adr/0006-runtime-subsystem-structure.md)
 
 ## What each document is for
 
@@ -126,6 +136,14 @@ Project memory:
     tables belong
 - `subsystems`
   - what each module is responsible for
+- `cryengine1_subsystem_research`
+  - pinned, provenance-aware inventory of the Far Cry-era CryEngine 1 modules
+  - public project boundaries, factory/load relationships, and feature placement
+  - adopt/adapt/reject decisions and a staged mapping to Cypher-owned systems
+- `mathlib_runtime_readiness`
+  - normative coordinate, matrix, quaternion, projection, tolerance, and validity contracts
+  - verified test and benchmark baseline for renderer, World, tools, and simple projectile work
+  - explicit collision, character movement, large-world, determinism, and projection gaps
 - `subsystem_source_catalog`
   - concrete planned implementation-unit names for every top-level subsystem
   - source-file creation gates and dependency ownership rules
@@ -144,9 +162,11 @@ Project memory:
   - Source 2 capability-to-Cypher mapping and explicit scope exclusions
   - MASON long-form naming and vertical implementation order
 - `map_authoring_and_mason`
-  - CYKV-backed map authoring direction
-  - editable and cooked format families
-  - `.cymap`, `CypherMapCompiler`, and `.cymap_c` architecture
+  - separate CYKV-backed TileEditor and Mason authoring directions
+  - TileEditor `.cymap` / `cypher.map` and Mason `.cyscene` / `cypher.scene`
+    identities, including explicit tile-to-scene conversion
+  - `CypherSceneCompiler` and `.cyscene_c` runtime-world architecture, with an
+    optional `.cymap_c` only if a dedicated tile runtime is admitted
   - hybrid brush, mesh, BSP, visibility, and world-compilation policy
   - Mason workspaces, editing model, validation, testing, and build order
 - `trenchbroom_editor_systems_research`
@@ -190,11 +210,22 @@ Project memory:
   - normative CYKV 1 grammar and semantic rules
   - document headers, comments, scalar types, canonical output, and limits
   - boundary between Tier1 parsing and Tier2 schema validation
+- `formats/CYKV_2`
+  - accepted CYKV 2 language contract with its Tier1 parser and resolver implemented
+  - immutable typed `#define`, namespaced `#include`, and missing-value `#base`
+  - bounded dependency graphs, nested references, base precedence, resolved
+    writing, and canonical hashing
+  - exact separation between implemented Tier1 behavior and pending provenance,
+    manifests, Tier2 schema, CYDF registry, and compiler work
+- `formats/CYDF`
+  - generic `.cydf` source-document profile encoded by CYKV
+  - exact schema ownership, suitable uses, cooked-data boundary, and non-uses
+  - replacement for the unimplemented `.cydata` proposal without a second parser
 - `formats/CYKV_2_PROPOSAL`
-  - researched proposal for bounded includes, base composition, typed constants,
-    build conditionals, exact numeric intent, optional non-finite values,
-    provenance, hashing, limits, and a self-identifying binary generation
-  - explicit separation from implemented CYKV 1 behavior
+  - research record for further language evolution after the accepted V2 subset
+  - rejected candidate directive spellings are explicitly superseded by CYKV_2
+  - conditionals, exact numeric intent, optional non-finite values, and binary
+    evolution remain proposals rather than implemented behavior
 - `formats/INPUT_ACTIONS`
   - proposed `.cyinput`, `.cyinput_c`/`CYIN`, and `.cybindings` family
   - action, context, control, trigger, processor, conflict, accessibility,

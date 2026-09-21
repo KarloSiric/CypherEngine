@@ -146,6 +146,36 @@ vec3_t Spline_CatmullRomDerivative(
     return Spline_HermiteDerivative( hermite, t );
 }
 
+bool_t Spline_ArcTableIsValid(
+    const spline_arc_sample_t *pSamples,
+    usize cSamples ) noexcept
+{
+    if ( pSamples == nullptr || cSamples < 2u ) {
+        return false;
+    }
+
+    const spline_arc_sample_t first = pSamples[0];
+    if ( !Scalar_IsFinite( first.parameter ) ||
+         !Scalar_IsFinite( first.distance ) || first.parameter != 0.0f ||
+         first.distance != 0.0f ) {
+        return false;
+    }
+
+    spline_arc_sample_t previous = first;
+    for ( usize i = 1u; i < cSamples; ++i ) {
+        const spline_arc_sample_t current = pSamples[i];
+        if ( !Scalar_IsFinite( current.parameter ) ||
+             !Scalar_IsFinite( current.distance ) || current.parameter < 0.0f ||
+             current.parameter > 1.0f || current.distance < 0.0f ||
+             current.parameter < previous.parameter ||
+             current.distance < previous.distance ) {
+            return false;
+        }
+        previous = current;
+    }
+    return pSamples[cSamples - 1u].parameter == 1.0f;
+}
+
 bool_t Spline_TryBuildBezierArcTable(
     cubic_bezier3_t curve,
     usize cSamples,
@@ -179,6 +209,10 @@ bool_t Spline_TryBuildBezierArcTable(
         pSamples[i] = { parameter, totalLength };
         previous = point;
     }
+    // The builder writes exact [0, 1] parameters in index order and accumulates
+    // only finite nonnegative chord lengths. The public table validator remains
+    // necessary for caller-provided or serialized tables; rescanning a table we
+    // just constructed would duplicate that work on every build.
     *pResult = { cSamples, totalLength };
     return true;
 }
@@ -195,15 +229,33 @@ bool_t Spline_TryArcParameterAtDistance(
         return false;
     }
     *pParameter = 0.0f;
-    if ( pSamples == nullptr || cSamples < 2u || !Scalar_IsFinite( distance ) ) {
+    if ( !Spline_ArcTableIsValid( pSamples, cSamples ) ||
+         !Scalar_IsFinite( distance ) ) {
         return false;
     }
+    *pParameter = Spline_ArcParameterAtDistanceUnchecked(
+        pSamples, cSamples, distance );
+    return true;
+}
+
+f32 Spline_ArcParameterAtDistanceUnchecked(
+    const spline_arc_sample_t *pSamples,
+    usize cSamples,
+    f32 distance ) noexcept
+{
+    const bool_t bValidContract = pSamples != nullptr && cSamples >= 2u &&
+                                  Scalar_IsFinite( distance );
+    CY_ASSERT_MSG(
+        bValidContract,
+        "Spline_ArcParameterAtDistanceUnchecked requires a validated table and finite distance." );
+    if ( !bValidContract ) {
+        return 0.0f;
+    }
     if ( distance <= 0.0f ) {
-        return true;
+        return 0.0f;
     }
     if ( distance >= pSamples[cSamples - 1u].distance ) {
-        *pParameter = pSamples[cSamples - 1u].parameter;
-        return true;
+        return pSamples[cSamples - 1u].parameter;
     }
 
     usize low = 0u;
@@ -220,15 +272,13 @@ bool_t Spline_TryArcParameterAtDistance(
     }
     const f32 interval = pSamples[high].distance - pSamples[low].distance;
     if ( interval <= 0.0f ) {
-        *pParameter = pSamples[low].parameter;
-        return true;
+        return pSamples[low].parameter;
     }
     const f32 fraction = ( distance - pSamples[low].distance ) / interval;
-    *pParameter = Scalar_Lerp(
+    return Scalar_Lerp(
         pSamples[low].parameter,
         pSamples[high].parameter,
         std::clamp( fraction, 0.0f, 1.0f ) );
-    return true;
 }
 
 } // namespace cypher::math

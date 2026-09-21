@@ -1027,12 +1027,55 @@ key_value_document_t *KeyValue_InternalCreateLike(
     if ( !KeyValue_InternalDocumentIsValid( pDocument ) ) {
         return nullptr;
     }
+    return KeyValue_InternalCreateLike(
+        pDocument,
+        pDocument->bCaseInsensitiveKeys );
+}
+
+key_value_document_t *KeyValue_InternalCreateLike(
+    const key_value_document_t *pDocument,
+    bool_t bCaseInsensitiveKeys ) noexcept
+{
+    if ( !KeyValue_InternalDocumentIsValid( pDocument ) ) {
+        return nullptr;
+    }
     return KeyValue_CreateDocument({
         pDocument->pAllocator,
         pDocument->nInitialNodes,
         pDocument->cbInitialData,
-        pDocument->bCaseInsensitiveKeys
+        bCaseInsensitiveKeys
     });
+}
+
+bool_t KeyValue_InternalCopyValue(
+    key_value_document_t *pDestDocument,
+    key_value_t *pDest,
+    const key_value_t *pSource ) noexcept
+{
+    if ( !KeyValue_InternalDocumentIsValid( pDestDocument ) ||
+         !BelongsTo( pDestDocument, pDest ) ||
+         !KeyValue_InternalTreeIsValid( pSource ) ) {
+        return CY_FALSE;
+    }
+
+    // Copying between ancestors would mutate the source while it is being read.
+    // Sibling values and values owned by separate documents are safe because arena
+    // growth never relocates nodes.
+    for ( const key_value_t *pAncestor = pDest;
+          pAncestor != nullptr;
+          pAncestor = pAncestor->pParent ) {
+        if ( pAncestor == pSource ) {
+            return CY_FALSE;
+        }
+    }
+    for ( const key_value_t *pAncestor = pSource;
+          pAncestor != nullptr;
+          pAncestor = pAncestor->pParent ) {
+        if ( pAncestor == pDest ) {
+            return CY_FALSE;
+        }
+    }
+    return CloneValue( *pDestDocument, *pDest, *pSource );
 }
 
 void KeyValue_InternalMoveDocumentContents(

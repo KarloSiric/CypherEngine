@@ -315,8 +315,8 @@ The adapter converts a cell, wall, door, stair, or room piece into brush or mesh
 source, maps picked components back to TileEditor object IDs, wraps geometry
 deltas in the editor-wide history, and publishes immutable preview/cook snapshots.
 Normal tile editing keeps the grid as source of truth. Conversion to freeform
-geometry is explicit. `.cymap` version 3 retains its existing meaning until a
-future schema deliberately adds arbitrary geometry.
+geometry is explicit and creates a Mason `.cyscene`. `.cymap` version 3 retains
+its tile-grid meaning; it will not become Mason's arbitrary scene document.
 
 Mason later receives its own document adapter and links the same
 `Cypher::EditorGeometry` target. Nothing is copied out of TileEditor.

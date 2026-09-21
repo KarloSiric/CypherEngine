@@ -53,7 +53,7 @@ Module names use `Cypher*`:
 - `CypherSystem` for OS, window, timing, process, dynamic-library, and platform-specific services
 - `CypherMemory` for arenas, pools, allocation tracking, and memory diagnostics
 - `CypherFileSystem` for mounted paths, virtual paths, file handles, and package/archive access
-- `CypherConsole` for developer console, commands, CVars, and runtime tweaking
+- `CypherCommand`, `CypherCVar`, and `CypherConfig` for the runtime control surface
 - `CypherResource` for asset handles, loading, unloading, dependencies, and hot reload
 - `CypherRender` for renderer front-end, draw lists, cameras, materials, meshes, and render state
 - `CypherWorld` for maps, level data, world objects, and scene ownership
@@ -61,12 +61,17 @@ Module names use `Cypher*`:
 - `CypherInput` for keyboard, mouse, controller, and editor/game input routing
 - `CypherPhysics` for collision, traces, rigid bodies, movement, and physics scene integration
 - `CypherAudio` for sound devices, playback, mixers, and audio resources
+- `CypherFont` for shaping, font metrics, fallback, glyph caches, and text draw data
+- `CypherUI` for runtime HUD/menu layout, focus, navigation, accessibility, and UI draw data
 - `CypherAI` for navigation, perception, behavior, and tactical systems
 - `CypherAnimation` for skeletons, clips, blending, and animation state
 - `CypherNetwork` for sockets, packets, replication, prediction, and sessions
 - `CypherScript` for VM/native bridging and gameplay script integration
-- `CypherProfile` for profiling, counters, scopes, and performance diagnostics
 - `CypherEditor` for the Qt editor application and editor-only tools
+
+The visible developer console is a `CypherUI` surface over Command, CVar, and
+Log. Profiling primitives live in Common until capture and trace export justify
+a separate runtime service. See ADR 0006 for module-creation rules.
 
 Implementation files keep the subsystem visible in the filename:
 

@@ -20,12 +20,13 @@
 
 # CypherEngine Current Status
 
-Snapshot date: 2026-09-17
+Snapshot date: 2026-09-18
 
 This resume point describes the integrated working tree after the first visible
 renderer slices, the render-asset V2 expansion, and the first CypherTileEditor
 workspace. The non-renderer verification below remains the independently
-completed September 16 pass.
+completed September 16 pass, followed by the September 18 runtime-boundary and
+Mathlib readiness pass.
 
 The detailed evidence, dependency gates, folder audit, and six-month projection
 live in [six_month_engine_plan.md](six_month_engine_plan.md). This file remains the
@@ -50,7 +51,8 @@ working vertical slices; they do not replace Host/World integration.
 
 - explicit CMake targets for Common tiers, Math, Security, Image, RenderFormats,
   VFS, ResourceSystem, ResourceRuntime, render-asset resources, Pak,
-  ToolFramework, System, and Render
+  ToolFramework, System, Render, Log, Memory, runtime FileSystem, legacy
+  Command/CVar/Config, and Host
 - the native `CypherEngine` process with Host, Log, Memory, FileSystem, Pak,
   Command, CVar, Config, System windowing/events, and a thin entry point
 - deterministic `CYRS`, `CYSH` V2/V3, `CYTX` V1/V2, and `CYMT` V1/V2 cooked
@@ -74,6 +76,11 @@ working vertical slices; they do not replace Host/World integration.
   product work is not on the current runtime critical path
 - World/renderer ownership decisions and reserved World module boundaries, but
   no executable World operation or target
+- accepted renderer-neutral Font and runtime UI boundaries, with architecture
+  scaffolds rather than advertised implementations
+- a documented Mathlib coordinate, transform, projection, tolerance, validity,
+  determinism, and GPU-packing contract, backed by focused tests, sanitizers,
+  and Release benchmarks
 
 ## What Is Done-For-Now
 
@@ -146,6 +153,16 @@ limitations; subsequent items live in the
 [non-renderer queue](six_month_engine_plan.md#non-renderer-work-queue).
 Resume that queue for this track; an unfinished renderer milestone does not
 block isolated non-renderer correctness work.
+
+The September 18 structure pass removed the recursive source glob from the
+`CypherEngine` executable. `main.cpp` now links `Cypher::Host`; each existing
+runtime implementation group has one explicit library owner, and the affected
+tests and benchmarks link those production targets instead of compiling private
+copies of their `.cpp` files. `CypherSystem` remains the platform boundary,
+`CypherWorld` keeps its name, and the empty Platform/Console/Profile runtime
+placeholders were retired. The accompanying CryEngine 1 study records which
+historical boundaries are useful and which broad legacy aggregations Cypher
+should avoid.
 
 ## Explicitly Not Active Yet
 

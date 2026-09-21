@@ -145,7 +145,7 @@ src/CypherCommon/
     SoundSystem/
     Physics/
     Network/
-    Gui/
+    UI/
     ToolFramework/
 ```
 
@@ -234,11 +234,12 @@ The shader, texture, and material compiler modules consume
 front end only coordinates their descriptors. This is the intended Common API
 model in working code.
 
-The outstanding architecture debt is the top-level `CypherEngine` executable:
-it still uses a recursive source glob and one broad include-directory list. That
-permits accidental cross-subsystem includes. Replace it incrementally with
-explicit runtime libraries and narrow include surfaces; do not perform a risky
-whole-tree rearrangement merely to resemble another engine's folders.
+The top-level `CypherEngine` executable now contains only `main.cpp` and links
+`Cypher::Host`. Log, Memory, runtime FileSystem, legacy Command/CVar/Config, and
+Host have explicit production targets and source manifests. Remaining debt is
+the behavior-preserving convergence of legacy services with canonical Common
+contracts and the continued narrowing of public include surfaces. Do not perform
+a risky whole-tree rearrangement merely to resemble another engine's folders.
 
 ## Naming Families
 
@@ -445,10 +446,10 @@ Examples:
 Editable source formats and cooked runtime formats should be distinct.
 
 ```text
-.cymap       editable Mason map source
-.cymap_c     cooked map data
-.cyscene     editable scene source
-.cyscene_c   cooked scene data
+.cymap       editable CypherTileEditor grid source (`cypher.map` V1-V3)
+.cymap_c     optional future cooked tile-map data
+.cyscene     editable Mason scene/world source (`cypher.scene`)
+.cyscene_c   cooked Mason world data
 .cytex       texture source metadata
 .cytex_c     cooked texture
 .cymat       material source
@@ -474,7 +475,7 @@ Editable source formats and cooked runtime formats should be distinct.
 .cypak       packed game assets
 ```
 
-BSP-derived data is an optional compiler intermediate or `.cymap_c` chunk. It
+BSP-derived data is an optional compiler intermediate or `.cyscene_c` chunk. It
 is not a required standalone world format. See
 [map_authoring_and_mason.md](map_authoring_and_mason.md) for the authoritative
 map-source, compilation, runtime-world, and Mason design.

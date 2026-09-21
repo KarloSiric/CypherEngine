@@ -123,9 +123,10 @@ only by a host that selects loose native files.
 
 ## Runtime Target Migration
 
-The current Common and tool boundaries are real CMake libraries. The top-level
-runtime executable remains too permissive because it uses a recursive source glob
-and a broad include path containing nearly every subsystem directory.
+At the time of this decision, the Common and tool boundaries were real CMake
+libraries while the top-level runtime executable remained too permissive because
+it used a recursive source glob and a broad include path containing nearly every
+subsystem directory.
 
 Migration is incremental:
 
@@ -137,6 +138,11 @@ Migration is incremental:
 
 The project will not copy CryEngine's old folder tree or rewrite all runtime code
 at once. The useful lesson is dependency direction and interface ownership.
+
+Implementation note, 2026-09-18: ADR 0006 completed this target-extraction
+step. `CypherEngine` now compiles only `main.cpp`, links `Cypher::Host`, and the
+existing runtime implementation groups have explicit production owners. The
+remaining migration is API convergence, not executable source ownership.
 
 ## Future Qt Products
 

@@ -22,6 +22,10 @@
 
 This file defines what the major CypherEngine modules are supposed to do.
 
+Current implementation maturity is recorded in [`src/README.md`](../src/README.md).
+Final naming and creation rules are fixed by
+[ADR 0006](adr/0006-runtime-subsystem-structure.md).
+
 The concrete planned implementation-unit inventory lives in
 [subsystem_source_catalog.md](subsystem_source_catalog.md). That catalog records
 future filenames without bulk-creating empty source files.
@@ -41,7 +45,7 @@ Expected contents:
 - SIMD, endian, alignment, bit, atomic, timer and low-level performance helpers
 - shared file format headers, magic values, chunk descriptors and version data
 - public interface contracts for engine, filesystem, renderer, material, texture,
-  input, audio, physics, networking, GUI, tools and editor boundaries
+  input, audio, font, UI, physics, networking, tools and editor boundaries
 - cross-subsystem descriptors for assets, resources, scenes, worlds, entities,
   animation, AI, script, jobs and reflection
 
@@ -57,48 +61,49 @@ Rule:
 
 Owns:
 
-- frame begin/end
-- world rendering
-- model rendering
-- materials
-- shaders
-- particles
-- lightmaps
-- sky
-- debug draw
+- GPU resource objects and backend validation
+- render passes, queues, sorting, batching, and command recording
+- mesh, material, shader, texture, light, particle, UI, and debug-draw execution
+- fine renderer culling and optional GPU occlusion
+- presentation through a System-created surface
 
 Rule:
 
 - the rest of the engine should not call `OpenGL` directly
 - the renderer should use platform-created contexts, not leak platform APIs outward
+- World selects renderer-neutral scene candidates; Render does not traverse World
+- Render executes particle and light submissions but does not own their gameplay or
+  spatial lifetime
 
-## `CypherPlatform`
+## `CypherEngine` and `CypherHost`
 
 Owns:
 
-- OS detection
-- compiler/platform flags
-- SDL3 bootstrap seam
-- window creation
-- event pump seam
-- dynamic library loading
-- page size and virtual memory backend
-- path helpers where they are truly platform-specific
+- the thin process executable and entry point
+- ordered subsystem startup, rollback, and shutdown
+- frame begin/update/render/end sequencing
+- process-wide runtime policy and built-in diagnostics
+- construction of explicit subsystem dependencies
 
 Rule:
 
-- `CypherPlatform` is the engine/OS boundary
-- `CypherSystem` should eventually orchestrate engine lifetime, not become a dumping ground for OS code
+- the executable contains only its entry point
+- reusable subsystems never depend on Host
+- Host owns composition; it does not absorb subsystem implementations
 
 ## `CypherSystem`
 
 Owns:
 
-- top-level engine initialization order
-- subsystem startup/shutdown
-- frame begin/update/render/end orchestration
-- global quit/request-shutdown flow
-- high-level runtime state
+- operating-system and platform services
+- process paths, environment, dynamic libraries, and hardware information
+- monotonic/calendar time and cooperative quit requests
+- virtual-memory forwarding
+- display discovery, window creation, and the native event pump
+- graphics-context and presentation-surface creation
+
+There is no separate `CypherPlatform` target. Platform-specific implementation
+files are private parts of `CypherSystem`.
 
 ## `CypherServer`
 
@@ -120,10 +125,8 @@ Owns:
 - interpolation
 - view/camera
 - client-side effects
-- HUD
 - scoreboard
-- console UI
-- menus
+- presentation state supplied to `CypherUI`
 
 ## `CypherNetwork`
 
@@ -140,12 +143,14 @@ Both client and server depend on this layer.
 
 Owns:
 
-- custom Cypher world/map source data
+- loaded and validated runtime world/map data
 - runtime level representation
 - map metadata
-- object placement
-- static world objects
-- world bounds and visibility ownership
+- static placement and runtime spatial proxies
+- terrain, vegetation placement, water, sky, fog, and environment state
+- lights, probes, portals, areas, world bounds, and coarse visibility
+- renderer-neutral view submissions
+- residency and world-streaming decisions
 - entity spawn data
 - future cooked world format loading
 
@@ -154,6 +159,8 @@ Does not own:
 - low-level renderer backend
 - raw asset decoding
 - gameplay rules
+
+The name remains `CypherWorld`; it is not renamed to `Cypher3DEngine`.
 
 ## `CypherEntity`
 
@@ -199,15 +206,27 @@ Owns:
 - high-water tracking
 - debug allocation verification where practical
 
-## `CypherConsole`
+## `CypherLog`
 
 Owns:
 
-- visible developer console UI/runtime seam
-- command text entry
-- history
-- console output routing
-- integration with `CypherCommand` and `CypherCVar`
+- structured records, severity, and channels
+- filtering and routing
+- terminal and file sinks
+- flushing and early/fallback diagnostic integration
+
+The visible developer console is a future `CypherUI` surface over Log, Command,
+and CVar. It is not a duplicate backend subsystem.
+
+## `CypherFileSystem` and `CypherPak`
+
+`CypherPak` owns the archive format, reading, writing, compression, integrity,
+and package validation.
+
+`CypherFileSystem` owns runtime mounts, virtual-path policy, loose/package
+overlays, native directories, writable paths, discovery, watches, and
+asynchronous file requests. It will expose an adapter to the provider-neutral
+Common VFS contract rather than creating a second path policy.
 
 ## `CypherCommand`
 
@@ -238,6 +257,23 @@ Owns:
 - executing command lines from files
 - startup config flow
 
+Command, CVar, and Config currently have a working legacy runtime path. They
+will converge on the instance-owned Common Tier1 command system after behavior
+parity is proven.
+
+## `CypherInput`
+
+Owns:
+
+- per-frame keyboard, mouse, and controller state
+- press/release edges and focus-loss cleanup
+- action maps, contexts, bindings, chords, axes, and dead zones
+- relative mouse and text-input routing policy
+- stable input prompts/glyph identities shared with UI
+
+System produces raw platform events. Input converts them into device and action
+state. Game, Client, and UI consume Input rather than native events.
+
 ## Future map/compiler work
 
 Eventually owns:
@@ -263,6 +299,9 @@ Owns:
 - trigger/contact data
 - shared movement code used by both prediction and authoritative simulation
 
+World visibility structures are not reused as the collision broadphase merely
+because both contain bounds.
+
 ## `CypherAudio`
 
 Owns:
@@ -272,6 +311,30 @@ Owns:
 - mixing
 - spatial sound
 - music playback
+
+## `CypherFont`
+
+Owns:
+
+- font faces, families, styles, weights, and fallback chains
+- Unicode shaping and glyph runs
+- glyph and line metrics, measurement, and wrapping support
+- bounded glyph caches and atlas policy
+- renderer-neutral text draw data
+
+It does not own widgets or native GPU execution.
+
+## `CypherUI`
+
+Owns:
+
+- runtime HUDs, menus, overlays, prompts, captions, and console presentation
+- layout, styles, clipping, focus, navigation, and input routing
+- DPI, safe-area, localization, and accessibility inputs
+- renderer-neutral rectangle, image, and text draw lists
+
+Qt authoring tools and Dear ImGui diagnostics are separate consumers and are
+not the runtime UI implementation.
 
 ## `CypherAI`
 
@@ -301,15 +364,12 @@ Owns:
 - trap bridge between VM and native engine code
 - engine-side debugging of VM state
 
-## `CypherProfile`
+## Profiling and diagnostics
 
-Owns:
-
-- CPU/GPU timing scopes
-- frame counters
-- memory reports
-- telemetry hooks
-- editor-visible diagnostics
+Common Tier0 owns low-level counters, clocks, and profiling primitives. Host and
+the owning subsystems expose frame and memory statistics. A separate capture
+service is created only when aggregation, trace export, or remote inspection has
+a real end-to-end consumer.
 
 ## `CypherEditor`
 

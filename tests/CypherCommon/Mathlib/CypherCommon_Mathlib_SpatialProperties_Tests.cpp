@@ -155,6 +155,14 @@ TEST_CASE( "Triangle planes preserve winding classification and projection",
     REQUIRE( Plane_ClassifyPoint(
         Plane_Flip( plane ), Vec3_Make( 0.0f, 0.0f, 3.0f ), 0.00001f ) ==
         plane_side_t::NEGATIVE );
+
+    const plane_t scaledEquivalent = Plane_Make(
+        Vec3_Scale( plane.normal, 2.0f ), plane.d * 2.0f );
+    REQUIRE_FALSE( Plane_IsNormalized(
+        scaledEquivalent, CY_PLANE_UNIT_TOLERANCE ) );
+    REQUIRE( Plane_ClassifyPoint(
+        scaledEquivalent, Vec3_Make( 0.0f, 0.0f, 3.0f ), 0.00001f ) ==
+        plane_side_t::ON_PLANE );
 }
 
 TEST_CASE( "Triangle barycentric coordinates reconstruct an interior grid",

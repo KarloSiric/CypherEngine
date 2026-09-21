@@ -32,6 +32,24 @@ bool_t Transform_IsFinite( transform_t value ) noexcept
            Vec3_IsFinite( value.scale );
 }
 
+bool_t Transform_IsValid(
+    transform_t value,
+    f32 rotationUnitTolerance,
+    f32 minimumAbsScale ) noexcept
+{
+    if ( !Transform_IsFinite( value ) ||
+         !Scalar_IsFinite( rotationUnitTolerance ) ||
+         rotationUnitTolerance < 0.0f ||
+         !Scalar_IsFinite( minimumAbsScale ) || minimumAbsScale < 0.0f ) {
+        return false;
+    }
+
+    return Quat_IsUnit( value.rotation, rotationUnitTolerance ) &&
+           Scalar_Abs( value.scale.x ) > minimumAbsScale &&
+           Scalar_Abs( value.scale.y ) > minimumAbsScale &&
+           Scalar_Abs( value.scale.z ) > minimumAbsScale;
+}
+
 bool_t Transform_NearlyEquals(
     transform_t a,
     transform_t b,
@@ -99,10 +117,9 @@ bool_t Transform_TryInversePoint(
         return false;
     }
     *pLocalPoint = CY_VEC3_ZERO;
-    if ( !bValidThreshold || !Transform_IsFinite( transform ) ||
-         Scalar_Abs( transform.scale.x ) <= minimumAbsScale ||
-         Scalar_Abs( transform.scale.y ) <= minimumAbsScale ||
-         Scalar_Abs( transform.scale.z ) <= minimumAbsScale ) {
+    if ( !bValidThreshold || !Vec3_IsFinite( point ) || !Transform_IsValid(
+             transform, CY_TRANSFORM_ROTATION_UNIT_TOLERANCE,
+             minimumAbsScale ) ) {
         return false;
     }
 
@@ -110,8 +127,12 @@ bool_t Transform_TryInversePoint(
         transform.rotation,
         Vec3_Subtract( point, transform.position ) );
     // Component division is valid only after every scale axis passes the guard.
-    *pLocalPoint = Vec3_DivideComponents( unrotated, transform.scale );
-    return Vec3_IsFinite( *pLocalPoint );
+    const vec3_t localPoint = Vec3_DivideComponents( unrotated, transform.scale );
+    if ( !Vec3_IsFinite( localPoint ) ) {
+        return false;
+    }
+    *pLocalPoint = localPoint;
+    return true;
 }
 
 bool_t Transform_TryInverseDirection(
@@ -133,17 +154,21 @@ bool_t Transform_TryInverseDirection(
         return false;
     }
     *pLocalDirection = CY_VEC3_ZERO;
-    if ( !bValidThreshold || !Transform_IsFinite( transform ) ||
-         Scalar_Abs( transform.scale.x ) <= minimumAbsScale ||
-         Scalar_Abs( transform.scale.y ) <= minimumAbsScale ||
-         Scalar_Abs( transform.scale.z ) <= minimumAbsScale ) {
+    if ( !bValidThreshold || !Vec3_IsFinite( direction ) || !Transform_IsValid(
+             transform, CY_TRANSFORM_ROTATION_UNIT_TOLERANCE,
+             minimumAbsScale ) ) {
         return false;
     }
 
     const vec3_t unrotated =
         Quat_InverseRotateVectorUnit( transform.rotation, direction );
-    *pLocalDirection = Vec3_DivideComponents( unrotated, transform.scale );
-    return Vec3_IsFinite( *pLocalDirection );
+    const vec3_t localDirection = Vec3_DivideComponents(
+        unrotated, transform.scale );
+    if ( !Vec3_IsFinite( localDirection ) ) {
+        return false;
+    }
+    *pLocalDirection = localDirection;
+    return true;
 }
 
 affine3_t Transform_ToAffine3( transform_t value ) noexcept
@@ -170,6 +195,18 @@ bool_t Transform_TryInverseAffine(
     f32 minimumAbsDeterminant,
     affine3_t *pInverse ) noexcept
 {
+    const bool_t bValidOutput = pInverse != nullptr;
+    CY_ASSERT_MSG(
+        bValidOutput,
+        "Transform_TryInverseAffine requires output storage." );
+    if ( !bValidOutput ) {
+        return false;
+    }
+    *pInverse = CY_AFFINE3_IDENTITY;
+    if ( !Transform_IsValid(
+             value, CY_TRANSFORM_ROTATION_UNIT_TOLERANCE, 0.0f ) ) {
+        return false;
+    }
     return Affine3_TryInverse(
         Transform_ToAffine3( value ), minimumAbsDeterminant, pInverse );
 }

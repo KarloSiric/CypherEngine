@@ -36,9 +36,26 @@ document.
 namespace cypher::common
 {
 
+struct key_value_definition_seed_t {
+    string_view_t name{};
+    const key_value_t *pValue{ nullptr };
+};
+
 CYPHER_NODISCARD key_value_parse_result_t KeyValue_InternalParseText(
     string_view_t text,
     const key_value_parse_options_t &options,
+    key_value_document_t *pDocument,
+    bool_t bStrictJson ) noexcept;
+
+// Parses with immutable, already-resolved CYKV 2 definitions. Seed names must be
+// valid definition identifiers and values must be valid trees. Values are
+// deep-copied into private parser state before local #define declarations.
+CYPHER_NODISCARD key_value_parse_result_t
+KeyValue_InternalParseTextWithDefinitions(
+    string_view_t text,
+    const key_value_parse_options_t &options,
+    const key_value_definition_seed_t *pSeeds,
+    usize nSeeds,
     key_value_document_t *pDocument,
     bool_t bStrictJson ) noexcept;
 

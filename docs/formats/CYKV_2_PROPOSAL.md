@@ -12,6 +12,8 @@
 //
 //  History:
 //  - Created by Karlo Siric on 2026-09-17
+//  - Marked the accepted first CYKV 2 subset as superseding candidate syntax on
+//    2026-09-18
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -20,11 +22,25 @@
 
 # Cypher KeyValues 2 Design Proposal
 
-**Status:** Proposal. Nothing in this document is accepted by the CYKV 1 parser,
-writer, schema registry, binary pack, or resource compilers unless an individual
-section explicitly says otherwise.
+**Status:** Research proposal for features beyond the accepted first CYKV 2
+subset. The normative subset is now [CYKV_2.md](CYKV_2.md). Tier1 implements its
+typed definitions, namespaced includes, exact-schema bases, bounded source
+resolver, resolved writer, and canonical hash. Schema registry opt-in, complete
+provenance/manifests, a self-contained binary pack, and resource-compiler
+adoption remain unavailable as detailed by the normative specification.
 
-**Current implementation:** [CYKV 1](CYKV.md)
+The earlier `@const`, `@include ... from`, and `@base` spellings in this research
+record are superseded and must not be implemented. The accepted spellings are
+`#define NAME <typed value>`, `#include "path" as namespace`, and
+`#base "path"`, with `$NAME` and `$namespace.member` references. The accepted
+base precedence is local values first, then earlier bases, then later bases.
+This document preserves rejected alternatives as design history; it is not a
+second CYKV 2 grammar.
+
+**Current implementation:** [CYKV 1](CYKV.md) and the accepted Tier1 subset in
+[CYKV 2](CYKV_2.md)
+
+**Normative accepted contract:** [CYKV 2](CYKV_2.md)
 
 **Schema system:** [CYKV Schemas](CYKV_SCHEMAS.md)
 
@@ -176,6 +192,10 @@ layout. CYKV remains an independent format.
 
 ## 5. Proposed Document Header
 
+> **Superseded candidate syntax:** The accepted directive and reference grammar
+> is defined in [CYKV_2.md](CYKV_2.md). The `@...` forms below are retained only
+> to explain the design path and must not be implemented.
+
 A complete source document keeps the two required header directives:
 
 ```cykv
@@ -220,6 +240,10 @@ A full schema document and a fragment are distinct inputs. A source compiler may
 allow only declared fragment IDs in each include position.
 
 ## 6. Include System
+
+> **Superseded spelling:** Accepted includes use
+> `#include "path" as namespace` and `$namespace.member`. The semantics in the
+> normative specification replace this section wherever they differ.
 
 ### 6.1 Proposed form
 
@@ -319,6 +343,9 @@ A format compiler may lower these limits. Increasing a limit must remain an
 explicit caller decision.
 
 ## 7. Typed Constants
+
+> **Superseded spelling:** Accepted constants use `#define NAME <typed value>`
+> and `$NAME`. The `@const` examples below are historical candidates.
 
 ### 7.1 Goal
 
@@ -525,6 +552,10 @@ networked gameplay fields should continue to require finite values.
 
 ## 11. Object Composition
 
+> **Superseded spelling and precedence:** Accepted composition uses `#base` and
+> priority `local > earlier base > later base`. The later-base overlay candidate
+> below was rejected.
+
 Generic object inheritance is powerful but easy to misunderstand. Valve classic
 KeyValues separates include append behavior from base fallback behavior. CYKV
 should preserve that conceptual separation.
@@ -539,7 +570,7 @@ another complete document with a schema explicitly accepted by the active format
 The initial rules are:
 
 - local values override every base;
-- later bases override earlier bases before local values are applied;
+- the rejected candidate gave later bases priority over earlier bases;
 - objects merge recursively;
 - arrays replace as a whole;
 - a scalar/object or incompatible scalar-type disagreement is an error;
@@ -738,6 +769,10 @@ chooses to upgrade. Command-line tools may expose `validate`, `format`, `expand`
 `dependencies`, and `migrate` operations.
 
 ## 17. Candidate Grammar
+
+> **Superseded for accepted directives:** The normative grammar in
+> [CYKV_2.md](CYKV_2.md) replaces the include, base, constant, and reference
+> productions below. Unaccepted candidate features remain research only.
 
 This fragment is illustrative EBNF, not a normative grammar:
 

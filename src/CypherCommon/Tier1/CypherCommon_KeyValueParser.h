@@ -4,7 +4,7 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherCommon/Tier1/CypherCommon_KeyValueParser.h
-//  Purpose: Declares bounded CYKV 1 hierarchical text parsing.
+//  Purpose: Declares bounded CYKV hierarchical text parsing.
 //  Details: Parsing is transactional: the destination document changes only after a
 //           complete successful parse. Limits bound hostile or malformed input cost.
 //
@@ -53,7 +53,10 @@ enum class key_value_parse_status_t : u8 {
     COMMENT_DEPTH_LIMIT, // Nested block comments exceed policy.
     STRING_LIMIT,      // Aggregate decoded payload exceeds policy.
     OUT_OF_MEMORY,     // Transactional destination allocation failed.
-    TRAILING_INPUT     // Non-trivia bytes follow the root value.
+    TRAILING_INPUT,    // Non-trivia bytes follow the root value.
+    DUPLICATE_DEFINITION, // A CYKV 2 local definition name is already bound.
+    UNDEFINED_DEFINITION, // A $NAME reference has no prior local definition.
+    DEFINITION_LIMIT   // Local definition count exceeds policy.
 };
 
 struct key_value_parse_options_t {
@@ -67,6 +70,7 @@ struct key_value_parse_options_t {
     usize nMaxContainerValues{ 1u << 20u };    // Maximum direct values in one container.
     usize nMaxCommentDepth{ 64u };              // Maximum nested block-comment depth.
     usize cbMaxStringData{ 64u * CY_MIB };     // Maximum aggregate decoded payload bytes.
+    usize nMaxDefinitions{ 256u };             // Maximum CYKV 2 definitions, including include aliases.
 };
 
 struct key_value_parse_result_t {

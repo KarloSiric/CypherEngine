@@ -225,9 +225,10 @@ geometry participates in the mesh workflow. Mason should copy that usability
 lesson, not Source 1's persistent plane-defined BSP-brush data model.
 
 Cypher must therefore treat geometry, collision, visibility, lighting, and
-runtime partitioning as separate compiler stages. `.cymap_c` may coordinate or
-contain those products, but no renderer API should assume a classic BSP-only
-world.
+runtime partitioning as separate compiler stages. Mason's `.cyscene_c` may
+coordinate or contain those products, but no renderer API should assume a
+classic BSP-only world. TileEditor's `.cymap` remains a separate grid document;
+an optional `.cymap_c` would serve only a deliberately admitted tile runtime.
 
 ### Editable Mesh Topology
 
@@ -352,7 +353,7 @@ mirror` means Cypher should not create a matching format merely for parity.
 | Animation Graph 2 | `vnmskel`, `vnmclip`, `vnmgraph`, `vnmvar` | Study skeleton/clip/graph separation and variation policy. |
 | Particle/VFX | `vpcf`, `vsnap` | Study effect definitions and auxiliary snapshots. |
 | Audio | `vsnd`, sound containers, `vsndevts`, `vsndstck`, `vmix` | Study sample, event, rule stack, container, and mix-graph separation. |
-| UI and web-like assets | `vcss`, `vxml`, `vpdi`, `vjs`, `vts`, `vsvg` | Study layout/style/resource separation. CyGUI need not use JavaScript or copy Panorama. |
+| UI and web-like assets | `vcss`, `vxml`, `vpdi`, `vjs`, `vts`, `vsvg` | Study layout/style/resource separation. Cypher UI need not use JavaScript or copy Panorama. |
 | Logic graphs | `vpulse` | Study visual graph compilation; use only where a graph improves a real workflow. |
 | Procedural objects | `vsmart` | Study parameterized prop rules after normal prefabs are proven. |
 | Dialogue and response | `vrr`, `vcd`, `vcdlist`, `vfe` | Study response selection, choreography, and facial data; design original Cypher formats. |
@@ -382,10 +383,10 @@ CYKV syntax
 ### Generic Data
 
 Cypher needs a typed generic-data path for project- or game-defined records that
-do not justify a bespoke binary format immediately. The working direction is a
-schema-selected CYKV source document compiled into a bounded `.cydata_c`-style
-runtime resource. The exact extension is not locked until its runtime consumer
-and schema identity rules are designed.
+do not justify a bespoke binary format immediately. The accepted source profile
+is a schema-selected CYKV document using `.cydf`. CYDF does not imply a universal
+cooked extension: each schema chooses direct validated consumption or a bounded
+domain-owned runtime resource when a real consumer needs one.
 
 Likely uses include weapons, items, damage profiles, enemy archetypes, waves,
 difficulty, response rules, surface properties, tags, and game modes.
@@ -393,8 +394,8 @@ difficulty, response rules, surface properties, tags, and game modes.
 ### World Output Is A Resource Graph
 
 Source 2's map asset inventory reinforces an existing Cypher decision: a cooked
-map is not necessarily one monolithic spatial structure. `CypherMapCompiler` may
-produce or reference:
+scene/world is not necessarily one monolithic spatial structure.
+`CypherSceneCompiler` may produce or reference:
 
 - map descriptor and dependencies
 - world regions or nodes
@@ -406,7 +407,7 @@ produce or reference:
 - navigation
 - audio and post-process zones
 
-Early versions may store these as chunks in `.cymap_c`. Streaming pressure may
+Early versions may store these as chunks in `.cyscene_c`. Streaming pressure may
 later justify independently addressable child resources. The runtime contract,
 not Source 2 naming, decides that transition.
 
