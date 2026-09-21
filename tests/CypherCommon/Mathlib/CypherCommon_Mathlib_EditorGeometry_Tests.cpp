@@ -335,7 +335,7 @@ TEST_CASE( "planar geometry rejects nonfinite coordinates and tolerances",
         u32 scratch[3]{};
         u32 indices[3]{};
         REQUIRE( Polygon2_Triangulate(
-            triangle, 3u, invalid, scratch, 3u, indices, 3u ).status ==
+            triangle, 3u, invalid, invalid, scratch, 3u, indices, 3u ).status ==
             polygon_triangulation_status_t::INVALID_ARGUMENT );
     }
 
@@ -396,7 +396,7 @@ TEST_CASE( "planar 3D polygons derive a basis, area, and triangulation",
         polygon, 4u, basis, centroid, 0.000001f, nan, true,
         projected, 4u ) );
     REQUIRE( Polygon3_Triangulate(
-        polygon, 4u, basis, infinity,
+        polygon, 4u, basis, infinity, infinity,
         projected, 4u, scratch, 4u, indices, 6u ).status ==
         polygon_triangulation_status_t::INVALID_ARGUMENT );
 }

@@ -2840,7 +2840,7 @@ endif()
 option(CYPHERENGINE_BUILD_TOOLS "Build tool targets" OFF)
 
 if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherEditor/Geometry/CMakeLists.txt")
-    if (CYPHERENGINE_BUILD_TESTS OR CYPHERENGINE_BUILD_TOOLS)
+    if (CYPHERENGINE_BUILD_TESTS OR CYPHERENGINE_BUILD_TOOLS OR CYPHERENGINE_BUILD_BENCHMARKS)
         add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherEditor/Geometry")
     endif()
 endif()
