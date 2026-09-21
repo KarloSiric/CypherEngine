@@ -206,7 +206,7 @@ static void BM_ConcavePolygonTriangulation( benchmark::State &state )
     u32 indices[15]{};
     for ( auto _ : state ) {
         polygon_triangulation_result_t result = Polygon2_Triangulate(
-            polygon, 7u, 0.000001, scratch, 7u, indices, 15u );
+            polygon, 7u, 0.000001, 0.000001, scratch, 7u, indices, 15u );
         benchmark::DoNotOptimize( result );
         benchmark::DoNotOptimize( indices );
         benchmark::ClobberMemory();
