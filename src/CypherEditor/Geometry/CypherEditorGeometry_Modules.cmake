@@ -31,6 +31,8 @@ target_sources(CypherEditorGeometry
         Cook/RenderMesh/CypherGeometry_Cook_RenderMesh.h
         Document/CypherGeometry_DocumentMeshes.cpp
         Document/CypherGeometry_DocumentMeshes.h
+        Document/CypherGeometry_DocumentMeshSet.cpp
+        Document/CypherGeometry_DocumentMeshSet.h
         Document/CypherGeometry_DocumentBrushReplacement.cpp
         Document/CypherGeometry_DocumentBrushReplacement.h
         Exchange/Sanitation/CypherGeometry_Sanitation.cpp
@@ -49,12 +51,22 @@ target_sources(CypherEditorGeometry
         Operations/Modeling/CypherGeometry_MeshSourceBevel.h
         Operations/Modeling/CypherGeometry_MeshSourceComponents.cpp
         Operations/Modeling/CypherGeometry_MeshSourceComponents.h
+        Operations/Modeling/CypherGeometry_MeshLoopSlide.cpp
+        Operations/Modeling/CypherGeometry_MeshLoopSlide.h
         Operations/Modeling/CypherGeometry_MeshSourceModeling.cpp
         Operations/Modeling/CypherGeometry_MeshSourceModeling.h
+        Operations/Modeling/CypherGeometry_MeshSolidify.cpp
+        Operations/Modeling/CypherGeometry_MeshSolidify.h
         Operations/Topology/CypherGeometry_MeshSourceTopology.cpp
         Operations/Topology/CypherGeometry_MeshSourceTopology.h
+        Operations/Topology/CypherGeometry_MeshSourceComposition.cpp
+        Operations/Topology/CypherGeometry_MeshSourceComposition.h
+        Operations/Topology/CypherGeometry_MeshObjectCommands.cpp
+        Operations/Topology/CypherGeometry_MeshObjectCommands.h
         Operations/UvAlignment/CypherGeometry_MeshSurfacing.cpp
         Operations/UvAlignment/CypherGeometry_MeshSurfacing.h
+        Operations/UvAlignment/CypherGeometry_MeshUvIslands.cpp
+        Operations/UvAlignment/CypherGeometry_MeshUvIslands.h
         Planar/CypherGeometry_Planar_Frame.cpp
         Planar/CypherGeometry_Planar_Frame.h
         Planar/CypherGeometry_Planar_Offset.cpp
@@ -83,6 +95,8 @@ target_sources(CypherEditorGeometry
         Representations/Mesh/CypherGeometry_MeshBevel.h
         Representations/Mesh/CypherGeometry_MeshKnife.cpp
         Representations/Mesh/CypherGeometry_MeshKnife.h
+        Representations/Mesh/CypherGeometry_MeshLoopTraversal.cpp
+        Representations/Mesh/CypherGeometry_MeshLoopTraversal.h
         Representations/Mesh/CypherGeometry_MeshPlanar.h
         Representations/Mesh/CypherGeometry_MeshRecordAccess.h
         Representations/Mesh/CypherGeometry_MeshVertexMove.cpp
@@ -111,6 +125,8 @@ target_sources(CypherEditorGeometry
         Tessellation/CypherGeometry_PatchTessellation.h
         Transactions/CypherGeometry_MeshDelta.cpp
         Transactions/CypherGeometry_MeshDelta.h
+        Transactions/CypherGeometry_MeshSetDelta.cpp
+        Transactions/CypherGeometry_MeshSetDelta.h
         Transactions/CypherGeometry_MeshTransaction.cpp
         Transactions/CypherGeometry_MeshTransaction.h
         Validation/CypherGeometry_MeshGeometricValidation.cpp
@@ -149,9 +165,15 @@ if (TARGET cypher_editor_geometry_contract_tests)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Cook/CypherGeometry_CookCollision_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Cook/CypherGeometry_Cook_RenderMesh_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Document/CypherGeometry_DocumentMeshes_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Document/CypherGeometry_DocumentMeshSet_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Document/CypherGeometry_DocumentBrushReplacement_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Intermediates/CypherGeometry_Intermediates_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_MeshLoopSlide_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_MeshObjectCommands_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_MeshSourceEdits_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_MeshSourceComposition_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_MeshSolidify_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_MeshUvIslands_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_PlanarExtrude_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Planar/CypherGeometry_Planar_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Planar/CypherGeometry_Planar_Offset_Tests.cpp"
