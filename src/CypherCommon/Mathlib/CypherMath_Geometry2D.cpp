@@ -733,7 +733,16 @@ polygon_triangulation_result_t Polygon2_Triangulate(
 
 f64 Geometry2D_OrientationD( vec2d_t a, vec2d_t b, vec2d_t c ) noexcept
 {
-    return Vec2d_Cross( Vec2d_Subtract( b, a ), Vec2d_Subtract( c, a ) );
+    const vec2d_t ab = Vec2d_Subtract( b, a );
+    const vec2d_t ac = Vec2d_Subtract( c, a );
+
+    // Make the rounding model explicit. Clang may contract Vec2d_Cross's
+    // multiply-subtract while GCC and MSVC commonly evaluate both products
+    // separately; a near-collinear input could therefore return a nonzero
+    // determinant on one host and zero on another. std::fma specifies the
+    // single-rounding operation that this metric API uses on every host.
+    // Topological callers must still use Orient2D for the exact sign.
+    return std::fma( ab.x, ac.y, -( ab.y * ac.x ) );
 }
 
 bool_t Geometry2D_PointOnSegmentD(

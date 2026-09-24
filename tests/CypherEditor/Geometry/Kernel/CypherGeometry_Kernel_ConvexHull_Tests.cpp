@@ -662,6 +662,43 @@ TEST_CASE( "ConvexHull: TryBuildBrush produces valid boundary",
     BrushSolid_Shutdown( &brush );
 }
 
+TEST_CASE( "ConvexHull: skewed box triangles merge into six planes portably",
+           "[Gate10][ConvexHull][Portability][Regression]" )
+{
+    // This is the point cloud produced when one edge of the standard brush
+    // fixture moves eight units along X. Its slanted side is triangulated into
+    // two faces with the same normalized plane. The normal's self-dot is one
+    // ULP below 1.0 when evaluated without contraction, so a cos(angle) >= dot
+    // comparison used to keep both copies on GCC/MSVC and emit seven sides.
+    constexpr math::vec3d_t points[]{
+        { 72.0, 64.0, 64.0 },
+        { 72.0, 64.0, -64.0 },
+        { 64.0, -64.0, 64.0 },
+        { 64.0, -64.0, -64.0 },
+        { -64.0, 64.0, 64.0 },
+        { -64.0, 64.0, -64.0 },
+        { -64.0, -64.0, 64.0 },
+        { -64.0, -64.0, -64.0 }
+    };
+
+    common::allocator_t allocator{ *common::Allocator_GetSystem() };
+    geometry_policy_t policy{};
+    geometry_source_id_allocator_t ids{};
+    brush_solid_t brush{};
+
+    REQUIRE( ConvexHull_TryBuildBrush(
+                 &brush, &allocator, policy, &ids,
+                 points, std::size( points ) ) == geometry_status_t::OK );
+    REQUIRE( BrushSolid_SideCount( &brush ) == 6u );
+
+    const brush_validation_result_t validation = BrushValidation_Deep(
+        &brush, policy, &allocator );
+    CHECK( validation.status == geometry_status_t::OK );
+    CHECK( validation.bWatertight );
+
+    BrushSolid_Shutdown( &brush );
+}
+
 TEST_CASE( "ConvexHull: TryBuildBrush tetrahedron produces 4-sided brush",
            "[Gate10][ConvexHull]" )
 {

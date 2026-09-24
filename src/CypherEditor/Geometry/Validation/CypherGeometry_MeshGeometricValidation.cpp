@@ -201,8 +201,16 @@ mesh_geometric_validation_t MeshValidation_ValidateGeometry(
                         : ( ay >= ax ) ? math::Vec2d_Make( p.z, p.x ) : math::Vec2d_Make( p.y, p.z );
             }
             Vector_Clear( &ringTris.v );
-            if ( Planar_TryTriangulateRing( span_t<const math::vec2d_t>{ ring, n }, pAlloc,
-                                            &ringTris.v ) != geometry_status_t::OK ) {
+            const geometry_status_t triangulationStatus =
+                Planar_TryTriangulateRing(
+                    span_t<const math::vec2d_t>{ ring, n },
+                    pAlloc, &ringTris.v );
+            if ( triangulationStatus ==
+                 geometry_status_t::ALLOCATION_FAILED ) {
+                allocFailed = true;
+                return false;
+            }
+            if ( triangulationStatus != geometry_status_t::OK ) {
                 // A face that cannot be triangulated in its plane overlaps
                 // itself: report it as a self-intersection of the face.
                 ++r.cSelfIntersections;

@@ -395,8 +395,13 @@ geometry_status_t TryCollectUniquePlanes(
     const vec3d_t *pPoints,
     const geometry_policy_t &policy ) noexcept
 {
-    const f64 parallelThreshold =
-        std::cos( policy.numerical.fAngularToleranceRadians );
+    // For unit normals, chord length is 2*sin(angle/2). Computing that
+    // directly preserves the configured angular tolerance without the
+    // cancellation in 2 - 2*cos(angle) at small angles.
+    const f64 normalDeltaTolerance = 2.0 * std::sin(
+        policy.numerical.fAngularToleranceRadians * 0.5 );
+    const f64 normalDeltaToleranceSquared =
+        normalDeltaTolerance * normalDeltaTolerance;
     for ( usize iFace = 0u; iFace < hull.faces.nCount; ++iFace ) {
         const convex_hull_face_t &face = hull.faces.pData[iFace];
         const f64 distance = -Vec3d_Dot(
@@ -408,8 +413,19 @@ geometry_status_t TryCollectUniquePlanes(
         bool bMerged = false;
         for ( usize iPlane = 0u; iPlane < pPlanes->nCount; ++iPlane ) {
             const planed_t &plane = pPlanes->pData[iPlane];
-            if ( Vec3d_Dot( face.normal, plane.normal ) >=
-                     parallelThreshold &&
+            // Comparing cos(angle) is ill-conditioned for the editor's small
+            // angular tolerance: cos(1e-8) rounds to exactly 1.0 in binary64,
+            // while the dot product of a normalized vector with itself can be
+            // one ULP below 1.0. That caused identical coplanar hull triangles
+            // to become duplicate brush sides on GCC/MSVC. For unit normals,
+            // squared chord distance is 2 - 2*cos(angle), approximately
+            // angle^2 at this scale, and identical normals compare as zero on
+            // every compiler. The chord threshold above retains the exact
+            // angular meaning throughout the policy's supported range.
+            const vec3d_t normalDelta = Vec3d_Subtract(
+                face.normal, plane.normal );
+            if ( Vec3d_LengthSquared( normalDelta ) <=
+                     normalDeltaToleranceSquared &&
                  std::fabs( distance - plane.d ) <=
                      policy.numerical.fCoplanarDistanceTolerance ) {
                 bMerged = true;
