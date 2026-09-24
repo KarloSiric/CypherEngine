@@ -15,6 +15,22 @@
 
 target_sources(CypherEditorGeometry
     PRIVATE
+        Operations/Construction/CypherGeometry_BrushAuthoring.cpp
+        Operations/Construction/CypherGeometry_BrushAuthoring.h
+        Operations/Construction/CypherGeometry_BrushShapes.cpp
+        Operations/Construction/CypherGeometry_BrushShapes.h
+        Operations/UvAlignment/CypherGeometry_UvTools.cpp
+        Operations/UvAlignment/CypherGeometry_UvTools.h
+        Operations/Construction/CypherGeometry_BrushPatches.cpp
+        Operations/Construction/CypherGeometry_BrushPatches.h
+        Representations/Patch/CypherGeometry_PatchResize.cpp
+        Representations/Patch/CypherGeometry_PatchResize.h
+        Operations/Construction/CypherGeometry_BrushSweep.cpp
+        Operations/Construction/CypherGeometry_BrushSweep.h
+        Operations/VertexManip/CypherGeometry_BrushVertexClump.cpp
+        Operations/VertexManip/CypherGeometry_BrushVertexClump.h
+        Selection/CypherGeometry_BrushFaceQueries.cpp
+        Selection/CypherGeometry_BrushFaceQueries.h
         Attributes/Propagation/CypherGeometry_MeshAttributeTransfer.cpp
         Attributes/Propagation/CypherGeometry_MeshAttributeTransfer.h
         Attributes/Propagation/CypherGeometry_MeshEditBracket.h
@@ -145,6 +161,7 @@ target_include_directories(CypherEditorGeometry
         "${CMAKE_CURRENT_SOURCE_DIR}/Intermediates/TriangleSoup"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Conversion"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Modeling"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Construction"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Topology"
         "${CMAKE_CURRENT_SOURCE_DIR}/Planar"
         "${CMAKE_CURRENT_SOURCE_DIR}/Procedural/Curves"
@@ -161,6 +178,12 @@ target_include_directories(CypherEditorGeometry
 if (TARGET cypher_editor_geometry_contract_tests)
     target_sources(cypher_editor_geometry_contract_tests
         PRIVATE
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushAuthoring_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushShapes_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_UvTools_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushPatches_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushSweep_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushFaceEditing_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Attributes/CypherGeometry_MeshAttributes_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Cook/CypherGeometry_CookCollision_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Cook/CypherGeometry_Cook_RenderMesh_Tests.cpp"
