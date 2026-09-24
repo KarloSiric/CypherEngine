@@ -66,8 +66,27 @@ change record (before/after value references); cancel, stale revision,
 identity conflict, and allocation failure publish nothing and retire the
 transaction's pending IDs on cancel. The bounded linear history replays
 records inverse or forward, restores exact value identity, and refuses to act
-when the document moved underneath it. Gate 4 (queries, tessellation,
-spatial, selection, constraints) is next.
+when the document moved underneath it.
+
+Gates 4 through 7 are implemented for brushes:
+
+- Queries (area, volume/centroid, containment, ray cast) and deterministic
+  tessellation with side provenance;
+- a snapshot-bound BVH with refit/rebuild, overlap queries, and exact picking;
+- persistent component selection (brush/side/edge/vertex by side identity)
+  with pruning and ambiguity-reporting remaps; binary64 snapping;
+- transforms with texture lock, side drag, clip/split, extrude (grow,
+  split-out, split-in), convex-hull vertex editing with side matching, and
+  UV alignment tools;
+- brush CSG (subtract, intersect, hollow, convex merge, expand) over
+  identity-free pieces with provenance-driven attribute transfer, and
+  primitives (box, wedge, cylinder, cone, sphere, stairs, arch, pipe);
+- the versioned CYGD serialization format and the render-mesh cook with
+  per-triangle source mapping and content hashes;
+- whole-document validation diagnostics.
+
+Remaining module contracts (EditableMesh, Planar, Exchange/Sanitation, Repair,
+mesh CSG stages, Procedural, and the other Cook products) follow Gates 8-14.
 
 Every module outside `Core` is still a design contract unless its source is
 explicitly listed in `src/CypherEditor/Geometry/CMakeLists.txt`.
