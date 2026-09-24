@@ -11,6 +11,8 @@
 ##########################################################################
 
 add_library(CypherEditorGeometry STATIC
+    Constraints/CypherGeometry_Constraints.cpp
+    Constraints/CypherGeometry_Constraints.h
     Core/CypherGeometry_Diagnostics.cpp
     Core/CypherGeometry_Diagnostics.h
     Core/CypherGeometry_IdAllocator.cpp
@@ -65,6 +67,8 @@ add_library(CypherEditorGeometry STATIC
     Representations/Brush/CypherGeometry_BrushGenerator.h
     Representations/Brush/CypherGeometry_BrushValidation.cpp
     Representations/Brush/CypherGeometry_BrushValidation.h
+    Selection/CypherGeometry_Selection.cpp
+    Selection/CypherGeometry_Selection.h
     Spatial/CypherGeometry_SpatialIndex.cpp
     Spatial/CypherGeometry_SpatialIndex.h
     Tessellation/CypherGeometry_BrushTessellation.cpp
@@ -102,6 +106,8 @@ target_include_directories(CypherEditorGeometry
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Transform"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Modeling"
         "${CMAKE_CURRENT_SOURCE_DIR}/Primitives"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Selection"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Constraints"
 )
 target_link_libraries(CypherEditorGeometry
     PUBLIC
