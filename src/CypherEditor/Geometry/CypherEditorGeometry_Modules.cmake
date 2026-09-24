@@ -1,0 +1,174 @@
+##########################################################################
+#
+#  CypherEngine Source Code
+#  Copyright (c) 2026 Karlo Siric. All rights reserved.
+#
+#  File: src/CypherEditor/Geometry/CypherEditorGeometry_Modules.cmake
+#  Purpose: Registers Geometry modules added after the core slice.
+#  Details: Kept separate from CMakeLists.txt so that new modules (Planar,
+#           PlanarRegion, Intermediates, Validation, ...) can land with a
+#           single include line and without editing the long core source
+#           list that other work touches concurrently. Included at the end
+#           of CMakeLists.txt, after both targets exist.
+#
+##########################################################################
+
+target_sources(CypherEditorGeometry
+    PRIVATE
+        Attributes/Propagation/CypherGeometry_MeshAttributeTransfer.cpp
+        Attributes/Propagation/CypherGeometry_MeshAttributeTransfer.h
+        Attributes/Propagation/CypherGeometry_MeshEditBracket.h
+        Attributes/Propagation/CypherGeometry_MeshCornerNormals.cpp
+        Attributes/Propagation/CypherGeometry_MeshCornerNormals.h
+        Attributes/Schema/CypherGeometry_Attributes_MeshStore.cpp
+        Attributes/Schema/CypherGeometry_Attributes_MeshStore.h
+        Cook/Collision/CypherGeometry_CookCollision.cpp
+        Cook/Collision/CypherGeometry_CookCollision.h
+        Cook/DependencyGraph/CypherGeometry_CookBytes.h
+        Cook/DependencyGraph/CypherGeometry_CookKeys.cpp
+        Cook/DependencyGraph/CypherGeometry_CookKeys.h
+        Cook/RenderMesh/CypherGeometry_Cook_RenderMesh.cpp
+        Cook/RenderMesh/CypherGeometry_Cook_RenderMesh.h
+        Document/CypherGeometry_DocumentMeshes.cpp
+        Document/CypherGeometry_DocumentMeshes.h
+        Document/CypherGeometry_DocumentBrushReplacement.cpp
+        Document/CypherGeometry_DocumentBrushReplacement.h
+        Exchange/Sanitation/CypherGeometry_Sanitation.cpp
+        Exchange/Sanitation/CypherGeometry_Sanitation.h
+        Intermediates/CypherGeometry_PointWeld.cpp
+        Intermediates/CypherGeometry_PointWeld.h
+        Intermediates/PolygonSoup/CypherGeometry_PolygonSoup.cpp
+        Intermediates/PolygonSoup/CypherGeometry_PolygonSoup.h
+        Intermediates/TriangleSoup/CypherGeometry_TriangleSoup.cpp
+        Intermediates/TriangleSoup/CypherGeometry_TriangleSoup.h
+        Kernel/CypherGeometry_Kernel_TriangleIntersection.cpp
+        Kernel/CypherGeometry_Kernel_TriangleIntersection.h
+        Operations/Conversion/CypherGeometry_PlanarExtrude.cpp
+        Operations/Conversion/CypherGeometry_PlanarExtrude.h
+        Operations/Modeling/CypherGeometry_MeshSourceBevel.cpp
+        Operations/Modeling/CypherGeometry_MeshSourceBevel.h
+        Operations/Modeling/CypherGeometry_MeshSourceComponents.cpp
+        Operations/Modeling/CypherGeometry_MeshSourceComponents.h
+        Operations/Modeling/CypherGeometry_MeshSourceModeling.cpp
+        Operations/Modeling/CypherGeometry_MeshSourceModeling.h
+        Operations/Topology/CypherGeometry_MeshSourceTopology.cpp
+        Operations/Topology/CypherGeometry_MeshSourceTopology.h
+        Operations/UvAlignment/CypherGeometry_MeshSurfacing.cpp
+        Operations/UvAlignment/CypherGeometry_MeshSurfacing.h
+        Planar/CypherGeometry_Planar_Frame.cpp
+        Planar/CypherGeometry_Planar_Frame.h
+        Planar/CypherGeometry_Planar_Offset.cpp
+        Planar/CypherGeometry_Planar_Offset.h
+        Planar/CypherGeometry_Planar_Overlay.cpp
+        Planar/CypherGeometry_Planar_Overlay.h
+        Planar/CypherGeometry_Planar_Segment.cpp
+        Planar/CypherGeometry_Planar_Segment.h
+        Planar/CypherGeometry_Planar_Triangulate.cpp
+        Planar/CypherGeometry_Planar_Triangulate.h
+        Procedural/Curves/CypherGeometry_CurveSampling.cpp
+        Procedural/Curves/CypherGeometry_CurveSampling.h
+        Procedural/Patches/CypherGeometry_PatchPrimitives.cpp
+        Procedural/Patches/CypherGeometry_PatchPrimitives.h
+        Procedural/Sweeps/CypherGeometry_Sweep.cpp
+        Procedural/Sweeps/CypherGeometry_Sweep.h
+        Queries/CypherGeometry_PickingQueries.cpp
+        Queries/CypherGeometry_PickingQueries.h
+        Repair/CypherGeometry_Repair.cpp
+        Repair/CypherGeometry_Repair.h
+        Representations/CurveNetwork/CypherGeometry_CurveNetwork.cpp
+        Representations/CurveNetwork/CypherGeometry_CurveNetwork.h
+        Representations/Mesh/CypherGeometry_MeshBoundaryOps.cpp
+        Representations/Mesh/CypherGeometry_MeshBoundaryOps.h
+        Representations/Mesh/CypherGeometry_MeshBevel.cpp
+        Representations/Mesh/CypherGeometry_MeshBevel.h
+        Representations/Mesh/CypherGeometry_MeshKnife.cpp
+        Representations/Mesh/CypherGeometry_MeshKnife.h
+        Representations/Mesh/CypherGeometry_MeshPlanar.h
+        Representations/Mesh/CypherGeometry_MeshRecordAccess.h
+        Representations/Mesh/CypherGeometry_MeshVertexMove.cpp
+        Representations/Mesh/CypherGeometry_MeshVertexMove.h
+        Representations/HeightField/CypherGeometry_HeightField.cpp
+        Representations/HeightField/CypherGeometry_HeightField.h
+        Representations/Mesh/CypherGeometry_MeshSource.cpp
+        Representations/Mesh/CypherGeometry_MeshSource.h
+        Representations/Patch/CypherGeometry_Patch.cpp
+        Representations/Patch/CypherGeometry_Patch.h
+        Representations/PlanarRegion/CypherGeometry_PlanarRegion.cpp
+        Representations/PlanarRegion/CypherGeometry_PlanarRegion.h
+        Representations/PlanarRegion/CypherGeometry_PlanarRegionValidation.cpp
+        Representations/PlanarRegion/CypherGeometry_PlanarRegionValidation.h
+        Serialization/CypherGeometry_MeshSerialization.cpp
+        Serialization/CypherGeometry_MeshSerialization.h
+        Selection/CypherGeometry_MeshSelection.cpp
+        Selection/CypherGeometry_MeshSelection.h
+        Selection/CypherGeometry_MeshSelectionQueries.cpp
+        Selection/CypherGeometry_MeshSelectionQueries.h
+        Tessellation/CypherGeometry_HeightFieldTessellation.cpp
+        Tessellation/CypherGeometry_HeightFieldTessellation.h
+        Tessellation/CypherGeometry_MeshTessellation.cpp
+        Tessellation/CypherGeometry_MeshTessellation.h
+        Tessellation/CypherGeometry_PatchTessellation.cpp
+        Tessellation/CypherGeometry_PatchTessellation.h
+        Transactions/CypherGeometry_MeshDelta.cpp
+        Transactions/CypherGeometry_MeshDelta.h
+        Transactions/CypherGeometry_MeshTransaction.cpp
+        Transactions/CypherGeometry_MeshTransaction.h
+        Validation/CypherGeometry_MeshGeometricValidation.cpp
+        Validation/CypherGeometry_MeshGeometricValidation.h
+)
+
+target_include_directories(CypherEditorGeometry
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/Attributes/Propagation"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook/Collision"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook/DependencyGraph"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook/RenderMesh"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Exchange/Sanitation"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Intermediates"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Intermediates/PolygonSoup"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Intermediates/TriangleSoup"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Conversion"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Modeling"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Topology"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Planar"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Procedural/Curves"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Procedural/Patches"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Procedural/Sweeps"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Repair"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Representations/CurveNetwork"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Representations/HeightField"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Representations/Patch"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Representations/PlanarRegion"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Validation"
+)
+
+if (TARGET cypher_editor_geometry_contract_tests)
+    target_sources(cypher_editor_geometry_contract_tests
+        PRIVATE
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Attributes/CypherGeometry_MeshAttributes_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Cook/CypherGeometry_CookCollision_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Cook/CypherGeometry_Cook_RenderMesh_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Document/CypherGeometry_DocumentMeshes_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Document/CypherGeometry_DocumentBrushReplacement_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Intermediates/CypherGeometry_Intermediates_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_MeshSourceEdits_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_PlanarExtrude_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Planar/CypherGeometry_Planar_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Planar/CypherGeometry_Planar_Offset_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Planar/CypherGeometry_Planar_Overlay_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Procedural/CypherGeometry_Curves_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Procedural/CypherGeometry_PatchPrimitives_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Queries/CypherGeometry_PickingQueries_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Repair/CypherGeometry_Repair_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Selection/CypherGeometry_MeshSelection_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Selection/CypherGeometry_MeshSelectionQueries_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_HeightField_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshBoundaryOps_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshFanInvariant_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshBevel_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshKnife_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshSource_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_Patch_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Validation/CypherGeometry_MeshGeometricValidation_Tests.cpp"
+    )
+endif()

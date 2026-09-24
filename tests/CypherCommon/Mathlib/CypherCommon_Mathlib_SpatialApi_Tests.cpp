@@ -146,6 +146,14 @@ TEST_CASE( "plane finite normalization and triangle construction preserve windin
         0.000001f, &trianglePlane ) );
     RequireVec3( trianglePlane.normal, 0.0f, 0.0f, 1.0f );
     REQUIRE( Plane_SignedDistance( trianglePlane, CY_VEC3_ZERO ) == 0.0f );
+
+    const f32 maximum = std::numeric_limits<f32>::max();
+    plane_t overflowPlane = Plane_Make( CY_VEC3_ONE, maximum );
+    REQUIRE_FALSE( Plane_TryFromPointNormal(
+        Vec3_Make( maximum, maximum, maximum ), CY_VEC3_ONE,
+        0.000001f, &overflowPlane ) );
+    REQUIRE( Vec3_EqualsExact( overflowPlane.normal, CY_PLANE_Z.normal ) );
+    REQUIRE( overflowPlane.d == CY_PLANE_Z.d );
 }
 
 TEST_CASE( "planed finite normalization triangle construction and transform preserve winding",
@@ -174,6 +182,23 @@ TEST_CASE( "planed finite normalization triangle construction and transform pres
              plane_side_t::NEGATIVE );
     REQUIRE( Planed_ClassifyPoint( trianglePlane, CY_VEC3D_ZERO, 0.0001 ) ==
              plane_side_t::ON_PLANE );
+
+    REQUIRE( Planed_ClassifyPoint(
+        Planed_Make( Vec3d_Make( 2.0, 0.0, 0.0 ), 0.0 ),
+        Vec3d_Make( 1.0, 0.0, 0.0 ), 0.0001 ) ==
+        plane_side_t::ON_PLANE );
+    REQUIRE( Planed_ClassifyPoint(
+        trianglePlane,
+        Vec3d_Make( std::numeric_limits<f64>::infinity(), 0.0, 0.0 ),
+        0.0001 ) == plane_side_t::ON_PLANE );
+
+    const f64 maximum = std::numeric_limits<f64>::max();
+    planed_t overflowPlane = Planed_Make( CY_VEC3D_ONE, maximum );
+    REQUIRE_FALSE( Planed_TryFromPointNormal(
+        Vec3d_Make( maximum, maximum, maximum ), CY_VEC3D_ONE,
+        0.000001, &overflowPlane ) );
+    REQUIRE( Vec3d_EqualsExact( overflowPlane.normal, CY_PLANED_Z.normal ) );
+    REQUIRE( overflowPlane.d == CY_PLANED_Z.d );
 
     RequireVec3d( Planed_Flip( trianglePlane ).normal, 0.0, 0.0, -1.0 );
 

@@ -276,6 +276,22 @@ TEST_CASE( "Affine3 binary64 conversion normal and inverse transformation reject
     REQUIRE_FALSE( Affine3d_TryInverse(
         Affine3d_FromScale( Vec3d_Make( 0.0, 1.0, 1.0 ) ), 1e-9, &inverse ) );
 
+    for ( f64 invalid : {
+              std::numeric_limits<f64>::quiet_NaN(),
+              std::numeric_limits<f64>::infinity(), -1.0 } ) {
+        CAPTURE( invalid );
+        normal = CY_VEC3D_ONE;
+        REQUIRE_FALSE( Affine3d_TryTransformNormal(
+            scale, CY_VEC3D_UP, invalid, &normal ) );
+        REQUIRE( Vec3d_EqualsExact( normal, CY_VEC3D_ZERO ) );
+
+        inverse = scale;
+        REQUIRE_FALSE( Affine3d_TryInverse(
+            scale, invalid, &inverse ) );
+        REQUIRE( Affine3d_NearlyEquals(
+            inverse, CY_AFFINE3D_IDENTITY, 0.0, 0.0 ) );
+    }
+
     // A transform with translation must invert exactly, not just its linear part.
     const affine3d_t withTranslation = Affine3d_FromColumns(
         Vec3d_Make( 2.0, 0.0, 0.0 ), Vec3d_Make( 0.0, 2.0, 0.0 ), Vec3d_Make( 0.0, 0.0, 2.0 ),

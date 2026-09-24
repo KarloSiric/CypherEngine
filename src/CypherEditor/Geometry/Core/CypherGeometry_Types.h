@@ -83,6 +83,14 @@ enum class geometry_status_t : u8 {
 	ALLOCATION_FAILED,
 	IDENTITY_CONFLICT,
 	UNSUPPORTED,
+	// Transaction states. A stale revision means the document was mutated
+	// between transaction begin and commit, so the edit must be restarted
+	// against the new baseline. NO_ACTIVE_TRANSACTION is returned when
+	// preview/commit/cancel is called without a matching begin.
+	STALE_REVISION,
+	NO_ACTIVE_TRANSACTION,
+	TRANSACTION_ACTIVE,
+	CANCELLED, // A cooperative operation checkpoint observed cancellation.
 	COUNT
 };
 
@@ -226,6 +234,40 @@ template <typename source_tag_t>
 			break;
 	}
 	return geometry_status_t::CORRUPT_STATE;
+}
+
+// Stable presentation-independent names for logs, tests, and host adapters.
+// geometry_status_t remains an in-process API enum; callers must not serialize
+// its underlying integer representation.
+[[nodiscard]] constexpr const char *CypherGeometry_StatusName(
+	geometry_status_t status ) noexcept {
+	switch ( status ) {
+		case geometry_status_t::OK: return "OK";
+		case geometry_status_t::INVALID_ARGUMENT: return "INVALID_ARGUMENT";
+		case geometry_status_t::NOT_INITIALIZED: return "NOT_INITIALIZED";
+		case geometry_status_t::ALREADY_INITIALIZED: return "ALREADY_INITIALIZED";
+		case geometry_status_t::CORRUPT_STATE: return "CORRUPT_STATE";
+		case geometry_status_t::INVALID_HANDLE: return "INVALID_HANDLE";
+		case geometry_status_t::STALE_HANDLE: return "STALE_HANDLE";
+		case geometry_status_t::INVALID_TOPOLOGY: return "INVALID_TOPOLOGY";
+		case geometry_status_t::NON_MANIFOLD: return "NON_MANIFOLD";
+		case geometry_status_t::DEGENERATE: return "DEGENERATE";
+		case geometry_status_t::NON_PLANAR: return "NON_PLANAR";
+		case geometry_status_t::SELF_INTERSECTING: return "SELF_INTERSECTING";
+		case geometry_status_t::OPEN_VOLUME: return "OPEN_VOLUME";
+		case geometry_status_t::NUMERIC_FAILURE: return "NUMERIC_FAILURE";
+		case geometry_status_t::LIMIT_EXCEEDED: return "LIMIT_EXCEEDED";
+		case geometry_status_t::INSUFFICIENT_CAPACITY: return "INSUFFICIENT_CAPACITY";
+		case geometry_status_t::ALLOCATION_FAILED: return "ALLOCATION_FAILED";
+		case geometry_status_t::IDENTITY_CONFLICT: return "IDENTITY_CONFLICT";
+		case geometry_status_t::UNSUPPORTED: return "UNSUPPORTED";
+		case geometry_status_t::STALE_REVISION: return "STALE_REVISION";
+		case geometry_status_t::NO_ACTIVE_TRANSACTION: return "NO_ACTIVE_TRANSACTION";
+		case geometry_status_t::TRANSACTION_ACTIVE: return "TRANSACTION_ACTIVE";
+		case geometry_status_t::CANCELLED: return "CANCELLED";
+		case geometry_status_t::COUNT: break;
+	}
+	return "UNKNOWN";
 }
 
 static_assert( sizeof( geometry_source_id_t ) == sizeof( u64 ) );

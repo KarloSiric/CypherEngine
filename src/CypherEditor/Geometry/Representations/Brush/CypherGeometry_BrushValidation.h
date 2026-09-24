@@ -42,7 +42,8 @@ struct brush_validation_result_t {
     geometry_status_t status{ geometry_status_t::NOT_INITIALIZED };
 
     // Populated only when reconstruction succeeds (status is OK or a
-    // topological failure). Zero when the brush fails before reconstruction.
+    // post-reconstruction invariant failure). Zero when the brush fails
+    // before reconstruction.
     common::u32 cVertices{ 0u };
     common::u32 cEdges{ 0u };
     common::u32 cFaces{ 0u };
@@ -60,16 +61,22 @@ struct brush_validation_result_t {
 // ---------------------------------------------------------------------------
 
 // Inspects the plane set without reconstructing the boundary. Checks:
-//   - brush is initialized and has at least 4 sides (tetrahedron minimum)
+//   - brush storage and allocator binding are internally consistent
+//   - policy is valid and the side count is within its per-brush limit
+//   - brush and side source IDs are valid and unique within the brush
+//   - brush has at least 4 sides (tetrahedron minimum)
 //   - every plane is finite
 //   - every plane normal is unit-length within policy tolerance
 //   - plane distance is within coordinate magnitude limit
 //   - no two planes are duplicates (identical normal and distance within
 //     tolerance) or contradictory (opposite normals, same distance)
 //
-// Returns OK if the plane set is plausible, or the first failure found.
+// Returns OK if the canonical brush state and plane set are plausible, or the
+// first failure in the order above. A canonical empty brush is
+// NOT_INITIALIZED; malformed live storage is CORRUPT_STATE; reused source IDs
+// are IDENTITY_CONFLICT. Quick validation never allocates.
 // A plausible plane set can still fail deep validation if the planes do
-// not define a bounded volume.
+// not define a bounded volume or if a plane is geometrically redundant.
 CYPHER_NODISCARD geometry_status_t BrushValidation_Quick(
     const brush_solid_t *pBrush,
     const geometry_policy_t &policy ) noexcept;
@@ -83,16 +90,25 @@ CYPHER_NODISCARD geometry_status_t BrushValidation_Quick(
 // is guaranteed to be a closed, watertight, outward-oriented convex solid.
 //
 // Checks (in addition to everything quick validation covers):
+//   - validation allocator is non-null and valid
 //   - boundary reconstruction succeeds
 //   - Euler relation: vertices - edges + faces == 2
 //   - every brush side contributes exactly one boundary face
-//   - every boundary face has at least 3 vertices
-//   - every edge is shared by exactly two faces
+//   - packed face ranges and vertex indices are in bounds and exhaustive
+//   - every boundary face has at least 3 distinct vertices
+//   - vertex positions are finite, bounded, unique, and referenced
+//   - canonical edge records are unique and match every face segment
+//   - every edge is shared by two oppositely wound faces
 //   - every face normal agrees with its side plane's outward direction
 //
 // The boundary used for validation is allocated internally and released
 // before returning. If the caller needs the boundary for further use,
 // they should reconstruct it separately.
+//
+// On any failure before successful reconstruction, all count/characteristic
+// fields remain zero and bWatertight remains false. After reconstruction,
+// counts remain available for a topological diagnostic. Every allocation is
+// released before return, including allocation-failure paths.
 CYPHER_NODISCARD brush_validation_result_t BrushValidation_Deep(
     const brush_solid_t *pBrush,
     const geometry_policy_t &policy,

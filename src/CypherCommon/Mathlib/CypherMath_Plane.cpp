@@ -121,7 +121,12 @@ bool_t Plane_TryFromPointNormal(
              normal, minimumNormalLength, &unitNormal, nullptr ) ) {
         return false;
     }
-    *pPlane = Plane_Make( unitNormal, -Vec3_Dot( unitNormal, point ) );
+    const plane_t plane = Plane_Make(
+        unitNormal, -Vec3_Dot( unitNormal, point ) );
+    if ( !Plane_IsFinite( plane ) ) {
+        return false;
+    }
+    *pPlane = plane;
     return true;
 }
 
@@ -269,7 +274,12 @@ bool_t Planed_TryFromPointNormal(
              normal, minimumNormalLength, &unitNormal, nullptr ) ) {
         return false;
     }
-    *pPlane = Planed_Make( unitNormal, -Vec3d_Dot( unitNormal, point ) );
+    const planed_t plane = Planed_Make(
+        unitNormal, -Vec3d_Dot( unitNormal, point ) );
+    if ( !Planed_IsFinite( plane ) ) {
+        return false;
+    }
+    *pPlane = plane;
     return true;
 }
 
@@ -303,7 +313,10 @@ plane_side_t Planed_ClassifyPoint(
     CY_ASSERT_MSG(
         bValidTolerance,
         "Planed_ClassifyPoint requires a finite nonnegative tolerance." );
-    if ( !bValidTolerance ) {
+    if ( !bValidTolerance ||
+         !Planed_IsNormalized(
+             unitPlane, static_cast<f64>( CY_PLANE_UNIT_TOLERANCE ) ) ||
+         !Vec3d_IsFinite( point ) ) {
         return plane_side_t::ON_PLANE;
     }
     const f64 distance = Planed_SignedDistance( unitPlane, point );

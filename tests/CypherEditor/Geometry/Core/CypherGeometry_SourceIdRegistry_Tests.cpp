@@ -139,6 +139,85 @@ TEST_CASE( "source registry release and clear never rewind allocation",
     REQUIRE( GeometrySourceIdRegistry_ValidateDeep( &registry ) );
 }
 
+TEST_CASE( "source registry clone preserves the complete identity domain independently",
+           "[editor][geometry][core][identity][clone]" )
+{
+    geometry_source_id_registry_t source{};
+    geometry_source_id_registry_t clone{};
+    REQUIRE( GeometrySourceIdRegistry_Init(
+                 &source,
+                 common::Allocator_GetSystem(),
+                 32u ) == geometry_status_t::OK );
+    const auto first = GeometrySourceIdRegistry_Allocate( &source );
+    const auto second = GeometrySourceIdRegistry_Allocate( &source );
+    const auto third = GeometrySourceIdRegistry_Allocate( &source );
+    REQUIRE( first.status == geometry_status_t::OK );
+    REQUIRE( second.status == geometry_status_t::OK );
+    REQUIRE( third.status == geometry_status_t::OK );
+    REQUIRE( GeometrySourceIdRegistry_Release(
+                 &source, second.id ) == geometry_status_t::OK );
+    REQUIRE( GeometrySourceIdRegistry_ValidateDeep( &source ) );
+
+    REQUIRE( GeometrySourceIdRegistry_TryClone(
+                 &source, &clone ) == geometry_status_t::OK );
+    CHECK( GeometrySourceIdRegistry_Count( &clone ) == 2u );
+    CHECK( GeometrySourceIdRegistry_ClaimedCount( &clone ) == 3u );
+    CHECK( clone.allocator.next.value == source.allocator.next.value );
+    CHECK( clone.cEntriesMax == source.cEntriesMax );
+    CHECK( clone.bLoadRegistrationOpen == source.bLoadRegistrationOpen );
+    CHECK( GeometrySourceIdRegistry_Contains( &clone, first.id ) );
+    CHECK_FALSE( GeometrySourceIdRegistry_Contains( &clone, second.id ) );
+    CHECK( GeometrySourceIdRegistry_Contains( &clone, third.id ) );
+    CHECK( common::HashSet_Contains( &clone.claimedIds, second.id ) );
+    REQUIRE( GeometrySourceIdRegistry_ValidateDeep( &clone ) );
+
+    const auto cloneOnly = GeometrySourceIdRegistry_Allocate( &clone );
+    REQUIRE( cloneOnly.status == geometry_status_t::OK );
+    CHECK( GeometrySourceIdRegistry_Count( &source ) == 2u );
+    CHECK( GeometrySourceIdRegistry_ClaimedCount( &source ) == 3u );
+    CHECK( source.allocator.next.value == cloneOnly.id.value );
+    CHECK_FALSE( GeometrySourceIdRegistry_Contains( &source, cloneOnly.id ) );
+    REQUIRE( GeometrySourceIdRegistry_ValidateDeep( &source ) );
+
+    GeometrySourceIdRegistry_Shutdown( &clone );
+    GeometrySourceIdRegistry_Shutdown( &source );
+}
+
+TEST_CASE( "source registry clone allocation failures leave both domains valid",
+           "[editor][geometry][core][identity][clone][allocation]" )
+{
+    for ( common::usize iCloneAllocation = 0u;
+          iCloneAllocation < 2u;
+          ++iCloneAllocation ) {
+        failing_allocator_state_t state{};
+        const common::allocator_t allocator =
+            MakeRegistryTestAllocator( &state );
+        geometry_source_id_registry_t source{};
+        geometry_source_id_registry_t clone{};
+        REQUIRE( GeometrySourceIdRegistry_Init(
+                     &source, &allocator, 16u ) == geometry_status_t::OK );
+        REQUIRE( GeometrySourceIdRegistry_Allocate( &source ).status ==
+                 geometry_status_t::OK );
+        REQUIRE( GeometrySourceIdRegistry_Allocate( &source ).status ==
+                 geometry_status_t::OK );
+        const common::usize cCallsBefore = state.cAllocationCalls;
+        state.iFailure = cCallsBefore + iCloneAllocation;
+
+        REQUIRE( GeometrySourceIdRegistry_TryClone(
+                     &source, &clone ) ==
+                 geometry_status_t::ALLOCATION_FAILED );
+        CHECK( GeometrySourceIdRegistry_IsValid( &clone ) );
+        CHECK_FALSE( GeometrySourceIdRegistry_IsInitialized( &clone ) );
+        CHECK( GeometrySourceIdRegistry_Count( &source ) == 2u );
+        CHECK( GeometrySourceIdRegistry_ClaimedCount( &source ) == 2u );
+        CHECK( source.allocator.next.value == 3u );
+        CHECK( GeometrySourceIdRegistry_ValidateDeep( &source ) );
+
+        GeometrySourceIdRegistry_Shutdown( &clone );
+        GeometrySourceIdRegistry_Shutdown( &source );
+    }
+}
+
 TEST_CASE( "observed source IDs advance the registry allocator without rewind",
            "[editor][geometry][core][identity]" )
 {

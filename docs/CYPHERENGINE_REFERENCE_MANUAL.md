@@ -244,7 +244,7 @@ Detailed architecture documents are indexed in [Reference Index](#29-reference-i
 ### 5.1 Prerequisites
 
 - Git
-- CMake 3.20 or newer
+- CMake 3.21 or newer
 - Ninja
 - C++20 compiler
 - Project-local pinned vcpkg dependencies

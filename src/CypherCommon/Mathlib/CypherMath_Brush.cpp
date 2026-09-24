@@ -62,6 +62,37 @@ bool_t BrushVerticesAreFinite(
     return true;
 }
 
+bool_t BrushdPlanesAreNormalized(
+    const planed_t *pPlanes,
+    usize cPlanes ) noexcept
+{
+    if ( pPlanes == nullptr ) {
+        return false;
+    }
+    for ( usize i = 0u; i < cPlanes; ++i ) {
+        if ( !Planed_IsNormalized(
+                 pPlanes[i], static_cast<f64>( CY_PLANE_UNIT_TOLERANCE ) ) ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool_t BrushdVerticesAreFinite(
+    const vec3d_t *pVertices,
+    usize cVertices ) noexcept
+{
+    if ( pVertices == nullptr ) {
+        return false;
+    }
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        if ( !Vec3d_IsFinite( pVertices[i] ) ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool_t BrushContainsPointUnchecked(
     const plane_t *pPlanes,
     usize cPlanes,
@@ -70,6 +101,20 @@ bool_t BrushContainsPointUnchecked(
 {
     for ( usize i = 0u; i < cPlanes; ++i ) {
         if ( Plane_SignedDistance( pPlanes[i], point ) > insideTolerance ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool_t BrushdContainsPointUnchecked(
+    const planed_t *pPlanes,
+    usize cPlanes,
+    vec3d_t point,
+    f64 insideTolerance ) noexcept
+{
+    for ( usize i = 0u; i < cPlanes; ++i ) {
+        if ( Planed_SignedDistance( pPlanes[i], point ) > insideTolerance ) {
             return false;
         }
     }
@@ -394,17 +439,14 @@ bool_t Brushd_ContainsPoint(
     vec3d_t point,
     f64 insideTolerance ) noexcept
 {
-    if ( pPlanes == nullptr || cPlanes < 4u || insideTolerance < 0.0 ||
+    if ( cPlanes < 4u || !Scalar_IsFinite( insideTolerance ) ||
+         insideTolerance < 0.0 ||
          !Vec3d_IsFinite( point ) ) {
         return false;
     }
-    for ( usize i = 0u; i < cPlanes; ++i ) {
-        if ( !Planed_IsFinite( pPlanes[i] ) ||
-             Planed_SignedDistance( pPlanes[i], point ) > insideTolerance ) {
-            return false;
-        }
-    }
-    return true;
+    return BrushdPlanesAreNormalized( pPlanes, cPlanes ) &&
+           BrushdContainsPointUnchecked(
+               pPlanes, cPlanes, point, insideTolerance );
 }
 
 brush_vertex_result_t Brushd_BuildVertices(
@@ -418,9 +460,12 @@ brush_vertex_result_t Brushd_BuildVertices(
 {
     brush_vertex_result_t result{};
     result.status = brush_build_status_t::INVALID_ARGUMENT;
-    if ( pPlanes == nullptr || cPlanes < 4u || pOutputVertices == nullptr ||
-         cOutputVertices == 0u || minimumAbsDeterminant < 0.0 ||
-         insideTolerance < 0.0 || mergeTolerance < 0.0 ) {
+    if ( cPlanes < 4u || pOutputVertices == nullptr || cOutputVertices == 0u ||
+         !Scalar_IsFinite( minimumAbsDeterminant ) ||
+         minimumAbsDeterminant < 0.0 || !Scalar_IsFinite( insideTolerance ) ||
+         insideTolerance < 0.0 || !Scalar_IsFinite( mergeTolerance ) ||
+         mergeTolerance < 0.0 ||
+         !BrushdPlanesAreNormalized( pPlanes, cPlanes ) ) {
         return result;
     }
 
@@ -435,7 +480,7 @@ brush_vertex_result_t Brushd_BuildVertices(
                 if ( !Intersection_TryThreePlanesD(
                          pPlanes[i], pPlanes[j], pPlanes[k],
                          minimumAbsDeterminant, &candidate, nullptr ) ||
-                     !Brushd_ContainsPoint(
+                     !BrushdContainsPointUnchecked(
                          pPlanes, cPlanes, candidate, insideTolerance ) ||
                      BrushdVertexExists(
                          pOutputVertices, result.cVerticesWritten,
@@ -468,9 +513,12 @@ brush_vertex_result_t Brushd_BuildFacePolygon(
 {
     brush_vertex_result_t result{};
     result.status = brush_build_status_t::INVALID_ARGUMENT;
-    if ( pBrushVertices == nullptr || cBrushVertices < 4u ||
-         pOutputVertices == nullptr || cOutputVertices == 0u ||
-         faceDistanceTolerance < 0.0 || minimumNormalLength < 0.0 ) {
+    if ( cBrushVertices < 4u || pOutputVertices == nullptr ||
+         cOutputVertices == 0u || !Scalar_IsFinite( faceDistanceTolerance ) ||
+         faceDistanceTolerance < 0.0 ||
+         !Scalar_IsFinite( minimumNormalLength ) ||
+         minimumNormalLength < 0.0 || !Planed_IsFinite( outwardFacePlane ) ||
+         !BrushdVerticesAreFinite( pBrushVertices, cBrushVertices ) ) {
         return result;
     }
 

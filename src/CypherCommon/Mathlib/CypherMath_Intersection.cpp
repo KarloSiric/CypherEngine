@@ -449,7 +449,8 @@ bool_t Intersection_TryThreePlanesD(
         return false;
     }
     *pPoint = CY_VEC3D_ZERO;
-    if ( minimumAbsDeterminant < 0.0 || !Planed_IsFinite( a ) ||
+    if ( !Scalar_IsFinite( minimumAbsDeterminant ) ||
+         minimumAbsDeterminant < 0.0 || !Planed_IsFinite( a ) ||
          !Planed_IsFinite( b ) || !Planed_IsFinite( c ) ) {
         return false;
     }
@@ -461,11 +462,13 @@ bool_t Intersection_TryThreePlanesD(
     // Cramer's rule solves the three plane equations. A small determinant means
     // the planes do not define a numerically stable unique point.
     const f64 determinant = Vec3d_Dot( a.normal, crossBC );
+    if ( !Scalar_IsFinite( determinant ) ) {
+        return false;
+    }
     if ( pConditioningOut != nullptr ) {
         *pConditioningOut = Scalar_Abs( determinant );
     }
-    if ( !Scalar_IsFinite( determinant ) ||
-         Scalar_Abs( determinant ) <= minimumAbsDeterminant ) {
+    if ( Scalar_Abs( determinant ) <= minimumAbsDeterminant ) {
         return false;
     }
 

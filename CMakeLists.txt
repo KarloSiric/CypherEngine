@@ -16,7 +16,7 @@
 # //
 # //////////////////////////////////////////////////////////////////////////
 
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.21)
 
 # glslang is consumed as a static C++ library. The Cypher overlay enables the
 # same libc++ exception ABI used by the engine and Catch2 so weak STL symbols do

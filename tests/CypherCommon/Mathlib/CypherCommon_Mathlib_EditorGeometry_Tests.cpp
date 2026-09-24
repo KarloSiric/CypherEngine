@@ -115,6 +115,100 @@ TEST_CASE( "2D binary64 segment intersections classify crossings and overlap",
     RequireVec2d( overlap.point1, 4.0, 0.0 );
 }
 
+TEST_CASE( "binary64 segment tolerances remain world-space across scales",
+           "[CypherCommon][Mathlib][Editor][Geometry2D][Binary64][Robustness]" )
+{
+    constexpr f64 scales[]{ 1e-6, 1.0, 1e6 };
+    for ( f64 scale : scales ) {
+        CAPTURE( scale );
+        const f64 tolerance = scale * 1e-3;
+        const segment2d_t horizontal{
+            Vec2d_Make( 0.0, 0.0 ), Vec2d_Make( scale, 0.0 )
+        };
+
+        REQUIRE( Geometry2D_PointOnSegmentD(
+            Vec2d_Make( scale * 0.5, tolerance * 0.5 ),
+            horizontal, tolerance ) );
+        REQUIRE_FALSE( Geometry2D_PointOnSegmentD(
+            Vec2d_Make( scale * 0.5, tolerance * 2.0 ),
+            horizontal, tolerance ) );
+        REQUIRE( Geometry2D_PointOnSegmentD(
+            Vec2d_Make( -tolerance * 0.5, 0.0 ),
+            horizontal, tolerance ) );
+        REQUIRE_FALSE( Geometry2D_PointOnSegmentD(
+            Vec2d_Make( -tolerance * 2.0, 0.0 ),
+            horizontal, tolerance ) );
+
+        const segment2d_intersection_t crossing =
+            Geometry2D_IntersectSegmentsD(
+                { Vec2d_Make( 0.0, 0.0 ), Vec2d_Make( scale, scale ) },
+                { Vec2d_Make( 0.0, scale ), Vec2d_Make( scale, 0.0 ) },
+                tolerance );
+        REQUIRE( crossing.kind == segment2_intersection_kind_t::POINT );
+        RequireVec2d(
+            crossing.point0, scale * 0.5, scale * 0.5,
+            scale * 1e-12 );
+        REQUIRE( crossing.parameterA0 == Approx( 0.5 ) );
+        REQUIRE( crossing.parameterB0 == Approx( 0.5 ) );
+
+        const segment2d_intersection_t nearGap =
+            Geometry2D_IntersectSegmentsD(
+                horizontal,
+                { Vec2d_Make( scale + tolerance * 0.5, 0.0 ),
+                  Vec2d_Make( scale * 2.0, 0.0 ) },
+                tolerance );
+        REQUIRE( nearGap.kind == segment2_intersection_kind_t::POINT );
+        RequireVec2d( nearGap.point0, scale, 0.0, scale * 1e-12 );
+
+        const segment2d_intersection_t farGap =
+            Geometry2D_IntersectSegmentsD(
+                horizontal,
+                { Vec2d_Make( scale + tolerance * 2.0, 0.0 ),
+                  Vec2d_Make( scale * 2.0, 0.0 ) },
+                tolerance );
+        REQUIRE( farGap.kind == segment2_intersection_kind_t::NONE );
+    }
+
+    // Regression: the tolerance is a world-space distance even for a
+    // million-unit edge. A point only 0.0001 units away produces a raw cross
+    // product of 100, so comparing that value directly to 0.001 rejects it.
+    constexpr segment2d_t millionUnitEdge{
+        { 0.0, 0.0 }, { 1e6, 0.0 }
+    };
+    REQUIRE( Geometry2D_PointOnSegmentD(
+        Vec2d_Make( 5e5, 1e-4 ), millionUnitEdge, 1e-3 ) );
+    REQUIRE_FALSE( Geometry2D_PointOnSegmentD(
+        Vec2d_Make( 5e5, 2e-3 ), millionUnitEdge, 1e-3 ) );
+}
+
+TEST_CASE( "binary64 segment topology uses exact orientation signs",
+           "[CypherCommon][Mathlib][Editor][Geometry2D][Binary64][Robustness]" )
+{
+    const segment2d_t a{
+        { 64742.969532594863, 5349.1980761696923 },
+        { 8997.3095400087768, -48529.27019146907 }
+    };
+    const segment2d_t b{
+        { 55274.51246322826, -3802.1145789000557 },
+        { 55560.027580804141, -4097.524399908054 }
+    };
+
+    REQUIRE( Orient2D( a.start, a.end, b.start ) == -1 );
+    REQUIRE( Orient2D( a.start, a.end, b.end ) == 1 );
+    REQUIRE( Orient2D( b.start, b.end, a.start ) == 1 );
+    REQUIRE( Orient2D( b.start, b.end, a.end ) == -1 );
+
+    const segment2d_intersection_t intersection =
+        Geometry2D_IntersectSegmentsD( a, b, 0.0 );
+    REQUIRE( intersection.kind == segment2_intersection_kind_t::POINT );
+    REQUIRE( intersection.parameterA0 >= 0.0 );
+    REQUIRE( intersection.parameterA0 <= 1.0 );
+    REQUIRE( intersection.parameterB0 >= 0.0 );
+    REQUIRE( intersection.parameterB0 <= 1.0 );
+    RequireVec2d(
+        intersection.point0, b.start.x, b.start.y, 1e-8 );
+}
+
 TEST_CASE( "concave polygons triangulate without changing area",
            "[CypherCommon][Mathlib][Editor][Polygon2]" )
 {
@@ -266,6 +360,113 @@ TEST_CASE( "triangulation separates distance and area tolerances",
         polygon_triangulation_status_t::INVALID_ARGUMENT );
 }
 
+TEST_CASE( "binary64 polygon operations remain stable across scales",
+           "[CypherCommon][Mathlib][Editor][Polygon2][Binary64][Robustness]" )
+{
+    constexpr f64 scales[]{ 1e-6, 1.0, 1e6 };
+    for ( f64 scale : scales ) {
+        CAPTURE( scale );
+        const vec2d_t square[]{
+            { 0.0, 0.0 }, { scale, 0.0 },
+            { scale, scale }, { 0.0, scale }
+        };
+        const f64 expectedArea = scale * scale;
+        const f64 distanceTolerance = scale * 1e-3;
+        const f64 areaTolerance = expectedArea * 1e-9;
+
+        REQUIRE( Polygon2d_SignedArea( square, 4u ) ==
+                 Approx( expectedArea ).margin( expectedArea * 1e-12 ) );
+        REQUIRE( Polygon2d_IsSimple( square, 4u, distanceTolerance ) );
+        REQUIRE( Polygon2d_IsConvex( square, 4u, areaTolerance ) );
+
+        u32 scratch[4]{};
+        u32 indices[6]{};
+        const polygon_triangulation_result_t result = Polygon2d_Triangulate(
+            square, 4u, distanceTolerance, areaTolerance,
+            scratch, 4u, indices, 6u );
+        REQUIRE( result.status == polygon_triangulation_status_t::OK );
+        REQUIRE( result.cTriangles == 2u );
+
+        f64 triangulatedArea = 0.0;
+        for ( usize i = 0u; i < result.cIndicesWritten; i += 3u ) {
+            triangulatedArea += TriangleArea2D(
+                square[indices[i]], square[indices[i + 1u]],
+                square[indices[i + 2u]] );
+        }
+        REQUIRE( triangulatedArea ==
+                 Approx( expectedArea ).margin( expectedArea * 1e-12 ) );
+    }
+}
+
+TEST_CASE( "binary64 polygon area and centroid survive large translation",
+           "[CypherCommon][Mathlib][Editor][Polygon2][Binary64][Robustness]" )
+{
+    constexpr f64 originX = 1e6;
+    constexpr f64 originY = -1e6;
+    const f64 farX = originX + 1e-6;
+    const f64 farY = originY + 1e-6;
+    const f64 width = farX - originX;
+    const f64 height = farY - originY;
+    const f64 expectedArea = width * height;
+    const vec2d_t square[]{
+        { originX, originY }, { farX, originY },
+        { farX, farY }, { originX, farY }
+    };
+
+    REQUIRE( Polygon2d_SignedArea( square, 4u ) ==
+             Approx( expectedArea ).margin( expectedArea * 1e-12 ) );
+
+    vec2d_t centroid{};
+    REQUIRE( Polygon2d_TryCentroid(
+        square, 4u, expectedArea * 1e-6, &centroid ) );
+    RequireVec2d(
+        centroid,
+        originX + width * 0.5,
+        originY + height * 0.5,
+        1e-9 );
+
+    const f64 distanceTolerance = std::min( width, height ) * 1e-3;
+    const f64 areaTolerance = expectedArea * 1e-6;
+    REQUIRE( Polygon2d_IsSimple( square, 4u, distanceTolerance ) );
+    REQUIRE( Polygon2d_IsConvex( square, 4u, areaTolerance ) );
+
+    u32 scratch[4]{};
+    u32 indices[6]{};
+    REQUIRE( Polygon2d_Triangulate(
+        square, 4u, distanceTolerance, areaTolerance,
+        scratch, 4u, indices, 6u ).status ==
+        polygon_triangulation_status_t::OK );
+}
+
+TEST_CASE( "binary64 polygon topology uses exact orientation signs",
+           "[CypherCommon][Mathlib][Editor][Polygon2][Binary64][Robustness]" )
+{
+    constexpr vec2d_t a{ 775103.29741992697, 605690.27837663272 };
+    constexpr vec2d_t b{ 838801.42456009937, 566195.65319128032 };
+    constexpr vec2d_t c{ 942797.32026752597, 501715.28137844126 };
+    constexpr vec2d_t d{ c.x + 10000.0, c.y + 16000.0 };
+    constexpr vec2d_t e{ a.x + 10000.0, a.y + 16000.0 };
+
+    // The rounded determinant has the wrong sign for this representable input.
+    // Orient2D's exact expansion fallback recovers the positive turn.
+    REQUIRE( Geometry2D_OrientationD( a, b, c ) < 0.0 );
+    REQUIRE( Orient2D( a, b, c ) == 1 );
+
+    constexpr vec2d_t polygon[]{ b, c, d, e, a };
+    REQUIRE( Polygon2d_IsSimple( polygon, 5u, 0.0 ) );
+    REQUIRE( Polygon2d_IsConvex( polygon, 5u, 0.0 ) );
+
+    u32 scratch[5]{};
+    u32 indices[9]{};
+    const polygon_triangulation_result_t result = Polygon2d_Triangulate(
+        polygon, 5u, 0.0, 0.0, scratch, 5u, indices, 9u );
+    REQUIRE( result.status == polygon_triangulation_status_t::OK );
+    REQUIRE( result.cTriangles == 3u );
+    REQUIRE( indices[0] == 4u );
+    REQUIRE( indices[1] == 0u );
+    REQUIRE( indices[2] == 1u );
+}
+
 TEST_CASE( "self-intersecting polygons are rejected",
            "[CypherCommon][Mathlib][Editor][Polygon2]" )
 {
@@ -356,6 +557,96 @@ TEST_CASE( "planar geometry rejects nonfinite coordinates and tolerances",
     REQUIRE_FALSE( Polygon2_IsConvex( invalidPolygon, 3u, 0.000001 ) );
 }
 
+TEST_CASE( "binary64 planar geometry rejects nonfinite coordinates and tolerances",
+           "[CypherCommon][Mathlib][Editor][Geometry2D][Binary64][Validation]" )
+{
+    const f64 nan = std::numeric_limits<f64>::quiet_NaN();
+    const f64 infinity = std::numeric_limits<f64>::infinity();
+    const vec2d_t triangle[]{
+        Vec2d_Make( 0.0, 0.0 ),
+        Vec2d_Make( 2.0, 0.0 ),
+        Vec2d_Make( 0.0, 2.0 )
+    };
+
+    for ( f64 invalid : { nan, infinity, -1.0 } ) {
+        CAPTURE( invalid );
+        const segment2d_intersection_t intersection =
+            Geometry2D_IntersectSegmentsD(
+                { triangle[0], triangle[1] },
+                { triangle[1], triangle[2] }, invalid );
+        REQUIRE( intersection.kind == segment2_intersection_kind_t::NONE );
+        REQUIRE( Vec2d_IsFinite( intersection.point0 ) );
+        REQUIRE_FALSE( Polygon2d_ContainsPoint(
+            triangle, 3u, Vec2d_Make( 0.25, 0.25 ), invalid, true ) );
+        REQUIRE_FALSE( Polygon2d_IsSimple( triangle, 3u, invalid ) );
+        REQUIRE_FALSE( Polygon2d_IsConvex( triangle, 3u, invalid ) );
+
+        vec2d_t centroid = CY_VEC2D_ONE;
+        REQUIRE_FALSE( Polygon2d_TryCentroid(
+            triangle, 3u, invalid, &centroid ) );
+        REQUIRE( Vec2d_EqualsExact( centroid, CY_VEC2D_ZERO ) );
+
+        u32 scratch[3]{};
+        u32 indices[]{ 17u, 17u, 17u };
+        REQUIRE( Polygon2d_Triangulate(
+            triangle, 3u, invalid, 1e-9,
+            scratch, 3u, indices, 3u ).status ==
+            polygon_triangulation_status_t::INVALID_ARGUMENT );
+        REQUIRE( indices[0] == 17u );
+        REQUIRE( Polygon2d_Triangulate(
+            triangle, 3u, 1e-9, invalid,
+            scratch, 3u, indices, 3u ).status ==
+            polygon_triangulation_status_t::INVALID_ARGUMENT );
+        REQUIRE( indices[0] == 17u );
+
+        const vec2_t triangleF32[]{
+            Vec2_Make( 0.0f, 0.0f ),
+            Vec2_Make( 2.0f, 0.0f ),
+            Vec2_Make( 0.0f, 2.0f )
+        };
+        REQUIRE( Polygon2_Triangulate(
+            triangleF32, 3u, 0.000001, invalid,
+            scratch, 3u, indices, 3u ).status ==
+            polygon_triangulation_status_t::INVALID_ARGUMENT );
+        REQUIRE( indices[0] == 17u );
+    }
+
+    const segment2d_intersection_t invalidSegment =
+        Geometry2D_IntersectSegmentsD(
+            { Vec2d_Make( nan, 0.0 ), Vec2d_Make( 1.0, 0.0 ) },
+            { Vec2d_Make( 0.0, -1.0 ), Vec2d_Make( 0.0, 1.0 ) },
+            1e-9 );
+    REQUIRE( invalidSegment.kind == segment2_intersection_kind_t::NONE );
+    REQUIRE( Vec2d_IsFinite( invalidSegment.point0 ) );
+
+    for ( f64 invalidCoordinate : { nan, infinity } ) {
+        CAPTURE( invalidCoordinate );
+        const vec2d_t invalidPolygon[]{
+            Vec2d_Make( 0.0, 0.0 ),
+            Vec2d_Make( invalidCoordinate, 0.0 ),
+            Vec2d_Make( 0.0, 1.0 )
+        };
+        REQUIRE( Polygon2d_SignedArea( invalidPolygon, 3u ) == 0.0 );
+        REQUIRE_FALSE( Polygon2d_IsSimple( invalidPolygon, 3u, 1e-9 ) );
+        REQUIRE_FALSE( Polygon2d_IsConvex( invalidPolygon, 3u, 1e-9 ) );
+        REQUIRE_FALSE( Polygon2d_ContainsPoint(
+            invalidPolygon, 3u, CY_VEC2D_ZERO, 1e-9, true ) );
+
+        vec2d_t centroid = CY_VEC2D_ONE;
+        REQUIRE_FALSE( Polygon2d_TryCentroid(
+            invalidPolygon, 3u, 1e-9, &centroid ) );
+        REQUIRE( Vec2d_EqualsExact( centroid, CY_VEC2D_ZERO ) );
+
+        u32 scratch[3]{};
+        u32 indices[]{ 23u, 23u, 23u };
+        REQUIRE( Polygon2d_Triangulate(
+            invalidPolygon, 3u, 1e-9, 1e-9,
+            scratch, 3u, indices, 3u ).status ==
+            polygon_triangulation_status_t::INVALID_ARGUMENT );
+        REQUIRE( indices[0] == 23u );
+    }
+}
+
 TEST_CASE( "planar 3D polygons derive a basis, area, and triangulation",
            "[CypherCommon][Mathlib][Editor][Polygon3]" )
 {
@@ -442,6 +733,106 @@ TEST_CASE( "planar 3D binary64 polygons derive a basis, area, and triangulation"
     REQUIRE_FALSE( Polygon3d_ContainsPoint(
         polygon, 4u, basis, Vec3d_Make( 10.0, 4.0, 3.0 ),
         1e-9, 1e-9, true, projected, 4u ) );
+}
+
+TEST_CASE( "binary64 planar 3D polygons reject invalid authoring inputs",
+           "[CypherCommon][Mathlib][Editor][Polygon3][Binary64][Validation]" )
+{
+    const f64 nan = std::numeric_limits<f64>::quiet_NaN();
+    const f64 infinity = std::numeric_limits<f64>::infinity();
+    const vec3d_t polygon[]{
+        Vec3d_Make( 0.0, 0.0, 0.0 ),
+        Vec3d_Make( 2.0, 0.0, 0.0 ),
+        Vec3d_Make( 2.0, 2.0, 0.0 ),
+        Vec3d_Make( 0.0, 2.0, 0.0 )
+    };
+    polygon3d_basis_t basis{};
+    REQUIRE( Polygon3d_TryBasis( polygon, 4u, 1e-9, &basis ) );
+
+    for ( f64 invalid : { nan, infinity, -1.0 } ) {
+        CAPTURE( invalid );
+        polygon3d_basis_t failedBasis{ CY_VEC3D_ONE, CY_VEC3D_ONE,
+                                      CY_VEC3D_ONE, CY_VEC3D_ONE };
+        REQUIRE_FALSE( Polygon3d_TryBasis(
+            polygon, 4u, invalid, &failedBasis ) );
+        REQUIRE( Vec3d_EqualsExact( failedBasis.origin, CY_VEC3D_ZERO ) );
+
+        planed_t plane = Planed_Make( CY_VEC3D_ONE, 5.0 );
+        REQUIRE_FALSE( Polygon3d_TryPlane(
+            polygon, 4u, invalid, &plane ) );
+        REQUIRE( Vec3d_EqualsExact( plane.normal, CY_PLANED_Z.normal ) );
+        REQUIRE( plane.d == CY_PLANED_Z.d );
+
+        REQUIRE_FALSE( Polygon3d_IsPlanar(
+            polygon, 4u, basis, invalid ) );
+
+        f64 area = 5.0;
+        vec3d_t centroid = CY_VEC3D_ONE;
+        REQUIRE_FALSE( Polygon3d_TryAreaCentroid(
+            polygon, 4u, basis, invalid, &area, &centroid ) );
+        REQUIRE( area == 0.0 );
+        REQUIRE( Vec3d_EqualsExact( centroid, CY_VEC3D_ZERO ) );
+
+        vec2d_t projected[4]{};
+        u32 scratch[4]{};
+        u32 indices[]{ 31u, 31u, 31u, 31u, 31u, 31u };
+        REQUIRE_FALSE( Polygon3d_IsConvex(
+            polygon, 4u, basis, invalid, projected, 4u ) );
+        REQUIRE_FALSE( Polygon3d_ContainsPoint(
+            polygon, 4u, basis, CY_VEC3D_ZERO,
+            invalid, 1e-9, true, projected, 4u ) );
+        REQUIRE_FALSE( Polygon3d_ContainsPoint(
+            polygon, 4u, basis, CY_VEC3D_ZERO,
+            1e-9, invalid, true, projected, 4u ) );
+        REQUIRE( Polygon3d_Triangulate(
+            polygon, 4u, basis, invalid, 1e-9,
+            projected, 4u, scratch, 4u, indices, 6u ).status ==
+            polygon_triangulation_status_t::INVALID_ARGUMENT );
+        REQUIRE( indices[0] == 31u );
+        REQUIRE( Polygon3d_Triangulate(
+            polygon, 4u, basis, 1e-9, invalid,
+            projected, 4u, scratch, 4u, indices, 6u ).status ==
+            polygon_triangulation_status_t::INVALID_ARGUMENT );
+        REQUIRE( indices[0] == 31u );
+    }
+
+    polygon3d_basis_t invalidBasis = basis;
+    invalidBasis.tangent.x = nan;
+    vec2d_t projected[4]{};
+    u32 scratch[4]{};
+    u32 indices[]{ 41u, 41u, 41u, 41u, 41u, 41u };
+    REQUIRE_FALSE( Polygon3d_IsPlanar(
+        polygon, 4u, invalidBasis, 1e-9 ) );
+    REQUIRE_FALSE( Polygon3d_IsConvex(
+        polygon, 4u, invalidBasis, 1e-9, projected, 4u ) );
+    REQUIRE_FALSE( Polygon3d_ContainsPoint(
+        polygon, 4u, invalidBasis, CY_VEC3D_ZERO,
+        1e-9, 1e-9, true, projected, 4u ) );
+    REQUIRE( Polygon3d_Triangulate(
+        polygon, 4u, invalidBasis, 1e-9, 1e-9,
+        projected, 4u, scratch, 4u, indices, 6u ).status ==
+        polygon_triangulation_status_t::INVALID_ARGUMENT );
+    REQUIRE( indices[0] == 41u );
+
+    f64 area = 7.0;
+    vec3d_t centroid = CY_VEC3D_ONE;
+    REQUIRE_FALSE( Polygon3d_TryAreaCentroid(
+        polygon, 4u, invalidBasis, 1e-9, &area, &centroid ) );
+    REQUIRE( area == 0.0 );
+    REQUIRE( Vec3d_EqualsExact( centroid, CY_VEC3D_ZERO ) );
+
+    REQUIRE_FALSE( Polygon3d_ContainsPoint(
+        polygon, 4u, basis, Vec3d_Make( infinity, 0.0, 0.0 ),
+        1e-9, 1e-9, true, projected, 4u ) );
+
+    vec3d_t invalidPolygon[4]{ polygon[0], polygon[1], polygon[2], polygon[3] };
+    invalidPolygon[2].z = infinity;
+    REQUIRE_FALSE( Polygon3d_TryBasis(
+        invalidPolygon, 4u, 1e-9, &invalidBasis ) );
+    REQUIRE( Polygon3d_Triangulate(
+        invalidPolygon, 4u, basis, 1e-9, 1e-9,
+        projected, 4u, scratch, 4u, indices, 6u ).status ==
+        polygon_triangulation_status_t::INVALID_ARGUMENT );
 }
 
 TEST_CASE( "convex brush planes recover a cube and each face",
@@ -567,6 +958,79 @@ TEST_CASE( "convex brushd planes recover a cube and each face",
         REQUIRE( faceResult.status == brush_build_status_t::OK );
         REQUIRE( faceResult.cVerticesWritten == 4u );
     }
+
+    const f64 invalidTolerances[]{
+        std::numeric_limits<f64>::quiet_NaN(),
+        std::numeric_limits<f64>::infinity(),
+        -1.0
+    };
+    for ( f64 invalid : invalidTolerances ) {
+        CAPTURE( invalid );
+        REQUIRE_FALSE( Brushd_ContainsPoint(
+            planes, 6u, Vec3d_Make( 10.0, 0.0, 0.0 ), invalid ) );
+        REQUIRE( Brushd_BuildVertices(
+            planes, 6u, invalid, 0.00001, 0.00001,
+            vertices, 20u ).status == brush_build_status_t::INVALID_ARGUMENT );
+        REQUIRE( Brushd_BuildVertices(
+            planes, 6u, 0.000001, invalid, 0.00001,
+            vertices, 20u ).status == brush_build_status_t::INVALID_ARGUMENT );
+        REQUIRE( Brushd_BuildVertices(
+            planes, 6u, 0.000001, 0.00001, invalid,
+            vertices, 20u ).status == brush_build_status_t::INVALID_ARGUMENT );
+
+        vec3d_t face[8]{};
+        REQUIRE( Brushd_BuildFacePolygon(
+            planes[0], vertices, result.cVerticesWritten,
+            invalid, 0.000001, face, 8u ).status ==
+            brush_build_status_t::INVALID_ARGUMENT );
+        REQUIRE( Brushd_BuildFacePolygon(
+            planes[0], vertices, result.cVerticesWritten,
+            0.00001, invalid, face, 8u ).status ==
+            brush_build_status_t::INVALID_ARGUMENT );
+    }
+
+    planed_t scaledPlanes[6]{};
+    planed_t nonfinitePlanes[6]{};
+    for ( usize i = 0u; i < 6u; ++i ) {
+        scaledPlanes[i] = planes[i];
+        nonfinitePlanes[i] = planes[i];
+    }
+    scaledPlanes[0].normal = Vec3d_Scale( scaledPlanes[0].normal, 2.0 );
+    scaledPlanes[0].d *= 2.0;
+    REQUIRE_FALSE( Brushd_ContainsPoint(
+        scaledPlanes, 6u, CY_VEC3D_ZERO, 0.0 ) );
+    REQUIRE( Brushd_BuildVertices(
+        scaledPlanes, 6u, 0.000001, 0.00001, 0.00001,
+        vertices, 20u ).status == brush_build_status_t::INVALID_ARGUMENT );
+
+    nonfinitePlanes[0].d = std::numeric_limits<f64>::quiet_NaN();
+    REQUIRE_FALSE( Brushd_ContainsPoint(
+        nonfinitePlanes, 6u, CY_VEC3D_ZERO, 0.0 ) );
+    REQUIRE( Brushd_BuildVertices(
+        nonfinitePlanes, 6u, 0.000001, 0.00001, 0.00001,
+        vertices, 20u ).status == brush_build_status_t::INVALID_ARGUMENT );
+    REQUIRE_FALSE( Brushd_ContainsPoint(
+        planes, 6u,
+        Vec3d_Make( std::numeric_limits<f64>::infinity(), 0.0, 0.0 ),
+        0.0 ) );
+
+    vec3d_t invalidVertices[20]{};
+    for ( usize i = 0u; i < result.cVerticesWritten; ++i ) {
+        invalidVertices[i] = vertices[i];
+    }
+    invalidVertices[0].x = std::numeric_limits<f64>::infinity();
+    vec3d_t face[8]{};
+    REQUIRE( Brushd_BuildFacePolygon(
+        planes[0], invalidVertices, result.cVerticesWritten,
+        0.00001, 0.000001, face, 8u ).status ==
+        brush_build_status_t::INVALID_ARGUMENT );
+
+    planed_t nonfiniteFace = planes[0];
+    nonfiniteFace.normal.x = std::numeric_limits<f64>::quiet_NaN();
+    REQUIRE( Brushd_BuildFacePolygon(
+        nonfiniteFace, vertices, result.cVerticesWritten,
+        0.00001, 0.000001, face, 8u ).status ==
+        brush_build_status_t::INVALID_ARGUMENT );
 }
 
 TEST_CASE( "grid snapping handles negative coordinates and custom origins",

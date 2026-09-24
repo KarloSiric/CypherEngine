@@ -20,6 +20,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <limits>
+
 using namespace cypher::math;
 using Catch::Approx;
 
@@ -272,4 +274,19 @@ TEST_CASE( "three-plane binary64 intersection reports its own conditioning",
         1e-9, &point, &conditioning ) );
     REQUIRE( Vec3d_EqualsExact( point, CY_VEC3D_ZERO ) );
     REQUIRE( conditioning == Approx( 0.0 ).margin( 1e-9 ) );
+
+    for ( f64 invalid : {
+              std::numeric_limits<f64>::quiet_NaN(),
+              std::numeric_limits<f64>::infinity(), -1.0 } ) {
+        CAPTURE( invalid );
+        point = CY_VEC3D_ONE;
+        conditioning = -1.0;
+        REQUIRE_FALSE( Intersection_TryThreePlanesD(
+            Planed_Make( CY_VEC3D_FORWARD, -1.0 ),
+            Planed_Make( CY_VEC3D_LEFT, -2.0 ),
+            Planed_Make( CY_VEC3D_UP, -3.0 ),
+            invalid, &point, &conditioning ) );
+        REQUIRE( Vec3d_EqualsExact( point, CY_VEC3D_ZERO ) );
+        REQUIRE( conditioning == 0.0 );
+    }
 }

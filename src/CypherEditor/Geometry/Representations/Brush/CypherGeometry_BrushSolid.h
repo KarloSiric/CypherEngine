@@ -169,7 +169,7 @@ void BrushSolid_Clear( brush_solid_t *pBrush ) noexcept;
 // tail padding for f64 alignment is expected and harmless.
 static_assert( std::is_trivially_copyable_v<brush_solid_side_t> );
 static_assert( std::is_standard_layout_v<brush_solid_side_t> );
-    
+
 }       // namespace cypher::editor::geometry!!!
 
 #endif          // ENDIF CYPHER_EDITOR_GEOMETRY_BRUSH_SOLID_H !!!

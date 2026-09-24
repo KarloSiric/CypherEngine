@@ -64,7 +64,7 @@ input.
 | Intersection | `Intersection`, `Frustum` | ray/AABB/sphere/triangle, line-plane, three-plane |
 | Planar geometry | `Geometry2D`, `Polygon` | area, centroid, containment, simplicity, convexity, ear-clip triangulation |
 | Brush construction | `Brush`, `Clip` | plane-set boundary recovery, Sutherland-Hodgman |
-| Exact predicates | `Predicates`, `Expansion` | `Orient2D`/`Orient3D`, filtered fast path + exact fallback |
+| Exact predicates | `Predicates`, `Expansion` | `Orient2D`/`Orient3D`, `InCircle`/`InSphere`, filtered fast path + exact fallback |
 | Projection, editor aids | `Viewport`, `Gizmo`, `Snap`, `UV` | |
 | Compression | `Quantization`, `FixedPoint` | snorm/unorm/range/angle/quat-smallest-three, 16.16 |
 | Curves | `Spline` | bezier, hermite, catmull-rom, arc-length tables |
@@ -118,9 +118,6 @@ uses affine transforms and planes, not projective matrices or runtime rays, so
 these have no consumer. `Affine3d_TryInverse` avoids needing `mat3d_t` by
 inverting through cross products.
 
-Also deferred: `InCircle`/`InSphere` predicates. They belong with Delaunay
-triangulation and meshing, which are not on the geometry roadmap yet.
-
 ## Known constraints
 
 - `Brushd_BuildVertices` enumerates plane triples and tests each candidate
@@ -150,5 +147,8 @@ for `(state = 42, seq = 54)`; that known-answer test is in
 
 `CypherMath_Expansion` and `CypherMath_Predicates` implement the classic
 non-adaptive exact-predicate construction described by Shewchuk (1997), derived
-here from the published technique rather than adapted from his source. Review
-licensing before importing any third-party predicate code.
+here from the published technique rather than adapted from his source. The
+circumcircle/circumsphere fallbacks expand the standard lifted determinant; a
+fixed radix-2 superaccumulator covers finite inputs whose exponent span cannot
+fit in binary64 expansion components. Review licensing before importing any
+third-party predicate code.

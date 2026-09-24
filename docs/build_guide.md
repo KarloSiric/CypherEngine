@@ -23,7 +23,7 @@
 ## Prerequisites
 
 - Git
-- CMake 3.20 or newer
+- CMake 3.21 or newer
 - Ninja
 - a C++20 compiler
 

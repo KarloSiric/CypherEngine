@@ -95,6 +95,7 @@ render_error_t R_DecodePublicBufferHandle(
              &tableHandleOut ) ) {
         return render_error_t::ERR_INVALID_HANDLE;
     }
+
     return render_error_t::OK;
 }
 

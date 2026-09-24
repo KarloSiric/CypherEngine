@@ -274,6 +274,11 @@ bool_t Affine3d_TryTransformNormal(
         return false;
     }
     *pTransformed = CY_VEC3D_ZERO;
+    if ( !Scalar_IsFinite( minimumAbsDeterminant ) ||
+         minimumAbsDeterminant < 0.0 || !Affine3d_IsFinite( transform ) ||
+         !Vec3d_IsFinite( normal ) ) {
+        return false;
+    }
 
     const vec3d_t c0 = Affine3d_Column( transform, 0u );
     const vec3d_t c1 = Affine3d_Column( transform, 1u );
@@ -313,6 +318,10 @@ bool_t Affine3d_TryInverse(
         return false;
     }
     *pInverse = CY_AFFINE3D_IDENTITY;
+    if ( !Scalar_IsFinite( minimumAbsDeterminant ) ||
+         minimumAbsDeterminant < 0.0 || !Affine3d_IsFinite( value ) ) {
+        return false;
+    }
 
     const vec3d_t c0 = Affine3d_Column( value, 0u );
     const vec3d_t c1 = Affine3d_Column( value, 1u );

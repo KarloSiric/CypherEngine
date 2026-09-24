@@ -76,6 +76,7 @@ Reference docs:
 - [trenchbroom_ui_command_inventory.md](trenchbroom_ui_command_inventory.md)
 - [editor_comparison_beyond_trenchbroom.md](editor_comparison_beyond_trenchbroom.md)
 - [darkradiant_geometry_baseline.md](darkradiant_geometry_baseline.md)
+- [Indoor geometry audit and completion gates](indoor_geometry_closeout.md)
 - [TILEEDITOR_DEVELOPMENT_KIT.md](TILEEDITOR_DEVELOPMENT_KIT.md)
 
 Project memory:

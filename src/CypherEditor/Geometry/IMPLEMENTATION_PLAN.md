@@ -30,7 +30,7 @@ and focused tests exist.
 
 ## Current state
 
-Gate 0 began in commit `090d2b71` and currently provides:
+Gate 0 began in commit `090d2b71` and established:
 
 - stable source identity and never-reuse registration;
 - representation-qualified source references and handle vocabulary;
@@ -40,8 +40,13 @@ Gate 0 began in commit `090d2b71` and currently provides:
 - numerical and complexity policy validation;
 - Debug, Release, and sanitizer contract coverage.
 
-Every module outside `Core` is still a design contract unless its source is
-explicitly listed in `src/CypherEditor/Geometry/CMakeLists.txt`.
+Implementation has since progressed into brush and mesh representations,
+modeling operations, transactions, persistence, spatial queries, and cooking.
+The 2026-09-24 [indoor geometry audit](../../../docs/indoor_geometry_closeout.md)
+records verified capabilities, remaining limits, and the next integration gate.
+Consult `CMakeLists.txt` and `CypherEditorGeometry_Modules.cmake` for compiled
+sources. A planned directory or backend operation alone does not establish a
+finished editor workflow; the staged general `Csg/` pipeline remains planned.
 
 ## Working method
 

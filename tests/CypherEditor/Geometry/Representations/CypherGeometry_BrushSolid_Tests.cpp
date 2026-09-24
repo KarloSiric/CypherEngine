@@ -78,6 +78,65 @@ struct BoundaryFixture : BoxFixture {
     ~BoundaryFixture() { BrushBoundary_Shutdown( &boundary ); }
 };
 
+struct boundary_failure_allocator_state_t {
+    common::usize cAllocationCalls{ 0u };
+    common::usize cSuccessfulAllocations{ 0u };
+    common::usize cFreeCalls{ 0u };
+    common::usize iFailure{ common::CY_USIZE_MAX };
+};
+
+void *BoundaryFailureAllocate(
+    void *pUserData,
+    common::usize cbSize,
+    common::usize nAlignment ) noexcept
+{
+    auto *pState = static_cast<boundary_failure_allocator_state_t *>(
+        pUserData );
+    const common::usize iAllocation = pState->cAllocationCalls++;
+    if ( iAllocation == pState->iFailure ) {
+        return nullptr;
+    }
+
+    void *pMemory = common::Allocator_Allocate(
+        common::Allocator_GetSystem(), cbSize, nAlignment );
+    if ( pMemory != nullptr ) {
+        ++pState->cSuccessfulAllocations;
+    }
+    return pMemory;
+}
+
+void BoundaryFailureFree(
+    void *pUserData,
+    void *pMemory,
+    common::usize cbSize,
+    common::usize nAlignment ) noexcept
+{
+    auto *pState = static_cast<boundary_failure_allocator_state_t *>(
+        pUserData );
+    ++pState->cFreeCalls;
+    common::Allocator_Free(
+        common::Allocator_GetSystem(), pMemory, cbSize, nAlignment );
+}
+
+common::allocator_t MakeBoundaryFailureAllocator(
+    boundary_failure_allocator_state_t *pState ) noexcept
+{
+    return common::allocator_t{
+        BoundaryFailureAllocate,
+        nullptr,
+        BoundaryFailureFree,
+        pState
+    };
+}
+
+bool BoundaryHasNoData( const brush_boundary_t &boundary ) noexcept
+{
+    return BrushBoundary_VertexCount( &boundary ) == 0u &&
+           BrushBoundary_EdgeCount( &boundary ) == 0u &&
+           BrushBoundary_FaceCount( &boundary ) == 0u &&
+           common::Vector_Count( &boundary.faceVertexIndices ) == 0u;
+}
+
 } // namespace
 
 //==========================================================================
@@ -626,6 +685,226 @@ TEST_CASE( "boundary rejects reconstruction with null brush",
     BrushBoundary_Shutdown( &boundary );
 }
 
+TEST_CASE( "boundary initialization rejects partial state without asserting",
+           "[editor][geometry][brush][contract]" ) {
+    common::allocator_t allocator{ *common::Allocator_GetSystem() };
+    brush_boundary_t boundary{};
+    REQUIRE( common::Vector_Init( &boundary.vertices, &allocator ) );
+
+    CHECK( BrushBoundary_Init( &boundary, &allocator ) ==
+           geometry_status_t::CORRUPT_STATE );
+
+    BrushBoundary_Shutdown( &boundary );
+}
+
+TEST_CASE( "boundary enforces side and scratch policy before construction",
+           "[editor][geometry][brush][contract]" ) {
+    BoxFixture box;
+    brush_boundary_t boundary{};
+    REQUIRE( BrushBoundary_Init( &boundary, &box.allocator ) ==
+             geometry_status_t::OK );
+
+    geometry_policy_t sidePolicy = box.policy;
+    sidePolicy.limits.cBrushSidesPerBrushMax = 5u;
+    CHECK( BrushBoundary_TryReconstruct(
+               &boundary, &box.brush, sidePolicy ) ==
+           geometry_status_t::LIMIT_EXCEEDED );
+    CHECK( BoundaryHasNoData( boundary ) );
+
+    geometry_policy_t scratchPolicy = box.policy;
+    scratchPolicy.limits.cbScratchMax = 1u;
+    CHECK( BrushBoundary_TryReconstruct(
+               &boundary, &box.brush, scratchPolicy ) ==
+           geometry_status_t::LIMIT_EXCEEDED );
+    CHECK( BoundaryHasNoData( boundary ) );
+
+    geometry_policy_t invalidPolicy = box.policy;
+    invalidPolicy.numerical.fAbsoluteDistanceTolerance = 0.0;
+    CHECK( BrushBoundary_TryReconstruct(
+               &boundary, &box.brush, invalidPolicy ) ==
+           geometry_status_t::INVALID_ARGUMENT );
+    CHECK( BoundaryHasNoData( boundary ) );
+
+    BrushBoundary_Shutdown( &boundary );
+}
+
+TEST_CASE( "boundary rejects a redundant side instead of hiding it",
+           "[editor][geometry][brush][contract]" ) {
+    BoxFixture box;
+    brush_solid_side_t duplicate{};
+    REQUIRE( BrushSolid_TryGetSide( &box.brush, 0u, &duplicate ) ==
+             geometry_status_t::OK );
+    const geometry_source_id_result_t sideId =
+        GeometrySourceIdAllocator_Allocate( &box.idAllocator );
+    REQUIRE( sideId.status == geometry_status_t::OK );
+    duplicate.sourceId = sideId.id;
+    REQUIRE( BrushSolid_TryAddSide(
+                 &box.brush, box.policy.limits, duplicate, nullptr ) ==
+             geometry_status_t::OK );
+
+    brush_boundary_t boundary{};
+    REQUIRE( BrushBoundary_Init( &boundary, &box.allocator ) ==
+             geometry_status_t::OK );
+    CHECK( BrushBoundary_TryReconstruct(
+               &boundary, &box.brush, box.policy ) ==
+           geometry_status_t::DEGENERATE );
+    CHECK( BoundaryHasNoData( boundary ) );
+
+    BrushBoundary_Shutdown( &boundary );
+}
+
+TEST_CASE( "permissive boundary exposes active sides for explicit repair",
+           "[editor][geometry][brush][contract]" ) {
+    BoxFixture box;
+    brush_solid_side_t duplicate{};
+    REQUIRE( BrushSolid_TryGetSide( &box.brush, 0u, &duplicate ) ==
+             geometry_status_t::OK );
+    const geometry_source_id_result_t duplicateId =
+        GeometrySourceIdAllocator_Allocate( &box.idAllocator );
+    REQUIRE( duplicateId.status == geometry_status_t::OK );
+    duplicate.sourceId = duplicateId.id;
+    duplicate.iAttributeIndex = 77u;
+    REQUIRE( BrushSolid_TryAddSide(
+                 &box.brush, box.policy.limits, duplicate, nullptr ) ==
+             geometry_status_t::OK );
+
+    brush_boundary_t boundary{};
+    REQUIRE( BrushBoundary_Init( &boundary, &box.allocator ) ==
+             geometry_status_t::OK );
+    REQUIRE( BrushBoundary_TryReconstructAllowRedundantSides(
+                 &boundary, &box.brush, box.policy ) ==
+             geometry_status_t::OK );
+    CHECK( BrushBoundary_VertexCount( &boundary ) == 8u );
+    CHECK( BrushBoundary_EdgeCount( &boundary ) == 12u );
+    CHECK( BrushBoundary_FaceCount( &boundary ) == 6u );
+    for ( common::usize iFace = 0u;
+          iFace < boundary.faces.nCount;
+          ++iFace ) {
+        CHECK( boundary.faces.pData[iFace].iSide < 6u );
+    }
+
+    BrushBoundary_Shutdown( &boundary );
+}
+
+TEST_CASE( "canonicalization removes hidden and duplicate sides without changing retained identity",
+           "[editor][geometry][brush][contract]" ) {
+    BoxFixture box;
+    brush_solid_side_t originalSides[6]{};
+    for ( common::usize i = 0u; i < 6u; ++i ) {
+        REQUIRE( BrushSolid_TryGetSide(
+                     &box.brush, i, &originalSides[i] ) ==
+                 geometry_status_t::OK );
+    }
+
+    // x <= 0 hides the original x <= 1 side, while the repeated -X plane
+    // is an exact duplicate. A canonical clipped box still has six faces.
+    geometry_source_id_result_t id =
+        GeometrySourceIdAllocator_Allocate( &box.idAllocator );
+    REQUIRE( id.status == geometry_status_t::OK );
+    brush_solid_side_t clipSide{
+        Planed_Make( Vec3d_Make( 1.0, 0.0, 0.0 ), 0.0 ),
+        id.id,
+        91u
+    };
+    REQUIRE( BrushSolid_TryAddSide(
+                 &box.brush, box.policy.limits, clipSide, nullptr ) ==
+             geometry_status_t::OK );
+
+    id = GeometrySourceIdAllocator_Allocate( &box.idAllocator );
+    REQUIRE( id.status == geometry_status_t::OK );
+    brush_solid_side_t duplicate = originalSides[1];
+    duplicate.sourceId = id.id;
+    duplicate.iAttributeIndex = 92u;
+    REQUIRE( BrushSolid_TryAddSide(
+                 &box.brush, box.policy.limits, duplicate, nullptr ) ==
+             geometry_status_t::OK );
+
+    REQUIRE( BrushSolid_TryCanonicalizeSides(
+                 &box.brush, box.policy ) == geometry_status_t::OK );
+    REQUIRE( BrushSolid_SideCount( &box.brush ) == 6u );
+
+    // Original +X was replaced by the new cut; all other original records
+    // retain their exact identity and attribute binding.
+    for ( common::usize i = 0u; i < 5u; ++i ) {
+        brush_solid_side_t retained{};
+        REQUIRE( BrushSolid_TryGetSide(
+                     &box.brush, i, &retained ) == geometry_status_t::OK );
+        CHECK( retained.sourceId.value ==
+               originalSides[i + 1u].sourceId.value );
+        CHECK( retained.iAttributeIndex ==
+               originalSides[i + 1u].iAttributeIndex );
+    }
+    brush_solid_side_t retainedClip{};
+    REQUIRE( BrushSolid_TryGetSide(
+                 &box.brush, 5u, &retainedClip ) == geometry_status_t::OK );
+    CHECK( retainedClip.sourceId.value == clipSide.sourceId.value );
+    CHECK( retainedClip.iAttributeIndex == clipSide.iAttributeIndex );
+
+    brush_boundary_t boundary{};
+    REQUIRE( BrushBoundary_Init( &boundary, &box.allocator ) ==
+             geometry_status_t::OK );
+    CHECK( BrushBoundary_TryReconstruct(
+               &boundary, &box.brush, box.policy ) == geometry_status_t::OK );
+    BrushBoundary_Shutdown( &boundary );
+}
+
+TEST_CASE( "canonicalization allocation failure preserves the live brush exactly",
+           "[editor][geometry][brush][allocation][contract]" ) {
+    boundary_failure_allocator_state_t state{};
+    common::allocator_t allocator = MakeBoundaryFailureAllocator( &state );
+    geometry_policy_t policy{};
+    geometry_source_id_allocator_t ids{};
+    brush_solid_t brush{};
+    REQUIRE( BrushGenerator_TryMakeBox(
+                 &brush, &allocator, policy, &ids,
+                 Vec3d_Make( 0.0, 0.0, 0.0 ),
+                 Vec3d_Make( 1.0, 1.0, 1.0 ) ) ==
+             geometry_status_t::OK );
+
+    const geometry_source_id_result_t id =
+        GeometrySourceIdAllocator_Allocate( &ids );
+    REQUIRE( id.status == geometry_status_t::OK );
+    const brush_solid_side_t clipSide{
+        Planed_Make( Vec3d_Make( 1.0, 0.0, 0.0 ), 0.0 ), id.id, 19u };
+    REQUIRE( BrushSolid_TryAddSide(
+                 &brush, policy.limits, clipSide, nullptr ) ==
+             geometry_status_t::OK );
+
+    brush_solid_side_t *const pDataBefore = brush.sides.pData;
+    const common::usize cCountBefore = brush.sides.nCount;
+    const common::usize cCapacityBefore = brush.sides.nCapacity;
+    const common::allocator_t *const pAllocatorBefore =
+        brush.sides.pAllocator;
+    const common::u64 sourceIdBefore = brush.sourceId.value;
+    brush_solid_side_t sideBytes[7]{};
+    std::copy_n( brush.sides.pData, brush.sides.nCount, sideBytes );
+    state.iFailure = state.cAllocationCalls;
+
+    CHECK( BrushSolid_TryCanonicalizeSides( &brush, policy ) ==
+           geometry_status_t::ALLOCATION_FAILED );
+    CHECK( brush.sides.pData == pDataBefore );
+    CHECK( brush.sides.nCount == cCountBefore );
+    CHECK( brush.sides.nCapacity == cCapacityBefore );
+    CHECK( brush.sides.pAllocator == pAllocatorBefore );
+    CHECK( brush.sourceId.value == sourceIdBefore );
+    for ( common::usize i = 0u; i < brush.sides.nCount; ++i ) {
+        CHECK( brush.sides.pData[i].plane.normal.x ==
+               sideBytes[i].plane.normal.x );
+        CHECK( brush.sides.pData[i].plane.normal.y ==
+               sideBytes[i].plane.normal.y );
+        CHECK( brush.sides.pData[i].plane.normal.z ==
+               sideBytes[i].plane.normal.z );
+        CHECK( brush.sides.pData[i].plane.d == sideBytes[i].plane.d );
+        CHECK( brush.sides.pData[i].sourceId.value ==
+               sideBytes[i].sourceId.value );
+        CHECK( brush.sides.pData[i].iAttributeIndex ==
+               sideBytes[i].iAttributeIndex );
+    }
+
+    BrushSolid_Shutdown( &brush );
+    CHECK( state.cSuccessfulAllocations == state.cFreeCalls );
+}
+
 TEST_CASE( "repeated reconstruction after plane edit updates correctly",
            "[editor][geometry][brush]" ) {
     // This tests the workflow of a side-plane drag: change a plane,
@@ -659,6 +938,79 @@ TEST_CASE( "repeated reconstruction after plane edit updates correctly",
     REQUIRE( BrushBoundary_FaceCount( &boundary ) == 6u );
 
     BrushBoundary_Shutdown( &boundary );
+}
+
+TEST_CASE( "every boundary reconstruction allocation failure leaves empty output",
+           "[editor][geometry][brush][allocation][contract]" ) {
+    BoxFixture box;
+
+    boundary_failure_allocator_state_t baselineState{};
+    common::allocator_t baselineAllocator =
+        MakeBoundaryFailureAllocator( &baselineState );
+    brush_boundary_t baseline{};
+    REQUIRE( BrushBoundary_Init( &baseline, &baselineAllocator ) ==
+             geometry_status_t::OK );
+    REQUIRE( BrushBoundary_TryReconstruct(
+                 &baseline, &box.brush, box.policy ) ==
+             geometry_status_t::OK );
+
+    const common::usize cAllocationAttempts =
+        baselineState.cAllocationCalls;
+    REQUIRE( cAllocationAttempts > 0u );
+
+    BrushBoundary_Shutdown( &baseline );
+    REQUIRE( baselineState.cSuccessfulAllocations ==
+             baselineState.cFreeCalls );
+
+    for ( common::usize iFailure = 0u;
+          iFailure < cAllocationAttempts;
+          ++iFailure ) {
+        CAPTURE( iFailure, cAllocationAttempts );
+
+        boundary_failure_allocator_state_t state{};
+        state.iFailure = iFailure;
+        common::allocator_t allocator =
+            MakeBoundaryFailureAllocator( &state );
+        brush_boundary_t boundary{};
+        REQUIRE( BrushBoundary_Init( &boundary, &allocator ) ==
+                 geometry_status_t::OK );
+
+        REQUIRE( BrushBoundary_TryReconstruct(
+                     &boundary, &box.brush, box.policy ) ==
+                 geometry_status_t::ALLOCATION_FAILED );
+        CHECK( state.cAllocationCalls == iFailure + 1u );
+        CHECK( BoundaryHasNoData( boundary ) );
+        CHECK( common::Vector_IsValid( &boundary.vertices ) );
+        CHECK( common::Vector_IsValid( &boundary.edges ) );
+        CHECK( common::Vector_IsValid( &boundary.faces ) );
+        CHECK( common::Vector_IsValid( &boundary.faceVertexIndices ) );
+
+        BrushBoundary_Shutdown( &boundary );
+        CHECK( state.cSuccessfulAllocations == state.cFreeCalls );
+    }
+}
+
+TEST_CASE( "failed boundary reconstruction clears previous output",
+           "[editor][geometry][brush][allocation][contract]" ) {
+    BoxFixture box;
+    boundary_failure_allocator_state_t state{};
+    common::allocator_t allocator = MakeBoundaryFailureAllocator( &state );
+    brush_boundary_t boundary{};
+    REQUIRE( BrushBoundary_Init( &boundary, &allocator ) ==
+             geometry_status_t::OK );
+    REQUIRE( BrushBoundary_TryReconstruct(
+                 &boundary, &box.brush, box.policy ) ==
+             geometry_status_t::OK );
+    REQUIRE_FALSE( BoundaryHasNoData( boundary ) );
+
+    state.iFailure = state.cAllocationCalls;
+    REQUIRE( BrushBoundary_TryReconstruct(
+                 &boundary, &box.brush, box.policy ) ==
+             geometry_status_t::ALLOCATION_FAILED );
+    CHECK( BoundaryHasNoData( boundary ) );
+
+    BrushBoundary_Shutdown( &boundary );
+    CHECK( state.cSuccessfulAllocations == state.cFreeCalls );
 }
 
 TEST_CASE( "TryGetFaceVertexIndices reports INSUFFICIENT_CAPACITY with needed count",

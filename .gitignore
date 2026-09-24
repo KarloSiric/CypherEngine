@@ -98,8 +98,12 @@ __pycache__/
 
 # Tool caches
 /.cache/
+/.serena/
 /tools/**/build/
 /tools/**/out/
+
+# Local vcpkg installation tree
+/vcpkg_installed/
 
 # Locally installed proprietary and SDK-scale dependencies
 /external/*

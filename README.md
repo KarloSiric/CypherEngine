@@ -76,7 +76,7 @@ Entity, Physics, Audio, Font, and UI vertical slices:
 
 ## Requirements
 
-- CMake 3.20 or newer
+- CMake 3.21 or newer
 - A C++20 compiler
 - Git with submodule support
 - Platform SDK and build tools for Windows, macOS, or Linux

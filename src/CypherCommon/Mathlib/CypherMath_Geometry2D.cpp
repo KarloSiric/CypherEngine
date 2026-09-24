@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherMath_Geometry2D.h"
+#include "CypherMath_Predicates.h"
 
 #include "CypherCommon_Assert.h"
 
@@ -113,23 +114,176 @@ f64 SegmentParameterD( segment2d_t segment, vec2d_t point ) noexcept
            lengthSquared;
 }
 
+f64 SegmentLengthD( segment2d_t segment ) noexcept
+{
+    return std::hypot(
+        segment.end.x - segment.start.x,
+        segment.end.y - segment.start.y );
+}
+
+f64 PointDistanceD( vec2d_t a, vec2d_t b ) noexcept
+{
+    return std::hypot( b.x - a.x, b.y - a.y );
+}
+
+i32 OrientationWithAreaToleranceD(
+    vec2d_t a,
+    vec2d_t b,
+    vec2d_t c,
+    f64 areaTolerance ) noexcept
+{
+    const i32 exactSign = Orient2D( a, b, c );
+    if ( exactSign == 0 || areaTolerance == 0.0 ) {
+        return exactSign;
+    }
+
+    // Orient2D decides the side. The approximate determinant is used only to
+    // decide whether that exact nonzero side lies inside the caller's area band.
+    const f64 determinant = Geometry2D_OrientationD( a, b, c );
+    return Scalar_IsFinite( determinant ) &&
+                   std::abs( determinant ) <= areaTolerance
+        ? 0
+        : exactSign;
+}
+
+i32 OrientationWithDistanceToleranceD(
+    vec2d_t a,
+    vec2d_t b,
+    vec2d_t point,
+    f64 edgeLength,
+    f64 distanceTolerance ) noexcept
+{
+    const i32 exactSign = Orient2D( a, b, point );
+    if ( exactSign == 0 || distanceTolerance == 0.0 ) {
+        return exactSign;
+    }
+
+    // A 2D cross product is twice-triangle area. Dividing by edge length turns
+    // it into perpendicular world-space distance before applying the tolerance.
+    const f64 determinant = Geometry2D_OrientationD( a, b, point );
+    if ( !Scalar_IsFinite( determinant ) ) {
+        return exactSign;
+    }
+    const f64 perpendicularDistance = std::abs( determinant ) / edgeLength;
+    return Scalar_IsFinite( perpendicularDistance ) &&
+                   perpendicularDistance <= distanceTolerance
+        ? 0
+        : exactSign;
+}
+
+segment2d_intersection_t PointIntersectionD(
+    vec2d_t point,
+    f64 parameterA,
+    f64 parameterB ) noexcept
+{
+    segment2d_intersection_t result{};
+    result.kind = segment2_intersection_kind_t::POINT;
+    result.point0 = point;
+    result.point1 = point;
+    result.parameterA0 = parameterA;
+    result.parameterA1 = parameterA;
+    result.parameterB0 = parameterB;
+    result.parameterB1 = parameterB;
+    return result;
+}
+
+f64 CrossingParameterD( f64 startDeterminant, f64 endDeterminant ) noexcept
+{
+    const f64 startMagnitude = std::abs( startDeterminant );
+    const f64 endMagnitude = std::abs( endDeterminant );
+    if ( !Scalar_IsFinite( startMagnitude ) ||
+         !Scalar_IsFinite( endMagnitude ) ) {
+        return 0.5;
+    }
+    if ( startMagnitude == 0.0 && endMagnitude == 0.0 ) {
+        return 0.5;
+    }
+    if ( startMagnitude == 0.0 ) {
+        return 0.0;
+    }
+    if ( endMagnitude == 0.0 ) {
+        return 1.0;
+    }
+
+    // Ratio form avoids overflowing startMagnitude + endMagnitude.
+    if ( startMagnitude > endMagnitude ) {
+        return 1.0 / ( 1.0 + endMagnitude / startMagnitude );
+    }
+    const f64 ratio = startMagnitude / endMagnitude;
+    return ratio / ( 1.0 + ratio );
+}
+
 bool_t PointInTriangleInclusiveD(
     vec2d_t point,
     vec2d_t a,
     vec2d_t b,
     vec2d_t c,
-    f64 tolerance,
-    f64 winding ) noexcept
+    f64 areaTolerance,
+    i32 windingSign ) noexcept
 {
-    const f64 ab = Geometry2D_OrientationD( a, b, point ) * winding;
-    const f64 bc = Geometry2D_OrientationD( b, c, point ) * winding;
-    const f64 ca = Geometry2D_OrientationD( c, a, point ) * winding;
-    return ab >= -tolerance && bc >= -tolerance && ca >= -tolerance;
+    const i32 ab = OrientationWithAreaToleranceD(
+        a, b, point, areaTolerance ) * windingSign;
+    const i32 bc = OrientationWithAreaToleranceD(
+        b, c, point, areaTolerance ) * windingSign;
+    const i32 ca = OrientationWithAreaToleranceD(
+        c, a, point, areaTolerance ) * windingSign;
+    return ab >= 0 && bc >= 0 && ca >= 0;
 }
 
 bool_t PolygonArgumentsValidD( const vec2d_t *pVertices, usize cVertices ) noexcept
 {
-    return pVertices != nullptr && cVertices >= 3u;
+    if ( pVertices == nullptr || cVertices < 3u ) {
+        return false;
+    }
+    for ( usize i = 0u; i < cVertices; ++i ) {
+        if ( !Vec2d_IsFinite( pVertices[i] ) ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+f64 PolygonSignedAreaDUnchecked(
+    const vec2d_t *pVertices,
+    usize cVertices ) noexcept
+{
+    // A triangle fan around vertex zero removes the large translation terms
+    // that the absolute-coordinate shoelace form would later have to cancel.
+    const vec2d_t origin = pVertices[0];
+    f64 twiceArea = 0.0;
+    for ( usize i = 1u; i + 1u < cVertices; ++i ) {
+        twiceArea += Geometry2D_OrientationD(
+            origin, pVertices[i], pVertices[i + 1u] );
+    }
+    return twiceArea * 0.5;
+}
+
+i32 PolygonWindingSignD(
+    const vec2d_t *pVertices,
+    usize cVertices ) noexcept
+{
+    // The lexicographically leftmost-lowest vertex is on the convex hull. Its
+    // exact boundary turn therefore identifies the polygon winding even when a
+    // shoelace sum loses its low bits to cancellation.
+    usize iExtreme = 0u;
+    for ( usize i = 1u; i < cVertices; ++i ) {
+        if ( pVertices[i].x < pVertices[iExtreme].x ||
+             ( pVertices[i].x == pVertices[iExtreme].x &&
+               pVertices[i].y < pVertices[iExtreme].y ) ) {
+            iExtreme = i;
+        }
+    }
+
+    const usize iPrevious = ( iExtreme + cVertices - 1u ) % cVertices;
+    for ( usize offset = 1u; offset + 1u < cVertices; ++offset ) {
+        const usize iNext = ( iExtreme + offset ) % cVertices;
+        const i32 sign = Orient2D(
+            pVertices[iPrevious], pVertices[iExtreme], pVertices[iNext] );
+        if ( sign != 0 ) {
+            return sign;
+        }
+    }
+    return 0;
 }
 
 bool_t PointOnSegmentUnchecked(
@@ -479,7 +633,8 @@ polygon_triangulation_result_t Polygon2_Triangulate(
     result.status = polygon_triangulation_status_t::INVALID_ARGUMENT;
     if ( !PolygonArgumentsValid( pVertices, cVertices ) ||
          !Scalar_IsFinite( distanceTolerance ) ||
-         distanceTolerance < 0.0 || areaTolerance < 0.0 ||
+         distanceTolerance < 0.0 || !Scalar_IsFinite( areaTolerance ) ||
+         areaTolerance < 0.0 ||
          pOutputIndices == nullptr ) {
         return result;
     }
@@ -592,16 +747,24 @@ bool_t Geometry2D_PointOnSegmentD(
         return false;
     }
 
-    if ( std::abs( Geometry2D_OrientationD( segment.start, segment.end, point ) ) >
-         tolerance ) {
+    const f64 edgeLength = SegmentLengthD( segment );
+    if ( !Scalar_IsFinite( edgeLength ) ) {
+        return false;
+    }
+    if ( edgeLength == 0.0 ) {
+        return PointDistanceD( segment.start, point ) <= tolerance;
+    }
+    if ( OrientationWithDistanceToleranceD(
+             segment.start, segment.end, point,
+             edgeLength, tolerance ) != 0 ) {
         return false;
     }
 
-    const f64 minX = std::min( segment.start.x, segment.end.x ) - tolerance;
-    const f64 maxX = std::max( segment.start.x, segment.end.x ) + tolerance;
-    const f64 minY = std::min( segment.start.y, segment.end.y ) - tolerance;
-    const f64 maxY = std::max( segment.start.y, segment.end.y ) + tolerance;
-    return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY;
+    const f64 parameter = SegmentParameterD( segment, point );
+    const f64 parameterTolerance = tolerance / edgeLength;
+    return Scalar_IsFinite( parameter ) &&
+           parameter >= -parameterTolerance &&
+           parameter <= 1.0 + parameterTolerance;
 }
 
 segment2d_intersection_t Geometry2D_IntersectSegmentsD(
@@ -611,49 +774,55 @@ segment2d_intersection_t Geometry2D_IntersectSegmentsD(
 {
     segment2d_intersection_t result{};
     result.kind = segment2_intersection_kind_t::NONE;
-    if ( tolerance < 0.0 || !Scalar_IsFinite( tolerance ) ) {
+    if ( tolerance < 0.0 || !Scalar_IsFinite( tolerance ) ||
+         !Vec2d_IsFinite( a.start ) || !Vec2d_IsFinite( a.end ) ||
+         !Vec2d_IsFinite( b.start ) || !Vec2d_IsFinite( b.end ) ) {
         return result;
     }
 
-    const vec2d_t r = Vec2d_Subtract( a.end, a.start );
-    const vec2d_t s = Vec2d_Subtract( b.end, b.start );
-    const vec2d_t qMinusP = Vec2d_Subtract( b.start, a.start );
-    const f64 denominator = Vec2d_Cross( r, s );
-    const f64 collinearity = Vec2d_Cross( qMinusP, r );
-    const f64 rLengthSquared = Vec2d_Dot( r, r );
-    const f64 sLengthSquared = Vec2d_Dot( s, s );
+    const f64 aLength = SegmentLengthD( a );
+    const f64 bLength = SegmentLengthD( b );
+    if ( !Scalar_IsFinite( aLength ) || !Scalar_IsFinite( bLength ) ) {
+        return result;
+    }
 
-    // A zero-length segment is a point query, not a line-line intersection.
-    // Handle all point combinations before using parametric denominators.
-    if ( rLengthSquared <= tolerance * tolerance &&
-         sLengthSquared <= tolerance * tolerance ) {
-        if ( Vec2d_DistanceSquared( a.start, b.start ) <= tolerance * tolerance ) {
-            result.kind = segment2_intersection_kind_t::POINT;
-            result.point0 = a.start;
+    // A segment no longer than the world-space tolerance contributes no stable
+    // direction, so classify it as a point before asking orientation questions.
+    if ( aLength <= tolerance && bLength <= tolerance ) {
+        if ( PointDistanceD( a.start, b.start ) <= tolerance ) {
+            return PointIntersectionD( a.start, 0.0, 0.0 );
         }
         return result;
     }
-    if ( rLengthSquared <= tolerance * tolerance ) {
+    if ( aLength <= tolerance ) {
         if ( Geometry2D_PointOnSegmentD( a.start, b, tolerance ) ) {
-            result.kind = segment2_intersection_kind_t::POINT;
-            result.point0 = a.start;
-            result.parameterB0 = ClampUnitD( SegmentParameterD( b, a.start ) );
+            return PointIntersectionD(
+                a.start, 0.0,
+                ClampUnitD( SegmentParameterD( b, a.start ) ) );
         }
         return result;
     }
-    if ( sLengthSquared <= tolerance * tolerance ) {
+    if ( bLength <= tolerance ) {
         if ( Geometry2D_PointOnSegmentD( b.start, a, tolerance ) ) {
-            result.kind = segment2_intersection_kind_t::POINT;
-            result.point0 = b.start;
-            result.parameterA0 = ClampUnitD( SegmentParameterD( a, b.start ) );
+            return PointIntersectionD(
+                b.start,
+                ClampUnitD( SegmentParameterD( a, b.start ) ), 0.0 );
         }
         return result;
     }
 
-    if ( std::abs( denominator ) <= tolerance ) {
-        if ( std::abs( collinearity ) > tolerance ) {
-            return result;
-        }
+    const i32 bStartSide = OrientationWithDistanceToleranceD(
+        a.start, a.end, b.start, aLength, tolerance );
+    const i32 bEndSide = OrientationWithDistanceToleranceD(
+        a.start, a.end, b.end, aLength, tolerance );
+    const i32 aStartSide = OrientationWithDistanceToleranceD(
+        b.start, b.end, a.start, bLength, tolerance );
+    const i32 aEndSide = OrientationWithDistanceToleranceD(
+        b.start, b.end, a.end, bLength, tolerance );
+
+    if ( bStartSide == 0 && bEndSide == 0 &&
+         aStartSide == 0 && aEndSide == 0 ) {
+        const f64 parameterTolerance = tolerance / aLength;
 
         // Collinear segments reduce to overlapping parameter intervals on A.
         f64 t0 = SegmentParameterD( a, b.start );
@@ -663,7 +832,7 @@ segment2d_intersection_t Geometry2D_IntersectSegmentsD(
         }
         const f64 overlapStart = std::max( 0.0, t0 );
         const f64 overlapEnd = std::min( 1.0, t1 );
-        if ( overlapEnd < overlapStart - tolerance ) {
+        if ( overlapEnd < overlapStart - parameterTolerance ) {
             return result;
         }
 
@@ -673,26 +842,56 @@ segment2d_intersection_t Geometry2D_IntersectSegmentsD(
         result.point1 = SegmentPointD( a, result.parameterA1 );
         result.parameterB0 = ClampUnitD( SegmentParameterD( b, result.point0 ) );
         result.parameterB1 = ClampUnitD( SegmentParameterD( b, result.point1 ) );
-        result.kind = Vec2d_DistanceSquared( result.point0, result.point1 ) <=
-                tolerance * tolerance
-            ? segment2_intersection_kind_t::POINT
-            : segment2_intersection_kind_t::OVERLAP;
+        if ( PointDistanceD( result.point0, result.point1 ) <= tolerance ) {
+            result.kind = segment2_intersection_kind_t::POINT;
+            result.point1 = result.point0;
+            result.parameterA1 = result.parameterA0;
+            result.parameterB1 = result.parameterB0;
+        } else {
+            result.kind = segment2_intersection_kind_t::OVERLAP;
+        }
         return result;
     }
 
-    const f64 parameterA = Vec2d_Cross( qMinusP, s ) / denominator;
-    const f64 parameterB = Vec2d_Cross( qMinusP, r ) / denominator;
-    if ( parameterA < -tolerance || parameterA > 1.0 + tolerance ||
-         parameterB < -tolerance || parameterB > 1.0 + tolerance ) {
+    // A zero side is an endpoint hit or a near-endpoint hit inside the distance
+    // band. Resolve those before the strict opposite-side crossing case.
+    if ( bStartSide == 0 && Geometry2D_PointOnSegmentD( b.start, a, tolerance ) ) {
+        return PointIntersectionD(
+            b.start, ClampUnitD( SegmentParameterD( a, b.start ) ), 0.0 );
+    }
+    if ( bEndSide == 0 && Geometry2D_PointOnSegmentD( b.end, a, tolerance ) ) {
+        return PointIntersectionD(
+            b.end, ClampUnitD( SegmentParameterD( a, b.end ) ), 1.0 );
+    }
+    if ( aStartSide == 0 && Geometry2D_PointOnSegmentD( a.start, b, tolerance ) ) {
+        return PointIntersectionD(
+            a.start, 0.0, ClampUnitD( SegmentParameterD( b, a.start ) ) );
+    }
+    if ( aEndSide == 0 && Geometry2D_PointOnSegmentD( a.end, b, tolerance ) ) {
+        return PointIntersectionD(
+            a.end, 1.0, ClampUnitD( SegmentParameterD( b, a.end ) ) );
+    }
+
+    if ( bStartSide * bEndSide >= 0 || aStartSide * aEndSide >= 0 ) {
         return result;
     }
 
-    result.kind = segment2_intersection_kind_t::POINT;
-    result.parameterA0 = ClampUnitD( parameterA );
-    result.parameterB0 = ClampUnitD( parameterB );
-    result.point0 = SegmentPointD( a, result.parameterA0 );
-    result.point1 = result.point0;
-    return result;
+    // Exact signs certify that both mathematical parameters are strictly inside
+    // their segments. Magnitude ratios locate the crossing without trusting the
+    // sign of a cancellation-prone approximate determinant.
+    const f64 parameterA = CrossingParameterD(
+        Geometry2D_OrientationD( b.start, b.end, a.start ),
+        Geometry2D_OrientationD( b.start, b.end, a.end ) );
+    const f64 parameterB = CrossingParameterD(
+        Geometry2D_OrientationD( a.start, a.end, b.start ),
+        Geometry2D_OrientationD( a.start, a.end, b.end ) );
+    const vec2d_t point = SegmentPointD( a, parameterA );
+    if ( !Scalar_IsFinite( parameterA ) || !Scalar_IsFinite( parameterB ) ||
+         !Vec2d_IsFinite( point ) ) {
+        return result;
+    }
+    return PointIntersectionD(
+        point, ClampUnitD( parameterA ), ClampUnitD( parameterB ) );
 }
 
 f64 Polygon2d_SignedArea( const vec2d_t *pVertices, usize cVertices ) noexcept
@@ -701,11 +900,7 @@ f64 Polygon2d_SignedArea( const vec2d_t *pVertices, usize cVertices ) noexcept
         return 0.0;
     }
 
-    f64 twiceArea = 0.0;
-    for ( usize i = 0u; i < cVertices; ++i ) {
-        twiceArea += Vec2d_Cross( pVertices[i], pVertices[( i + 1u ) % cVertices] );
-    }
-    return twiceArea * 0.5;
+    return PolygonSignedAreaDUnchecked( pVertices, cVertices );
 }
 
 bool_t Polygon2d_TryCentroid(
@@ -720,16 +915,21 @@ bool_t Polygon2d_TryCentroid(
         return false;
     }
     *pCentroid = CY_VEC2D_ZERO;
-    if ( !PolygonArgumentsValidD( pVertices, cVertices ) || minimumAbsArea < 0.0 ) {
+    if ( !PolygonArgumentsValidD( pVertices, cVertices ) ||
+         !Scalar_IsFinite( minimumAbsArea ) || minimumAbsArea < 0.0 ) {
         return false;
     }
 
+    // Accumulate a triangle fan in coordinates relative to vertex zero. This
+    // removes large translation terms before they can cancel away small local
+    // polygon area and centroid contributions.
+    const vec2d_t origin = pVertices[0];
     f64 twiceArea = 0.0;
     f64 weightedX = 0.0;
     f64 weightedY = 0.0;
-    for ( usize i = 0u; i < cVertices; ++i ) {
-        const vec2d_t a = pVertices[i];
-        const vec2d_t b = pVertices[( i + 1u ) % cVertices];
+    for ( usize i = 1u; i + 1u < cVertices; ++i ) {
+        const vec2d_t a = Vec2d_Subtract( pVertices[i], origin );
+        const vec2d_t b = Vec2d_Subtract( pVertices[i + 1u], origin );
         const f64 cross = Vec2d_Cross( a, b );
         twiceArea += cross;
         weightedX += ( a.x + b.x ) * cross;
@@ -740,8 +940,13 @@ bool_t Polygon2d_TryCentroid(
     }
 
     const f64 divisor = 3.0 * twiceArea;
-    *pCentroid = Vec2d_Make( weightedX / divisor, weightedY / divisor );
-    return Vec2d_IsFinite( *pCentroid );
+    const vec2d_t centroid = Vec2d_Add(
+        origin, Vec2d_Make( weightedX / divisor, weightedY / divisor ) );
+    if ( !Vec2d_IsFinite( centroid ) ) {
+        return false;
+    }
+    *pCentroid = centroid;
+    return true;
 }
 
 bool_t Polygon2d_ContainsPoint(
@@ -752,7 +957,8 @@ bool_t Polygon2d_ContainsPoint(
     bool_t bIncludeBoundary ) noexcept
 {
     if ( !PolygonArgumentsValidD( pVertices, cVertices ) ||
-         boundaryTolerance < 0.0 || !Vec2d_IsFinite( point ) ) {
+         !Scalar_IsFinite( boundaryTolerance ) || boundaryTolerance < 0.0 ||
+         !Vec2d_IsFinite( point ) ) {
         return false;
     }
 
@@ -785,18 +991,19 @@ bool_t Polygon2d_IsSimple(
     usize cVertices,
     f64 tolerance ) noexcept
 {
-    if ( !PolygonArgumentsValidD( pVertices, cVertices ) || tolerance < 0.0 ) {
+    if ( !PolygonArgumentsValidD( pVertices, cVertices ) ||
+         !Scalar_IsFinite( tolerance ) || tolerance < 0.0 ) {
         return false;
     }
 
     // Non-adjacent edge intersections make the polygon self-intersecting.
     for ( usize i = 0u; i < cVertices; ++i ) {
         const usize iNext = ( i + 1u ) % cVertices;
-        if ( Vec2d_DistanceSquared( pVertices[i], pVertices[iNext] ) <=
-             tolerance * tolerance ) {
+        const segment2d_t a{ pVertices[i], pVertices[iNext] };
+        const f64 edgeLength = SegmentLengthD( a );
+        if ( !Scalar_IsFinite( edgeLength ) || edgeLength <= tolerance ) {
             return false;
         }
-        const segment2d_t a{ pVertices[i], pVertices[iNext] };
         for ( usize j = i + 1u; j < cVertices; ++j ) {
             const usize jNext = ( j + 1u ) % cVertices;
             if ( i == j || iNext == j || jNext == i ) {
@@ -818,11 +1025,12 @@ bool_t Polygon2d_IsConvex(
     f64 orientationTolerance ) noexcept
 {
     if ( !PolygonArgumentsValidD( pVertices, cVertices ) ||
+         !Scalar_IsFinite( orientationTolerance ) ||
          orientationTolerance < 0.0 ) {
         return false;
     }
 
-    f64 expectedSign = 0.0;
+    i32 expectedSign = 0;
     f64 totalTurning = 0.0;
     for ( usize i = 0u; i < cVertices; ++i ) {
         const vec2d_t vertex = pVertices[i];
@@ -838,19 +1046,18 @@ bool_t Polygon2d_IsConvex(
         totalTurning += std::atan2(
             Vec2d_Cross( incoming, outgoing ), Vec2d_Dot( incoming, outgoing ) );
 
-        const f64 orientation =
-            Geometry2D_OrientationD( vertex, nextVertex, afterNextVertex );
-        if ( std::abs( orientation ) <= orientationTolerance ) {
+        const i32 sign = OrientationWithAreaToleranceD(
+            vertex, nextVertex, afterNextVertex, orientationTolerance );
+        if ( sign == 0 ) {
             continue;
         }
-        const f64 sign = orientation > 0.0 ? 1.0 : -1.0;
-        if ( expectedSign == 0.0 ) {
+        if ( expectedSign == 0 ) {
             expectedSign = sign;
         } else if ( sign != expectedSign ) {
             return false;
         }
     }
-    if ( expectedSign == 0.0 ) {
+    if ( expectedSign == 0 ) {
         return false;
     }
 
@@ -875,7 +1082,9 @@ polygon_triangulation_result_t Polygon2d_Triangulate(
     polygon_triangulation_result_t result{};
     result.status = polygon_triangulation_status_t::INVALID_ARGUMENT;
     if ( !PolygonArgumentsValidD( pVertices, cVertices ) ||
-         distanceTolerance < 0.0 || areaTolerance < 0.0 ||
+         !Scalar_IsFinite( distanceTolerance ) ||
+         distanceTolerance < 0.0 || !Scalar_IsFinite( areaTolerance ) ||
+         areaTolerance < 0.0 ||
          pOutputIndices == nullptr ) {
         return result;
     }
@@ -899,7 +1108,11 @@ polygon_triangulation_result_t Polygon2d_Triangulate(
         result.status = polygon_triangulation_status_t::DEGENERATE;
         return result;
     }
-    const f64 winding = signedArea > 0.0 ? 1.0 : -1.0;
+    const i32 windingSign = PolygonWindingSignD( pVertices, cVertices );
+    if ( windingSign == 0 ) {
+        result.status = polygon_triangulation_status_t::DEGENERATE;
+        return result;
+    }
     for ( usize i = 0u; i < cVertices; ++i ) {
         pScratchIndices[i] = static_cast<u32>( i );
     }
@@ -917,9 +1130,10 @@ polygon_triangulation_result_t Polygon2d_Triangulate(
             const u32 iA = pScratchIndices[previous];
             const u32 iB = pScratchIndices[i];
             const u32 iC = pScratchIndices[next];
-            const f64 corner = Geometry2D_OrientationD(
-                pVertices[iA], pVertices[iB], pVertices[iC] ) * winding;
-            if ( corner <= areaTolerance ) {
+            const i32 cornerSign = OrientationWithAreaToleranceD(
+                pVertices[iA], pVertices[iB], pVertices[iC], areaTolerance ) *
+                windingSign;
+            if ( cornerSign <= 0 ) {
                 continue;
             }
 
@@ -931,7 +1145,7 @@ polygon_triangulation_result_t Polygon2d_Triangulate(
                 if ( PointInTriangleInclusiveD(
                          pVertices[pScratchIndices[candidate]],
                          pVertices[iA], pVertices[iB], pVertices[iC],
-                         areaTolerance, winding ) ) {
+                         areaTolerance, windingSign ) ) {
                     bContainsVertex = true;
                     break;
                 }

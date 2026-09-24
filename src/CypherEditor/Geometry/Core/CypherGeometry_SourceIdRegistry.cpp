@@ -297,6 +297,67 @@ bool GeometrySourceIdRegistry_IsInitialized(
            pRegistry->pAllocator != nullptr;
 }
 
+geometry_status_t GeometrySourceIdRegistry_TryClone(
+    const geometry_source_id_registry_t *pSource,
+    geometry_source_id_registry_t *pCloneOut ) noexcept
+{
+    if ( pCloneOut == nullptr ) {
+        return geometry_status_t::INVALID_ARGUMENT;
+    }
+    if ( !IsCanonicalRegistry( *pCloneOut ) ) {
+        return geometry_status_t::ALREADY_INITIALIZED;
+    }
+    if ( !GeometrySourceIdRegistry_IsInitialized( pSource ) ||
+         !GeometrySourceIdRegistry_ValidateDeep( pSource ) ) {
+        return geometry_status_t::CORRUPT_STATE;
+    }
+
+    const common::usize cClaimed =
+        GeometrySourceIdRegistry_ClaimedCount( pSource );
+    geometry_status_t status = GeometrySourceIdRegistry_Init(
+        pCloneOut,
+        pSource->pAllocator,
+        pSource->cEntriesMax,
+        cClaimed,
+        pSource->allocator.next );
+    if ( status != geometry_status_t::OK ) {
+        return status;
+    }
+
+    common::usize iSlot = 0u;
+    while ( const auto *pSlot = common::HashTable_NextOccupied(
+                &pSource->claimedIds, &iSlot ) ) {
+        const geometry_source_id_t *pId =
+            common::HashTable_SlotKey( pSlot );
+        if ( pId == nullptr ||
+             !common::HashSet_Insert( &pCloneOut->claimedIds, *pId ) ) {
+            GeometrySourceIdRegistry_Shutdown( pCloneOut );
+            return geometry_status_t::CORRUPT_STATE;
+        }
+    }
+
+    iSlot = 0u;
+    while ( const auto *pSlot = common::HashTable_NextOccupied(
+                &pSource->liveIds, &iSlot ) ) {
+        const geometry_source_id_t *pId =
+            common::HashTable_SlotKey( pSlot );
+        if ( pId == nullptr ||
+             !common::HashSet_Insert( &pCloneOut->liveIds, *pId ) ) {
+            GeometrySourceIdRegistry_Shutdown( pCloneOut );
+            return geometry_status_t::CORRUPT_STATE;
+        }
+    }
+
+    pCloneOut->allocator = pSource->allocator;
+    pCloneOut->bLoadRegistrationOpen =
+        pSource->bLoadRegistrationOpen;
+    if ( !GeometrySourceIdRegistry_ValidateDeep( pCloneOut ) ) {
+        GeometrySourceIdRegistry_Shutdown( pCloneOut );
+        return geometry_status_t::CORRUPT_STATE;
+    }
+    return geometry_status_t::OK;
+}
+
 geometry_status_t GeometrySourceIdRegistry_SealLoadedIds(
     geometry_source_id_registry_t *pRegistry ) noexcept
 {

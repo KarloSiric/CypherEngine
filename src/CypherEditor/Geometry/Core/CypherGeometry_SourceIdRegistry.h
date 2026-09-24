@@ -112,6 +112,18 @@ CYPHER_NODISCARD bool GeometrySourceIdRegistry_ValidateDeep(
 CYPHER_NODISCARD bool GeometrySourceIdRegistry_IsInitialized(
     const geometry_source_id_registry_t *pRegistry ) noexcept;
 
+// Builds an independent, exact copy of an initialized identity domain. The
+// clone preserves claimed and live membership, the allocation high-water mark,
+// entry limit, and load-registration state. It is intended for operations that
+// prepare a complete document mutation privately before an allocation-free
+// publish step.
+//
+// pCloneOut must be canonical empty. Every failure leaves it canonical empty
+// and never changes pSource.
+CYPHER_NODISCARD geometry_status_t GeometrySourceIdRegistry_TryClone(
+    const geometry_source_id_registry_t *pSource,
+    geometry_source_id_registry_t *pCloneOut ) noexcept;
+
 // Closes the one-time document-load registration phase. The operation is
 // idempotent. Fresh allocation and successful editing mutations also seal the
 // phase automatically. Once sealed, Register cannot admit arbitrary old IDs;

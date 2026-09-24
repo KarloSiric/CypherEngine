@@ -127,6 +127,30 @@ CYPHER_NODISCARD geometry_status_t BrushBoundary_TryReconstruct(
     const brush_solid_t *pBrush,
     const geometry_policy_t &policy ) noexcept;
 
+// Reconstructs the closed convex boundary while permitting input sides that
+// do not contribute a two-dimensional face. The returned face records retain
+// their original iSide indices, so this is an explicit repair primitive for
+// clipping and CSG; ordinary validation and rendering must use the strict
+// BrushBoundary_TryReconstruct entry point above.
+//
+// Duplicate coplanar sides after the first and constraints that touch only an
+// edge/vertex (or are fully hidden by stricter constraints) are omitted from
+// the face array. The derived boundary itself must still be a closed volume.
+// On failure, pBoundary is left initialized and empty.
+CYPHER_NODISCARD geometry_status_t
+BrushBoundary_TryReconstructAllowRedundantSides(
+    brush_boundary_t *pBoundary,
+    const brush_solid_t *pBrush,
+    const geometry_policy_t &policy ) noexcept;
+
+// Removes sides that contribute no boundary face from an initialized brush.
+// Retained side records keep their source IDs, attribute indices, and relative
+// order. All reconstruction and allocation work completes before the brush is
+// compacted, so failure leaves the brush byte-for-byte unchanged.
+CYPHER_NODISCARD geometry_status_t BrushSolid_TryCanonicalizeSides(
+    brush_solid_t *pBrush,
+    const geometry_policy_t &policy ) noexcept;
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------

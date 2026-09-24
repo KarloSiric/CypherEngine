@@ -70,6 +70,25 @@ target_link_libraries(CypherTileMapCore
         Cypher::Math
     PRIVATE
         Cypher::CommonTier2
+)
+
+# Tool-owned bridge between the authored tile representation and the reusable
+# editor geometry runtime.  Keeping this adapter above both libraries prevents
+# the geometry core from importing headers from a concrete editor product.
+add_library(CypherTileGeometryBridge STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/Geometry/CypherTileGeometryAdapter.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/Geometry/CypherTileGeometryAdapter.cpp"
+)
+add_library(Cypher::TileGeometryBridge ALIAS CypherTileGeometryBridge)
+target_compile_features(CypherTileGeometryBridge PUBLIC cxx_std_20)
+target_include_directories(CypherTileGeometryBridge
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CypherTileEditor/Core/Geometry"
+)
+target_link_libraries(CypherTileGeometryBridge
+    PUBLIC
+        Cypher::TileMapCore
         Cypher::EditorGeometry
 )
 
@@ -323,6 +342,23 @@ if (CYPHERENGINE_BUILD_TESTS)
     )
     add_test(NAME cypher_tile_map_core_tests COMMAND cypher_tile_map_core_tests)
     set_tests_properties(cypher_tile_map_core_tests PROPERTIES LABELS "CypherTools;TileMap;Unit")
+
+    add_executable(cypher_tile_geometry_bridge_tests
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileGeometryAdapter_Tests.cpp"
+    )
+    target_link_libraries(cypher_tile_geometry_bridge_tests
+        PRIVATE
+            Catch2::Catch2WithMain
+            Cypher::TileGeometryBridge
+    )
+    add_test(
+        NAME cypher_tile_geometry_bridge_tests
+        COMMAND cypher_tile_geometry_bridge_tests
+    )
+    set_tests_properties(
+        cypher_tile_geometry_bridge_tests
+        PROPERTIES LABELS "CypherTools;TileMap;Geometry;Contract"
+    )
 
     add_executable(cypher_tile_map_serialization_tests
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherTools/CypherTileEditor/CypherTileMaterialBindings_Tests.cpp"
