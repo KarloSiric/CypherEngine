@@ -42,6 +42,142 @@ inline constexpr common::f64 kMinAbsDeterminant = 1.0e-12;
 // produces a normal shorter than this, the plane is degenerate.
 inline constexpr common::f64 kMinNormalLength = 1.0e-12;
 
+geometry_status_t ValidateTextureLockBindings(
+    const brush_solid_t *pBrush,
+    const geometry_brush_side_attribute_store_t *pStore,
+    const geometry_policy_t &policy ) noexcept
+{
+    if ( pBrush == nullptr || pStore == nullptr ) {
+        return geometry_status_t::INVALID_ARGUMENT;
+    }
+    if ( pBrush->sides.pAllocator == nullptr ||
+         pStore->records.pAllocator == nullptr ) {
+        return geometry_status_t::NOT_INITIALIZED;
+    }
+    if ( !common::Vector_IsValid( &pBrush->sides ) ||
+         !common::Vector_IsValid( &pStore->records ) ) {
+        return geometry_status_t::CORRUPT_STATE;
+    }
+
+    const common::usize cSides = BrushSolid_SideCount( pBrush );
+    if ( static_cast<common::u64>( cSides ) >
+         policy.limits.cBrushSidesPerBrushMax ) {
+        return geometry_status_t::LIMIT_EXCEEDED;
+    }
+
+    const geometry_status_t storeStatus =
+        BrushSideAttributeStore_Validate( pStore, policy );
+    if ( storeStatus != geometry_status_t::OK ) {
+        return storeStatus;
+    }
+
+    const common::usize cAttributes =
+        BrushSideAttributeStore_Count( pStore );
+    for ( common::usize iSide = 0u; iSide < cSides; ++iSide ) {
+        if ( static_cast<common::usize>(
+                 pBrush->sides.pData[iSide].iAttributeIndex ) >=
+             cAttributes ) {
+            return geometry_status_t::CORRUPT_STATE;
+        }
+    }
+    return geometry_status_t::OK;
+}
+
+bool IsFirstAttributeReference(
+    const brush_solid_t *pBrush,
+    common::usize iSide ) noexcept
+{
+    const common::u32 iAttribute =
+        pBrush->sides.pData[iSide].iAttributeIndex;
+    for ( common::usize iPrevious = 0u;
+          iPrevious < iSide;
+          ++iPrevious ) {
+        if ( pBrush->sides.pData[iPrevious].iAttributeIndex == iAttribute ) {
+            return false;
+        }
+    }
+    return true;
+}
+
+geometry_brush_side_attributes_t TextureLockTranslated(
+    geometry_brush_side_attributes_t attributes,
+    math::vec3d_t offset ) noexcept
+{
+    attributes.uvProjection.origin = math::Vec3d_Add(
+        attributes.uvProjection.origin, offset );
+    return attributes;
+}
+
+geometry_brush_side_attributes_t TextureLockRotated(
+    geometry_brush_side_attributes_t attributes,
+    const math::affine3d_t &combined,
+    const math::affine3d_t &rotation ) noexcept
+{
+    attributes.uvProjection.origin = math::Affine3d_TransformPoint(
+        combined, attributes.uvProjection.origin );
+    attributes.uvProjection.uAxis = math::Affine3d_TransformDirection(
+        rotation, attributes.uvProjection.uAxis );
+    attributes.uvProjection.vAxis = math::Affine3d_TransformDirection(
+        rotation, attributes.uvProjection.vAxis );
+    attributes.uvProjection.normal = math::Affine3d_TransformDirection(
+        rotation, attributes.uvProjection.normal );
+    return attributes;
+}
+
+geometry_brush_side_attributes_t TextureLockScaled(
+    geometry_brush_side_attributes_t attributes,
+    const math::affine3d_t &combined,
+    const math::affine3d_t &scaleTransform,
+    math::vec3d_t scale ) noexcept
+{
+    attributes.uvProjection.origin = math::Affine3d_TransformPoint(
+        combined, attributes.uvProjection.origin );
+
+    const common::f64 uScale =
+        math::Scalar_Abs( scale.x * attributes.uvProjection.uAxis.x ) +
+        math::Scalar_Abs( scale.y * attributes.uvProjection.uAxis.y ) +
+        math::Scalar_Abs( scale.z * attributes.uvProjection.uAxis.z );
+    const common::f64 vScale =
+        math::Scalar_Abs( scale.x * attributes.uvProjection.vAxis.x ) +
+        math::Scalar_Abs( scale.y * attributes.uvProjection.vAxis.y ) +
+        math::Scalar_Abs( scale.z * attributes.uvProjection.vAxis.z );
+
+    if ( uScale > 1.0e-12 ) {
+        attributes.uvProjection.worldUnitsPerUv.x *= uScale;
+    }
+    if ( vScale > 1.0e-12 ) {
+        attributes.uvProjection.worldUnitsPerUv.y *= vScale;
+    }
+
+    attributes.uvProjection.uAxis = math::Affine3d_TransformDirection(
+        scaleTransform, attributes.uvProjection.uAxis );
+    attributes.uvProjection.vAxis = math::Affine3d_TransformDirection(
+        scaleTransform, attributes.uvProjection.vAxis );
+
+    const common::f64 uLen = math::Scalar_Sqrt(
+        math::Vec3d_LengthSquared( attributes.uvProjection.uAxis ) );
+    const common::f64 vLen = math::Scalar_Sqrt(
+        math::Vec3d_LengthSquared( attributes.uvProjection.vAxis ) );
+    if ( uLen > 1.0e-12 ) {
+        attributes.uvProjection.uAxis = math::Vec3d_Scale(
+            attributes.uvProjection.uAxis, 1.0 / uLen );
+    }
+    if ( vLen > 1.0e-12 ) {
+        attributes.uvProjection.vAxis = math::Vec3d_Scale(
+            attributes.uvProjection.vAxis, 1.0 / vLen );
+    }
+
+    attributes.uvProjection.normal = math::Vec3d_Cross(
+        attributes.uvProjection.uAxis, attributes.uvProjection.vAxis );
+    const common::f64 nLen = math::Scalar_Sqrt(
+        math::Vec3d_LengthSquared( attributes.uvProjection.normal ) );
+    if ( nLen > 1.0e-12 ) {
+        attributes.uvProjection.normal = math::Vec3d_Scale(
+            attributes.uvProjection.normal, 1.0 / nLen );
+    }
+    return attributes;
+}
+
 } // namespace
 
 geometry_status_t BrushTransform_TryTranslate(
@@ -207,48 +343,61 @@ geometry_status_t BrushTransform_TryApplyAffine(
 // ---------------------------------------------------------------------------
 
 geometry_status_t BrushTransform_TextureLockTranslate(
+    const brush_solid_t *pBrush,
     geometry_brush_side_attribute_store_t *pStore,
-    common::usize cSides,
     math::vec3d_t offset,
     const geometry_policy_t &policy ) noexcept
 {
-    if ( pStore == nullptr ) {
-        return geometry_status_t::INVALID_ARGUMENT;
-    }
     if ( !math::Vec3d_IsFinite( offset ) ) {
         return geometry_status_t::INVALID_ARGUMENT;
     }
 
-    // Translation lock: shift each side's UV origin by the same offset
-    // so the texture stays pinned to the same world position.
-    for ( common::usize i = 0u; i < cSides; ++i ) {
-        geometry_brush_side_attributes_t attrs{};
-        geometry_status_t s =
-            BrushSideAttributeStore_TryGet( pStore, i, &attrs );
-        if ( s != geometry_status_t::OK ) { continue; }
+    const geometry_status_t bindings =
+        ValidateTextureLockBindings( pBrush, pStore, policy );
+    if ( bindings != geometry_status_t::OK ) {
+        return bindings;
+    }
 
-        attrs.uvProjection.origin = math::Vec3d_Add(
-            attrs.uvProjection.origin, offset );
+    const common::usize cSides = BrushSolid_SideCount( pBrush );
+    for ( common::usize iSide = 0u; iSide < cSides; ++iSide ) {
+        if ( !IsFirstAttributeReference( pBrush, iSide ) ) { continue; }
+        const common::usize iAttribute = static_cast<common::usize>(
+            pBrush->sides.pData[iSide].iAttributeIndex );
+        const geometry_brush_side_attributes_t transformed =
+            TextureLockTranslated(
+                pStore->records.pData[iAttribute], offset );
+        const geometry_status_t status = BrushSideAttributes_Validate(
+            policy.numerical, transformed );
+        if ( status != geometry_status_t::OK ) { return status; }
+    }
 
-        (void)BrushSideAttributeStore_TrySet(
-            pStore, policy.numerical, i, attrs );
+    for ( common::usize iSide = 0u; iSide < cSides; ++iSide ) {
+        if ( !IsFirstAttributeReference( pBrush, iSide ) ) { continue; }
+        const common::usize iAttribute = static_cast<common::usize>(
+            pBrush->sides.pData[iSide].iAttributeIndex );
+        pStore->records.pData[iAttribute] = TextureLockTranslated(
+            pStore->records.pData[iAttribute], offset );
     }
 
     return geometry_status_t::OK;
 }
 
 geometry_status_t BrushTransform_TextureLockRotate(
+    const brush_solid_t *pBrush,
     geometry_brush_side_attribute_store_t *pStore,
-    common::usize cSides,
     math::vec3d_t pivot,
     math::affine3d_t rotation,
     const geometry_policy_t &policy ) noexcept
 {
-    if ( pStore == nullptr ) {
+    if ( !math::Vec3d_IsFinite( pivot ) ||
+         !math::Affine3d_IsFinite( rotation ) ) {
         return geometry_status_t::INVALID_ARGUMENT;
     }
-    if ( !math::Affine3d_IsFinite( rotation ) ) {
-        return geometry_status_t::INVALID_ARGUMENT;
+
+    const geometry_status_t bindings =
+        ValidateTextureLockBindings( pBrush, pStore, policy );
+    if ( bindings != geometry_status_t::OK ) {
+        return bindings;
     }
 
     // Build pivot-relative transform for the UV origin.
@@ -260,47 +409,49 @@ geometry_status_t BrushTransform_TextureLockRotate(
         fromOrigin,
         math::Affine3d_Multiply( rotation, toOrigin ) );
 
-    for ( common::usize i = 0u; i < cSides; ++i ) {
-        geometry_brush_side_attributes_t attrs{};
-        geometry_status_t s =
-            BrushSideAttributeStore_TryGet( pStore, i, &attrs );
-        if ( s != geometry_status_t::OK ) { continue; }
+    const common::usize cSides = BrushSolid_SideCount( pBrush );
+    for ( common::usize iSide = 0u; iSide < cSides; ++iSide ) {
+        if ( !IsFirstAttributeReference( pBrush, iSide ) ) { continue; }
+        const common::usize iAttribute = static_cast<common::usize>(
+            pBrush->sides.pData[iSide].iAttributeIndex );
+        const geometry_brush_side_attributes_t transformed =
+            TextureLockRotated(
+                pStore->records.pData[iAttribute], combined, rotation );
+        const geometry_status_t status = BrushSideAttributes_Validate(
+            policy.numerical, transformed );
+        if ( status != geometry_status_t::OK ) { return status; }
+    }
 
-        // Rotate the UV origin through the full pivot-relative transform.
-        attrs.uvProjection.origin = math::Affine3d_TransformPoint(
-            combined, attrs.uvProjection.origin );
-
-        // Rotate the UV axes as directions (no translation component).
-        attrs.uvProjection.uAxis = math::Affine3d_TransformDirection(
-            rotation, attrs.uvProjection.uAxis );
-        attrs.uvProjection.vAxis = math::Affine3d_TransformDirection(
-            rotation, attrs.uvProjection.vAxis );
-        attrs.uvProjection.normal = math::Affine3d_TransformDirection(
-            rotation, attrs.uvProjection.normal );
-
-        (void)BrushSideAttributeStore_TrySet(
-            pStore, policy.numerical, i, attrs );
+    for ( common::usize iSide = 0u; iSide < cSides; ++iSide ) {
+        if ( !IsFirstAttributeReference( pBrush, iSide ) ) { continue; }
+        const common::usize iAttribute = static_cast<common::usize>(
+            pBrush->sides.pData[iSide].iAttributeIndex );
+        pStore->records.pData[iAttribute] = TextureLockRotated(
+            pStore->records.pData[iAttribute], combined, rotation );
     }
 
     return geometry_status_t::OK;
 }
 
 geometry_status_t BrushTransform_TextureLockScale(
+    const brush_solid_t *pBrush,
     geometry_brush_side_attribute_store_t *pStore,
-    common::usize cSides,
     math::vec3d_t pivot,
     math::vec3d_t scale,
     const geometry_policy_t &policy ) noexcept
 {
-    if ( pStore == nullptr ) {
-        return geometry_status_t::INVALID_ARGUMENT;
-    }
     if ( !math::Vec3d_IsFinite( scale ) ||
          !math::Vec3d_IsFinite( pivot ) ) {
         return geometry_status_t::INVALID_ARGUMENT;
     }
     if ( scale.x <= 0.0 || scale.y <= 0.0 || scale.z <= 0.0 ) {
         return geometry_status_t::INVALID_ARGUMENT;
+    }
+
+    const geometry_status_t bindings =
+        ValidateTextureLockBindings( pBrush, pStore, policy );
+    if ( bindings != geometry_status_t::OK ) {
+        return bindings;
     }
 
     // Build the pivot-relative scale transform for the UV origin.
@@ -314,69 +465,31 @@ geometry_status_t BrushTransform_TextureLockScale(
         fromOrigin,
         math::Affine3d_Multiply( scaleXform, toOrigin ) );
 
-    for ( common::usize i = 0u; i < cSides; ++i ) {
-        geometry_brush_side_attributes_t attrs{};
-        geometry_status_t s =
-            BrushSideAttributeStore_TryGet( pStore, i, &attrs );
-        if ( s != geometry_status_t::OK ) { continue; }
+    const common::usize cSides = BrushSolid_SideCount( pBrush );
+    for ( common::usize iSide = 0u; iSide < cSides; ++iSide ) {
+        if ( !IsFirstAttributeReference( pBrush, iSide ) ) { continue; }
+        const common::usize iAttribute = static_cast<common::usize>(
+            pBrush->sides.pData[iSide].iAttributeIndex );
+        const geometry_brush_side_attributes_t transformed =
+            TextureLockScaled(
+                pStore->records.pData[iAttribute],
+                combined,
+                scaleXform,
+                scale );
+        const geometry_status_t status = BrushSideAttributes_Validate(
+            policy.numerical, transformed );
+        if ( status != geometry_status_t::OK ) { return status; }
+    }
 
-        // Scale the UV origin through the pivot-relative transform.
-        attrs.uvProjection.origin = math::Affine3d_TransformPoint(
-            combined, attrs.uvProjection.origin );
-
-        // Adjust worldUnitsPerUv by the scale factor projected onto each
-        // UV axis. This keeps the texel density constant after scaling.
-        const common::f64 uScale =
-            math::Scalar_Abs( scale.x * attrs.uvProjection.uAxis.x ) +
-            math::Scalar_Abs( scale.y * attrs.uvProjection.uAxis.y ) +
-            math::Scalar_Abs( scale.z * attrs.uvProjection.uAxis.z );
-        const common::f64 vScale =
-            math::Scalar_Abs( scale.x * attrs.uvProjection.vAxis.x ) +
-            math::Scalar_Abs( scale.y * attrs.uvProjection.vAxis.y ) +
-            math::Scalar_Abs( scale.z * attrs.uvProjection.vAxis.z );
-
-        if ( uScale > 1.0e-12 ) {
-            attrs.uvProjection.worldUnitsPerUv.x *= uScale;
-        }
-        if ( vScale > 1.0e-12 ) {
-            attrs.uvProjection.worldUnitsPerUv.y *= vScale;
-        }
-
-        // Scale the UV axes — they must follow the geometry.
-        attrs.uvProjection.uAxis = math::Affine3d_TransformDirection(
-            scaleXform, attrs.uvProjection.uAxis );
-        attrs.uvProjection.vAxis = math::Affine3d_TransformDirection(
-            scaleXform, attrs.uvProjection.vAxis );
-
-        // Renormalize the UV axes to unit length.
-        const common::f64 uLen =
-            math::Scalar_Sqrt( math::Vec3d_LengthSquared(
-                attrs.uvProjection.uAxis ) );
-        const common::f64 vLen =
-            math::Scalar_Sqrt( math::Vec3d_LengthSquared(
-                attrs.uvProjection.vAxis ) );
-        if ( uLen > 1.0e-12 ) {
-            attrs.uvProjection.uAxis = math::Vec3d_Scale(
-                attrs.uvProjection.uAxis, 1.0 / uLen );
-        }
-        if ( vLen > 1.0e-12 ) {
-            attrs.uvProjection.vAxis = math::Vec3d_Scale(
-                attrs.uvProjection.vAxis, 1.0 / vLen );
-        }
-
-        // Recompute normal from the scaled axes.
-        attrs.uvProjection.normal = math::Vec3d_Cross(
-            attrs.uvProjection.uAxis, attrs.uvProjection.vAxis );
-        const common::f64 nLen =
-            math::Scalar_Sqrt( math::Vec3d_LengthSquared(
-                attrs.uvProjection.normal ) );
-        if ( nLen > 1.0e-12 ) {
-            attrs.uvProjection.normal = math::Vec3d_Scale(
-                attrs.uvProjection.normal, 1.0 / nLen );
-        }
-
-        (void)BrushSideAttributeStore_TrySet(
-            pStore, policy.numerical, i, attrs );
+    for ( common::usize iSide = 0u; iSide < cSides; ++iSide ) {
+        if ( !IsFirstAttributeReference( pBrush, iSide ) ) { continue; }
+        const common::usize iAttribute = static_cast<common::usize>(
+            pBrush->sides.pData[iSide].iAttributeIndex );
+        pStore->records.pData[iAttribute] = TextureLockScaled(
+            pStore->records.pData[iAttribute],
+            combined,
+            scaleXform,
+            scale );
     }
 
     return geometry_status_t::OK;

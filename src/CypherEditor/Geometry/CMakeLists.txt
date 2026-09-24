@@ -37,6 +37,8 @@ add_library(CypherEditorGeometry STATIC
     Kernel/CypherGeometry_Kernel_ConvexHull.h
     Representations/Brush/CypherGeometry_BrushSolid.cpp
     Representations/Brush/CypherGeometry_BrushSolid.h
+    Representations/Brush/CypherGeometry_BrushSource.cpp
+    Representations/Brush/CypherGeometry_BrushSource.h
     Representations/Brush/CypherGeometry_BrushBoundary.cpp
     Representations/Brush/CypherGeometry_BrushBoundary.h
     Representations/Brush/CypherGeometry_BrushGenerator.cpp
@@ -146,6 +148,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Kernel/CypherGeometry_Kernel_CoordinateKey_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Attributes/CypherGeometry_Attributes_Schema_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushSolid_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushSource_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushValidation_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Document/CypherGeometry_Document_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Transactions/CypherGeometry_Transaction_Tests.cpp"

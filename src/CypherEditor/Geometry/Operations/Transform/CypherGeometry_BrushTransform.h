@@ -79,12 +79,13 @@ CYPHER_NODISCARD geometry_status_t BrushTransform_TryApplyAffine(
 // Texture lock (Gate 8)
 // ---------------------------------------------------------------------------
 
-// Adjusts UV projections in an attribute store so textures remain stationary
-// on the brush surface after a translation. Each side's UV origin shifts by
-// the same offset that moved the brush planes.
+// Adjusts the UV projections referenced by a brush so textures remain
+// stationary on its surfaces after a translation. Attribute records are
+// addressed through each side's iAttributeIndex. A shared record is updated
+// exactly once and an unreferenced record is left untouched.
 CYPHER_NODISCARD geometry_status_t BrushTransform_TextureLockTranslate(
+    const brush_solid_t *pBrush,
     geometry_brush_side_attribute_store_t *pStore,
-    common::usize cSides,
     math::vec3d_t offset,
     const geometry_policy_t &policy ) noexcept;
 
@@ -93,8 +94,8 @@ CYPHER_NODISCARD geometry_status_t BrushTransform_TextureLockTranslate(
 // applied to the brush planes. The UV origin is transformed through the
 // full pivot-relative rotation.
 CYPHER_NODISCARD geometry_status_t BrushTransform_TextureLockRotate(
+    const brush_solid_t *pBrush,
     geometry_brush_side_attribute_store_t *pStore,
-    common::usize cSides,
     math::vec3d_t pivot,
     math::affine3d_t rotation,
     const geometry_policy_t &policy ) noexcept;
@@ -104,8 +105,8 @@ CYPHER_NODISCARD geometry_status_t BrushTransform_TextureLockRotate(
 // is adjusted by the corresponding axis scale factors projected onto the
 // UV axes.
 CYPHER_NODISCARD geometry_status_t BrushTransform_TextureLockScale(
+    const brush_solid_t *pBrush,
     geometry_brush_side_attribute_store_t *pStore,
-    common::usize cSides,
     math::vec3d_t pivot,
     math::vec3d_t scale,
     const geometry_policy_t &policy ) noexcept;

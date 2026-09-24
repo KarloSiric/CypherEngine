@@ -104,6 +104,18 @@ common::f64 BoundarySignedVolume( const brush_boundary_t &boundary )
     return sixTimesVolume / 6.0;
 }
 
+void BindEverySideToAttribute(
+    brush_solid_t *pBrush,
+    common::u32 iAttribute )
+{
+    REQUIRE( pBrush != nullptr );
+    for ( common::usize iSide = 0u;
+          iSide < BrushSolid_SideCount( pBrush );
+          ++iSide ) {
+        pBrush->sides.pData[iSide].iAttributeIndex = iAttribute;
+    }
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -524,6 +536,7 @@ TEST_CASE( "TextureLock: translate shifts UV origin by offset",
            "[Gate8][TextureLock]" )
 {
     TransformFixture f;
+    BindEverySideToAttribute( &f.brush, 0u );
 
     // Build an attribute store with one side whose UV origin is at (1,2,3).
     geometry_brush_side_attribute_store_t store{};
@@ -540,7 +553,7 @@ TEST_CASE( "TextureLock: translate shifts UV origin by offset",
 
     const math::vec3d_t offset = Vec3d_Make( 5.0, 10.0, 15.0 );
     REQUIRE( BrushTransform_TextureLockTranslate(
-                 &store, 1u, offset, f.policy ) ==
+                 &f.brush, &store, offset, f.policy ) ==
              geometry_status_t::OK );
 
     geometry_brush_side_attributes_t result{};
@@ -559,6 +572,7 @@ TEST_CASE( "TextureLock: translate preserves UV axes and scale",
            "[Gate8][TextureLock]" )
 {
     TransformFixture f;
+    BindEverySideToAttribute( &f.brush, 0u );
 
     geometry_brush_side_attribute_store_t store{};
     REQUIRE( BrushSideAttributeStore_Init( &store, &f.allocator ) ==
@@ -575,7 +589,7 @@ TEST_CASE( "TextureLock: translate preserves UV axes and scale",
              geometry_status_t::OK );
 
     REQUIRE( BrushTransform_TextureLockTranslate(
-                 &store, 1u, Vec3d_Make( 10.0, 20.0, 30.0 ),
+                 &f.brush, &store, Vec3d_Make( 10.0, 20.0, 30.0 ),
                  f.policy ) ==
              geometry_status_t::OK );
 
@@ -603,6 +617,7 @@ TEST_CASE( "TextureLock: rotate 90° Z rotates UV axes accordingly",
            "[Gate8][TextureLock]" )
 {
     TransformFixture f;
+    BindEverySideToAttribute( &f.brush, 0u );
 
     geometry_brush_side_attribute_store_t store{};
     REQUIRE( BrushSideAttributeStore_Init( &store, &f.allocator ) ==
@@ -627,7 +642,7 @@ TEST_CASE( "TextureLock: rotate 90° Z rotates UV axes accordingly",
         Vec3d_Make( 0.0, 0.0, 0.0 ) );
 
     REQUIRE( BrushTransform_TextureLockRotate(
-                 &store, 1u, Vec3d_Make( 0.0, 0.0, 0.0 ),
+                 &f.brush, &store, Vec3d_Make( 0.0, 0.0, 0.0 ),
                  rot, f.policy ) ==
              geometry_status_t::OK );
 
@@ -652,6 +667,7 @@ TEST_CASE( "TextureLock: rotate transforms origin through pivot",
            "[Gate8][TextureLock]" )
 {
     TransformFixture f;
+    BindEverySideToAttribute( &f.brush, 0u );
 
     geometry_brush_side_attribute_store_t store{};
     REQUIRE( BrushSideAttributeStore_Init( &store, &f.allocator ) ==
@@ -675,7 +691,7 @@ TEST_CASE( "TextureLock: rotate transforms origin through pivot",
         Vec3d_Make( 0.0, 0.0, 0.0 ) );
 
     REQUIRE( BrushTransform_TextureLockRotate(
-                 &store, 1u, Vec3d_Make( 1.0, 0.0, 0.0 ),
+                 &f.brush, &store, Vec3d_Make( 1.0, 0.0, 0.0 ),
                  rot, f.policy ) ==
              geometry_status_t::OK );
 
@@ -698,6 +714,7 @@ TEST_CASE( "TextureLock: uniform scale adjusts worldUnitsPerUv",
            "[Gate8][TextureLock]" )
 {
     TransformFixture f;
+    BindEverySideToAttribute( &f.brush, 0u );
 
     geometry_brush_side_attribute_store_t store{};
     REQUIRE( BrushSideAttributeStore_Init( &store, &f.allocator ) ==
@@ -717,7 +734,7 @@ TEST_CASE( "TextureLock: uniform scale adjusts worldUnitsPerUv",
 
     // 2x uniform scale from origin.
     REQUIRE( BrushTransform_TextureLockScale(
-                 &store, 1u,
+                 &f.brush, &store,
                  Vec3d_Make( 0.0, 0.0, 0.0 ),
                  Vec3d_Make( 2.0, 2.0, 2.0 ),
                  f.policy ) ==
@@ -744,6 +761,7 @@ TEST_CASE( "TextureLock: scale translates UV origin relative to pivot",
            "[Gate8][TextureLock]" )
 {
     TransformFixture f;
+    BindEverySideToAttribute( &f.brush, 0u );
 
     geometry_brush_side_attribute_store_t store{};
     REQUIRE( BrushSideAttributeStore_Init( &store, &f.allocator ) ==
@@ -760,7 +778,7 @@ TEST_CASE( "TextureLock: scale translates UV origin relative to pivot",
     // Relative to pivot: (4-2, 0, 0) = (2, 0, 0).
     // After 2x: (4, 0, 0). Back to world: (4+2, 0, 0) = (6, 0, 0).
     REQUIRE( BrushTransform_TextureLockScale(
-                 &store, 1u,
+                 &f.brush, &store,
                  Vec3d_Make( 2.0, 0.0, 0.0 ),
                  Vec3d_Make( 2.0, 2.0, 2.0 ),
                  f.policy ) ==
@@ -777,6 +795,132 @@ TEST_CASE( "TextureLock: scale translates UV origin relative to pivot",
     BrushSideAttributeStore_Shutdown( &store );
 }
 
+TEST_CASE( "TextureLock: follows shared non-ordinal bindings once",
+           "[Gate8][TextureLock]" )
+{
+    TransformFixture f;
+    BindEverySideToAttribute( &f.brush, 1u );
+
+    geometry_brush_side_attribute_store_t store{};
+    REQUIRE( BrushSideAttributeStore_Init( &store, &f.allocator ) ==
+             geometry_status_t::OK );
+
+    geometry_brush_side_attributes_t unused =
+        BrushSideAttributes_MakeDefault();
+    unused.uvProjection.origin = Vec3d_Make( 10.0, 20.0, 30.0 );
+    REQUIRE( BrushSideAttributeStore_TryAppend(
+                 &store, f.policy, unused, nullptr ) ==
+             geometry_status_t::OK );
+
+    geometry_brush_side_attributes_t shared =
+        BrushSideAttributes_MakeDefault();
+    shared.uvProjection.origin = Vec3d_Make( 1.0, 2.0, 3.0 );
+    REQUIRE( BrushSideAttributeStore_TryAppend(
+                 &store, f.policy, shared, nullptr ) ==
+             geometry_status_t::OK );
+
+    REQUIRE( BrushTransform_TextureLockTranslate(
+                 &f.brush,
+                 &store,
+                 Vec3d_Make( 4.0, 5.0, 6.0 ),
+                 f.policy ) == geometry_status_t::OK );
+
+    geometry_brush_side_attributes_t result{};
+    REQUIRE( BrushSideAttributeStore_TryGet( &store, 0u, &result ) ==
+             geometry_status_t::OK );
+    CHECK( result.uvProjection.origin.x == Approx( 10.0 ) );
+    CHECK( result.uvProjection.origin.y == Approx( 20.0 ) );
+    CHECK( result.uvProjection.origin.z == Approx( 30.0 ) );
+
+    REQUIRE( BrushSideAttributeStore_TryGet( &store, 1u, &result ) ==
+             geometry_status_t::OK );
+    CHECK( result.uvProjection.origin.x == Approx( 5.0 ) );
+    CHECK( result.uvProjection.origin.y == Approx( 7.0 ) );
+    CHECK( result.uvProjection.origin.z == Approx( 9.0 ) );
+
+    BrushSideAttributeStore_Shutdown( &store );
+}
+
+TEST_CASE( "TextureLock: dangling binding is rejected without mutation",
+           "[Gate8][TextureLock]" )
+{
+    TransformFixture f;
+    BindEverySideToAttribute( &f.brush, 0u );
+    f.brush.sides.pData[3u].iAttributeIndex = 9u;
+
+    geometry_brush_side_attribute_store_t store{};
+    REQUIRE( BrushSideAttributeStore_Init( &store, &f.allocator ) ==
+             geometry_status_t::OK );
+    geometry_brush_side_attributes_t attributes =
+        BrushSideAttributes_MakeDefault();
+    attributes.uvProjection.origin = Vec3d_Make( 1.0, 2.0, 3.0 );
+    REQUIRE( BrushSideAttributeStore_TryAppend(
+                 &store, f.policy, attributes, nullptr ) ==
+             geometry_status_t::OK );
+
+    CHECK( BrushTransform_TextureLockTranslate(
+               &f.brush,
+               &store,
+               Vec3d_Make( 5.0, 0.0, 0.0 ),
+               f.policy ) == geometry_status_t::CORRUPT_STATE );
+
+    geometry_brush_side_attributes_t result{};
+    REQUIRE( BrushSideAttributeStore_TryGet( &store, 0u, &result ) ==
+             geometry_status_t::OK );
+    CHECK( result.uvProjection.origin.x == Approx( 1.0 ) );
+    CHECK( result.uvProjection.origin.y == Approx( 2.0 ) );
+    CHECK( result.uvProjection.origin.z == Approx( 3.0 ) );
+
+    BrushSideAttributeStore_Shutdown( &store );
+}
+
+TEST_CASE( "TextureLock: preflight keeps every record unchanged on failure",
+           "[Gate8][TextureLock]" )
+{
+    TransformFixture f;
+    f.policy.numerical.fCoordinateMagnitudeLimit = 10.0;
+    for ( common::usize iSide = 0u;
+          iSide < BrushSolid_SideCount( &f.brush );
+          ++iSide ) {
+        f.brush.sides.pData[iSide].iAttributeIndex =
+            iSide < 3u ? 0u : 1u;
+    }
+
+    geometry_brush_side_attribute_store_t store{};
+    REQUIRE( BrushSideAttributeStore_Init( &store, &f.allocator ) ==
+             geometry_status_t::OK );
+
+    geometry_brush_side_attributes_t first =
+        BrushSideAttributes_MakeDefault();
+    first.uvProjection.origin = Vec3d_Make( 1.0, 0.0, 0.0 );
+    REQUIRE( BrushSideAttributeStore_TryAppend(
+                 &store, f.policy, first, nullptr ) ==
+             geometry_status_t::OK );
+
+    geometry_brush_side_attributes_t second =
+        BrushSideAttributes_MakeDefault();
+    second.uvProjection.origin = Vec3d_Make( 9.0, 0.0, 0.0 );
+    REQUIRE( BrushSideAttributeStore_TryAppend(
+                 &store, f.policy, second, nullptr ) ==
+             geometry_status_t::OK );
+
+    CHECK( BrushTransform_TextureLockTranslate(
+               &f.brush,
+               &store,
+               Vec3d_Make( 2.0, 0.0, 0.0 ),
+               f.policy ) == geometry_status_t::LIMIT_EXCEEDED );
+
+    geometry_brush_side_attributes_t result{};
+    REQUIRE( BrushSideAttributeStore_TryGet( &store, 0u, &result ) ==
+             geometry_status_t::OK );
+    CHECK( result.uvProjection.origin.x == Approx( 1.0 ) );
+    REQUIRE( BrushSideAttributeStore_TryGet( &store, 1u, &result ) ==
+             geometry_status_t::OK );
+    CHECK( result.uvProjection.origin.x == Approx( 9.0 ) );
+
+    BrushSideAttributeStore_Shutdown( &store );
+}
+
 // ---------------------------------------------------------------------------
 // Texture lock — error paths
 // ---------------------------------------------------------------------------
@@ -784,10 +928,10 @@ TEST_CASE( "TextureLock: scale translates UV origin relative to pivot",
 TEST_CASE( "TextureLock: null store rejected by all three",
            "[Gate8][TextureLock]" )
 {
-    geometry_policy_t policy{};
+    TransformFixture f;
     REQUIRE( BrushTransform_TextureLockTranslate(
-                 nullptr, 1u,
-                 Vec3d_Make( 1.0, 0.0, 0.0 ), policy ) ==
+                 &f.brush, nullptr,
+                 Vec3d_Make( 1.0, 0.0, 0.0 ), f.policy ) ==
              geometry_status_t::INVALID_ARGUMENT );
 
     const math::affine3d_t rot = math::Affine3d_FromColumns(
@@ -796,30 +940,35 @@ TEST_CASE( "TextureLock: null store rejected by all three",
         Vec3d_Make( 0.0, 0.0, 1.0 ),
         Vec3d_Make( 0.0, 0.0, 0.0 ) );
     REQUIRE( BrushTransform_TextureLockRotate(
-                 nullptr, 1u,
-                 Vec3d_Make( 0.0, 0.0, 0.0 ), rot, policy ) ==
+                 &f.brush, nullptr,
+                 Vec3d_Make( 0.0, 0.0, 0.0 ), rot, f.policy ) ==
              geometry_status_t::INVALID_ARGUMENT );
 
     REQUIRE( BrushTransform_TextureLockScale(
-                 nullptr, 1u,
+                 &f.brush, nullptr,
                  Vec3d_Make( 0.0, 0.0, 0.0 ),
-                 Vec3d_Make( 1.0, 1.0, 1.0 ), policy ) ==
+                 Vec3d_Make( 1.0, 1.0, 1.0 ), f.policy ) ==
              geometry_status_t::INVALID_ARGUMENT );
 }
 
 TEST_CASE( "TextureLock: zero scale rejected",
            "[Gate8][TextureLock]" )
 {
-    common::allocator_t allocator{ *common::Allocator_GetSystem() };
-    geometry_policy_t policy{};
+    TransformFixture f;
     geometry_brush_side_attribute_store_t store{};
-    REQUIRE( BrushSideAttributeStore_Init( &store, &allocator ) ==
+    REQUIRE( BrushSideAttributeStore_Init( &store, &f.allocator ) ==
+             geometry_status_t::OK );
+
+    const geometry_brush_side_attributes_t attrs =
+        BrushSideAttributes_MakeDefault();
+    REQUIRE( BrushSideAttributeStore_TryAppend(
+                 &store, f.policy, attrs, nullptr ) ==
              geometry_status_t::OK );
 
     REQUIRE( BrushTransform_TextureLockScale(
-                 &store, 0u,
+                 &f.brush, &store,
                  Vec3d_Make( 0.0, 0.0, 0.0 ),
-                 Vec3d_Make( 0.0, 1.0, 1.0 ), policy ) ==
+                 Vec3d_Make( 0.0, 1.0, 1.0 ), f.policy ) ==
              geometry_status_t::INVALID_ARGUMENT );
 
     BrushSideAttributeStore_Shutdown( &store );
