@@ -39,12 +39,16 @@ add_library(CypherEditorGeometry STATIC
     Kernel/CypherGeometry_Kernel_CoordinateKey.h
     Representations/Brush/CypherGeometry_BrushSolid.cpp
     Representations/Brush/CypherGeometry_BrushSolid.h
+    Queries/CypherGeometry_BrushQueries.cpp
+    Queries/CypherGeometry_BrushQueries.h
     Representations/Brush/CypherGeometry_BrushBoundary.cpp
     Representations/Brush/CypherGeometry_BrushBoundary.h
     Representations/Brush/CypherGeometry_BrushGenerator.cpp
     Representations/Brush/CypherGeometry_BrushGenerator.h
     Representations/Brush/CypherGeometry_BrushValidation.cpp
     Representations/Brush/CypherGeometry_BrushValidation.h
+    Tessellation/CypherGeometry_BrushTessellation.cpp
+    Tessellation/CypherGeometry_BrushTessellation.h
     Transactions/CypherGeometry_ChangeRecord.cpp
     Transactions/CypherGeometry_ChangeRecord.h
     Transactions/CypherGeometry_History.cpp
@@ -64,6 +68,8 @@ target_include_directories(CypherEditorGeometry
         "${CMAKE_CURRENT_SOURCE_DIR}/Representations/Brush"
         "${CMAKE_CURRENT_SOURCE_DIR}/Document"
         "${CMAKE_CURRENT_SOURCE_DIR}/Transactions"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Queries"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Tessellation"
 )
 target_link_libraries(CypherEditorGeometry
     PUBLIC
@@ -82,8 +88,10 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Kernel/CypherGeometry_Kernel_Classification_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Kernel/CypherGeometry_Kernel_CoordinateKey_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Attributes/CypherGeometry_Attributes_Schema_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Queries/CypherGeometry_BrushQueries_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushCanonical_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushSolid_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Tessellation/CypherGeometry_BrushTessellation_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Transactions/CypherGeometry_Transaction_Tests.cpp"
     )
     target_link_libraries(cypher_editor_geometry_contract_tests
