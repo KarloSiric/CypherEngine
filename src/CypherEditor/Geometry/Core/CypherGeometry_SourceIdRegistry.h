@@ -157,6 +157,13 @@ CYPHER_NODISCARD bool GeometrySourceIdRegistry_Contains(
     const geometry_source_id_registry_t *pRegistry,
     geometry_source_id_t id ) noexcept;
 
+// True when this identity domain has ever admitted id, whether it is live or
+// retired. A claimed-but-retired ID is restorable with RestoreRetired; an
+// unclaimed ID is foreign to this document and must go through a remap.
+CYPHER_NODISCARD bool GeometrySourceIdRegistry_IsClaimed(
+    const geometry_source_id_registry_t *pRegistry,
+    geometry_source_id_t id ) noexcept;
+
 CYPHER_NODISCARD common::usize GeometrySourceIdRegistry_Count(
     const geometry_source_id_registry_t *pRegistry ) noexcept;
 

@@ -253,6 +253,100 @@ geometry_status_t BrushValidation_Quick(
 }
 
 // ---------------------------------------------------------------------------
+// Boundary checks
+// ---------------------------------------------------------------------------
+
+brush_validation_result_t BrushValidation_CheckBoundary(
+    const brush_solid_t *pBrush,
+    const brush_boundary_t *pBoundary,
+    const geometry_policy_t &policy ) noexcept
+{
+    brush_validation_result_t result{};
+    if ( pBrush == nullptr || pBrush->sides.pAllocator == nullptr ||
+         pBoundary == nullptr || pBoundary->vertices.pAllocator == nullptr ) {
+        result.status = geometry_status_t::NOT_INITIALIZED;
+        return result;
+    }
+    if ( BrushBoundary_FaceCount( pBoundary ) == 0u ) {
+        result.status = geometry_status_t::DEGENERATE;
+        return result;
+    }
+    // Every face must reference a real side; a boundary built from a
+    // different brush would otherwise index out of range below.
+    for ( common::usize i = 0u; i < BrushBoundary_FaceCount( pBoundary ); ++i ) {
+        if ( pBoundary->faces.pData[i].iSide >= BrushSolid_SideCount( pBrush ) ) {
+            result.status = geometry_status_t::CORRUPT_STATE;
+            return result;
+        }
+    }
+
+    // Populate counts for the caller's diagnostic use.
+    result.cVertices = static_cast<common::u32>(
+        BrushBoundary_VertexCount( pBoundary ) );
+    result.cEdges = static_cast<common::u32>(
+        BrushBoundary_EdgeCount( pBoundary ) );
+    result.cFaces = static_cast<common::u32>(
+        BrushBoundary_FaceCount( pBoundary ) );
+
+    // ---- Euler relation: v - e + f = 2 for a closed convex polyhedron ----
+
+    result.eulerCharacteristic =
+        static_cast<common::i32>( result.cVertices ) -
+        static_cast<common::i32>( result.cEdges ) +
+        static_cast<common::i32>( result.cFaces );
+
+    if ( result.eulerCharacteristic != 2 ) {
+        result.status = geometry_status_t::OPEN_VOLUME;
+        return result;
+    }
+
+    // ---- Every side must contribute exactly one face ----------------------
+
+    const common::usize cSides = BrushSolid_SideCount( pBrush );
+    if ( result.cFaces != static_cast<common::u32>( cSides ) ) {
+        // A side with no face means redundant planes or an unbounded solid.
+        // More faces than sides should be impossible for convex brushes.
+        result.status = geometry_status_t::DEGENERATE;
+        return result;
+    }
+
+    // ---- Every face must have at least 3 vertices (triangle minimum) -----
+
+    for ( common::u32 i = 0u; i < result.cFaces; ++i ) {
+        if ( pBoundary->faces.pData[i].cVertices < 3u ) {
+            result.status = geometry_status_t::DEGENERATE;
+            return result;
+        }
+    }
+
+    // ---- Every edge must be shared by exactly two faces ------------------
+
+    if ( !VerifyEdgeSharing( pBoundary ) ) {
+        result.status = geometry_status_t::OPEN_VOLUME;
+        return result;
+    }
+
+    // ---- Face winding must agree with side plane normals -----------------
+
+    result.status = VerifyFaceWindings(
+        pBoundary, pBrush, policy.numerical.fMinimumFaceArea );
+    if ( result.status != geometry_status_t::OK ) {
+        return result;
+    }
+
+    // ---- Every edge must meet the minimum edge length --------------------
+
+    if ( !VerifyEdgeLengths( pBoundary, policy.numerical.fMinimumEdgeLength ) ) {
+        result.status = geometry_status_t::DEGENERATE;
+        return result;
+    }
+
+    result.status = geometry_status_t::OK;
+    result.bWatertight = true;
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // Deep validation
 // ---------------------------------------------------------------------------
 
@@ -282,77 +376,8 @@ brush_validation_result_t BrushValidation_Deep(
         return result;
     }
 
-    // Populate counts for the caller's diagnostic use.
-    result.cVertices = static_cast<common::u32>(
-        BrushBoundary_VertexCount( &boundary ) );
-    result.cEdges = static_cast<common::u32>(
-        BrushBoundary_EdgeCount( &boundary ) );
-    result.cFaces = static_cast<common::u32>(
-        BrushBoundary_FaceCount( &boundary ) );
-
-    // ---- Euler relation: v - e + f = 2 for a closed convex polyhedron ----
-
-    result.eulerCharacteristic =
-        static_cast<common::i32>( result.cVertices ) -
-        static_cast<common::i32>( result.cEdges ) +
-        static_cast<common::i32>( result.cFaces );
-
-    if ( result.eulerCharacteristic != 2 ) {
-        result.status = geometry_status_t::OPEN_VOLUME;
-        BrushBoundary_Shutdown( &boundary );
-        return result;
-    }
-
-    // ---- Every side must contribute exactly one face ----------------------
-
-    const common::usize cSides = BrushSolid_SideCount( pBrush );
-    if ( result.cFaces != static_cast<common::u32>( cSides ) ) {
-        // A side with no face means redundant planes or an unbounded solid.
-        // More faces than sides should be impossible for convex brushes.
-        result.status = geometry_status_t::DEGENERATE;
-        BrushBoundary_Shutdown( &boundary );
-        return result;
-    }
-
-    // ---- Every face must have at least 3 vertices (triangle minimum) -----
-
-    for ( common::u32 i = 0u; i < result.cFaces; ++i ) {
-        if ( boundary.faces.pData[i].cVertices < 3u ) {
-            result.status = geometry_status_t::DEGENERATE;
-            BrushBoundary_Shutdown( &boundary );
-            return result;
-        }
-    }
-
-    // ---- Every edge must be shared by exactly two faces ------------------
-
-    if ( !VerifyEdgeSharing( &boundary ) ) {
-        result.status = geometry_status_t::OPEN_VOLUME;
-        BrushBoundary_Shutdown( &boundary );
-        return result;
-    }
-
-    // ---- Face winding must agree with side plane normals -----------------
-
-    result.status = VerifyFaceWindings(
-        &boundary, pBrush, policy.numerical.fMinimumFaceArea );
-    if ( result.status != geometry_status_t::OK ) {
-        BrushBoundary_Shutdown( &boundary );
-        return result;
-    }
-
-    // ---- Every edge must meet the minimum edge length --------------------
-
-    if ( !VerifyEdgeLengths( &boundary, policy.numerical.fMinimumEdgeLength ) ) {
-        result.status = geometry_status_t::DEGENERATE;
-        BrushBoundary_Shutdown( &boundary );
-        return result;
-    }
-
+    result = BrushValidation_CheckBoundary( pBrush, &boundary, policy );
     BrushBoundary_Shutdown( &boundary );
-
-    result.status = geometry_status_t::OK;
-    result.bWatertight = true;
     return result;
 }
 

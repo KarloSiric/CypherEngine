@@ -103,6 +103,16 @@ CYPHER_NODISCARD brush_validation_result_t BrushValidation_Deep(
     const geometry_policy_t &policy,
     const common::allocator_t *pAllocator ) noexcept;
 
+// Runs the topological half of deep validation against a boundary the
+// caller already reconstructed from pBrush with the same policy. Callers
+// that keep the boundary (immutable brush values cache it) use this to
+// avoid reconstructing twice. Quick validation is NOT repeated here; the
+// caller must have run it. An empty boundary reports DEGENERATE.
+CYPHER_NODISCARD brush_validation_result_t BrushValidation_CheckBoundary(
+    const brush_solid_t *pBrush,
+    const brush_boundary_t *pBoundary,
+    const geometry_policy_t &policy ) noexcept;
+
 } // namespace cypher::editor::geometry
 
 #endif // CYPHER_EDITOR_GEOMETRY_BRUSH_VALIDATION_H

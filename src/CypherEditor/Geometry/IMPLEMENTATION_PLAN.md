@@ -52,6 +52,15 @@ deep validation checks Euler, edge sharing, Newell winding, face area, and
 edge length. Unbounded, redundant, contradictory, out-of-range, and
 over-limit plane sets fail without publishing a boundary.
 
+Gate 3 is in progress. The Document store is implemented: committed brushes
+are immutable, reference-counted values (planes, side attributes, cached
+canonical boundary, bounds) validated once at creation; the document applies
+change sets of insert/replace/remove by brush source ID atomically against an
+expected revision, keeps an owner map from every committed source ID to its
+brush, and retires or restores identities in the registry as sides appear and
+disappear. Snapshots pin one reference per value, sort by brush ID, are cached
+per revision, and outlive both later commits and the document itself.
+
 Every module outside `Core` is still a design contract unless its source is
 explicitly listed in `src/CypherEditor/Geometry/CMakeLists.txt`.
 

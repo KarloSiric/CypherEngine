@@ -126,6 +126,37 @@ geometry_status_t BrushSideAttributeStore_TryAppend(
     return geometry_status_t::OK;
 }
 
+geometry_status_t BrushSideAttributeStore_TryAppendDefaults(
+    geometry_brush_side_attribute_store_t *pStore,
+    const geometry_policy_t &policy,
+    usize cCount ) noexcept
+{
+    if ( !IsInitialized( pStore ) ) {
+        return geometry_status_t::NOT_INITIALIZED;
+    }
+    const usize nCount = common::Vector_Count( &pStore->records );
+    // Written as a subtraction so a huge cCount cannot wrap the sum.
+    if ( static_cast<common::u64>( nCount ) > policy.limits.cBrushSidesPerBrushMax ||
+         static_cast<common::u64>( cCount ) >
+             policy.limits.cBrushSidesPerBrushMax - static_cast<common::u64>( nCount ) ) {
+        return geometry_status_t::LIMIT_EXCEEDED;
+    }
+    const geometry_brush_side_attributes_t defaults = BrushSideAttributes_MakeDefault();
+    const geometry_status_t validation =
+        BrushSideAttributes_Validate( policy.numerical, defaults );
+    if ( validation != geometry_status_t::OK ) {
+        return validation;
+    }
+    if ( !common::Vector_Reserve( &pStore->records, nCount + cCount ) ) {
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    for ( usize i = 0u; i < cCount; ++i ) {
+        // Cannot fail: capacity reserved above.
+        ( void )common::Vector_PushBack( &pStore->records, defaults );
+    }
+    return geometry_status_t::OK;
+}
+
 geometry_status_t BrushSideAttributeStore_TryGet(
     const geometry_brush_side_attribute_store_t *pStore,
     usize iIndex,

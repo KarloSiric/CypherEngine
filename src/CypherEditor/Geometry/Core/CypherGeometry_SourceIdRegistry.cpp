@@ -504,6 +504,15 @@ bool GeometrySourceIdRegistry_Contains(
            common::HashSet_Contains( &pRegistry->liveIds, id );
 }
 
+bool GeometrySourceIdRegistry_IsClaimed(
+    const geometry_source_id_registry_t *pRegistry,
+    geometry_source_id_t id ) noexcept
+{
+    return GeometrySourceIdRegistry_IsInitialized( pRegistry ) &&
+           GeometrySourceId_IsValid( id ) &&
+           common::HashSet_Contains( &pRegistry->claimedIds, id );
+}
+
 common::usize GeometrySourceIdRegistry_Count(
     const geometry_source_id_registry_t *pRegistry ) noexcept
 {

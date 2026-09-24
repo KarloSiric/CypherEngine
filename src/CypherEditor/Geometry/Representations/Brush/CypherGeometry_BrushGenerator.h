@@ -71,6 +71,25 @@ CYPHER_NODISCARD geometry_status_t BrushGenerator_TryMakeBox(
     math::vec3d_t center,
     math::vec3d_t halfExtents ) noexcept;
 
+// Number of source IDs a box consumes: one brush plus six sides.
+inline constexpr common::usize BRUSH_GENERATOR_BOX_ID_COUNT = 7u;
+
+// Same box, but with identities supplied by the caller: ids[0] names the
+// brush and ids[1..6] name the sides in the documented side order. This is
+// the entry point for document-owned identity, where IDs come from a
+// geometry document's registry rather than a bare allocator.
+//
+// All seven IDs must be valid and pairwise distinct (IDENTITY_CONFLICT
+// otherwise). Input validation matches TryMakeBox. On failure the brush is
+// left uninitialized.
+CYPHER_NODISCARD geometry_status_t BrushGenerator_TryMakeBoxWithIds(
+    brush_solid_t *pBrush,
+    const common::allocator_t *pAllocator,
+    const geometry_policy_t &policy,
+    const geometry_source_id_t ( &ids )[BRUSH_GENERATOR_BOX_ID_COUNT],
+    math::vec3d_t center,
+    math::vec3d_t halfExtents ) noexcept;
+
 } // namespace cypher::editor::geometry
 
 #endif // CYPHER_EDITOR_GEOMETRY_BRUSH_GENERATOR_H

@@ -201,4 +201,35 @@ void BrushSolid_Clear( brush_solid_t *pBrush ) noexcept
     common::Vector_Clear( &pBrush->sides );
 }
 
+geometry_status_t BrushSolid_TryCopyFrom(
+    brush_solid_t *pDestination,
+    const brush_solid_t *pSource,
+    const geometry_limit_policy_t &limits ) noexcept
+{
+    if ( !IsInitialized( pDestination ) || !IsInitialized( pSource ) ) {
+        return geometry_status_t::NOT_INITIALIZED;
+    }
+    if ( pDestination == pSource ) {
+        return geometry_status_t::OK;
+    }
+
+    const common::usize cSides = common::Vector_Count( &pSource->sides );
+    if ( static_cast<common::u64>( cSides ) > limits.cBrushSidesPerBrushMax ) {
+        return geometry_status_t::LIMIT_EXCEEDED;
+    }
+    // Reserve first: a failed reserve leaves the destination's contents
+    // untouched, and after it succeeds the copy below cannot fail.
+    if ( !common::Vector_Reserve( &pDestination->sides, cSides ) ) {
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+
+    common::Vector_Clear( &pDestination->sides );
+    for ( common::usize i = 0u; i < cSides; ++i ) {
+        ( void )common::Vector_PushBack(
+            &pDestination->sides, pSource->sides.pData[i] );
+    }
+    pDestination->sourceId = pSource->sourceId;
+    return geometry_status_t::OK;
+}
+
 } // namespace cypher::editor::geometry

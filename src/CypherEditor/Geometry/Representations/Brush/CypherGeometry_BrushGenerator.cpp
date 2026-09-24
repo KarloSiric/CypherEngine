@@ -65,16 +65,15 @@ f64 BoxPlaneDistance(
 
 } // namespace
 
-geometry_status_t BrushGenerator_TryMakeBox(
+geometry_status_t BrushGenerator_TryMakeBoxWithIds(
     brush_solid_t *pBrush,
     const common::allocator_t *pAllocator,
     const geometry_policy_t &policy,
-    geometry_source_id_allocator_t *pIdAllocator,
+    const geometry_source_id_t ( &ids )[BRUSH_GENERATOR_BOX_ID_COUNT],
     vec3d_t center,
     vec3d_t halfExtents ) noexcept
 {
-    if ( pBrush == nullptr || pAllocator == nullptr ||
-         pIdAllocator == nullptr ) {
+    if ( pBrush == nullptr || pAllocator == nullptr ) {
         return geometry_status_t::INVALID_ARGUMENT;
     }
 
@@ -101,22 +100,15 @@ geometry_status_t BrushGenerator_TryMakeBox(
         return geometry_status_t::LIMIT_EXCEEDED;
     }
 
-    // ---- Allocate source IDs from a staged allocator copy ----------------
-    // Allocation happens against a copy so that exhaustion partway through
-    // the seven IDs, or any later build failure, leaves the caller's
-    // allocator exactly where it was. The copy is committed at the end.
-
-    geometry_source_id_allocator_t staged = *pIdAllocator;
-    constexpr common::usize cIdCount = 7u; // 1 brush + 6 sides
-    geometry_source_id_t ids[cIdCount];
-
-    for ( common::usize i = 0u; i < cIdCount; ++i ) {
-        const geometry_source_id_result_t result =
-            GeometrySourceIdAllocator_Allocate( &staged );
-        if ( result.status != geometry_status_t::OK ) {
-            return result.status;
+    for ( common::usize i = 0u; i < BRUSH_GENERATOR_BOX_ID_COUNT; ++i ) {
+        if ( !GeometrySourceId_IsValid( ids[i] ) ) {
+            return geometry_status_t::INVALID_ARGUMENT;
         }
-        ids[i] = result.id;
+        for ( common::usize j = 0u; j < i; ++j ) {
+            if ( ids[j].value == ids[i].value ) {
+                return geometry_status_t::IDENTITY_CONFLICT;
+            }
+        }
     }
 
     // ---- Build the brush ------------------------------------------------
@@ -143,7 +135,7 @@ geometry_status_t BrushGenerator_TryMakeBox(
         side.iAttributeIndex = static_cast<common::u32>( i );
 
         // Capacity was reserved above, the plane is finite by construction,
-        // and the IDs are fresh, so this cannot fail today. It is still
+        // and the IDs are distinct, so this cannot fail today. It is still
         // checked: a silent failure here would publish a five-sided box.
         status = BrushSolid_TryAddSide( pBrush, policy.limits, side, nullptr );
         if ( status != geometry_status_t::OK ) {
@@ -152,8 +144,42 @@ geometry_status_t BrushGenerator_TryMakeBox(
         }
     }
 
-    *pIdAllocator = staged;
     return geometry_status_t::OK;
+}
+
+geometry_status_t BrushGenerator_TryMakeBox(
+    brush_solid_t *pBrush,
+    const common::allocator_t *pAllocator,
+    const geometry_policy_t &policy,
+    geometry_source_id_allocator_t *pIdAllocator,
+    vec3d_t center,
+    vec3d_t halfExtents ) noexcept
+{
+    if ( pBrush == nullptr || pAllocator == nullptr ||
+         pIdAllocator == nullptr ) {
+        return geometry_status_t::INVALID_ARGUMENT;
+    }
+
+    // IDs are drawn from a staged copy so that exhaustion partway through
+    // the seven IDs, or any later build failure, leaves the caller's
+    // allocator exactly where it was. The copy is committed at the end.
+    geometry_source_id_allocator_t staged = *pIdAllocator;
+    geometry_source_id_t ids[BRUSH_GENERATOR_BOX_ID_COUNT];
+    for ( common::usize i = 0u; i < BRUSH_GENERATOR_BOX_ID_COUNT; ++i ) {
+        const geometry_source_id_result_t result =
+            GeometrySourceIdAllocator_Allocate( &staged );
+        if ( result.status != geometry_status_t::OK ) {
+            return result.status;
+        }
+        ids[i] = result.id;
+    }
+
+    const geometry_status_t status = BrushGenerator_TryMakeBoxWithIds(
+        pBrush, pAllocator, policy, ids, center, halfExtents );
+    if ( status == geometry_status_t::OK ) {
+        *pIdAllocator = staged;
+    }
+    return status;
 }
 
 } // namespace cypher::editor::geometry

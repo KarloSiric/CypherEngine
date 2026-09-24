@@ -89,6 +89,15 @@ CYPHER_NODISCARD geometry_status_t BrushSideAttributeStore_TryAppend(
     const geometry_brush_side_attributes_t &attributes,
     CY_OUT_OPTIONAL usize *pIndexOut ) noexcept;
 
+// Appends cCount copies of BrushSideAttributes_MakeDefault(). All-or-nothing:
+// the bound is checked and capacity reserved before any record is appended,
+// so on failure the store keeps exactly its original records. Used to give a
+// freshly generated brush one record per side.
+CYPHER_NODISCARD geometry_status_t BrushSideAttributeStore_TryAppendDefaults(
+    CY_INOUT geometry_brush_side_attribute_store_t *pStore,
+    const geometry_policy_t &policy,
+    usize cCount ) noexcept;
+
 CYPHER_NODISCARD geometry_status_t BrushSideAttributeStore_TryGet(
     const geometry_brush_side_attribute_store_t *pStore,
     usize iIndex,

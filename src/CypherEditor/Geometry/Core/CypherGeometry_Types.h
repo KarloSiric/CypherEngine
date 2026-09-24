@@ -83,6 +83,12 @@ enum class geometry_status_t : u8 {
 	ALLOCATION_FAILED,
 	IDENTITY_CONFLICT,
 	UNSUPPORTED,
+	// The caller's expected document revision is no longer current: another
+	// commit landed first. Nothing was applied; rebase and retry.
+	STALE_REVISION,
+	// The operation observed a cancellation request and stopped without
+	// publishing any state.
+	CANCELLED,
 	COUNT
 };
 

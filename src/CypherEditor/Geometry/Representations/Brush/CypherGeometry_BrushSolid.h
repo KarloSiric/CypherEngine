@@ -167,6 +167,16 @@ CYPHER_NODISCARD geometry_status_t BrushSolid_TryReserve(
 // brush can be repopulated without re-allocating. Identity is preserved.
 void BrushSolid_Clear( brush_solid_t *pBrush ) noexcept;
 
+// Replaces the destination's identity and sides with a copy of the source.
+// Both brushes must be initialized; they may use different allocators.
+// Failure-atomic: capacity is secured before anything is overwritten, so on
+// any non-OK status the destination keeps its original identity and sides
+// (it may retain grown capacity). Copying a brush onto itself is a no-op.
+CYPHER_NODISCARD geometry_status_t BrushSolid_TryCopyFrom(
+    brush_solid_t *pDestination,
+    const brush_solid_t *pSource,
+    const geometry_limit_policy_t &limits ) noexcept;
+
 // The struct is trivially copyable and its fields are at known offsets;
 // tail padding for f64 alignment is expected and harmless.
 static_assert( std::is_trivially_copyable_v<brush_solid_side_t> );
