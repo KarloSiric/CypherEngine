@@ -413,6 +413,53 @@ geometry_status_t GeometryDocument_ReleasePendingId(
     return GeometrySourceIdRegistry_Release( &pDocument->registry, id );
 }
 
+geometry_status_t GeometryDocument_TryRegisterLoadedIds(
+    geometry_document_t *pDocument,
+    common::span_t<const geometry_source_id_t> ids ) noexcept
+{
+    if ( !IsReady( pDocument ) ) {
+        return geometry_status_t::NOT_INITIALIZED;
+    }
+    if ( !common::Span_IsValid( ids ) ) {
+        return geometry_status_t::INVALID_ARGUMENT;
+    }
+    if ( !pDocument->registry.bLoadRegistrationOpen ) {
+        return geometry_status_t::UNSUPPORTED;
+    }
+    const usize cClaimed = GeometrySourceIdRegistry_ClaimedCount( &pDocument->registry );
+    if ( ids.nCount > pDocument->registry.cEntriesMax - cClaimed ) {
+        return geometry_status_t::LIMIT_EXCEEDED;
+    }
+    const geometry_status_t reserve =
+        GeometrySourceIdRegistry_Reserve( &pDocument->registry, cClaimed + ids.nCount );
+    if ( reserve != geometry_status_t::OK ) {
+        return reserve;
+    }
+    for ( usize i = 0u; i < ids.nCount; ++i ) {
+        const geometry_status_t status =
+            GeometrySourceIdRegistry_Register( &pDocument->registry, ids.pData[i] );
+        if ( status != geometry_status_t::OK ) {
+            // Registered IDs stay claimed; the caller abandons the load and
+            // shuts the document down, so nothing observes them.
+            return status;
+        }
+    }
+    return geometry_status_t::OK;
+}
+
+geometry_status_t GeometryDocument_SealLoadedIds( geometry_document_t *pDocument ) noexcept
+{
+    if ( !IsReady( pDocument ) ) {
+        return geometry_status_t::NOT_INITIALIZED;
+    }
+    return GeometrySourceIdRegistry_SealLoadedIds( &pDocument->registry );
+}
+
+geometry_source_id_t GeometryDocument_NextSourceId( const geometry_document_t *pDocument ) noexcept
+{
+    return IsReady( pDocument ) ? pDocument->registry.allocator.next : GEOMETRY_SOURCE_ID_INVALID;
+}
+
 // ---------------------------------------------------------------------------
 // Values
 // ---------------------------------------------------------------------------

@@ -13,6 +13,10 @@
 add_library(CypherEditorGeometry STATIC
     Constraints/CypherGeometry_Constraints.cpp
     Constraints/CypherGeometry_Constraints.h
+    Cook/RenderMesh/CypherGeometry_RenderMeshCook.cpp
+    Cook/RenderMesh/CypherGeometry_RenderMeshCook.h
+    Cook/SourceMapping/CypherGeometry_CookSourceMap.cpp
+    Cook/SourceMapping/CypherGeometry_CookSourceMap.h
     Core/CypherGeometry_Diagnostics.cpp
     Core/CypherGeometry_Diagnostics.h
     Core/CypherGeometry_IdAllocator.cpp
@@ -69,6 +73,8 @@ add_library(CypherEditorGeometry STATIC
     Representations/Brush/CypherGeometry_BrushValidation.h
     Selection/CypherGeometry_Selection.cpp
     Selection/CypherGeometry_Selection.h
+    Serialization/CypherGeometry_Serialization.cpp
+    Serialization/CypherGeometry_Serialization.h
     Spatial/CypherGeometry_SpatialIndex.cpp
     Spatial/CypherGeometry_SpatialIndex.h
     Tessellation/CypherGeometry_BrushTessellation.cpp
@@ -108,6 +114,9 @@ target_include_directories(CypherEditorGeometry
         "${CMAKE_CURRENT_SOURCE_DIR}/Primitives"
         "${CMAKE_CURRENT_SOURCE_DIR}/Selection"
         "${CMAKE_CURRENT_SOURCE_DIR}/Constraints"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Serialization"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook/RenderMesh"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook/SourceMapping"
 )
 target_link_libraries(CypherEditorGeometry
     PUBLIC

@@ -168,6 +168,24 @@ CYPHER_NODISCARD geometry_status_t GeometryDocument_ReleasePendingId(
     geometry_document_t *pDocument,
     geometry_source_id_t id ) noexcept;
 
+// Load path: admits identities read from persisted geometry into this
+// document's identity domain. Only valid while the document is freshly
+// initialized and its load phase is open (UNSUPPORTED afterwards).
+// IDENTITY_CONFLICT for duplicates. Admitted IDs are live and unowned
+// until an apply publishes values that use them. Call SealLoadedIds when
+// loading finishes; allocation and applies also seal implicitly.
+CYPHER_NODISCARD geometry_status_t GeometryDocument_TryRegisterLoadedIds(
+    geometry_document_t *pDocument,
+    common::span_t<const geometry_source_id_t> ids ) noexcept;
+
+CYPHER_NODISCARD geometry_status_t GeometryDocument_SealLoadedIds(
+    geometry_document_t *pDocument ) noexcept;
+
+// Next source ID the document would allocate: the persisted high-water
+// mark. Zero when the identity space is exhausted or uninitialized.
+CYPHER_NODISCARD geometry_source_id_t GeometryDocument_NextSourceId(
+    const geometry_document_t *pDocument ) noexcept;
+
 // ---------------------------------------------------------------------------
 // Values
 // ---------------------------------------------------------------------------
