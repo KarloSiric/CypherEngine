@@ -186,9 +186,15 @@ if (CYPHERENGINE_BUILD_TESTS)
         NAME cypher_editor_geometry_contract_tests
         COMMAND cypher_editor_geometry_contract_tests
     )
+    # The timeout is a hang detector, not a performance budget. Every geometry
+    # contract case runs in this one executable, so its cost grows with each
+    # feature, and the build type dominates it: on CI (2026-09-24) the suite
+    # took ~1 s in Release, 8-13 s in Debug, and passed 30 s in the Debug
+    # ASan+UBSan job. 300 s leaves room for that slowest configuration to keep
+    # growing while a genuine hang still fails well inside the job limit.
     set_tests_properties(cypher_editor_geometry_contract_tests PROPERTIES
         LABELS "CypherEditor;Geometry;Contract"
-        TIMEOUT 30
+        TIMEOUT 300
     )
 endif()
 
