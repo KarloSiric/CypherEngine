@@ -44,11 +44,6 @@
 namespace cypher::editor::geometry
 {
 
-// Maximum points accepted by the brute-force hull. Hull cost is O(n^4);
-// 128 points is well under a second and far above what merging a handful
-// of authored brushes produces.
-inline constexpr common::usize BRUSH_CSG_HULL_POINTS_MAX = 128u;
-
 // Returns the plane with its orientation reversed (same geometric plane).
 CYPHER_NODISCARD math::planed_t BrushCsg_FlipPlane( math::planed_t plane ) noexcept;
 
@@ -117,7 +112,7 @@ CYPHER_NODISCARD geometry_status_t BrushCsg_TryHollow(
 
 // Convex hull of a point cloud as a piece. Points closer than the weld
 // distance are merged first. DEGENERATE when the points are coplanar or
-// fewer than four remain; LIMIT_EXCEEDED above BRUSH_CSG_HULL_POINTS_MAX.
+// fewer than four remain; LIMIT_EXCEEDED above BRUSH_PIECE_HULL_POINTS_MAX.
 // Hull facets carry NONE provenance.
 CYPHER_NODISCARD geometry_status_t BrushCsg_TryConvexHull(
     common::span_t<const math::vec3d_t> points,

@@ -29,6 +29,15 @@ namespace
 
 using common::bool_t;
 using common::usize;
+using math::f64;
+using math::planed_t;
+using math::vec3d_t;
+
+bool_t SamePlane( planed_t a, planed_t b, f64 distanceTolerance ) noexcept
+{
+    return math::Vec3d_Dot( a.normal, b.normal ) > 1.0 - 1.0e-9 &&
+           math::Scalar_Abs( a.d - b.d ) <= distanceTolerance;
+}
 
 bool_t IsReady( const geometry_brush_piece_t *pPiece ) noexcept
 {
@@ -299,6 +308,117 @@ geometry_status_t BrushPiece_TryReduce(
     }
     BrushBoundary_Shutdown( &boundary );
     return geometry_status_t::OK;
+}
+
+// ---------------------------------------------------------------------------
+// Hull
+// ---------------------------------------------------------------------------
+
+geometry_status_t BrushPiece_TryFromPoints(
+    geometry_brush_piece_t *pOut,
+    common::span_t<const vec3d_t> points,
+    const geometry_policy_t &policy ) noexcept
+{
+    if ( !IsReady( pOut ) ) {
+        return geometry_status_t::NOT_INITIALIZED;
+    }
+    if ( !common::Span_IsValid( points ) ) {
+        return geometry_status_t::INVALID_ARGUMENT;
+    }
+
+    // Weld near-coincident input.
+    vec3d_t unique[BRUSH_PIECE_HULL_POINTS_MAX];
+    usize cUnique = 0u;
+    const f64 weldSq = policy.numerical.fWeldDistance * policy.numerical.fWeldDistance;
+    for ( usize i = 0u; i < points.nCount; ++i ) {
+        const vec3d_t p = points.pData[i];
+        if ( !math::Vec3d_IsFinite( p ) ) {
+            return geometry_status_t::NUMERIC_FAILURE;
+        }
+        bool_t bDuplicate = false;
+        for ( usize j = 0u; j < cUnique && !bDuplicate; ++j ) {
+            bDuplicate = math::Vec3d_DistanceSquared( unique[j], p ) <= weldSq;
+        }
+        if ( bDuplicate ) {
+            continue;
+        }
+        if ( cUnique >= BRUSH_PIECE_HULL_POINTS_MAX ) {
+            return geometry_status_t::LIMIT_EXCEEDED;
+        }
+        unique[cUnique++] = p;
+    }
+    if ( cUnique < 4u ) {
+        return geometry_status_t::DEGENERATE;
+    }
+
+    const f64 tolerance = policy.numerical.fCoplanarDistanceTolerance;
+    const f64 minCrossSq = policy.numerical.fMinimumFaceArea * policy.numerical.fMinimumFaceArea;
+    geometry_brush_piece_t hullPiece{};
+    if ( BrushPiece_Init( &hullPiece, pOut->planes.pAllocator ) != geometry_status_t::OK ) {
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    struct hull_guard_t {
+        geometry_brush_piece_t *p;
+        ~hull_guard_t() noexcept { BrushPiece_Shutdown( p ); }
+    } guard{ &hullPiece };
+    for ( usize i = 0u; i < cUnique; ++i ) {
+        for ( usize j = i + 1u; j < cUnique; ++j ) {
+            for ( usize k = j + 1u; k < cUnique; ++k ) {
+                const vec3d_t cross = math::Vec3d_Cross(
+                    math::Vec3d_Subtract( unique[j], unique[i] ),
+                    math::Vec3d_Subtract( unique[k], unique[i] ) );
+                if ( !( math::Vec3d_LengthSquared( cross ) > minCrossSq ) ) {
+                    continue;
+                }
+                vec3d_t normal{};
+                if ( !math::Vec3d_TryNormalize( cross, 0.0, &normal, nullptr ) ) {
+                    continue;
+                }
+                planed_t plane = math::Planed_Make( normal, -math::Vec3d_Dot( normal, unique[i] ) );
+                f64 minDistance = 0.0;
+                f64 maxDistance = 0.0;
+                for ( usize m = 0u; m < cUnique; ++m ) {
+                    const f64 distance = math::Planed_SignedDistance( plane, unique[m] );
+                    minDistance = distance < minDistance ? distance : minDistance;
+                    maxDistance = distance > maxDistance ? distance : maxDistance;
+                }
+                if ( maxDistance > tolerance && minDistance < -tolerance ) {
+                    continue; // points on both sides: not a supporting plane
+                }
+                if ( maxDistance > tolerance ) {
+                    plane = math::Planed_Make( math::Vec3d_Negate( plane.normal ), -plane.d );
+                }
+                if ( maxDistance <= tolerance && minDistance >= -tolerance ) {
+                    return geometry_status_t::DEGENERATE; // all points coplanar
+                }
+                bool_t bKnown = false;
+                const usize cPlanes = BrushPiece_PlaneCount( &hullPiece );
+                for ( usize p = 0u; p < cPlanes && !bKnown; ++p ) {
+                    bKnown = SamePlane( hullPiece.planes.pData[p].plane, plane, tolerance );
+                }
+                if ( bKnown ) {
+                    continue;
+                }
+                geometry_piece_plane_t facet{};
+                facet.plane = plane;
+                const geometry_status_t status =
+                    BrushPiece_TryAppendPlane( &hullPiece, policy, facet );
+                if ( status != geometry_status_t::OK ) {
+                    return status;
+                }
+            }
+        }
+    }
+
+    geometry_piece_extent_t extent = geometry_piece_extent_t::EMPTY;
+    geometry_status_t status = BrushPiece_TryReduce( &hullPiece, policy, &extent, nullptr );
+    if ( status != geometry_status_t::OK ) {
+        return status;
+    }
+    if ( extent == geometry_piece_extent_t::EMPTY ) {
+        return geometry_status_t::DEGENERATE;
+    }
+    return BrushPiece_TryCopy( pOut, &hullPiece );
 }
 
 // ---------------------------------------------------------------------------

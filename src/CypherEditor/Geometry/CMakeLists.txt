@@ -31,8 +31,6 @@ add_library(CypherEditorGeometry STATIC
     Attributes/Schema/CypherGeometry_Attributes_Schema.h
     Csg/Brush/CypherGeometry_BrushCsg.cpp
     Csg/Brush/CypherGeometry_BrushCsg.h
-    Csg/Brush/CypherGeometry_BrushPiece.cpp
-    Csg/Brush/CypherGeometry_BrushPiece.h
     Csg/Operations/CypherGeometry_BrushCsgCommands.cpp
     Csg/Operations/CypherGeometry_BrushCsgCommands.h
     Document/CypherGeometry_BrushValue.cpp
@@ -41,6 +39,8 @@ add_library(CypherEditorGeometry STATIC
     Document/CypherGeometry_Document.h
     Document/CypherGeometry_Snapshot.cpp
     Document/CypherGeometry_Snapshot.h
+    Intermediates/BrushPiece/CypherGeometry_BrushPiece.cpp
+    Intermediates/BrushPiece/CypherGeometry_BrushPiece.h
     Kernel/CypherGeometry_Kernel_Classification.cpp
     Kernel/CypherGeometry_Kernel_Classification.h
     Kernel/CypherGeometry_Kernel_CoordinateKey.cpp
@@ -51,8 +51,12 @@ add_library(CypherEditorGeometry STATIC
     Operations/Conversion/CypherGeometry_PieceMaterialize.h
     Operations/Cutting/CypherGeometry_BrushCutting.cpp
     Operations/Cutting/CypherGeometry_BrushCutting.h
+    Operations/Modeling/CypherGeometry_BrushCreate.cpp
+    Operations/Modeling/CypherGeometry_BrushCreate.h
     Operations/Transform/CypherGeometry_BrushTransform.cpp
     Operations/Transform/CypherGeometry_BrushTransform.h
+    Primitives/CypherGeometry_BrushPrimitives.cpp
+    Primitives/CypherGeometry_BrushPrimitives.h
     Queries/CypherGeometry_BrushQueries.cpp
     Queries/CypherGeometry_BrushQueries.h
     Representations/Brush/CypherGeometry_BrushBoundary.cpp
@@ -89,12 +93,15 @@ target_include_directories(CypherEditorGeometry
         "${CMAKE_CURRENT_SOURCE_DIR}/Queries"
         "${CMAKE_CURRENT_SOURCE_DIR}/Tessellation"
         "${CMAKE_CURRENT_SOURCE_DIR}/Spatial"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Intermediates/BrushPiece"
         "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Brush"
         "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Operations"
         "${CMAKE_CURRENT_SOURCE_DIR}/Attributes/Propagation"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Conversion"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Cutting"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Transform"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Modeling"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Primitives"
 )
 target_link_libraries(CypherEditorGeometry
     PUBLIC

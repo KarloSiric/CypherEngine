@@ -36,6 +36,8 @@
 
 #include "CypherGeometry_BrushBoundary.h"
 
+#include "CypherCommon_Span.h"
+
 namespace cypher::editor::geometry
 {
 
@@ -135,6 +137,21 @@ CYPHER_NODISCARD geometry_status_t BrushPiece_TryBuildBoundary(
     const geometry_brush_piece_t *pPiece,
     const geometry_policy_t &policy,
     brush_boundary_t *pBoundaryOut ) noexcept;
+
+// Maximum points accepted by the hull. Hull cost is O(n^4); 128 points is
+// well under a second and far above what merging a handful of authored
+// brushes or generating a primitive produces.
+inline constexpr common::usize BRUSH_PIECE_HULL_POINTS_MAX = 128u;
+
+// Replaces the piece with the convex hull of a point cloud. Points closer
+// than the weld distance are merged first. DEGENERATE when the points are
+// coplanar or fewer than four remain; LIMIT_EXCEEDED above
+// BRUSH_PIECE_HULL_POINTS_MAX. Facets carry NONE provenance. On failure the
+// piece is unchanged.
+CYPHER_NODISCARD geometry_status_t BrushPiece_TryFromPoints(
+    geometry_brush_piece_t *pOut,
+    common::span_t<const math::vec3d_t> points,
+    const geometry_policy_t &policy ) noexcept;
 
 // ---------------------------------------------------------------------------
 // Piece lists
