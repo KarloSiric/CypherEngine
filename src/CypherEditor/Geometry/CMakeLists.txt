@@ -45,6 +45,12 @@ add_library(CypherEditorGeometry STATIC
     Representations/Brush/CypherGeometry_BrushGenerator.h
     Representations/Brush/CypherGeometry_BrushValidation.cpp
     Representations/Brush/CypherGeometry_BrushValidation.h
+    Transactions/CypherGeometry_ChangeRecord.cpp
+    Transactions/CypherGeometry_ChangeRecord.h
+    Transactions/CypherGeometry_History.cpp
+    Transactions/CypherGeometry_History.h
+    Transactions/CypherGeometry_Transaction.cpp
+    Transactions/CypherGeometry_Transaction.h
 )
 add_library(Cypher::EditorGeometry ALIAS CypherEditorGeometry)
 
@@ -57,6 +63,7 @@ target_include_directories(CypherEditorGeometry
         "${CMAKE_CURRENT_SOURCE_DIR}/Attributes/Schema"
         "${CMAKE_CURRENT_SOURCE_DIR}/Representations/Brush"
         "${CMAKE_CURRENT_SOURCE_DIR}/Document"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Transactions"
 )
 target_link_libraries(CypherEditorGeometry
     PUBLIC
@@ -77,6 +84,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Attributes/CypherGeometry_Attributes_Schema_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushCanonical_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushSolid_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Transactions/CypherGeometry_Transaction_Tests.cpp"
     )
     target_link_libraries(cypher_editor_geometry_contract_tests
         PRIVATE
