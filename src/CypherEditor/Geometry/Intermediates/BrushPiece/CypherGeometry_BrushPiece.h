@@ -116,9 +116,14 @@ void BrushPiece_OffsetPlanes( geometry_brush_piece_t *pPiece, math::f64 distance
 // relative order and pass the full boundary checks. On EMPTY the piece is
 // cleared. pBoundsOut (optional) receives the solid's bounds.
 //
+// Coincident planes are normalized first: a later duplicate of an earlier
+// plane is dropped (the earlier one's provenance is kept), and two
+// coincident planes facing opposite ways make the piece EMPTY.
+//
 // Returns OK with the extent for both outcomes. Errors are reserved for
 // real failures: NOT_INITIALIZED, NUMERIC_FAILURE or LIMIT_EXCEEDED from
-// out-of-range planes or vertices, ALLOCATION_FAILED. On error the piece is
+// out-of-range planes or vertices, ALLOCATION_FAILED. On error the piece
+// holds its de-duplicated planes (the same solid) but is otherwise
 // unchanged.
 //
 // A plane set that reconstructs but fails the closed-solid checks after

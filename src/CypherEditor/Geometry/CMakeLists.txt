@@ -31,6 +31,8 @@ add_library(CypherEditorGeometry STATIC
     Core/CypherGeometry_Types.h
     Attributes/Propagation/CypherGeometry_Attributes_Propagation.cpp
     Attributes/Propagation/CypherGeometry_Attributes_Propagation.h
+    Attributes/Propagation/CypherGeometry_SurfaceUv.cpp
+    Attributes/Propagation/CypherGeometry_SurfaceUv.h
     Attributes/Schema/CypherGeometry_Attributes_BrushSideStore.cpp
     Attributes/Schema/CypherGeometry_Attributes_BrushSideStore.h
     Attributes/Schema/CypherGeometry_Attributes_Schema.cpp
@@ -58,7 +60,13 @@ add_library(CypherEditorGeometry STATIC
     Operations/Cutting/CypherGeometry_BrushCutting.cpp
     Operations/Cutting/CypherGeometry_BrushCutting.h
     Operations/Modeling/CypherGeometry_BrushCreate.cpp
+    Operations/Modeling/CypherGeometry_BrushExtrude.cpp
+    Operations/Modeling/CypherGeometry_BrushExtrude.h
+    Operations/Modeling/CypherGeometry_SurfaceCommands.cpp
+    Operations/Modeling/CypherGeometry_SurfaceCommands.h
     Operations/Modeling/CypherGeometry_BrushCreate.h
+    Operations/Topology/CypherGeometry_BrushVertexEdit.cpp
+    Operations/Topology/CypherGeometry_BrushVertexEdit.h
     Operations/Transform/CypherGeometry_BrushTransform.cpp
     Operations/Transform/CypherGeometry_BrushTransform.h
     Primitives/CypherGeometry_BrushPrimitives.cpp
@@ -87,6 +95,8 @@ add_library(CypherEditorGeometry STATIC
     Transactions/CypherGeometry_PreviewPlan.h
     Transactions/CypherGeometry_Transaction.cpp
     Transactions/CypherGeometry_Transaction.h
+    Validation/CypherGeometry_DocumentValidation.cpp
+    Validation/CypherGeometry_DocumentValidation.h
 )
 add_library(Cypher::EditorGeometry ALIAS CypherEditorGeometry)
 
@@ -117,6 +127,8 @@ target_include_directories(CypherEditorGeometry
         "${CMAKE_CURRENT_SOURCE_DIR}/Serialization"
         "${CMAKE_CURRENT_SOURCE_DIR}/Cook/RenderMesh"
         "${CMAKE_CURRENT_SOURCE_DIR}/Cook/SourceMapping"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Validation"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Topology"
 )
 target_link_libraries(CypherEditorGeometry
     PUBLIC

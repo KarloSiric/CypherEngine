@@ -237,6 +237,47 @@ geometry_status_t BrushPiece_TryReduce(
         return geometry_status_t::OK;
     }
 
+    // ---- Pass 0: coincident planes -----------------------------------------
+    // Operands that share a plane (touching or aligned brushes, CSG with a
+    // common face) put the same plane in the list twice. Both copies would
+    // claim the same face and fail the closed-solid checks, so keep the
+    // first (its provenance wins) and drop later duplicates. Two coincident
+    // planes facing opposite ways enclose zero thickness: the piece is
+    // empty.
+    const f64 tolerance = policy.numerical.fCoplanarDistanceTolerance;
+    for ( usize i = 0u; i < cPlanes; ++i ) {
+        for ( usize j = i + 1u; j < cPlanes; ++j ) {
+            const planed_t a = pPiece->planes.pData[i].plane;
+            const planed_t b = pPiece->planes.pData[j].plane;
+            if ( math::Vec3d_Dot( a.normal, b.normal ) < -( 1.0 - 1.0e-9 ) &&
+                 math::Scalar_Abs( a.d + b.d ) <= tolerance ) {
+                common::Vector_Clear( &pPiece->planes );
+                return geometry_status_t::OK;
+            }
+        }
+    }
+    {
+        usize cUnique = 0u;
+        for ( usize i = 0u; i < cPlanes; ++i ) {
+            bool_t bDuplicate = false;
+            for ( usize j = 0u; j < cUnique && !bDuplicate; ++j ) {
+                bDuplicate = SamePlane( pPiece->planes.pData[j].plane, pPiece->planes.pData[i].plane,
+                                        tolerance );
+            }
+            if ( !bDuplicate ) {
+                pPiece->planes.pData[cUnique++] = pPiece->planes.pData[i];
+            }
+        }
+        while ( common::Vector_Count( &pPiece->planes ) > cUnique ) {
+            common::Vector_PopBack( &pPiece->planes );
+        }
+    }
+    const usize cDistinct = common::Vector_Count( &pPiece->planes );
+    if ( cDistinct < 4u ) {
+        common::Vector_Clear( &pPiece->planes );
+        return geometry_status_t::OK;
+    }
+
     brush_boundary_t boundary{};
     if ( BrushBoundary_Init( &boundary, pAllocator ) != geometry_status_t::OK ) {
         return geometry_status_t::ALLOCATION_FAILED;
@@ -255,12 +296,12 @@ geometry_status_t BrushPiece_TryReduce(
     }
 
     common::vector_t<geometry_piece_plane_t> kept{};
-    if ( !common::Vector_Init( &kept, pAllocator, cPlanes ) ) {
+    if ( !common::Vector_Init( &kept, pAllocator, cDistinct ) ) {
         BrushBoundary_Shutdown( &boundary );
         return geometry_status_t::ALLOCATION_FAILED;
     }
     const usize cFaces = common::Vector_Count( &boundary.faces );
-    for ( usize iPlane = 0u; iPlane < cPlanes; ++iPlane ) {
+    for ( usize iPlane = 0u; iPlane < cDistinct; ++iPlane ) {
         // Faces are emitted in ascending side order; a linear probe is fine
         // at authoring scale and avoids depending on that detail.
         for ( usize iFace = 0u; iFace < cFaces; ++iFace ) {
