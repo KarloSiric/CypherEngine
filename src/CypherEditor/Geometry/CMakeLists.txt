@@ -47,6 +47,8 @@ add_library(CypherEditorGeometry STATIC
     Representations/Brush/CypherGeometry_BrushGenerator.h
     Representations/Brush/CypherGeometry_BrushValidation.cpp
     Representations/Brush/CypherGeometry_BrushValidation.h
+    Spatial/CypherGeometry_SpatialIndex.cpp
+    Spatial/CypherGeometry_SpatialIndex.h
     Tessellation/CypherGeometry_BrushTessellation.cpp
     Tessellation/CypherGeometry_BrushTessellation.h
     Transactions/CypherGeometry_ChangeRecord.cpp
@@ -70,6 +72,7 @@ target_include_directories(CypherEditorGeometry
         "${CMAKE_CURRENT_SOURCE_DIR}/Transactions"
         "${CMAKE_CURRENT_SOURCE_DIR}/Queries"
         "${CMAKE_CURRENT_SOURCE_DIR}/Tessellation"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Spatial"
 )
 target_link_libraries(CypherEditorGeometry
     PUBLIC
