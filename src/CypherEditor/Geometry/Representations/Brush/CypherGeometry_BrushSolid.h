@@ -134,6 +134,8 @@ CYPHER_NODISCARD geometry_status_t BrushSolid_TryGetSide(
 //   - brush is initialized
 //   - side count has not reached cBrushSidesPerBrushMax
 //   - side's source ID is valid (non-zero)
+//   - side's source ID differs from the brush ID and from every existing
+//     side's ID (IDENTITY_CONFLICT otherwise)
 //   - side's plane normal is finite
 // The attribute index is taken as-is; the caller is responsible for having
 // a valid slot in the attribute store before adding the side.

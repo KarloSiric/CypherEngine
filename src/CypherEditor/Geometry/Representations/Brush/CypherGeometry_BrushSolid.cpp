@@ -132,6 +132,19 @@ geometry_status_t BrushSolid_TryAddSide(
     if ( static_cast<common::u64>( nCount ) >= limits.cBrushSidesPerBrushMax ) {
         return geometry_status_t::LIMIT_EXCEEDED;
     }
+
+    // Side identity must be unique within the brush, and distinct from the
+    // brush's own identity: selection, provenance, and undo all resolve a
+    // side by source ID, so a duplicate would make two sides aliases.
+    // Linear in the side count, which is bounded by the check above.
+    if ( side.sourceId.value == pBrush->sourceId.value ) {
+        return geometry_status_t::IDENTITY_CONFLICT;
+    }
+    for ( common::usize i = 0u; i < nCount; ++i ) {
+        if ( pBrush->sides.pData[i].sourceId.value == side.sourceId.value ) {
+            return geometry_status_t::IDENTITY_CONFLICT;
+        }
+    }
     if ( !common::Vector_PushBack( &pBrush->sides, side ) ) {
         return geometry_status_t::ALLOCATION_FAILED;
     }

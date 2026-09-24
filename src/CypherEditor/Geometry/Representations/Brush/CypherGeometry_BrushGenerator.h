@@ -60,7 +60,9 @@ namespace cypher::editor::geometry
 //   - source ID allocator has at least 7 IDs remaining (1 brush + 6 sides)
 //
 // On failure the brush is left uninitialized and the allocator is not
-// advanced, so the caller can retry or report without cleanup.
+// advanced, so the caller can retry or report without cleanup. IDs are
+// drawn from a staged copy of the allocator and committed only after the
+// brush is fully built.
 CYPHER_NODISCARD geometry_status_t BrushGenerator_TryMakeBox(
     brush_solid_t *pBrush,
     const common::allocator_t *pAllocator,

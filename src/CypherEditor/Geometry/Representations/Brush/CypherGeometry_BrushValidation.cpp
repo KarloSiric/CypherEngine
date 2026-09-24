@@ -12,6 +12,7 @@
 //
 //  History:
 //  - Created by Karlo Siric on 2026-09-21
+//  - Newell winding, area, edge-length, and identity checks on 2026-09-24
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -104,44 +105,71 @@ bool VerifyEdgeSharing(
     return true;
 }
 
-// Checks that every face's winding agrees with its side plane normal.
-// The geometric normal of the CCW vertex ring must point in the same
-// direction as the side plane's outward normal (positive dot product).
-bool VerifyFaceWindings(
+// Checks that every face's winding agrees with its side plane normal and
+// that the face encloses real area. The face normal is the Newell normal
+// of the whole ring rather than the cross product of its first three
+// vertices: that cross product vanishes whenever the first three vertices
+// are nearly collinear, which a legitimate polygon with a shallow corner
+// can produce. Newell's sum weighs every edge and equals twice the
+// polygon's vector area, so its length doubles as the area test.
+geometry_status_t VerifyFaceWindings(
     const brush_boundary_t *pBoundary,
-    const brush_solid_t *pBrush ) noexcept
+    const brush_solid_t *pBrush,
+    f64 minimumFaceArea ) noexcept
 {
     const common::usize cFaces = common::Vector_Count( &pBoundary->faces );
 
     for ( common::usize iFace = 0u; iFace < cFaces; ++iFace ) {
         const brush_boundary_face_t &face = pBoundary->faces.pData[iFace];
         if ( face.cVertices < 3u ) {
-            return false;
+            return geometry_status_t::DEGENERATE;
         }
 
-        // Use the first three vertices to compute the face's geometric
-        // normal via cross product. For a convex face, any three
-        // consecutive vertices give a consistent result.
-        const common::u32 i0 =
-            pBoundary->faceVertexIndices.pData[face.iFirstIndex];
-        const common::u32 i1 =
-            pBoundary->faceVertexIndices.pData[face.iFirstIndex + 1u];
-        const common::u32 i2 =
-            pBoundary->faceVertexIndices.pData[face.iFirstIndex + 2u];
+        vec3d_t newell = math::CY_VEC3D_ZERO;
+        for ( common::u32 iv = 0u; iv < face.cVertices; ++iv ) {
+            const vec3d_t curr = pBoundary->vertices.pData[
+                pBoundary->faceVertexIndices.pData[face.iFirstIndex + iv]];
+            const vec3d_t next = pBoundary->vertices.pData[
+                pBoundary->faceVertexIndices.pData[
+                    face.iFirstIndex + ( ( iv + 1u ) % face.cVertices )]];
+            newell.x += ( curr.y - next.y ) * ( curr.z + next.z );
+            newell.y += ( curr.z - next.z ) * ( curr.x + next.x );
+            newell.z += ( curr.x - next.x ) * ( curr.y + next.y );
+        }
 
-        const vec3d_t v0 = pBoundary->vertices.pData[i0];
-        const vec3d_t v1 = pBoundary->vertices.pData[i1];
-        const vec3d_t v2 = pBoundary->vertices.pData[i2];
+        // |newell| = 2 * area; compare squares to avoid a square root.
+        const f64 twiceMinimumArea = 2.0 * minimumFaceArea;
+        if ( !( math::Vec3d_LengthSquared( newell ) >=
+                twiceMinimumArea * twiceMinimumArea ) ) {
+            return geometry_status_t::DEGENERATE;
+        }
 
-        const vec3d_t edge1 = math::Vec3d_Subtract( v1, v0 );
-        const vec3d_t edge2 = math::Vec3d_Subtract( v2, v0 );
-        const vec3d_t faceNormal = math::Vec3d_Cross( edge1, edge2 );
-
-        // The face normal must agree with the side plane's outward normal.
-        // We only need the sign, not the magnitude, so no normalization.
+        // Only the sign matters for orientation, so no normalization.
         const vec3d_t sideNormal =
             pBrush->sides.pData[face.iSide].plane.normal;
-        if ( math::Vec3d_Dot( faceNormal, sideNormal ) <= 0.0 ) {
+        if ( math::Vec3d_Dot( newell, sideNormal ) <= 0.0 ) {
+            return geometry_status_t::DEGENERATE;
+        }
+    }
+    return geometry_status_t::OK;
+}
+
+// Every boundary edge must be at least the policy's minimum edge length.
+// Reconstruction merges vertices closer than the weld distance, so a
+// shorter edge means the policy's weld and edge tolerances disagree and
+// downstream tessellation would receive a sliver.
+bool VerifyEdgeLengths(
+    const brush_boundary_t *pBoundary,
+    f64 minimumEdgeLength ) noexcept
+{
+    const f64 minimumSq = minimumEdgeLength * minimumEdgeLength;
+    const common::usize cEdges = common::Vector_Count( &pBoundary->edges );
+    for ( common::usize iEdge = 0u; iEdge < cEdges; ++iEdge ) {
+        const brush_boundary_edge_t &edge = pBoundary->edges.pData[iEdge];
+        const f64 lengthSq = math::Vec3d_DistanceSquared(
+            pBoundary->vertices.pData[edge.iVertex0],
+            pBoundary->vertices.pData[edge.iVertex1] );
+        if ( !( lengthSq >= minimumSq ) ) {
             return false;
         }
     }
@@ -168,6 +196,10 @@ geometry_status_t BrushValidation_Quick(
     if ( cSides < 4u ) {
         return geometry_status_t::DEGENERATE;
     }
+    if ( static_cast<common::u64>( cSides ) >
+         policy.limits.cBrushSidesPerBrushMax ) {
+        return geometry_status_t::LIMIT_EXCEEDED;
+    }
 
     const f64 normalTol = policy.numerical.fUnitNormalTolerance;
     const f64 coordLimit = policy.numerical.fCoordinateMagnitudeLimit;
@@ -193,6 +225,26 @@ geometry_status_t BrushValidation_Quick(
                      plane, pBrush->sides.pData[j].plane,
                      normalTol, distTol ) ) {
                 return geometry_status_t::DEGENERATE;
+            }
+        }
+    }
+
+    // Identity checks run after every plane check so that a brush with both
+    // kinds of defect reports the geometric one first, which is what an
+    // editing preview needs to show. Storage rejects these on the way in;
+    // this covers brushes that bypassed it (deserialization, raw copies).
+    if ( !GeometrySourceId_IsValid( pBrush->sourceId ) ) {
+        return geometry_status_t::IDENTITY_CONFLICT;
+    }
+    for ( common::usize i = 0u; i < cSides; ++i ) {
+        const geometry_source_id_t id = pBrush->sides.pData[i].sourceId;
+        if ( !GeometrySourceId_IsValid( id ) ||
+             id.value == pBrush->sourceId.value ) {
+            return geometry_status_t::IDENTITY_CONFLICT;
+        }
+        for ( common::usize j = 0u; j < i; ++j ) {
+            if ( pBrush->sides.pData[j].sourceId.value == id.value ) {
+                return geometry_status_t::IDENTITY_CONFLICT;
             }
         }
     }
@@ -282,7 +334,16 @@ brush_validation_result_t BrushValidation_Deep(
 
     // ---- Face winding must agree with side plane normals -----------------
 
-    if ( !VerifyFaceWindings( &boundary, pBrush ) ) {
+    result.status = VerifyFaceWindings(
+        &boundary, pBrush, policy.numerical.fMinimumFaceArea );
+    if ( result.status != geometry_status_t::OK ) {
+        BrushBoundary_Shutdown( &boundary );
+        return result;
+    }
+
+    // ---- Every edge must meet the minimum edge length --------------------
+
+    if ( !VerifyEdgeLengths( &boundary, policy.numerical.fMinimumEdgeLength ) ) {
         result.status = geometry_status_t::DEGENERATE;
         BrushBoundary_Shutdown( &boundary );
         return result;

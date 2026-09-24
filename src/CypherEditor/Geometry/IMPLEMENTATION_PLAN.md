@@ -40,6 +40,18 @@ Gate 0 began in commit `090d2b71` and currently provides:
 - numerical and complexity policy validation;
 - Debug, Release, and sanitizer contract coverage.
 
+Gate 1 added binary64 math, exact orientation wrappers, canonical coordinate
+keys, policy-aware classification, and the brush-side attribute schema.
+
+Gate 2 is closed. `BrushSolid` stores planes with persistent side identity and
+rejects duplicate side IDs; boundary reconstruction is failure-atomic and
+canonical (coordinate-key vertex order, sorted edges, face rings rotated to
+their smallest vertex), so every side-order permutation yields the same
+traversal; the box generator commits source IDs only after the brush is built;
+deep validation checks Euler, edge sharing, Newell winding, face area, and
+edge length. Unbounded, redundant, contradictory, out-of-range, and
+over-limit plane sets fail without publishing a boundary.
+
 Every module outside `Core` is still a design contract unless its source is
 explicitly listed in `src/CypherEditor/Geometry/CMakeLists.txt`.
 

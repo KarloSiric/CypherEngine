@@ -101,16 +101,18 @@ geometry_status_t BrushGenerator_TryMakeBox(
         return geometry_status_t::LIMIT_EXCEEDED;
     }
 
-    // ---- Allocate source IDs before touching the brush ------------------
-    // If the allocator is near exhaustion, this fails cleanly before any
-    // state has been modified.
+    // ---- Allocate source IDs from a staged allocator copy ----------------
+    // Allocation happens against a copy so that exhaustion partway through
+    // the seven IDs, or any later build failure, leaves the caller's
+    // allocator exactly where it was. The copy is committed at the end.
 
+    geometry_source_id_allocator_t staged = *pIdAllocator;
     constexpr common::usize cIdCount = 7u; // 1 brush + 6 sides
     geometry_source_id_t ids[cIdCount];
 
     for ( common::usize i = 0u; i < cIdCount; ++i ) {
         const geometry_source_id_result_t result =
-            GeometrySourceIdAllocator_Allocate( pIdAllocator );
+            GeometrySourceIdAllocator_Allocate( &staged );
         if ( result.status != geometry_status_t::OK ) {
             return result.status;
         }
@@ -140,11 +142,17 @@ geometry_status_t BrushGenerator_TryMakeBox(
         side.sourceId = ids[1u + i];
         side.iAttributeIndex = static_cast<common::u32>( i );
 
-        // Cannot fail: capacity was reserved above and the plane is
-        // finite by construction (center and halfExtents are validated).
-        ( void )BrushSolid_TryAddSide( pBrush, policy.limits, side, nullptr );
+        // Capacity was reserved above, the plane is finite by construction,
+        // and the IDs are fresh, so this cannot fail today. It is still
+        // checked: a silent failure here would publish a five-sided box.
+        status = BrushSolid_TryAddSide( pBrush, policy.limits, side, nullptr );
+        if ( status != geometry_status_t::OK ) {
+            BrushSolid_Shutdown( pBrush );
+            return status;
+        }
     }
 
+    *pIdAllocator = staged;
     return geometry_status_t::OK;
 }
 

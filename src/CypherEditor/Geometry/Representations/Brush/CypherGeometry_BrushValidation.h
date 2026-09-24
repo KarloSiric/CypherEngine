@@ -66,6 +66,9 @@ struct brush_validation_result_t {
 //   - plane distance is within coordinate magnitude limit
 //   - no two planes are duplicates (identical normal and distance within
 //     tolerance) or contradictory (opposite normals, same distance)
+//   - side count does not exceed limits.cBrushSidesPerBrushMax
+//   - the brush and every side carry valid, pairwise-distinct source IDs
+//     (IDENTITY_CONFLICT otherwise; reported after all plane checks)
 //
 // Returns OK if the plane set is plausible, or the first failure found.
 // A plausible plane set can still fail deep validation if the planes do
@@ -88,7 +91,9 @@ CYPHER_NODISCARD geometry_status_t BrushValidation_Quick(
 //   - every brush side contributes exactly one boundary face
 //   - every boundary face has at least 3 vertices
 //   - every edge is shared by exactly two faces
-//   - every face normal agrees with its side plane's outward direction
+//   - every face's Newell normal agrees with its side plane's outward
+//     direction and encloses at least fMinimumFaceArea
+//   - every edge is at least fMinimumEdgeLength long
 //
 // The boundary used for validation is allocated internally and released
 // before returning. If the caller needs the boundary for further use,

@@ -108,20 +108,38 @@ void BrushBoundary_Shutdown( brush_boundary_t *pBoundary ) noexcept;
 // starting, so this is safe to call repeatedly after plane edits.
 //
 // The algorithm:
-//   1. Extracts planes from the brush, validates finiteness and normalization
+//   1. Extracts planes from the brush, validates finiteness, normalization,
+//      and the per-brush side limit
 //   2. Enumerates all plane triples → three-plane intersection → candidate
 //      vertices, filtering those outside any other half-space and merging
 //      coincident results (delegates to Brushd_BuildVertices)
-//   3. For each side, projects the brush vertices onto the side plane and
-//      orders them counter-clockwise (delegates to Brushd_BuildFacePolygon)
-//   4. Maps face polygon positions back to unique vertex indices
-//   5. Extracts unique edges from consecutive vertex pairs in face polygons
+//   3. Sorts the unique vertices into canonical order: ascending Kernel
+//      coordinate key, ties broken by raw coordinates
+//   4. For each side, projects the brush vertices onto the side plane and
+//      orders them counter-clockwise (delegates to Brushd_BuildFacePolygon),
+//      maps them to canonical vertex indices, and rotates the ring so it
+//      starts at its smallest vertex index
+//   5. Extracts unique edges and sorts them lexicographically
+//
+// Canonical traversal: vertex order, edge order, and each face's ring
+// start depend only on the geometry, not on the order of the brush's
+// sides. Faces are emitted in side order, so two brushes whose side arrays
+// are permutations of each other produce identical vertex and edge arrays,
+// and the face for a given side (matched by source ID) has an identical
+// index ring.
+//
+// A convex polyhedron bounded by F planes has at most 2F - 4 vertices.
+// Reconstruction reserves 2F vertex slots; a plane set that produces more
+// is not a convex solid and fails as DEGENERATE.
 //
 // Returns OK only when the boundary is fully consistent: at least 4
-// vertices (tetrahedron minimum), at least 4 faces, every side that should
-// contribute a face does so with >= 3 vertices.
+// vertices (tetrahedron minimum) and at least 4 faces. A side whose plane
+// is redundant contributes no face; deep validation reports that case.
+// Vertices beyond policy.numerical.fCoordinateMagnitudeLimit fail with
+// LIMIT_EXCEEDED because they cannot receive canonical coordinate keys.
 //
-// On failure, the boundary is left empty (cleared) — never half-populated.
+// On any failure, the boundary is left empty (cleared) — never
+// half-populated — and its allocator binding is preserved.
 CYPHER_NODISCARD geometry_status_t BrushBoundary_TryReconstruct(
     brush_boundary_t *pBoundary,
     const brush_solid_t *pBrush,
@@ -150,6 +168,38 @@ CYPHER_NODISCARD geometry_status_t BrushBoundary_TryGetFaceVertexIndices(
     CY_OUT_WRITES( nOutputCapacity ) common::u32 *pIndicesOut,
     common::usize nOutputCapacity,
     common::usize *pCountOut ) noexcept;
+
+// Copies one canonical boundary vertex position.
+CYPHER_NODISCARD geometry_status_t BrushBoundary_TryGetVertex(
+    const brush_boundary_t *pBoundary,
+    common::usize iVertex,
+    math::vec3d_t *pVertexOut ) noexcept;
+
+// Copies one canonical edge record (iVertex0 < iVertex1).
+CYPHER_NODISCARD geometry_status_t BrushBoundary_TryGetEdge(
+    const brush_boundary_t *pBoundary,
+    common::usize iEdge,
+    brush_boundary_edge_t *pEdgeOut ) noexcept;
+
+// Copies one face record. The face's iSide names the brush side that
+// produced it; iFirstIndex/cVertices address faceVertexIndices.
+CYPHER_NODISCARD geometry_status_t BrushBoundary_TryGetFace(
+    const brush_boundary_t *pBoundary,
+    common::usize iFace,
+    brush_boundary_face_t *pFaceOut ) noexcept;
+
+// Finds the face produced by brush side iSide. Returns INVALID_ARGUMENT
+// when that side contributed no face (a redundant plane).
+CYPHER_NODISCARD geometry_status_t BrushBoundary_TryFindFaceForSide(
+    const brush_boundary_t *pBoundary,
+    common::usize iSide,
+    common::usize *pFaceOut ) noexcept;
+
+// Computes the axis-aligned bounds of every boundary vertex. Returns
+// DEGENERATE for an empty (failed or never reconstructed) boundary.
+CYPHER_NODISCARD geometry_status_t BrushBoundary_TryGetBounds(
+    const brush_boundary_t *pBoundary,
+    math::aabbd_t *pBoundsOut ) noexcept;
 
 // Returns the outward-facing plane normal for a boundary face by looking
 // up the corresponding brush side's plane.
