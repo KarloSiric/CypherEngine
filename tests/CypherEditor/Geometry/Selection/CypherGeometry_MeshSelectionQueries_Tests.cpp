@@ -322,4 +322,89 @@ TEST_CASE( "Component transforms move, scale and offset the selection", "[geomet
     }
 }
 
+TEST_CASE( "Select path finds the shortest route between vertices or faces", "[geometry][selection][selectionquery][path]" ) {
+    SECTION( "Across a cube's diagonal" ) {
+        Cube c;
+        bool bFound = false;
+        REQUIRE( MeshSelection_TrySelectVertexPath( &c.sel, &c.s, Id( 10 ), Id( 17 ), mesh_path_metric_t::STEPS, &bFound ) ==
+                 geometry_status_t::OK );
+        CHECK( bFound );
+        CHECK( c.sel.vertices.nCount == 4u );
+        CHECK( c.sel.edges.nCount == 3u );
+        CHECK( MeshSelection_HasVertex( &c.sel, Id( 10 ) ) );
+        CHECK( MeshSelection_HasVertex( &c.sel, Id( 17 ) ) );
+        // Every selected edge joins two selected vertices.
+        for ( common::usize i = 0; i < c.sel.edges.nCount; ++i ) {
+            CHECK( MeshSelection_HasVertex( &c.sel, c.sel.edges.pData[i].a ) );
+            CHECK( MeshSelection_HasVertex( &c.sel, c.sel.edges.pData[i].b ) );
+        }
+        // Bottom face to top face crosses one side.
+        REQUIRE( MeshSelection_TrySelectFacePath( &c.sel, &c.s, Id( 20 ), Id( 21 ), mesh_path_metric_t::STEPS, &bFound ) ==
+                 geometry_status_t::OK );
+        CHECK( bFound );
+        CHECK( c.sel.faces.nCount == 3u );
+    }
+    SECTION( "A vertex to itself" ) {
+        Cube c;
+        bool bFound = false;
+        REQUIRE( MeshSelection_TrySelectVertexPath( &c.sel, &c.s, Id( 12 ), Id( 12 ), mesh_path_metric_t::LENGTH, &bFound ) ==
+                 geometry_status_t::OK );
+        CHECK( bFound );
+        CHECK( c.sel.vertices.nCount == 1u );
+        CHECK( c.sel.edges.nCount == 0u );
+    }
+    SECTION( "Length and steps choose different routes" ) {
+        // A fan from X over P, a, b, Q: P-X-Q is two edges but 14.1 long;
+        // P-a-b-Q is three edges and 10 long.
+        common::allocator_t allocator{ *common::Allocator_GetSystem() };
+        mesh_source_description_t d{};
+        REQUIRE( MeshSourceDescription_Init( &d, &allocator, Id( 1 ) ) == geometry_status_t::OK );
+        const vec3d_t pts[5] = { { 0, 0, 0 }, { 3, 0, 0 }, { 7, 0, 0 }, { 10, 0, 0 }, { 5, 5, 0 } }; // P a b Q X
+        common::u32 v[5];
+        for ( int i = 0; i < 5; ++i ) {
+            REQUIRE( MeshSourceDescription_TryAddVertex( &d, pts[i], Id( 10u + static_cast<common::u64>( i ) ), &v[i] ) == geometry_status_t::OK );
+        }
+        const common::u32 tris[3][3] = { { v[0], v[1], v[4] }, { v[1], v[2], v[4] }, { v[2], v[3], v[4] } };
+        for ( int t = 0; t < 3; ++t ) {
+            REQUIRE( MeshSourceDescription_TryAddFace( &d, common::span_t<const common::u32>{ tris[t], 3 }, Id( 20u + static_cast<common::u64>( t ) ),
+                                                       mesh_face_attributes_t{}, nullptr ) == geometry_status_t::OK );
+        }
+        mesh_source_t s{};
+        REQUIRE( MeshSource_TryBuild( &d, &allocator, &s ) == geometry_status_t::OK );
+        for ( const mesh_path_metric_t metric : { mesh_path_metric_t::STEPS, mesh_path_metric_t::LENGTH } ) {
+            mesh_selection_t sel{};
+            REQUIRE( MeshSelection_Init( &sel, &allocator, Id( 1 ) ) == geometry_status_t::OK );
+            bool bFound = false;
+            REQUIRE( MeshSelection_TrySelectVertexPath( &sel, &s, Id( 10 ), Id( 13 ), metric, &bFound ) == geometry_status_t::OK );
+            CHECK( bFound );
+            if ( metric == mesh_path_metric_t::STEPS ) {
+                CHECK( sel.vertices.nCount == 3u );
+                CHECK( MeshSelection_HasVertex( &sel, Id( 14 ) ) );
+            } else {
+                CHECK( sel.vertices.nCount == 4u );
+                CHECK_FALSE( MeshSelection_HasVertex( &sel, Id( 14 ) ) );
+            }
+            MeshSelection_Shutdown( &sel );
+        }
+        MeshSource_Shutdown( &s );
+        MeshSourceDescription_Shutdown( &d );
+    }
+    SECTION( "Disconnected parts and unknown IDs" ) {
+        Cube c;
+        REQUIRE( MeshSource_TryAssignMissingIds( &c.s, &c.ids, nullptr ) == geometry_status_t::OK );
+        // Detach the top so it is a separate shell.
+        geometry_mesh_face_handle_t top{};
+        REQUIRE( MeshSource_TryFindFace( &c.s, Id( 21 ), &top ) );
+        REQUIRE( MeshBoundary_DetachFaces( &c.s.mesh, common::span_t<const geometry_mesh_face_handle_t>{ &top, 1 } ).status ==
+                 geometry_status_t::OK );
+        bool bFound = true;
+        REQUIRE( MeshSelection_TrySelectFacePath( &c.sel, &c.s, Id( 20 ), Id( 21 ), mesh_path_metric_t::STEPS, &bFound ) ==
+                 geometry_status_t::OK );
+        CHECK_FALSE( bFound );
+        CHECK( c.sel.faces.nCount == 0u );
+        CHECK( MeshSelection_TrySelectVertexPath( &c.sel, &c.s, Id( 10 ), Id( 4242 ), mesh_path_metric_t::STEPS, nullptr ) ==
+               geometry_status_t::INVALID_HANDLE );
+    }
+}
+
 } // namespace cypher::editor::geometry

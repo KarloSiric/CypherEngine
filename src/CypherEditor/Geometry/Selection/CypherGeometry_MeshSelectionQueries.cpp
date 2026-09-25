@@ -545,4 +545,245 @@ geometry_status_t MeshSelection_TryComputePivot(
     return st;
 }
 
+namespace
+{
+
+// Dijkstra over a graph given in compressed rows: node n's neighbours are
+// adj[first[n] .. first[n + 1]), each with the edge that reaches it and its
+// weight. Fills prev (node) and prevEdge for the tree; returns whether
+// `goal` was reached. Ties pop the lower node first, so paths are
+// deterministic.
+struct path_arc_t {
+    u32 to{ 0u };
+    u32 edge{ 0u }; // caller-defined edge index
+    f64 weight{ 0.0 };
+};
+
+struct path_graph_t {
+    vector_t<u32> first{};
+    vector_t<path_arc_t> arcs{};
+};
+
+struct heap_item_t {
+    f64 d{ 0.0 };
+    u32 node{ 0u };
+};
+
+bool HeapAfter( const heap_item_t &a, const heap_item_t &b ) noexcept
+{
+    return a.d > b.d || ( a.d == b.d && a.node > b.node ); // min-heap on (d, node)
+}
+
+geometry_status_t ShortestPath( const path_graph_t &g, u32 cNodes, u32 start, u32 goal, const allocator_t *pA, vector_t<u32> *pPrev,
+                                vector_t<u32> *pPrevEdge, bool *pReached ) noexcept
+{
+    vector_t<f64> dist{};
+    vector_t<u8> done{};
+    vector_t<heap_item_t> heap{};
+    if ( !Vector_Init( &dist, pA ) || !Vector_Init( &done, pA ) || !Vector_Init( &heap, pA ) || !Vector_Resize( &dist, cNodes ) ||
+         !Vector_Resize( &done, cNodes ) || !Vector_Resize( pPrev, cNodes ) || !Vector_Resize( pPrevEdge, cNodes ) ||
+         !Vector_Reserve( &heap, g.arcs.nCount + 1u ) ) {
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    for ( u32 i = 0u; i < cNodes; ++i ) {
+        dist.pData[i] = HUGE_VAL;
+        done.pData[i] = 0u;
+        pPrev->pData[i] = pPrevEdge->pData[i] = CY_INVALID_INDEX;
+    }
+    dist.pData[start] = 0.0;
+    (void)Vector_PushBack( &heap, heap_item_t{ 0.0, start } );
+    *pReached = false;
+    while ( heap.nCount > 0u ) {
+        std::pop_heap( heap.pData, heap.pData + heap.nCount, HeapAfter );
+        const heap_item_t top = heap.pData[heap.nCount - 1u];
+        Vector_PopBack( &heap );
+        if ( done.pData[top.node] != 0u ) { continue; }
+        done.pData[top.node] = 1u;
+        if ( top.node == goal ) {
+            *pReached = true;
+            break;
+        }
+        for ( u32 a = g.first.pData[top.node]; a < g.first.pData[top.node + 1u]; ++a ) {
+            const path_arc_t &arc = g.arcs.pData[a];
+            const f64 d = top.d + arc.weight;
+            if ( d < dist.pData[arc.to] ) {
+                dist.pData[arc.to] = d;
+                pPrev->pData[arc.to] = top.node;
+                pPrevEdge->pData[arc.to] = arc.edge;
+                // Each arc pushes at most once per relaxation; the heap was
+                // reserved for one entry per arc plus the start.
+                (void)Vector_PushBack( &heap, heap_item_t{ d, arc.to } );
+                std::push_heap( heap.pData, heap.pData + heap.nCount, HeapAfter );
+            }
+        }
+    }
+    return geometry_status_t::OK;
+}
+
+// Builds compressed rows from (from, arc) pairs.
+struct pending_arc_t {
+    u32 from{ 0u };
+    path_arc_t arc{};
+};
+
+bool BuildGraph( const vector_t<pending_arc_t> &pending, u32 cNodes, path_graph_t *pG ) noexcept
+{
+    if ( !Vector_Resize( &pG->first, cNodes + 1u ) || !Vector_Resize( &pG->arcs, pending.nCount ) ) { return false; }
+    for ( u32 i = 0u; i <= cNodes; ++i ) { pG->first.pData[i] = 0u; }
+    for ( usize i = 0u; i < pending.nCount; ++i ) { ++pG->first.pData[pending.pData[i].from + 1u]; }
+    for ( u32 i = 0u; i < cNodes; ++i ) { pG->first.pData[i + 1u] += pG->first.pData[i]; }
+    vector_t<u32> fill{};
+    if ( !Vector_Init( &fill, pG->first.pAllocator ) || !Vector_Resize( &fill, cNodes ) ) { return false; }
+    for ( u32 i = 0u; i < cNodes; ++i ) { fill.pData[i] = pG->first.pData[i]; }
+    for ( usize i = 0u; i < pending.nCount; ++i ) { pG->arcs.pData[fill.pData[pending.pData[i].from]++] = pending.pData[i].arc; }
+    return true;
+}
+
+} // namespace
+
+geometry_status_t MeshSelection_TrySelectVertexPath(
+    mesh_selection_t *pSelection,
+    const mesh_source_t *pMesh,
+    geometry_source_id_t fromVertex,
+    geometry_source_id_t toVertex,
+    mesh_path_metric_t metric,
+    bool *pFoundOut ) noexcept
+{
+    if ( pFoundOut ) { *pFoundOut = false; }
+    if ( !Ready( pSelection, pMesh ) ) { return geometry_status_t::NOT_INITIALIZED; }
+    if ( metric > mesh_path_metric_t::STEPS ) { return geometry_status_t::INVALID_ARGUMENT; }
+    geometry_mesh_vertex_handle_t a{}, b{};
+    if ( !MeshSource_TryFindVertex( pMesh, fromVertex, &a ) || !MeshSource_TryFindVertex( pMesh, toVertex, &b ) ) {
+        return geometry_status_t::INVALID_HANDLE;
+    }
+    const allocator_t *pA = AllocatorOf( pSelection );
+    const editable_mesh_t *pM = &pMesh->mesh;
+    const u32 cNodes = static_cast<u32>( pM->vertices.cSlots );
+    // Arcs both ways along every edge (from each edge record once).
+    vector_t<pending_arc_t> pending{};
+    vector_t<geometry_mesh_edge_handle_t> edges{};
+    path_graph_t g{};
+    if ( !Vector_Init( &pending, pA ) || !Vector_Init( &edges, pA ) || !Vector_Init( &g.first, pA ) || !Vector_Init( &g.arcs, pA ) ) {
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    bool bOk = true;
+    (void)GenerationPool_ForEach( &pM->edges, [&]( geometry_mesh_edge_handle_t hE, const mesh_edge_record_t &e ) noexcept -> bool_t {
+        const mesh_half_edge_record_t *pH = GenerationPool_Get( &pM->halfEdges, e.hHalfEdge );
+        const mesh_half_edge_record_t *pN = pH ? GenerationPool_Get( &pM->halfEdges, pH->hNext ) : nullptr;
+        if ( pN == nullptr ) { return true; }
+        const u32 u = pH->hOrigin.nSlot, v = pN->hOrigin.nSlot;
+        const f64 w = metric == mesh_path_metric_t::STEPS
+                          ? 1.0
+                          : std::sqrt( math::Vec3d_LengthSquared( math::Vec3d_Subtract( GenerationPool_Get( &pM->vertices, pH->hOrigin )->position,
+                                                                                        GenerationPool_Get( &pM->vertices, pN->hOrigin )->position ) ) );
+        const u32 iEdge = static_cast<u32>( edges.nCount );
+        bOk = bOk && Vector_PushBack( &edges, hE ) && Vector_PushBack( &pending, pending_arc_t{ u, path_arc_t{ v, iEdge, w } } ) &&
+              Vector_PushBack( &pending, pending_arc_t{ v, path_arc_t{ u, iEdge, w } } );
+        return bOk;
+    } );
+    vector_t<u32> prev{}, prevEdge{};
+    bool bReached = false;
+    if ( !bOk || !BuildGraph( pending, cNodes, &g ) || !Vector_Init( &prev, pA ) || !Vector_Init( &prevEdge, pA ) ) {
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    const geometry_status_t st = ShortestPath( g, cNodes, a.nSlot, b.nSlot, pA, &prev, &prevEdge, &bReached );
+    if ( st != geometry_status_t::OK || !bReached ) { return st; }
+    // Walk back from the goal, collecting IDs.
+    vector_t<geometry_source_id_t> verts{};
+    vector_t<mesh_edge_ref_t> refs{};
+    if ( !Vector_Init( &verts, pA ) || !Vector_Init( &refs, pA ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+    u32 node = b.nSlot;
+    geometry_mesh_vertex_handle_t hNode = b;
+    for ( ;; ) {
+        const geometry_source_id_t id = MeshSource_VertexId( pMesh, hNode );
+        if ( GeometrySourceId_IsValid( id ) && !Vector_PushBack( &verts, id ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+        if ( node == a.nSlot ) { break; }
+        const geometry_mesh_edge_handle_t hEdge = edges.pData[prevEdge.pData[node]];
+        mesh_edge_ref_t ref{};
+        if ( EdgeRefOf( pMesh, hEdge, &ref ) && !Vector_PushBack( &refs, ref ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+        // The previous node's handle: the other end of that edge.
+        const mesh_edge_record_t *pE = GenerationPool_Get( &pM->edges, hEdge );
+        const mesh_half_edge_record_t *pH = GenerationPool_Get( &pM->halfEdges, pE->hHalfEdge );
+        const geometry_mesh_vertex_handle_t other = GenerationPool_Get( &pM->halfEdges, pH->hNext )->hOrigin;
+        hNode = pH->hOrigin.nSlot == node ? other : pH->hOrigin;
+        node = prev.pData[node];
+    }
+    geometry_status_t s = MergeSorted( &pSelection->vertices, &verts, IdLess, IdEq );
+    if ( s == geometry_status_t::OK ) { s = MergeSorted( &pSelection->edges, &refs, EdgeLess, EdgeEq ); }
+    if ( s == geometry_status_t::OK && pFoundOut ) { *pFoundOut = true; }
+    return s;
+}
+
+geometry_status_t MeshSelection_TrySelectFacePath(
+    mesh_selection_t *pSelection,
+    const mesh_source_t *pMesh,
+    geometry_source_id_t fromFace,
+    geometry_source_id_t toFace,
+    mesh_path_metric_t metric,
+    bool *pFoundOut ) noexcept
+{
+    if ( pFoundOut ) { *pFoundOut = false; }
+    if ( !Ready( pSelection, pMesh ) ) { return geometry_status_t::NOT_INITIALIZED; }
+    if ( metric > mesh_path_metric_t::STEPS ) { return geometry_status_t::INVALID_ARGUMENT; }
+    geometry_mesh_face_handle_t a{}, b{};
+    if ( !MeshSource_TryFindFace( pMesh, fromFace, &a ) || !MeshSource_TryFindFace( pMesh, toFace, &b ) ) {
+        return geometry_status_t::INVALID_HANDLE;
+    }
+    const allocator_t *pA = AllocatorOf( pSelection );
+    const editable_mesh_t *pM = &pMesh->mesh;
+    const u32 cNodes = static_cast<u32>( pM->faces.cSlots );
+    // Face centroids (corner average) by slot, and handles for the walk back.
+    vector_t<math::vec3d_t> centroid{};
+    vector_t<geometry_mesh_face_handle_t> handleOf{};
+    if ( !Vector_Init( &centroid, pA ) || !Vector_Init( &handleOf, pA ) || !Vector_Resize( &centroid, cNodes ) ||
+         !Vector_Resize( &handleOf, cNodes ) ) {
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    ForEachFace( pMesh, [&]( geometry_mesh_face_handle_t hF, const mesh_face_record_t &, const mesh_loop_record_t &loop ) noexcept {
+        math::vec3d_t sum{};
+        ForEachCorner( pMesh, loop, [&]( geometry_mesh_vertex_handle_t, math::vec3d_t p ) noexcept { sum = math::Vec3d_Add( sum, p ); } );
+        centroid.pData[hF.nSlot] = math::Vec3d_Scale( sum, 1.0 / static_cast<f64>( loop.cHalfEdges ) );
+        handleOf.pData[hF.nSlot] = hF;
+    } );
+    // Arcs across every interior edge, from the half-edge whose face slot is
+    // lower (each edge once, both directions).
+    vector_t<pending_arc_t> pending{};
+    path_graph_t g{};
+    if ( !Vector_Init( &pending, pA ) || !Vector_Init( &g.first, pA ) || !Vector_Init( &g.arcs, pA ) ) {
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    bool bOk = true;
+    (void)GenerationPool_ForEach( &pM->edges, [&]( geometry_mesh_edge_handle_t, const mesh_edge_record_t &e ) noexcept -> bool_t {
+        const mesh_half_edge_record_t *pH = GenerationPool_Get( &pM->halfEdges, e.hHalfEdge );
+        const mesh_half_edge_record_t *pT = pH ? GenerationPool_Get( &pM->halfEdges, pH->hTwin ) : nullptr;
+        const mesh_loop_record_t *pL0 = pT ? GenerationPool_Get( &pM->loops, pH->hLoop ) : nullptr;
+        const mesh_loop_record_t *pL1 = pT ? GenerationPool_Get( &pM->loops, pT->hLoop ) : nullptr;
+        if ( pL0 == nullptr || pL1 == nullptr ) { return true; } // open edge
+        const u32 f0 = pL0->hFace.nSlot, f1 = pL1->hFace.nSlot;
+        const f64 w = metric == mesh_path_metric_t::STEPS
+                          ? 1.0
+                          : std::sqrt( math::Vec3d_LengthSquared( math::Vec3d_Subtract( centroid.pData[f0], centroid.pData[f1] ) ) );
+        bOk = bOk && Vector_PushBack( &pending, pending_arc_t{ f0, path_arc_t{ f1, 0u, w } } ) &&
+              Vector_PushBack( &pending, pending_arc_t{ f1, path_arc_t{ f0, 0u, w } } );
+        return bOk;
+    } );
+    vector_t<u32> prev{}, prevEdge{};
+    bool bReached = false;
+    if ( !bOk || !BuildGraph( pending, cNodes, &g ) || !Vector_Init( &prev, pA ) || !Vector_Init( &prevEdge, pA ) ) {
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    const geometry_status_t st = ShortestPath( g, cNodes, a.nSlot, b.nSlot, pA, &prev, &prevEdge, &bReached );
+    if ( st != geometry_status_t::OK || !bReached ) { return st; }
+    vector_t<geometry_source_id_t> found{};
+    if ( !Vector_Init( &found, pA ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+    for ( u32 node = b.nSlot;; node = prev.pData[node] ) {
+        const geometry_source_id_t id = MeshSource_FaceId( pMesh, handleOf.pData[node] );
+        if ( GeometrySourceId_IsValid( id ) && !Vector_PushBack( &found, id ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+        if ( node == a.nSlot ) { break; }
+    }
+    const geometry_status_t s = MergeSorted( &pSelection->faces, &found, IdLess, IdEq );
+    if ( s == geometry_status_t::OK && pFoundOut ) { *pFoundOut = true; }
+    return s;
+}
+
 } // namespace cypher::editor::geometry

@@ -135,6 +135,36 @@ CYPHER_NODISCARD geometry_status_t MeshSelection_TryComputePivot(
     mesh_pivot_mode_t pivotMode,
     math::vec3d_t *pPivotOut ) noexcept;
 
+// How "select path" measures a path.
+enum class mesh_path_metric_t : common::u8 {
+    LENGTH = 0u, // total edge length (vertex path) or centroid-to-centroid
+                 // distance (face path): the geometrically shortest route
+    STEPS        // fewest edges / faces
+};
+
+// Hammer's "select path" between two vertices: adds the vertices and edges
+// of the shortest route along edges (ties broken by lower vertex slot, so
+// the result is deterministic). *pFoundOut (optional) is false when the two
+// are not connected, which is not an error (nothing is added). The two
+// vertices may be the same (just that vertex). Unknown IDs ->
+// INVALID_HANDLE; an unknown metric -> INVALID_ARGUMENT.
+CYPHER_NODISCARD geometry_status_t MeshSelection_TrySelectVertexPath(
+    mesh_selection_t *pSelection,
+    const mesh_source_t *pMesh,
+    geometry_source_id_t fromVertex,
+    geometry_source_id_t toVertex,
+    mesh_path_metric_t metric,
+    bool *pFoundOut ) noexcept;
+
+// The same between two faces, across shared edges; adds the faces.
+CYPHER_NODISCARD geometry_status_t MeshSelection_TrySelectFacePath(
+    mesh_selection_t *pSelection,
+    const mesh_source_t *pMesh,
+    geometry_source_id_t fromFace,
+    geometry_source_id_t toFace,
+    mesh_path_metric_t metric,
+    bool *pFoundOut ) noexcept;
+
 } // namespace cypher::editor::geometry
 
 #endif // CYPHER_EDITOR_GEOMETRY_MESH_SELECTION_QUERIES_H

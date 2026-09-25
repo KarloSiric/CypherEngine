@@ -7,9 +7,10 @@
 //  Purpose: Declares open-boundary topology operations on the editable
 //           half-edge mesh: deleting faces to make openings, filling holes,
 //           extruding boundary edges (the Hammer edge-pull workflow),
-//           detaching faces into their own shell, adding faces (Poly Pen),
-//           bridging two boundary loops, and replacing a set of faces in
-//           one failure-atomic step (the primitive bevel builds on).
+//           detaching faces into their own shell, flipping faces, adding
+//           faces (Poly Pen), bridging two boundary loops, and replacing a
+//           set of faces in one failure-atomic step (the primitive bevel
+//           builds on).
 //  Details: Boundary convention (the same one Sanitation builds): a
 //           half-edge on the mesh boundary has no twin (invalid hTwin), and
 //           its edge record points at it. A boundary vertex stores the
@@ -151,6 +152,31 @@ struct mesh_boundary_detach_result_t {
 // into two boundary edges (crease weight copied to both). Afterwards the
 // selection forms its own shell(s). Selecting every face is a no-op.
 CYPHER_NODISCARD mesh_boundary_detach_result_t MeshBoundary_DetachFaces(
+    editable_mesh_t *pMesh,
+    common::span_t<const geometry_mesh_face_handle_t> faces ) noexcept;
+
+// ---------------------------------------------------------------------------
+// Flip faces
+// ---------------------------------------------------------------------------
+
+struct mesh_boundary_flip_result_t {
+    common::u32 cFacesFlipped{ 0u };
+    common::u32 cVerticesDuplicated{ 0u }; // by the detach of a partial selection
+    common::u32 cEdgesCut{ 0u };
+    geometry_status_t status{ geometry_status_t::INVALID_ARGUMENT };
+};
+
+// Reverses the winding (and so the normal) of the faces - Hammer's Flip.
+// Two faces sharing an edge must run along it in opposite directions, so a
+// flipped face cannot stay joined to a face that keeps its winding: the
+// selection is first detached (MeshBoundary_DetachFaces), and every edge
+// between a flipped and a kept face becomes two boundary edges. Selecting
+// whole shells cuts nothing. Faces keep their handles, so per-corner values
+// stay on the same (face, vertex) corners: seen from the new front side the
+// texture is mirrored (re-project it to undo that). Stale or repeated faces
+// are INVALID_HANDLE. Only the detach can fail, so the flip is
+// failure-atomic.
+CYPHER_NODISCARD mesh_boundary_flip_result_t MeshBoundary_FlipFaces(
     editable_mesh_t *pMesh,
     common::span_t<const geometry_mesh_face_handle_t> faces ) noexcept;
 

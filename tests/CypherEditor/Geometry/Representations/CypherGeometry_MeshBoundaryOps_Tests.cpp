@@ -318,6 +318,183 @@ TEST_CASE( "Detach splits a shell and cuts the shared edges", "[geometry][meshbo
     CHECK( none.cVerticesDuplicated == 0u );
 }
 
+namespace {
+
+std::vector<geometry_mesh_face_handle_t> AllFaces( const editable_mesh_t *pMesh ) {
+    std::vector<geometry_mesh_face_handle_t> all;
+    (void)common::GenerationPool_ForEach( &pMesh->faces,
+        [&]( geometry_mesh_face_handle_t h, const mesh_face_record_t & ) noexcept -> common::bool_t {
+            all.push_back( h );
+            return true;
+        } );
+    return all;
+}
+
+} // namespace
+
+TEST_CASE( "Flipping a whole shell reverses it without cutting anything", "[geometry][meshboundary][flip]" ) {
+    Src m;
+    m.Cube();
+    Desc before, after;
+    m.Snapshot( &before.d );
+    const std::vector<geometry_mesh_face_handle_t> all = AllFaces( &m.s.mesh );
+    std::vector<vec3d_t> normals;
+    for ( const geometry_mesh_face_handle_t h : all ) { normals.push_back( GenerationPool_Get( &m.s.mesh.faces, h )->normal ); }
+    const common::span_t<const geometry_mesh_face_handle_t> sel{ all.data(), all.size() };
+
+    const mesh_boundary_flip_result_t r = MeshBoundary_FlipFaces( &m.s.mesh, sel );
+    REQUIRE( r.status == geometry_status_t::OK );
+    CHECK( r.cFacesFlipped == 6u );
+    CHECK( r.cVerticesDuplicated == 0u );
+    CHECK( r.cEdgesCut == 0u );
+    CHECK( EditableMesh_VertexCount( &m.s.mesh ) == 8u );
+    CHECK( EditableMesh_EdgeCount( &m.s.mesh ) == 12u );
+    CHECK( EditableMesh_ShellCount( &m.s.mesh ) == 1u );
+    CHECK( MeshBoundary_CountBoundaryEdges( &m.s.mesh ) == 0u );
+    CHECK( EditableMesh_SignedVolume( &m.s.mesh ) == Approx( -1.0 ) );
+    for ( common::usize i = 0; i < all.size(); ++i ) {
+        const vec3d_t n = GenerationPool_Get( &m.s.mesh.faces, all[i] )->normal;
+        CHECK( n.x == -normals[i].x );
+        CHECK( n.y == -normals[i].y );
+        CHECK( n.z == -normals[i].z );
+    }
+    m.Valid();
+
+    // Flipping back restores the exact source.
+    REQUIRE( MeshBoundary_FlipFaces( &m.s.mesh, sel ).status == geometry_status_t::OK );
+    CHECK( EditableMesh_SignedVolume( &m.s.mesh ) == Approx( 1.0 ) );
+    m.Snapshot( &after.d );
+    CHECK( MeshSourceDescription_Equal( &before.d, &after.d ) );
+}
+
+TEST_CASE( "Flipping part of a shell cuts it free along its border", "[geometry][meshboundary][flip]" ) {
+    Src m;
+    m.Cube();
+    const geometry_mesh_face_handle_t top[] = { m.Face( 21 ) };
+    const mesh_boundary_flip_result_t r =
+        MeshBoundary_FlipFaces( &m.s.mesh, common::span_t<const geometry_mesh_face_handle_t>{ top, 1 } );
+    REQUIRE( r.status == geometry_status_t::OK );
+    CHECK( r.cFacesFlipped == 1u );
+    CHECK( r.cVerticesDuplicated == 4u );
+    CHECK( r.cEdgesCut == 4u );
+    CHECK( EditableMesh_ShellCount( &m.s.mesh ) == 2u );
+    CHECK( MeshBoundary_CountBoundaryEdges( &m.s.mesh ) == 8u );
+    CHECK( GenerationPool_Get( &m.s.mesh.faces, m.Face( 21 ) )->normal.z == -1.0 );
+    m.Valid();
+
+    // Two adjacent faces flip together: their shared edge stays joined, and
+    // their other 3 + 3 edges are cut (12 boundary half-edges).
+    Src n;
+    n.Cube();
+    const geometry_mesh_face_handle_t pair[] = { n.Face( 21 ), n.Face( 22 ) };
+    const mesh_boundary_flip_result_t r2 =
+        MeshBoundary_FlipFaces( &n.s.mesh, common::span_t<const geometry_mesh_face_handle_t>{ pair, 2 } );
+    REQUIRE( r2.status == geometry_status_t::OK );
+    CHECK( r2.cEdgesCut == 6u );
+    CHECK( EditableMesh_ShellCount( &n.s.mesh ) == 2u );
+    CHECK( MeshBoundary_CountBoundaryEdges( &n.s.mesh ) == 12u );
+    n.Valid();
+}
+
+TEST_CASE( "Source flip keeps face IDs and each corner's UV", "[geometry][meshboundary][flip]" ) {
+    Src m;
+    for ( int i = 0; i < 8; ++i ) {
+        m.V( ( i & 1 ) ? 1.0 : 0.0, ( i & 2 ) ? 1.0 : 0.0, ( i & 4 ) ? 1.0 : 0.0, 10u + static_cast<common::u64>( i ) );
+    }
+    m.F( { 0, 2, 3, 1 }, 20 );
+    m.F( { 4, 5, 7, 6 }, 21 );
+    m.F( { 0, 1, 5, 4 }, 22 );
+    m.F( { 2, 6, 7, 3 }, 23 );
+    m.F( { 0, 4, 6, 2 }, 24 );
+    m.F( { 1, 3, 7, 5 }, 25 );
+    // A UV that differs at every corner position, so a corner that moved
+    // to another vertex would show.
+    auto uvOf = []( vec3d_t p ) { return math::vec2d_t{ p.x + 2.0 * p.z, p.y + 4.0 * p.z }; };
+    for ( common::usize i = 0; i < m.d.corners.nCount; ++i ) {
+        m.d.corners.pData[i].attributes.uv0 = uvOf( m.d.vertices.pData[m.d.corners.pData[i].iVertex].position );
+    }
+    m.Build();
+
+    const geometry_source_id_t ids[] = { Id( 21 ), Id( 25 ) };
+    mesh_edit_report_t report{};
+    REQUIRE( MeshSourceEdit_TryFlipFaces( &m.s, common::span_t<const geometry_source_id_t>{ ids, 2 }, &report ) ==
+             geometry_status_t::OK );
+    CHECK( report.stats.cCornersDefaulted == 0u );
+    m.Valid();
+    CHECK( GenerationPool_Get( &m.s.mesh.faces, m.Face( 21 ) )->normal.z == -1.0 );
+    CHECK( GenerationPool_Get( &m.s.mesh.faces, m.Face( 25 ) )->normal.x == -1.0 );
+
+    mesh_source_description_t d{};
+    REQUIRE( MeshSourceDescription_Init( &d, &m.allocator, Id( 1 ) ) == geometry_status_t::OK );
+    REQUIRE( MeshSource_TryDescribe( &m.s, &d ) == geometry_status_t::OK );
+    CHECK( d.faces.nCount == 6u );
+    for ( common::usize i = 0; i < d.corners.nCount; ++i ) {
+        const math::vec2d_t want = uvOf( d.vertices.pData[d.corners.pData[i].iVertex].position );
+        CHECK( d.corners.pData[i].attributes.uv0.x == want.x );
+        CHECK( d.corners.pData[i].attributes.uv0.y == want.y );
+    }
+    MeshSourceDescription_Shutdown( &d );
+}
+
+TEST_CASE( "Flip rejects bad face lists and leaves the mesh unchanged", "[geometry][meshboundary][flip]" ) {
+    Src m;
+    m.Cube();
+    Desc before, after;
+    m.Snapshot( &before.d );
+    const geometry_mesh_face_handle_t twice[] = { m.Face( 21 ), m.Face( 21 ) };
+    CHECK( MeshBoundary_FlipFaces( &m.s.mesh, common::span_t<const geometry_mesh_face_handle_t>{ twice, 2 } ).status ==
+           geometry_status_t::INVALID_HANDLE );
+    const geometry_mesh_face_handle_t stale[] = { geometry_mesh_face_handle_t{ 999u, 1u } };
+    CHECK( MeshBoundary_FlipFaces( &m.s.mesh, common::span_t<const geometry_mesh_face_handle_t>{ stale, 1 } ).status ==
+           geometry_status_t::INVALID_HANDLE );
+    CHECK( MeshBoundary_FlipFaces( &m.s.mesh, {} ).status == geometry_status_t::INVALID_ARGUMENT );
+    CHECK( MeshSourceEdit_TryFlipFaces( &m.s, {}, nullptr ) == geometry_status_t::INVALID_ARGUMENT );
+    const geometry_source_id_t unknown[] = { Id( 4242 ) };
+    CHECK( MeshSourceEdit_TryFlipFaces( &m.s, common::span_t<const geometry_source_id_t>{ unknown, 1 }, nullptr ) ==
+           geometry_status_t::INVALID_HANDLE );
+    m.Snapshot( &after.d );
+    CHECK( MeshSourceDescription_Equal( &before.d, &after.d ) );
+}
+
+TEST_CASE( "Every flip allocation failure is atomic", "[geometry][meshboundary][flip][allocation]" ) {
+    common::usize cOperationAllocations = 0u;
+    boundary_failure_allocator_state_t probeState{};
+    common::allocator_t probeAllocator = MakeBoundaryFailureAllocator( &probeState );
+    {
+        Src probe( &probeAllocator );
+        probe.Cube();
+        const geometry_mesh_face_handle_t face[] = { probe.Face( 21 ), probe.Face( 22 ) };
+        const common::usize cBefore = probeState.cAllocationCalls;
+        REQUIRE( MeshBoundary_FlipFaces( &probe.s.mesh, common::span_t<const geometry_mesh_face_handle_t>{ face, 2u } ).status ==
+                 geometry_status_t::OK );
+        cOperationAllocations = probeState.cAllocationCalls - cBefore;
+    }
+    REQUIRE( OutstandingAllocations( probeState ) == 0u );
+    REQUIRE( cOperationAllocations > 0u );
+
+    for ( common::usize iFailure = 1u; iFailure <= cOperationAllocations; ++iFailure ) {
+        CAPTURE( iFailure, cOperationAllocations );
+        boundary_failure_allocator_state_t state{};
+        common::allocator_t allocator = MakeBoundaryFailureAllocator( &state );
+        {
+            Src m( &allocator );
+            m.Cube();
+            Desc before, after;
+            m.Snapshot( &before.d );
+            const geometry_mesh_face_handle_t face[] = { m.Face( 21 ), m.Face( 22 ) };
+            state.iFailOnCall = state.cAllocationCalls + iFailure;
+            const mesh_boundary_flip_result_t result =
+                MeshBoundary_FlipFaces( &m.s.mesh, common::span_t<const geometry_mesh_face_handle_t>{ face, 2u } );
+            state.iFailOnCall = common::CY_INVALID_SIZE;
+            CHECK( result.status == geometry_status_t::ALLOCATION_FAILED );
+            m.Snapshot( &after.d );
+            CHECK( MeshSourceDescription_Equal( &before.d, &after.d ) );
+            m.Valid();
+        }
+        CHECK( OutstandingAllocations( state ) == 0u );
+    }
+}
+
 TEST_CASE( "Deleting the middle of a strip splits it into two shells", "[geometry][meshboundary]" ) {
     Src m;
     for ( int i = 0; i < 4; ++i ) {

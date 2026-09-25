@@ -24,7 +24,10 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_MeshBoundaryOps.h"
+#include "CypherGeometry_MeshBridge.h"
 #include "CypherGeometry_MeshKnife.h"
+#include "CypherGeometry_MeshMerge.h"
+#include "CypherGeometry_MeshSlice.h"
 #include "CypherGeometry_MeshSourceModeling.h"
 #include "CypherGeometry_MeshSourceTopology.h"
 #include "CypherGeometry_MeshTopologyOps.h"
@@ -238,6 +241,93 @@ TEST_CASE( "Every open-boundary operation leaves each fan starting at its open e
                  geometry_status_t::OK );
         CheckFanStarts( &m.s.mesh );
         REQUIRE( MeshOps_MoveVertex( &m.s.mesh, m.Vertex( 14 ), Vec3d_Make( -0.1, -0.1, 1.2 ) ) == geometry_status_t::OK );
+        CheckNormals( &m.s.mesh );
+    }
+    SECTION( "Flip one side of an open box" ) {
+        Mesh m;
+        m.Cube();
+        m.OpenTop();
+        const geometry_mesh_face_handle_t f[] = { m.Face( 22 ) };
+        REQUIRE( MeshBoundary_FlipFaces( &m.s.mesh, common::span_t<const geometry_mesh_face_handle_t>{ f, 1 } ).status ==
+                 geometry_status_t::OK );
+        CheckFanStarts( &m.s.mesh );
+        CheckNormals( &m.s.mesh );
+    }
+    SECTION( "Flip a whole open box (the rim fans change ends)" ) {
+        Mesh m;
+        m.Cube();
+        m.OpenTop();
+        const geometry_mesh_face_handle_t f[] = { m.Face( 20 ), m.Face( 22 ), m.Face( 23 ), m.Face( 24 ), m.Face( 25 ) };
+        REQUIRE( MeshBoundary_FlipFaces( &m.s.mesh, common::span_t<const geometry_mesh_face_handle_t>{ f, 5 } ).status ==
+                 geometry_status_t::OK );
+        CheckFanStarts( &m.s.mesh );
+        CheckNormals( &m.s.mesh );
+        REQUIRE( MeshOps_MoveVertex( &m.s.mesh, m.Vertex( 17 ), Vec3d_Make( 1.2, 1.2, 1.5 ) ) == geometry_status_t::OK );
+        CheckNormals( &m.s.mesh );
+    }
+    SECTION( "Mirror an open box (every loop reverses)" ) {
+        Mesh m;
+        m.Cube();
+        m.OpenTop();
+        REQUIRE( MeshOps_Mirror( &m.s.mesh, math::planed_t{ Vec3d_Make( 1, 0, 0 ), -0.5 } ) == geometry_status_t::OK );
+        CheckFanStarts( &m.s.mesh );
+        REQUIRE( MeshOps_MoveVertex( &m.s.mesh, m.Vertex( 17 ), Vec3d_Make( 1.2, 1.2, 1.5 ) ) == geometry_status_t::OK );
+        CheckNormals( &m.s.mesh );
+    }
+    SECTION( "Clip an open box below its rim" ) {
+        Mesh m;
+        m.Cube();
+        m.OpenTop();
+        mesh_slice_params_t p{};
+        p.plane = math::planed_t{ Vec3d_Make( 0, 0, 1 ), -0.5 };
+        p.keep = mesh_slice_keep_t::BACK;
+        REQUIRE( MeshSlice_ByPlane( &m.s.mesh, p, nullptr ).status == geometry_status_t::OK );
+        CheckFanStarts( &m.s.mesh );
+        CheckNormals( &m.s.mesh );
+    }
+    SECTION( "Detach the top, then weld it back only along two edges" ) {
+        Mesh m;
+        m.Cube();
+        const geometry_mesh_face_handle_t f[] = { m.Face( 21 ) };
+        REQUIRE( MeshBoundary_DetachFaces( &m.s.mesh, common::span_t<const geometry_mesh_face_handle_t>{ f, 1 } ).status ==
+                 geometry_status_t::OK );
+        // Sew one rim edge back: the other three stay open, so the two
+        // welded corners end on open fans.
+        const geometry_mesh_face_handle_t top = m.Face( 21 );
+        const mesh_loop_record_t *pL =
+            common::GenerationPool_Get( &m.s.mesh.loops, common::GenerationPool_Get( &m.s.mesh.faces, top )->hOuterLoop );
+        const mesh_half_edge_record_t *pH = common::GenerationPool_Get( &m.s.mesh.halfEdges, pL->hFirstHalfEdge );
+        const vec3d_t a = common::GenerationPool_Get( &m.s.mesh.vertices, pH->hOrigin )->position;
+        const vec3d_t b =
+            common::GenerationPool_Get( &m.s.mesh.vertices, common::GenerationPool_Get( &m.s.mesh.halfEdges, pH->hNext )->hOrigin )->position;
+        geometry_mesh_edge_handle_t partner{};
+        (void)common::GenerationPool_ForEach( &m.s.mesh.halfEdges,
+            [&]( geometry_mesh_half_edge_handle_t, const mesh_half_edge_record_t &h ) noexcept -> common::bool_t {
+                const mesh_half_edge_record_t *pN = common::GenerationPool_Get( &m.s.mesh.halfEdges, h.hNext );
+                const vec3d_t p = common::GenerationPool_Get( &m.s.mesh.vertices, h.hOrigin )->position;
+                const vec3d_t q = common::GenerationPool_Get( &m.s.mesh.vertices, pN->hOrigin )->position;
+                if ( math::Vec3d_EqualsExact( p, b ) && math::Vec3d_EqualsExact( q, a ) ) { partner = h.hEdge; }
+                return true;
+            } );
+        const geometry_mesh_edge_handle_t pair[] = { pH->hEdge, partner };
+        REQUIRE( MeshMerge_SewEdges( &m.s.mesh, common::span_t<const geometry_mesh_edge_handle_t>{ pair, 2 }, mesh_merge_target_t::FIRST,
+                                     nullptr )
+                     .status == geometry_status_t::OK );
+        CheckFanStarts( &m.s.mesh );
+        CheckNormals( &m.s.mesh );
+    }
+    SECTION( "Bridge an open box's rim edge to a new sheet's border" ) {
+        Mesh m;
+        m.Cube();
+        m.OpenTop();
+        // Two rim edges of the open box, bridged across the opening to the
+        // opposite rim edges (a strip lid with open ends).
+        const geometry_mesh_edge_handle_t a[] = { m.Edge( 14, 15 ) };
+        const geometry_mesh_edge_handle_t b[] = { m.Edge( 17, 16 ) };
+        REQUIRE( MeshBridge_EdgeChains( &m.s.mesh, common::span_t<const geometry_mesh_edge_handle_t>{ a, 1 },
+                                        common::span_t<const geometry_mesh_edge_handle_t>{ b, 1 }, 2u, nullptr )
+                     .status == geometry_status_t::OK );
+        CheckFanStarts( &m.s.mesh );
         CheckNormals( &m.s.mesh );
     }
     SECTION( "Replace faces into an open result" ) {

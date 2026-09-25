@@ -22,6 +22,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_MeshTopologyOps.h"
+#include "CypherGeometry_MeshRecordAccess.h"
 #include "CypherCommon_Vector.h"
 
 #include <cmath>
@@ -4259,31 +4260,10 @@ geometry_status_t MeshOps_Mirror(
             return true;
         } );
 
-    // Update vertex outgoing half-edge pointers.
-    (void)GenerationPool_ForEach( &pMesh->vertices,
-        [&]( geometry_mesh_vertex_handle_t hV,
-             mesh_vertex_record_t &vert ) noexcept -> bool_t {
-            // Verify the outgoing pointer still originates at this vertex.
-            const mesh_half_edge_record_t *pOut =
-                GenerationPool_Get( &pMesh->halfEdges, vert.hOutHalfEdge );
-            if ( pOut != nullptr &&
-                 ( pOut->hOrigin.nSlot != hV.nSlot ||
-                   pOut->hOrigin.nGeneration != hV.nGeneration ) ) {
-                // Search for a valid outgoing half-edge.
-                (void)GenerationPool_ForEach( &pMesh->halfEdges,
-                    [&]( geometry_mesh_half_edge_handle_t hHE,
-                         const mesh_half_edge_record_t &he )
-                             noexcept -> bool_t {
-                        if ( he.hOrigin.nSlot == hV.nSlot &&
-                             he.hOrigin.nGeneration == hV.nGeneration ) {
-                            vert.hOutHalfEdge = hHE;
-                            return false;
-                        }
-                        return true;
-                    } );
-            }
-            return true;
-        } );
+    // Every half-edge now leaves its old destination, so each vertex needs
+    // a new outgoing half-edge - on an open fan the fan's first one, which
+    // fan walks (e.g. MoveVertex's normal update) start from.
+    mesh_detail::FixAllOutEdges( pMesh );
 
     return geometry_status_t::OK;
 }

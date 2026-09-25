@@ -180,18 +180,38 @@ inline bool IsFanStart( const editable_mesh_t *pMesh, const mesh_half_edge_recor
 // early, so e.g. a moved rim vertex would update only some of its faces'
 // normals. Interior vertices may keep any live outgoing half-edge. One pass
 // over the half-edges; `touched` must cover every marked slot.
+// Offers half-edge h as its origin's outgoing half-edge: taken when the
+// current one is dead or leaves another vertex, or when h starts the fan
+// and the current one does not. Offering every half-edge that leaves a
+// vertex, in any order, ends with a live one - and with the fan start when
+// the fan is open.
+inline void OfferOutEdge( editable_mesh_t *pMesh, geometry_mesh_half_edge_handle_t h, const mesh_half_edge_record_t &he ) noexcept
+{
+    mesh_vertex_record_t *pV = common::GenerationPool_Get( &pMesh->vertices, he.hOrigin );
+    if ( pV == nullptr ) { return; }
+    const mesh_half_edge_record_t *pCur = He( pMesh, pV->hOutHalfEdge );
+    const bool bCurValid = pCur != nullptr && Same( pCur->hOrigin, he.hOrigin );
+    const bool bCurStart = bCurValid && IsFanStart( pMesh, *pCur );
+    if ( !bCurValid || ( !bCurStart && IsFanStart( pMesh, he ) ) ) { pV->hOutHalfEdge = h; }
+}
+
 inline void FixOutEdges( editable_mesh_t *pMesh, const common::vector_t<common::u8> &touched ) noexcept
 {
     (void)common::GenerationPool_ForEach( &pMesh->halfEdges,
         [&]( geometry_mesh_half_edge_handle_t h, const mesh_half_edge_record_t &he ) noexcept -> common::bool_t {
             const common::u32 slot = he.hOrigin.nSlot;
-            if ( slot >= touched.nCount || touched.pData[slot] == 0u ) { return true; }
-            mesh_vertex_record_t *pV = common::GenerationPool_Get( &pMesh->vertices, he.hOrigin );
-            if ( pV == nullptr ) { return true; }
-            const mesh_half_edge_record_t *pCur = He( pMesh, pV->hOutHalfEdge );
-            const bool bCurValid = pCur != nullptr && Same( pCur->hOrigin, he.hOrigin );
-            const bool bCurStart = bCurValid && IsFanStart( pMesh, *pCur );
-            if ( !bCurValid || ( !bCurStart && IsFanStart( pMesh, he ) ) ) { pV->hOutHalfEdge = h; }
+            if ( slot < touched.nCount && touched.pData[slot] != 0u ) { OfferOutEdge( pMesh, h, he ); }
+            return true;
+        } );
+}
+
+// FixOutEdges for every vertex, for operations that rewire the whole mesh
+// (a mirror reverses every loop). Needs no mask, so it cannot fail.
+inline void FixAllOutEdges( editable_mesh_t *pMesh ) noexcept
+{
+    (void)common::GenerationPool_ForEach( &pMesh->halfEdges,
+        [&]( geometry_mesh_half_edge_handle_t h, const mesh_half_edge_record_t &he ) noexcept -> common::bool_t {
+            OfferOutEdge( pMesh, h, he );
             return true;
         } );
 }

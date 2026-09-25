@@ -861,6 +861,69 @@ mesh_boundary_add_result_t MeshBoundary_AddFaces(
 }
 
 // ---------------------------------------------------------------------------
+// Flip
+// ---------------------------------------------------------------------------
+
+mesh_boundary_flip_result_t MeshBoundary_FlipFaces(
+    editable_mesh_t *pMesh,
+    span_t<const geometry_mesh_face_handle_t> faces ) noexcept
+{
+    mesh_boundary_flip_result_t r{};
+    // The detach validates the list and cuts every edge between a flipped
+    // and a kept face. It is the only step that can fail; the reversal
+    // below only rewires records that already exist.
+    const mesh_boundary_detach_result_t d = MeshBoundary_DetachFaces( pMesh, faces );
+    r.status = d.status;
+    if ( d.status != geometry_status_t::OK ) { return r; }
+    r.cVerticesDuplicated = d.cVerticesDuplicated;
+    r.cEdgesCut = d.cEdgesCut;
+
+    // Reverse each loop in place. Half-edge i ran v_i -> v_i+1; the same
+    // record now runs v_i+1 -> v_i, so it takes its old next's origin and
+    // swaps next with prev. Its twin (flipped too, or absent) still runs
+    // the opposite way, and its edge record still points at a live
+    // half-edge, so neither needs touching.
+    for ( usize i = 0u; i < faces.nCount; ++i ) {
+        mesh_face_record_t *pF = GenerationPool_Get( &pMesh->faces, faces.pData[i] );
+        const mesh_loop_record_t *pL = GenerationPool_Get( &pMesh->loops, pF->hOuterLoop );
+        const geometry_mesh_half_edge_handle_t hFirst = pL->hFirstHalfEdge;
+        const geometry_mesh_vertex_handle_t v0 = He( pMesh, hFirst )->hOrigin;
+        geometry_mesh_half_edge_handle_t h = hFirst;
+        for ( u32 k = 0u; k < pL->cHalfEdges; ++k ) {
+            mesh_half_edge_record_t *pH = HeMut( pMesh, h );
+            const geometry_mesh_half_edge_handle_t hNext = pH->hNext;
+            pH->hOrigin = ( k + 1u < pL->cHalfEdges ) ? He( pMesh, hNext )->hOrigin : v0;
+            h = hNext;
+        }
+        for ( u32 k = 0u; k < pL->cHalfEdges; ++k ) {
+            mesh_half_edge_record_t *pH = HeMut( pMesh, h );
+            const geometry_mesh_half_edge_handle_t hOldNext = pH->hNext;
+            pH->hNext = pH->hPrev;
+            pH->hPrev = hOldNext;
+            h = hOldNext;
+        }
+        pF->normal = math::Vec3d_Negate( pF->normal );
+    }
+
+    // Every half-edge leaving a vertex of the selection belongs to a flipped
+    // face after the detach, so visiting them all re-picks each vertex's
+    // outgoing half-edge: any live one, and the fan start on an open fan
+    // (the reversal moves which half-edge starts the fan).
+    for ( usize i = 0u; i < faces.nCount; ++i ) {
+        const mesh_face_record_t *pF = GenerationPool_Get( &pMesh->faces, faces.pData[i] );
+        const mesh_loop_record_t *pL = GenerationPool_Get( &pMesh->loops, pF->hOuterLoop );
+        geometry_mesh_half_edge_handle_t h = pL->hFirstHalfEdge;
+        for ( u32 k = 0u; k < pL->cHalfEdges; ++k ) {
+            const mesh_half_edge_record_t *pH = He( pMesh, h );
+            OfferOutEdge( pMesh, h, *pH );
+            h = pH->hNext;
+        }
+    }
+    r.cFacesFlipped = static_cast<u32>( faces.nCount );
+    return r;
+}
+
+// ---------------------------------------------------------------------------
 // Bridge
 // ---------------------------------------------------------------------------
 

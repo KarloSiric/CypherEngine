@@ -5,8 +5,8 @@
 //
 //  File: CypherGeometry_MeshSourceTopology.h
 //  Purpose: Declares identity-addressed topology edits on a mesh source:
-//           split, collapse, dissolve, weld, fill, bridge, and detach, each
-//           carrying attributes and identity through the change.
+//           split, collapse, dissolve, weld, fill, bridge, detach, and flip,
+//           each carrying attributes and identity through the change.
 //  Details: Why address by source ID: callers (tools, selection, scripts,
 //           undo) hold persistent IDs, not pool handles. An edge is named by
 //           its two vertex IDs, matching MeshSource's edge identity.
@@ -158,6 +158,14 @@ CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryAddFace(
 // Detaches the given faces into their own shell by duplicating boundary
 // vertices. Face IDs are unchanged.
 CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryDetachFaces(
+    mesh_source_t *pSource,
+    common::span_t<const geometry_source_id_t> faceIds,
+    mesh_edit_report_t *pReportOut ) noexcept;
+
+// Flips the given faces (see MeshBoundary_FlipFaces): a partial selection is
+// detached first, so edges to unflipped faces become boundary edges. Face
+// IDs and each (face, vertex) corner's UVs and color are unchanged.
+CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryFlipFaces(
     mesh_source_t *pSource,
     common::span_t<const geometry_source_id_t> faceIds,
     mesh_edit_report_t *pReportOut ) noexcept;

@@ -540,6 +540,29 @@ geometry_status_t MeshSourceEdit_TryDetachFaces(
     return st;
 }
 
+geometry_status_t MeshSourceEdit_TryFlipFaces(
+    mesh_source_t *pSource,
+    span_t<const geometry_source_id_t> faceIds,
+    mesh_edit_report_t *pReportOut ) noexcept
+{
+    if ( !MeshSource_IsInitialized( pSource ) ) { return geometry_status_t::NOT_INITIALIZED; }
+    if ( faceIds.nCount == 0u || faceIds.pData == nullptr ) { return geometry_status_t::INVALID_ARGUMENT; }
+    vector_t<geometry_mesh_face_handle_t> handles{};
+    geometry_status_t st = ResolveFaces( pSource, faceIds, &handles );
+    if ( st == geometry_status_t::OK ) {
+        st = MeshEdit_Bracket(
+            pSource,
+            [&]( vector_t<mesh_edit_face_parent_t> * ) noexcept {
+                return MeshBoundary_FlipFaces(
+                           &pSource->mesh, span_t<const geometry_mesh_face_handle_t>{ handles.pData, handles.nCount } )
+                    .status;
+            },
+            pReportOut );
+    }
+    Vector_Shutdown( &handles );
+    return st;
+}
+
 geometry_status_t MeshSourceEdit_TryKnife(
     mesh_source_t *pSource,
     span_t<const mesh_edit_knife_point_t> path,
