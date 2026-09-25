@@ -364,21 +364,21 @@ directory exists or a happy-path generator produces visible output.
 
 ## Test architecture
 
-Tests mirror behavior rather than directory count:
+Tests mirror the ten source folders (see the [folder index](README.md)) and
+test behavior rather than file count:
 
 ```text
 tests/CypherEditor/Geometry/
-  Core/             identity, pools, policy, budgets, allocation failure
-  Kernel/           predicate and construction adversarial cases
-  Representations/  canonical brush, mesh, planar, patch, curve, and heightfield invariants
-  Intermediates/    polygon/triangle soup validation, sanitation, and provenance
-  Validation/       malformed fixtures and exact diagnostics
-  Transactions/     preview, rollback, undo/redo, remap, provenance
-  Operations/       preconditions, topology, attributes, inverse edits
+  Core/             identity, pools, policy, budgets, predicates, planar, spatial
+  Brush/            brush invariants, boundaries, and every brush edit
+  Mesh/             editable-mesh invariants, modelling, Euler, subdivision
+  Surfaces/         patch, heightfield, curve, and displacement invariants
+  Operations/       primitives, modifiers, snapping, UVs, painting, preconditions
   Csg/              canonical pairs, coplanarity, regularization, provenance
-  Spatial/          refit/rebuild equivalence, picking, snapping candidates
-  Serialization/    round-trip, migration, corrupt-input budgets, determinism
+  Document/         transactions, undo/redo, remap, serialization, fragments
   Cook/             triangle/source maps, seams, hashes, snapshots
+  Validation/       malformed fixtures, exact diagnostics, repair, soups
+  Queries/          ray casts, picking, selection
   Fuzz/             parser, builder, operations, overlay, Boolean sequences
   Golden/           reviewed source and cooked neutral fixtures
 benchmarks/CypherEditor/Geometry/

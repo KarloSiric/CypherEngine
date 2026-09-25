@@ -11,10 +11,44 @@
 ##########################################################################
 
 add_library(CypherEditorGeometry STATIC
+    Brush/CypherGeometry_BrushBoundary.cpp
+    Brush/CypherGeometry_BrushBoundary.h
+    Brush/CypherGeometry_BrushClip.cpp
+    Brush/CypherGeometry_BrushClip.h
+    Brush/CypherGeometry_BrushCSG.cpp
+    Brush/CypherGeometry_BrushCSG.h
+    Brush/CypherGeometry_BrushEditPipeline.cpp
+    Brush/CypherGeometry_BrushEditPipeline.h
+    Brush/CypherGeometry_BrushGenerator.cpp
+    Brush/CypherGeometry_BrushGenerator.h
+    Brush/CypherGeometry_BrushSolid.cpp
+    Brush/CypherGeometry_BrushSolid.h
+    Brush/CypherGeometry_BrushSource.cpp
+    Brush/CypherGeometry_BrushSource.h
+    Brush/CypherGeometry_BrushTransform.cpp
+    Brush/CypherGeometry_BrushTransform.h
+    Brush/CypherGeometry_BrushValidation.cpp
+    Brush/CypherGeometry_BrushValidation.h
+    Brush/CypherGeometry_BrushVertexOps.cpp
+    Brush/CypherGeometry_BrushVertexOps.h
+    Cook/CypherGeometry_BrushTessellation.cpp
+    Cook/CypherGeometry_BrushTessellation.h
+    Cook/CypherGeometry_CookSourceMapping.cpp
+    Cook/CypherGeometry_CookSourceMapping.h
+    Core/CypherGeometry_Attributes_BrushSideStore.cpp
+    Core/CypherGeometry_Attributes_BrushSideStore.h
+    Core/CypherGeometry_Attributes_Schema.cpp
+    Core/CypherGeometry_Attributes_Schema.h
     Core/CypherGeometry_Diagnostics.cpp
     Core/CypherGeometry_Diagnostics.h
     Core/CypherGeometry_IdAllocator.cpp
     Core/CypherGeometry_IdAllocator.h
+    Core/CypherGeometry_Kernel_Classification.cpp
+    Core/CypherGeometry_Kernel_Classification.h
+    Core/CypherGeometry_Kernel_ConvexHull.cpp
+    Core/CypherGeometry_Kernel_ConvexHull.h
+    Core/CypherGeometry_Kernel_CoordinateKey.cpp
+    Core/CypherGeometry_Kernel_CoordinateKey.h
     Core/CypherGeometry_OperationContext.cpp
     Core/CypherGeometry_OperationContext.h
     Core/CypherGeometry_Policy.cpp
@@ -24,83 +58,49 @@ add_library(CypherEditorGeometry STATIC
     Core/CypherGeometry_Scratch.inl
     Core/CypherGeometry_SourceIdRegistry.cpp
     Core/CypherGeometry_SourceIdRegistry.h
+    Core/CypherGeometry_SpatialIndex.cpp
+    Core/CypherGeometry_SpatialIndex.h
     Core/CypherGeometry_Types.h
-    Attributes/Schema/CypherGeometry_Attributes_BrushSideStore.cpp
-    Attributes/Schema/CypherGeometry_Attributes_BrushSideStore.h
-    Attributes/Schema/CypherGeometry_Attributes_Schema.cpp
-    Attributes/Schema/CypherGeometry_Attributes_Schema.h
-    Kernel/CypherGeometry_Kernel_Classification.cpp
-    Kernel/CypherGeometry_Kernel_Classification.h
-    Kernel/CypherGeometry_Kernel_CoordinateKey.cpp
-    Kernel/CypherGeometry_Kernel_CoordinateKey.h
-    Kernel/CypherGeometry_Kernel_ConvexHull.cpp
-    Kernel/CypherGeometry_Kernel_ConvexHull.h
-    Representations/Brush/CypherGeometry_BrushSolid.cpp
-    Representations/Brush/CypherGeometry_BrushSolid.h
-    Representations/Brush/CypherGeometry_BrushSource.cpp
-    Representations/Brush/CypherGeometry_BrushSource.h
-    Representations/Brush/CypherGeometry_BrushBoundary.cpp
-    Representations/Brush/CypherGeometry_BrushBoundary.h
-    Representations/Brush/CypherGeometry_BrushGenerator.cpp
-    Representations/Brush/CypherGeometry_BrushGenerator.h
-    Representations/Brush/CypherGeometry_BrushValidation.cpp
-    Representations/Brush/CypherGeometry_BrushValidation.h
+    Csg/CypherGeometry_BrushCsgAdoption.cpp
+    Csg/CypherGeometry_BrushCsgAdoption.h
+    Document/CypherGeometry_BrushSerialization.cpp
+    Document/CypherGeometry_BrushSerialization.h
+    Document/CypherGeometry_Delta.cpp
+    Document/CypherGeometry_Delta.h
     Document/CypherGeometry_Document.cpp
     Document/CypherGeometry_Document.h
+    Document/CypherGeometry_ReplacementIdentity.cpp
+    Document/CypherGeometry_ReplacementIdentity.h
     Document/CypherGeometry_Snapshot.cpp
     Document/CypherGeometry_Snapshot.h
-    Transactions/CypherGeometry_Delta.cpp
-    Transactions/CypherGeometry_Delta.h
-    Transactions/CypherGeometry_ReplacementIdentity.cpp
-    Transactions/CypherGeometry_ReplacementIdentity.h
-    Transactions/CypherGeometry_Transaction.cpp
-    Transactions/CypherGeometry_Transaction.h
-    Tessellation/CypherGeometry_BrushTessellation.cpp
-    Tessellation/CypherGeometry_BrushTessellation.h
+    Document/CypherGeometry_Transaction.cpp
+    Document/CypherGeometry_Transaction.h
+    Mesh/CypherGeometry_EditableMesh.cpp
+    Mesh/CypherGeometry_EditableMesh.h
+    Mesh/CypherGeometry_MeshBooleans.cpp
+    Mesh/CypherGeometry_MeshBooleans.h
+    Mesh/CypherGeometry_MeshBuilder.cpp
+    Mesh/CypherGeometry_MeshBuilder.h
+    Mesh/CypherGeometry_MeshCleanup.cpp
+    Mesh/CypherGeometry_MeshCleanup.h
+    Mesh/CypherGeometry_MeshSubdivision.cpp
+    Mesh/CypherGeometry_MeshSubdivision.h
+    Mesh/CypherGeometry_MeshToBrush.cpp
+    Mesh/CypherGeometry_MeshToBrush.h
+    Mesh/CypherGeometry_MeshTopologyOps.cpp
+    Mesh/CypherGeometry_MeshTopologyOps.h
+    Mesh/CypherGeometry_MeshValidation.cpp
+    Mesh/CypherGeometry_MeshValidation.h
+    Operations/CypherGeometry_Snap.cpp
+    Operations/CypherGeometry_Snap.h
+    Operations/CypherGeometry_UvAlignment.cpp
+    Operations/CypherGeometry_UvAlignment.h
     Queries/CypherGeometry_BrushQueries.cpp
     Queries/CypherGeometry_BrushQueries.h
     Queries/CypherGeometry_RaycastQueries.cpp
     Queries/CypherGeometry_RaycastQueries.h
-    Spatial/CypherGeometry_SpatialIndex.cpp
-    Spatial/CypherGeometry_SpatialIndex.h
-    Selection/CypherGeometry_SelectionSet.cpp
-    Selection/CypherGeometry_SelectionSet.h
-    Constraints/CypherGeometry_Snap.cpp
-    Constraints/CypherGeometry_Snap.h
-    Operations/Transform/CypherGeometry_BrushTransform.cpp
-    Operations/Transform/CypherGeometry_BrushTransform.h
-    Operations/Cutting/CypherGeometry_BrushClip.cpp
-    Operations/Cutting/CypherGeometry_BrushClip.h
-    Operations/CypherGeometry_BrushEditPipeline.cpp
-    Operations/CypherGeometry_BrushEditPipeline.h
-    Operations/CSG/CypherGeometry_BrushCSG.cpp
-    Operations/CSG/CypherGeometry_BrushCSG.h
-    Csg/AttributeTransfer/CypherGeometry_BrushCsgAdoption.cpp
-    Csg/AttributeTransfer/CypherGeometry_BrushCsgAdoption.h
-    Operations/UvAlignment/CypherGeometry_UvAlignment.cpp
-    Operations/UvAlignment/CypherGeometry_UvAlignment.h
-    Operations/VertexManip/CypherGeometry_BrushVertexOps.cpp
-    Operations/VertexManip/CypherGeometry_BrushVertexOps.h
-    Serialization/CypherGeometry_BrushSerialization.cpp
-    Serialization/CypherGeometry_BrushSerialization.h
-    Cook/SourceMapping/CypherGeometry_CookSourceMapping.cpp
-    Cook/SourceMapping/CypherGeometry_CookSourceMapping.h
-    Representations/Mesh/CypherGeometry_EditableMesh.cpp
-    Representations/Mesh/CypherGeometry_EditableMesh.h
-    Representations/Mesh/CypherGeometry_MeshBuilder.cpp
-    Representations/Mesh/CypherGeometry_MeshBuilder.h
-    Representations/Mesh/CypherGeometry_MeshValidation.cpp
-    Representations/Mesh/CypherGeometry_MeshValidation.h
-    Representations/Mesh/CypherGeometry_MeshTopologyOps.cpp
-    Representations/Mesh/CypherGeometry_MeshTopologyOps.h
-    Representations/Mesh/CypherGeometry_MeshSubdivision.cpp
-    Representations/Mesh/CypherGeometry_MeshSubdivision.h
-    Representations/Mesh/CypherGeometry_MeshToBrush.cpp
-    Representations/Mesh/CypherGeometry_MeshToBrush.h
-    Representations/Mesh/CypherGeometry_MeshBooleans.cpp
-    Representations/Mesh/CypherGeometry_MeshBooleans.h
-    Representations/Mesh/CypherGeometry_MeshCleanup.cpp
-    Representations/Mesh/CypherGeometry_MeshCleanup.h
+    Queries/CypherGeometry_SelectionSet.cpp
+    Queries/CypherGeometry_SelectionSet.h
 )
 add_library(Cypher::EditorGeometry ALIAS CypherEditorGeometry)
 
@@ -109,26 +109,15 @@ target_include_directories(CypherEditorGeometry
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/Core"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Kernel"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Attributes/Schema"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Representations/Brush"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Document"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Transactions"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Tessellation"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Queries"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Spatial"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Selection"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Constraints"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Brush"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Mesh"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Surfaces"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Transform"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Cutting"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/CSG"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/AttributeTransfer"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/UvAlignment"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/VertexManip"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Serialization"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Cook/SourceMapping"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Representations/Mesh"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Document"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Validation"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Queries"
 )
 target_link_libraries(CypherEditorGeometry
     PUBLIC
@@ -138,44 +127,44 @@ target_link_libraries(CypherEditorGeometry
 
 if (CYPHERENGINE_BUILD_TESTS)
     add_executable(cypher_editor_geometry_contract_tests
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Brush/CypherGeometry_BrushClip_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Brush/CypherGeometry_BrushCSG_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Brush/CypherGeometry_BrushEditPipeline_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Brush/CypherGeometry_BrushGenerator_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Brush/CypherGeometry_BrushSolid_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Brush/CypherGeometry_BrushSource_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Brush/CypherGeometry_BrushTransform_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Brush/CypherGeometry_BrushValidation_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Brush/CypherGeometry_BrushVertexOps_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Cook/CypherGeometry_BrushTessellation_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Cook/CypherGeometry_CookSourceMapping_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Attributes_Schema_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Core_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Diagnostics_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Kernel_Classification_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Kernel_ConvexHull_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Kernel_CoordinateKey_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_OperationContext_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Scratch_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_SourceIdRegistry_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_SpatialIndex_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Core/CypherGeometry_Types_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Kernel/CypherGeometry_Kernel_Classification_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Kernel/CypherGeometry_Kernel_CoordinateKey_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Attributes/CypherGeometry_Attributes_Schema_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushSolid_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushSource_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushValidation_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Csg/CypherGeometry_BrushCsgAdoption_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Document/CypherGeometry_BrushSerialization_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Document/CypherGeometry_Document_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Transactions/CypherGeometry_Transaction_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Tessellation/CypherGeometry_BrushTessellation_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Document/CypherGeometry_Transaction_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Mesh/CypherGeometry_EditableMesh_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Mesh/CypherGeometry_MeshBooleans_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Mesh/CypherGeometry_MeshInvariant_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Mesh/CypherGeometry_MeshSubdivision_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Mesh/CypherGeometry_MeshToBrush_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Mesh/CypherGeometry_MeshTopologyOps_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_IndoorWorkflow_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_Snap_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_UvAlignment_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Queries/CypherGeometry_BrushQueries_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Queries/CypherGeometry_RaycastQueries_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Spatial/CypherGeometry_SpatialIndex_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Selection/CypherGeometry_SelectionSet_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Constraints/CypherGeometry_Snap_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushTransform_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushClip_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushEditPipeline_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushCSG_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushCsgAdoption_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_IndoorWorkflow_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_BrushGenerator_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Serialization/CypherGeometry_BrushSerialization_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Cook/CypherGeometry_CookSourceMapping_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_EditableMesh_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshTopologyOps_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_UvAlignment_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Kernel/CypherGeometry_Kernel_ConvexHull_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushVertexOps_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshSubdivision_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshToBrush_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshBooleans_Tests.cpp"
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshInvariant_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Queries/CypherGeometry_SelectionSet_Tests.cpp"
     )
     target_link_libraries(cypher_editor_geometry_contract_tests
         PRIVATE

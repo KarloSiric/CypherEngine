@@ -44,37 +44,29 @@ Forbidden dependencies:
   not pretend to satisfy mesh manifold invariants.
 - Runtime triangle/index buffers are disposable cooked products.
 
-## Module ownership
+## Folder index
 
-```text
-Core/             identity, handles, results, budgets, allocation contracts
-Kernel/           scalar policy, quantization, predicates, constructions, ordering
-Attributes/       low-level schemas/storage plus operation-level propagation
-Representations/  Brush, Mesh, PlanarRegion, Patch, Curve, and HeightField sources
-Intermediates/    bounded neutral soup and operation exchange records
-Primitives/       pure deterministic brush, mesh, polygon, and patch generators
-Document/         geometry pools, revisions, publication, immutable snapshots
-Transactions/     preview journals, invertible deltas, remapping, provenance
-Planar/           arrangements, holes, overlay, offset, constrained triangulation
-Queries/          ray casts, adjacency, containment, measurements, feature queries
-Validation/       structural, geometric, representation, and solid diagnostics
-Tessellation/     deterministic representation-to-triangle tessellation
-Selection/        geometry-component sets and topology-aware selection queries
-Exchange/         fragments, sanitation, clone/extract/insert boundaries
-Spatial/          editable indexes, caches, picking candidates, dirty regions
-Constraints/      deterministic snapping and transform-constraint resolution
-Repair/           explicit previewable and undoable repair plans
-Operations/       transform, cutting, topology, modeling, conversion, Euler edits
-Modifiers/        optional retained non-destructive recipes when justified
-Csg/              separate brush and mesh Boolean paths plus reconstruction stages
-Procedural/       sweep, patch, subdivision, displacement, and curve generators
-Serialization/    versioned authored geometry, stable IDs, deterministic migration
-Cook/             dependency-tracked immutable render/compiler/gameplay products
-```
+The library lives in ten shallow folders. Headers are included by basename
+(`#include "CypherGeometry_BrushSolid.h"`), so folders exist only to make the
+code findable. ARCHITECTURE.md still names the finer-grained logical modules
+(Kernel, Transactions, Tessellation, ...) as dependency layers; the right-hand
+column shows which folder each one lives in. Every folder README lists its
+headers with a one-line purpose and carries the merged ownership contracts.
 
-Every module directory contains an ownership contract and planned implementation
-units. Source files are added only with an implemented contract and focused tests;
-the scaffold deliberately contains no empty C++ placeholders.
+| Folder | Holds | Logical modules |
+| --- | --- | --- |
+| [Core/](Core/README.md) | identity, handles, policy, diagnostics, scratch, exact predicates, planar toolkit, attribute schemas, spatial index | Core, Kernel, Planar, Spatial, Attributes/Schema |
+| [Brush/](Brush/README.md) | the plane-defined convex brush and every brush edit | Representations/Brush, brush construction, transform, clip, vertex ops, brush CSG |
+| [Mesh/](Mesh/README.md) | the editable mesh and its modelling operations | Representations/Mesh, Modeling, Topology, Euler, Subdivision, Attributes/Propagation |
+| [Surfaces/](Surfaces/README.md) | patches, height fields, curve networks, planar regions and their generators | Representations/{Patch, HeightField, CurveNetwork, PlanarRegion}, Procedural |
+| [Operations/](Operations/README.md) | cross-representation tools | Primitives, Modifiers, Constraints, Conversion, UV alignment, Painting |
+| [Csg/](Csg/README.md) | staged mesh Booleans, the brush path, document commands | Csg |
+| [Document/](Document/README.md) | the authoring store and how it changes and persists | Document, Transactions, Serialization, Exchange |
+| [Cook/](Cook/README.md) | immutable products derived from snapshots | Cook, Tessellation |
+| [Validation/](Validation/README.md) | checking and fixing untrusted geometry | Validation, Repair, Intermediates, Sanitation |
+| [Queries/](Queries/README.md) | read-only queries and selection | Queries, Selection |
+
+Tests mirror the same folders under `tests/CypherEditor/Geometry/`.
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) for the representation contracts,
 dependency layers, operation and CSG pipelines, and the strict TileEditor/Mason

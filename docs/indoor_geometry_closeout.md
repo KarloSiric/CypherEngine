@@ -72,10 +72,10 @@ files are implementation evidence; the limitations remain part of the contract.
 | Area | Implemented now | Still required for the intended indoor workflow |
 | --- | --- | --- |
 | Primitive/brush construction | Brush generators; convex clipping, subtraction, hollowing, and constrained union | Atomic adoption of multiple result objects; richer authored recipes when needed |
-| Component transforms | Selected vertex/edge/face affine edits in `Operations/Modeling/CypherGeometry_MeshSourceComponents.cpp` | Unified pivot/workplane commands and host interaction; current transform rejects non-positive determinant |
-| Knife | Multi-face path implementation in `Representations/Mesh/CypherGeometry_MeshKnife.*` | Interior endpoints and repeated-face paths; continuous authoring and preview integration |
+| Component transforms | Selected vertex/edge/face affine edits in `Mesh/CypherGeometry_MeshSourceComponents.cpp` | Unified pivot/workplane commands and host interaction; current transform rejects non-positive determinant |
+| Knife | Multi-face path implementation in `Mesh/CypherGeometry_MeshKnife.*` | Interior endpoints and repeated-face paths; continuous authoring and preview integration |
 | Face creation | Add-face/boundary operations with existing and new vertices | Complete continuous Poly Pen interaction through the command layer |
-| Bevel | Multiple selected edges and 1–64 segments in `Representations/Mesh/CypherGeometry_MeshBevel.*` | Broader corner/boundary support; current reflex, open-boundary, and junction restrictions remain |
+| Bevel | Multiple selected edges and 1–64 segments in `Mesh/CypherGeometry_MeshBevel.*` | Broader corner/boundary support; current reflex, open-boundary, and junction restrictions remain |
 | Weld/separate | Constrained connected-vertex welding and face detachment into shells | Arbitrary target weld, cross-object merge, and extraction into document objects |
 | Bridge | Equal-size boundary-loop bridge | Unequal-loop correspondence, lofting, and associated attribute policy |
 | Modeling operations | Extrude, inset, loop cut, and other topology operations | Loop slide and mesh solidify; brush hollowing is not mesh solidify |
@@ -85,9 +85,9 @@ files are implementation evidence; the limitations remain part of the contract.
 | Document lifecycle | Brush/mesh roots, transactions, snapshots, serialization, and cooking | Multi-object structural commands and complete integration for the other representations |
 | Validation | Unit, randomized, allocation-failure, and integration tests | Wider architectural fixtures, repeated-edit sequences, coverage-guided fuzzing, and measured performance |
 
-The staged `Csg/` directories remain design documents. The working convex CSG
-implementation lives under `Operations/CSG/`; empty staged directories do not
-mean no Boolean code exists. Conversely, convex Boolean tests do not establish
+At the time of this closeout the staged `Csg/` directories were design
+documents; the staged mesh CSG pipeline has since landed in `Csg/` (2026-09-25).
+The convex brush CSG implementation lives in `Brush/CypherGeometry_BrushCSG.*`. Conversely, convex Boolean tests do not establish
 arbitrary concave mesh support. `MeshBooleans.cpp` still rejects multi-fragment
 subtraction in its current single-mesh result path.
 
