@@ -19,6 +19,10 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_Snapshot.h"
+#include "CypherGeometry_DocumentBrushAttributes.h"
+#include "CypherGeometry_DocumentSurfaces.h"
+
+#include <new>
 
 #include "CypherCommon_Sort.h"
 
@@ -129,6 +133,10 @@ bool IsCanonicalSnapshotDestination(
            snapshot.meshes.pData == nullptr &&
            snapshot.meshes.nCount == 0u &&
            snapshot.meshes.pAllocator == nullptr &&
+           snapshot.brushAttributes.pData == nullptr &&
+           snapshot.patches.pAllocator == nullptr &&
+           snapshot.heightFields.pAllocator == nullptr &&
+           snapshot.brushAttributes.pAllocator == nullptr &&
            snapshot.policy.numerical.fCoordinateMagnitudeLimit ==
                defaultPolicy.numerical.fCoordinateMagnitudeLimit &&
            snapshot.policy.numerical.fAbsoluteDistanceTolerance ==
@@ -293,6 +301,19 @@ geometry_status_t ValidateDocumentForSnapshot(
         cLiveIds += liveIds.nCount - cBefore;
     }
 
+    // Patch and heightfield identities are live document IDs too.
+    {
+        const common::usize cBefore = liveIds.nCount;
+        const geometry_status_t surfaceStatus = GeometryDocument_TryCollectSurfaceIds( &document, &liveIds );
+        if ( surfaceStatus != geometry_status_t::OK ) { return surfaceStatus; }
+        for ( common::usize k = cBefore; k < liveIds.nCount; ++k ) {
+            if ( !GeometrySourceIdRegistry_Contains( &document.sourceIds, liveIds.pData[k] ) ) {
+                return geometry_status_t::CORRUPT_STATE;
+            }
+        }
+        cLiveIds += liveIds.nCount - cBefore;
+    }
+
     if ( cSidesTotal > document.policy.limits.cBrushSidesMax ||
          cExpectedLiveIds != cLiveIds ) {
         return geometry_status_t::CORRUPT_STATE;
@@ -321,6 +342,61 @@ geometry_status_t ValidateDocumentForSnapshot(
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
+
+namespace
+{
+
+template <typename object_t> void FreeSurface( const common::allocator_t *pA, object_t *p ) noexcept;
+template <> void FreeSurface<patch_surface_t>( const common::allocator_t *pA, patch_surface_t *p ) noexcept
+{
+    if ( p == nullptr ) { return; }
+    Patch_Shutdown( p );
+    p->~patch_surface_t();
+    common::Allocator_Free( pA, p, sizeof( patch_surface_t ), alignof( patch_surface_t ) );
+}
+template <> void FreeSurface<heightfield_t>( const common::allocator_t *pA, heightfield_t *p ) noexcept
+{
+    if ( p == nullptr ) { return; }
+    HeightField_Shutdown( p );
+    p->~heightfield_t();
+    common::Allocator_Free( pA, p, sizeof( heightfield_t ), alignof( heightfield_t ) );
+}
+geometry_status_t CloneSurface( const patch_surface_t *p, const common::allocator_t *pA, patch_surface_t *pOut ) noexcept
+{
+    return Patch_TryClone( p, pA, pOut );
+}
+geometry_status_t CloneSurface( const heightfield_t *p, const common::allocator_t *pA, heightfield_t *pOut ) noexcept
+{
+    return HeightField_TryClone( p, pA, pOut );
+}
+
+template <typename object_t> void FreeSurfaces( const common::allocator_t *pA, common::vector_t<object_t *> *pV ) noexcept
+{
+    for ( common::usize i = 0u; i < pV->nCount; ++i ) { FreeSurface<object_t>( pA, pV->pData[i] ); }
+    common::Vector_Shutdown( pV );
+}
+
+// Deep-copies a document surface store; all-or-nothing.
+template <typename object_t>
+geometry_status_t CopySurfaces( const common::vector_t<object_t *> &source, const common::allocator_t *pA,
+                                common::vector_t<object_t *> *pOut ) noexcept
+{
+    if ( !common::Vector_Init( pOut, pA, source.nCount ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+    for ( common::usize i = 0u; i < source.nCount; ++i ) {
+        void *pMemory = common::Allocator_AllocateZeroed( pA, sizeof( object_t ), alignof( object_t ) );
+        object_t *pCopy = pMemory != nullptr ? new ( pMemory ) object_t{} : nullptr;
+        const geometry_status_t st = pCopy == nullptr ? geometry_status_t::ALLOCATION_FAILED : CloneSurface( source.pData[i], pA, pCopy );
+        if ( st != geometry_status_t::OK ) {
+            FreeSurface<object_t>( pA, pCopy );
+            FreeSurfaces( pA, pOut );
+            return st;
+        }
+        (void)common::Vector_PushBack( pOut, pCopy ); // reserved at init
+    }
+    return geometry_status_t::OK;
+}
+
+} // namespace
 
 geometry_status_t GeometrySnapshot_TakeFromDocument(
     geometry_snapshot_t *pSnapshot,
@@ -407,8 +483,58 @@ geometry_status_t GeometrySnapshot_TakeFromDocument(
         }
     }
 
+    // Record tables, all-or-nothing with the copies above.
+    bool bRecordsOk = common::Vector_Init( &pending.brushAttributes, pAllocator, cBrushes ) &&
+                      pDocument->brushAttributes.nCount == cBrushes;
+    for ( common::usize i = 0u; bRecordsOk && i < cBrushes; ++i ) {
+        geometry_brush_side_attribute_store_t *pCopy = BrushAttributes_Allocate( pAllocator );
+        bRecordsOk = pCopy != nullptr &&
+                     BrushAttributes_TryBuildCovering( pDocument->brushes.pData[i], pDocument->brushAttributes.pData[i],
+                                                       pAllocator, pDocument->policy, pCopy ) == geometry_status_t::OK;
+        if ( bRecordsOk ) {
+            (void)common::Vector_PushBack( &pending.brushAttributes, pCopy ); // reserved at init
+        } else {
+            BrushAttributes_Free( pAllocator, pCopy );
+        }
+    }
+    if ( !bRecordsOk ) {
+        for ( common::usize j = 0u; j < pending.brushAttributes.nCount; ++j ) {
+            BrushAttributes_Free( pAllocator, pending.brushAttributes.pData[j] );
+        }
+        common::Vector_Shutdown( &pending.brushAttributes );
+        FreeMeshCopies( pAllocator, &pending.meshes );
+        for ( common::usize j = 0u; j < pending.brushes.nCount; ++j ) {
+            FreeBrush( pAllocator, pending.brushes.pData[j] );
+        }
+        common::Vector_Shutdown( &pending.brushes );
+        return pDocument->brushAttributes.nCount == cBrushes ? geometry_status_t::ALLOCATION_FAILED
+                                                             : geometry_status_t::CORRUPT_STATE;
+    }
+
+    // Patches and heightfields, all-or-nothing with the rest.
+    geometry_status_t surfaceStatus = CopySurfaces( pDocument->patches, pAllocator, &pending.patches );
+    if ( surfaceStatus == geometry_status_t::OK ) {
+        surfaceStatus = CopySurfaces( pDocument->heightFields, pAllocator, &pending.heightFields );
+        if ( surfaceStatus != geometry_status_t::OK ) { FreeSurfaces( pAllocator, &pending.patches ); }
+    }
+    if ( surfaceStatus != geometry_status_t::OK ) {
+        for ( common::usize j = 0u; j < pending.brushAttributes.nCount; ++j ) {
+            BrushAttributes_Free( pAllocator, pending.brushAttributes.pData[j] );
+        }
+        common::Vector_Shutdown( &pending.brushAttributes );
+        FreeMeshCopies( pAllocator, &pending.meshes );
+        for ( common::usize j = 0u; j < pending.brushes.nCount; ++j ) {
+            FreeBrush( pAllocator, pending.brushes.pData[j] );
+        }
+        common::Vector_Shutdown( &pending.brushes );
+        return surfaceStatus;
+    }
+
     common::Vector_Move( &pSnapshot->brushes, &pending.brushes );
     common::Vector_Move( &pSnapshot->meshes, &pending.meshes );
+    common::Vector_Move( &pSnapshot->brushAttributes, &pending.brushAttributes );
+    common::Vector_Move( &pSnapshot->patches, &pending.patches );
+    common::Vector_Move( &pSnapshot->heightFields, &pending.heightFields );
     pSnapshot->policy = pDocument->policy;
     pSnapshot->revision = pDocument->revision;
     pSnapshot->pAllocator = pAllocator;
@@ -428,6 +554,12 @@ void GeometrySnapshot_Shutdown(
     }
     common::Vector_Shutdown( &pSnapshot->brushes );
     FreeMeshCopies( pSnapshot->pAllocator, &pSnapshot->meshes );
+    for ( common::usize i = 0u; i < pSnapshot->brushAttributes.nCount; ++i ) {
+        BrushAttributes_Free( pSnapshot->pAllocator, pSnapshot->brushAttributes.pData[i] );
+    }
+    common::Vector_Shutdown( &pSnapshot->brushAttributes );
+    FreeSurfaces( pSnapshot->pAllocator, &pSnapshot->patches );
+    FreeSurfaces( pSnapshot->pAllocator, &pSnapshot->heightFields );
 
     pSnapshot->policy = {};
     pSnapshot->revision = GEOMETRY_REVISION_INITIAL;
@@ -490,6 +622,51 @@ const brush_solid_t *GeometrySnapshot_FindBrush(
         }
     }
     return nullptr;
+}
+
+const geometry_brush_side_attribute_store_t *GeometrySnapshot_FindBrushAttributes(
+    const geometry_snapshot_t *pSnapshot,
+    geometry_source_id_t brushId ) noexcept
+{
+    if ( !GeometrySnapshot_IsInitialized( pSnapshot ) || !GeometrySourceId_IsValid( brushId ) ) {
+        return nullptr;
+    }
+    for ( common::usize i = 0u; i < pSnapshot->brushes.nCount && i < pSnapshot->brushAttributes.nCount; ++i ) {
+        if ( pSnapshot->brushes.pData[i] != nullptr && pSnapshot->brushes.pData[i]->sourceId.value == brushId.value ) {
+            return pSnapshot->brushAttributes.pData[i];
+        }
+    }
+    return nullptr;
+}
+
+const geometry_brush_side_attribute_store_t *GeometrySnapshot_BrushAttributesAt(
+    const geometry_snapshot_t *pSnapshot,
+    common::usize iBrush ) noexcept
+{
+    if ( !GeometrySnapshot_IsInitialized( pSnapshot ) || iBrush >= pSnapshot->brushAttributes.nCount ) {
+        return nullptr;
+    }
+    return pSnapshot->brushAttributes.pData[iBrush];
+}
+
+common::usize GeometrySnapshot_PatchCount( const geometry_snapshot_t *pSnapshot ) noexcept
+{
+    return GeometrySnapshot_IsInitialized( pSnapshot ) ? pSnapshot->patches.nCount : 0u;
+}
+
+const patch_surface_t *GeometrySnapshot_PatchAt( const geometry_snapshot_t *pSnapshot, common::usize i ) noexcept
+{
+    return GeometrySnapshot_IsInitialized( pSnapshot ) && i < pSnapshot->patches.nCount ? pSnapshot->patches.pData[i] : nullptr;
+}
+
+common::usize GeometrySnapshot_HeightFieldCount( const geometry_snapshot_t *pSnapshot ) noexcept
+{
+    return GeometrySnapshot_IsInitialized( pSnapshot ) ? pSnapshot->heightFields.nCount : 0u;
+}
+
+const heightfield_t *GeometrySnapshot_HeightFieldAt( const geometry_snapshot_t *pSnapshot, common::usize i ) noexcept
+{
+    return GeometrySnapshot_IsInitialized( pSnapshot ) && i < pSnapshot->heightFields.nCount ? pSnapshot->heightFields.pData[i] : nullptr;
 }
 
 common::usize GeometrySnapshot_MeshCount(

@@ -24,7 +24,9 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_Document.h"
+#include "CypherGeometry_DocumentBrushAttributes.h"
 #include "CypherGeometry_DocumentMeshes.h"
+#include "CypherGeometry_DocumentSurfaces.h"
 
 #include <new>
 
@@ -348,9 +350,22 @@ geometry_status_t GeometryDocument_Init(
         common::Vector_Shutdown( &pDocument->brushes );
         return geometry_status_t::ALLOCATION_FAILED;
     }
+    if ( !common::Vector_Init( &pDocument->brushAttributes, pAllocator, 0u ) ||
+         !common::Vector_Init( &pDocument->patches, pAllocator, 0u ) ||
+         !common::Vector_Init( &pDocument->heightFields, pAllocator, 0u ) ) {
+        common::Vector_Shutdown( &pDocument->heightFields );
+        common::Vector_Shutdown( &pDocument->patches );
+        common::Vector_Shutdown( &pDocument->brushAttributes );
+        common::Vector_Shutdown( &pDocument->meshes );
+        common::Vector_Shutdown( &pDocument->brushes );
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
 
     const common::u64 cIdCapacity64 = GeometryDocument_SourceIdCapacity( policy );
     if ( cIdCapacity64 == 0u || cIdCapacity64 > common::CY_USIZE_MAX ) {
+        common::Vector_Shutdown( &pDocument->heightFields );
+        common::Vector_Shutdown( &pDocument->patches );
+        common::Vector_Shutdown( &pDocument->brushAttributes );
         common::Vector_Shutdown( &pDocument->meshes );
         common::Vector_Shutdown( &pDocument->brushes );
         return geometry_status_t::LIMIT_EXCEEDED;
@@ -362,6 +377,9 @@ geometry_status_t GeometryDocument_Init(
             pAllocator,
             cIdCapacity );
     if ( registryStatus != geometry_status_t::OK ) {
+        common::Vector_Shutdown( &pDocument->heightFields );
+        common::Vector_Shutdown( &pDocument->patches );
+        common::Vector_Shutdown( &pDocument->brushAttributes );
         common::Vector_Shutdown( &pDocument->meshes );
         common::Vector_Shutdown( &pDocument->brushes );
         return registryStatus;
@@ -388,8 +406,13 @@ void GeometryDocument_Shutdown(
     for ( common::usize i = 0u; i < pDocument->brushes.nCount; ++i ) {
         FreeBrush( pDocument->pAllocator, pDocument->brushes.pData[i] );
     }
+    for ( common::usize i = 0u; i < pDocument->brushAttributes.nCount; ++i ) {
+        BrushAttributes_Free( pDocument->pAllocator, pDocument->brushAttributes.pData[i] );
+    }
+    common::Vector_Shutdown( &pDocument->brushAttributes );
     common::Vector_Shutdown( &pDocument->brushes );
     GeometryDocument_FreeAllMeshes( pDocument );
+    GeometryDocument_FreeAllSurfaces( pDocument );
     GeometrySourceIdRegistry_Shutdown( &pDocument->sourceIds );
 
     pDocument->policy = {};
@@ -464,6 +487,38 @@ brush_solid_t *GeometryDocument_FindBrushMutable(
     return pDocument->brushes.pData[iIndex];
 }
 
+const geometry_brush_side_attribute_store_t *GeometryDocument_FindBrushAttributes(
+    const geometry_document_t *pDocument,
+    geometry_source_id_t brushId ) noexcept
+{
+    if ( !GeometryDocument_IsInitialized( pDocument ) || !GeometrySourceId_IsValid( brushId ) ) {
+        return nullptr;
+    }
+    const common::usize iIndex = FindBrushIndex( pDocument->brushes, brushId );
+    return iIndex < pDocument->brushAttributes.nCount ? pDocument->brushAttributes.pData[iIndex] : nullptr;
+}
+
+geometry_brush_side_attribute_store_t *GeometryDocument_FindBrushAttributesMutable(
+    geometry_document_t *pDocument,
+    geometry_source_id_t brushId ) noexcept
+{
+    if ( !GeometryDocument_IsInitialized( pDocument ) || !GeometrySourceId_IsValid( brushId ) ) {
+        return nullptr;
+    }
+    const common::usize iIndex = FindBrushIndex( pDocument->brushes, brushId );
+    return iIndex < pDocument->brushAttributes.nCount ? pDocument->brushAttributes.pData[iIndex] : nullptr;
+}
+
+const geometry_brush_side_attribute_store_t *GeometryDocument_BrushAttributesAt(
+    const geometry_document_t *pDocument,
+    common::usize iBrush ) noexcept
+{
+    if ( !GeometryDocument_IsInitialized( pDocument ) || iBrush >= pDocument->brushAttributes.nCount ) {
+        return nullptr;
+    }
+    return pDocument->brushAttributes.pData[iBrush];
+}
+
 // ---------------------------------------------------------------------------
 // Brush publication
 // ---------------------------------------------------------------------------
@@ -471,6 +526,14 @@ brush_solid_t *GeometryDocument_FindBrushMutable(
 geometry_status_t GeometryDocument_TryAddBrush(
     geometry_document_t *pDocument,
     const brush_solid_t *pBrush ) noexcept
+{
+    return GeometryDocument_TryAddBrushWithAttributes( pDocument, pBrush, nullptr );
+}
+
+geometry_status_t GeometryDocument_TryAddBrushWithAttributes(
+    geometry_document_t *pDocument,
+    const brush_solid_t *pBrush,
+    const geometry_brush_side_attribute_store_t *pAttributes ) noexcept
 {
     if ( !GeometryDocument_IsInitialized( pDocument ) ) {
         return geometry_status_t::NOT_INITIALIZED;
@@ -546,14 +609,33 @@ geometry_status_t GeometryDocument_TryAddBrush(
     // activation and pointer publication below are allocation-free.
     if ( !common::Vector_Reserve(
              &pDocument->brushes,
-             pDocument->brushes.nCount + 1u ) ) {
+             pDocument->brushes.nCount + 1u ) ||
+         !common::Vector_Reserve(
+             &pDocument->brushAttributes,
+             pDocument->brushAttributes.nCount + 1u ) ) {
         common::Vector_Shutdown( &activations );
         return geometry_status_t::ALLOCATION_FAILED;
+    }
+
+    // The brush's record table, extended with defaults until every side
+    // resolves (see DocumentBrushAttributes.h).
+    geometry_brush_side_attribute_store_t *pNewStore = BrushAttributes_Allocate( pDocument->pAllocator );
+    if ( pNewStore == nullptr ) {
+        common::Vector_Shutdown( &activations );
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    const geometry_status_t storeStatus = BrushAttributes_TryBuildCovering(
+        pBrush, pAttributes, pDocument->pAllocator, pDocument->policy, pNewStore );
+    if ( storeStatus != geometry_status_t::OK ) {
+        BrushAttributes_Free( pDocument->pAllocator, pNewStore );
+        common::Vector_Shutdown( &activations );
+        return storeStatus;
     }
 
     const common::usize cClaimed =
         GeometrySourceIdRegistry_ClaimedCount( &pDocument->sourceIds );
     if ( cFreshIds > pDocument->sourceIds.cEntriesMax - cClaimed ) {
+        BrushAttributes_Free( pDocument->pAllocator, pNewStore );
         common::Vector_Shutdown( &activations );
         return geometry_status_t::LIMIT_EXCEEDED;
     }
@@ -561,6 +643,7 @@ geometry_status_t GeometryDocument_TryAddBrush(
         GeometrySourceIdRegistry_Reserve(
             &pDocument->sourceIds, cClaimed + cFreshIds );
     if ( reserveStatus != geometry_status_t::OK ) {
+        BrushAttributes_Free( pDocument->pAllocator, pNewStore );
         common::Vector_Shutdown( &activations );
         return reserveStatus;
     }
@@ -569,6 +652,7 @@ geometry_status_t GeometryDocument_TryAddBrush(
     // owning container has enough capacity for the final commit.
     brush_solid_t *pNewBrush = AllocateBrush( pDocument->pAllocator );
     if ( pNewBrush == nullptr ) {
+        BrushAttributes_Free( pDocument->pAllocator, pNewStore );
         common::Vector_Shutdown( &activations );
         return geometry_status_t::ALLOCATION_FAILED;
     }
@@ -578,6 +662,7 @@ geometry_status_t GeometryDocument_TryAddBrush(
         pDocument->policy.limits );
     if ( copyStatus != geometry_status_t::OK ) {
         FreeBrush( pDocument->pAllocator, pNewBrush );
+        BrushAttributes_Free( pDocument->pAllocator, pNewStore );
         common::Vector_Shutdown( &activations );
         return copyStatus;
     }
@@ -600,6 +685,7 @@ geometry_status_t GeometryDocument_TryAddBrush(
                 allocatorBefore,
                 bLoadRegistrationOpenBefore );
             FreeBrush( pDocument->pAllocator, pNewBrush );
+            BrushAttributes_Free( pDocument->pAllocator, pNewStore );
             common::Vector_Shutdown( &activations );
             return bRolledBack
                 ? activationStatus
@@ -617,11 +703,13 @@ geometry_status_t GeometryDocument_TryAddBrush(
             allocatorBefore,
             bLoadRegistrationOpenBefore );
         FreeBrush( pDocument->pAllocator, pNewBrush );
+        BrushAttributes_Free( pDocument->pAllocator, pNewStore );
         common::Vector_Shutdown( &activations );
         return bRolledBack
             ? geometry_status_t::ALLOCATION_FAILED
             : geometry_status_t::CORRUPT_STATE;
     }
+    (void)common::Vector_PushBack( &pDocument->brushAttributes, pNewStore ); // reserved above
 
     common::Vector_Shutdown( &activations );
     return geometry_status_t::OK;
@@ -693,9 +781,14 @@ geometry_status_t GeometryDocument_TryRemoveBrush(
         }
     }
 
-    // Free the brush and swap-erase the pointer from the pool.
+    // Free the brush and its records and swap-erase both pointers; erasing
+    // the same index from both vectors keeps them parallel.
     FreeBrush( pDocument->pAllocator, pBrush );
     common::Vector_EraseSwap( &pDocument->brushes, iIndex );
+    if ( iIndex < pDocument->brushAttributes.nCount ) {
+        BrushAttributes_Free( pDocument->pAllocator, pDocument->brushAttributes.pData[iIndex] );
+        common::Vector_EraseSwap( &pDocument->brushAttributes, iIndex );
+    }
 
     return geometry_status_t::OK;
 }

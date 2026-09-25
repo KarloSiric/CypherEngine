@@ -23,6 +23,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_Transaction.h"
+#include "CypherGeometry_DocumentBrushAttributes.h"
 #include "CypherGeometry_ReplacementIdentity.h"
 
 namespace cypher::editor::geometry
@@ -101,6 +102,19 @@ geometry_status_t RestoreBrushFromBaseline(
     return geometry_status_t::OK;
 }
 
+// Drops the records a preview appended (shrinking never allocates).
+void RestoreRecordsFromBaseline(
+    geometry_document_t *pDocument,
+    geometry_source_id_t targetBrushId,
+    common::usize cBaselineRecords ) noexcept
+{
+    geometry_brush_side_attribute_store_t *pRecords =
+        GeometryDocument_FindBrushAttributesMutable( pDocument, targetBrushId );
+    if ( pRecords != nullptr && pRecords->records.nCount > cBaselineRecords ) {
+        (void)common::Vector_Resize( &pRecords->records, cBaselineRecords );
+    }
+}
+
 // Cleans up the transaction's internal state.
 void DeactivateTransaction(
     geometry_transaction_t *pTransaction ) noexcept
@@ -110,6 +124,7 @@ void DeactivateTransaction(
     pTransaction->bActive = false;
     pTransaction->pDocument = nullptr;
     pTransaction->targetBrushId = {};
+    pTransaction->cBaselineRecords = 0u;
     pTransaction->baselineRevision = GEOMETRY_REVISION_INITIAL;
 }
 
@@ -117,6 +132,8 @@ geometry_status_t RollbackAndDeactivate(
     geometry_transaction_t *pTransaction,
     geometry_status_t operationStatus ) noexcept
 {
+    RestoreRecordsFromBaseline(
+        pTransaction->pDocument, pTransaction->targetBrushId, pTransaction->cBaselineRecords );
     const geometry_status_t restoreStatus = RestoreBrushFromBaseline(
         pTransaction->pDocument,
         &pTransaction->baselineBrush,
@@ -208,6 +225,11 @@ geometry_status_t GeometryTransaction_Begin(
     pTransaction->pDocument = pDocument;
     pTransaction->targetBrushId = targetBrushId;
     pTransaction->baselineRevision = pDocument->revision;
+    {
+        const geometry_brush_side_attribute_store_t *pRecords =
+            GeometryDocument_FindBrushAttributes( pDocument, targetBrushId );
+        pTransaction->cBaselineRecords = pRecords != nullptr ? BrushSideAttributeStore_Count( pRecords ) : 0u;
+    }
     pTransaction->baselineBrush.sourceId = baseline.sourceId;
     common::Vector_Move(
         &pTransaction->baselineBrush.sides, &baseline.sides );
@@ -286,11 +308,29 @@ geometry_status_t GeometryTransaction_TryPreviewAddSide(
 
     brush_solid_t *pLiveBrush = GeometryDocument_FindBrushMutable(
         pTransaction->pDocument, pTransaction->targetBrushId );
-    if ( pLiveBrush == nullptr ) {
+    geometry_brush_side_attribute_store_t *pRecords = GeometryDocument_FindBrushAttributesMutable(
+        pTransaction->pDocument, pTransaction->targetBrushId );
+    if ( pLiveBrush == nullptr || pRecords == nullptr ) {
         return geometry_status_t::CORRUPT_STATE;
     }
 
-    return BrushSolid_TryAddSide( pLiveBrush, limits, newSide, nullptr );
+    // Cover the new side's record index first, so a failure can be undone by
+    // truncating (records are only appended).
+    const common::usize cRecordsBefore = BrushSideAttributeStore_Count( pRecords );
+    const common::usize cNeeded = static_cast<common::usize>( newSide.iAttributeIndex ) + 1u;
+    geometry_status_t st = geometry_status_t::OK;
+    if ( cNeeded > cRecordsBefore ) {
+        st = static_cast<common::u64>( cNeeded ) > limits.cBrushSidesPerBrushMax
+                 ? geometry_status_t::LIMIT_EXCEEDED
+                 : BrushSideAttributeStore_TryReserve( pRecords, limits, cNeeded );
+        const geometry_brush_side_attributes_t fallback = BrushSideAttributes_MakeDefault();
+        while ( st == geometry_status_t::OK && BrushSideAttributeStore_Count( pRecords ) < cNeeded ) {
+            st = BrushSideAttributeStore_TryAppend( pRecords, pTransaction->pDocument->policy, fallback, nullptr );
+        }
+    }
+    if ( st == geometry_status_t::OK ) { st = BrushSolid_TryAddSide( pLiveBrush, limits, newSide, nullptr ); }
+    if ( st != geometry_status_t::OK ) { (void)common::Vector_Resize( &pRecords->records, cRecordsBefore ); }
+    return st;
 }
 
 geometry_status_t GeometryTransaction_Commit(
@@ -478,6 +518,8 @@ geometry_status_t GeometryTransaction_Cancel(
         return geometry_status_t::NO_ACTIVE_TRANSACTION;
     }
 
+    RestoreRecordsFromBaseline(
+        pTransaction->pDocument, pTransaction->targetBrushId, pTransaction->cBaselineRecords );
     const geometry_status_t restoreStatus = RestoreBrushFromBaseline(
         pTransaction->pDocument,
         &pTransaction->baselineBrush,

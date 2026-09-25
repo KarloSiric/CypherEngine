@@ -9,6 +9,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_DocumentMeshSet.h"
+#include "CypherGeometry_DocumentSurfaces.h"
 
 #include <algorithm>
 #include <new>
@@ -223,6 +224,11 @@ geometry_status_t ValidateStoredOwnership(
             break;
         }
         AddMeshTotals( &totals, *pMesh );
+    }
+
+    // Patch and heightfield identities are owned too (DocumentSurfaces.h).
+    if ( status == geometry_status_t::OK ) {
+        status = GeometryDocument_TryCollectSurfaceIds( &document, &ownedIds );
     }
 
     if ( status == geometry_status_t::OK ) {

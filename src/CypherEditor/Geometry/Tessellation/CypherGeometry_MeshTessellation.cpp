@@ -158,9 +158,13 @@ geometry_status_t MeshTessellation_TryBuild(
                 else { ring[k] = math::Vec2d_Make( p.y, p.z ); }
             }
             Vector_Clear( &ringTris );
-            if ( n < 3u || Planar_TryTriangulateRing( span_t<const math::vec2d_t>{ ring, n }, pAlloc,
-                                                      &ringTris ) != geometry_status_t::OK ) {
-                s = geometry_status_t::DEGENERATE;
+            // Pass the triangulator's own status through: running out of
+            // memory is not a degenerate face, and callers that skip bad
+            // faces must not skip a good one for that reason.
+            const geometry_status_t ts = n < 3u ? geometry_status_t::DEGENERATE
+                                                : Planar_TryTriangulateRing( span_t<const math::vec2d_t>{ ring, n }, pAlloc, &ringTris );
+            if ( ts != geometry_status_t::OK ) {
+                s = ts;
                 if ( phFailedFaceOut ) { *phFailedFaceOut = hF; }
                 return false;
             }

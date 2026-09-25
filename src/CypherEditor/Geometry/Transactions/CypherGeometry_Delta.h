@@ -58,6 +58,11 @@ enum class geometry_delta_kind_t : common::u8 {
     // before and after the edit; inverse swaps them.
     BRUSH_REPLACED,
 
+    // One surface record (material + UV projection) of a brush was changed.
+    // sideIndex holds the record index; oldAttribute/newAttribute the
+    // values. The inverse swaps them.
+    BRUSH_ATTRIBUTE_CHANGED,
+
     COUNT
 };
 
@@ -90,6 +95,18 @@ struct geometry_delta_t {
     // Applying the delta restores newBrushData; the inverse swaps
     // brushData and newBrushData.
     brush_solid_t newBrushData{};
+
+    // For BRUSH_ADDED / BRUSH_REMOVED: the brush's surface records; for
+    // BRUSH_REPLACED: the records BEFORE the edit (newAttributes holds them
+    // after). Left uninitialized by producers that did not capture them;
+    // applying such a delta gives the brush default records (ADDED) or keeps
+    // its current ones (REPLACED), extended to cover every side either way.
+    geometry_brush_side_attribute_store_t attributes{};
+    geometry_brush_side_attribute_store_t newAttributes{};
+
+    // For BRUSH_ATTRIBUTE_CHANGED: the record's value before and after.
+    geometry_brush_side_attributes_t oldAttribute{};
+    geometry_brush_side_attributes_t newAttribute{};
 };
 
 // A set of source IDs affected by a committed transaction. Consumers use
@@ -128,6 +145,29 @@ CYPHER_NODISCARD geometry_status_t GeometryDelta_TryComputeInverse(
 CYPHER_NODISCARD geometry_status_t GeometryDelta_TryApplyToDocument(
     const geometry_delta_t *pDelta,
     geometry_document_t *pDocument ) noexcept;
+
+// Builds a BRUSH_ATTRIBUTE_CHANGED delta setting record iRecord of a
+// document brush to newValue (the old value is read from the document). The
+// document is not changed; apply the delta to perform the edit. Unknown
+// brush or record -> INVALID_ARGUMENT; an invalid record -> its validation
+// status. pDeltaOut must be default.
+CYPHER_NODISCARD geometry_status_t GeometryDelta_TryMakeAttributeChange(
+    const geometry_document_t *pDocument,
+    geometry_source_id_t brushId,
+    common::usize iRecord,
+    const geometry_brush_side_attributes_t &newValue,
+    geometry_delta_t *pDeltaOut ) noexcept;
+
+// Captures a document brush with its surface records as a BRUSH_ADDED or
+// BRUSH_REMOVED delta (deep copies), so removing it and undoing the removal
+// restores materials and UVs exactly. The document is not changed.
+// pDeltaOut must be default.
+CYPHER_NODISCARD geometry_status_t GeometryDelta_TryCaptureBrush(
+    const geometry_document_t *pDocument,
+    geometry_source_id_t brushId,
+    geometry_delta_kind_t kind,
+    const common::allocator_t *pAllocator,
+    geometry_delta_t *pDeltaOut ) noexcept;
 
 // ---------------------------------------------------------------------------
 // Change set lifecycle

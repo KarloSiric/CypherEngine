@@ -23,6 +23,8 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_BrushSerialization.h"
+#include "CypherGeometry_DocumentBrushAttributes.h"
+#include "CypherGeometry_SurfaceSerialization.h"
 #include "CypherGeometry_MeshSerialization.h"
 
 #include "CypherCommon_Sort.h"
@@ -431,6 +433,17 @@ geometry_serialization_result_t CollectAndValidateDocumentIds(
         cGeometryIds += cMeshIds;
     }
 
+    // Patch and heightfield identities (schema 4) are live document IDs too.
+    {
+        const usize cBefore = geometryIds.nCount;
+        const geometry_serialization_result_t surfaceResult =
+            SurfaceSerialization_TryCollectIds( pDocument, pScratchAllocator, &geometryIds );
+        if ( surfaceResult.status != geometry_serialization_status_t::OK ) {
+            return surfaceResult;
+        }
+        cGeometryIds += geometryIds.nCount - cBefore;
+    }
+
     if ( static_cast<u64>( cSidesTotal ) >
              pDocument->policy.limits.cBrushSidesMax ||
          cMeshVertices > pDocument->policy.limits.cVerticesMax ||
@@ -587,11 +600,68 @@ bool_t WriteSide(
     return CY_TRUE;
 }
 
+bool_t AppendF64(
+    key_value_document_t *pDoc,
+    key_value_t *pArray,
+    f64 value ) noexcept
+{
+    key_value_t *pNode = KeyValue_ArrayAppend(
+        pDoc, pArray, key_value_type_t::F64 );
+    return pNode != nullptr && KeyValue_SetF64( pDoc, pNode, value );
+}
+
+bool_t InsertF64Array(
+    key_value_document_t *pDoc,
+    key_value_t *pParent,
+    const char *pName,
+    const f64 *pValues,
+    usize cValues ) noexcept
+{
+    key_value_t *pArray = InsertArray( pDoc, pParent, pName );
+    if ( pArray == nullptr ) {
+        return CY_FALSE;
+    }
+    for ( usize i = 0u; i < cValues; ++i ) {
+        if ( !AppendF64( pDoc, pArray, pValues[i] ) ) {
+            return CY_FALSE;
+        }
+    }
+    return CY_TRUE;
+}
+
+// Writes one side record (schema 4) as an object appended to an array.
+bool_t WriteSurface(
+    key_value_document_t *pDoc,
+    key_value_t *pSurfaces,
+    const geometry_brush_side_attributes_t &record ) noexcept
+{
+    key_value_t *pObj = KeyValue_ArrayAppend( pDoc, pSurfaces, key_value_type_t::OBJECT );
+    if ( pObj == nullptr ) {
+        return CY_FALSE;
+    }
+    const math::planar_uv_mappingd_t &m = record.uvProjection;
+    const f64 origin[3] = { m.origin.x, m.origin.y, m.origin.z };
+    const f64 uAxis[3] = { m.uAxis.x, m.uAxis.y, m.uAxis.z };
+    const f64 vAxis[3] = { m.vAxis.x, m.vAxis.y, m.vAxis.z };
+    const f64 normal[3] = { m.normal.x, m.normal.y, m.normal.z };
+    const f64 scale[2] = { m.worldUnitsPerUv.x, m.worldUnitsPerUv.y };
+    const f64 offset[2] = { m.offset.x, m.offset.y };
+    return InsertU64( pDoc, pObj, "material", record.material.value ) &&
+           InsertF64Array( pDoc, pObj, "uv_origin", origin, 3u ) &&
+           InsertF64Array( pDoc, pObj, "uv_u_axis", uAxis, 3u ) &&
+           InsertF64Array( pDoc, pObj, "uv_v_axis", vAxis, 3u ) &&
+           InsertF64Array( pDoc, pObj, "uv_normal", normal, 3u ) &&
+           InsertF64Array( pDoc, pObj, "uv_world_units_per_uv", scale, 2u ) &&
+           InsertF64( pDoc, pObj, "uv_rotation", m.rotationRadians ) &&
+           InsertF64Array( pDoc, pObj, "uv_offset", offset, 2u );
+}
+
 // Writes one brush_solid_t as an object element appended to an array.
 bool_t WriteBrush(
     key_value_document_t *pDoc,
     key_value_t *pBrushesArray,
-    const brush_solid_t *pBrush ) noexcept
+    const brush_solid_t *pBrush,
+    const geometry_brush_side_attribute_store_t *pSurfaces ) noexcept
 {
     key_value_t *pBrushObj = KeyValue_ArrayAppend(
         pDoc, pBrushesArray, key_value_type_t::OBJECT );
@@ -621,7 +691,44 @@ bool_t WriteBrush(
         }
     }
 
+    // Side records (schema 4), in record order so attribute_index keeps
+    // addressing the same record after a round trip.
+    key_value_t *pSurfaceArray = InsertArray( pDoc, pBrushObj, "surfaces" );
+    if ( pSurfaceArray == nullptr ) {
+        return CY_FALSE;
+    }
+    const usize cRecords = pSurfaces != nullptr ? BrushSideAttributeStore_Count( pSurfaces ) : 0u;
+    for ( usize i = 0u; i < cRecords; ++i ) {
+        geometry_brush_side_attributes_t record{};
+        if ( BrushSideAttributeStore_TryGet( pSurfaces, i, &record ) != geometry_status_t::OK ||
+             !WriteSurface( pDoc, pSurfaceArray, record ) ) {
+            return CY_FALSE;
+        }
+    }
+
     return CY_TRUE;
+}
+
+// Reads a fixed-length f64 array field.
+bool ReadF64Array(
+    const key_value_t *pParent,
+    const char *pName,
+    f64 *pOut,
+    usize cValues ) noexcept
+{
+    const key_value_t *pArray = KeyValue_Find( pParent, SV( pName ) );
+    if ( pArray == nullptr || KeyValue_Type( pArray ) != key_value_type_t::ARRAY ||
+         KeyValue_ChildCount( pArray ) != cValues ) {
+        return false;
+    }
+    for ( usize i = 0u; i < cValues; ++i ) {
+        const key_value_t *pNode = KeyValue_ChildAt( pArray, i );
+        if ( pNode == nullptr || KeyValue_Type( pNode ) != key_value_type_t::F64 ||
+             !KeyValue_GetF64( pNode, &pOut[i] ) ) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -832,6 +939,64 @@ geometry_serialization_result_t ReadBrush(
         }
     }
 
+    return {};
+}
+
+// Reads a brush's side records (schema 4) into *pStoreOut (initialized
+// here). Records are validated as they enter the store.
+geometry_serialization_result_t ReadSurfaces(
+    const key_value_t *pBrushObj,
+    const allocator_t *pAllocator,
+    const geometry_policy_t &policy,
+    usize iBrush,
+    geometry_brush_side_attribute_store_t *pStoreOut ) noexcept
+{
+    const key_value_t *pSurfaces = KeyValue_Find( pBrushObj, SV( "surfaces" ) );
+    if ( pSurfaces == nullptr ) {
+        return Failure( geometry_serialization_status_t::MISSING_FIELD, "brushes[].surfaces", iBrush );
+    }
+    if ( KeyValue_Type( pSurfaces ) != key_value_type_t::ARRAY ) {
+        return Failure( geometry_serialization_status_t::TYPE_MISMATCH, "brushes[].surfaces", iBrush );
+    }
+    const usize cRecords = KeyValue_ChildCount( pSurfaces );
+    if ( cRecords > GEOMETRY_SERIALIZATION_MAX_SIDES_PER_BRUSH ) {
+        return Failure( geometry_serialization_status_t::LIMIT_EXCEEDED, "brushes[].surfaces", iBrush );
+    }
+    if ( BrushSideAttributeStore_Init( pStoreOut, pAllocator ) != geometry_status_t::OK ||
+         BrushSideAttributeStore_TryReserve( pStoreOut, policy.limits, cRecords ) != geometry_status_t::OK ) {
+        BrushSideAttributeStore_Shutdown( pStoreOut );
+        return Failure( geometry_serialization_status_t::OUT_OF_MEMORY, "brushes[].surfaces", iBrush );
+    }
+    for ( usize i = 0u; i < cRecords; ++i ) {
+        const key_value_t *pObj = KeyValue_ChildAt( pSurfaces, i );
+        geometry_brush_side_attributes_t record{};
+        u64 material = 0u;
+        f64 origin[3], uAxis[3], vAxis[3], normal[3], scale[2], offset[2], rotation = 0.0;
+        const bool bShape = pObj != nullptr && KeyValue_Type( pObj ) == key_value_type_t::OBJECT &&
+                            ReadRequiredU64( pObj, "material", &material ) == geometry_serialization_status_t::OK &&
+                            ReadF64Array( pObj, "uv_origin", origin, 3u ) && ReadF64Array( pObj, "uv_u_axis", uAxis, 3u ) &&
+                            ReadF64Array( pObj, "uv_v_axis", vAxis, 3u ) && ReadF64Array( pObj, "uv_normal", normal, 3u ) &&
+                            ReadF64Array( pObj, "uv_world_units_per_uv", scale, 2u ) &&
+                            ReadRequiredF64( pObj, "uv_rotation", &rotation ) == geometry_serialization_status_t::OK &&
+                            ReadF64Array( pObj, "uv_offset", offset, 2u );
+        if ( !bShape ) {
+            BrushSideAttributeStore_Shutdown( pStoreOut );
+            return Failure( geometry_serialization_status_t::TYPE_MISMATCH, "brushes[].surfaces[]", i );
+        }
+        record.material.value = material;
+        math::planar_uv_mappingd_t &m = record.uvProjection;
+        m.origin = math::Vec3d_Make( origin[0], origin[1], origin[2] );
+        m.uAxis = math::Vec3d_Make( uAxis[0], uAxis[1], uAxis[2] );
+        m.vAxis = math::Vec3d_Make( vAxis[0], vAxis[1], vAxis[2] );
+        m.normal = math::Vec3d_Make( normal[0], normal[1], normal[2] );
+        m.worldUnitsPerUv = math::vec2d_t{ scale[0], scale[1] };
+        m.rotationRadians = rotation;
+        m.offset = math::vec2d_t{ offset[0], offset[1] };
+        if ( BrushSideAttributeStore_TryAppend( pStoreOut, policy, record, nullptr ) != geometry_status_t::OK ) {
+            BrushSideAttributeStore_Shutdown( pStoreOut );
+            return Failure( geometry_serialization_status_t::VALUE_OUT_OF_RANGE, "brushes[].surfaces[]", i );
+        }
+    }
     return {};
 }
 
@@ -1079,7 +1244,8 @@ geometry_serialization_result_t GeometrySerialization_SaveToText(
     const usize cBrushes = GeometryDocument_BrushCount( pDocument );
     for ( usize i = 0u; i < cBrushes; ++i ) {
         const brush_solid_t *pBrush = pDocument->brushes.pData[i];
-        if ( !WriteBrush( owner.pDocument, pBrushes, pBrush ) ) {
+        if ( !WriteBrush( owner.pDocument, pBrushes, pBrush,
+                          GeometryDocument_BrushAttributesAt( pDocument, i ) ) ) {
             return Failure(
                 geometry_serialization_status_t::OUT_OF_MEMORY,
                 "brushes[]", i );
@@ -1092,6 +1258,13 @@ geometry_serialization_result_t GeometrySerialization_SaveToText(
             owner.pDocument, pRoot, pDocument, pTextOut->pAllocator );
     if ( meshResult.status != geometry_serialization_status_t::OK ) {
         return meshResult;
+    }
+
+    // Patches and heightfields (schema 4).
+    const geometry_serialization_result_t surfaceResult =
+        SurfaceSerialization_TryWrite( owner.pDocument, pRoot, pDocument );
+    if ( surfaceResult.status != geometry_serialization_status_t::OK ) {
+        return surfaceResult;
     }
 
     // Emit deterministic text.
@@ -1348,10 +1521,31 @@ geometry_serialization_result_t GeometrySerialization_LoadFromText(
                 "brushes[]", i );
         }
 
+        // Side records (schema 4); older files get default records.
+        geometry_brush_side_attribute_store_t surfaces{};
+        if ( header.nSchemaVersion >= GEOMETRY_SCHEMA_VERSION_SURFACES ) {
+            const geometry_serialization_result_t surfaceResult =
+                ReadSurfaces( pBrushObj, pAllocator, policy, i, &surfaces );
+            if ( surfaceResult.status != geometry_serialization_status_t::OK ) {
+                BrushSolid_Shutdown( &brush );
+                GeometryDocument_Shutdown( pDocumentOut );
+                return surfaceResult;
+            }
+            // Every side must address one of its brush's own records.
+            if ( !BrushAttributes_Covers( &brush, &surfaces ) ) {
+                BrushSideAttributeStore_Shutdown( &surfaces );
+                BrushSolid_Shutdown( &brush );
+                GeometryDocument_Shutdown( pDocumentOut );
+                return Failure( geometry_serialization_status_t::VALUE_OUT_OF_RANGE, "brushes[].sides[].attribute_index", i );
+            }
+        }
+
         // Add the deserialized brush to the document. This deep-copies
         // it into document-owned storage.
-        geoStatus = GeometryDocument_TryAddBrush(
-            pDocumentOut, &brush );
+        geoStatus = GeometryDocument_TryAddBrushWithAttributes(
+            pDocumentOut, &brush,
+            header.nSchemaVersion >= GEOMETRY_SCHEMA_VERSION_SURFACES ? &surfaces : nullptr );
+        BrushSideAttributeStore_Shutdown( &surfaces );
         BrushSolid_Shutdown( &brush );
 
         if ( geoStatus != geometry_status_t::OK ) {
@@ -1373,6 +1567,16 @@ geometry_serialization_result_t GeometrySerialization_LoadFromText(
         if ( meshResult.status != geometry_serialization_status_t::OK ) {
             GeometryDocument_Shutdown( pDocumentOut );
             return meshResult;
+        }
+    }
+
+    // Patches and heightfields (schema 4), each section optional.
+    if ( header.nSchemaVersion >= GEOMETRY_SCHEMA_VERSION_SURFACES ) {
+        const geometry_serialization_result_t surfaceResult =
+            SurfaceSerialization_TryRead( pRoot, pDocumentOut, header.nSchemaVersion >= 2u );
+        if ( surfaceResult.status != geometry_serialization_status_t::OK ) {
+            GeometryDocument_Shutdown( pDocumentOut );
+            return surfaceResult;
         }
     }
 

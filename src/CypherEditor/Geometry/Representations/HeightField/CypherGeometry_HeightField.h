@@ -112,6 +112,14 @@ CYPHER_NODISCARD geometry_status_t HeightField_TryInit(
 
 void HeightField_Shutdown( heightfield_t *pField ) noexcept;
 
+// Deep copy (heights, holes, tiles with their IDs, revisions and dirty
+// flags) into a canonical empty destination. A source that fails
+// HeightField_ValidateStructure is CORRUPT_STATE; failure leaves pOut empty.
+CYPHER_NODISCARD geometry_status_t HeightField_TryClone(
+    const heightfield_t *pSource,
+    const common::allocator_t *pAllocator,
+    heightfield_t *pOut ) noexcept;
+
 CYPHER_NODISCARD bool HeightField_IsInitialized( const heightfield_t *pField ) noexcept;
 
 // Performs the constant-time storage/layout gate used before any public

@@ -15,6 +15,76 @@
 
 target_sources(CypherEditorGeometry
     PRIVATE
+        Document/CypherGeometry_DocumentBrushAttributes.cpp
+        Document/CypherGeometry_DocumentBrushAttributes.h
+        Document/CypherGeometry_DocumentIdentity.h
+        Document/CypherGeometry_DocumentRollback.cpp
+        Document/CypherGeometry_DocumentRollback.h
+        Document/CypherGeometry_DocumentSurfaces.cpp
+        Document/CypherGeometry_DocumentSurfaces.h
+        Exchange/CypherGeometry_Fragment.cpp
+        Exchange/CypherGeometry_Fragment.h
+        Primitives/CypherGeometry_Primitive.cpp
+        Primitives/CypherGeometry_Primitive.h
+        Operations/Euler/CypherGeometry_Euler.cpp
+        Operations/Euler/CypherGeometry_Euler.h
+        Procedural/Subdivision/CypherGeometry_SubdivisionSurface.cpp
+        Procedural/Subdivision/CypherGeometry_SubdivisionSurface.h
+        Procedural/Displacement/CypherGeometry_Displacement.cpp
+        Procedural/Displacement/CypherGeometry_Displacement.h
+        Modifiers/CypherGeometry_ModifierStack.cpp
+        Modifiers/CypherGeometry_ModifierStack.h
+        Csg/CypherGeometry_CsgTypes.h
+        Csg/InputNormalization/CypherGeometry_CsgInput.cpp
+        Csg/InputNormalization/CypherGeometry_CsgInput.h
+        Csg/BroadPhase/CypherGeometry_CsgBroadPhase.cpp
+        Csg/BroadPhase/CypherGeometry_CsgBroadPhase.h
+        Csg/Predicates/CypherGeometry_CsgPredicates.cpp
+        Csg/Predicates/CypherGeometry_CsgPredicates.h
+        Csg/Intersections/CypherGeometry_CsgIntersections.cpp
+        Csg/Intersections/CypherGeometry_CsgIntersections.h
+        Csg/Corefinement/CypherGeometry_CsgCorefine.cpp
+        Csg/Corefinement/CypherGeometry_CsgCorefine.h
+        Csg/CellComplex/CypherGeometry_CsgCells.cpp
+        Csg/CellComplex/CypherGeometry_CsgCells.h
+        Csg/CoplanarOverlay/CypherGeometry_CsgCoplanar.cpp
+        Csg/CoplanarOverlay/CypherGeometry_CsgCoplanar.h
+        Csg/Classification/CypherGeometry_CsgClassify.cpp
+        Csg/Classification/CypherGeometry_CsgClassify.h
+        Csg/Expression/CypherGeometry_CsgExpression.cpp
+        Csg/Expression/CypherGeometry_CsgExpression.h
+        Csg/BoundaryExtraction/CypherGeometry_CsgBoundary.cpp
+        Csg/BoundaryExtraction/CypherGeometry_CsgBoundary.h
+        Csg/AttributeTransfer/CypherGeometry_CsgAttributes.cpp
+        Csg/AttributeTransfer/CypherGeometry_CsgAttributes.h
+        Csg/Stitching/CypherGeometry_CsgStitch.cpp
+        Csg/Stitching/CypherGeometry_CsgStitch.h
+        Csg/Reconstruction/CypherGeometry_CsgReconstruct.cpp
+        Csg/Reconstruction/CypherGeometry_CsgReconstruct.h
+        Csg/Cleanup/CypherGeometry_CsgCleanup.cpp
+        Csg/Cleanup/CypherGeometry_CsgCleanup.h
+        Csg/Mesh/CypherGeometry_CsgMesh.cpp
+        Csg/Mesh/CypherGeometry_CsgMesh.h
+        Csg/Brush/CypherGeometry_CsgBrush.cpp
+        Csg/Brush/CypherGeometry_CsgBrush.h
+        Csg/Operations/CypherGeometry_CsgOperations.cpp
+        Csg/Operations/CypherGeometry_CsgOperations.h
+        Cook/CypherGeometry_CookSurfaces.cpp
+        Cook/CypherGeometry_CookSurfaces.h
+        Cook/Navigation/CypherGeometry_CookNavigation.cpp
+        Cook/Navigation/CypherGeometry_CookNavigation.h
+        Cook/Batching/CypherGeometry_CookBatching.cpp
+        Cook/Batching/CypherGeometry_CookBatching.h
+        Cook/Visibility/CypherGeometry_CookVisibility.cpp
+        Cook/Visibility/CypherGeometry_CookVisibility.h
+        Cook/Lighting/CypherGeometry_CookLighting.cpp
+        Cook/Lighting/CypherGeometry_CookLighting.h
+        Cook/CompilerInterchange/CypherGeometry_CompilerInterchange.cpp
+        Cook/CompilerInterchange/CypherGeometry_CompilerInterchange.h
+        Serialization/CypherGeometry_SurfaceSerialization.cpp
+        Serialization/CypherGeometry_SurfaceSerialization.h
+        Representations/Mesh/CypherGeometry_MeshQuadSlice.cpp
+        Representations/Mesh/CypherGeometry_MeshQuadSlice.h
         Constraints/CypherGeometry_Workplane.cpp
         Constraints/CypherGeometry_Workplane.h
         Operations/Painting/CypherGeometry_MeshPaint.cpp
@@ -170,21 +240,51 @@ target_sources(CypherEditorGeometry
 target_include_directories(CypherEditorGeometry
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/Attributes/Propagation"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/AttributeTransfer"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/BoundaryExtraction"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Brush"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Operations"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/BroadPhase"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/CellComplex"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Classification"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Cleanup"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/CoplanarOverlay"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Corefinement"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Expression"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/InputNormalization"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Intersections"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Mesh"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Predicates"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Reconstruction"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Csg/Stitching"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook/Batching"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook/CompilerInterchange"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook/Lighting"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook/Navigation"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Cook/Visibility"
         "${CMAKE_CURRENT_SOURCE_DIR}/Cook/Collision"
         "${CMAKE_CURRENT_SOURCE_DIR}/Cook/DependencyGraph"
         "${CMAKE_CURRENT_SOURCE_DIR}/Cook/RenderMesh"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Exchange"
         "${CMAKE_CURRENT_SOURCE_DIR}/Exchange/Sanitation"
         "${CMAKE_CURRENT_SOURCE_DIR}/Intermediates"
         "${CMAKE_CURRENT_SOURCE_DIR}/Intermediates/PolygonSoup"
         "${CMAKE_CURRENT_SOURCE_DIR}/Intermediates/TriangleSoup"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Modifiers"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Conversion"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Modeling"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Construction"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Euler"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Painting"
         "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Topology"
         "${CMAKE_CURRENT_SOURCE_DIR}/Planar"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Primitives"
         "${CMAKE_CURRENT_SOURCE_DIR}/Procedural/Curves"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Procedural/Displacement"
         "${CMAKE_CURRENT_SOURCE_DIR}/Procedural/Patches"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Procedural/Subdivision"
         "${CMAKE_CURRENT_SOURCE_DIR}/Procedural/Sweeps"
         "${CMAKE_CURRENT_SOURCE_DIR}/Repair"
         "${CMAKE_CURRENT_SOURCE_DIR}/Representations/CurveNetwork"
@@ -197,12 +297,24 @@ target_include_directories(CypherEditorGeometry
 if (TARGET cypher_editor_geometry_contract_tests)
     target_sources(cypher_editor_geometry_contract_tests
         PRIVATE
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Document/CypherGeometry_DocumentBrushAttributes_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Document/CypherGeometry_DocumentSurfaces_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Exchange/CypherGeometry_Fragment_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Primitives/CypherGeometry_Primitive_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_Euler_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Procedural/CypherGeometry_SubdivisionSurface_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Procedural/CypherGeometry_Displacement_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Modifiers/CypherGeometry_ModifierStack_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Csg/CypherGeometry_CsgMesh_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Csg/CypherGeometry_CsgOperations_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Cook/CypherGeometry_CookProducts_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshSlice_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshMerge_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshBridge_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_MeshUvTransform_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_MeshPaint_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Constraints/CypherGeometry_Workplane_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Representations/CypherGeometry_MeshQuadSlice_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushAuthoring_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_BrushShapes_Tests.cpp"
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Geometry/Operations/CypherGeometry_UvTools_Tests.cpp"

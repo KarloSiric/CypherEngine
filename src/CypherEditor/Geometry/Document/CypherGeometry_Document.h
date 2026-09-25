@@ -25,6 +25,7 @@
 
 #include "CypherGeometry_Policy.h"
 #include "CypherGeometry_SourceIdRegistry.h"
+#include "CypherGeometry_Attributes_BrushSideStore.h"
 #include "CypherGeometry_BrushSolid.h"
 #include "CypherGeometry_MeshSource.h"
 #include "CypherCommon_Vector.h"
@@ -40,6 +41,11 @@ namespace cypher::editor::geometry
 using geometry_revision_t = common::u64;
 
 inline constexpr geometry_revision_t GEOMETRY_REVISION_INITIAL = 0u;
+
+// Stored representations declared elsewhere (DocumentSurfaces.h includes
+// their headers).
+struct patch_surface_t;
+struct heightfield_t;
 
 // Geometry-local authoritative authoring store.
 //
@@ -69,6 +75,20 @@ inline constexpr geometry_revision_t GEOMETRY_REVISION_INITIAL = 0u;
 //     and freed on removal or shutdown.
 struct geometry_document_t {
     common::vector_t<brush_solid_t *> brushes{};
+    // Surface records (material + UV projection) of each brush, parallel to
+    // `brushes`: brushAttributes.pData[i] belongs to brushes.pData[i], and
+    // every side's iAttributeIndex of that brush resolves in it. A brush
+    // added without records gets default ones covering its indices, so the
+    // pairing always holds. Kept parallel (rather than storing
+    // brush_source_t) so the many readers of `brushes` are unaffected; every
+    // mutation of `brushes` updates this vector in the same step. See
+    // DocumentBrushAttributes.h.
+    common::vector_t<geometry_brush_side_attribute_store_t *> brushAttributes{};
+    // Bezier patches and heightfields (terrain), individually allocated and
+    // managed through DocumentSurfaces.h. Declared as opaque pointers here so
+    // this header does not pull the representations into every user.
+    common::vector_t<patch_surface_t *> patches{};
+    common::vector_t<heightfield_t *> heightFields{};
     // Editable mesh sources, individually allocated for the same reason as
     // brushes (non-movable members). Managed through DocumentMeshes.h.
     common::vector_t<mesh_source_t *> meshes{};

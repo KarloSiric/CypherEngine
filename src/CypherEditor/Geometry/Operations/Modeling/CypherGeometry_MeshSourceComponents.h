@@ -5,8 +5,8 @@
 //
 //  File: CypherGeometry_MeshSourceComponents.h
 //  Purpose: Component transforms on a mesh source: move / rotate / scale the
-//           selected vertices, edges, or faces, and offset them along their
-//           normals.
+//           selected vertices, edges, or faces, offset them along their
+//           normals, and flatten them onto a plane.
 //  Details: The host composes the transform around the pivot it wants
 //           (MeshSelection_TryComputePivot provides centroid / bounds
 //           centre): T(pivot) * R * S * T(-pivot). Both edits act on the
@@ -55,6 +55,30 @@ CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryOffsetComponents(
     const mesh_selection_t *pSelection,
     mesh_selection_mode_t mode,
     common::f64 distance ) noexcept;
+
+// Which plane Flatten projects onto. Every plane passes through the
+// centroid of the selection's vertices.
+enum class mesh_flatten_plane_t : common::u8 {
+    BEST_FIT = 0u,  // least-squares plane of the vertices
+    AVERAGE_NORMAL, // normal = the summed face normals (the selected faces in
+                    // face mode, all faces at the vertices otherwise)
+    AXIS_X,         // Hammer's Flatten X / Y / Z: one coordinate made equal
+    AXIS_Y,
+    AXIS_Z
+};
+
+// Hammer's Flatten: projects the `mode` selection's vertices onto a plane
+// (see mesh_flatten_plane_t) through MeshVertices_TryMove, so a flatten
+// that would fold or collapse a face changes nothing. *pPlaneOut (optional)
+// receives the plane used (unit normal). BEST_FIT needs three vertices not
+// on one line and AVERAGE_NORMAL normals that do not cancel (DEGENERATE
+// otherwise). An empty selection is a no-op.
+CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryFlattenComponents(
+    mesh_source_t *pSource,
+    const mesh_selection_t *pSelection,
+    mesh_selection_mode_t mode,
+    mesh_flatten_plane_t plane,
+    math::planed_t *pPlaneOut ) noexcept;
 
 } // namespace cypher::editor::geometry
 

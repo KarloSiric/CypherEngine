@@ -45,6 +45,11 @@ struct geometry_transaction_t {
     // Which brush this transaction is editing.
     geometry_source_id_t targetBrushId{};
 
+    // How many surface records the brush had at Begin. Previews only ever
+    // append records (a new side addressing a new record gets a default
+    // one), so truncating back to this count restores them exactly.
+    common::usize cBaselineRecords{ 0u };
+
     // The document revision when the transaction began. Commit rejects
     // if the document's revision has advanced since.
     geometry_revision_t baselineRevision{ GEOMETRY_REVISION_INITIAL };
@@ -82,7 +87,9 @@ CYPHER_NODISCARD geometry_status_t GeometryTransaction_TryPreviewAllPlanes(
     common::usize cPlanes ) noexcept;
 
 // Applies a preview that adds a fully formed side to the brush. Used by clip
-// operations. The caller supplies the side's persistent source ID.
+// operations. The caller supplies the side's persistent source ID. A side
+// addressing a record the brush does not have yet gets default records up to
+// that index (removed again on cancel).
 CYPHER_NODISCARD geometry_status_t GeometryTransaction_TryPreviewAddSide(
     geometry_transaction_t *pTransaction,
     const brush_solid_side_t &newSide,

@@ -21,6 +21,7 @@
 #include "CypherGeometry_MeshSelectionQueries.h"
 #include "CypherGeometry_MeshVertexMove.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace cypher::editor::geometry
@@ -49,6 +50,48 @@ geometry_status_t MoveAll(
     }
     return MeshVertices_TryMove( &pSource->mesh, span_t<const geometry_mesh_vertex_handle_t>{ verts.pData, verts.nCount },
                                  span_t<const math::vec3d_t>{ targets.pData, targets.nCount }, nullptr );
+}
+
+// Unit eigenvector of the smallest eigenvalue of a symmetric 3x3 matrix
+// (row-major a[3][3]), by cyclic Jacobi rotations - a handful of sweeps is
+// exact to rounding for 3x3. Returns false for a non-finite matrix.
+bool SmallestEigenvector( f64 a[3][3], math::vec3d_t *pOut ) noexcept
+{
+    f64 v[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+    for ( int sweep = 0; sweep < 32; ++sweep ) {
+        const f64 off = a[0][1] * a[0][1] + a[0][2] * a[0][2] + a[1][2] * a[1][2];
+        if ( !std::isfinite( off ) ) { return false; }
+        if ( off == 0.0 ) { break; }
+        for ( int p = 0; p < 2; ++p ) {
+            for ( int q = p + 1; q < 3; ++q ) {
+                if ( a[p][q] == 0.0 ) { continue; }
+                const f64 theta = ( a[q][q] - a[p][p] ) / ( 2.0 * a[p][q] );
+                const f64 t = ( theta >= 0.0 ? 1.0 : -1.0 ) / ( std::fabs( theta ) + std::sqrt( theta * theta + 1.0 ) );
+                const f64 c = 1.0 / std::sqrt( t * t + 1.0 ), s = t * c;
+                for ( int k = 0; k < 3; ++k ) { // A = J^T A J
+                    const f64 akp = a[k][p], akq = a[k][q];
+                    a[k][p] = c * akp - s * akq;
+                    a[k][q] = s * akp + c * akq;
+                }
+                for ( int k = 0; k < 3; ++k ) {
+                    const f64 apk = a[p][k], aqk = a[q][k];
+                    a[p][k] = c * apk - s * aqk;
+                    a[q][k] = s * apk + c * aqk;
+                }
+                for ( int k = 0; k < 3; ++k ) {
+                    const f64 vkp = v[k][p], vkq = v[k][q];
+                    v[k][p] = c * vkp - s * vkq;
+                    v[k][q] = s * vkp + c * vkq;
+                }
+            }
+        }
+    }
+    int iMin = 0;
+    for ( int i = 1; i < 3; ++i ) {
+        if ( a[i][i] < a[iMin][iMin] ) { iMin = i; }
+    }
+    *pOut = math::Vec3d_Make( v[0][iMin], v[1][iMin], v[2][iMin] );
+    return true;
 }
 
 } // namespace
@@ -159,6 +202,102 @@ geometry_status_t MeshSourceEdit_TryOffsetComponents(
     }
     if ( st == geometry_status_t::OK ) { st = MoveAll( pSource, verts, targets ); }
     cleanup();
+    return st;
+}
+
+geometry_status_t MeshSourceEdit_TryFlattenComponents(
+    mesh_source_t *pSource,
+    const mesh_selection_t *pSelection,
+    mesh_selection_mode_t mode,
+    mesh_flatten_plane_t plane,
+    math::planed_t *pPlaneOut ) noexcept
+{
+    if ( !MeshSource_IsInitialized( pSource ) || pSelection == nullptr ) { return geometry_status_t::NOT_INITIALIZED; }
+    if ( plane > mesh_flatten_plane_t::AXIS_Z ) { return geometry_status_t::INVALID_ARGUMENT; }
+    const allocator_t *pA = pSource->attributes.faces.pAllocator;
+    const editable_mesh_t *pMesh = &pSource->mesh;
+    vector_t<geometry_mesh_vertex_handle_t> verts{};
+    vector_t<math::vec3d_t> targets{};
+    if ( !Vector_Init( &verts, pA ) || !Vector_Init( &targets, pA ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+    geometry_status_t st = MeshSelection_TryGatherVertices( pSelection, pSource, mode, &verts );
+    if ( st != geometry_status_t::OK || verts.nCount == 0u ) { return st; }
+
+    // Centroid, relative to the first vertex to limit cancellation.
+    const math::vec3d_t base = GenerationPool_Get( &pMesh->vertices, verts.pData[0] )->position;
+    math::vec3d_t sum{};
+    for ( usize i = 0u; i < verts.nCount; ++i ) {
+        sum = math::Vec3d_Add( sum, math::Vec3d_Subtract( GenerationPool_Get( &pMesh->vertices, verts.pData[i] )->position, base ) );
+    }
+    const math::vec3d_t centroid = math::Vec3d_Add( base, math::Vec3d_Scale( sum, 1.0 / static_cast<f64>( verts.nCount ) ) );
+
+    math::vec3d_t normal{};
+    switch ( plane ) {
+        case mesh_flatten_plane_t::AXIS_X: normal = math::Vec3d_Make( 1, 0, 0 ); break;
+        case mesh_flatten_plane_t::AXIS_Y: normal = math::Vec3d_Make( 0, 1, 0 ); break;
+        case mesh_flatten_plane_t::AXIS_Z: normal = math::Vec3d_Make( 0, 0, 1 ); break;
+        case mesh_flatten_plane_t::BEST_FIT: {
+            // Smallest principal axis of the covariance, scaled to the
+            // selection's size so the flatness test is relative.
+            f64 cov[3][3] = {};
+            f64 extent = 0.0;
+            for ( usize i = 0u; i < verts.nCount; ++i ) {
+                const math::vec3d_t d = math::Vec3d_Subtract( GenerationPool_Get( &pMesh->vertices, verts.pData[i] )->position, centroid );
+                const f64 c[3] = { d.x, d.y, d.z };
+                for ( int r = 0; r < 3; ++r ) {
+                    for ( int k = 0; k < 3; ++k ) { cov[r][k] += c[r] * c[k]; }
+                }
+                extent += math::Vec3d_LengthSquared( d );
+            }
+            if ( verts.nCount < 3u || !( extent > 0.0 ) ) { return geometry_status_t::DEGENERATE; }
+            f64 work[3][3];
+            for ( int r = 0; r < 3; ++r ) {
+                for ( int k = 0; k < 3; ++k ) { work[r][k] = cov[r][k]; }
+            }
+            if ( !SmallestEigenvector( work, &normal ) ) { return geometry_status_t::NUMERIC_FAILURE; }
+            // Collinear points: the two smallest eigenvalues are both ~0 and
+            // the plane is not determined.
+            f64 eig[3] = { work[0][0], work[1][1], work[2][2] };
+            std::sort( eig, eig + 3 );
+            if ( !( eig[1] > 1.0e-12 * extent ) ) { return geometry_status_t::DEGENERATE; }
+            break;
+        }
+        case mesh_flatten_plane_t::AVERAGE_NORMAL: {
+            // The selected faces in face mode, else every face at a vertex.
+            vector_t<u8> isVert{};
+            if ( !Vector_Init( &isVert, pA ) || !Vector_Resize( &isVert, pMesh->vertices.cSlots ) ) {
+                return geometry_status_t::ALLOCATION_FAILED;
+            }
+            for ( usize i = 0u; i < isVert.nCount; ++i ) { isVert.pData[i] = 0u; }
+            for ( usize i = 0u; i < verts.nCount; ++i ) { isVert.pData[verts.pData[i].nSlot] = 1u; }
+            (void)GenerationPool_ForEach( &pMesh->faces, [&]( geometry_mesh_face_handle_t hF, const mesh_face_record_t &f ) noexcept -> bool_t {
+                bool bUse = false;
+                if ( mode == mesh_selection_mode_t::FACE ) {
+                    bUse = MeshSelection_HasFace( pSelection, MeshSource_FaceId( pSource, hF ) );
+                } else {
+                    const mesh_loop_record_t *pL = GenerationPool_Get( &pMesh->loops, f.hOuterLoop );
+                    geometry_mesh_half_edge_handle_t h = pL->hFirstHalfEdge;
+                    for ( u32 k = 0u; k < pL->cHalfEdges && !bUse; ++k ) {
+                        const mesh_half_edge_record_t *pH = GenerationPool_Get( &pMesh->halfEdges, h );
+                        bUse = isVert.pData[pH->hOrigin.nSlot] != 0u;
+                        h = pH->hNext;
+                    }
+                }
+                if ( bUse ) { normal = math::Vec3d_Add( normal, f.normal ); }
+                return true;
+            } );
+            break;
+        }
+    }
+    math::vec3d_t unit{};
+    if ( !math::Vec3d_TryNormalize( normal, 1.0e-9, &unit, nullptr ) ) { return geometry_status_t::DEGENERATE; }
+    const math::planed_t result{ unit, -math::Vec3d_Dot( unit, centroid ) };
+    if ( !Vector_Resize( &targets, verts.nCount ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+    for ( usize i = 0u; i < verts.nCount; ++i ) {
+        const math::vec3d_t p = GenerationPool_Get( &pMesh->vertices, verts.pData[i] )->position;
+        targets.pData[i] = math::Vec3d_Subtract( p, math::Vec3d_Scale( unit, math::Vec3d_Dot( unit, p ) + result.d ) );
+    }
+    st = MoveAll( pSource, verts, targets );
+    if ( st == geometry_status_t::OK && pPlaneOut ) { *pPlaneOut = result; }
     return st;
 }
 

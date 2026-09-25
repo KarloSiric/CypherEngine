@@ -5,8 +5,9 @@
 //
 //  File: CypherGeometry_MeshSourceTopology.h
 //  Purpose: Declares identity-addressed topology edits on a mesh source:
-//           split, collapse, dissolve, weld, fill, bridge, detach, and flip,
-//           each carrying attributes and identity through the change.
+//           split, collapse, dissolve, weld, fill, bridge, detach, flip, and
+//           quad slice, each carrying attributes and identity through the
+//           change.
 //  Details: Why address by source ID: callers (tools, selection, scripts,
 //           undo) hold persistent IDs, not pool handles. An edge is named by
 //           its two vertex IDs, matching MeshSource's edge identity.
@@ -40,6 +41,7 @@
 #include "CypherGeometry_MeshAttributeTransfer.h"
 #include "CypherGeometry_MeshBoundaryOps.h"
 #include "CypherGeometry_MeshKnife.h"
+#include "CypherGeometry_MeshQuadSlice.h"
 
 namespace cypher::editor::geometry
 {
@@ -168,6 +170,17 @@ CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryDetachFaces(
 CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryFlipFaces(
     mesh_source_t *pSource,
     common::span_t<const geometry_source_id_t> faceIds,
+    mesh_edit_report_t *pReportOut ) noexcept;
+
+// Hammer's Quad Slice (see MeshQuadSlice_Faces): each quad becomes cU x cV
+// cells taking its attributes (UVs interpolate across the grid); its
+// corner-0 cell keeps its face ID. Unselected neighbours gain the new edge
+// vertices and keep their IDs.
+CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryQuadSlice(
+    mesh_source_t *pSource,
+    common::span_t<const geometry_source_id_t> faceIds,
+    common::u32 cU,
+    common::u32 cV,
     mesh_edit_report_t *pReportOut ) noexcept;
 
 // One knife point addressed by source identity (see mesh_knife_point_t).

@@ -22,6 +22,7 @@
     #pragma once
 #endif
 
+#include "CypherGeometry_BrushSource.h"
 #include "CypherGeometry_Document.h"
 #include "CypherCommon_Span.h"
 
@@ -60,10 +61,22 @@ namespace cypher::editor::geometry
 //
 // Surviving brushes keep document order and storage addresses. Output brushes
 // are appended in the order supplied by replacementBrushes.
+//
+// Surface records: every output gets a record table covering its sides
+// (default records, since a bare solid carries none); removed brushes'
+// tables are freed with them. See DocumentBrushAttributes.h.
 CYPHER_NODISCARD geometry_status_t GeometryDocument_TryReplaceBrushesExact(
     geometry_document_t *pDocument,
     common::span_t<const geometry_source_id_t> removeBrushIds,
     common::span_t<const brush_solid_t> replacementBrushes ) noexcept;
+
+// The same with complete authored brushes: each output keeps its own record
+// table (extended with defaults if it does not cover every side), so CSG and
+// other rebuilds publish materials and UVs, not just planes.
+CYPHER_NODISCARD geometry_status_t GeometryDocument_TryReplaceBrushSourcesExact(
+    geometry_document_t *pDocument,
+    common::span_t<const geometry_source_id_t> removeBrushIds,
+    common::span_t<const brush_source_t> replacementBrushes ) noexcept;
 
 } // namespace cypher::editor::geometry
 

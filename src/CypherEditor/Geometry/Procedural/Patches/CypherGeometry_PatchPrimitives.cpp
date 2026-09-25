@@ -114,9 +114,12 @@ geometry_status_t FillPatch(
     }
     if ( bReverseColumns ) { Patch_ReverseColumns( pOut ); }
     pOut->materialId = materialId;
-    if ( Patch_Validate( pOut, pAllocator ).fault == patch_fault_t::COLLAPSED_SURFACE ) {
+    // Validation needs scratch memory; if it could not run, the collapse
+    // check did not happen, so that is a failure, not a pass.
+    const patch_fault_t fault = Patch_Validate( pOut, pAllocator ).fault;
+    if ( fault == patch_fault_t::VALIDATION_INCOMPLETE || fault == patch_fault_t::COLLAPSED_SURFACE ) {
         Patch_Shutdown( pOut );
-        return geometry_status_t::DEGENERATE;
+        return fault == patch_fault_t::VALIDATION_INCOMPLETE ? geometry_status_t::ALLOCATION_FAILED : geometry_status_t::DEGENERATE;
     }
     *pIdAllocator = ids;
     return geometry_status_t::OK;

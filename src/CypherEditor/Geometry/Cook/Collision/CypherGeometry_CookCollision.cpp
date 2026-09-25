@@ -19,6 +19,8 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_CookCollision.h"
+#include "CypherGeometry_HeightFieldTessellation.h"
+#include "CypherGeometry_PatchTessellation.h"
 
 #include "CypherGeometry_BrushBoundary.h"
 #include "CypherGeometry_BrushTessellation.h"
@@ -200,6 +202,85 @@ bool BuildMesh( build_context_t *pCtx, const mesh_source_t *pMesh, cook_collisio
     return bBuilt;
 }
 
+// Patches: the adaptive tessellation (chord error within the patch
+// tessellator's default tolerance), an open surface; every triangle names
+// the patch, which has no finer authored element.
+bool BuildPatch( build_context_t *pCtx, const patch_surface_t *pPatch, cook_collision_surface_t *pSurface ) noexcept
+{
+    const allocator_t *pAllocator = pCtx->pOut->positions.pAllocator;
+    patch_tessellation_t tess{};
+    patch_tessellation_options_t options{};
+    bool bBuilt = PatchTessellation_Init( &tess, pAllocator ) == geometry_status_t::OK &&
+                  PatchTessellation_TryBuild( pPatch, options, &tess ) == geometry_status_t::OK;
+    if ( !bBuilt ) {
+        pCtx->Diagnose( cook_diagnostic_kind_t::TESSELLATION_FAILED, pPatch->sourceId, geometry_source_id_t{} );
+    } else if ( AppendVertices( pCtx, pPatch->sourceId, tess.positions.pData, tess.positions.nCount ) ) {
+        pSurface->cVertices = static_cast<u32>( tess.positions.nCount );
+        const usize cTris = tess.indices.nCount / 3u;
+        for ( usize t = 0u; t < cTris && pCtx->bOk; ++t ) {
+            AppendTriangle( pCtx, pSurface, tess.indices.pData[t * 3u], tess.indices.pData[t * 3u + 1u], tess.indices.pData[t * 3u + 2u],
+                            pPatch->sourceId );
+        }
+    } else {
+        bBuilt = false;
+    }
+    PatchTessellation_Shutdown( &tess );
+    return bBuilt;
+}
+
+// Heightfields: one vertex per field sample (so tiles share their edges
+// and the surface is watertight), every tile at full resolution, holes
+// left open; each triangle names its tile.
+bool BuildHeightField( build_context_t *pCtx, const heightfield_t *pField, cook_collision_surface_t *pSurface ) noexcept
+{
+    const allocator_t *pAllocator = pCtx->pOut->positions.pAllocator;
+    const u32 sx = HeightField_SamplesX( pField ), sy = HeightField_SamplesY( pField );
+    vector_t<math::vec3d_t> samples{};
+    if ( !Vector_Init( &samples, pAllocator ) || !Vector_Resize( &samples, static_cast<usize>( sx ) * sy ) ) {
+        pCtx->bOk = false;
+        return false;
+    }
+    for ( u32 y = 0u; y < sy; ++y ) {
+        for ( u32 x = 0u; x < sx; ++x ) { samples.pData[static_cast<usize>( y ) * sx + x] = HeightField_SamplePosition( pField, x, y ); }
+    }
+    if ( !AppendVertices( pCtx, pField->sourceId, samples.pData, samples.nCount ) ) { return false; }
+    pSurface->cVertices = static_cast<u32>( samples.nCount );
+    heightfield_tile_mesh_t tile{};
+    bool bBuilt = HeightFieldTileMesh_Init( &tile, pAllocator ) == geometry_status_t::OK;
+    for ( u32 t = 0u; bBuilt && pCtx->bOk && t < pField->tiles.nCount; ++t ) {
+        if ( HeightFieldTessellation_TryBuildTile( pField, t, heightfield_tile_lods_t{}, &tile ) != geometry_status_t::OK ) {
+            pCtx->Diagnose( cook_diagnostic_kind_t::TESSELLATION_FAILED, pField->sourceId, pField->tiles.pData[t].sourceId );
+            bBuilt = false;
+            break;
+        }
+        const usize cTris = tile.indices.nCount / 3u;
+        for ( usize k = 0u; k < cTris && pCtx->bOk; ++k ) {
+            AppendTriangle( pCtx, pSurface, tile.vertexSample.pData[tile.indices.pData[k * 3u]], tile.vertexSample.pData[tile.indices.pData[k * 3u + 1u]],
+                            tile.vertexSample.pData[tile.indices.pData[k * 3u + 2u]], pField->tiles.pData[t].sourceId );
+        }
+    }
+    HeightFieldTileMesh_Shutdown( &tile );
+    return bBuilt;
+}
+
+const patch_surface_t *FindPatch( const geometry_snapshot_t *pSnap, geometry_source_id_t id ) noexcept
+{
+    for ( usize i = 0u; i < GeometrySnapshot_PatchCount( pSnap ); ++i ) {
+        const patch_surface_t *p = GeometrySnapshot_PatchAt( pSnap, i );
+        if ( p != nullptr && p->sourceId.value == id.value ) { return p; }
+    }
+    return nullptr;
+}
+
+const heightfield_t *FindHeightField( const geometry_snapshot_t *pSnap, geometry_source_id_t id ) noexcept
+{
+    for ( usize i = 0u; i < GeometrySnapshot_HeightFieldCount( pSnap ); ++i ) {
+        const heightfield_t *p = GeometrySnapshot_HeightFieldAt( pSnap, i );
+        if ( p != nullptr && p->sourceId.value == id.value ) { return p; }
+    }
+    return nullptr;
+}
+
 const cook_collision_surface_t *FindPrevious( const cook_collision_t *pPrev, geometry_source_id_t id ) noexcept
 {
     if ( pPrev == nullptr ) { return nullptr; }
@@ -315,6 +396,14 @@ geometry_status_t CookCollision_TryBuild(
                 const mesh_source_t *pMesh = GeometrySnapshot_FindMesh( pSnapshot, key.sourceId );
                 bBuilt = pMesh != nullptr && BuildMesh( &ctx, pMesh, &surface );
                 if ( pMesh == nullptr ) { ctx.Diagnose( cook_diagnostic_kind_t::SOURCE_MISSING, key.sourceId, {} ); }
+            } else if ( key.kind == cook_source_kind_t::PATCH ) {
+                const patch_surface_t *pPatch = FindPatch( pSnapshot, key.sourceId );
+                bBuilt = pPatch != nullptr && BuildPatch( &ctx, pPatch, &surface );
+                if ( pPatch == nullptr ) { ctx.Diagnose( cook_diagnostic_kind_t::SOURCE_MISSING, key.sourceId, {} ); }
+            } else if ( key.kind == cook_source_kind_t::HEIGHTFIELD ) {
+                const heightfield_t *pField = FindHeightField( pSnapshot, key.sourceId );
+                bBuilt = pField != nullptr && BuildHeightField( &ctx, pField, &surface );
+                if ( pField == nullptr ) { ctx.Diagnose( cook_diagnostic_kind_t::SOURCE_MISSING, key.sourceId, {} ); }
             }
             if ( !bBuilt ) {
                 // Roll back anything the failed object appended.

@@ -18,6 +18,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_DocumentBrushReplacement.h"
+#include "CypherGeometry_DocumentBrushAttributes.h"
 #include "CypherGeometry_BrushValidation.h"
 
 #include <algorithm>
@@ -28,6 +29,20 @@ namespace cypher::editor::geometry
 
 namespace
 {
+
+// The replacement brushes: bare solids (legacy entry point) or complete
+// authored brushes. Solids and their optional record tables are read through
+// one view so every stage below serves both entry points.
+struct output_set_t {
+    const brush_solid_t *pSolids{ nullptr };
+    const brush_source_t *pSources{ nullptr };
+    common::usize nCount{ 0u };
+    const brush_solid_t *At( common::usize i ) const noexcept { return pSources != nullptr ? &pSources[i].solid : &pSolids[i]; }
+    const geometry_brush_side_attribute_store_t *StoreAt( common::usize i ) const noexcept
+    {
+        return pSources != nullptr ? &pSources[i].attributes : nullptr;
+    }
+};
 
 bool SourceIdLess(
     geometry_source_id_t left,
@@ -242,7 +257,7 @@ geometry_status_t NormalizeOutputValidationStatus(
 
 geometry_status_t ValidateOutputs(
     const geometry_document_t &document,
-    common::span_t<const brush_solid_t> replacementBrushes,
+    const output_set_t &replacementBrushes,
     common::u64 *pOutputSideCountOut,
     common::usize *pOutputSourceCountOut ) noexcept
 {
@@ -253,7 +268,7 @@ geometry_status_t ValidateOutputs(
           iOutput < replacementBrushes.nCount;
           ++iOutput ) {
         const brush_validation_result_t validation = BrushValidation_Deep(
-            &replacementBrushes.pData[iOutput],
+            replacementBrushes.At( iOutput ),
             document.policy,
             document.pAllocator );
         if ( validation.status != geometry_status_t::OK ) {
@@ -261,7 +276,7 @@ geometry_status_t ValidateOutputs(
         }
 
         const common::usize cSides =
-            BrushSolid_SideCount( &replacementBrushes.pData[iOutput] );
+            BrushSolid_SideCount( replacementBrushes.At( iOutput ) );
         if ( static_cast<common::u64>( cSides ) >
              ~static_cast<common::u64>( 0u ) - cOutputSides ) {
             return geometry_status_t::LIMIT_EXCEEDED;
@@ -380,7 +395,7 @@ geometry_status_t InitAndFillRemovedSourceIds(
 geometry_status_t InitAndFillOutputSourceIds(
     common::vector_t<geometry_source_id_t> *pIds,
     const geometry_document_t &document,
-    common::span_t<const brush_solid_t> outputs,
+    const output_set_t &outputs,
     common::usize cOutputSources ) noexcept
 {
     if ( !common::Vector_Init(
@@ -391,7 +406,7 @@ geometry_status_t InitAndFillOutputSourceIds(
     for ( common::usize iOutput = 0u;
           iOutput < outputs.nCount;
           ++iOutput ) {
-        const brush_solid_t &brush = outputs.pData[iOutput];
+        const brush_solid_t &brush = *outputs.At( iOutput );
         if ( !common::Vector_PushBack( pIds, brush.sourceId ) ) {
             return geometry_status_t::ALLOCATION_FAILED;
         }
@@ -535,16 +550,40 @@ void DestroyPreparedBrushes(
     common::Vector_Shutdown( pPrepared );
 }
 
+void DestroyPreparedStores(
+    common::vector_t<geometry_brush_side_attribute_store_t *> *pPrepared,
+    common::usize iFirstOwned,
+    const common::allocator_t *pAllocator ) noexcept
+{
+    for ( common::usize i = iFirstOwned; i < pPrepared->nCount; ++i ) {
+        BrushAttributes_Free( pAllocator, pPrepared->pData[i] );
+    }
+    common::Vector_Shutdown( pPrepared );
+}
+
+// Builds the final brush and record-table vectors in parallel: retained
+// entries by pointer (they keep their addresses), then deep copies of the
+// outputs, each with its records extended to cover its sides.
 geometry_status_t PrepareBrushVector(
     const geometry_document_t &document,
     const common::vector_t<geometry_source_id_t> &removalRoots,
-    common::span_t<const brush_solid_t> outputs,
+    const output_set_t &outputs,
     common::usize cFinalBrushes,
-    common::vector_t<brush_solid_t *> *pPreparedOut ) noexcept
+    common::vector_t<brush_solid_t *> *pPreparedOut,
+    common::vector_t<geometry_brush_side_attribute_store_t *> *pPreparedStoresOut ) noexcept
 {
     if ( !common::Vector_Init(
              pPreparedOut, document.pAllocator, cFinalBrushes ) ) {
         return geometry_status_t::ALLOCATION_FAILED;
+    }
+    if ( !common::Vector_Init( pPreparedStoresOut, document.pAllocator, cFinalBrushes ) ) {
+        common::Vector_Shutdown( pPreparedOut );
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    if ( document.brushAttributes.nCount != document.brushes.nCount ) {
+        common::Vector_Shutdown( pPreparedStoresOut );
+        common::Vector_Shutdown( pPreparedOut );
+        return geometry_status_t::CORRUPT_STATE;
     }
 
     for ( common::usize iBrush = 0u;
@@ -554,46 +593,51 @@ geometry_status_t PrepareBrushVector(
         if ( SortedIdsContain( removalRoots, pBrush->sourceId ) ) {
             continue;
         }
-        if ( !common::Vector_PushBack( pPreparedOut, pBrush ) ) {
+        if ( !common::Vector_PushBack( pPreparedOut, pBrush ) ||
+             !common::Vector_PushBack( pPreparedStoresOut, document.brushAttributes.pData[iBrush] ) ) {
+            common::Vector_Shutdown( pPreparedStoresOut );
             common::Vector_Shutdown( pPreparedOut );
             return geometry_status_t::ALLOCATION_FAILED;
         }
     }
     const common::usize cRetained = pPreparedOut->nCount;
+    auto fail = [&]( geometry_status_t st ) noexcept {
+        DestroyPreparedStores( pPreparedStoresOut, cRetained, document.pAllocator );
+        DestroyPreparedBrushes( pPreparedOut, cRetained, document.pAllocator );
+        return st;
+    };
 
     for ( common::usize iOutput = 0u;
           iOutput < outputs.nCount;
           ++iOutput ) {
         brush_solid_t *pCopy = AllocateBrush( document.pAllocator );
-        if ( pCopy == nullptr ) {
-            DestroyPreparedBrushes(
-                pPreparedOut, cRetained, document.pAllocator );
-            return geometry_status_t::ALLOCATION_FAILED;
-        }
+        if ( pCopy == nullptr ) { return fail( geometry_status_t::ALLOCATION_FAILED ); }
 
         const geometry_status_t copyStatus = BrushSolid_DeepCopy(
             pCopy,
-            &outputs.pData[iOutput],
+            outputs.At( iOutput ),
             document.pAllocator,
             document.policy.limits );
         if ( copyStatus != geometry_status_t::OK ) {
             FreeBrush( document.pAllocator, pCopy );
-            DestroyPreparedBrushes(
-                pPreparedOut, cRetained, document.pAllocator );
-            return copyStatus;
+            return fail( copyStatus );
         }
         if ( !common::Vector_PushBack( pPreparedOut, pCopy ) ) {
             FreeBrush( document.pAllocator, pCopy );
-            DestroyPreparedBrushes(
-                pPreparedOut, cRetained, document.pAllocator );
-            return geometry_status_t::ALLOCATION_FAILED;
+            return fail( geometry_status_t::ALLOCATION_FAILED );
+        }
+        geometry_brush_side_attribute_store_t *pStore = BrushAttributes_Allocate( document.pAllocator );
+        if ( pStore == nullptr ) { return fail( geometry_status_t::ALLOCATION_FAILED ); }
+        const geometry_status_t storeStatus = BrushAttributes_TryBuildCovering(
+            outputs.At( iOutput ), outputs.StoreAt( iOutput ), document.pAllocator, document.policy, pStore );
+        if ( storeStatus != geometry_status_t::OK || !common::Vector_PushBack( pPreparedStoresOut, pStore ) ) {
+            BrushAttributes_Free( document.pAllocator, pStore );
+            return fail( storeStatus != geometry_status_t::OK ? storeStatus : geometry_status_t::ALLOCATION_FAILED );
         }
     }
 
-    if ( pPreparedOut->nCount != cFinalBrushes ) {
-        DestroyPreparedBrushes(
-            pPreparedOut, cRetained, document.pAllocator );
-        return geometry_status_t::CORRUPT_STATE;
+    if ( pPreparedOut->nCount != cFinalBrushes || pPreparedStoresOut->nCount != cFinalBrushes ) {
+        return fail( geometry_status_t::CORRUPT_STATE );
     }
     return geometry_status_t::OK;
 }
@@ -614,6 +658,24 @@ void SwapBrushVectors(
     left.nCapacity = right.nCapacity;
     right.nCapacity = value;
 
+    const common::allocator_t *pAllocator = left.pAllocator;
+    left.pAllocator = right.pAllocator;
+    right.pAllocator = pAllocator;
+}
+
+void SwapStoreVectors(
+    common::vector_t<geometry_brush_side_attribute_store_t *> &left,
+    common::vector_t<geometry_brush_side_attribute_store_t *> &right ) noexcept
+{
+    geometry_brush_side_attribute_store_t **pData = left.pData;
+    left.pData = right.pData;
+    right.pData = pData;
+    common::usize value = left.nCount;
+    left.nCount = right.nCount;
+    right.nCount = value;
+    value = left.nCapacity;
+    left.nCapacity = right.nCapacity;
+    right.nCapacity = value;
     const common::allocator_t *pAllocator = left.pAllocator;
     left.pAllocator = right.pAllocator;
     right.pAllocator = pAllocator;
@@ -676,17 +738,19 @@ void ShutdownIdVectors(
 
 } // namespace
 
-geometry_status_t GeometryDocument_TryReplaceBrushesExact(
+namespace
+{
+
+geometry_status_t ReplaceBrushes(
     geometry_document_t *pDocument,
     common::span_t<const geometry_source_id_t> removeBrushIds,
-    common::span_t<const brush_solid_t> replacementBrushes ) noexcept
+    const output_set_t &replacementBrushes ) noexcept
 {
     const geometry_status_t documentStatus = CheckDocument( pDocument );
     if ( documentStatus != geometry_status_t::OK ) {
         return documentStatus;
     }
-    if ( !common::Span_IsValid( removeBrushIds ) ||
-         !common::Span_IsValid( replacementBrushes ) ) {
+    if ( !common::Span_IsValid( removeBrushIds ) ) {
         return geometry_status_t::INVALID_ARGUMENT;
     }
     if ( removeBrushIds.nCount == 0u &&
@@ -783,12 +847,14 @@ geometry_status_t GeometryDocument_TryReplaceBrushesExact(
     }
 
     common::vector_t<brush_solid_t *> preparedBrushes{};
+    common::vector_t<geometry_brush_side_attribute_store_t *> preparedStores{};
     status = PrepareBrushVector(
         *pDocument,
         removalRoots,
         replacementBrushes,
         cFinalBrushes,
-        &preparedBrushes );
+        &preparedBrushes,
+        &preparedStores );
     if ( status != geometry_status_t::OK ) {
         GeometrySourceIdRegistry_Shutdown( &preparedRegistry );
         ShutdownIdVectors( &removalRoots, &removedIds, &outputIds );
@@ -798,24 +864,65 @@ geometry_status_t GeometryDocument_TryReplaceBrushesExact(
     // No fallible work remains. These swaps publish the vector and registry as
     // one logical document step; revision belongs to the owning transaction.
     SwapBrushVectors( pDocument->brushes, preparedBrushes );
+    SwapStoreVectors( pDocument->brushAttributes, preparedStores );
     SwapRegistries( pDocument->sourceIds, preparedRegistry );
 
-    // preparedBrushes now owns the old pointer-vector allocation. Only removed
-    // brush objects are freed; retained objects are shared by pointer with the
-    // newly published vector and keep their storage addresses.
+    // preparedBrushes / preparedStores now own the old, still parallel,
+    // pointer vectors. Only removed brushes and their record tables are
+    // freed; retained objects are shared by pointer with the newly published
+    // vectors and keep their storage addresses.
     for ( common::usize iBrush = 0u;
           iBrush < preparedBrushes.nCount;
           ++iBrush ) {
         brush_solid_t *pOldBrush = preparedBrushes.pData[iBrush];
         if ( SortedIdsContain( removalRoots, pOldBrush->sourceId ) ) {
             FreeBrush( pDocument->pAllocator, pOldBrush );
+            if ( iBrush < preparedStores.nCount ) {
+                BrushAttributes_Free( pDocument->pAllocator, preparedStores.pData[iBrush] );
+            }
         }
     }
+    common::Vector_Shutdown( &preparedStores );
     common::Vector_Shutdown( &preparedBrushes );
     GeometrySourceIdRegistry_Shutdown( &preparedRegistry );
     ShutdownIdVectors( &removalRoots, &removedIds, &outputIds );
 
     return geometry_status_t::OK;
+}
+
+} // namespace
+
+geometry_status_t GeometryDocument_TryReplaceBrushesExact(
+    geometry_document_t *pDocument,
+    common::span_t<const geometry_source_id_t> removeBrushIds,
+    common::span_t<const brush_solid_t> replacementBrushes ) noexcept
+{
+    const geometry_status_t documentStatus = CheckDocument( pDocument );
+    if ( documentStatus != geometry_status_t::OK ) { return documentStatus; }
+    if ( !common::Span_IsValid( replacementBrushes ) ) { return geometry_status_t::INVALID_ARGUMENT; }
+    output_set_t outputs{};
+    outputs.pSolids = replacementBrushes.pData;
+    outputs.nCount = replacementBrushes.nCount;
+    return ReplaceBrushes( pDocument, removeBrushIds, outputs );
+}
+
+geometry_status_t GeometryDocument_TryReplaceBrushSourcesExact(
+    geometry_document_t *pDocument,
+    common::span_t<const geometry_source_id_t> removeBrushIds,
+    common::span_t<const brush_source_t> replacementBrushes ) noexcept
+{
+    const geometry_status_t documentStatus = CheckDocument( pDocument );
+    if ( documentStatus != geometry_status_t::OK ) { return documentStatus; }
+    if ( !common::Span_IsValid( replacementBrushes ) ) { return geometry_status_t::INVALID_ARGUMENT; }
+    for ( common::usize i = 0u; i < replacementBrushes.nCount; ++i ) {
+        if ( !BrushSource_IsInitialized( &replacementBrushes.pData[i] ) ) {
+            return geometry_status_t::INVALID_ARGUMENT;
+        }
+    }
+    output_set_t outputs{};
+    outputs.pSources = replacementBrushes.pData;
+    outputs.nCount = replacementBrushes.nCount;
+    return ReplaceBrushes( pDocument, removeBrushIds, outputs );
 }
 
 } // namespace cypher::editor::geometry

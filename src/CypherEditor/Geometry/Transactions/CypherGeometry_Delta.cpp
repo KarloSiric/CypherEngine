@@ -19,6 +19,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_Delta.h"
+#include "CypherGeometry_DocumentBrushAttributes.h"
 #include "CypherGeometry_ReplacementIdentity.h"
 
 namespace cypher::editor::geometry
@@ -44,6 +45,11 @@ void GeometryDelta_Shutdown(
         BrushSolid_Shutdown( &pDelta->newBrushData );
     }
 
+    BrushSideAttributeStore_Shutdown( &pDelta->attributes );
+    BrushSideAttributeStore_Shutdown( &pDelta->newAttributes );
+    pDelta->oldAttribute = {};
+    pDelta->newAttribute = {};
+
     pDelta->kind = geometry_delta_kind_t::INVALID;
     pDelta->brushId = {};
     pDelta->sideIndex = 0u;
@@ -52,6 +58,26 @@ void GeometryDelta_Shutdown(
     pDelta->brushData.sourceId = {};
     pDelta->newBrushData.sourceId = {};
 }
+
+namespace
+{
+
+// Copies a delta record table when it was captured (initialized); leaves
+// the destination uninitialized otherwise.
+geometry_status_t CopyStoreIfPresent(
+    const geometry_brush_side_attribute_store_t &source,
+    const common::allocator_t *pAllocator,
+    const geometry_limit_policy_t &limits,
+    geometry_brush_side_attribute_store_t *pOut ) noexcept
+{
+    if ( source.records.pAllocator == nullptr ) { return geometry_status_t::OK; }
+    geometry_status_t st = BrushSideAttributeStore_Init( pOut, pAllocator );
+    if ( st == geometry_status_t::OK ) { st = BrushSideAttributeStore_TryCopyFrom( pOut, &source, limits ); }
+    if ( st != geometry_status_t::OK ) { BrushSideAttributeStore_Shutdown( pOut ); }
+    return st;
+}
+
+} // namespace
 
 geometry_status_t GeometryDelta_TryComputeInverse(
     const geometry_delta_t *pDelta,
@@ -78,11 +104,19 @@ geometry_status_t GeometryDelta_TryComputeInverse(
                 return copyStatus;
             }
 
+            geometry_brush_side_attribute_store_t records{};
+            const geometry_status_t recordStatus = CopyStoreIfPresent( pDelta->attributes, pAllocator, limits, &records );
+            if ( recordStatus != geometry_status_t::OK ) {
+                BrushSolid_Shutdown( &copy );
+                return recordStatus;
+            }
+
             pInverseOut->kind = geometry_delta_kind_t::BRUSH_REMOVED;
             pInverseOut->brushId = pDelta->brushId;
             pInverseOut->brushData.sourceId = copy.sourceId;
             common::Vector_Move(
                 &pInverseOut->brushData.sides, &copy.sides );
+            common::Vector_Move( &pInverseOut->attributes.records, &records.records );
             return geometry_status_t::OK;
         }
 
@@ -95,11 +129,19 @@ geometry_status_t GeometryDelta_TryComputeInverse(
                 return copyStatus;
             }
 
+            geometry_brush_side_attribute_store_t records{};
+            const geometry_status_t recordStatus = CopyStoreIfPresent( pDelta->attributes, pAllocator, limits, &records );
+            if ( recordStatus != geometry_status_t::OK ) {
+                BrushSolid_Shutdown( &copy );
+                return recordStatus;
+            }
+
             pInverseOut->kind = geometry_delta_kind_t::BRUSH_ADDED;
             pInverseOut->brushId = pDelta->brushId;
             pInverseOut->brushData.sourceId = copy.sourceId;
             common::Vector_Move(
                 &pInverseOut->brushData.sides, &copy.sides );
+            common::Vector_Move( &pInverseOut->attributes.records, &records.records );
             return geometry_status_t::OK;
         }
 
@@ -129,6 +171,19 @@ geometry_status_t GeometryDelta_TryComputeInverse(
                 return newCopyStatus;
             }
 
+            // Records swap the same way (each copied only if captured).
+            geometry_brush_side_attribute_store_t oldRecords{}, newRecords{};
+            geometry_status_t recordStatus = CopyStoreIfPresent( pDelta->newAttributes, pAllocator, limits, &oldRecords );
+            if ( recordStatus == geometry_status_t::OK ) {
+                recordStatus = CopyStoreIfPresent( pDelta->attributes, pAllocator, limits, &newRecords );
+            }
+            if ( recordStatus != geometry_status_t::OK ) {
+                BrushSideAttributeStore_Shutdown( &oldRecords );
+                BrushSolid_Shutdown( &oldCopy );
+                BrushSolid_Shutdown( &newCopy );
+                return recordStatus;
+            }
+
             pInverseOut->kind = geometry_delta_kind_t::BRUSH_REPLACED;
             pInverseOut->brushId = pDelta->brushId;
             pInverseOut->brushData.sourceId = oldCopy.sourceId;
@@ -137,6 +192,17 @@ geometry_status_t GeometryDelta_TryComputeInverse(
             pInverseOut->newBrushData.sourceId = newCopy.sourceId;
             common::Vector_Move(
                 &pInverseOut->newBrushData.sides, &newCopy.sides );
+            common::Vector_Move( &pInverseOut->attributes.records, &oldRecords.records );
+            common::Vector_Move( &pInverseOut->newAttributes.records, &newRecords.records );
+            return geometry_status_t::OK;
+        }
+
+        case geometry_delta_kind_t::BRUSH_ATTRIBUTE_CHANGED: {
+            pInverseOut->kind = geometry_delta_kind_t::BRUSH_ATTRIBUTE_CHANGED;
+            pInverseOut->brushId = pDelta->brushId;
+            pInverseOut->sideIndex = pDelta->sideIndex;
+            pInverseOut->oldAttribute = pDelta->newAttribute;
+            pInverseOut->newAttribute = pDelta->oldAttribute;
             return geometry_status_t::OK;
         }
 
@@ -155,8 +221,9 @@ geometry_status_t GeometryDelta_TryApplyToDocument(
 
     switch ( pDelta->kind ) {
         case geometry_delta_kind_t::BRUSH_ADDED: {
-            return GeometryDocument_TryAddBrush(
-                pDocument, &pDelta->brushData );
+            return GeometryDocument_TryAddBrushWithAttributes(
+                pDocument, &pDelta->brushData,
+                pDelta->attributes.records.pAllocator != nullptr ? &pDelta->attributes : nullptr );
         }
 
         case geometry_delta_kind_t::BRUSH_REMOVED: {
@@ -211,6 +278,24 @@ geometry_status_t GeometryDelta_TryApplyToDocument(
                 }
                 return copyStatus;
             }
+            // The records after the edit: the captured ones, or the brush's
+            // current ones, extended to cover the new sides.
+            geometry_brush_side_attribute_store_t *pLiveRecords =
+                GeometryDocument_FindBrushAttributesMutable( pDocument, pDelta->brushId );
+            geometry_brush_side_attribute_store_t newRecords{};
+            const geometry_status_t recordStatus = pLiveRecords == nullptr
+                ? geometry_status_t::CORRUPT_STATE
+                : BrushAttributes_TryBuildCovering(
+                      &pDelta->newBrushData,
+                      pDelta->newAttributes.records.pAllocator != nullptr ? &pDelta->newAttributes : pLiveRecords,
+                      pDocument->pAllocator, pDocument->policy, &newRecords );
+            if ( recordStatus != geometry_status_t::OK ) {
+                BrushSolid_Shutdown( &replacement );
+                if ( bRegistryChanges ) {
+                    GeometrySourceIdRegistry_Shutdown( &preparedRegistry );
+                }
+                return recordStatus;
+            }
 
             // All fallible work is complete. The two ownership transfers are
             // allocation-free and therefore publish one indivisible state.
@@ -223,6 +308,8 @@ geometry_status_t GeometryDelta_TryApplyToDocument(
             common::Vector_Move(
                 &pBrush->sides, &replacement.sides );
             replacement.sourceId = GEOMETRY_SOURCE_ID_INVALID;
+            BrushSideAttributeStore_Shutdown( pLiveRecords );
+            common::Vector_Move( &pLiveRecords->records, &newRecords.records );
 
             if ( bRegistryChanges ) {
                 GeometrySourceIdRegistry_Shutdown( &preparedRegistry );
@@ -230,9 +317,77 @@ geometry_status_t GeometryDelta_TryApplyToDocument(
             return geometry_status_t::OK;
         }
 
+        case geometry_delta_kind_t::BRUSH_ATTRIBUTE_CHANGED: {
+            geometry_brush_side_attribute_store_t *pRecords =
+                GeometryDocument_FindBrushAttributesMutable( pDocument, pDelta->brushId );
+            if ( pRecords == nullptr ) {
+                return geometry_status_t::INVALID_ARGUMENT;
+            }
+            return BrushSideAttributeStore_TrySet(
+                pRecords, pDocument->policy.numerical, pDelta->sideIndex, pDelta->newAttribute );
+        }
+
         default:
             return geometry_status_t::INVALID_ARGUMENT;
     }
+}
+
+geometry_status_t GeometryDelta_TryMakeAttributeChange(
+    const geometry_document_t *pDocument,
+    geometry_source_id_t brushId,
+    common::usize iRecord,
+    const geometry_brush_side_attributes_t &newValue,
+    geometry_delta_t *pDeltaOut ) noexcept
+{
+    if ( !GeometryDocument_IsInitialized( pDocument ) ) { return geometry_status_t::NOT_INITIALIZED; }
+    if ( pDeltaOut == nullptr ) { return geometry_status_t::INVALID_ARGUMENT; }
+    if ( pDeltaOut->kind != geometry_delta_kind_t::INVALID ) { return geometry_status_t::ALREADY_INITIALIZED; }
+    const geometry_brush_side_attribute_store_t *pRecords = GeometryDocument_FindBrushAttributes( pDocument, brushId );
+    geometry_brush_side_attributes_t oldValue{};
+    if ( pRecords == nullptr || BrushSideAttributeStore_TryGet( pRecords, iRecord, &oldValue ) != geometry_status_t::OK ) {
+        return geometry_status_t::INVALID_ARGUMENT;
+    }
+    const geometry_status_t valueStatus = BrushSideAttributes_Validate( pDocument->policy.numerical, newValue );
+    if ( valueStatus != geometry_status_t::OK ) { return valueStatus; }
+    pDeltaOut->kind = geometry_delta_kind_t::BRUSH_ATTRIBUTE_CHANGED;
+    pDeltaOut->brushId = brushId;
+    pDeltaOut->sideIndex = iRecord;
+    pDeltaOut->oldAttribute = oldValue;
+    pDeltaOut->newAttribute = newValue;
+    return geometry_status_t::OK;
+}
+
+geometry_status_t GeometryDelta_TryCaptureBrush(
+    const geometry_document_t *pDocument,
+    geometry_source_id_t brushId,
+    geometry_delta_kind_t kind,
+    const common::allocator_t *pAllocator,
+    geometry_delta_t *pDeltaOut ) noexcept
+{
+    if ( !GeometryDocument_IsInitialized( pDocument ) ) { return geometry_status_t::NOT_INITIALIZED; }
+    if ( pDeltaOut == nullptr || pAllocator == nullptr ||
+         ( kind != geometry_delta_kind_t::BRUSH_ADDED && kind != geometry_delta_kind_t::BRUSH_REMOVED ) ) {
+        return geometry_status_t::INVALID_ARGUMENT;
+    }
+    if ( pDeltaOut->kind != geometry_delta_kind_t::INVALID ) { return geometry_status_t::ALREADY_INITIALIZED; }
+    const brush_solid_t *pSolid = GeometryDocument_FindBrush( pDocument, brushId );
+    const geometry_brush_side_attribute_store_t *pRecords = GeometryDocument_FindBrushAttributes( pDocument, brushId );
+    if ( pSolid == nullptr || pRecords == nullptr ) { return geometry_status_t::INVALID_ARGUMENT; }
+    brush_solid_t copy{};
+    geometry_status_t st = BrushSolid_DeepCopy( &copy, pSolid, pAllocator, pDocument->policy.limits );
+    if ( st != geometry_status_t::OK ) { return st; }
+    geometry_brush_side_attribute_store_t records{};
+    st = CopyStoreIfPresent( *pRecords, pAllocator, pDocument->policy.limits, &records );
+    if ( st != geometry_status_t::OK ) {
+        BrushSolid_Shutdown( &copy );
+        return st;
+    }
+    pDeltaOut->kind = kind;
+    pDeltaOut->brushId = brushId;
+    pDeltaOut->brushData.sourceId = copy.sourceId;
+    common::Vector_Move( &pDeltaOut->brushData.sides, &copy.sides );
+    common::Vector_Move( &pDeltaOut->attributes.records, &records.records );
+    return geometry_status_t::OK;
 }
 
 // ---------------------------------------------------------------------------

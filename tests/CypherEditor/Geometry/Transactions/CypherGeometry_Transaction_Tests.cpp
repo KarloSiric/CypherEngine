@@ -20,6 +20,7 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+#include "CypherGeometry_DocumentBrushAttributes.h"
 #include "CypherGeometry_Transaction.h"
 #include "CypherGeometry_Delta.h"
 #include "CypherGeometry_Document.h"
@@ -1373,7 +1374,10 @@ TEST_CASE( "Delta: same-count replacement restores complete side records",
         delta.newBrushData.sides.pData[0u];
     expected.plane.d -= 3.25;
     expected.sourceId = replacementSideId;
-    expected.iAttributeIndex = 8128u;
+    // A record index past the brush's current records: the document creates
+    // default records up to it so every side keeps resolving (see
+    // DocumentBrushAttributes.h). 8128 would exceed cBrushSidesPerBrushMax.
+    expected.iAttributeIndex = 40u;
     delta.newBrushData.sides.pData[0u] = expected;
 
     f.document.revision = 27u;
@@ -1398,6 +1402,11 @@ TEST_CASE( "Delta: same-count replacement restores complete side records",
     CHECK( GeometrySourceIdRegistry_ValidateDeep(
         &f.document.sourceIds ) );
     CHECK( GeometryDocument_GetRevision( &f.document ) == 27u );
+    const geometry_brush_side_attribute_store_t *pRecords =
+        GeometryDocument_FindBrushAttributes( &f.document, f.brushId );
+    REQUIRE( pRecords != nullptr );
+    CHECK( BrushSideAttributeStore_Count( pRecords ) == 41u );
+    CHECK( GeometryDocument_ValidateBrushAttributes( &f.document ) == geometry_status_t::OK );
 
     GeometryDelta_Shutdown( &delta );
 }

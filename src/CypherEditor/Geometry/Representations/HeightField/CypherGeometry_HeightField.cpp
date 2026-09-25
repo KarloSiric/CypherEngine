@@ -328,6 +328,48 @@ void HeightField_Shutdown( heightfield_t *pField ) noexcept
     pField->sourceId = GEOMETRY_SOURCE_ID_INVALID;
 }
 
+geometry_status_t HeightField_TryClone( const heightfield_t *pSource, const allocator_t *pAllocator, heightfield_t *pOut ) noexcept
+{
+    if ( pOut == nullptr || !Allocator_IsValid( pAllocator ) ) { return geometry_status_t::INVALID_ARGUMENT; }
+    if ( HeightField_IsInitialized( pOut ) ) { return geometry_status_t::ALREADY_INITIALIZED; }
+    const geometry_status_t structure = HeightField_ValidateStructure( pSource );
+    if ( structure != geometry_status_t::OK ) {
+        return structure == geometry_status_t::NOT_INITIALIZED ? geometry_status_t::INVALID_ARGUMENT : structure;
+    }
+    heightfield_t copy{};
+    if ( !Vector_Init( &copy.heights, pAllocator ) || !Vector_Init( &copy.holes, pAllocator ) || !Vector_Init( &copy.tiles, pAllocator ) ||
+         !Vector_Resize( &copy.heights, pSource->heights.nCount ) || !Vector_Resize( &copy.holes, pSource->holes.nCount ) ||
+         !Vector_Resize( &copy.tiles, pSource->tiles.nCount ) ) {
+        HeightField_Shutdown( &copy );
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    for ( usize i = 0u; i < copy.heights.nCount; ++i ) { copy.heights.pData[i] = pSource->heights.pData[i]; }
+    for ( usize i = 0u; i < copy.holes.nCount; ++i ) { copy.holes.pData[i] = pSource->holes.pData[i]; }
+    for ( usize i = 0u; i < copy.tiles.nCount; ++i ) { copy.tiles.pData[i] = pSource->tiles.pData[i]; }
+    copy.origin = pSource->origin;
+    copy.cellSize = pSource->cellSize;
+    copy.cCellsX = pSource->cCellsX;
+    copy.cCellsY = pSource->cCellsY;
+    copy.tileCells = pSource->tileCells;
+    copy.cTilesX = pSource->cTilesX;
+    copy.cTilesY = pSource->cTilesY;
+    copy.revision = pSource->revision;
+    copy.sourceId = pSource->sourceId;
+    Vector_Move( &pOut->heights, &copy.heights );
+    Vector_Move( &pOut->holes, &copy.holes );
+    Vector_Move( &pOut->tiles, &copy.tiles );
+    pOut->origin = copy.origin;
+    pOut->cellSize = copy.cellSize;
+    pOut->cCellsX = copy.cCellsX;
+    pOut->cCellsY = copy.cCellsY;
+    pOut->tileCells = copy.tileCells;
+    pOut->cTilesX = copy.cTilesX;
+    pOut->cTilesY = copy.cTilesY;
+    pOut->revision = copy.revision;
+    pOut->sourceId = copy.sourceId;
+    return geometry_status_t::OK;
+}
+
 f64 HeightField_Height( const heightfield_t *pField, u32 ix, u32 iy ) noexcept
 {
     if ( HeightField_ValidateStructure( pField ) != geometry_status_t::OK ||

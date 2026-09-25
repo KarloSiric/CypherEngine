@@ -42,6 +42,13 @@ struct geometry_snapshot_t {
     // Deep copies of the document's mesh sources at snapshot time. Later
     // document edits replace the document's mesh objects, never these.
     common::vector_t<mesh_source_t *> meshes{};
+    // Deep copies of the brushes' surface records, parallel to `brushes`
+    // (see DocumentBrushAttributes.h), so a snapshot cooks and saves with
+    // the materials and UVs it was taken with.
+    common::vector_t<geometry_brush_side_attribute_store_t *> brushAttributes{};
+    // Deep copies of the document's patches and heightfields.
+    common::vector_t<patch_surface_t *> patches{};
+    common::vector_t<heightfield_t *> heightFields{};
 
     geometry_policy_t policy{};
     geometry_revision_t revision{ GEOMETRY_REVISION_INITIAL };
@@ -55,6 +62,21 @@ CYPHER_NODISCARD geometry_status_t GeometrySnapshot_TakeFromDocument(
 
 void GeometrySnapshot_Shutdown(
     geometry_snapshot_t *pSnapshot ) noexcept;
+
+// Surface records of a snapshot brush (by source ID, or by snapshot
+// position), or nullptr.
+CYPHER_NODISCARD const geometry_brush_side_attribute_store_t *GeometrySnapshot_FindBrushAttributes(
+    const geometry_snapshot_t *pSnapshot,
+    geometry_source_id_t brushId ) noexcept;
+CYPHER_NODISCARD const geometry_brush_side_attribute_store_t *GeometrySnapshot_BrushAttributesAt(
+    const geometry_snapshot_t *pSnapshot,
+    common::usize iBrush ) noexcept;
+
+// Snapshot patches and heightfields, by position or root source ID.
+CYPHER_NODISCARD common::usize GeometrySnapshot_PatchCount( const geometry_snapshot_t *pSnapshot ) noexcept;
+CYPHER_NODISCARD const patch_surface_t *GeometrySnapshot_PatchAt( const geometry_snapshot_t *pSnapshot, common::usize i ) noexcept;
+CYPHER_NODISCARD common::usize GeometrySnapshot_HeightFieldCount( const geometry_snapshot_t *pSnapshot ) noexcept;
+CYPHER_NODISCARD const heightfield_t *GeometrySnapshot_HeightFieldAt( const geometry_snapshot_t *pSnapshot, common::usize i ) noexcept;
 
 CYPHER_NODISCARD bool GeometrySnapshot_IsInitialized(
     const geometry_snapshot_t *pSnapshot ) noexcept;

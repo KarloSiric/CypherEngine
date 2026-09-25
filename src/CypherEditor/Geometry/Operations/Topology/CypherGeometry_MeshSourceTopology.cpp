@@ -563,6 +563,43 @@ geometry_status_t MeshSourceEdit_TryFlipFaces(
     return st;
 }
 
+geometry_status_t MeshSourceEdit_TryQuadSlice(
+    mesh_source_t *pSource,
+    span_t<const geometry_source_id_t> faceIds,
+    u32 cU,
+    u32 cV,
+    mesh_edit_report_t *pReportOut ) noexcept
+{
+    if ( !MeshSource_IsInitialized( pSource ) ) { return geometry_status_t::NOT_INITIALIZED; }
+    if ( faceIds.nCount == 0u || faceIds.pData == nullptr || cU > kMeshQuadSliceCutsMax || cV > kMeshQuadSliceCutsMax ) {
+        return geometry_status_t::INVALID_ARGUMENT;
+    }
+    const allocator_t *pA = pSource->attributes.faces.pAllocator;
+    vector_t<geometry_mesh_face_handle_t> handles{};
+    vector_t<mesh_quad_slice_face_t> faces{};
+    geometry_status_t st = Vector_Init( &faces, pA ) ? ResolveFaces( pSource, faceIds, &handles ) : geometry_status_t::ALLOCATION_FAILED;
+    if ( st == geometry_status_t::OK ) {
+        // Every cell, plus at most every other face as a rebuilt neighbour.
+        const usize cBound = faceIds.nCount * static_cast<usize>( cU ) * cV + EditableMesh_FaceCount( &pSource->mesh );
+        st = MeshEdit_Bracket(
+            pSource,
+            [&]( vector_t<mesh_edit_face_parent_t> *pParents ) noexcept {
+                if ( !Vector_Reserve( pParents, pParents->nCount + cBound ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+                const mesh_quad_slice_result_t r = MeshQuadSlice_Faces(
+                    &pSource->mesh, span_t<const geometry_mesh_face_handle_t>{ handles.pData, handles.nCount }, cU, cV, &faces );
+                if ( r.status != geometry_status_t::OK ) { return r.status; }
+                for ( usize i = 0u; i < faces.nCount; ++i ) {
+                    (void)Vector_PushBack( pParents,
+                                           mesh_edit_face_parent_t{ faces.pData[i].hFace, faces.pData[i].hSource, faces.pData[i].bKeepsIdentity } );
+                }
+                return geometry_status_t::OK;
+            },
+            pReportOut );
+    }
+    Vector_Shutdown( &handles );
+    return st;
+}
+
 geometry_status_t MeshSourceEdit_TryKnife(
     mesh_source_t *pSource,
     span_t<const mesh_edit_knife_point_t> path,

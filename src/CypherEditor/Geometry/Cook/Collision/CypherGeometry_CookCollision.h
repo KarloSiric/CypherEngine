@@ -12,7 +12,11 @@
 //           (independent of document order). Brush surfaces come from the
 //           reconstructed convex boundary and are flagged convex, so a
 //           physics cooker can use them as hulls directly; mesh surfaces are
-//           triangle meshes flagged closed when they have no boundary edges.
+//           triangle meshes flagged closed when they have no boundary edges;
+//           patch surfaces are their adaptive tessellation (open, each
+//           triangle naming the patch); heightfield surfaces share one vertex
+//           per field sample across tiles, skip holes, and name each
+//           triangle's tile.
 //
 //           Float conversion is the one place authoring doubles become
 //           runtime floats (ARCHITECTURE.md: "float conversion only in Cook,

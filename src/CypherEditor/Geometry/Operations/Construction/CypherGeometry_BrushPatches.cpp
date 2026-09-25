@@ -67,7 +67,11 @@ geometry_status_t BuildQuadPatch(
     }
     if ( st == geometry_status_t::OK ) {
         pOut->materialId = material;
-        st = Patch_Validate( pOut, pA ).fault == patch_fault_t::NONE ? geometry_status_t::OK : geometry_status_t::DEGENERATE;
+        // Out of scratch memory is not a degenerate patch.
+        const patch_fault_t fault = Patch_Validate( pOut, pA ).fault;
+        st = fault == patch_fault_t::NONE                    ? geometry_status_t::OK
+             : fault == patch_fault_t::VALIDATION_INCOMPLETE ? geometry_status_t::ALLOCATION_FAILED
+                                                             : geometry_status_t::DEGENERATE;
     }
     return st;
 }

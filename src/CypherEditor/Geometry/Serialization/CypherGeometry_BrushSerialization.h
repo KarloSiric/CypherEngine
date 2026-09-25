@@ -52,7 +52,12 @@ namespace cypher::editor::geometry
 inline constexpr const char *GEOMETRY_SCHEMA_ID = "cypher.geometry";
 inline constexpr common::u32 GEOMETRY_SCHEMA_VERSION_OLDEST_SUPPORTED = 1u;
 // Version 3 adds the optional "meshes" section (MeshSerialization.h).
-inline constexpr common::u32 GEOMETRY_SCHEMA_VERSION = 3u;
+// Version 4 adds each brush's "surfaces": its side records (material + UV
+// projection) that sides address by attribute_index (files before version 4
+// load with default records, DocumentBrushAttributes.h), and the optional
+// "patches" and "heightfields" sections (SurfaceSerialization.h).
+inline constexpr common::u32 GEOMETRY_SCHEMA_VERSION_SURFACES = 4u;
+inline constexpr common::u32 GEOMETRY_SCHEMA_VERSION = 4u;
 
 // Budget limits for parsing untrusted input. These prevent a malformed
 // file from consuming unbounded memory before validation rejects it.

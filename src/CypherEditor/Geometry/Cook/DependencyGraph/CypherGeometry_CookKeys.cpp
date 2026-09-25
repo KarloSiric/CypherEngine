@@ -18,6 +18,8 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherGeometry_CookKeys.h"
+#include "CypherGeometry_HeightField.h"
+#include "CypherGeometry_Patch.h"
 
 #include "CypherGeometry_CookBytes.h"
 
@@ -31,7 +33,8 @@ using namespace cypher::common;
 namespace
 {
 
-void EncodeBrush( cook_byte_writer_t *pW, const brush_solid_t *pBrush ) noexcept
+void EncodeBrush( cook_byte_writer_t *pW, const brush_solid_t *pBrush,
+                  const geometry_brush_side_attribute_store_t *pSurfaces ) noexcept
 {
     CookBytes_U64( pW, pBrush->sourceId.value );
     CookBytes_U64( pW, pBrush->sides.nCount );
@@ -43,6 +46,19 @@ void EncodeBrush( cook_byte_writer_t *pW, const brush_solid_t *pBrush ) noexcept
         CookBytes_F64( pW, side.plane.normal.z );
         CookBytes_F64( pW, side.plane.d );
         CookBytes_U32( pW, side.iAttributeIndex );
+    }
+    // Side records: a material or UV change must invalidate the brush's
+    // render product just like a plane change.
+    const usize cRecords = pSurfaces != nullptr ? BrushSideAttributeStore_Count( pSurfaces ) : 0u;
+    CookBytes_U64( pW, cRecords );
+    for ( usize i = 0u; i < cRecords; ++i ) {
+        const geometry_brush_side_attributes_t &r = pSurfaces->records.pData[i];
+        const math::planar_uv_mappingd_t &m = r.uvProjection;
+        CookBytes_U64( pW, r.material.value );
+        const f64 values[] = { m.origin.x, m.origin.y, m.origin.z, m.uAxis.x, m.uAxis.y, m.uAxis.z,
+                               m.vAxis.x,  m.vAxis.y,  m.vAxis.z,  m.normal.x, m.normal.y, m.normal.z,
+                               m.worldUnitsPerUv.x, m.worldUnitsPerUv.y, m.rotationRadians, m.offset.x, m.offset.y };
+        for ( const f64 v : values ) { CookBytes_F64( pW, v ); }
     }
 }
 
@@ -81,6 +97,41 @@ void EncodeMesh( cook_byte_writer_t *pW, const mesh_source_description_t &d ) no
         CookBytes_U32( pW, e.attributes.flags );
         CookBytes_F64( pW, e.creaseWeight );
     }
+}
+
+void EncodePatch( cook_byte_writer_t *pW, const patch_surface_t &p ) noexcept
+{
+    CookBytes_U64( pW, p.sourceId.value );
+    CookBytes_U32( pW, static_cast<u32>( p.basis ) );
+    CookBytes_U32( pW, p.cColumns );
+    CookBytes_U32( pW, p.cRows );
+    CookBytes_U32( pW, p.materialId );
+    for ( usize i = 0u; i < p.controls.nCount; ++i ) {
+        const patch_control_t &c = p.controls.pData[i];
+        CookBytes_U64( pW, c.sourceId.value );
+        CookBytes_F64( pW, c.position.x );
+        CookBytes_F64( pW, c.position.y );
+        CookBytes_F64( pW, c.position.z );
+        CookBytes_F64( pW, c.uv.x );
+        CookBytes_F64( pW, c.uv.y );
+    }
+}
+
+// Heights, holes, and layout. Tile revisions and dirty flags are edit
+// bookkeeping, not content, so they stay out of the key.
+void EncodeHeightField( cook_byte_writer_t *pW, const heightfield_t &f ) noexcept
+{
+    CookBytes_U64( pW, f.sourceId.value );
+    CookBytes_F64( pW, f.origin.x );
+    CookBytes_F64( pW, f.origin.y );
+    CookBytes_F64( pW, f.origin.z );
+    CookBytes_F64( pW, f.cellSize );
+    CookBytes_U32( pW, f.cCellsX );
+    CookBytes_U32( pW, f.cCellsY );
+    CookBytes_U32( pW, f.tileCells );
+    for ( usize i = 0u; i < f.tiles.nCount; ++i ) { CookBytes_U64( pW, f.tiles.pData[i].sourceId.value ); }
+    for ( usize i = 0u; i < f.heights.nCount; ++i ) { CookBytes_F64( pW, f.heights.pData[i] ); }
+    for ( usize i = 0u; i < f.holes.nCount; ++i ) { CookBytes_U32( pW, f.holes.pData[i] ); }
 }
 
 content_hash_t HashU64s( const u64 *pValues, usize cValues ) noexcept
@@ -146,7 +197,9 @@ geometry_status_t CookKeySet_TryBuild( cook_key_set_t *pSet, const geometry_snap
     Vector_Clear( &pSet->keys );
     const usize cBrushes = GeometrySnapshot_BrushCount( pSnapshot );
     const usize cMeshes = GeometrySnapshot_MeshCount( pSnapshot );
-    if ( !Vector_Reserve( &pSet->keys, cBrushes + cMeshes ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+    const usize cPatches = GeometrySnapshot_PatchCount( pSnapshot );
+    const usize cFields = GeometrySnapshot_HeightFieldCount( pSnapshot );
+    if ( !Vector_Reserve( &pSet->keys, cBrushes + cMeshes + cPatches + cFields ) ) { return geometry_status_t::ALLOCATION_FAILED; }
 
     cook_byte_writer_t w{};
     mesh_source_description_t desc{};
@@ -160,7 +213,7 @@ geometry_status_t CookKeySet_TryBuild( cook_key_set_t *pSet, const geometry_snap
     for ( usize i = 0u; i < cBrushes && st == geometry_status_t::OK; ++i ) {
         const brush_solid_t *pBrush = pSnapshot->brushes.pData[i];
         CookBytes_Clear( &w );
-        EncodeBrush( &w, pBrush );
+        EncodeBrush( &w, pBrush, GeometrySnapshot_BrushAttributesAt( pSnapshot, i ) );
         if ( !w.bOk ) {
             st = geometry_status_t::ALLOCATION_FAILED;
             break;
@@ -180,6 +233,28 @@ geometry_status_t CookKeySet_TryBuild( cook_key_set_t *pSet, const geometry_snap
         }
         (void)Vector_PushBack( &pSet->keys,
                                cook_source_key_t{ pMesh->sourceId, cook_source_kind_t::MESH, CookBytes_Hash( &w ) } );
+    }
+    for ( usize i = 0u; i < cPatches && st == geometry_status_t::OK; ++i ) {
+        const patch_surface_t *pPatch = GeometrySnapshot_PatchAt( pSnapshot, i );
+        CookBytes_Clear( &w );
+        EncodePatch( &w, *pPatch );
+        if ( !w.bOk ) {
+            st = geometry_status_t::ALLOCATION_FAILED;
+            break;
+        }
+        (void)Vector_PushBack( &pSet->keys,
+                               cook_source_key_t{ pPatch->sourceId, cook_source_kind_t::PATCH, CookBytes_Hash( &w ) } );
+    }
+    for ( usize i = 0u; i < cFields && st == geometry_status_t::OK; ++i ) {
+        const heightfield_t *pField = GeometrySnapshot_HeightFieldAt( pSnapshot, i );
+        CookBytes_Clear( &w );
+        EncodeHeightField( &w, *pField );
+        if ( !w.bOk ) {
+            st = geometry_status_t::ALLOCATION_FAILED;
+            break;
+        }
+        (void)Vector_PushBack( &pSet->keys,
+                               cook_source_key_t{ pField->sourceId, cook_source_kind_t::HEIGHTFIELD, CookBytes_Hash( &w ) } );
     }
     CookBytes_Shutdown( &w );
     MeshSourceDescription_Shutdown( &desc );

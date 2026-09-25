@@ -407,4 +407,108 @@ TEST_CASE( "Select path finds the shortest route between vertices or faces", "[g
     }
 }
 
+namespace {
+
+// A 3 x 3 vertex sheet (four quads) whose vertex heights come from z(x, y);
+// vertex IDs 10 + row * 3 + column, face IDs 20...
+struct Sheet {
+    common::allocator_t allocator{ *common::Allocator_GetSystem() };
+    mesh_source_t s{};
+    mesh_selection_t sel{};
+    template <typename z_t> explicit Sheet( z_t &&z ) {
+        mesh_source_description_t d{};
+        REQUIRE( MeshSourceDescription_Init( &d, &allocator, Id( 1 ) ) == geometry_status_t::OK );
+        common::u32 v[9];
+        for ( int j = 0; j < 3; ++j ) {
+            for ( int i = 0; i < 3; ++i ) {
+                REQUIRE( MeshSourceDescription_TryAddVertex( &d, Vec3d_Make( i, j, z( i, j ) ), Id( 10u + static_cast<common::u64>( j * 3 + i ) ),
+                                                             &v[j * 3 + i] ) == geometry_status_t::OK );
+            }
+        }
+        for ( int j = 0; j < 2; ++j ) {
+            for ( int i = 0; i < 2; ++i ) {
+                const int a = j * 3 + i;
+                const common::u32 q[4] = { v[a], v[a + 1], v[a + 4], v[a + 3] };
+                REQUIRE( MeshSourceDescription_TryAddFace( &d, common::span_t<const common::u32>{ q, 4 }, Id( 20u + static_cast<common::u64>( j * 2 + i ) ),
+                                                           mesh_face_attributes_t{}, nullptr ) == geometry_status_t::OK );
+            }
+        }
+        REQUIRE( MeshSource_TryBuild( &d, &allocator, &s ) == geometry_status_t::OK );
+        MeshSourceDescription_Shutdown( &d );
+        REQUIRE( MeshSelection_Init( &sel, &allocator, Id( 1 ) ) == geometry_status_t::OK );
+        for ( int k = 0; k < 9; ++k ) { REQUIRE( MeshSelection_TryAddVertex( &sel, Id( 10u + static_cast<common::u64>( k ) ) ) == geometry_status_t::OK ); }
+    }
+    ~Sheet() {
+        MeshSelection_Shutdown( &sel );
+        MeshSource_Shutdown( &s );
+    }
+    vec3d_t P( common::u64 id ) {
+        geometry_mesh_vertex_handle_t h{};
+        REQUIRE( MeshSource_TryFindVertex( &s, Id( id ), &h ) );
+        return EditableMesh_GetVertex( &s.mesh, h )->position;
+    }
+};
+
+} // namespace
+
+TEST_CASE( "Flatten projects the selection onto a plane", "[geometry][selection][components][flatten]" ) {
+    SECTION( "Best fit through a bump is level, at the mean height" ) {
+        Sheet m( []( int i, int j ) { return i == 1 && j == 1 ? 0.9 : 0.0; } );
+        math::planed_t plane{};
+        REQUIRE( MeshSourceEdit_TryFlattenComponents( &m.s, &m.sel, mesh_selection_mode_t::VERTEX, mesh_flatten_plane_t::BEST_FIT, &plane ) ==
+                 geometry_status_t::OK );
+        CHECK( std::fabs( plane.normal.z ) == Approx( 1.0 ) );
+        for ( common::u64 id = 10; id < 19; ++id ) { CHECK( m.P( id ).z == Approx( 0.1 ) ); }
+    }
+    SECTION( "Best fit of points already on a tilted plane moves nothing" ) {
+        Sheet m( []( int i, int j ) { return 0.5 * i + 0.25 * j + 1.0; } );
+        math::planed_t plane{};
+        REQUIRE( MeshSourceEdit_TryFlattenComponents( &m.s, &m.sel, mesh_selection_mode_t::VERTEX, mesh_flatten_plane_t::BEST_FIT, &plane ) ==
+                 geometry_status_t::OK );
+        const double len = std::sqrt( 0.25 + 0.0625 + 1.0 );
+        CHECK( std::fabs( plane.normal.x ) == Approx( 0.5 / len ) );
+        CHECK( std::fabs( plane.normal.y ) == Approx( 0.25 / len ) );
+        for ( int k = 0; k < 9; ++k ) {
+            const int i = k % 3, j = k / 3;
+            CHECK( m.P( 10u + static_cast<common::u64>( k ) ).z == Approx( 0.5 * i + 0.25 * j + 1.0 ) );
+        }
+    }
+    SECTION( "Axis flatten makes one coordinate equal" ) {
+        Sheet m( []( int i, int j ) { return 0.1 * i * j; } );
+        REQUIRE( MeshSourceEdit_TryFlattenComponents( &m.s, &m.sel, mesh_selection_mode_t::VERTEX, mesh_flatten_plane_t::AXIS_Z, nullptr ) ==
+                 geometry_status_t::OK );
+        const double mean = 0.1 * ( 0 + 0 + 0 + 0 + 1 + 2 + 0 + 2 + 4 ) / 9.0;
+        for ( common::u64 id = 10; id < 19; ++id ) {
+            CHECK( m.P( id ).z == Approx( mean ) );
+            CHECK( m.P( id ).x == Approx( static_cast<double>( ( id - 10 ) % 3 ) ) ); // x and y untouched
+        }
+    }
+    SECTION( "Average normal of the selected faces" ) {
+        Sheet m( []( int i, int j ) { return i == 1 && j == 1 ? 0.5 : 0.0; } );
+        MeshSelection_Clear( &m.sel );
+        for ( common::u64 f = 20; f < 24; ++f ) { REQUIRE( MeshSelection_TryAddFace( &m.sel, Id( f ) ) == geometry_status_t::OK ); }
+        math::planed_t plane{};
+        REQUIRE( MeshSourceEdit_TryFlattenComponents( &m.s, &m.sel, mesh_selection_mode_t::FACE, mesh_flatten_plane_t::AVERAGE_NORMAL, &plane ) ==
+                 geometry_status_t::OK );
+        CHECK( plane.normal.z == Approx( 1.0 ) ); // the four tilts cancel sideways
+        for ( common::u64 id = 10; id < 19; ++id ) { CHECK( m.P( id ).z == Approx( 0.5 / 9.0 ) ); }
+    }
+    SECTION( "Degenerate planes and collapsing flattens are rejected" ) {
+        Sheet m( []( int, int ) { return 0.0; } );
+        MeshSelection_Clear( &m.sel );
+        for ( const common::u64 id : { 10u, 11u, 12u } ) { REQUIRE( MeshSelection_TryAddVertex( &m.sel, Id( id ) ) == geometry_status_t::OK ); }
+        CHECK( MeshSourceEdit_TryFlattenComponents( &m.s, &m.sel, mesh_selection_mode_t::VERTEX, mesh_flatten_plane_t::BEST_FIT, nullptr ) ==
+               geometry_status_t::DEGENERATE ); // collinear
+        // Flattening a cube along z squashes every side face.
+        Cube c;
+        for ( common::u64 id = 10; id < 18; ++id ) { REQUIRE( MeshSelection_TryAddVertex( &c.sel, Id( id ) ) == geometry_status_t::OK ); }
+        Desc before, after;
+        c.Snapshot( &before.d );
+        CHECK( MeshSourceEdit_TryFlattenComponents( &c.s, &c.sel, mesh_selection_mode_t::VERTEX, mesh_flatten_plane_t::AXIS_Z, nullptr ) ==
+               geometry_status_t::DEGENERATE );
+        c.Snapshot( &after.d );
+        CHECK( MeshSourceDescription_Equal( &before.d, &after.d ) );
+    }
+}
+
 } // namespace cypher::editor::geometry

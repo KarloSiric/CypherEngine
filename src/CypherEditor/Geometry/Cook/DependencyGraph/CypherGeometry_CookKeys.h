@@ -53,8 +53,10 @@ inline constexpr common::u32 kCookKeysVersion = 1u;
 
 enum class cook_source_kind_t : common::u8 {
     INVALID = 0u,
-    BRUSH   = 1u,
-    MESH    = 2u
+    BRUSH       = 1u,
+    MESH        = 2u,
+    PATCH       = 3u,
+    HEIGHTFIELD = 4u
 };
 
 enum class cook_product_kind_t : common::u8 {
@@ -92,7 +94,8 @@ CYPHER_NODISCARD geometry_status_t CookKeySet_Init(
 
 void CookKeySet_Shutdown( cook_key_set_t *pSet ) noexcept;
 
-// Computes keys for every brush and mesh in the snapshot (replacing the
+// Computes keys for every brush, mesh, patch, and heightfield in the
+// snapshot (replacing the
 // set's contents). Keys are sorted by source ID, so the set does not depend
 // on document order.
 CYPHER_NODISCARD geometry_status_t CookKeySet_TryBuild(
