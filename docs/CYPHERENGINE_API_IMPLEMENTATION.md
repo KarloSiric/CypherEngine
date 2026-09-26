@@ -316,7 +316,7 @@ Current limitation:
 
 Source:
 
-- [src/CypherLog/CypherLog.cpp](../src/CypherLog/CypherLog.cpp)
+- [src/CypherSystem/Log/CypherLog.cpp](../src/CypherSystem/Log/CypherLog.cpp)
 
 The logger already exposes a clean foundation-style API:
 
@@ -356,7 +356,7 @@ Current limitations:
 
 Source:
 
-- [src/CypherSystem/CypherSystem_Platform.cpp](../src/CypherSystem/CypherSystem_Platform.cpp)
+- [src/CypherSystem/Platform/CypherSystem_Platform.cpp](../src/CypherSystem/Platform/CypherSystem_Platform.cpp)
 
 Current implementation provides:
 
@@ -456,7 +456,7 @@ Still missing:
 
 Source:
 
-- [src/CypherCommand/CypherCommand.cpp](../src/CypherCommand/CypherCommand.cpp)
+- [src/CypherSystem/Console/CypherCommand.cpp](../src/CypherSystem/Console/CypherCommand.cpp)
 
 Current command system design:
 
@@ -488,7 +488,7 @@ Current parser behavior:
 
 Source:
 
-- [src/CypherCVar/CypherCVar.cpp](../src/CypherCVar/CypherCVar.cpp)
+- [src/CypherSystem/Console/CypherCVar.cpp](../src/CypherSystem/Console/CypherCVar.cpp)
 
 Current design:
 
@@ -522,7 +522,7 @@ This is a good early policy surface for an engine project.
 
 Source:
 
-- [src/CypherConfig/CypherConfig.cpp](../src/CypherConfig/CypherConfig.cpp)
+- [src/CypherSystem/Console/CypherConfig.cpp](../src/CypherSystem/Console/CypherConfig.cpp)
 
 Current config runtime:
 

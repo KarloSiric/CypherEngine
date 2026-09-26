@@ -97,6 +97,7 @@ Project memory:
 - [adr/0007-tile-map-and-mason-scene-identities.md](adr/0007-tile-map-and-mason-scene-identities.md)
 - [adr/0008-editor-framework-and-workspace-layout.md](adr/0008-editor-framework-and-workspace-layout.md)
 - [adr/0009-editor-and-map-file-identities.md](adr/0009-editor-and-map-file-identities.md)
+- [adr/0010-runtime-service-folders.md](adr/0010-runtime-service-folders.md)
 
 ## What each document is for
 

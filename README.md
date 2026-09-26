@@ -62,9 +62,9 @@ Entity, Physics, Audio, Font, and UI vertical slices:
 | --- | --- |
 | `src/CypherCommon` | Shared types, primitives, math, formats, and neutral contracts |
 | `src/CypherSystem` | Engine-facing operating-system services and target backends |
-| `src/CypherLog` | Structured logging, filtering, formatting, and output sinks |
-| `src/CypherMemory` | Runtime arenas, pools, scratch storage, and memory diagnostics |
-| `src/CypherFileSystem` / `src/CypherPak` | Runtime mounts, file access, watches, and package archives |
+| `src/CypherSystem/Log` | Structured logging, filtering, formatting, and output sinks |
+| `src/CypherSystem/Memory` | Runtime arenas, pools, scratch storage, and memory diagnostics |
+| `src/CypherFileSystem` / `src/CypherFileSystem/Pak` | Runtime mounts, file access, watches, and package archives |
 | `src/CypherEngine/CypherHost` | High-level runtime startup, frame, and shutdown orchestration |
 | `src/CypherResource` | Runtime resource identity, loading, caching, and ownership |
 | `src/CypherRender` | Renderer-facing runtime implementation |

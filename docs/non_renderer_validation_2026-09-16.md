@@ -4,7 +4,7 @@
 
 NR-01 is complete: dedicated correctness coverage and a focused performance
 baseline now exist for the runtime `Mem_Pool*` allocator. The tests exercise
-`src/CypherMemory`, not Common Tier1's separate `memory_pool_t` implementation.
+`src/CypherSystem/Memory`, not Common Tier1's separate `memory_pool_t` implementation.
 No allocator implementation defect was exposed by this slice, and no runtime
 source was changed by this work.
 

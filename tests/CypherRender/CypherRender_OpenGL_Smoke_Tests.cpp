@@ -17,8 +17,8 @@
 #include "CypherRender/CypherRender_Public.h"
 #include "CypherRender/CypherRender_VertexInput.h"
 #include "CypherRender/OpenGL/CypherRender_OpenGL_Local.h"
-#include "CypherSystem/CypherSystem_Public.h"
-#include "CypherSystem/CypherSystem_Window.h"
+#include "CypherSystem/Platform/CypherSystem_Public.h"
+#include "CypherSystem/Platform/CypherSystem_Window.h"
 
 #include <catch2/catch_test_macros.hpp>
 

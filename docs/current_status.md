@@ -134,7 +134,7 @@ benchmarks, and refine missing functionality in small dependency-ordered slices.
 Renderer implementation remains owned by the project author.
 
 Completed slice NR-01: dedicated correctness coverage for the runtime
-`src/CypherMemory` pool allocator. Eight test cases and 58,552 assertions pass in
+`src/CypherSystem/Memory` pool allocator. Eight test cases and 58,552 assertions pass in
 both Debug and ASan/UBSan. Release sequential/shuffled reuse benchmarks ran at
 selected capacities; [results and reproduction](non_renderer_validation_2026-09-16.md)
 record the limits of those local measurements. The Common Tier1 `memory_pool_t`

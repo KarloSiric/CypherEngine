@@ -21,7 +21,9 @@
 
 ## Status
 
-Accepted.
+Accepted. The runtime service folder layout is superseded by
+[ADR 0010](0010-runtime-service-folders.md); the target and ownership rules
+still apply.
 
 ## Context
 

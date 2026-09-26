@@ -1,0 +1,553 @@
+//////////////////////////////////////////////////////////////////////////
+//
+//  CypherEngine Source Code
+//  Copyright (c) 2026 Karlo Siric. All rights reserved.
+//
+//  File: src/CypherSystem/Memory/CypherMemory_Bucket.cpp
+//  Purpose: Implements the CypherMemory Memory Bucket module.
+//  Details: This file participates in the engine allocation layer for arenas, pools,
+//           buckets, scratch memory, and diagnostics. Keep ownership and lifetime
+//           rules explicit because allocator bugs corrupt everything above them.
+//
+//  History:
+//  - Created by Karlo Siric on 2026-06-12
+//
+//  This file is proprietary and confidential. See LICENSE for details.
+//
+//////////////////////////////////////////////////////////////////////////
+
+/*
+================
+Bucket Implementation Notes
+
+Pool and bucket allocators trade generality for predictable size classes and reuse. Allocation
+metadata must always identify the owning pool before a block is returned or freed.
+================
+*/
+
+#include "CypherMemory_Bucket.h"
+#include "CypherLog.h"
+
+#include <cstring>
+#include <limits>
+
+namespace cypher::engine::memory
+{
+
+namespace {
+
+constexpr common::usize CYPHER_MEMORY_BUCKET_INVALID_CLASS_INDEX = std::numeric_limits<common::usize>::max();
+
+common::u32 Mem_BucketPoolFlags( const common::u32 nBucketFlags )
+{
+    // Class pools implement the byte-clearing policy; translate the public bucket bits once.
+    common::u32 nPoolFlags = CYPHER_MEMORY_POOL_FLAG_NONE;
+
+    if ( ( nBucketFlags & CYPHER_MEMORY_BUCKET_FLAG_ZERO_ON_ALLOC ) != 0u ) {
+        nPoolFlags |= CYPHER_MEMORY_POOL_FLAG_ZERO_ON_ALLOC;
+    }
+
+    if ( ( nBucketFlags & CYPHER_MEMORY_BUCKET_FLAG_CLEAR_ON_FREE ) != 0u ) {
+        nPoolFlags |= CYPHER_MEMORY_POOL_FLAG_CLEAR_ON_FREE;
+    }
+
+    if ( ( nBucketFlags & CYPHER_MEMORY_BUCKET_FLAG_CLEAR_ON_RESET ) != 0u ) {
+        nPoolFlags |= CYPHER_MEMORY_POOL_FLAG_CLEAR_ON_RESET;
+    }
+
+    if ( ( nBucketFlags & CYPHER_MEMORY_BUCKET_FLAG_CLEAR_ON_SHUTDOWN ) != 0u ) {
+        nPoolFlags |= CYPHER_MEMORY_POOL_FLAG_CLEAR_ON_SHUTDOWN;
+    }
+
+    return nPoolFlags;
+}
+
+mem_error_t Mem_BucketFailInit( bucket_t &bucket,
+                                          const bucket_desc_t &bucketDesc,
+                                          const mem_error_t error,
+                                          const char *reason )
+{
+    bucket.name = bucketDesc.name;
+    bucket.lastError = error;
+
+    LOG_ERROR( log::channel_t::MEMORY,
+                      "bucket '%s' init failed: %s.",
+                      bucket.name ? bucket.name : "<unnamed>",
+                      reason ? reason : Mem_ErrorDesc( error ) );
+
+    return error;
+}
+
+common::usize Mem_BucketFindBestClass( const bucket_t &bucket,
+                                                const common::usize size,
+                                                const common::usize alignment,
+                                                const bool nRequireFreeSlot )
+{
+    // Best fit minimizes internal fragmentation while optionally skipping exhausted classes.
+    common::usize nBestIndex = CYPHER_MEMORY_BUCKET_INVALID_CLASS_INDEX;
+    common::usize nBestSlotSize = std::numeric_limits<common::usize>::max();
+
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
+        const bucket_class_t &bucketClass = bucket.classes[nClassIndex];
+
+        if ( bucketClass.nSlotSize < size ) {
+            continue;
+        }
+
+        if ( bucketClass.pool.alignment < alignment ) {
+            continue;
+        }
+
+        if ( nRequireFreeSlot && Mem_PoolFreeCount( bucketClass.pool ) == 0u ) {
+            continue;
+        }
+
+        if ( bucketClass.nSlotSize < nBestSlotSize ) {
+            nBestIndex = nClassIndex;
+            nBestSlotSize = bucketClass.nSlotSize;
+        }
+    }
+
+    return nBestIndex;
+}
+
+bool Mem_BucketHasCompatibleClass( const bucket_t &bucket,
+                                            const common::usize size,
+                                            const common::usize alignment )
+{
+    return Mem_BucketFindBestClass( bucket, size, alignment, false ) != CYPHER_MEMORY_BUCKET_INVALID_CLASS_INDEX;
+}
+
+void Mem_BucketRefreshPeak( bucket_t &bucket )
+{
+    const common::usize nUsedCount = Mem_BucketUsedCount( bucket );
+
+    if ( nUsedCount > bucket.nPeakUsedCount ) {
+        bucket.nPeakUsedCount = nUsedCount;
+    }
+}
+
+void *Mem_BucketFailAlloc( bucket_t &bucket,
+                                    const mem_error_t error,
+                                    const char *reason )
+{
+    bucket.lastError = error;
+    ++bucket.nFailedAllocationCount;
+
+    LOG_ERROR( log::channel_t::MEMORY,
+                      "bucket '%s' allocation failed: %s.",
+                      bucket.name ? bucket.name : "<unnamed>",
+                      reason ? reason : Mem_ErrorDesc( error ) );
+
+    return nullptr;
+}
+
+}       // namespace
+
+bucket_desc_t Mem_BucketDefaultDesc( arena_t &arena, const char *name )
+{
+    bucket_desc_t desc{};
+
+    desc.name = name;
+    desc.arena = &arena;
+    desc.alignment = 16u;
+    desc.nClassCount = CYPHER_MEMORY_BUCKET_DEFAULT_CLASS_COUNT;
+    desc.flags = CYPHER_MEMORY_BUCKET_FLAG_NONE;
+
+    // Defaults cover small engine allocations while reducing capacity as object size grows.
+    desc.classes[0] = bucket_class_desc_t{ 16u, 1024u };
+    desc.classes[1] = bucket_class_desc_t{ 32u, 1024u };
+    desc.classes[2] = bucket_class_desc_t{ 64u, 1024u };
+    desc.classes[3] = bucket_class_desc_t{ 128u, 512u };
+    desc.classes[4] = bucket_class_desc_t{ 256u, 256u };
+    desc.classes[5] = bucket_class_desc_t{ 512u, 128u };
+    desc.classes[6] = bucket_class_desc_t{ 1024u, 64u };
+    desc.classes[7] = bucket_class_desc_t{ 2048u, 32u };
+    desc.classes[8] = bucket_class_desc_t{ 4096u, 16u };
+    desc.classes[9] = bucket_class_desc_t{ 8192u, 8u };
+
+    return desc;
+}
+
+mem_error_t Mem_BucketInit( bucket_t &bucket, const bucket_desc_t &bucketDesc )
+{
+    if ( bucket.initialized ) {
+        bucket.lastError = mem_error_t::ERR_ALREADY_INITIALIZED;
+        LOG_WARNING( log::channel_t::MEMORY, "bucket '%s' is already initialized.", bucket.name ? bucket.name : "<unnamed>" );
+        return bucket.lastError;
+    }
+
+    if ( bucketDesc.arena == nullptr ) {
+        return Mem_BucketFailInit( bucket, bucketDesc, mem_error_t::ERR_INVALID_ARGUMENT, "arena pointer is required" );
+    }
+
+    if ( !Mem_ArenaIsInitialized( *bucketDesc.arena ) ) {
+        return Mem_BucketFailInit( bucket, bucketDesc, mem_error_t::ERR_NOT_INITIALIZED, "backing arena is not initialized" );
+    }
+
+    if ( bucketDesc.nClassCount == 0u || bucketDesc.nClassCount > CYPHER_MEMORY_BUCKET_MAX_CLASSES ) {
+        return Mem_BucketFailInit( bucket, bucketDesc, mem_error_t::ERR_INVALID_CAPACITY, "invalid bucket class count" );
+    }
+
+    if ( !Mem_IsPowerOfTwo( bucketDesc.alignment ) ) {
+        return Mem_BucketFailInit( bucket, bucketDesc, mem_error_t::ERR_INVALID_ALIGNMENT, "invalid bucket alignment" );
+    }
+
+    // Initialization is transactional: rewind every class allocation if any class fails.
+    const arena_marker_t initMarker = Mem_ArenaGetMarker( *bucketDesc.arena );
+
+    bucket = bucket_t{};
+    bucket.name = bucketDesc.name;
+    bucket.arena = bucketDesc.arena;
+    bucket.nClassCount = bucketDesc.nClassCount;
+    bucket.alignment = bucketDesc.alignment;
+    bucket.flags = bucketDesc.flags;
+
+    const common::u32 nPoolFlags = Mem_BucketPoolFlags( bucketDesc.flags );
+
+    // Each size class is an independent fixed-block pool sharing the same backing arena.
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucketDesc.nClassCount; ++nClassIndex ) {
+        const bucket_class_desc_t &classDesc = bucketDesc.classes[nClassIndex];
+
+        if ( classDesc.nSlotSize == 0u || classDesc.nSlotCount == 0u ) {
+            for ( common::usize nShutdownIndex = 0u; nShutdownIndex < nClassIndex; ++nShutdownIndex ) {
+                Mem_PoolShutdown( bucket.classes[nShutdownIndex].pool );
+            }
+            Mem_ArenaRewind( *bucketDesc.arena, initMarker );
+            bucket = bucket_t{};
+            return Mem_BucketFailInit( bucket, bucketDesc, mem_error_t::ERR_INVALID_CAPACITY, "invalid bucket class configuration" );
+        }
+
+        bucket_class_t &bucketClass = bucket.classes[nClassIndex];
+        bucketClass.nSlotSize = classDesc.nSlotSize;
+        bucketClass.nSlotCount = classDesc.nSlotCount;
+
+        pool_desc_t poolDesc{};
+        poolDesc.name = bucketDesc.name;
+        poolDesc.arena = bucketDesc.arena;
+        poolDesc.nSlotSize = classDesc.nSlotSize;
+        poolDesc.nSlotCount = classDesc.nSlotCount;
+        poolDesc.alignment = bucketDesc.alignment;
+        poolDesc.flags = nPoolFlags;
+        poolDesc.backing = pool_backing_t::POOL_ARENA;
+
+        const mem_error_t poolResult = Mem_PoolInit( bucketClass.pool, poolDesc );
+        if ( poolResult != mem_error_t::OK ) {
+            for ( common::usize nShutdownIndex = 0u; nShutdownIndex < nClassIndex; ++nShutdownIndex ) {
+                Mem_PoolShutdown( bucket.classes[nShutdownIndex].pool );
+            }
+            Mem_ArenaRewind( *bucketDesc.arena, initMarker );
+            bucket = bucket_t{};
+            return Mem_BucketFailInit( bucket, bucketDesc, poolResult, Mem_ErrorDesc( poolResult ) );
+        }
+    }
+
+    bucket.initialized = true;
+    bucket.lastError = mem_error_t::OK;
+
+    LOG_INFO( log::channel_t::MEMORY,
+                     "bucket '%s' initialized: classes=%zu, alignment=%zu, backing_bytes=%zu.",
+                     bucket.name ? bucket.name : "<unnamed>",
+                     bucket.nClassCount,
+                     bucket.alignment,
+                     Mem_BucketStats( bucket ).nBackingBytes );
+
+    return mem_error_t::OK;
+}
+
+void Mem_BucketShutdown( bucket_t &bucket )
+{
+    if ( !bucket.initialized ) {
+        return;
+    }
+
+    LOG_INFO( log::channel_t::MEMORY,
+                     "bucket '%s' shutdown: used=%zu, peak=%zu, allocations=%llu, frees=%llu, failed_alloc=%llu, failed_free=%llu.",
+                     bucket.name ? bucket.name : "<unnamed>",
+                     Mem_BucketUsedCount( bucket ),
+                     bucket.nPeakUsedCount,
+                     static_cast<unsigned long long>( bucket.nAllocationCount ),
+                     static_cast<unsigned long long>( bucket.nFreeOperationCount ),
+                     static_cast<unsigned long long>( bucket.nFailedAllocationCount ),
+                     static_cast<unsigned long long>( bucket.nFailedFreeCount ) );
+
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
+        Mem_PoolShutdown( bucket.classes[nClassIndex].pool );
+    }
+
+    bucket = bucket_t{};
+}
+
+void Mem_BucketReset( bucket_t &bucket )
+{
+    if ( !bucket.initialized ) {
+        return;
+    }
+
+    // Reset invalidates every outstanding bucket allocation without releasing backing.
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
+        Mem_PoolReset( bucket.classes[nClassIndex].pool );
+    }
+
+    bucket.lastError = mem_error_t::OK;
+}
+
+void Mem_BucketResetCounters( bucket_t &bucket )
+{
+    if ( !bucket.initialized ) {
+        return;
+    }
+
+    bucket.nPeakUsedCount = Mem_BucketUsedCount( bucket );
+    bucket.nAllocationCount = 0u;
+    bucket.nFreeOperationCount = 0u;
+    bucket.nFailedAllocationCount = 0u;
+    bucket.nFailedFreeCount = 0u;
+    bucket.lastError = mem_error_t::OK;
+
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
+        Mem_PoolResetCounters( bucket.classes[nClassIndex].pool );
+    }
+}
+
+bucket_stats_t Mem_BucketStats( const bucket_t &bucket )
+{
+    bucket_stats_t stats{};
+
+    stats.name = bucket.name;
+    stats.nClassCount = bucket.nClassCount;
+    stats.nPeakUsedCount = bucket.nPeakUsedCount;
+    stats.nAllocationCount = bucket.nAllocationCount;
+    stats.nFreeOperationCount = bucket.nFreeOperationCount;
+    stats.nFailedAllocationCount = bucket.nFailedAllocationCount;
+    stats.nFailedFreeCount = bucket.nFailedFreeCount;
+
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
+        const pool_stats_t poolStats = Mem_PoolStats( bucket.classes[nClassIndex].pool );
+        bucket_class_stats_t &classStats = stats.classStats[nClassIndex];
+
+        classStats.nSlotSize = poolStats.nSlotSize;
+        classStats.nSlotCount = poolStats.nSlotCount;
+        classStats.nUsedCount = poolStats.nUsedCount;
+        classStats.nFreeCount = poolStats.nFreeCount;
+        classStats.nPeakUsedCount = poolStats.nPeakUsedCount;
+        classStats.nBackingBytes = poolStats.nBackingBytes;
+
+        stats.nUsedCount += poolStats.nUsedCount;
+        stats.nFreeCount += poolStats.nFreeCount;
+        stats.nBackingBytes += poolStats.nBackingBytes;
+    }
+
+    return stats;
+}
+
+void *Mem_BucketAlloc( bucket_t &bucket, common::usize size, common::usize alignment )
+{
+    return Mem_BucketAllocDebug( bucket, size, alignment, nullptr, nullptr, 0 );
+}
+
+void *Mem_BucketAllocDebug( bucket_t &bucket,
+                                     common::usize size,
+                                     common::usize alignment,
+                                     const char *file,
+                                     const char *function,
+                                     common::i32 line )
+{
+    if ( !bucket.initialized ) {
+        return Mem_BucketFailAlloc( bucket, mem_error_t::ERR_NOT_INITIALIZED, "bucket is not initialized" );
+    }
+
+    if ( size == 0u ) {
+        return Mem_BucketFailAlloc( bucket, mem_error_t::ERR_INVALID_ARGUMENT, "requested size is zero" );
+    }
+
+    if ( !Mem_IsPowerOfTwo( alignment ) ) {
+        return Mem_BucketFailAlloc( bucket, mem_error_t::ERR_INVALID_ALIGNMENT, "requested alignment is invalid" );
+    }
+
+    if ( !Mem_BucketHasCompatibleClass( bucket, size, alignment ) ) {
+        return Mem_BucketFailAlloc( bucket, mem_error_t::ERR_BUFFER_TOO_SMALL, "no bucket class can satisfy the request" );
+    }
+
+    // A larger compatible class may satisfy the request when the ideal class is full.
+    const common::usize nClassIndex = Mem_BucketFindBestClass( bucket, size, alignment, true );
+    if ( nClassIndex == CYPHER_MEMORY_BUCKET_INVALID_CLASS_INDEX ) {
+        return Mem_BucketFailAlloc( bucket, mem_error_t::ERR_OUT_OF_MEMORY, "all compatible bucket classes are full" );
+    }
+
+    void *memory = Mem_PoolAllocSizeDebug( bucket.classes[nClassIndex].pool, size, alignment, file, function, line );
+    bucket.lastError = Mem_PoolLastError( bucket.classes[nClassIndex].pool );
+
+    if ( memory == nullptr ) {
+        ++bucket.nFailedAllocationCount;
+        return nullptr;
+    }
+
+    ++bucket.nAllocationCount;
+    Mem_BucketRefreshPeak( bucket );
+
+    return memory;
+}
+
+void *Mem_BucketAllocZero( bucket_t &bucket, common::usize size, common::usize alignment )
+{
+    return Mem_BucketAllocZeroDebug( bucket, size, alignment, nullptr, nullptr, 0 );
+}
+
+void *Mem_BucketAllocZeroDebug( bucket_t &bucket,
+                                         common::usize size,
+                                         common::usize alignment,
+                                         const char *file,
+                                         const char *function,
+                                         common::i32 line )
+{
+    void *memory = Mem_BucketAllocDebug( bucket, size, alignment, file, function, line );
+
+    if ( memory == nullptr ) {
+        return nullptr;
+    }
+
+    // Resolve ownership by class before clearing the complete physical slot stride.
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
+        const pool_t &pool = bucket.classes[nClassIndex].pool;
+        if ( Mem_PoolOwnsSlot( pool, memory ) ) {
+            std::memset( memory, 0, pool.nSlotStride );
+            break;
+        }
+    }
+
+    return memory;
+}
+
+mem_error_t Mem_BucketFree( bucket_t &bucket, void *ptr )
+{
+    return Mem_BucketFreeDebug( bucket, ptr, nullptr, nullptr, 0 );
+}
+
+mem_error_t Mem_BucketFreeDebug( bucket_t &bucket, void *ptr, const char *file, const char *function, common::i32 line )
+{
+    if ( !bucket.initialized ) {
+        bucket.lastError = mem_error_t::ERR_NOT_INITIALIZED;
+        ++bucket.nFailedFreeCount;
+        return bucket.lastError;
+    }
+
+    if ( ptr == nullptr ) {
+        bucket.lastError = mem_error_t::ERR_INVALID_POINTER;
+        ++bucket.nFailedFreeCount;
+        return bucket.lastError;
+    }
+
+    // Only the owning pool can validate liveness and detect a duplicate free.
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
+        pool_t &pool = bucket.classes[nClassIndex].pool;
+        if ( !Mem_PoolOwnsSlot( pool, ptr ) ) {
+            continue;
+        }
+
+        const mem_error_t freeResult = Mem_PoolFreeDebug( pool, ptr, file, function, line );
+        bucket.lastError = freeResult;
+
+        if ( freeResult == mem_error_t::OK ) {
+            ++bucket.nFreeOperationCount;
+        } else {
+            ++bucket.nFailedFreeCount;
+        }
+
+        return freeResult;
+    }
+
+    bucket.lastError = mem_error_t::ERR_INVALID_POINTER;
+    ++bucket.nFailedFreeCount;
+    LOG_ERROR( log::channel_t::MEMORY,
+                      "bucket '%s' free failed: pointer does not belong to any bucket class.",
+                      bucket.name ? bucket.name : "<unnamed>" );
+
+    return bucket.lastError;
+}
+
+bool Mem_BucketContains( const bucket_t &bucket, const void *ptr )
+{
+    if ( !bucket.initialized || ptr == nullptr ) {
+        return false;
+    }
+
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
+        if ( Mem_PoolContains( bucket.classes[nClassIndex].pool, ptr ) ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Mem_BucketOwnsSlot( const bucket_t &bucket, const void *ptr )
+{
+    if ( !bucket.initialized || ptr == nullptr ) {
+        return false;
+    }
+
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
+        if ( Mem_PoolOwnsSlot( bucket.classes[nClassIndex].pool, ptr ) ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Mem_BucketIsInitialized( const bucket_t &bucket )
+{
+    return bucket.initialized;
+}
+
+mem_error_t Mem_BucketLastError( const bucket_t &bucket )
+{
+    return bucket.lastError;
+}
+
+common::usize Mem_BucketClassIndexForSize( const bucket_t &bucket, common::usize size, common::usize alignment )
+{
+    if ( !bucket.initialized || size == 0u || !Mem_IsPowerOfTwo( alignment ) ) {
+        return CYPHER_MEMORY_BUCKET_INVALID_CLASS_INDEX;
+    }
+
+    return Mem_BucketFindBestClass( bucket, size, alignment, false );
+}
+
+common::usize Mem_BucketUsedCount( const bucket_t &bucket )
+{
+    common::usize nUsedCount = 0u;
+
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
+        nUsedCount += Mem_PoolUsedCount( bucket.classes[nClassIndex].pool );
+    }
+
+    return nUsedCount;
+}
+
+common::usize Mem_BucketFreeCount( const bucket_t &bucket )
+{
+    common::usize nFreeCount = 0u;
+
+    for ( common::usize nClassIndex = 0u; nClassIndex < bucket.nClassCount; ++nClassIndex ) {
+        nFreeCount += Mem_PoolFreeCount( bucket.classes[nClassIndex].pool );
+    }
+
+    return nFreeCount;
+}
+
+common::f32 Mem_BucketUsageRatio( const bucket_t &bucket )
+{
+    const common::usize nUsedCount = Mem_BucketUsedCount( bucket );
+    const common::usize nFreeCount = Mem_BucketFreeCount( bucket );
+    const common::usize nTotalCount = nUsedCount + nFreeCount;
+
+    if ( nTotalCount == 0u ) {
+        return 0.0f;
+    }
+
+    return static_cast<common::f32>( nUsedCount ) / static_cast<common::f32>( nTotalCount );
+}
+
+}       // namespace cypher::engine::memory

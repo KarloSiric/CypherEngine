@@ -287,7 +287,14 @@ Input → World/3D engine and render → Entity → Physics → Audio → Script
 Network → Animation and AI → UI and Font. Streaming belongs with World and
 Resource.
 
-## 9. Source tree consolidation (PROPOSAL, pending decision)
+## 9. Source tree consolidation (DONE, ADR 0010)
+
+Decided 2026-09-27 and implemented in
+[ADR 0010](adr/0010-runtime-service-folders.md): the services below now live
+under `CypherSystem/{Platform, Memory, Log, Console}` and Pak under
+`CypherFileSystem/Pak`; Command, CVar, and Config form one `Cypher::Console`
+library. The analysis that led there is kept below.
+
 
 Several top-level folders hold too little to justify themselves (VERIFIED):
 `CypherCommand` 3 files / 475 lines, `CypherCVar` 3 / 648, `CypherConfig`
@@ -304,7 +311,7 @@ CryEntitySystem, CryFont engine code, CryScriptSystem engine code: 17-20
 files each). Our folders are small because the services are young and thin,
 not because splitting by service is wrong.
 
-Proposed direction, keeping ADR 0006's rule that every subsystem has its own
+Direction taken, keeping ADR 0006's rule that every subsystem has its own
 CMake target and ADR 0003's short prefixes:
 
 ```text

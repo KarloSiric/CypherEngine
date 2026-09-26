@@ -267,9 +267,9 @@ set(CYPHER_RENDER_RESOURCE_RUNTIME_SOURCES
 )
 
 set(CYPHER_PAK_SOURCES
-    "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Compression.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Reader.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherPak/CypherPak_Writer.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/Pak/CypherPak_Compression.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/Pak/CypherPak_Reader.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/Pak/CypherPak_Writer.cpp"
 )
 
 set(CYPHERTOOLFRAMEWORK_SOURCES
@@ -360,9 +360,9 @@ set(CYPHERMATH_SOURCES
 )
 
 set(CYPHERSYSTEM_SOURCES
-    "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_OpenGL.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Window.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Platform/CypherSystem.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Platform/CypherSystem_OpenGL.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Platform/CypherSystem_Window.cpp"
 )
 
 set(CYPHERRENDER_SOURCES
@@ -386,18 +386,18 @@ set(CYPHERRENDER_SOURCES
 )
 
 set(CYPHER_LOG_SOURCES
-    "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherLog/CypherLog_Format.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Log/CypherLog.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Log/CypherLog_Format.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Engine/CypherCommon_Print.cpp"
 )
 
 set(CYPHER_MEMORY_SOURCES
-    "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Arena.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Bucket.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Pool.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Scratch.cpp"
-    "${CYPHERENGINE_SRC_DIR}/CypherMemory/CypherMemory_Thread.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Memory/CypherMemory.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Memory/CypherMemory_Arena.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Memory/CypherMemory_Bucket.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Memory/CypherMemory_Pool.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Memory/CypherMemory_Scratch.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Memory/CypherMemory_Thread.cpp"
 )
 
 set(CYPHER_FILESYSTEM_RUNTIME_SOURCES
@@ -413,16 +413,13 @@ set(CYPHER_FILESYSTEM_RUNTIME_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/CypherFileSystem_Watch.cpp"
 )
 
-set(CYPHER_COMMAND_LEGACY_SOURCES
-    "${CYPHERENGINE_SRC_DIR}/CypherCommand/CypherCommand.cpp"
-)
-
-set(CYPHER_CVAR_LEGACY_SOURCES
-    "${CYPHERENGINE_SRC_DIR}/CypherCVar/CypherCVar.cpp"
-)
-
-set(CYPHER_CONFIG_LEGACY_SOURCES
-    "${CYPHERENGINE_SRC_DIR}/CypherConfig/CypherConfig.cpp"
+# Console: commands (Cmd_/Cbuf_), console variables (Cvar_), and .cfg
+# configuration (Cfg_) form one service, as XConsole did in CryEngine 1
+# (ADR 0010).
+set(CYPHER_CONSOLE_SOURCES
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Console/CypherCommand.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Console/CypherCVar.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherSystem/Console/CypherConfig.cpp"
 )
 
 set(CYPHER_HOST_SOURCES
@@ -456,17 +453,17 @@ set(CYPHERRENDER_HEADERS
 
 if (WIN32)
     list(APPEND CYPHERSYSTEM_SOURCES
-        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Win32/CypherSystem_Win32_Main.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Platform/CypherSystem_Win32/CypherSystem_Win32_Main.cpp"
     )
 elseif (APPLE)
     list(APPEND CYPHERSYSTEM_SOURCES
-        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_POSIX/CypherSystem_POSIX_Main.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_MacOS/CypherSystem_MacOS_Main.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Platform/CypherSystem_POSIX/CypherSystem_POSIX_Main.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Platform/CypherSystem_MacOS/CypherSystem_MacOS_Main.cpp"
     )
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND CYPHERSYSTEM_SOURCES
-        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_POSIX/CypherSystem_POSIX_Main.cpp"
-        "${CYPHERENGINE_SRC_DIR}/CypherSystem/CypherSystem_Linux/CypherSystem_Linux_Main.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Platform/CypherSystem_POSIX/CypherSystem_POSIX_Main.cpp"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Platform/CypherSystem_Linux/CypherSystem_Linux_Main.cpp"
     )
 else()
     message(FATAL_ERROR "CypherSystem has no implementation for '${CMAKE_SYSTEM_NAME}'.")
@@ -506,7 +503,7 @@ target_include_directories(CypherSystem
     PUBLIC
         "${CYPHERENGINE_SRC_DIR}"
         "${CYPHERENGINE_SRC_DIR}/CypherCommon"
-        "${CYPHERENGINE_SRC_DIR}/CypherSystem"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Platform"
 )
 target_link_libraries(CypherSystem
     PUBLIC Cypher::CommonTier0
@@ -657,7 +654,7 @@ target_compile_features(CypherPak PUBLIC cxx_std_20)
 target_include_directories(CypherPak
     PUBLIC
         "${CYPHERENGINE_SRC_DIR}"
-        "${CYPHERENGINE_SRC_DIR}/CypherPak"
+        "${CYPHERENGINE_SRC_DIR}/CypherFileSystem/Pak"
 )
 target_link_libraries(CypherPak
     PUBLIC Cypher::CommonTier0
@@ -718,7 +715,7 @@ target_compile_features(CypherLog PUBLIC cxx_std_20)
 target_include_directories(CypherLog
     PUBLIC
         "${CYPHERENGINE_SRC_DIR}/CypherCommon"
-        "${CYPHERENGINE_SRC_DIR}/CypherLog"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Log"
 )
 target_link_libraries(CypherLog
     PUBLIC
@@ -734,7 +731,7 @@ target_compile_features(CypherMemory PUBLIC cxx_std_20)
 target_include_directories(CypherMemory
     PUBLIC
         "${CYPHERENGINE_SRC_DIR}/CypherCommon"
-        "${CYPHERENGINE_SRC_DIR}/CypherMemory"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Memory"
 )
 target_link_libraries(CypherMemory
     PUBLIC
@@ -762,46 +759,18 @@ target_link_libraries(CypherFileSystemRuntime
         Threads::Threads
 )
 
-add_library(CypherCommandLegacy STATIC ${CYPHER_COMMAND_LEGACY_SOURCES})
-add_library(Cypher::CommandLegacy ALIAS CypherCommandLegacy)
-target_compile_features(CypherCommandLegacy PUBLIC cxx_std_20)
-target_include_directories(CypherCommandLegacy
-    PUBLIC
-        "${CYPHERENGINE_SRC_DIR}/CypherCommand"
-        "${CYPHERENGINE_SRC_DIR}/CypherCommon"
-)
-target_link_libraries(CypherCommandLegacy
-    PUBLIC Cypher::CommonTier0
-    PRIVATE Cypher::Log
-)
-
-add_library(CypherCVarLegacy STATIC ${CYPHER_CVAR_LEGACY_SOURCES})
-add_library(Cypher::CVarLegacy ALIAS CypherCVarLegacy)
-target_compile_features(CypherCVarLegacy PUBLIC cxx_std_20)
-target_include_directories(CypherCVarLegacy
+add_library(CypherConsole STATIC ${CYPHER_CONSOLE_SOURCES})
+add_library(Cypher::Console ALIAS CypherConsole)
+target_compile_features(CypherConsole PUBLIC cxx_std_20)
+target_include_directories(CypherConsole
     PUBLIC
         "${CYPHERENGINE_SRC_DIR}/CypherCommon"
-        "${CYPHERENGINE_SRC_DIR}/CypherCVar"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Console"
 )
-target_link_libraries(CypherCVarLegacy
-    PUBLIC Cypher::CommonTier0
-    PRIVATE Cypher::Log
-)
-
-add_library(CypherConfigLegacy STATIC ${CYPHER_CONFIG_LEGACY_SOURCES})
-add_library(Cypher::ConfigLegacy ALIAS CypherConfigLegacy)
-target_compile_features(CypherConfigLegacy PUBLIC cxx_std_20)
-target_include_directories(CypherConfigLegacy
-    PUBLIC
-        "${CYPHERENGINE_SRC_DIR}/CypherCommon"
-        "${CYPHERENGINE_SRC_DIR}/CypherConfig"
-)
-target_link_libraries(CypherConfigLegacy
+target_link_libraries(CypherConsole
     PUBLIC
         Cypher::CommonTier0
     PRIVATE
-        Cypher::CommandLegacy
-        Cypher::CVarLegacy
         Cypher::FileSystemRuntime
         Cypher::Log
 )
@@ -814,12 +783,10 @@ target_include_directories(CypherHost
         "${CYPHERENGINE_SRC_DIR}"
         "${CYPHERENGINE_SRC_DIR}/CypherEngine/CypherHost"
     PRIVATE
-        "${CYPHERENGINE_SRC_DIR}/CypherCommand"
-        "${CYPHERENGINE_SRC_DIR}/CypherConfig"
-        "${CYPHERENGINE_SRC_DIR}/CypherCVar"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Console"
         "${CYPHERENGINE_SRC_DIR}/CypherFileSystem"
-        "${CYPHERENGINE_SRC_DIR}/CypherLog"
-        "${CYPHERENGINE_SRC_DIR}/CypherMemory"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Log"
+        "${CYPHERENGINE_SRC_DIR}/CypherSystem/Memory"
 )
 target_link_libraries(CypherHost
     PUBLIC
@@ -827,9 +794,7 @@ target_link_libraries(CypherHost
         Cypher::Render
         Cypher::System
     PRIVATE
-        Cypher::CommandLegacy
-        Cypher::ConfigLegacy
-        Cypher::CVarLegacy
+        Cypher::Console
         Cypher::FileSystemRuntime
         Cypher::Log
         Cypher::Memory
@@ -893,7 +858,7 @@ if (CYPHERENGINE_BUILD_TESTS)
     )
 
     add_executable(cypher_system_death_test_helper
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_DeathTest_Helper.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Platform/CypherSystem_DeathTest_Helper.cpp"
     )
     target_link_libraries(cypher_system_death_test_helper PRIVATE Cypher::System)
     add_test(
@@ -2061,17 +2026,17 @@ if (CYPHERENGINE_BUILD_TESTS)
 
         cypher_add_common_catch_test(
             cypher_system_event_queue_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_EventQueue_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Platform/CypherSystem_EventQueue_Tests.cpp"
             Cypher::System
         )
         cypher_add_common_catch_test(
             cypher_system_runtime_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_Runtime_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Platform/CypherSystem_Runtime_Tests.cpp"
             Cypher::System
         )
         cypher_add_common_catch_test(
             cypher_system_opengl_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_OpenGL_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Platform/CypherSystem_OpenGL_Tests.cpp"
             Cypher::System
         )
         cypher_add_common_catch_test(
@@ -2126,7 +2091,7 @@ if (CYPHERENGINE_BUILD_TESTS)
                 TIMEOUT 30
         )
         add_executable(cypher_system_window_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/CypherSystem_Window_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Platform/CypherSystem_Window_Tests.cpp"
         )
         target_link_libraries(cypher_system_window_tests
             PRIVATE
@@ -2137,7 +2102,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         add_test(NAME cypher_system_window_tests COMMAND cypher_system_window_tests)
 
         add_executable(cypher_log_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherLog/CypherLog_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Log/CypherLog_Tests.cpp"
         )
         target_link_libraries(cypher_log_tests
             PRIVATE
@@ -2150,7 +2115,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         # Runtime pools are separate from Common Tier1 memory_pool_t and need
         # their own ownership and failure-path coverage.
         add_executable(cypher_memory_pool_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherMemory/CypherMemory_Pool_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Memory/CypherMemory_Pool_Tests.cpp"
         )
         target_link_libraries(cypher_memory_pool_tests
             PRIVATE Catch2::Catch2WithMain Cypher::Memory
@@ -2159,7 +2124,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         set_tests_properties(cypher_memory_pool_tests PROPERTIES TIMEOUT 30)
 
         add_executable(cypher_memory_arena_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherMemory/CypherMemory_Arena_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Memory/CypherMemory_Arena_Tests.cpp"
         )
         target_link_libraries(cypher_memory_arena_tests
             PRIVATE Catch2::Catch2WithMain Cypher::Memory Cypher::System
@@ -2168,7 +2133,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         set_tests_properties(cypher_memory_arena_tests PROPERTIES TIMEOUT 30)
 
         add_executable(cypher_memory_scratch_bucket_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherMemory/CypherMemory_ScratchBucket_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Memory/CypherMemory_ScratchBucket_Tests.cpp"
         )
         target_link_libraries(cypher_memory_scratch_bucket_tests
             PRIVATE Catch2::Catch2WithMain Cypher::Memory
@@ -2177,7 +2142,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         set_tests_properties(cypher_memory_scratch_bucket_tests PROPERTIES TIMEOUT 30)
 
         add_executable(cypher_memory_thread_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherMemory/CypherMemory_Thread_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Memory/CypherMemory_Thread_Tests.cpp"
         )
         target_link_libraries(cypher_memory_thread_tests
             PRIVATE Catch2::Catch2WithMain Cypher::Memory
@@ -2186,7 +2151,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         set_tests_properties(cypher_memory_thread_tests PROPERTIES TIMEOUT 30)
 
         add_executable(cypher_memory_runtime_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherMemory/CypherMemory_Runtime_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Memory/CypherMemory_Runtime_Tests.cpp"
         )
         target_link_libraries(cypher_memory_runtime_tests
             PRIVATE Catch2::Catch2WithMain Cypher::Memory Cypher::System
@@ -2195,19 +2160,19 @@ if (CYPHERENGINE_BUILD_TESTS)
         set_tests_properties(cypher_memory_runtime_tests PROPERTIES TIMEOUT 30)
 
         add_executable(cypher_command_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommand/CypherCommand_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Console/CypherCommand_Tests.cpp"
         )
         target_link_libraries(cypher_command_tests
-            PRIVATE Catch2::Catch2WithMain Cypher::CommandLegacy
+            PRIVATE Catch2::Catch2WithMain Cypher::Console
         )
         add_test(NAME cypher_command_tests COMMAND cypher_command_tests)
         set_tests_properties(cypher_command_tests PROPERTIES TIMEOUT 30)
 
         add_executable(cypher_cvar_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCVar/CypherCVar_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Console/CypherCVar_Tests.cpp"
         )
         target_link_libraries(cypher_cvar_tests
-            PRIVATE Catch2::Catch2WithMain Cypher::CVarLegacy
+            PRIVATE Catch2::Catch2WithMain Cypher::Console
         )
         add_test(NAME cypher_cvar_tests COMMAND cypher_cvar_tests)
         set_tests_properties(cypher_cvar_tests PROPERTIES TIMEOUT 30)
@@ -2225,14 +2190,12 @@ if (CYPHERENGINE_BUILD_TESTS)
 
     if (Catch2_FOUND)
         add_executable(cypher_config_tests
-            "${CYPHERENGINE_ROOT_DIR}/tests/CypherConfig/CypherConfig_Tests.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherSystem/Console/CypherConfig_Tests.cpp"
         )
         target_link_libraries(cypher_config_tests
             PRIVATE
                 Catch2::Catch2WithMain
-                Cypher::CommandLegacy
-                Cypher::ConfigLegacy
-                Cypher::CVarLegacy
+                Cypher::Console
                 Cypher::FileSystemRuntime
         )
         add_test(NAME cypher_config_tests COMMAND cypher_config_tests)
@@ -2240,7 +2203,7 @@ if (CYPHERENGINE_BUILD_TESTS)
     endif()
 
     add_executable(cypher_pak_smoke
-        "${CYPHERENGINE_ROOT_DIR}/tests/CypherPak/CypherPak_Smoke.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherFileSystem/Pak/CypherPak_Smoke.cpp"
     )
     target_link_libraries(cypher_pak_smoke PRIVATE Cypher::Pak)
     add_test(NAME cypher_pak_smoke COMMAND cypher_pak_smoke)
@@ -2817,7 +2780,7 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
 
         cypher_add_common_benchmark(
             cypher_system_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherSystem/CypherSystem_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherSystem/Platform/CypherSystem_Bench.cpp"
             Cypher::System
         )
         cypher_add_common_benchmark(
@@ -2827,7 +2790,7 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         )
 
         add_executable(cypher_memory_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherMemory/CypherMemory_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherSystem/Memory/CypherMemory_Bench.cpp"
         )
         target_link_libraries(cypher_memory_bench
             PRIVATE benchmark::benchmark_main Cypher::Memory
@@ -2841,7 +2804,7 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
         )
 
         add_executable(cypher_pak_bench
-            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherPak/CypherPak_Bench.cpp"
+            "${CYPHERENGINE_ROOT_DIR}/benchmarks/CypherFileSystem/Pak/CypherPak_Bench.cpp"
         )
         target_link_libraries(cypher_pak_bench PRIVATE benchmark::benchmark_main Cypher::Pak)
     else()

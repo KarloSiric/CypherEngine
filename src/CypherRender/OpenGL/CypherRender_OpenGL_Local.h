@@ -21,8 +21,8 @@
 #include "CypherRender/CypherRender_Error.h"
 #include "CypherRender/CypherRender_HostSurface.h"
 #include "CypherRender/CypherRender_Types.h"
-#include "CypherSystem/CypherSystem_OpenGL.h"
-#include "CypherSystem/CypherSystem_Window.h"
+#include "CypherSystem/Platform/CypherSystem_OpenGL.h"
+#include "CypherSystem/Platform/CypherSystem_Window.h"
 
 #include <glad/gl.h>
 

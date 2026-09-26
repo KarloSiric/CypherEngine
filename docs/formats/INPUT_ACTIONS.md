@@ -76,7 +76,7 @@ serialized engine family should use input/action terminology.
 
 ## 2. Current Engine State
 
-The current [System public event contract](../../src/CypherSystem/CypherSystem_Public.h)
+The current [System public event contract](../../src/CypherSystem/Platform/CypherSystem_Public.h)
 emits stable raw events for:
 
 - physical keyboard controls;

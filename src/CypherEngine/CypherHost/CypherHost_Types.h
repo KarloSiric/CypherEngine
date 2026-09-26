@@ -25,7 +25,7 @@
 
 #include "CypherCommon/Engine/CypherCommon.h"
 #include "CypherRender/CypherRender_Types.h"
-#include "CypherSystem/CypherSystem_Window.h"
+#include "CypherSystem/Platform/CypherSystem_Window.h"
 
 namespace cypher::engine::host
 {

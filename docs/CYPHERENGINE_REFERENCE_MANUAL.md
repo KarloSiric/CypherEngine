@@ -1431,7 +1431,7 @@ currently requested as optional files by `Host_LoadStartupConfig`
 ([source](../src/CypherEngine/CypherHost/CypherHost.cpp#L1913-L1957)). This differs
 from the convenience `Cfg_LoadDefault()` helper, which treats `default.cfg` as
 required, while `Cfg_LoadAutoexec()` treats `autoexec.cfg` as optional
-([source](../src/CypherConfig/CypherConfig.cpp#L219-L241)).
+([source](../src/CypherSystem/Console/CypherConfig.cpp#L219-L241)).
 
 Each physical line is trimmed and processed independently. Empty lines and
 comments succeed. `#` and `//` begin a comment anywhere outside double quotes;
@@ -1462,7 +1462,7 @@ Active quoted `set` values and `exec` paths have no escape language. A `\"` does
 not provide a supported embedded quote, and backslash sequences are copied
 literally. Empty quoted values are rejected. The explicit `set`, `seta`, and
 `exec` handlers are implemented in
-[CypherConfig.cpp](../src/CypherConfig/CypherConfig.cpp#L243-L402).
+[CypherConfig.cpp](../src/CypherSystem/Console/CypherConfig.cpp#L243-L402).
 
 Active limits are:
 
@@ -1475,7 +1475,7 @@ Active limits are:
 | Nested file loads | 8 active levels | Includes the outermost load |
 
 The published limits are declared in
-[CypherConfig.h](../src/CypherConfig/CypherConfig.h#L31-L60). Only an optional
+[CypherConfig.h](../src/CypherSystem/Console/CypherConfig.h#L31-L60). Only an optional
 `ERR_PATH_NOT_FOUND` is ignored. Invalid paths, denied opens, malformed content,
 and other I/O failures remain errors.
 
@@ -1486,8 +1486,8 @@ finishes successfully (or immediately for a successfully opened empty file).
 Active status values are `OK`, `ERR_NOT_INIT`, `ERR_IS_INIT`,
 `ERR_INVALID_PATH`, `ERR_INVALID_LINE`, `ERR_FILE_OPEN_FAILED`,
 `ERR_PARSE_FAILED`, `ERR_COMMAND_FAILED`, and `ERR_IO_ERROR`
-([status declaration](../src/CypherConfig/CypherConfig_Error.h#L32-L47),
-[file execution](../src/CypherConfig/CypherConfig.cpp#L84-L217)).
+([status declaration](../src/CypherSystem/Console/CypherConfig_Error.h#L32-L47),
+[file execution](../src/CypherSystem/Console/CypherConfig.cpp#L84-L217)).
 
 #### 12.4.2 Tier1 `CypherCommon::Config_Load`
 

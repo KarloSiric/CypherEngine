@@ -80,18 +80,14 @@ CypherEngine/
   - thin executable host, startup composition, frame ownership, and shutdown ordering
 - `src/CypherCommon`
   - shared public/common foundation, custom runtime utilities, primitive types, handles, format headers, and public subsystem contracts
-- `src/CypherSystem`
-  - OS, process, path, timing, event, display, window, virtual-memory, dynamic-library, and presentation-surface services
-- `src/CypherMemory`
-  - arenas, pools, memory stats, diagnostics, and allocator backends
+- `src/CypherSystem` - the runtime services, grouped as CrySystem grouped them (ADR 0010); each subfolder is its own library
+  - `Platform/` - OS, process, path, timing, event, display, window, virtual-memory, dynamic-library, and presentation-surface services
+  - `Memory/` - arenas, pools, memory stats, diagnostics, and allocator backends
+  - `Log/` - structured logging, filtering, formatting, and output sinks
+  - `Console/` - command registration and execution, runtime variables and flags, and cfg file loading
+  - `Profiler/` - planned: capture, aggregation, reports, and export
 - `src/CypherFileSystem`
-  - mounted paths, virtual paths, file handles, archive/package access
-- `src/CypherCommand`
-  - command registration and execution
-- `src/CypherCVar`
-  - runtime variables, flags, and tweakable settings
-- `src/CypherConfig`
-  - cfg file loading and command-line config execution
+  - mounted paths, virtual paths, file handles; `Pak/` holds package archive access
 - `src/CypherResource`
   - asset handles, loading, dependencies, reload, and lifecycle tracking
 - `src/CypherRender`

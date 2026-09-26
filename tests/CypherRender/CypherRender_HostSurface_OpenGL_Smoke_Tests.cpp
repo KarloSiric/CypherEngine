@@ -13,9 +13,9 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherRender/CypherRender_Public.h"
-#include "CypherSystem/CypherSystem_OpenGL.h"
-#include "CypherSystem/CypherSystem_Public.h"
-#include "CypherSystem/CypherSystem_Window.h"
+#include "CypherSystem/Platform/CypherSystem_OpenGL.h"
+#include "CypherSystem/Platform/CypherSystem_Public.h"
+#include "CypherSystem/Platform/CypherSystem_Window.h"
 
 #include <catch2/catch_test_macros.hpp>
 

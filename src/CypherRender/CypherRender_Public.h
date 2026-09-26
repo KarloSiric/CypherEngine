@@ -31,7 +31,7 @@
 #include "CypherRender_Texture.h"
 #include "CypherRender_Types.h"
 #include "CypherRender_VertexInput.h"
-#include "CypherSystem/CypherSystem_Window.h"
+#include "CypherSystem/Platform/CypherSystem_Window.h"
 
 namespace cypher::engine::render
 {

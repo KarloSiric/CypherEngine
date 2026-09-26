@@ -163,7 +163,7 @@ Formatted output helpers shared by subsystems.
 
 ### log_types.h - Log Types and Configuration
 
-**Location:** [src/CypherLog/CypherLog_Types.h](../src/CypherLog/CypherLog_Types.h)
+**Location:** [src/CypherSystem/Log/CypherLog_Types.h](../src/CypherSystem/Log/CypherLog_Types.h)
 
 Defines log severities, channels, records, and runtime configuration.
 
@@ -191,7 +191,7 @@ Defines log severities, channels, records, and runtime configuration.
 
 ### log_main.h - Logger Runtime API
 
-**Location:** [src/CypherLog/CypherLog.h](../src/CypherLog/CypherLog.h)
+**Location:** [src/CypherSystem/Log/CypherLog.h](../src/CypherSystem/Log/CypherLog.h)
 
 Public logger lifecycle, configuration, and emission API.
 
@@ -227,7 +227,7 @@ Public logger lifecycle, configuration, and emission API.
 
 ### sys_platform.h - Platform and Timing API
 
-**Location:** [src/CypherSystem/CypherSystem_Platform.h](../src/CypherSystem/CypherSystem_Platform.h)
+**Location:** [src/CypherSystem/Platform/CypherSystem_Platform.h](../src/CypherSystem/Platform/CypherSystem_Platform.h)
 
 Platform/compiler detection and timing/path utility API.
 
@@ -319,7 +319,7 @@ Defines the current renderer lifecycle contract.
 
 ### cmd_main.h - Command Registry and Dispatch
 
-**Location:** [src/CypherCommand/CypherCommand.h](../src/CypherCommand/CypherCommand.h)
+**Location:** [src/CypherSystem/Console/CypherCommand.h](../src/CypherSystem/Console/CypherCommand.h)
 
 Fixed-registry command backend for textual command dispatch.
 
@@ -355,7 +355,7 @@ Fixed-registry command backend for textual command dispatch.
 
 ### cvar_main.h - Console Variable Runtime
 
-**Location:** [src/CypherCVar/CypherCVar.h](../src/CypherCVar/CypherCVar.h)
+**Location:** [src/CypherSystem/Console/CypherCVar.h](../src/CypherSystem/Console/CypherCVar.h)
 
 Fixed-registry console variable system with cached typed views.
 
@@ -405,7 +405,7 @@ Fixed-registry console variable system with cached typed views.
 
 ### cfg_main.h - Config Loading and Execution
 
-**Location:** [src/CypherConfig/CypherConfig.h](../src/CypherConfig/CypherConfig.h)
+**Location:** [src/CypherSystem/Console/CypherConfig.h](../src/CypherSystem/Console/CypherConfig.h)
 
 Config runtime used for loading startup/runtime config files and executing config-style lines.
 
@@ -442,13 +442,13 @@ Config runtime used for loading startup/runtime config files and executing confi
 
 Each major subsystem currently exposes a typed local error enum in its own header:
 
-- [src/CypherLog/CypherLog_Error.h](../src/CypherLog/CypherLog_Error.h)
+- [src/CypherSystem/Log/CypherLog_Error.h](../src/CypherSystem/Log/CypherLog_Error.h)
 - [src/CypherEngine/CypherHost/CypherHost_Error.h](../src/CypherEngine/CypherHost/CypherHost_Error.h)
-- [src/CypherSystem/CypherSystem_Error.h](../src/CypherSystem/CypherSystem_Error.h)
+- [src/CypherSystem/Platform/CypherSystem_Error.h](../src/CypherSystem/Platform/CypherSystem_Error.h)
 - [src/CypherRender/CypherRender_Error.h](../src/CypherRender/CypherRender_Error.h)
-- [src/CypherCommand/CypherCommand_Error.h](../src/CypherCommand/CypherCommand_Error.h)
-- [src/CypherCVar/CypherCVar_Error.h](../src/CypherCVar/CypherCVar_Error.h)
-- [src/CypherConfig/CypherConfig_Error.h](../src/CypherConfig/CypherConfig_Error.h)
+- [src/CypherSystem/Console/CypherCommand_Error.h](../src/CypherSystem/Console/CypherCommand_Error.h)
+- [src/CypherSystem/Console/CypherCVar_Error.h](../src/CypherSystem/Console/CypherCVar_Error.h)
+- [src/CypherSystem/Console/CypherConfig_Error.h](../src/CypherSystem/Console/CypherConfig_Error.h)
 
 Current design rule:
 

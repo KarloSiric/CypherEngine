@@ -23,7 +23,7 @@
 #include "CypherRender_OpenGL_Texture.h"
 #include "CypherRender_OpenGL_VertexInput.h"
 
-#include "CypherSystem/CypherSystem_OpenGL.h"
+#include "CypherSystem/Platform/CypherSystem_OpenGL.h"
 
 #include <glad/gl.h>
 
