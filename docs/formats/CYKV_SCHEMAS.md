@@ -14,6 +14,7 @@
 //  - Created by Karlo Siric on 2026-08-10
 //  - Updated renderer schema version inventory on 2026-09-17
 //  - Linked the accepted CYKV 2 resolver boundary on 2026-09-18
+//  - Pointed settings and project readers at the V2 contracts on 2026-09-25
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -166,6 +167,11 @@ control.
 
 ## User Settings Schema
 
+> **Superseded for current files:** `cypher.settings` V2 is an open, tolerant,
+> sectioned document (ADR 0009); see [Editor And Settings Formats](EDITOR_FORMATS.md).
+> V1 below remains readable and is valid V2 content. Invalid values now fall
+> back individually with warnings instead of failing the document.
+
 Local user and machine preferences use a separate contract:
 
 ```cykv
@@ -199,6 +205,9 @@ document. A missing settings file is handled by the host by using
 `CypherSettings_Defaults`; Tier2 does not perform file I/O.
 
 ## Configuration Layers
+
+The editor adds workspace and project settings scopes above the user's
+`cypher.settings`; see [Editor And Settings Formats](EDITOR_FORMATS.md).
 
 Structured data and command execution remain separate:
 

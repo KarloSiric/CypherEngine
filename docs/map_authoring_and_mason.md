@@ -23,6 +23,11 @@
 
 ## Status
 
+> **Naming superseded by [ADR 0009](adr/0009-editor-and-map-file-identities.md):**
+> the Mason document this file calls `.cyscene` / `cypher.scene` is `.cymap` /
+> `cypher.map` V10 and later, cooked to `.cymap_c`, and TileEditor grids are
+> `.cytilemap` / `cypher.tilemap`. The design below is otherwise unchanged.
+
 This document records the agreed long-term direction for:
 
 - `CYKV`, the general Cypher data format

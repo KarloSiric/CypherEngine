@@ -483,8 +483,8 @@ Avoid proprietary wrappers where established source formats are already useful:
 | --- | --- | --- | --- |
 | Generic structured data | CYKV text V1 and V2 | CYKV binary pack V1 | V1 implemented with documented binary identity gaps; V2 Tier1 parser/resolver/writer/hash implemented, schema/compiler adoption and provenance/manifests pending |
 | Generic schema-selected document | `.cydf`, encoded as CYKV | Schema-owned cooked route; no universal CYDF binary | Specified; dedicated dispatch, domain schemas, and consumers not implemented |
-| Project manifest | `.cyproject`, schema V1 | None | Schema and typed decoder implemented; application integration incomplete |
-| User settings | `.cysettings`, schema V1 | None | Display subset implemented; full settings service incomplete |
+| Project manifest | `.cyproject`, schema V1 | None | Schema and typed decoder implemented; V2 specified by ADR 0009; application integration incomplete |
+| Settings | `.cysettings`, schema V1 | None | Display subset implemented; V2 sectioned, tolerant, sparse settings specified by ADR 0009 |
 | Commands/CVars | `.cfg` (`.cycfg` is a documented alias only) | None | Two unversioned command-stream APIs; Host uses `CypherConfig`/`.cfg`, Tier1 is test/benchmark-only, and no `.cycfg`-specific runtime exists |
 | Generic cooked resource | N/A | CYRS container V1 | Implemented |
 | Shader | `.cyshader` V1/V2 | `.cyshader_c`, CYSH V2/V3 | Compiler and loader implemented; general runtime binding partial |
@@ -499,7 +499,11 @@ Avoid proprietary wrappers where established source formats are already useful:
 | --- | --- | --- |
 | Surface definition | `.cysurface` | `.cysurface_c` |
 | Mesh | `.cymesh` | `.cymesh_c` |
-| Mason scene/world | `.cyscene`, planned `cypher.scene` V1 | `.cyscene_c` |
+| Map | `.cymap`, `cypher.map` V10 and later (ADR 0009) | `.cymap_c` |
+| Workspace | `.cyworkspace`, `cypher.workspace` V1 | None |
+| Editor theme | `.cytheme`, `cypher.theme` V1 | None |
+| Editor keymap | `.cykeymap`, `cypher.editor_keymap` V1 | None |
+| Editor dock layout | `.cylayout`, `cypher.layout` V1 | None |
 | Prefab/entity template | `.cyprefab` | `.cyprefab_c` |
 | Physics setup | `.cyphys` | `.cyphys_c` |
 | Navigation | `.cynav` | `.cynav_c` |
@@ -508,7 +512,7 @@ Avoid proprietary wrappers where established source formats are already useful:
 | Animation clip | `.cyanim` | `.cyanim_c` |
 | Particle system | `.cyparticle` | `.cyparticle_c` |
 | Sound recipe/stream | `.cysnd` | `.cysnd_c` |
-| Font | `.cyfont` | `.cyfont_c` |
+| Font family | `.cyfont`, `cypher.font` V1 | `.cyfont_c` |
 | UI layout/style | `.cyui` | `.cyui_c` |
 | Cinematic sequence | `.cycine` | `.cycine_c` |
 | Resource/build manifest | `.cymanifest` | Tool/build output as defined later |
@@ -4237,35 +4241,40 @@ Additional cross-format rationale is in
 [Render Assets](formats/RENDER_ASSETS.md). Source and tests remain authoritative
 if this living manual and implementation diverge.
 
-## 17. Map Format
+## 17. Tile Map Format
 
 | Map property | Value |
 | --- | --- |
-| Extension | `.cymap` |
+| Extension | `.cytilemap` (legacy `.cymap` files are imported) |
 | CYKV language | 1 |
-| Schema ID | `cypher.map` |
-| Current writer | Schema V3 |
-| Current reader | Schema V1, V2, and V3 |
+| Schema ID | `cypher.tilemap`; legacy `cypher.map` V1-V3 |
+| Current writer | `cypher.tilemap` V1 |
+| Current reader | `cypher.tilemap` V1; legacy `cypher.map` V1, V2, and V3 |
 | Cooked map | Not implemented |
 | Producer/consumer | Qt Tile Editor and source-preview path |
 | Object policy | Closed; unknown fields reject the document |
 
-A `.cymap` is a sparse, editor-facing tile-map document. It stores active floor
-cells rather than the dense in-memory grid. Empty grid positions are reconstructed
-during loading. The format is suitable for the current blockout editor and preview
-path; it is not yet the production World, streaming, collision, lighting, or
-entity format.
+A `.cytilemap` is a sparse, editor-facing tile-map document. It stores active
+floor cells rather than the dense in-memory grid. Empty grid positions are
+reconstructed during loading. It is the blockout editor's format, not the full
+map: since [ADR 0009](adr/0009-editor-and-map-file-identities.md), `.cymap` /
+`cypher.map` V10 and later names the full map Mason edits.
 
 ### 17.1 Version history
 
-| Schema | Reader | Writer | Additions |
-| --- | --- | --- | --- |
-| V1 | Supported | No | Base root, flat cells, player-spawn and door markers |
-| V2 | Supported | No | Optional cell `shape` and `stair_steps` |
-| V3 | Supported | Current | Optional material-slot-to-`.cymat` bindings |
-| Unknown | Rejected | — | No inference from fields or file contents |
+The content model has three generations. `cypher.tilemap` V1 carries model 3;
+the legacy `cypher.map` versions carry the model of the same number.
 
-Loading V1 or V2 and saving upgrades the document to V3. The loader dispatches by
+| Header | Reader | Writer | Content model and additions |
+| --- | --- | --- | --- |
+| `cypher.map` V1 | Legacy import | No | Model 1: base root, flat cells, player-spawn and door markers |
+| `cypher.map` V2 | Legacy import | No | Model 2: optional cell `shape` and `stair_steps` |
+| `cypher.map` V3 | Legacy import | No | Model 3: optional material-slot-to-`.cymat` bindings |
+| `cypher.tilemap` V1 | Supported | Current | Model 3 |
+| `cypher.map` V10 and later | Rejected as `FULL_MAP_DOCUMENT` | — | Not a tile map |
+| Anything else | Rejected | — | No inference from fields or file contents |
+
+Loading any legacy version and saving writes `cypher.tilemap` V1; TileEditor saves such a map as a new `.cytilemap` and leaves the legacy file untouched. The loader dispatches by
 the exact `@schema` version and keeps the older closed field sets; a V1 document
 cannot smuggle in V2 stair fields, and V1/V2 cannot contain V3 `materials`.
 
@@ -4275,8 +4284,11 @@ Every file starts with:
 
 ```cykv
 @cykv 1
-@schema "cypher.map" <1|2|3>
+@schema "cypher.tilemap" 1
 ```
+
+Legacy files carry `@schema "cypher.map" <1|2|3>` instead. The **Versions**
+column below names content models, as defined in 17.1.
 
 | Field | Type | Req. | Default | Versions | Values/constraints | Meaning |
 | --- | --- | --- | --- | --- | --- | --- |

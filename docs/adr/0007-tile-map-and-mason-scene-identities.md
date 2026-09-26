@@ -1,6 +1,6 @@
 # ADR 0007: Tile Map and Mason Scene Identities
 
-**Status:** Accepted
+**Status:** Accepted; naming superseded by [ADR 0009](0009-editor-and-map-file-identities.md)
 **Date:** 2026-09-18
 
 ## Context
