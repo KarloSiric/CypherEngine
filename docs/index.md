@@ -53,8 +53,10 @@ Read these in order when resuming work:
 24. [formats/CYDF.md](formats/CYDF.md)
 25. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
 26. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
-27. [reference_engine_lessons.md](reference_engine_lessons.md)
-28. [security_model.md](security_model.md)
+27. [formats/EDITOR_FORMATS.md](formats/EDITOR_FORMATS.md)
+28. [reference_engine_lessons.md](reference_engine_lessons.md)
+29. [security_model.md](security_model.md)
+30. [future_implementations.md](future_implementations.md)
 
 API docs:
 
@@ -92,6 +94,9 @@ Project memory:
 - [adr/0004-world-renderer-ownership.md](adr/0004-world-renderer-ownership.md)
 - [adr/0005-shared-editor-geometry-core.md](adr/0005-shared-editor-geometry-core.md)
 - [adr/0006-runtime-subsystem-structure.md](adr/0006-runtime-subsystem-structure.md)
+- [adr/0007-tile-map-and-mason-scene-identities.md](adr/0007-tile-map-and-mason-scene-identities.md)
+- [adr/0008-editor-framework-and-workspace-layout.md](adr/0008-editor-framework-and-workspace-layout.md)
+- [adr/0009-editor-and-map-file-identities.md](adr/0009-editor-and-map-file-identities.md)
 
 ## What each document is for
 
@@ -227,6 +232,10 @@ Project memory:
   - rejected candidate directive spellings are explicitly superseded by CYKV_2
   - conditionals, exact numeric intent, optional non-finite values, and binary
     evolution remain proposals rather than implemented behavior
+- `formats/EDITOR_FORMATS`
+  - `.cysettings` V2, `.cyproject` V2, `.cyworkspace`, `.cytheme`, `.cykeymap`
+    (editor shortcuts), `.cylayout`, and `.cyfont` field contracts
+  - settings scopes, per-value fallback, sparse writes, and safe file saving
 - `formats/INPUT_ACTIONS`
   - proposed `.cyinput`, `.cyinput_c`/`CYIN`, and `.cybindings` family
   - action, context, control, trigger, processor, conflict, accessibility,
