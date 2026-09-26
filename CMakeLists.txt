@@ -209,11 +209,13 @@ set(CYPHERCOMMON_TIER1_SOURCES
 
 set(CYPHERCOMMON_TIER2_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_DataValidation.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_FontDefinition.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_ProjectManifest.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_ProjectSchema.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_Schema.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_SchemaRegistry.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_Settings.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_SettingsDocument.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherCommon/Tier2/CypherCommon_SettingsSchema.cpp"
 )
 
@@ -1929,6 +1931,16 @@ if (CYPHERENGINE_BUILD_TESTS)
         cypher_add_common_catch_test(
             cypher_common_tier2_settings_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier2/CypherCommon_Tier2_Settings_Tests.cpp"
+            Cypher::CommonTier2
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier2_settingsdocument_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier2/CypherCommon_Tier2_SettingsDocument_Tests.cpp"
+            Cypher::CommonTier2
+        )
+        cypher_add_common_catch_test(
+            cypher_common_tier2_fontdefinition_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/Tier2/CypherCommon_Tier2_FontDefinition_Tests.cpp"
             Cypher::CommonTier2
         )
         cypher_add_common_catch_test(

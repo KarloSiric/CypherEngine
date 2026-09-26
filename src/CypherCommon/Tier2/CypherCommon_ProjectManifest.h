@@ -10,6 +10,7 @@
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-10
+//  - Added V2 decoding on 2026-09-25
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -22,6 +23,7 @@
 #endif
 
 #include "CypherCommon_ProjectSchema.h"
+#include "CypherCommon_SettingsDocument.h"
 
 namespace cypher::common
 {
@@ -34,7 +36,10 @@ enum class project_manifest_status_t : u8 {
     INVALID_START_MAP,    // Startup map is not a canonical .cymap path.
     INVALID_SEARCH_PATH,  // Search root is not a canonical virtual path.
     DUPLICATE_SEARCH_PATH,// Ordered search roots contain an exact duplicate.
-    INTERNAL_ERROR        // Validated CYKV data could not be extracted.
+    INTERNAL_ERROR,       // Validated CYKV data could not be extracted.
+    INVALID_GAME,         // V2 game profile is not a stable identifier.
+    INVALID_MAPS_PATH,    // V2 maps root is not a canonical virtual path.
+    UNSUPPORTED_VERSION   // Schema version is neither V1 nor V2.
 };
 
 /*
@@ -59,6 +64,13 @@ struct project_manifest_view_t {
     // Ordered VFS search roots; earlier entries retain caller-defined priority.
     string_view_t searchPaths[CY_PROJECT_MAX_SEARCH_PATHS]{};
     usize nSearchPaths{ 0u }; // Active entries in searchPaths.
+
+    // V2 (ADR 0009). Empty or null in V1 documents.
+    u32 nVersion{ 0u };                       // Schema version decoded.
+    string_view_t game{};                     // Game profile the project builds for.
+    string_view_t mapsPath{};                 // Maps root; "maps" when absent.
+    const key_value_t *pSettings{ nullptr };  // Team settings block, read with descriptors.
+    const key_value_t *pMapDefaults{ nullptr }; // Default map settings for new maps.
 };
 
 // Schema diagnostics describe structural errors. status and iSearchPath describe
@@ -69,7 +81,14 @@ struct project_manifest_decode_result_t {
     usize iSearchPath{ CY_INVALID_SIZE }; // Failing search root, when applicable.
 };
 
+// Identity for settings stores editing project files: reads V1-V2, writes V2.
+CYPHER_NODISCARD CYPHER_COMMON_API
+settings_document_identity_t ProjectManifest_Identity() noexcept;
+
 // Validates and decodes one project document without allocating or taking ownership.
+// V1 and V2 are accepted. Identity, the start map, and content roots are
+// validated strictly because a wrong mount set loads the wrong game data;
+// the settings blocks are returned raw for tolerant, per-value reads.
 // pManifestOut is modified only when the entire operation succeeds.
 CYPHER_NODISCARD CYPHER_COMMON_API
 project_manifest_decode_result_t ProjectManifest_Decode(

@@ -11,6 +11,7 @@
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-10
+//  - Added V2 on 2026-09-25
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -27,7 +28,10 @@
 namespace cypher::common
 {
 
-inline constexpr u32 CY_PROJECT_SCHEMA_VERSION = 1u; // cypher.project generation.
+inline constexpr u32 CY_PROJECT_SCHEMA_VERSION = 1u; // cypher.project V1 generation.
+inline constexpr u32 CY_PROJECT_SCHEMA_VERSION_V2 = 2u; // Game profile, maps root, settings (ADR 0009).
+inline constexpr u32 CY_PROJECT_SCHEMA_CURRENT_VERSION = CY_PROJECT_SCHEMA_VERSION_V2; // Written by tools.
+inline constexpr usize CY_PROJECT_GAME_MAX_LENGTH = 64u; // Game profile ID bytes.
 inline constexpr usize CY_PROJECT_ID_MAX_LENGTH = 64u; // Stable ID bytes.
 inline constexpr usize CY_PROJECT_NAME_MAX_LENGTH = 128u; // Display-name bytes.
 // Matches the current VFS/resource runtime contract: 259 bytes plus terminator.
@@ -36,6 +40,12 @@ inline constexpr usize CY_PROJECT_MAX_SEARCH_PATHS = 64u; // Ordered mount roots
 
 CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
 const schema_descriptor_t *ProjectSchema_V1() noexcept;
+
+// V2 adds optional game, maps_path, settings, and map_defaults, makes
+// start_map optional (a new project has no map yet), and opens the root so
+// members written by newer tools survive.
+CYPHER_NODISCARD CYPHER_COMMON_API CY_RETURNS_NONNULL
+const schema_descriptor_t *ProjectSchema_V2() noexcept;
 
 } // namespace cypher::common
 

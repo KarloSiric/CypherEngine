@@ -5,12 +5,13 @@
 //
 //  File: src/CypherCommon/Tier2/CypherCommon_Settings.cpp
 //  Purpose: Implements typed decoding for Cypher user and machine settings.
-//  Details: Decoding starts from compiled defaults, applies only validated fields,
-//           and commits once complete so invalid local files cannot partially alter
-//           the caller's active settings.
+//  Details: Decoding starts from compiled defaults and applies each valid value.
+//           An invalid value keeps its default and is reported as a warning, so
+//           one mistake in a hand-edited file never discards the rest of it.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-10
+//  - Rebuilt on setting descriptors for tolerant V1/V2 decoding on 2026-09-25
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -35,63 +36,102 @@ CYPHER_NODISCARD constexpr string_view_t SettingsText(
     return { text, nExtent - 1u };
 }
 
-CYPHER_NODISCARD bool_t ReadOptionalU32(
-    const key_value_t *pObject,
-    string_view_t name,
-    u32 &valueOut ) noexcept
-{
-    const key_value_t *pValue = KeyValue_Find( pObject, name );
-    if ( pValue == nullptr ) {
-        return CY_TRUE;
-    }
+enum display_setting_t : usize {
+    DISPLAY_WIDTH = 0u,
+    DISPLAY_HEIGHT,
+    DISPLAY_MODE,
+    DISPLAY_VSYNC,
+    DISPLAY_SETTING_COUNT
+};
 
-    // Schema validation has already constrained this signed value to the positive
-    // display range, making the u32 conversion explicit and lossless.
-    i64 nValue = 0;
-    if ( !KeyValue_GetI64( pValue, &nValue ) ) {
-        return CY_FALSE;
-    }
-    valueOut = static_cast<u32>( nValue );
-    return CY_TRUE;
+inline constexpr const char *g_displayModeNames[]{ "windowed", "borderless", "fullscreen" };
+
+CYPHER_NODISCARD constexpr setting_descriptor_t IntegerSetting(
+    const char *pPath, i64 nDefault, i64 nMin, i64 nMax, const char *pLabel ) noexcept
+{
+    setting_descriptor_t descriptor{};
+    descriptor.pPath = pPath;
+    descriptor.type = setting_type_t::INTEGER;
+    descriptor.nDefault = nDefault;
+    descriptor.nMin = nMin;
+    descriptor.nMax = nMax;
+    descriptor.pLabel = pLabel;
+    descriptor.pPage = "Engine/Display";
+    return descriptor;
 }
 
-CYPHER_NODISCARD bool_t ReadOptionalBool(
-    const key_value_t *pObject,
-    string_view_t name,
-    bool_t &valueOut ) noexcept
+CYPHER_NODISCARD constexpr setting_descriptor_t DisplayModeSetting() noexcept
 {
-    const key_value_t *pValue = KeyValue_Find( pObject, name );
-    return pValue == nullptr || KeyValue_GetBool( pValue, &valueOut );
+    setting_descriptor_t descriptor{};
+    descriptor.pPath = "display.mode";
+    descriptor.type = setting_type_t::ENUM;
+    descriptor.pDefaultText = "windowed";
+    descriptor.ppEnumValues = g_displayModeNames;
+    descriptor.nEnumValues = sizeof( g_displayModeNames ) / sizeof( g_displayModeNames[0] );
+    descriptor.pLabel = "Window mode";
+    descriptor.pPage = "Engine/Display";
+    return descriptor;
 }
 
-CYPHER_NODISCARD bool_t ReadOptionalDisplayMode(
-    const key_value_t *pDisplay,
-    settings_display_mode_t &modeOut ) noexcept
+CYPHER_NODISCARD constexpr setting_descriptor_t VSyncSetting() noexcept
 {
-    const key_value_t *pValue = KeyValue_Find(
-        pDisplay,
-        SettingsText( "mode" ) );
-    if ( pValue == nullptr ) {
-        return CY_TRUE;
-    }
+    setting_descriptor_t descriptor{};
+    descriptor.pPath = "display.vsync";
+    descriptor.type = setting_type_t::BOOL;
+    descriptor.bDefault = CY_TRUE;
+    descriptor.pLabel = "Vertical sync";
+    descriptor.pPage = "Engine/Display";
+    return descriptor;
+}
 
-    string_view_t mode{};
-    if ( !KeyValue_GetString( pValue, &mode ) ) {
-        return CY_FALSE;
+// Defaults here must match the cypher_settings_t member initializers; the
+// settings tests check both against each other.
+inline constexpr setting_descriptor_t g_displaySettings[DISPLAY_SETTING_COUNT]{
+    IntegerSetting( "display.width", CY_SETTINGS_DEFAULT_DISPLAY_WIDTH,
+                    CY_SETTINGS_DISPLAY_WIDTH_MIN, CY_SETTINGS_DISPLAY_WIDTH_MAX, "Width" ),
+    IntegerSetting( "display.height", CY_SETTINGS_DEFAULT_DISPLAY_HEIGHT,
+                    CY_SETTINGS_DISPLAY_HEIGHT_MIN, CY_SETTINGS_DISPLAY_HEIGHT_MAX, "Height" ),
+    DisplayModeSetting(),
+    VSyncSetting()
+};
+
+void EmitDiagnostic(
+    cypher_settings_decode_result_t &result,
+    schema_diagnostic_t *pDiagnostics,
+    usize nDiagnosticCapacity,
+    schema_diagnostic_code_t code,
+    schema_diagnostic_severity_t severity,
+    const char *pPath ) noexcept
+{
+    ++result.validation.nDiagnosticsRequired;
+    if ( severity == schema_diagnostic_severity_t::ERROR ) {
+        ++result.validation.nErrors;
+    } else {
+        ++result.validation.nWarnings;
     }
-    if ( StringView_Equals( mode, SettingsText( "windowed" ) ) ) {
-        modeOut = settings_display_mode_t::WINDOWED;
-        return CY_TRUE;
+    if ( result.validation.nDiagnosticsWritten >= nDiagnosticCapacity ) {
+        result.validation.bDiagnosticsTruncated = CY_TRUE;
+        return;
     }
-    if ( StringView_Equals( mode, SettingsText( "borderless" ) ) ) {
-        modeOut = settings_display_mode_t::BORDERLESS;
-        return CY_TRUE;
+    schema_diagnostic_t &diagnostic = pDiagnostics[result.validation.nDiagnosticsWritten++];
+    diagnostic = {};
+    diagnostic.code = code;
+    diagnostic.severity = severity;
+    usize iChar = 0u;
+    for ( ; pPath[iChar] != '\0' && iChar + 1u < CY_SCHEMA_MAX_PATH; ++iChar ) {
+        diagnostic.path[iChar] = pPath[iChar];
     }
-    if ( StringView_Equals( mode, SettingsText( "fullscreen" ) ) ) {
-        modeOut = settings_display_mode_t::FULLSCREEN;
-        return CY_TRUE;
+    diagnostic.path[iChar] = '\0';
+}
+
+CYPHER_NODISCARD schema_diagnostic_code_t DiagnosticForProblem( setting_problem_code_t problem ) noexcept
+{
+    switch ( problem ) {
+        case setting_problem_code_t::OUT_OF_RANGE: return schema_diagnostic_code_t::I64_RANGE;
+        case setting_problem_code_t::UNKNOWN_ENUM: return schema_diagnostic_code_t::STRING_VALUE;
+        case setting_problem_code_t::TEXT_TOO_LONG: return schema_diagnostic_code_t::STRING_LENGTH;
+        default: return schema_diagnostic_code_t::TYPE_MISMATCH;
     }
-    return CY_FALSE;
 }
 
 } // namespace
@@ -102,6 +142,19 @@ cypher_settings_t CypherSettings_Defaults() noexcept
     return {};
 }
 
+settings_document_identity_t CypherSettings_Identity() noexcept
+{
+    return { SettingsText( "cypher.settings" ), CY_SETTINGS_SCHEMA_OLDEST_VERSION, CY_SETTINGS_SCHEMA_VERSION };
+}
+
+const setting_descriptor_t *CypherSettings_DisplayDescriptors( usize *pCountOut ) noexcept
+{
+    if ( pCountOut != nullptr ) {
+        *pCountOut = DISPLAY_SETTING_COUNT;
+    }
+    return g_displaySettings;
+}
+
 cypher_settings_decode_result_t CypherSettings_Decode(
     const key_value_document_t *pDocument,
     const schema_validation_options_t &options,
@@ -109,6 +162,7 @@ cypher_settings_decode_result_t CypherSettings_Decode(
     usize nDiagnosticCapacity,
     cypher_settings_t *pSettingsOut ) noexcept
 {
+    ( void )options; // Values are checked one by one; no structural pass is needed.
     cypher_settings_decode_result_t result{};
     if ( pDocument == nullptr || pSettingsOut == nullptr ||
          ( pDiagnostics == nullptr && nDiagnosticCapacity != 0u ) ) {
@@ -117,45 +171,63 @@ cypher_settings_decode_result_t CypherSettings_Decode(
         return result;
     }
 
-    // Structural validation runs first so an extraction failure below indicates an
-    // internal contract violation rather than malformed user input.
-    result.validation = Schema_ValidateDocument(
-        SettingsSchema_V1(),
-        pDocument,
-        options,
-        pDiagnostics,
-        nDiagnosticCapacity );
-    if ( !Schema_ValidationSucceeded( result.validation ) ) {
+    // Identity is the only whole-document failure: another schema is not a
+    // settings file at all, so nothing in it can be trusted.
+    const key_value_document_header_t header = KeyValue_DocumentHeader( pDocument );
+    const settings_document_identity_t identity = CypherSettings_Identity();
+    if ( header.nLanguageVersion != CYKV_LANGUAGE_VERSION ) {
+        EmitDiagnostic( result, pDiagnostics, nDiagnosticCapacity,
+                        schema_diagnostic_code_t::LANGUAGE_VERSION_MISMATCH,
+                        schema_diagnostic_severity_t::ERROR, "" );
+    } else if ( !StringView_Equals( header.schemaId, identity.schemaId ) ) {
+        EmitDiagnostic( result, pDiagnostics, nDiagnosticCapacity,
+                        schema_diagnostic_code_t::SCHEMA_ID_MISMATCH,
+                        schema_diagnostic_severity_t::ERROR, "" );
+    } else if ( header.nSchemaVersion < identity.nOldestVersion ||
+                header.nSchemaVersion > identity.nCurrentVersion ) {
+        EmitDiagnostic( result, pDiagnostics, nDiagnosticCapacity,
+                        schema_diagnostic_code_t::SCHEMA_VERSION_MISMATCH,
+                        schema_diagnostic_severity_t::ERROR, "" );
+    } else if ( KeyValue_Type( KeyValue_Root( pDocument ) ) != key_value_type_t::OBJECT ) {
+        EmitDiagnostic( result, pDiagnostics, nDiagnosticCapacity,
+                        schema_diagnostic_code_t::TYPE_MISMATCH,
+                        schema_diagnostic_severity_t::ERROR, "" );
+    }
+    if ( result.validation.nErrors != 0u ) {
         result.status = cypher_settings_status_t::INVALID_DOCUMENT;
+        result.validation.status = schema_validation_status_t::INVALID_DOCUMENT;
         return result;
     }
 
-    // Decode locally from defaults. Optional members replace only their matching
-    // values, and a later failure cannot leak partially applied settings.
-    cypher_settings_t settings = CypherSettings_Defaults();
+    constexpr const char *kDiagnosticPaths[DISPLAY_SETTING_COUNT]{
+        "/display/width", "/display/height", "/display/mode", "/display/vsync"
+    };
     const key_value_t *pRoot = KeyValue_Root( pDocument );
-    const key_value_t *pDisplay = KeyValue_Find(
-        pRoot,
-        SettingsText( "display" ) );
-    if ( pDisplay != nullptr &&
-         ( !ReadOptionalU32(
-               pDisplay,
-               SettingsText( "width" ),
-               settings.nDisplayWidth ) ||
-           !ReadOptionalU32(
-               pDisplay,
-               SettingsText( "height" ),
-               settings.nDisplayHeight ) ||
-           !ReadOptionalDisplayMode( pDisplay, settings.displayMode ) ||
-           !ReadOptionalBool(
-               pDisplay,
-               SettingsText( "vsync" ),
-               settings.bVSync ) ) ) {
-        result.status = cypher_settings_status_t::INTERNAL_ERROR;
-        return result;
+    setting_value_t values[DISPLAY_SETTING_COUNT]{};
+    for ( usize iSetting = 0u; iSetting < DISPLAY_SETTING_COUNT; ++iSetting ) {
+        setting_problem_code_t problem = setting_problem_code_t::NONE;
+        const setting_read_status_t status = Setting_Read(
+            pRoot, g_displaySettings[iSetting], &values[iSetting], &problem );
+        if ( status != setting_read_status_t::VALUE ) {
+            values[iSetting] = Setting_Default( g_displaySettings[iSetting] );
+        }
+        if ( status == setting_read_status_t::INVALID ) {
+            EmitDiagnostic( result, pDiagnostics, nDiagnosticCapacity,
+                            DiagnosticForProblem( problem ),
+                            schema_diagnostic_severity_t::WARNING,
+                            kDiagnosticPaths[iSetting] );
+        }
     }
 
-    // Single transaction commit point.
+    cypher_settings_t settings = CypherSettings_Defaults();
+    // Descriptor limits already bound width and height to positive u32 values.
+    settings.nDisplayWidth = static_cast<u32>( values[DISPLAY_WIDTH].nValue );
+    settings.nDisplayHeight = static_cast<u32>( values[DISPLAY_HEIGHT].nValue );
+    settings.displayMode =
+        StringView_Equals( values[DISPLAY_MODE].text, SettingsText( "borderless" ) ) ? settings_display_mode_t::BORDERLESS
+      : StringView_Equals( values[DISPLAY_MODE].text, SettingsText( "fullscreen" ) ) ? settings_display_mode_t::FULLSCREEN
+      : settings_display_mode_t::WINDOWED;
+    settings.bVSync = values[DISPLAY_VSYNC].bValue;
     *pSettingsOut = settings;
     return result;
 }

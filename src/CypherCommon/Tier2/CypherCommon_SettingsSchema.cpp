@@ -116,8 +116,26 @@ inline constexpr schema_rule_t g_settingsRootRule = ObjectRule(
 
 inline constexpr schema_descriptor_t g_settingsSchema{
     SchemaText( "cypher.settings" ),
-    CY_SETTINGS_SCHEMA_VERSION,
+    CY_SETTINGS_SCHEMA_OLDEST_VERSION,
     &g_settingsRootRule
+};
+
+CYPHER_NODISCARD constexpr schema_rule_t OpenObjectRule() noexcept
+{
+    schema_rule_t rule{};
+    rule.allowedTypes = SCHEMA_TYPE_OBJECT;
+    return rule;
+}
+
+// V2 structure is only "the root is an object": members are neither required
+// nor inspected here, because each owner validates its own values through
+// setting descriptors and a bad value must never fail the whole file.
+inline constexpr schema_rule_t g_settingsRootRuleV2 = OpenObjectRule();
+
+inline constexpr schema_descriptor_t g_settingsSchemaV2{
+    SchemaText( "cypher.settings" ),
+    CY_SETTINGS_SCHEMA_VERSION,
+    &g_settingsRootRuleV2
 };
 
 } // namespace
@@ -125,6 +143,11 @@ inline constexpr schema_descriptor_t g_settingsSchema{
 const schema_descriptor_t *SettingsSchema_V1() noexcept
 {
     return &g_settingsSchema;
+}
+
+const schema_descriptor_t *SettingsSchema_V2() noexcept
+{
+    return &g_settingsSchemaV2;
 }
 
 } // namespace cypher::common

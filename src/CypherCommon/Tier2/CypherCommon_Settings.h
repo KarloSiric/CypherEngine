@@ -7,9 +7,14 @@
 //  Purpose: Declares typed user and machine settings.
 //  Details: Settings decode into an owning value type with deterministic compiled
 //           defaults. No returned field borrows storage from the source document.
+//           Decoding is tolerant (ADR 0009): each value is checked on its own,
+//           an invalid one falls back to its default with a warning, and
+//           unknown sections and members are ignored so they survive in the
+//           file.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-10
+//  - Made decoding tolerant and added V2 on 2026-09-25
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -21,6 +26,7 @@
     #pragma once
 #endif
 
+#include "CypherCommon_SettingsDocument.h"
 #include "CypherCommon_SettingsSchema.h"
 
 namespace cypher::common
@@ -52,23 +58,32 @@ struct cypher_settings_t {
 };
 
 enum class cypher_settings_status_t : u8 {
-    OK = 0u,          // Settings decoded successfully.
+    OK = 0u,          // Settings decoded; invalid values fell back with warnings.
     INVALID_ARGUMENT,// Document, diagnostics, or output argument is invalid.
-    INVALID_DOCUMENT,// Generic settings schema validation failed.
-    INTERNAL_ERROR   // Validated CYKV data could not be extracted.
+    INVALID_DOCUMENT,// Wrong schema identity or a root that is not an object.
+    INTERNAL_ERROR   // Reserved; no longer produced.
 };
 
 struct cypher_settings_decode_result_t {
     cypher_settings_status_t status{ cypher_settings_status_t::OK }; // Decode result.
-    schema_validation_result_t validation{}; // Structural schema result.
+    schema_validation_result_t validation{}; // Header errors and per-value warnings.
 };
 
 // Returns the deterministic settings used when no local settings file exists.
 CYPHER_NODISCARD CYPHER_COMMON_API
 cypher_settings_t CypherSettings_Defaults() noexcept;
 
-// Validates and applies optional overrides transactionally to the compiled defaults.
-// pSettingsOut is modified only when the entire operation succeeds.
+// Identity for settings stores: reads cypher.settings V1-V2, writes V2.
+CYPHER_NODISCARD CYPHER_COMMON_API
+settings_document_identity_t CypherSettings_Identity() noexcept;
+
+// Descriptors of the engine's display section, in declaration order.
+CYPHER_NODISCARD CYPHER_COMMON_API
+const setting_descriptor_t *CypherSettings_DisplayDescriptors( usize *pCountOut ) noexcept;
+
+// Applies every valid display value over the compiled defaults. An invalid
+// value is reported as a WARNING diagnostic and keeps its default; only a
+// wrong header or non-object root fails, and then pSettingsOut is unchanged.
 CYPHER_NODISCARD CYPHER_COMMON_API
 cypher_settings_decode_result_t CypherSettings_Decode(
     const key_value_document_t *pDocument,

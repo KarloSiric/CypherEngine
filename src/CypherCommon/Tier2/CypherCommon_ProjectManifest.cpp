@@ -11,6 +11,7 @@
 //
 //  History:
 //  - Created by Karlo Siric on 2026-08-10
+//  - Added V2 decoding on 2026-09-25
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -63,10 +64,19 @@ project_manifest_decode_result_t ProjectManifest_Decode(
         return result;
     }
 
+    // The header selects the contract; each version validates exactly.
+    const u32 nVersion = KeyValue_DocumentHeader( pDocument ).nSchemaVersion;
+    if ( nVersion != CY_PROJECT_SCHEMA_VERSION && nVersion != CY_PROJECT_SCHEMA_VERSION_V2 ) {
+        result.status = project_manifest_status_t::UNSUPPORTED_VERSION;
+        result.validation.status = schema_validation_status_t::SCHEMA_NOT_FOUND;
+        return result;
+    }
+    const bool_t bV2 = nVersion == CY_PROJECT_SCHEMA_VERSION_V2;
+
     // Generic validation establishes member types, required fields, array limits,
     // and scalar bounds before project-specific policy is evaluated.
     result.validation = Schema_ValidateDocument(
-        ProjectSchema_V1(),
+        bV2 ? ProjectSchema_V2() : ProjectSchema_V1(),
         pDocument,
         options,
         pDiagnostics,
@@ -79,12 +89,15 @@ project_manifest_decode_result_t ProjectManifest_Decode(
     // Build locally so a later semantic failure cannot partially modify output.
     const key_value_t *pRoot = KeyValue_Root( pDocument );
     project_manifest_view_t manifest{};
+    manifest.nVersion = nVersion;
+    // V2 makes start_map optional; V1 schema validation already required it.
+    const bool_t bHasStartMap = KeyValue_Find( pRoot, ManifestText( "start_map" ) ) != nullptr;
     if ( !ReadStringMember( pRoot, ManifestText( "id" ), manifest.id ) ||
          !ReadStringMember( pRoot, ManifestText( "name" ), manifest.name ) ||
-         !ReadStringMember(
+         ( bHasStartMap && !ReadStringMember(
              pRoot,
              ManifestText( "start_map" ),
-             manifest.startMap ) ) {
+             manifest.startMap ) ) ) {
         result.status = project_manifest_status_t::INTERNAL_ERROR;
         return result;
     }
@@ -97,13 +110,34 @@ project_manifest_decode_result_t ProjectManifest_Decode(
         result.status = project_manifest_status_t::INVALID_PROJECT_ID;
         return result;
     }
-    if ( !DataValidation_Succeeded(
+    if ( bHasStartMap && !DataValidation_Succeeded(
              DataValidation_CheckResourcePath(
                  manifest.startMap,
                  ManifestText( ".cymap" ),
                  CY_PROJECT_PATH_MAX_LENGTH ) ) ) {
         result.status = project_manifest_status_t::INVALID_START_MAP;
         return result;
+    }
+    if ( bV2 ) {
+        const key_value_t *pGame = KeyValue_Find( pRoot, ManifestText( "game" ) );
+        if ( pGame != nullptr &&
+             ( !KeyValue_GetString( pGame, &manifest.game ) ||
+               !DataValidation_Succeeded( DataValidation_CheckStableIdentifier(
+                   manifest.game, CY_PROJECT_GAME_MAX_LENGTH ) ) ) ) {
+            result.status = project_manifest_status_t::INVALID_GAME;
+            return result;
+        }
+        manifest.mapsPath = ManifestText( "maps" );
+        const key_value_t *pMapsPath = KeyValue_Find( pRoot, ManifestText( "maps_path" ) );
+        if ( pMapsPath != nullptr &&
+             ( !KeyValue_GetString( pMapsPath, &manifest.mapsPath ) ||
+               !DataValidation_Succeeded( DataValidation_CheckCanonicalVirtualPath(
+                   manifest.mapsPath, CY_PROJECT_PATH_MAX_LENGTH ) ) ) ) {
+            result.status = project_manifest_status_t::INVALID_MAPS_PATH;
+            return result;
+        }
+        manifest.pSettings = KeyValue_Find( pRoot, ManifestText( "settings" ) );
+        manifest.pMapDefaults = KeyValue_Find( pRoot, ManifestText( "map_defaults" ) );
     }
 
     // Search-path order is meaningful because earlier mounts have higher priority.
@@ -157,6 +191,11 @@ project_manifest_decode_result_t ProjectManifest_Decode(
     return result;
 }
 
+settings_document_identity_t ProjectManifest_Identity() noexcept
+{
+    return { ManifestText( "cypher.project" ), CY_PROJECT_SCHEMA_VERSION, CY_PROJECT_SCHEMA_CURRENT_VERSION };
+}
+
 bool_t ProjectManifest_DecodeSucceeded(
     const project_manifest_decode_result_t &result ) noexcept
 {
@@ -175,6 +214,9 @@ const char *ProjectManifest_StatusName(
         case project_manifest_status_t::INVALID_SEARCH_PATH: return "INVALID_SEARCH_PATH";
         case project_manifest_status_t::DUPLICATE_SEARCH_PATH: return "DUPLICATE_SEARCH_PATH";
         case project_manifest_status_t::INTERNAL_ERROR: return "INTERNAL_ERROR";
+        case project_manifest_status_t::INVALID_GAME: return "INVALID_GAME";
+        case project_manifest_status_t::INVALID_MAPS_PATH: return "INVALID_MAPS_PATH";
+        case project_manifest_status_t::UNSUPPORTED_VERSION: return "UNSUPPORTED_VERSION";
     }
     return "UNKNOWN";
 }

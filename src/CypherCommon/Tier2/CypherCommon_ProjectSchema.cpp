@@ -104,7 +104,48 @@ inline constexpr schema_descriptor_t g_projectSchema{
     &g_projectRootRule
 };
 
+CYPHER_NODISCARD constexpr schema_rule_t OpenObjectRule(
+    const schema_member_t *pMembers,
+    usize nMembers ) noexcept
+{
+    schema_rule_t rule{};
+    rule.allowedTypes = SCHEMA_TYPE_OBJECT;
+    rule.object.pMembers = pMembers;
+    rule.object.nMembers = nMembers;
+    return rule;
+}
+
+inline constexpr schema_rule_t g_gameRule = StringRule( 1u, CY_PROJECT_GAME_MAX_LENGTH );
+// Settings blocks are open; their values are checked by setting descriptors.
+inline constexpr schema_rule_t g_settingsBlockRule = OpenObjectRule( nullptr, 0u );
+
+inline constexpr schema_member_t g_projectMembersV2[]{
+    { SchemaText( "id" ), &g_projectIdRule, SCHEMA_MEMBER_REQUIRED },
+    { SchemaText( "name" ), &g_projectNameRule, SCHEMA_MEMBER_REQUIRED },
+    { SchemaText( "start_map" ), &g_virtualPathRule, SCHEMA_MEMBER_NONE },
+    { SchemaText( "search_paths" ), &g_searchPathsRule, SCHEMA_MEMBER_NONE },
+    { SchemaText( "game" ), &g_gameRule, SCHEMA_MEMBER_NONE },
+    { SchemaText( "maps_path" ), &g_virtualPathRule, SCHEMA_MEMBER_NONE },
+    { SchemaText( "settings" ), &g_settingsBlockRule, SCHEMA_MEMBER_NONE },
+    { SchemaText( "map_defaults" ), &g_settingsBlockRule, SCHEMA_MEMBER_NONE }
+};
+
+inline constexpr schema_rule_t g_projectRootRuleV2 = OpenObjectRule(
+    g_projectMembersV2,
+    sizeof( g_projectMembersV2 ) / sizeof( g_projectMembersV2[0] ) );
+
+inline constexpr schema_descriptor_t g_projectSchemaV2{
+    SchemaText( "cypher.project" ),
+    CY_PROJECT_SCHEMA_VERSION_V2,
+    &g_projectRootRuleV2
+};
+
 } // namespace
+
+const schema_descriptor_t *ProjectSchema_V2() noexcept
+{
+    return &g_projectSchemaV2;
+}
 
 const schema_descriptor_t *ProjectSchema_V1() noexcept
 {

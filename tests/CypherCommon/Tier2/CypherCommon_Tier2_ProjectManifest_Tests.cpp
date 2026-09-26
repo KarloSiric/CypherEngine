@@ -20,6 +20,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <string>
+
 using namespace cypher::common;
 
 namespace
@@ -203,4 +205,76 @@ TEST_CASE( "Tier2 project decoding commits output only on success",
         StringView_FromCString( ProjectManifest_StatusName( result.status ) ),
         StringView_FromCString( "INVALID_DOCUMENT" ) ) );
     KeyValue_DestroyDocument( pDocument );
+}
+
+TEST_CASE( "Tier2 decodes V2 projects with a game profile and settings blocks",
+           "[CypherCommon][Tier2][ProjectManifest][V2]" )
+{
+    key_value_document_t *pDocument = ParseProject( R"cykv(@cykv 1
+@schema "cypher.project" 2
+{
+    id = "reap"
+    name = "REAP"
+    game = "reap"
+    maps_path = "content/maps"
+    search_paths = [ "game", "engine" ]
+    settings = { editor = { grid = 8 } }
+    map_defaults = { gravity = 800.0 }
+    written_by_a_newer_tool = { anything = true }
+}
+)cykv" );
+    project_manifest_view_t manifest{};
+    const project_manifest_decode_result_t result =
+        ProjectManifest_Decode( pDocument, {}, nullptr, 0u, &manifest );
+    INFO( ProjectManifest_StatusName( result.status ) );
+    REQUIRE( ProjectManifest_DecodeSucceeded( result ) );
+    REQUIRE( manifest.nVersion == 2u );
+    REQUIRE( ViewEquals( manifest.game, "reap" ) );
+    REQUIRE( ViewEquals( manifest.mapsPath, "content/maps" ) );
+    REQUIRE( manifest.startMap.cchLength == 0u ); // Optional in V2.
+    REQUIRE( manifest.nSearchPaths == 2u );
+    REQUIRE( KeyValue_Find( manifest.pSettings, StringView_FromCString( "editor" ) ) != nullptr );
+    REQUIRE( KeyValue_Find( manifest.pMapDefaults, StringView_FromCString( "gravity" ) ) != nullptr );
+    KeyValue_DestroyDocument( pDocument );
+
+    // Defaults: no game, maps under "maps", no settings blocks.
+    pDocument = ParseProject( "@cykv 1\n@schema \"cypher.project\" 2\n{ id = \"reap\" name = \"REAP\" }" );
+    manifest = {};
+    REQUIRE( ProjectManifest_DecodeSucceeded( ProjectManifest_Decode( pDocument, {}, nullptr, 0u, &manifest ) ) );
+    REQUIRE( manifest.game.cchLength == 0u );
+    REQUIRE( ViewEquals( manifest.mapsPath, "maps" ) );
+    REQUIRE( manifest.pSettings == nullptr );
+    KeyValue_DestroyDocument( pDocument );
+}
+
+TEST_CASE( "Tier2 V2 projects validate identity and content roots strictly",
+           "[CypherCommon][Tier2][ProjectManifest][V2]" )
+{
+    struct case_t {
+        const char *pBody;
+        project_manifest_status_t expected;
+    };
+    const case_t cases[]{
+        { "{ id = \"reap\" name = \"REAP\" game = \"Bad Game\" }", project_manifest_status_t::INVALID_GAME },
+        { "{ id = \"reap\" name = \"REAP\" maps_path = \"../maps\" }", project_manifest_status_t::INVALID_MAPS_PATH },
+        { "{ id = \"reap\" name = \"REAP\" start_map = \"maps/a.cytilemap\" }", project_manifest_status_t::INVALID_START_MAP },
+        { "{ name = \"REAP\" }", project_manifest_status_t::INVALID_DOCUMENT },
+    };
+    for ( const case_t &c : cases ) {
+        const std::string source = std::string( "@cykv 1\n@schema \"cypher.project\" 2\n" ) + c.pBody;
+        key_value_document_t *pDocument = ParseProject( source.c_str() );
+        project_manifest_view_t manifest{};
+        CAPTURE( c.pBody );
+        REQUIRE( ProjectManifest_Decode( pDocument, {}, nullptr, 0u, &manifest ).status == c.expected );
+        KeyValue_DestroyDocument( pDocument );
+    }
+
+    key_value_document_t *pDocument = ParseProject( "@cykv 1\n@schema \"cypher.project\" 3\n{ id = \"reap\" name = \"REAP\" }" );
+    project_manifest_view_t manifest{};
+    REQUIRE( ProjectManifest_Decode( pDocument, {}, nullptr, 0u, &manifest ).status ==
+             project_manifest_status_t::UNSUPPORTED_VERSION );
+    KeyValue_DestroyDocument( pDocument );
+
+    REQUIRE( Schema_CheckDescriptor( ProjectSchema_V2() ) == schema_descriptor_status_t::OK );
+    REQUIRE( ProjectManifest_Identity().nCurrentVersion == CY_PROJECT_SCHEMA_CURRENT_VERSION );
 }

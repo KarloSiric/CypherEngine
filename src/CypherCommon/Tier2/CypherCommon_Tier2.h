@@ -31,11 +31,13 @@ independent of renderer, game, editor, and platform UI implementations.
 #endif
 
 #include "CypherCommon_DataValidation.h"
+#include "CypherCommon_FontDefinition.h"
 #include "CypherCommon_ProjectManifest.h"
 #include "CypherCommon_ProjectSchema.h"
 #include "CypherCommon_Schema.h"
 #include "CypherCommon_SchemaRegistry.h"
 #include "CypherCommon_Settings.h"
+#include "CypherCommon_SettingsDocument.h"
 #include "CypherCommon_SettingsSchema.h"
 
 #endif // CYPHER_COMMON_TIER2_H
