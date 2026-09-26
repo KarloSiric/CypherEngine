@@ -139,7 +139,7 @@ QString ProfileMapFixture( const QTemporaryDir &directory )
     REQUIRE( document.paintCell( { 2, 1 }, { 0, 1u, 4u }, &error ) );
     REQUIRE( document.placePlayerSpawn( { 1, 1 }, 30.0f, &error ) );
     REQUIRE( document.commitEdit( &error ) );
-    const QString path = directory.filePath( "profile-fixture.cymap" );
+    const QString path = directory.filePath( "profile-fixture.cytilemap" );
     REQUIRE( document.saveToFile( path, &error ) );
     return path;
 }

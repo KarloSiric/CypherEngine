@@ -10,6 +10,7 @@
 //
 //  History:
 //  - Created by Karlo Siric on 2026-09-16
+//  - Moved to cypher.tilemap with legacy cypher.map import on 2026-09-25
 //
 //////////////////////////////////////////////////////////////////////////
 
@@ -30,13 +31,25 @@ namespace cypher::tools::tile_editor
 
 using namespace cypher::common;
 
-inline constexpr const char *TILE_MAP_SCHEMA_ID = "cypher.map";
-inline constexpr u32 TILE_MAP_SCHEMA_VERSION = 3u;
-// Version 3 optionally adds materials: [{ slot: uint, path: canonical .cymat }].
-// Version 1 and 2 retain their original root fields and remain readable.
-// Version 2 cells optionally append shape (flat / stairs_north / stairs_east /
+// Tile maps are `.cytilemap` documents with schema cypher.tilemap (ADR 0009).
+// cypher.tilemap V1 has the content model of legacy cypher.map V3.
+inline constexpr const char *TILE_MAP_SCHEMA_ID = "cypher.tilemap";
+inline constexpr u32 TILE_MAP_SCHEMA_VERSION = 1u;
+inline constexpr const char *TILE_MAP_FILE_EXTENSION = ".cytilemap";
+
+// cypher.map V1-V3 are the legacy tile-map lineage: still read, never written.
+// cypher.map V4 and later is the full map edited by Mason, which the tile
+// loader reports as FULL_MAP_DOCUMENT instead of misreading it.
+inline constexpr const char *TILE_MAP_LEGACY_SCHEMA_ID = "cypher.map";
+inline constexpr u32 TILE_MAP_LEGACY_SCHEMA_VERSION_MAX = 3u;
+inline constexpr const char *TILE_MAP_LEGACY_FILE_EXTENSION = ".cymap";
+
+// Content-model generations shared by both identities:
+// Model 3 optionally adds materials: [{ slot: uint, path: canonical .cymat }].
+// Model 2 cells optionally append shape (flat / stairs_north / stairs_east /
 // stairs_south / stairs_west) and stair_steps (2..32). Omitted fields default to
-// flat and 8. Version 1 remains readable with its original strict field set.
+// flat and 8. Model 1 keeps its original strict field set.
+inline constexpr u32 TILE_MAP_CONTENT_MODEL = 3u;
 
 // Authored maps use the shared TILE_MAP_MAX_ACTIVE_CELLS document limit. The
 // editor stores a sparse source representation; larger runtime worlds belong
@@ -71,7 +84,9 @@ enum class tile_map_serialization_status_t : u8 {
 
     DOCUMENT_INIT_FAILED,
     INVALID_MATERIAL_PATH,
-    DUPLICATE_MATERIAL_SLOT
+    DUPLICATE_MATERIAL_SLOT,
+
+    FULL_MAP_DOCUMENT // cypher.map V4+: a Mason map, not a tile map.
 };
 
 // One result carries both the stable map-format failure and lower-level detail.

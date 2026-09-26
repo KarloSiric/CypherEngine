@@ -67,7 +67,7 @@ CypherTileMapProperties::CypherTileMapProperties( QWidget *pParent ) : QWidget( 
 
     auto *pHelp = new QLabel( tr( "Apply updates the open map and its views as one undo step. "
                                   "Shrinking is rejected if it would remove cells or markers. "
-                                  "Save the map to write these changes to .cymap." ),
+                                  "Save the map to write these changes to .cytilemap." ),
                               this );
     pHelp->setWordWrap( true );
     pHelp->setProperty( "muted", true );

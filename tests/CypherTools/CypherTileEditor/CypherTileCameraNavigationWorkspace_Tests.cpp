@@ -248,7 +248,7 @@ QString WriteCameraFixture( const QTemporaryDir &directory )
     REQUIRE( document.paintCell( { 6, 4 }, { 2, 1, 0 }, &error ) );
     REQUIRE( document.commitEdit( &error ) );
     const QString path = directory.filePath(
-        QStringLiteral( "camera-navigation.cymap" ) );
+        QStringLiteral( "camera-navigation.cytilemap" ) );
     REQUIRE( document.saveToFile( path, &error ) );
     return path;
 }

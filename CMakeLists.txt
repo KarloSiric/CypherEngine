@@ -2901,7 +2901,7 @@ if (CYPHERENGINE_BUILD_TILE_EDITOR AND TARGET CypherTileMapCore)
     )
     target_compile_definitions(cypher_tile_map_preview PRIVATE
         CYPHER_RENDER_TILE_MAP_SHADER_PATH="${CYPHER_RENDER_CUBE_SHADER}"
-        CYPHER_RENDER_TILE_MAP_PATH="${CYPHERENGINE_ROOT_DIR}/assets/maps/tile_editor_demo.cymap"
+        CYPHER_RENDER_TILE_MAP_PATH="${CYPHERENGINE_ROOT_DIR}/assets/tilemaps/tile_editor_demo.cytilemap"
     )
     if (TARGET cypher_render_cube_shader)
         add_dependencies(cypher_tile_map_preview cypher_render_cube_shader)
@@ -3045,16 +3045,16 @@ if (CYPHERENGINE_BUILD_TILE_EDITOR AND TARGET CypherTileMapCore)
         add_test(
             NAME cypher_tile_stairs_preview_smoke
             COMMAND cypher_tile_map_preview --hidden --frames 4
-                --map "${CYPHERENGINE_ROOT_DIR}/assets/maps/tile_editor_stairs.cymap"
+                --map "${CYPHERENGINE_ROOT_DIR}/assets/tilemaps/tile_editor_stairs.cytilemap"
                 --camera-speed 12 --camera-sensitivity 0.25 --camera-fov 70
         )
         add_test(NAME cypher_tile_material_preview_smoke
             COMMAND cypher_tile_map_preview --hidden --frames 4
-                --map "${CYPHERENGINE_ROOT_DIR}/assets/maps/tile_editor_materials.cymap"
+                --map "${CYPHERENGINE_ROOT_DIR}/assets/tilemaps/tile_editor_materials.cytilemap"
                 --asset-root "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources")
         add_test(NAME cypher_tile_dev_lab_preview_smoke
             COMMAND cypher_tile_map_preview --hidden --frames 4
-                --map "${CYPHERENGINE_ROOT_DIR}/assets/maps/tile_editor_dev_lab.cymap"
+                --map "${CYPHERENGINE_ROOT_DIR}/assets/tilemaps/tile_editor_dev_lab.cytilemap"
                 --asset-root "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources")
         set_tests_properties(cypher_tile_material_preview_smoke PROPERTIES
             LABELS "CypherTools;TileMap;Renderer;Materials;Smoke" TIMEOUT 45)

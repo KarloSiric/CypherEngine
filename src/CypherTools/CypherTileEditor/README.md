@@ -4,21 +4,21 @@ CypherTileEditor is CypherEngine's first blockout map authoring workspace. It is
 
 The tool is deliberately split into two layers:
 
-- `Core/` owns the TileEditor document, edit transactions, undo/redo history, validation, deterministic `.cymap` persistence, and geometry generation. It has no Qt dependency and may serve a future in-game tile front end. Mason owns a separate `.cyscene` document and reuses only extracted editor-geometry and command primitives, not the tile document model.
+- `Core/` owns the TileEditor document, edit transactions, undo/redo history, validation, deterministic `.cytilemap` persistence, and geometry generation. It has no Qt dependency and may serve a future in-game tile front end. Mason owns a separate `.cyscene` document and reuses only extracted editor-geometry and command primitives, not the tile document model.
 - `Gui/` owns the standalone Qt presentation: canvas, embedded CypherRender viewport, docks, material and room-stamp palettes, inspector, console, settings, and configurable shortcuts.
 
 The authored map remains the source of truth. Generated geometry is derived data:
 
 ```text
-.cymap source
+.cytilemap source
     -> validation
     -> floor, exposed-boundary, and door box generation
     -> editor and runtime preview
     -> explicit Convert Tile Map to Scene -> new .cyscene for Mason
-    -> optional tile cooker -> .cymap_c only if a tile runtime is admitted
+    -> optional tile cooker -> .cytilemap_c only if a tile runtime is admitted
 ```
 
-CypherRender does not parse editor documents. This boundary allows the editor and runtime renderer to evolve independently while both consume an explicit generated preview snapshot. Production scene/world loading belongs to `.cyscene_c`; `.cymap_c` remains optional rather than an alias for Mason output.
+CypherRender does not parse editor documents. This boundary allows the editor and runtime renderer to evolve independently while both consume an explicit generated preview snapshot. Production map loading belongs to `.cymap_c`, the cooked full map (ADR 0009); a tile cooker would emit `.cytilemap_c` only if a tile runtime is admitted.
 
 The source-level editor study and implementation program for extending this tool
 without turning its cell document into Mason's future scene graph are documented
@@ -56,7 +56,7 @@ Open the included renderer-ready example directly:
 
 ```sh
 ./out/build/tile-editor-debug/bin/CypherTileEditor.app/Contents/MacOS/CypherTileEditor \
-    ./assets/maps/tile_editor_demo.cymap
+    ./assets/tilemaps/tile_editor_demo.cytilemap
 ```
 
 ## Fast blockout workflow
@@ -517,7 +517,7 @@ and wall heights. A camera that you have navigated stays in place; use Frame All
 Views to refit after a large scale change.
 
 The document remains open with its existing file path and edit history. Save
-writes its current dimensions and metrics into `.cymap`. The embedded renderer
+writes its current dimensions and metrics into `.cytilemap`. The embedded renderer
 updates from memory, and an already-running runtime preview automatically
 reloads the edited snapshot without a manual reopen or process restart. Undo
 and redo also synchronize the views and runtime preview. These edits use the
@@ -546,7 +546,7 @@ fill, material picking, save/load, and grouped undo. Stair edges are open;
 connect flat landings at the base floor level and at the next level. The matching
 upper landing opening is generated without a blocking boundary wall.
 
-Open `assets/maps/tile_editor_stairs.cymap` for two landings joined by a wide
+Open `assets/tilemaps/tile_editor_stairs.cytilemap` for two landings joined by a wide
 staircase: 4-unit cells, a 2-unit rise, and eight steps per stair tile. Use the
 spawn camera to inspect the stairs at eye height. Stairs currently have straight,
 cardinal footprints; curved stairs, railings and arbitrary brush geometry remain
@@ -570,7 +570,7 @@ material card, object row, and runtime-preview snapshot refreshes together.
 
 ## Source format
 
-`.cymap` is a deterministic, human-readable CYKV document. The current writer
+`.cytilemap` is a deterministic, human-readable CYKV document (`cypher.tilemap`; legacy `.cymap` tile files are imported, see ADR 0009). The current writer
 uses map schema **3**, adding an optional material binding table to schema 2's
 `shape` and `stair_steps` fields. The reader accepts schemas **1, 2, and 3**.
 Older editors cannot load maps saved by this version. Empty grid cells
@@ -581,7 +581,7 @@ cannot partially overwrite an open map.
 
 Editor preferences and shortcuts are editable in `editor.ini` and mirrored to
 native `QSettings`. Dock placement, pane order, window geometry, and recent files
-remain in native settings. None enter `.cymap`, keeping project content
+remain in native settings. None enter `.cytilemap`, keeping project content
 deterministic across users.
 
 Validation distinguishes structural geometry errors from authoring warnings.
@@ -600,7 +600,7 @@ structural and must be corrected before export.
 
 ## Project materials and textures
 
-Open `assets/maps/tile_editor_materials.cymap` to inspect brick, grid, and hazard
+Open `assets/tilemaps/tile_editor_materials.cytilemap` to inspect brick, grid, and hazard
 materials across the floor, boundary walls, and stairs. These are original test
 textures included with the project. CMake builds the resource compiler and cooks
 these assets alongside the editor; the browser seeds an editable per-project
@@ -630,7 +630,7 @@ another game or editor.
 4. Use **Assign Slot to Selection** to change only the material slot of the exact
    selected floor cells in one undoable action. This preserves elevation, wall
    height, shape, tread count, and unselected holes.
-5. Save the `.cymap`; its slot-to-resource bindings travel with the map. Launch
+5. Save the `.cytilemap`; its slot-to-resource bindings travel with the map. Launch
    **Runtime Preview (F6)** to inspect the same textures with the engine renderer.
 
 A recipe currently uses `shaders/tile_surface.cyshader`, one `base_color`

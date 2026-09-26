@@ -79,8 +79,8 @@ int main( int argc, char **argv )
     parser.addOption( smokeTest );
     parser.addPositionalArgument(
         QStringLiteral( "map" ),
-        QObject::tr( "Optional .cymap document to open." ),
-        QStringLiteral( "[map.cymap]" ) );
+        QObject::tr( "Optional .cytilemap document to open." ),
+        QStringLiteral( "[map.cytilemap]" ) );
     parser.process( application );
 
     cypher::tools::tile_editor::CypherTileEditorTheme_Apply( application );

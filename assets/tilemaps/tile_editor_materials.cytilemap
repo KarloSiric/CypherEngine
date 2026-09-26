@@ -1,5 +1,5 @@
 @cykv 1
-@schema "cypher.map" 3
+@schema "cypher.tilemap" 1
 
 // Two flat landings joined by a three-cell-wide staircase rising east.
 // Each cell is 4 units wide; the 2-unit rise uses eight 0.25-unit steps.

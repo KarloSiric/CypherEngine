@@ -2746,28 +2746,39 @@ void CypherTileEditorMainWindow::openMap()
         this,
         tr( "Open Tile Map" ),
         start,
-        tr( "Cypher Maps (*.cymap);;All Files (*)" ) );
+        tr( "Tile Maps (*.cytilemap);;Legacy Tile Maps (*.cymap);;All Files (*)" ) );
     if ( !path.isEmpty() ) openFilePath( path );
 }
 
 bool CypherTileEditorMainWindow::saveMap()
 {
-    return m_document.filePath().isEmpty()
+    // A map opened from a legacy .cymap is saved as a new .cytilemap: .cymap
+    // now names Mason's full map (ADR 0009), and the legacy file stays intact.
+    const bool bLegacyPath = QFileInfo( m_document.filePath() ).suffix().compare(
+        QStringLiteral( "cymap" ), Qt::CaseInsensitive ) == 0;
+    return m_document.filePath().isEmpty() || bLegacyPath
         ? saveMapAs()
         : saveMapTo( m_document.filePath() );
 }
 
 bool CypherTileEditorMainWindow::saveMapAs()
 {
+    const QFileInfo current( m_document.filePath() );
     QString path = QFileDialog::getSaveFileName(
         this,
         tr( "Save Tile Map" ),
         m_document.filePath().isEmpty()
-            ? QStringLiteral( "untitled.cymap" )
-            : m_document.filePath(),
-        tr( "Cypher Maps (*.cymap);;All Files (*)" ) );
+            ? QStringLiteral( "untitled.cytilemap" )
+            : current.dir().filePath( current.completeBaseName() + QStringLiteral( ".cytilemap" ) ),
+        tr( "Tile Maps (*.cytilemap);;All Files (*)" ) );
     if ( path.isEmpty() ) return false;
-    if ( QFileInfo( path ).suffix().isEmpty() ) path += QStringLiteral( ".cymap" );
+    const QFileInfo chosen( path );
+    if ( chosen.suffix().isEmpty() ) {
+        path += QStringLiteral( ".cytilemap" );
+    } else if ( chosen.suffix().compare( QStringLiteral( "cymap" ), Qt::CaseInsensitive ) == 0 ) {
+        // Never write tile content under the full-map extension.
+        path = chosen.dir().filePath( chosen.completeBaseName() + QStringLiteral( ".cytilemap" ) );
+    }
     return saveMapTo( path );
 }
 
@@ -2948,7 +2959,7 @@ void CypherTileEditorMainWindow::updateWindowState()
     m_pMapProperties->setDocument( pDocument );
     m_pHistoryPanel->setDocument( pDocument );
     const QString name = m_document.filePath().isEmpty()
-        ? tr( "Untitled.cymap" )
+        ? tr( "Untitled.cytilemap" )
         : QFileInfo( m_document.filePath() ).fileName();
     setWindowTitle( tr( "%1%2 — Cypher Tile Editor" )
         .arg( m_document.isDirty() ? QStringLiteral( "*" ) : QString(), name ) );
@@ -3268,7 +3279,7 @@ void CypherTileEditorMainWindow::buildMap()
     elapsed.start();
     appendInfo( tr( "Build Geometry: started for %1." ).arg(
         m_document.filePath().isEmpty()
-            ? tr( "Untitled.cymap" )
+            ? tr( "Untitled.cytilemap" )
             : QFileInfo( m_document.filePath() ).fileName() ) );
 
     if ( !m_document.isInitialized() ) {
@@ -3533,7 +3544,7 @@ bool CypherTileEditorMainWindow::writePreviewSnapshot()
             return false;
         }
         m_previewMapPath = directory.filePath(
-            QStringLiteral( "live-preview-%1.cymap" )
+            QStringLiteral( "live-preview-%1.cytilemap" )
                 .arg( QCoreApplication::applicationPid() ) );
     }
 

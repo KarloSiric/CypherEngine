@@ -622,7 +622,7 @@ CYPHER_NODISCARD bool_t TileMapSerialization_DecodeCell(
     usize iCell,
     u32 nWidth,
     u32 nHeight,
-    u32 nSchemaVersion,
+    u32 nContentModel,
     vector_t<byte> &occupied,
     vector_t<decoded_cell_t> &cells,
     tile_map_serialization_result_t &result ) noexcept
@@ -639,7 +639,7 @@ CYPHER_NODISCARD bool_t TileMapSerialization_DecodeCell(
         "x", "y", "floor_level", "wall_height_levels", "material_slot",
         "flags", "shape", "stair_steps"
     };
-    const bool_t bFieldsValid = nSchemaVersion == 1u
+    const bool_t bFieldsValid = nContentModel == 1u
         ? TileMapSerialization_ValidateObjectFields(
             pValue, legacyFields, result, "cells[]", iCell )
         : TileMapSerialization_ValidateObjectFields(
@@ -1302,9 +1302,30 @@ tile_map_serialization_result_t CypherTileMapSerialization_LoadFromText(
         result.cchText = text.cchLength;
         return result;
     }
-    if ( !StringView_Equals(
+    // The header alone decides the content model (ADR 0009): cypher.tilemap V1
+    // is model 3; legacy cypher.map V1-V3 are models 1-3; cypher.map V4+ is a
+    // full map and is refused by name rather than misread as a tile map.
+    u32 nContentModel = 0u;
+    if ( StringView_Equals(
              header.schemaId,
              TileMapText( TILE_MAP_SCHEMA_ID ) ) ) {
+        if ( header.nSchemaVersion == TILE_MAP_SCHEMA_VERSION ) {
+            nContentModel = TILE_MAP_CONTENT_MODEL;
+        }
+    } else if ( StringView_Equals(
+                    header.schemaId,
+                    TileMapText( TILE_MAP_LEGACY_SCHEMA_ID ) ) ) {
+        if ( header.nSchemaVersion > TILE_MAP_LEGACY_SCHEMA_VERSION_MAX ) {
+            tile_map_serialization_result_t result =
+                TileMapSerialization_Failure(
+                    tile_map_serialization_status_t::FULL_MAP_DOCUMENT,
+                    "@schema.version" );
+            result.location = parsed.schemaVersionLocation;
+            result.cchText = text.cchLength;
+            return result;
+        }
+        nContentModel = header.nSchemaVersion;
+    } else {
         tile_map_serialization_result_t result =
             TileMapSerialization_Failure(
                 tile_map_serialization_status_t::HEADER_MISMATCH,
@@ -1313,8 +1334,7 @@ tile_map_serialization_result_t CypherTileMapSerialization_LoadFromText(
         result.cchText = text.cchLength;
         return result;
     }
-    if ( header.nSchemaVersion != 1u && header.nSchemaVersion != 2u &&
-         header.nSchemaVersion != TILE_MAP_SCHEMA_VERSION ) {
+    if ( nContentModel == 0u ) {
         tile_map_serialization_result_t result =
             TileMapSerialization_Failure(
                 tile_map_serialization_status_t::HEADER_MISMATCH,
@@ -1341,7 +1361,7 @@ tile_map_serialization_result_t CypherTileMapSerialization_LoadFromText(
         "map_id", "dimensions", "metrics", "cells", "markers", "materials"
     };
     tile_map_serialization_result_t result{};
-    const bool_t fieldsValid = header.nSchemaVersion >= 3u
+    const bool_t fieldsValid = nContentModel >= 3u
         ? TileMapSerialization_ValidateObjectFields( pRoot, rootFieldsV3, result, "$", CY_INVALID_SIZE, 5u )
         : TileMapSerialization_ValidateObjectFields( pRoot, rootFields, result, "$" );
     if ( !fieldsValid ) {
@@ -1506,7 +1526,7 @@ tile_map_serialization_result_t CypherTileMapSerialization_LoadFromText(
                  iCell,
                  static_cast<u32>( nWidth ),
                  static_cast<u32>( nHeight ),
-                 header.nSchemaVersion,
+                 nContentModel,
                  occupied,
                  decodedCells,
                  result ) ) {
@@ -1669,6 +1689,7 @@ const char *CypherTileMapSerialization_StatusName(
     switch ( status ) {
         case tile_map_serialization_status_t::INVALID_MATERIAL_PATH: return "INVALID_MATERIAL_PATH";
         case tile_map_serialization_status_t::DUPLICATE_MATERIAL_SLOT: return "DUPLICATE_MATERIAL_SLOT";
+        case tile_map_serialization_status_t::FULL_MAP_DOCUMENT: return "FULL_MAP_DOCUMENT";
         case tile_map_serialization_status_t::OK: return "OK";
         case tile_map_serialization_status_t::INVALID_ARGUMENT: return "INVALID_ARGUMENT";
         case tile_map_serialization_status_t::DESTINATION_NOT_EMPTY: return "DESTINATION_NOT_EMPTY";

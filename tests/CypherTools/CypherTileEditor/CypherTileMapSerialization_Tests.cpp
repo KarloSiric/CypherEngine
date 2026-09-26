@@ -131,7 +131,7 @@ TEST_CASE( "Tile-map serialization is deterministic and sparse",
         TextBuffer_Data( &first ),
         TextBuffer_Length( &first ) );
     REQUIRE( saved.starts_with(
-        "@cykv 1\n@schema \"cypher.map\" 3\n" ) );
+        "@cykv 1\n@schema \"cypher.tilemap\" 1\n" ) );
 
     const usize iEarly = saved.find(
         "\"x\" = 7u\n      \"y\" = 1u" );
@@ -319,7 +319,7 @@ TEST_CASE( "Tile-map loading rejects the wrong schema and malformed CYKV",
         const std::string source = ValidMapText(
             "[]",
             "[]",
-            "cypher.map",
+            TILE_MAP_SCHEMA_ID,
             TILE_MAP_SCHEMA_VERSION + 1u );
         tile_map_document_t output{};
         const tile_map_serialization_result_t result =
@@ -329,6 +329,27 @@ TEST_CASE( "Tile-map loading rejects the wrong schema and malformed CYKV",
                 &output );
         REQUIRE( result.status ==
                  tile_map_serialization_status_t::HEADER_MISMATCH );
+        REQUIRE( std::string( result.field ) == "@schema.version" );
+        RequireFresh( output );
+    }
+
+    SECTION( "full map" )
+    {
+        // cypher.map V4+ is Mason's map (ADR 0009); the tile loader names it
+        // instead of reporting a generic mismatch or misreading it.
+        const std::string source = ValidMapText(
+            "[]",
+            "[]",
+            TILE_MAP_LEGACY_SCHEMA_ID,
+            TILE_MAP_LEGACY_SCHEMA_VERSION_MAX + 1u );
+        tile_map_document_t output{};
+        const tile_map_serialization_result_t result =
+            CypherTileMapSerialization_LoadFromText(
+                { source.data(), source.size() },
+                Allocator_GetSystem(),
+                &output );
+        REQUIRE( result.status ==
+                 tile_map_serialization_status_t::FULL_MAP_DOCUMENT );
         REQUIRE( std::string( result.field ) == "@schema.version" );
         RequireFresh( output );
     }
@@ -656,7 +677,7 @@ TEST_CASE( "Checked-in tile-map sample canonicalizes and builds expected boxes",
             .parent_path()
             .parent_path();
     const std::filesystem::path mapPath =
-        repositoryRoot / "assets/maps/tile_editor_demo.cymap";
+        repositoryRoot / "assets/tilemaps/tile_editor_demo.cytilemap";
     std::ifstream input( mapPath, std::ios::binary );
     REQUIRE( input.good() );
     const std::string source{
@@ -851,4 +872,84 @@ TEST_CASE( "Malformed stair fields fail transactionally and remain forbidden in 
     REQUIRE( CypherTileMapSerialization_LoadFromText( { text.data(), text.size() },
                  Allocator_GetSystem(), &loaded ).status == tile_map_serialization_status_t::UNKNOWN_FIELD );
     RequireFresh( loaded );
+}
+
+TEST_CASE( "Tile maps read cypher.tilemap V1 and every legacy cypher.map version",
+           "[CypherTools][CypherTileEditor][Serialization]" )
+{
+    // cypher.tilemap V1 carries the model-3 content: stair fields and materials.
+    const std::string current =
+        "@cykv 1\n@schema \"cypher.tilemap\" 1\n"
+        "{\n"
+        "  map_id = \"00112233-4455-4677-8899-aabbccddeeff\"\n"
+        "  dimensions = { width = 8u height = 6u }\n"
+        "  metrics = { cell_size = 2.0 level_height = 3.0 }\n"
+        "  cells = [{ x=0u y=0u floor_level=0 wall_height_levels=1u material_slot=0u flags=1u shape=\"stairs_east\" stair_steps=4u }]\n"
+        "  markers = []\n"
+        "  materials = [{ slot = 0u path = \"materials/brick.cymat\" }]\n"
+        "}\n";
+    tile_map_document_t loaded{};
+    const tile_map_serialization_result_t result =
+        CypherTileMapSerialization_LoadFromText(
+            { current.data(), current.size() },
+            Allocator_GetSystem(),
+            &loaded );
+    INFO( CypherTileMapSerialization_StatusName( result.status ) );
+    REQUIRE( result.status == tile_map_serialization_status_t::OK );
+    REQUIRE( loaded.cells.pData[0].shape == tile_map_cell_shape_t::STAIRS_EAST );
+    REQUIRE( loaded.cells.pData[0].nStairSteps == 4u );
+    CypherTileMapDocument_Shutdown( &loaded );
+
+    // A legacy file loads and saves under the new identity.
+    for ( u32 nVersion = 1u; nVersion <= TILE_MAP_LEGACY_SCHEMA_VERSION_MAX; ++nVersion ) {
+        const std::string legacy = ValidMapText(
+            "[{ x=1u y=1u floor_level=0 wall_height_levels=1u material_slot=0u flags=1u }]",
+            "[]",
+            TILE_MAP_LEGACY_SCHEMA_ID,
+            nVersion );
+        tile_map_document_t document{};
+        CAPTURE( nVersion );
+        REQUIRE( CypherTileMapSerialization_LoadFromText(
+                     { legacy.data(), legacy.size() },
+                     Allocator_GetSystem(),
+                     &document ).status == tile_map_serialization_status_t::OK );
+        text_buffer_t saved{};
+        REQUIRE( TextBuffer_Init( &saved, Allocator_GetSystem() ) );
+        REQUIRE( CypherTileMapSerialization_SaveToText( &document, &saved ).status ==
+                 tile_map_serialization_status_t::OK );
+        const std::string text( TextBuffer_Data( &saved ), TextBuffer_Length( &saved ) );
+        REQUIRE( text.starts_with( "@cykv 1\n@schema \"cypher.tilemap\" 1\n" ) );
+        TextBuffer_Shutdown( &saved );
+        CypherTileMapDocument_Shutdown( &document );
+    }
+}
+
+TEST_CASE( "Every migrated tile-map asset loads under cypher.tilemap",
+           "[CypherTools][CypherTileEditor][Serialization][Fixture]" )
+{
+    const std::filesystem::path directory =
+        std::filesystem::path( __FILE__ ).parent_path().parent_path()
+            .parent_path().parent_path() / "assets/tilemaps";
+    for ( const char *pName : {
+              "tile_editor_demo.cytilemap", "tile_editor_dev_lab.cytilemap",
+              "tile_editor_materials.cytilemap", "tile_editor_stairs.cytilemap",
+              "test1_v1.cytilemap", "unnamed_blockout.cytilemap" } ) {
+        CAPTURE( pName );
+        std::ifstream input( directory / pName, std::ios::binary );
+        REQUIRE( input.good() );
+        const std::string source{
+            std::istreambuf_iterator<char>{ input },
+            std::istreambuf_iterator<char>{}
+        };
+        REQUIRE( source.find( "@schema \"cypher.tilemap\" 1" ) != std::string::npos );
+        tile_map_document_t document{};
+        const tile_map_serialization_result_t loaded =
+            CypherTileMapSerialization_LoadFromText(
+                { source.data(), source.size() },
+                Allocator_GetSystem(),
+                &document );
+        INFO( CypherTileMapSerialization_StatusName( loaded.status ) << " at " << loaded.field );
+        REQUIRE( loaded.status == tile_map_serialization_status_t::OK );
+        CypherTileMapDocument_Shutdown( &document );
+    }
 }

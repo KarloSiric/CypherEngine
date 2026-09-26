@@ -117,7 +117,7 @@ QString MultiMap( const QTemporaryDir &directory )
     REQUIRE( bridge.placePlayerSpawn( { 2, 2 }, 30.0f, &error ) );
     REQUIRE( bridge.placeDoor( { 2, 2 }, tile_map_marker_side_t::SOUTH, nullptr, &error ) );
     REQUIRE( bridge.commitEdit( &error ) );
-    const auto path = directory.filePath( "multi.cymap" );
+    const auto path = directory.filePath( "multi.cytilemap" );
     REQUIRE( bridge.saveToFile( path, &error ) );
     return path;
 }

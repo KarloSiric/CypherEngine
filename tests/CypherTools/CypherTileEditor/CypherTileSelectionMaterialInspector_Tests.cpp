@@ -188,7 +188,7 @@ TEST_CASE( "Workspace selection immediately publishes its surface material in Pr
     REQUIRE( CypherTileMapDocument_SetMaterialBinding( authored.document(), 6u,
         StringView_FromCString( "materials/selection_inspector_missing.cymat" ) ) ==
         tile_map_document_status_t::OK );
-    const QString path = directory.filePath( QStringLiteral( "material_inspector.cymap" ) );
+    const QString path = directory.filePath( QStringLiteral( "material_inspector.cytilemap" ) );
     REQUIRE( authored.saveToFile( path, &error ) );
 
     CypherTileEditorMainWindow window;

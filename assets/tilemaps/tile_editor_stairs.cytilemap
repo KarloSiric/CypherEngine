@@ -1,5 +1,5 @@
 @cykv 1
-@schema "cypher.map" 2
+@schema "cypher.tilemap" 1
 
 /*
     Second version of the .cymap or so called cypher.map as indicated by the so called

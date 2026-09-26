@@ -191,7 +191,7 @@ TEST_CASE( "Map material bindings round-trip deterministically with clean histor
     REQUIRE( CypherTileMapSerialization_SaveToText( &fixture.document, &first ).status == tile_map_serialization_status_t::OK );
     const auto view = TextBuffer_View( &first );
     const std::string encoded( view.pData, view.cchLength );
-    REQUIRE( encoded.find( "@schema \"cypher.map\" 3" ) != std::string::npos );
+    REQUIRE( encoded.find( "@schema \"cypher.tilemap\" 1" ) != std::string::npos );
     REQUIRE( encoded.find( "materials/stone.cymat" ) < encoded.find( "materials/metal.cymat" ) );
     tile_map_document_t decoded{};
     REQUIRE( Load( encoded, decoded ).status == tile_map_serialization_status_t::OK );

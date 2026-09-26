@@ -105,7 +105,7 @@ QString WriteMap( const QTemporaryDir &directory, bool bSpawn, bool bDoor )
     if ( bDoor ) REQUIRE( document.placeDoor(
         { 1, 1 }, tile_map_marker_side_t::EAST, nullptr, &error ) );
     REQUIRE( document.commitEdit( &error ) );
-    const QString path = directory.filePath( QStringLiteral( "validation.cymap" ) );
+    const QString path = directory.filePath( QStringLiteral( "validation.cytilemap" ) );
     REQUIRE( document.saveToFile( path, &error ) );
     return path;
 }

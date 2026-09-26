@@ -443,7 +443,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         add_test(
             NAME cypher_tile_editor_smoke
             COMMAND CypherTileEditor --smoke-test
-                "${CYPHERENGINE_ROOT_DIR}/assets/maps/tile_editor_demo.cymap"
+                "${CYPHERENGINE_ROOT_DIR}/assets/tilemaps/tile_editor_demo.cytilemap"
         )
         set_tests_properties(cypher_tile_editor_smoke PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen"

@@ -1,5 +1,5 @@
 @cykv 1
-@schema "cypher.map" 3
+@schema "cypher.tilemap" 1
 
 {
   "map_id" = "7b4e2d64-3a91-4d1f-8b8f-c9871d25e201"

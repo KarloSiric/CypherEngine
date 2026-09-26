@@ -104,7 +104,7 @@ independent floor, wall, ceiling, tread, riser, trim, or per-face slots.
 ```text
 assets/
   tileeditor_dev_pack.rsp
-  maps/tile_editor_dev_lab.cymap
+  tilemaps/tile_editor_dev_lab.cytilemap
   materials/dev/
     blockout/
     diagnostics/
@@ -298,7 +298,7 @@ ordering. Manual edits to generated recipes are reported as stale.
 
 ### 7.1 Development-lab map
 
-`assets/maps/tile_editor_dev_lab.cymap` is a generated V3 integration scene. It
+`assets/tilemaps/tile_editor_dev_lab.cytilemap` is a generated V3 integration scene. It
 contains 24 separated 2×2 material plinths, so each selected texture appears on
 both a floor and exposed walls. Floor levels cycle through −1, 0, and +1, while
 wall heights cycle through one, two, and three levels. The scene also contains:

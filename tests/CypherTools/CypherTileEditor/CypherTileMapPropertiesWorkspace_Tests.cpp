@@ -128,7 +128,7 @@ QString PropertiesFixture( const QTemporaryDir &directory )
     REQUIRE( document.placeDoor( { 1, 1 }, tile_map_marker_side_t::NORTH, nullptr, &error ) );
     REQUIRE( document.placePlayerSpawn( { 1, 1 }, 30.0f, &error ) );
     REQUIRE( document.commitEdit( &error ) );
-    const QString path = directory.filePath( "map-properties.cymap" );
+    const QString path = directory.filePath( "map-properties.cytilemap" );
     REQUIRE( document.saveToFile( path, &error ) );
     return path;
 }

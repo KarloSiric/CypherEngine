@@ -132,7 +132,7 @@ QString WriteStairFixture( const QTemporaryDir &directory )
                  { 0, 1u, 2u, tile_map_cell_shape_t::STAIRS_NORTH, 6u }, &error ) );
     REQUIRE( document.placePlayerSpawn( { 0, 1 }, 0.0f, &error ) );
     REQUIRE( document.commitEdit( &error ) );
-    const QString path = directory.filePath( QStringLiteral( "stairs.cymap" ) );
+    const QString path = directory.filePath( QStringLiteral( "stairs.cytilemap" ) );
     REQUIRE( document.saveToFile( path, &error ) );
     return path;
 }
