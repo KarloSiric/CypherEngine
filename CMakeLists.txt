@@ -2857,6 +2857,12 @@ if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherEditor/Geometry/CMakeLists.txt")
     endif()
 endif()
 
+if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherEditor/Core/CMakeLists.txt")
+    if (CYPHERENGINE_BUILD_TESTS OR CYPHERENGINE_BUILD_TOOLS)
+        add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherEditor/Core")
+    endif()
+endif()
+
 if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherTools/CMakeLists.txt")
     if (CYPHERENGINE_BUILD_TOOLS)
         add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherTools")
