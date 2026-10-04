@@ -122,7 +122,7 @@ TEST_CASE( "The built-in keymap parses completely and has no conflicts within a 
         }
     }
     // The unavailable Z mouselook toggle is omitted so it cannot reserve Z.
-    CHECK( nCommands == 188u ); // 167 bindings (including Navigation), 8 held, 13 mouse actions.
+    CHECK( nCommands == 192u ); // 171 bindings (including camera speed/framing), 8 held, 13 mouse actions.
 }
 
 namespace

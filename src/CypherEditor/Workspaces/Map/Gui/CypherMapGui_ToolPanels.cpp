@@ -1002,13 +1002,14 @@ constexpr tool_panel_t kToolPanels[]{
         { "Mesh objects", {}, { "map.mesh.flip_normals", "map.mesh.triangulate" }, kRootModes },
         { "Inspect and isolate", {}, { "view.properties.open", "map.hide.selected", "map.hide.unselected", "map.hide.show_all" }, kRootModes } } },
     // CAMERA
-    { "Camera navigation works independently of the editing tool. The key reference lists the currently bound look, orbit, pan, dolly, and flight controls. Fly while looking, or with the Camera tool idle; orbit, pan, and dolly pause flight movement.",
+    { "Camera navigation works independently of the editing tool. The key reference lists the currently bound look, orbit, pan, dolly, flight, speed, and framing controls. Fly while looking, or with the Camera tool idle; orbit, pan, and dolly pause flight movement. Speed controls change the persisted fly speed. Go To finds an object or frames a position.",
       { { keymap_section_t::HELD, "map.viewport.3d" }, { keymap_section_t::MOUSE, "map.viewport.3d" },
         { keymap_section_t::BINDINGS, "map.viewport.3d" }, { keymap_section_t::BINDINGS, "map.viewport" } },
-      { { "Movement", { "editor.camera.move_speed", "editor.camera.fast_multiplier", "editor.camera.slow_multiplier", "editor.camera.look_sensitivity", "editor.camera.invert_y" }, {} },
+      { { "Movement", { "editor.camera.move_speed", "editor.camera.fast_multiplier", "editor.camera.slow_multiplier", "editor.camera.look_sensitivity", "editor.camera.invert_y" },
+          { "map.camera.speed_increase", "map.camera.speed_decrease", "map.camera.speed_reset" } },
         { "Activation", { "editor.viewport.activate_on_hover" }, {} },
-        { "View", { "editor.camera.fov", "editor.camera.zoom_to_cursor", "editor.camera.zoom_sensitivity", "editor.camera.invert_wheel" },
-          { "map.view.frame_all", "map.view.center_selection_3d", "map.view.center_selection_2d" } } } },
+        { "Navigation", { "editor.camera.fov", "editor.camera.zoom_to_cursor", "editor.camera.zoom_sensitivity", "editor.camera.invert_wheel" },
+          { "map.go_to", "map.view.frame_all", "map.view.center_selection_3d", "map.view.center_selection_2d" } } } },
     // ENTITY
     { "Choose the default class for point and brush entities.", { { keymap_section_t::BINDINGS, "map.tool.entity" } },
       { { "Entity defaults", { "editor.map.default_point_class", "editor.map.default_solid_class", "editor.map.write_all_properties", "editor.map.select_created" }, {} },
@@ -1271,7 +1272,8 @@ protected:
 private:
     static void OnSettingsChanged( void *context, string_view_t path ) noexcept
     {
-        if ( StringView_Equals( path, StringView_FromCString( "editor.map.mesh_slice_u" ) ) ||
+        if ( path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.camera.move_speed" ) ) ||
+             StringView_Equals( path, StringView_FromCString( "editor.map.mesh_slice_u" ) ) ||
              StringView_Equals( path, StringView_FromCString( "editor.map.mesh_slice_v" ) ) ) {
             static_cast<tool_properties_t *>( context )->RefreshButtons();
         }
@@ -1473,6 +1475,13 @@ private:
         }
         const bool navigationReference = m_tool == map_tool_t::SELECT || m_tool == map_tool_t::CAMERA || m_tool == map_tool_t::NONE;
         if ( navigationReference ) {
+            // Destination and framing actions live in the general map
+            // context. Resolve this small navigation set explicitly rather
+            // than filling the Camera reference with every map command.
+            for ( const char *id : { "map.go_to", "map.view.frame_all", "map.view.center_selection_2d", "map.view.center_selection_3d",
+                                    "map.camera.speed_increase", "map.camera.speed_decrease", "map.camera.speed_reset" } ) {
+                addCommand( id, ActionLabel( gui, QString::fromUtf8( id ) ) );
+            }
             // These hints use the same effective resolver as the viewport.
             // Raw mouse entries can be unbound, shadowed, or unsupported.
             for ( const auto &[gesture, label] : {

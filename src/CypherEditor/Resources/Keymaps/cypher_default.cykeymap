@@ -160,6 +160,9 @@
             "map.mesh.quad_slice" = [ "Ctrl+Shift+U" ]
         }
         "map.viewport" = {
+            // Mason navigation convenience: return to the complete map.
+            // Text fields retain Home because this context is viewport-only.
+            "map.view.frame_all" = [ "Home" ]
             // These act only from geometric viewports. F6 is Mason's fixed
             // directional preview, F7 is its normals diagnostic. F8/F11
             // follow the discovery inventory; F11 elsewhere is fullscreen.
@@ -188,6 +191,11 @@
             "map.nudge_fine.down" = [ "Shift+Down" ]
         }
         "map.viewport.3d" = {
+            // Mason flight-speed controls. These change the persisted base
+            // speed; held Shift/Alt remain temporary fast/slow modifiers.
+            "map.camera.speed_increase" = [ "Equal", "Plus", "Shift+Plus", "NumAdd" ]
+            "map.camera.speed_decrease" = [ "Minus", "Shift+Minus", "NumSubtract" ]
+            "map.camera.speed_reset" = [ "0", "Num0" ]
         }
         "map.tool.clip" = {
             "map.clip.flip" = []

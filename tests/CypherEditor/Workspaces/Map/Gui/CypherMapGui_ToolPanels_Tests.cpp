@@ -498,6 +498,95 @@ TEST_CASE( "Camera property groups write actual settings and release listeners",
     CHECK( session.gui.nStyleListeners == styleListeners );
 }
 
+TEST_CASE( "Camera properties expose persisted speed controls with live availability", "[map][gui][toolpanels][camera-speed]" )
+{
+    session_t session; auto &ws = session.workspace;
+    MapWorkspace_SetTool( &ws, map_tool_t::CAMERA );
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) );
+    QPointer<QDoubleSpinBox> speed = Setting<QDoubleSpinBox>( *panel, "editor.camera.move_speed" );
+    auto *increase = Operation( *panel, "map.camera.speed_increase" );
+    auto *decrease = Operation( *panel, "map.camera.speed_decrease" );
+    auto *reset = Operation( *panel, "map.camera.speed_reset" );
+    for ( const char *id : { "map.camera.speed_increase", "map.camera.speed_decrease", "map.camera.speed_reset" } ) {
+        CHECK( MapToolProperties_Operations( panel.get() ).count( QString::fromLatin1( id ) ) == 1 );
+        CHECK( Operation( *panel, id )->parentWidget()->property( "toolGroup" ).toString() == QStringLiteral( "Movement" ) );
+    }
+    CHECK( speed->value() == 1000.0 ); CHECK( increase->isEnabled() ); CHECK( decrease->isEnabled() ); CHECK_FALSE( reset->isEnabled() );
+    const auto *document = ws.pDocument; const usize steps = EditorHistory_StepCount( &ws.history );
+    const bool modified = MapWorkspace_IsModified( &ws );
+    increase->click();
+    CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 2000.0 );
+    CHECK( speed->value() == 2000.0 ); CHECK( reset->isEnabled() );
+    decrease->click(); CHECK( speed->value() == 1000.0 ); CHECK_FALSE( reset->isEnabled() );
+    speed->setValue( 1250.0 ); CHECK( reset->isEnabled() );
+    reset->click(); CHECK( speed->value() == 1000.0 ); CHECK_FALSE( reset->isEnabled() );
+    speed->setValue( 100000.0 ); CHECK_FALSE( increase->isEnabled() ); CHECK( decrease->isEnabled() );
+    increase->click(); CHECK( speed->value() == 100000.0 );
+    speed->setValue( 10.0 ); CHECK_FALSE( decrease->isEnabled() ); CHECK( increase->isEnabled() );
+    decrease->click(); CHECK( speed->value() == 10.0 );
+    ws.pDocument->bReadOnly = CY_TRUE; MapWorkspace_Notify( &ws, MAP_CHANGE_DOCUMENT );
+    REQUIRE( increase->isEnabled() ); increase->click(); CHECK( speed->value() == 20.0 );
+    reset->click(); CHECK( speed->value() == 1000.0 );
+    CHECK( speed.data() == Setting<QDoubleSpinBox>( *panel, "editor.camera.move_speed" ) );
+    CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    CHECK( MapWorkspace_IsModified( &ws ) == modified );
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::USER, nullptr );
+    CHECK_FALSE( increase->isEnabled() ); CHECK_FALSE( decrease->isEnabled() ); CHECK_FALSE( reset->isEnabled() );
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::USER, &session.settings );
+    CHECK( increase->isEnabled() ); CHECK( decrease->isEnabled() ); CHECK_FALSE( reset->isEnabled() );
+}
+
+TEST_CASE( "Camera navigation reference exposes only registered destinations and effective speed and framing keys", "[map][gui][toolpanels][camera-speed][keyboard][help]" )
+{
+    session_t session; auto &ws = session.workspace;
+    RegisterReferenceCommand( session, "test.navigation.unrelated", "Unrelated map action" );
+    MapWorkspace_SetTool( &ws, map_tool_t::CAMERA );
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) );
+    REQUIRE( gui::EditorGui_AddKeymap( &session.gui, QStringLiteral( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "camera_navigation_reference" bindings = { "map" = {
+    "map.go_to" = [ "F5" ] "map.view.frame_all" = [ "F6" ]
+    "map.view.center_selection_2d" = [ "F7" ] "map.view.center_selection_3d" = [ "F8" ]
+    "map.camera.speed_increase" = [ "F9" ] "map.camera.speed_decrease" = [ "F10" ] "map.camera.speed_reset" = [ "F11" ]
+    "test.navigation.unrelated" = [ "F12" ]
+} } }
+)cykv" ) ) == gui::editor_gui_status_t::OK );
+    REQUIRE( gui::EditorGui_SelectKeymap( &session.gui, StringView_FromCString( "camera_navigation_reference" ) ) == gui::editor_gui_status_t::OK );
+    CHECK_FALSE( MapToolProperties_Operations( panel.get() ).contains( QStringLiteral( "map.go_to" ) ) );
+    CHECK( ReferenceRowsContaining( *panel, "Go To" ).isEmpty() );
+    CHECK( ReferenceRowsContaining( *panel, "Unrelated map action" ).isEmpty() );
+    RegisterReferenceCommand( session, "map.go_to", "Go To..." );
+    MapWorkspace_SetTool( &ws, map_tool_t::SELECT ); MapWorkspace_SetTool( &ws, map_tool_t::CAMERA );
+    auto *destination = Operation( *panel, "map.go_to" ); REQUIRE( destination->isEnabled() );
+    CHECK( destination->parentWidget()->property( "toolGroup" ).toString() == QStringLiteral( "Navigation" ) );
+    CHECK( MapToolProperties_Operations( panel.get() ).count( QStringLiteral( "map.go_to" ) ) == 1 );
+    for ( const auto &[key, label] : {
+              std::pair{ "F5", "Go To..." }, std::pair{ "F6", "Frame Map" },
+              std::pair{ "F7", "Center 2D Views on Selection" }, std::pair{ "F8", "Center 3D View on Selection" },
+              std::pair{ "F9", "Increase Camera Speed" }, std::pair{ "F10", "Decrease Camera Speed" },
+              std::pair{ "F11", "Reset Camera Speed" } } ) {
+        CAPTURE( key, label );
+        CHECK( ReferenceRowsContaining( *panel, label ) == QStringList{ QStringLiteral( "[%1] %2" ).arg( QString::fromLatin1( key ), QString::fromLatin1( label ) ) } );
+    }
+    QPointer<QDoubleSpinBox> speed = Setting<QDoubleSpinBox>( *panel, "editor.camera.move_speed" );
+    QPointer<QToolButton> retainedDestination = destination;
+    REQUIRE( gui::EditorGui_AddKeymap( &session.gui, QStringLiteral( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "camera_navigation_unbound" base = "camera_navigation_reference" bindings = { "map" = {
+    "map.go_to" = [] "map.view.frame_all" = [ "Ctrl+K, Ctrl+C" ] "map.camera.speed_increase" = []
+    "map.camera.speed_decrease" = [ "F4" ]
+} } }
+)cykv" ) ) == gui::editor_gui_status_t::OK );
+    REQUIRE( gui::EditorGui_SelectKeymap( &session.gui, StringView_FromCString( "camera_navigation_unbound" ) ) == gui::editor_gui_status_t::OK );
+    CHECK( ReferenceRowsContaining( *panel, "Go To" ).isEmpty() ); CHECK( ReferenceRowsContaining( *panel, "Frame Map" ).isEmpty() );
+    CHECK( ReferenceRowsContaining( *panel, "Increase Camera Speed" ).isEmpty() );
+    CHECK( ReferenceRowsContaining( *panel, "Decrease Camera Speed" ) == QStringList{ QStringLiteral( "[F4] Decrease Camera Speed" ) } );
+    CHECK( retainedDestination.data() == Operation( *panel, "map.go_to" ) );
+    CHECK( speed.data() == Setting<QDoubleSpinBox>( *panel, "editor.camera.move_speed" ) );
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE );
+    CHECK( ReferenceRowsContaining( *panel, "Decrease Camera Speed" ) == QStringList{ QStringLiteral( "[F4] Decrease Camera Speed" ) } );
+}
+
 TEST_CASE( "Select and Block expose one persisted centered resize preference and contextual help", "[map][gui][toolpanels][centered-resize]" )
 {
     session_t session;

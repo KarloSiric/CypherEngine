@@ -9081,3 +9081,174 @@ TEST_CASE( "Double click on a vertex opens its mesh inspector without discarding
         CHECK_FALSE( menu->isVisible() ); DoubleClick( view, { 5, 5 } ); CHECK( menu->isVisible() ); CHECK( inspections == pane + 1 ); menu->hide();
     }
 }
+
+namespace
+{
+void CameraSpeedTestKeys( session_t &session, settings_document_t &keys )
+{
+    REQUIRE( SettingsDocument_Init( &keys, Allocator_GetSystem(), EditorKeymap_Identity() ) == settings_document_status_t::OK );
+    REQUIRE( SettingsDocument_Load( &keys, StringView_FromCString( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "camera_speed_events"
+  bindings = { "map.viewport.3d" = {
+    "map.camera.speed_increase" = [ "Equal", "Plus", "Shift+Plus", "NumAdd" ]
+    "map.camera.speed_decrease" = [ "Minus", "Shift+Minus", "NumSubtract" ]
+    "map.camera.speed_reset" = [ "0", "Num0" ]
+  } }
+  held = { "map.viewport.3d" = { "map.camera.forward" = [ "W" ] "map.camera.fast" = [ "Shift" ] } }
+  mouse = { "map.viewport.3d" = { "map.camera.look" = [ "RightDrag" ] } }
+})cykv" ) ).status == settings_document_status_t::OK );
+    REQUIRE( MapWorkspace_RegisterCommands( &session.workspace, &session.gui.commands ) == command_registry_status_t::OK );
+    session.gui.keymapChain[0] = SettingsDocument_Root( &keys ); session.gui.nKeymapChain = 1u;
+}
+
+void CameraSpeedTestPress( QWidget *view, int key, Qt::KeyboardModifiers modifiers = Qt::NoModifier )
+{
+    QKeyEvent preflight( QEvent::ShortcutOverride, key, modifiers ); preflight.ignore();
+    QCoreApplication::sendEvent( view, &preflight ); REQUIRE( preflight.isAccepted() );
+    QKeyEvent press( QEvent::KeyPress, key, modifiers ); QCoreApplication::sendEvent( view, &press );
+    CHECK( press.isAccepted() );
+    QKeyEvent release( QEvent::KeyRelease, key, modifiers ); QCoreApplication::sendEvent( view, &release );
+}
+}
+
+TEST_CASE( "Camera speed key commands preserve held flight and the active look pickup", "[map][gui][views][camera-speed][keymap][navigation]" )
+{
+    session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
+    settings.Real( "editor.camera.move_speed", 1000.0 ); settings.Real( "editor.camera.fast_multiplier", 3.0 );
+    settings_document_t keys{}; CameraSpeedTestKeys( session, keys );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+    const auto *document = ws.pDocument; const auto geometry = document->geometry.revision, selection = ws.selection.revision;
+    const auto token = UndoRedo_StateToken( ws.history.pUndo ); const usize steps = EditorHistory_StepCount( &ws.history );
+    QKeyEvent forward( QEvent::KeyPress, Qt::Key_W, Qt::NoModifier ); QCoreApplication::sendEvent( camera.get(), &forward );
+    CHECK( TestDistance( MapCameraView_NavigationVelocity( camera.get() ), {} ) == 0.0 );
+    const QPointF point( 300, 220 ); DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton );
+    const auto originalForward = MapCameraView_Forward( camera.get() );
+    const auto checkSpeed = [&]( f64 base, Qt::KeyboardModifiers modifiers = Qt::NoModifier ) {
+        CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == base );
+        CheckPointClose( MapCameraView_NavigationVelocity( camera.get(), modifiers ), math::Vec3d_Scale( originalForward, base * ( modifiers.testFlag( Qt::ShiftModifier ) ? 3.0 : 1.0 ) ) );
+        CheckPointClose( MapCameraView_Forward( camera.get() ), originalForward );
+        CHECK( ws.tool == map_tool_t::SELECT );
+    };
+    checkSpeed( 1000.0 );
+    QKeyEvent preflight( QEvent::ShortcutOverride, Qt::Key_Equal, Qt::NoModifier ); preflight.ignore();
+    QCoreApplication::sendEvent( camera.get(), &preflight ); REQUIRE( preflight.isAccepted() ); checkSpeed( 1000.0 );
+    CameraSpeedTestPress( camera.get(), Qt::Key_Equal ); checkSpeed( 2000.0 );
+    CameraSpeedTestPress( camera.get(), Qt::Key_Minus ); checkSpeed( 1000.0 );
+    CameraSpeedTestPress( camera.get(), Qt::Key_Plus, Qt::ShiftModifier ); checkSpeed( 2000.0, Qt::ShiftModifier );
+    CameraSpeedTestPress( camera.get(), Qt::Key_0 ); checkSpeed( 1000.0 );
+    CameraSpeedTestPress( camera.get(), Qt::Key_Plus, Qt::KeypadModifier ); checkSpeed( 2000.0 );
+    CameraSpeedTestPress( camera.get(), Qt::Key_Minus, Qt::KeypadModifier ); checkSpeed( 1000.0 );
+    CameraSpeedTestPress( camera.get(), Qt::Key_Equal ); checkSpeed( 2000.0 );
+    CameraSpeedTestPress( camera.get(), Qt::Key_0, Qt::KeypadModifier ); checkSpeed( 1000.0 );
+    const auto position = MapCameraView_Position( camera.get() );
+    DragButton( camera.get(), QEvent::MouseMove, point + QPointF( 20, 0 ), Qt::RightButton );
+    CHECK( TestDistance( MapCameraView_Forward( camera.get() ), originalForward ) > 0.01 );
+    CheckPointClose( MapCameraView_Position( camera.get() ), position );
+    CHECK( TestDistance( MapCameraView_NavigationVelocity( camera.get() ), {} ) == Catch::Approx( 1000.0 ) );
+    QKeyEvent up( QEvent::KeyRelease, Qt::Key_W, Qt::NoModifier ); QCoreApplication::sendEvent( camera.get(), &up );
+    CheckPointClose( MapCameraView_NavigationVelocity( camera.get() ), {} );
+    DragButton( camera.get(), QEvent::MouseButtonRelease, point + QPointF( 20, 0 ), Qt::RightButton );
+    CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == geometry ); CHECK( ws.selection.revision == selection );
+    CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+}
+
+TEST_CASE( "Camera speed bindings stay remappable and never consume 2D or text editing keys", "[map][gui][views][camera-speed][keymap][focus]" )
+{
+    session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
+    settings.Real( "editor.camera.move_speed", 1000.0 );
+    settings_document_t keys{}, remapped{}; CameraSpeedTestKeys( session, keys );
+    REQUIRE( SettingsDocument_Init( &remapped, Allocator_GetSystem(), EditorKeymap_Identity() ) == settings_document_status_t::OK );
+    REQUIRE( SettingsDocument_Load( &remapped, StringView_FromCString( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "camera_speed_remapped" bindings = { "map.viewport.3d" = {
+  "map.camera.speed_increase" = [ "F6" ] "map.camera.speed_decrease" = [ "F7" ] "map.camera.speed_reset" = [ "F9" ]
+} } })cykv" ) ).status == settings_document_status_t::OK );
+    session.gui.keymapChain[0] = SettingsDocument_Root( &remapped ); session.gui.keymapChain[1] = SettingsDocument_Root( &keys ); session.gui.nKeymapChain = 2u;
+    QWidget window; auto *layout = new QHBoxLayout( &window );
+    auto *camera = MapCameraView_Create( &window, &ws ); auto *top = MapOrthoView_Create( &window, &ws, map_ortho_axes_t::TOP ); auto *input = new QLineEdit( &window );
+    layout->addWidget( camera ); layout->addWidget( top ); layout->addWidget( input ); ShowAt( &window, 1200, 600 );
+    CameraSpeedTestPress( camera, Qt::Key_F6 ); CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 2000.0 );
+    CameraSpeedTestPress( camera, Qt::Key_F7 ); CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 1000.0 );
+    CameraSpeedTestPress( camera, Qt::Key_F6 ); CameraSpeedTestPress( camera, Qt::Key_F9 );
+    CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 1000.0 );
+    for ( const int key : { Qt::Key_Equal, Qt::Key_Minus, Qt::Key_0 } ) {
+        QKeyEvent press( QEvent::KeyPress, key, Qt::NoModifier ); QCoreApplication::sendEvent( camera, &press );
+        CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 1000.0 );
+    }
+    for ( const int key : { Qt::Key_F6, Qt::Key_F7, Qt::Key_F9, Qt::Key_Equal, Qt::Key_Minus, Qt::Key_0 } ) {
+        QKeyEvent preflight( QEvent::ShortcutOverride, key, Qt::NoModifier ); preflight.ignore(); QCoreApplication::sendEvent( top, &preflight );
+        CHECK_FALSE( preflight.isAccepted() );
+        QKeyEvent press( QEvent::KeyPress, key, Qt::NoModifier ); QCoreApplication::sendEvent( top, &press );
+        CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 1000.0 );
+    }
+    session.gui.keymapChain[0] = SettingsDocument_Root( &keys ); session.gui.nKeymapChain = 1u;
+    window.activateWindow(); input->setFocus(); QCoreApplication::processEvents(); REQUIRE( input->hasFocus() );
+    Enter( camera ); REQUIRE( input->hasFocus() );
+    for ( const auto &stroke : { std::pair{ Qt::Key_Equal, QStringLiteral( "=" ) }, std::pair{ Qt::Key_Minus, QStringLiteral( "-" ) }, std::pair{ Qt::Key_0, QStringLiteral( "0" ) } } ) {
+        QKeyEvent preflight( QEvent::ShortcutOverride, stroke.first, Qt::NoModifier ); preflight.ignore(); QCoreApplication::sendEvent( input, &preflight );
+        CHECK( preflight.isAccepted() );
+        QKeyEvent press( QEvent::KeyPress, stroke.first, Qt::NoModifier, stroke.second ); QCoreApplication::sendEvent( input, &press );
+    }
+    CHECK( input->text() == QStringLiteral( "=-0" ) ); CHECK( input->hasFocus() );
+    CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 1000.0 );
+}
+
+TEST_CASE( "Effective camera speed changes briefly render feedback while metrics remain hidden", "[map][gui][views][camera-speed][render][settings]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    view_settings_t settings( &session.gui.settings ); DisableNameTestAids( settings );
+    settings.Real( "editor.camera.move_speed", 1000.0 );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+    const QImage baseline = camera->grab().toImage();
+    settings.Real( "editor.camera.move_speed", 2000.0 ); const QImage feedback = camera->grab().toImage();
+    CHECK( ChangedPixelCount( baseline, feedback ) > 100 );
+    CHECK_FALSE( EditorSettings_Bool( &session.gui.settings, "editor.viewport.perspective.show_metrics", CY_TRUE ) );
+    const qreal dpr = feedback.devicePixelRatio();
+    CHECK( ChangedPixelCount( baseline.copy( 0, 0, baseline.width(), static_cast<int>( 500 * dpr ) ),
+                              feedback.copy( 0, 0, feedback.width(), static_cast<int>( 500 * dpr ) ) ) == 0 );
+    QEventLoop expiry; QTimer::singleShot( 2250, &expiry, &QEventLoop::quit ); expiry.exec();
+    CHECK( ChangedPixelCount( baseline, camera->grab().toImage() ) == 0 );
+    settings.Real( "editor.camera.move_speed", 2000.0 ); // A same-value notification must not restart feedback.
+    CHECK( ChangedPixelCount( baseline, camera->grab().toImage() ) == 0 );
+    settings.Real( "editor.camera.fast_multiplier", 4.0 );
+    CHECK( ChangedPixelCount( baseline, camera->grab().toImage() ) == 0 );
+    settings.Real( "editor.camera.move_speed", 2500.0 );
+    CHECK( ChangedPixelCount( baseline, camera->grab().toImage() ) > 100 );
+}
+
+TEST_CASE( "Failed camera speed settings publication preserves flight and does not announce a change", "[map][gui][views][camera-speed][allocation][atomic]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    view_settings_t settings( &session.gui.settings ); DisableNameTestAids( settings );
+    settings.Real( "editor.camera.move_speed", 1000.0 );
+    settings_document_t keys{}; CameraSpeedTestKeys( session, keys );
+    mesh_face_allocation_failure_t audit{};
+    const allocator_t allocator{ &MeshFaceTestAllocate, nullptr, &MeshFaceTestFree, &audit };
+    settings_document_t scope{}; REQUIRE( SettingsDocument_Init( &scope, &allocator, EditorSettings_FileIdentity() ) == settings_document_status_t::OK );
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::WORKSPACE, &scope );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+    const QPointF point( 300, 220 ); DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton );
+    DragButton( camera.get(), QEvent::MouseMove, point + QPointF( 8, 0 ), Qt::RightButton );
+    QKeyEvent forward( QEvent::KeyPress, Qt::Key_W, Qt::NoModifier ); QCoreApplication::sendEvent( camera.get(), &forward );
+    const auto direction = MapCameraView_Forward( camera.get() ); const auto position = MapCameraView_Position( camera.get() );
+    const auto *document = ws.pDocument; const auto geometry = document->geometry.revision, selection = ws.selection.revision;
+    const auto token = UndoRedo_StateToken( ws.history.pUndo ); const usize steps = EditorHistory_StepCount( &ws.history );
+    const auto *settingsTree = scope.pDocument; const usize live = audit.live;
+    const QImage baseline = camera->grab().toImage();
+    audit.calls = 0u; audit.failOn = 1u; CameraSpeedTestPress( camera.get(), Qt::Key_Equal ); audit.failOn = 0u;
+    CHECK( audit.calls > 0u ); CHECK( audit.live == live ); CHECK( scope.pDocument == settingsTree );
+    CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 1000.0 );
+    CheckPointClose( MapCameraView_NavigationVelocity( camera.get() ), math::Vec3d_Scale( direction, 1000.0 ) );
+    CheckPointClose( MapCameraView_Position( camera.get() ), position ); CheckPointClose( MapCameraView_Forward( camera.get() ), direction );
+    CHECK( ChangedPixelCount( baseline, camera->grab().toImage() ) == 0 );
+    CameraSpeedTestPress( camera.get(), Qt::Key_Equal );
+    CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 2000.0 );
+    CheckPointClose( MapCameraView_NavigationVelocity( camera.get() ), math::Vec3d_Scale( direction, 2000.0 ) );
+    CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == geometry ); CHECK( ws.selection.revision == selection );
+    CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    QKeyEvent up( QEvent::KeyRelease, Qt::Key_W, Qt::NoModifier ); QCoreApplication::sendEvent( camera.get(), &up );
+    DragButton( camera.get(), QEvent::MouseButtonRelease, point + QPointF( 8, 0 ), Qt::RightButton );
+    camera.reset(); EditorSettings_SetScope( &session.gui.settings, settings_scope_t::WORKSPACE, nullptr );
+    SettingsDocument_Shutdown( &scope ); CHECK( audit.live == 0u );
+}

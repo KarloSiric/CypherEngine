@@ -3311,3 +3311,98 @@ TEST_CASE( "Capture Mason authored mesh vertex editing", "[.mesh-vertex-capture]
     auto *panel = window->findChild<QWidget *>( QStringLiteral( "MapToolProperties" ) ); REQUIRE( panel );
     REQUIRE( panel->grab().save( QStringLiteral( "artifacts/mason_mesh_vertex_properties.png" ) ) );
 }
+
+TEST_CASE( "Mason flight speed defaults execute only in the camera and appear in editable keybindings", "[mason][smoke][camera-speed]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    auto *window = Mason_Window( session.pMason );
+    auto *gui = Mason_Gui( session.pMason );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    auto *camera = MapViews_PaneView( views, 0 ); REQUIRE( camera );
+    auto *top = MapViews_PaneView( views, 1 ); REQUIRE( top );
+    const auto *descriptor = EditorSettings_Find( &gui->settings, StringView_FromCString( "editor.camera.move_speed" ) ); REQUIRE( descriptor );
+    setting_value_t value{}; value.type = setting_type_t::REAL; value.flValue = 1000.0;
+    REQUIRE( EditorSettings_Write( &gui->settings, settings_scope_t::USER, *descriptor, value ) == settings_registry_status_t::OK );
+    const auto speed = [&]() { return EditorSettings_Real( &gui->settings, "editor.camera.move_speed", 0.0 ); };
+    const auto *document = ws->pDocument;
+    const auto selectionRevision = ws->selection.revision;
+    const auto steps = EditorHistory_StepCount( &ws->history );
+    MapViews_SetActivePane( views, 0 );
+    REQUIRE( MasonWorkflowKey( camera, Qt::Key_Equal ) ); CHECK( speed() == 2000.0 );
+    REQUIRE( MasonWorkflowKey( camera, Qt::Key_0 ) ); CHECK( speed() == 1000.0 );
+    REQUIRE( MasonWorkflowKey( camera, Qt::Key_Minus ) ); CHECK( speed() == 500.0 );
+    REQUIRE( MasonWorkflowKey( camera, Qt::Key_0 ) ); CHECK( speed() == 1000.0 );
+    MapViews_SetActivePane( views, 1 );
+    ( void )MasonWorkflowKey( top, Qt::Key_Equal ); CHECK( speed() == 1000.0 );
+    QLineEdit text( window ); text.setText( QStringLiteral( "camera" ) ); text.show(); text.setFocus();
+    ( void )MasonWorkflowKey( &text, Qt::Key_Minus ); CHECK( speed() == 1000.0 );
+    CHECK( ws->pDocument == document ); CHECK( ws->selection.revision == selectionRevision );
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps );
+
+    REQUIRE( session.Run( QStringLiteral( "tools.keymap_editor" ) ) == command_result_t::OK );
+    auto *page = window->findChild<QWidget *>( QStringLiteral( "EditorKeymapSettings" ) ); REQUIRE( page );
+    const auto rows = EditorKeymapSettings_Rows( page );
+    for ( const QString id : { QStringLiteral( "map.camera.speed_increase" ), QStringLiteral( "map.camera.speed_decrease" ), QStringLiteral( "map.camera.speed_reset" ) } ) {
+        CAPTURE( id.toStdString() );
+        bool found = false;
+        for ( const QString &row : rows ) {
+            const auto columns = row.split( QLatin1Char( '\t' ) );
+            if ( columns.size() >= 5 && columns[1] == id && columns[3] == QStringLiteral( "map.viewport.3d" ) ) {
+                found = true; CHECK_FALSE( columns[4].isEmpty() );
+            }
+        }
+        CHECK( found );
+    }
+    REQUIRE( EditorKeymapSettings_SetTriggers( page, keymap_section_t::BINDINGS, keymap_platform_t::NONE,
+        QStringLiteral( "map.viewport.3d" ), QStringLiteral( "map.camera.speed_increase" ), { QStringLiteral( "J" ) } ) );
+    CHECK( EditorKeymapSettings_HasChanges( page ) );
+    CHECK( EditorKeymapSettings_Conflicts( page ).isEmpty() );
+    EditorKeymapSettings_Revert( page );
+}
+
+TEST_CASE( "Mason navigation shortcuts open Go To and return the view to the full map", "[mason][smoke][camera-speed][navigation]" )
+{
+    mason_session_t session;
+    REQUIRE( Mason_OpenMap( session.pMason, ExampleRoot() ) );
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    auto *window = Mason_Window( session.pMason );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    auto *camera = MapViews_PaneView( views, 0 ); REQUIRE( camera );
+    const auto *document = ws->pDocument;
+    const auto steps = EditorHistory_StepCount( &ws->history );
+    MapViews_SetActivePane( views, 0 );
+    REQUIRE( MasonWorkflowKey( camera, Qt::Key_G, Qt::ControlModifier | Qt::ShiftModifier ) );
+    auto *dialog = window->findChild<QDialog *>( QStringLiteral( "MapGoToDialog" ) ); REQUIRE( dialog );
+    auto *input = dialog->findChild<QLineEdit *>( QStringLiteral( "MapGoToInput" ) ); REQUIRE( input );
+    CHECK( dialog->isVisible() ); input->setText( QStringLiteral( "spawn_a" ) );
+    ( void )MasonWorkflowKey( input, Qt::Key_Return );
+    REQUIRE( EditorSelection_Count( &ws->selection ) == 1u );
+    const auto *entity = MapWireframe_FindEntity( ws->wire, EditorSelection_At( &ws->selection, 0 ) ); REQUIRE( entity );
+    REQUIRE( ws->frameBounds.bHas );
+    dialog->hide(); MapViews_SetActivePane( views, 0 );
+    REQUIRE( MasonWorkflowKey( camera, Qt::Key_Home ) );
+    CHECK( ws->frameBounds.box.minimum.x == ws->wire.bounds.box.minimum.x );
+    CHECK( ws->frameBounds.box.maximum.z == ws->wire.bounds.box.maximum.z );
+    CHECK( ws->frameTarget == map_frame_target_t::ALL );
+    CHECK( ws->pDocument == document ); CHECK( EditorHistory_StepCount( &ws->history ) == steps );
+}
+
+TEST_CASE( "Capture Mason camera navigation and speed feedback", "[mason][smoke][.camera-speed-capture]" )
+{
+    mason_session_t session;
+    REQUIRE( Mason_OpenMap( session.pMason, ExampleRoot() ) );
+    auto *ws = Mason_MapWorkspace( session.pMason ); auto *window = Mason_Window( session.pMason );
+    window->resize( 1600, 1050 );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER );
+    auto *camera = MapViews_PaneView( views, 0 ); REQUIRE( camera );
+    MapCameraView_SetRenderMode( camera, map_render_mode_t::FULLBRIGHT );
+    MapWorkspace_SetTool( ws, map_tool_t::CAMERA ); MapViews_SetActivePane( views, 0 );
+    QCoreApplication::processEvents();
+    REQUIRE( MasonWorkflowKey( camera, Qt::Key_Equal ) );
+    QCoreApplication::processEvents(); REQUIRE( QDir().mkpath( QStringLiteral( "artifacts" ) ) );
+    REQUIRE( window->grab().save( QStringLiteral( "artifacts/mason_camera_navigation_workspace.png" ) ) );
+    auto *panel = window->findChild<QWidget *>( QStringLiteral( "MapToolProperties" ) ); REQUIRE( panel );
+    REQUIRE( panel->grab().save( QStringLiteral( "artifacts/mason_camera_navigation_properties.png" ) ) );
+}

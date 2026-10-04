@@ -141,6 +141,203 @@ void FreeEdgeTest( void *context, void *memory, usize bytes, usize alignment ) n
     if ( memory != nullptr ) { --static_cast<edge_allocation_t *>( context )->live; }
     Allocator_Free( Allocator_GetSystem(), memory, bytes, alignment );
 }
+
+struct camera_scope_t {
+    settings_registry_t *registry{};
+    settings_scope_t scope{};
+    settings_document_t store{};
+    camera_scope_t( settings_registry_t &settings, settings_scope_t target, const char *body = "{}", const allocator_t *allocator = Allocator_GetSystem() )
+        : registry( &settings ), scope( target )
+    {
+        REQUIRE( SettingsDocument_Init( &store, allocator, EditorSettings_FileIdentity() ) == settings_document_status_t::OK );
+        const std::string text = std::string( "@cykv 1\n@schema \"cypher.settings\" 2\n" ) + body + "\n";
+        REQUIRE( SettingsDocument_Load( &store, { text.data(), text.size() } ).status == settings_document_status_t::OK );
+        EditorSettings_SetScope( registry, scope, &store );
+    }
+    ~camera_scope_t() { EditorSettings_SetScope( registry, scope, nullptr ); }
+};
+
+std::string SettingsText( const settings_document_t &store )
+{
+    text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, Allocator_GetSystem() ) );
+    REQUIRE( SettingsDocument_Write( &store, &text ) == settings_document_status_t::OK );
+    return { text.pData, text.cchLength };
+}
+
+f64 CameraSpeed( const settings_registry_t &settings ) { return EditorSettings_Real( &settings, "editor.camera.move_speed", -1.0 ); }
+
+void WriteCameraSpeed( settings_registry_t &settings, settings_scope_t scope, f64 speed )
+{
+    const auto *descriptor = EditorSettings_Find( &settings, StringView_FromCString( "editor.camera.move_speed" ) ); REQUIRE( descriptor != nullptr );
+    setting_value_t value{}; value.type = setting_type_t::REAL; value.flValue = speed;
+    REQUIRE( EditorSettings_Write( &settings, scope, *descriptor, value ) == settings_registry_status_t::OK );
+}
+
+struct camera_change_log_t { const settings_registry_t *registry{}; usize calls{}; bool exact{ true }; f64 speed{}; };
+void RecordCameraSpeed( void *context, string_view_t path ) noexcept
+{
+    auto &log = *static_cast<camera_change_log_t *>( context ); ++log.calls;
+    log.exact = log.exact && StringView_Equals( path, StringView_FromCString( "editor.camera.move_speed" ) );
+    log.speed = CameraSpeed( *log.registry );
+}
+}
+
+TEST_CASE( "Camera speed commands scale clamp and reset through the narrowest settings scope", "[map][gui][workspace][camera-speed]" )
+{
+    edge_session_t session; auto &settings = session.gui.settings; auto &ws = session.workspace;
+    camera_scope_t user( settings, settings_scope_t::USER, "{ editor = { camera = { move_speed = 1500.0 } } }" );
+    camera_scope_t project( settings, settings_scope_t::PROJECT );
+    camera_scope_t local( settings, settings_scope_t::WORKSPACE, "{ future = { name = \"preserve me\" } }" );
+    const auto userText = SettingsText( user.store ), projectText = SettingsText( project.store );
+    const auto *storeAddress = settings.scopes[0];
+    camera_change_log_t log{ &settings }; REQUIRE( EditorSettings_AddListener( &settings, &RecordCameraSpeed, &log ) );
+    REQUIRE( Run( session.gui, "map.camera.speed_increase" ) == command_result_t::OK );
+    CHECK( CameraSpeed( settings ) == 3000 ); CHECK( log.calls == 1 ); CHECK( log.exact ); CHECK( log.speed == 3000 );
+    CHECK( settings.scopes[0] == storeAddress ); CHECK( SettingsText( user.store ) == userText ); CHECK( SettingsText( project.store ) == projectText );
+    CHECK( SettingsText( local.store ).find( "preserve me" ) != std::string::npos );
+    REQUIRE( Run( session.gui, "map.camera.speed_decrease" ) == command_result_t::OK ); CHECK( CameraSpeed( settings ) == 1500 );
+    const auto *descriptor = EditorSettings_Find( &settings, StringView_FromCString( "editor.camera.move_speed" ) ); REQUIRE( descriptor != nullptr );
+    setting_value_t raw{}; CHECK( Setting_Read( SettingsDocument_Root( &local.store ), *descriptor, &raw, nullptr ) == setting_read_status_t::ABSENT );
+    // Reset writes the descriptor default even when the wider user scope differs.
+    REQUIRE( Run( session.gui, "map.camera.speed_reset" ) == command_result_t::OK ); CHECK( CameraSpeed( settings ) == descriptor->flDefault );
+    CHECK( Run( session.gui, "map.camera.speed_reset" ) == command_result_t::DISABLED );
+    WriteCameraSpeed( settings, settings_scope_t::WORKSPACE, 75000 );
+    REQUIRE( Run( session.gui, "map.camera.speed_increase" ) == command_result_t::OK ); CHECK( CameraSpeed( settings ) == descriptor->flMax );
+    CHECK_FALSE( MapWorkspace_CanChangeCameraSpeed( &ws, map_camera_speed_action_t::INCREASE ) );
+    CHECK( Run( session.gui, "map.camera.speed_increase" ) == command_result_t::DISABLED );
+    WriteCameraSpeed( settings, settings_scope_t::WORKSPACE, 15 );
+    REQUIRE( Run( session.gui, "map.camera.speed_decrease" ) == command_result_t::OK ); CHECK( CameraSpeed( settings ) == descriptor->flMin );
+    CHECK( Run( session.gui, "map.camera.speed_decrease" ) == command_result_t::DISABLED );
+    REQUIRE( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::RESET ) ); CHECK( CameraSpeed( settings ) == 1000 );
+    CHECK( log.exact ); EditorSettings_RemoveListener( &settings, &RecordCameraSpeed, &log );
+    settings_document_t reopened{}; REQUIRE( SettingsDocument_Init( &reopened, Allocator_GetSystem(), EditorSettings_FileIdentity() ) == settings_document_status_t::OK );
+    const auto saved = SettingsText( local.store ); REQUIRE( SettingsDocument_Load( &reopened, { saved.data(), saved.size() } ).status == settings_document_status_t::OK );
+    REQUIRE( Setting_Read( SettingsDocument_Root( &reopened ), *descriptor, &raw, nullptr ) == setting_read_status_t::VALUE ); CHECK( raw.flValue == 1000 );
+}
+
+TEST_CASE( "Camera speed remains independent of map metadata selection history and editability", "[map][gui][workspace][camera-speed]" )
+{
+    edge_session_t session; auto &ws = session.workspace; auto &settings = session.gui.settings;
+    const auto object = AddEdgeTestMesh( ws ); const auto vertices = SourceVertices( ws, object );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES ); REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[0] ) );
+    ws.pDocument->bReadOnly = CY_TRUE;
+    camera_scope_t user( settings, settings_scope_t::USER );
+    const auto *document = ws.pDocument; const auto *metadata = document->root.pDocument;
+    const auto metadataText = SettingsText( document->root ); const auto geometryRevision = document->geometry.revision;
+    const auto nextId = document->nextId, selectionRevision = ws.selection.revision; const auto *roots = ws.selection.ids.pData;
+    const auto *components = ws.meshSelection.vertices.pData; const auto *points = ws.wire.points.pData; const auto *undo = ws.history.pUndo;
+    const auto steps = EditorHistory_StepCount( &ws.history ); const auto modified = MapWorkspace_IsModified( &ws );
+    change_log_t log{}; REQUIRE( MapWorkspace_AddListener( &ws, &Record, &log ) );
+    REQUIRE( Run( session.gui, "map.camera.speed_increase" ) == command_result_t::OK );
+    CHECK( ws.pDocument == document ); CHECK( ws.pDocument->root.pDocument == metadata ); CHECK( SettingsText( document->root ) == metadataText );
+    CHECK( document->geometry.revision == geometryRevision ); CHECK( document->nextId == nextId ); CHECK( document->bReadOnly );
+    CHECK( ws.selection.ids.pData == roots ); CHECK( ws.selection.revision == selectionRevision ); CHECK( ws.meshSelection.vertices.pData == components );
+    CHECK( MapWorkspace_HasMeshVertices( &ws ) ); CHECK( ws.wire.points.pData == points ); CHECK( ws.history.pUndo == undo );
+    CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( MapWorkspace_IsModified( &ws ) == modified ); CHECK( log.nCalls == 0 );
+    // Navigation preferences also remain available when a host has no active map.
+    auto *ownedDocument = ws.pDocument; ws.pDocument = nullptr;
+    CHECK( MapWorkspace_CanChangeCameraSpeed( &ws, map_camera_speed_action_t::DECREASE ) );
+    CHECK( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::DECREASE ) ); ws.pDocument = ownedDocument;
+    CHECK( CameraSpeed( settings ) == 1000 ); CHECK( log.nCalls == 0 ); MapWorkspace_RemoveListener( &ws, &Record, &log );
+}
+
+TEST_CASE( "Camera speed notification retains staged clipping without a map change", "[map][gui][workspace][camera-speed][clip]" )
+{
+    edge_session_t session; auto &ws = session.workspace; auto &settings = session.gui.settings;
+    camera_scope_t user( settings, settings_scope_t::USER );
+    map_bounds_t bounds{}; bounds.bHas = CY_TRUE; bounds.box = { { 0, 0, 0 }, { 64, 64, 64 } };
+    REQUIRE( MapWorkspace_CreateBox( &ws, bounds ) ); MapWorkspace_SetTool( &ws, map_tool_t::CLIP );
+    MapWorkspace_SetClipPreview( &ws, { { 1, 0, 0 }, -32 } ); REQUIRE( ws.editPreview.bActive ); REQUIRE( ws.editPreview.bClip );
+    REQUIRE( ws.editPreview.status == map_status_t::OK );
+    const auto *previewPoints = ws.editPreviewWire.points.pData; const auto steps = EditorHistory_StepCount( &ws.history );
+    change_log_t mapLog{}; REQUIRE( MapWorkspace_AddListener( &ws, &Record, &mapLog ) );
+    camera_change_log_t settingLog{ &settings }; REQUIRE( EditorSettings_AddListener( &settings, &RecordCameraSpeed, &settingLog ) );
+    REQUIRE( Run( session.gui, "map.camera.speed_increase" ) == command_result_t::OK );
+    CHECK( settingLog.calls == 1 ); CHECK( settingLog.exact ); CHECK( settingLog.speed == 2000 ); CHECK( mapLog.nCalls == 0 );
+    CHECK( ws.editPreview.bActive ); CHECK( ws.editPreview.bClip ); CHECK( ws.editPreview.clipPlane.d == -32 );
+    CHECK( ws.editPreviewWire.points.pData == previewPoints ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    EditorSettings_RemoveListener( &settings, &RecordCameraSpeed, &settingLog ); MapWorkspace_RemoveListener( &ws, &Record, &mapLog );
+}
+
+TEST_CASE( "Camera speed rejects unavailable scopes and rechecks stale command state", "[map][gui][workspace][camera-speed]" )
+{
+    edge_session_t session; auto &ws = session.workspace; auto &settings = session.gui.settings;
+    for ( const auto action : { map_camera_speed_action_t::INCREASE, map_camera_speed_action_t::DECREASE, map_camera_speed_action_t::RESET } ) {
+        CHECK_FALSE( MapWorkspace_CanChangeCameraSpeed( &ws, action ) ); CHECK_FALSE( MapWorkspace_ChangeCameraSpeed( &ws, action ) );
+    }
+    CHECK( Run( session.gui, "map.camera.speed_increase" ) == command_result_t::DISABLED ); CHECK( CameraSpeed( settings ) == 1000 );
+    CHECK_FALSE( MapWorkspace_CanChangeCameraSpeed( nullptr, map_camera_speed_action_t::INCREASE ) );
+    camera_scope_t user( settings, settings_scope_t::USER, "{ editor = { camera = { move_speed = 2000.0 } } }" );
+    const auto *command = EditorCommands_Find( &session.gui.commands, StringView_FromCString( "map.camera.speed_increase" ) ); REQUIRE( command != nullptr );
+    CHECK( ( command->flags & COMMAND_FLAG_EDITS_DOCUMENT ) == 0 ); CHECK( ( command->pfnState( command->pContext ) & COMMAND_STATE_ENABLED ) != 0 );
+    WriteCameraSpeed( settings, settings_scope_t::USER, 100000 );
+    CHECK( command->pfnExecute( command->pContext, {} ) == command_result_t::DISABLED ); CHECK( CameraSpeed( settings ) == 100000 );
+    EditorSettings_SetScope( &settings, settings_scope_t::USER, nullptr );
+    CHECK( command->pfnExecute( command->pContext, {} ) == command_result_t::DISABLED );
+    EditorSettings_SetScope( &settings, settings_scope_t::USER, &user.store ); const auto userText = SettingsText( user.store );
+    {
+        camera_scope_t blocked( settings, settings_scope_t::WORKSPACE, "{ editor = 4 }" ); const auto blockedText = SettingsText( blocked.store );
+        CHECK_FALSE( MapWorkspace_CanChangeCameraSpeed( &ws, map_camera_speed_action_t::DECREASE ) );
+        CHECK_FALSE( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::DECREASE ) );
+        CHECK( SettingsText( blocked.store ) == blockedText ); CHECK( SettingsText( user.store ) == userText );
+    }
+    settings_document_t uninitialized{}; EditorSettings_SetScope( &settings, settings_scope_t::PROJECT, &uninitialized );
+    CHECK_FALSE( MapWorkspace_CanChangeCameraSpeed( &ws, map_camera_speed_action_t::DECREASE ) );
+    CHECK_FALSE( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::DECREASE ) );
+    EditorSettings_SetScope( &settings, settings_scope_t::PROJECT, nullptr );
+    CHECK_FALSE( MapWorkspace_ChangeCameraSpeed( &ws, static_cast<map_camera_speed_action_t>( 255 ) ) );
+}
+
+TEST_CASE( "Camera speed rejects nonfinite descriptor boundaries and recovers invalid stored values", "[map][gui][workspace][camera-speed]" )
+{
+    edge_session_t session; auto &settings = session.gui.settings; auto &ws = session.workspace;
+    camera_scope_t user( settings, settings_scope_t::USER, "{ editor = { camera = { move_speed = \"nan\" } } }" );
+    CHECK( CameraSpeed( settings ) == 1000 ); REQUIRE( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::INCREASE ) );
+    CHECK( CameraSpeed( settings ) == 2000 );
+    const auto *descriptor = EditorSettings_Find( &settings, StringView_FromCString( "editor.camera.move_speed" ) ); REQUIRE( descriptor != nullptr );
+    usize index{}; while ( settings.descriptors.pData[index] != descriptor ) { ++index; }
+    setting_descriptor_t invalid = *descriptor; settings.descriptors.pData[index] = &invalid;
+    for ( const auto nonfinite : { std::numeric_limits<f64>::infinity(), std::numeric_limits<f64>::quiet_NaN() } ) {
+        invalid = *descriptor; invalid.flMax = nonfinite;
+        CHECK_FALSE( MapWorkspace_CanChangeCameraSpeed( &ws, map_camera_speed_action_t::INCREASE ) );
+        CHECK_FALSE( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::DECREASE ) );
+        invalid = *descriptor; invalid.flDefault = nonfinite;
+        CHECK_FALSE( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::RESET ) );
+    }
+    settings.descriptors.pData[index] = descriptor; CHECK( CameraSpeed( settings ) == 2000 );
+}
+
+TEST_CASE( "Every camera speed staging allocation failure preserves settings and map state and permits retry", "[map][gui][workspace][camera-speed][allocation][atomic]" )
+{
+    edge_allocation_t audit{}; const allocator_t allocator{ &AllocateEdgeTest, nullptr, &FreeEdgeTest, &audit }; usize successfulCalls{};
+    {
+        edge_session_t session; camera_scope_t local( session.gui.settings, settings_scope_t::WORKSPACE, "{ future = { text = \"keep\" } }", &allocator );
+        audit.calls = 0; REQUIRE( MapWorkspace_ChangeCameraSpeed( &session.workspace, map_camera_speed_action_t::INCREASE ) ); successfulCalls = audit.calls;
+    }
+    CHECK( audit.live == 0 ); REQUIRE( successfulCalls > 0 );
+    for ( usize failure = 1; failure <= successfulCalls; ++failure ) {
+        CAPTURE( failure );
+        {
+            edge_session_t session; auto &ws = session.workspace; auto &settings = session.gui.settings;
+            camera_scope_t local( settings, settings_scope_t::WORKSPACE, "{ future = { text = \"keep\" } }", &allocator );
+            const auto original = SettingsText( local.store ); auto *tree = local.store.pDocument; const auto loadedVersion = local.store.nLoadedVersion;
+            const auto *document = ws.pDocument; const auto *metadata = document->root.pDocument; const auto revision = document->geometry.revision;
+            const auto *roots = ws.selection.ids.pData; const auto selectionRevision = ws.selection.revision; const auto steps = EditorHistory_StepCount( &ws.history );
+            change_log_t mapLog{}; REQUIRE( MapWorkspace_AddListener( &ws, &Record, &mapLog ) );
+            camera_change_log_t settingLog{ &settings }; REQUIRE( EditorSettings_AddListener( &settings, &RecordCameraSpeed, &settingLog ) );
+            const auto live = audit.live; audit.calls = 0; audit.failOn = failure;
+            CHECK( Run( session.gui, "map.camera.speed_increase" ) == command_result_t::FAILED ); audit.failOn = 0;
+            CHECK( audit.live == live ); CHECK( local.store.pDocument == tree ); CHECK( local.store.nLoadedVersion == loadedVersion );
+            CHECK( SettingsText( local.store ) == original ); CHECK( CameraSpeed( settings ) == 1000 ); CHECK( settingLog.calls == 0 );
+            CHECK( ws.pDocument == document ); CHECK( document->root.pDocument == metadata ); CHECK( document->geometry.revision == revision );
+            CHECK( ws.selection.ids.pData == roots ); CHECK( ws.selection.revision == selectionRevision ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+            CHECK( mapLog.nCalls == 0 );
+            REQUIRE( Run( session.gui, "map.camera.speed_increase" ) == command_result_t::OK ); CHECK( CameraSpeed( settings ) == 2000 );
+            CHECK( settingLog.calls == 1 ); CHECK( settingLog.exact ); CHECK( settingLog.speed == 2000 ); CHECK( mapLog.nCalls == 0 );
+            EditorSettings_RemoveListener( &settings, &RecordCameraSpeed, &settingLog ); MapWorkspace_RemoveListener( &ws, &Record, &mapLog );
+        }
+        CHECK( audit.live == 0 );
+    }
 }
 
 TEST_CASE( "Authored mesh edge selection is persistent canonical and confined to one source", "[map][gui][workspace][mesh-edge]" )
@@ -728,7 +925,7 @@ TEST_CASE( "Merge reuses its command and requires exactly two compatible visible
     command_registry_t commands{};
     REQUIRE( EditorCommands_Init( &commands, Allocator_GetSystem() ) == command_registry_status_t::OK );
     REQUIRE( MapWorkspace_RegisterCommands( &ws, &commands ) == command_registry_status_t::OK );
-    CHECK( EditorCommands_Count( &commands ) == 139u ); // Includes the named Edge Editing operation catalog.
+    CHECK( EditorCommands_Count( &commands ) == 142u ); // Includes the Edge Editing catalog and camera speed controls.
     const auto *merge = EditorCommands_Find( &commands, StringView_FromCString( "map.brush.merge" ) );
     REQUIRE( merge != nullptr );
     CHECK( std::string( merge->pIcon ) == "csg-merge" );

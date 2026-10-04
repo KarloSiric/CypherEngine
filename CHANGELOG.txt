@@ -44,8 +44,14 @@ Added - Mason map authoring
 - Central content library, authored entity keys, configurable viewport content
   and collapsed console in the right inspector dock. Keys do not execute
   missing gameplay systems.
+- Remappable camera flight-speed Increase/Decrease/Reset commands, viewport-only
+  speed keys and brief feedback through the existing camera setting. Held
+  fast/slow keys stay temporary. Camera properties expose speed, Go To and
+  framing controls; Home frames the map from a geometric viewport.
 
 Changed
+- In 3D, plus/minus and keypad equivalents adjust camera speed; brackets keep
+  grid controls. Plus/minus retain grid behavior in 2D.
 - Escape cancels a gesture, leaves an idle tool for Navigation, then clears
   retained selection. Text fields/dialogs retain native behavior.
 - Visible geometric-edge tolerance improves grazing-angle whole-object picks;
@@ -64,6 +70,9 @@ Validation and remaining work
   GitHub Actions run 37197840651 passed all 15 jobs including Mason.
 - Following vertex checkpoint: five local suites, 201362 assertions / 825 cases;
   combined vertex/edge checks passed at 2x scaling and Mason captures inspected.
+  GitHub Actions run 37201143691 passed all 15 jobs for the published commit.
+- Camera speed/navigation: five local suites, 202343 assertions / 839 cases;
+  camera subset 812 / 13 at 2x scaling; Mason captures inspected.
 - Component edit adapters, face UV edits, full Hammer shortcut parity and
   renderer/ECS/audio/physics/gameplay integration remain unfinished. Full Mason
   user documentation comes later; research notes retain implementation evidence.

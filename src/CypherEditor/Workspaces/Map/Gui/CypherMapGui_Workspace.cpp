@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdio>
 #include <new>
+#include <utility>
 
 namespace cypher::editor::map
 {
@@ -202,6 +203,66 @@ bool_t WriteGridSetting( map_workspace_t *pWorkspace, const char *pPath, const s
         }
     }
     return CY_FALSE;
+}
+
+struct camera_speed_write_t {
+    const setting_descriptor_t *pDescriptor{};
+    settings_document_t *pStore{};
+    settings_scope_t scope{ settings_scope_t::DEFAULT };
+    setting_value_t value{};
+};
+
+bool_t PlanCameraSpeed( const map_workspace_t *pWorkspace, map_camera_speed_action_t action, camera_speed_write_t &write ) noexcept
+{
+    if ( pWorkspace == nullptr || pWorkspace->pGui == nullptr ) { return CY_FALSE; }
+    const auto *pSettings = &pWorkspace->pGui->settings;
+    const auto *pDescriptor = EditorSettings_Find( pSettings, StringView_FromCString( "editor.camera.move_speed" ) );
+    if ( pDescriptor == nullptr || pDescriptor->type != setting_type_t::REAL || !std::isfinite( pDescriptor->flMin ) ||
+         !std::isfinite( pDescriptor->flMax ) || pDescriptor->flMin <= 0.0 || pDescriptor->flMax < pDescriptor->flMin ||
+         Setting_Check( *pDescriptor, Setting_Default( *pDescriptor ) ) != setting_problem_code_t::NONE ) { return CY_FALSE; }
+    const auto current = EditorSettings_Resolve( pSettings, *pDescriptor ).value;
+    if ( Setting_Check( *pDescriptor, current ) != setting_problem_code_t::NONE ) { return CY_FALSE; }
+    f64 target{};
+    switch ( action ) {
+        case map_camera_speed_action_t::INCREASE:
+            target = current.flValue >= pDescriptor->flMax * 0.5 ? pDescriptor->flMax : current.flValue * 2.0;
+            break;
+        case map_camera_speed_action_t::DECREASE: target = current.flValue * 0.5; break;
+        case map_camera_speed_action_t::RESET: target = pDescriptor->flDefault; break;
+        default: return CY_FALSE;
+    }
+    target = std::clamp( target, pDescriptor->flMin, pDescriptor->flMax );
+    if ( !std::isfinite( target ) || target == current.flValue ) { return CY_FALSE; }
+    for ( usize i = 0u; i < static_cast<usize>( settings_scope_t::DEFAULT ); ++i ) {
+        if ( pSettings->scopes[i] != nullptr ) {
+            write.pStore = pSettings->scopes[i]; write.scope = static_cast<settings_scope_t>( i ); break;
+        }
+    }
+    if ( !SettingsDocument_IsInitialized( write.pStore ) ) { return CY_FALSE; }
+    settings_path_t path{};
+    if ( !SettingsPath_Parse( StringView_FromCString( pDescriptor->pPath ), &path ) ) { return CY_FALSE; }
+    const auto *pParent = SettingsDocument_Root( write.pStore );
+    if ( KeyValue_Type( pParent ) != key_value_type_t::OBJECT ) { return CY_FALSE; }
+    for ( usize i = 0u; i + 1u < path.nSegments; ++i ) {
+        pParent = KeyValue_Find( pParent, path.segments[i] );
+        if ( pParent == nullptr ) { break; }
+        if ( KeyValue_Type( pParent ) != key_value_type_t::OBJECT ) { return CY_FALSE; }
+    }
+    write.pDescriptor = pDescriptor; write.value.type = setting_type_t::REAL; write.value.flValue = target;
+    return CY_TRUE;
+}
+
+bool_t PrepareCameraSpeed( const camera_speed_write_t &write, const settings_registry_t &settings, settings_document_t &candidate ) noexcept
+{
+    if ( SettingsDocument_Init( &candidate, write.pStore->pAllocator, write.pStore->identity ) != settings_document_status_t::OK ||
+         !KeyValue_SetDocumentHeader( candidate.pDocument, KeyValue_DocumentHeader( write.pStore->pDocument ) ) ) { return CY_FALSE; }
+    candidate.nLoadedVersion = write.pStore->nLoadedVersion;
+    auto *pRoot = KeyValue_Root( candidate.pDocument );
+    for ( const auto *pChild = KeyValue_FirstChild( SettingsDocument_Root( write.pStore ) ); pChild != nullptr; pChild = KeyValue_NextSibling( pChild ) ) {
+        if ( KeyValue_CloneInto( candidate.pDocument, pRoot, pChild ) == nullptr ) { return CY_FALSE; }
+    }
+    return Setting_WriteOverride( &candidate, *write.pDescriptor, write.value,
+                                 EditorSettings_ResolveInherited( &settings, *write.pDescriptor, write.scope ).value ) == settings_document_status_t::OK;
 }
 
 struct tool_info_t {
@@ -526,6 +587,20 @@ command_result_t SelectEdgeTopology( void *pContext, const command_args_t & ) no
     if ( !MapWorkspace_CanSelectMeshEdgeTopology( workspace ) ) { return command_result_t::DISABLED; }
     const bool selected = kLoop ? MapWorkspace_SelectMeshEdgeLoop( workspace ) : MapWorkspace_SelectMeshEdgeRing( workspace );
     return selected ? command_result_t::OK : command_result_t::FAILED;
+}
+
+template <map_camera_speed_action_t kAction>
+u32 CameraSpeedState( void *pContext ) noexcept
+{
+    return MapWorkspace_CanChangeCameraSpeed( static_cast<const map_workspace_t *>( pContext ), kAction ) ? COMMAND_STATE_ENABLED : COMMAND_STATE_NONE;
+}
+
+template <map_camera_speed_action_t kAction>
+command_result_t CameraSpeedExecute( void *pContext, const command_args_t & ) noexcept
+{
+    auto *pWorkspace = static_cast<map_workspace_t *>( pContext );
+    if ( !MapWorkspace_CanChangeCameraSpeed( pWorkspace, kAction ) ) { return command_result_t::DISABLED; }
+    return MapWorkspace_ChangeCameraSpeed( pWorkspace, kAction ) ? command_result_t::OK : command_result_t::FAILED;
 }
 
 // Hammer 5's "View:" toggles: each shows or hides a family of visgroups.
@@ -1021,6 +1096,30 @@ void MapWorkspace_DocumentChanged( map_workspace_t *pWorkspace, bool rebuildWire
     MapWorkspace_Notify( pWorkspace, changes );
 }
 
+bool_t MapWorkspace_CanChangeCameraSpeed( const map_workspace_t *pWorkspace, map_camera_speed_action_t action ) noexcept
+{
+    camera_speed_write_t write{};
+    return PlanCameraSpeed( pWorkspace, action, write );
+}
+
+bool_t MapWorkspace_ChangeCameraSpeed( map_workspace_t *pWorkspace, map_camera_speed_action_t action ) noexcept
+{
+    camera_speed_write_t write{};
+    if ( !PlanCameraSpeed( pWorkspace, action, write ) ) { return CY_FALSE; }
+    auto &settings = pWorkspace->pGui->settings;
+    settings_document_t candidate{};
+    if ( !PrepareCameraSpeed( write, settings, candidate ) ) { return CY_FALSE; }
+    // Like settings import, preserve the attached store's address and ownership.
+    std::swap( write.pStore->pDocument, candidate.pDocument );
+    std::swap( write.pStore->nLoadedVersion, candidate.nLoadedVersion );
+    // The prepared REAL leaf (or absent inherited value) makes this exact-path
+    // registry write allocation-free. Listeners see the published effective speed.
+    if ( EditorSettings_Write( &settings, write.scope, *write.pDescriptor, write.value ) == settings_registry_status_t::OK ) { return CY_TRUE; }
+    std::swap( write.pStore->pDocument, candidate.pDocument );
+    std::swap( write.pStore->nLoadedVersion, candidate.nLoadedVersion );
+    return CY_FALSE;
+}
+
 void MapWorkspace_SetGridSize( map_workspace_t *pWorkspace, f64 gridSize ) noexcept
 {
     CY_ASSERT( pWorkspace != nullptr );
@@ -1401,6 +1500,12 @@ command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorks
           ToolExecute<map_tool_t::CAMERA>, ToolState<map_tool_t::CAMERA>, pWorkspace },
         { "map.tool.navigation", "Navigation", "Leave the editing tool and navigate while keeping the selection for inspection.", "tool-camera", nullptr, kTool,
           ToolExecute<map_tool_t::NONE>, ToolState<map_tool_t::NONE>, pWorkspace },
+        { "map.camera.speed_increase", "Increase Camera Speed", "Double camera flight speed up to the configured limit.", "tool-camera", nullptr, 0u,
+          CameraSpeedExecute<map_camera_speed_action_t::INCREASE>, CameraSpeedState<map_camera_speed_action_t::INCREASE>, pWorkspace },
+        { "map.camera.speed_decrease", "Decrease Camera Speed", "Halve camera flight speed down to the configured limit.", "tool-camera", nullptr, 0u,
+          CameraSpeedExecute<map_camera_speed_action_t::DECREASE>, CameraSpeedState<map_camera_speed_action_t::DECREASE>, pWorkspace },
+        { "map.camera.speed_reset", "Reset Camera Speed", "Restore the registered default camera flight speed.", "tool-camera", nullptr, 0u,
+          CameraSpeedExecute<map_camera_speed_action_t::RESET>, CameraSpeedState<map_camera_speed_action_t::RESET>, pWorkspace },
         { "map.tool.entity", "Entity Tool", "Place point entities.", "tool-entity", nullptr, kTool,
           ToolExecute<map_tool_t::ENTITY>, ToolState<map_tool_t::ENTITY>, pWorkspace },
         { "map.tool.block", "Block Tool", "Draw new brushes.", "tool-block", nullptr, kTool,

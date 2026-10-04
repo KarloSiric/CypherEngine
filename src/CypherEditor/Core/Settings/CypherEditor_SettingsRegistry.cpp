@@ -193,7 +193,7 @@ constexpr setting_descriptor_t kFramework[]{
     Flag( "editor.viewport.perspective.ghost_hidden", CY_FALSE, "Ghost hidden objects", "Draw hidden objects dimmed in 3D.", kDisplay3D ),
     // 4.4 Camera.
     Real( "editor.camera.fov", 75.0, 20.0, 130.0, "Field of view", "3D field of view (degrees).", kCamera ),
-    Real( "editor.camera.move_speed", 1000.0, 10.0, 100000.0, "Move speed", "Fly speed (units per second).", kCamera ),
+    Real( "editor.camera.move_speed", 1000.0, 10.0, 100000.0, "Move speed", "Base fly speed in world units per second. Camera speed shortcuts change this value; held fast/slow keys apply temporary multipliers.", kCamera ),
     Real( "editor.camera.acceleration", 0.15, 0.0, 2.0, "Acceleration", "Seconds to reach full speed; 0 is instant.", kCamera ),
     Real( "editor.camera.fast_multiplier", 4.0, 1.0, 100.0, "Fast multiplier", "Speed while the fast key is held.", kCamera ),
     Real( "editor.camera.slow_multiplier", 0.25, 0.01, 1.0, "Slow multiplier", "Speed while the slow key is held.", kCamera ),

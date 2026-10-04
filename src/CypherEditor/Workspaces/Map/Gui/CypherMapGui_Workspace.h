@@ -86,6 +86,8 @@ enum class map_tool_t : common::u8 {
     COUNT
 };
 
+enum class map_camera_speed_action_t : common::u8 { INCREASE, DECREASE, RESET };
+
 // What a click selects (Hammer 5's selection modes on the top toolbar).
 enum class map_element_mode_t : common::u8 {
     VERTICES = 0u,
@@ -398,6 +400,11 @@ void MapWorkspace_Select( map_workspace_t *pWorkspace, common::u64 id, map_selec
 // notification: what the outliner uses for multi-row selection.
 void MapWorkspace_SetSelection( map_workspace_t *pWorkspace, const common::u64 *pIds, common::usize nIds ) noexcept;
 CYPHER_NODISCARD common::bool_t MapWorkspace_IsSelected( const map_workspace_t *pWorkspace, common::u64 id ) noexcept;
+
+// Changes editor.camera.move_speed in the narrowest attached settings scope.
+// Independent of map editability; false for unavailable/no-op actions or a failed write.
+CYPHER_NODISCARD common::bool_t MapWorkspace_CanChangeCameraSpeed( const map_workspace_t *pWorkspace, map_camera_speed_action_t action ) noexcept;
+CYPHER_NODISCARD common::bool_t MapWorkspace_ChangeCameraSpeed( map_workspace_t *pWorkspace, map_camera_speed_action_t action ) noexcept;
 
 // Grid size and visibility are the settings editor.grid.size and
 // editor.grid.show: changing them here writes the narrowest scope when one is

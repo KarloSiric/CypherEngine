@@ -3103,6 +3103,7 @@ public:
     {
         CY_ASSERT( pWorkspace != nullptr );
         m_gizmoScale = GizmoScale( *pWorkspace );
+        m_moveSpeed = Setting( "editor.camera.move_speed", 1000.0 );
         m_inputTool = pWorkspace->tool;
         m_inputMode = pWorkspace->elementMode;
         setFocusPolicy( Qt::StrongFocus );
@@ -3111,6 +3112,9 @@ public:
         setMinimumSize( 64, 64 );
         m_timer.setInterval( kCameraTickMs );
         QObject::connect( &m_timer, &QTimer::timeout, this, [this]() { Tick(); } );
+        m_speedFeedbackTimer.setSingleShot( true );
+        m_speedFeedbackTimer.setInterval( 2000 );
+        QObject::connect( &m_speedFeedbackTimer, &QTimer::timeout, this, [this]() { update(); } );
         ( void )MapWorkspace_AddListener( pWorkspace, &map_camera_view_t::OnChanged, this );
         ( void )EditorSettings_AddListener( &pWorkspace->pGui->settings, &map_camera_view_t::OnSettingsChanged, this );
         ViewHover_Init( m_hover, *this, [this]( QPointF point ) {
@@ -3535,6 +3539,7 @@ protected:
         EditGizmo( &painter, workspace, project, GizmoLength(), pointer, -1, &m_drag, 10.0, hit.gizmo );
         DrawMarquee( painter, m_drag, workspace );
         DrawEditReadout( painter, workspace, m_drag, rect(), true );
+        DrawSpeedFeedback( painter );
         DrawFocusBorder( painter, *this, workspace );
     }
 
@@ -3763,6 +3768,16 @@ private:
     static void OnSettingsChanged( void *pContext, string_view_t path ) noexcept
     {
         auto *pView = static_cast<map_camera_view_t *>( pContext );
+        if ( path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.camera.move_speed" ) ) ) {
+            const f64 speed = pView->Setting( "editor.camera.move_speed", 1000.0 );
+            // Only successful changes to the effective setting announce a new
+            // speed. Keep held flight keys and the captured look gesture intact.
+            if ( speed != pView->m_moveSpeed ) {
+                pView->m_moveSpeed = speed;
+                pView->m_speedFeedbackTimer.start();
+                pView->update();
+            }
+        }
         bool scaleChanged = false;
         if ( path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.viewport.gizmo_scale" ) ) ) {
             const f64 scale = GizmoScale( *pView->m_pWorkspace );
@@ -5124,6 +5139,26 @@ private:
         painter.setRenderHint( QPainter::Antialiasing, false );
     }
 
+    void DrawSpeedFeedback( QPainter &painter ) const
+    {
+        if ( !m_speedFeedbackTimer.isActive() ) { return; }
+        const auto &workspace = *m_pWorkspace;
+        const auto metrics = painter.fontMetrics();
+        const QString text = QStringLiteral( "Camera speed %1 u/s" ).arg( NumberText( m_moveSpeed ) );
+        const qreal width = std::min<qreal>( metrics.horizontalAdvance( text ) + 16.0, this->width() - 16.0 );
+        const qreal height = metrics.height() + 8.0;
+        const qreal stripHeight = ShowMetrics( workspace, true ) ? metrics.height() + 6.0 : 0.0;
+        const QRectF area( 8.0, this->height() - stripHeight - height - 8.0, width, height );
+        painter.save();
+        painter.fillRect( area, Token( workspace, "viewport.overlay.background" ) );
+        painter.setPen( QPen( Token( workspace, "viewport.overlay.border" ), 1.0 ) );
+        painter.drawRect( area );
+        painter.setPen( Token( workspace, "viewport.overlay.text" ) );
+        painter.drawText( area.adjusted( 8.0, 0.0, -8.0, 0.0 ), Qt::AlignLeft | Qt::AlignVCenter,
+            metrics.elidedText( text, Qt::ElideRight, static_cast<int>( width - 16.0 ) ) );
+        painter.restore();
+    }
+
     // The TileEditor's 3D status strip: where the camera is and how it moves.
     void DrawStatusStrip( QPainter &painter ) const
     {
@@ -5158,9 +5193,11 @@ private:
     math::vec3d_t m_right{};
     math::vec3d_t m_up{};
     f64 m_gizmoScale{ 1.0 }; // Last effective scale, including inherited scope values.
+    f64 m_moveSpeed{ 1000.0 }; // Last effective setting; scope replacement may inherit another value.
     f64 m_yaw{ 45.0 };   // Degrees; 0 looks along +x.
     f64 m_pitch{ -30.0 };
     QTimer m_timer{};
+    QTimer m_speedFeedbackTimer{}; // Brief feedback remains visible with viewport metrics hidden.
     QElapsedTimer m_clock{};
     u32 m_moveKeys{ 0u };
     QSet<int> m_pressedNavigation; // Eligible physical presses observed by this pane.

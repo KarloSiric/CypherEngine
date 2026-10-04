@@ -1230,9 +1230,21 @@ TEST_CASE( "The built-in keymap leaves unavailable toggle mouselook unbound", "[
     CHECK_FALSE( MapInput_DispatchKey( &f.workspace, &toggle, true, false, true ) );
 }
 
-TEST_CASE( "Built-in grid aliases adjust real grid state and preserve keypad and modifier identity", "[map][gui][input][defaults]" )
+TEST_CASE( "Built-in aliases adjust grid in 2D and camera speed in 3D while preserving keypad and modifier identity", "[map][gui][input][defaults][camera-speed]" )
 {
     default_input_fixture_t f;
+    const auto *speedDescriptor = EditorSettings_Find( &f.gui.settings, StringView_FromCString( "editor.camera.move_speed" ) );
+    REQUIRE( speedDescriptor != nullptr );
+    const auto speed = [&]() { return EditorSettings_Real( &f.gui.settings, "editor.camera.move_speed", 0.0 ); };
+    const auto resetSpeed = [&]() {
+        setting_value_t value{}; value.type = setting_type_t::REAL; value.flValue = 1000.0;
+        REQUIRE( EditorSettings_Write( &f.gui.settings, settings_scope_t::USER, *speedDescriptor, value ) == settings_registry_status_t::OK );
+    };
+    QString executed;
+    EditorCommands_SetObserver( &f.gui.commands,
+        []( void *context, const command_desc_t &command, const command_args_t &, command_result_t ) {
+            *static_cast<QString *>( context ) = QString::fromUtf8( command.pId );
+        }, &executed );
     const struct { int key; Qt::KeyboardModifiers modifiers; bool larger; } keys[]{
         { Qt::Key_BracketLeft, Qt::NoModifier, false }, { Qt::Key_Minus, Qt::NoModifier, false },
         { Qt::Key_Minus, Qt::KeypadModifier, false }, { Qt::Key_BracketRight, Qt::NoModifier, true },
@@ -1243,11 +1255,17 @@ TEST_CASE( "Built-in grid aliases adjust real grid state and preserve keypad and
         for ( const auto &binding : keys ) {
             CAPTURE( camera, binding.key, static_cast<int>( binding.modifiers ) );
             MapWorkspace_SetGridSize( &f.workspace, 8 );
+            resetSpeed(); executed.clear();
+            const bool changesSpeed = camera && binding.key != Qt::Key_BracketLeft && binding.key != Qt::Key_BracketRight;
             QKeyEvent key( QEvent::KeyPress, binding.key, binding.modifiers );
             REQUIRE( MapInput_DispatchKey( &f.workspace, &key, camera, false, false ) );
-            CHECK( f.workspace.gridSize == 8 );
+            CHECK( f.workspace.gridSize == 8 ); CHECK( speed() == 1000.0 ); CHECK( executed.isEmpty() );
             REQUIRE( MapInput_DispatchKey( &f.workspace, &key, camera, false, true ) );
-            CHECK( f.workspace.gridSize == ( binding.larger ? 16 : 4 ) );
+            CHECK( f.workspace.gridSize == ( changesSpeed ? 8 : binding.larger ? 16 : 4 ) );
+            CHECK( speed() == ( changesSpeed ? ( binding.larger ? 2000.0 : 500.0 ) : 1000.0 ) );
+            CHECK( executed == QString::fromLatin1( changesSpeed ?
+                ( binding.larger ? "map.camera.speed_increase" : "map.camera.speed_decrease" ) :
+                ( binding.larger ? "map.grid.larger" : "map.grid.smaller" ) ) );
         }
     }
     MapWorkspace_SetGridSize( &f.workspace, MAP_GRID_MAX );
@@ -1258,6 +1276,15 @@ TEST_CASE( "Built-in grid aliases adjust real grid state and preserve keypad and
     CHECK_FALSE( MapInput_DispatchKey( &f.workspace, &commandPlus, false, false, true ) );
     QKeyEvent equal( QEvent::KeyPress, Qt::Key_Equal, Qt::NoModifier );
     CHECK_FALSE( MapInput_DispatchKey( &f.workspace, &equal, false, false, true ) );
+    resetSpeed(); executed.clear();
+    REQUIRE( MapInput_DispatchKey( &f.workspace, &equal, true, false, false ) );
+    CHECK( speed() == 1000.0 ); CHECK( executed.isEmpty() );
+    REQUIRE( MapInput_DispatchKey( &f.workspace, &equal, true, false, true ) );
+    CHECK( speed() == 2000.0 ); CHECK( f.workspace.gridSize == MAP_GRID_MAX );
+    CHECK( executed == QStringLiteral( "map.camera.speed_increase" ) );
+    CHECK_FALSE( MapInput_DispatchKey( &f.workspace, &commandPlus, true, false, true ) );
+    CHECK( speed() == 2000.0 ); CHECK( f.workspace.gridSize == MAP_GRID_MAX );
+    EditorCommands_SetObserver( &f.gui.commands, nullptr, nullptr );
 }
 
 TEST_CASE( "Repeating the effective Clip shortcut cycles retained halves without editing the map", "[map][gui][input][defaults][clip]" )

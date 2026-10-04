@@ -56,9 +56,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   configurable viewport content, and a collapsed-by-default console sharing
   the right inspector dock. Entity fields remain authored data without
   gameplay-system execution.
+- Added remappable camera flight-speed Increase/Decrease/Reset commands,
+  viewport-only speed keys and a brief speed readout. Changes use the existing
+  camera setting; held fast/slow modifiers remain temporary. Camera Tool
+  Properties now exposes speed controls, Go To and framing shortcuts. Home
+  frames the complete map from a geometric viewport.
 
 ### Changed
 
+- In 3D viewports, plus/minus and their keypad equivalents adjust camera speed;
+  brackets retain grid-size controls. Plus/minus still adjust the grid in 2D.
 - Escape cancels an active gesture, then leaves an idle tool for Navigation;
   another Escape clears retained selection. Focused text fields and dialogs
   retain their own keyboard behavior.
@@ -87,6 +94,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - The following vertex checkpoint passed the same five local suites:
   201,362 assertions in 825 cases. The combined vertex/edge checks also passed
   at 2x display scaling, and the actual Mason workspace capture was inspected.
+  GitHub Actions run 37201143691 passed all 15 jobs for that published commit.
+- Camera speed/navigation passed all five local suites: 202,343 assertions in
+  839 cases. The camera subset passed 812 assertions in 13 cases at 2x scaling;
+  actual Mason workspace and properties captures were inspected.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
   Full Mason user documentation is deferred; implementation evidence is kept

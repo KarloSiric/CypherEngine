@@ -105,7 +105,8 @@ QString Category( const QString &id, const QString &context )
 {
     if ( id.startsWith( QStringLiteral( "map.camera." ) ) ) { return QStringLiteral( "Camera" ); }
     if ( id.startsWith( QStringLiteral( "map.view." ) ) || id.startsWith( QStringLiteral( "map.render." ) ) ||
-         id.startsWith( QStringLiteral( "map.grid." ) ) || id == QStringLiteral( "map.context_menu" ) ) { return QStringLiteral( "Viewports" ); }
+         id.startsWith( QStringLiteral( "map.grid." ) ) || id == QStringLiteral( "map.context_menu" ) ||
+         id == QStringLiteral( "map.go_to" ) ) { return QStringLiteral( "Viewports" ); }
     if ( id.startsWith( QStringLiteral( "map.select" ) ) || id.startsWith( QStringLiteral( "edit.select" ) ) ||
          id == QStringLiteral( "edit.invert_selection" ) ) { return QStringLiteral( "Selection" ); }
     if ( id.startsWith( QStringLiteral( "map.transform." ) ) || id.startsWith( QStringLiteral( "map.nudge" ) ) ||
