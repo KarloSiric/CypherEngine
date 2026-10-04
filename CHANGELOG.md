@@ -77,6 +77,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Separated 2D bounds-resize squares from move-arrow pickups by 24 logical
+  pixels, including zoomed-out selections and configured gizmo sizes. Drawing,
+  hover and press share the layout; displaced controls keep their world anchors,
+  grid snapping, captured offset and undo behavior.
 - Shift-modified movement keeps camera input while a camera gesture or held
   flight direction is active, preventing overlapping tool shortcuts from
   changing tools. Idle Navigation still accepts explicit tool-selection chords;
@@ -111,6 +115,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   in 846 cases. Focused camera routing, modifier order, remapping, focus and
   speed checks passed 1,493 assertions in 23 cases at 2x scaling. A negative
   control confirms the command-modifier release regression detects the old stall.
+  GitHub Actions run 37209953884 passed all 15 jobs for the published commit.
+- The 2D handle-separation checkpoint passed all five local suites: 214,300
+  assertions in 847 cases. Focused move/resize rendering and gesture checks
+  passed 15,623 assertions in five cases at 2x scaling; the actual Mason
+  move/resize regression also passed at 2x scaling. Workspace captures were
+  inspected for tiny selections and a boundary meeting the former move tip.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
   Full Mason user documentation is deferred; implementation evidence is kept

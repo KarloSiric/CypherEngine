@@ -1711,17 +1711,19 @@ int ResizeHandles( QPainter *painter, const map_workspace_t &ws, Project project
     QPointF center;
     if ( !bounds.bHas || !project( MapBounds_Center( bounds ), center ) ) { return -1; }
     f64 minimumRadius = 24.0;
-    if ( u < 0 && !block && moveLength > 0.0 && CanTransform( ws ) ) {
-        // Keep resize balls outside the foreground move controls. Use the
-        // actual projection, including the configured gizmo scale, rather
-        // than converting a nominal screen length into a world-unit offset.
+    if ( !block && moveLength > 0.0 && CanTransform( ws ) ) {
+        // Keep bounds controls outside the foreground move controls in both
+        // projections. Orthographic squares need enough room for two separate
+        // ten-pixel pickups, rather than relying on priority at an overlap.
+        // Measure the actual projection, including the configured gizmo scale.
+        const f64 clearance = u >= 0 ? 24.0 : 18.0;
         const auto pivot = ws.editPreview.bActive && ws.editPreview.transform.bResize ? MapBounds_Center( bounds ) :
             GizmoPivot( ws, EditSelectionBounds( ws ) );
         for ( int axis = 0; axis < 3; ++axis ) {
             QPointF end;
             if ( project( Add( pivot, Scale( AxisVector( axis ), moveLength ) ), end ) &&
                  std::isfinite( end.x() ) && std::isfinite( end.y() ) ) {
-                minimumRadius = std::max( minimumRadius, QLineF( center, end ).length() + 18.0 );
+                minimumRadius = std::max( minimumRadius, QLineF( center, end ).length() + clearance );
             }
         }
     }
@@ -1741,8 +1743,8 @@ int ResizeHandles( QPainter *painter, const map_workspace_t &ws, Project project
         // Dragging still captures the real world anchor and press-plane offset.
         QPointF offset = points[handle] - center;
         if ( u >= 0 ) {
-            if ( Axis( sides, u ) != 0 ) { offset.setX( std::copysign( std::max( std::abs( offset.x() ), 24.0 ), Axis( sides, u ) ) ); }
-            if ( Axis( sides, v ) != 0 ) { offset.setY( -std::copysign( std::max( std::abs( offset.y() ), 24.0 ), Axis( sides, v ) ) ); }
+            if ( Axis( sides, u ) != 0 ) { offset.setX( std::copysign( std::max( std::abs( offset.x() ), minimumRadius ), Axis( sides, u ) ) ); }
+            if ( Axis( sides, v ) != 0 ) { offset.setY( -std::copysign( std::max( std::abs( offset.y() ), minimumRadius ), Axis( sides, v ) ) ); }
         } else {
             const f64 distance = std::hypot( offset.x(), offset.y() );
             if ( distance < 1e-6 ) { visible[handle] = false; continue; }
@@ -2392,9 +2394,10 @@ protected:
         DrawTransformPreview( painter, workspace, project, segment, face, rect(), false );
         DrawEditPreview( painter, workspace, project, segment, face, rect(), false );
         const QPointF pointer = underMouse() && !NavigationActive() ? m_hover.point : QPointF( -10000, -10000 );
-        const auto hit = EditHandleAt( workspace, project, rect(), pointer, 64.0 * GizmoScale( *m_pWorkspace ) / m_zoom, m_axisU, m_axisV, 3 - m_axisU - m_axisV );
-        EditGizmo( &painter, workspace, project, 64.0 * GizmoScale( *m_pWorkspace ) / m_zoom, pointer, 3 - m_axisU - m_axisV, &m_drag, 10.0, hit.gizmo );
-        ResizeHandles( &painter, workspace, project, rect(), pointer, m_axisU, m_axisV, &m_drag, 10.0, hit.resize );
+        const f64 moveLength = 64.0 * GizmoScale( workspace ) / m_zoom;
+        const auto hit = EditHandleAt( workspace, project, rect(), pointer, moveLength, m_axisU, m_axisV, 3 - m_axisU - m_axisV );
+        EditGizmo( &painter, workspace, project, moveLength, pointer, 3 - m_axisU - m_axisV, &m_drag, 10.0, hit.gizmo );
+        ResizeHandles( &painter, workspace, project, rect(), pointer, m_axisU, m_axisV, &m_drag, 10.0, hit.resize, 0xffu, moveLength );
         DrawMarquee( painter, m_drag, workspace );
         DrawEditReadout( painter, workspace, m_drag, rect(), false );
         DrawFocusBorder( painter, *this, workspace );

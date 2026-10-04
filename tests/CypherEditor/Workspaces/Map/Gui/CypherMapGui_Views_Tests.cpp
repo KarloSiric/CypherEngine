@@ -6538,7 +6538,7 @@ TEST_CASE( "Tiny selected geometry retains visible resize controls without movin
                 math::vec3d_t end{}; SetTestCoordinate( end, axis, moveLength );
                 minimumRadius = std::max( minimumRadius, QLineF( center, project( end ) ).length() + 18.0 );
             }
-        }
+        } else { minimumRadius = 88.0; }
         const QPointF side = center + direction * minimumRadius;
         const QPointF press = side + ( offCenterPickup ? QPointF( -direction.y(), direction.x() ) * 5.0 : QPointF() );
         const QColor hover = gui::EditorStyle_TokenColor( session.gui.style, "viewport.hover" );
@@ -6550,9 +6550,9 @@ TEST_CASE( "Tiny selected geometry retains visible resize controls without movin
                 REQUIRE( length > 0.0 ); REQUIRE( length < minimumRadius ); controls.push_back( center + offset * ( minimumRadius / length ) );
             } }
         } else {
-            for ( const QPointF offset : { QPointF( -24, 0 ), QPointF( 24, 0 ), QPointF( 0, -24 ), QPointF( 0, 24 ),
-                                          QPointF( -24, -24 ), QPointF( 24, -24 ), QPointF( -24, 24 ), QPointF( 24, 24 ) } ) {
-                controls.push_back( center + offset );
+            for ( const QPointF offset : { QPointF( -1, 0 ), QPointF( 1, 0 ), QPointF( 0, -1 ), QPointF( 0, 1 ),
+                                          QPointF( -1, -1 ), QPointF( 1, -1 ), QPointF( -1, 1 ), QPointF( 1, 1 ) } ) {
+                controls.push_back( center + offset * minimumRadius );
             }
         }
         for ( const QPointF control : controls ) {
@@ -6608,56 +6608,106 @@ TEST_CASE( "Tiny selected geometry retains visible resize controls without movin
     }
 }
 
-TEST_CASE( "Overlapping resize and move controls share one visible hover and press winner", "[map][gui][views][geometry-edit][select-resize][gizmos][render][handle-priority]" )
+TEST_CASE( "Orthographic move and bounds controls have separate visible pickups across zoom and gizmo scales", "[map][gui][views][geometry-edit][select-resize][gizmos][render][handle-priority][ortho-handle-separation]" )
 {
-    for ( const bool resizeWins : { true, false } ) {
-        CAPTURE( resizeWins );
+    for ( int projection = 0; projection < 3; ++projection ) { for ( const f64 scale : { 0.5, 1.0, 2.0 } ) { for ( const int wheelAngle : { -480, 480 } ) {
+        const auto axes = static_cast<map_ortho_axes_t>( projection );
+        const u32 u = axes == map_ortho_axes_t::FRONT ? 1u : 0u, v = axes == map_ortho_axes_t::TOP ? 1u : 2u;
+        CAPTURE( projection, scale, wheelAngle );
         session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
+        settings.Real( "editor.viewport.gizmo_scale", scale );
         settings.Set( "editor.viewport.hover_highlight", false ); settings.Set( "editor.viewport.active_border", false );
         REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK ); MapWorkspace_Frame( &ws, CY_FALSE );
-        std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) ); ShowAt( top.get(), 800, 600 );
-        top->setAttribute( Qt::WA_UnderMouse, true );
-        map_bounds_t box{}; MapBounds_AddPoint( box, { -8, -8, -8 } ); MapBounds_AddPoint( box, { 8, 8, 8 } );
-        REQUIRE( MapWorkspace_CreateBox( &ws, box ) );
-        const QPointF center = MapOrthoView_WorldToView( top.get(), {} ), side = center + QPointF( 24, 0 );
-        // The side square lies on the X move shaft. Eight pixels further
-        // along that shaft is only a resize proximity hit, but a direct move hit.
-        const QPointF pointer = resizeWins ? side : side + QPointF( 8, 0 );
-        const QPointF shaftSample = center + QPointF( 48, 0 );
-        const QColor hover = gui::EditorStyle_TokenColor( session.gui.style, "viewport.hover" );
-        const QColor axisX = gui::EditorStyle_TokenColor( session.gui.style, "viewport.axis.x" );
-        HoverMouse( top.get(), { 20, 20 } ); const QImage idle = top->grab().toImage();
-        HoverMouse( top.get(), pointer ); const QImage highlighted = top->grab().toImage();
-        if ( resizeWins ) {
-            CHECK( top->cursor().shape() == Qt::SizeHorCursor );
-            CHECK( HandleColorPixelsNear( highlighted, side, hover ) > HandleColorPixelsNear( idle, side, hover ) );
-            CHECK( HandleColorPixelsNear( highlighted, shaftSample, hover, 2 ) == 0 );
-            CHECK( HandleColorPixelsNear( highlighted, shaftSample, axisX, 2 ) > 0 );
-        } else {
-            CHECK( top->cursor().shape() == Qt::SizeAllCursor );
-            CHECK( HandleColorPixelsNear( highlighted, shaftSample, hover, 2 ) > 0 );
-            // The hollow resize border stays red while the winning shaft
-            // passes through its interior in green.
-            CHECK( HandleColorPixelsNear( highlighted, side + QPointF( 0, 4 ), axisX, 1 ) > 0 );
-            CHECK( HandleColorPixelsNear( highlighted, side + QPointF( 0, 4 ), hover, 1 ) == 0 );
+        std::unique_ptr<QWidget> view( MapOrthoView_Create( nullptr, &ws, axes ) ); ShowAt( view.get(), 800, 600 );
+        view->setAttribute( Qt::WA_UnderMouse, true );
+        const f64 initialZoom = MapOrthoView_Zoom( view.get() );
+        const QPointF wheelAt( view->width() * 0.5, view->height() * 0.5 );
+        QWheelEvent wheel( wheelAt, view->mapToGlobal( wheelAt ), QPoint(), QPoint( 0, wheelAngle ), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false );
+        QCoreApplication::sendEvent( view.get(), &wheel );
+        CHECK( ( MapOrthoView_Zoom( view.get() ) > initialZoom ) == ( wheelAngle > 0 ) );
+        const f64 zoom = MapOrthoView_Zoom( view.get() ), movePixels = 64.0 * scale;
+        const QPointF center = MapOrthoView_WorldToView( view.get(), {} );
+        // Match the reported failure: a real boundary sits exactly at the
+        // move endpoint. Tiny bounds and wider bounds exercise both sides of
+        // the presentation spacing floor without changing world dimensions.
+        for ( const f64 halfPixels : { 8.0, movePixels, movePixels + 64.0 } ) {
+            CAPTURE( halfPixels );
+            map_bounds_t box{}; const f64 extent = halfPixels / zoom;
+            MapBounds_AddPoint( box, { -extent, -extent, -extent } ); MapBounds_AddPoint( box, { extent, extent, extent } );
+            REQUIRE( MapWorkspace_CreateBox( &ws, box ) );
+            const u64 id = EditorSelection_At( &ws.selection, 0 );
+            MapWorkspace_SetGridSize( &ws, 16 );
+            const f64 resizePixels = std::max( halfPixels, movePixels + 24.0 );
+            const QColor axisU = gui::EditorStyle_TokenColor( session.gui.style, u == 0 ? "viewport.axis.x" : "viewport.axis.y" );
+            const QColor axisV = gui::EditorStyle_TokenColor( session.gui.style, v == 1 ? "viewport.axis.y" : "viewport.axis.z" );
+            const QColor hover = gui::EditorStyle_TokenColor( session.gui.style, "viewport.hover" );
+            for ( int target = 0; target < 4; ++target ) {
+                const bool resize = target >= 2; const bool vertical = ( target & 1 ) != 0;
+                const u32 axis = vertical ? v : u;
+                const QPointF direction = vertical ? QPointF( 0, -1 ) : QPointF( 1, 0 );
+                const QPointF move = center + direction * movePixels, side = center + direction * resizePixels;
+                const QPointF pointer = resize ? side : move;
+                const QColor axisColor = vertical ? axisV : axisU;
+                CAPTURE( target );
+                REQUIRE( QLineF( move, side ).length() >= 24.0 );
+                HoverMouse( view.get(), { 20, 20 } ); const QImage idle = view->grab().toImage();
+                CHECK( HandleColorPixelsNear( idle, move, axisColor, 3 ) > 0 );
+                CHECK( HandleColorPixelsNear( idle, side, axisColor, 5 ) > 0 );
+                HoverMouse( view.get(), pointer ); const QImage highlighted = view->grab().toImage();
+                CHECK( view->cursor().shape() == ( resize ? vertical ? Qt::SizeVerCursor : Qt::SizeHorCursor : Qt::SizeAllCursor ) );
+                CHECK( HandleColorPixelsNear( highlighted, pointer, hover, 5 ) > HandleColorPixelsNear( idle, pointer, hover, 5 ) );
+                const QPointF other = resize ? move : side;
+                // An antialiased Y-axis pixel can resemble the green hover
+                // token. The other target's pixels must remain unchanged.
+                CHECK( ChangedPixelsNear( idle, highlighted, other, 5 ) == 0 );
+                CHECK( HandleColorPixelsNear( highlighted, other, axisColor, 5 ) > 0 );
+                const auto *document = ws.pDocument; const auto revision = document->geometry.revision;
+                const usize steps = EditorHistory_StepCount( &ws.history ), applied = EditorHistory_AppliedStepCount( &ws.history );
+                // A stationary pickup must never commit its visual leader as travel.
+                DragMouse( view.get(), QEvent::MouseButtonPress, pointer );
+                DragMouse( view.get(), QEvent::MouseButtonRelease, pointer );
+                CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.pDocument == document );
+                CHECK( document->geometry.revision == revision ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+                const QPointF end = pointer + direction * ( 21.0 * zoom );
+                auto expected = box;
+                SetTestCoordinate( expected.box.maximum, axis, resize ? std::round( ( extent + 21.0 ) / 16.0 ) * 16.0 : extent + 16.0 );
+                if ( !resize ) { SetTestCoordinate( expected.box.minimum, axis, -extent + 16.0 ); }
+                DragMouse( view.get(), QEvent::MouseButtonPress, pointer ); DragMouse( view.get(), QEvent::MouseMove, end );
+                REQUIRE( ws.editPreview.bActive ); CHECK( bool( ws.editPreview.transform.bResize ) == resize );
+                CHECK( ws.editPreview.transform.kind == ( resize ? map_transform_preview_kind_t::SCALE : map_transform_preview_kind_t::TRANSLATE ) );
+                CheckPointClose( ws.editPreview.bounds.box.minimum, expected.box.minimum );
+                CheckPointClose( ws.editPreview.bounds.box.maximum, expected.box.maximum );
+                CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision );
+                CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+                DragMouse( view.get(), QEvent::MouseButtonRelease, end );
+                CHECK_FALSE( ws.editPreview.bActive ); CHECK( EditorHistory_StepCount( &ws.history ) == applied + 1u ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied + 1u );
+                CHECK( ws.tool == map_tool_t::SELECT ); CHECK( EditorSelection_At( &ws.selection, 0 ) == id );
+                CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.minimum, expected.box.minimum );
+                CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.maximum, expected.box.maximum );
+                REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+                CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.minimum, box.box.minimum );
+                CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.maximum, box.box.maximum );
+                REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
+                CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.minimum, expected.box.minimum );
+                CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.maximum, expected.box.maximum );
+                REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+                if ( projection == 0 && scale == 1.0 && halfPixels == movePixels ) {
+                    const auto *beforeCancel = ws.pDocument; const auto cancelRevision = beforeCancel->geometry.revision;
+                    const usize cancelSteps = EditorHistory_StepCount( &ws.history );
+                    DragMouse( view.get(), QEvent::MouseButtonPress, pointer ); DragMouse( view.get(), QEvent::MouseMove, end );
+                    REQUIRE( ws.editPreview.bActive );
+                    QKeyEvent cancel( QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier ); QCoreApplication::sendEvent( view.get(), &cancel );
+                    CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.tool == map_tool_t::SELECT );
+                    DragMouse( view.get(), QEvent::MouseButtonRelease, end );
+                    CHECK( ws.pDocument == beforeCancel ); CHECK( beforeCancel->geometry.revision == cancelRevision );
+                    CHECK( EditorHistory_StepCount( &ws.history ) == cancelSteps ); CHECK( EditorSelection_At( &ws.selection, 0 ) == id );
+                    CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.minimum, box.box.minimum );
+                    CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.maximum, box.box.maximum );
+                }
+            }
+            REQUIRE( MapWorkspace_DeleteSelection( &ws ) );
         }
-        const usize steps = EditorHistory_StepCount( &ws.history );
-        const QPointF end = pointer + QPointF( 12, 0 );
-        DragMouse( top.get(), QEvent::MouseButtonPress, pointer, Qt::ControlModifier );
-        DragMouse( top.get(), QEvent::MouseMove, end, Qt::ControlModifier );
-        REQUIRE( ws.editPreview.bActive ); CHECK( bool( ws.editPreview.transform.bResize ) == resizeWins );
-        CHECK( ws.editPreview.transform.kind == ( resizeWins ? map_transform_preview_kind_t::SCALE : map_transform_preview_kind_t::TRANSLATE ) );
-        const f64 delta = 12.0 / MapOrthoView_Zoom( top.get() );
-        CheckPointClose( ws.editPreview.bounds.box.minimum, { resizeWins ? -8.0 : -8.0 + delta, -8, -8 } );
-        CheckPointClose( ws.editPreview.bounds.box.maximum, { 8.0 + delta, 8, 8 } );
-        CHECK( EditorHistory_StepCount( &ws.history ) == steps );
-        DragMouse( top.get(), QEvent::MouseButtonRelease, end, Qt::ControlModifier );
-        CHECK_FALSE( ws.editPreview.bActive ); CHECK( EditorHistory_StepCount( &ws.history ) == steps + 1u );
-        CHECK( ws.tool == map_tool_t::SELECT );
-        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
-        CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.minimum, box.box.minimum );
-        CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.maximum, box.box.maximum );
-    }
+    } } }
 }
 
 TEST_CASE( "Captured resize keeps its own control highlighted when the pointer crosses another control", "[map][gui][views][geometry-edit][select-resize][gizmos][render][captured-handle]" )
@@ -6669,6 +6719,7 @@ TEST_CASE( "Captured resize keeps its own control highlighted when the pointer c
     top->setAttribute( Qt::WA_UnderMouse, true );
     map_bounds_t box{}; MapBounds_AddPoint( box, { -64, -64, -64 } ); MapBounds_AddPoint( box, { 64, 64, 64 } );
     REQUIRE( MapWorkspace_CreateBox( &ws, box ) );
+    MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents();
     const f64 zoom = MapOrthoView_Zoom( top.get() );
     const QPointF start = MapOrthoView_WorldToView( top.get(), { 64, 0 } );
     const QPointF corner = MapOrthoView_WorldToView( top.get(), { 64, 64 } );

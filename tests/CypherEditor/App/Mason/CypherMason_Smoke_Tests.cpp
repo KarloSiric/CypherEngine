@@ -580,7 +580,8 @@ TEST_CASE( "Capture Mason geometry authoring workspace", "[.geometry-workspace-s
     const QPointF tinyPivot = MapOrthoView_WorldToView( top, { tinyCenter.x, tinyCenter.y } );
     const QPointF tinySide = MapOrthoView_WorldToView( top, { tinyBounds.box.maximum.x, tinyCenter.y } );
     REQUIRE( tinySide.x() - tinyPivot.x() < 24 );
-    start = tinyPivot + QPointF( 24, 0 ); end = start + QPointF( 32 * MapOrthoView_Zoom( top ), 0 );
+    const f64 resizeClearance = 64.0 * EditorSettings_Real( &ws->pGui->settings, "editor.viewport.gizmo_scale", 1.0 ) + 24.0;
+    start = tinyPivot + QPointF( resizeClearance, 0 ); end = start + QPointF( 32 * MapOrthoView_Zoom( top ), 0 );
     QMouseEvent tinyPress( QEvent::MouseButtonPress, start, top->mapToGlobal( start ), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
     QCoreApplication::sendEvent( top, &tinyPress ); CHECK_FALSE( ws->editPreview.bActive );
     QMouseEvent tinyMove( QEvent::MouseMove, end, top->mapToGlobal( end ), Qt::NoButton, Qt::LeftButton, Qt::NoModifier );
@@ -625,7 +626,7 @@ TEST_CASE( "Capture Mason geometry authoring workspace", "[.geometry-workspace-s
     MapWorkspace_SetTool( ws, map_tool_t::SELECT );
     const QPointF side = MapOrthoView_WorldToView( top, { feedbackBounds.box.maximum.x, feedbackCenter.y } );
     start = MapOrthoView_WorldToView( top, { feedbackCenter.x, feedbackCenter.y } );
-    start.setX( start.x() + std::max( side.x() - start.x(), 24.0 ) );
+    start.setX( start.x() + std::max( side.x() - start.x(), resizeClearance ) );
     end = start + QPointF( 32 * MapOrthoView_Zoom( top ), 0 );
     QMouseEvent centerPress( QEvent::MouseButtonPress, start, top->mapToGlobal( start ), Qt::LeftButton, Qt::LeftButton, Qt::ShiftModifier );
     QCoreApplication::sendEvent( top, &centerPress );
@@ -3472,4 +3473,123 @@ TEST_CASE( "Capture Mason camera navigation and speed feedback", "[mason][smoke]
     REQUIRE( window->grab().save( QStringLiteral( "artifacts/mason_camera_navigation_workspace.png" ) ) );
     auto *panel = window->findChild<QWidget *>( QStringLiteral( "MapToolProperties" ) ); REQUIRE( panel );
     REQUIRE( panel->grab().save( QStringLiteral( "artifacts/mason_camera_navigation_properties.png" ) ) );
+}
+
+namespace
+{
+QWidget *MasonSeparatedOrthoScene( mason_session_t &session )
+{
+    auto *ws = Mason_MapWorkspace( session.pMason ); auto *window = Mason_Window( session.pMason );
+    window->resize( 1600, 1050 );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views != nullptr );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER ); MapViews_SetPaneType( views, 1, map_view_type_t::TOP );
+    map_bounds_t context{}, selected{};
+    MapBounds_AddPoint( context, { -1024, -1024, -16 } ); MapBounds_AddPoint( context, { 1024, 1024, 0 } );
+    MapBounds_AddPoint( selected, { 0, 0, 0 } ); MapBounds_AddPoint( selected, { 64, 64, 64 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, context ) ); REQUIRE( MapWorkspace_CreateBox( ws, selected ) );
+    MapWorkspace_SetGridSize( ws, 64 ); MapWorkspace_SetSnapToGrid( ws, true );
+    MapWorkspace_SetElementMode( ws, map_element_mode_t::OBJECTS ); MapWorkspace_SetTool( ws, map_tool_t::SELECT );
+    MapWorkspace_Frame( ws, CY_FALSE ); MapViews_SetActivePane( views, 1 ); QCoreApplication::processEvents();
+    auto *top = MapViews_PaneView( views, 1 ); REQUIRE( top != nullptr );
+    REQUIRE( top->isVisible() ); REQUIRE( 64.0 * MapOrthoView_Zoom( top ) < 24.0 );
+    REQUIRE( 64.0 * MapOrthoView_Zoom( top ) > 3.0 );
+    return top;
+}
+
+QPointF MasonOrthoMovePickup( QWidget *top, const map_workspace_t &ws )
+{
+    const auto center = MapBounds_Center( MapViews_SelectionGeometryBounds( &ws ) );
+    const f64 pixels = 64.0 * EditorSettings_Real( &ws.pGui->settings, "editor.viewport.gizmo_scale", 1.0 );
+    return MapOrthoView_WorldToView( top, { center.x, center.y } ) + QPointF( pixels, 0 );
+}
+}
+
+TEST_CASE( "Mason zoomed out 2D move arrows and resize squares are separate reversible grid controls", "[mason][smoke][ortho-gizmo-separation][gizmos]" )
+{
+    mason_session_t session; auto *ws = Mason_MapWorkspace( session.pMason );
+    QWidget *top = MasonSeparatedOrthoScene( session );
+    const u64 selected = EditorSelection_At( &ws->selection, 0u ); const usize steps = EditorHistory_StepCount( &ws->history );
+    const auto token = UndoRedo_StateToken( ws->history.pUndo );
+    const auto original = MapViews_SelectionGeometryBounds( ws );
+    const auto bounds = [&]() {
+        const auto *object = MapWireframe_FindObject( ws->wire, selected ); REQUIRE( object != nullptr ); return object->bounds;
+    };
+    const QPointF move = MasonOrthoMovePickup( top, *ws ), resize = move + QPointF( 24, 0 );
+    REQUIRE( top->rect().contains( move.toPoint() ) ); REQUIRE( top->rect().contains( resize.toPoint() ) );
+    for ( const auto &target : { std::pair{ move, Qt::SizeAllCursor }, std::pair{ resize, Qt::SizeHorCursor } } ) {
+        MasonWorkflowMouse( top, QEvent::MouseMove, target.first, Qt::NoButton ); CHECK( top->cursor().shape() == target.second );
+        MasonWorkflowMouse( top, QEvent::MouseButtonPress, target.first, Qt::LeftButton, Qt::LeftButton );
+        CHECK_FALSE( ws->editPreview.bActive );
+        MasonWorkflowMouse( top, QEvent::MouseButtonRelease, target.first, Qt::LeftButton );
+        CHECK_FALSE( ws->editPreview.bActive ); CHECK( EditorHistory_StepCount( &ws->history ) == steps );
+        CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws->history.pUndo ) ) );
+    }
+    const QPointF travel( ws->gridSize * MapOrthoView_Zoom( top ), 0 );
+    const auto *beforeMove = ws->pDocument;
+    MasonWorkflowMouse( top, QEvent::MouseButtonPress, move, Qt::LeftButton, Qt::LeftButton );
+    MasonWorkflowMouse( top, QEvent::MouseMove, move + travel, Qt::NoButton, Qt::LeftButton );
+    REQUIRE( ws->editPreview.bActive ); REQUIRE( ws->editPreview.transform.kind == map_transform_preview_kind_t::TRANSLATE );
+    CHECK_FALSE( ws->editPreview.transform.bResize ); CheckMasonPosition( ws->editPreview.transform.delta, { 64, 0, 0 } );
+    CHECK( ws->pDocument == beforeMove ); CHECK( EditorHistory_StepCount( &ws->history ) == steps );
+    CheckMasonPosition( bounds().box.minimum, original.box.minimum ); CheckMasonPosition( bounds().box.maximum, original.box.maximum );
+    MasonWorkflowMouse( top, QEvent::MouseButtonRelease, move + travel, Qt::LeftButton );
+    CHECK_FALSE( ws->editPreview.bActive ); CHECK( EditorHistory_StepCount( &ws->history ) == steps + 1u );
+    CheckMasonPosition( bounds().box.minimum, { 64, 0, 0 } ); CheckMasonPosition( bounds().box.maximum, { 128, 64, 64 } );
+    REQUIRE( session.Run( QStringLiteral( "edit.undo" ) ) == command_result_t::OK );
+    CheckMasonPosition( bounds().box.minimum, original.box.minimum ); CheckMasonPosition( bounds().box.maximum, original.box.maximum );
+    REQUIRE( session.Run( QStringLiteral( "edit.redo" ) ) == command_result_t::OK );
+    const auto moved = bounds(); const auto *beforeResize = ws->pDocument;
+    const QPointF resizeMoved = MasonOrthoMovePickup( top, *ws ) + QPointF( 24, 0 );
+    MasonWorkflowMouse( top, QEvent::MouseMove, resizeMoved, Qt::NoButton ); CHECK( top->cursor().shape() == Qt::SizeHorCursor );
+    MasonWorkflowMouse( top, QEvent::MouseButtonPress, resizeMoved, Qt::LeftButton, Qt::LeftButton );
+    MasonWorkflowMouse( top, QEvent::MouseMove, resizeMoved + travel, Qt::NoButton, Qt::LeftButton );
+    REQUIRE( ws->editPreview.bActive ); REQUIRE( ws->editPreview.transform.kind == map_transform_preview_kind_t::SCALE );
+    REQUIRE( ws->editPreview.transform.bResize ); CHECK_FALSE( ws->editPreview.transform.bResizeFromCenter );
+    CHECK( ws->editPreview.transform.pivot.x == moved.box.minimum.x );
+    CheckMasonPosition( ws->editPreview.bounds.box.minimum, moved.box.minimum );
+    CheckMasonPosition( ws->editPreview.bounds.box.maximum, { 192, 64, 64 } );
+    CHECK( ws->pDocument == beforeResize ); CHECK( EditorHistory_StepCount( &ws->history ) == steps + 1u );
+    MasonWorkflowMouse( top, QEvent::MouseButtonRelease, resizeMoved + travel, Qt::LeftButton );
+    CHECK_FALSE( ws->editPreview.bActive ); CHECK( EditorHistory_StepCount( &ws->history ) == steps + 2u );
+    CheckMasonPosition( bounds().box.minimum, moved.box.minimum ); CheckMasonPosition( bounds().box.maximum, { 192, 64, 64 } );
+    REQUIRE( session.Run( QStringLiteral( "edit.undo" ) ) == command_result_t::OK );
+    CheckMasonPosition( bounds().box.minimum, moved.box.minimum ); CheckMasonPosition( bounds().box.maximum, moved.box.maximum );
+    REQUIRE( session.Run( QStringLiteral( "edit.undo" ) ) == command_result_t::OK );
+    CheckMasonPosition( bounds().box.minimum, original.box.minimum ); CheckMasonPosition( bounds().box.maximum, original.box.maximum );
+    REQUIRE( session.Run( QStringLiteral( "edit.redo" ) ) == command_result_t::OK );
+    REQUIRE( session.Run( QStringLiteral( "edit.redo" ) ) == command_result_t::OK );
+    CheckMasonPosition( bounds().box.minimum, moved.box.minimum ); CheckMasonPosition( bounds().box.maximum, { 192, 64, 64 } );
+    CHECK( MapWorkspace_IsSelected( ws, selected ) ); CHECK( EditorSelection_Count( &ws->selection ) == 1u );
+    CHECK( ws->tool == map_tool_t::SELECT ); CHECK( ws->wire.objects.nCount == 2u );
+}
+
+TEST_CASE( "Capture Mason separated 2D move and resize controls", "[mason][smoke][.ortho-gizmo-separation-capture]" )
+{
+    mason_session_t session; auto *ws = Mason_MapWorkspace( session.pMason ); auto *window = Mason_Window( session.pMason );
+    QWidget *top = MasonSeparatedOrthoScene( session );
+    // Offscreen events drive real hover positions, while this presence flag
+    // represents the physical pointer being inside the actual viewport.
+    top->setAttribute( Qt::WA_UnderMouse, true );
+    const QPointF move = MasonOrthoMovePickup( top, *ws ), resize = move + QPointF( 24, 0 );
+    const auto center = MapBounds_Center( MapViews_SelectionGeometryBounds( ws ) );
+    const QPoint origin = top->mapTo( window, MapOrthoView_WorldToView( top, { center.x, center.y } ).toPoint() );
+    const QRect crop = QRect( origin - QPoint( 115, 115 ), QSize( 360, 260 ) ).intersected( window->rect() );
+    REQUIRE( QDir().mkpath( QStringLiteral( "artifacts" ) ) );
+    const auto capture = [&]( const QString &prefix ) {
+        for ( const auto &target : { std::pair{ move, "move" }, std::pair{ resize, "resize" } } ) {
+            MasonWorkflowMouse( top, QEvent::MouseMove, target.first, Qt::NoButton ); QCoreApplication::processEvents();
+            CHECK( top->cursor().shape() == ( target.first == move ? Qt::SizeAllCursor : Qt::SizeHorCursor ) );
+            REQUIRE( window->grab().save( QStringLiteral( "artifacts/%1_%2_hover_workspace.png" ).arg( prefix, target.second ) ) );
+            REQUIRE( window->grab( crop ).save( QStringLiteral( "artifacts/%1_%2_hover_controls.png" ).arg( prefix, target.second ) ) );
+        }
+    };
+    capture( QStringLiteral( "mason_ortho" ) );
+    // Retain the current view so the selected boundary meets the move-arrow tip.
+    const f64 zoom = MapOrthoView_Zoom( top ), factor = 128.0 / ( 64.0 * zoom );
+    REQUIRE( MapWorkspace_ScaleSelection( ws, { factor, factor, factor }, center ) );
+    QCoreApplication::processEvents(); CHECK( MapOrthoView_Zoom( top ) == zoom );
+    const auto expanded = MapViews_SelectionGeometryBounds( ws );
+    CHECK( std::abs( ( expanded.box.maximum.x - expanded.box.minimum.x ) * zoom - 128.0 ) < 1e-6 );
+    CHECK( std::abs( MasonOrthoMovePickup( top, *ws ).x() - move.x() ) < 1e-6 );
+    capture( QStringLiteral( "mason_ortho_boundary" ) );
 }

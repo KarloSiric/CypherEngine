@@ -59,6 +59,9 @@ Changed
 - Local validation uses one compact Mason build and existing system packages.
 
 Fixed
+- Separated 2D resize squares from move-arrow pickups by 24 logical pixels,
+  including small selections and configured gizmo sizes. Draw/hover/press use
+  one layout; world anchors, snapping, captured offsets and undo are retained.
 - Shift-modified movement retains camera input during a camera gesture or held
   flight direction, preventing overlapping tool selection. Idle Navigation
   still accepts explicit tool chords; effective remaps and speed/framing/document
@@ -83,6 +86,11 @@ Validation and remaining work
 - Shift-flight routing: five local suites, 203027 assertions / 846 cases;
   focused camera routing/modifier/remap/focus/speed checks 1493 / 23 at 2x
   scaling. Negative control detects the old command-modifier release stall.
+  GitHub Actions run 37209953884 passed all 15 jobs for the published commit.
+- 2D handle separation: five local suites, 214300 assertions / 847 cases;
+  focused rendered move/resize checks 15623 / 5 at 2x scaling; actual Mason
+  move/resize regression also passes at 2x. Tiny and boundary-at-move-tip
+  workspace captures were inspected.
 - Component edit adapters, face UV edits, full Hammer shortcut parity and
   renderer/ECS/audio/physics/gameplay integration remain unfinished. Full Mason
   user documentation comes later; research notes retain implementation evidence.
