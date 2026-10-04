@@ -603,7 +603,7 @@ void EditorLayout_Clear( layout_t *pLayout ) noexcept
     pLayout->description = {};
     pLayout->window = {};
     pLayout->bStatusBarVisible = CY_TRUE;
-    pLayout->views = {};
+    pLayout->views = layout_views_t{};
     pLayout->nInvalidMembers = 0u;
 }
 
