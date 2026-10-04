@@ -10007,3 +10007,392 @@ TEST_CASE( "Selected owner geometry and point-entity helper bounds cannot attrac
         else { CHECK( MapWireframe_FindObject( ws.wire, scene.target )->bounds.box.minimum.x == 144 ); }
     }
 }
+
+namespace
+{
+QPointF OrthoFaceTestProject( QWidget *view, map_ortho_axes_t axes, math::vec3d_t point )
+{
+    const u32 u = axes == map_ortho_axes_t::FRONT ? 1u : 0u, v = axes == map_ortho_axes_t::TOP ? 1u : 2u;
+    return MapOrthoView_WorldToView( view, { TestCoordinate( point, u ), TestCoordinate( point, v ) } );
+}
+
+const map_wire_face_t &BrushFaceTestWireFace( const map_wireframe_t &wire, u64 object, u64 side )
+{
+    for ( usize i = 0; i < wire.faces.nCount; ++i ) {
+        if ( wire.faces.pData[i].id == object && wire.faces.pData[i].sideId == side ) { return wire.faces.pData[i]; }
+    }
+    FAIL( "The selected brush side must have an actual wire face" );
+    return wire.faces.pData[0];
+}
+
+math::vec3d_t BrushFaceTestCenter( const map_wireframe_t &wire, u64 object, u64 side )
+{
+    const auto &face = BrushFaceTestWireFace( wire, object, side ); REQUIRE( face.nIndices >= 3 );
+    math::vec3d_t center{};
+    for ( u32 i = 0; i < face.nIndices; ++i ) { center = math::Vec3d_Add( center, wire.points.pData[wire.faceIndices.pData[face.iFirstIndex + i]] ); }
+    return math::Vec3d_Scale( center, 1.0 / face.nIndices );
+}
+
+QPointF OrthoFaceTestPickup( QWidget *view, map_ortho_axes_t axes, const map_workspace_t &ws, u64 object, u64 side )
+{
+    const auto origin = BrushFaceTestCenter( ws.wire, object, side );
+    const auto normal = BrushFaceTestWireFace( ws.wire, object, side ).normal;
+    const QPointF screen = OrthoFaceTestProject( view, axes, origin );
+    const QPointF projected = OrthoFaceTestProject( view, axes, math::Vec3d_Add( origin, normal ) ) - screen;
+    const f64 length = std::hypot( projected.x(), projected.y() ); REQUIRE( length > 1e-8 );
+    const QPointF direction = projected / length;
+    const f64 scale = EditorSettings_Real( &ws.pGui->settings, "editor.viewport.gizmo_scale", 1.0 );
+    // A real shaft pickup, away from the cap, carries a perpendicular offset.
+    return screen + direction * ( 64.0 * scale * 0.60 ) + QPointF( -direction.y(), direction.x() ) * 5.0;
+}
+
+void OrthoFaceTestZoomOut( QWidget *view )
+{
+    const QPointF at = view->rect().center();
+    QWheelEvent wheel( at, view->mapToGlobal( at ), QPoint(), QPoint( 0, -240 ), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false );
+    QCoreApplication::sendEvent( view, &wheel );
+}
+}
+
+TEST_CASE( "Orthographic brush outline picks and normal handles extend every signed visible plane with one history edit", "[map][gui][views][ortho-face-push-pull][face][picking][persistence]" )
+{
+    for ( const auto axes : { map_ortho_axes_t::TOP, map_ortho_axes_t::FRONT, map_ortho_axes_t::SIDE } ) {
+        const u32 u = axes == map_ortho_axes_t::FRONT ? 1u : 0u, v = axes == map_ortho_axes_t::TOP ? 1u : 2u;
+        for ( const u32 axis : { u, v } ) { for ( const int sign : { -1, 1 } ) {
+            for ( const auto tool : { map_tool_t::SELECT, map_tool_t::EXTRUDE } ) {
+                CAPTURE( static_cast<int>( axes ), axis, sign, static_cast<int>( tool ) );
+                session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+                view_settings_t settings( &session.gui.settings ); settings.Integer( "editor.grid.size", 64 ); settings.Set( "editor.grid.snap", true );
+                settings.Real( "editor.viewport.gizmo_scale", axis == u ? 0.75 : 1.25 );
+                map_bounds_t box{}; MapBounds_AddPoint( box, { -183, -171, -157 } ); MapBounds_AddPoint( box, { 201, 213, 227 } );
+                REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 );
+                const u64 side = BrushSideInDirection( ws, id, axis, sign ); const auto original = ObjectLineVertices( ws.wire, id );
+                std::unique_ptr<QWidget> view( MapOrthoView_Create( nullptr, &ws, axes ) ); ShowAt( view.get(), 1000, 760 );
+                MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents(); OrthoFaceTestZoomOut( view.get() );
+                MapWorkspace_SetTool( &ws, tool ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::FACES );
+                const auto origin = BrushFaceTestCenter( ws.wire, id, side );
+                auto edgeWorld = origin; SetTestCoordinate( edgeWorld, axis == u ? v : u, TestCoordinate( edgeWorld, axis == u ? v : u ) + 31.0 );
+                const QPointF direction = axis == u ? QPointF( sign, 0 ) : QPointF( 0, -sign );
+                // Pick the collapsed authored side four logical pixels outside
+                // the body, far from a corner or the future normal shaft.
+                const QPointF outline = OrthoFaceTestProject( view.get(), axes, edgeWorld ) + direction * 4.0;
+                REQUIRE( MapOrthoView_Pick( view.get(), outline ) == id ); Click( view.get(), outline );
+                REQUIRE( MapWorkspace_HasBrushFace( &ws ) ); CHECK( ws.selectedBrushFaceSide == side ); CHECK_FALSE( ws.editPreview.bActive );
+                HoverMouse( view.get(), { 20, 20 } );
+                const QPointF shaft = OrthoFaceTestProject( view.get(), axes, origin ) + direction *
+                    ( 64.0 * EditorSettings_Real( &session.gui.settings, "editor.viewport.gizmo_scale", 1.0 ) * 0.60 );
+                const QColor axisColor = gui::EditorStyle_TokenColor( session.gui.style, axis == 0 ? "viewport.axis.x" : axis == 1 ? "viewport.axis.y" : "viewport.axis.z" );
+                CHECK( HandleColorPixelsNear( view->grab().toImage(), shaft, axisColor, 3 ) > 0 );
+                const usize applied = EditorHistory_AppliedStepCount( &ws.history );
+                for ( const int travelSign : { 1, -1 } ) {
+                    CAPTURE( travelSign );
+                    const QPointF start = OrthoFaceTestPickup( view.get(), axes, ws, id, side );
+                    const QPointF end = start + direction * ( travelSign * 51.0 * MapOrthoView_Zoom( view.get() ) );
+                    REQUIRE( view->rect().contains( start.toPoint() ) ); REQUIRE( view->rect().contains( end.toPoint() ) );
+                    const auto *document = ws.pDocument; const u64 revision = document->geometry.revision, selection = ws.selection.revision;
+                    const auto token = UndoRedo_StateToken( ws.history.pUndo );
+                    DragMouse( view.get(), QEvent::MouseButtonPress, start ); DragMouse( view.get(), QEvent::MouseMove, start );
+                    CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.selectedBrushFaceSide == side );
+                    DragMouse( view.get(), QEvent::MouseMove, end ); REQUIRE( MapWorkspace_HasFacePreview( &ws ) );
+                    REQUIRE( ws.editPreview.status == map_status_t::OK ); CHECK( ws.editPreview.faceDistance == travelSign * 64.0 );
+                    CHECK( ws.editPreview.transform.kind == map_transform_preview_kind_t::NONE ); REQUIRE( ws.editPreviewWire.faces.nCount == 6 );
+                    auto expected = original;
+                    for ( auto &point : expected ) {
+                        if ( std::abs( TestCoordinate( point, axis ) - TestCoordinate( origin, axis ) ) < 1e-6 ) {
+                            SetTestCoordinate( point, axis, TestCoordinate( point, axis ) + sign * travelSign * 64.0 );
+                        }
+                    }
+                    CheckObjectVertices( ws.editPreviewWire, id, expected ); CheckObjectVertices( ws.wire, id, original );
+                    CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision ); CHECK( ws.selection.revision == selection );
+                    CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+                    DragMouse( view.get(), QEvent::MouseButtonRelease, end ); CHECK_FALSE( ws.editPreview.bActive );
+                    CheckObjectVertices( ws.wire, id, expected ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied + 1 );
+                    CHECK( ws.selectedBrushFaceObject == id ); CHECK( ws.selectedBrushFaceSide == side ); CHECK( ws.tool == tool );
+                    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CheckObjectVertices( ws.wire, id, original );
+                    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CheckObjectVertices( ws.wire, id, expected );
+                    if ( axes == map_ortho_axes_t::TOP && axis == u && sign == 1 && tool == map_tool_t::SELECT && travelSign == 1 ) {
+                        QTemporaryDir folder; REQUIRE( folder.isValid() ); const QString file = folder.filePath( QStringLiteral( "ortho_face_extension.cymap" ) );
+                        REQUIRE( MapWorkspace_SaveAs( &ws, file ).status == map_files_status_t::OK );
+                        map_document_t loaded{}; REQUIRE( MapFiles_Load( &loaded, Allocator_GetSystem(), file.toUtf8().constData() ).status == map_files_status_t::OK );
+                        map_wireframe_t wire{}; REQUIRE( MapWireframe_Init( &wire, Allocator_GetSystem() ) );
+                        REQUIRE( MapWireframe_Build( &wire, loaded ) == map_status_t::OK ); CheckObjectVertices( wire, id, expected );
+                    }
+                    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CheckObjectVertices( ws.wire, id, original );
+                    CHECK( ws.selectedBrushFaceSide == side ); CHECK( ws.gridSize == 64 ); CHECK( ws.bSnapToGrid );
+                }
+            }
+        } }
+    }
+}
+
+TEST_CASE( "Orthographic edge-on face picks use bounded segments nearest distance and stable frontmost ties", "[map][gui][views][ortho-face-push-pull][picking][ordering]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    u64 ids[4]{};
+    for ( int i = 0; i < 4; ++i ) {
+        map_bounds_t box{};
+        MapBounds_AddPoint( box, { i == 3 ? -127.0 : -128.0, -128, i == 0 ? -128.0 : i == 3 ? 128.0 : 0.0 } );
+        MapBounds_AddPoint( box, { i == 3 ? 129.0 : 128.0, 128, i == 0 ? -64.0 : i == 3 ? 192.0 : 64.0 } );
+        REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); ids[i] = EditorSelection_At( &ws.selection, 0 );
+    }
+    std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) ); ShowAt( top.get(), 1000, 760 );
+    MapWorkspace_Frame( &ws, CY_FALSE ); QCoreApplication::processEvents();
+    MapWorkspace_Select( &ws, 0, MAP_SELECT_REPLACE ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::FACES );
+    const auto *document = ws.pDocument; const usize steps = EditorHistory_StepCount( &ws.history );
+    const QPointF edge = MapOrthoView_WorldToView( top.get(), { 128, 31 } );
+    // The farther-depth front pair shares exactly one projected side. Its
+    // lower persistent object ID wins without changing geometry or history.
+    REQUIRE( MapOrthoView_Pick( top.get(), edge ) == ids[1] ); Click( top.get(), edge );
+    CHECK( ws.selectedBrushFaceObject == ids[1] ); CHECK( ws.selectedBrushFaceSide == BrushSideInDirection( ws, ids[1], 0, 1 ) );
+    REQUIRE( EditorSelection_Apply( &ws.hidden, ids[1], EDITOR_SELECT_ADD ) ); MapWorkspace_Notify( &ws, MAP_CHANGE_VIEW );
+    CHECK( MapOrthoView_Pick( top.get(), edge ) == ids[2] );
+    REQUIRE( EditorSelection_Apply( &ws.hidden, ids[2], EDITOR_SELECT_ADD ) ); MapWorkspace_Notify( &ws, MAP_CHANGE_VIEW );
+    // A different brush has its side only one world unit away and is much
+    // farther forward. Actual screen distance must still choose this edge.
+    CHECK( MapOrthoView_Pick( top.get(), edge ) == ids[0] );
+    REQUIRE( EditorSelection_Apply( &ws.hidden, ids[3], EDITOR_SELECT_ADD ) ); MapWorkspace_Notify( &ws, MAP_CHANGE_VIEW );
+    CHECK( MapOrthoView_Pick( top.get(), edge + QPointF( 5.75, 0 ) ) == ids[0] );
+    CHECK( MapOrthoView_Pick( top.get(), edge + QPointF( 6.25, 0 ) ) == 0 );
+    // Six-pixel edge assistance never extends a side beyond its real segment.
+    const QPointF beyondCorner = MapOrthoView_WorldToView( top.get(), { 128, 128 } ) + QPointF( 0, -8 );
+    CHECK( MapOrthoView_Pick( top.get(), beyondCorner ) == 0 );
+    const QPointF interior = MapOrthoView_WorldToView( top.get(), { 17, 31 } ); Click( top.get(), interior );
+    CHECK( ws.selectedBrushFaceObject == ids[0] ); CHECK( ws.selectedBrushFaceSide == BrushSideInDirection( ws, ids[0], 2, 1 ) );
+    CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK_FALSE( ws.editPreview.bActive );
+}
+
+TEST_CASE( "Orthographic sloped face handles recover normal distance rather than its shortened projection", "[map][gui][views][ortho-face-push-pull][sloped][snap]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    view_settings_t settings( &session.gui.settings ); settings.Choice( "editor.map.new_brush_shape", "wedge" );
+    settings.Choice( "editor.map.primitive_axis", "Z" ); settings.Integer( "editor.grid.size", 16 ); settings.Set( "editor.grid.snap", true );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, -128 } ); MapBounds_AddPoint( box, { 128, 128, 128 } );
+    REQUIRE( MapWorkspace_CreatePrimitive( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 );
+    const auto *brush = geometry::GeometryDocument_FindBrush( &ws.pDocument->geometry, { id } ); REQUIRE( brush != nullptr );
+    u64 side = 0; math::planed_t plane{};
+    for ( usize i = 0; i < brush->sides.nCount; ++i ) {
+        const auto candidate = brush->sides.pData[i].plane;
+        if ( std::abs( candidate.normal.x ) > 0.1 && std::abs( candidate.normal.z ) > 0.1 ) { side = brush->sides.pData[i].sourceId.value; plane = candidate; }
+    }
+    REQUIRE( side != 0 ); const auto original = ObjectLineVertices( ws.wire, id );
+    std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) ); ShowAt( top.get(), 1000, 760 );
+    MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents(); OrthoFaceTestZoomOut( top.get() ); MapWorkspace_SelectBrushFace( &ws, id, side );
+    const QPointF start = OrthoFaceTestPickup( top.get(), map_ortho_axes_t::TOP, ws, id, side );
+    const auto origin = BrushFaceTestCenter( ws.wire, id, side );
+    const usize steps = EditorHistory_StepCount( &ws.history ); const auto *document = ws.pDocument;
+    DragMouse( top.get(), QEvent::MouseButtonPress, start );
+    for ( const f64 distance : { 27.0, -27.0 } ) {
+        const QPointF end = start + OrthoFaceTestProject( top.get(), map_ortho_axes_t::TOP, math::Vec3d_Add( origin, math::Vec3d_Scale( plane.normal, distance ) ) ) -
+            OrthoFaceTestProject( top.get(), map_ortho_axes_t::TOP, origin );
+        DragMouse( top.get(), QEvent::MouseMove, end ); REQUIRE( MapWorkspace_HasFacePreview( &ws ) );
+        const f64 snapped = distance > 0 ? 32.0 : -32.0; CHECK( ws.editPreview.faceDistance == Catch::Approx( snapped ) );
+        const auto &face = BrushFaceTestWireFace( ws.editPreviewWire, id, side );
+        for ( u32 i = 0; i < face.nIndices; ++i ) {
+            const auto point = ws.editPreviewWire.points.pData[ws.editPreviewWire.faceIndices.pData[face.iFirstIndex + i]];
+            CHECK( math::Vec3d_Dot( plane.normal, point ) + plane.d == Catch::Approx( snapped ).margin( 1e-6 ) );
+        }
+        DragMouse( top.get(), QEvent::MouseMove, end, Qt::ControlModifier ); REQUIRE( MapWorkspace_HasFacePreview( &ws ) );
+        CHECK( ws.editPreview.faceDistance == Catch::Approx( distance ) );
+    }
+    DragMouse( top.get(), QEvent::MouseMove, start ); CHECK_FALSE( ws.editPreview.bActive );
+    DragMouse( top.get(), QEvent::MouseButtonRelease, start ); CHECK_FALSE( ws.editPreview.bActive );
+    CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CheckObjectVertices( ws.wire, id, original );
+}
+
+TEST_CASE( "Orthographic normal dragging updates adjoining 3D faces and the selected line in another pane", "[map][gui][views][ortho-face-push-pull][render][cross-pane]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    view_settings_t settings( &session.gui.settings ); settings.Integer( "editor.grid.size", 64 ); settings.Set( "editor.grid.snap", true );
+    settings.Set( "editor.grid.show_surface_3d", false ); settings.Set( "editor.viewport.show_selection_dimensions", false );
+    settings.Set( "editor.viewport.perspective.show_selection_dimensions", false );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, -128 } ); MapBounds_AddPoint( box, { 128, 128, 128 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 );
+    std::unique_ptr<QWidget> side( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::SIDE ) ), front( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::FRONT ) );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) );
+    ShowAt( side.get(), 1000, 760 ); ShowAt( front.get(), 1000, 760 ); ShowAt( camera.get(), 1000, 760 );
+    MapCameraView_SetRenderMode( camera.get(), map_render_mode_t::FULLBRIGHT ); MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents();
+    OrthoFaceTestZoomOut( side.get() ); OrthoFaceTestZoomOut( front.get() );
+    const u64 face = BrushSideInDirection( ws, id, 2, 1 ); MapWorkspace_SelectBrushFace( &ws, id, face );
+    const auto position = MapCameraView_Position( camera.get() ); QPointF sideProbe;
+    REQUIRE( MapCameraView_WorldToView( camera.get(), { position.x > 0 ? 128.0 : -128.0, 31.0, 160.0 }, &sideProbe ) );
+    REQUIRE( camera->rect().adjusted( 12, 12, -12, -12 ).contains( sideProbe.toPoint() ) );
+    const QPointF oldFace = MapOrthoView_WorldToView( front.get(), { 31, 128 } ), newFace = MapOrthoView_WorldToView( front.get(), { 31, 192 } );
+    const QColor selected = gui::EditorStyle_Color( session.gui.style, gui::STYLE_COLOR_SELECTION );
+    const QImage cameraBefore = camera->grab().toImage(), frontBefore = front->grab().toImage();
+    REQUIRE( HandleColorPixelsNear( frontBefore, oldFace, selected, 2 ) > 0 ); REQUIRE( HandleColorPixelsNear( frontBefore, newFace, selected, 2 ) == 0 );
+    const auto original = ObjectLineVertices( ws.wire, id ); const auto *document = ws.pDocument; const usize steps = EditorHistory_StepCount( &ws.history );
+    const QPointF start = OrthoFaceTestPickup( side.get(), map_ortho_axes_t::SIDE, ws, id, face );
+    const QPointF end = start + QPointF( 0, -51.0 * MapOrthoView_Zoom( side.get() ) );
+    DragMouse( side.get(), QEvent::MouseButtonPress, start ); DragMouse( side.get(), QEvent::MouseMove, end );
+    REQUIRE( MapWorkspace_HasFacePreview( &ws ) ); CHECK( ws.editPreview.faceDistance == 64 );
+    const QImage cameraPreview = camera->grab().toImage(), frontPreview = front->grab().toImage();
+    CHECK( ChangedPixelsNear( cameraBefore, cameraPreview, sideProbe, 1 ) > 0 );
+    CHECK( HandleColorPixelsNear( frontPreview, newFace, selected, 2 ) > 0 ); CHECK( HandleColorPixelsNear( frontPreview, oldFace, selected, 2 ) == 0 );
+    CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CheckObjectVertices( ws.wire, id, original );
+    const auto candidate = ObjectLineVertices( ws.editPreviewWire, id ); DragMouse( side.get(), QEvent::MouseButtonRelease, end );
+    CheckObjectVertices( ws.wire, id, candidate ); CHECK( EditorHistory_StepCount( &ws.history ) == steps + 1 );
+    CHECK( ChangedPixelsNear( cameraPreview, camera->grab().toImage(), sideProbe, 1 ) == 0 );
+    CHECK( HandleColorPixelsNear( front->grab().toImage(), newFace, selected, 2 ) > 0 );
+}
+
+TEST_CASE( "Orthographic face snap bypass is live and perpendicular or returning travel never publishes", "[map][gui][views][ortho-face-push-pull][snap][zero-motion]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    view_settings_t settings( &session.gui.settings ); settings.Integer( "editor.grid.size", 64 ); settings.Set( "editor.grid.snap", true );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, -128 } ); MapBounds_AddPoint( box, { 128, 128, 128 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 ); const u64 side = BrushSideInDirection( ws, id, 0, 1 );
+    const auto original = ObjectLineVertices( ws.wire, id ); std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) );
+    ShowAt( top.get(), 1000, 760 ); MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents(); OrthoFaceTestZoomOut( top.get() ); MapWorkspace_SelectBrushFace( &ws, id, side );
+    const QPointF start = OrthoFaceTestPickup( top.get(), map_ortho_axes_t::TOP, ws, id, side ), end = start + QPointF( 69.25 * MapOrthoView_Zoom( top.get() ), 0 );
+    const auto *document = ws.pDocument; const auto token = UndoRedo_StateToken( ws.history.pUndo ); const usize steps = EditorHistory_StepCount( &ws.history );
+    DragMouse( top.get(), QEvent::MouseButtonPress, start ); DragMouse( top.get(), QEvent::MouseMove, start + QPointF( 0, 40 ) ); CHECK_FALSE( ws.editPreview.bActive );
+    DragMouse( top.get(), QEvent::MouseMove, end ); REQUIRE( MapWorkspace_HasFacePreview( &ws ) ); CHECK( ws.editPreview.faceDistance == 64 );
+    for ( const Qt::KeyboardModifiers modifiers : { Qt::KeyboardModifiers( Qt::ControlModifier ), Qt::KeyboardModifiers( Qt::MetaModifier ) } ) {
+        DragMouse( top.get(), QEvent::MouseMove, end, modifiers ); REQUIRE( MapWorkspace_HasFacePreview( &ws ) ); CHECK( ws.editPreview.faceDistance == Catch::Approx( 69.25 ) );
+        DragMouse( top.get(), QEvent::MouseMove, end ); REQUIRE( MapWorkspace_HasFacePreview( &ws ) ); CHECK( ws.editPreview.faceDistance == 64 );
+    }
+    DragMouse( top.get(), QEvent::MouseMove, start ); CHECK_FALSE( ws.editPreview.bActive ); DragMouse( top.get(), QEvent::MouseButtonRelease, start );
+    CHECK( ws.pDocument == document ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+    CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CheckObjectVertices( ws.wire, id, original ); CHECK( ws.gridSize == 64 ); CHECK( ws.bSnapToGrid );
+}
+
+TEST_CASE( "Orthographic face handles reject read-only head-on and mesh component root fallbacks", "[map][gui][views][ortho-face-push-pull][guards][component-transform-safety]" )
+{
+    for ( const int variant : { 0, 1, 2 } ) {
+        CAPTURE( variant ); session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+        map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, -128 } ); MapBounds_AddPoint( box, { 128, 128, 128 } );
+        REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 );
+        const u64 side = BrushSideInDirection( ws, id, variant == 1 ? 2u : 0u, 1 );
+        if ( variant == 2 ) { REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) ); MapWorkspace_SelectMeshFace( &ws, id, side ); }
+        else { MapWorkspace_SelectBrushFace( &ws, id, side ); }
+        if ( variant == 0 ) { ws.pDocument->bReadOnly = CY_TRUE; }
+        std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) ); ShowAt( top.get(), 1000, 760 );
+        MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents(); OrthoFaceTestZoomOut( top.get() );
+        const auto *document = ws.pDocument; const auto original = ObjectLineVertices( ws.wire, id ); const usize steps = EditorHistory_StepCount( &ws.history );
+        const QPointF origin = MapOrthoView_WorldToView( top.get(), variant == 1 ? QPointF( 0, 0 ) : QPointF( 128, 0 ) );
+        const QPointF start = origin + QPointF( 38.4, 5.0 ), end = start + QPointF( 51.0 * MapOrthoView_Zoom( top.get() ), 0 );
+        DragMouse( top.get(), QEvent::MouseButtonPress, start ); DragMouse( top.get(), QEvent::MouseMove, end ); CHECK_FALSE( ws.editPreview.bActive );
+        DragMouse( top.get(), QEvent::MouseButtonRelease, end ); CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+        CheckObjectVertices( ws.wire, id, original ); CHECK( ws.elementMode == map_element_mode_t::FACES );
+        ws.pDocument->bReadOnly = CY_FALSE;
+    }
+}
+
+TEST_CASE( "Failed orthographic face previews cannot rebuild an unseen candidate on late release", "[map][gui][views][ortho-face-push-pull][allocation][invalid][late-release]" )
+{
+    for ( const bool allocationFailure : { false, true } ) {
+        CAPTURE( allocationFailure ); session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+        map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, -128 } ); MapBounds_AddPoint( box, { 128, 128, 128 } );
+        REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 ); const auto original = ObjectLineVertices( ws.wire, id );
+        std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) ); ShowAt( top.get(), 1000, 760 );
+        MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents(); OrthoFaceTestZoomOut( top.get() );
+        const u64 side = BrushSideInDirection( ws, id, 0, 1 ); MapWorkspace_SelectBrushFace( &ws, id, side );
+        const QPointF start = OrthoFaceTestPickup( top.get(), map_ortho_axes_t::TOP, ws, id, side ); const f64 zoom = MapOrthoView_Zoom( top.get() );
+        const QPointF valid = start + QPointF( 32 * zoom, 0 ), failed = start + QPointF( ( allocationFailure ? 64 : -300 ) * zoom, 0 );
+        const auto *document = ws.pDocument; const u64 revision = document->geometry.revision; const auto token = UndoRedo_StateToken( ws.history.pUndo );
+        const usize steps = EditorHistory_StepCount( &ws.history ); DragMouse( top.get(), QEvent::MouseButtonPress, start ); DragMouse( top.get(), QEvent::MouseMove, valid );
+        REQUIRE( MapWorkspace_HasFacePreview( &ws ) ); REQUIRE( ws.editPreview.status == map_status_t::OK );
+        mesh_face_allocation_failure_t audit{ 0, 1, 0 }; const allocator_t allocator{ &MeshFaceTestAllocate, nullptr, &MeshFaceTestFree, &audit };
+        const auto *originalAllocator = ws.pDocument->pAllocator;
+        if ( allocationFailure ) { ws.pDocument->pAllocator = &allocator; }
+        DragMouse( top.get(), QEvent::MouseMove, failed ); ws.pDocument->pAllocator = originalAllocator;
+        REQUIRE( ws.editPreview.bActive ); REQUIRE( ws.editPreview.status != map_status_t::OK ); REQUIRE( ws.editPreviewWire.faces.nCount == 0 );
+        if ( allocationFailure ) { CHECK( ws.editPreview.status == map_status_t::OUT_OF_MEMORY ); CHECK( audit.live == 0 ); }
+        // Release at a now-valid pointer after recovering the allocator. It
+        // cannot silently replace the failed visible state with a fresh solid.
+        DragMouse( top.get(), QEvent::MouseButtonRelease, valid ); CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.editPreviewWire.points.nCount == 0 );
+        CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision ); CheckObjectVertices( ws.wire, id, original );
+        CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    }
+}
+
+TEST_CASE( "Orthographic face capture cancels across input and viewport context changes", "[map][gui][views][ortho-face-push-pull][cancel][gesture-context]" )
+{
+    for ( const int variant : { 0, 1, 2, 3, 4, 5, 6 } ) {
+        CAPTURE( variant ); session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+        map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, -128 } ); MapBounds_AddPoint( box, { 128, 128, 128 } );
+        REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 ); const auto original = ObjectLineVertices( ws.wire, id );
+        std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) ); ShowAt( top.get(), 1000, 760 );
+        MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents(); OrthoFaceTestZoomOut( top.get() );
+        const u64 side = BrushSideInDirection( ws, id, 0, 1 ); MapWorkspace_SelectBrushFace( &ws, id, side );
+        const QPointF start = OrthoFaceTestPickup( top.get(), map_ortho_axes_t::TOP, ws, id, side ), end = start + QPointF( 32 * MapOrthoView_Zoom( top.get() ), 0 );
+        const auto *document = ws.pDocument; const usize steps = EditorHistory_StepCount( &ws.history );
+        DragMouse( top.get(), QEvent::MouseButtonPress, start ); DragMouse( top.get(), QEvent::MouseMove, end ); REQUIRE( MapWorkspace_HasFacePreview( &ws ) );
+        if ( variant == 0 ) { QKeyEvent cancel( QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier ); QCoreApplication::sendEvent( top.get(), &cancel ); }
+        if ( variant == 1 ) { QFocusEvent lost( QEvent::FocusOut ); QCoreApplication::sendEvent( top.get(), &lost ); }
+        if ( variant == 2 ) { MapWorkspace_SetTool( &ws, map_tool_t::TRANSLATE ); }
+        if ( variant == 3 ) { MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS ); }
+        if ( variant == 4 ) { MapWorkspace_Select( &ws, 0, MAP_SELECT_REPLACE ); }
+        if ( variant == 5 ) { MapWorkspace_DocumentChanged( &ws ); }
+        if ( variant == 6 ) { OrthoFaceTestZoomOut( top.get() ); }
+        CHECK_FALSE( ws.editPreview.bActive ); DragMouse( top.get(), QEvent::MouseButtonRelease, end ); CHECK_FALSE( ws.editPreview.bActive );
+        CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CheckObjectVertices( ws.wire, id, original );
+    }
+}
+
+TEST_CASE( "Orthographic face hint keeps its complete glyph ink inside a boundary pane", "[map][gui][views][ortho-face-push-pull][render][hint-boundary]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    view_settings_t settings( &session.gui.settings );
+    settings.Real( "editor.viewport.gizmo_scale", 1.0 ); settings.Real( "editor.camera.pan_sensitivity", 1.0 );
+    for ( const char *path : { "editor.viewport.show_rulers", "editor.viewport.show_axes", "editor.viewport.center_axes",
+                              "editor.viewport.show_selection_dimensions", "editor.viewport.show_selection_vertices", "editor.viewport.show_metrics",
+                              "editor.viewport.active_border" } ) { settings.Set( path, false ); }
+    ws.bGridVisible = CY_FALSE;
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, -128 } ); MapBounds_AddPoint( box, { 128, 128, 128 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 );
+    std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) ); ShowAt( top.get(), 400, 300 );
+    top->setAttribute( Qt::WA_UnderMouse, true ); MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents();
+    MapWorkspace_SelectBrushFace( &ws, id, BrushSideInDirection( ws, id, 0, 1 ) );
+    const QColor hover = gui::EditorStyle_TokenColor( session.gui.style, "viewport.hover" );
+    const auto tip = [&]() { return MapOrthoView_WorldToView( top.get(), { 128, 0 } ) + QPointF( 64, 0 ); };
+    const auto placeTip = [&]( f64 x ) {
+        // Move the real view by its ordinary captured middle-button gesture.
+        const QPointF start( 16, 250 ), end = start + QPointF( x - tip().x(), 0 );
+        DragButton( top.get(), QEvent::MouseButtonPress, start, Qt::MiddleButton );
+        DragButton( top.get(), QEvent::MouseMove, end, Qt::MiddleButton );
+        DragButton( top.get(), QEvent::MouseButtonRelease, end, Qt::MiddleButton );
+        CHECK( tip().x() == Catch::Approx( x ) );
+    };
+    const auto hintInk = [&]( const QImage &idle, const QImage &highlighted ) {
+        REQUIRE( idle.size() == highlighted.size() );
+        const qreal ratio = highlighted.devicePixelRatio();
+        // The caption sits above the horizontal shaft. This band excludes
+        // the shaft and cap, so their hover recoloring cannot satisfy it.
+        const int firstY = qRound( ( tip().y() - 80 ) * ratio ), lastY = qRound( ( tip().y() - 5 ) * ratio );
+        int count = 0; QRect bounds;
+        for ( int y = std::max( 0, firstY ); y < std::min( lastY, highlighted.height() ); ++y ) {
+            for ( int x = 0; x < highlighted.width(); ++x ) {
+                const QColor color = highlighted.pixelColor( x, y );
+                if ( idle.pixel( x, y ) == highlighted.pixel( x, y ) || std::abs( color.red() - hover.red() ) >= 24 ||
+                     std::abs( color.green() - hover.green() ) >= 24 || std::abs( color.blue() - hover.blue() ) >= 24 ) { continue; }
+                ++count; bounds = bounds.united( QRect( x, y, 1, 1 ) );
+            }
+        }
+        return std::pair{ count, bounds };
+    };
+    const auto captureHint = [&]() {
+        HoverMouse( top.get(), { 20, 280 } ); const QImage idle = top->grab().toImage();
+        HoverMouse( top.get(), tip() - QPointF( 10, 0 ) ); const QImage highlighted = top->grab().toImage();
+        REQUIRE( HandleColorPixelsNear( highlighted, tip(), hover, 7 ) > 0 );
+        return std::pair{ highlighted, hintInk( idle, highlighted ) };
+    };
+    const auto *document = ws.pDocument; const auto token = UndoRedo_StateToken( ws.history.pUndo );
+    placeTip( 160 ); const auto interior = captureHint(); REQUIRE( interior.second.first > 20 );
+    // The previous baseline started beyond the right edge at this placement,
+    // although the cap remained visible. Compare actual complete caption ink
+    // with the interior reference instead of computing a clamp coordinate.
+    placeTip( top->width() - 6 ); const auto boundary = captureHint();
+    CHECK( boundary.second.first >= interior.second.first * 0.97 );
+    CHECK( std::abs( boundary.second.second.width() - interior.second.second.width() ) <= 1 );
+    CHECK( boundary.second.second.height() == interior.second.second.height() );
+    const qreal ratio = boundary.first.devicePixelRatio();
+    CHECK( boundary.second.second.left() >= 2 * ratio );
+    CHECK( boundary.second.second.right() < boundary.first.width() - 2 * ratio );
+    // A pane narrower than the complete hint still draws its hovered cap,
+    // while omitting the caption rather than showing a clipped fragment.
+    top->resize( 32, 300 ); QCoreApplication::processEvents(); placeTip( top->width() - 6 );
+    const auto narrow = captureHint(); CHECK( narrow.second.first == 0 );
+    CHECK( ws.pDocument == document ); CHECK_FALSE( ws.editPreview.bActive );
+    CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+}

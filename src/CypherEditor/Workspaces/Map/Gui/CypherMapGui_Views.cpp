@@ -2434,12 +2434,42 @@ public:
 
     const map_wire_face_t *PickFace( QPointF point ) const
     {
-        if ( !rect().contains( point.toPoint() ) ) { return nullptr; }
+        if ( !std::isfinite( point.x() ) || !std::isfinite( point.y() ) || !QRectF( rect() ).contains( point ) ) { return nullptr; }
         const auto &wire = m_pWorkspace->wire;
         const auto world = ViewToWorld( point );
         const int depthAxis = 3 - m_axisU - m_axisV;
         const map_wire_face_t *best = nullptr;
         f64 bestDepth = -std::numeric_limits<f64>::infinity();
+        f64 nearest = 6.0;
+        // A brush side viewed edge-on is the outline users pull to widen the
+        // solid. Pick its actual projected segments before the facing polygon,
+        // not the brush AABB. Mesh faces retain their existing plane contract.
+        for ( usize i = 0; i < wire.faces.nCount; ++i ) {
+            const auto &face = wire.faces.pData[i];
+            if ( face.sideId == 0u || face.nIndices < 3u || std::abs( Axis( face.normal, depthAxis ) ) >= 1e-8 ) { continue; }
+            const auto *object = MapWireframe_FindObject( wire, face.id );
+            if ( object == nullptr || object->kind != map_wire_kind_t::BRUSH || !MapWorkspace_IsVisible( m_pWorkspace, *object ) ) { continue; }
+            for ( u32 k = 0; k < face.nIndices; ++k ) {
+                const auto a = wire.points.pData[wire.faceIndices.pData[face.iFirstIndex + k]];
+                const auto b = wire.points.pData[wire.faceIndices.pData[face.iFirstIndex + ( k + 1u ) % face.nIndices]];
+                const QLineF line( WorldToView( { Axis( a, m_axisU ), Axis( a, m_axisV ) } ),
+                    WorldToView( { Axis( b, m_axisU ), Axis( b, m_axisV ) } ) );
+                const f64 distance = ScreenSegmentDistance( point, line );
+                if ( !std::isfinite( distance ) || distance > 6.0 ) { continue; }
+                const auto direction = line.p2() - line.p1();
+                const f64 length2 = QPointF::dotProduct( direction, direction );
+                const f64 t = length2 > 0.0 ? std::clamp( QPointF::dotProduct( point - line.p1(), direction ) / length2, 0.0, 1.0 ) : 0.0;
+                const f64 depth = length2 > 0.0 ? Axis( a, depthAxis ) + ( Axis( b, depthAxis ) - Axis( a, depthAxis ) ) * t :
+                    std::max( Axis( a, depthAxis ), Axis( b, depthAxis ) );
+                const bool before = best == nullptr || face.id < best->id || ( face.id == best->id && face.sideId < best->sideId );
+                constexpr f64 screenTie = 1e-7;
+                if ( std::isfinite( depth ) && ( best == nullptr || distance < nearest - screenTie ||
+                     ( std::abs( distance - nearest ) <= screenTie && ( depth > bestDepth || ( depth == bestDepth && before ) ) ) ) ) {
+                    best = &face; nearest = distance; bestDepth = depth;
+                }
+            }
+        }
+        if ( best != nullptr ) { return best; }
         u64 checkedMesh = 0;
         bool meshPlanesPickable = false;
         for ( usize i = 0; i < wire.faces.nCount; ++i ) {
@@ -2550,6 +2580,7 @@ protected:
         DrawTransformPreview( painter, workspace, project, segment, face, rect(), false );
         DrawEditPreview( painter, workspace, project, segment, face, rect(), false );
         DrawBoundsSnaps( painter, workspace, m_drag, project, rect() );
+        DrawPushPullHandle( painter );
         const QPointF pointer = underMouse() && !NavigationActive() ? m_hover.point : QPointF( -10000, -10000 );
         const f64 moveLength = 64.0 * GizmoScale( workspace ) / m_zoom;
         const auto hit = EditHandleAt( workspace, project, rect(), pointer, moveLength, m_axisU, m_axisV, 3 - m_axisU - m_axisV );
@@ -2597,12 +2628,15 @@ protected:
         if ( pEvent->buttons() == Qt::NoButton ) { ActivateHoveredView( *this, *m_pWorkspace ); }
         ViewHover_Move( m_hover, *this, *m_pWorkspace, *pEvent, NavigationActive() );
         if ( m_drag.kind == edit_drag_t::NONE && !NavigationActive() ) {
+            ortho_face_handle_t faceHandle{};
             const auto project = [this]( math::vec3d_t p, QPointF &screen ) { screen = WorldToView( { Axis( p, m_axisU ), Axis( p, m_axisV ) } ); return true; };
             const auto hit = EditHandleAt( *m_pWorkspace, project, rect(), pEvent->position(), 64.0 * GizmoScale( *m_pWorkspace ) / m_zoom, m_axisU, m_axisV, 3 - m_axisU - m_axisV );
-            if ( hit.resize >= 0 ) { setCursor( ResizeCursor( hit.resize ) ); }
+            if ( PickPushPullHandle( pEvent->position(), faceHandle ) ) { setCursor( Qt::SizeAllCursor ); }
+            else if ( hit.resize >= 0 ) { setCursor( ResizeCursor( hit.resize ) ); }
             else if ( hit.gizmo >= 0 ) { setCursor( GizmoCursor( *m_pWorkspace ) ); } else { unsetCursor(); }
         }
-        if ( TransformDrag( TransformTool( *m_pWorkspace ) ) != edit_drag_t::NONE || m_pWorkspace->tool == map_tool_t::CLIP || MapWorkspace_HasBlockPreview( m_pWorkspace ) ) { update(); }
+        if ( TransformDrag( TransformTool( *m_pWorkspace ) ) != edit_drag_t::NONE || m_pWorkspace->tool == map_tool_t::CLIP ||
+             ShowPushPullHandle() || MapWorkspace_HasBlockPreview( m_pWorkspace ) ) { update(); }
         if ( m_bPanning ) {
             const QPointF delta = ( pEvent->position() - m_panStart ) * m_panSensitivity;
             m_center = QPointF( m_panCenterStart.x() - delta.x() / m_zoom, m_panCenterStart.y() + delta.y() / m_zoom );
@@ -2620,6 +2654,12 @@ protected:
     void mouseReleaseEvent( QMouseEvent *pEvent ) override
     {
         if ( pEvent->button() == Qt::LeftButton && m_drag.kind != edit_drag_t::NONE ) {
+            if ( m_drag.kind == edit_drag_t::PUSH_PULL && m_pWorkspace->editPreview.bFacePushPull &&
+                 m_pWorkspace->editPreview.status != map_status_t::OK ) {
+                // Match the camera path: allocation recovery on release may
+                // not reconstruct and publish a candidate the user never saw.
+                CancelDrag( m_drag, *m_pWorkspace ); unsetCursor(); update(); return;
+            }
             UpdateEdit( pEvent->position(), pEvent->modifiers() );
             if ( m_drag.kind == edit_drag_t::MARQUEE && QLineF( m_drag.start, m_drag.current ).length() >= 3 ) {
                 SelectMarquee( *m_pWorkspace, m_drag, [this]( math::vec3d_t p, QPointF &screen ) { screen = WorldToView( { Axis( p, m_axisU ), Axis( p, m_axisV ) } ); return true; } );
@@ -2758,6 +2798,78 @@ private:
         const QPointF p = ViewToWorld( screen ); math::vec3d_t world{};
         SetAxis( world, m_axisU, p.x() ); SetAxis( world, m_axisV, p.y() ); return world;
     }
+    struct ortho_face_handle_t {
+        math::vec3d_t origin{}, normal{};
+        QLineF shaft{};
+    };
+    bool ShowPushPullHandle() const {
+        const auto &ws = *m_pWorkspace;
+        return ( ws.tool == map_tool_t::EXTRUDE || ( ws.tool == map_tool_t::SELECT && ws.elementMode == map_element_mode_t::FACES ) ) &&
+            ws.pDocument != nullptr && !ws.pDocument->bReadOnly && MapWorkspace_HasBrushFace( &ws );
+    }
+    bool FaceHandle( ortho_face_handle_t &handle ) const {
+        if ( !ShowPushPullHandle() ) { return false; }
+        const auto &ws = *m_pWorkspace;
+        const auto *object = MapWireframe_FindObject( ws.wire, ws.selectedBrushFaceObject );
+        if ( object == nullptr || !MapWorkspace_IsVisible( &ws, *object ) ) { return false; }
+        const auto *wire = &ws.wire;
+        if ( ws.editPreview.bFacePushPull ) {
+            if ( !MapWorkspace_HasFacePreview( &ws ) || ws.editPreview.status != map_status_t::OK ) { return false; }
+            wire = &ws.editPreviewWire;
+        }
+        for ( usize i = 0; i < wire->faces.nCount; ++i ) {
+            const auto &face = wire->faces.pData[i];
+            if ( face.id != ws.selectedBrushFaceObject || face.sideId != ws.selectedBrushFaceSide || face.nIndices < 3u ) { continue; }
+            auto projectedNormal = face.normal; SetAxis( projectedNormal, 3 - m_axisU - m_axisV, 0 );
+            const f64 length2 = Dot( projectedNormal, projectedNormal );
+            if ( !std::isfinite( length2 ) || length2 < 1e-8 ) { return false; }
+            math::vec3d_t center{};
+            for ( u32 k = 0; k < face.nIndices; ++k ) { center = Add( center, wire->points.pData[wire->faceIndices.pData[face.iFirstIndex + k]] ); }
+            handle.origin = Scale( center, 1.0 / face.nIndices ); handle.normal = face.normal;
+            const f64 length = 64.0 * GizmoScale( ws ) / ( m_zoom * std::sqrt( length2 ) );
+            const auto tip = Add( handle.origin, Scale( handle.normal, length ) );
+            handle.shaft = QLineF( WorldToView( { Axis( handle.origin, m_axisU ), Axis( handle.origin, m_axisV ) } ),
+                WorldToView( { Axis( tip, m_axisU ), Axis( tip, m_axisV ) } ) );
+            return std::isfinite( handle.shaft.x1() ) && std::isfinite( handle.shaft.y1() ) &&
+                std::isfinite( handle.shaft.x2() ) && std::isfinite( handle.shaft.y2() ) && handle.shaft.length() > 0.001;
+        }
+        return false;
+    }
+    bool PickPushPullHandle( QPointF screen, ortho_face_handle_t &handle ) const {
+        return QRectF( rect() ).contains( screen ) && FaceHandle( handle ) && ScreenSegmentDistance( screen, handle.shaft ) <= 8.0;
+    }
+    void BeginPushPull( const ortho_face_handle_t &handle ) {
+        m_drag.kind = edit_drag_t::PUSH_PULL;
+        const auto *object = MapWireframe_FindObject( m_pWorkspace->wire, m_pWorkspace->selectedBrushFaceObject );
+        m_drag.original = object != nullptr ? object->bounds : map_bounds_t{};
+        m_drag.pivot = handle.origin; m_drag.faceNormal = handle.normal;
+        m_drag.planeStart = EditPoint( m_drag.start );
+        CaptureDragContext( m_drag, *m_pWorkspace ); setCursor( Qt::SizeAllCursor );
+    }
+    void DrawPushPullHandle( QPainter &painter ) const {
+        ortho_face_handle_t handle{}; if ( !FaceHandle( handle ) ) { return; }
+        const auto &ws = *m_pWorkspace;
+        const auto &arrow = handle.shaft;
+        const auto direction = ( arrow.p2() - arrow.p1() ) / arrow.length();
+        int axis = static_cast<int>( m_axisU );
+        if ( std::abs( Axis( handle.normal, m_axisV ) ) > std::abs( Axis( handle.normal, axis ) ) ) { axis = static_cast<int>( m_axisV ); }
+        const bool engaged = m_drag.kind == edit_drag_t::PUSH_PULL ||
+            ( underMouse() && !NavigationActive() && ScreenSegmentDistance( m_hover.point, arrow ) <= 8.0 );
+        const QColor color = engaged ? SlotColor( ws, LINE_HOVER ) : Token( ws, axis == 0 ? "viewport.axis.x" : axis == 1 ? "viewport.axis.y" : "viewport.axis.z" );
+        painter.save(); painter.setRenderHint( QPainter::Antialiasing ); painter.setPen( QPen( color, engaged ? 1.75 : 1.25 ) );
+        painter.drawLine( arrow ); DrawResizeCap( painter, arrow.p2() - direction * 5.0, direction, color, engaged );
+        if ( engaged ) {
+            const auto text = QStringLiteral( "Push/Pull" ); const auto metrics = painter.fontMetrics();
+            const f64 maxX = rect().right() - 4.0 - metrics.horizontalAdvance( text );
+            const f64 minY = rect().top() + 4.0 + metrics.ascent(), maxY = rect().bottom() - 4.0 - metrics.descent();
+            if ( maxX >= 4.0 && maxY >= minY ) {
+                QPointF label = arrow.p2() + QPointF( 8, -8 );
+                label.setX( std::clamp( label.x(), 4.0, maxX ) ); label.setY( std::clamp( label.y(), minY, maxY ) );
+                painter.drawText( label, text );
+            }
+        }
+        painter.restore();
+    }
     void BeginEdit( QPointF screen, Qt::KeyboardModifiers modifiers ) {
         if ( m_pWorkspace->tool == map_tool_t::NONE || m_pWorkspace->tool == map_tool_t::CAMERA ) { return; }
         if ( MeshEdgePickingActive( *m_pWorkspace ) ) {
@@ -2793,6 +2905,8 @@ private:
         if ( !stagedBlock ) { MapWorkspace_ClearEditPreview( m_pWorkspace ); }
         const u64 id = Pick( screen );
         m_drag.start = m_drag.current = screen; m_drag.modifiers = modifiers;
+        ortho_face_handle_t faceHandle{};
+        if ( !stagedBlock && PickPushPullHandle( screen, faceHandle ) ) { BeginPushPull( faceHandle ); return; }
         if ( !stagedBlock && ( ( m_pWorkspace->tool == map_tool_t::SELECT && m_pWorkspace->elementMode == map_element_mode_t::FACES ) ||
              m_pWorkspace->tool == map_tool_t::EXTRUDE || m_pWorkspace->tool == map_tool_t::TEXTURE ) ) {
             const auto *face = PickFace( screen );
@@ -2863,6 +2977,19 @@ private:
         }
         if ( m_drag.kind == edit_drag_t::CLIP ) {
             UpdateClipGuide( m_drag, *m_pWorkspace, EditPoint( screen ), bypass ); return;
+        }
+        if ( m_drag.kind == edit_drag_t::PUSH_PULL ) {
+            auto projectedNormal = m_drag.faceNormal; SetAxis( projectedNormal, 3 - m_axisU - m_axisV, 0 );
+            const f64 length2 = Dot( projectedNormal, projectedNormal );
+            // Recover travel along the full world normal from its projection;
+            // a plain dot product would undercount a sloped face's distance.
+            m_drag.distance = Snap( Dot( Sub( EditPoint( screen ), m_drag.planeStart ), projectedNormal ) / length2,
+                m_pWorkspace->bSnapToGrid && !bypass ? m_pWorkspace->gridSize : 0 );
+            if ( !std::isfinite( m_drag.distance ) ) { CancelDrag( m_drag, *m_pWorkspace ); update(); return; }
+            if ( std::abs( m_drag.distance ) < 1e-8 || QLineF( screen, m_drag.start ).length() < 3 ) {
+                m_drag.distance = 0; MapWorkspace_ClearEditPreview( m_pWorkspace );
+            } else { MapWorkspace_SetFacePreview( m_pWorkspace, m_drag.distance ); }
+            return;
         }
         auto raw = Sub( EditPoint( screen ), m_drag.planeStart );
         u32 allowedAxes = ( 1u << m_axisU ) | ( 1u << m_axisV );

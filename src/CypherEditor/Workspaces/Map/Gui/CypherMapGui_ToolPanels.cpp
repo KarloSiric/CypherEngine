@@ -689,7 +689,7 @@ public:
         pLayout->addLayout( pDistance );
         m_pPushPull = new QToolButton( this );
         m_pPushPull->setAccessibleName( QStringLiteral( "Push / Pull Face" ) );
-        m_pPushPull->setToolTip( QStringLiteral( "Push / Pull Face\nApply the distance along this face's outward normal. In 3D Faces mode, drag the normal handle for the same grid-snapped operation. One Undo restores the brush." ) );
+        m_pPushPull->setToolTip( QStringLiteral( "Push / Pull Face\nApply the distance along this face's outward normal. In Faces mode, pick a brush face outline in 2D or a face in 3D, then drag its normal handle for the same grid-snapped operation. If the normal points into the 2D view, use another pane or this distance. In-plane face scaling and mesh face dragging are planned. One Undo restores the brush." ) );
         m_pPushPull->setIconSize( QSize( 20, 20 ) ); m_pPushPull->setFixedSize( 30, 30 );
         m_pPushPull->setToolButtonStyle( Qt::ToolButtonIconOnly ); m_pPushPull->setProperty( "compactIcon", true );
         m_pPushPull->setObjectName( QStringLiteral( "MapBrushFacePushPull" ) );
@@ -801,7 +801,7 @@ private:
         const auto path = FromView( EditorSettings_Text( &m_pWorkspace->pGui->settings, "editor.map.default_material", {} ) );
         m_pMaterial->setText( path );
         m_pMaterial->setToolTip( path );
-        m_pFeedback->setText( active ? QStringLiteral( "Drag the face-normal handle in 3D, or apply a distance here. Edits affect this face only." ) : QStringLiteral( "Push/pull edits the existing convex brush; mesh topology extrusion is separate." ) );
+        m_pFeedback->setText( active ? QStringLiteral( "Drag the normal handle in 2D or 3D, or apply a distance here. A head-on normal needs another pane." ) : QStringLiteral( "Push/pull edits the existing convex brush; mesh topology extrusion is separate." ) );
     }
     map_workspace_t *m_pWorkspace{};
     QLabel *m_pFace{};
@@ -985,7 +985,7 @@ constexpr tool_panel_t kToolPanels[]{
         { "Edge Editing", {}, { "map.select.loop", "map.select.ring", "map.mesh.dissolve", "map.mesh.collapse", "map.mesh.bevel", "map.mesh.extrude_edges", "map.mesh.connect_edges", "map.mesh.extend_edges", "map.mesh.merge", "map.mesh.split_edges", "map.mesh.snap_edge_to_edge", "map.mesh.fill_hole", "map.mesh.bridge", "map.mesh.normals_hard", "map.mesh.normals_soft", "map.mesh.normals_default", "map.texture.weld_uvs", "map.select.ribs", "map.pivot.clear", "map.tool.edge_cut", "map.tool.edge_arc", "map.mesh.radial_align" },
           kEdgeMode, true, "MapToolModeEdges", "Pick mesh edges; use Select Loop or Select Ring. Convert brushes to meshes first. Other topology edits are planned." },
         { "Face Editing", {}, { "map.mesh.bevel", "map.mesh.solidify", "map.mesh.bridge", "map.mesh.fill_hole", "map.mesh.split", "map.mesh.subdivide", "map.mesh.smooth", "map.select.same_material" },
-          kFaceMode, true, "MapToolModeFaces", "Select a brush face for normal Push / Pull and material assignment, or an authored mesh face for Extrude, Inset and Quad Slice. Other topology operations below are planned." },
+          kFaceMode, true, "MapToolModeFaces", "Brush faces: normal Push / Pull and material assignment. In 2D, pick a face outline; a head-on normal needs another pane or Distance. Mesh faces: Extrude, Inset and Quad Slice. In-plane face scaling, mesh face dragging and other topology operations are planned." },
         { "Modify Texture", {}, { "map.texture.align_world", "map.texture.align_face", "map.texture.fit", "map.texture.shift", "map.texture.scale", "map.texture.rotate", "map.texture.justify_left", "map.texture.justify_center", "map.texture.justify_right", "map.texture.justify_top", "map.texture.justify_bottom", "map.texture.unwrap" }, kFaceMode },
         { "Mesh Editing", {}, { "map.transform.dialog", "edit.duplicate", "edit.delete", "map.mesh.subdivide", "map.mesh.smooth", "map.mesh.solidify", "map.mesh.boolean_union", "map.mesh.boolean_subtract", "map.mesh.boolean_intersect", "map.mesh.to_brush" },
           kMeshMode, true, "MapToolModeMeshes", "Select whole brushes and meshes. Root transforms and supported brush/mesh operations act on those objects; topology operations below remain planned." },
@@ -1083,7 +1083,7 @@ constexpr tool_panel_t kToolPanels[]{
     { "Material painting uses the active material.", { { keymap_section_t::BINDINGS, "map.tool.paint" } },
       { { "Material", { "editor.map.default_material" }, { "assets.browse_materials", "map.terrain.paint" } } } },
     // EXTRUDE
-    { "Drag a brush face to push or pull its convex solid. For an authored mesh, select one face and use Extrude or Corner inset below.", { { keymap_section_t::BINDINGS, "map.tool.extrude" } },
+    { "Pick a brush face outline in 2D or a face in 3D, then drag its normal handle to push or pull its convex solid. If the normal points into the 2D view, use another pane or the Distance control. For an authored mesh, select one face and use Extrude or Corner inset below. In-plane face scaling and mesh face dragging are planned.", { { keymap_section_t::BINDINGS, "map.tool.extrude" } },
       { { "Construction grid", { "editor.grid.size", "editor.grid.snap" }, {} },
         { "Face operations", {}, { "map.mesh.extrude", "map.mesh.inset", "map.mesh.bevel", "map.mesh.solidify", "map.mesh.bridge", "map.mesh.fill_hole" } } } },
     // KNIFE
@@ -1116,7 +1116,7 @@ struct selection_profile_t {
 constexpr selection_profile_t kSelectionProfiles[]{
     { "Vertex Editing", "select-vertices", "Pick authored mesh vertices in a 2D or 3D view. Shift+click adds and Ctrl/Command+click toggles vertices on the same mesh. Convert brushes to meshes before selecting their vertices. Vertex transforms and topology edits are planned; dragging does not move the parent mesh." },
     { "Edge Editing", "select-edges", "Pick authored mesh edges in a 2D or 3D view. Shift+click adds and Ctrl/Command+click toggles edges on the same mesh. Select Loop and Select Ring extend the selection from the last picked edge. Convert brushes to meshes before selecting their edges. Topology edits and component transforms are planned." },
-    { "Face Editing", "select-faces", "Pick a face in a 2D or 3D view. Drag a selected brush face's normal handle for grid-snapped Push / Pull. Mesh faces use the exact Extrude, Inset and Quad Slice controls below." },
+    { "Face Editing", "select-faces", "In 2D, pick a brush face outline and drag its projected normal handle for grid-snapped Push / Pull. If the normal points into the view, use another pane or the Distance control. In 3D, pick a face and drag its normal handle. Mesh faces use the exact Extrude, Inset and Quad Slice controls below; in-plane face scaling and mesh face dragging are planned." },
     { "Mesh Editing", "select-meshes", "Select whole brushes and meshes. Move or resize their bounds; use supported brush and mesh operations below." },
     { "Selection Tool", "select-objects", kToolPanels[static_cast<usize>( map_tool_t::SELECT )].pSummary },
     { "Selection Tool", "select-groups", kToolPanels[static_cast<usize>( map_tool_t::SELECT )].pSummary },
@@ -1451,7 +1451,7 @@ private:
             addRow( QStringLiteral( "[Double LeftClick]" ), QStringLiteral( "Object: inspect properties" ) );
             addRow( QStringLiteral( "[Double LeftClick]" ), QStringLiteral( "Empty space: view options" ) );
             if ( brushFace ) {
-                addRow( QStringLiteral( "[LeftDrag]" ), QStringLiteral( "Brush face-normal handle: push / pull by the grid step (3D)" ) );
+                addRow( QStringLiteral( "[LeftDrag]" ), QStringLiteral( "Brush face-normal handle: push / pull by the grid step (2D / 3D)" ) );
                 addRow( QStringLiteral( "[Ctrl/Command+LeftDrag]" ), QStringLiteral( "Brush face-normal handle: temporarily bypass snapping" ) );
             }
             if ( rootMode ) {

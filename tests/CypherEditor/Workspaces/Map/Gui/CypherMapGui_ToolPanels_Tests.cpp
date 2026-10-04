@@ -1846,7 +1846,7 @@ TEST_CASE( "Select offers persisted individual and group bounds resizing choices
     CHECK( Setting<QComboBox>( *panel, "editor.map.resize_mode" )->currentIndex() == 1 );
 }
 
-TEST_CASE( "Faces expose authored texture state and compact material and push pull controls", "[map][gui][toolpanels][face-clarity]" )
+TEST_CASE( "Faces expose authored texture state and compact material and push pull controls", "[map][gui][toolpanels][face-clarity][face-2d]" )
 {
     session_t session; auto &ws = session.workspace;
     REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
@@ -1888,7 +1888,14 @@ TEST_CASE( "Faces expose authored texture state and compact material and push pu
     CHECK( apply->toolButtonStyle() == Qt::ToolButtonIconOnly );
     CHECK_FALSE( push->icon().isNull() ); CHECK_FALSE( apply->icon().isNull() ); CHECK_FALSE( browse->icon().isNull() );
     CHECK( push->toolTip().contains( QStringLiteral( "normal handle" ) ) ); CHECK( apply->toolTip().contains( QStringLiteral( "One Undo" ) ) );
-    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[LeftDrag] Brush face-normal handle: push / pull by the grid step (3D)" ) ) );
+    CHECK( push->toolTip().contains( QStringLiteral( "brush face outline in 2D" ) ) );
+    CHECK( push->toolTip().contains( QStringLiteral( "normal points into the 2D view" ) ) );
+    CHECK( push->toolTip().contains( QStringLiteral( "use another pane or this distance" ) ) );
+    CHECK( push->toolTip().contains( QStringLiteral( "In-plane face scaling and mesh face dragging are planned" ) ) );
+    auto *feedback = panel->findChild<QLabel *>( QStringLiteral( "MapBrushFaceFeedback" ) ); REQUIRE( feedback );
+    CHECK( feedback->text().contains( QStringLiteral( "normal handle in 2D or 3D" ) ) );
+    CHECK( feedback->text().contains( QStringLiteral( "head-on normal needs another pane" ) ) );
+    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[LeftDrag] Brush face-normal handle: push / pull by the grid step (2D / 3D)" ) ) );
     const auto originalMaterial = material->text(); const usize originalSteps = EditorHistory_StepCount( &ws.history );
     const auto *scaleDefault = EditorSettings_Find( &session.gui.settings, StringView_FromCString( "editor.map.default_texture_scale" ) ); REQUIRE( scaleDefault );
     setting_value_t value{}; value.type = setting_type_t::REAL; value.flValue = 0.5;
@@ -1947,7 +1954,7 @@ TEST_CASE( "Unwired UV operations use one collapsed icon group with honest avail
     CHECK( panel->findChild<QLineEdit *>( QStringLiteral( "MapFaceTextureSizeU" ) )->text().isEmpty() );
 }
 
-TEST_CASE( "Face gesture reference follows brush mesh and no-component selection without replacing controls", "[map][gui][toolpanels][face-clarity][gesture]" )
+TEST_CASE( "Face gesture reference follows brush mesh and no-component selection without replacing controls", "[map][gui][toolpanels][face-clarity][gesture][face-2d]" )
 {
     session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
     map_bounds_t box{}; MapBounds_AddPoint( box, { -32, -32, 0 } ); MapBounds_AddPoint( box, { 32, 32, 64 } );
@@ -1960,6 +1967,15 @@ TEST_CASE( "Face gesture reference follows brush mesh and no-component selection
     QPointer<QComboBox> meshSelector = panel->findChild<QComboBox *>( QStringLiteral( "MapMeshFaceSelector" ) );
     QPointer<QLineEdit> state = panel->findChild<QLineEdit *>( QStringLiteral( "MapFaceTextureMaterial" ) );
     REQUIRE( brushSelector ); REQUIRE( meshSelector ); REQUIRE( state );
+    auto *title = panel->findChild<QLabel *>( QStringLiteral( "MapToolTitle" ) ); REQUIRE( title );
+    CHECK( title->toolTip().contains( QStringLiteral( "pick a brush face outline" ) ) );
+    CHECK( title->toolTip().contains( QStringLiteral( "projected normal handle" ) ) );
+    CHECK( title->toolTip().contains( QStringLiteral( "use another pane or the Distance control" ) ) );
+    auto *faceSection = panel->findChild<QWidget *>( QStringLiteral( "MapToolModeFaces" ) ); REQUIRE( faceSection );
+    auto *availability = faceSection->findChild<QLabel *>( QStringLiteral( "MapToolModeAvailability" ) ); REQUIRE( availability );
+    CHECK( availability->text().contains( QStringLiteral( "In 2D, pick a face outline" ) ) );
+    CHECK( availability->text().contains( QStringLiteral( "In-plane face scaling, mesh face dragging and other topology operations are planned" ) ) );
+    CHECK_FALSE( MapToolProperties_Options( panel.get() ).contains( QStringLiteral( "editor.map.resize_mode" ) ) );
     const auto checkControls = [&]() {
         REQUIRE( brushSelector ); REQUIRE( meshSelector ); REQUIRE( state );
         CHECK( brushSelector.data() == panel->findChild<QComboBox *>( QStringLiteral( "MapBrushFaceSelector" ) ) );
@@ -1981,7 +1997,8 @@ TEST_CASE( "Face gesture reference follows brush mesh and no-component selection
     // reference table. The originating selector must remain alive.
     brushSelector->setCurrentIndex( top ); checkControls(); REQUIRE( MapWorkspace_HasBrushFace( &ws ) );
     checkMeshReference( false );
-    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[LeftDrag] Brush face-normal handle: push / pull by the grid step (3D)" ) ) );
+    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[LeftDrag] Brush face-normal handle: push / pull by the grid step (2D / 3D)" ) ) );
+    CHECK( panel->findChild<QToolButton *>( QStringLiteral( "MapBrushFacePushPull" ) )->isEnabled() );
     CHECK( ReferenceRowsContaining( *panel, "move a selected object" ).isEmpty() );
     CHECK( ReferenceRowsContaining( *panel, "Objects/Groups RGB arrow" ).isEmpty() );
     CHECK( ReferenceRowsContaining( *panel, "Move handle: clone" ).isEmpty() );
@@ -1989,6 +2006,7 @@ TEST_CASE( "Face gesture reference follows brush mesh and no-component selection
     CHECK( ReferenceRowsContaining( *panel, "Brush face-normal handle" ).isEmpty() );
     MapWorkspace_Select( &ws, mesh, MAP_SELECT_REPLACE ); REQUIRE( meshSelector->count() == 2 );
     meshSelector->setCurrentIndex( 1 ); checkControls(); REQUIRE( MapWorkspace_HasMeshFace( &ws ) ); checkMeshReference( true );
+    CHECK_FALSE( panel->findChild<QToolButton *>( QStringLiteral( "MapBrushFacePushPull" ) )->isEnabled() );
     CHECK( ReferenceRowsContaining( *panel, "Brush face-normal handle" ).isEmpty() );
     CHECK( ReferenceRowsContaining( *panel, "move a selected object" ).isEmpty() );
     MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS ); checkControls();

@@ -3767,3 +3767,70 @@ TEST_CASE( "Mason geometry snap checkbox aligns different authoring grids throug
     REQUIRE( session.Run( QStringLiteral( "edit.redo" ) ) == command_result_t::OK ); checkCommitted();
     CHECK( EditorHistory_StepCount( &ws->history ) == steps + 1u );
 }
+
+TEST_CASE( "Mason resizes a brush through a selected face in its Top viewport", "[mason][smoke][ortho-face-push-pull]" )
+{
+    mason_session_t session; auto *ws = Mason_MapWorkspace( session.pMason ); auto *window = Mason_Window( session.pMason );
+    window->resize( 1600, 1050 );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER ); MapViews_SetPaneType( views, 1, map_view_type_t::TOP );
+    auto *top = MapViews_PaneView( views, 1 ); auto *camera = MapViews_PaneView( views, 0 ); REQUIRE( top ); REQUIRE( camera );
+    MapCameraView_SetRenderMode( camera, map_render_mode_t::FULLBRIGHT );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, 0 } ); MapBounds_AddPoint( box, { 128, 128, 128 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, box ) ); const u64 id = EditorSelection_At( &ws->selection, 0u );
+    MapWorkspace_SetGridSize( ws, 64 ); MapWorkspace_SetSnapToGrid( ws, CY_TRUE );
+    REQUIRE( session.Run( QStringLiteral( "map.tool.select" ) ) == command_result_t::OK );
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.faces" ) ) == command_result_t::OK );
+    MapWorkspace_Frame( ws, CY_TRUE ); MapViews_SetActivePane( views, 1 ); QCoreApplication::processEvents();
+    // Reserve space for the face's outward handle and its first grid step.
+    const QPointF anchor = top->rect().center();
+    QWheelEvent zoom( anchor, top->mapToGlobal( anchor ), {}, QPoint( 0, -240 ), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false );
+    QCoreApplication::sendEvent( top, &zoom );
+    u64 side = 0;
+    for ( usize i = 0; i < ws->wire.faces.nCount; ++i ) {
+        const auto &face = ws->wire.faces.pData[i]; if ( face.id == id && face.normal.x > .99 ) { side = face.sideId; break; }
+    }
+    REQUIRE( side != 0u ); REQUIRE_FALSE( MapWorkspace_HasBrushFace( ws ) );
+    const QPointF outline = MapOrthoView_WorldToView( top, { 128, 27 } );
+    MasonWorkflowMouse( top, QEvent::MouseButtonPress, outline, Qt::LeftButton, Qt::LeftButton );
+    MasonWorkflowMouse( top, QEvent::MouseButtonRelease, outline, Qt::LeftButton );
+    REQUIRE( MapWorkspace_HasBrushFace( ws ) ); CHECK( ws->selectedBrushFaceObject == id ); CHECK( ws->selectedBrushFaceSide == side );
+    const f64 pixels = 64.0 * EditorSettings_Real( &Mason_Gui( session.pMason )->settings, "editor.viewport.gizmo_scale", 1.0 );
+    const QPointF start = MapOrthoView_WorldToView( top, { 128, 0 } ) + QPointF( pixels * .60, 5 );
+    const QPointF end = start + QPointF( 57.0 * MapOrthoView_Zoom( top ), 0 );
+    REQUIRE( QRectF( top->rect() ).contains( start ) ); REQUIRE( QRectF( top->rect() ).contains( end ) );
+    const auto *document = ws->pDocument; const auto revision = document->geometry.revision, selection = ws->selection.revision;
+    const usize steps = EditorHistory_StepCount( &ws->history ); const auto token = UndoRedo_StateToken( ws->history.pUndo );
+    top->setAttribute( Qt::WA_UnderMouse, true );
+    MasonWorkflowMouse( top, QEvent::MouseMove, start, Qt::NoButton ); CHECK( top->cursor().shape() == Qt::SizeAllCursor );
+    MasonWorkflowMouse( top, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton );
+    MasonWorkflowMouse( top, QEvent::MouseMove, start, Qt::NoButton, Qt::LeftButton ); CHECK_FALSE( ws->editPreview.bActive );
+    MasonWorkflowMouse( top, QEvent::MouseMove, end, Qt::NoButton, Qt::LeftButton );
+    REQUIRE( MapWorkspace_HasFacePreview( ws ) ); REQUIRE( ws->editPreview.status == map_status_t::OK );
+    CHECK( ws->editPreview.faceDistance == 64.0 ); CHECK( ws->editPreview.transform.kind == map_transform_preview_kind_t::NONE );
+    CHECK( ws->editPreviewWire.points.nCount == 8u ); CHECK( ws->editPreviewWire.faces.nCount == 6u );
+    CheckMasonPosition( ws->editPreview.bounds.box.minimum, box.box.minimum ); CheckMasonPosition( ws->editPreview.bounds.box.maximum, { 192, 128, 128 } );
+    const auto *live = MapWireframe_FindObject( ws->wire, id ); REQUIRE( live );
+    CheckMasonPosition( live->bounds.box.minimum, box.box.minimum ); CheckMasonPosition( live->bounds.box.maximum, box.box.maximum );
+    CHECK( ws->pDocument == document ); CHECK( document->geometry.revision == revision ); CHECK( ws->selection.revision == selection );
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws->history.pUndo ) ) );
+    if ( !qEnvironmentVariableIsEmpty( "CYPHER_ORTHO_FACE_CAPTURE" ) ) {
+        QCoreApplication::processEvents(); top->setAttribute( Qt::WA_UnderMouse, true );
+        REQUIRE( QDir().mkpath( QStringLiteral( "artifacts" ) ) );
+        REQUIRE( window->grab().save( QStringLiteral( "artifacts/mason_ortho_face_workspace.png" ) ) );
+        REQUIRE( top->grab().save( QStringLiteral( "artifacts/mason_ortho_face_top.png" ) ) );
+        REQUIRE( camera->grab().save( QStringLiteral( "artifacts/mason_ortho_face_camera.png" ) ) );
+    }
+    MasonWorkflowMouse( top, QEvent::MouseButtonRelease, end, Qt::LeftButton );
+    CHECK_FALSE( ws->editPreview.bActive ); CHECK( EditorHistory_StepCount( &ws->history ) == steps + 1u );
+    const auto checkCommitted = [&]() {
+        const auto *object = MapWireframe_FindObject( ws->wire, id ); REQUIRE( object );
+        CheckMasonPosition( object->bounds.box.minimum, box.box.minimum ); CheckMasonPosition( object->bounds.box.maximum, { 192, 128, 128 } );
+        CHECK( ws->selectedBrushFaceObject == id ); CHECK( ws->selectedBrushFaceSide == side ); CHECK( ws->tool == map_tool_t::SELECT );
+    };
+    checkCommitted(); REQUIRE( session.Run( QStringLiteral( "edit.undo" ) ) == command_result_t::OK );
+    live = MapWireframe_FindObject( ws->wire, id ); REQUIRE( live ); CheckMasonPosition( live->bounds.box.minimum, box.box.minimum ); CheckMasonPosition( live->bounds.box.maximum, box.box.maximum );
+    CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws->history.pUndo ) ) );
+    REQUIRE( session.Run( QStringLiteral( "edit.redo" ) ) == command_result_t::OK ); checkCommitted();
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps + 1u ); CHECK( ws->gridSize == 64 ); CHECK( ws->bSnapToGrid );
+}

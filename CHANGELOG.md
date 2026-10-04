@@ -27,6 +27,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 #### Mason map authoring
 
+- Added brush-face normal Push/Pull handles in Top, Front and Side views.
+  Faces mode and the Extrude tool can select actual projected brush outlines,
+  then extend or pull the side in world-grid steps with a complete solid
+  preview in every pane. Off-center grabs do not jump; the opposite side stays
+  fixed and release creates one Undo step. A head-on normal uses another pane
+  or the existing numeric Distance control. In-plane face scaling and authored
+  mesh face dragging remain unfinished.
 - Added opt-in **Snap to geometry** for moving selected brush, mesh and patch
   bounds onto existing edge or center coordinates, including geometry authored
   on a finer grid. Available in Select/Translate Tool Properties and Grid and
@@ -171,8 +178,21 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   both new preferences explicitly, with the complete GUI suite passing after
   repair. Allocation-failure, cancellation, clone, undo/redo and save/reopen
   checks retain document and selection guarantees.
+  GitHub Actions run 37223227798 passed all 15 jobs for the published commit.
+- Orthographic brush face Push/Pull passed the five local editor suites:
+  226,638 assertions in 894 cases. Actual outline picks, all signed visible
+  axes, sloped-normal distances, cross-pane solid rendering, persistence,
+  cancellation and failed-preview release behavior are covered. Focused face
+  and Tool Properties checks passed 5,296 assertions in eleven cases at normal
+  and 2x scaling; the actual Mason interaction/capture passed at both scales.
+  Capture review found a hint clipped at a pane edge; it now fits fully or is
+  omitted in a pane too narrow for the complete text. Both affected full suites
+  passed again after that repair. No new dependencies or build tree were added.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
+  Embedded TileEditor hosting and terrain sculpting are also unfinished; the
+  existing tile document/canvas and heightfield library were inventoried for
+  reuse. Authored source chunks do not implement runtime world streaming.
   Full Mason user documentation is deferred; implementation evidence is kept
   in `docs/mason_geometry_workflow_research.md`.
 
