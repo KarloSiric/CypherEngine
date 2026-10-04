@@ -1,0 +1,4 @@
+# Map serialization uses canonical LF bytes on every platform. Keep Git's
+# Windows checkout conversion from changing authored maps and golden fixtures.
+*.cymap text eol=lf
+*.cymapchunk text eol=lf
