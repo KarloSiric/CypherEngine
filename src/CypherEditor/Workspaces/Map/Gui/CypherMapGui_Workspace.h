@@ -240,7 +240,8 @@ struct map_workspace_t {
     // Root selection remains separate; no live pool handle escapes picking.
     common::u64 selectedMeshFaceObject{ 0u };
     common::u64 selectedMeshFaceId{ 0u };
-    // One authored mesh's edges, addressed by canonical persistent endpoint IDs.
+    // One authored mesh's vertices or edges, addressed only by persistent IDs.
+    // Component modes never mix; edges use canonical endpoint pairs.
     geometry::mesh_selection_t meshSelection{};
     geometry::mesh_edge_ref_t selectedMeshEdgeSeed{};
 };
@@ -335,6 +336,10 @@ void MapWorkspace_SelectMeshFace( map_workspace_t *pWorkspace, common::u64 objec
 void MapWorkspace_ClearMeshFace( map_workspace_t *pWorkspace ) noexcept;
 // Selection only: read-only maps are supported. Add/toggle cannot span meshes.
 // Preparing both component and root sets before publication keeps OOM atomic.
+CYPHER_NODISCARD bool MapWorkspace_HasMeshVertices( const map_workspace_t *pWorkspace ) noexcept;
+CYPHER_NODISCARD bool MapWorkspace_SelectMeshVertex( map_workspace_t *pWorkspace, common::u64 object,
+    geometry::geometry_source_id_t vertex, map_select_mode_t mode = MAP_SELECT_REPLACE ) noexcept;
+void MapWorkspace_ClearMeshVertices( map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_HasMeshEdges( const map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_SelectMeshEdge( map_workspace_t *pWorkspace, common::u64 object,
     geometry::mesh_edge_ref_t edge, map_select_mode_t mode = MAP_SELECT_REPLACE ) noexcept;

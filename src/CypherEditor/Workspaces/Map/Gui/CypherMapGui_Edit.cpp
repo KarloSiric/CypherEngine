@@ -72,8 +72,8 @@ void MoveWire( map_wireframe_t &out, map_wireframe_t &source ) noexcept
 
 void Publish( map_workspace_t *ws, map_prepared_edit_t &prepared ) noexcept
 {
-    // A replacement document invalidates the session's edge context. History
-    // restores authored geometry and roots, without reviving transient edges.
+    // A replacement document invalidates the session's component context.
+    // History restores authored geometry and roots without transient components.
     geometry::MeshSelection_Shutdown( &ws->meshSelection );
     ws->selectedMeshEdgeSeed = {};
     delete ws->pDocument;
@@ -232,13 +232,12 @@ bool KeepSelection( const map_workspace_t &ws, vector_t<u64> &out ) noexcept
 bool EntityEditReady( const map_workspace_t *ws ) noexcept
 {
     return ws != nullptr && ws->pGui != nullptr && ws->pDocument != nullptr && !ws->pDocument->bReadOnly &&
-        ws->elementMode != map_element_mode_t::EDGES && ws->selection.ids.nCount != 0u &&
+        ws->elementMode != map_element_mode_t::VERTICES && ws->elementMode != map_element_mode_t::EDGES && ws->selection.ids.nCount != 0u &&
         !ws->editPreview.bActive && !EditorHistory_IsTransactionOpen( &ws->history );
 }
 
-// Component categories may be inspected before their picking/edit adapters
-// are connected. Retained roots are inspection state, not a substitute for
-// a vertex or edge selection. Faces keep their established dedicated edits.
+// Retained component roots are inspection state, not a substitute for vertex
+// or edge edit adapters. Faces keep their established dedicated edits.
 bool RootEditModeAvailable( const map_workspace_t *ws ) noexcept
 {
     return ws != nullptr && ws->elementMode != map_element_mode_t::VERTICES &&
@@ -657,7 +656,7 @@ bool SameEdge( geometry::mesh_edge_ref_t a, geometry::mesh_edge_ref_t b ) noexce
     return a.a.value == b.a.value && a.b.value == b.b.value;
 }
 
-const geometry::mesh_source_t *SelectedEdgeMesh( const map_workspace_t *ws ) noexcept
+const geometry::mesh_source_t *SelectedComponentMesh( const map_workspace_t *ws ) noexcept
 {
     if ( ws == nullptr || ws->pDocument == nullptr || ws->meshSelection.meshId.value == 0 ||
          ws->selection.ids.nCount != 1 || ws->selection.ids.pData[0] != ws->meshSelection.meshId.value ) { return nullptr; }
@@ -677,7 +676,18 @@ bool PrepareEdges( geometry::mesh_selection_t &next, const map_workspace_t &ws, 
     return true;
 }
 
-void PublishEdges( map_workspace_t *ws, geometry::mesh_selection_t &next, geometry::mesh_edge_ref_t seed ) noexcept
+bool PrepareVertices( geometry::mesh_selection_t &next, const map_workspace_t &ws, u64 object, bool keep ) noexcept
+{
+    if ( geometry::MeshSelection_Init( &next, ws.pGui->pAllocator, { object } ) != geometry::geometry_status_t::OK ) { return false; }
+    if ( !keep ) { return true; }
+    if ( !Vector_Reserve( &next.vertices, ws.meshSelection.vertices.nCount ) ) { return false; }
+    for ( usize i = 0; i < ws.meshSelection.vertices.nCount; ++i ) {
+        if ( !Vector_PushBack( &next.vertices, ws.meshSelection.vertices.pData[i] ) ) { return false; }
+    }
+    return true;
+}
+
+void PublishMeshComponents( map_workspace_t *ws, geometry::mesh_selection_t &next, geometry::mesh_edge_ref_t seed ) noexcept
 {
     geometry::MeshSelection_Shutdown( &ws->meshSelection );
     Vector_Move( &ws->meshSelection.vertices, &next.vertices );
@@ -692,7 +702,7 @@ void PublishEdges( map_workspace_t *ws, geometry::mesh_selection_t &next, geomet
 bool SelectEdgeTopology( map_workspace_t *ws, bool loop ) noexcept
 {
     if ( !MapWorkspace_CanSelectMeshEdgeTopology( ws ) ) { return false; }
-    const auto *mesh = SelectedEdgeMesh( ws );
+    const auto *mesh = SelectedComponentMesh( ws );
     geometry::mesh_selection_t next{};
     if ( !PrepareEdges( next, *ws, ws->meshSelection.meshId.value, true ) ) { return false; }
     // The geometry query inserts each result separately. Work privately so a
@@ -700,15 +710,66 @@ bool SelectEdgeTopology( map_workspace_t *ws, bool loop ) noexcept
     const auto status = loop ? geometry::MeshSelection_TrySelectEdgeLoop( &next, mesh, ws->selectedMeshEdgeSeed ) :
         geometry::MeshSelection_TrySelectEdgeRing( &next, mesh, ws->selectedMeshEdgeSeed );
     if ( status != geometry::geometry_status_t::OK ) { return false; }
-    if ( next.edges.nCount != ws->meshSelection.edges.nCount ) { PublishEdges( ws, next, ws->selectedMeshEdgeSeed ); }
+    if ( next.edges.nCount != ws->meshSelection.edges.nCount ) { PublishMeshComponents( ws, next, ws->selectedMeshEdgeSeed ); }
     return true;
 }
 }
 
+bool MapWorkspace_HasMeshVertices( const map_workspace_t *ws ) noexcept
+{
+    const auto *mesh = SelectedComponentMesh( ws );
+    if ( mesh == nullptr || ws->elementMode != map_element_mode_t::VERTICES || ws->meshSelection.vertices.nCount == 0 ||
+         ws->meshSelection.edges.nCount != 0 || ws->meshSelection.faces.nCount != 0 || ws->selectedMeshEdgeSeed.a.value != 0 ) { return false; }
+    for ( usize i = 0; i < ws->meshSelection.vertices.nCount; ++i ) {
+        geometry::geometry_mesh_vertex_handle_t handle{};
+        if ( !geometry::MeshSource_TryFindVertex( mesh, ws->meshSelection.vertices.pData[i], &handle ) ) { return false; }
+    }
+    return true;
+}
+
+bool MapWorkspace_SelectMeshVertex( map_workspace_t *ws, u64 object, geometry::geometry_source_id_t vertex, map_select_mode_t mode ) noexcept
+{
+    if ( ws == nullptr || ws->pGui == nullptr || ws->pDocument == nullptr || object == 0 ||
+         ws->elementMode != map_element_mode_t::VERTICES || ws->tool != map_tool_t::SELECT || ws->editPreview.bActive ||
+         EditorHistory_IsTransactionOpen( &ws->history ) ||
+         ( mode != MAP_SELECT_REPLACE && mode != MAP_SELECT_ADD && mode != MAP_SELECT_TOGGLE && mode != MAP_SELECT_REMOVE ) ) { return false; }
+    const auto *mesh = geometry::GeometryDocument_FindMesh( &ws->pDocument->geometry, { object } );
+    const auto *wire = MapWireframe_FindObject( ws->wire, object );
+    geometry::geometry_mesh_vertex_handle_t handle{};
+    if ( mesh == nullptr || wire == nullptr || wire->kind != map_wire_kind_t::MESH || !MapWorkspace_IsVisible( ws, *wire ) ||
+         !geometry::MeshSource_TryFindVertex( mesh, vertex, &handle ) ) { return false; }
+    const bool sameMesh = ws->meshSelection.meshId.value == object;
+    if ( mode != MAP_SELECT_REPLACE && !sameMesh && ws->meshSelection.vertices.nCount != 0 ) { return false; }
+    if ( mode == MAP_SELECT_REMOVE && !sameMesh ) { return false; }
+    geometry::mesh_selection_t next{};
+    if ( !PrepareVertices( next, *ws, object, sameMesh && mode != MAP_SELECT_REPLACE ) ) { return false; }
+    const bool remove = mode == MAP_SELECT_REMOVE || ( mode == MAP_SELECT_TOGGLE && geometry::MeshSelection_HasVertex( &next, vertex ) );
+    if ( remove ) { ( void )geometry::MeshSelection_RemoveVertex( &next, vertex ); }
+    else if ( geometry::MeshSelection_TryAddVertex( &next, vertex ) != geometry::geometry_status_t::OK ) { return false; }
+    const bool sameRoots = ws->selection.ids.nCount == 1 && ws->selection.ids.pData[0] == object;
+    const bool sameComponents = sameMesh && next.vertices.nCount == ws->meshSelection.vertices.nCount &&
+        ( next.vertices.nCount == 0 || std::equal( next.vertices.pData, next.vertices.pData + next.vertices.nCount,
+            ws->meshSelection.vertices.pData, []( auto a, auto b ) { return a.value == b.value; } ) ) &&
+        ws->meshSelection.edges.nCount == 0 && ws->meshSelection.faces.nCount == 0 && ws->selectedMeshEdgeSeed.a.value == 0 &&
+        ws->selectedBrushFaceObject == 0 && ws->selectedMeshFaceObject == 0;
+    if ( sameRoots && sameComponents ) { return true; }
+    vector_t<u64> roots{};
+    if ( !sameRoots && ( !Vector_Init( &roots, ws->pGui->pAllocator, 1 ) || !Vector_PushBack( &roots, object ) ) ) { return false; }
+    // Components and the matching inspection root are ready before either moves.
+    if ( !sameRoots ) {
+        Vector_Shutdown( &ws->selection.ids ); Vector_Move( &ws->selection.ids, &roots );
+    }
+    ws->selectedBrushFaceObject = 0; ws->selectedBrushFaceSide = 0;
+    ws->selectedMeshFaceObject = 0; ws->selectedMeshFaceId = 0;
+    PublishMeshComponents( ws, next, {} );
+    return true;
+}
+
 bool MapWorkspace_HasMeshEdges( const map_workspace_t *ws ) noexcept
 {
-    const auto *mesh = SelectedEdgeMesh( ws );
-    if ( mesh == nullptr || ws->meshSelection.edges.nCount == 0 ) { return false; }
+    const auto *mesh = SelectedComponentMesh( ws );
+    if ( mesh == nullptr || ws->elementMode != map_element_mode_t::EDGES || ws->meshSelection.edges.nCount == 0 ||
+         ws->meshSelection.vertices.nCount != 0 || ws->meshSelection.faces.nCount != 0 ) { return false; }
     for ( usize i = 0; i < ws->meshSelection.edges.nCount; ++i ) {
         const auto edge = ws->meshSelection.edges.pData[i];
         geometry::geometry_mesh_edge_handle_t handle{};
@@ -741,7 +802,8 @@ bool MapWorkspace_SelectMeshEdge( map_workspace_t *ws, u64 object, geometry::mes
     const bool sameRoots = ws->selection.ids.nCount == 1 && ws->selection.ids.pData[0] == object;
     const bool sameComponents = sameMesh && next.edges.nCount == ws->meshSelection.edges.nCount &&
         ( next.edges.nCount == 0 || std::equal( next.edges.pData, next.edges.pData + next.edges.nCount, ws->meshSelection.edges.pData, SameEdge ) ) &&
-        SameEdge( seed, ws->selectedMeshEdgeSeed ) && ws->selectedBrushFaceObject == 0 && ws->selectedMeshFaceObject == 0;
+        SameEdge( seed, ws->selectedMeshEdgeSeed ) && ws->meshSelection.vertices.nCount == 0 && ws->meshSelection.faces.nCount == 0 &&
+        ws->selectedBrushFaceObject == 0 && ws->selectedMeshFaceObject == 0;
     if ( sameRoots && sameComponents ) { return true; }
     vector_t<u64> roots{};
     if ( !sameRoots && ( !Vector_Init( &roots, ws->pGui->pAllocator, 1 ) || !Vector_PushBack( &roots, object ) ) ) { return false; }
@@ -751,7 +813,7 @@ bool MapWorkspace_SelectMeshEdge( map_workspace_t *ws, u64 object, geometry::mes
     }
     ws->selectedBrushFaceObject = 0; ws->selectedBrushFaceSide = 0;
     ws->selectedMeshFaceObject = 0; ws->selectedMeshFaceId = 0;
-    PublishEdges( ws, next, seed );
+    PublishMeshComponents( ws, next, seed );
     return true;
 }
 

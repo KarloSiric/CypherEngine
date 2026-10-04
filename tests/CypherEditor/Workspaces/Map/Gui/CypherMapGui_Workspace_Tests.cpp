@@ -114,6 +114,19 @@ std::vector<geometry::mesh_edge_ref_t> SourceEdges( const map_workspace_t &works
     return edges;
 }
 
+std::vector<geometry::geometry_source_id_t> SourceVertices( const map_workspace_t &workspace, u64 object )
+{
+    const auto *mesh = geometry::GeometryDocument_FindMesh( &workspace.pDocument->geometry, { object } ); REQUIRE( mesh != nullptr );
+    geometry::mesh_source_description_t description{};
+    REQUIRE( geometry::MeshSourceDescription_Init( &description, Allocator_GetSystem(), { object } ) == geometry::geometry_status_t::OK );
+    REQUIRE( geometry::MeshSource_TryDescribe( mesh, &description ) == geometry::geometry_status_t::OK );
+    std::vector<geometry::geometry_source_id_t> vertices;
+    for ( usize i = 0; i < description.vertices.nCount; ++i ) { vertices.push_back( description.vertices.pData[i].sourceId ); }
+    std::sort( vertices.begin(), vertices.end(), []( auto a, auto b ) { return a.value < b.value; } );
+    REQUIRE( vertices.size() == 8 );
+    return vertices;
+}
+
 struct edge_allocation_t { usize calls{}, failOn{}, live{}; };
 void *AllocateEdgeTest( void *context, usize bytes, usize alignment ) noexcept
 {
@@ -297,6 +310,248 @@ TEST_CASE( "Saving retains valid persistent authored edge context", "[map][gui][
     CHECK( MapWorkspace_HasMeshEdges( &ws ) ); CHECK( ws.meshSelection.meshId.value == object );
     CHECK( ws.meshSelection.edges.nCount == 1 ); CHECK( ws.selectedMeshEdgeSeed.a.value == edges[0].a.value );
     CHECK_FALSE( MapWorkspace_IsModified( &ws ) );
+}
+
+TEST_CASE( "Authored vertex selection stores sorted persistent IDs within one source", "[map][gui][workspace][mesh-vertex]" )
+{
+    edge_session_t session; auto &ws = session.workspace;
+    const u64 first = AddEdgeTestMesh( ws ), second = AddEdgeTestMesh( ws, 128 );
+    const auto vertices = SourceVertices( ws, first ), other = SourceVertices( ws, second );
+    const auto *document = ws.pDocument; const auto revision = document->geometry.revision;
+    const auto steps = EditorHistory_StepCount( &ws.history );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, first, vertices[3] ) );
+    REQUIRE( MapWorkspace_HasMeshVertices( &ws ) ); CHECK_FALSE( MapWorkspace_HasMeshEdges( &ws ) );
+    change_log_t log{}; REQUIRE( MapWorkspace_AddListener( &ws, &Record, &log ) );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, first, vertices[0], MAP_SELECT_ADD ) );
+    CHECK( log.nCalls == 1 ); CHECK( log.all == MAP_CHANGE_SELECTION );
+    REQUIRE( ws.meshSelection.vertices.nCount == 2 );
+    CHECK( ws.meshSelection.vertices.pData[0].value == vertices[0].value );
+    CHECK( ws.meshSelection.vertices.pData[1].value == vertices[3].value );
+    const auto selectionRevision = ws.selection.revision;
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, first, vertices[0], MAP_SELECT_ADD ) );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, first, vertices[7], MAP_SELECT_REMOVE ) );
+    CHECK( log.nCalls == 1 ); CHECK( ws.selection.revision == selectionRevision );
+    CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, second, other[0], MAP_SELECT_ADD ) );
+    CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, second, other[0], MAP_SELECT_TOGGLE ) );
+    CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, second, other[0], MAP_SELECT_REMOVE ) );
+    CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, first, other[0] ) );
+    CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, first, { first } ) );
+    CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, first, {} ) );
+    CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, first, vertices[0], static_cast<map_select_mode_t>( 255 ) ) );
+    CHECK( ws.meshSelection.meshId.value == first ); CHECK( ws.meshSelection.vertices.nCount == 2 ); CHECK( log.nCalls == 1 );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, first, vertices[3], MAP_SELECT_TOGGLE ) );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, first, vertices[0], MAP_SELECT_REMOVE ) );
+    CHECK_FALSE( MapWorkspace_HasMeshVertices( &ws ) ); CHECK( ws.selection.ids.pData[0] == first );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, second, other[0], MAP_SELECT_ADD ) );
+    CHECK( ws.meshSelection.meshId.value == second ); CHECK( ws.selection.ids.pData[0] == second );
+    CHECK( ws.meshSelection.edges.nCount == 0 ); CHECK( ws.meshSelection.faces.nCount == 0 ); CHECK( ws.selectedMeshEdgeSeed.a.value == 0 );
+    CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    MapWorkspace_RemoveListener( &ws, &Record, &log );
+}
+
+TEST_CASE( "Vertices support read-only inspection without parent edits or tool fallback", "[map][gui][workspace][mesh-vertex]" )
+{
+    edge_session_t session; auto &ws = session.workspace; const u64 object = AddEdgeTestMesh( ws ); const auto vertices = SourceVertices( ws, object );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES ); ws.pDocument->bReadOnly = CY_TRUE;
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[0] ) );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[1], MAP_SELECT_ADD ) );
+    ws.pDocument->bReadOnly = CY_FALSE;
+    const auto *document = ws.pDocument; const auto revision = document->geometry.revision; const auto steps = EditorHistory_StepCount( &ws.history );
+    CHECK_FALSE( MapWorkspace_CanEditSelection( &ws ) ); CHECK_FALSE( MapWorkspace_CanMoveSelection( &ws ) );
+    CHECK_FALSE( MapWorkspace_CanEditEntityProperties( &ws ) ); CHECK_FALSE( MapWorkspace_DeleteSelection( &ws ) );
+    CHECK_FALSE( MapWorkspace_DuplicateSelection( &ws ) ); CHECK_FALSE( MapWorkspace_TranslateSelection( &ws, { 1, 0, 0 } ) );
+    CHECK_FALSE( MapWorkspace_ScaleSelection( &ws, { 2, 2, 2 }, {} ) ); CHECK_FALSE( MapWorkspace_RotateSelection( &ws, { 0, 0, 90 }, {} ) );
+    CHECK_FALSE( MapWorkspace_ResizeSelection( &ws, { 1, 0, 0 }, { 16, 0, 0 }, false ) );
+    CHECK_FALSE( MapWorkspace_CanCopySelection( &ws ) ); CHECK_FALSE( MapWorkspace_CopySelection( &ws ) );
+    CHECK_FALSE( MapWorkspace_CanCutSelection( &ws ) ); CHECK_FALSE( MapWorkspace_CutSelection( &ws ) );
+    CHECK_FALSE( MapWorkspace_CanSelectMeshEdgeTopology( &ws ) ); CHECK_FALSE( MapWorkspace_SelectMeshEdgeRing( &ws ) );
+    ws.editPreview.bActive = CY_TRUE;
+    CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[2] ) ); ws.editPreview = {};
+    REQUIRE( EditorHistory_Begin( &ws.history, StringView_FromCString( "inspection guard" ) ) == editor_history_status_t::OK );
+    CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[2] ) ); EditorHistory_Cancel( &ws.history );
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE ); CHECK( MapWorkspace_HasMeshVertices( &ws ) );
+    CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[2] ) );
+    CHECK( ws.meshSelection.vertices.nCount == 2 ); CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision );
+    CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    MapWorkspace_Select( &ws, 0, MAP_SELECT_REPLACE );
+    CHECK( ws.meshSelection.meshId.value == 0 ); CHECK( ws.meshSelection.vertices.nCount == 0 ); CHECK( ws.selection.ids.nCount == 0 );
+}
+
+TEST_CASE( "Vertex and edge modes replace component context before a single refresh", "[map][gui][workspace][mesh-vertex][mesh-edge]" )
+{
+    edge_session_t session; auto &ws = session.workspace; const u64 object = AddEdgeTestMesh( ws );
+    const auto vertices = SourceVertices( ws, object ); const auto edges = SourceEdges( ws, object );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::EDGES ); REQUIRE( MapWorkspace_SelectMeshEdge( &ws, object, edges[0] ) );
+    MapWorkspace_ClearMeshVertices( &ws ); CHECK( MapWorkspace_HasMeshEdges( &ws ) ); CHECK_FALSE( MapWorkspace_HasMeshVertices( &ws ) );
+    CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[0] ) ); CHECK( MapWorkspace_HasMeshEdges( &ws ) );
+    change_log_t log{}; REQUIRE( MapWorkspace_AddListener( &ws, &Record, &log ) );
+    const auto edgeRevision = ws.selection.revision;
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+    CHECK( log.nCalls == 1 ); CHECK( ws.selection.revision == edgeRevision + 1 );
+    CHECK( ws.meshSelection.meshId.value == 0 ); CHECK( ws.meshSelection.edges.nCount == 0 ); CHECK( ws.selectedMeshEdgeSeed.a.value == 0 );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[0] ) );
+    MapWorkspace_ClearMeshEdges( &ws ); CHECK( MapWorkspace_HasMeshVertices( &ws ) ); CHECK_FALSE( MapWorkspace_HasMeshEdges( &ws ) );
+    CHECK_FALSE( MapWorkspace_SelectMeshEdge( &ws, object, edges[0] ) ); CHECK( MapWorkspace_HasMeshVertices( &ws ) );
+    const auto vertexRevision = ws.selection.revision; log = {};
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::EDGES );
+    CHECK( log.nCalls == 1 ); CHECK( ws.selection.revision == vertexRevision + 1 ); CHECK( ws.meshSelection.vertices.nCount == 0 );
+    REQUIRE( MapWorkspace_SelectMeshEdge( &ws, object, edges[0] ) ); CHECK( ws.meshSelection.vertices.nCount == 0 );
+    MapWorkspace_RemoveListener( &ws, &Record, &log );
+}
+
+TEST_CASE( "Selected authored vertices cannot edit their owning entity metadata", "[map][gui][workspace][mesh-vertex][entity-edit]" )
+{
+    edge_session_t session; auto &ws = session.workspace; const u64 object = AddEdgeTestMesh( ws );
+    u64 owner{};
+    REQUIRE( MapDocument_AddEntity( ws.pDocument, StringView_FromCString( "default" ), StringView_FromCString( "func_detail" ), {}, &owner ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryOwner( ws.pDocument, object, owner ) == map_status_t::OK ); MapWorkspace_DocumentChanged( &ws );
+    REQUIRE( MapWorkspace_CanEditEntityProperties( &ws ) );
+    key_value_document_desc_t desc{}; desc.pAllocator = Allocator_GetSystem();
+    struct owned_value_t { key_value_document_t *document{}; ~owned_value_t() { KeyValue_DestroyDocument( document ); } };
+    owned_value_t owned{ KeyValue_CreateDocument( desc ) }; auto *value = owned.document; REQUIRE( value != nullptr );
+    REQUIRE( KeyValue_SetRootType( value, key_value_type_t::BOOL ) );
+    REQUIRE( KeyValue_SetBool( value, KeyValue_Root( value ), CY_TRUE ) );
+    REQUIRE( MapWorkspace_SetEntityProperty( &ws, StringView_FromCString( "active" ), KeyValue_Root( value ) ) );
+    const auto vertices = SourceVertices( ws, object ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[0] ) );
+    const auto *document = ws.pDocument; const auto revision = document->geometry.revision; const auto steps = EditorHistory_StepCount( &ws.history );
+    CHECK_FALSE( MapWorkspace_CanEditEntityProperties( &ws ) );
+    REQUIRE( KeyValue_SetBool( value, KeyValue_Root( value ), CY_FALSE ) );
+    CHECK_FALSE( MapWorkspace_SetEntityProperty( &ws, StringView_FromCString( "active" ), KeyValue_Root( value ) ) );
+    CHECK_FALSE( MapWorkspace_RenameEntityProperty( &ws, StringView_FromCString( "active" ), StringView_FromCString( "enabled" ) ) );
+    CHECK_FALSE( MapWorkspace_RemoveEntityProperty( &ws, StringView_FromCString( "active" ) ) );
+    CHECK_FALSE( MapWorkspace_SetEntityIdentityField( &ws, StringView_FromCString( "name" ), StringView_FromCString( "changed_owner" ) ) );
+    CHECK( ws.pDocument == document ); CHECK( ws.pDocument->geometry.revision == revision ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    CHECK( MapWorkspace_HasMeshVertices( &ws ) );
+}
+
+TEST_CASE( "Vertex context clears on root mode document and visibility replacement", "[map][gui][workspace][mesh-vertex]" )
+{
+    edge_session_t session; auto &ws = session.workspace; const u64 object = AddEdgeTestMesh( ws ); const auto vertices = SourceVertices( ws, object );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES ); REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[0] ) );
+    SECTION( "explicit component clear retains the inspection root" ) {
+        MapWorkspace_ClearMeshVertices( &ws ); CHECK( ws.selection.ids.nCount == 1 ); CHECK( ws.selection.ids.pData[0] == object );
+    }
+    SECTION( "same root selection" ) { MapWorkspace_Select( &ws, object, MAP_SELECT_REPLACE ); }
+    SECTION( "root set" ) { MapWorkspace_SetSelection( &ws, &object, 1 ); }
+    SECTION( "whole object mode" ) { MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS ); }
+    SECTION( "new map" ) { REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK ); }
+    SECTION( "open" ) {
+        CHECK( MapWorkspace_Open( &ws, QStringLiteral( "/nonexistent/nothing.cymap" ) ).status == map_files_status_t::ROOT_MISSING );
+        CHECK( MapWorkspace_HasMeshVertices( &ws ) ); REQUIRE( MapWorkspace_Open( &ws, ExampleRoot() ).status == map_files_status_t::OK );
+    }
+    SECTION( "history replacement" ) {
+        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK_FALSE( MapWorkspace_HasMeshVertices( &ws ) );
+        REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
+    }
+    SECTION( "visgroup hides source" ) {
+        MapWorkspace_SetVisgroupHidden( &ws, map_visgroup_t::MESHES, CY_TRUE );
+        CHECK_FALSE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[0] ) );
+    }
+    SECTION( "hide selected" ) { REQUIRE( Run( session.gui, "map.hide.selected" ) == command_result_t::OK ); }
+    SECTION( "deleted source" ) { REQUIRE( MapEdit_Delete( ws.pDocument, { &object, 1 } ) == map_status_t::OK ); MapWorkspace_DocumentChanged( &ws ); }
+    CHECK( ws.meshSelection.meshId.value == 0 ); CHECK( ws.meshSelection.vertices.nCount == 0 ); CHECK( ws.meshSelection.edges.nCount == 0 );
+}
+
+TEST_CASE( "Vertex refresh prunes dead persistent IDs without allocating or losing live IDs", "[map][gui][workspace][mesh-vertex][allocation]" )
+{
+    edge_session_t session; auto &ws = session.workspace; const u64 object = AddEdgeTestMesh( ws ); const auto vertices = SourceVertices( ws, object );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES ); REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[0] ) );
+    REQUIRE( geometry::MeshSelection_TryAddVertex( &ws.meshSelection, { 999999 } ) == geometry::geometry_status_t::OK );
+    CHECK_FALSE( MapWorkspace_HasMeshVertices( &ws ) );
+    const auto *components = ws.meshSelection.vertices.pData; const auto revision = ws.selection.revision;
+    change_log_t log{}; REQUIRE( MapWorkspace_AddListener( &ws, &Record, &log ) );
+    edge_allocation_t audit{}; audit.failOn = 1; const allocator_t allocator{ &AllocateEdgeTest, nullptr, &FreeEdgeTest, &audit };
+    const auto *original = session.gui.pAllocator; session.gui.pAllocator = &allocator;
+    MapWorkspace_Notify( &ws, MAP_CHANGE_DOCUMENT ); session.gui.pAllocator = original;
+    CHECK( audit.calls == 0 ); CHECK( audit.live == 0 ); CHECK( ws.meshSelection.vertices.pData == components );
+    CHECK( ws.meshSelection.vertices.nCount == 1 ); CHECK( ws.meshSelection.vertices.pData[0].value == vertices[0].value );
+    CHECK( MapWorkspace_HasMeshVertices( &ws ) ); CHECK( ws.selection.revision == revision + 1 ); CHECK( log.nCalls == 1 );
+    CHECK( ( log.all & MAP_CHANGE_SELECTION ) != 0 ); MapWorkspace_RemoveListener( &ws, &Record, &log );
+}
+
+TEST_CASE( "Every vertex selection allocation failure preserves components roots and history", "[map][gui][workspace][mesh-vertex][allocation][atomic]" )
+{
+    for ( const auto mode : { MAP_SELECT_REPLACE, MAP_SELECT_ADD, MAP_SELECT_TOGGLE } ) {
+        CAPTURE( mode ); edge_allocation_t audit{}; const allocator_t allocator{ &AllocateEdgeTest, nullptr, &FreeEdgeTest, &audit };
+        const auto prepare = [&]( edge_session_t &session ) {
+            auto &ws = session.workspace; const u64 first = AddEdgeTestMesh( ws ), second = AddEdgeTestMesh( ws, 128 );
+            MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+            REQUIRE( MapWorkspace_SelectMeshVertex( &ws, first, SourceVertices( ws, first )[0] ) );
+            return mode == MAP_SELECT_REPLACE ? second : first;
+        };
+        const auto apply = [&]( map_workspace_t &ws, u64 target ) {
+            return MapWorkspace_SelectMeshVertex( &ws, target, SourceVertices( ws, target )[mode == MAP_SELECT_TOGGLE ? 0 : 1], mode );
+        };
+        usize successfulCalls{};
+        {
+            edge_session_t session; const u64 target = prepare( session ); const auto *original = session.gui.pAllocator;
+            session.gui.pAllocator = &allocator; const bool selected = apply( session.workspace, target ); session.gui.pAllocator = original;
+            REQUIRE( selected ); successfulCalls = audit.calls; REQUIRE( successfulCalls != 0 );
+        }
+        REQUIRE( audit.live == 0 );
+        for ( usize failure = 1; failure <= successfulCalls; ++failure ) {
+            CAPTURE( failure ); edge_session_t session; auto &ws = session.workspace; const u64 target = prepare( session );
+            const auto *document = ws.pDocument; const auto documentRevision = document->geometry.revision;
+            const auto *roots = ws.selection.ids.pData; const auto root = roots[0]; const auto selectionRevision = ws.selection.revision;
+            const auto *components = ws.meshSelection.vertices.pData; const auto vertex = components[0];
+            const auto *points = ws.wire.points.pData; const auto steps = EditorHistory_StepCount( &ws.history );
+            change_log_t log{}; REQUIRE( MapWorkspace_AddListener( &ws, &Record, &log ) );
+            audit.calls = 0; audit.failOn = failure; const auto *original = session.gui.pAllocator; session.gui.pAllocator = &allocator;
+            const bool selected = apply( ws, target ); session.gui.pAllocator = original;
+            CHECK_FALSE( selected ); CHECK( audit.calls >= failure ); CHECK( audit.live == 0 ); CHECK( log.nCalls == 0 );
+            CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == documentRevision ); CHECK( ws.wire.points.pData == points );
+            CHECK( ws.selection.ids.pData == roots ); CHECK( roots[0] == root ); CHECK( ws.selection.revision == selectionRevision );
+            CHECK( ws.meshSelection.vertices.pData == components ); CHECK( ws.meshSelection.vertices.nCount == 1 );
+            CHECK( ws.meshSelection.meshId.value == root ); CHECK( components[0].value == vertex.value ); CHECK( ws.meshSelection.edges.nCount == 0 );
+            CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+            audit.calls = 0; audit.failOn = 0; REQUIRE( apply( ws, target ) ); CHECK( log.nCalls == 1 );
+            MapWorkspace_RemoveListener( &ws, &Record, &log );
+        }
+        CHECK( audit.live == 0 );
+    }
+}
+
+TEST_CASE( "Failed root replacement retains vertices and successful replacement notifies once", "[map][gui][workspace][mesh-vertex][allocation][atomic]" )
+{
+    edge_allocation_t audit{}; const allocator_t allocator{ &AllocateEdgeTest, nullptr, &FreeEdgeTest, &audit };
+    {
+        edge_session_t session( &allocator ); auto &ws = session.workspace;
+        const u64 first = AddEdgeTestMesh( ws ), second = AddEdgeTestMesh( ws, 128 );
+        MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES ); REQUIRE( MapWorkspace_SelectMeshVertex( &ws, first, SourceVertices( ws, first )[0] ) );
+        const auto *roots = ws.selection.ids.pData; const auto *components = ws.meshSelection.vertices.pData;
+        const auto revision = ws.selection.revision; const auto live = audit.live;
+        change_log_t log{}; REQUIRE( MapWorkspace_AddListener( &ws, &Record, &log ) );
+        audit.calls = 0; audit.failOn = 1; MapWorkspace_Select( &ws, second, MAP_SELECT_REPLACE );
+        CHECK( audit.live == live ); CHECK( ws.selection.ids.pData == roots ); CHECK( ws.meshSelection.vertices.pData == components );
+        CHECK( ws.selection.revision == revision ); CHECK( log.nCalls == 0 );
+        audit.calls = 0; MapWorkspace_SetSelection( &ws, &second, 1 );
+        CHECK( audit.live == live ); CHECK( ws.selection.ids.pData == roots ); CHECK( ws.meshSelection.vertices.pData == components );
+        CHECK( ws.selection.revision == revision ); CHECK( log.nCalls == 0 );
+        audit.failOn = 0; MapWorkspace_SetSelection( &ws, &second, 1 );
+        CHECK( ws.selection.ids.pData[0] == second ); CHECK( ws.meshSelection.meshId.value == 0 ); CHECK( log.nCalls == 1 );
+        MapWorkspace_RemoveListener( &ws, &Record, &log );
+    }
+    CHECK( audit.live == 0 );
+}
+
+TEST_CASE( "Saved rebuilt authored vertices retain persistent selection identity", "[map][gui][workspace][mesh-vertex][persistence]" )
+{
+    edge_session_t session; auto &ws = session.workspace; const u64 object = AddEdgeTestMesh( ws ); const auto vertices = SourceVertices( ws, object );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES ); REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[0] ) );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[7], MAP_SELECT_ADD ) );
+    MapWorkspace_DocumentChanged( &ws ); CHECK( MapWorkspace_HasMeshVertices( &ws ) );
+    QTemporaryDir temporary; REQUIRE( temporary.isValid() ); const auto path = temporary.filePath( QStringLiteral( "vertex.cymap" ) );
+    REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK );
+    CHECK( MapWorkspace_HasMeshVertices( &ws ) ); CHECK( ws.meshSelection.meshId.value == object ); REQUIRE( ws.meshSelection.vertices.nCount == 2 );
+    CHECK( ws.meshSelection.vertices.pData[0].value == vertices[0].value ); CHECK( ws.meshSelection.vertices.pData[1].value == vertices[7].value );
+    CHECK_FALSE( MapWorkspace_IsModified( &ws ) );
+    REQUIRE( MapWorkspace_Open( &ws, path ).status == map_files_status_t::OK ); CHECK_FALSE( MapWorkspace_HasMeshVertices( &ws ) );
+    const auto reopened = SourceVertices( ws, object );
+    CHECK( std::equal( vertices.begin(), vertices.end(), reopened.begin(), []( auto a, auto b ) { return a.value == b.value; } ) );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, vertices[0] ) ); CHECK( MapWorkspace_HasMeshVertices( &ws ) );
 }
 
 TEST_CASE( "Workspace notification skips listeners removed by an earlier callback", "[map][gui][workspace][lifetime]" )

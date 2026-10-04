@@ -1975,6 +1975,8 @@ void UpdateTitle( mason_t &mason )
 // bounds; a selection of point entities only shows where the first one stands.
 QString SelectionSizeText( const map_workspace_t &map )
 {
+    // Component picking does not imply an editable parent-mesh extent.
+    if ( map.elementMode == map_element_mode_t::VERTICES || map.elementMode == map_element_mode_t::EDGES ) { return QString(); }
     if ( map.editPreview.bActive && map.editPreview.bClip ) {
         if ( map.editPreview.status != map_status_t::OK ) { return QStringLiteral( "Clip preview: %1" ).arg( QString::fromLatin1( MapDocument_StatusName( map.editPreview.status ) ) ); }
         if ( !map.editPreview.bounds.bHas ) { return QStringLiteral( "Clip preview: empty result" ); }
@@ -2028,12 +2030,19 @@ void UpdateStatus( mason_t &mason, u32 changes )
             mason.pScaleCombo->setCurrentIndex( mason.pScaleCombo->findData( map.scaleSnap ) );
         }
     }
-    if ( ( changes & ( MAP_CHANGE_SELECTION | MAP_CHANGE_DOCUMENT ) ) != 0u ) {
+    if ( ( changes & ( MAP_CHANGE_SELECTION | MAP_CHANGE_DOCUMENT | MAP_CHANGE_VIEW ) ) != 0u ) {
         const usize nSelected = EditorSelection_Count( &map.selection );
-        mason.pStatusSelection->setText( MapWorkspace_HasMeshEdges( &map ) ?
-            map.meshSelection.edges.nCount == 1u ? QStringLiteral( "1 edge selected" ) :
-                QStringLiteral( "%1 edges selected" ).arg( map.meshSelection.edges.nCount ) :
-            nSelected == 0u ? QStringLiteral( "No selection" ) : QStringLiteral( "%1 selected" ).arg( nSelected ) );
+        if ( map.elementMode == map_element_mode_t::VERTICES ) {
+            const usize vertices = MapWorkspace_HasMeshVertices( &map ) ? map.meshSelection.vertices.nCount : 0;
+            if ( vertices == 0u ) { mason.pStatusSelection->setText( QStringLiteral( "No vertices selected" ) ); }
+            else if ( vertices == 1u ) { mason.pStatusSelection->setText( QStringLiteral( "1 vertex selected" ) ); }
+            else { mason.pStatusSelection->setText( QStringLiteral( "%1 vertices selected" ).arg( vertices ) ); }
+        } else if ( MapWorkspace_HasMeshEdges( &map ) ) {
+            mason.pStatusSelection->setText( map.meshSelection.edges.nCount == 1u ? QStringLiteral( "1 edge selected" ) :
+                QStringLiteral( "%1 edges selected" ).arg( map.meshSelection.edges.nCount ) );
+        } else {
+            mason.pStatusSelection->setText( nSelected == 0u ? QStringLiteral( "No selection" ) : QStringLiteral( "%1 selected" ).arg( nSelected ) );
+        }
     }
     if ( mason.pStatusSize != nullptr && ( changes & ( MAP_CHANGE_SELECTION | MAP_CHANGE_DOCUMENT | MAP_CHANGE_VIEW ) ) != 0u ) {
         mason.pStatusSize->setText( SelectionSizeText( map ) );

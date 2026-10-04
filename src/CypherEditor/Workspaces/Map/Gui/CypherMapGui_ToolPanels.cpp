@@ -980,8 +980,8 @@ constexpr tool_panel_t kToolPanels[]{
     { "Click in any view to select; Ctrl/Command+click toggles and Shift+click adds. In Objects or Groups mode, drag a selected object or an RGB move handle to move the selection. Drag a 2D bounds side/corner or a 3D RGB bounds handle to resize with the opposite side fixed. With multiple objects, Each applies the same grid-distance change to every object; Group scales their combined bounds. Hold Shift when grabbing a resize handle to widen both sides around the center. The anchor is captured at press. Ctrl/Command bypasses snapping. A dashed red source outline and travel guide mark the starting position during movement. Dimensions update in every view. Double-click an object to inspect it, or empty space for view options.",
       { { keymap_section_t::MOUSE, "map.viewport" }, { keymap_section_t::BINDINGS, "map.viewport" }, { keymap_section_t::MOUSE, "map.viewport.2d" } },
       { { "Vertex Editing", {}, { "map.mesh.merge", "map.mesh.collapse", "map.mesh.bevel", "map.mesh.dissolve", "map.mesh.fill_hole", "map.select.grow", "map.select.shrink", "map.pivot.clear" },
-          kVertexMode, true, "MapToolModeVertices", "Vertex picking and topology edits are planned. These operations remain unavailable; object transforms do not run in this mode." },
-        { "Vertex snapping", { "editor.grid.size", "editor.grid.snap", "editor.viewport.show_selection_vertices" }, { "map.brush.snap_to_grid" }, kVertexMode },
+          kVertexMode, true, "MapToolModeVertices", "Pick mesh vertices. Convert brushes to meshes first. Vertex transforms and topology edits are planned." },
+        { "Vertex snapping", { "editor.grid.size", "editor.grid.snap" }, { "map.brush.snap_to_grid" }, kVertexMode },
         { "Edge Editing", {}, { "map.select.loop", "map.select.ring", "map.mesh.dissolve", "map.mesh.collapse", "map.mesh.bevel", "map.mesh.extrude_edges", "map.mesh.connect_edges", "map.mesh.extend_edges", "map.mesh.merge", "map.mesh.split_edges", "map.mesh.snap_edge_to_edge", "map.mesh.fill_hole", "map.mesh.bridge", "map.mesh.normals_hard", "map.mesh.normals_soft", "map.mesh.normals_default", "map.texture.weld_uvs", "map.select.ribs", "map.pivot.clear", "map.tool.edge_cut", "map.tool.edge_arc", "map.mesh.radial_align" },
           kEdgeMode, true, "MapToolModeEdges", "Pick mesh edges; use Select Loop or Select Ring. Convert brushes to meshes first. Other topology edits are planned." },
         { "Face Editing", {}, { "map.mesh.bevel", "map.mesh.solidify", "map.mesh.bridge", "map.mesh.fill_hole", "map.mesh.split", "map.mesh.subdivide", "map.mesh.smooth", "map.select.same_material" },
@@ -1112,7 +1112,7 @@ struct selection_profile_t {
     const char *pSummary;
 };
 constexpr selection_profile_t kSelectionProfiles[]{
-    { "Vertex Editing", "select-vertices", "Inspect vertex operations. Vertex picking and topology edits are not connected yet; whole-object edits are inactive in this mode." },
+    { "Vertex Editing", "select-vertices", "Pick authored mesh vertices in a 2D or 3D view. Shift+click adds and Ctrl/Command+click toggles vertices on the same mesh. Convert brushes to meshes before selecting their vertices. Vertex transforms and topology edits are planned; dragging does not move the parent mesh." },
     { "Edge Editing", "select-edges", "Pick authored mesh edges in a 2D or 3D view. Shift+click adds and Ctrl/Command+click toggles edges on the same mesh. Select Loop and Select Ring extend the selection from the last picked edge. Convert brushes to meshes before selecting their edges. Topology edits and component transforms are planned." },
     { "Face Editing", "select-faces", "Pick a face in a 2D or 3D view. Drag a selected brush face's normal handle for grid-snapped Push / Pull. Mesh faces use the exact Extrude, Inset and Quad Slice controls below." },
     { "Mesh Editing", "select-meshes", "Select whole brushes and meshes. Move or resize their bounds; use supported brush and mesh operations below." },
@@ -1435,6 +1435,11 @@ private:
             }
         }
         if ( m_tool == map_tool_t::SELECT ) {
+            if ( m_mode == map_element_mode_t::VERTICES ) {
+                addRow( QStringLiteral( "[LeftClick]" ), QStringLiteral( "Pick an authored mesh vertex" ) );
+                addRow( QStringLiteral( "[Shift+LeftClick]" ), QStringLiteral( "Add a vertex on the same mesh" ) );
+                addRow( QStringLiteral( "[Ctrl/Command+LeftClick]" ), QStringLiteral( "Toggle a vertex on the same mesh" ) );
+            }
             if ( m_mode == map_element_mode_t::EDGES ) {
                 addRow( QStringLiteral( "[LeftClick]" ), QStringLiteral( "Pick an authored mesh edge" ) );
                 addRow( QStringLiteral( "[Shift+LeftClick]" ), QStringLiteral( "Add an edge on the same mesh" ) );
@@ -1943,7 +1948,11 @@ private:
         if ( m_pClipControls != nullptr ) { m_pClipControls->RefreshState(); }
         if ( m_pSubtractControls != nullptr ) { m_pSubtractControls->RefreshState( documentChanged ); }
         if ( m_pSelection != nullptr ) {
-            if ( m_pWorkspace->elementMode == map_element_mode_t::EDGES ) {
+            if ( m_pWorkspace->elementMode == map_element_mode_t::VERTICES ) {
+                const usize vertices = MapWorkspace_HasMeshVertices( m_pWorkspace ) ? m_pWorkspace->meshSelection.vertices.nCount : 0;
+                m_pSelection->setText( ( vertices == 1 ? QStringLiteral( "%1 vertex selected · Vertices mode" ) :
+                    QStringLiteral( "%1 vertices selected · Vertices mode" ) ).arg( vertices ) );
+            } else if ( m_pWorkspace->elementMode == map_element_mode_t::EDGES ) {
                 const usize edges = MapWorkspace_HasMeshEdges( m_pWorkspace ) ? m_pWorkspace->meshSelection.edges.nCount : 0;
                 m_pSelection->setText( ( edges == 1 ? QStringLiteral( "%1 edge selected · Edges mode" ) :
                     QStringLiteral( "%1 edges selected · Edges mode" ) ).arg( edges ) );

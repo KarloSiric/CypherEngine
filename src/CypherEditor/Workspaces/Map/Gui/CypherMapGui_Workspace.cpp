@@ -280,8 +280,7 @@ QStringList PersistedChunkPaths( const map_document_t &document )
     return paths;
 }
 
-// Takes ownership of pDocument and makes it the open map.
-bool ClearMeshEdges( map_workspace_t *workspace ) noexcept
+bool ClearMeshComponents( map_workspace_t *workspace ) noexcept
 {
     const bool changed = workspace->meshSelection.meshId.value != 0 || workspace->selectedMeshEdgeSeed.a.value != 0;
     geometry::MeshSelection_Shutdown( &workspace->meshSelection );
@@ -290,17 +289,32 @@ bool ClearMeshEdges( map_workspace_t *workspace ) noexcept
 }
 
 // Visibility and authored topology can change independently of root IDs.
-// Resolve endpoint pairs without allocation before publishing any refresh.
-bool PruneMeshEdges( map_workspace_t *workspace ) noexcept
+// Resolve persistent IDs without allocation before publishing any refresh.
+bool PruneMeshComponents( map_workspace_t *workspace ) noexcept
 {
     auto &selection = workspace->meshSelection;
     if ( selection.meshId.value == 0 ) { return false; }
     const auto *wire = MapWireframe_FindObject( workspace->wire, selection.meshId.value );
     const auto *mesh = workspace->pDocument != nullptr ?
         geometry::GeometryDocument_FindMesh( &workspace->pDocument->geometry, selection.meshId ) : nullptr;
-    if ( workspace->elementMode != map_element_mode_t::EDGES || mesh == nullptr || wire == nullptr ||
+    const bool vertices = workspace->elementMode == map_element_mode_t::VERTICES;
+    const bool edges = workspace->elementMode == map_element_mode_t::EDGES;
+    if ( ( !vertices && !edges ) || mesh == nullptr || wire == nullptr || wire->kind != map_wire_kind_t::MESH ||
          !MapWorkspace_IsVisible( workspace, *wire ) || workspace->selection.ids.nCount != 1 ||
-         workspace->selection.ids.pData[0] != selection.meshId.value ) { return ClearMeshEdges( workspace ); }
+         workspace->selection.ids.pData[0] != selection.meshId.value || selection.faces.nCount != 0 ||
+         ( vertices && ( selection.edges.nCount != 0 || workspace->selectedMeshEdgeSeed.a.value != 0 ) ) ||
+         ( edges && selection.vertices.nCount != 0 ) ) { return ClearMeshComponents( workspace ); }
+    if ( vertices ) {
+        usize kept = 0;
+        for ( usize i = 0; i < selection.vertices.nCount; ++i ) {
+            const auto vertex = selection.vertices.pData[i];
+            geometry::geometry_mesh_vertex_handle_t handle{};
+            if ( geometry::MeshSource_TryFindVertex( mesh, vertex, &handle ) ) { selection.vertices.pData[kept++] = vertex; }
+        }
+        const bool changed = kept != selection.vertices.nCount;
+        selection.vertices.nCount = kept;
+        return changed;
+    }
     usize kept = 0;
     for ( usize i = 0; i < selection.edges.nCount; ++i ) {
         const auto edge = selection.edges.pData[i];
@@ -315,6 +329,7 @@ bool PruneMeshEdges( map_workspace_t *workspace ) noexcept
     return changed;
 }
 
+// Takes ownership of pDocument and makes it the open map.
 void Adopt( map_workspace_t *pWorkspace, map_document_t *pDocument, const QString &path ) noexcept
 {
     pWorkspace->editPreview = {};
@@ -329,7 +344,7 @@ void Adopt( map_workspace_t *pWorkspace, map_document_t *pDocument, const QStrin
     EditorHistory_MarkClean( &pWorkspace->history );
     pWorkspace->selectedBrushFaceObject = 0; pWorkspace->selectedBrushFaceSide = 0;
     pWorkspace->selectedMeshFaceObject = 0; pWorkspace->selectedMeshFaceId = 0;
-    ( void )ClearMeshEdges( pWorkspace );
+    ( void )ClearMeshComponents( pWorkspace );
     ( void )EditorSelection_Clear( &pWorkspace->selection );
     ( void )EditorSelection_Clear( &pWorkspace->hidden ); // Hidden objects belong to the map that had them.
     if ( MapWireframe_Build( &pWorkspace->wire, *pDocument ) != map_status_t::OK ) {
@@ -553,7 +568,7 @@ command_result_t HideSelected( void *pContext, const command_args_t & ) noexcept
     pWorkspace->selectedBrushFaceSide = 0;
     pWorkspace->selectedMeshFaceObject = 0;
     pWorkspace->selectedMeshFaceId = 0;
-    ( void )ClearMeshEdges( pWorkspace );
+    ( void )ClearMeshComponents( pWorkspace );
     MapWorkspace_Notify( pWorkspace, MAP_CHANGE_SELECTION | MAP_CHANGE_VIEW );
     return command_result_t::OK;
 }
@@ -918,8 +933,8 @@ void MapWorkspace_Select( map_workspace_t *pWorkspace, u64 id, map_select_mode_t
     const bool facesChanged = pWorkspace->selectedBrushFaceObject != 0 || pWorkspace->selectedMeshFaceObject != 0;
     pWorkspace->selectedBrushFaceObject = 0; pWorkspace->selectedBrushFaceSide = 0;
     pWorkspace->selectedMeshFaceObject = 0; pWorkspace->selectedMeshFaceId = 0;
-    const bool edgesChanged = ClearMeshEdges( pWorkspace );
-    if ( rootsChanged || facesChanged || edgesChanged ) {
+    const bool componentsChanged = ClearMeshComponents( pWorkspace );
+    if ( rootsChanged || facesChanged || componentsChanged ) {
         if ( !rootsChanged ) { ++pWorkspace->selection.revision; }
         MapWorkspace_Notify( pWorkspace, MAP_CHANGE_SELECTION );
     }
@@ -944,8 +959,8 @@ void MapWorkspace_SetSelection( map_workspace_t *pWorkspace, const u64 *pIds, us
     const bool facesChanged = pWorkspace->selectedBrushFaceObject != 0 || pWorkspace->selectedMeshFaceObject != 0;
     pWorkspace->selectedBrushFaceObject = 0; pWorkspace->selectedBrushFaceSide = 0;
     pWorkspace->selectedMeshFaceObject = 0; pWorkspace->selectedMeshFaceId = 0;
-    const bool edgesChanged = ClearMeshEdges( pWorkspace );
-    if ( rootsChanged || facesChanged || edgesChanged ) {
+    const bool componentsChanged = ClearMeshComponents( pWorkspace );
+    if ( rootsChanged || facesChanged || componentsChanged ) {
         if ( !rootsChanged ) { ++pWorkspace->selection.revision; }
         MapWorkspace_Notify( pWorkspace, MAP_CHANGE_SELECTION );
     }
@@ -953,7 +968,16 @@ void MapWorkspace_SetSelection( map_workspace_t *pWorkspace, const u64 *pIds, us
 
 void MapWorkspace_ClearMeshEdges( map_workspace_t *pWorkspace ) noexcept
 {
-    if ( pWorkspace == nullptr || !ClearMeshEdges( pWorkspace ) ) { return; }
+    if ( pWorkspace == nullptr || ( pWorkspace->elementMode != map_element_mode_t::EDGES && pWorkspace->meshSelection.edges.nCount == 0 ) ||
+         !ClearMeshComponents( pWorkspace ) ) { return; }
+    ++pWorkspace->selection.revision;
+    MapWorkspace_Notify( pWorkspace, MAP_CHANGE_SELECTION );
+}
+
+void MapWorkspace_ClearMeshVertices( map_workspace_t *pWorkspace ) noexcept
+{
+    if ( pWorkspace == nullptr || ( pWorkspace->elementMode != map_element_mode_t::VERTICES && pWorkspace->meshSelection.vertices.nCount == 0 ) ||
+         !ClearMeshComponents( pWorkspace ) ) { return; }
     ++pWorkspace->selection.revision;
     MapWorkspace_Notify( pWorkspace, MAP_CHANGE_SELECTION );
 }
@@ -1126,15 +1150,15 @@ void MapWorkspace_SetElementMode( map_workspace_t *pWorkspace, map_element_mode_
         pWorkspace->selectedMeshFaceObject = 0; pWorkspace->selectedMeshFaceId = 0;
         pWorkspace->selectedBrushFaceObject = 0; pWorkspace->selectedBrushFaceSide = 0;
     }
-    const bool clearedEdges = mode != map_element_mode_t::EDGES && ClearMeshEdges( pWorkspace );
-    if ( clearedEdges ) { ++pWorkspace->selection.revision; }
+    const bool clearedComponents = ClearMeshComponents( pWorkspace );
+    if ( clearedComponents ) { ++pWorkspace->selection.revision; }
     if ( pWorkspace->editPreview.bActive ) {
         // Publish one coherent mode change: every observer sees canceled
         // construction and cleared components before its single refresh.
         pWorkspace->editPreview = {};
         MapWireframe_Shutdown( &pWorkspace->editPreviewWire );
     }
-    MapWorkspace_Notify( pWorkspace, MAP_CHANGE_VIEW | ( clearedFace || clearedEdges ? MAP_CHANGE_SELECTION : 0u ) );
+    MapWorkspace_Notify( pWorkspace, MAP_CHANGE_VIEW | ( clearedFace || clearedComponents ? MAP_CHANGE_SELECTION : 0u ) );
 }
 
 map_visgroup_t MapWorkspace_VisgroupOf( const map_workspace_t *pWorkspace, const map_wire_object_t &object ) noexcept
@@ -1319,7 +1343,7 @@ void MapWorkspace_Notify( map_workspace_t *pWorkspace, u32 changes ) noexcept
 {
     CY_ASSERT( pWorkspace != nullptr );
     if ( changes == MAP_CHANGE_NONE ) { return; }
-    if ( ( changes & ( MAP_CHANGE_DOCUMENT | MAP_CHANGE_SELECTION | MAP_CHANGE_VIEW ) ) != 0 && PruneMeshEdges( pWorkspace ) ) {
+    if ( ( changes & ( MAP_CHANGE_DOCUMENT | MAP_CHANGE_SELECTION | MAP_CHANGE_VIEW ) ) != 0 && PruneMeshComponents( pWorkspace ) ) {
         ++pWorkspace->selection.revision;
         changes |= MAP_CHANGE_SELECTION;
     }
@@ -1413,7 +1437,7 @@ command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorks
           ToolExecute<map_tool_t::MIRROR>, ToolState<map_tool_t::MIRROR>, pWorkspace },
         { "map.tool.paint", "Paint Tool", "Paint blend materials on meshes and terrain.", "tool-paint", nullptr, kTool,
           ToolExecute<map_tool_t::PAINT>, ToolState<map_tool_t::PAINT>, pWorkspace },
-        { "map.select_mode.vertices", "Vertices", "Show vertex editing operations. Component picking is not connected yet.", "select-vertices", nullptr, kTool,
+        { "map.select_mode.vertices", "Vertices", "Select authored mesh vertices by their persistent source IDs.", "select-vertices", nullptr, kTool,
           ElementModeExecute<map_element_mode_t::VERTICES>, ElementModeState<map_element_mode_t::VERTICES>, pWorkspace },
         { "map.select_mode.edges", "Edges", "Select authored mesh edges by their persistent endpoint IDs.", "select-edges", nullptr, kTool,
           ElementModeExecute<map_element_mode_t::EDGES>, ElementModeState<map_element_mode_t::EDGES>, pWorkspace },

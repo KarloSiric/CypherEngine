@@ -7982,10 +7982,13 @@ TEST_CASE( "Vertex and Edge profiles never drag parent objects in any pane", "[m
                 map_mesh_edge_hit_t edgeHit{};
                 const bool hasEdge = mode == map_element_mode_t::EDGES && mesh && ( pane == 3 ?
                     MapCameraView_PickMeshEdge( view.get(), point, &edgeHit ) : MapOrthoView_PickMeshEdge( view.get(), point, &edgeHit ) );
+                map_mesh_vertex_hit_t vertexHit{};
+                const bool hasVertex = mode == map_element_mode_t::VERTICES && mesh && ( pane == 3 ?
+                    MapCameraView_PickMeshVertex( view.get(), point, &vertexHit ) : MapOrthoView_PickMeshVertex( view.get(), point, &vertexHit ) );
                 CHECK( MapView_HoveredObject( view.get() ) == 0u );
                 CHECK( ( pane == 3 ? MapCameraView_Pick( view.get(), point ) : MapOrthoView_Pick( view.get(), point ) ) == 0u );
                 Click( view.get(), point ); HoverMeshFaceTestPoint( view.get(), point );
-                CHECK( MapView_HoveredObject( view.get() ) == ( hasEdge ? id : 0u ) );
+                CHECK( MapView_HoveredObject( view.get() ) == ( hasEdge || hasVertex ? id : 0u ) );
                 DragMouse( view.get(), QEvent::MouseButtonPress, point );
                 DragMouse( view.get(), QEvent::MouseMove, point + QPointF( 90, 35 ) );
                 DragMouse( view.get(), QEvent::MouseButtonRelease, point + QPointF( 90, 35 ) );
@@ -8868,4 +8871,213 @@ TEST_CASE( "A failed camera edge occlusion query preserves the previous componen
     CHECK( ws.meshSelection.edges.pData == edges ); CHECK( ws.meshSelection.edges.nCount == 1u );
     CHECK( geometry::MeshSelection_HasEdge( &ws.meshSelection, hit.edge ) ); CHECK( ws.selection.revision == selectionRevision );
     CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK_FALSE( ws.editPreview.bActive );
+}
+
+TEST_CASE( "Mesh vertices select authored components in every orthographic pane without editing roots", "[map][gui][views][mesh-vertex]" )
+{
+    for ( int pane = 0; pane < 3; ++pane ) {
+        CAPTURE( pane ); session_t session; auto &ws = session.workspace;
+        REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+        map_bounds_t box{}; MapBounds_AddPoint( box, { -64, -64, -64 } ); MapBounds_AddPoint( box, { 64, 64, 64 } );
+        REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 );
+        REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+        std::unique_ptr<QWidget> view( MapOrthoView_Create( nullptr, &ws, static_cast<map_ortho_axes_t>( pane ) ) );
+        ShowAt( view.get(), 800, 600 ); MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents();
+        MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+        const auto *document = ws.pDocument; const auto revision = document->geometry.revision;
+        const usize steps = EditorHistory_StepCount( &ws.history ); const auto original = ObjectLineVertices( ws.wire, id );
+        const QPointF right = MapOrthoView_WorldToView( view.get(), { 64, 64 } );
+        const QPointF left = MapOrthoView_WorldToView( view.get(), { -64, 64 } );
+        map_mesh_vertex_hit_t a{}, b{}, nearby{};
+        REQUIRE( MapOrthoView_PickMeshVertex( view.get(), right, &a ) ); REQUIRE( a.object == id );
+        REQUIRE( MapOrthoView_PickMeshVertex( view.get(), left, &b ) ); REQUIRE( b.object == id );
+        CHECK( a.vertex.value != b.vertex.value ); CHECK( MapOrthoView_Pick( view.get(), right ) == 0u );
+        REQUIRE( MapOrthoView_PickMeshVertex( view.get(), right + QPointF( 2, 0 ), &nearby ) );
+        CHECK( nearby.vertex.value == a.vertex.value );
+        CHECK_FALSE( MapOrthoView_PickMeshVertex( view.get(), right + QPointF( 8, 0 ), &nearby ) );
+        CHECK_FALSE( MapOrthoView_PickMeshVertex( view.get(), { -1, -1 }, &nearby ) );
+        CHECK_FALSE( MapOrthoView_PickMeshVertex( view.get(), { std::numeric_limits<f64>::quiet_NaN(), 0 }, &nearby ) );
+        const auto *source = geometry::GeometryDocument_FindMesh( &document->geometry, { id } ); REQUIRE( source != nullptr );
+        const u32 depthAxis = pane == 0 ? 2u : pane == 1 ? 0u : 1u;
+        for ( const auto endpoint : { a.vertex, b.vertex } ) {
+            geometry::geometry_mesh_vertex_handle_t vertex{};
+            REQUIRE( geometry::MeshSource_TryFindVertex( source, endpoint, &vertex ) );
+            const auto *record = GenerationPool_Get( &source->mesh.vertices, vertex ); REQUIRE( record != nullptr );
+            CHECK( TestCoordinate( record->position, depthAxis ) == 64 );
+        }
+        HoverMeshFaceTestPoint( view.get(), right ); CHECK( MapView_HoveredObject( view.get() ) == id );
+        Click( view.get(), right ); REQUIRE( ws.meshSelection.vertices.nCount == 1u );
+        CHECK( geometry::MeshSelection_HasVertex( &ws.meshSelection, a.vertex ) );
+        Click( view.get(), left, Qt::ShiftModifier ); REQUIRE( ws.meshSelection.vertices.nCount == 2u );
+        Click( view.get(), right, Qt::ControlModifier ); REQUIRE( ws.meshSelection.vertices.nCount == 1u );
+        CHECK_FALSE( geometry::MeshSelection_HasVertex( &ws.meshSelection, a.vertex ) );
+        CHECK( geometry::MeshSelection_HasVertex( &ws.meshSelection, b.vertex ) );
+        DragMouse( view.get(), QEvent::MouseButtonPress, left );
+        DragMouse( view.get(), QEvent::MouseMove, left + QPointF( 100, 40 ) );
+        DragMouse( view.get(), QEvent::MouseButtonRelease, left + QPointF( 100, 40 ) );
+        CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision );
+        CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CheckObjectVertices( ws.wire, id, original );
+        QKeyEvent cancel( QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier ); QCoreApplication::sendEvent( view.get(), &cancel );
+        CHECK( ws.tool == map_tool_t::NONE ); CHECK( ws.meshSelection.vertices.nCount == 1u );
+        CHECK_FALSE( MapOrthoView_PickMeshVertex( view.get(), left, &nearby ) );
+        QKeyEvent clear( QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier ); QCoreApplication::sendEvent( view.get(), &clear );
+        CHECK( ws.meshSelection.vertices.nCount == 0u ); CHECK( EditorSelection_Count( &ws.selection ) == 0u );
+        CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    }
+}
+
+TEST_CASE( "Camera mesh vertices respect own faces and other physical occluders in every preview mode", "[map][gui][views][mesh-vertex][occlusion]" )
+{
+    for ( const auto mode : { map_render_mode_t::WIREFRAME, map_render_mode_t::SHADED, map_render_mode_t::FULLBRIGHT, map_render_mode_t::NORMALS } ) {
+        CAPTURE( static_cast<int>( mode ) ); session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
+        REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+        settings.Real( "editor.camera.look_sensitivity", 1.0 ); settings.Set( "editor.camera.invert_y", false );
+        std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 ); FacePositiveX( camera.get() );
+        MapCameraView_SetRenderMode( camera.get(), mode ); const auto p = MapCameraView_Position( camera.get() );
+        const auto make = [&]( f64 scale ) {
+            map_bounds_t box{}; MapBounds_AddPoint( box, { p.x + 512 * scale, p.y - 96 * scale, p.z - 96 * scale } );
+            MapBounds_AddPoint( box, { p.x + 768 * scale, p.y + 96 * scale, p.z + 96 * scale } );
+            REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 );
+            REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) ); return id;
+        };
+        const u64 far = make( 2 ), near = make( 1 ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+        QPointF corner, rear; REQUIRE( MapCameraView_WorldToView( camera.get(), { p.x + 512, p.y + 96, p.z + 96 }, &corner ) );
+        REQUIRE( MapCameraView_WorldToView( camera.get(), { p.x + 768, p.y + 96, p.z + 96 }, &rear ) );
+        map_mesh_vertex_hit_t hit{}; const QPointF point = corner + QPointF( 2, 0 );
+        REQUIRE( MapCameraView_PickMeshVertex( camera.get(), point, &hit ) ); CHECK( hit.object == near );
+        CHECK( MapCameraView_Pick( camera.get(), point ) == 0u );
+        CHECK_FALSE( MapCameraView_PickMeshVertex( camera.get(), rear, &hit ) );
+        HoverMeshFaceTestPoint( camera.get(), point ); CHECK( MapView_HoveredObject( camera.get() ) == near );
+        Click( camera.get(), point ); REQUIRE( ws.meshSelection.vertices.nCount == 1u );
+        OnlyVisible( ws, { far } ); REQUIRE( MapCameraView_PickMeshVertex( camera.get(), point, &hit ) ); CHECK( hit.object == far );
+        OnlyVisible( ws, { near, far } ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS );
+        map_bounds_t wall{}; MapBounds_AddPoint( wall, { p.x + 256, p.y - 200, p.z - 200 } );
+        MapBounds_AddPoint( wall, { p.x + 272, p.y + 200, p.z + 200 } );
+        REQUIRE( MapWorkspace_CreateBox( &ws, wall ) ); const u64 blocker = EditorSelection_At( &ws.selection, 0 );
+        MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+        CHECK_FALSE( MapCameraView_PickMeshVertex( camera.get(), point, &hit ) );
+        HoverMeshFaceTestPoint( camera.get(), point ); CHECK( MapView_HoveredObject( camera.get() ) == 0u );
+        OnlyVisible( ws, { near, far } ); REQUIRE( MapCameraView_PickMeshVertex( camera.get(), point, &hit ) ); CHECK( hit.object == near );
+        OnlyVisible( ws, { blocker } ); CHECK_FALSE( MapCameraView_PickMeshVertex( camera.get(), point, &hit ) );
+    }
+}
+
+TEST_CASE( "Camera vertex picking never synthesizes vertices at a clipped edge", "[map][gui][views][mesh-vertex][near-clip]" )
+{
+    session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
+    REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    settings.Real( "editor.camera.look_sensitivity", 1.0 ); settings.Set( "editor.camera.invert_y", false );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 ); FacePositiveX( camera.get() );
+    const auto p = MapCameraView_Position( camera.get() );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { p.x + 0.5, p.y + 16, p.z - 32 } ); MapBounds_AddPoint( box, { p.x + 256, p.y + 64, p.z + 32 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+    QPointF corner, middle, tooNear;
+    REQUIRE( MapCameraView_WorldToView( camera.get(), { p.x + 256, p.y + 16, p.z + 32 }, &corner ) );
+    REQUIRE( MapCameraView_WorldToView( camera.get(), { p.x + 128, p.y + 16, p.z + 32 }, &middle ) );
+    CHECK_FALSE( MapCameraView_WorldToView( camera.get(), { p.x + 0.5, p.y + 16, p.z + 32 }, &tooNear ) );
+    map_mesh_vertex_hit_t hit{}; REQUIRE( MapCameraView_PickMeshVertex( camera.get(), corner, &hit ) ); CHECK( hit.object == id );
+    CHECK_FALSE( MapCameraView_PickMeshVertex( camera.get(), middle, &hit ) );
+    OnlyVisible( ws, {} ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS );
+    map_bounds_t behind{}; MapBounds_AddPoint( behind, { p.x - 128, p.y - 32, p.z - 32 } ); MapBounds_AddPoint( behind, { p.x - 64, p.y + 32, p.z + 32 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, behind ) ); REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+    CHECK_FALSE( MapCameraView_PickMeshVertex( camera.get(), { 400, 300 }, &hit ) );
+    CHECK_FALSE( MapCameraView_PickMeshVertex( camera.get(), { 400, std::numeric_limits<f64>::quiet_NaN() }, &hit ) );
+}
+
+TEST_CASE( "A failed camera vertex occlusion query preserves the previous authored selection", "[map][gui][views][mesh-vertex][allocation][atomic]" )
+{
+    session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
+    REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    settings.Real( "editor.camera.look_sensitivity", 1.0 ); settings.Set( "editor.camera.invert_y", false );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 ); FacePositiveX( camera.get() );
+    const auto p = MapCameraView_Position( camera.get() );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { p.x + 512, p.y - 96, p.z - 96 } ); MapBounds_AddPoint( box, { p.x + 768, p.y + 96, p.z + 96 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+    QPointF point; REQUIRE( MapCameraView_WorldToView( camera.get(), { p.x + 512, p.y + 96, p.z + 96 }, &point ) );
+    map_mesh_vertex_hit_t hit{}; REQUIRE( MapCameraView_PickMeshVertex( camera.get(), point, &hit ) );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, hit.object, hit.vertex ) );
+    const auto *vertices = ws.meshSelection.vertices.pData; const auto selectionRevision = ws.selection.revision;
+    const usize steps = EditorHistory_StepCount( &ws.history ); const auto *document = ws.pDocument;
+    mesh_face_allocation_failure_t audit{ 0, 1, 0 };
+    const allocator_t allocator{ &MeshFaceTestAllocate, nullptr, &MeshFaceTestFree, &audit };
+    const auto *original = ws.pDocument->pAllocator; ws.pDocument->pAllocator = &allocator;
+    Click( camera.get(), point ); ws.pDocument->pAllocator = original;
+    CHECK( audit.calls > 0u ); CHECK( audit.live == 0u );
+    CHECK( ws.meshSelection.vertices.pData == vertices ); CHECK( ws.meshSelection.vertices.nCount == 1u );
+    CHECK( geometry::MeshSelection_HasVertex( &ws.meshSelection, hit.vertex ) ); CHECK( ws.selection.revision == selectionRevision );
+    CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK_FALSE( ws.editPreview.bActive );
+}
+
+TEST_CASE( "Vertex overlays stay compact and keep mesh face interiors neutral", "[map][gui][views][mesh-vertex][render][selection-clarity]" )
+{
+    session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
+    REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, 0 } ); MapBounds_AddPoint( box, { 128, 128, 256 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+    DisableNameTestAids( settings ); settings.Set( "editor.viewport.perspective.center_axes", false );
+    UseClarityProbeTheme( session, "mesh_vertex_clarity" );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 1000, 760 );
+    MapCameraView_SetRenderMode( camera.get(), map_render_mode_t::FULLBRIGHT ); MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents();
+    MapWorkspace_Select( &ws, 0, MAP_SELECT_REPLACE ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+    const auto p = MapCameraView_Position( camera.get() );
+    const math::vec3d_t cornerPoint{ p.x < 0 ? -128.0 : 128.0, p.y < 0 ? -128.0 : 128.0, 256 };
+    QPointF corner, top; REQUIRE( MapCameraView_WorldToView( camera.get(), cornerPoint, &corner ) );
+    REQUIRE( MapCameraView_WorldToView( camera.get(), { -80, 64, 256 }, &top ) );
+    map_mesh_vertex_hit_t hit{}; REQUIRE( MapCameraView_PickMeshVertex( camera.get(), corner, &hit ) ); REQUIRE( hit.object == id );
+    const QImage neutral = camera->grab().toImage();
+    Click( camera.get(), corner ); REQUIRE( ws.meshSelection.vertices.nCount == 1u );
+    const QImage selected = camera->grab().toImage();
+    CHECK( ChangedPixelsNear( neutral, selected, corner, 5 ) > 0 );
+    CHECK( LargestColorChangeNear( neutral, selected, top ) <= 12 );
+    const QColor selection = gui::EditorStyle_Color( session.gui.style, gui::STYLE_COLOR_SELECTION );
+    CHECK( HandleColorPixelsNear( selected, corner, selection, 5 ) > 0 );
+    // Selection-bounds/dimension preferences must not reinstate parent-root
+    // geometry overlays while working with authored components.
+    settings.Set( "editor.viewport.perspective.show_selection_bounds", false ); settings.Set( "editor.viewport.perspective.show_selection_dimensions", false );
+    const QImage noParentAids = camera->grab().toImage();
+    settings.Set( "editor.viewport.perspective.show_selection_bounds", true ); settings.Set( "editor.viewport.perspective.show_selection_dimensions", true );
+    CHECK( camera->grab().toImage() == noParentAids );
+    std::unique_ptr<QWidget> topView( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) ); ShowAt( topView.get(), 800, 600 );
+    MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents(); MapWorkspace_ClearMeshVertices( &ws );
+    const QPointF sourceCorner = MapOrthoView_WorldToView( topView.get(), { 128, 128 } );
+    const QImage candidates = topView->grab().toImage();
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE ); const QImage navigation = topView->grab().toImage();
+    CHECK( ChangedPixelsNear( navigation, candidates, sourceCorner, 3 ) > 0 );
+}
+
+TEST_CASE( "Double click on a vertex opens its mesh inspector without discarding component context", "[map][gui][views][mesh-vertex][picking]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -64, -64, -64 } ); MapBounds_AddPoint( box, { 64, 64, 64 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 ); REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+    int inspections = 0; command_desc_t inspect{}; inspect.pId = "view.properties.open"; inspect.pLabel = "Inspect Object";
+    inspect.pfnExecute = []( void *context, const command_args_t & ) { ++*static_cast<int *>( context ); return command_result_t::OK; };
+    inspect.pContext = &inspections;
+    REQUIRE( EditorCommands_Register( &session.gui.commands, &inspect, 1u ) == command_registry_status_t::OK );
+    std::unique_ptr<QWidget> views( MapViews_Create( nullptr, &ws ) ); ShowAt( views.get(), 1200, 900 );
+    MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents(); MapWorkspace_SetElementMode( &ws, map_element_mode_t::VERTICES );
+    for ( int pane = 0; pane < 4; ++pane ) {
+        CAPTURE( pane ); QWidget *view = MapViews_PaneView( views.get(), pane ); QPointF point; map_mesh_vertex_hit_t hit{};
+        if ( pane == 0 ) {
+            bool found = false;
+            for ( const f64 x : { -64.0, 64.0 } ) { for ( const f64 y : { -64.0, 64.0 } ) { for ( const f64 z : { -64.0, 64.0 } ) {
+                QPointF candidate;
+                if ( !found && MapCameraView_WorldToView( view, { x, y, z }, &candidate ) && MapCameraView_PickMeshVertex( view, candidate, &hit ) && hit.object == id ) {
+                    point = candidate; found = true;
+                }
+            } } }
+            REQUIRE( found );
+        } else {
+            point = MapOrthoView_WorldToView( view, { 64, 64 } ); REQUIRE( MapOrthoView_PickMeshVertex( view, point, &hit ) );
+        }
+        DoubleClick( view, point ); CHECK( inspections == pane + 1 );
+        REQUIRE( ws.meshSelection.vertices.nCount == 1u ); CHECK( geometry::MeshSelection_HasVertex( &ws.meshSelection, hit.vertex ) );
+        CHECK( MapWorkspace_IsSelected( &ws, id ) );
+        auto *menu = views->findChild<QMenu *>( QStringLiteral( "EditorViewOptionsMenu%1" ).arg( pane ) ); REQUIRE( menu != nullptr );
+        CHECK_FALSE( menu->isVisible() ); DoubleClick( view, { 5, 5 } ); CHECK( menu->isVisible() ); CHECK( inspections == pane + 1 ); menu->hide();
+    }
 }

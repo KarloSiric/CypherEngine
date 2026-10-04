@@ -21,6 +21,77 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
+## [Unreleased] - 2026-10-04
+
+### Added
+
+#### Mason map authoring
+
+- Added live block and transform dimensions, readable RGB axis labels, surface
+  grids, separate move and signed-side resize handles, and exact world-unit
+  grid snapping. Multi-object bounds resizing can extend each object by the
+  same distance or scale the combined selection bounds.
+- Connected authored brush Push/Pull and brush-to-mesh conversion, mesh-face
+  Extrude, Inset and Quad Slice, Quad creation, and portable geometry
+  Copy/Cut/Paste/Paste In Place to commands and Tool Properties. Geometry edits
+  prepare private document state before publication and retain undo/redo,
+  authored attributes and save/load behavior.
+- Added real authored mesh edge picking in orthographic and perspective panes,
+  modifier selection, and library-backed Select Loop/Select Ring. Selection
+  uses persistent source IDs; perspective picking checks physical occlusion
+  independently of the current selection category.
+- Added authored mesh vertex picking in every 2D/3D pane, Shift-add and
+  Ctrl/Command-toggle, component-preserving inspector double-click, and
+  compact point highlights. Neutral discovery dots appear in orthographic and
+  shaded camera previews. Selection is inspection state and does not create
+  an undo step; camera wireframe shows hovered/selected points only.
+- Added mode-specific Tool Properties for Vertices, Edges, Faces, Meshes,
+  Objects and Groups. Planned operations have named, disabled actions with
+  availability explanations; displaying an operation does not implement it.
+- Added editable contextual shortcut profiles with creation, duplication,
+  import/export and remapping; settings import/export, theme controls and
+  additional camera/viewport preferences; command-palette icons and the
+  supplied Mason branding.
+- Added a central content library, authored entity key/value controls,
+  configurable viewport content, and a collapsed-by-default console sharing
+  the right inspector dock. Entity fields remain authored data without
+  gameplay-system execution.
+
+### Changed
+
+- Escape cancels an active gesture, then leaves an idle tool for Navigation;
+  another Escape clears retained selection. Focused text fields and dialogs
+  retain their own keyboard behavior.
+- Perspective whole-object selection accepts visible geometric edges near
+  the cursor to improve grazing-angle picks, while component modes keep
+  their own picking and never substitute a parent-root edit.
+- Local editor validation uses one compact Mason build and existing system
+  dependencies after removing reproducible package/build caches.
+
+### Fixed
+
+- Preserved selection, live documents and history after failed allocation or
+  invalid transform previews, and pruned stale component identities after
+  visibility, topology or document changes.
+- Removed misleading whole-mesh dimension readouts from the status bar in
+  Vertex/Edge modes and blocked parent-entity metadata edits in Vertex mode.
+- Made keymap/layout aggregate resets explicit for GCC 13 and pinned authored
+  map files to LF checkout bytes so Windows round-trip checks match canonical
+  serialization.
+
+### Validation and remaining work
+
+- The published edge checkpoint passed all five local editor suites:
+  200,136 assertions in 808 cases. GitHub Actions run 37197840651 passed all
+  15 jobs, including Mason, platform builds and sanitizer checks.
+- The following vertex checkpoint passed the same five local suites:
+  201,362 assertions in 825 cases. The combined vertex/edge checks also passed
+  at 2x display scaling, and the actual Mason workspace capture was inspected.
+- Component movement/topology adapters, face UV editing, full Hammer shortcut
+  parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
+  Full Mason user documentation is deferred; implementation evidence is kept
+  in `docs/mason_geometry_workflow_research.md`.
+
 ## [Unreleased] - 2026-09-18
 
 ### Added

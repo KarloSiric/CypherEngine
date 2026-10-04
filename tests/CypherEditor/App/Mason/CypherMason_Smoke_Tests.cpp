@@ -58,6 +58,7 @@
 #include <QRegularExpression>
 #include <QMainWindow>
 #include <QLineEdit>
+#include <QLabel>
 #include <QPlainTextEdit>
 #include <QKeyEvent>
 #include <QKeySequence>
@@ -3213,6 +3214,8 @@ TEST_CASE( "Mason reports mesh edge selection and dispatches topology queries wi
     REQUIRE( MapOrthoView_PickMeshEdge( top, point, &hit ) ); REQUIRE( hit.object == id );
     REQUIRE( MapWorkspace_SelectMeshEdge( ws, id, hit.edge ) );
     CHECK( Mason_StatusText( session.pMason ).contains( QStringLiteral( "1 edge selected" ) ) );
+    auto *size = window->findChild<QLabel *>( QStringLiteral( "masonStatusSize" ) ); REQUIRE( size );
+    CHECK( size->text().isEmpty() );
     const auto *document = ws->pDocument; const usize steps = EditorHistory_StepCount( &ws->history );
     REQUIRE( session.Run( QStringLiteral( "map.select.ring" ) ) == command_result_t::OK );
     CHECK( ws->meshSelection.edges.nCount == 4u );
@@ -3244,4 +3247,67 @@ TEST_CASE( "Capture Mason authored mesh edge editing", "[.mesh-edge-capture]" )
     REQUIRE( window->grab().save( QStringLiteral( "artifacts/mason_mesh_edge_workspace.png" ) ) );
     auto *panel = window->findChild<QWidget *>( QStringLiteral( "MapToolProperties" ) ); REQUIRE( panel != nullptr );
     REQUIRE( panel->grab().save( QStringLiteral( "artifacts/mason_mesh_edge_properties.png" ) ) );
+}
+
+TEST_CASE( "Mason reports mesh vertex selection without exposing parent dimensions or edits", "[mason][smoke][mesh-vertex]" )
+{
+    mason_session_t session; auto *ws = Mason_MapWorkspace( session.pMason ); auto *window = Mason_Window( session.pMason );
+    window->resize( 1600, 1050 );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, 0 } ); MapBounds_AddPoint( box, { 128, 128, 256 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, box ) ); const u64 id = EditorSelection_At( &ws->selection, 0 );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    MapViews_SetArrangement( views, map_view_arrangement_t::FOUR ); MapViews_SetPaneType( views, 1, map_view_type_t::TOP );
+    MapWorkspace_Frame( ws, CY_TRUE ); QCoreApplication::processEvents();
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.vertices" ) ) == command_result_t::OK );
+    CHECK( Mason_StatusText( session.pMason ).contains( QStringLiteral( "No vertices selected" ) ) );
+    auto *size = window->findChild<QLabel *>( QStringLiteral( "masonStatusSize" ) ); REQUIRE( size ); CHECK( size->text().isEmpty() );
+    auto *top = MapViews_PaneView( views, 1 ); REQUIRE( top );
+    map_mesh_vertex_hit_t first{}, second{};
+    REQUIRE( MapOrthoView_PickMeshVertex( top, MapOrthoView_WorldToView( top, { -128, -128 } ), &first ) );
+    REQUIRE( MapOrthoView_PickMeshVertex( top, MapOrthoView_WorldToView( top, { 128, 128 } ), &second ) );
+    REQUIRE( first.object == id ); REQUIRE( second.object == id ); REQUIRE( first.vertex.value != second.vertex.value );
+    REQUIRE( MapWorkspace_SelectMeshVertex( ws, id, first.vertex ) );
+    CHECK( Mason_StatusText( session.pMason ).contains( QStringLiteral( "1 vertex selected" ) ) );
+    REQUIRE( MapWorkspace_SelectMeshVertex( ws, id, second.vertex, MAP_SELECT_ADD ) );
+    CHECK( Mason_StatusText( session.pMason ).contains( QStringLiteral( "2 vertices selected" ) ) ); CHECK( size->text().isEmpty() );
+    const auto *document = ws->pDocument; const usize steps = EditorHistory_StepCount( &ws->history );
+    for ( const char *command : { "edit.delete", "edit.duplicate", "map.mesh.merge", "map.mesh.collapse", "map.mesh.bevel" } ) {
+        CAPTURE( command ); CHECK( session.Run( QString::fromLatin1( command ) ) == command_result_t::DISABLED );
+    }
+    CHECK( ws->pDocument == document ); CHECK( EditorHistory_StepCount( &ws->history ) == steps );
+    MapWorkspace_SetTool( ws, map_tool_t::NONE );
+    CHECK( MapWorkspace_HasMeshVertices( ws ) ); CHECK( ws->meshSelection.vertices.nCount == 2 );
+    CHECK( Mason_StatusText( session.pMason ).contains( QStringLiteral( "2 vertices selected" ) ) ); CHECK( size->text().isEmpty() );
+    MapWorkspace_SetTool( ws, map_tool_t::SELECT );
+    MapWorkspace_ClearMeshVertices( ws );
+    CHECK( Mason_StatusText( session.pMason ).contains( QStringLiteral( "No vertices selected" ) ) ); CHECK( size->text().isEmpty() );
+    REQUIRE( MapWorkspace_SelectMeshVertex( ws, id, first.vertex ) );
+    MapWorkspace_SetElementMode( ws, map_element_mode_t::OBJECTS );
+    CHECK( ws->meshSelection.vertices.nCount == 0 );
+    CHECK( Mason_StatusText( session.pMason ).contains( QStringLiteral( "1 selected" ) ) ); CHECK_FALSE( size->text().isEmpty() );
+}
+
+TEST_CASE( "Capture Mason authored mesh vertex editing", "[.mesh-vertex-capture]" )
+{
+    mason_session_t session; auto *ws = Mason_MapWorkspace( session.pMason ); auto *window = Mason_Window( session.pMason );
+    window->resize( 1600, 1050 );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, 0 } ); MapBounds_AddPoint( box, { 128, 128, 256 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, box ) ); const u64 id = EditorSelection_At( &ws->selection, 0 );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( ws ) );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER ); MapViews_SetPaneType( views, 1, map_view_type_t::TOP );
+    MapCameraView_SetRenderMode( MapViews_PaneView( views, 0 ), map_render_mode_t::FULLBRIGHT );
+    MapWorkspace_Frame( ws, CY_TRUE ); REQUIRE( session.Run( QStringLiteral( "map.select_mode.vertices" ) ) == command_result_t::OK );
+    QCoreApplication::processEvents(); auto *top = MapViews_PaneView( views, 1 ); REQUIRE( top );
+    for ( const math::vec2d_t corner : { math::vec2d_t{ -128, -128 }, math::vec2d_t{ 128, 128 } } ) {
+        map_mesh_vertex_hit_t hit{};
+        REQUIRE( MapOrthoView_PickMeshVertex( top, MapOrthoView_WorldToView( top, QPointF( corner.x, corner.y ) ), &hit ) ); REQUIRE( hit.object == id );
+        REQUIRE( MapWorkspace_SelectMeshVertex( ws, id, hit.vertex, MAP_SELECT_ADD ) );
+    }
+    REQUIRE( ws->meshSelection.vertices.nCount == 2 );
+    QCoreApplication::processEvents(); QDir().mkpath( QStringLiteral( "artifacts" ) );
+    REQUIRE( window->grab().save( QStringLiteral( "artifacts/mason_mesh_vertex_workspace.png" ) ) );
+    auto *panel = window->findChild<QWidget *>( QStringLiteral( "MapToolProperties" ) ); REQUIRE( panel );
+    REQUIRE( panel->grab().save( QStringLiteral( "artifacts/mason_mesh_vertex_properties.png" ) ) );
 }

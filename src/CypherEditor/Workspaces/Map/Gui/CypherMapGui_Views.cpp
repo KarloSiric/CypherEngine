@@ -108,6 +108,11 @@ math::vec3d_t Sub( math::vec3d_t a, math::vec3d_t b ) noexcept { return math::Ve
 math::vec3d_t Scale( math::vec3d_t a, f64 s ) noexcept { return math::Vec3d_Make( a.x * s, a.y * s, a.z * s ); }
 f64 Dot( math::vec3d_t a, math::vec3d_t b ) noexcept { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
+bool MeshComponentMode( const map_workspace_t &workspace ) noexcept
+{
+    return workspace.elementMode == map_element_mode_t::VERTICES || workspace.elementMode == map_element_mode_t::EDGES;
+}
+
 // Colour slots a view batches lines into.
 enum line_color_t : u32 {
     LINE_WORLD = 0u,
@@ -143,7 +148,7 @@ bool ObjectSelected( const map_workspace_t &ws, const map_wire_object_t &object 
     // Keep the same highlight before, during and after the edit.
     // Component selection keeps a root for inspection. It must not turn
     // that entire mesh (or its entity owner) into a selected solid.
-    if ( ws.elementMode == map_element_mode_t::EDGES ) { return false; }
+    if ( MeshComponentMode( ws ) ) { return false; }
     return MapWorkspace_IsSelected( &ws, object.id ) ||
         ( ws.elementMode != map_element_mode_t::MESHES && object.owner != 0u && MapWorkspace_IsSelected( &ws, object.owner ) );
 }
@@ -157,7 +162,7 @@ line_color_t ColorSlot( const map_workspace_t &workspace, const map_wire_object_
 {
     if ( EditPreviewTarget( workspace, object.id ) ) { return LINE_WORLD; }
     if ( ObjectSelected( workspace, object ) ) { return LINE_SELECTED; }
-    if ( workspace.elementMode != map_element_mode_t::EDGES && hoverId != 0u && object.id == hoverId ) { return LINE_HOVER; }
+    if ( !MeshComponentMode( workspace ) && hoverId != 0u && object.id == hoverId ) { return LINE_HOVER; }
     switch ( object.kind ) {
         case map_wire_kind_t::BRUSH: return object.owner != 0u ? LINE_TIED : LINE_WORLD;
         case map_wire_kind_t::MESH: return object.owner != 0u ? LINE_TIED : LINE_MESH;
@@ -404,7 +409,7 @@ void DrawDimension( QPainter &painter, const map_workspace_t &workspace, QLineF 
 
 void DrawVertexCues( QPainter &painter, const map_workspace_t &workspace, const QVector<QPointF> &vertices, QRectF viewport )
 {
-    if ( workspace.tool == map_tool_t::NONE || workspace.elementMode == map_element_mode_t::EDGES ) { return; }
+    if ( workspace.tool == map_tool_t::NONE || MeshComponentMode( workspace ) ) { return; }
     if ( vertices.isEmpty() ) { return; }
     const qreal size = gui::EditorStyle_Metric( workspace.pGui->style, "viewport.vertex.size", 6.0 );
     QSet<QPoint> cells;
@@ -548,6 +553,11 @@ bool MeshEdgePickingActive( const map_workspace_t &workspace ) noexcept
     return workspace.tool == map_tool_t::SELECT && workspace.elementMode == map_element_mode_t::EDGES;
 }
 
+bool MeshVertexPickingActive( const map_workspace_t &workspace ) noexcept
+{
+    return workspace.tool == map_tool_t::SELECT && workspace.elementMode == map_element_mode_t::VERTICES;
+}
+
 bool SameMeshEdge( geometry::mesh_edge_ref_t a, geometry::mesh_edge_ref_t b ) noexcept
 {
     return a.a.value == b.a.value && a.b.value == b.b.value;
@@ -582,6 +592,19 @@ void VisitMeshEdges( const geometry::mesh_source_t &source, Visit visit )
         } );
 }
 
+template <typename Visit>
+void VisitMeshVertices( const geometry::mesh_source_t &source, Visit visit )
+{
+    ( void )GenerationPool_ForEach( &source.mesh.vertices,
+        [&]( geometry::geometry_mesh_vertex_handle_t handle, const geometry::mesh_vertex_record_t &vertex ) noexcept -> bool_t {
+            const auto id = geometry::MeshSource_VertexId( &source, handle );
+            if ( id.value != 0u && std::isfinite( vertex.position.x ) && std::isfinite( vertex.position.y ) && std::isfinite( vertex.position.z ) ) {
+                visit( id, vertex.position );
+            }
+            return CY_TRUE;
+        } );
+}
+
 void SelectViewMeshEdge( map_workspace_t &workspace, const map_mesh_edge_hit_t &hit, Qt::KeyboardModifiers modifiers )
 {
     const bool toggle = ( modifiers & ( Qt::ControlModifier | Qt::MetaModifier ) ) != 0;
@@ -591,6 +614,18 @@ void SelectViewMeshEdge( map_workspace_t &workspace, const map_mesh_edge_hit_t &
             toggle ? MAP_SELECT_TOGGLE : add ? MAP_SELECT_ADD : MAP_SELECT_REPLACE );
     } else if ( !toggle && !add ) {
         MapWorkspace_ClearMeshEdges( &workspace );
+    }
+}
+
+void SelectViewMeshVertex( map_workspace_t &workspace, const map_mesh_vertex_hit_t &hit, Qt::KeyboardModifiers modifiers )
+{
+    const bool toggle = ( modifiers & ( Qt::ControlModifier | Qt::MetaModifier ) ) != 0;
+    const bool add = ( modifiers & Qt::ShiftModifier ) != 0;
+    if ( hit.object != 0u ) {
+        ( void )MapWorkspace_SelectMeshVertex( &workspace, hit.object, hit.vertex,
+            toggle ? MAP_SELECT_TOGGLE : add ? MAP_SELECT_ADD : MAP_SELECT_REPLACE );
+    } else if ( !toggle && !add ) {
+        MapWorkspace_ClearMeshVertices( &workspace );
     }
 }
 
@@ -619,6 +654,63 @@ void DrawMeshEdgeSelection( QPainter &painter, const map_workspace_t &workspace,
     }
     DrawWireBatch( painter, workspace, LINE_HOVER, hovered );
     DrawWireBatch( painter, workspace, LINE_SELECTED, selected );
+}
+
+template <typename Project>
+void DrawOrthoMeshVertexCandidates( QPainter &painter, const map_workspace_t &workspace, Project project, QRectF viewport )
+{
+    if ( !MeshVertexPickingActive( workspace ) || workspace.pDocument == nullptr ) { return; }
+    QPolygonF points;
+    for ( usize i = 0u; i < workspace.wire.objects.nCount; ++i ) {
+        const auto &object = workspace.wire.objects.pData[i];
+        if ( object.kind != map_wire_kind_t::MESH || !MapWorkspace_IsVisible( &workspace, object ) ) { continue; }
+        const auto *source = geometry::GeometryDocument_FindMesh( &workspace.pDocument->geometry, { object.id } );
+        if ( !geometry::MeshSource_IsInitialized( source ) ) { continue; }
+        VisitMeshVertices( *source, [&]( geometry::geometry_source_id_t, math::vec3d_t point ) {
+            QPointF screen; if ( project( point, screen ) && viewport.contains( screen ) ) { points.append( screen ); }
+        } );
+    }
+    painter.save(); painter.setRenderHint( QPainter::Antialiasing, false );
+    QColor color = SlotColor( workspace, LINE_MESH ); color.setAlpha( 190 );
+    painter.setPen( QPen( color, 3.0, Qt::SolidLine, Qt::SquareCap ) );
+    painter.drawPoints( points ); painter.restore();
+}
+
+template <typename Project>
+void DrawMeshVertexSelection( QPainter &painter, const map_workspace_t &workspace, const map_mesh_vertex_hit_t &hover,
+                              Project project, QRectF viewport )
+{
+    if ( !MeshVertexPickingActive( workspace ) || workspace.pDocument == nullptr ) { return; }
+    QVector<QPointF> selected, hovered;
+    const u64 target = workspace.meshSelection.meshId.value;
+    const u64 sources[2]{ target, hover.object };
+    for ( int i = 0; i < 2; ++i ) {
+        const u64 id = sources[i];
+        if ( id == 0u || ( i == 1 && id == target ) ) { continue; }
+        const auto *object = MapWireframe_FindObject( workspace.wire, id );
+        const auto *source = geometry::GeometryDocument_FindMesh( &workspace.pDocument->geometry, { id } );
+        if ( object == nullptr || !MapWorkspace_IsVisible( &workspace, *object ) || !geometry::MeshSource_IsInitialized( source ) ) { continue; }
+        VisitMeshVertices( *source, [&]( geometry::geometry_source_id_t vertex, math::vec3d_t point ) {
+            const bool isSelected = id == target && geometry::MeshSelection_HasVertex( &workspace.meshSelection, vertex );
+            const bool isHovered = id == hover.object && vertex.value == hover.vertex.value;
+            if ( !isSelected && !isHovered ) { return; }
+            QPointF screen;
+            if ( project( point, screen ) && viewport.contains( screen ) ) { ( isSelected ? selected : hovered ).append( screen ); }
+        } );
+    }
+    painter.save();
+    // Compact filled squares distinguish authored vertices without the old
+    // dark-rimmed whole-root corner cues. Selection wins when also hovered.
+    painter.setRenderHint( QPainter::Antialiasing, false );
+    const qreal size = std::clamp( gui::EditorStyle_Metric( workspace.pGui->style, "viewport.vertex.size", 6.0 ), 4.0, 10.0 );
+    for ( const bool isSelected : { false, true } ) {
+        const QColor color = SlotColor( workspace, isSelected ? LINE_SELECTED : LINE_HOVER );
+        painter.setPen( QPen( color, 1.0 ) ); painter.setBrush( color );
+        for ( const QPointF &point : isSelected ? selected : hovered ) {
+            painter.drawRect( QRectF( point.x() - size * 0.5, point.y() - size * 0.5, size, size ) );
+        }
+    }
+    painter.restore();
 }
 
 // Dedicated surface tools can pick a face before switching the component
@@ -1950,7 +2042,12 @@ public:
         ( void )MapWorkspace_AddListener( pWorkspace, &map_ortho_view_t::OnChanged, this );
         ( void )EditorSettings_AddListener( &pWorkspace->pGui->settings, &map_ortho_view_t::OnSettingsChanged, this );
         ViewHover_Init( m_hover, *this, [this]( QPointF point ) {
-            m_hoverEdge = {};
+            m_hoverEdge = {}; m_hoverVertex = {};
+            if ( MeshVertexPickingActive( *m_pWorkspace ) ) {
+                ( void )PickMeshVertex( point, &m_hoverVertex );
+                m_hoverMeshFace = m_hoverBrushSide = 0u;
+                return m_hoverVertex.object;
+            }
             if ( MeshEdgePickingActive( *m_pWorkspace ) ) {
                 ( void )PickMeshEdge( point, &m_hoverEdge );
                 m_hoverMeshFace = m_hoverBrushSide = 0u;
@@ -2085,6 +2182,40 @@ public:
                      ( std::abs( distance - nearest ) <= screenTie &&
                        ( depth > frontDepth || ( depth == frontDepth && MeshEdgeHitBefore( candidate, *out ) ) ) ) ) {
                     *out = candidate; nearest = distance; frontDepth = depth;
+                }
+            } );
+        }
+        return out->object != 0u;
+    }
+
+    bool PickMeshVertex( QPointF point, map_mesh_vertex_hit_t *out ) const
+    {
+        if ( out == nullptr ) { return false; }
+        *out = {};
+        if ( !MeshVertexPickingActive( *m_pWorkspace ) || m_pWorkspace->pDocument == nullptr ||
+             !std::isfinite( point.x() ) || !std::isfinite( point.y() ) || !QRectF( rect() ).contains( point ) ) { return false; }
+        f64 nearest = MAP_VIEW_PICK_PIXELS;
+        f64 frontDepth = -std::numeric_limits<f64>::infinity();
+        const int depthAxis = 3 - m_axisU - m_axisV;
+        for ( usize i = 0u; i < m_pWorkspace->wire.objects.nCount; ++i ) {
+            const auto &object = m_pWorkspace->wire.objects.pData[i];
+            if ( object.kind != map_wire_kind_t::MESH || !object.bounds.bHas || !MapWorkspace_IsVisible( m_pWorkspace, object ) ) { continue; }
+            const QPointF lo = WorldToView( { Axis( object.bounds.box.minimum, m_axisU ), Axis( object.bounds.box.minimum, m_axisV ) } );
+            const QPointF hi = WorldToView( { Axis( object.bounds.box.maximum, m_axisU ), Axis( object.bounds.box.maximum, m_axisV ) } );
+            if ( !QRectF( lo, hi ).normalized().adjusted( -MAP_VIEW_PICK_PIXELS, -MAP_VIEW_PICK_PIXELS,
+                 MAP_VIEW_PICK_PIXELS, MAP_VIEW_PICK_PIXELS ).contains( point ) ) { continue; }
+            const auto *source = geometry::GeometryDocument_FindMesh( &m_pWorkspace->pDocument->geometry, { object.id } );
+            if ( !geometry::MeshSource_IsInitialized( source ) ) { continue; }
+            VisitMeshVertices( *source, [&]( geometry::geometry_source_id_t vertex, math::vec3d_t position ) {
+                const QPointF screen = WorldToView( { Axis( position, m_axisU ), Axis( position, m_axisV ) } );
+                const f64 distance = QLineF( point, screen ).length();
+                if ( distance > MAP_VIEW_PICK_PIXELS ) { return; }
+                const f64 depth = Axis( position, depthAxis );
+                const bool before = object.id < out->object || ( object.id == out->object && vertex.value < out->vertex.value );
+                constexpr f64 screenTie = 1e-7;
+                if ( out->object == 0u || distance < nearest - screenTie ||
+                     ( std::abs( distance - nearest ) <= screenTie && ( depth > frontDepth || ( depth == frontDepth && before ) ) ) ) {
+                    *out = { object.id, vertex }; nearest = distance; frontDepth = depth;
                 }
             } );
         }
@@ -2446,7 +2577,7 @@ private:
             ViewHover_Clear( pView->m_hover, *pView ); pView->unsetCursor();
         }
         if ( ( changes & ( MAP_CHANGE_DOCUMENT | MAP_CHANGE_VIEW ) ) != 0u ) {
-            pView->m_hoverEdge = {};
+            pView->m_hoverEdge = {}; pView->m_hoverVertex = {};
             ViewHover_Clear( pView->m_hover, *pView );
         }
         if ( pView->m_drag.kind != edit_drag_t::NONE && ( ( changes & MAP_CHANGE_DOCUMENT ) != 0 || !DragContextMatches( pView->m_drag, *pView->m_pWorkspace ) ) ) {
@@ -2472,7 +2603,12 @@ private:
             SelectViewMeshEdge( *m_pWorkspace, hit, modifiers );
             return;
         }
-        if ( m_pWorkspace->tool == map_tool_t::SELECT && m_pWorkspace->elementMode == map_element_mode_t::VERTICES ) { return; }
+        if ( MeshVertexPickingActive( *m_pWorkspace ) ) {
+            map_mesh_vertex_hit_t hit{};
+            ( void )PickMeshVertex( screen, &hit );
+            SelectViewMeshVertex( *m_pWorkspace, hit, modifiers );
+            return;
+        }
         const auto project = [this]( math::vec3d_t p, QPointF &out ) { out = WorldToView( { Axis( p, m_axisU ), Axis( p, m_axisV ) } ); return true; };
         const auto segment = [&project]( math::vec3d_t a, math::vec3d_t b, QLineF &line ) {
             QPointF p, q; project( a, p ); project( b, q ); line = QLineF( p, q ); return true;
@@ -2784,12 +2920,19 @@ private:
         DrawEntities( painter, entities );
         DrawWireBatch( painter, workspace, LINE_SELECTED, batches[LINE_SELECTED] );
         DrawVertexCues( painter, workspace, vertices, rect() );
+        DrawOrthoMeshVertexCandidates( painter, workspace, [this]( math::vec3d_t point, QPointF &screen ) {
+            screen = WorldToView( { Axis( point, m_axisU ), Axis( point, m_axisV ) } ); return true;
+        }, rect() );
         DrawMeshEdgeSelection( painter, workspace, m_hover.id == m_hoverEdge.object ? m_hoverEdge : map_mesh_edge_hit_t{},
             [this]( math::vec3d_t a, math::vec3d_t b, QLineF &line ) {
                 line = QLineF( WorldToView( { Axis( a, m_axisU ), Axis( a, m_axisV ) } ),
                     WorldToView( { Axis( b, m_axisU ), Axis( b, m_axisV ) } ) );
                 return true;
             } );
+        DrawMeshVertexSelection( painter, workspace, m_hover.id == m_hoverVertex.object ? m_hoverVertex : map_mesh_vertex_hit_t{},
+            [this]( math::vec3d_t point, QPointF &screen ) {
+                screen = WorldToView( { Axis( point, m_axisU ), Axis( point, m_axisV ) } ); return true;
+            }, rect() );
         if ( FacePickingActive() ) {
             for ( usize i = 0; i < wire.faces.nCount; ++i ) {
                 const auto &face = wire.faces.pData[i];
@@ -2846,9 +2989,9 @@ private:
     {
         const map_workspace_t &workspace = *m_pWorkspace;
         // The retained mesh root supplies inspector/frame context only.
-        // Edge selection is conveyed by its component overlay, not by a
+        // Component selection is conveyed by its overlay, not by a
         // whole-root yellow bounds box or its three dimension measurements.
-        if ( workspace.tool == map_tool_t::NONE || workspace.elementMode == map_element_mode_t::EDGES ) { return; }
+        if ( workspace.tool == map_tool_t::NONE || MeshComponentMode( workspace ) ) { return; }
         const map_bounds_t bounds = SelectionGeometryBounds( workspace );
         if ( !bounds.bHas || ( workspace.editPreview.bActive && ( workspace.editPreview.bClip ||
             workspace.editPreview.transform.kind != map_transform_preview_kind_t::NONE ) ) ) { return; }
@@ -2922,6 +3065,7 @@ private:
     map_bounds_t m_frameBounds{};
     view_hover_t m_hover{};
     map_mesh_edge_hit_t m_hoverEdge{};
+    map_mesh_vertex_hit_t m_hoverVertex{};
     u64 m_hoverMeshFace{ 0 }, m_hoverBrushSide{ 0 };
     view_edit_drag_t m_drag{};
     bool_t m_bPanning{ CY_FALSE };
@@ -2970,7 +3114,12 @@ public:
         ( void )MapWorkspace_AddListener( pWorkspace, &map_camera_view_t::OnChanged, this );
         ( void )EditorSettings_AddListener( &pWorkspace->pGui->settings, &map_camera_view_t::OnSettingsChanged, this );
         ViewHover_Init( m_hover, *this, [this]( QPointF point ) {
-            m_hoverEdge = {};
+            m_hoverEdge = {}; m_hoverVertex = {};
+            if ( MeshVertexPickingActive( *m_pWorkspace ) ) {
+                ( void )PickMeshVertex( point, &m_hoverVertex );
+                m_hoverFace = {}; m_hoverMeshFace = 0u;
+                return m_hoverVertex.object;
+            }
             if ( MeshEdgePickingActive( *m_pWorkspace ) ) {
                 ( void )PickMeshEdge( point, &m_hoverEdge );
                 m_hoverFace = {}; m_hoverMeshFace = 0u;
@@ -3232,6 +3381,52 @@ public:
                      ( distance == nearest && ( proximity < screenDistance ||
                        ( proximity == screenDistance && MeshEdgeHitBefore( candidate, *out ) ) ) ) ) {
                     *out = candidate; nearest = distance; screenDistance = proximity;
+                }
+            } );
+        }
+        if ( queryComplete != nullptr ) { *queryComplete = complete; }
+        if ( !complete ) { *out = {}; }
+        return complete && out->object != 0u;
+    }
+
+    bool PickMeshVertex( QPointF screen, map_mesh_vertex_hit_t *out, bool *queryComplete = nullptr )
+    {
+        if ( queryComplete != nullptr ) { *queryComplete = true; }
+        if ( out == nullptr ) { return false; }
+        *out = {};
+        if ( !MeshVertexPickingActive( *m_pWorkspace ) || m_pWorkspace->pDocument == nullptr ||
+             !std::isfinite( screen.x() ) || !std::isfinite( screen.y() ) || !QRectF( rect() ).contains( screen ) ) { return false; }
+        if ( m_bFramePending ) { ApplyFrame(); }
+        Basis();
+        f64 nearest = 1.0e6;
+        f64 screenDistance = MAP_VIEW_PICK_PIXELS;
+        bool complete = true;
+        const auto cursorRay = ScreenDirection( screen );
+        const auto &numerical = m_pWorkspace->pDocument->geometryPolicy.numerical;
+        for ( usize i = 0u; i < m_pWorkspace->wire.objects.nCount; ++i ) {
+            const auto &object = m_pWorkspace->wire.objects.pData[i];
+            if ( object.kind != map_wire_kind_t::MESH || !MapWorkspace_IsVisible( m_pWorkspace, object ) ) { continue; }
+            const auto *source = geometry::GeometryDocument_FindMesh( &m_pWorkspace->pDocument->geometry, { object.id } );
+            if ( !geometry::MeshSource_IsInitialized( source ) ) { continue; }
+            VisitMeshVertices( *source, [&]( geometry::geometry_source_id_t vertex, math::vec3d_t point ) {
+                QLineF projected;
+                if ( !Project( point, point, &projected ) || !QRectF( rect() ).contains( projected.p1() ) ) { return; }
+                const f64 proximity = QLineF( screen, projected.p1() ).length();
+                if ( proximity > MAP_VIEW_PICK_PIXELS ) { return; }
+                const f64 depth = Dot( Sub( point, m_position ), m_forward );
+                const f64 distance = depth / Dot( cursorRay, m_forward );
+                if ( !std::isfinite( distance ) || distance > nearest ) { return; }
+                f64 occluderDistance = 0.0; bool probeComplete = false;
+                const u64 occluder = Pick( projected.p1(), nullptr, nullptr, false, &occluderDistance, true, &probeComplete );
+                if ( !probeComplete ) { complete = false; return; }
+                const f64 vertexDistance = depth / Dot( ScreenDirection( projected.p1() ), m_forward );
+                const f64 tolerance = numerical.fAbsoluteDistanceTolerance + numerical.fRelativeDistanceTolerance *
+                    std::max( std::abs( vertexDistance ), std::abs( occluderDistance ) );
+                if ( occluder != 0u && occluderDistance < vertexDistance - tolerance ) { return; }
+                const bool before = object.id < out->object || ( object.id == out->object && vertex.value < out->vertex.value );
+                if ( out->object == 0u || distance < nearest || ( distance == nearest &&
+                     ( proximity < screenDistance || ( proximity == screenDistance && before ) ) ) ) {
+                    *out = { object.id, vertex }; nearest = distance; screenDistance = proximity;
                 }
             } );
         }
@@ -3736,7 +3931,12 @@ private:
             if ( complete ) { SelectViewMeshEdge( *m_pWorkspace, hit, modifiers ); }
             return;
         }
-        if ( m_pWorkspace->tool == map_tool_t::SELECT && m_pWorkspace->elementMode == map_element_mode_t::VERTICES ) { return; }
+        if ( MeshVertexPickingActive( *m_pWorkspace ) ) {
+            map_mesh_vertex_hit_t hit{}; bool complete = true;
+            ( void )PickMeshVertex( screen, &hit, &complete );
+            if ( complete ) { SelectViewMeshVertex( *m_pWorkspace, hit, modifiers ); }
+            return;
+        }
         if ( m_bFramePending ) { ApplyFrame(); } Basis();
         const auto project = [this]( math::vec3d_t p, QPointF &out ) { QLineF line; if ( !Project( p, p, &line ) ) { return false; } out = line.p1(); return true; };
         const auto segment = [this]( math::vec3d_t a, math::vec3d_t b, QLineF &line ) { return ProjectVisibleSegment( a, b, line ); };
@@ -3987,7 +4187,7 @@ private:
             ViewHover_Clear( pView->m_hover, *pView ); pView->unsetCursor();
         }
         if ( ( changes & ( MAP_CHANGE_DOCUMENT | MAP_CHANGE_VIEW ) ) != 0u ) {
-            pView->m_hoverEdge = {};
+            pView->m_hoverEdge = {}; pView->m_hoverVertex = {};
             ViewHover_Clear( pView->m_hover, *pView );
         }
         if ( pView->m_drag.kind != edit_drag_t::NONE && ( ( changes & MAP_CHANGE_DOCUMENT ) != 0 || !DragContextMatches( pView->m_drag, *pView->m_pWorkspace ) ) ) {
@@ -4688,7 +4888,7 @@ private:
                 bSelected = !sourceClone && bObjectSelected &&
                     ( !MapWorkspace_HasBrushFace( &workspace ) || face.sideId == workspace.selectedBrushFaceSide ) &&
                     ( !MapWorkspace_HasMeshFace( &workspace ) || face.faceId == workspace.selectedMeshFaceId );
-                bHovered = workspace.elementMode != map_element_mode_t::EDGES && !bTransforming && !bSelected && face.id == m_hover.id &&
+                bHovered = !MeshComponentMode( workspace ) && !bTransforming && !bSelected && face.id == m_hover.id &&
                     ( workspace.elementMode != map_element_mode_t::FACES ||
                       ( face.sideId != 0 && face.sideId == m_hoverFace.sideSourceId.value ) ||
                       ( face.faceId != 0 && face.faceId == m_hoverMeshFace ) );
@@ -4730,7 +4930,8 @@ private:
         }
         std::sort( drawn.begin(), drawn.end(), []( const drawn_t &a, const drawn_t &b ) { return a.depth > b.depth; } );
         painter.save();
-        const bool showEdges = m_bMeshEdges || MeshEdgePickingActive( workspace );
+        const bool componentPicking = MeshEdgePickingActive( workspace ) || MeshVertexPickingActive( workspace );
+        const bool showEdges = m_bMeshEdges || componentPicking;
         painter.setRenderHint( QPainter::Antialiasing, showEdges ); // Outlines cover antialiasing seams.
         const usize gridFaces = std::min( drawn.size(), kSurfaceGridMaxFaces );
         const int familyLimit = static_cast<int>( std::min( static_cast<usize>( kSurfaceGridLinesPerFamily ),
@@ -4742,7 +4943,8 @@ private:
             painter.drawPolygon( entry.polygon );
             // Fill and grid share the painter's depth order. A separate grid
             // pass would leak lines from rear surfaces through nearer solids.
-            if ( iFace++ >= drawn.size() - gridFaces ) {
+            const bool nearFace = iFace++ >= drawn.size() - gridFaces;
+            if ( nearFace ) {
                 if ( entry.transformed ) {
                     const auto *object = MapWireframe_FindObject( wire, entry.face->id );
                     if ( object != nullptr ) { affine = MapWorkspace_TransformPreviewObjectAffine( workspace.editPreview.transform, *object ); }
@@ -4752,10 +4954,31 @@ private:
             }
             if ( showEdges ) {
                 const auto *object = MapWireframe_FindObject( wire, entry.face->id );
-                const QColor edgeColor = MeshEdgePickingActive( workspace ) && object != nullptr && object->kind == map_wire_kind_t::MESH ?
+                const QColor edgeColor = componentPicking && object != nullptr && object->kind == map_wire_kind_t::MESH ?
                     SlotColor( workspace, LINE_MESH ) : entry.fill.darker( 160 );
                 painter.setBrush( Qt::NoBrush ); painter.setPen( QPen( edgeColor, 1.0 ) );
                 painter.drawPolygon( entry.polygon );
+            }
+            if ( nearFace && MeshVertexPickingActive( workspace ) && !entry.transformed ) {
+                const auto *object = MapWireframe_FindObject( wire, entry.face->id );
+                if ( object != nullptr && object->kind == map_wire_kind_t::MESH ) {
+                    QPolygonF vertices;
+                    vertices.reserve( entry.face->nIndices );
+                    for ( u32 i = 0u; i < entry.face->nIndices; ++i ) {
+                        const auto point = wire.points.pData[wire.faceIndices.pData[entry.face->iFirstIndex + i]];
+                        QLineF projected;
+                        if ( Project( point, point, &projected ) && QRectF( rect() ).contains( projected.p1() ) ) { vertices.append( projected.p1() ); }
+                    }
+                    // Use original authored corners, not new corners created
+                    // by near-plane clipping. Keep cues in the face's depth
+                    // slot so nearer opaque fills cover hidden candidates.
+                    QPainterPath clip; clip.addPolygon( entry.polygon );
+                    painter.save(); painter.setClipPath( clip, Qt::IntersectClip );
+                    painter.setRenderHint( QPainter::Antialiasing, false );
+                    QColor color = SlotColor( workspace, LINE_MESH ); color.setAlpha( 190 );
+                    painter.setPen( QPen( color, 3.0, Qt::SolidLine, Qt::SquareCap ) );
+                    painter.drawPoints( vertices ); painter.restore();
+                }
             }
         }
         painter.restore();
@@ -4813,6 +5036,10 @@ private:
         DrawVertexCues( painter, workspace, vertices, rect() );
         DrawMeshEdgeSelection( painter, workspace, m_hover.id == m_hoverEdge.object ? m_hoverEdge : map_mesh_edge_hit_t{},
             [this]( math::vec3d_t a, math::vec3d_t b, QLineF &line ) { return ProjectVisibleSegment( a, b, line ); } );
+        DrawMeshVertexSelection( painter, workspace, m_hover.id == m_hoverVertex.object ? m_hoverVertex : map_mesh_vertex_hit_t{},
+            [this]( math::vec3d_t point, QPointF &screen ) {
+                QLineF line; if ( !Project( point, point, &line ) ) { return false; } screen = line.p1(); return true;
+            }, rect() );
         QVector<QRectF> labels;
         for ( const bool selected : { true, false } ) {
             for ( usize i = 0u; i < wire.entities.nCount; ++i ) {
@@ -4855,7 +5082,7 @@ private:
     void DrawSelection( QPainter &painter ) const
     {
         const map_workspace_t &workspace = *m_pWorkspace;
-        if ( workspace.tool == map_tool_t::NONE || workspace.elementMode == map_element_mode_t::EDGES ) { return; }
+        if ( workspace.tool == map_tool_t::NONE || MeshComponentMode( workspace ) ) { return; }
         const map_bounds_t bounds = SelectionGeometryBounds( workspace );
         if ( !bounds.bHas || ( workspace.editPreview.bActive && ( workspace.editPreview.bClip ||
             workspace.editPreview.transform.kind != map_transform_preview_kind_t::NONE ) ) ) { return; }
@@ -4940,6 +5167,7 @@ private:
     bool m_bCommandNavigation{ false }; // An effective explicit Ctrl/Meta movement chord is held.
     view_hover_t m_hover{};
     map_mesh_edge_hit_t m_hoverEdge{};
+    map_mesh_vertex_hit_t m_hoverVertex{};
     geometry::brush_raycast_hit_t m_hoverFace{};
     u64 m_hoverMeshFace{ 0 };
     view_edit_drag_t m_drag{};
@@ -5525,22 +5753,28 @@ protected:
                     if ( MapWorkspace_HasBlockPreview( m_pWorkspace ) ) { pEvent->accept(); return true; }
                     u64 id = 0u;
                     map_mesh_edge_hit_t edge{};
+                    map_mesh_vertex_hit_t vertex{};
                     const bool edgeMode = MeshEdgePickingActive( *m_pWorkspace );
+                    const bool vertexMode = MeshVertexPickingActive( *m_pWorkspace );
                     bool complete = true;
                     if ( auto *ortho = dynamic_cast<map_ortho_view_t *>( m_panes[i].pView ) ) {
                         if ( ortho->NavigationActive() ) { return true; }
                         if ( edgeMode ) { ( void )ortho->PickMeshEdge( mouse->position(), &edge ); }
+                        else if ( vertexMode ) { ( void )ortho->PickMeshVertex( mouse->position(), &vertex ); }
                         else { id = ortho->Pick( mouse->position() ); }
                     }
                     if ( auto *camera = dynamic_cast<map_camera_view_t *>( m_panes[i].pView ) ) {
                         if ( camera->NavigationActive() ) { return true; }
                         if ( edgeMode ) { ( void )camera->PickMeshEdge( mouse->position(), &edge, &complete ); }
+                        else if ( vertexMode ) { ( void )camera->PickMeshVertex( mouse->position(), &vertex, &complete ); }
                         else { id = camera->Pick( mouse->position() ); }
                     }
                     if ( edgeMode && edge.object != 0u ) {
                         // Retain the selected component while opening its
                         // mesh inspector; selecting the root would clear it.
                         if ( MapWorkspace_SelectMeshEdge( m_pWorkspace, edge.object, edge.edge ) ) { OpenViewObjectInspector( *m_pWorkspace ); }
+                    } else if ( vertexMode && vertex.object != 0u ) {
+                        if ( MapWorkspace_SelectMeshVertex( m_pWorkspace, vertex.object, vertex.vertex ) ) { OpenViewObjectInspector( *m_pWorkspace ); }
                     } else if ( complete ) {
                         if ( id != 0u ) { InspectViewObject( *m_pWorkspace, id ); }
                         else { m_panes[i].pOptionsMenu->popup( mouse->globalPosition().toPoint() ); }
@@ -6425,6 +6659,13 @@ bool MapOrthoView_PickMeshEdge( const QWidget *pView, QPointF position, map_mesh
     return pOrtho != nullptr && pOrtho->PickMeshEdge( position, pOut );
 }
 
+bool MapOrthoView_PickMeshVertex( const QWidget *pView, QPointF position, map_mesh_vertex_hit_t *pOut )
+{
+    if ( pOut != nullptr ) { *pOut = {}; }
+    const auto *pOrtho = dynamic_cast<const map_ortho_view_t *>( pView );
+    return pOrtho != nullptr && pOrtho->PickMeshVertex( position, pOut );
+}
+
 u64 MapCameraView_Pick( QWidget *pView, QPointF position )
 {
     return const_cast<map_camera_view_t *>( AsCamera( pView ) )->Pick( position );
@@ -6435,6 +6676,13 @@ bool MapCameraView_PickMeshEdge( QWidget *pView, QPointF position, map_mesh_edge
     if ( pOut != nullptr ) { *pOut = {}; }
     auto *pCamera = dynamic_cast<map_camera_view_t *>( pView );
     return pCamera != nullptr && pCamera->PickMeshEdge( position, pOut );
+}
+
+bool MapCameraView_PickMeshVertex( QWidget *pView, QPointF position, map_mesh_vertex_hit_t *pOut )
+{
+    if ( pOut != nullptr ) { *pOut = {}; }
+    auto *pCamera = dynamic_cast<map_camera_view_t *>( pView );
+    return pCamera != nullptr && pCamera->PickMeshVertex( position, pOut );
 }
 
 map_render_mode_t MapCameraView_RenderMode( const QWidget *pView )

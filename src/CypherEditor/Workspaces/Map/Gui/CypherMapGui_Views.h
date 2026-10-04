@@ -82,6 +82,14 @@ struct map_mesh_edge_hit_t {
 };
 CYPHER_NODISCARD bool MapOrthoView_PickMeshEdge( const QWidget *pView, QPointF position, map_mesh_edge_hit_t *pOut );
 
+// A vertex hit retains its authored ID. Vertex queries use the same logical
+// pixel tolerance and visibility rules as mesh edges, in Select + Vertices.
+struct map_mesh_vertex_hit_t {
+    common::u64 object{ 0u };
+    geometry::geometry_source_id_t vertex{};
+};
+CYPHER_NODISCARD bool MapOrthoView_PickMeshVertex( const QWidget *pView, QPointF position, map_mesh_vertex_hit_t *pOut );
+
 CYPHER_NODISCARD QWidget *MapCameraView_Create( QWidget *pParent, map_workspace_t *pWorkspace );
 
 // Camera position and facing, for tests.
@@ -97,6 +105,7 @@ CYPHER_NODISCARD common::bool_t MapCameraView_WorldToView( QWidget *pView, math:
 // the displayed control net. No document/selection mutation is performed.
 CYPHER_NODISCARD common::u64 MapCameraView_Pick( QWidget *pView, QPointF position );
 CYPHER_NODISCARD bool MapCameraView_PickMeshEdge( QWidget *pView, QPointF position, map_mesh_edge_hit_t *pOut );
+CYPHER_NODISCARD bool MapCameraView_PickMeshVertex( QWidget *pView, QPointF position, map_mesh_vertex_hit_t *pOut );
 
 // The object drawn in viewport.hover: what a click in this view would select
 // (editor.viewport.hover_highlight). 0 when the pointer is over nothing, is

@@ -20,6 +20,54 @@ CypherEngine Changelog
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
+[Unreleased] - 2026-10-04
+-------------------------
+
+Added - Mason map authoring
+- Live block/transform dimensions, readable RGB labels, surface grids, separate
+  move/resize handles and world-unit grid snapping. Multi-object resizing can
+  extend each root equally or scale the combined bounds.
+- Authored brush Push/Pull, brush-to-mesh conversion, mesh-face Extrude/Inset/
+  Quad Slice, Quad creation and portable Copy/Cut/Paste/Paste In Place, using
+  prepared document publication with undo/redo, attributes and persistence.
+- Persistent authored mesh edge picks in 2D/3D, modifier selection and library
+  Select Loop/Select Ring. Camera picks check physical occlusion independently
+  of category filtering.
+- Authored mesh vertex picks in every pane, Shift-add/Ctrl-or-Command-toggle,
+  component-preserving inspector double-click and compact point cues. Neutral
+  candidates appear in 2D and shaded camera previews; camera wireframe shows
+  hovered/selected points only. Selection does not create an undo step.
+- Mode-specific Tool Properties. Planned operations remain explicitly disabled.
+- Editable contextual shortcut profiles with create/duplicate/import/export;
+  settings import/export, theme/camera/viewport controls, palette icons and
+  supplied Mason branding.
+- Central content library, authored entity keys, configurable viewport content
+  and collapsed console in the right inspector dock. Keys do not execute
+  missing gameplay systems.
+
+Changed
+- Escape cancels a gesture, leaves an idle tool for Navigation, then clears
+  retained selection. Text fields/dialogs retain native behavior.
+- Visible geometric-edge tolerance improves grazing-angle whole-object picks;
+  component modes never substitute parent edits.
+- Local validation uses one compact Mason build and existing system packages.
+
+Fixed
+- Selection/document/history preservation on allocation/invalid-preview failure
+  and stale component pruning after visibility/topology/document changes.
+- Suppressed parent mesh status dimensions in Vertex/Edge modes and blocked
+  owner-entity metadata edits through a Vertex selection.
+- Explicit GCC 13 aggregate resets and canonical LF map checkout on Windows.
+
+Validation and remaining work
+- Published edge checkpoint: five local suites, 200136 assertions / 808 cases;
+  GitHub Actions run 37197840651 passed all 15 jobs including Mason.
+- Following vertex checkpoint: five local suites, 201362 assertions / 825 cases;
+  combined vertex/edge checks passed at 2x scaling and Mason captures inspected.
+- Component edit adapters, face UV edits, full Hammer shortcut parity and
+  renderer/ECS/audio/physics/gameplay integration remain unfinished. Full Mason
+  user documentation comes later; research notes retain implementation evidence.
+
 [Unreleased] - 2026-09-18
 -------------------------
 

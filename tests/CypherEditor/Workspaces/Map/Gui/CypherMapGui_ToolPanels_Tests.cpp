@@ -2140,6 +2140,63 @@ TEST_CASE( "Edge properties enable mesh selection queries with persistent contro
     CHECK( panel->findChild<QLabel *>( QStringLiteral( "MapToolSelection" ) )->text() == QStringLiteral( "0 edges selected · Edges mode" ) );
 }
 
+TEST_CASE( "Vertex properties describe working picking and count components without enabling topology edits", "[map][gui][toolpanels][selection-profile][mesh-vertex][lifetime]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -64, -64, 0 } ); MapBounds_AddPoint( box, { 64, 64, 128 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 object = EditorSelection_At( &ws.selection, 0 );
+    REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+    const auto *source = geometry::GeometryDocument_FindMesh( &ws.pDocument->geometry, { object } ); REQUIRE( source );
+    geometry::mesh_source_description_t description{};
+    REQUIRE( geometry::MeshSourceDescription_Init( &description, ws.pDocument->pAllocator, source->sourceId ) == geometry::geometry_status_t::OK );
+    REQUIRE( geometry::MeshSource_TryDescribe( source, &description ) == geometry::geometry_status_t::OK );
+    REQUIRE( description.vertices.nCount >= 2 );
+    const auto first = description.vertices.pData[0].sourceId; const auto second = description.vertices.pData[1].sourceId;
+    geometry::MeshSourceDescription_Shutdown( &description );
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) );
+    REQUIRE( EditorCommands_ExecuteLine( &session.gui.commands, StringView_FromCString( "map.select_mode.vertices" ) ) == command_result_t::OK );
+    QPointer<QWidget> section = panel->findChild<QWidget *>( QStringLiteral( "MapToolModeVertices" ) ); REQUIRE( section );
+    QPointer<QLabel> count = panel->findChild<QLabel *>( QStringLiteral( "MapToolSelection" ) ); REQUIRE( count );
+    QPointer<QTreeWidget> keys = panel->findChild<QTreeWidget *>( QStringLiteral( "MapToolKeys" ) ); REQUIRE( keys );
+    CHECK( count->text() == QStringLiteral( "0 vertices selected · Vertices mode" ) );
+    auto *note = section->findChild<QLabel *>( QStringLiteral( "MapToolModeAvailability" ) ); REQUIRE( note );
+    CHECK( note->text().contains( QStringLiteral( "Pick mesh vertices" ) ) );
+    CHECK( note->text().contains( QStringLiteral( "Convert brushes to meshes first" ) ) );
+    CHECK( note->text().contains( QStringLiteral( "topology edits are planned" ) ) );
+    CHECK( panel->findChild<QLabel *>( QStringLiteral( "MapToolTitle" ) )->toolTip().contains( QStringLiteral( "does not move the parent mesh" ) ) );
+    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[LeftClick] Pick an authored mesh vertex" ) ) );
+    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[Shift+LeftClick] Add a vertex on the same mesh" ) ) );
+    CHECK( MapToolProperties_KeyRows( panel.get() ).contains( QStringLiteral( "[Ctrl/Command+LeftClick] Toggle a vertex on the same mesh" ) ) );
+    const auto *document = ws.pDocument; const usize steps = EditorHistory_StepCount( &ws.history );
+    ws.pDocument->bReadOnly = CY_TRUE; MapWorkspace_Notify( &ws, MAP_CHANGE_DOCUMENT );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, first ) );
+    CHECK( count->text() == QStringLiteral( "1 vertex selected · Vertices mode" ) );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, second, MAP_SELECT_ADD ) );
+    CHECK( count->text() == QStringLiteral( "2 vertices selected · Vertices mode" ) );
+    CHECK( section.data() == panel->findChild<QWidget *>( QStringLiteral( "MapToolModeVertices" ) ) );
+    CHECK( keys.data() == panel->findChild<QTreeWidget *>( QStringLiteral( "MapToolKeys" ) ) );
+    CHECK( count.data() == panel->findChild<QLabel *>( QStringLiteral( "MapToolSelection" ) ) );
+    for ( const char *id : { "map.mesh.merge", "map.mesh.collapse", "map.mesh.bevel", "map.mesh.dissolve", "map.mesh.fill_hole",
+                            "map.select.grow", "map.select.shrink", "map.pivot.clear" } ) {
+        CAPTURE( id ); auto *button = Operation( *section, id ); CHECK_FALSE( button->isEnabled() );
+        CHECK( button->toolTip().contains( QStringLiteral( "Unavailable" ) ) );
+        button->click(); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    }
+    CHECK( ws.pDocument == document ); CHECK( ws.meshSelection.vertices.nCount == 2 );
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE );
+    CHECK( MapWorkspace_HasMeshVertices( &ws ) ); CHECK( ws.meshSelection.vertices.nCount == 2 );
+    CHECK( panel->findChild<QLabel *>( QStringLiteral( "MapToolSelection" ) )->text() == QStringLiteral( "2 vertices selected · Vertices mode" ) );
+    MapWorkspace_SetTool( &ws, map_tool_t::SELECT );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, second, MAP_SELECT_TOGGLE ) );
+    CHECK( panel->findChild<QLabel *>( QStringLiteral( "MapToolSelection" ) )->text() == QStringLiteral( "1 vertex selected · Vertices mode" ) );
+    MapWorkspace_ClearMeshVertices( &ws );
+    CHECK( panel->findChild<QLabel *>( QStringLiteral( "MapToolSelection" ) )->text() == QStringLiteral( "0 vertices selected · Vertices mode" ) );
+    REQUIRE( MapWorkspace_SelectMeshVertex( &ws, object, first ) );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::EDGES );
+    CHECK( ws.meshSelection.vertices.nCount == 0 );
+    CHECK( panel->findChild<QLabel *>( QStringLiteral( "MapToolSelection" ) )->text() == QStringLiteral( "0 edges selected · Edges mode" ) );
+}
+
 TEST_CASE( "Selection profiles preserve control drafts and refresh contextual keymaps in place", "[map][gui][toolpanels][selection-profile][lifetime]" )
 {
     session_t session; auto &ws = session.workspace; std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) );
