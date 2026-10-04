@@ -1494,6 +1494,13 @@ private:
                     addRow( QStringLiteral( "[%1]" ).arg( texts.join( QStringLiteral( " / " ) ) ), QString::fromLatin1( label ) );
                 }
             }
+            for ( const bool increase : { true, false } ) {
+                const auto texts = MapInput_CameraLookWheelBindings( m_pWorkspace, increase );
+                if ( !texts.isEmpty() ) {
+                    addRow( QStringLiteral( "[%1]" ).arg( texts.join( QStringLiteral( " / " ) ) ),
+                        increase ? QStringLiteral( "During 3D look: increase flight speed" ) : QStringLiteral( "During 3D look: decrease flight speed" ) );
+                }
+            }
             for ( const auto &[flag, label] : {
                       std::pair{ MAP_NAVIGATION_FORWARD, "Camera forward" }, std::pair{ MAP_NAVIGATION_BACK, "Camera backward" },
                       std::pair{ MAP_NAVIGATION_LEFT, "Camera left" }, std::pair{ MAP_NAVIGATION_RIGHT, "Camera right" },

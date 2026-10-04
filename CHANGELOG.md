@@ -84,6 +84,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Camera wheel input preserves captured look and held flight keys. Captured
+  look has remappable wheel speed actions; idle wheel retains dolly. Wheel
+  direction follows the profile, fractional trackpad input changes speed
+  smoothly, and one atomic settings write handles multiple notches and clamps.
+  Explicit unbindings, reserved actions, limits and failed settings writes
+  cannot fall through into movement or a release context menu. Navigation
+  owns Shift+wheel over a staged block without altering its dimensions.
 - Brush face Push/Pull now previews the complete validated solid, including
   adjoining sides and surface grids in shaded 3D views. Selected-face highlights
   and the normal handle follow the candidate geometry across panes. Invalid or
@@ -139,6 +146,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   and rendering checks passed at 1x and 2x scaling; Settings layout/recording
   checks and actual Mason captures also passed at 2x. A 1x neutral-wire
   overdraw defect was fixed without weakening the selected-face regression.
+  GitHub Actions run 37217593282 passed all 15 jobs for the published commit.
+- Captured-look wheel navigation passed all five local suites: 219,877
+  assertions in 870 cases. Movement, remapping, ownership and speed checks
+  passed 1,819 assertions in 29 cases at normal and 2x scaling; actual Mason
+  wheel/Shift checks and the Keybindings/Settings checks also passed at 2x.
+  The only full-suite repair updated the built-in declaration count for the
+  two new routed wheel actions; parsing and conflict checks were retained.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
   Full Mason user documentation is deferred; implementation evidence is kept

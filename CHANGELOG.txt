@@ -65,6 +65,12 @@ Changed
 - Local validation uses one compact Mason build and existing system packages.
 
 Fixed
+- Camera wheel input preserves captured look and held flight keys, with
+  remappable look-context wheel speed actions and idle dolly. Fractional and
+  multiple-notch events publish one atomic clamped setting; direction follows
+  the profile. Unbindings, reservations, limits and failed publication cannot
+  fall through into movement or a release menu. Navigation Shift+wheel leaves
+  staged block dimensions intact.
 - Brush Push/Pull previews the complete validated solid, adjoining sides and
   shaded 3D surface grids. Face highlights and the normal handle follow the
   candidate across panes. Invalid/stale candidates and release after a failed
@@ -106,6 +112,12 @@ Validation and remaining work
   five local suites, 219268 assertions / 857 cases. Face geometry/rendering
   passed at 1x/2x; Settings layout/recording and Mason captures also pass at 2x.
   Fixed neutral-wire overdraw at 1x with the original regression unchanged.
+  GitHub Actions run 37217593282 passed all 15 jobs for the published commit.
+- Captured-look wheel navigation: five local suites, 219877 assertions / 870
+  cases. Focused movement/remap/ownership/speed checks 1819 / 29 at normal and
+  2x scaling; actual Mason wheel/Shift and Keybindings/Settings checks pass at
+  2x. Built-in declaration count updated for two new wheel actions with all
+  parser/conflict assertions retained.
 - Component edit adapters, face UV edits, full Hammer shortcut parity and
   renderer/ECS/audio/physics/gameplay integration remain unfinished. Full Mason
   user documentation comes later; research notes retain implementation evidence.

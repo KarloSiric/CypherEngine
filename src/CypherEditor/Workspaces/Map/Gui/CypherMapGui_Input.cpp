@@ -198,6 +198,15 @@ constexpr struct {
 
 constexpr struct {
     const char *id;
+    map_camera_wheel_action_t action;
+    const char *defaultTrigger;
+} kCameraLookWheels[]{
+    { "map.camera.speed_increase", map_camera_wheel_action_t::SPEED_INCREASE, "WheelUp" },
+    { "map.camera.speed_decrease", map_camera_wheel_action_t::SPEED_DECREASE, "WheelDown" }
+};
+
+constexpr struct {
+    const char *id;
     u32 flag;
     const char *defaults[2];
 } kCameraNavigation[]{
@@ -273,6 +282,41 @@ int MouseSpecificity( const mouse_gesture_t &gesture ) noexcept
            ( gesture.action == MOUSE_ACTION_WHEEL_UP || gesture.action == MOUSE_ACTION_WHEEL_DOWN ? 1 : 0 );
 }
 
+input_binding_t MouseContextBinding( const map_workspace_t &workspace, const mouse_gesture_t &actual, string_view_t context )
+{
+    const auto &gui = *workspace.pGui;
+    const auto platform = EditorKeymap_HostPlatform();
+    input_binding_t result{}; int specificity = -1; usize priority = CY_INVALID_SIZE;
+    for ( usize source = 0u; source < gui.nKeymapChain && source < EDITOR_KEYMAP_MAX_DEPTH; ++source ) {
+        for ( const bool overlay : { true, false } ) {
+            const auto *entries = TriggerContext( gui.keymapChain[source], keymap_section_t::MOUSE, context, platform, overlay );
+            for ( usize entry = 0u; entry < KeyValue_ChildCount( entries ); ++entry ) {
+                const auto action = KeyValue_Name( KeyValue_ChildAt( entries, entry ) );
+                keymap_triggers_t triggers{};
+                const auto status = EditorKeymap_FindTriggers( gui.keymapChain, gui.nKeymapChain, keymap_section_t::MOUSE,
+                                                               platform, context, action, &triggers );
+                if ( status == keymap_lookup_t::NOT_DEFINED || triggers.iSource != source ) { continue; }
+                const bool unbound = status == keymap_lookup_t::UNBOUND;
+                if ( unbound && !InheritedTriggers( gui, keymap_section_t::MOUSE, context, action, source, triggers ) ) { continue; }
+                for ( usize i = 0u; i < triggers.nTexts; ++i ) {
+                    mouse_gesture_t gesture{};
+                    if ( !EditorMouseGesture_Parse( triggers.texts[i], &gesture ) || !MouseMatches( actual, gesture ) ) { continue; }
+                    const int score = MouseSpecificity( gesture );
+                    const usize candidatePriority = source * 2u + ( overlay ? 0u : 1u );
+                    // A deliberate reassignment at the deciding tier can
+                    // reuse an unbound trigger. A lower base or main
+                    // section cannot silently revive that same gesture.
+                    if ( score > specificity || ( score == specificity && candidatePriority == priority &&
+                                                 result.command.cchLength == 0u && !unbound ) ) {
+                        specificity = score; priority = candidatePriority; result = { unbound ? string_view_t{} : action, true };
+                    }
+                }
+            }
+        }
+    }
+    return result;
+}
+
 input_binding_t MouseBinding( const map_workspace_t &workspace, const mouse_gesture_t &actual )
 {
     const auto &gui = *workspace.pGui;
@@ -289,40 +333,34 @@ input_binding_t MouseBinding( const map_workspace_t &workspace, const mouse_gest
         }
         return result;
     }
-    const auto platform = EditorKeymap_HostPlatform();
     const input_contexts_t contexts( workspace, true );
     for ( const auto context : contexts.values ) {
-        input_binding_t result{}; int specificity = -1; usize priority = CY_INVALID_SIZE;
-        for ( usize source = 0u; source < gui.nKeymapChain && source < EDITOR_KEYMAP_MAX_DEPTH; ++source ) {
-            for ( const bool overlay : { true, false } ) {
-                const auto *entries = TriggerContext( gui.keymapChain[source], keymap_section_t::MOUSE, context, platform, overlay );
-                for ( usize entry = 0u; entry < KeyValue_ChildCount( entries ); ++entry ) {
-                    const auto action = KeyValue_Name( KeyValue_ChildAt( entries, entry ) );
-                    keymap_triggers_t triggers{};
-                    const auto status = EditorKeymap_FindTriggers( gui.keymapChain, gui.nKeymapChain, keymap_section_t::MOUSE,
-                                                                   platform, context, action, &triggers );
-                    if ( status == keymap_lookup_t::NOT_DEFINED || triggers.iSource != source ) { continue; }
-                    const bool unbound = status == keymap_lookup_t::UNBOUND;
-                    if ( unbound && !InheritedTriggers( gui, keymap_section_t::MOUSE, context, action, source, triggers ) ) { continue; }
-                    for ( usize i = 0u; i < triggers.nTexts; ++i ) {
-                        mouse_gesture_t gesture{};
-                        if ( !EditorMouseGesture_Parse( triggers.texts[i], &gesture ) || !MouseMatches( actual, gesture ) ) { continue; }
-                        const int score = MouseSpecificity( gesture );
-                        const usize candidatePriority = source * 2u + ( overlay ? 0u : 1u );
-                        // A deliberate reassignment at the deciding tier can
-                        // reuse an unbound trigger. A lower base or main
-                        // section cannot silently revive that same gesture.
-                        if ( score > specificity || ( score == specificity && candidatePriority == priority &&
-                                                     result.command.cchLength == 0u && !unbound ) ) {
-                            specificity = score; priority = candidatePriority; result = { unbound ? string_view_t{} : action, true };
-                        }
-                    }
-                }
-            }
-        }
+        const auto result = MouseContextBinding( workspace, actual, context );
         if ( result.reserved ) { return result; }
     }
     return {};
+}
+
+map_camera_wheel_action_t CameraWheelAction( const map_workspace_t &workspace, const mouse_gesture_t &actual, bool lookCaptured )
+{
+    input_binding_t binding{};
+    if ( lookCaptured ) {
+        if ( workspace.pGui->nKeymapChain == 0u ) {
+            for ( const auto &entry : kCameraLookWheels ) {
+                mouse_gesture_t trigger{};
+                if ( EditorMouseGesture_Parse( StringView_FromCString( entry.defaultTrigger ), &trigger ) && MouseMatches( actual, trigger ) ) {
+                    return entry.action;
+                }
+            }
+        } else { binding = MouseContextBinding( workspace, actual, StringView_FromCString( "map.camera.look" ) ); }
+    }
+    if ( !binding.reserved ) { binding = MouseBinding( workspace, actual ); }
+    if ( !binding.reserved ) { return map_camera_wheel_action_t::NONE; }
+    if ( CameraGesture( binding.command ) == map_camera_gesture_t::DOLLY ) { return map_camera_wheel_action_t::DOLLY; }
+    for ( const auto &entry : kCameraLookWheels ) {
+        if ( StringView_Equals( binding.command, StringView_FromCString( entry.id ) ) ) { return entry.action; }
+    }
+    return map_camera_wheel_action_t::RESERVED;
 }
 
 u32 NavigationMask( const map_workspace_t &workspace, const key_stroke_t &actual )
@@ -406,12 +444,58 @@ map_camera_gesture_t MapInput_CameraDragGesture( const map_workspace_t *pWorkspa
 
 bool MapInput_CameraWheelGesture( const map_workspace_t *pWorkspace, const QWheelEvent *pEvent )
 {
-    if ( pWorkspace == nullptr || pWorkspace->pGui == nullptr || pEvent == nullptr ) { return false; }
+    return MapInput_CameraWheelAction( pWorkspace, pEvent, false ) == map_camera_wheel_action_t::DOLLY;
+}
+
+map_camera_wheel_action_t MapInput_CameraWheelAction( const map_workspace_t *pWorkspace, const QWheelEvent *pEvent, bool lookCaptured )
+{
+    if ( pWorkspace == nullptr || pWorkspace->pGui == nullptr || pEvent == nullptr ) { return map_camera_wheel_action_t::NONE; }
     const int vertical = pEvent->angleDelta().y() != 0 ? pEvent->angleDelta().y() : pEvent->pixelDelta().y();
-    if ( vertical == 0 ) { return false; }
+    if ( vertical == 0 ) { return map_camera_wheel_action_t::NONE; }
     const mouse_gesture_t actual{ MouseModifiers( pEvent->modifiers() ), KEY_NONE, MOUSE_BUTTON_NONE,
                                   static_cast<u8>( vertical > 0 ? MOUSE_ACTION_WHEEL_UP : MOUSE_ACTION_WHEEL_DOWN ) };
-    return CameraGesture( MouseBinding( *pWorkspace, actual ).command ) == map_camera_gesture_t::DOLLY;
+    return CameraWheelAction( *pWorkspace, actual, lookCaptured );
+}
+
+QStringList MapInput_CameraLookWheelBindings( const map_workspace_t *pWorkspace, bool increase )
+{
+    QStringList texts;
+    if ( pWorkspace == nullptr || pWorkspace->pGui == nullptr ) { return texts; }
+    const auto wanted = increase ? map_camera_wheel_action_t::SPEED_INCREASE : map_camera_wheel_action_t::SPEED_DECREASE;
+    const auto &entry = kCameraLookWheels[increase ? 0u : 1u];
+    const auto &gui = *pWorkspace->pGui;
+    const auto add = [&]( string_view_t text ) {
+        mouse_gesture_t trigger{};
+        if ( !EditorMouseGesture_Parse( text, &trigger ) || trigger.heldKey != KEY_NONE || trigger.button != MOUSE_BUTTON_NONE ||
+             ( trigger.action != MOUSE_ACTION_WHEEL && trigger.action != MOUSE_ACTION_WHEEL_UP && trigger.action != MOUSE_ACTION_WHEEL_DOWN ) ) { return; }
+        auto actual = trigger;
+        if ( trigger.action == MOUSE_ACTION_WHEEL ) {
+            actual.action = MOUSE_ACTION_WHEEL_UP;
+            if ( CameraWheelAction( *pWorkspace, actual, true ) != wanted ) { return; }
+            actual.action = MOUSE_ACTION_WHEEL_DOWN;
+        }
+        if ( CameraWheelAction( *pWorkspace, actual, true ) != wanted ) { return; }
+        char canonical[EDITOR_MOUSE_GESTURE_TEXT_CAPACITY]{};
+        const usize length = EditorMouseGesture_Format( trigger, canonical );
+        if ( length != 0u ) {
+            const QString formatted = QString::fromUtf8( canonical, static_cast<qsizetype>( length ) );
+            if ( !texts.contains( formatted ) ) { texts.append( formatted ); }
+        }
+    };
+    if ( gui.nKeymapChain == 0u ) { add( StringView_FromCString( entry.defaultTrigger ) ); }
+    else {
+        const auto appendContext = [&]( string_view_t context ) {
+            keymap_triggers_t triggers{};
+            if ( EditorKeymap_FindTriggers( gui.keymapChain, gui.nKeymapChain, keymap_section_t::MOUSE, EditorKeymap_HostPlatform(),
+                                           context, StringView_FromCString( entry.id ), &triggers ) != keymap_lookup_t::BOUND ) { return; }
+            for ( usize i = 0u; i < triggers.nTexts; ++i ) { add( triggers.texts[i] ); }
+        };
+        appendContext( StringView_FromCString( "map.camera.look" ) );
+        const input_contexts_t contexts( *pWorkspace, true );
+        for ( const auto context : contexts.values ) { appendContext( context ); }
+    }
+    texts.sort();
+    return texts;
 }
 
 QStringList MapInput_CameraGestureBindings( const map_workspace_t *pWorkspace, map_camera_gesture_t gesture )

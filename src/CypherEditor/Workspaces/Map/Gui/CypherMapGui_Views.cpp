@@ -3596,13 +3596,29 @@ protected:
 
     void wheelEvent( QWheelEvent *pEvent ) override
     {
-        if ( AdjustBlockDepth( m_drag, *m_pWorkspace, *pEvent ) ||
-             ( m_drag.kind == edit_drag_t::NONE && AdjustStagedBlockDepth( *m_pWorkspace, *pEvent ) ) ) { update(); pEvent->accept(); return; }
-        if ( !MapInput_CameraWheelGesture( m_pWorkspace, pEvent ) ) { pEvent->ignore(); return; }
-        CancelDrag( m_drag, *m_pWorkspace ); StopCameraDrag();
+        if ( m_cameraDrag.kind == map_camera_gesture_t::NONE &&
+             ( AdjustBlockDepth( m_drag, *m_pWorkspace, *pEvent ) ||
+               ( m_drag.kind == edit_drag_t::NONE && AdjustStagedBlockDepth( *m_pWorkspace, *pEvent ) ) ) ) { update(); pEvent->accept(); return; }
+        const bool lookCaptured = m_cameraDrag.kind == map_camera_gesture_t::LOOK;
+        const auto action = MapInput_CameraWheelAction( m_pWorkspace, pEvent, lookCaptured );
+        if ( action == map_camera_wheel_action_t::NONE ) { pEvent->ignore(); return; }
+        const f64 steps = pEvent->angleDelta().y() != 0 ? pEvent->angleDelta().y() / 120.0 : pEvent->pixelDelta().y() / 40.0;
+        if ( lookCaptured ) {
+            // Wheel belongs to the captured look context. It must not clear
+            // held flight keys or leave a click candidate on button release.
+            m_cameraDrag.contextClick = false; m_cameraDrag.moved = true;
+        }
+        if ( action == map_camera_wheel_action_t::RESERVED ) { pEvent->accept(); return; }
+        if ( action == map_camera_wheel_action_t::SPEED_INCREASE || action == map_camera_wheel_action_t::SPEED_DECREASE ) {
+            const auto speedAction = action == map_camera_wheel_action_t::SPEED_INCREASE
+                ? map_camera_speed_action_t::INCREASE : map_camera_speed_action_t::DECREASE;
+            ( void )MapWorkspace_ChangeCameraSpeed( m_pWorkspace, speedAction, std::abs( steps ) );
+            pEvent->accept(); return;
+        }
+        CancelDrag( m_drag, *m_pWorkspace );
+        if ( !lookCaptured ) { StopCameraDrag(); }
         if ( m_bFramePending ) { ApplyFrame(); }
         Basis();
-        const f64 steps = pEvent->angleDelta().y() != 0 ? pEvent->angleDelta().y() / 120.0 : pEvent->pixelDelta().y() / 40.0;
         f64 units = steps * kCameraWheelStep * Setting( "editor.camera.zoom_sensitivity", 1.0 ) * SpeedFactor( pEvent->modifiers() );
         if ( DisplayFlag( *m_pWorkspace, "editor.camera.invert_wheel", CY_FALSE ) ) { units = -units; }
         const math::vec3d_t direction = DisplayFlag( *m_pWorkspace, "editor.camera.zoom_to_cursor" )

@@ -212,9 +212,9 @@ struct camera_speed_write_t {
     setting_value_t value{};
 };
 
-bool_t PlanCameraSpeed( const map_workspace_t *pWorkspace, map_camera_speed_action_t action, camera_speed_write_t &write ) noexcept
+bool_t PlanCameraSpeed( const map_workspace_t *pWorkspace, map_camera_speed_action_t action, f64 steps, camera_speed_write_t &write ) noexcept
 {
-    if ( pWorkspace == nullptr || pWorkspace->pGui == nullptr ) { return CY_FALSE; }
+    if ( pWorkspace == nullptr || pWorkspace->pGui == nullptr || !std::isfinite( steps ) || steps <= 0.0 ) { return CY_FALSE; }
     const auto *pSettings = &pWorkspace->pGui->settings;
     const auto *pDescriptor = EditorSettings_Find( pSettings, StringView_FromCString( "editor.camera.move_speed" ) );
     if ( pDescriptor == nullptr || pDescriptor->type != setting_type_t::REAL || !std::isfinite( pDescriptor->flMin ) ||
@@ -225,9 +225,15 @@ bool_t PlanCameraSpeed( const map_workspace_t *pWorkspace, map_camera_speed_acti
     f64 target{};
     switch ( action ) {
         case map_camera_speed_action_t::INCREASE:
-            target = current.flValue >= pDescriptor->flMax * 0.5 ? pDescriptor->flMax : current.flValue * 2.0;
+            // Compare logarithms before exponentiation so extreme wheel events
+            // saturate without overflow, and fractional trackpad steps remain smooth.
+            target = steps >= std::log2( pDescriptor->flMax ) - std::log2( current.flValue )
+                ? pDescriptor->flMax : current.flValue * std::exp2( steps );
             break;
-        case map_camera_speed_action_t::DECREASE: target = current.flValue * 0.5; break;
+        case map_camera_speed_action_t::DECREASE:
+            target = steps >= std::log2( current.flValue ) - std::log2( pDescriptor->flMin )
+                ? pDescriptor->flMin : current.flValue * std::exp2( -steps );
+            break;
         case map_camera_speed_action_t::RESET: target = pDescriptor->flDefault; break;
         default: return CY_FALSE;
     }
@@ -1096,16 +1102,16 @@ void MapWorkspace_DocumentChanged( map_workspace_t *pWorkspace, bool rebuildWire
     MapWorkspace_Notify( pWorkspace, changes );
 }
 
-bool_t MapWorkspace_CanChangeCameraSpeed( const map_workspace_t *pWorkspace, map_camera_speed_action_t action ) noexcept
+bool_t MapWorkspace_CanChangeCameraSpeed( const map_workspace_t *pWorkspace, map_camera_speed_action_t action, f64 steps ) noexcept
 {
     camera_speed_write_t write{};
-    return PlanCameraSpeed( pWorkspace, action, write );
+    return PlanCameraSpeed( pWorkspace, action, steps, write );
 }
 
-bool_t MapWorkspace_ChangeCameraSpeed( map_workspace_t *pWorkspace, map_camera_speed_action_t action ) noexcept
+bool_t MapWorkspace_ChangeCameraSpeed( map_workspace_t *pWorkspace, map_camera_speed_action_t action, f64 steps ) noexcept
 {
     camera_speed_write_t write{};
-    if ( !PlanCameraSpeed( pWorkspace, action, write ) ) { return CY_FALSE; }
+    if ( !PlanCameraSpeed( pWorkspace, action, steps, write ) ) { return CY_FALSE; }
     auto &settings = pWorkspace->pGui->settings;
     settings_document_t candidate{};
     if ( !PrepareCameraSpeed( write, settings, candidate ) ) { return CY_FALSE; }

@@ -434,15 +434,25 @@ keys are camera-navigation alternatives, not geometry nudges.
 
 ### 5.5 Mouse actions
 
-This table is the authored declaration catalogue. Only the four 3D camera
-actions currently resolve configurable mouse gestures; geometry selection,
+This table is the authored declaration catalogue. The four 3D camera
+actions and wheel flight-speed actions currently resolve configurable mouse gestures; geometry selection,
 transformation and 2D pan/zoom/context menus still use fixed mouse handlers.
 For example, the 2D pan declaration includes `RightDrag`, but the current
 orthographic handler pans with MMB or Space+LMB. Editing that declaration does
 not add right-drag pan. Settings labels those entries **Not remappable yet**.
 Supported camera declarations use button drags with modifiers and optionally
-Space; Dolly also supports vertical wheel input. Camera clicks, other held
-keys and horizontal wheel declarations are retained but not routed.
+Space; Dolly also supports vertical wheel input. Flight-speed mouse actions
+support vertical wheel input with modifiers. During a captured Look gesture,
+`map.camera.look` mouse declarations take priority over ordinary tool/selection/
+viewport/map/global contexts. An absent match falls through to those contexts;
+an explicit unbinding or unknown reservation consumes the wheel without dolly.
+Wheel speed follows the resolved action, so directions can be reversed in a
+profile. Each full notch doubles/halves base speed; fractional trackpad deltas
+scale smoothly. Multiple notches publish one atomic settings change, including
+at descriptor limits. Zoom wheel inversion does not invert speed actions.
+Captured Look and held flight keys survive handled wheel input, including a
+failed settings write. Camera clicks, other held keys and horizontal wheel
+declarations are retained but not routed.
 
 | Context | Action | Default |
 | --- | --- | --- |
@@ -450,6 +460,8 @@ keys and horizontal wheel declarations are retained but not routed.
 | `map.viewport.3d` | `map.camera.orbit` | `Alt+LeftDrag` |
 | `map.viewport.3d` | `map.camera.pan` | `MiddleDrag`, `Space+LeftDrag` |
 | `map.viewport.3d` | `map.camera.dolly` | `Alt+RightDrag`, `Wheel` |
+| `map.camera.look` | `map.camera.speed_increase` | `WheelUp` |
+| `map.camera.look` | `map.camera.speed_decrease` | `WheelDown` |
 | `map.viewport.2d` | `map.view.pan` | `RightDrag`, `MiddleDrag`, `Space+LeftDrag` |
 | `map.viewport.2d` | `map.view.zoom` | `Wheel` |
 | `map.viewport` | `map.select.pick` | `LeftClick` |

@@ -170,6 +170,24 @@ bool CameraWheel( const map_workspace_t *workspace, QPoint angle = { 0, 120 },
     return MapInput_CameraWheelGesture( workspace, &event );
 }
 
+map_camera_wheel_action_t CameraWheelAction( const map_workspace_t *workspace, QPoint angle = { 0, 120 },
+                                            Qt::KeyboardModifiers modifiers = Qt::NoModifier, QPoint pixel = {}, bool lookCaptured = true )
+{
+    QWheelEvent event( QPointF( 12, 24 ), QPointF( 12, 24 ), pixel, angle, Qt::RightButton, modifiers, Qt::NoScrollPhase, false );
+    return MapInput_CameraWheelAction( workspace, &event, lookCaptured );
+}
+
+constexpr const char *kCameraLookWheelKeymap = R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "input_tests" mouse = {
+  "map.camera.look" = {
+    "map.camera.speed_increase" = [ "WheelUp" ]
+    "map.camera.speed_decrease" = [ "WheelDown" ]
+  }
+  "map.viewport.3d" = { "map.camera.look" = [ "RightDrag" ] "map.camera.dolly" = [ "Wheel" ] }
+} }
+)cykv";
+
 struct default_input_fixture_t {
     gui::editor_gui_t gui{};
     map_workspace_t workspace{};
@@ -450,6 +468,176 @@ TEST_CASE( "Camera wheels obey direction modifiers and reservation without horiz
     CHECK_FALSE( CameraWheel( nullptr ) );
     CHECK( MapInput_CameraGestureBindings( &f.workspace, map_camera_gesture_t::DOLLY ) ==
            QStringList{ QStringLiteral( "Ctrl+WheelUp" ), QStringLiteral( "Wheel" ) } );
+}
+
+TEST_CASE( "Captured look wheel context takes priority without changing idle camera routing", "[map][gui][input][camera][look-wheel]" )
+{
+    input_fixture_t f( kCameraLookWheelKeymap );
+    f.Override( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "look_wheel_priority" mouse = { "map.tool.block" = { "future.unknown" = [ "Wheel" ] } } }
+)cykv" );
+    f.workspace.tool = map_tool_t::BLOCK;
+    CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::SPEED_INCREASE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, -120 } ) == map_camera_wheel_action_t::SPEED_DECREASE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, 120 }, Qt::ShiftModifier | Qt::AltModifier ) == map_camera_wheel_action_t::SPEED_INCREASE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, 120 }, Qt::NoModifier, {}, false ) == map_camera_wheel_action_t::RESERVED );
+    CHECK_FALSE( CameraWheel( &f.workspace ) );
+    f.workspace.tool = map_tool_t::SELECT;
+    CHECK( CameraWheelAction( &f.workspace, { 0, 120 }, Qt::NoModifier, {}, false ) == map_camera_wheel_action_t::DOLLY );
+    CHECK( CameraWheel( &f.workspace ) );
+    CHECK( CameraDrag( &f.workspace, Qt::RightButton ) == map_camera_gesture_t::LOOK );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, true ) == QStringList{ QStringLiteral( "WheelUp" ) } );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, false ) == QStringList{ QStringLiteral( "WheelDown" ) } );
+    CHECK( f.nObserved == 0 );
+}
+
+TEST_CASE( "Look wheel direction and command modifiers follow effective remaps", "[map][gui][input][camera][look-wheel][keymap]" )
+{
+    input_fixture_t f( kCameraLookWheelKeymap );
+    f.Override( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "look_wheel_reversed" mouse = { "map.camera.look" = {
+  "map.camera.speed_increase" = [ "WheelDown", "Ctrl+WheelUp" ]
+  "map.camera.speed_decrease" = [ "WheelUp", "Meta+WheelDown" ]
+} } }
+)cykv" );
+    CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::SPEED_DECREASE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, -120 } ) == map_camera_wheel_action_t::SPEED_INCREASE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, 120 }, Qt::ControlModifier ) == map_camera_wheel_action_t::SPEED_INCREASE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, -120 }, Qt::MetaModifier ) == map_camera_wheel_action_t::SPEED_DECREASE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, -120 }, Qt::ControlModifier ) == map_camera_wheel_action_t::NONE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, 120 }, Qt::MetaModifier ) == map_camera_wheel_action_t::NONE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, 120 }, Qt::ControlModifier | Qt::MetaModifier ) == map_camera_wheel_action_t::NONE );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, true ) ==
+           QStringList{ QStringLiteral( "Ctrl+WheelUp" ), QStringLiteral( "WheelDown" ) } );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, false ) ==
+           QStringList{ QStringLiteral( "Meta+WheelDown" ), QStringLiteral( "WheelUp" ) } );
+}
+
+TEST_CASE( "Look wheel unbinding and unknown reservations never fall through to dolly", "[map][gui][input][camera][look-wheel][unbinding]" )
+{
+    input_fixture_t f( kCameraLookWheelKeymap );
+    SECTION( "Explicit inherited unbinding" ) {
+        f.Override( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "look_wheel_unbound" mouse = { "map.camera.look" = { "map.camera.speed_increase" = [] } } }
+)cykv" );
+        CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::RESERVED );
+        CHECK( MapInput_CameraLookWheelBindings( &f.workspace, true ).isEmpty() );
+    }
+    SECTION( "Unknown declaration reserves a replaced trigger" ) {
+        f.Override( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "look_wheel_reserved" mouse = { "map.camera.look" = {
+  "map.camera.speed_increase" = [] "future.unknown" = [ "WheelUp" ]
+} } }
+)cykv" );
+        CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::RESERVED );
+        CHECK( MapInput_CameraLookWheelBindings( &f.workspace, true ).isEmpty() );
+    }
+    SECTION( "A deliberate same-tier reassignment may use the unbound trigger" ) {
+        f.Override( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "look_wheel_reassigned" mouse = { "map.camera.look" = {
+  "map.camera.speed_increase" = [] "map.camera.speed_decrease" = [ "WheelUp" ]
+} } }
+)cykv" );
+        CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::SPEED_DECREASE );
+        CHECK( CameraWheelAction( &f.workspace, { 0, -120 } ) == map_camera_wheel_action_t::DOLLY );
+        CHECK( MapInput_CameraLookWheelBindings( &f.workspace, false ) == QStringList{ QStringLiteral( "WheelUp" ) } );
+        return;
+    }
+    CHECK( CameraWheelAction( &f.workspace, { 0, -120 } ) == map_camera_wheel_action_t::SPEED_DECREASE );
+    CHECK( CameraWheel( &f.workspace ) );
+}
+
+TEST_CASE( "Look wheel platform overlays replace main triggers and retain unbinding shadows", "[map][gui][input][camera][look-wheel][platform]" )
+{
+    input_fixture_t f( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "look_wheel_platform"
+  mouse = {
+    "map.camera.look" = { "map.camera.speed_increase" = [ "WheelUp" ] "map.camera.speed_decrease" = [ "WheelDown" ] }
+    "map.viewport.3d" = { "map.camera.dolly" = [ "Wheel" ] }
+  }
+  platforms = {
+    macos = { mouse = { "map.camera.look" = { "map.camera.speed_increase" = [] "map.camera.speed_decrease" = [ "Ctrl+WheelUp" ] } } }
+    windows = { mouse = { "map.camera.look" = { "map.camera.speed_increase" = [] "map.camera.speed_decrease" = [ "Ctrl+WheelUp" ] } } }
+    linux = { mouse = { "map.camera.look" = { "map.camera.speed_increase" = [] "map.camera.speed_decrease" = [ "Ctrl+WheelUp" ] } } }
+  }
+}
+)cykv" );
+    REQUIRE( EditorKeymap_HostPlatform() != keymap_platform_t::NONE );
+    CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::RESERVED );
+    CHECK( CameraWheelAction( &f.workspace, { 0, -120 } ) == map_camera_wheel_action_t::DOLLY );
+    CHECK( CameraWheelAction( &f.workspace, { 0, 120 }, Qt::ControlModifier ) == map_camera_wheel_action_t::SPEED_DECREASE );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, true ).isEmpty() );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, false ) == QStringList{ QStringLiteral( "Ctrl+WheelUp" ) } );
+}
+
+TEST_CASE( "A missing look wheel match falls back to effective dolly without restoring defaults", "[map][gui][input][camera][look-wheel][fallback]" )
+{
+    input_fixture_t f( kCameraKeymap );
+    CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::DOLLY );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, true ).isEmpty() );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, false ).isEmpty() );
+    f.Override( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "look_wheel_specific" mouse = { "map.camera.look" = { "map.camera.speed_increase" = [ "Alt+WheelUp" ] } } }
+)cykv" );
+    CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::DOLLY );
+    CHECK( CameraWheelAction( &f.workspace, { 0, 120 }, Qt::AltModifier ) == map_camera_wheel_action_t::SPEED_INCREASE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, -120 }, Qt::AltModifier ) == map_camera_wheel_action_t::DOLLY );
+    f.Override( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "look_wheel_dolly_unbound" mouse = { "map.viewport.3d" = { "map.camera.dolly" = [] } } }
+)cykv" );
+    CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::RESERVED );
+    CHECK_FALSE( CameraWheel( &f.workspace ) );
+}
+
+TEST_CASE( "Look wheel fallback and vertical input validation work without a keymap chain", "[map][gui][input][camera][look-wheel][fallback]" )
+{
+    input_fixture_t f( kCameraKeymap ); f.gui.nKeymapChain = 0u;
+    CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::SPEED_INCREASE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, -120 } ) == map_camera_wheel_action_t::SPEED_DECREASE );
+    CHECK( CameraWheelAction( &f.workspace, {}, Qt::NoModifier, { 0, 6 } ) == map_camera_wheel_action_t::SPEED_INCREASE );
+    CHECK( CameraWheelAction( &f.workspace, {}, Qt::NoModifier, { 0, -6 } ) == map_camera_wheel_action_t::SPEED_DECREASE );
+    CHECK( CameraWheelAction( &f.workspace, { -120, 0 } ) == map_camera_wheel_action_t::NONE );
+    CHECK( CameraWheelAction( &f.workspace, {}, Qt::NoModifier, { 6, 0 } ) == map_camera_wheel_action_t::NONE );
+    CHECK( CameraWheelAction( &f.workspace, {} ) == map_camera_wheel_action_t::NONE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, 120 }, Qt::ControlModifier ) == map_camera_wheel_action_t::NONE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, 120 }, Qt::MetaModifier ) == map_camera_wheel_action_t::NONE );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, true ) == QStringList{ QStringLiteral( "WheelUp" ) } );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, false ) == QStringList{ QStringLiteral( "WheelDown" ) } );
+    CHECK( MapInput_CameraWheelAction( &f.workspace, nullptr, true ) == map_camera_wheel_action_t::NONE );
+    CHECK( CameraWheelAction( nullptr ) == map_camera_wheel_action_t::NONE );
+    CHECK( MapInput_CameraLookWheelBindings( nullptr, true ).isEmpty() );
+    f.workspace.pGui = nullptr;
+    CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::NONE );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, false ).isEmpty() );
+}
+
+TEST_CASE( "Look wheel help omits unsupported and shadowed triggers and canonicalizes effective declarations", "[map][gui][input][camera][look-wheel][help]" )
+{
+    input_fixture_t f( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "look_wheel_help" mouse = {
+  "map.camera.look" = {
+    "map.camera.speed_increase" = [ "Wheel", "alt+wheeldown", "Alt+WheelDown", "WheelLeft", "Space+Wheel", "RightDrag", "RightClick" ]
+    "future.unknown" = [ "WheelUp" ]
+  }
+  "map.viewport.3d" = { "map.camera.speed_increase" = [ "Ctrl+WheelDown" ] "map.camera.dolly" = [ "Wheel" ] }
+} }
+)cykv" );
+    CHECK( CameraWheelAction( &f.workspace ) == map_camera_wheel_action_t::RESERVED );
+    CHECK( CameraWheelAction( &f.workspace, { 0, -120 } ) == map_camera_wheel_action_t::SPEED_INCREASE );
+    CHECK( CameraWheelAction( &f.workspace, { 0, -120 }, Qt::ControlModifier ) == map_camera_wheel_action_t::SPEED_INCREASE );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, true ) ==
+           QStringList{ QStringLiteral( "Alt+WheelDown" ), QStringLiteral( "Ctrl+WheelDown" ) } );
+    CHECK( MapInput_CameraLookWheelBindings( &f.workspace, false ).isEmpty() );
+    CHECK( f.nObserved == 0 );
 }
 
 TEST_CASE( "Camera gesture help advertises only supported effective mouse input", "[map][gui][input][camera][help]" )

@@ -44,6 +44,7 @@ enum map_navigation_key_flags_t : common::u32 {
 enum class map_tool_gesture_key_t : common::u8 { NONE = 0u, CONFIRM, CANCEL };
 
 enum class map_camera_gesture_t : common::u8 { NONE = 0u, LOOK, ORBIT, PAN, DOLLY };
+enum class map_camera_wheel_action_t : common::u8 { NONE = 0u, RESERVED, DOLLY, SPEED_INCREASE, SPEED_DECREASE };
 
 // Resolve a pressed button into its configured camera drag. A view retains
 // this result until release, so changing modifiers cannot change the drag.
@@ -57,6 +58,16 @@ map_camera_gesture_t MapInput_CameraDragGesture( const map_workspace_t *pWorkspa
 // True for an effective dolly binding matching a nonzero vertical wheel.
 // Horizontal-only and unsupported held-key wheel triggers are omitted.
 bool MapInput_CameraWheelGesture( const map_workspace_t *pWorkspace, const QWheelEvent *pEvent );
+
+// Captured Look adds map.camera.look before the ordinary mouse contexts.
+// RESERVED consumes an unknown or explicitly unbound matching declaration;
+// only NONE may fall through to other input. Resolution never executes it.
+map_camera_wheel_action_t MapInput_CameraWheelAction( const map_workspace_t *pWorkspace,
+                                                    const QWheelEvent *pEvent, bool lookCaptured );
+
+// Effective speed-wheel help while Look is captured. Supported vertical,
+// buttonless triggers without a held key are checked through the same resolver.
+QStringList MapInput_CameraLookWheelBindings( const map_workspace_t *pWorkspace, bool increase );
 
 // Canonical effective camera triggers for help. Unsupported held keys,
 // clicks, horizontal wheels, shadowed triggers and explicit unbindings are

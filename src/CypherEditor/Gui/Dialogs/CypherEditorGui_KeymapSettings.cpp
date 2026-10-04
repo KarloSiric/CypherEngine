@@ -980,6 +980,20 @@ private:
                 row.availability = QStringLiteral( "Declaration · no known route" );
                 if ( section == keymap_section_t::HELD && navigation && cameraContext ) {
                     row.availability = QStringLiteral( "3D camera held declaration" );
+                } else if ( section == keymap_section_t::MOUSE &&
+                            ( id == QStringLiteral( "map.camera.speed_increase" ) || id == QStringLiteral( "map.camera.speed_decrease" ) ) &&
+                            ( cameraContext || context == QStringLiteral( "map.camera.look" ) ) ) {
+                    row.availability = context == QStringLiteral( "map.camera.look" ) ? QStringLiteral( "3D look wheel declaration" ) : QStringLiteral( "3D camera wheel declaration" );
+                    row.description += QStringLiteral( "\nDuring captured look, its wheel context takes priority; idle wheel follows normal viewport contexts. Each notch doubles or halves base speed; fractional trackpad input scales smoothly." );
+                    for ( const QString &text : row.triggers ) {
+                        mouse_gesture_t gesture{}; const QByteArray bytes = text.toUtf8();
+                        if ( !EditorMouseGesture_Parse( View( bytes ), &gesture ) || gesture.heldKey != KEY_NONE || gesture.button != MOUSE_BUTTON_NONE ||
+                             ( gesture.action != MOUSE_ACTION_WHEEL && gesture.action != MOUSE_ACTION_WHEEL_UP && gesture.action != MOUSE_ACTION_WHEEL_DOWN ) ) {
+                            row.availability = QStringLiteral( "Contains unrouted camera trigger" );
+                            row.description += QStringLiteral( "\nFlight-speed mouse actions support vertical wheel triggers with modifiers; other declarations are retained but not dispatched." );
+                            break;
+                        }
+                    }
                 } else if ( section == keymap_section_t::MOUSE && cameraMouse && cameraContext ) {
                     row.availability = QStringLiteral( "3D camera gesture declaration" );
                     for ( const QString &text : row.triggers ) {

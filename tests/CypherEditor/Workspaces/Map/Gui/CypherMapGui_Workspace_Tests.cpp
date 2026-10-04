@@ -1205,3 +1205,25 @@ TEST_CASE( "The grid follows its settings and writes them back", "[map][gui][wor
     MapWorkspace_Shutdown( &workspace );
     EditorSettings_SetScope( &gui.settings, settings_scope_t::USER, nullptr );
 }
+
+TEST_CASE( "Camera speed batches fractional and extreme wheel steps into one atomic publication", "[map][gui][workspace][camera-speed][camera-look-wheel][atomic]" )
+{
+    edge_session_t session; auto &settings = session.gui.settings; auto &ws = session.workspace;
+    camera_scope_t local( settings, settings_scope_t::WORKSPACE, "{ future = { name = \"keep\" } }" );
+    camera_change_log_t log{ &settings }; REQUIRE( EditorSettings_AddListener( &settings, &RecordCameraSpeed, &log ) );
+    REQUIRE( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::INCREASE, 2.5 ) );
+    CHECK( std::abs( CameraSpeed( settings ) - 1000.0 * std::exp2( 2.5 ) ) < 1e-8 ); CHECK( log.calls == 1u ); CHECK( log.exact );
+    REQUIRE( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::DECREASE, 2.5 ) );
+    CHECK( std::abs( CameraSpeed( settings ) - 1000.0 ) < 1e-8 ); CHECK( log.calls == 2u );
+    REQUIRE( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::INCREASE, std::numeric_limits<f64>::max() ) );
+    CHECK( CameraSpeed( settings ) == 100000.0 ); CHECK( log.calls == 3u );
+    REQUIRE( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::DECREASE, std::numeric_limits<f64>::max() ) );
+    CHECK( CameraSpeed( settings ) == 10.0 ); CHECK( log.calls == 4u );
+    const auto original = SettingsText( local.store ); const auto *tree = local.store.pDocument;
+    for ( const f64 invalid : { 0.0, -1.0, std::numeric_limits<f64>::infinity(), std::numeric_limits<f64>::quiet_NaN() } ) {
+        CHECK_FALSE( MapWorkspace_CanChangeCameraSpeed( &ws, map_camera_speed_action_t::INCREASE, invalid ) );
+        CHECK_FALSE( MapWorkspace_ChangeCameraSpeed( &ws, map_camera_speed_action_t::INCREASE, invalid ) );
+        CHECK( CameraSpeed( settings ) == 10.0 ); CHECK( log.calls == 4u ); CHECK( local.store.pDocument == tree ); CHECK( SettingsText( local.store ) == original );
+    }
+    CHECK( original.find( "keep" ) != std::string::npos ); EditorSettings_RemoveListener( &settings, &RecordCameraSpeed, &log );
+}

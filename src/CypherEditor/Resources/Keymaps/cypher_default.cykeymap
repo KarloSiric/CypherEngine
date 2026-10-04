@@ -249,6 +249,12 @@
         }
     }
     mouse = {
+        // Active captured look owns wheel speed changes. Idle wheel remains
+        // Dolly; these mouse actions can be remapped or explicitly unbound.
+        "map.camera.look" = {
+            "map.camera.speed_increase" = [ "WheelUp" ]
+            "map.camera.speed_decrease" = [ "WheelDown" ]
+        }
         "map.viewport.3d" = {
             "map.camera.look" = [ "RightDrag", "Alt+MiddleDrag" ]
             "map.camera.orbit" = [ "Alt+LeftDrag" ]

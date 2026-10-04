@@ -3380,7 +3380,7 @@ TEST_CASE( "Capture Mason authored mesh vertex editing", "[.mesh-vertex-capture]
     REQUIRE( panel->grab().save( QStringLiteral( "artifacts/mason_mesh_vertex_properties.png" ) ) );
 }
 
-TEST_CASE( "Mason flight speed defaults execute only in the camera and appear in editable keybindings", "[mason][smoke][camera-speed]" )
+TEST_CASE( "Mason flight speed defaults execute only in the camera and appear in editable keybindings", "[mason][smoke][camera-speed][camera-look-wheel]" )
 {
     mason_session_t session;
     auto *ws = Mason_MapWorkspace( session.pMason );
@@ -3401,6 +3401,23 @@ TEST_CASE( "Mason flight speed defaults execute only in the camera and appear in
     REQUIRE( MasonWorkflowKey( camera, Qt::Key_0 ) ); CHECK( speed() == 1000.0 );
     REQUIRE( MasonWorkflowKey( camera, Qt::Key_Minus ) ); CHECK( speed() == 500.0 );
     REQUIRE( MasonWorkflowKey( camera, Qt::Key_0 ) ); CHECK( speed() == 1000.0 );
+    const QPointF lookPoint = camera->rect().center();
+    QMouseEvent look( QEvent::MouseButtonPress, lookPoint, camera->mapToGlobal( lookPoint ), Qt::RightButton, Qt::RightButton, Qt::NoModifier );
+    QCoreApplication::sendEvent( camera, &look );
+    QKeyEvent fly( QEvent::KeyPress, Qt::Key_W, Qt::NoModifier ); QCoreApplication::sendEvent( camera, &fly );
+    const auto lookPosition = MapCameraView_Position( camera ), lookDirection = MapCameraView_Forward( camera );
+    QWheelEvent speedWheel( lookPoint, camera->mapToGlobal( lookPoint ), {}, QPoint( 0, 120 ), Qt::RightButton, Qt::ShiftModifier, Qt::NoScrollPhase, false );
+    QCoreApplication::sendEvent( camera, &speedWheel ); REQUIRE( speedWheel.isAccepted() ); CHECK( speed() == 2000.0 );
+    CHECK( MapCameraView_Position( camera ).x == lookPosition.x ); CHECK( MapCameraView_Position( camera ).y == lookPosition.y ); CHECK( MapCameraView_Position( camera ).z == lookPosition.z );
+    CHECK( MapCameraView_Forward( camera ).x == lookDirection.x );
+    const auto velocity = MapCameraView_NavigationVelocity( camera );
+    CHECK( std::abs( std::sqrt( velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z ) - 2000.0 ) < 1e-8 );
+    const QPointF lookEnd = lookPoint + QPointF( 12, 0 );
+    QMouseEvent turn( QEvent::MouseMove, lookEnd, camera->mapToGlobal( lookEnd ), Qt::NoButton, Qt::RightButton, Qt::NoModifier ); QCoreApplication::sendEvent( camera, &turn );
+    CHECK( MapCameraView_Forward( camera ).x != lookDirection.x );
+    QKeyEvent flyStop( QEvent::KeyRelease, Qt::Key_W, Qt::NoModifier ); QCoreApplication::sendEvent( camera, &flyStop );
+    QMouseEvent lookStop( QEvent::MouseButtonRelease, lookEnd, camera->mapToGlobal( lookEnd ), Qt::RightButton, Qt::NoButton, Qt::NoModifier ); QCoreApplication::sendEvent( camera, &lookStop );
+    REQUIRE( MasonWorkflowKey( camera, Qt::Key_0 ) ); CHECK( speed() == 1000.0 );
     MapViews_SetActivePane( views, 1 );
     ( void )MasonWorkflowKey( top, Qt::Key_Equal ); CHECK( speed() == 1000.0 );
     QLineEdit text( window ); text.setText( QStringLiteral( "camera" ) ); text.show(); text.setFocus();
@@ -3418,6 +3435,16 @@ TEST_CASE( "Mason flight speed defaults execute only in the camera and appear in
             const auto columns = row.split( QLatin1Char( '\t' ) );
             if ( columns.size() >= 5 && columns[1] == id && columns[3] == QStringLiteral( "map.viewport.3d" ) ) {
                 found = true; CHECK_FALSE( columns[4].isEmpty() );
+            }
+        }
+        CHECK( found );
+    }
+    for ( const QString id : { QStringLiteral( "map.camera.speed_increase" ), QStringLiteral( "map.camera.speed_decrease" ) } ) {
+        bool found = false;
+        for ( const QString &row : rows ) {
+            const auto columns = row.split( QLatin1Char( '\t' ) );
+            if ( columns.size() == 7 && columns[1] == id && columns[3] == QStringLiteral( "map.camera.look" ) ) {
+                found = true; CHECK( columns[2] == QStringLiteral( "Mouse" ) ); CHECK_FALSE( columns[4].isEmpty() ); CHECK( columns[6] == QStringLiteral( "3D look wheel declaration" ) );
             }
         }
         CHECK( found );

@@ -677,3 +677,23 @@ TEST_CASE( "Keybindings reserves space for actions and records bindings without 
         dialog->hide();
     }
 }
+
+TEST_CASE( "Keybindings exposes editable captured look wheel speed declarations", "[editor][gui][keymapsettings][camera-look-wheel]" )
+{
+    fixture_t f;
+    for ( const bool increase : { true, false } ) {
+        const QString id = increase ? QStringLiteral( "map.camera.speed_increase" ) : QStringLiteral( "map.camera.speed_decrease" );
+        const QString context = QStringLiteral( "map.camera.look" );
+        auto row = Row( f.page.get(), id, context ); REQUIRE( row.size() == 7 );
+        CHECK( row[0] == QStringLiteral( "Camera" ) ); CHECK( row[2] == QStringLiteral( "Mouse" ) );
+        CHECK( row[4] == ( increase ? QStringLiteral( "WheelUp" ) : QStringLiteral( "WheelDown" ) ) );
+        CHECK( row[6] == QStringLiteral( "3D look wheel declaration" ) );
+        REQUIRE( EditorKeymapSettings_SetTriggers( f.page.get(), keymap_section_t::MOUSE, keymap_platform_t::NONE, context, id,
+                                                  { increase ? QStringLiteral( "Shift+WheelUp" ) : QStringLiteral( "Shift+WheelDown" ) } ) );
+        CHECK( Row( f.page.get(), id, context )[6] == QStringLiteral( "3D look wheel declaration" ) );
+        REQUIRE( EditorKeymapSettings_SetTriggers( f.page.get(), keymap_section_t::MOUSE, keymap_platform_t::NONE, context, id, {} ) );
+        CHECK( Row( f.page.get(), id, context )[4].isEmpty() );
+        REQUIRE( EditorKeymapSettings_SetTriggers( f.page.get(), keymap_section_t::MOUSE, keymap_platform_t::NONE, context, id, { QStringLiteral( "RightDrag" ) } ) );
+        CHECK( Row( f.page.get(), id, context )[6] == QStringLiteral( "Contains unrouted camera trigger" ) );
+    }
+}

@@ -411,9 +411,11 @@ void MapWorkspace_SetSelection( map_workspace_t *pWorkspace, const common::u64 *
 CYPHER_NODISCARD common::bool_t MapWorkspace_IsSelected( const map_workspace_t *pWorkspace, common::u64 id ) noexcept;
 
 // Changes editor.camera.move_speed in the narrowest attached settings scope.
+// Steps are a finite positive magnitude: one doubles/halves, fractions support
+// trackpads; the final clamped value publishes once even for multiple notches.
 // Independent of map editability; false for unavailable/no-op actions or a failed write.
-CYPHER_NODISCARD common::bool_t MapWorkspace_CanChangeCameraSpeed( const map_workspace_t *pWorkspace, map_camera_speed_action_t action ) noexcept;
-CYPHER_NODISCARD common::bool_t MapWorkspace_ChangeCameraSpeed( map_workspace_t *pWorkspace, map_camera_speed_action_t action ) noexcept;
+CYPHER_NODISCARD common::bool_t MapWorkspace_CanChangeCameraSpeed( const map_workspace_t *pWorkspace, map_camera_speed_action_t action, common::f64 steps = 1.0 ) noexcept;
+CYPHER_NODISCARD common::bool_t MapWorkspace_ChangeCameraSpeed( map_workspace_t *pWorkspace, map_camera_speed_action_t action, common::f64 steps = 1.0 ) noexcept;
 
 // Grid size and visibility are the settings editor.grid.size and
 // editor.grid.show: changing them here writes the narrowest scope when one is

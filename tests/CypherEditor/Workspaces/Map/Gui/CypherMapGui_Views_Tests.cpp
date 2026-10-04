@@ -9561,3 +9561,166 @@ TEST_CASE( "Failed or cancelled face-volume gestures cannot publish when a later
         CHECK( EditorHistory_AppliedStepCount( &ws.history ) == 1 );
     }
 }
+
+namespace
+{
+bool LookWheel( QWidget *view, int angle, Qt::KeyboardModifiers modifiers = Qt::NoModifier, int pixels = 0 )
+{
+    const QPointF point( 300, 220 );
+    QWheelEvent event( point, view->mapToGlobal( point ), QPoint( 0, pixels ), QPoint( 0, angle ), Qt::RightButton,
+                       modifiers, Qt::NoScrollPhase, false );
+    event.ignore(); QCoreApplication::sendEvent( view, &event ); return event.isAccepted();
+}
+
+struct look_wheel_context_requests_t : QObject {
+    int count{};
+    bool eventFilter( QObject *, QEvent *event ) override {
+        if ( event->type() != QEvent::ContextMenu ) { return false; }
+        if ( static_cast<QContextMenuEvent *>( event )->reason() == QContextMenuEvent::Other ) { ++count; }
+        return true;
+    }
+};
+}
+
+TEST_CASE( "Captured look wheel changes flight speed without interrupting movement or aiming", "[map][gui][views][camera-look-wheel][navigation][camera-speed]" )
+{
+    for ( const bool customLook : { false, true } ) {
+        CAPTURE( customLook ); session_t session; auto &ws = session.workspace;
+        view_settings_t settings( &session.gui.settings ); settings.Real( "editor.camera.move_speed", 1000.0 );
+        settings.Real( "editor.camera.fast_multiplier", 3.0 ); settings.Set( "editor.camera.invert_wheel", true );
+        settings_document_t keys{};
+        if ( customLook ) {
+            REQUIRE( SettingsDocument_Init( &keys, Allocator_GetSystem(), EditorKeymap_Identity() ) == settings_document_status_t::OK );
+            REQUIRE( SettingsDocument_Load( &keys, StringView_FromCString( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "look_wheel_custom" held = { "map.viewport.3d" = { "map.camera.forward" = [ "W" ] "map.camera.fast" = [ "Shift" ] } }
+  mouse = { "map.viewport.3d" = { "map.camera.look" = [ "MiddleDrag" ] "map.camera.dolly" = [ "Wheel" ] }
+            "map.camera.look" = { "map.camera.speed_increase" = [ "WheelUp" ] "map.camera.speed_decrease" = [ "WheelDown" ] } } })cykv" ) ).status == settings_document_status_t::OK );
+            session.gui.keymapChain[0] = SettingsDocument_Root( &keys ); session.gui.nKeymapChain = 1u;
+        }
+        std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+        const auto *document = ws.pDocument; const auto geometry = document->geometry.revision, selection = ws.selection.revision;
+        const auto token = UndoRedo_StateToken( ws.history.pUndo ); const usize history = EditorHistory_StepCount( &ws.history );
+        const QPointF point( 300, 220 ); const auto button = customLook ? Qt::MiddleButton : Qt::RightButton;
+        DragButton( camera.get(), QEvent::MouseButtonPress, point, button );
+        CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W );
+        const auto position = MapCameraView_Position( camera.get() ), direction = MapCameraView_Forward( camera.get() );
+        REQUIRE( LookWheel( camera.get(), 240, Qt::ShiftModifier ) );
+        CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 4000.0 );
+        CheckPointClose( MapCameraView_NavigationVelocity( camera.get(), Qt::ShiftModifier ), math::Vec3d_Scale( direction, 12000.0 ) );
+        CheckPointClose( MapCameraView_Position( camera.get() ), position ); CheckPointClose( MapCameraView_Forward( camera.get() ), direction );
+        REQUIRE( LookWheel( camera.get(), -240 ) ); CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 1000.0 );
+        REQUIRE( LookWheel( camera.get(), 0, Qt::NoModifier, 20 ) );
+        CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == Catch::Approx( 1000.0 * std::sqrt( 2.0 ) ) );
+        REQUIRE( LookWheel( camera.get(), 0, Qt::NoModifier, -20 ) );
+        CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == Catch::Approx( 1000.0 ) );
+        DragButton( camera.get(), QEvent::MouseMove, point + QPointF( 20, 0 ), button );
+        CHECK( TestDistance( MapCameraView_Forward( camera.get() ), direction ) > 0.01 );
+        CHECK( TestDistance( MapCameraView_NavigationVelocity( camera.get() ), {} ) == Catch::Approx( 1000.0 ) );
+        CheckPointClose( MapCameraView_Position( camera.get() ), position );
+        CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_W );
+        DragButton( camera.get(), QEvent::MouseButtonRelease, point + QPointF( 20, 0 ), button );
+        CheckPointClose( MapCameraView_NavigationVelocity( camera.get() ), {} );
+        CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == geometry ); CHECK( ws.selection.revision == selection );
+        CHECK( EditorHistory_StepCount( &ws.history ) == history ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+    }
+}
+
+TEST_CASE( "Captured look wheel remaps and reservations preserve gesture ownership", "[map][gui][views][camera-look-wheel][keymap]" )
+{
+    for ( const int variant : { 0, 1, 2, 3 } ) {
+        CAPTURE( variant ); session_t session; auto &ws = session.workspace;
+        view_settings_t settings( &session.gui.settings ); settings.Real( "editor.camera.move_speed", 1000.0 ); settings.Set( "editor.camera.zoom_to_cursor", false );
+        settings_document_t base{}, profile{};
+        REQUIRE( SettingsDocument_Init( &base, Allocator_GetSystem(), EditorKeymap_Identity() ) == settings_document_status_t::OK );
+        REQUIRE( SettingsDocument_Load( &base, StringView_FromCString( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "look_wheel_base" held = { "map.viewport.3d" = { "map.camera.forward" = [ "W" ] } }
+  mouse = { "map.viewport.3d" = { "map.camera.look" = [ "RightDrag" ] "map.camera.dolly" = [ "Wheel" ] }
+            "map.camera.look" = { "map.camera.speed_increase" = [ "WheelUp" ] "map.camera.speed_decrease" = [ "WheelDown" ] } } })cykv" ) ).status == settings_document_status_t::OK );
+        const char *overrides[]{
+            R"cykv({ id = "reversed" mouse = { "map.camera.look" = { "map.camera.speed_increase" = [ "WheelDown" ] "map.camera.speed_decrease" = [ "WheelUp" ] } } })cykv",
+            R"cykv({ id = "unbound" mouse = { "map.camera.look" = { "map.camera.speed_increase" = [] } } })cykv",
+            R"cykv({ id = "reserved" mouse = { "map.camera.look" = { "future.custom" = [ "Shift+WheelUp" ] } } })cykv",
+            R"cykv({ id = "dolly_only" mouse = { "map.viewport.3d" = { "map.camera.look" = [ "RightDrag" ] "map.camera.dolly" = [ "Wheel" ] } } held = { "map.viewport.3d" = { "map.camera.forward" = [ "W" ] } } })cykv"
+        };
+        REQUIRE( SettingsDocument_Init( &profile, Allocator_GetSystem(), EditorKeymap_Identity() ) == settings_document_status_t::OK );
+        const std::string text = std::string( "@cykv 1\n@schema \"cypher.editor_keymap\" 2\n" ) + overrides[variant];
+        REQUIRE( SettingsDocument_Load( &profile, { text.data(), text.size() } ).status == settings_document_status_t::OK );
+        session.gui.keymapChain[0] = SettingsDocument_Root( &profile ); session.gui.keymapChain[1] = SettingsDocument_Root( &base ); session.gui.nKeymapChain = variant == 3 ? 1u : 2u;
+        std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+        look_wheel_context_requests_t requests; camera->installEventFilter( &requests ); const QPointF point( 300, 220 );
+        DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton ); CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W );
+        const auto position = MapCameraView_Position( camera.get() ), direction = MapCameraView_Forward( camera.get() );
+        REQUIRE( LookWheel( camera.get(), 120, variant == 2 ? Qt::ShiftModifier : Qt::NoModifier ) );
+        const f64 expected = variant == 0 ? 500.0 : 1000.0;
+        CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == expected );
+        CheckPointClose( MapCameraView_NavigationVelocity( camera.get() ), math::Vec3d_Scale( direction, expected ) );
+        CheckPointClose( MapCameraView_Position( camera.get() ), variant == 3 ? math::Vec3d_Add( position, math::Vec3d_Scale( direction, 64.0 ) ) : position );
+        CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_W );
+        // No mouse motion: handled wheel alone must suppress a release menu.
+        DragButton( camera.get(), QEvent::MouseButtonRelease, point, Qt::RightButton );
+        QCoreApplication::sendPostedEvents( camera.get(), QEvent::ContextMenu ); CHECK( requests.count == 0 );
+        DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton );
+        const auto after = MapCameraView_Position( camera.get() );
+        REQUIRE( LookWheel( camera.get(), 120, variant == 2 ? Qt::ShiftModifier : Qt::NoModifier ) );
+        DragButton( camera.get(), QEvent::MouseMove, point + QPointF( 10, 0 ), Qt::RightButton );
+        CHECK( TestDistance( MapCameraView_Forward( camera.get() ), direction ) > 0.01 );
+        if ( variant != 3 ) { CheckPointClose( MapCameraView_Position( camera.get() ), after ); }
+        DragButton( camera.get(), QEvent::MouseButtonRelease, point + QPointF( 10, 0 ), Qt::RightButton );
+    }
+}
+
+TEST_CASE( "Look wheel limits and allocation failure keep capture and suppress release menus", "[map][gui][views][camera-look-wheel][allocation][atomic]" )
+{
+    for ( const bool allocationFailure : { false, true } ) {
+        CAPTURE( allocationFailure ); session_t session; auto &ws = session.workspace;
+        view_settings_t settings( &session.gui.settings ); settings.Real( "editor.camera.move_speed", allocationFailure ? 1000.0 : 100000.0 );
+        mesh_face_allocation_failure_t audit{}; const allocator_t allocator{ &MeshFaceTestAllocate, nullptr, &MeshFaceTestFree, &audit };
+        settings_document_t scope{}; REQUIRE( SettingsDocument_Init( &scope, &allocator, EditorSettings_FileIdentity() ) == settings_document_status_t::OK );
+        EditorSettings_SetScope( &session.gui.settings, settings_scope_t::WORKSPACE, &scope );
+        std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+        look_wheel_context_requests_t requests; camera->installEventFilter( &requests ); const QPointF point( 300, 220 );
+        DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton ); CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W );
+        const auto position = MapCameraView_Position( camera.get() ), direction = MapCameraView_Forward( camera.get() );
+        const auto *tree = scope.pDocument; const usize live = audit.live; audit.calls = 0; audit.failOn = allocationFailure ? 1u : 0u;
+        REQUIRE( LookWheel( camera.get(), 480 ) ); audit.failOn = 0u;
+        const f64 speed = allocationFailure ? 1000.0 : 100000.0;
+        CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == speed );
+        CHECK( scope.pDocument == tree ); CHECK( audit.live == live );
+        CheckPointClose( MapCameraView_Position( camera.get() ), position ); CheckPointClose( MapCameraView_Forward( camera.get() ), direction );
+        CheckPointClose( MapCameraView_NavigationVelocity( camera.get() ), math::Vec3d_Scale( direction, speed ) );
+        CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_W ); DragButton( camera.get(), QEvent::MouseButtonRelease, point, Qt::RightButton );
+        QCoreApplication::sendPostedEvents( camera.get(), QEvent::ContextMenu ); CHECK( requests.count == 0 );
+        DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton ); REQUIRE( LookWheel( camera.get(), -120 ) );
+        CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == speed * 0.5 );
+        DragButton( camera.get(), QEvent::MouseMove, point + QPointF( 10, 0 ), Qt::RightButton ); CHECK( TestDistance( MapCameraView_Forward( camera.get() ), direction ) > 0.01 );
+        DragButton( camera.get(), QEvent::MouseButtonRelease, point + QPointF( 10, 0 ), Qt::RightButton );
+        camera.reset(); EditorSettings_SetScope( &session.gui.settings, settings_scope_t::WORKSPACE, nullptr ); SettingsDocument_Shutdown( &scope ); CHECK( audit.live == 0u );
+    }
+}
+
+TEST_CASE( "Look owns Shift wheel over staged construction and focus or Escape resets flight", "[map][gui][views][camera-look-wheel][block][focus]" )
+{
+    for ( const bool cancel : { false, true } ) {
+        CAPTURE( cancel ); session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+        view_settings_t settings( &session.gui.settings ); settings.Real( "editor.camera.move_speed", 1000.0 );
+        MapWorkspace_SetTool( &ws, map_tool_t::BLOCK ); map_bounds_t bounds{}; MapBounds_AddPoint( bounds, { 0, 0, 0 } ); MapBounds_AddPoint( bounds, { 64, 64, 64 } );
+        MapWorkspace_SetEditPreview( &ws, bounds ); REQUIRE( MapWorkspace_StageBlockPreview( &ws ) );
+        const auto geometry = ws.pDocument->geometry.revision; const auto history = EditorHistory_StepCount( &ws.history );
+        std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+        const QPointF point( 300, 220 ); DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton );
+        CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W ); REQUIRE( LookWheel( camera.get(), 120, Qt::ShiftModifier ) );
+        REQUIRE( MapWorkspace_HasBlockPreview( &ws ) ); CheckPointClose( ws.editPreview.bounds.box.minimum, bounds.box.minimum ); CheckPointClose( ws.editPreview.bounds.box.maximum, bounds.box.maximum );
+        CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 2000.0 );
+        REQUIRE( TestDistance( MapCameraView_NavigationVelocity( camera.get() ), {} ) > 1999.0 );
+        const auto position = MapCameraView_Position( camera.get() ), direction = MapCameraView_Forward( camera.get() );
+        if ( cancel ) { CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_Escape ); }
+        else { QFocusEvent out( QEvent::FocusOut, Qt::OtherFocusReason ); QCoreApplication::sendEvent( camera.get(), &out ); }
+        CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W, Qt::NoModifier, true, false );
+        CheckPointClose( MapCameraView_NavigationVelocity( camera.get() ), {} );
+        DragButton( camera.get(), QEvent::MouseMove, point + QPointF( 10, 0 ), Qt::RightButton ); DragButton( camera.get(), QEvent::MouseButtonRelease, point + QPointF( 10, 0 ), Qt::RightButton );
+        CheckPointClose( MapCameraView_Position( camera.get() ), position ); CheckPointClose( MapCameraView_Forward( camera.get() ), direction );
+        CHECK( ws.tool == map_tool_t::BLOCK ); CHECK( ws.pDocument->geometry.revision == geometry ); CHECK( EditorHistory_StepCount( &ws.history ) == history );
+    }
+}
