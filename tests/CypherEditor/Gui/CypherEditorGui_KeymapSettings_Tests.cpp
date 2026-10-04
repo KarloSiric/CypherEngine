@@ -19,15 +19,21 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <QApplication>
+#include <QAction>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFile>
 #include <QKeyEvent>
+#include <QKeySequenceEdit>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QMenu>
+#include <QScrollArea>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QToolButton>
 #include <QTreeWidget>
 
 #include <memory>
@@ -238,8 +244,14 @@ TEST_CASE( "Duplicate profiles retain staged declarations and metadata and rejec
 TEST_CASE( "Profile creation controls and shortcuts reference are discoverable in Settings", "[editor][gui][keymapsettings][profiles]" )
 {
     fixture_t f;
-    auto *pNew = f.page->findChild<QPushButton *>( QStringLiteral( "KeymapNewProfile" ) ); REQUIRE( pNew != nullptr );
-    auto *pDuplicate = f.page->findChild<QPushButton *>( QStringLiteral( "KeymapDuplicateProfile" ) ); REQUIRE( pDuplicate != nullptr );
+    auto *pProfiles = f.page->findChild<QToolButton *>( QStringLiteral( "KeymapProfileActions" ) ); REQUIRE( pProfiles != nullptr );
+    REQUIRE( pProfiles->menu() != nullptr ); CHECK( pProfiles->popupMode() == QToolButton::InstantPopup );
+    auto *pNew = pProfiles->menu()->findChild<QAction *>( QStringLiteral( "KeymapNewProfile" ) ); REQUIRE( pNew != nullptr );
+    auto *pDuplicate = pProfiles->menu()->findChild<QAction *>( QStringLiteral( "KeymapDuplicateProfile" ) ); REQUIRE( pDuplicate != nullptr );
+    for ( const char *pName : { "KeymapImport", "KeymapExportPortable", "KeymapExportSource" } ) {
+        const auto *pAction = pProfiles->menu()->findChild<QAction *>( QString::fromLatin1( pName ) ); REQUIRE( pAction != nullptr );
+        CHECK( pProfiles->menu()->actions().contains( const_cast<QAction *>( pAction ) ) ); CHECK( pAction->isEnabled() );
+    }
     auto *pReference = f.page->findChild<QPushButton *>( QStringLiteral( "KeymapShortcutsReference" ) ); REQUIRE( pReference != nullptr );
     CHECK_FALSE( pReference->isEnabled() );
     int referenceCalls = 0;
@@ -262,9 +274,9 @@ TEST_CASE( "Profile creation controls and shortcuts reference are discoverable i
         else { pDialog->reject(); }
     };
     QTimer::singleShot( 0, f.page.get(), [&]() { submit( QStringLiteral( "ui_profile" ), QStringLiteral( "UI profile" ), true, newFieldsFound ); } );
-    pNew->click(); CHECK( newFieldsFound ); CHECK( EditorKeymapSettings_CurrentKeymap( f.page.get() ) == QStringLiteral( "ui_profile" ) );
+    pNew->trigger(); CHECK( newFieldsFound ); CHECK( EditorKeymapSettings_CurrentKeymap( f.page.get() ) == QStringLiteral( "ui_profile" ) );
     QTimer::singleShot( 0, f.page.get(), [&]() { submit( QStringLiteral( "ui_copy" ), QStringLiteral( "UI copy" ), false, duplicateFieldsFound ); } );
-    pDuplicate->click(); CHECK( duplicateFieldsFound ); CHECK( EditorKeymapSettings_CurrentKeymap( f.page.get() ) == QStringLiteral( "ui_copy" ) );
+    pDuplicate->trigger(); CHECK( duplicateFieldsFound ); CHECK( EditorKeymapSettings_CurrentKeymap( f.page.get() ) == QStringLiteral( "ui_copy" ) );
     CHECK( Text( EditorGui_ActiveKeymapId( &f.gui ) ) == QStringLiteral( "cypher_default" ) );
 }
 
@@ -597,4 +609,71 @@ TEST_CASE( "Held input can be recorded again without reopening the recorder", "[
     auto *pTrigger = f.page->findChild<QLineEdit *>( QStringLiteral( "KeymapTrigger0" ) ); REQUIRE( pTrigger != nullptr );
     CHECK( pTrigger->text() == QStringLiteral( "Ctrl+W" ) );
     CHECK_FALSE( EditorKeymapSettings_HasChanges( f.page.get() ) ); // Record still requires explicit Set binding.
+}
+
+TEST_CASE( "Keybindings reserves space for actions and records bindings without opening technical details", "[editor][gui][keymapsettings][keymap-layout]" )
+{
+    for ( const QSize size : { QSize( 1045, 753 ), QSize( 1260, 900 ) } ) {
+        CAPTURE( size.width(), size.height() );
+        fixture_t f;
+        std::unique_ptr<QDialog> dialog( EditorSettingsDialog_Create( nullptr, &f.gui.settings, &f.gui.style ) );
+        auto *page = f.page.release();
+        EditorSettingsDialog_AddPage( dialog.get(), QString::fromLatin1( EDITOR_KEYBINDINGS_PAGE ), page,
+                                     EditorKeymapSettings_Keywords(), EditorKeymapSettings_CanClose );
+        dialog->resize( size ); dialog->show(); QCoreApplication::processEvents();
+        auto *rows = page->findChild<QTreeWidget *>( QStringLiteral( "KeymapBindings" ) ); REQUIRE( rows != nullptr );
+        auto *toggle = page->findChild<QToolButton *>( QStringLiteral( "KeymapAdvancedToggle" ) ); REQUIRE( toggle != nullptr );
+        auto *advanced = page->findChild<QScrollArea *>( QStringLiteral( "KeymapAdvancedDetails" ) ); REQUIRE( advanced != nullptr );
+        CHECK_FALSE( toggle->isChecked() ); CHECK_FALSE( advanced->isVisible() );
+        CHECK_FALSE( page->findChild<QLineEdit *>( QStringLiteral( "KeymapId" ) )->isVisible() );
+        CHECK_FALSE( page->findChild<QComboBox *>( QStringLiteral( "KeymapContext" ) )->isVisible() );
+        REQUIRE( rows->topLevelItemCount() > 20 );
+        const int rowHeight = rows->visualItemRect( rows->topLevelItem( 0 ) ).height(); REQUIRE( rowHeight > 0 );
+        CHECK( rows->viewport()->height() >= 8 * rowHeight );
+        CHECK_FALSE( rows->isColumnHidden( 0 ) ); CHECK_FALSE( rows->isColumnHidden( 3 ) );
+        for ( const int column : { 1, 2, 4, 5 } ) { CHECK( rows->isColumnHidden( column ) ); }
+        auto *apply = page->findChild<QPushButton *>( QStringLiteral( "KeymapApply" ) ); REQUIRE( apply != nullptr );
+        CHECK( dialog->rect().contains( apply->mapTo( dialog.get(), apply->rect().bottomRight() ) ) );
+        const int fullHeight = rows->height();
+        toggle->click(); QCoreApplication::processEvents();
+        CHECK( advanced->isVisible() ); CHECK( toggle->arrowType() == Qt::DownArrow );
+        CHECK( rows->viewport()->height() >= 5 * rowHeight );
+        CHECK_FALSE( EditorKeymapSettings_HasChanges( page ) );
+        toggle->click(); QCoreApplication::processEvents();
+        CHECK_FALSE( advanced->isVisible() ); CHECK( rows->height() >= fullHeight );
+
+        EditorKeymapSettings_SetFilter( page, QStringLiteral( "file.save" ) );
+        QTreeWidgetItem *save = nullptr;
+        for ( int i = 0; i < rows->topLevelItemCount(); ++i ) {
+            auto *item = rows->topLevelItem( i );
+            if ( item->toolTip( 0 ).startsWith( QStringLiteral( "file.save\n" ) ) && item->text( 2 ) == QStringLiteral( "global" ) ) { save = item; break; }
+        }
+        REQUIRE( save != nullptr ); rows->setCurrentItem( save );
+        auto *record = page->findChild<QPushButton *>( QStringLiteral( "KeymapRecord0" ) ); REQUIRE( record != nullptr ); CHECK( record->isVisible() );
+        bool recorded = false;
+        QTimer::singleShot( 0, page, [&]() {
+            auto *recorder = page->findChild<QDialog *>( QStringLiteral( "KeymapRecordDialog" ) );
+            if ( recorder == nullptr ) { return; }
+            auto *keys = recorder->findChild<QKeySequenceEdit *>();
+            if ( keys != nullptr ) { keys->setKeySequence( QKeySequence( QStringLiteral( "Ctrl+Alt+F12" ) ) ); recorded = true; }
+            recorder->accept();
+        } );
+        record->click(); REQUIRE( recorded );
+        CHECK_FALSE( EditorKeymapSettings_HasChanges( page ) );
+        CHECK( page->findChild<QLineEdit *>( QStringLiteral( "KeymapTrigger0" ) )->text() == QStringLiteral( "Ctrl+Alt+F12" ) );
+        auto *set = page->findChild<QPushButton *>( QStringLiteral( "KeymapSetBinding" ) ); REQUIRE( set != nullptr ); set->click();
+        CHECK( EditorKeymapSettings_HasChanges( page ) );
+        keymap_binding_t binding{};
+        REQUIRE( EditorKeymap_FindBinding( f.gui.keymapChain, f.gui.nKeymapChain, StringView_FromCString( "global" ), StringView_FromCString( "file.save" ), &binding ) == keymap_lookup_t::BOUND );
+        CHECK( binding.chords[0].strokes[0].key == 'S' );
+        CHECK( apply->isEnabled() ); apply->click();
+        CHECK_FALSE( EditorKeymapSettings_HasChanges( page ) );
+        REQUIRE( EditorKeymap_FindBinding( f.gui.keymapChain, f.gui.nKeymapChain, StringView_FromCString( "global" ), StringView_FromCString( "file.save" ), &binding ) == keymap_lookup_t::BOUND );
+        CHECK( CanonicalTriggerText( keymap_section_t::BINDINGS, StringView_FromCString( "Ctrl+Alt+F12" ) ) ==
+               Row( page, QStringLiteral( "file.save" ), QStringLiteral( "global" ) )[4] );
+        char formatted[EDITOR_KEY_CHORD_TEXT_CAPACITY]{};
+        CHECK( QString::fromUtf8( formatted, static_cast<qsizetype>( EditorKeyChord_Format( binding.chords[0], formatted ) ) ) == QStringLiteral( "Ctrl+Alt+F12" ) );
+        CHECK_FALSE( advanced->isVisible() );
+        dialog->hide();
+    }
 }

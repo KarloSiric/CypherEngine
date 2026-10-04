@@ -57,7 +57,8 @@ public:
         pIntroLayout->setContentsMargins( 24, 28, 24, 18 );
         pIntroLayout->setSpacing( 6 );
         auto *pIcon = new QLabel( pIntro );
-        pIcon->setPixmap( Mason_ApplicationIcon().pixmap( QSize( 128, 128 ) ) );
+        pIcon->setObjectName( QStringLiteral( "MasonWelcomeLogo" ) );
+        pIcon->setPixmap( Mason_ApplicationIcon().pixmap( QSize( 96, 96 ) ) );
         pIcon->setAlignment( Qt::AlignHCenter );
         auto *pName = new QLabel( QStringLiteral( "Mason" ), pIntro );
         QFont nameFont = style.uiFont;

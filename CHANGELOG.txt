@@ -50,6 +50,12 @@ Added - Mason map authoring
   framing controls; Home frames the map from a geometric viewport.
 
 Changed
+- Keybindings reserves more space for actions, shows Action/Bindings by default
+  and groups profile operations in one menu. Advanced details retain identity,
+  platform overrides, contexts and metadata. Settings opens larger when the
+  screen permits and remains resizable.
+- Borderless transparent Mason branding, with 96-logical-pixel welcome/startup
+  artwork. Both the supplied original and edited source are retained.
 - In 3D, plus/minus and keypad equivalents adjust camera speed; brackets keep
   grid controls. Plus/minus retain grid behavior in 2D.
 - Escape cancels a gesture, leaves an idle tool for Navigation, then clears
@@ -59,6 +65,10 @@ Changed
 - Local validation uses one compact Mason build and existing system packages.
 
 Fixed
+- Brush Push/Pull previews the complete validated solid, adjoining sides and
+  shaded 3D surface grids. Face highlights and the normal handle follow the
+  candidate across panes. Invalid/stale candidates and release after a failed
+  preview cannot publish; snapping, attributes and undo/redo are retained.
 - Separated 2D resize squares from move-arrow pickups by 24 logical pixels,
   including small selections and configured gizmo sizes. Draw/hover/press use
   one layout; world anchors, snapping, captured offsets and undo are retained.
@@ -91,6 +101,11 @@ Validation and remaining work
   focused rendered move/resize checks 15623 / 5 at 2x scaling; actual Mason
   move/resize regression also passes at 2x. Tiny and boundary-at-move-tip
   workspace captures were inspected.
+  GitHub Actions run 37214231171 passed all 15 jobs for the published commit.
+- Complete brush face previews, simpler Keybindings and borderless branding:
+  five local suites, 219268 assertions / 857 cases. Face geometry/rendering
+  passed at 1x/2x; Settings layout/recording and Mason captures also pass at 2x.
+  Fixed neutral-wire overdraw at 1x with the original regression unchanged.
 - Component edit adapters, face UV edits, full Hammer shortcut parity and
   renderer/ECS/audio/physics/gameplay integration remain unfinished. Full Mason
   user documentation comes later; research notes retain implementation evidence.

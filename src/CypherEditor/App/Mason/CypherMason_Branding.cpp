@@ -17,7 +17,7 @@ using namespace editor::gui;
 
 const char *Mason_Version() noexcept { return CYPHER_MASON_VERSION; }
 
-// All sizes and the native app icon use the supplied mason_source.png.
+// All sizes and the native app icon use the borderless Mason artwork.
 // A dedicated small size keeps title bars crisp, while the larger sizes
 // cover welcome, About and high DPI displays without changing the artwork.
 QIcon Mason_ApplicationIcon()
@@ -76,7 +76,7 @@ QPixmap Mason_StartupImage( const editor_style_t &style, qreal devicePixelRatio 
     box( -1.5, -1.0, 3, 2, 1.6, selected );
 
     painter.setRenderHint( QPainter::SmoothPixmapTransform );
-    painter.drawPixmap( QRectF( 40, 66, 122, 122 ), QPixmap( QStringLiteral( ":/cypher/editor/branding/mason.png" ) ), QRectF( 0, 0, 512, 512 ) );
+    painter.drawPixmap( QRectF( 53, 79, 96, 96 ), QPixmap( QStringLiteral( ":/cypher/editor/branding/mason.png" ) ), QRectF( 0, 0, 512, 512 ) );
     QFont title = style.uiFont; title.setPixelSize( 68 ); title.setBold( true );
     title.setLetterSpacing( QFont::AbsoluteSpacing, 5 );
     painter.setFont( title ); painter.setPen( text );

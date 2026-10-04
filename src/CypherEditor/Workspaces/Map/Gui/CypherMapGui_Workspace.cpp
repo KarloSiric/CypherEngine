@@ -1453,6 +1453,11 @@ void MapWorkspace_Notify( map_workspace_t *pWorkspace, u32 changes ) noexcept
         MapWireframe_Shutdown( &pWorkspace->editPreviewWire );
         changes |= MAP_CHANGE_VIEW;
     }
+    if ( pWorkspace->editPreview.bFacePushPull && !MapWorkspace_HasFacePreview( pWorkspace ) ) {
+        pWorkspace->editPreview = {};
+        MapWireframe_Shutdown( &pWorkspace->editPreviewWire );
+        changes |= MAP_CHANGE_VIEW;
+    }
     if ( pWorkspace->editPreview.bActive && pWorkspace->editPreview.transform.kind != map_transform_preview_kind_t::NONE &&
          ( pWorkspace->pDocument == nullptr || pWorkspace->editPreview.documentRevision != pWorkspace->pDocument->geometry.revision ||
            pWorkspace->editPreview.selectionRevision != pWorkspace->selection.revision || pWorkspace->editPreview.tool != pWorkspace->tool ||

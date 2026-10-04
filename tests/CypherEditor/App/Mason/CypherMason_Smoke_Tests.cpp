@@ -997,6 +997,13 @@ TEST_CASE( "Mason branding loads and startup reports stages after saved settings
     CHECK( stages == ( QStringList{ "Preparing map workspace...", "Building tools and panels...", "Ready." } ) );
     CHECK_FALSE( Mason_Window( mason )->windowIcon().isNull() );
     CHECK_FALSE( Mason_ApplicationIcon().pixmap( 256, 256 ).isNull() );
+    for ( const int size : { 64, 512, 1024 } ) {
+        const QImage icon = Mason_ApplicationIcon().pixmap( size, size ).toImage();
+        REQUIRE_FALSE( icon.isNull() );
+        CHECK( icon.pixelColor( 0, 0 ).alpha() == 0 );
+        CHECK( icon.pixelColor( icon.width() - 1, icon.height() - 1 ).alpha() == 0 );
+        CHECK( icon.pixelColor( icon.width() / 2, icon.height() / 2 ).alpha() >= 250 );
+    }
     CHECK_FALSE( QString::fromLatin1( Mason_Version() ).isEmpty() );
     const QPixmap startup = Mason_StartupImage( Mason_Gui( mason )->style );
     CHECK( startup.size() == QSize( 840, 460 ) );
@@ -2969,6 +2976,20 @@ TEST_CASE( "Capture Mason Settings Keybindings viewport input and orthographic c
     REQUIRE( page != nullptr );
     REQUIRE( EditorSettingsDialog_CurrentPage( dialog ) == QStringLiteral( "Keybindings" ) );
     REQUIRE( QDir().mkpath( QStringLiteral( "artifacts" ) ) );
+    auto *rows = page->findChild<QTreeWidget *>( QStringLiteral( "KeymapBindings" ) ); REQUIRE( rows != nullptr );
+    auto *advanced = page->findChild<QToolButton *>( QStringLiteral( "KeymapAdvancedToggle" ) ); REQUIRE( advanced != nullptr );
+    REQUIRE_FALSE( advanced->isChecked() );
+    for ( const QSize size : { QSize( 1045, 753 ), QSize( 1260, 900 ) } ) {
+        dialog->resize( size ); QCoreApplication::processEvents();
+        REQUIRE( rows->topLevelItemCount() > 20 );
+        const int rowHeight = rows->visualItemRect( rows->topLevelItem( 0 ) ).height(); REQUIRE( rowHeight > 0 );
+        CHECK( rows->viewport()->height() >= 8 * rowHeight );
+        CHECK( dialog->grab().save( QStringLiteral( "artifacts/mason_keybindings_simple_%1x%2.png" ).arg( size.width() ).arg( size.height() ) ) );
+        advanced->click(); QCoreApplication::processEvents();
+        CHECK( rows->viewport()->height() >= 5 * rowHeight );
+        CHECK( dialog->grab().save( QStringLiteral( "artifacts/mason_keybindings_advanced_%1x%2.png" ).arg( size.width() ).arg( size.height() ) ) );
+        advanced->click(); QCoreApplication::processEvents();
+    }
     dialog->resize( 1560, 1050 );
     EditorKeymapSettings_SetFilter( page, QStringLiteral( "map.viewport" ) );
     QCoreApplication::processEvents();
@@ -2990,6 +3011,19 @@ TEST_CASE( "Capture Mason Settings Keybindings viewport input and orthographic c
     CHECK( dialog->grab().save( QStringLiteral( "artifacts/mason_keybindings_nudges.png" ) ) );
     CHECK_FALSE( EditorKeymapSettings_HasChanges( page ) );
     dialog->hide();
+}
+
+TEST_CASE( "Capture compact borderless Mason welcome and startup branding", "[.borderless-branding-screenshot]" )
+{
+    mason_session_t session;
+    REQUIRE( QDir().mkpath( QStringLiteral( "artifacts" ) ) );
+    CHECK( Mason_StartupImage( Mason_Gui( session.pMason )->style ).save( QStringLiteral( "artifacts/mason_borderless_startup.png" ) ) );
+    std::unique_ptr<QDialog> welcome( MasonWelcome_Create( Mason_Window( session.pMason ), Mason_Gui( session.pMason )->style, {}, true ) );
+    welcome->show(); QCoreApplication::processEvents();
+    const auto *logo = welcome->findChild<QLabel *>( QStringLiteral( "MasonWelcomeLogo" ) ); REQUIRE( logo != nullptr );
+    CHECK( logo->pixmap().deviceIndependentSize() == QSizeF( 96, 96 ) );
+    CHECK( welcome->grab().save( QStringLiteral( "artifacts/mason_borderless_welcome.png" ) ) );
+    welcome->hide();
 }
 
 TEST_CASE( "Capture Mason compact primitive icons and Quad dimensions", "[.primitive-icons-screenshot]" )
@@ -3197,6 +3231,39 @@ TEST_CASE( "Capture Mason clean RGB dimensions and direct face controls", "[.sel
     map_bounds_t wall{}; MapBounds_AddPoint( wall, { 320, 0, 0 } ); MapBounds_AddPoint( wall, { 384, 512, 960 } );
     REQUIRE( MapWorkspace_CreateBox( ws, wall ) ); MapWorkspace_Frame( ws, CY_TRUE ); QCoreApplication::processEvents();
     REQUIRE( camera->grab().save( QStringLiteral( "artifacts/mason_clean_wall_view.png" ) ) );
+}
+
+TEST_CASE( "Capture complete brush volume during Mason face Push Pull", "[.face-volume-preview-capture]" )
+{
+    mason_session_t session; auto *ws = Mason_MapWorkspace( session.pMason ); auto *window = Mason_Window( session.pMason );
+    window->resize( 1600, 1050 );
+    map_bounds_t cube{}; MapBounds_AddPoint( cube, { -128, -128, 0 } ); MapBounds_AddPoint( cube, { 128, 128, 128 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, cube ) ); const u64 id = EditorSelection_At( &ws->selection, 0 );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views != nullptr );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER );
+    MapViews_SetPaneType( views, 1, map_view_type_t::TOP ); MapViews_SetPaneType( views, 2, map_view_type_t::FRONT );
+    MapCameraView_SetRenderMode( MapViews_PaneView( views, 0 ), map_render_mode_t::FULLBRIGHT );
+    MapWorkspace_SetTool( ws, map_tool_t::SELECT ); MapWorkspace_Frame( ws, CY_TRUE );
+    u64 side = 0;
+    for ( usize i = 0; i < ws->wire.faces.nCount; ++i ) {
+        const auto &face = ws->wire.faces.pData[i]; if ( face.id == id && face.normal.z > .99 ) { side = face.sideId; break; }
+    }
+    REQUIRE( side != 0 ); MapWorkspace_SelectBrushFace( ws, id, side ); MapWorkspace_SetGridSize( ws, 64 );
+    QCoreApplication::processEvents(); REQUIRE( QDir().mkpath( QStringLiteral( "artifacts" ) ) );
+    auto *camera = MapViews_PaneView( views, 0 ); REQUIRE( camera != nullptr );
+    CHECK( window->grab().save( QStringLiteral( "artifacts/mason_face_volume_before.png" ) ) );
+    const auto *document = ws->pDocument; const usize steps = EditorHistory_StepCount( &ws->history );
+    MapWorkspace_SetFacePreview( ws, 64 ); REQUIRE( MapWorkspace_HasFacePreview( ws ) );
+    REQUIRE( ws->editPreview.status == map_status_t::OK ); CHECK( ws->editPreview.bounds.box.maximum.z == 192 );
+    CHECK( ws->pDocument == document ); CHECK( EditorHistory_StepCount( &ws->history ) == steps );
+    QCoreApplication::processEvents();
+    CHECK( window->grab().save( QStringLiteral( "artifacts/mason_face_volume_preview_workspace.png" ) ) );
+    CHECK( camera->grab().save( QStringLiteral( "artifacts/mason_face_volume_preview_camera.png" ) ) );
+    REQUIRE( MapWorkspace_CommitFacePreview( ws ) ); CHECK_FALSE( MapWorkspace_HasFacePreview( ws ) );
+    QCoreApplication::processEvents();
+    CHECK( window->grab().save( QStringLiteral( "artifacts/mason_face_volume_committed.png" ) ) );
+    REQUIRE( session.Run( QStringLiteral( "edit.undo" ) ) == command_result_t::OK );
+    CHECK( MapWireframe_FindObject( ws->wire, id )->bounds.box.maximum.z == 128 );
 }
 
 TEST_CASE( "Mason reports mesh edge selection and dispatches topology queries without parent edits", "[mason][smoke][mesh-edge]" )

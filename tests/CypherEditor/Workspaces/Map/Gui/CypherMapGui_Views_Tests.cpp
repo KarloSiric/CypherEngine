@@ -9487,3 +9487,77 @@ TEST_CASE( "Releasing an unbound command modifier resumes observed camera moveme
     CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W, Qt::NoModifier, true );
     CheckPointClose( MapCameraView_NavigationVelocity( camera.get() ), {} );
 }
+
+TEST_CASE( "Face extension shows opaque adjoining sides and moves the selected highlight in every pane", "[map][gui][views][face-volume-preview][render][cross-pane]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    view_settings_t settings( &session.gui.settings );
+    settings.Set( "editor.grid.show_surface_3d", false );
+    settings.Set( "editor.viewport.show_selection_dimensions", false ); settings.Set( "editor.viewport.perspective.show_selection_dimensions", false );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, -128 } ); MapBounds_AddPoint( box, { 128, 128, 128 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 );
+    std::unique_ptr<QWidget> front( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::FRONT ) );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( front.get(), 800, 600 ); ShowAt( camera.get(), 800, 600 );
+    MapCameraView_SetRenderMode( camera.get(), map_render_mode_t::FULLBRIGHT ); MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents();
+    // Keep the prospective cap inside the ortho pane without reframing the
+    // gesture; the live camera and all panes stay fixed during preview.
+    const QPointF frontCenter = front->rect().center();
+    QWheelEvent zoomOut( frontCenter, front->mapToGlobal( frontCenter ), QPoint(), QPoint( 0, -240 ), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false );
+    QCoreApplication::sendEvent( front.get(), &zoomOut );
+    MapWorkspace_SelectBrushFace( &ws, id, BrushSideInDirection( ws, id, 2, 1 ) );
+    const auto position = MapCameraView_Position( camera.get() );
+    const math::vec3d_t wallInterior{ position.x > 0 ? 128.0 : -128.0, 31.0, 160.0 };
+    QPointF sideProbe; REQUIRE( MapCameraView_WorldToView( camera.get(), wallInterior, &sideProbe ) );
+    REQUIRE( camera->rect().adjusted( 12, 12, -12, -12 ).contains( sideProbe.toPoint() ) );
+    const QPointF oldFace = MapOrthoView_WorldToView( front.get(), { 31, 128 } ), newFace = MapOrthoView_WorldToView( front.get(), { 31, 192 } );
+    const QColor selected = gui::EditorStyle_Color( session.gui.style, gui::STYLE_COLOR_SELECTION );
+    const QImage cameraBefore = camera->grab().toImage(), frontBefore = front->grab().toImage();
+    REQUIRE( HandleColorPixelsNear( frontBefore, oldFace, selected, 2 ) > 0 );
+    REQUIRE( HandleColorPixelsNear( frontBefore, newFace, selected, 2 ) == 0 );
+    const auto *document = ws.pDocument; const auto revision = document->geometry.revision; const auto original = ObjectLineVertices( ws.wire, id );
+    MapWorkspace_SetFacePreview( &ws, 64 ); REQUIRE( ws.editPreview.status == map_status_t::OK );
+    const QImage cameraPreview = camera->grab().toImage(), frontPreview = front->grab().toImage();
+    CHECK( ChangedPixelsNear( cameraBefore, cameraPreview, sideProbe, 1 ) > 0 ); // Interior fill, away from the moved cap and wire edges.
+    CHECK( HandleColorPixelsNear( frontPreview, newFace, selected, 2 ) > 0 );
+    CHECK( HandleColorPixelsNear( frontPreview, oldFace, selected, 2 ) == 0 );
+    CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision ); CheckObjectVertices( ws.wire, id, original );
+    const auto candidate = ObjectLineVertices( ws.editPreviewWire, id ); REQUIRE( MapWorkspace_CommitFacePreview( &ws ) );
+    CheckObjectVertices( ws.wire, id, candidate );
+    CHECK( ChangedPixelsNear( cameraPreview, camera->grab().toImage(), sideProbe, 1 ) == 0 );
+    CHECK( HandleColorPixelsNear( front->grab().toImage(), newFace, selected, 2 ) > 0 );
+}
+
+TEST_CASE( "Failed or cancelled face-volume gestures cannot publish when a later release reaches a valid pointer", "[map][gui][views][face-volume-preview][allocation][cancel][late-release]" )
+{
+    for ( const bool allocationFailure : { false, true } ) {
+        CAPTURE( allocationFailure ); session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+        map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, -128 } ); MapBounds_AddPoint( box, { 128, 128, 128 } );
+        REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 ); const auto original = ObjectLineVertices( ws.wire, id );
+        std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+        MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents(); MapWorkspace_SelectBrushFace( &ws, id, BrushSideInDirection( ws, id, 2, 1 ) );
+        QPointF start, valid, failed;
+        REQUIRE( MapCameraView_WorldToView( camera.get(), { 0, 0, 128 }, &start ) ); REQUIRE( MapCameraView_WorldToView( camera.get(), { 0, 0, 160 }, &valid ) );
+        REQUIRE( MapCameraView_WorldToView( camera.get(), { 0, 0, 192 }, &failed ) );
+        const auto *document = ws.pDocument; const auto revision = document->geometry.revision; const auto token = UndoRedo_StateToken( ws.history.pUndo );
+        DragMouse( camera.get(), QEvent::MouseButtonPress, start ); DragMouse( camera.get(), QEvent::MouseMove, valid );
+        REQUIRE( ws.editPreview.status == map_status_t::OK ); REQUIRE( ws.editPreviewWire.faces.nCount == 6 );
+        if ( allocationFailure ) {
+            const allocator_t failAllocator{
+                []( void *, usize, usize ) noexcept -> void * { return nullptr; }, nullptr,
+                []( void *, void *memory, usize bytes, usize alignment ) noexcept { Allocator_Free( Allocator_GetSystem(), memory, bytes, alignment ); }, nullptr };
+            const auto *originalAllocator = ws.pDocument->pAllocator; ws.pDocument->pAllocator = &failAllocator;
+            DragMouse( camera.get(), QEvent::MouseMove, failed ); ws.pDocument->pAllocator = originalAllocator;
+            REQUIRE( ws.editPreview.status == map_status_t::OUT_OF_MEMORY ); REQUIRE( ws.editPreviewWire.faces.nCount == 0 );
+        } else {
+            QKeyEvent cancel( QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier ); QCoreApplication::sendEvent( camera.get(), &cancel );
+            REQUIRE_FALSE( ws.editPreview.bActive ); REQUIRE( ws.editPreviewWire.faces.nCount == 0 );
+        }
+        // Allocator recovery alone must not rebuild an unseen candidate at
+        // release. A cancelled gesture similarly ignores a late release.
+        DragMouse( camera.get(), QEvent::MouseButtonRelease, failed );
+        CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.editPreviewWire.points.nCount == 0 );
+        CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision ); CheckObjectVertices( ws.wire, id, original );
+        CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+        CHECK( EditorHistory_AppliedStepCount( &ws.history ) == 1 );
+    }
+}

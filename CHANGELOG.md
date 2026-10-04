@@ -64,6 +64,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Keybindings gives the action list more space, shows Action and Bindings by
+  default, and moves profile operations into one menu. Advanced details retain
+  profile identity, platform overrides, contexts and declaration metadata.
+  Settings opens larger when the screen permits and remains resizable.
+- Mason's application, welcome and startup branding uses a transparent
+  borderless logo. Welcome/startup artwork is reduced to 96 logical pixels;
+  the original supplied image is retained alongside the edited source.
 - In 3D viewports, plus/minus and their keypad equivalents adjust camera speed;
   brackets retain grid-size controls. Plus/minus still adjust the grid in 2D.
 - Escape cancels an active gesture, then leaves an idle tool for Navigation;
@@ -77,6 +84,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Brush face Push/Pull now previews the complete validated solid, including
+  adjoining sides and surface grids in shaded 3D views. Selected-face highlights
+  and the normal handle follow the candidate geometry across panes. Invalid or
+  stale candidates cannot commit, and releasing after a failed preview cannot
+  silently regenerate it. Grid snapping, attributes and undo/redo are retained.
 - Separated 2D bounds-resize squares from move-arrow pickups by 24 logical
   pixels, including zoomed-out selections and configured gizmo sizes. Drawing,
   hover and press share the layout; displaced controls keep their world anchors,
@@ -121,6 +133,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   passed 15,623 assertions in five cases at 2x scaling; the actual Mason
   move/resize regression also passed at 2x scaling. Workspace captures were
   inspected for tiny selections and a boundary meeting the former move tip.
+  GitHub Actions run 37214231171 passed all 15 jobs for the published commit.
+- Complete brush face previews, simpler Keybindings and borderless branding
+  passed the five local suites: 219,268 assertions in 857 cases. Face geometry
+  and rendering checks passed at 1x and 2x scaling; Settings layout/recording
+  checks and actual Mason captures also passed at 2x. A 1x neutral-wire
+  overdraw defect was fixed without weakening the selected-face regression.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
   Full Mason user documentation is deferred; implementation evidence is kept

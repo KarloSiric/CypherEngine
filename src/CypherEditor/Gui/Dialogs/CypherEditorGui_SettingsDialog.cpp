@@ -38,12 +38,14 @@
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QGridLayout>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScreen>
 #include <QShortcut>
 #include <QSpinBox>
 #include <QSplitter>
@@ -128,7 +130,12 @@ public:
         CY_ASSERT( pRegistry != nullptr );
         setObjectName( QStringLiteral( "EditorSettingsDialog" ) );
         setWindowTitle( QStringLiteral( "Settings" ) );
-        resize( 1040, 720 );
+        QSize initialSize( 1260, 850 );
+        if ( const auto *pScreen = pParent != nullptr ? pParent->screen() : QGuiApplication::primaryScreen() ) {
+            const auto available = pScreen->availableGeometry().size();
+            initialSize = initialSize.boundedTo( QSize( std::max( 1, available.width() - 64 ), std::max( 1, available.height() - 64 ) ) );
+        }
+        resize( initialSize ); setSizeGripEnabled( true );
         EditorGui_RegisterResources();
 
         auto *pRoot = new QVBoxLayout( this );
@@ -158,7 +165,7 @@ public:
         m_pPages->setObjectName( QStringLiteral( "SettingsCategories" ) );
         m_pPages->setIconSize( QSize( 20, 20 ) );
         m_pPages->setIndentation( 16 );
-        m_pPages->setMinimumWidth( 260 );
+        m_pPages->setMinimumWidth( 190 );
         auto *pContent = new QWidget( pSplitter );
         auto *pContentLayout = new QVBoxLayout( pContent );
         pContentLayout->setContentsMargins( 6, 0, 0, 0 );
@@ -185,7 +192,7 @@ public:
         pContentLayout->addWidget( m_pStack, 1 );
         pSplitter->addWidget( pContent );
         pSplitter->setStretchFactor( 1, 1 );
-        pSplitter->setSizes( { 280, 760 } );
+        pSplitter->setSizes( { 220, 1040 } );
         pRoot->addWidget( pSplitter, 1 );
 
         auto *pFind = new QShortcut( QKeySequence::Find, this );

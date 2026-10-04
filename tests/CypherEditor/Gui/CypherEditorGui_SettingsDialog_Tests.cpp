@@ -24,12 +24,15 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QSpinBox>
 #include <QCoreApplication>
 #include <QLabel>
 #include <QPointer>
 
 #include <string>
+#include <algorithm>
 
 using namespace cypher::common;
 using namespace cypher::editor;
@@ -84,6 +87,21 @@ TEST_CASE( "The settings dialog lists a page's settings and searches across page
     CHECK_FALSE( found.contains( QStringLiteral( "editor.grid.size" ) ) );
     EditorSettingsDialog_SetSearch( f.pDialog, QStringLiteral( "qqqqzzzz" ) );
     CHECK( EditorSettingsDialog_VisibleSettings( f.pDialog ).isEmpty() );
+}
+
+TEST_CASE( "Settings chooses a larger screen bounded default and remains resizable", "[editor][gui][settings][settings-layout]" )
+{
+    fixture_t f;
+    const auto *screen = QGuiApplication::primaryScreen(); REQUIRE( screen != nullptr );
+    const auto available = screen->availableGeometry().size();
+    CHECK( f.pDialog->width() == std::min( 1260, std::max( 1, available.width() - 64 ) ) );
+    CHECK( f.pDialog->height() == std::min( 850, std::max( 1, available.height() - 64 ) ) );
+    CHECK( f.pDialog->isSizeGripEnabled() );
+    f.pDialog->resize( 1045, 753 ); f.pDialog->show(); QCoreApplication::processEvents();
+    CHECK( f.pDialog->size() == QSize( 1045, 753 ) );
+    f.pDialog->resize( 1260, 900 ); QCoreApplication::processEvents();
+    CHECK( f.pDialog->size() == QSize( 1260, 900 ) );
+    f.pDialog->hide();
 }
 
 TEST_CASE( "Editors write into the chosen scope and rows show where values come from", "[editor][gui][settings]" )

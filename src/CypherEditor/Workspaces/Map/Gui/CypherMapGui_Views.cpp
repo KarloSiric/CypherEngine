@@ -132,6 +132,7 @@ enum line_color_t : u32 {
 
 bool EditPreviewTarget( const map_workspace_t &ws, u64 id ) noexcept {
     if ( !ws.editPreview.bActive || ws.editPreview.status != map_status_t::OK ) { return false; }
+    if ( ws.editPreview.bFacePushPull ) { return MapWorkspace_HasFacePreview( &ws ) && id == ws.editPreview.faceObject; }
     if ( ws.editPreview.bClip ) { return MapWorkspace_IsSelected( &ws, id ); }
     const auto *object = MapWireframe_FindObject( ws.wire, id );
     return ws.editPreview.transform.kind != map_transform_preview_kind_t::NONE && object != nullptr &&
@@ -1216,6 +1217,13 @@ void CommitDrag( view_edit_drag_t &drag, map_workspace_t &ws ) {
         // Clear the local gesture before publication notifies listeners.
         drag = {}; ( void )MapWorkspace_CommitClipPreview( &ws ); return;
     }
+    if ( drag.kind == edit_drag_t::PUSH_PULL ) {
+        // A failed private solid is not a publishable gesture. Never retry an
+        // unseen distance on release, including after a failed allocation.
+        if ( QLineF( drag.start, drag.current ).length() < 3 || !MapWorkspace_HasFacePreview( &ws ) ||
+             ws.editPreview.status != map_status_t::OK ) { CancelDrag( drag, ws ); return; }
+        drag = {}; ( void )MapWorkspace_CommitFacePreview( &ws ); return;
+    }
     const auto completed = drag;
     CancelDrag( drag, ws );
     if ( ( completed.bodyMove && !completed.bodyActivated ) || QLineF( completed.start, completed.current ).length() < 3 ) { return; }
@@ -1227,7 +1235,6 @@ void CommitDrag( view_edit_drag_t &drag, map_workspace_t &ws ) {
             else { ( void )MapWorkspace_ScaleSelection( &ws, completed.factors, completed.pivot ); }
             break;
         case edit_drag_t::ROTATE: ( void )MapWorkspace_RotateSelection( &ws, completed.degrees, completed.pivot ); break;
-        case edit_drag_t::PUSH_PULL: ( void )MapWorkspace_PushPullFace( &ws, completed.distance ); break;
         default: break;
     }
 }
@@ -1346,7 +1353,7 @@ void DrawBoundsDimensions( QPainter &painter, const map_workspace_t &ws, const m
 }
 template <typename Project, typename ProjectSegment, typename ProjectFace>
 void DrawEditPreview( QPainter &painter, const map_workspace_t &ws, Project project, ProjectSegment projectSegment,
-    ProjectFace projectFace, QRectF viewport, bool perspective ) {
+    ProjectFace projectFace, QRectF viewport, bool perspective, bool wireframe = false ) {
     if ( !ws.editPreview.bActive ) { return; }
     const auto &box = ws.editPreview.bounds.box;
     math::vec3d_t points[8];
@@ -1355,12 +1362,13 @@ void DrawEditPreview( QPainter &painter, const map_workspace_t &ws, Project proj
     painter.setRenderHint( QPainter::Antialiasing );
     const bool clipping = ws.editPreview.bClip;
     const bool creating = ws.tool == map_tool_t::BLOCK || clipping;
+    const bool facePushPull = ws.editPreview.bFacePushPull;
     const bool transforming = ws.editPreview.transform.kind != map_transform_preview_kind_t::NONE;
-    const bool valid = !creating || ws.editPreview.status == map_status_t::OK;
+    const bool valid = ( !creating && !facePushPull ) || ws.editPreview.status == map_status_t::OK;
     const QColor color = valid ? SlotColor( ws, ( creating || transforming ) ? LINE_SELECTED : LINE_HOVER ) : Token( ws, "ui.status.error.text" );
     const auto &wire = ws.editPreviewWire;
-    const bool exact = creating && wire.points.nCount != 0 && ( valid || MapWorkspace_HasBlockPreview( &ws ) );
-    if ( exact && perspective ) {
+    const bool exact = ( creating || facePushPull ) && wire.points.nCount != 0 && ( valid || MapWorkspace_HasBlockPreview( &ws ) );
+    if ( exact && perspective && !facePushPull ) {
         QColor fill = color; fill.setAlpha( 14 );
         painter.setPen( Qt::NoPen ); painter.setBrush( fill );
         for ( usize i = 0; i < wire.faces.nCount; ++i ) {
@@ -1376,13 +1384,32 @@ void DrawEditPreview( QPainter &painter, const map_workspace_t &ws, Project proj
     if ( transforming ) { envelope.setAlpha( 120 ); }
     else if ( exact && ws.editPreview.primitive.kind != map_primitive_kind_t::BOX ) { envelope.setAlpha( 70 ); }
     painter.setPen( QPen( envelope, 1.0, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin ) );
-    if ( !clipping && ( !transforming || DisplayFlag( ws, perspective ? "editor.viewport.perspective.show_selection_bounds" : "editor.viewport.show_selection_bounds" ) ) ) { for ( int c = 0; c < 8; ++c ) { for ( int a = 0; a < 3; ++a ) { if ( c & ( 1 << a ) ) { continue; } QLineF line;
+    if ( !clipping && !facePushPull && ( !transforming || DisplayFlag( ws, perspective ? "editor.viewport.perspective.show_selection_bounds" : "editor.viewport.show_selection_bounds" ) ) ) { for ( int c = 0; c < 8; ++c ) { for ( int a = 0; a < 3; ++a ) { if ( c & ( 1 << a ) ) { continue; } QLineF line;
         if ( projectSegment( points[c], points[c | ( 1 << a )], line ) ) { painter.drawLine( line ); }
     } } }
-    if ( exact ) {
-        painter.setPen( QPen( color, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) );
+    if ( exact && ( !facePushPull || !perspective || wireframe ) ) {
+        const map_wire_face_t *selectedSide = nullptr;
+        if ( facePushPull && valid ) {
+            for ( usize i = 0; i < wire.faces.nCount; ++i ) {
+                if ( wire.faces.pData[i].id == ws.editPreview.faceObject && wire.faces.pData[i].sideId == ws.editPreview.faceSide ) {
+                    selectedSide = &wire.faces.pData[i]; break;
+                }
+            }
+        }
+        painter.setPen( QPen( facePushPull ? SlotColor( ws, LINE_WORLD ) : color, facePushPull ? 1.0 : 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) );
         for ( usize i = 0; i < wire.lines.nCount; ++i ) {
             const auto &line = wire.lines.pData[i]; QLineF projected;
+            // The selected cap was already outlined in selection colour.
+            // A neutral antialiased stroke here would erase that cue at 1x.
+            bool selectedBoundary = false;
+            if ( selectedSide != nullptr ) {
+                for ( u32 corner = 0; corner < selectedSide->nIndices; ++corner ) {
+                    const u32 a = wire.faceIndices.pData[selectedSide->iFirstIndex + corner];
+                    const u32 b = wire.faceIndices.pData[selectedSide->iFirstIndex + ( corner + 1u ) % selectedSide->nIndices];
+                    if ( ( line.iA == a && line.iB == b ) || ( line.iA == b && line.iB == a ) ) { selectedBoundary = true; break; }
+                }
+            }
+            if ( selectedBoundary ) { continue; }
             if ( projectSegment( wire.points.pData[line.iA], wire.points.pData[line.iB], projected ) ) { painter.drawLine( projected ); }
         }
     }
@@ -1462,15 +1489,16 @@ void DrawClipGuide( QPainter &painter, const map_workspace_t &ws, Project projec
 void DrawEditReadout( QPainter &painter, const map_workspace_t &ws, const view_edit_drag_t &drag, QRectF viewport, bool perspective ) {
     const bool clipping = ws.editPreview.bActive && ws.editPreview.bClip;
     const bool block = MapWorkspace_HasBlockPreview( &ws );
+    const bool facePushPull = MapWorkspace_HasFacePreview( &ws );
     const auto &transform = ws.editPreview.transform;
     const bool transforming = transform.kind != map_transform_preview_kind_t::NONE;
     const bool dimensions = DisplayFlag( ws, perspective ? "editor.viewport.perspective.show_selection_dimensions" : "editor.viewport.show_selection_dimensions" );
-    if ( !ws.editPreview.bActive || ( !clipping && !block && ( ( !transforming && drag.kind == edit_drag_t::NONE ) || drag.kind == edit_drag_t::MARQUEE ||
+    if ( !ws.editPreview.bActive || ( !clipping && !block && !facePushPull && ( ( !transforming && drag.kind == edit_drag_t::NONE ) || drag.kind == edit_drag_t::MARQUEE ||
          !dimensions ) ) ) { return; }
     const auto &box = ws.editPreview.bounds.box;
     const math::vec3d_t size = Sub( box.maximum, box.minimum );
     QString operation, detail;
-    const auto kind = clipping ? edit_drag_t::CLIP : block ? edit_drag_t::BOX : transforming ?
+    const auto kind = clipping ? edit_drag_t::CLIP : block ? edit_drag_t::BOX : facePushPull ? edit_drag_t::PUSH_PULL : transforming ?
         transform.kind == map_transform_preview_kind_t::TRANSLATE ? edit_drag_t::TRANSLATE :
         transform.kind == map_transform_preview_kind_t::SCALE ? edit_drag_t::SCALE : edit_drag_t::ROTATE : drag.kind;
     switch ( kind ) {
@@ -1503,13 +1531,14 @@ void DrawEditReadout( QPainter &painter, const map_workspace_t &ws, const view_e
         case edit_drag_t::ROTATE:
             operation = QStringLiteral( "Rotate" );
             detail = QStringLiteral( "%1° / %2° / %3°" ).arg( NumberText( transform.degrees.x ), NumberText( transform.degrees.y ), NumberText( transform.degrees.z ) ); break;
-        case edit_drag_t::PUSH_PULL: operation = QStringLiteral( "Push / pull" ); detail = NumberText( drag.distance ) + QStringLiteral( " u" ); break;
+        case edit_drag_t::PUSH_PULL: operation = QStringLiteral( "Push / pull" ); detail = NumberText( ws.editPreview.faceDistance ) + QStringLiteral( " u" ); break;
         default: return;
     }
     const QString extents = clipping && !ws.editPreview.bounds.bHas ? QStringLiteral( "Retained result: empty" ) :
         QStringLiteral( "X %1   Y %2   Z %3 u" ).arg( NumberText( size.x ), NumberText( size.y ), NumberText( size.z ) );
-    if ( ( drag.kind == edit_drag_t::BOX || block || clipping ) && ws.editPreview.status != map_status_t::OK ) {
-        operation = clipping ? QStringLiteral( "Cannot clip" ) : QStringLiteral( "Cannot create" ); detail = QString::fromLatin1( MapDocument_StatusName( ws.editPreview.status ) );
+    if ( ( drag.kind == edit_drag_t::BOX || block || clipping || facePushPull ) && ws.editPreview.status != map_status_t::OK ) {
+        operation = clipping ? QStringLiteral( "Cannot clip" ) : facePushPull ? QStringLiteral( "Cannot push / pull" ) : QStringLiteral( "Cannot create" );
+        detail = QString::fromLatin1( MapDocument_StatusName( ws.editPreview.status ) );
     }
     const QString heading = operation + QStringLiteral( "  ·  " ) + detail;
     const QFontMetrics metrics = painter.fontMetrics();
@@ -1519,7 +1548,7 @@ void DrawEditReadout( QPainter &painter, const map_workspace_t &ws, const view_e
     if ( metrics.horizontalAdvance( heading ) > available ) { lines << operation << detail; }
     else { lines << heading; }
     qsizetype firstDimension = lines.size();
-    if ( dimensions ) {
+    if ( dimensions && ( !facePushPull || ws.editPreview.bounds.bHas ) ) {
         if ( ( clipping && !ws.editPreview.bounds.bHas ) || metrics.horizontalAdvance( extents ) <= available ) { lines << extents; }
         else {
             lines << QStringLiteral( "X %1 u" ).arg( NumberText( size.x ) )
@@ -2937,17 +2966,20 @@ private:
                 screen = WorldToView( { Axis( point, m_axisU ), Axis( point, m_axisV ) } ); return true;
             }, rect() );
         if ( FacePickingActive() ) {
-            for ( usize i = 0; i < wire.faces.nCount; ++i ) {
-                const auto &face = wire.faces.pData[i];
+            const bool facePreview = MapWorkspace_HasFacePreview( &workspace ) && workspace.editPreview.status == map_status_t::OK;
+            for ( usize i = 0; i < wire.faces.nCount + ( facePreview ? workspace.editPreviewWire.faces.nCount : 0u ); ++i ) {
+                const bool candidate = i >= wire.faces.nCount;
+                const auto &displayedWire = candidate ? workspace.editPreviewWire : wire;
+                const auto &face = displayedWire.faces.pData[candidate ? i - wire.faces.nCount : i];
                 const bool selected = ( face.faceId != 0 && MapWorkspace_HasMeshFace( &workspace ) && face.id == workspace.selectedMeshFaceObject && face.faceId == workspace.selectedMeshFaceId ) ||
                     ( face.sideId != 0 && MapWorkspace_HasBrushFace( &workspace ) && face.id == workspace.selectedBrushFaceObject && face.sideId == workspace.selectedBrushFaceSide );
-                const bool hovered = face.id == m_hover.id && ( ( face.faceId != 0 && face.faceId == m_hoverMeshFace ) || ( face.sideId != 0 && face.sideId == m_hoverBrushSide ) );
-                if ( !selected && !hovered ) { continue; }
+                const bool hovered = !candidate && face.id == m_hover.id && ( ( face.faceId != 0 && face.faceId == m_hoverMeshFace ) || ( face.sideId != 0 && face.sideId == m_hoverBrushSide ) );
+                if ( ( !selected && !hovered ) || ( !candidate && EditPreviewTarget( workspace, face.id ) ) ) { continue; }
                 const auto *object = MapWireframe_FindObject( wire, face.id );
                 if ( object == nullptr || !MapWorkspace_IsVisible( &workspace, *object ) ) { continue; }
                 QPolygonF polygon; polygon.reserve( face.nIndices );
                 for ( u32 k = 0; k < face.nIndices; ++k ) {
-                    const auto point = wire.points.pData[wire.faceIndices.pData[face.iFirstIndex + k]];
+                    const auto point = displayedWire.points.pData[displayedWire.faceIndices.pData[face.iFirstIndex + k]];
                     polygon << WorldToView( { Axis( point, m_axisU ), Axis( point, m_axisV ) } );
                 }
                 const QColor color = SlotColor( workspace, selected ? LINE_SELECTED : LINE_HOVER );
@@ -2996,7 +3028,7 @@ private:
         // whole-root yellow bounds box or its three dimension measurements.
         if ( workspace.tool == map_tool_t::NONE || MeshComponentMode( workspace ) ) { return; }
         const map_bounds_t bounds = SelectionGeometryBounds( workspace );
-        if ( !bounds.bHas || ( workspace.editPreview.bActive && ( workspace.editPreview.bClip ||
+        if ( !bounds.bHas || ( workspace.editPreview.bActive && ( workspace.editPreview.bClip || workspace.editPreview.bFacePushPull ||
             workspace.editPreview.transform.kind != map_transform_preview_kind_t::NONE ) ) ) { return; }
         const QRectF box = QRectF( WorldToView( QPointF( Axis( bounds.box.minimum, m_axisU ), Axis( bounds.box.minimum, m_axisV ) ) ),
                                    WorldToView( QPointF( Axis( bounds.box.maximum, m_axisU ), Axis( bounds.box.maximum, m_axisV ) ) ) ).normalized();
@@ -3550,7 +3582,7 @@ protected:
         };
         DrawMoveSource( painter, workspace, project, segment, rect(), true );
         DrawTransformPreview( painter, workspace, project, segment, transformedFace, rect(), true, m_renderMode == map_render_mode_t::WIREFRAME );
-        DrawEditPreview( painter, workspace, project, segment, face, rect(), true );
+        DrawEditPreview( painter, workspace, project, segment, face, rect(), true, m_renderMode == map_render_mode_t::WIREFRAME );
         const QPointF pointer = underMouse() && !NavigationActive() ? m_hover.point : QPointF( -10000, -10000 );
         const u32 resizeMask = ResizeHandleMask();
         const auto hit = EditHandleAt( workspace, project, rect(), pointer, GizmoLength(), -1, -1, -1, resizeMask );
@@ -3634,6 +3666,12 @@ protected:
             pEvent->accept(); return;
         }
         if ( pEvent->button() == Qt::LeftButton && m_drag.kind != edit_drag_t::NONE ) {
+            if ( m_drag.kind == edit_drag_t::PUSH_PULL && m_pWorkspace->editPreview.bFacePushPull &&
+                 m_pWorkspace->editPreview.status != map_status_t::OK ) {
+                // Release cannot silently rebuild a failed move preview. A
+                // later successful move is required before publication.
+                CancelDrag( m_drag, *m_pWorkspace ); unsetCursor(); update(); return;
+            }
             UpdateEdit( pEvent->position(), pEvent->modifiers() );
             if ( m_drag.kind == edit_drag_t::MARQUEE && QLineF( m_drag.start, m_drag.current ).length() >= 3 ) {
                 SelectMarquee( *m_pWorkspace, m_drag, [this]( math::vec3d_t p, QPointF &screen ) { QLineF line; if ( !Project( p, p, &line ) ) { return false; } screen = line.p1(); return true; } );
@@ -3820,21 +3858,27 @@ private:
     };
 
     bool FaceHandle( const map_wire_face_t &face, brush_face_handle_t &handle ) const {
-        if ( face.nIndices < 3u ) { return false; }
+        const map_wire_face_t *displayed = &face;
+        const map_wireframe_t *wire = &m_pWorkspace->wire;
+        if ( m_pWorkspace->editPreview.bFacePushPull ) {
+            if ( !MapWorkspace_HasFacePreview( m_pWorkspace ) || m_pWorkspace->editPreview.status != map_status_t::OK ) { return false; }
+            wire = &m_pWorkspace->editPreviewWire;
+            displayed = nullptr;
+            for ( usize i = 0; i < wire->faces.nCount; ++i ) {
+                if ( wire->faces.pData[i].id == face.id && wire->faces.pData[i].sideId == face.sideId ) { displayed = &wire->faces.pData[i]; break; }
+            }
+        }
+        if ( displayed == nullptr || displayed->nIndices < 3u ) { return false; }
         math::vec3d_t center{};
         u32 visibleVertices = 0u;
-        for ( u32 i = 0; i < face.nIndices; ++i ) {
-            const auto point = m_pWorkspace->wire.points.pData[m_pWorkspace->wire.faceIndices.pData[face.iFirstIndex + i]];
+        for ( u32 i = 0; i < displayed->nIndices; ++i ) {
+            const auto point = wire->points.pData[wire->faceIndices.pData[displayed->iFirstIndex + i]];
             center = Add( center, point ); QLineF projected;
             if ( Project( point, point, &projected ) ) { ++visibleVertices; }
         }
         if ( visibleVertices < 3u ) { return false; }
-        handle.origin = Scale( center, 1.0 / face.nIndices );
-        handle.normal = face.normal; handle.worldLength = GizmoLength();
-        if ( m_drag.kind == edit_drag_t::PUSH_PULL && face.id == m_pWorkspace->selectedBrushFaceObject &&
-             face.sideId == m_pWorkspace->selectedBrushFaceSide ) {
-            handle.origin = Add( handle.origin, Scale( handle.normal, m_drag.distance ) );
-        }
+        handle.origin = Scale( center, 1.0 / displayed->nIndices );
+        handle.normal = displayed->normal; handle.worldLength = GizmoLength();
         if ( !Project( handle.origin, Add( handle.origin, Scale( handle.normal, handle.worldLength ) ), &handle.shaft ) ) { return false; }
         return std::isfinite( handle.shaft.x1() ) && std::isfinite( handle.shaft.y1() ) &&
                std::isfinite( handle.shaft.x2() ) && std::isfinite( handle.shaft.y2() ) && handle.shaft.length() > 0.001;
@@ -3884,16 +3928,19 @@ private:
         const bool selected = MapWorkspace_HasBrushFace( &ws ) || MapWorkspace_HasMeshFace( &ws );
         const bool hovered = ws.elementMode == map_element_mode_t::FACES && m_hover.id != 0 && ( m_hoverFace.bHit || m_hoverMeshFace != 0 );
         if ( !selected && !hovered ) { return; }
+        const bool facePreview = MapWorkspace_HasFacePreview( &ws ) && ws.editPreview.status == map_status_t::OK;
         std::vector<math::vec3d_t> camera, clipped;
-        for ( usize i = 0; i < ws.wire.faces.nCount; ++i ) {
-            const auto &face = ws.wire.faces.pData[i];
+        for ( usize i = 0; i < ws.wire.faces.nCount + ( facePreview ? ws.editPreviewWire.faces.nCount : 0u ); ++i ) {
+            const bool candidate = i >= ws.wire.faces.nCount;
+            const auto &wire = candidate ? ws.editPreviewWire : ws.wire;
+            const auto &face = wire.faces.pData[candidate ? i - ws.wire.faces.nCount : i];
             const bool active = selected && ( ( face.sideId != 0 && face.id == ws.selectedBrushFaceObject && face.sideId == ws.selectedBrushFaceSide ) ||
                 ( face.faceId != 0 && face.id == ws.selectedMeshFaceObject && face.faceId == ws.selectedMeshFaceId ) );
-            const bool under = hovered && face.id == m_hover.id && ( ( face.sideId != 0 && face.sideId == m_hoverFace.sideSourceId.value ) ||
+            const bool under = !candidate && hovered && face.id == m_hover.id && ( ( face.sideId != 0 && face.sideId == m_hoverFace.sideSourceId.value ) ||
                 ( face.faceId != 0 && face.faceId == m_hoverMeshFace ) );
-            if ( ( !active && !under ) || EditPreviewTarget( ws, face.id ) ) { continue; }
+            if ( ( !active && !under ) || ( !candidate && EditPreviewTarget( ws, face.id ) ) ) { continue; }
             QPolygonF polygon;
-            if ( !ProjectWireFace( ws.wire, face, polygon, camera, clipped ) ) { continue; }
+            if ( !ProjectWireFace( wire, face, polygon, camera, clipped ) ) { continue; }
             QColor color = SlotColor( ws, active ? LINE_SELECTED : LINE_HOVER ), fill = color; fill.setAlpha( active ? 32 : 20 );
             painter.save(); painter.setPen( QPen( color, 2 ) ); painter.setBrush( fill ); painter.drawPolygon( polygon );
             if ( active && face.sideId != 0 && ShowPushPullHandle() && face.nIndices != 0 ) {
@@ -4141,15 +4188,8 @@ private:
             m_drag.distance = Snap( Dot( Sub( point, m_drag.planeStart ), m_drag.faceNormal ), m_pWorkspace->bSnapToGrid && !bypass ? m_pWorkspace->gridSize : 0 );
             if ( std::abs( m_drag.distance ) < 1e-8 || QLineF( screen, m_drag.start ).length() < 3 ) {
                 m_drag.distance = 0; MapWorkspace_ClearEditPreview( m_pWorkspace );
-            } else {
-                auto bounds = m_drag.original;
-                for ( int axis = 0; axis < 3; ++axis ) {
-                    const f64 normal = Axis( m_drag.faceNormal, axis );
-                    if ( normal > 0.5 ) { SetAxis( bounds.box.maximum, axis, Axis( bounds.box.maximum, axis ) + normal * m_drag.distance ); }
-                    else if ( normal < -0.5 ) { SetAxis( bounds.box.minimum, axis, Axis( bounds.box.minimum, axis ) + normal * m_drag.distance ); }
-                }
-                MapWorkspace_SetEditPreview( m_pWorkspace, bounds );
-            } return;
+            } else { MapWorkspace_SetFacePreview( m_pWorkspace, m_drag.distance ); }
+            return;
         }
         math::vec3d_t delta{};
         if ( m_drag.axis >= 0 && ( m_drag.kind == edit_drag_t::TRANSLATE || m_drag.kind == edit_drag_t::SCALE ) ) {
@@ -4886,16 +4926,18 @@ private:
     void DrawFaces( QPainter &painter, usize &surfaceBudget ) const
     {
         const map_workspace_t &workspace = *m_pWorkspace;
-        const map_wireframe_t &wire = workspace.wire;
+        const map_wireframe_t &committedWire = workspace.wire;
+        const bool facePreview = MapWorkspace_HasFacePreview( &workspace ) && workspace.editPreview.status == map_status_t::OK;
         struct drawn_t {
             f64 depth;
             QPolygonF polygon;
             QColor fill;
             const map_wire_face_t *face;
             bool transformed;
+            const map_wireframe_t *wire;
         };
         std::vector<drawn_t> drawn;
-        drawn.reserve( wire.faces.nCount );
+        drawn.reserve( committedWire.faces.nCount + ( facePreview ? workspace.editPreviewWire.faces.nCount : 0u ) );
         const QColor neutral = Token( workspace, "viewport.face.world" );
         const QColor hover = SlotColor( workspace, LINE_HOVER );
         const math::vec3d_t sun = Scale( math::Vec3d_Make( 0.35, 0.55, 0.76 ), 1.0 / std::sqrt( 0.35 * 0.35 + 0.55 * 0.55 + 0.76 * 0.76 ) );
@@ -4907,18 +4949,20 @@ private:
         bool bVisible = false, bObjectSelected = false, bSelected = false, bHovered = false, bTransforming = false;
         auto affine = MapWorkspace_TransformPreviewAffine( workspace.editPreview.transform );
         std::vector<math::vec3d_t> camera, clipped;
-        for ( usize i = 0u; i < wire.faces.nCount; ++i ) {
-            const map_wire_face_t &face = wire.faces.pData[i];
-            if ( face.id != lastId || i == 0u ) {
+        for ( usize i = 0u; i < committedWire.faces.nCount + ( facePreview ? workspace.editPreviewWire.faces.nCount : 0u ); ++i ) {
+            const bool candidate = i >= committedWire.faces.nCount;
+            const map_wireframe_t &wire = candidate ? workspace.editPreviewWire : committedWire;
+            const map_wire_face_t &face = wire.faces.pData[candidate ? i - committedWire.faces.nCount : i];
+            if ( face.id != lastId || i == 0u || i == committedWire.faces.nCount ) {
                 lastId = face.id;
-                const map_wire_object_t *pObject = MapWireframe_FindObject( wire, face.id );
+                const map_wire_object_t *pObject = MapWireframe_FindObject( committedWire, face.id );
                 bVisible = pObject != nullptr && MapWorkspace_IsVisible( &workspace, *pObject );
                 bObjectSelected = pObject != nullptr && ObjectSelected( workspace, *pObject );
-                bTransforming = workspace.editPreview.bActive && workspace.editPreview.transform.kind != map_transform_preview_kind_t::NONE &&
+                bTransforming = !candidate && workspace.editPreview.bActive && workspace.editPreview.transform.kind != map_transform_preview_kind_t::NONE &&
                     pObject != nullptr && MapWorkspace_IsTransformPreviewObject( &workspace, *pObject );
                 if ( bTransforming ) { affine = MapWorkspace_TransformPreviewObjectAffine( workspace.editPreview.transform, *pObject ); }
             }
-            if ( !bVisible || ( workspace.editPreview.bClip && EditPreviewTarget( workspace, face.id ) ) ) { continue; }
+            if ( !bVisible || ( !candidate && ( workspace.editPreview.bClip || facePreview ) && EditPreviewTarget( workspace, face.id ) ) ) { continue; }
             const bool cloning = bTransforming && workspace.editPreview.transform.bClone;
             // A clone retains its source solid. Both instances participate in
             // the same depth sort, so overlap and occlusion match the commit.
@@ -4928,7 +4972,7 @@ private:
                 bSelected = !sourceClone && bObjectSelected &&
                     ( !MapWorkspace_HasBrushFace( &workspace ) || face.sideId == workspace.selectedBrushFaceSide ) &&
                     ( !MapWorkspace_HasMeshFace( &workspace ) || face.faceId == workspace.selectedMeshFaceId );
-                bHovered = !MeshComponentMode( workspace ) && !bTransforming && !bSelected && face.id == m_hover.id &&
+                bHovered = !candidate && !MeshComponentMode( workspace ) && !bTransforming && !bSelected && face.id == m_hover.id &&
                     ( workspace.elementMode != map_element_mode_t::FACES ||
                       ( face.sideId != 0 && face.sideId == m_hoverFace.sideSourceId.value ) ||
                       ( face.faceId != 0 && face.faceId == m_hoverMeshFace ) );
@@ -4944,7 +4988,7 @@ private:
                 const f64 facing = Dot( faceNormal, Sub( m_position, first ) );
                 if ( facing <= 0.0 && !face.bTwoSided ) { continue; } // Back faces of solids are never seen.
                 const math::vec3d_t normal = facing >= 0.0 ? faceNormal : Scale( faceNormal, -1.0 );
-                drawn_t entry{ 0.0, QPolygonF(), QColor(), &face, transformed };
+                drawn_t entry{ 0.0, QPolygonF(), QColor(), &face, transformed, &wire };
                 if ( !ProjectWireFace( wire, face, entry.polygon, camera, clipped, &entry.depth, transformed ? &affine : nullptr ) ) { continue; }
                 const QColor base = MaterialColor( face.material, neutral );
                 QColor colour = base;
@@ -4978,6 +5022,7 @@ private:
             std::max( usize{ 1u }, surfaceBudget / ( 4u * std::max( usize{ 1u }, gridFaces ) ) ) ) );
         usize iFace = 0u;
         for ( const drawn_t &entry : drawn ) {
+            const map_wireframe_t &wire = *entry.wire;
             painter.setBrush( entry.fill );
             painter.setPen( Qt::NoPen );
             painter.drawPolygon( entry.polygon );
@@ -4992,9 +5037,10 @@ private:
                 DrawWireSurfaceGrid( painter, wire, *entry.face, entry.polygon, entry.fill,
                     familyLimit, surfaceBudget, camera, clipped, entry.transformed ? &affine : nullptr );
             }
-            if ( showEdges ) {
+            const bool candidate = entry.wire == &workspace.editPreviewWire;
+            if ( showEdges || candidate ) {
                 const auto *object = MapWireframe_FindObject( wire, entry.face->id );
-                const QColor edgeColor = componentPicking && object != nullptr && object->kind == map_wire_kind_t::MESH ?
+                const QColor edgeColor = candidate ? SlotColor( workspace, LINE_WORLD ) : componentPicking && object != nullptr && object->kind == map_wire_kind_t::MESH ?
                     SlotColor( workspace, LINE_MESH ) : entry.fill.darker( 160 );
                 painter.setBrush( Qt::NoBrush ); painter.setPen( QPen( edgeColor, 1.0 ) );
                 painter.drawPolygon( entry.polygon );
@@ -5124,7 +5170,7 @@ private:
         const map_workspace_t &workspace = *m_pWorkspace;
         if ( workspace.tool == map_tool_t::NONE || MeshComponentMode( workspace ) ) { return; }
         const map_bounds_t bounds = SelectionGeometryBounds( workspace );
-        if ( !bounds.bHas || ( workspace.editPreview.bActive && ( workspace.editPreview.bClip ||
+        if ( !bounds.bHas || ( workspace.editPreview.bActive && ( workspace.editPreview.bClip || workspace.editPreview.bFacePushPull ||
             workspace.editPreview.transform.kind != map_transform_preview_kind_t::NONE ) ) ) { return; }
         math::vec3d_t corners[8];
         BoundsCorners( bounds, corners );

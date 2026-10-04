@@ -15,6 +15,7 @@
 
 #include "CypherEditorGui_Actions.h"
 
+#include <QAction>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -28,6 +29,7 @@
 #include <QKeySequenceEdit>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -35,6 +37,8 @@
 #include <QSet>
 #include <QSignalBlocker>
 #include <QSplitter>
+#include <QScrollArea>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -314,42 +318,36 @@ public:
     {
         setObjectName( QStringLiteral( "EditorKeymapSettings" ) );
         auto *pRoot = new QVBoxLayout( this );
+        pRoot->setContentsMargins( 0, 0, 0, 0 ); pRoot->setSpacing( 8 );
         auto *pTop = new QHBoxLayout();
         pTop->addWidget( new QLabel( QStringLiteral( "Profile" ), this ) );
         m_pPresets = new QComboBox( this ); m_pPresets->setObjectName( QStringLiteral( "KeymapPreset" ) );
         m_pPresets->setSizeAdjustPolicy( QComboBox::AdjustToMinimumContentsLengthWithIcon );
         pTop->addWidget( m_pPresets, 1 );
-        auto *pNew = new QPushButton( QStringLiteral( "New Profile…" ), this ); pNew->setObjectName( QStringLiteral( "KeymapNewProfile" ) );
-        auto *pDuplicate = new QPushButton( QStringLiteral( "Duplicate Profile…" ), this ); pDuplicate->setObjectName( QStringLiteral( "KeymapDuplicateProfile" ) );
+        auto *pProfiles = new QToolButton( this ); pProfiles->setObjectName( QStringLiteral( "KeymapProfileActions" ) );
+        pProfiles->setText( QStringLiteral( "Profile actions" ) ); pProfiles->setPopupMode( QToolButton::InstantPopup );
+        pProfiles->setToolTip( QStringLiteral( "Create, duplicate, import or export a keybinding profile." ) );
+        auto *pProfileMenu = new QMenu( pProfiles ); pProfiles->setMenu( pProfileMenu );
+        auto *pNew = pProfileMenu->addAction( QStringLiteral( "New Profile…" ) ); pNew->setObjectName( QStringLiteral( "KeymapNewProfile" ) );
+        auto *pDuplicate = pProfileMenu->addAction( QStringLiteral( "Duplicate Profile…" ) ); pDuplicate->setObjectName( QStringLiteral( "KeymapDuplicateProfile" ) );
         pNew->setToolTip( QStringLiteral( "Name a new profile that inherits an existing profile's bindings." ) );
         pDuplicate->setToolTip( QStringLiteral( "Copy this working profile, including staged edits and metadata, under a new name." ) );
-        pTop->addWidget( pNew ); pTop->addWidget( pDuplicate ); pRoot->addLayout( pTop );
-        auto *pFiles = new QHBoxLayout();
-        auto *pImport = new QPushButton( QStringLiteral( "Import profile…" ), this ); pImport->setObjectName( QStringLiteral( "KeymapImport" ) );
-        auto *pExport = new QPushButton( QStringLiteral( "Export portable…" ), this ); pExport->setObjectName( QStringLiteral( "KeymapExportPortable" ) );
-        auto *pExportSource = new QPushButton( QStringLiteral( "Export source…" ), this ); pExportSource->setObjectName( QStringLiteral( "KeymapExportSource" ) );
+        pProfileMenu->addSeparator();
+        auto *pImport = pProfileMenu->addAction( QStringLiteral( "Import profile…" ) ); pImport->setObjectName( QStringLiteral( "KeymapImport" ) );
+        auto *pExport = pProfileMenu->addAction( QStringLiteral( "Export portable…" ) ); pExport->setObjectName( QStringLiteral( "KeymapExportPortable" ) );
+        auto *pExportSource = pProfileMenu->addAction( QStringLiteral( "Export source…" ) ); pExportSource->setObjectName( QStringLiteral( "KeymapExportSource" ) );
         pExport->setToolTip( QStringLiteral( "Resolve inherited bindings into one self-contained .cykeymap for all supported platforms." ) );
         pExportSource->setToolTip( QStringLiteral( "Keep the authored base dependency; the recipient must also install its base profiles." ) );
         m_pReference = new QPushButton( QStringLiteral( "Shortcuts reference" ), this );
         m_pReference->setObjectName( QStringLiteral( "KeymapShortcutsReference" ) ); m_pReference->setEnabled( false );
-        pFiles->addWidget( pImport ); pFiles->addWidget( pExport ); pFiles->addWidget( pExportSource ); pFiles->addStretch();
-        pFiles->addWidget( m_pReference ); pRoot->addLayout( pFiles );
-        auto *pIdentity = new QHBoxLayout();
-        m_pId = new QLineEdit( this ); m_pId->setObjectName( QStringLiteral( "KeymapId" ) ); m_pId->setPlaceholderText( QStringLiteral( "my_profile" ) );
-        m_pName = new QLineEdit( this ); m_pName->setObjectName( QStringLiteral( "KeymapName" ) );
-        pIdentity->addWidget( new QLabel( QStringLiteral( "Profile ID" ), this ) ); pIdentity->addWidget( m_pId, 1 );
-        pIdentity->addWidget( new QLabel( QStringLiteral( "Profile name" ), this ) ); pIdentity->addWidget( m_pName, 2 ); pRoot->addLayout( pIdentity );
-        m_pBase = new QLabel( this ); m_pBase->setProperty( "muted", true ); pRoot->addWidget( m_pBase );
+        pTop->addWidget( pProfiles ); pTop->addWidget( m_pReference ); pRoot->addLayout( pTop );
         auto *pFilter = new QHBoxLayout();
         m_pSearch = new QLineEdit( this ); m_pSearch->setObjectName( QStringLiteral( "KeymapSearch" ) );
-        m_pSearch->setClearButtonEnabled( true ); m_pSearch->setPlaceholderText( QStringLiteral( "Search actions, keys or contexts (e.g. camera or map.viewport.2d)" ) );
-        m_pPlatform = new QComboBox( this ); m_pPlatform->setObjectName( QStringLiteral( "KeymapPlatform" ) );
-        m_pPlatform->addItem( QStringLiteral( "Common · all platforms" ), static_cast<int>( keymap_platform_t::NONE ) );
-        m_pPlatform->addItem( QStringLiteral( "macOS override" ), static_cast<int>( keymap_platform_t::MACOS ) );
-        m_pPlatform->addItem( QStringLiteral( "Windows override" ), static_cast<int>( keymap_platform_t::WINDOWS ) );
-        m_pPlatform->addItem( QStringLiteral( "Linux override" ), static_cast<int>( keymap_platform_t::LINUX ) );
-        pFilter->addWidget( m_pSearch, 1 ); pFilter->addWidget( m_pPlatform ); pRoot->addLayout( pFilter );
+        m_pSearch->setClearButtonEnabled( true ); m_pSearch->setPlaceholderText( QStringLiteral( "Find an action or binding…" ) );
+        m_pSearch->setToolTip( QStringLiteral( "Search action names, keys, descriptions and contexts." ) );
+        pFilter->addWidget( m_pSearch, 1 ); pRoot->addLayout( pFilter );
         auto *pSplitter = new QSplitter( Qt::Horizontal, this );
+        pSplitter->setChildrenCollapsible( false );
         m_pCategories = new QTreeWidget( pSplitter ); m_pCategories->setObjectName( QStringLiteral( "KeymapCategories" ) );
         m_pCategories->setHeaderHidden( true ); m_pCategories->setMinimumWidth( 110 );
         for ( const char *pName : { "All actions", "Viewports", "Camera", "Selection", "Transforms", "Geometry tools", "Meshes", "Materials",
@@ -363,21 +361,52 @@ public:
                                   QStringLiteral( "Origin" ), QStringLiteral( "Availability" ) } );
         m_pRows->header()->setSectionResizeMode( QHeaderView::ResizeToContents );
         m_pRows->header()->setSectionResizeMode( 0, QHeaderView::Stretch );
+        // Technical declarations remain available in Details and tooltips.
+        for ( const int column : { 1, 2, 4, 5 } ) { m_pRows->setColumnHidden( column, true ); }
+        m_pRows->setMinimumHeight( 220 );
         m_pRows->setSelectionMode( QAbstractItemView::SingleSelection );
         pSplitter->setStretchFactor( 1, 1 ); pSplitter->setSizes( { 135, 635 } ); pRoot->addWidget( pSplitter, 1 );
 
-        m_pDetails = new QLabel( this ); m_pDetails->setObjectName( QStringLiteral( "KeymapDetails" ) );
-        m_pDetails->setWordWrap( true ); m_pDetails->setProperty( "muted", true ); pRoot->addWidget( m_pDetails );
+        m_pSelection = new QLabel( this ); m_pSelection->setObjectName( QStringLiteral( "KeymapSelectedAction" ) );
+        m_pSelection->setTextFormat( Qt::PlainText ); m_pSelection->setSizePolicy( QSizePolicy::Ignored, QSizePolicy::Fixed );
+        m_pSelection->setMinimumHeight( m_pSelection->fontMetrics().height() + 4 ); pRoot->addWidget( m_pSelection );
+        auto *pAdvancedToggle = new QToolButton( this ); pAdvancedToggle->setObjectName( QStringLiteral( "KeymapAdvancedToggle" ) );
+        pAdvancedToggle->setText( QStringLiteral( "Advanced details" ) ); pAdvancedToggle->setCheckable( true );
+        pAdvancedToggle->setToolButtonStyle( Qt::ToolButtonTextBesideIcon ); pAdvancedToggle->setArrowType( Qt::RightArrow );
+        auto *pAdvanced = new QScrollArea( this ); pAdvanced->setObjectName( QStringLiteral( "KeymapAdvancedDetails" ) );
+        pAdvanced->setWidgetResizable( true ); pAdvanced->setFrameShape( QFrame::NoFrame );
+        pAdvanced->setMinimumHeight( 60 ); pAdvanced->setMaximumHeight( 180 ); pAdvanced->hide();
+        auto *pAdvancedBody = new QWidget( pAdvanced ); auto *pAdvancedLayout = new QVBoxLayout( pAdvancedBody );
+        pAdvancedLayout->setContentsMargins( 0, 0, 0, 0 ); pAdvancedLayout->setSpacing( 6 ); pAdvanced->setWidget( pAdvancedBody );
+        auto *pIdentity = new QHBoxLayout();
+        m_pId = new QLineEdit( pAdvancedBody ); m_pId->setObjectName( QStringLiteral( "KeymapId" ) ); m_pId->setPlaceholderText( QStringLiteral( "my_profile" ) );
+        m_pName = new QLineEdit( pAdvancedBody ); m_pName->setObjectName( QStringLiteral( "KeymapName" ) );
+        pIdentity->addWidget( new QLabel( QStringLiteral( "Profile ID" ), pAdvancedBody ) ); pIdentity->addWidget( m_pId, 1 );
+        pIdentity->addWidget( new QLabel( QStringLiteral( "Profile name" ), pAdvancedBody ) ); pIdentity->addWidget( m_pName, 2 ); pAdvancedLayout->addLayout( pIdentity );
+        m_pBase = new QLabel( pAdvancedBody ); m_pBase->setWordWrap( true ); m_pBase->setProperty( "muted", true ); pAdvancedLayout->addWidget( m_pBase );
+        auto *pPlatform = new QHBoxLayout();
+        m_pPlatform = new QComboBox( pAdvancedBody ); m_pPlatform->setObjectName( QStringLiteral( "KeymapPlatform" ) );
+        m_pPlatform->addItem( QStringLiteral( "Common · all platforms" ), static_cast<int>( keymap_platform_t::NONE ) );
+        m_pPlatform->addItem( QStringLiteral( "macOS override" ), static_cast<int>( keymap_platform_t::MACOS ) );
+        m_pPlatform->addItem( QStringLiteral( "Windows override" ), static_cast<int>( keymap_platform_t::WINDOWS ) );
+        m_pPlatform->addItem( QStringLiteral( "Linux override" ), static_cast<int>( keymap_platform_t::LINUX ) );
+        pPlatform->addWidget( new QLabel( QStringLiteral( "Edit declarations for" ), pAdvancedBody ) ); pPlatform->addWidget( m_pPlatform );
+        pPlatform->addStretch(); pAdvancedLayout->addLayout( pPlatform );
         auto *pAddress = new QHBoxLayout();
-        m_pContext = new QComboBox( this ); m_pContext->setEditable( true ); m_pContext->setObjectName( QStringLiteral( "KeymapContext" ) );
-        m_pAction = new QComboBox( this ); m_pAction->setEditable( true ); m_pAction->setObjectName( QStringLiteral( "KeymapAction" ) );
-        m_pKind = new QComboBox( this ); m_pKind->setObjectName( QStringLiteral( "KeymapInputKind" ) );
+        m_pContext = new QComboBox( pAdvancedBody ); m_pContext->setEditable( true ); m_pContext->setObjectName( QStringLiteral( "KeymapContext" ) );
+        m_pAction = new QComboBox( pAdvancedBody ); m_pAction->setEditable( true ); m_pAction->setObjectName( QStringLiteral( "KeymapAction" ) );
+        for ( auto *pCombo : { m_pContext, m_pAction } ) {
+            pCombo->setSizeAdjustPolicy( QComboBox::AdjustToMinimumContentsLengthWithIcon ); pCombo->setMinimumContentsLength( 10 );
+        }
+        m_pKind = new QComboBox( pAdvancedBody ); m_pKind->setObjectName( QStringLiteral( "KeymapInputKind" ) );
         for ( const auto section : { keymap_section_t::BINDINGS, keymap_section_t::HELD, keymap_section_t::MOUSE } ) {
             m_pKind->addItem( SectionLabel( section ), static_cast<int>( section ) );
         }
-        pAddress->addWidget( new QLabel( QStringLiteral( "Context" ), this ) ); pAddress->addWidget( m_pContext, 2 );
-        pAddress->addWidget( new QLabel( QStringLiteral( "Action ID" ), this ) ); pAddress->addWidget( m_pAction, 3 ); pAddress->addWidget( m_pKind );
-        pRoot->addLayout( pAddress );
+        pAddress->addWidget( new QLabel( QStringLiteral( "Context" ), pAdvancedBody ) ); pAddress->addWidget( m_pContext, 2 );
+        pAddress->addWidget( new QLabel( QStringLiteral( "Action ID" ), pAdvancedBody ) ); pAddress->addWidget( m_pAction, 3 ); pAddress->addWidget( m_pKind );
+        pAdvancedLayout->addLayout( pAddress );
+        m_pDetails = new QLabel( pAdvancedBody ); m_pDetails->setObjectName( QStringLiteral( "KeymapDetails" ) );
+        m_pDetails->setWordWrap( true ); m_pDetails->setProperty( "muted", true ); pAdvancedLayout->addWidget( m_pDetails );
         auto *pTriggers = new QHBoxLayout();
         for ( int i = 0; i < 4; ++i ) {
             auto *pSlot = new QVBoxLayout();
@@ -397,12 +426,17 @@ public:
         auto *pHelp = new QLabel( QStringLiteral( "Keyboard: Ctrl+K, Ctrl+C · Held: W or Shift · Mouse: RightDrag, Alt+LeftDrag, Space+LeftDrag or Wheel. "
                                                "Up to four alternatives. Contexts declare input; the active tool and view determine routing. "
                                                "Editing does not enable unavailable commands. Geometry and 2D mouse declarations are not remapped yet." ), this );
-        pHelp->setWordWrap( true ); pHelp->setProperty( "muted", true ); pRoot->addWidget( pHelp );
+        pHelp->setWordWrap( true ); pHelp->setProperty( "muted", true ); pAdvancedLayout->addWidget( pHelp );
+        pRoot->addWidget( pAdvancedToggle, 0, Qt::AlignLeft ); pRoot->addWidget( pAdvanced );
+        QObject::connect( pAdvancedToggle, &QToolButton::toggled, this, [this, pAdvanced, pAdvancedToggle]( bool expanded ) {
+            m_pRows->setMinimumHeight( expanded ? 180 : 220 );
+            pAdvanced->setVisible( expanded ); pAdvancedToggle->setArrowType( expanded ? Qt::DownArrow : Qt::RightArrow );
+        } );
         auto *pBottom = new QHBoxLayout();
         m_pStatus = new QLabel( this ); m_pStatus->setWordWrap( true ); m_pStatus->setObjectName( QStringLiteral( "KeymapStatus" ) );
-        pBottom->addWidget( m_pStatus, 1 );
+        pRoot->addWidget( m_pStatus ); pBottom->addStretch();
         m_pRevert = new QPushButton( QStringLiteral( "Discard changes" ), this );
-        m_pApply = new QPushButton( QStringLiteral( "Save and activate profile" ), this ); m_pApply->setObjectName( QStringLiteral( "KeymapApply" ) );
+        m_pApply = new QPushButton( QStringLiteral( "Save and activate" ), this ); m_pApply->setObjectName( QStringLiteral( "KeymapApply" ) );
         pBottom->addWidget( m_pRevert ); pBottom->addWidget( m_pApply ); pRoot->addLayout( pBottom );
 
         QObject::connect( m_pSearch, &QLineEdit::textChanged, this, [this]() { FillRows(); } );
@@ -428,17 +462,17 @@ public:
         } );
         QObject::connect( m_pRevert, &QPushButton::clicked, this, [this]() { Revert(); } );
         QObject::connect( m_pApply, &QPushButton::clicked, this, [this]() { ( void )Apply( {}, {} ); } );
-        QObject::connect( pNew, &QPushButton::clicked, this, [this]() { ProfileDialog( false ); } );
-        QObject::connect( pDuplicate, &QPushButton::clicked, this, [this]() { ProfileDialog( true ); } );
+        QObject::connect( pNew, &QAction::triggered, this, [this]() { ProfileDialog( false ); } );
+        QObject::connect( pDuplicate, &QAction::triggered, this, [this]() { ProfileDialog( true ); } );
         QObject::connect( m_pReference, &QPushButton::clicked, this, [this]() { if ( m_pReferenceCallback != nullptr ) { m_pReferenceCallback( m_pReferenceContext ); } } );
-        QObject::connect( pImport, &QPushButton::clicked, this, [this]() {
+        QObject::connect( pImport, &QAction::triggered, this, [this]() {
             const QString path = QFileDialog::getOpenFileName( this, QStringLiteral( "Import keybinding profile" ), {}, QStringLiteral( "Cypher keymaps (*.cykeymap)" ) );
             if ( !path.isEmpty() && ( !HasChanges() || ConfirmDiscard() ) ) { ( void )Import( path ); }
         } );
-        QObject::connect( pExport, &QPushButton::clicked, this, [this]() {
+        QObject::connect( pExport, &QAction::triggered, this, [this]() {
             ExportDialog( true );
         } );
-        QObject::connect( pExportSource, &QPushButton::clicked, this, [this]() { ExportDialog( false ); } );
+        QObject::connect( pExportSource, &QAction::triggered, this, [this]() { ExportDialog( false ); } );
         m_subscribed = EditorGui_AddKeymapListener( m_pGui, OnKeymap, this );
         ( void )Select( Text( EditorGui_ActiveKeymapId( m_pGui ) ) );
     }
@@ -491,8 +525,7 @@ public:
         m_draft = std::move( draft ); m_snapshot = snapshot; m_sourceId = id; m_imported = false; m_createdProfile = false;
         m_pendingSelection = id != Text( EditorGui_ActiveKeymapId( m_pGui ) );
         LoadIdentity(); FillPresets(); Refresh();
-        m_pStatus->setText( QStringLiteral( "Choose a profile, or create one with New Profile / Duplicate Profile. Changes are staged until Save and activate profile. "
-                                           "The bundled default uses Hammer-style Mason bindings." ) );
+        m_pStatus->setText( QStringLiteral( "Choose an action, record or type its bindings, then Set binding and Save. Changes stay staged until saved." ) );
         return true;
     }
 
@@ -550,7 +583,7 @@ public:
         m_selectedKey = QString::number( static_cast<int>( section ) ) + QLatin1Char( '\t' ) + context.trimmed() + QLatin1Char( '\t' ) + id.trimmed();
         Refresh();
         const QStringList conflicts = Conflicts();
-        m_pStatus->setText( conflicts.isEmpty() ? QStringLiteral( "Binding staged. Apply to save and activate it." ) :
+        m_pStatus->setText( conflicts.isEmpty() ? QStringLiteral( "Binding staged. Save and activate to use it." ) :
                            QStringLiteral( "Binding staged, but resolve this conflict before Apply: %1" ).arg( conflicts.first() ) );
         return true;
     }
@@ -1077,7 +1110,8 @@ private:
             pItem->setText( 3, display.isEmpty() ? QStringLiteral( "Unbound" ) : display.join( QStringLiteral( " / " ) ) );
             pItem->setText( 4, row.origin ); pItem->setText( 5, row.availability ); pItem->setData( 0, Qt::UserRole, static_cast<int>( i ) );
             for ( int column = 0; column < 6; ++column ) { pItem->setToolTip( column, row.id + QLatin1Char( '\n' ) + row.description + QLatin1Char( '\n' ) +
-                                                                       row.triggers.join( QStringLiteral( " / " ) ) ); }
+                                                                       row.triggers.join( QStringLiteral( " / " ) ) + QLatin1Char( '\n' ) +
+                                                                       row.context + QStringLiteral( " · " ) + row.availability ); }
             if ( row.Key() == m_selectedKey ) { pSelected = pItem; }
         }
         if ( pSelected == nullptr && m_pRows->topLevelItemCount() != 0 ) { pSelected = m_pRows->topLevelItem( 0 ); }
@@ -1086,12 +1120,18 @@ private:
 
     void SelectRow( QTreeWidgetItem *pItem )
     {
-        if ( pItem == nullptr ) { m_pDetails->setText( QStringLiteral( "No matching actions. Change the category or search; enter a context and action ID to add a declaration." ) ); return; }
+        if ( pItem == nullptr ) {
+            m_pSelection->setText( QStringLiteral( "No matching actions — change the category or search." ) );
+            m_pDetails->setText( QStringLiteral( "Enter a context and action ID here to add a declaration." ) ); return;
+        }
         const auto &row = m_rows[static_cast<usize>( pItem->data( 0, Qt::UserRole ).toInt() )];
         m_selectedKey = row.Key(); m_pContext->setCurrentText( row.context ); m_pAction->setCurrentText( row.id );
         m_pKind->setCurrentIndex( m_pKind->findData( static_cast<int>( row.section ) ) );
         for ( int i = 0; i < 4; ++i ) { m_pTriggers[i]->setText( i < row.triggers.size() ? row.triggers[i] : QString() ); }
-        m_pDetails->setText( row.id + QStringLiteral( " · " ) + row.availability + QLatin1Char( '\n' ) + row.description ); RefreshRecordButtons();
+        m_pSelection->setText( QStringLiteral( "Bindings: %1 · %2" ).arg( row.label, SectionLabel( row.section ) ) );
+        m_pSelection->setToolTip( row.description + QLatin1Char( '\n' ) + row.availability );
+        m_pDetails->setText( QStringLiteral( "%1\n%2 · %3 · %4\n%5" ).arg( row.id, row.context, row.origin, row.availability, row.description ) );
+        RefreshRecordButtons();
     }
 
     void RefreshRecordButtons()
@@ -1104,7 +1144,7 @@ private:
         QDialog dialog( this ); dialog.setObjectName( QStringLiteral( "KeymapRecordDialog" ) );
         dialog.setWindowTitle( QStringLiteral( "Record %1" ).arg( SectionLabel( Kind() ) ) );
         auto *pLayout = new QVBoxLayout( &dialog );
-        pLayout->addWidget( new QLabel( QStringLiteral( "Record one alternative, then accept it. The binding remains staged until Set binding and Apply." ), &dialog ) );
+        pLayout->addWidget( new QLabel( QStringLiteral( "Record one alternative, then accept it. Use Set binding, then Save and activate to apply it." ), &dialog ) );
         QKeySequenceEdit *pKeyboard = nullptr; held_capture_t *pHeld = nullptr;
         if ( Kind() == keymap_section_t::HELD ) { pHeld = new held_capture_t( &dialog ); pLayout->addWidget( pHeld ); pHeld->setFocus(); }
         else { pKeyboard = new QKeySequenceEdit( &dialog ); pKeyboard->setMaximumSequenceLength( EDITOR_KEY_CHORD_MAX_STROKES );
@@ -1162,7 +1202,7 @@ private:
     QComboBox *m_pPresets{ nullptr }, *m_pPlatform{ nullptr }, *m_pContext{ nullptr }, *m_pAction{ nullptr }, *m_pKind{ nullptr };
     QLineEdit *m_pId{ nullptr }, *m_pName{ nullptr }, *m_pSearch{ nullptr }, *m_pTriggers[4]{};
     QTreeWidget *m_pCategories{ nullptr }, *m_pRows{ nullptr };
-    QLabel *m_pBase{ nullptr }, *m_pDetails{ nullptr }, *m_pStatus{ nullptr };
+    QLabel *m_pBase{ nullptr }, *m_pDetails{ nullptr }, *m_pSelection{ nullptr }, *m_pStatus{ nullptr };
     QPushButton *m_pRecord[4]{}, *m_pApply{ nullptr }, *m_pRevert{ nullptr }, *m_pReference{ nullptr };
 };
 

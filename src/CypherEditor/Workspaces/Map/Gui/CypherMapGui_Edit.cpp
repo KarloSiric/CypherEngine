@@ -614,6 +614,74 @@ bool MapWorkspace_PushPullFace( map_workspace_t *ws, f64 distance ) noexcept
         return MapFaceEdit_PushPull( copy, ws->selectedBrushFaceObject, ws->selectedBrushFaceSide, distance );
     } );
 }
+bool MapWorkspace_HasFacePreview( const map_workspace_t *ws ) noexcept
+{
+    if ( ws == nullptr || ws->pDocument == nullptr || ws->pDocument->bReadOnly || !MapWorkspace_HasBrushFace( ws ) ) { return false; }
+    const auto &preview = ws->editPreview;
+    return preview.bActive && preview.bFacePushPull && preview.pFaceDocument == ws->pDocument &&
+        preview.faceObject == ws->selectedBrushFaceObject && preview.faceSide == ws->selectedBrushFaceSide &&
+        preview.documentRevision == ws->pDocument->geometry.revision && preview.selectionRevision == ws->selection.revision &&
+        preview.tool == ws->tool && preview.mode == ws->elementMode &&
+        ( ws->tool == map_tool_t::EXTRUDE || ( ws->tool == map_tool_t::SELECT && ws->elementMode == map_element_mode_t::FACES ) ) &&
+        MapWorkspace_PreviewVisibilityMatches( ws, preview.visibility );
+}
+void MapWorkspace_SetFacePreview( map_workspace_t *ws, f64 distance ) noexcept
+{
+    if ( ws == nullptr || ws->pDocument == nullptr || ws->pDocument->bReadOnly || !MapWorkspace_HasBrushFace( ws ) ||
+         !( ws->tool == map_tool_t::EXTRUDE || ( ws->tool == map_tool_t::SELECT && ws->elementMode == map_element_mode_t::FACES ) ) || distance == 0.0 ) {
+        MapWorkspace_ClearEditPreview( ws ); return;
+    }
+    if ( MapWorkspace_HasFacePreview( ws ) && ws->editPreview.status == map_status_t::OK &&
+         ws->editPreview.faceDistance == distance && ws->editPreviewWire.faces.nCount != 0 ) { return; }
+    map_edit_preview_t preview{};
+    preview.bActive = preview.bFacePushPull = CY_TRUE;
+    preview.pFaceDocument = ws->pDocument;
+    preview.faceObject = ws->selectedBrushFaceObject; preview.faceSide = ws->selectedBrushFaceSide;
+    preview.faceDistance = distance; preview.tool = ws->tool; preview.mode = ws->elementMode;
+    preview.documentRevision = ws->pDocument->geometry.revision; preview.selectionRevision = ws->selection.revision;
+    preview.visibility = MapWorkspace_PreviewVisibility( ws );
+    preview.status = map_status_t::INVALID_ARGUMENT;
+    map_document_t copy{};
+    map_wireframe_t wire{};
+    if ( std::isfinite( distance ) ) {
+        preview.status = MapDocument_Create( &copy, ws->pDocument->pAllocator,
+            { StringView_FromCString( "Face preview" ), StringView_FromCString( MAP_WORKSPACE_DEFAULT_GAME ), {} } );
+        if ( preview.status == map_status_t::OK ) {
+            copy.geometryPolicy = ws->pDocument->geometryPolicy;
+            copy.geometry.policy = ws->pDocument->geometry.policy;
+            geometry::brush_source_t source{};
+            auto status = geometry::GeometryDocument_TryCopyBrushSource( &ws->pDocument->geometry,
+                { preview.faceObject }, copy.pAllocator, &source );
+            if ( status == geometry::geometry_status_t::OK ) { status = geometry::GeometryDocument_TryAddBrushSource( &copy.geometry, &source ); }
+            geometry::BrushSource_Shutdown( &source );
+            if ( status != geometry::geometry_status_t::OK ) {
+                preview.status = status == geometry::geometry_status_t::ALLOCATION_FAILED ? map_status_t::OUT_OF_MEMORY : map_status_t::GEOMETRY_FAILED;
+            }
+        }
+        if ( preview.status == map_status_t::OK ) { preview.status = MapFaceEdit_PushPull( &copy, preview.faceObject, preview.faceSide, distance ); }
+        if ( preview.status == map_status_t::OK && !MapWireframe_Init( &wire, copy.pAllocator ) ) { preview.status = map_status_t::OUT_OF_MEMORY; }
+        if ( preview.status == map_status_t::OK ) { preview.status = MapWireframe_Build( &wire, copy ); }
+        if ( preview.status == map_status_t::OK && ( !wire.bounds.bHas || wire.nBrokenBrushes != 0 || wire.faces.nCount < 4 ) ) {
+            preview.status = map_status_t::GEOMETRY_FAILED;
+        }
+        if ( preview.status == map_status_t::OK ) { preview.bounds = wire.bounds; MoveWire( ws->editPreviewWire, wire ); }
+    }
+    if ( preview.status != map_status_t::OK ) { MapWireframe_Shutdown( &ws->editPreviewWire ); }
+    // Both types also own their arrays through their destructors; release
+    // temporary geometry before observers receive the retained candidate.
+    MapWireframe_Shutdown( &wire );
+    MapDocument_Shutdown( &copy );
+    ws->editPreview = preview;
+    MapWorkspace_Notify( ws, MAP_CHANGE_VIEW );
+}
+bool MapWorkspace_CommitFacePreview( map_workspace_t *ws ) noexcept
+{
+    if ( !MapWorkspace_HasFacePreview( ws ) || ws->editPreview.status != map_status_t::OK || ws->editPreviewWire.faces.nCount == 0 ) { return false; }
+    const f64 distance = ws->editPreview.faceDistance;
+    const bool committed = MapWorkspace_PushPullFace( ws, distance );
+    MapWorkspace_ClearEditPreview( ws );
+    return committed;
+}
 bool MapWorkspace_HasMeshFace( const map_workspace_t *ws ) noexcept
 {
     if ( ws == nullptr || ws->pDocument == nullptr || ws->selectedMeshFaceObject == 0 || ws->selectedMeshFaceId == 0 ||

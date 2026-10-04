@@ -194,6 +194,10 @@ struct map_edit_preview_t {
     common::bool_t bBlockCommitFailed{ common::CY_FALSE }; // Private geometry is still valid and retryable.
     char blockMaterial[MAP_MATERIAL_PATH_MAX + 1]{};        // Captured with the primitive; never truncated.
     common::bool_t bBlockMaterialValid{ common::CY_FALSE };
+    common::bool_t bFacePushPull{ common::CY_FALSE };
+    const map_document_t *pFaceDocument{ nullptr };
+    common::u64 faceObject{}, faceSide{};
+    common::f64 faceDistance{};
 };
 
 // Images for material paths, from whoever owns the asset catalogue (Mason's
@@ -355,6 +359,11 @@ CYPHER_NODISCARD bool MapWorkspace_InsetMeshFace( map_workspace_t *pWorkspace, c
 CYPHER_NODISCARD bool MapWorkspace_CanQuadSliceMeshFace( const map_workspace_t *pWorkspace, common::u32 cellsU, common::u32 cellsV ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_QuadSliceMeshFace( map_workspace_t *pWorkspace, common::u32 cellsU, common::u32 cellsV ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_PushPullFace( map_workspace_t *pWorkspace, common::f64 distance ) noexcept;
+// Reconstructs only the selected brush through the same validated plane edit
+// used on publication. Invalid candidates discard all previous ghost geometry.
+void MapWorkspace_SetFacePreview( map_workspace_t *pWorkspace, common::f64 distance ) noexcept;
+CYPHER_NODISCARD bool MapWorkspace_HasFacePreview( const map_workspace_t *pWorkspace ) noexcept;
+CYPHER_NODISCARD bool MapWorkspace_CommitFacePreview( map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_ApplyFaceMaterial( map_workspace_t *pWorkspace ) noexcept;
 CYPHER_NODISCARD bool MapWorkspace_HollowSelection( map_workspace_t *pWorkspace, common::f64 thickness ) noexcept;
 // Exactly two compatible brushes; the lowest selected ID supplies root metadata.

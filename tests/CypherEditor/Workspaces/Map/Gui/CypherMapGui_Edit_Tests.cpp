@@ -713,6 +713,210 @@ TEST_CASE( "A clipping preview commits its captured plane mode and cut surface a
     CHECK( ws.selection.ids.nCount == 2 ); CHECK( ws.selection.ids.pData[0] == first ); CHECK( ws.selection.ids.pData[1] == second );
 }
 
+namespace
+{
+u64 FacePreviewSide( const map_workspace_t &ws, u64 id, u32 axis, int sign )
+{
+    const auto *brush = cypher::editor::geometry::GeometryDocument_FindBrush( &ws.pDocument->geometry, { id } ); REQUIRE( brush != nullptr );
+    for ( usize i = 0; i < brush->sides.nCount; ++i ) {
+        const auto normal = brush->sides.pData[i].plane.normal;
+        if ( ( axis == 0 ? normal.x : axis == 1 ? normal.y : normal.z ) * sign > 0.99 ) { return brush->sides.pData[i].sourceId.value; }
+    }
+    FAIL( "Expected an authored box side in this direction" ); return 0;
+}
+std::vector<cypher::math::vec3d_t> FacePreviewPoints( const map_wireframe_t &wire )
+{
+    return { wire.points.pData, wire.points.pData + wire.points.nCount };
+}
+void CheckFacePreviewPoints( const map_wireframe_t &wire, const std::vector<cypher::math::vec3d_t> &points )
+{
+    REQUIRE( wire.points.nCount == points.size() );
+    for ( usize i = 0; i < points.size(); ++i ) {
+        CHECK( wire.points.pData[i].x == Catch::Approx( points[i].x ).margin( 1e-7 ) );
+        CHECK( wire.points.pData[i].y == Catch::Approx( points[i].y ).margin( 1e-7 ) );
+        CHECK( wire.points.pData[i].z == Catch::Approx( points[i].z ).margin( 1e-7 ) );
+    }
+}
+}
+
+TEST_CASE( "Brush face previews contain the complete exact solid in all signed axes before one atomic publication", "[map][gui][geometry-edit][face-volume-preview][persistence]" )
+{
+    for ( u32 axis = 0; axis < 3; ++axis ) { for ( int sign : { -1, 1 } ) { for ( f64 distance : { -16.0, 32.0 } ) {
+        CAPTURE( axis, sign, distance ); session_t session; auto &ws = session.workspace;
+        REQUIRE( MapWorkspace_CreateBox( &ws, Box( 0 ) ) ); const u64 id = ws.selection.ids.pData[0];
+        const u64 side = FacePreviewSide( ws, id, axis, sign ); MapWorkspace_SelectBrushFace( &ws, id, side );
+        const auto *document = ws.pDocument; const auto revision = document->geometry.revision;
+        const auto token = UndoRedo_StateToken( ws.history.pUndo ); const auto original = FacePreviewPoints( ws.wire );
+        MapWorkspace_SetFacePreview( &ws, distance ); REQUIRE( MapWorkspace_HasFacePreview( &ws ) );
+        REQUIRE( ws.editPreview.status == map_status_t::OK ); REQUIRE( ws.editPreviewWire.objects.nCount == 1 );
+        CHECK( ws.editPreviewWire.objects.pData[0].id == id ); CHECK( ws.editPreviewWire.faces.nCount == 6 );
+        CHECK( ws.editPreviewWire.points.nCount == 8 ); CHECK( ws.editPreviewWire.lines.nCount == 12 );
+        auto expected = Box( 0 ).box;
+        auto &changed = sign > 0 ? expected.maximum : expected.minimum;
+        ( axis == 0 ? changed.x : axis == 1 ? changed.y : changed.z ) += sign * distance;
+        CHECK( cypher::math::Vec3d_EqualsExact( ws.editPreview.bounds.box.minimum, expected.minimum ) );
+        CHECK( cypher::math::Vec3d_EqualsExact( ws.editPreview.bounds.box.maximum, expected.maximum ) );
+        const auto *brush = cypher::editor::geometry::GeometryDocument_FindBrush( &document->geometry, { id } ); REQUIRE( brush != nullptr );
+        for ( usize i = 0; i < ws.editPreviewWire.faces.nCount; ++i ) {
+            const auto &face = ws.editPreviewWire.faces.pData[i]; bool sourceSide = false;
+            for ( usize j = 0; j < brush->sides.nCount; ++j ) { sourceSide |= face.sideId == brush->sides.pData[j].sourceId.value; }
+            CHECK( sourceSide ); CHECK( face.nIndices == 4 );
+        }
+        CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision ); CheckFacePreviewPoints( ws.wire, original );
+        CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+        const auto candidate = FacePreviewPoints( ws.editPreviewWire ); const auto *cached = ws.editPreviewWire.points.pData;
+        MapWorkspace_SetFacePreview( &ws, distance ); CHECK( ws.editPreviewWire.points.pData == cached );
+        REQUIRE( MapWorkspace_CommitFacePreview( &ws ) ); CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.editPreviewWire.points.nCount == 0 );
+        CheckFacePreviewPoints( ws.wire, candidate ); CHECK( ws.selectedBrushFaceObject == id ); CHECK( ws.selectedBrushFaceSide == side );
+        CHECK( EditorHistory_AppliedStepCount( &ws.history ) == 2 );
+        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CheckFacePreviewPoints( ws.wire, original );
+        REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CheckFacePreviewPoints( ws.wire, candidate );
+        if ( axis == 2 && sign == 1 && distance == 32 ) {
+            QTemporaryDir folder; REQUIRE( folder.isValid() ); const QString path = folder.filePath( QStringLiteral( "face_volume.cymap" ) );
+            REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK );
+            map_document_t loaded{}; REQUIRE( MapFiles_Load( &loaded, Allocator_GetSystem(), path.toUtf8().constData() ).status == map_files_status_t::OK );
+            map_wireframe_t wire{}; REQUIRE( MapWireframe_Init( &wire, Allocator_GetSystem() ) ); REQUIRE( MapWireframe_Build( &wire, loaded ) == map_status_t::OK );
+            CheckFacePreviewPoints( wire, candidate );
+        }
+    } } }
+}
+
+TEST_CASE( "A sloped brush face preview reconstructs its intersections instead of shifting AABB corners", "[map][gui][geometry-edit][face-volume-preview][sloped]" )
+{
+    session_t session; auto &ws = session.workspace; settings_scope_tester_t settings( &session.gui.settings );
+    settings.Text( "editor.map.new_brush_shape", "wedge" );
+    settings.Text( "editor.map.primitive_axis", "Z" );
+    REQUIRE( MapWorkspace_CreatePrimitive( &ws, Box( 0 ) ) ); const u64 id = ws.selection.ids.pData[0];
+    const auto *brush = cypher::editor::geometry::GeometryDocument_FindBrush( &ws.pDocument->geometry, { id } ); REQUIRE( brush != nullptr );
+    u64 side = 0; cypher::math::planed_t plane{};
+    for ( usize i = 0; i < brush->sides.nCount; ++i ) {
+        const auto candidate = brush->sides.pData[i].plane;
+        if ( std::abs( candidate.normal.x ) > 0.1 && std::abs( candidate.normal.z ) > 0.1 ) { side = brush->sides.pData[i].sourceId.value; plane = candidate; }
+    }
+    REQUIRE( side != 0 ); MapWorkspace_SelectBrushFace( &ws, id, side );
+    for ( f64 distance : { -8.0, 8.0 } ) {
+        CAPTURE( distance ); MapWorkspace_SetFacePreview( &ws, distance ); REQUIRE( ws.editPreview.status == map_status_t::OK );
+        REQUIRE( ws.editPreviewWire.faces.nCount >= 4 );
+        const map_wire_face_t *moved = nullptr;
+        for ( usize i = 0; i < ws.editPreviewWire.faces.nCount; ++i ) { if ( ws.editPreviewWire.faces.pData[i].sideId == side ) { moved = &ws.editPreviewWire.faces.pData[i]; } }
+        REQUIRE( moved != nullptr ); REQUIRE( moved->nIndices >= 3 );
+        for ( u32 i = 0; i < moved->nIndices; ++i ) {
+            const auto point = ws.editPreviewWire.points.pData[ws.editPreviewWire.faceIndices.pData[moved->iFirstIndex + i]];
+            CHECK( cypher::math::Vec3d_Dot( plane.normal, point ) + plane.d == Catch::Approx( distance ).margin( 1e-6 ) );
+        }
+        const auto candidate = FacePreviewPoints( ws.editPreviewWire ); REQUIRE( MapWorkspace_CommitFacePreview( &ws ) );
+        CheckFacePreviewPoints( ws.wire, candidate ); REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+    }
+}
+
+TEST_CASE( "A private owned brush preview retains surface identities while publication preserves authored metadata", "[map][gui][geometry-edit][face-volume-preview][metadata]" )
+{
+    namespace geo = cypher::editor::geometry;
+    session_t session; auto &ws = session.workspace; settings_scope_tester_t settings( &session.gui.settings );
+    settings.Text( "editor.map.default_material", "materials/dev/owned_preview.cymat" );
+    REQUIRE( MapWorkspace_CreateBox( &ws, Box( 0 ) ) ); const u64 id = ws.selection.ids.pData[0];
+    REQUIRE( MapWorkspace_CreateBox( &ws, Box( 256 ) ) ); const u64 other = ws.selection.ids.pData[0];
+    REQUIRE( MapDocument_AddLayer( ws.pDocument, StringView_FromCString( "detail" ), StringView_FromCString( "Detail" ) ) == map_status_t::OK );
+    u64 owner{}; REQUIRE( MapDocument_AddEntity( ws.pDocument, StringView_FromCString( "detail" ), StringView_FromCString( "func_detail" ), { 32, 32, 32 }, &owner ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryLayer( ws.pDocument, id, StringView_FromCString( "detail" ) ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryOwner( ws.pDocument, id, owner ) == map_status_t::OK );
+    MapWorkspace_DocumentChanged( &ws );
+    QTemporaryDir folder; REQUIRE( folder.isValid() ); const QString path = folder.filePath( QStringLiteral( "owned_face.cymap" ) );
+    REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK );
+    map_chunk_t *chunk{}; auto *record = MapDocument_FindObject( ws.pDocument, id, &chunk ); REQUIRE( record != nullptr ); REQUIRE( chunk != nullptr );
+    auto *extra = KeyValue_ObjectInsert( chunk->store.pDocument, record, StringView_FromCString( "editor_custom_annotation" ), key_value_type_t::STRING );
+    REQUIRE( extra != nullptr ); REQUIRE( KeyValue_SetString( chunk->store.pDocument, extra, StringView_FromCString( "quality-pass" ) ) );
+    auto *attributes = geo::GeometryDocument_FindBrushAttributesMutable( &ws.pDocument->geometry, { id } ); REQUIRE( attributes != nullptr );
+    for ( usize i = 0; i < attributes->records.nCount; ++i ) { attributes->records.pData[i].uvProjection.offset.x = 0.125 * static_cast<f64>( i + 1 ); }
+    ++ws.pDocument->geometry.revision; MapWorkspace_DocumentChanged( &ws );
+    const u64 side = FacePreviewSide( ws, id, 2, 1 ); MapWorkspace_SelectBrushFace( &ws, id, side );
+    const auto *document = ws.pDocument; const auto token = UndoRedo_StateToken( ws.history.pUndo );
+    MapWorkspace_SetFacePreview( &ws, 16 ); REQUIRE( ws.editPreview.status == map_status_t::OK );
+    REQUIRE( ws.editPreviewWire.objects.nCount == 1 ); CHECK( ws.editPreviewWire.entities.nCount == 0 );
+    CHECK( ws.editPreviewWire.objects.pData[0].id == id ); CHECK( ws.pDocument == document );
+    CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+    const auto *brush = geo::GeometryDocument_FindBrush( &document->geometry, { id } ); REQUIRE( brush != nullptr );
+    for ( usize i = 0; i < ws.editPreviewWire.faces.nCount; ++i ) {
+        const auto &face = ws.editPreviewWire.faces.pData[i]; bool matched = false;
+        for ( usize j = 0; j < brush->sides.nCount; ++j ) { if ( face.sideId == brush->sides.pData[j].sourceId.value ) {
+            CHECK( face.material == attributes->records.pData[brush->sides.pData[j].iAttributeIndex].material.value ); matched = true;
+        } }
+        CHECK( matched );
+    }
+    REQUIRE( MapWorkspace_CommitFacePreview( &ws ) );
+    const auto checkMetadata = [&]( map_document_t &map ) {
+        const auto *placement = MapWireframe_FindObject( ws.wire, id ); REQUIRE( placement != nullptr ); CHECK( placement->owner == owner );
+        const auto *store = geo::GeometryDocument_FindBrushAttributes( &map.geometry, { id } ); REQUIRE( store != nullptr );
+        for ( usize i = 0; i < store->records.nCount; ++i ) { CHECK( store->records.pData[i].uvProjection.offset.x == Catch::Approx( 0.125 * static_cast<f64>( i + 1 ) ) ); }
+        bool placed = false;
+        for ( usize i = 0; i < map.geometryRecords.nCount; ++i ) { if ( map.geometryRecords.pData[i].id == id ) {
+            CHECK( map.geometryRecords.pData[i].owner == owner ); CHECK( map.geometryRecords.pData[i].iLayer == 1 ); placed = true;
+        } }
+        CHECK( placed ); string_view_t annotation{};
+        REQUIRE( KeyValue_GetString( KeyValue_Find( MapDocument_FindObject( &map, id, nullptr ), StringView_FromCString( "editor_custom_annotation" ) ), &annotation ) );
+        CHECK( StringView_Equals( annotation, StringView_FromCString( "quality-pass" ) ) );
+        CHECK( map.geometry.brushes.nCount == 2 ); CHECK( geo::GeometryDocument_FindBrush( &map.geometry, { other } ) != nullptr );
+    };
+    checkMetadata( *ws.pDocument );
+    REQUIRE( MapWorkspace_Save( &ws ).status == map_files_status_t::OK );
+    map_document_t loaded{}; REQUIRE( MapFiles_Load( &loaded, Allocator_GetSystem(), path.toUtf8().constData() ).status == map_files_status_t::OK ); checkMetadata( loaded );
+}
+
+TEST_CASE( "Invalid brush face previews clear stale solids and cannot publish the last valid distance", "[map][gui][geometry-edit][face-volume-preview][invalid]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_CreateBox( &ws, Box( 0 ) ) );
+    const u64 id = ws.selection.ids.pData[0]; MapWorkspace_SelectBrushFace( &ws, id, FacePreviewSide( ws, id, 2, 1 ) );
+    const auto *document = ws.pDocument; const auto token = UndoRedo_StateToken( ws.history.pUndo ); const auto original = FacePreviewPoints( ws.wire );
+    for ( f64 invalid : { -64.0, -128.0, 1e12, std::numeric_limits<f64>::infinity() } ) {
+        CAPTURE( invalid ); MapWorkspace_SetFacePreview( &ws, 16 ); REQUIRE( ws.editPreviewWire.points.nCount != 0 );
+        MapWorkspace_SetFacePreview( &ws, invalid ); REQUIRE( ws.editPreview.bFacePushPull ); CHECK( ws.editPreview.status != map_status_t::OK );
+        CHECK( ws.editPreviewWire.points.nCount == 0 ); CHECK( ws.editPreviewWire.faces.nCount == 0 ); CHECK_FALSE( MapWorkspace_CommitFacePreview( &ws ) );
+        CHECK( ws.pDocument == document ); CheckFacePreviewPoints( ws.wire, original ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+    }
+    MapWorkspace_SetFacePreview( &ws, 0 ); CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.editPreviewWire.points.nCount == 0 );
+}
+
+TEST_CASE( "Every private face preview allocation failure preserves the live document and permits a clean retry", "[map][gui][geometry-edit][face-volume-preview][allocation]" )
+{
+    allocation_failure_t audit; const allocator_t allocator{ &Allocate, nullptr, &Free, &audit };
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_CreateBox( &ws, Box( 0 ) ) );
+    const u64 id = ws.selection.ids.pData[0]; const u64 side = FacePreviewSide( ws, id, 2, 1 ); MapWorkspace_SelectBrushFace( &ws, id, side );
+    const auto *document = ws.pDocument; const auto revision = document->geometry.revision; const auto original = FacePreviewPoints( ws.wire );
+    const auto token = UndoRedo_StateToken( ws.history.pUndo );
+    const auto prepare = [&]() {
+        const auto *originalAllocator = ws.pDocument->pAllocator; ws.pDocument->pAllocator = &allocator;
+        MapWorkspace_SetFacePreview( &ws, 16 ); ws.pDocument->pAllocator = originalAllocator;
+    };
+    prepare(); REQUIRE( ws.editPreview.status == map_status_t::OK ); const usize successfulCalls = audit.calls; REQUIRE( successfulCalls > 1 );
+    MapWorkspace_ClearEditPreview( &ws ); REQUIRE( audit.live == 0 );
+    for ( usize fail = 1; fail <= successfulCalls; ++fail ) {
+        CAPTURE( fail ); MapWorkspace_SetFacePreview( &ws, 32 ); REQUIRE( ws.editPreviewWire.faces.nCount != 0 );
+        audit.calls = 0; audit.failOn = fail; prepare(); CHECK( audit.calls >= fail ); CHECK( audit.live == 0 );
+        CHECK( ws.editPreview.status == map_status_t::OUT_OF_MEMORY ); CHECK( ws.editPreviewWire.points.nCount == 0 ); CHECK_FALSE( MapWorkspace_CommitFacePreview( &ws ) );
+        CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision ); CheckFacePreviewPoints( ws.wire, original );
+        CHECK( ws.selection.ids.nCount == 1 ); CHECK( ws.selectedBrushFaceObject == id ); CHECK( ws.selectedBrushFaceSide == side );
+        CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+        audit.calls = 0; audit.failOn = 0; prepare(); REQUIRE( ws.editPreview.status == map_status_t::OK );
+        MapWorkspace_ClearEditPreview( &ws ); CHECK( audit.live == 0 );
+    }
+}
+
+TEST_CASE( "Shared face previews invalidate when authored or interaction context changes", "[map][gui][geometry-edit][face-volume-preview][context]" )
+{
+    session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_CreateBox( &ws, Box( 0 ) ) );
+    const u64 id = ws.selection.ids.pData[0]; const u64 side = FacePreviewSide( ws, id, 2, 1 ); MapWorkspace_SelectBrushFace( &ws, id, side );
+    MapWorkspace_SetFacePreview( &ws, 16 ); REQUIRE( MapWorkspace_HasFacePreview( &ws ) );
+    SECTION( "Tool change" ) { MapWorkspace_SetTool( &ws, map_tool_t::NONE ); }
+    SECTION( "Mode change" ) { MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS ); }
+    SECTION( "Selected face change" ) { MapWorkspace_SelectBrushFace( &ws, id, FacePreviewSide( ws, id, 0, 1 ) ); }
+    SECTION( "Visibility change" ) { MapWorkspace_SetVisgroupHidden( &ws, map_visgroup_t::BRUSHES, CY_TRUE ); }
+    SECTION( "Document replacement" ) { REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK ); }
+    SECTION( "Live authored edit" ) { REQUIRE( MapWorkspace_PushPullFace( &ws, 8 ) ); }
+    SECTION( "Read only transition" ) { ws.pDocument->bReadOnly = CY_TRUE; MapWorkspace_Notify( &ws, MAP_CHANGE_VIEW ); }
+    CHECK_FALSE( MapWorkspace_HasFacePreview( &ws ) ); CHECK_FALSE( ws.editPreview.bActive );
+    CHECK( ws.editPreviewWire.points.nCount == 0 ); CHECK_FALSE( MapWorkspace_CommitFacePreview( &ws ) );
+}
+
 TEST_CASE( "Failed clipping preview allocation clears staged geometry without publishing the cut", "[map][gui][geometry-edit][clip][preview][allocation]" )
 {
     allocation_failure_t failure;
