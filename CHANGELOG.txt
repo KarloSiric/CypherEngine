@@ -59,6 +59,12 @@ Changed
 - Local validation uses one compact Mason build and existing system packages.
 
 Fixed
+- Shift-modified movement retains camera input during a camera gesture or held
+  flight direction, preventing overlapping tool selection. Idle Navigation
+  still accepts explicit tool chords; effective remaps and speed/framing/document
+  shortcuts retain their contexts.
+- Unbound command-modifier release refreshes already-held camera movement without
+  another direction press; focus loss/stale repeats cannot recreate a held key.
 - Selection/document/history preservation on allocation/invalid-preview failure
   and stale component pruning after visibility/topology/document changes.
 - Suppressed parent mesh status dimensions in Vertex/Edge modes and blocked
@@ -73,6 +79,10 @@ Validation and remaining work
   GitHub Actions run 37201143691 passed all 15 jobs for the published commit.
 - Camera speed/navigation: five local suites, 202343 assertions / 839 cases;
   camera subset 812 / 13 at 2x scaling; Mason captures inspected.
+  GitHub Actions run 37205149950 passed all 15 jobs for the published commit.
+- Shift-flight routing: five local suites, 203027 assertions / 846 cases;
+  focused camera routing/modifier/remap/focus/speed checks 1493 / 23 at 2x
+  scaling. Negative control detects the old command-modifier release stall.
 - Component edit adapters, face UV edits, full Hammer shortcut parity and
   renderer/ECS/audio/physics/gameplay integration remain unfinished. Full Mason
   user documentation comes later; research notes retain implementation evidence.

@@ -93,13 +93,18 @@ QStringList MapInput_CommandBindings( const map_workspace_t *pWorkspace, const c
 // tool, selection mode, viewport family, viewport, map, global. Modifier/platform overlays
 // and explicit user unbindings are resolved by the framework keymap.
 bool MapInput_DispatchKey( map_workspace_t *pWorkspace, QKeyEvent *pEvent,
-                          bool camera, bool navigationActive, bool execute );
+                          bool camera, bool navigationActive, bool execute, bool navigationOwned = false );
 
 // Held camera actions have priority while navigating. A view should accept
 // ShortcutOverride for these keys, then let its camera keyPress/keyRelease
 // handlers consume them. This prevents window shortcuts such as E=Scale
 // from capturing E=CameraUp during flight. Uses the user's held bindings.
-bool MapInput_IsNavigationKey( const map_workspace_t *pWorkspace, const QKeyEvent *pEvent );
+// navigationOwned means a captured camera gesture or previously held movement
+// owns input. Otherwise an explicit modified tool chord may leave idle neutral
+// navigation. Determine ownership before observing the current press, using the
+// same state for ShortcutOverride and KeyPress.
+bool MapInput_IsNavigationKey( const map_workspace_t *pWorkspace, const QKeyEvent *pEvent,
+                              bool navigationOwned = false );
 
 // All camera actions whose user-held triggers match this event, or zero.
 // Ctrl/Meta only match explicitly declared held chords. Shift/Alt speed

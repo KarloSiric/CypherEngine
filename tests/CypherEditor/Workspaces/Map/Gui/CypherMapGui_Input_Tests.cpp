@@ -25,6 +25,7 @@
 #include <QWheelEvent>
 
 #include <array>
+#include <utility>
 
 using namespace cypher::common;
 using namespace cypher::editor;
@@ -1440,4 +1441,63 @@ TEST_CASE( "The built-in Merge shortcut dispatches one undoable union in either 
     const auto *document = ws.pDocument;
     REQUIRE( MapInput_DispatchKey( &ws, &merge, false, false, true ) ); // A disabled bound command is consumed without editing.
     CHECK( ws.pDocument == document ); CHECK( ws.wire.objects.nCount == 2u );
+}
+
+TEST_CASE( "Captured camera ownership keeps modified held movement ahead of idle tool exits", "[map][gui][input][navigation-ownership]" )
+{
+    default_input_fixture_t f; auto &ws = f.workspace;
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE );
+    QKeyEvent select( QEvent::KeyPress, Qt::Key_S, Qt::ShiftModifier );
+    REQUIRE( MapInput_NavigationKeyMask( &ws, &select ) == MAP_NAVIGATION_BACK );
+    CHECK_FALSE( MapInput_IsNavigationKey( &ws, &select ) );
+    CHECK( MapInput_IsNavigationKey( &ws, &select, true ) );
+    CHECK_FALSE( MapInput_DispatchKey( &ws, &select, true, true, false, true ) );
+    CHECK_FALSE( MapInput_DispatchKey( &ws, &select, true, true, true, true ) );
+    CHECK( ws.tool == map_tool_t::NONE );
+    REQUIRE( MapInput_DispatchKey( &ws, &select, true, true, false ) ); CHECK( ws.tool == map_tool_t::NONE );
+    REQUIRE( MapInput_DispatchKey( &ws, &select, true, true, true ) ); CHECK( ws.tool == map_tool_t::SELECT );
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE );
+    REQUIRE( MapInput_DispatchKey( &ws, &select, false, true, true, true ) ); CHECK( ws.tool == map_tool_t::SELECT );
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE );
+    REQUIRE( MapInput_DispatchKey( &ws, &select, true, false, true, true ) ); CHECK( ws.tool == map_tool_t::SELECT );
+}
+
+TEST_CASE( "Captured ownership follows custom held bindings and leaves other command chords available", "[map][gui][input][navigation-ownership][keymap]" )
+{
+    input_fixture_t f( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "camera_ownership_remap"
+  bindings = { "map.viewport" = { "map.tool.select" = [ "Shift+X", "Ctrl+Y" ] }
+    "map.viewport.3d" = { "test.family3d" = [ "Equal", "Home", "Escape" ] }
+    global = { "test.global" = [ "Ctrl+Shift+X" ] }
+  }
+  held = { "map.viewport.3d" = { "map.camera.forward" = [ "X", "Ctrl+Y" ] "map.camera.fast" = [ "Shift" ] } }
+})cykv" );
+    command_desc_t tool{}; tool.pId = "map.tool.select"; tool.pLabel = "Select";
+    tool.pfnExecute = Execute; tool.pfnState = State; tool.pContext = &f.executions[0];
+    REQUIRE( EditorCommands_Register( &f.gui.commands, &tool, 1u ) == command_registry_status_t::OK );
+    f.workspace.tool = map_tool_t::NONE;
+    for ( const auto &stroke : { std::pair{ Qt::Key_X, Qt::ShiftModifier }, std::pair{ Qt::Key_Y, Qt::ControlModifier } } ) {
+        QKeyEvent key( QEvent::KeyPress, stroke.first, stroke.second );
+        CHECK_FALSE( MapInput_IsNavigationKey( &f.workspace, &key ) );
+        REQUIRE( MapInput_IsNavigationKey( &f.workspace, &key, true ) );
+        CHECK_FALSE( MapInput_DispatchKey( &f.workspace, &key, true, true, false, true ) );
+        CHECK_FALSE( MapInput_DispatchKey( &f.workspace, &key, true, true, true, true ) );
+    }
+    CHECK( f.Calls( "map.tool.select" ) == 0 );
+    for ( const int key : { Qt::Key_Equal, Qt::Key_Home, Qt::Key_Escape } ) {
+        QKeyEvent event( QEvent::KeyPress, key, Qt::NoModifier );
+        CHECK_FALSE( MapInput_IsNavigationKey( &f.workspace, &event, true ) );
+        REQUIRE( MapInput_DispatchKey( &f.workspace, &event, true, true, true, true ) );
+    }
+    CHECK( f.Calls( "test.family3d" ) == 3 );
+    QKeyEvent save( QEvent::KeyPress, Qt::Key_X, Qt::ControlModifier | Qt::ShiftModifier );
+    CHECK_FALSE( MapInput_IsNavigationKey( &f.workspace, &save, true ) );
+    REQUIRE( MapInput_DispatchKey( &f.workspace, &save, true, true, true, true ) ); CHECK( f.Calls( "test.global" ) == 1 );
+    f.Override( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "camera_ownership_unbound" held = { "map.viewport.3d" = { "map.camera.forward" = [] } } })cykv" );
+    QKeyEvent old( QEvent::KeyPress, Qt::Key_X, Qt::ShiftModifier );
+    CHECK_FALSE( MapInput_IsNavigationKey( &f.workspace, &old, true ) );
+    REQUIRE( MapInput_DispatchKey( &f.workspace, &old, true, true, true, true ) ); CHECK( f.Calls( "map.tool.select" ) == 1 );
 }

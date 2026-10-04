@@ -3388,6 +3388,73 @@ TEST_CASE( "Mason navigation shortcuts open Go To and return the view to the ful
     CHECK( ws->pDocument == document ); CHECK( EditorHistory_StepCount( &ws->history ) == steps );
 }
 
+TEST_CASE( "Mason shifted camera flight keeps editing tool actions idle until navigation releases", "[mason][smoke][camera-shift][navigation]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason ); auto *window = Mason_Window( session.pMason );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    auto *camera = MapViews_PaneView( views, 0 ); REQUIRE( camera );
+    map_bounds_t box{}; MapBounds_AddPoint( box, { -64, -64, 0 } ); MapBounds_AddPoint( box, { 64, 64, 128 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, box ) );
+    const auto *document = ws->pDocument; const auto steps = EditorHistory_StepCount( &ws->history );
+    const auto selectionRevision = ws->selection.revision;
+    MapViews_SetActivePane( views, 0 );
+    REQUIRE( MasonWorkflowKey( camera, Qt::Key_Escape ) ); REQUIRE( ws->tool == map_tool_t::NONE );
+    const QPointF point = camera->rect().center();
+    const auto press = [&]( int code ) {
+        // Qt toggles a modifier key's own bit to expose its post-event state.
+        const auto modifiers = code == Qt::Key_Shift ? Qt::NoModifier : Qt::ShiftModifier;
+        QKeyEvent preflight( QEvent::ShortcutOverride, code, modifiers ); preflight.ignore();
+        QCoreApplication::sendEvent( camera, &preflight ); REQUIRE( preflight.isAccepted() );
+        QKeyEvent down( QEvent::KeyPress, code, modifiers ); REQUIRE( down.modifiers() == Qt::ShiftModifier );
+        QCoreApplication::sendEvent( camera, &down );
+        REQUIRE( down.isAccepted() );
+    };
+    const auto release = [&]( int code ) {
+        QKeyEvent up( QEvent::KeyRelease, code, Qt::ShiftModifier );
+        REQUIRE( up.modifiers() == ( code == Qt::Key_Shift ? Qt::NoModifier : Qt::ShiftModifier ) );
+        QCoreApplication::sendEvent( camera, &up );
+    };
+    // Start with Shift already held, then capture look before the first direction.
+    press( Qt::Key_Shift );
+    QMouseEvent look( QEvent::MouseButtonPress, point, camera->mapToGlobal( point ),
+        Qt::RightButton, Qt::RightButton, Qt::ShiftModifier );
+    QCoreApplication::sendEvent( camera, &look );
+    int lookSteps = 0;
+    for ( const int code : { Qt::Key_S, Qt::Key_D, Qt::Key_E } ) {
+        CAPTURE( code ); press( code );
+        CHECK( ws->tool == map_tool_t::NONE );
+        const auto velocity = MapCameraView_NavigationVelocity( camera, Qt::ShiftModifier );
+        CHECK( velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z > 0.0 );
+        release( code );
+        const auto before = MapCameraView_Forward( camera );
+        const QPointF next = point + QPointF( 8 * ++lookSteps, 0 );
+        QMouseEvent turn( QEvent::MouseMove, next, camera->mapToGlobal( next ),
+            Qt::NoButton, Qt::RightButton, Qt::ShiftModifier ); QCoreApplication::sendEvent( camera, &turn );
+        const auto after = MapCameraView_Forward( camera );
+        CHECK( before.x != after.x );
+    }
+    auto *palette = window->findChild<QWidget *>( QStringLiteral( "EditorToolPalette" ) ); REQUIRE( palette );
+    for ( const auto *button : palette->findChildren<QToolButton *>() ) {
+        const auto *action = button->defaultAction(); REQUIRE( action );
+        if ( action->objectName().startsWith( QStringLiteral( "map.tool." ) ) && action->isCheckable() ) {
+            CAPTURE( action->objectName().toStdString() ); CHECK_FALSE( action->isChecked() ); CHECK_FALSE( button->isChecked() );
+        }
+    }
+    QMouseEvent stop( QEvent::MouseButtonRelease, point, camera->mapToGlobal( point ),
+        Qt::RightButton, Qt::NoButton, Qt::ShiftModifier ); QCoreApplication::sendEvent( camera, &stop );
+    release( Qt::Key_Shift );
+    const auto stopped = MapCameraView_Forward( camera );
+    MasonWorkflowMouse( camera, QEvent::MouseMove, point + QPointF( 40, 0 ), Qt::NoButton );
+    CHECK( MapCameraView_Forward( camera ).x == stopped.x );
+    REQUIRE( MasonWorkflowKey( camera, Qt::Key_S, Qt::ShiftModifier ) );
+    CHECK( ws->tool == map_tool_t::SELECT );
+    const auto *select = window->findChild<QAction *>( QStringLiteral( "map.tool.select" ) ); REQUIRE( select );
+    CHECK( select->isChecked() );
+    CHECK( ws->pDocument == document ); CHECK( ws->selection.revision == selectionRevision );
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps );
+}
+
 TEST_CASE( "Capture Mason camera navigation and speed feedback", "[mason][smoke][.camera-speed-capture]" )
 {
     mason_session_t session;

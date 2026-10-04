@@ -539,13 +539,13 @@ u32 MapInput_NavigationKeyMask( const map_workspace_t *pWorkspace, const QKeyEve
     return NavigationMask( *pWorkspace, actual );
 }
 
-bool MapInput_IsNavigationKey( const map_workspace_t *pWorkspace, const QKeyEvent *pEvent )
+bool MapInput_IsNavigationKey( const map_workspace_t *pWorkspace, const QKeyEvent *pEvent, bool navigationOwned )
 {
-    if ( pWorkspace != nullptr && pWorkspace->pGui != nullptr && pEvent != nullptr &&
+    if ( !navigationOwned && pWorkspace != nullptr && pWorkspace->pGui != nullptr && pEvent != nullptr &&
          pWorkspace->tool == map_tool_t::NONE && pEvent->modifiers() != Qt::NoModifier ) {
         // An explicit tool chord such as Shift+S must be able to leave
-        // Navigation. Plain WASD/EQ continue to move the camera, including
-        // E which selects Scale outside navigation. Resolve the user's active
+        // idle Navigation. Captured look and held flight keep priority for
+        // configured movement, including Shift for fast flight. Resolve the user's active
         // keymap instead of giving a hard-coded Select shortcut special rules.
         const auto binding = EventBinding( pWorkspace, pEvent, true );
         if ( StringView_StartsWith( binding.command, StringView_FromCString( "map.tool." ) ) &&
@@ -557,11 +557,11 @@ bool MapInput_IsNavigationKey( const map_workspace_t *pWorkspace, const QKeyEven
     return MapInput_NavigationKeyMask( pWorkspace, pEvent ) != 0u;
 }
 
-bool MapInput_DispatchKey( map_workspace_t *pWorkspace, QKeyEvent *pEvent, bool camera, bool navigationActive, bool execute )
+bool MapInput_DispatchKey( map_workspace_t *pWorkspace, QKeyEvent *pEvent, bool camera, bool navigationActive, bool execute, bool navigationOwned )
 {
     if ( pWorkspace == nullptr || pWorkspace->pGui == nullptr || pEvent == nullptr ) { return false; }
     const gui::editor_gui_t &gui = *pWorkspace->pGui;
-    if ( gui.nKeymapChain == 0u || ( camera && navigationActive && MapInput_IsNavigationKey( pWorkspace, pEvent ) ) ) { return false; }
+    if ( gui.nKeymapChain == 0u || ( camera && navigationActive && MapInput_IsNavigationKey( pWorkspace, pEvent, navigationOwned ) ) ) { return false; }
     const input_binding_t binding = EventBinding( pWorkspace, pEvent, camera );
     if ( execute && binding.command.cchLength != 0u && EditorCommands_Find( &gui.commands, binding.command ) != nullptr &&
          ( EditorCommands_State( &gui.commands, binding.command ) & COMMAND_STATE_ENABLED ) != 0u ) {

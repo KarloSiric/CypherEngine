@@ -77,6 +77,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Shift-modified movement keeps camera input while a camera gesture or held
+  flight direction is active, preventing overlapping tool shortcuts from
+  changing tools. Idle Navigation still accepts explicit tool-selection chords;
+  effective camera remaps, speed/framing commands and document shortcuts retain
+  their own contexts.
+- Releasing an unbound command modifier refreshes already-held camera movement,
+  so flight resumes without another direction press. Focus loss and stale
+  auto-repeat still cannot recreate a held key.
 - Preserved selection, live documents and history after failed allocation or
   invalid transform previews, and pruned stale component identities after
   visibility, topology or document changes.
@@ -98,6 +106,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - Camera speed/navigation passed all five local suites: 202,343 assertions in
   839 cases. The camera subset passed 812 assertions in 13 cases at 2x scaling;
   actual Mason workspace and properties captures were inspected.
+  GitHub Actions run 37205149950 passed all 15 jobs for the published commit.
+- The Shift-flight routing fix passed all five local suites: 203,027 assertions
+  in 846 cases. Focused camera routing, modifier order, remapping, focus and
+  speed checks passed 1,493 assertions in 23 cases at 2x scaling. A negative
+  control confirms the command-modifier release regression detects the old stall.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
   Full Mason user documentation is deferred; implementation evidence is kept

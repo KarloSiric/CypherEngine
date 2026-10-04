@@ -3146,6 +3146,21 @@ public:
     bool NavigationActive() const noexcept {
         return m_cameraDrag.kind != map_camera_gesture_t::NONE || m_pWorkspace->tool == map_tool_t::NONE || m_pWorkspace->tool == map_tool_t::CAMERA;
     }
+    bool NavigationOwnsInput( Qt::KeyboardModifiers modifiers ) const {
+        if ( !NavigationActive() ) { return false; }
+        if ( m_cameraDrag.kind != map_camera_gesture_t::NONE || m_pWorkspace->tool == map_tool_t::CAMERA ) { return true; }
+        // Neutral navigation can still leave through an explicit idle tool
+        // chord. Once a direction is held, Shift movement belongs to flight.
+        // Resolve live bindings and modifiers; an unbound or command chord
+        // must not retain ownership from an earlier navigation context.
+        constexpr u32 directions = MAP_NAVIGATION_FORWARD | MAP_NAVIGATION_BACK | MAP_NAVIGATION_LEFT |
+            MAP_NAVIGATION_RIGHT | MAP_NAVIGATION_UP | MAP_NAVIGATION_DOWN;
+        for ( const int code : m_pressedNavigation ) {
+            QKeyEvent event( QEvent::KeyPress, code, modifiers );
+            if ( ( MapInput_NavigationKeyMask( m_pWorkspace, &event ) & directions ) != 0u ) { return true; }
+        }
+        return false;
+    }
     u64 HoveredObject() const noexcept { return m_hover.id; }
 
     map_render_mode_t RenderMode() const noexcept { return m_renderMode; }
@@ -3454,8 +3469,9 @@ protected:
             const auto gesture = MapInput_ToolGestureKey( m_pWorkspace, key, true );
             if ( gesture == map_tool_gesture_key_t::CANCEL ||
                  ( ( m_drag.kind != edit_drag_t::NONE || m_pWorkspace->editPreview.bClip || m_pWorkspace->editPreview.bStagedBlock ) && gesture != map_tool_gesture_key_t::NONE ) ) { event->accept(); return true; }
-            if ( NavigationActive() && MapInput_IsNavigationKey( m_pWorkspace, key ) ) { event->accept(); return true; }
-            if ( MapInput_DispatchKey( m_pWorkspace, const_cast<QKeyEvent *>( key ), true, NavigationActive(), false ) ) { event->accept(); return true; }
+            const bool navigationOwned = NavigationOwnsInput( key->modifiers() );
+            if ( NavigationActive() && MapInput_IsNavigationKey( m_pWorkspace, key, navigationOwned ) ) { event->accept(); return true; }
+            if ( MapInput_DispatchKey( m_pWorkspace, const_cast<QKeyEvent *>( key ), true, NavigationActive(), false, navigationOwned ) ) { event->accept(); return true; }
         }
         return QWidget::event( event );
     }
@@ -3635,6 +3651,7 @@ protected:
         // Observe pane-local eligible held keys before command dispatch. A
         // command still wins outside navigation, but its key can remain held
         // when the next look gesture starts without requiring another press.
+        const bool navigationOwned = NavigationOwnsInput( pEvent->modifiers() );
         const bool navigationKey = SetMoveKey( pEvent, CY_TRUE );
         if ( pEvent->key() == Qt::Key_Space && !pEvent->isAutoRepeat() ) { m_bSpaceHeld = true; }
         if ( m_cameraDrag.kind != map_camera_gesture_t::NONE &&
@@ -3665,8 +3682,9 @@ protected:
             }
         }
         if ( CancelIdleTool( *m_pWorkspace, pEvent, true ) ) { StopCameraDrag(); update(); pEvent->accept(); return; }
-        if ( MapInput_DispatchKey( m_pWorkspace, pEvent, true, NavigationActive(), true ) ) { pEvent->accept(); return; }
-        if ( !NavigationActive() || !navigationKey ) { QWidget::keyPressEvent( pEvent ); }
+        if ( MapInput_DispatchKey( m_pWorkspace, pEvent, true, NavigationActive(), true, navigationOwned ) ) { pEvent->accept(); return; }
+        if ( NavigationActive() && navigationKey ) { pEvent->accept(); return; }
+        QWidget::keyPressEvent( pEvent );
     }
 
     void keyReleaseEvent( QKeyEvent *pEvent ) override
@@ -4258,7 +4276,11 @@ private:
         const int code = pEvent->key();
         if ( !bDown ) {
             if ( pEvent->isAutoRepeat() ) { return m_pressedNavigation.contains( code ) ? CY_TRUE : CY_FALSE; }
-            if ( !m_pressedNavigation.remove( code ) ) { return CY_FALSE; }
+            if ( !m_pressedNavigation.remove( code ) ) {
+                // Releasing an unbound command modifier can make an observed
+                // direction eligible again. Refresh without synthesizing a press.
+                RefreshMoveKeys( pEvent->modifiers() ); return CY_FALSE;
+            }
         } else {
             const u32 mask = MapInput_NavigationKeyMask( m_pWorkspace, pEvent );
             if ( mask == 0 ) { return CY_FALSE; }

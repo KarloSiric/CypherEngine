@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherMapGui_Panels.h"
+#include "CypherMapGui_Input.h"
 #include "CypherMapGui_ToolPanels.h"
 #include "CypherMapGui_Views.h"
 #include "CypherEditorGui_Style.h"
@@ -9251,4 +9252,187 @@ TEST_CASE( "Failed camera speed settings publication preserves flight and does n
     DragButton( camera.get(), QEvent::MouseButtonRelease, point + QPointF( 8, 0 ), Qt::RightButton );
     camera.reset(); EditorSettings_SetScope( &session.gui.settings, settings_scope_t::WORKSPACE, nullptr );
     SettingsDocument_Shutdown( &scope ); CHECK( audit.live == 0u );
+}
+
+namespace
+{
+void CameraShiftTestKey( QWidget *view, QEvent::Type type, int key, Qt::KeyboardModifiers modifiers = Qt::NoModifier,
+                         bool repeat = false, bool expectAccepted = true )
+{
+    // QKeyEvent::modifiers() toggles a modifier key's own bit. The caller
+    // supplies the post-event state, as ordinary native events expose it.
+    Qt::KeyboardModifiers constructorModifiers = modifiers;
+    if ( key == Qt::Key_Shift ) { constructorModifiers ^= Qt::ShiftModifier; }
+    else if ( key == Qt::Key_Control ) { constructorModifiers ^= Qt::ControlModifier; }
+    else if ( key == Qt::Key_Alt ) { constructorModifiers ^= Qt::AltModifier; }
+    else if ( key == Qt::Key_Meta ) { constructorModifiers ^= Qt::MetaModifier; }
+    if ( type == QEvent::KeyPress ) {
+        QKeyEvent preflight( QEvent::ShortcutOverride, key, constructorModifiers, QString(), repeat ); preflight.ignore();
+        QCoreApplication::sendEvent( view, &preflight );
+        if ( expectAccepted ) { REQUIRE( preflight.isAccepted() ); }
+    }
+    QKeyEvent event( type, key, constructorModifiers, QString(), repeat );
+    REQUIRE( event.modifiers() == modifiers ); event.ignore(); QCoreApplication::sendEvent( view, &event );
+    if ( type == QEvent::KeyPress && expectAccepted ) { CHECK( event.isAccepted() ); }
+}
+}
+
+TEST_CASE( "Shift movement owns camera input across captured look and neutral flight modifier orders", "[map][gui][views][camera-shift][navigation-ownership]" )
+{
+    // Select+Look, Navigation+Look, Camera tool, and Navigation idle flight.
+    for ( int context = 0; context < 4; ++context ) { for ( const bool shiftFirst : { false, true } ) {
+        CAPTURE( context, shiftFirst ); session_t session; auto &ws = session.workspace;
+        REQUIRE( MapWorkspace_RegisterCommands( &ws, &session.gui.commands ) == command_registry_status_t::OK );
+        view_settings_t settings( &session.gui.settings ); settings.Real( "editor.camera.move_speed", 1000.0 );
+        settings.Real( "editor.camera.fast_multiplier", 4.0 );
+        const auto tool = context == 0 ? map_tool_t::SELECT : context == 2 ? map_tool_t::CAMERA : map_tool_t::NONE;
+        MapWorkspace_SetTool( &ws, tool );
+        std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+        const auto *document = ws.pDocument; const auto revision = document->geometry.revision, selection = ws.selection.revision;
+        const auto token = UndoRedo_StateToken( ws.history.pUndo ); const usize steps = EditorHistory_StepCount( &ws.history );
+        const bool captured = context < 2, anchor = !shiftFirst || context == 3;
+        const QPointF point( 300, 220 );
+        if ( shiftFirst ) { CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_Shift, Qt::ShiftModifier, false, context != 0 ); }
+        if ( captured ) { DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton, shiftFirst ? Qt::ShiftModifier : Qt::NoModifier ); }
+        if ( anchor ) { CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W, shiftFirst ? Qt::ShiftModifier : Qt::NoModifier ); }
+        if ( !shiftFirst ) {
+            CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_Shift, Qt::ShiftModifier );
+            CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W, Qt::ShiftModifier, true );
+            CHECK( TestDistance( MapCameraView_NavigationVelocity( camera.get(), Qt::ShiftModifier ), {} ) == Catch::Approx( 4000.0 ) );
+        }
+        for ( const int key : { Qt::Key_S, Qt::Key_D, Qt::Key_E } ) {
+            CAPTURE( key ); CameraShiftTestKey( camera.get(), QEvent::KeyPress, key, Qt::ShiftModifier );
+            CHECK( ws.tool == tool );
+            const auto velocity = MapCameraView_NavigationVelocity( camera.get(), Qt::ShiftModifier );
+            CHECK( TestDistance( velocity, {} ) == Catch::Approx( anchor && key == Qt::Key_S ? 0.0 : 4000.0 ) );
+            if ( !anchor && key == Qt::Key_E ) { CHECK( velocity.z == Catch::Approx( 4000.0 ) ); }
+            // Modifier changes on release still release the observed physical key.
+            CameraShiftTestKey( camera.get(), QEvent::KeyRelease, key );
+            CHECK( TestDistance( MapCameraView_NavigationVelocity( camera.get(), Qt::ShiftModifier ), {} ) == Catch::Approx( anchor ? 4000.0 : 0.0 ) );
+        }
+        if ( anchor ) { CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_W ); }
+        CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_Shift );
+        CheckPointClose( MapCameraView_NavigationVelocity( camera.get() ), {} );
+        if ( captured ) {
+            const auto forward = MapCameraView_Forward( camera.get() );
+            DragButton( camera.get(), QEvent::MouseMove, point + QPointF( 8, 0 ), Qt::RightButton );
+            CHECK( TestDistance( MapCameraView_Forward( camera.get() ), forward ) > 0.01 );
+            DragButton( camera.get(), QEvent::MouseButtonRelease, point + QPointF( 8, 0 ), Qt::RightButton );
+        }
+        CHECK( ws.tool == tool ); CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision );
+        CHECK( ws.selection.revision == selection ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+        CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+    } }
+}
+
+TEST_CASE( "Neutral camera idle tool exits return after release or focus loss without stale repeats", "[map][gui][views][camera-shift][navigation-ownership][focus]" )
+{
+    session_t session; auto &ws = session.workspace;
+    REQUIRE( MapWorkspace_RegisterCommands( &ws, &session.gui.commands ) == command_registry_status_t::OK );
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+    const QPointF point( 300, 220 );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_Shift, Qt::ShiftModifier );
+    DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton, Qt::ShiftModifier );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_S, Qt::ShiftModifier ); CHECK( ws.tool == map_tool_t::NONE );
+    REQUIRE( TestDistance( MapCameraView_NavigationVelocity( camera.get(), Qt::ShiftModifier ), {} ) > 3999.0 );
+    CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_S );
+    DragButton( camera.get(), QEvent::MouseMove, point + QPointF( 8, 0 ), Qt::RightButton, Qt::ShiftModifier );
+    DragButton( camera.get(), QEvent::MouseButtonRelease, point + QPointF( 8, 0 ), Qt::RightButton, Qt::ShiftModifier );
+    // A speed modifier alone does not retain flight ownership.
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_S, Qt::ShiftModifier ); CHECK( ws.tool == map_tool_t::SELECT );
+    CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_S ); CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_Shift );
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_Shift, Qt::ShiftModifier );
+    REQUIRE( TestDistance( MapCameraView_NavigationVelocity( camera.get(), Qt::ShiftModifier ), {} ) > 3999.0 );
+    QFocusEvent lost( QEvent::FocusOut, Qt::OtherFocusReason ); QCoreApplication::sendEvent( camera.get(), &lost );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W, Qt::ShiftModifier, true );
+    CheckPointClose( MapCameraView_NavigationVelocity( camera.get(), Qt::ShiftModifier ), {} );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_S, Qt::ShiftModifier ); CHECK( ws.tool == map_tool_t::SELECT );
+}
+
+TEST_CASE( "Camera ownership follows live held remaps and keeps speed framing cancel and other commands", "[map][gui][views][camera-shift][navigation-ownership][keymap]" )
+{
+    session_t session; auto &ws = session.workspace;
+    REQUIRE( MapWorkspace_RegisterCommands( &ws, &session.gui.commands ) == command_registry_status_t::OK );
+    view_settings_t settings( &session.gui.settings ); settings.Real( "editor.camera.move_speed", 1000.0 );
+    settings_document_t keys{}, unbound{};
+    REQUIRE( SettingsDocument_Init( &keys, Allocator_GetSystem(), EditorKeymap_Identity() ) == settings_document_status_t::OK );
+    REQUIRE( SettingsDocument_Init( &unbound, Allocator_GetSystem(), EditorKeymap_Identity() ) == settings_document_status_t::OK );
+    REQUIRE( SettingsDocument_Load( &keys, StringView_FromCString( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "camera_shift_remap"
+  bindings = { "map.viewport" = { "map.tool.select" = [ "Shift+X" ] } }
+  held = { "map.viewport.3d" = { "map.camera.forward" = [ "X", "Ctrl+Y" ] } }
+})cykv" ) ).status == settings_document_status_t::OK );
+    const auto *base = session.gui.keymapChain[0];
+    session.gui.keymapChain[0] = SettingsDocument_Root( &keys ); session.gui.keymapChain[1] = base; session.gui.nKeymapChain = 2u;
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+    const QPointF point( 300, 220 ); DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_X, Qt::ShiftModifier ); CHECK( ws.tool == map_tool_t::NONE );
+    CHECK( TestDistance( MapCameraView_NavigationVelocity( camera.get(), Qt::ShiftModifier ), {} ) == Catch::Approx( 4000.0 ) );
+    CameraSpeedTestPress( camera.get(), Qt::Key_Plus, Qt::ShiftModifier ); CHECK( ws.tool == map_tool_t::NONE );
+    CHECK( EditorSettings_Real( &session.gui.settings, "editor.camera.move_speed", 0.0 ) == 2000.0 );
+    CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_X );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_Y, Qt::ControlModifier );
+    CHECK( TestDistance( MapCameraView_NavigationVelocity( camera.get(), Qt::ControlModifier ), {} ) == Catch::Approx( 2000.0 ) );
+    CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_Y );
+    int framed = 0;
+    EditorCommands_SetObserver( &session.gui.commands,
+        []( void *context, const command_desc_t &command, const command_args_t &, command_result_t result ) {
+            if ( StringView_Equals( StringView_FromCString( command.pId ), StringView_FromCString( "map.view.frame_all" ) ) && result == command_result_t::OK ) { ++*static_cast<int *>( context ); }
+        }, &framed );
+    CameraSpeedTestPress( camera.get(), Qt::Key_Home ); CHECK( framed == 1 ); CHECK( ws.tool == map_tool_t::NONE );
+    EditorCommands_SetObserver( &session.gui.commands, nullptr, nullptr );
+    DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_X );
+    CameraSpeedTestPress( camera.get(), Qt::Key_Escape ); CHECK( ws.tool == map_tool_t::NONE );
+    CheckPointClose( MapCameraView_NavigationVelocity( camera.get() ), {} );
+    // Explicit held unbinding restores the tool command even during capture.
+    REQUIRE( SettingsDocument_Load( &unbound, StringView_FromCString( R"cykv(@cykv 1
+@schema "cypher.editor_keymap" 2
+{ id = "camera_shift_unbound" held = { "map.viewport.3d" = { "map.camera.forward" = [] } } })cykv" ) ).status == settings_document_status_t::OK );
+    session.gui.keymapChain[0] = SettingsDocument_Root( &unbound ); session.gui.keymapChain[1] = SettingsDocument_Root( &keys );
+    session.gui.keymapChain[2] = base; session.gui.nKeymapChain = 3u;
+    DragButton( camera.get(), QEvent::MouseButtonPress, point, Qt::RightButton );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_X, Qt::ShiftModifier ); CHECK( ws.tool == map_tool_t::SELECT );
+    CheckPointClose( MapCameraView_NavigationVelocity( camera.get(), Qt::ShiftModifier ), {} );
+    // The ownership policy belongs only to camera navigation, never a 2D pane.
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE );
+    std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) ); ShowAt( top.get(), 800, 600 );
+    CameraSpeedTestPress( top.get(), Qt::Key_X, Qt::ShiftModifier ); CHECK( ws.tool == map_tool_t::SELECT );
+}
+
+TEST_CASE( "Releasing an unbound command modifier resumes observed camera movement without another press", "[map][gui][views][camera-shift][navigation-ownership][timer]" )
+{
+    session_t session; auto &ws = session.workspace; MapWorkspace_SetTool( &ws, map_tool_t::NONE );
+    std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) ); ShowAt( camera.get(), 800, 600 );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W );
+    REQUIRE( TestDistance( MapCameraView_NavigationVelocity( camera.get() ), {} ) > 999.0 );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_Control, Qt::ControlModifier, false, false );
+    // Model timer eligibility with Ctrl held before testing its release.
+    // Offscreen Qt's synthetic global modifier cache is normalized below.
+    CheckPointClose( MapCameraView_NavigationVelocity( camera.get(), Qt::ControlModifier ), {} );
+    const auto stopped = MapCameraView_Position( camera.get() );
+    QEventLoop pause; QTimer::singleShot( 50, &pause, &QEventLoop::quit ); pause.exec();
+    CheckPointClose( MapCameraView_Position( camera.get() ), stopped );
+    CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_Control );
+    // Offscreen Qt retains Ctrl in its global cache after this synthetic
+    // modifier release. An unrelated press corrects that platform state but
+    // cannot refresh held navigation or restart a stopped camera timer.
+    QKeyEvent sync( QEvent::KeyPress, Qt::Key_F12, Qt::NoModifier );
+    REQUIRE( MapInput_NavigationKeyMask( &ws, &sync ) == 0u );
+    REQUIRE_FALSE( MapInput_DispatchKey( &ws, &sync, true, true, false ) );
+    QCoreApplication::sendEvent( camera.get(), &sync );
+    REQUIRE( QGuiApplication::queryKeyboardModifiers() == Qt::NoModifier );
+    REQUIRE( QGuiApplication::keyboardModifiers() == Qt::NoModifier );
+    QEventLoop resumed; QTimer::singleShot( 50, &resumed, &QEventLoop::quit ); resumed.exec();
+    CHECK( TestDistance( MapCameraView_Position( camera.get() ), stopped ) > 1.0 );
+    CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_W );
+    QFocusEvent lost( QEvent::FocusOut, Qt::OtherFocusReason ); QCoreApplication::sendEvent( camera.get(), &lost );
+    CameraShiftTestKey( camera.get(), QEvent::KeyRelease, Qt::Key_Control );
+    CameraShiftTestKey( camera.get(), QEvent::KeyPress, Qt::Key_W, Qt::NoModifier, true );
+    CheckPointClose( MapCameraView_NavigationVelocity( camera.get() ), {} );
 }
