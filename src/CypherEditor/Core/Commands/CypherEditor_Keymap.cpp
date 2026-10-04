@@ -605,7 +605,7 @@ keymap_lookup_t EditorKeymap_FindBindingOn(
         return entry == entry_t::BOUND ? keymap_lookup_t::BOUND : keymap_lookup_t::UNBOUND;
     }
     if ( pBindingOut != nullptr ) {
-        *pBindingOut = {};
+        *pBindingOut = keymap_binding_t{};
         pBindingOut->nInvalidChords = nInvalid;
     }
     return keymap_lookup_t::NOT_DEFINED;
@@ -632,7 +632,7 @@ keymap_lookup_t EditorKeymap_FindTriggers(
         if ( pTriggersOut != nullptr ) { *pTriggersOut = triggers; }
         return triggers.nTexts != 0u ? keymap_lookup_t::BOUND : keymap_lookup_t::UNBOUND;
     }
-    if ( pTriggersOut != nullptr ) { *pTriggersOut = {}; }
+    if ( pTriggersOut != nullptr ) { *pTriggersOut = keymap_triggers_t{}; }
     return keymap_lookup_t::NOT_DEFINED;
 }
 
