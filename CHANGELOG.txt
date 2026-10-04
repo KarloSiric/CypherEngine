@@ -24,6 +24,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added - Mason map authoring
+- Opt-in Snap to geometry aligns moved brush/mesh/patch bounds to existing
+  edges or centers even across authoring grids. Select/Translate properties
+  and Grid and Snapping settings expose it with persisted pixel tolerance and
+  RGB target labels. A common delta keeps selection spacing, uses one undo
+  step and leaves the chosen grid unchanged; Ctrl/Command bypasses both snaps.
+  Supported in 2D and 3D axis/world-plane handles. Free camera-plane movement,
+  component edits and resizing retain prior behavior. This is coordinate
+  alignment of bounds, not arbitrary surface contact.
 - Live block/transform dimensions, readable RGB labels, surface grids, separate
   move/resize handles and world-unit grid snapping. Multi-object resizing can
   extend each root equally or scale the combined bounds.
@@ -118,6 +126,14 @@ Validation and remaining work
   2x scaling; actual Mason wheel/Shift and Keybindings/Settings checks pass at
   2x. Built-in declaration count updated for two new wheel actions with all
   parser/conflict assertions retained.
+  GitHub Actions run 37219835907 passed all 15 jobs for the published commit.
+- Geometry alignment across authoring grids: five local suites, 221412
+  assertions / 884 cases. Focused snapping/Tool Properties checks 1299 / 10 at
+  normal and 2x scaling; actual Mason snapping checks pass at both scales and
+  workspace captures were inspected. The stale Settings page count now includes
+  both preferences explicitly; the complete GUI suite passes after repair.
+  Allocation failure, cancellation, clone, undo/redo and save/reopen checks
+  preserve document and selection guarantees.
 - Component edit adapters, face UV edits, full Hammer shortcut parity and
   renderer/ECS/audio/physics/gameplay integration remain unfinished. Full Mason
   user documentation comes later; research notes retain implementation evidence.

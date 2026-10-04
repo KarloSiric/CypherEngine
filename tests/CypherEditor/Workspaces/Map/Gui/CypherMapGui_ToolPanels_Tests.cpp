@@ -475,6 +475,118 @@ TEST_CASE( "Viewport command references use effective shortcuts and expose pane 
     }
 }
 
+TEST_CASE( "Movement snapping controls follow root selection profiles and Translate groups", "[map][gui][toolpanels][geometry-snap][selection-profile]" )
+{
+    session_t session; auto &ws = session.workspace;
+    MapWorkspace_SetTool( &ws, map_tool_t::SELECT ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS );
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) );
+    panel->resize( 320, 1000 ); panel->show(); QCoreApplication::processEvents();
+    QPointer<QCheckBox> enabled = Setting<QCheckBox>( *panel, "editor.grid.geometry_snap" );
+    QPointer<QDoubleSpinBox> distance = Setting<QDoubleSpinBox>( *panel, "editor.grid.geometry_snap_pixels" );
+    auto *control = panel->findChild<QWidget *>( QStringLiteral( "editor.grid.geometry_snap" ) ); REQUIRE( control );
+    QPointer<QWidget> group = control->parentWidget(); REQUIRE( group );
+    QPointer<QWidget> section = group->parentWidget(); REQUIRE( section );
+    CHECK( group->property( "toolGroup" ).toString() == QStringLiteral( "Movement snapping" ) );
+    auto *title = section->findChild<QLabel *>( QStringLiteral( "EditorSectionTitle" ) ); REQUIRE( title );
+    CHECK( title->text() == QStringLiteral( "Movement snapping" ) );
+    CHECK( distance->parentWidget()->parentWidget() == group.data() );
+    CHECK_FALSE( enabled->isChecked() ); CHECK( distance->value() == 8.0 );
+    CHECK( distance->minimum() == 2.0 ); CHECK( distance->maximum() == 24.0 );
+    const auto *document = ws.pDocument; const u64 revision = document->geometry.revision;
+    const usize steps = EditorHistory_StepCount( &ws.history ); const bool modified = MapWorkspace_IsModified( &ws );
+    const usize listeners = session.gui.settings.nListeners;
+    for ( const auto mode : { map_element_mode_t::OBJECTS, map_element_mode_t::GROUPS, map_element_mode_t::MESHES } ) {
+        CAPTURE( static_cast<int>( mode ) ); MapWorkspace_SetElementMode( &ws, mode );
+        CHECK_FALSE( section->isHidden() ); CHECK( enabled->isVisibleTo( panel.get() ) ); CHECK( distance->isVisibleTo( panel.get() ) );
+        for ( const char *path : { "editor.grid.size", "editor.grid.snap", "editor.grid.geometry_snap", "editor.grid.geometry_snap_pixels" } ) {
+            CHECK( MapToolProperties_Options( panel.get() ).count( QString::fromLatin1( path ) ) == 1 );
+            auto *field = group->findChild<QWidget *>( QString::fromLatin1( path ) ); REQUIRE( field );
+            CHECK( field->parentWidget() == group.data() );
+        }
+        CHECK( enabled.data() == Setting<QCheckBox>( *panel, "editor.grid.geometry_snap" ) );
+        CHECK( distance.data() == Setting<QDoubleSpinBox>( *panel, "editor.grid.geometry_snap_pixels" ) );
+        CHECK( session.gui.settings.nListeners == listeners );
+    }
+    for ( const auto mode : { map_element_mode_t::VERTICES, map_element_mode_t::EDGES, map_element_mode_t::FACES } ) {
+        CAPTURE( static_cast<int>( mode ) ); MapWorkspace_SetElementMode( &ws, mode );
+        CHECK( section->isHidden() ); CHECK_FALSE( enabled->isVisibleTo( panel.get() ) ); CHECK_FALSE( distance->isVisibleTo( panel.get() ) );
+        CHECK_FALSE( MapToolProperties_Options( panel.get() ).contains( QStringLiteral( "editor.grid.geometry_snap" ) ) );
+        CHECK_FALSE( MapToolProperties_Options( panel.get() ).contains( QStringLiteral( "editor.grid.geometry_snap_pixels" ) ) );
+        CHECK( session.gui.settings.nListeners == listeners );
+    }
+    MapWorkspace_SetTool( &ws, map_tool_t::NONE );
+    CHECK( MapToolProperties_Options( panel.get() ).isEmpty() );
+    CHECK( panel->findChild<QWidget *>( QStringLiteral( "editor.grid.geometry_snap" ) ) == nullptr );
+    CHECK( panel->findChild<QWidget *>( QStringLiteral( "editor.grid.geometry_snap_pixels" ) ) == nullptr );
+    CHECK( enabled.isNull() ); CHECK( distance.isNull() ); CHECK( group.isNull() ); CHECK( section.isNull() );
+
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS ); MapWorkspace_SetTool( &ws, map_tool_t::TRANSLATE );
+    for ( const char *path : { "editor.grid.size", "editor.grid.snap", "editor.grid.geometry_snap", "editor.grid.geometry_snap_pixels" } ) {
+        CHECK( MapToolProperties_Options( panel.get() ).count( QString::fromLatin1( path ) ) == 1 );
+        auto *field = panel->findChild<QWidget *>( QString::fromLatin1( path ) ); REQUIRE( field );
+        CHECK( field->parentWidget()->property( "toolGroup" ).toString() == QStringLiteral( "Move steps" ) );
+    }
+    CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision );
+    CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( MapWorkspace_IsModified( &ws ) == modified );
+}
+
+TEST_CASE( "Geometry snapping fields save the user preferences and reload without editing the map", "[map][gui][toolpanels][geometry-snap][settings]" )
+{
+    session_t session; auto &ws = session.workspace;
+    settings_document_t project{}, workspaceSettings{};
+    REQUIRE( SettingsDocument_Init( &project, Allocator_GetSystem(), EditorSettings_FileIdentity() ) == settings_document_status_t::OK );
+    REQUIRE( SettingsDocument_Init( &workspaceSettings, Allocator_GetSystem(), EditorSettings_FileIdentity() ) == settings_document_status_t::OK );
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::PROJECT, &project );
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::WORKSPACE, &workspaceSettings );
+    MapWorkspace_SetTool( &ws, map_tool_t::SELECT ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS );
+    MapWorkspace_Select( &ws, 1000u, MAP_SELECT_REPLACE );
+    const auto *document = ws.pDocument; const u64 revision = document->geometry.revision, selectionRevision = ws.selection.revision;
+    const usize steps = EditorHistory_StepCount( &ws.history ); const bool modified = MapWorkspace_IsModified( &ws );
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) );
+    auto *enabled = Setting<QCheckBox>( *panel, "editor.grid.geometry_snap" );
+    auto *distance = Setting<QDoubleSpinBox>( *panel, "editor.grid.geometry_snap_pixels" );
+    REQUIRE_FALSE( enabled->isChecked() ); REQUIRE( distance->value() == 8.0 );
+    enabled->click(); distance->setValue( 12.5 );
+    CHECK( enabled->isChecked() ); CHECK( distance->value() == 12.5 );
+    // The actual numeric editor enforces the registered range before saving.
+    distance->setValue( -10.0 ); CHECK( distance->value() == 2.0 );
+    CHECK( EditorSettings_Real( &session.gui.settings, "editor.grid.geometry_snap_pixels", 0.0 ) == 2.0 );
+    distance->setValue( 100.0 ); CHECK( distance->value() == 24.0 );
+    CHECK( EditorSettings_Real( &session.gui.settings, "editor.grid.geometry_snap_pixels", 0.0 ) == 24.0 );
+    distance->setValue( 12.5 );
+    for ( const char *path : { "editor.grid.geometry_snap", "editor.grid.geometry_snap_pixels" } ) {
+        const auto *descriptor = EditorSettings_Find( &session.gui.settings, StringView_FromCString( path ) ); REQUIRE( descriptor );
+        CHECK( EditorSettings_Resolve( &session.gui.settings, *descriptor ).source == settings_scope_t::USER );
+        setting_value_t stored{};
+        REQUIRE( Setting_Read( SettingsDocument_Root( &session.settings ), *descriptor, &stored, nullptr ) == setting_read_status_t::VALUE );
+        if ( stored.type == setting_type_t::BOOL ) { CHECK( stored.bValue ); }
+        else { CHECK( stored.flValue == 12.5 ); }
+        CHECK( Setting_Read( SettingsDocument_Root( &project ), *descriptor, &stored, nullptr ) == setting_read_status_t::ABSENT );
+        CHECK( Setting_Read( SettingsDocument_Root( &workspaceSettings ), *descriptor, &stored, nullptr ) == setting_read_status_t::ABSENT );
+    }
+
+    text_buffer_t text{}; REQUIRE( TextBuffer_Init( &text, Allocator_GetSystem() ) );
+    REQUIRE( SettingsDocument_Write( &session.settings, &text ) == settings_document_status_t::OK );
+    settings_document_t restored{};
+    REQUIRE( SettingsDocument_Init( &restored, Allocator_GetSystem(), EditorSettings_FileIdentity() ) == settings_document_status_t::OK );
+    REQUIRE( SettingsDocument_Load( &restored, { TextBuffer_Data( &text ), TextBuffer_Length( &text ) } ).status == settings_document_status_t::OK );
+    TextBuffer_Shutdown( &text );
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::USER, nullptr );
+    CHECK_FALSE( enabled->isChecked() ); CHECK( distance->value() == 8.0 );
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::USER, &restored );
+    CHECK( enabled->isChecked() ); CHECK( distance->value() == 12.5 );
+    MapWorkspace_SetTool( &ws, map_tool_t::TRANSLATE );
+    CHECK( Setting<QCheckBox>( *panel, "editor.grid.geometry_snap" )->isChecked() );
+    CHECK( Setting<QDoubleSpinBox>( *panel, "editor.grid.geometry_snap_pixels" )->value() == 12.5 );
+    CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision ); CHECK( ws.selection.revision == selectionRevision );
+    CHECK( EditorSelection_Count( &ws.selection ) == 1u ); CHECK( EditorSelection_At( &ws.selection, 0u ) == 1000u );
+    CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( MapWorkspace_IsModified( &ws ) == modified );
+    panel.reset();
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::USER, &session.settings );
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::PROJECT, nullptr );
+    EditorSettings_SetScope( &session.gui.settings, settings_scope_t::WORKSPACE, nullptr );
+}
+
 TEST_CASE( "Camera property groups write actual settings and release listeners", "[map][gui][toolpanels]" )
 {
     session_t session;

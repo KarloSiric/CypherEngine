@@ -20,6 +20,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <limits>
 #include <string>
 
 using namespace cypher::common;
@@ -68,6 +69,14 @@ setting_value_t IntegerValue( i64 value )
     return v;
 }
 
+setting_value_t RealValue( f64 value )
+{
+    setting_value_t v{};
+    v.type = setting_type_t::REAL;
+    v.flValue = value;
+    return v;
+}
+
 } // namespace
 
 TEST_CASE( "The framework catalogue registers once with valid defaults", "[editor][core][settings]" )
@@ -76,10 +85,12 @@ TEST_CASE( "The framework catalogue registers once with valid defaults", "[edito
     usize nFramework = 0u;
     const setting_descriptor_t *pFramework = EditorSettings_FrameworkCatalogue( &nFramework );
     CHECK( EditorSettings_Count( &r.registry ) == nFramework );
-    CHECK( nFramework == 99u ); // Includes palette rows/filter and working gizmo/framing preferences.
+    CHECK( nFramework == 101u ); // Includes opt-in geometry alignment and its screen-space distance.
     CHECK( EditorSettings_Register( &r.registry, pFramework, 1u ) == settings_registry_status_t::DUPLICATE );
     // With no scopes everything is its default.
     CHECK( EditorSettings_Integer( &r.registry, "editor.grid.size", 0 ) == 16 );
+    CHECK_FALSE( EditorSettings_Bool( &r.registry, "editor.grid.geometry_snap", CY_TRUE ) );
+    CHECK( EditorSettings_Real( &r.registry, "editor.grid.geometry_snap_pixels", 0.0 ) == 8.0 );
     CHECK( EditorSettings_Real( &r.registry, "editor.camera.move_speed", 0.0 ) == 1000.0 );
     CHECK( EditorSettings_Bool( &r.registry, "editor.grid.show", CY_FALSE ) );
     CHECK( EditorSettings_Bool( &r.registry, "editor.grid.show_surface_3d", CY_FALSE ) );
@@ -140,6 +151,100 @@ TEST_CASE( "Surface grid preference persists independently of floor and orthogra
     CHECK( EditorSettings_Bool( &again.registry, "editor.grid.show", CY_FALSE ) );
     REQUIRE( EditorSettings_Reset( &again.registry, settings_scope_t::USER, again.Find( "editor.grid.show_surface_3d" ) ) == settings_registry_status_t::OK );
     CHECK( EditorSettings_Bool( &again.registry, "editor.grid.show_surface_3d", CY_FALSE ) );
+}
+
+TEST_CASE( "Geometry snapping preferences persist and reset through inherited scopes", "[editor][core][settings][geometry-snap]" )
+{
+    registry_t r;
+    store_t user;
+    EditorSettings_SetScope( &r.registry, settings_scope_t::USER, &user.store );
+    setting_value_t enabled{}; enabled.type = setting_type_t::BOOL; enabled.bValue = CY_TRUE;
+    REQUIRE( EditorSettings_Write( &r.registry, settings_scope_t::USER, r.Find( "editor.grid.geometry_snap" ), enabled ) == settings_registry_status_t::OK );
+    REQUIRE( EditorSettings_Write( &r.registry, settings_scope_t::USER, r.Find( "editor.grid.geometry_snap_pixels" ), RealValue( 12.5 ) ) == settings_registry_status_t::OK );
+
+    text_buffer_t text{};
+    REQUIRE( TextBuffer_Init( &text, Allocator_GetSystem() ) );
+    REQUIRE( SettingsDocument_Write( &user.store, &text ) == settings_document_status_t::OK );
+    store_t restored;
+    REQUIRE( SettingsDocument_Load( &restored.store, { TextBuffer_Data( &text ), TextBuffer_Length( &text ) } ).status == settings_document_status_t::OK );
+    TextBuffer_Shutdown( &text );
+
+    registry_t again;
+    EditorSettings_SetScope( &again.registry, settings_scope_t::USER, &restored.store );
+    CHECK( EditorSettings_Bool( &again.registry, "editor.grid.geometry_snap", CY_FALSE ) );
+    CHECK( EditorSettings_Real( &again.registry, "editor.grid.geometry_snap_pixels", 0.0 ) == 12.5 );
+    CHECK( EditorSettings_Bool( &again.registry, "editor.grid.snap", CY_FALSE ) );
+    CHECK( EditorSettings_Integer( &again.registry, "editor.grid.size", 0 ) == 16 );
+
+    store_t project;
+    EditorSettings_SetScope( &again.registry, settings_scope_t::PROJECT, &project.store );
+    enabled.bValue = CY_FALSE;
+    REQUIRE( EditorSettings_Write( &again.registry, settings_scope_t::PROJECT, again.Find( "editor.grid.geometry_snap" ), enabled ) == settings_registry_status_t::OK );
+    REQUIRE( EditorSettings_Write( &again.registry, settings_scope_t::PROJECT, again.Find( "editor.grid.geometry_snap_pixels" ), RealValue( 24.0 ) ) == settings_registry_status_t::OK );
+    CHECK_FALSE( EditorSettings_Bool( &again.registry, "editor.grid.geometry_snap", CY_TRUE ) );
+    CHECK( EditorSettings_Real( &again.registry, "editor.grid.geometry_snap_pixels", 0.0 ) == 24.0 );
+    REQUIRE( EditorSettings_Reset( &again.registry, settings_scope_t::PROJECT, again.Find( "editor.grid.geometry_snap" ) ) == settings_registry_status_t::OK );
+    REQUIRE( EditorSettings_Reset( &again.registry, settings_scope_t::PROJECT, again.Find( "editor.grid.geometry_snap_pixels" ) ) == settings_registry_status_t::OK );
+    CHECK( EditorSettings_Bool( &again.registry, "editor.grid.geometry_snap", CY_FALSE ) );
+    CHECK( EditorSettings_Real( &again.registry, "editor.grid.geometry_snap_pixels", 0.0 ) == 12.5 );
+    CHECK( EditorSettings_Resolve( &again.registry, again.Find( "editor.grid.geometry_snap_pixels" ) ).source == settings_scope_t::USER );
+
+    REQUIRE( EditorSettings_Reset( &again.registry, settings_scope_t::USER, again.Find( "editor.grid.geometry_snap" ) ) == settings_registry_status_t::OK );
+    REQUIRE( EditorSettings_Reset( &again.registry, settings_scope_t::USER, again.Find( "editor.grid.geometry_snap_pixels" ) ) == settings_registry_status_t::OK );
+    CHECK_FALSE( EditorSettings_Bool( &again.registry, "editor.grid.geometry_snap", CY_TRUE ) );
+    CHECK( EditorSettings_Real( &again.registry, "editor.grid.geometry_snap_pixels", 0.0 ) == 8.0 );
+    CHECK( EditorSettings_Resolve( &again.registry, again.Find( "editor.grid.geometry_snap" ) ).source == settings_scope_t::DEFAULT );
+    CHECK( EditorSettings_Resolve( &again.registry, again.Find( "editor.grid.geometry_snap_pixels" ) ).source == settings_scope_t::DEFAULT );
+}
+
+TEST_CASE( "Geometry snap distance accepts its bounds and refuses invalid writes without clamping", "[editor][core][settings][geometry-snap][bounds]" )
+{
+    registry_t r;
+    store_t user;
+    EditorSettings_SetScope( &r.registry, settings_scope_t::USER, &user.store );
+    const auto &enabled = r.Find( "editor.grid.geometry_snap" );
+    const auto &distance = r.Find( "editor.grid.geometry_snap_pixels" );
+    CHECK( enabled.type == setting_type_t::BOOL );
+    CHECK_FALSE( enabled.bDefault );
+    CHECK( std::string( enabled.pLabel ) == "Snap to geometry" );
+    CHECK( distance.type == setting_type_t::REAL );
+    CHECK( distance.flDefault == 8.0 ); CHECK( distance.flMin == 2.0 ); CHECK( distance.flMax == 24.0 );
+    CHECK( std::string( distance.pPage ) == "Viewports/Grid and Snapping" );
+
+    int nChanged = 0;
+    REQUIRE( EditorSettings_AddListener( &r.registry, &Count, &nChanged ) );
+    for ( f64 boundary : { 2.0, 24.0 } ) {
+        REQUIRE( EditorSettings_Write( &r.registry, settings_scope_t::USER, distance, RealValue( boundary ) ) == settings_registry_status_t::OK );
+        CHECK( EditorSettings_Real( &r.registry, distance.pPath, 0.0 ) == boundary );
+    }
+    CHECK( nChanged == 2 );
+    for ( f64 invalid : { 1.99, 24.01, -std::numeric_limits<f64>::infinity(), std::numeric_limits<f64>::infinity(), std::numeric_limits<f64>::quiet_NaN() } ) {
+        REQUIRE( EditorSettings_Write( &r.registry, settings_scope_t::USER, distance, RealValue( invalid ) ) == settings_registry_status_t::INVALID_ARGUMENT );
+        CHECK( EditorSettings_Real( &r.registry, distance.pPath, 0.0 ) == 24.0 );
+        CHECK( nChanged == 2 );
+    }
+    CHECK( EditorSettings_Write( &r.registry, settings_scope_t::USER, distance, IntegerValue( 8 ) ) == settings_registry_status_t::INVALID_ARGUMENT );
+    CHECK( nChanged == 2 );
+    EditorSettings_RemoveListener( &r.registry, &Count, &nChanged );
+}
+
+TEST_CASE( "Invalid loaded geometry snap distances fall back through scopes", "[editor][core][settings][geometry-snap][bounds]" )
+{
+    for ( const char *pText : {
+        "@cykv 1\n@schema \"cypher.settings\" 2\n{ editor = { grid = { geometry_snap_pixels = 1.99 } } }\n",
+        "@cykv 1\n@schema \"cypher.settings\" 2\n{ editor = { grid = { geometry_snap_pixels = 24.01 } } }\n",
+        "@cykv 1\n@schema \"cypher.settings\" 2\n{ editor = { grid = { geometry_snap_pixels = false } } }\n" } ) {
+        registry_t r;
+        store_t user( "@cykv 1\n@schema \"cypher.settings\" 2\n{ editor = { grid = { geometry_snap_pixels = 12.5 } } }\n" );
+        store_t project( pText );
+        EditorSettings_SetScope( &r.registry, settings_scope_t::USER, &user.store );
+        EditorSettings_SetScope( &r.registry, settings_scope_t::PROJECT, &project.store );
+        const auto inherited = EditorSettings_Resolve( &r.registry, r.Find( "editor.grid.geometry_snap_pixels" ) );
+        CHECK( inherited.value.flValue == 12.5 ); CHECK( inherited.source == settings_scope_t::USER ); CHECK( inherited.nInvalid == 1u );
+        EditorSettings_SetScope( &r.registry, settings_scope_t::USER, nullptr );
+        const auto fallback = EditorSettings_Resolve( &r.registry, r.Find( "editor.grid.geometry_snap_pixels" ) );
+        CHECK( fallback.value.flValue == 8.0 ); CHECK( fallback.source == settings_scope_t::DEFAULT ); CHECK( fallback.nInvalid == 1u );
+    }
 }
 
 TEST_CASE( "Writes stay sparse, resets inherit, and listeners hear both", "[editor][core][settings]" )

@@ -9724,3 +9724,286 @@ TEST_CASE( "Look owns Shift wheel over staged construction and focus or Escape r
         CHECK( ws.tool == map_tool_t::BLOCK ); CHECK( ws.pDocument->geometry.revision == geometry ); CHECK( EditorHistory_StepCount( &ws.history ) == history );
     }
 }
+
+
+namespace
+{
+struct alignment_scene_t {
+    session_t session;
+    view_settings_t settings{ &session.gui.settings };
+    u64 source{}, target{}, companion{};
+    std::unique_ptr<QWidget> view;
+    u32 axisU{}, axisV{};
+    explicit alignment_scene_t( map_ortho_axes_t axes, bool camera = false, bool multiple = false ) {
+        auto &ws = session.workspace;
+        REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+        axisU = axes == map_ortho_axes_t::FRONT ? 1u : 0u;
+        axisV = axes == map_ortho_axes_t::TOP ? 1u : 2u;
+        const u32 depth = 3u - axisU - axisV;
+        const auto create = [&]( f64 lo, f64 hi, f64 offset ) {
+            math::vec3d_t a{}, b{};
+            SetTestCoordinate( a, axisU, lo ); SetTestCoordinate( b, axisU, hi );
+            SetTestCoordinate( a, axisV, offset - 32 ); SetTestCoordinate( b, axisV, offset + 32 );
+            SetTestCoordinate( b, depth, 64 );
+            map_bounds_t box{}; MapBounds_AddPoint( box, a ); MapBounds_AddPoint( box, b );
+            REQUIRE( MapWorkspace_CreateBox( &ws, box ) );
+            return EditorSelection_At( &ws.selection, 0u );
+        };
+        source = create( 0, 64, 0 );
+        if ( multiple ) { companion = create( 0, 64, 96 ); }
+        // This placement was authored on grid 16, rather than today's 64.
+        target = create( 144, 176, 0 );
+        const u64 ids[]{ source, companion };
+        MapWorkspace_SetSelection( &ws, ids, multiple ? 2u : 1u );
+        MapWorkspace_SetGridSize( &ws, 64 );
+        settings.Set( "editor.grid.geometry_snap", true );
+        view.reset( camera ? MapCameraView_Create( nullptr, &ws ) : MapOrthoView_Create( nullptr, &ws, axes ) );
+        ShowAt( view.get(), 800, 600 );
+        MapWorkspace_Frame( &ws, CY_FALSE ); QCoreApplication::processEvents();
+    }
+    QPointF Project( math::vec3d_t point, bool camera = false ) {
+        QPointF result;
+        if ( camera ) { REQUIRE( MapCameraView_WorldToView( view.get(), point, &result ) ); }
+        else { result = MapOrthoView_WorldToView( view.get(), { TestCoordinate( point, axisU ), TestCoordinate( point, axisV ) } ); }
+        return result;
+    }
+    std::pair<QPointF, QPointF> AxisDrag( f64 travel, bool camera = false ) {
+        const auto *object = MapWireframe_FindObject( session.workspace.wire, source ); REQUIRE( object != nullptr );
+        auto pivot = MapBounds_Center( object->bounds );
+        if ( companion != 0u ) { pivot = MapBounds_Center( MapViews_SelectionGeometryBounds( &session.workspace ) ); }
+        const f64 length = camera ? CameraGizmoLength( view.get(), pivot, session.gui.settings ) : 64.0 / MapOrthoView_Zoom( view.get() );
+        auto pickup = pivot; SetTestCoordinate( pickup, axisU, TestCoordinate( pickup, axisU ) + length * 0.70 );
+        auto end = pickup; SetTestCoordinate( end, axisU, TestCoordinate( end, axisU ) + travel );
+        return { Project( pickup, camera ), Project( end, camera ) };
+    }
+};
+}
+
+TEST_CASE( "Geometry movement snapping aligns different grids in every orthographic pane without changing selection spacing", "[map][gui][views][geometry-snap]" )
+{
+    for ( const auto axes : { map_ortho_axes_t::TOP, map_ortho_axes_t::FRONT, map_ortho_axes_t::SIDE } ) {
+        for ( const auto mode : { map_element_mode_t::OBJECTS, map_element_mode_t::GROUPS, map_element_mode_t::MESHES } ) {
+            for ( const bool multiple : { false, true } ) {
+                CAPTURE( static_cast<int>( axes ), static_cast<int>( mode ), multiple );
+                alignment_scene_t scene( axes, false, multiple ); auto &ws = scene.session.workspace;
+                MapWorkspace_SetElementMode( &ws, mode );
+                const auto sourceBefore = MapWireframe_FindObject( ws.wire, scene.source )->bounds;
+                const auto targetBefore = MapWireframe_FindObject( ws.wire, scene.target )->bounds;
+                const usize steps = EditorHistory_StepCount( &ws.history ); const auto *document = ws.pDocument;
+                const auto [start, end] = scene.AxisDrag( 78 );
+                DragMouse( scene.view.get(), QEvent::MouseButtonPress, start ); DragMouse( scene.view.get(), QEvent::MouseMove, end );
+                REQUIRE( ws.editPreview.bActive );
+                CHECK( TestCoordinate( ws.editPreview.transform.delta, scene.axisU ) == Catch::Approx( 80 ) );
+                CHECK( TestCoordinate( ws.editPreview.transform.delta, scene.axisV ) == 0 );
+                CHECK( TestCoordinate( ws.editPreview.transform.delta, 3u - scene.axisU - scene.axisV ) == 0 );
+                CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+                CHECK( ws.gridSize == 64 ); CHECK( ws.bSnapToGrid );
+                DragMouse( scene.view.get(), QEvent::MouseButtonRelease, end );
+                CHECK_FALSE( ws.editPreview.bActive ); CHECK( EditorHistory_StepCount( &ws.history ) == steps + 1 );
+                const auto moved = MapWireframe_FindObject( ws.wire, scene.source )->bounds;
+                CHECK( TestCoordinate( moved.box.maximum, scene.axisU ) == 144 );
+                CheckPointClose( MapWireframe_FindObject( ws.wire, scene.target )->bounds.box.minimum, targetBefore.box.minimum );
+                if ( multiple ) {
+                    const auto second = MapWireframe_FindObject( ws.wire, scene.companion )->bounds;
+                    CHECK( TestCoordinate( second.box.maximum, scene.axisU ) == 144 );
+                    CHECK( TestCoordinate( second.box.minimum, scene.axisV ) - TestCoordinate( moved.box.minimum, scene.axisV ) == 96 );
+                }
+                REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+                CheckPointClose( MapWireframe_FindObject( ws.wire, scene.source )->bounds.box.minimum, sourceBefore.box.minimum );
+                REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
+                CheckPointClose( MapWireframe_FindObject( ws.wire, scene.source )->bounds.box.maximum, moved.box.maximum );
+                CHECK( EditorSelection_Count( &ws.selection ) == ( multiple ? 2u : 1u ) );
+                CHECK( MapWorkspace_IsSelected( &ws, scene.source ) ); CHECK_FALSE( MapWorkspace_IsSelected( &ws, scene.target ) );
+                if ( axes == map_ortho_axes_t::TOP && mode == map_element_mode_t::OBJECTS && multiple ) {
+                    QTemporaryDir dir; REQUIRE( dir.isValid() ); const QString file = dir.filePath( "aligned.cymap" );
+                    REQUIRE( MapWorkspace_SaveAs( &ws, file ).status == map_files_status_t::OK );
+                    session_t reopened; REQUIRE( MapWorkspace_Open( &reopened.workspace, file ).status == map_files_status_t::OK );
+                    CheckPointClose( MapWireframe_FindObject( reopened.workspace.wire, scene.source )->bounds.box.maximum, moved.box.maximum );
+                    CheckPointClose( MapWireframe_FindObject( reopened.workspace.wire, scene.target )->bounds.box.minimum, targetBefore.box.minimum );
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE( "Geometry snapping is opt in and bypassable with a screen-space tolerance independent of world grid", "[map][gui][views][geometry-snap]" )
+{
+    for ( int variant = 0; variant < 7; ++variant ) {
+        CAPTURE( variant ); alignment_scene_t scene( map_ortho_axes_t::TOP ); auto &ws = scene.session.workspace;
+        Qt::KeyboardModifiers modifiers = Qt::NoModifier; f64 travel = 78, expected = 80;
+        if ( variant == 0 ) { scene.settings.Set( "editor.grid.geometry_snap", false ); expected = 64; }
+        if ( variant == 1 ) { modifiers = Qt::ControlModifier; expected = travel; }
+        if ( variant == 2 ) { modifiers = Qt::MetaModifier; expected = travel; }
+        if ( variant == 3 ) { travel = 80 - 12.0 / MapOrthoView_Zoom( scene.view.get() ); expected = 64; }
+        if ( variant == 4 ) { MapWorkspace_SetSnapToGrid( &ws, CY_FALSE ); }
+        if ( variant == 5 ) { scene.settings.Real( "editor.grid.geometry_snap_pixels", 2 ); travel = 80 - 3.0 / MapOrthoView_Zoom( scene.view.get() ); expected = 64; }
+        if ( variant == 6 ) { MapWorkspace_SetTool( &ws, map_tool_t::TRANSLATE ); }
+        const auto [start, end] = scene.AxisDrag( travel ); const usize steps = EditorHistory_StepCount( &ws.history );
+        // Bypass is a live drag modifier; its press is ordinary selection.
+        DragMouse( scene.view.get(), QEvent::MouseButtonPress, start ); DragMouse( scene.view.get(), QEvent::MouseMove, end, modifiers );
+        REQUIRE( ws.editPreview.bActive ); CHECK( ws.editPreview.transform.delta.x == Catch::Approx( expected ) );
+        CHECK( ws.editPreview.transform.delta.y == 0 ); CHECK( ws.editPreview.transform.delta.z == 0 );
+        DragMouse( scene.view.get(), QEvent::MouseButtonRelease, end, modifiers );
+        CHECK( MapWireframe_FindObject( ws.wire, scene.source )->bounds.box.minimum.x == Catch::Approx( expected ) );
+        CHECK( EditorHistory_StepCount( &ws.history ) == steps + 1 ); CHECK( ws.gridSize == 64 );
+        CHECK( EditorSettings_Bool( &scene.session.gui.settings, "editor.grid.geometry_snap", CY_FALSE ) == ( variant != 0 ) );
+    }
+}
+
+TEST_CASE( "Geometry snapping ignores hidden offscreen and selected-owner targets and cancels stale guides", "[map][gui][views][geometry-snap]" )
+{
+    for ( int variant = 0; variant < 6; ++variant ) {
+        CAPTURE( variant ); alignment_scene_t scene( map_ortho_axes_t::TOP ); auto &ws = scene.session.workspace;
+        f64 expected = 64; u64 owner = 0;
+        if ( variant == 0 ) { REQUIRE( EditorSelection_Apply( &ws.hidden, scene.target, EDITOR_SELECT_ADD ) ); MapWorkspace_Notify( &ws, MAP_CHANGE_VIEW ); }
+        if ( variant == 1 ) { MapWorkspace_Select( &ws, scene.target, MAP_SELECT_REPLACE ); REQUIRE( MapWorkspace_TranslateSelection( &ws, { 0, 100000, 0 } ) );
+            MapWorkspace_Select( &ws, scene.source, MAP_SELECT_REPLACE ); }
+        if ( variant == 2 ) {
+            REQUIRE( MapDocument_AddEntity( ws.pDocument, StringView_FromCString( "default" ), StringView_FromCString( "func_door" ), { -800, -800, 0 }, &owner ) == map_status_t::OK );
+            REQUIRE( MapDocument_SetGeometryOwner( ws.pDocument, scene.source, owner ) == map_status_t::OK );
+            MapWorkspace_DocumentChanged( &ws ); MapWorkspace_Select( &ws, owner, MAP_SELECT_REPLACE ); expected = 80;
+        }
+        const auto [start, end] = scene.AxisDrag( 78 ); const auto *document = ws.pDocument; const usize steps = EditorHistory_StepCount( &ws.history );
+        if ( variant == 2 ) {
+            // Pick a geometry body, since the owner helper changes its gizmo pivot.
+            const QPointF body = scene.Project( { 16, 0, 32 } );
+            DragMouse( scene.view.get(), QEvent::MouseButtonPress, body );
+            DragMouse( scene.view.get(), QEvent::MouseMove, body + end - start );
+        } else { DragMouse( scene.view.get(), QEvent::MouseButtonPress, start ); DragMouse( scene.view.get(), QEvent::MouseMove, end ); }
+        REQUIRE( ws.editPreview.bActive ); CHECK( ws.editPreview.transform.delta.x == Catch::Approx( variant >= 3 ? 80 : expected ) );
+        if ( variant == 3 ) { scene.settings.Set( "editor.grid.geometry_snap", false ); }
+        if ( variant == 4 ) { scene.settings.Real( "editor.grid.geometry_snap_pixels", 12 ); }
+        if ( variant == 5 ) { QFocusEvent lost( QEvent::FocusOut ); QCoreApplication::sendEvent( scene.view.get(), &lost ); }
+        if ( variant >= 3 ) {
+            CHECK_FALSE( ws.editPreview.bActive ); DragMouse( scene.view.get(), QEvent::MouseButtonRelease, end );
+            CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+        } else {
+            QKeyEvent cancel( QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier ); QCoreApplication::sendEvent( scene.view.get(), &cancel );
+            CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+        }
+    }
+}
+
+TEST_CASE( "Camera geometry snapping respects axis and world-plane constraints and never changes free-move plane semantics", "[map][gui][views][geometry-snap]" )
+{
+    for ( int handle = 0; handle < 3; ++handle ) {
+        CAPTURE( handle ); alignment_scene_t scene( map_ortho_axes_t::TOP, true ); auto &ws = scene.session.workspace;
+        const auto pivot = MapBounds_Center( MapWireframe_FindObject( ws.wire, scene.source )->bounds );
+        const f64 length = CameraGizmoLength( scene.view.get(), pivot, scene.session.gui.settings );
+        auto pickup = pivot;
+        if ( handle == 0 ) { pickup.x += length * .70; }
+        if ( handle == 1 ) { pickup.x += length * .31; pickup.y += length * .31; }
+        const auto start = scene.Project( pickup, true ); auto target = pickup; target.x += 78;
+        const auto end = scene.Project( target, true ); const auto *document = ws.pDocument;
+        DragMouse( scene.view.get(), QEvent::MouseButtonPress, start ); DragMouse( scene.view.get(), QEvent::MouseMove, end );
+        REQUIRE( ws.editPreview.bActive ); CHECK( ws.pDocument == document );
+        if ( handle < 2 ) { CHECK( ws.editPreview.transform.delta.x == Catch::Approx( 80 ) ); CHECK( ws.editPreview.transform.delta.y == 0 ); CHECK( ws.editPreview.transform.delta.z == 0 ); }
+        else { for ( const auto v : { ws.editPreview.transform.delta.x, ws.editPreview.transform.delta.y, ws.editPreview.transform.delta.z } ) { CHECK( v / 64.0 == Catch::Approx( std::round( v / 64.0 ) ) ) ; } }
+        DragMouse( scene.view.get(), QEvent::MouseButtonRelease, end );
+        CHECK_FALSE( ws.editPreview.bActive );
+    }
+}
+
+TEST_CASE( "An allocation failure at aligned move publication preserves geometry selection and history", "[map][gui][views][geometry-snap][allocation]" )
+{
+    alignment_scene_t scene( map_ortho_axes_t::TOP ); auto &ws = scene.session.workspace;
+    const auto before = MapWireframe_FindObject( ws.wire, scene.source )->bounds;
+    const auto *document = ws.pDocument; const usize steps = EditorHistory_StepCount( &ws.history ); const u64 revision = ws.selection.revision;
+    const auto [start, end] = scene.AxisDrag( 78 );
+    DragMouse( scene.view.get(), QEvent::MouseButtonPress, start ); DragMouse( scene.view.get(), QEvent::MouseMove, end );
+    REQUIRE( ws.editPreview.bActive ); CHECK( ws.editPreview.transform.delta.x == Catch::Approx( 80 ) );
+    mesh_face_allocation_failure_t audit{ 0, 1, 0 };
+    const allocator_t allocator{ &MeshFaceTestAllocate, nullptr, &MeshFaceTestFree, &audit };
+    const auto *previous = ws.pDocument->pAllocator; ws.pDocument->pAllocator = &allocator;
+    DragMouse( scene.view.get(), QEvent::MouseButtonRelease, end ); ws.pDocument->pAllocator = previous;
+    CHECK( audit.calls > 0 ); CHECK( audit.live == 0 ); CHECK( ws.pDocument == document );
+    CHECK_FALSE( ws.editPreview.bActive ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    CHECK( ws.selection.revision == revision ); CHECK( MapWorkspace_IsSelected( &ws, scene.source ) );
+    CheckPointClose( MapWireframe_FindObject( ws.wire, scene.source )->bounds.box.minimum, before.box.minimum );
+    // Recovery starts a new visible gesture, not a late invisible release.
+    DragMouse( scene.view.get(), QEvent::MouseButtonRelease, end ); CHECK( ws.pDocument == document );
+    DragMouse( scene.view.get(), QEvent::MouseButtonPress, start ); DragMouse( scene.view.get(), QEvent::MouseMove, end );
+    DragMouse( scene.view.get(), QEvent::MouseButtonRelease, end );
+    CHECK( MapWireframe_FindObject( ws.wire, scene.source )->bounds.box.maximum.x == 144 );
+    CHECK( EditorHistory_StepCount( &ws.history ) == steps + 1 );
+}
+
+
+TEST_CASE( "Alignment candidates respect locked-axis diagonal pointer motion and zero travel", "[map][gui][views][geometry-snap]" )
+{
+    alignment_scene_t scene( map_ortho_axes_t::TOP ); auto &ws = scene.session.workspace;
+    const auto [start, alignedEnd] = scene.AxisDrag( 78 );
+    const auto *document = ws.pDocument; const usize steps = EditorHistory_StepCount( &ws.history );
+    DragMouse( scene.view.get(), QEvent::MouseButtonPress, start );
+    DragMouse( scene.view.get(), QEvent::MouseMove, start + QPointF( 0, 200 ) );
+    // Existing transform presentation can retain an identity preview after a
+    // real pointer gesture. It must not acquire any alignment movement.
+    CheckPointClose( ws.editPreview.transform.delta, {} );
+    CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    // Irrelevant Y travel can even leave the viewport. The X shaft constrains
+    // the real candidate and its guide, before screen-space distance is tested.
+    const QPointF diagonal = alignedEnd + QPointF( 0, 800 );
+    DragMouse( scene.view.get(), QEvent::MouseMove, diagonal );
+    REQUIRE( ws.editPreview.bActive ); CheckPointClose( ws.editPreview.transform.delta, { 80, 0, 0 } );
+    DragMouse( scene.view.get(), QEvent::MouseMove, start );
+    CHECK_FALSE( ws.editPreview.bActive );
+    DragMouse( scene.view.get(), QEvent::MouseButtonRelease, start );
+    CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+}
+
+TEST_CASE( "Geometry snapping handles negative travel mesh targets center alignment and cloning", "[map][gui][views][geometry-snap]" )
+{
+    for ( int variant = 0; variant < 4; ++variant ) {
+        CAPTURE( variant ); alignment_scene_t scene( map_ortho_axes_t::TOP ); auto &ws = scene.session.workspace;
+        f64 travel = 78, expected = 80;
+        if ( variant == 0 ) {
+            MapWorkspace_Select( &ws, scene.target, MAP_SELECT_REPLACE ); REQUIRE( MapWorkspace_TranslateSelection( &ws, { -256, 0, 0 } ) );
+            travel = -78; expected = -80; MapWorkspace_Frame( &ws, CY_FALSE ); QCoreApplication::processEvents();
+        }
+        if ( variant == 1 ) { MapWorkspace_Select( &ws, scene.target, MAP_SELECT_REPLACE ); REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) ); }
+        if ( variant == 2 ) {
+            MapWorkspace_Select( &ws, scene.target, MAP_SELECT_REPLACE ); REQUIRE( MapWorkspace_ScaleSelection( &ws, { 1.5, 1, 1 }, { 144, 0, 0 } ) );
+            // Target 144..192 has center168; source0..64 has center32.
+            // Only center alignment produces136; edge pairs give80/128/144/192.
+            travel = 134; expected = 136;
+        }
+        MapWorkspace_Select( &ws, scene.source, MAP_SELECT_REPLACE );
+        const usize steps = EditorHistory_StepCount( &ws.history ); const auto original = MapWireframe_FindObject( ws.wire, scene.source )->bounds;
+        const auto [start, end] = scene.AxisDrag( travel ); const auto modifiers = variant == 3 ? Qt::ShiftModifier : Qt::NoModifier;
+        DragMouse( scene.view.get(), QEvent::MouseButtonPress, start, modifiers ); DragMouse( scene.view.get(), QEvent::MouseMove, end, modifiers );
+        REQUIRE( ws.editPreview.bActive ); CHECK( ws.editPreview.transform.delta.x == Catch::Approx( expected ) );
+        DragMouse( scene.view.get(), QEvent::MouseButtonRelease, end, modifiers );
+        const u64 moved = EditorSelection_At( &ws.selection, 0 );
+        CHECK( MapWireframe_FindObject( ws.wire, moved )->bounds.box.minimum.x == Catch::Approx( expected ) );
+        CHECK( EditorHistory_StepCount( &ws.history ) == steps + 1 );
+        if ( variant == 3 ) { CHECK( moved != scene.source ); CheckPointClose( MapWireframe_FindObject( ws.wire, scene.source )->bounds.box.minimum, original.box.minimum ); }
+        else { CHECK( moved == scene.source ); }
+        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+        CheckPointClose( MapWireframe_FindObject( ws.wire, scene.source )->bounds.box.minimum, original.box.minimum );
+        REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
+        CHECK( MapWireframe_FindObject( ws.wire, moved )->bounds.box.minimum.x == Catch::Approx( expected ) );
+    }
+}
+
+
+TEST_CASE( "Selected owner geometry and point-entity helper bounds cannot attract their own aligned move", "[map][gui][views][geometry-snap]" )
+{
+    for ( const bool owned : { false, true } ) {
+        CAPTURE( owned ); alignment_scene_t scene( map_ortho_axes_t::TOP ); auto &ws = scene.session.workspace;
+        u64 owner = 0;
+        REQUIRE( MapDocument_AddEntity( ws.pDocument, StringView_FromCString( "default" ), StringView_FromCString( owned ? "func_door" : "info_player_start" ),
+            owned ? math::vec3d_t{ -800, -800, 0 } : math::vec3d_t{ 142, 0, 32 }, &owner ) == map_status_t::OK );
+        if ( owned ) {
+            REQUIRE( MapDocument_SetGeometryOwner( ws.pDocument, scene.source, owner ) == map_status_t::OK );
+            REQUIRE( MapDocument_SetGeometryOwner( ws.pDocument, scene.target, owner ) == map_status_t::OK );
+        } else { REQUIRE( EditorSelection_Apply( &ws.hidden, scene.target, EDITOR_SELECT_ADD ) ); }
+        MapWorkspace_DocumentChanged( &ws ); MapWorkspace_Select( &ws, owned ? owner : scene.source, MAP_SELECT_REPLACE );
+        const QPointF start = scene.Project( { 16, 0, 32 } ), end = start + QPointF( 86 * MapOrthoView_Zoom( scene.view.get() ), 0 );
+        DragMouse( scene.view.get(), QEvent::MouseButtonPress, start ); DragMouse( scene.view.get(), QEvent::MouseMove, end );
+        REQUIRE( ws.editPreview.bActive ); CheckPointClose( ws.editPreview.transform.delta, { 64, 0, 0 } );
+        DragMouse( scene.view.get(), QEvent::MouseButtonRelease, end );
+        CHECK( MapWireframe_FindObject( ws.wire, scene.source )->bounds.box.minimum.x == 64 );
+        if ( owned ) { CHECK( MapWireframe_FindObject( ws.wire, scene.target )->bounds.box.minimum.x == 208 ); }
+        else { CHECK( MapWireframe_FindObject( ws.wire, scene.target )->bounds.box.minimum.x == 144 ); }
+    }
+}

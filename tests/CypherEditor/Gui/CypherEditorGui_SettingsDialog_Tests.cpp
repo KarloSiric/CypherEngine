@@ -76,8 +76,10 @@ TEST_CASE( "The settings dialog lists a page's settings and searches across page
     fixture_t f;
     EditorSettingsDialog_ShowPage( f.pDialog, QStringLiteral( "Viewports/Grid and Snapping" ) );
     const QStringList grid = EditorSettingsDialog_VisibleSettings( f.pDialog );
-    CHECK( grid.size() == 10 );
+    CHECK( grid.size() == 12 );
     CHECK( grid.front() == QStringLiteral( "editor.grid.size" ) );
+    CHECK( grid.contains( QStringLiteral( "editor.grid.geometry_snap" ) ) );
+    CHECK( grid.contains( QStringLiteral( "editor.grid.geometry_snap_pixels" ) ) );
     CHECK_FALSE( grid.contains( QStringLiteral( "editor.grid.bands" ) ) );
 
     EditorSettingsDialog_SetSearch( f.pDialog, QStringLiteral( "sensitivity" ) );

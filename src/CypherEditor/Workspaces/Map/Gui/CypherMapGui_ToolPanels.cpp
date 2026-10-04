@@ -992,6 +992,7 @@ constexpr tool_panel_t kToolPanels[]{
         { "Object Editing", {}, { "map.transform.dialog", "edit.duplicate", "edit.delete" }, kObjectMode, true, "MapToolModeObjects" },
         { "Group Editing", {}, { "map.transform.dialog", "edit.duplicate", "edit.delete" }, kGroupMode, true, "MapToolModeGroups" },
         { "Selection", { "editor.map.select_created" }, { "edit.select_all", "edit.invert_selection", "map.select.same_class", "map.select.same_material", "map.select.touching" }, kRootModes },
+        { "Movement snapping", { "editor.grid.size", "editor.grid.snap", "editor.grid.geometry_snap", "editor.grid.geometry_snap_pixels" }, {}, kRootModes },
         { "Bounds resizing", { "editor.map.resize_mode", "editor.map.resize_from_center" }, {}, kRootModes },
         { "2D display", { "editor.viewport.show_selection_bounds", "editor.viewport.show_selection_dimensions", "editor.viewport.show_selection_vertices", "editor.viewport.entity_names" },
           { "map.view.center_selection_2d" } },
@@ -1060,8 +1061,8 @@ constexpr tool_panel_t kToolPanels[]{
       { { "Construction grid", { "editor.grid.size", "editor.grid.snap" }, {} },
         { "Material", { "editor.map.default_material" }, { "assets.browse_materials" } } } },
     // TRANSLATE
-    { "Move the selection along an axis or plane.", { { keymap_section_t::BINDINGS, "map.tool.translate" } },
-      { { "Move steps", { "editor.grid.size", "editor.grid.snap", "editor.map.paste_offset", "editor.map.texture_lock" }, { "map.brush.snap_to_grid" } },
+    { "Move the selection along an axis or plane. Enable Snap to geometry to align nearby brush, mesh, or patch bounds even when they were made on another grid. Edges meet edges and centers match centers; RGB Snap labels identify the target coordinate. The selection keeps its spacing. This works in 2D and with 3D axis or world-plane handles; free camera-plane movement keeps grid steps. Ctrl/Command temporarily bypasses both snap types.", { { keymap_section_t::BINDINGS, "map.tool.translate" } },
+      { { "Move steps", { "editor.grid.size", "editor.grid.snap", "editor.grid.geometry_snap", "editor.grid.geometry_snap_pixels", "editor.map.paste_offset", "editor.map.texture_lock" }, { "map.brush.snap_to_grid" } },
         { "Alignment", {}, { "map.align.left", "map.align.right", "map.align.top", "map.align.bottom" } } } },
     // ROTATE
     { "Rotate the selection about its pivot.", { { keymap_section_t::BINDINGS, "map.tool.rotate" } },

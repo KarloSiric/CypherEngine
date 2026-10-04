@@ -899,16 +899,23 @@ bool CanTransform( const map_workspace_t &ws ) {
 // Gestures remain presentation data until commit. Block/Clip release stages
 // shared construction; transforms commit on release. Active drags cancel on focus loss.
 enum class edit_drag_t { NONE, MARQUEE, BOX, CLIP, TRANSLATE, SCALE, ROTATE, PUSH_PULL, RESIZE };
+struct bounds_snap_t {
+    u64 target{ 0u };
+    math::vec3d_t sourcePoint{}, targetPoint{};
+};
 struct view_edit_drag_t {
     edit_drag_t kind{ edit_drag_t::NONE };
     QPointF start{}, current{}, pivotScreen{};
     QPointF resizeScreenOffset{}; // Captured separation/pickup offset of a bounds control from its world boundary.
     map_bounds_t original{};
     math::vec3d_t pivot{}, planeStart{}, delta{}, factors{ 1, 1, 1 }, degrees{};
+    bounds_snap_t boundsSnap[3]{};
     int axis{ -1 };
     int planeAxis{ -1 }; // Normal of the XY/YZ/ZX handle's construction plane.
     bool uniformScale{ false };
     bool bodyMove{ false }, bodyActivated{ false };
+    bool geometrySnap{ false };
+    f64 geometrySnapPixels{ 8.0 };
     bool blockResize{ false }; // Refine the private Block descriptor, never scale the live selection.
     bool resizeFromCenter{ false }; // Anchor policy captured at press, including the temporary Shift override.
     bool resizeIndividually{ false }; // Capture the multi-root resize policy at press.
@@ -938,9 +945,14 @@ void CaptureDragContext( view_edit_drag_t &drag, const map_workspace_t &ws ) {
     drag.faceObject = ws.selectedBrushFaceObject; drag.faceSide = ws.selectedBrushFaceSide;
     drag.meshFaceObject = ws.selectedMeshFaceObject; drag.meshFaceId = ws.selectedMeshFaceId;
     drag.clipAxisSetting = MapWorkspace_ClipAxis( &ws );
+    drag.geometrySnap = DisplayFlag( ws, "editor.grid.geometry_snap", CY_FALSE );
+    drag.geometrySnapPixels = EditorSettings_Real( &ws.pGui->settings, "editor.grid.geometry_snap_pixels", 8.0 );
 }
 bool DragContextMatches( const view_edit_drag_t &drag, const map_workspace_t &ws ) {
-    return ( drag.kind != edit_drag_t::CLIP || ( MapWorkspace_CanEditBrushSelection( &ws ) && drag.clipAxisSetting == MapWorkspace_ClipAxis( &ws ) ) ) &&
+    return ( drag.kind != edit_drag_t::TRANSLATE ||
+             ( drag.geometrySnap == DisplayFlag( ws, "editor.grid.geometry_snap", CY_FALSE ) &&
+               drag.geometrySnapPixels == EditorSettings_Real( &ws.pGui->settings, "editor.grid.geometry_snap_pixels", 8.0 ) ) ) &&
+           ( drag.kind != edit_drag_t::CLIP || ( MapWorkspace_CanEditBrushSelection( &ws ) && drag.clipAxisSetting == MapWorkspace_ClipAxis( &ws ) ) ) &&
            drag.document == ws.pDocument && ws.pDocument != nullptr && drag.geometryRevision == ws.pDocument->geometry.revision &&
            drag.selectionRevision == ws.selection.revision && drag.tool == ws.tool && drag.mode == ws.elementMode &&
            MapWorkspace_PreviewVisibilityMatches( &ws, drag.visibility ) &&
@@ -975,6 +987,121 @@ bool BypassSnap( Qt::KeyboardModifiers modifiers ) { return ( modifiers & ( Qt::
 math::vec3d_t SnapMove( math::vec3d_t v, const map_workspace_t &ws, bool bypass ) {
     const f64 step = ws.bSnapToGrid && !bypass ? ws.gridSize : 0;
     return { Snap( v.x, step ), Snap( v.y, step ), Snap( v.z, step ) };
+}
+// Align actual authored geometry bounds, never the helper boxes used to pick
+// point entities. A selected owner carries its geometry through the same
+// selection predicate as the transform preview. Each root receives one shared
+// translation, preserving spacing inside a multi-object selection.
+map_bounds_t MoveGeometryBounds( const map_workspace_t &ws ) {
+    map_bounds_t bounds{};
+    for ( usize i = 0; i < ws.wire.objects.nCount; ++i ) {
+        const auto &object = ws.wire.objects.pData[i];
+        if ( object.kind != map_wire_kind_t::BRUSH && object.kind != map_wire_kind_t::MESH && object.kind != map_wire_kind_t::PATCH ) { continue; }
+        if ( ObjectSelected( ws, object ) && MapWorkspace_IsVisible( &ws, object ) ) { MapBounds_AddBounds( bounds, object.bounds ); }
+    }
+    return bounds;
+}
+template <typename Project>
+bool BoundsOnScreen( const map_bounds_t &bounds, Project project, QRectF viewport ) {
+    if ( !bounds.bHas ) { return false; }
+    math::vec3d_t corners[8]; BoundsCorners( bounds, corners );
+    QRectF area; bool has = false;
+    for ( const auto point : corners ) {
+        QPointF screen;
+        if ( !project( point, screen ) || !std::isfinite( screen.x() ) || !std::isfinite( screen.y() ) ) { continue; }
+        if ( !has ) { area = QRectF( screen, QSizeF() ); has = true; }
+        else { area = QRectF( QPointF( std::min( area.left(), screen.x() ), std::min( area.top(), screen.y() ) ),
+                            QPointF( std::max( area.right(), screen.x() ), std::max( area.bottom(), screen.y() ) ) ); }
+    }
+    // Flat quads and edge-on bounds still supply useful alignment coordinates.
+    return has && area.adjusted( -1, -1, 1, 1 ).intersects( viewport );
+}
+template <typename Project>
+math::vec3d_t SnapTranslation( view_edit_drag_t &drag, const map_workspace_t &ws, math::vec3d_t raw,
+    bool bypass, u32 allowedAxes, Project project, QRectF viewport ) {
+    for ( auto &snap : drag.boundsSnap ) { snap = {}; }
+    auto delta = SnapMove( raw, ws, bypass );
+    if ( bypass || allowedAxes == 0u || !DisplayFlag( ws, "editor.grid.geometry_snap", CY_FALSE ) ) { return delta; }
+    const auto source = MoveGeometryBounds( ws );
+    if ( !source.bHas ) { return delta; }
+    const f64 tolerance = std::clamp( EditorSettings_Real( &ws.pGui->settings, "editor.grid.geometry_snap_pixels", 8.0 ), 2.0, 24.0 );
+    f64 closest[3]{ tolerance, tolerance, tolerance };
+    const auto sourceCenter = MapBounds_Center( source );
+    for ( usize i = 0; i < ws.wire.objects.nCount; ++i ) {
+        const auto &target = ws.wire.objects.pData[i];
+        if ( target.kind != map_wire_kind_t::BRUSH && target.kind != map_wire_kind_t::MESH && target.kind != map_wire_kind_t::PATCH ) { continue; }
+        if ( ObjectSelected( ws, target ) || !MapWorkspace_IsVisible( &ws, target ) ||
+             !BoundsOnScreen( target.bounds, project, viewport ) ) { continue; }
+        const auto targetCenter = MapBounds_Center( target.bounds );
+        for ( int axis = 0; axis < 3; ++axis ) {
+            // A stationary coordinate must not jump just because the user
+            // started moving on a different axis. Omitted/locked axes stay put.
+            if ( ( allowedAxes & ( 1u << axis ) ) == 0u || std::abs( Axis( raw, axis ) ) < 1e-8 ) { continue; }
+            for ( int sourceAnchor = 0; sourceAnchor < 3; ++sourceAnchor ) {
+                for ( int targetAnchor = 0; targetAnchor < 3; ++targetAnchor ) {
+                    // Edges can meet edges; centers align with centers only.
+                    if ( ( sourceAnchor == 2 ) != ( targetAnchor == 2 ) ) { continue; }
+                    auto point = sourceCenter;
+                    SetAxis( point, axis, Axis( sourceAnchor == 0 ? source.box.minimum : sourceAnchor == 1 ? source.box.maximum : sourceCenter, axis ) );
+                    auto destination = targetCenter;
+                    const f64 coordinate = Axis( targetAnchor == 0 ? target.bounds.box.minimum : targetAnchor == 1 ? target.bounds.box.maximum : targetCenter, axis );
+                    SetAxis( destination, axis, coordinate );
+                    const f64 travel = coordinate - Axis( point, axis );
+                    if ( !std::isfinite( travel ) ) { continue; }
+                    const auto unsnapped = Add( point, raw );
+                    auto aligned = unsnapped; SetAxis( aligned, axis, coordinate );
+                    QPointF before, after, probe;
+                    if ( !project( unsnapped, before ) || !project( aligned, after ) ||
+                         !project( Add( unsnapped, AxisVector( axis ) ), probe ) ||
+                         !viewport.contains( before ) || !viewport.contains( after ) ||
+                         QLineF( before, probe ).length() < 1e-6 ) { continue; }
+                    const f64 distance = QLineF( before, after ).length();
+                    if ( !std::isfinite( distance ) || distance > closest[axis] ||
+                         ( drag.boundsSnap[axis].target != 0u && distance >= closest[axis] - 1e-6 ) ) { continue; }
+                    closest[axis] = distance;
+                    SetAxis( delta, axis, travel );
+                    drag.boundsSnap[axis] = { target.id, point, destination };
+                }
+            }
+        }
+    }
+    // Markers follow the final common travel, including another aligned axis.
+    for ( auto &snap : drag.boundsSnap ) { if ( snap.target != 0u ) { snap.sourcePoint = Add( snap.sourcePoint, delta ); } }
+    return delta;
+}
+template <typename Project>
+void DrawBoundsSnaps( QPainter &painter, const map_workspace_t &ws, const view_edit_drag_t &drag, Project project, QRectF viewport ) {
+    if ( drag.kind != edit_drag_t::TRANSLATE || !DragContextMatches( drag, ws ) || !ws.editPreview.bActive ||
+         ws.editPreview.transform.kind != map_transform_preview_kind_t::TRANSLATE || viewport.width() < 32.0 || viewport.height() < 80.0 ) { return; }
+    painter.save(); painter.setRenderHint( QPainter::Antialiasing );
+    QFont font = painter.font(); font.setPointSizeF( std::max( 10.0, font.pointSizeF() ) ); painter.setFont( font );
+    const QFontMetricsF metrics( font );
+    int labels = 0; for ( const auto &snap : drag.boundsSnap ) { labels += snap.target != 0u ? 1 : 0; }
+    // The move-handle hint occupies the area below its pivot. Keep alignment
+    // coordinates above the pointer, with room for the viewport's title tab.
+    qreal labelY = std::clamp( drag.current.y() - 20.0 - labels * ( metrics.height() + 8.0 ), viewport.top() + 42.0,
+        std::max( viewport.top() + 42.0, viewport.bottom() - labels * ( metrics.height() + 8.0 ) - 6.0 ) );
+    for ( int axis = 0; axis < 3; ++axis ) {
+        const auto &snap = drag.boundsSnap[axis];
+        if ( snap.target == 0u ) { continue; }
+        const QColor color = Token( ws, axis == 0 ? "viewport.axis.x" : axis == 1 ? "viewport.axis.y" : "viewport.axis.z" );
+        painter.setPen( QPen( color, 1.2, Qt::DashLine ) );
+        QPointF from, to;
+        if ( project( snap.sourcePoint, from ) && project( snap.targetPoint, to ) ) {
+            painter.drawLine( from, to );
+            painter.setPen( QPen( color, 1.5 ) );
+            for ( const auto point : { from, to } ) {
+                painter.drawLine( point + QPointF( -4, 0 ), point + QPointF( 4, 0 ) );
+                painter.drawLine( point + QPointF( 0, -4 ), point + QPointF( 0, 4 ) );
+            }
+        }
+        const QString text = QStringLiteral( "Snap %1 = %2" ).arg( QLatin1Char( "XYZ"[axis] ) ).arg( Axis( snap.targetPoint, axis ), 0, 'g', 8 );
+        const qreal width = std::min( metrics.horizontalAdvance( text ) + 12.0, viewport.width() - 12.0 );
+        const qreal x = std::clamp( drag.current.x() + 16.0, viewport.left() + 6.0, viewport.right() - width - 6.0 );
+        const QRectF label( x, labelY, width, metrics.height() + 6.0 ); labelY += label.height() + 2.0;
+        painter.fillRect( label, Token( ws, "viewport.overlay.background" ) ); painter.setPen( color ); painter.drawText( label, Qt::AlignCenter, text );
+    }
+    painter.restore();
 }
 math::vec3d_t ClipAnchor( math::vec3d_t point, const view_edit_drag_t &drag, const map_workspace_t &ws, bool bypass ) {
     point = SnapMove( point, ws, bypass );
@@ -2422,6 +2549,7 @@ protected:
         DrawMoveSource( painter, workspace, project, segment, rect(), false );
         DrawTransformPreview( painter, workspace, project, segment, face, rect(), false );
         DrawEditPreview( painter, workspace, project, segment, face, rect(), false );
+        DrawBoundsSnaps( painter, workspace, m_drag, project, rect() );
         const QPointF pointer = underMouse() && !NavigationActive() ? m_hover.point : QPointF( -10000, -10000 );
         const f64 moveLength = 64.0 * GizmoScale( workspace ) / m_zoom;
         const auto hit = EditHandleAt( workspace, project, rect(), pointer, moveLength, m_axisU, m_axisV, 3 - m_axisU - m_axisV );
@@ -2582,6 +2710,9 @@ private:
     static void OnSettingsChanged( void *pContext, string_view_t path ) noexcept
     {
         auto *pView = static_cast<map_ortho_view_t *>( pContext );
+        if ( pView->m_drag.kind == edit_drag_t::TRANSLATE && !DragContextMatches( pView->m_drag, *pView->m_pWorkspace ) ) {
+            CancelDrag( pView->m_drag, *pView->m_pWorkspace );
+        }
         if ( path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.viewport.gizmo_scale" ) ) ) {
             const f64 scale = GizmoScale( *pView->m_pWorkspace );
             const bool changed = scale != pView->m_gizmoScale;
@@ -2733,7 +2864,16 @@ private:
         if ( m_drag.kind == edit_drag_t::CLIP ) {
             UpdateClipGuide( m_drag, *m_pWorkspace, EditPoint( screen ), bypass ); return;
         }
-        math::vec3d_t delta = SnapMove( Sub( EditPoint( screen ), m_drag.planeStart ), *m_pWorkspace, bypass );
+        auto raw = Sub( EditPoint( screen ), m_drag.planeStart );
+        u32 allowedAxes = ( 1u << m_axisU ) | ( 1u << m_axisV );
+        if ( m_drag.axis >= 0 ) { allowedAxes &= 1u << m_drag.axis; }
+        if ( m_drag.planeAxis >= 0 ) { allowedAxes &= ~( 1u << m_drag.planeAxis ); }
+        if ( m_drag.kind == edit_drag_t::TRANSLATE ) {
+            for ( int axis = 0; axis < 3; ++axis ) { if ( ( allowedAxes & ( 1u << axis ) ) == 0u ) { SetAxis( raw, axis, 0 ); } }
+        }
+        const auto project = [this]( math::vec3d_t p, QPointF &result ) { result = WorldToView( { Axis( p, m_axisU ), Axis( p, m_axisV ) } ); return true; };
+        math::vec3d_t delta = m_drag.kind == edit_drag_t::TRANSLATE ?
+            SnapTranslation( m_drag, *m_pWorkspace, raw, bypass, allowedAxes, project, rect() ) : SnapMove( raw, *m_pWorkspace, bypass );
         if ( m_drag.axis >= 0 ) { delta = Scale( AxisVector( m_drag.axis ), Axis( delta, m_drag.axis ) ); }
         if ( m_drag.planeAxis >= 0 ) { SetAxis( delta, m_drag.planeAxis, 0 ); }
         if ( m_drag.kind == edit_drag_t::TRANSLATE ) { m_drag.delta = delta; }
@@ -3583,6 +3723,7 @@ protected:
         DrawMoveSource( painter, workspace, project, segment, rect(), true );
         DrawTransformPreview( painter, workspace, project, segment, transformedFace, rect(), true, m_renderMode == map_render_mode_t::WIREFRAME );
         DrawEditPreview( painter, workspace, project, segment, face, rect(), true, m_renderMode == map_render_mode_t::WIREFRAME );
+        DrawBoundsSnaps( painter, workspace, m_drag, project, rect() );
         const QPointF pointer = underMouse() && !NavigationActive() ? m_hover.point : QPointF( -10000, -10000 );
         const u32 resizeMask = ResizeHandleMask();
         const auto hit = EditHandleAt( workspace, project, rect(), pointer, GizmoLength(), -1, -1, -1, resizeMask );
@@ -3843,6 +3984,9 @@ private:
     static void OnSettingsChanged( void *pContext, string_view_t path ) noexcept
     {
         auto *pView = static_cast<map_camera_view_t *>( pContext );
+        if ( pView->m_drag.kind == edit_drag_t::TRANSLATE && !DragContextMatches( pView->m_drag, *pView->m_pWorkspace ) ) {
+            CancelDrag( pView->m_drag, *pView->m_pWorkspace );
+        }
         if ( path.cchLength == 0u || StringView_Equals( path, StringView_FromCString( "editor.camera.move_speed" ) ) ) {
             const f64 speed = pView->Setting( "editor.camera.move_speed", 1000.0 );
             // Only successful changes to the effective setting announce a new
@@ -4224,7 +4368,11 @@ private:
             }
             delta = Sub( point, m_drag.planeStart );
         }
-        delta = SnapMove( delta, *m_pWorkspace, bypass );
+        // Independent world-axis alignment must never leave a captured
+        // camera-facing free-move plane. Use axis/world-plane handles in 3D.
+        const u32 allowedAxes = m_drag.axis >= 0 ? ( 1u << m_drag.axis ) : m_drag.planeAxis >= 0 ? ( 7u & ~( 1u << m_drag.planeAxis ) ) : 0u;
+        delta = m_drag.kind == edit_drag_t::TRANSLATE ? SnapTranslation( m_drag, *m_pWorkspace, delta, bypass, allowedAxes,
+            [this]( math::vec3d_t p, QPointF &result ) { return WorldToView( p, &result ) != CY_FALSE; }, rect() ) : SnapMove( delta, *m_pWorkspace, bypass );
         if ( m_drag.planeAxis >= 0 ) { SetAxis( delta, m_drag.planeAxis, 0 ); }
         if ( m_drag.kind == edit_drag_t::TRANSLATE ) { m_drag.delta = delta; }
         if ( m_drag.kind == edit_drag_t::SCALE ) {

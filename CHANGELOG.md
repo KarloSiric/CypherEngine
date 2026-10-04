@@ -27,6 +27,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 #### Mason map authoring
 
+- Added opt-in **Snap to geometry** for moving selected brush, mesh and patch
+  bounds onto existing edge or center coordinates, including geometry authored
+  on a finer grid. Available in Select/Translate Tool Properties and Grid and
+  Snapping settings, with a persisted pixel tolerance and readable RGB target
+  labels. All selected roots retain their spacing and one Undo/Redo step.
+  Ctrl/Command bypasses both snaps; the selected world grid stays unchanged.
+  Supported in every 2D pane and on 3D axis/world-plane move handles. Free
+  camera-plane movement, component edits and resizing retain their existing
+  behavior. This aligns bounds coordinates, not arbitrary surface contact.
 - Added live block and transform dimensions, readable RGB axis labels, surface
   grids, separate move and signed-side resize handles, and exact world-unit
   grid snapping. Multi-object bounds resizing can extend each object by the
@@ -153,6 +162,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   wheel/Shift checks and the Keybindings/Settings checks also passed at 2x.
   The only full-suite repair updated the built-in declaration count for the
   two new routed wheel actions; parsing and conflict checks were retained.
+  GitHub Actions run 37219835907 passed all 15 jobs for the published commit.
+- Geometry alignment across authoring grids passed all five local suites:
+  221,412 assertions in 884 cases. Focused geometry snapping and Tool Properties
+  checks passed 1,299 assertions in ten cases at normal and 2x scaling; actual
+  Mason snapping checks passed at both scales, and workspace captures were
+  inspected. The full run found a stale Settings page count; it now includes
+  both new preferences explicitly, with the complete GUI suite passing after
+  repair. Allocation-failure, cancellation, clone, undo/redo and save/reopen
+  checks retain document and selection guarantees.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
   Full Mason user documentation is deferred; implementation evidence is kept

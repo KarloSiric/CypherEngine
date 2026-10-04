@@ -50,6 +50,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QClipboard>
 #include <QMimeData>
 #include <QFileInfo>
@@ -3686,4 +3687,83 @@ TEST_CASE( "Capture Mason separated 2D move and resize controls", "[mason][smoke
     CHECK( std::abs( ( expanded.box.maximum.x - expanded.box.minimum.x ) * zoom - 128.0 ) < 1e-6 );
     CHECK( std::abs( MasonOrthoMovePickup( top, *ws ).x() - move.x() ) < 1e-6 );
     capture( QStringLiteral( "mason_ortho_boundary" ) );
+}
+
+TEST_CASE( "Mason geometry snap checkbox aligns different authoring grids through a Top move gizmo", "[mason][smoke][geometry-snap]" )
+{
+    mason_session_t session;
+    auto *ws = Mason_MapWorkspace( session.pMason ); auto *window = Mason_Window( session.pMason );
+    window->resize( 1600, 1050 );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views );
+    MapViews_SetArrangement( views, map_view_arrangement_t::HAMMER ); MapViews_SetPaneType( views, 1, map_view_type_t::TOP );
+    map_bounds_t source{}, target{};
+    MapBounds_AddPoint( source, { 0, 0, 0 } ); MapBounds_AddPoint( source, { 64, 64, 64 } );
+    MapBounds_AddPoint( target, { 144, 0, 0 } ); MapBounds_AddPoint( target, { 176, 64, 64 } );
+    REQUIRE( MapWorkspace_CreateBox( ws, source ) ); const u64 sourceId = EditorSelection_At( &ws->selection, 0u );
+    REQUIRE( MapWorkspace_CreateBox( ws, target ) ); const u64 targetId = EditorSelection_At( &ws->selection, 0u );
+    MapWorkspace_Select( ws, sourceId, MAP_SELECT_REPLACE );
+    MapWorkspace_SetGridSize( ws, 64 ); MapWorkspace_SetSnapToGrid( ws, CY_TRUE );
+    REQUIRE( session.Run( QStringLiteral( "map.tool.select" ) ) == command_result_t::OK );
+    REQUIRE( session.Run( QStringLiteral( "map.select_mode.objects" ) ) == command_result_t::OK );
+    auto *panel = window->findChild<QWidget *>( QStringLiteral( "MapToolProperties" ) ); REQUIRE( panel );
+    auto *control = panel->findChild<QWidget *>( QStringLiteral( "editor.grid.geometry_snap" ) ); REQUIRE( control );
+    auto *enabled = control->findChild<QCheckBox *>(); REQUIRE( enabled );
+    CHECK( control->parentWidget()->property( "toolGroup" ).toString() == QStringLiteral( "Movement snapping" ) );
+    REQUIRE_FALSE( enabled->isChecked() );
+    const auto *document = ws->pDocument; const u64 geometryRevision = document->geometry.revision, selectionRevision = ws->selection.revision;
+    const usize steps = EditorHistory_StepCount( &ws->history ); const auto token = UndoRedo_StateToken( ws->history.pUndo );
+    enabled->click(); REQUIRE( enabled->isChecked() );
+    const auto *descriptor = EditorSettings_Find( &Mason_Gui( session.pMason )->settings, StringView_FromCString( "editor.grid.geometry_snap" ) ); REQUIRE( descriptor );
+    const auto setting = EditorSettings_Resolve( &Mason_Gui( session.pMason )->settings, *descriptor );
+    CHECK( setting.value.bValue ); CHECK( setting.source == settings_scope_t::USER );
+    CHECK( ws->pDocument == document ); CHECK( document->geometry.revision == geometryRevision );
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps );
+
+    MapWorkspace_Frame( ws, CY_FALSE ); MapViews_SetActivePane( views, 1 ); QCoreApplication::processEvents();
+    auto *top = MapViews_PaneView( views, 1 ); REQUIRE( top ); REQUIRE( top->isVisible() );
+    const auto bounds = [&]( u64 id ) {
+        const auto *object = MapWireframe_FindObject( ws->wire, id ); REQUIRE( object ); return object->bounds;
+    };
+    const f64 gizmoPixels = 64.0 * EditorSettings_Real( &Mason_Gui( session.pMason )->settings, "editor.viewport.gizmo_scale", 1.0 );
+    const QPointF start = MapOrthoView_WorldToView( top, { 32, 32 } ) + QPointF( gizmoPixels * 0.70, 0 );
+    const QPointF end = start + QPointF( 78.0 * MapOrthoView_Zoom( top ), 0 );
+    REQUIRE( top->rect().contains( start.toPoint() ) ); REQUIRE( top->rect().contains( end.toPoint() ) );
+    top->setAttribute( Qt::WA_UnderMouse, true );
+    MasonWorkflowMouse( top, QEvent::MouseMove, start, Qt::NoButton );
+    CHECK( top->cursor().shape() == Qt::SizeAllCursor );
+    MasonWorkflowMouse( top, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton );
+    CHECK_FALSE( ws->editPreview.bActive );
+    MasonWorkflowMouse( top, QEvent::MouseMove, end, Qt::NoButton, Qt::LeftButton );
+    REQUIRE( ws->editPreview.bActive ); REQUIRE( ws->editPreview.transform.kind == map_transform_preview_kind_t::TRANSLATE );
+    CHECK_FALSE( ws->editPreview.transform.bClone ); CHECK_FALSE( ws->editPreview.transform.bResize );
+    CheckMasonPosition( ws->editPreview.transform.delta, { 80, 0, 0 } );
+    CheckMasonPosition( ws->editPreview.bounds.box.minimum, { 80, 0, 0 } ); CheckMasonPosition( ws->editPreview.bounds.box.maximum, { 144, 64, 64 } );
+    CheckMasonPosition( bounds( sourceId ).box.minimum, source.box.minimum ); CheckMasonPosition( bounds( sourceId ).box.maximum, source.box.maximum );
+    CheckMasonPosition( bounds( targetId ).box.minimum, target.box.minimum ); CheckMasonPosition( bounds( targetId ).box.maximum, target.box.maximum );
+    CHECK( ws->pDocument == document ); CHECK( document->geometry.revision == geometryRevision ); CHECK( ws->selection.revision == selectionRevision );
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws->history.pUndo ) ) );
+    CHECK( ws->gridSize == 64 ); CHECK( ws->bSnapToGrid );
+    // The ordinary regression has no artifact dependency. Set this variable
+    // to capture the actual workspace and Top feedback during its live preview.
+    if ( !qEnvironmentVariableIsEmpty( "CYPHER_GEOMETRY_SNAP_CAPTURE" ) ) {
+        QCoreApplication::processEvents(); top->setAttribute( Qt::WA_UnderMouse, true );
+        REQUIRE( QDir().mkpath( QStringLiteral( "artifacts" ) ) );
+        REQUIRE( window->grab().save( QStringLiteral( "artifacts/mason_geometry_snap_workspace.png" ) ) );
+        REQUIRE( top->grab().save( QStringLiteral( "artifacts/mason_geometry_snap_top.png" ) ) );
+    }
+    MasonWorkflowMouse( top, QEvent::MouseButtonRelease, end, Qt::LeftButton );
+    CHECK_FALSE( ws->editPreview.bActive ); CHECK( EditorHistory_StepCount( &ws->history ) == steps + 1u );
+    const auto checkCommitted = [&]() {
+        CheckMasonPosition( bounds( sourceId ).box.minimum, { 80, 0, 0 } ); CheckMasonPosition( bounds( sourceId ).box.maximum, { 144, 64, 64 } );
+        CheckMasonPosition( bounds( targetId ).box.minimum, target.box.minimum ); CheckMasonPosition( bounds( targetId ).box.maximum, target.box.maximum );
+        CHECK( EditorSelection_Count( &ws->selection ) == 1u ); CHECK( EditorSelection_At( &ws->selection, 0u ) == sourceId );
+        CHECK( ws->wire.objects.nCount == 2u ); CHECK( ws->gridSize == 64 ); CHECK( ws->bSnapToGrid );
+    };
+    checkCommitted();
+    REQUIRE( session.Run( QStringLiteral( "edit.undo" ) ) == command_result_t::OK );
+    CheckMasonPosition( bounds( sourceId ).box.minimum, source.box.minimum ); CheckMasonPosition( bounds( sourceId ).box.maximum, source.box.maximum );
+    CheckMasonPosition( bounds( targetId ).box.minimum, target.box.minimum ); CheckMasonPosition( bounds( targetId ).box.maximum, target.box.maximum );
+    CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws->history.pUndo ) ) );
+    REQUIRE( session.Run( QStringLiteral( "edit.redo" ) ) == command_result_t::OK ); checkCommitted();
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps + 1u );
 }

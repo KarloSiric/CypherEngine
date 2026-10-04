@@ -209,6 +209,8 @@ constexpr setting_descriptor_t kFramework[]{
     // 4.5 Grid and snapping.
     Integer( "editor.grid.size", 16, 1, 4096, "Grid size", "Grid size in units; [ and ] halve and double it.", kGrid ),
     Flag( "editor.grid.snap", CY_TRUE, "Snap to grid", "Snap to the grid.", kGrid ),
+    Flag( "editor.grid.geometry_snap", CY_FALSE, "Snap to geometry", "Align moved geometry bounds with nearby visible geometry in 2D and on 3D axis or plane handles. Ctrl/Command bypasses snapping.", kGrid ),
+    Real( "editor.grid.geometry_snap_pixels", 8.0, 2.0, 24.0, "Geometry snap distance", "Maximum geometry alignment distance in screen pixels.", kGrid ),
     Flag( "editor.grid.show", CY_TRUE, "Show grid", "Draw the 2D grid.", kGrid ),
     Flag( "editor.grid.show_3d", CY_TRUE, "Show 3D grid", "Draw the ground grid in perspective views.", kGrid ),
     Flag( "editor.grid.show_surface_3d", CY_TRUE, "Surface grid", "Draw a world-aligned construction grid on filled 3D surfaces, independently of the floor grid.", kDisplay3D ),
