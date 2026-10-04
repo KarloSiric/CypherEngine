@@ -356,10 +356,10 @@ void DrawGhostBatch( QPainter &painter, const map_workspace_t &workspace, const 
     painter.restore();
 }
 
-// Plain axis-coloured numbers sit beside their corresponding edges. Keep
-// them horizontal and separated; dimension ruler/extension lines add clutter.
+// Plain numbers sit beside their corresponding edges: selection colour in
+// 2D, axis colour in 3D. Ruler/extension lines add unnecessary clutter.
 void DrawDimension( QPainter &painter, const map_workspace_t &workspace, QLineF edge, QPointF center,
-                    u32 axis, f64 extent, QRectF viewport, QVector<QRectF> &occupied )
+                    u32 axis, f64 extent, QRectF viewport, QVector<QRectF> &occupied, bool perspective = true )
 {
     if ( edge.length() < 18.0 || extent <= 1e-9 ) { return; }
     const QPointF direction = ( edge.p2() - edge.p1() ) / edge.length();
@@ -399,7 +399,7 @@ void DrawDimension( QPainter &painter, const map_workspace_t &workspace, QLineF 
     if ( !placed ) { return; }
     occupied.append( label.adjusted( -3.0, -3.0, 3.0, 3.0 ) );
     const char *axisToken = axis == 0u ? "viewport.axis.x" : axis == 1u ? "viewport.axis.y" : "viewport.axis.z";
-    QColor color = Token( workspace, axisToken );
+    QColor color = perspective ? Token( workspace, axisToken ) : SlotColor( workspace, LINE_SELECTED );
     painter.save();
     painter.setRenderHint( QPainter::TextAntialiasing, true );
     painter.setFont( font );
@@ -1438,7 +1438,7 @@ bool MeasuredEdgeExists( const map_workspace_t &ws, const map_wireframe_t &wire,
 
 template <typename Project>
 void DrawBoundsDimensions( QPainter &painter, const map_workspace_t &ws, const map_bounds_t &bounds,
-                           Project project, QRectF viewport, const map_wireframe_t *previewWire = nullptr ) {
+                           Project project, QRectF viewport, const map_wireframe_t *previewWire = nullptr, bool perspective = true ) {
     if ( !bounds.bHas ) { return; }
     const auto &wire = previewWire != nullptr ? *previewWire : ws.wire;
     math::vec3d_t corners[8]; BoundsCorners( bounds, corners );
@@ -1469,13 +1469,13 @@ void DrawBoundsDimensions( QPainter &painter, const map_workspace_t &ws, const m
             if ( ( real && !realEdge ) || ( real == realEdge && score > best ) ) { edge = candidate; best = score; realEdge = real; }
         }
         if ( best < 0.0 ) { continue; }
-        if ( realEdge ) {
+        if ( realEdge && perspective ) {
             painter.save(); painter.setRenderHint( QPainter::Antialiasing );
             painter.setPen( QPen( Token( ws, axis == 0 ? "viewport.axis.x" : axis == 1 ? "viewport.axis.y" : "viewport.axis.z" ),
                 gui::EditorStyle_Metric( ws.pGui->style, "viewport.selection.line_width", 1.5 ), Qt::SolidLine, Qt::RoundCap ) );
             painter.drawLine( edge ); painter.restore();
         }
-        DrawDimension( painter, ws, edge, center, axis, extent, viewport, labels );
+        DrawDimension( painter, ws, edge, center, axis, extent, viewport, labels, perspective );
     }
 }
 template <typename Project, typename ProjectSegment, typename ProjectFace>
@@ -1511,7 +1511,7 @@ void DrawEditPreview( QPainter &painter, const map_workspace_t &ws, Project proj
     if ( transforming ) { envelope.setAlpha( 120 ); }
     else if ( exact && ws.editPreview.primitive.kind != map_primitive_kind_t::BOX ) { envelope.setAlpha( 70 ); }
     painter.setPen( QPen( envelope, 1.0, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin ) );
-    if ( !clipping && !facePushPull && ( !transforming || DisplayFlag( ws, perspective ? "editor.viewport.perspective.show_selection_bounds" : "editor.viewport.show_selection_bounds" ) ) ) { for ( int c = 0; c < 8; ++c ) { for ( int a = 0; a < 3; ++a ) { if ( c & ( 1 << a ) ) { continue; } QLineF line;
+    if ( perspective && !clipping && !facePushPull && ( !transforming || DisplayFlag( ws, "editor.viewport.perspective.show_selection_bounds" ) ) ) { for ( int c = 0; c < 8; ++c ) { for ( int a = 0; a < 3; ++a ) { if ( c & ( 1 << a ) ) { continue; } QLineF line;
         if ( projectSegment( points[c], points[c | ( 1 << a )], line ) ) { painter.drawLine( line ); }
     } } }
     if ( exact && ( !facePushPull || !perspective || wireframe ) ) {
@@ -1541,7 +1541,7 @@ void DrawEditPreview( QPainter &painter, const map_workspace_t &ws, Project proj
         }
     }
     if ( ws.editPreview.bounds.bHas && DisplayFlag( ws, perspective ? "editor.viewport.perspective.show_selection_dimensions" : "editor.viewport.show_selection_dimensions" ) ) {
-        DrawBoundsDimensions( painter, ws, ws.editPreview.bounds, project, viewport, exact ? &wire : nullptr );
+        DrawBoundsDimensions( painter, ws, ws.editPreview.bounds, project, viewport, exact ? &wire : nullptr, perspective );
     }
     painter.restore();
 }
@@ -1867,12 +1867,9 @@ int ResizeHandles( QPainter *painter, const map_workspace_t &ws, Project project
     QPointF center;
     if ( !bounds.bHas || !project( MapBounds_Center( bounds ), center ) ) { return -1; }
     f64 minimumRadius = 24.0;
-    if ( !block && moveLength > 0.0 && CanTransform( ws ) ) {
-        // Keep bounds controls outside the foreground move controls in both
-        // projections. Orthographic squares need enough room for two separate
-        // ten-pixel pickups, rather than relying on priority at an overlap.
-        // Measure the actual projection, including the configured gizmo scale.
-        const f64 clearance = u >= 0 ? 24.0 : 18.0;
+    if ( u < 0 && !block && moveLength > 0.0 && CanTransform( ws ) ) {
+        // Perspective signed caps remain outside the foreground move controls.
+        const f64 clearance = 18.0;
         const auto pivot = ws.editPreview.bActive && ws.editPreview.transform.bResize ? MapBounds_Center( bounds ) :
             GizmoPivot( ws, EditSelectionBounds( ws ) );
         for ( int axis = 0; axis < 3; ++axis ) {
@@ -1894,13 +1891,16 @@ int ResizeHandles( QPainter *painter, const map_workspace_t &ws, Project project
             std::isfinite( anchors[handle].x() ) && std::isfinite( anchors[handle].y() ) && viewport.contains( anchors[handle] );
         if ( !visible[handle] ) { continue; }
         points[handle] = anchors[handle];
-        // Small geometry must not lose its controls inside the pivot. Pull
-        // controls out in logical pixels, with leaders to the real boundary.
-        // Dragging still captures the real world anchor and press-plane offset.
+        // Orthographic controls stay on real boundaries. A collapsed view
+        // omits indistinguishable sides/corners instead of inventing a cage.
+        // Perspective controls retain their signed-axis layout.
         QPointF offset = points[handle] - center;
         if ( u >= 0 ) {
-            if ( Axis( sides, u ) != 0 ) { offset.setX( std::copysign( std::max( std::abs( offset.x() ), minimumRadius ), Axis( sides, u ) ) ); }
-            if ( Axis( sides, v ) != 0 ) { offset.setY( -std::copysign( std::max( std::abs( offset.y() ), minimumRadius ), Axis( sides, v ) ) ); }
+            const bool captured = drag != nullptr && drag->kind == edit_drag_t::RESIZE &&
+                sides.x == drag->resizeSides.x && sides.y == drag->resizeSides.y && sides.z == drag->resizeSides.z;
+            const f64 separation = block ? 12.0 : 48.0;
+            if ( !captured && ( ( Axis( sides, u ) != 0 && std::abs( offset.x() ) + 1e-6 < separation ) ||
+                                ( Axis( sides, v ) != 0 && std::abs( offset.y() ) + 1e-6 < separation ) ) ) { visible[handle] = false; continue; }
         } else {
             const f64 distance = std::hypot( offset.x(), offset.y() );
             if ( distance < 1e-6 ) { visible[handle] = false; continue; }
@@ -1925,7 +1925,7 @@ int ResizeHandles( QPainter *painter, const map_workspace_t &ws, Project project
         painter->save(); painter->setRenderHint( QPainter::Antialiasing );
         const QColor background = Token( ws, "viewport.overlay.background" );
         for ( int handle = 0; handle < count; ++handle ) {
-            if ( visible[handle] && QLineF( anchors[handle], points[handle] ).length() > 1.0 ) {
+            if ( u < 0 && visible[handle] && QLineF( anchors[handle], points[handle] ).length() > 1.0 ) {
                 painter->setPen( QPen( Token( ws, "viewport.overlay.text" ), 1.0, Qt::DotLine ) );
                 painter->drawLine( QLineF( anchors[handle], points[handle] ) );
             }
@@ -1952,15 +1952,18 @@ int ResizeHandles( QPainter *painter, const map_workspace_t &ws, Project project
                 sides.x == drag->resizeSides.x && sides.y == drag->resizeSides.y && sides.z == drag->resizeSides.z;
             const int axis = u < 0 ? handle / 2 : handle < 2 ? u : v;
             QColor color = handle == hit || captured ? SlotColor( ws, LINE_HOVER ) :
-                u >= 0 && handle >= 4 ? SlotColor( ws, LINE_SELECTED ) : Token( ws, axis == 0 ? "viewport.axis.x" : axis == 1 ? "viewport.axis.y" : "viewport.axis.z" );
+                u >= 0 ? SlotColor( ws, LINE_SELECTED ) : Token( ws, axis == 0 ? "viewport.axis.x" : axis == 1 ? "viewport.axis.y" : "viewport.axis.z" );
             painter->setPen( QPen( color, u >= 0 || captured ? 2.0 : 1.5 ) );
             painter->setBrush( background );
             const QPointF p = points[handle];
-            if ( u < 0 ) {
+            if ( u < 0 || handle < 4 ) {
                 // The ball marks the boundary pickup; its short pointer
                 // communicates the signed resize direction. Logical-pixel
                 // caps do not change the shared ten-pixel hit tolerance.
-                const QPointF direction = ( p - center ) / QLineF( center, p ).length();
+                // A captured 2D pickup may cross the center as a side shrinks.
+                // Its signed direction remains the axis, not that offset.
+                const QPointF direction = u >= 0 ? QPointF( Axis( sides, u ), -Axis( sides, v ) ) :
+                    ( p - center ) / QLineF( center, p ).length();
                 DrawResizeCap( *painter, p, direction, color, captured || handle == hit );
             }
             else {
@@ -2582,7 +2585,7 @@ protected:
         DrawBoundsSnaps( painter, workspace, m_drag, project, rect() );
         DrawPushPullHandle( painter );
         const QPointF pointer = underMouse() && !NavigationActive() ? m_hover.point : QPointF( -10000, -10000 );
-        const f64 moveLength = 64.0 * GizmoScale( workspace ) / m_zoom;
+        const f64 moveLength = MoveLength();
         const auto hit = EditHandleAt( workspace, project, rect(), pointer, moveLength, m_axisU, m_axisV, 3 - m_axisU - m_axisV );
         EditGizmo( &painter, workspace, project, moveLength, pointer, 3 - m_axisU - m_axisV, &m_drag, 10.0, hit.gizmo );
         ResizeHandles( &painter, workspace, project, rect(), pointer, m_axisU, m_axisV, &m_drag, 10.0, hit.resize, 0xffu, moveLength );
@@ -2630,7 +2633,7 @@ protected:
         if ( m_drag.kind == edit_drag_t::NONE && !NavigationActive() ) {
             ortho_face_handle_t faceHandle{};
             const auto project = [this]( math::vec3d_t p, QPointF &screen ) { screen = WorldToView( { Axis( p, m_axisU ), Axis( p, m_axisV ) } ); return true; };
-            const auto hit = EditHandleAt( *m_pWorkspace, project, rect(), pEvent->position(), 64.0 * GizmoScale( *m_pWorkspace ) / m_zoom, m_axisU, m_axisV, 3 - m_axisU - m_axisV );
+            const auto hit = EditHandleAt( *m_pWorkspace, project, rect(), pEvent->position(), MoveLength(), m_axisU, m_axisV, 3 - m_axisU - m_axisV );
             if ( PickPushPullHandle( pEvent->position(), faceHandle ) ) { setCursor( Qt::SizeAllCursor ); }
             else if ( hit.resize >= 0 ) { setCursor( ResizeCursor( hit.resize ) ); }
             else if ( hit.gizmo >= 0 ) { setCursor( GizmoCursor( *m_pWorkspace ) ); } else { unsetCursor(); }
@@ -2798,6 +2801,22 @@ private:
         const QPointF p = ViewToWorld( screen ); math::vec3d_t world{};
         SetAxis( world, m_axisU, p.x() ); SetAxis( world, m_axisV, p.y() ); return world;
     }
+    f64 MoveLength() const {
+        const auto &ws = *m_pWorkspace;
+        f64 pixels = 64.0 * GizmoScale( ws );
+        if ( SelectMovesObjects( ws ) && MapWorkspace_CanEditSelection( &ws ) ) {
+            const auto bounds = SelectionGeometryBounds( ws );
+            if ( bounds.bHas ) {
+                for ( const int axis : { static_cast<int>( m_axisU ), static_cast<int>( m_axisV ) } ) {
+                    const f64 radius = ( Axis( bounds.box.maximum, axis ) - Axis( bounds.box.minimum, axis ) ) * m_zoom * 0.5;
+                    // Leave two distinct pickups between a boundary cap and
+                    // the foreground arrow; short axes have no resize cap.
+                    if ( radius + 1e-6 >= 48.0 ) { pixels = std::min( pixels, radius - 24.0 ); }
+                }
+            }
+        }
+        return std::max( 24.0, pixels ) / m_zoom;
+    }
     struct ortho_face_handle_t {
         math::vec3d_t origin{}, normal{};
         QLineF shaft{};
@@ -2917,7 +2936,7 @@ private:
             else if ( !BypassSnap( modifiers ) ) { MapWorkspace_Select( m_pWorkspace, 0, MAP_SELECT_REPLACE ); }
             return;
         }
-        const auto hit = EditHandleAt( *m_pWorkspace, project, rect(), screen, 64.0 * GizmoScale( *m_pWorkspace ) / m_zoom, m_axisU, m_axisV, 3 - m_axisU - m_axisV );
+        const auto hit = EditHandleAt( *m_pWorkspace, project, rect(), screen, MoveLength(), m_axisU, m_axisV, 3 - m_axisU - m_axisV );
         const int resize = hit.resize;
         if ( resize >= 0 && BeginResize( m_drag, *m_pWorkspace, ResizeSides( resize, m_axisU, m_axisV ) ) ) {
             QPointF boundary;
@@ -3300,18 +3319,11 @@ private:
         const QRectF box = QRectF( WorldToView( QPointF( Axis( bounds.box.minimum, m_axisU ), Axis( bounds.box.minimum, m_axisV ) ) ),
                                    WorldToView( QPointF( Axis( bounds.box.maximum, m_axisU ), Axis( bounds.box.maximum, m_axisV ) ) ) ).normalized();
         if ( !box.intersects( QRectF( rect() ) ) ) { return; }
-        if ( DisplayFlag( workspace, "editor.viewport.show_selection_bounds" ) ) {
-            QColor color = SlotColor( workspace, LINE_SELECTED );
-            color.setAlpha( 155 );
-            painter.setPen( QPen( color, 1.0, Qt::DashLine ) );
-            painter.setBrush( Qt::NoBrush );
-            painter.drawRect( box );
-        }
         if ( !workspace.editPreview.bActive && DisplayFlag( workspace, "editor.viewport.show_selection_dimensions" ) ) {
             const auto project = [this]( math::vec3d_t point, QPointF &screen ) {
                 screen = WorldToView( QPointF( Axis( point, m_axisU ), Axis( point, m_axisV ) ) ); return true;
             };
-            DrawBoundsDimensions( painter, workspace, bounds, project, rect() );
+            DrawBoundsDimensions( painter, workspace, bounds, project, rect(), nullptr, false );
         }
     }
 
@@ -6276,7 +6288,7 @@ private:
     {
         // This is an explicit menu operation on existing settings, not a
         // second display mode. Keep the user's dimensions, axes and grid.
-        const char *paths2D[]{ "editor.viewport.show_rulers", "editor.viewport.show_selection_bounds",
+        const char *paths2D[]{ "editor.viewport.show_rulers",
             "editor.viewport.show_selection_vertices", "editor.viewport.show_metrics" };
         const char *paths3D[]{ "editor.viewport.perspective.show_selection_bounds",
             "editor.viewport.perspective.show_selection_vertices", "editor.viewport.perspective.show_metrics" };
@@ -6296,8 +6308,9 @@ private:
         menu->setToolTipsVisible( true );
         QAction *clean = menu->addAction( QStringLiteral( "Clean View" ) );
         clean->setObjectName( perspective ? QStringLiteral( "EditorViewClean3D" ) : QStringLiteral( "EditorViewClean2D" ) );
-        clean->setToolTip( QStringLiteral( "Hide bounds, vertex cues and metrics%1; keep dimensions, axes and grid. Show %2 entity names and selected connections." )
-            .arg( perspective ? QString() : QStringLiteral( " and coordinate rulers" ), perspective ? QStringLiteral( "selected" ) : QStringLiteral( "all" ) ) );
+        clean->setToolTip( QStringLiteral( "Hide %1; keep dimensions, axes and grid. Show %2 entity names and selected connections." )
+            .arg( perspective ? QStringLiteral( "bounds, vertex cues and metrics" ) : QStringLiteral( "vertex cues, metrics and coordinate rulers" ),
+                  perspective ? QStringLiteral( "selected" ) : QStringLiteral( "all" ) ) );
         m_pCleanViewActions[perspective ? 1 : 0] = clean;
         QObject::connect( clean, &QAction::triggered, this, [this, perspective]() { ApplyCleanView( perspective ); } );
         menu->addSeparator();
@@ -6323,7 +6336,7 @@ private:
         AddDisplayAction( menu, QStringLiteral( "World Origin Axes" ), perspective ? "editor.viewport.perspective.center_axes" : "editor.viewport.center_axes" );
         if ( !perspective ) { AddDisplayAction( menu, QStringLiteral( "Coordinate Rulers" ), "editor.viewport.show_rulers" ); }
         menu->addSeparator();
-        AddDisplayAction( menu, QStringLiteral( "Selection Bounds" ), perspective ? "editor.viewport.perspective.show_selection_bounds" : "editor.viewport.show_selection_bounds" );
+        if ( perspective ) { AddDisplayAction( menu, QStringLiteral( "Selection Bounds" ), "editor.viewport.perspective.show_selection_bounds" ); }
         AddDisplayAction( menu, QStringLiteral( "Selection Dimensions" ), perspective ? "editor.viewport.perspective.show_selection_dimensions" : "editor.viewport.show_selection_dimensions" );
         AddDisplayAction( menu, QStringLiteral( "Selection Vertex Cues" ), perspective ? "editor.viewport.perspective.show_selection_vertices" : "editor.viewport.show_selection_vertices" );
         AddDisplayAction( menu, QStringLiteral( "Ghost Hidden Geometry" ), perspective ? "editor.viewport.perspective.ghost_hidden" : "editor.viewport.ghost_hidden" );

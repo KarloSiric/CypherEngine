@@ -91,6 +91,28 @@ TEST_CASE( "The settings dialog lists a page's settings and searches across page
     CHECK( EditorSettingsDialog_VisibleSettings( f.pDialog ).isEmpty() );
 }
 
+TEST_CASE( "The retired 2D selection border leaves no setting row and perspective bounds remain editable", "[editor][gui][settings][selection-clarity]" )
+{
+    fixture_t f;
+    EditorSettingsDialog_ShowPage( f.pDialog, QStringLiteral( "Viewports/2D Display" ) );
+    const QStringList display2d = EditorSettingsDialog_VisibleSettings( f.pDialog );
+    CHECK( display2d.size() == 11 );
+    CHECK_FALSE( display2d.contains( QStringLiteral( "editor.viewport.show_selection_bounds" ) ) );
+    CHECK( EditorSettingsDialog_EditorFor( f.pDialog, QStringLiteral( "editor.viewport.show_selection_bounds" ) ) == nullptr );
+    CHECK( display2d.contains( QStringLiteral( "editor.viewport.show_selection_dimensions" ) ) );
+
+    EditorSettingsDialog_ShowPage( f.pDialog, QStringLiteral( "Viewports/3D Display" ) );
+    CHECK( EditorSettingsDialog_VisibleSettings( f.pDialog ).contains( QStringLiteral( "editor.viewport.perspective.show_selection_bounds" ) ) );
+    auto *bounds3d = qobject_cast<QCheckBox *>( EditorSettingsDialog_EditorFor( f.pDialog, QStringLiteral( "editor.viewport.perspective.show_selection_bounds" ) ) );
+    REQUIRE( bounds3d != nullptr ); REQUIRE( bounds3d->isChecked() );
+    EditorSettingsDialog_SetTargetScope( f.pDialog, settings_scope_t::USER );
+    bounds3d->setChecked( false );
+    CHECK_FALSE( EditorSettings_Bool( &f.registry, "editor.viewport.perspective.show_selection_bounds", CY_TRUE ) );
+    CHECK( EditorSettings_Bool( &f.registry, "editor.viewport.show_selection_dimensions", CY_FALSE ) );
+    EditorSettingsDialog_Reset( f.pDialog, QStringLiteral( "editor.viewport.perspective.show_selection_bounds" ) );
+    CHECK( EditorSettings_Bool( &f.registry, "editor.viewport.perspective.show_selection_bounds", CY_FALSE ) );
+}
+
 TEST_CASE( "Settings chooses a larger screen bounded default and remains resizable", "[editor][gui][settings][settings-layout]" )
 {
     fixture_t f;

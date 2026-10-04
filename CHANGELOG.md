@@ -43,7 +43,7 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   Supported in every 2D pane and on 3D axis/world-plane move handles. Free
   camera-plane movement, component edits and resizing retain their existing
   behavior. This aligns bounds coordinates, not arbitrary surface contact.
-- Added live block and transform dimensions, readable RGB axis labels, surface
+- Added live block and transform dimensions, readable RGB axis labels in 3D, surface
   grids, separate move and signed-side resize handles, and exact world-unit
   grid snapping. Multi-object bounds resizing can extend each object by the
   same distance or scale the combined selection bounds.
@@ -80,6 +80,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Simplified 2D selection to yellow authored outlines and yellow dimension
+  numbers. Removed the extra selection/construction/transform bounds rectangle,
+  RGB edge recolouring and dotted leaders to displaced controls. Side resize
+  caps sit on the actual projected boundary; move arrows shorten to leave
+  separate pickups. Indistinguishable controls in thin or distant views stay
+  hidden until zooming/framing or switching panes; a captured resize remains
+  active as geometry shrinks. Removed the retired 2D Bounds setting/menu row.
+  Independent 3D bounds, RGB gizmos and dimensions retain their behavior.
 - Keybindings gives the action list more space, shows Action and Bindings by
   default, and moves profile operations into one menu. Advanced details retain
   profile identity, platform overrides, contexts and declaration metadata.
@@ -112,10 +120,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   and the normal handle follow the candidate geometry across panes. Invalid or
   stale candidates cannot commit, and releasing after a failed preview cannot
   silently regenerate it. Grid snapping, attributes and undo/redo are retained.
-- Separated 2D bounds-resize squares from move-arrow pickups by 24 logical
-  pixels, including zoomed-out selections and configured gizmo sizes. Drawing,
-  hover and press share the layout; displaced controls keep their world anchors,
-  grid snapping, captured offset and undo behavior.
+- 2D move/resize drawing, hover and press use one boundary layout with distinct
+  pickups. Resize preserves its original world anchor, grid snapping, captured
+  offset and undo behavior. An inward off-center grab cannot reverse its
+  pointer or produce a nonfinite direction when the pickup crosses the center.
 - Shift-modified movement keeps camera input while a camera gesture or held
   flight direction is active, preventing overlapping tool shortcuts from
   changing tools. Idle Navigation still accepts explicit tool-selection chords;
@@ -188,6 +196,18 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   Capture review found a hint clipped at a pane edge; it now fits fully or is
   omitted in a pane too narrow for the complete text. Both affected full suites
   passed again after that repair. No new dependencies or build tree were added.
+  GitHub Actions run 37229789086 passed all 15 jobs for the published commit.
+- Simpler 2D selection passed all five local editor suites: 227,640 assertions
+  in 900 cases. Focused selection/resize/face rendering passed 18,944 assertions
+  in 24 cases at normal and 2x scaling. Actual Mason thin-wall resize checks
+  cover one world-grid step, private preview, unchanged neighbors, Undo/Redo
+  and save/reopen; normal and 2x captures were inspected. An independent review
+  caught the captured-cap center case before build; a signed-axis direction
+  fixes it and its regression verifies the pointer stays visible. Initial
+  failures were outdated test probes/pickups/cursors; those fixtures now follow
+  real controls, with the complete affected Mason suite passing after repair.
+  The earlier displaced-control layout has been superseded at the user's
+  request. No dependencies or additional build tree were created.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
   Embedded TileEditor hosting and terrain sculpting are also unfinished; the

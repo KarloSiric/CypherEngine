@@ -391,7 +391,7 @@ void DisableNameTestAids( view_settings_t &settings )
 {
     for ( const char *path : { "editor.grid.show", "editor.grid.show_3d", "editor.grid.show_surface_3d",
         "editor.viewport.active_border", "editor.viewport.show_axes", "editor.viewport.show_rulers", "editor.viewport.show_metrics",
-        "editor.viewport.show_selection_bounds", "editor.viewport.show_selection_dimensions", "editor.viewport.show_selection_vertices",
+        "editor.viewport.show_selection_dimensions", "editor.viewport.show_selection_vertices",
         "editor.viewport.perspective.show_axes", "editor.viewport.perspective.show_metrics", "editor.viewport.perspective.show_selection_bounds",
         "editor.viewport.perspective.show_selection_dimensions", "editor.viewport.perspective.show_selection_vertices" } ) { settings.Set( path, false ); }
     settings.Choice( "editor.viewport.io_lines", "never" );
@@ -994,6 +994,8 @@ TEST_CASE( "Viewport drawing menu uses live settings and the registered grid com
     auto *grid = views->findChild<QAction *>( QStringLiteral( "EditorViewShowGrid" ) );
     REQUIRE( axes != nullptr );
     REQUIRE( dimensions != nullptr );
+    CHECK( views->findChild<QAction *>( QStringLiteral( "EditorViewSetting_editor.viewport.show_selection_bounds" ) ) == nullptr );
+    CHECK( views->findChild<QAction *>( QStringLiteral( "EditorViewSetting_editor.viewport.perspective.show_selection_bounds" ) ) != nullptr );
     REQUIRE( always != nullptr );
     REQUIRE( selected != nullptr );
     REQUIRE( grid != nullptr );
@@ -1047,7 +1049,7 @@ TEST_CASE( "Clean View applies only its viewport family after an explicit menu c
 {
     session_t session;
     view_settings_t settings( &session.gui.settings );
-    for ( const char *path : { "editor.viewport.show_rulers", "editor.viewport.show_selection_bounds", "editor.viewport.show_selection_vertices",
+    for ( const char *path : { "editor.viewport.show_rulers", "editor.viewport.show_selection_vertices",
         "editor.viewport.show_metrics", "editor.viewport.perspective.show_selection_bounds", "editor.viewport.perspective.show_selection_vertices",
         "editor.viewport.perspective.show_metrics" } ) { settings.Set( path, true ); }
     settings.Set( "editor.viewport.show_selection_dimensions", true );
@@ -1071,7 +1073,7 @@ TEST_CASE( "Clean View applies only its viewport family after an explicit menu c
     const auto position = MapCameraView_Position( camera );
     const f64 snap = session.workspace.gridSize;
     clean2D->trigger();
-    for ( const char *path : { "editor.viewport.show_rulers", "editor.viewport.show_selection_bounds", "editor.viewport.show_selection_vertices", "editor.viewport.show_metrics" } ) {
+    for ( const char *path : { "editor.viewport.show_rulers", "editor.viewport.show_selection_vertices", "editor.viewport.show_metrics" } ) {
         CHECK_FALSE( EditorSettings_Bool( &session.gui.settings, path, CY_TRUE ) );
     }
     CHECK( StringView_Equals( EditorSettings_Text( &session.gui.settings, "editor.viewport.entity_names", {} ), StringView_FromCString( "always" ) ) );
@@ -1770,7 +1772,7 @@ TEST_CASE( "Selection overlays can be disabled live in every projection", "[map]
         MapWorkspace_Select( &session.workspace, 1000u, MAP_SELECT_REPLACE );
         MapWorkspace_Frame( &session.workspace, CY_TRUE );
         ShowAt( view.get(), 800, 600 );
-        settings.Set( projection == 3 ? "editor.viewport.perspective.show_selection_bounds" : "editor.viewport.show_selection_bounds", false );
+        if ( projection == 3 ) { settings.Set( "editor.viewport.perspective.show_selection_bounds", false ); }
         settings.Set( projection == 3 ? "editor.viewport.perspective.show_selection_dimensions" : "editor.viewport.show_selection_dimensions", false );
         settings.Set( projection == 3 ? "editor.viewport.perspective.show_selection_vertices" : "editor.viewport.show_selection_vertices", false );
         const QImage plain = view->grab().toImage();
@@ -3238,7 +3240,7 @@ TEST_CASE( "Select group bounds sides and corners resize in every orthographic p
         for ( int handle = 0; handle < 3; ++handle ) {
             CAPTURE( projection, handle );
             session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
-            REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK ); settings.Set( "editor.viewport.show_selection_bounds", true );
+            REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
             settings.Choice( "editor.map.resize_mode", "Selection bounds" );
             map_bounds_t box{}; MapBounds_AddPoint( box, { -64, -48, 16 } ); MapBounds_AddPoint( box, { 96, 80, 144 } );
             std::vector<u64> ids;
@@ -3339,7 +3341,7 @@ TEST_CASE( "Select camera face handles resize each signed axis while its opposit
 TEST_CASE( "Select resize preserves the grab offset and supports snap bypass positive extent clamping and cancellation", "[map][gui][views][geometry-edit][select-resize][snap]" )
 {
     session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
-    REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK ); settings.Set( "editor.viewport.show_selection_bounds", true );
+    REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
     map_bounds_t box{}; MapBounds_AddPoint( box, { -64, -48, 16 } ); MapBounds_AddPoint( box, { 96, 80, 144 } );
     REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); const u64 id = EditorSelection_At( &ws.selection, 0 ); MapWorkspace_SetGridSize( &ws, 16 ); MapWorkspace_SetScaleSnap( &ws, 0.25 );
     std::unique_ptr<QWidget> top( MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) ); ShowAt( top.get(), 800, 600 );
@@ -3372,7 +3374,7 @@ TEST_CASE( "Select resize preserves the grab offset and supports snap bypass pos
     Click( top.get(), start ); CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( EditorSelection_At( &ws.selection, 0 ) == id );
 }
 
-TEST_CASE( "Flat mesh zero extent corners do not mask its valid side resize handle", "[map][gui][views][geometry-edit][select-resize][mesh]" )
+TEST_CASE( "Flat mesh zero extent corners do not mask its valid side resize handle", "[map][gui][views][geometry-edit][select-resize][mesh][selection-clarity]" )
 {
     namespace geo = geometry;
     session_t session; auto &ws = session.workspace; REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
@@ -4250,7 +4252,7 @@ TEST_CASE( "Compact world gizmos and grid 64 drag measurements capture", "[.gizm
     view_settings_t settings( &session.gui.settings );
     settings.Integer( "editor.grid.size", 64 ); settings.Set( "editor.grid.snap", true );
     settings.Set( "editor.viewport.perspective.show_selection_bounds", true ); settings.Set( "editor.viewport.perspective.show_selection_dimensions", true );
-    settings.Set( "editor.viewport.show_selection_bounds", true ); settings.Set( "editor.viewport.show_selection_dimensions", true );
+    settings.Set( "editor.viewport.show_selection_dimensions", true );
     settings.Set( "editor.grid.show_surface_3d", true );
     std::unique_ptr<QWidget> views( MapViews_Create( nullptr, &ws ) ); ShowAt( views.get(), 1500, 950 );
     MapViews_SetArrangement( views.get(), map_view_arrangement_t::HAMMER );
@@ -4764,7 +4766,7 @@ TEST_CASE( "A Top rotation shares exact cylinder edges and bounds with inactive 
     session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
     REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
     for ( const char *key : { "editor.viewport.active_border", "editor.viewport.show_axes", "editor.viewport.center_axes",
-        "editor.viewport.show_selection_bounds", "editor.viewport.show_selection_dimensions", "editor.viewport.show_selection_vertices",
+        "editor.viewport.show_selection_dimensions", "editor.viewport.show_selection_vertices",
         "editor.viewport.perspective.show_axes", "editor.viewport.perspective.center_axes", "editor.viewport.perspective.show_selection_bounds",
         "editor.viewport.perspective.show_selection_dimensions", "editor.viewport.perspective.show_selection_vertices" } ) { settings.Set( key, false ); }
     MapWorkspace_SetGridVisible( &ws, CY_FALSE );
@@ -6504,56 +6506,48 @@ void HoverMouse( QWidget *view, QPointF point )
 }
 }
 
-TEST_CASE( "Tiny selected geometry retains visible resize controls without moving its world anchor", "[map][gui][views][geometry-edit][select-resize][gizmos][render][tiny-handles]" )
+TEST_CASE( "Tiny camera geometry retains visible resize controls without moving its world anchor", "[map][gui][views][geometry-edit][select-resize][gizmos][render][tiny-handles]" )
 {
-    for ( int variant = 0; variant < 3; ++variant ) {
-        const bool perspective = variant != 0, offCenterPickup = variant == 2;
-        CAPTURE( perspective, offCenterPickup );
+    for ( const bool offCenterPickup : { false, true } ) {
+        CAPTURE( offCenterPickup );
         session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
         settings.Set( "editor.viewport.hover_highlight", false ); settings.Set( "editor.viewport.active_border", false );
         REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
         // Keep the comfortable empty-map overview. Framing the tiny selection
         // would conceal the problem by making its actual bounds fill the pane.
         MapWorkspace_Frame( &ws, CY_FALSE );
-        std::unique_ptr<QWidget> view( perspective ? MapCameraView_Create( nullptr, &ws ) :
-                                                  MapOrthoView_Create( nullptr, &ws, map_ortho_axes_t::TOP ) );
+        std::unique_ptr<QWidget> view( MapCameraView_Create( nullptr, &ws ) );
         ShowAt( view.get(), 800, 600 ); view->setAttribute( Qt::WA_UnderMouse, true );
         map_bounds_t box{}; MapBounds_AddPoint( box, { -8, -8, -8 } ); MapBounds_AddPoint( box, { 8, 8, 8 } );
         REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); MapWorkspace_SetGridSize( &ws, 64 );
         const u64 id = EditorSelection_At( &ws.selection, 0 );
         const auto project = [&]( math::vec3d_t world ) {
             QPointF point;
-            if ( perspective ) { REQUIRE( MapCameraView_WorldToView( view.get(), world, &point ) ); }
-            else { point = MapOrthoView_WorldToView( view.get(), { world.x, world.y } ); }
+            REQUIRE( MapCameraView_WorldToView( view.get(), world, &point ) );
             return point;
         };
         const QPointF center = project( {} ), actualSide = project( { 8, 0, 0 } );
         const f64 actualDistance = QLineF( center, actualSide ).length();
         REQUIRE( actualDistance > 0.0 ); REQUIRE( actualDistance < 14.0 );
-        const QPointF direction = perspective ? ( actualSide - center ) / actualDistance : QPointF( 1, 0 );
+        const QPointF direction = ( actualSide - center ) / actualDistance;
         f64 minimumRadius = 24.0;
-        if ( perspective ) {
+        {
             const f64 moveLength = CameraGizmoLength( view.get(), {}, session.gui.settings );
             for ( u32 axis = 0; axis < 3; ++axis ) {
                 math::vec3d_t end{}; SetTestCoordinate( end, axis, moveLength );
                 minimumRadius = std::max( minimumRadius, QLineF( center, project( end ) ).length() + 18.0 );
             }
-        } else { minimumRadius = 88.0; }
+        }
         const QPointF side = center + direction * minimumRadius;
         const QPointF press = side + ( offCenterPickup ? QPointF( -direction.y(), direction.x() ) * 5.0 : QPointF() );
         const QColor hover = gui::EditorStyle_TokenColor( session.gui.style, "viewport.hover" );
         std::vector<QPointF> controls;
-        if ( perspective ) {
+        {
             for ( u32 axis = 0; axis < 3; ++axis ) { for ( const f64 sign : { -1.0, 1.0 } ) {
                 math::vec3d_t anchor{}; SetTestCoordinate( anchor, axis, sign * 8 );
                 const QPointF offset = project( anchor ) - center; const f64 length = std::hypot( offset.x(), offset.y() );
                 REQUIRE( length > 0.0 ); REQUIRE( length < minimumRadius ); controls.push_back( center + offset * ( minimumRadius / length ) );
             } }
-        } else {
-            for ( const QPointF offset : { QPointF( -1, 0 ), QPointF( 1, 0 ), QPointF( 0, -1 ), QPointF( 0, 1 ),
-                                          QPointF( -1, -1 ), QPointF( 1, -1 ), QPointF( -1, 1 ), QPointF( 1, 1 ) } ) {
-                controls.push_back( center + offset * minimumRadius );
-            }
         }
         for ( const QPointF control : controls ) {
             CAPTURE( control.x(), control.y() );
@@ -6566,7 +6560,7 @@ TEST_CASE( "Tiny selected geometry retains visible resize controls without movin
         }
         const auto *document = ws.pDocument; const auto revision = document->geometry.revision, selectionRevision = ws.selection.revision;
         const usize steps = EditorHistory_StepCount( &ws.history ); const auto original = ObjectLineVertices( ws.wire, id );
-        const auto cameraPosition = perspective ? MapCameraView_Position( view.get() ) : math::vec3d_t{};
+        const auto cameraPosition = MapCameraView_Position( view.get() );
         // A visual leader does not turn its screen offset into a world delta.
         DragMouse( view.get(), QEvent::MouseButtonPress, press, Qt::ControlModifier );
         DragMouse( view.get(), QEvent::MouseMove, press, Qt::ControlModifier );
@@ -6576,7 +6570,7 @@ TEST_CASE( "Tiny selected geometry retains visible resize controls without movin
         CHECK( ws.selection.revision == selectionRevision ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
         // In Camera, the leader and off-center pickup offset accompany the
         // projection of the real boundary throughout the gesture.
-        const QPointF end = perspective ? project( { 72, 0, 0 } ) + ( press - actualSide ) : press + direction * 12.0;
+        const QPointF end = project( { 72, 0, 0 } ) + ( press - actualSide );
         REQUIRE( QLineF( press, end ).length() > 3.0 );
         DragMouse( view.get(), QEvent::MouseButtonPress, press, Qt::ControlModifier );
         DragMouse( view.get(), QEvent::MouseMove, end, Qt::ControlModifier );
@@ -6586,14 +6580,8 @@ TEST_CASE( "Tiny selected geometry retains visible resize controls without movin
         CheckPointClose( expected.box.minimum, box.box.minimum );
         CHECK( expected.box.maximum.x > box.box.maximum.x ); CHECK( expected.box.maximum.y == box.box.maximum.y ); CHECK( expected.box.maximum.z == box.box.maximum.z );
         CheckPointClose( ws.editPreview.transform.pivot, { -8, 0, 0 } );
-        if ( !perspective ) {
-            // Ctrl bypasses the deliberately coarse grid; twelve logical
-            // pixels correspond to exactly twelve/zoom world units in Top.
-            CHECK( std::abs( expected.box.maximum.x - ( 8.0 + 12.0 / MapOrthoView_Zoom( view.get() ) ) ) < 1e-6 );
-        } else {
-            CHECK( std::abs( expected.box.maximum.x - 72.0 ) < 1e-6 );
-            CheckPointClose( MapCameraView_Position( view.get() ), cameraPosition );
-        }
+        CHECK( std::abs( expected.box.maximum.x - 72.0 ) < 1e-6 );
+        CheckPointClose( MapCameraView_Position( view.get() ), cameraPosition );
         CHECK( document->geometry.revision == revision ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
         CheckObjectVertices( ws.wire, id, original );
         DragMouse( view.get(), QEvent::MouseButtonRelease, end, Qt::ControlModifier );
@@ -6608,7 +6596,7 @@ TEST_CASE( "Tiny selected geometry retains visible resize controls without movin
     }
 }
 
-TEST_CASE( "Orthographic move and bounds controls have separate visible pickups across zoom and gizmo scales", "[map][gui][views][geometry-edit][select-resize][gizmos][render][handle-priority][ortho-handle-separation]" )
+TEST_CASE( "Orthographic real boundary caps and move arrows have separate reversible pickups", "[map][gui][views][geometry-edit][select-resize][gizmos][render][handle-priority][ortho-handle-separation][selection-clarity]" )
 {
     for ( int projection = 0; projection < 3; ++projection ) { for ( const f64 scale : { 0.5, 1.0, 2.0 } ) { for ( const int wheelAngle : { -480, 480 } ) {
         const auto axes = static_cast<map_ortho_axes_t>( projection );
@@ -6625,34 +6613,35 @@ TEST_CASE( "Orthographic move and bounds controls have separate visible pickups 
         QWheelEvent wheel( wheelAt, view->mapToGlobal( wheelAt ), QPoint(), QPoint( 0, wheelAngle ), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false );
         QCoreApplication::sendEvent( view.get(), &wheel );
         CHECK( ( MapOrthoView_Zoom( view.get() ) > initialZoom ) == ( wheelAngle > 0 ) );
-        const f64 zoom = MapOrthoView_Zoom( view.get() ), movePixels = 64.0 * scale;
+        const f64 zoom = MapOrthoView_Zoom( view.get() );
         const QPointF center = MapOrthoView_WorldToView( view.get(), {} );
-        // Match the reported failure: a real boundary sits exactly at the
-        // move endpoint. Tiny bounds and wider bounds exercise both sides of
-        // the presentation spacing floor without changing world dimensions.
-        for ( const f64 halfPixels : { 8.0, movePixels, movePixels + 64.0 } ) {
+        // Every cap is on an authored side midpoint, including the smallest
+        // projection with room for distinct side and move pickups. The move
+        // arrow contracts instead of pushing resize controls into empty space.
+        for ( const f64 halfPixels : { 48.0, 72.0, 128.0 } ) {
             CAPTURE( halfPixels );
             map_bounds_t box{}; const f64 extent = halfPixels / zoom;
             MapBounds_AddPoint( box, { -extent, -extent, -extent } ); MapBounds_AddPoint( box, { extent, extent, extent } );
             REQUIRE( MapWorkspace_CreateBox( &ws, box ) );
             const u64 id = EditorSelection_At( &ws.selection, 0 );
             MapWorkspace_SetGridSize( &ws, 16 );
-            const f64 resizePixels = std::max( halfPixels, movePixels + 24.0 );
+            const f64 movePixels = std::max( 24.0, std::min( 64.0 * scale, halfPixels - 24.0 ) );
             const QColor axisU = gui::EditorStyle_TokenColor( session.gui.style, u == 0 ? "viewport.axis.x" : "viewport.axis.y" );
             const QColor axisV = gui::EditorStyle_TokenColor( session.gui.style, v == 1 ? "viewport.axis.y" : "viewport.axis.z" );
             const QColor hover = gui::EditorStyle_TokenColor( session.gui.style, "viewport.hover" );
+            const QColor selected = gui::EditorStyle_TokenColor( session.gui.style, "viewport.selection" );
             for ( int target = 0; target < 4; ++target ) {
                 const bool resize = target >= 2; const bool vertical = ( target & 1 ) != 0;
                 const u32 axis = vertical ? v : u;
                 const QPointF direction = vertical ? QPointF( 0, -1 ) : QPointF( 1, 0 );
-                const QPointF move = center + direction * movePixels, side = center + direction * resizePixels;
+                const QPointF move = center + direction * movePixels, side = center + direction * halfPixels;
                 const QPointF pointer = resize ? side : move;
                 const QColor axisColor = vertical ? axisV : axisU;
                 CAPTURE( target );
                 REQUIRE( QLineF( move, side ).length() >= 24.0 );
                 HoverMouse( view.get(), { 20, 20 } ); const QImage idle = view->grab().toImage();
                 CHECK( HandleColorPixelsNear( idle, move, axisColor, 3 ) > 0 );
-                CHECK( HandleColorPixelsNear( idle, side, axisColor, 5 ) > 0 );
+                CHECK( HandleColorPixelsNear( idle, side, selected, 5 ) > 0 );
                 HoverMouse( view.get(), pointer ); const QImage highlighted = view->grab().toImage();
                 CHECK( view->cursor().shape() == ( resize ? vertical ? Qt::SizeVerCursor : Qt::SizeHorCursor : Qt::SizeAllCursor ) );
                 CHECK( HandleColorPixelsNear( highlighted, pointer, hover, 5 ) > HandleColorPixelsNear( idle, pointer, hover, 5 ) );
@@ -6660,10 +6649,10 @@ TEST_CASE( "Orthographic move and bounds controls have separate visible pickups 
                 // An antialiased Y-axis pixel can resemble the green hover
                 // token. The other target's pixels must remain unchanged.
                 CHECK( ChangedPixelsNear( idle, highlighted, other, 5 ) == 0 );
-                CHECK( HandleColorPixelsNear( highlighted, other, axisColor, 5 ) > 0 );
+                CHECK( HandleColorPixelsNear( highlighted, other, resize ? axisColor : selected, 5 ) > 0 );
                 const auto *document = ws.pDocument; const auto revision = document->geometry.revision;
                 const usize steps = EditorHistory_StepCount( &ws.history ), applied = EditorHistory_AppliedStepCount( &ws.history );
-                // A stationary pickup must never commit its visual leader as travel.
+                // A stationary pickup must preserve the actual world boundary.
                 DragMouse( view.get(), QEvent::MouseButtonPress, pointer );
                 DragMouse( view.get(), QEvent::MouseButtonRelease, pointer );
                 CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.pDocument == document );
@@ -6691,7 +6680,7 @@ TEST_CASE( "Orthographic move and bounds controls have separate visible pickups 
                 CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.minimum, expected.box.minimum );
                 CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.maximum, expected.box.maximum );
                 REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
-                if ( projection == 0 && scale == 1.0 && halfPixels == movePixels ) {
+                if ( projection == 0 && scale == 1.0 && halfPixels == 48.0 ) {
                     const auto *beforeCancel = ws.pDocument; const auto cancelRevision = beforeCancel->geometry.revision;
                     const usize cancelSteps = EditorHistory_StepCount( &ws.history );
                     DragMouse( view.get(), QEvent::MouseButtonPress, pointer ); DragMouse( view.get(), QEvent::MouseMove, end );
@@ -8464,7 +8453,7 @@ TEST_CASE( "Four-object equal-distance resize workflow capture", "[.qol-individu
     view_settings_t settings( &session.gui.settings ); settings.Choice( "editor.map.resize_mode", "Each object" );
     settings.Integer( "editor.grid.size", 64 ); settings.Set( "editor.grid.snap", true );
     settings.Set( "editor.viewport.perspective.show_selection_bounds", true ); settings.Set( "editor.viewport.perspective.show_selection_dimensions", true );
-    settings.Set( "editor.viewport.show_selection_bounds", true ); settings.Set( "editor.viewport.show_selection_dimensions", true );
+    settings.Set( "editor.viewport.show_selection_dimensions", true );
     settings.Set( "editor.grid.show_surface_3d", true );
     u64 ids[4]{}; map_bounds_t boxes[4]{};
     for ( int i = 0; i < 4; ++i ) {
@@ -8576,6 +8565,220 @@ int LargestColorChangeNear( const QImage &before, const QImage &after, QPointF p
     } }
     return difference;
 }
+
+int NonBackgroundPixelsNear( const QImage &image, QPointF point, QColor background, int radius = 3 )
+{
+    const qreal ratio = image.devicePixelRatio();
+    const QRect region = QRect( qRound( ( point.x() - radius ) * ratio ), qRound( ( point.y() - radius ) * ratio ),
+                                qRound( ( radius * 2 + 1 ) * ratio ), qRound( ( radius * 2 + 1 ) * ratio ) ).intersected( image.rect() );
+    int count = 0;
+    for ( int y = region.top(); y <= region.bottom(); ++y ) { for ( int x = region.left(); x <= region.right(); ++x ) {
+        const QColor color = image.pixelColor( x, y );
+        if ( std::abs( color.red() - background.red() ) > 2 || std::abs( color.green() - background.green() ) > 2 ||
+             std::abs( color.blue() - background.blue() ) > 2 ) { ++count; }
+    } }
+    return count;
+}
+}
+
+TEST_CASE( "Thin orthographic walls keep yellow geometry and real long-axis resize caps", "[map][gui][views][geometry-edit][select-resize][render][selection-clarity][thin-wall-handles]" )
+{
+    for ( int pane = 0; pane < 3; ++pane ) {
+        CAPTURE( pane ); session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
+        REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK ); MapWorkspace_Frame( &ws, CY_FALSE );
+        DisableNameTestAids( settings ); settings.Set( "editor.viewport.hover_highlight", false );
+        UseClarityProbeTheme( session, "thin_wall_probe" );
+        const auto axes = static_cast<map_ortho_axes_t>( pane );
+        const u32 u = axes == map_ortho_axes_t::FRONT ? 1u : 0u, v = axes == map_ortho_axes_t::TOP ? 1u : 2u;
+        std::unique_ptr<QWidget> view( MapOrthoView_Create( nullptr, &ws, axes ) ); ShowAt( view.get(), 800, 600 );
+        view->setAttribute( Qt::WA_UnderMouse, true );
+        const f64 zoom = MapOrthoView_Zoom( view.get() );
+        map_bounds_t box{}; math::vec3d_t lo{ -64, -64, -64 }, hi{ 64, 64, 64 };
+        SetTestCoordinate( lo, u, -6.0 / zoom ); SetTestCoordinate( hi, u, 6.0 / zoom );
+        SetTestCoordinate( lo, v, -160.0 / zoom ); SetTestCoordinate( hi, v, 160.0 / zoom );
+        MapBounds_AddPoint( box, lo ); MapBounds_AddPoint( box, hi ); REQUIRE( MapWorkspace_CreateBox( &ws, box ) );
+        const u64 id = EditorSelection_At( &ws.selection, 0 ); const auto original = ObjectLineVertices( ws.wire, id );
+        const QPointF center = MapOrthoView_WorldToView( view.get(), {} );
+        const QColor selected = gui::EditorStyle_TokenColor( session.gui.style, "viewport.selection" );
+        const QColor hover = gui::EditorStyle_TokenColor( session.gui.style, "viewport.hover" );
+        HoverMouse( view.get(), { 20, 20 } ); const QImage idle = view->grab().toImage();
+        // The old presentation widened this twelve-pixel wall to an 88-pixel
+        // cage. Neither its displaced corners nor their dotted leaders exist.
+        for ( const f64 x : { -40.0, 40.0, -88.0, 88.0 } ) { for ( const f64 y : { -160.0, 160.0 } ) {
+            CHECK( NonBackgroundPixelsNear( idle, center + QPointF( x, y ), Qt::white ) == 0 );
+        } }
+        for ( const f64 x : { -6.0, 6.0 } ) {
+            CHECK( HandleColorPixelsNear( idle, center + QPointF( x, 80 ), selected, 2 ) > 0 );
+        }
+        for ( const int sign : { -1, 1 } ) {
+            const auto *document = ws.pDocument; const auto revision = document->geometry.revision;
+            const usize steps = EditorHistory_StepCount( &ws.history ), applied = EditorHistory_AppliedStepCount( &ws.history );
+            const QPointF cap = center + QPointF( 0, -sign * 160 );
+            CHECK( HandleColorPixelsNear( idle, cap, selected, 4 ) > 0 );
+            HoverMouse( view.get(), cap ); CHECK( view->cursor().shape() == Qt::SizeVerCursor );
+            CHECK( HandleColorPixelsNear( view->grab().toImage(), cap, hover, 4 ) > 0 );
+            const QPointF press = cap + QPointF( 5, 0 );
+            DragMouse( view.get(), QEvent::MouseButtonPress, press, Qt::ControlModifier );
+            DragMouse( view.get(), QEvent::MouseMove, press, Qt::ControlModifier );
+            CHECK_FALSE( ws.editPreview.bActive );
+            // Shrink below the idle eligibility threshold while keeping the
+            // active pickup attached to its real boundary and grab offset.
+            const QPointF end = press + QPointF( 0, sign * 280 );
+            DragMouse( view.get(), QEvent::MouseMove, end, Qt::ControlModifier );
+            REQUIRE( ws.editPreview.bActive ); REQUIRE( ws.editPreview.transform.bResize );
+            auto expected = box;
+            SetTestCoordinate( sign > 0 ? expected.box.maximum : expected.box.minimum, v, -sign * 120.0 / zoom );
+            CheckPointClose( ws.editPreview.bounds.box.minimum, expected.box.minimum );
+            CheckPointClose( ws.editPreview.bounds.box.maximum, expected.box.maximum );
+            CHECK( HandleColorPixelsNear( view->grab().toImage(), end, hover, 6 ) > 0 );
+            CHECK( view->cursor().shape() == Qt::SizeVerCursor ); CHECK( ws.pDocument == document );
+            CHECK( document->geometry.revision == revision ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+            CheckObjectVertices( ws.wire, id, original );
+            DragMouse( view.get(), QEvent::MouseButtonRelease, end, Qt::ControlModifier );
+            CHECK_FALSE( ws.editPreview.bActive ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied + 1u );
+            CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.minimum, expected.box.minimum );
+            CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.maximum, expected.box.maximum );
+            REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CheckObjectVertices( ws.wire, id, original );
+            REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
+            CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.maximum, expected.box.maximum );
+            REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+        }
+    }
+}
+
+TEST_CASE( "Captured orthographic resize pointer remains signed when its pickup reaches the bounds center", "[map][gui][views][geometry-edit][select-resize][render][selection-clarity][captured-cap-center]" )
+{
+    for ( int pane = 0; pane < 3; ++pane ) {
+        CAPTURE( pane ); session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
+        REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK ); MapWorkspace_Frame( &ws, CY_FALSE );
+        DisableNameTestAids( settings ); settings.Set( "editor.viewport.hover_highlight", false );
+        UseClarityProbeTheme( session, "captured_cap_center_probe" );
+        const auto axes = static_cast<map_ortho_axes_t>( pane );
+        const u32 u = axes == map_ortho_axes_t::FRONT ? 1u : 0u, v = axes == map_ortho_axes_t::TOP ? 1u : 2u;
+        std::unique_ptr<QWidget> view( MapOrthoView_Create( nullptr, &ws, axes ) ); ShowAt( view.get(), 800, 600 );
+        view->setAttribute( Qt::WA_UnderMouse, true );
+        const f64 zoom = MapOrthoView_Zoom( view.get() );
+        math::vec3d_t lo{ -64, -64, -64 }, hi{ 64, 64, 64 };
+        SetTestCoordinate( lo, u, -64.0 / zoom ); SetTestCoordinate( hi, u, 64.0 / zoom );
+        SetTestCoordinate( lo, v, -128.0 / zoom ); SetTestCoordinate( hi, v, 128.0 / zoom );
+        map_bounds_t box{}; MapBounds_AddPoint( box, lo ); MapBounds_AddPoint( box, hi );
+        REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); MapWorkspace_SetGridSize( &ws, 64 );
+        const u64 id = EditorSelection_At( &ws.selection, 0 ); const auto original = ObjectLineVertices( ws.wire, id );
+        const auto *document = ws.pDocument; const auto revision = document->geometry.revision;
+        const usize applied = EditorHistory_AppliedStepCount( &ws.history );
+        const QPointF center = MapOrthoView_WorldToView( view.get(), {} );
+        const QPointF press = center + QPointF( 56, 0 ), end = press - QPointF( 112, 0 );
+        DragMouse( view.get(), QEvent::MouseButtonPress, press, Qt::ControlModifier );
+        DragMouse( view.get(), QEvent::MouseMove, press, Qt::ControlModifier ); CHECK_FALSE( ws.editPreview.bActive );
+        DragMouse( view.get(), QEvent::MouseMove, end, Qt::ControlModifier );
+        REQUIRE( ws.editPreview.bActive ); REQUIRE( ws.editPreview.transform.bResize );
+        auto expected = box; SetTestCoordinate( expected.box.maximum, u, -48.0 / zoom );
+        CheckPointClose( ws.editPreview.bounds.box.minimum, expected.box.minimum );
+        CheckPointClose( ws.editPreview.bounds.box.maximum, expected.box.maximum );
+        const auto previewCenter = MapBounds_Center( ws.editPreview.bounds );
+        const QPointF projectedCenter = MapOrthoView_WorldToView( view.get(), { TestCoordinate( previewCenter, u ), TestCoordinate( previewCenter, v ) } );
+        REQUIRE( QLineF( projectedCenter, end ).length() < 1e-6 );
+        CHECK( view->cursor().shape() == Qt::SizeHorCursor );
+        const QColor hover = gui::EditorStyle_TokenColor( session.gui.style, "viewport.hover" );
+        const QImage captured = view->grab().toImage();
+        CHECK( HandleColorPixelsNear( captured, end, hover, 3 ) > 0 );
+        // The sphere alone can still draw with a NaN direction. Inspect its
+        // outward pointer beyond the sphere radius to catch that failure.
+        CHECK( HandleColorPixelsNear( captured, end + QPointF( 6, 0 ), hover, 1 ) > 0 );
+        CHECK( ws.pDocument == document ); CHECK( document->geometry.revision == revision );
+        CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied ); CheckObjectVertices( ws.wire, id, original );
+        DragMouse( view.get(), QEvent::MouseButtonRelease, end, Qt::ControlModifier );
+        CHECK_FALSE( ws.editPreview.bActive ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied + 1u );
+        CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.minimum, expected.box.minimum );
+        CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.maximum, expected.box.maximum );
+        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CheckObjectVertices( ws.wire, id, original );
+        REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
+        CheckPointClose( MapViews_SelectionGeometryBounds( &ws ).box.maximum, expected.box.maximum );
+    }
+}
+
+TEST_CASE( "Orthographic dimensions add yellow numbers without recoloring selected edges", "[map][gui][views][render][selection-clarity][yellow-dimensions]" )
+{
+    for ( int pane = 0; pane < 3; ++pane ) {
+        CAPTURE( pane ); session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
+        REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+        map_bounds_t box{}; MapBounds_AddPoint( box, { -128, -128, -128 } ); MapBounds_AddPoint( box, { 128, 128, 128 } );
+        REQUIRE( MapWorkspace_CreateBox( &ws, box ) ); DisableNameTestAids( settings );
+        UseClarityProbeTheme( session, "yellow_dimensions_probe" ); MapWorkspace_SetTool( &ws, map_tool_t::CAMERA );
+        std::unique_ptr<QWidget> view( MapOrthoView_Create( nullptr, &ws, static_cast<map_ortho_axes_t>( pane ) ) );
+        ShowAt( view.get(), 800, 600 ); MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents();
+        const QImage plain = view->grab().toImage();
+        const QColor selected = gui::EditorStyle_TokenColor( session.gui.style, "viewport.selection" );
+        settings.Set( "editor.viewport.show_selection_dimensions", true ); const QImage measured = view->grab().toImage();
+        REQUIRE( measured != plain );
+        for ( const f64 edge : { -128.0, 128.0 } ) { for ( const f64 along : { -64.0, 64.0 } ) {
+            for ( const QPointF world : { QPointF( along, edge ), QPointF( edge, along ) } ) {
+                const QPointF at = MapOrthoView_WorldToView( view.get(), world );
+                CHECK( HandleColorPixelsNear( measured, at, selected, 2 ) > 0 );
+                CHECK( ChangedPixelsNear( plain, measured, at, 2 ) == 0 );
+            }
+        } }
+        const QImage glyphs = SelectionDimensionPixels( view.get(), settings, false );
+        REQUIRE( PaintedPixelCount( glyphs ) > 30 ); int foreignInk = 0;
+        // The actual antialiased glyphs must be a blend of selection yellow
+        // and the white canvas. Axis-red/green/blue cannot satisfy this ray.
+        for ( int y = 0; y < glyphs.height(); ++y ) { for ( int x = 0; x < glyphs.width(); ++x ) {
+            if ( qAlpha( glyphs.pixel( x, y ) ) == 0 ) { continue; }
+            const QColor ink = glyphs.pixelColor( x, y );
+            const f64 alpha = ( 255.0 - ink.blue() ) / ( 255.0 - selected.blue() );
+            if ( std::abs( ink.red() - ( 255.0 + alpha * ( selected.red() - 255.0 ) ) ) > 3.0 ||
+                 std::abs( ink.green() - ( 255.0 + alpha * ( selected.green() - 255.0 ) ) ) > 3.0 ) { ++foreignInk; }
+        } }
+        CHECK( foreignInk == 0 ); CHECK( EditorHistory_StepCount( &ws.history ) == 1u );
+    }
+}
+
+TEST_CASE( "Orthographic wedge and separated selections have no fabricated bounds stroke", "[map][gui][views][render][selection-clarity][no-selection-envelope]" )
+{
+    for ( const bool separated : { false, true } ) {
+        CAPTURE( separated ); session_t session; auto &ws = session.workspace; view_settings_t settings( &session.gui.settings );
+        REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK ); DisableNameTestAids( settings );
+        UseClarityProbeTheme( session, "no_envelope_probe" );
+        if ( separated ) {
+            map_bounds_t left{}, right{};
+            MapBounds_AddPoint( left, { -192, -128, 0 } ); MapBounds_AddPoint( left, { -64, 128, 128 } );
+            MapBounds_AddPoint( right, { 64, -128, 0 } ); MapBounds_AddPoint( right, { 192, 128, 128 } );
+            REQUIRE( MapWorkspace_CreateBox( &ws, left ) ); const u64 a = EditorSelection_At( &ws.selection, 0 );
+            REQUIRE( MapWorkspace_CreateBox( &ws, right ) ); const u64 b = EditorSelection_At( &ws.selection, 0 );
+            const u64 ids[]{ a, b }; MapWorkspace_SetSelection( &ws, ids, 2 );
+        } else {
+            map_primitive_desc_t wedge{}; wedge.kind = map_primitive_kind_t::WEDGE;
+            wedge.bounds = { { -96, -64, 0 }, { 96, 64, 128 } };
+            REQUIRE( MapWorkspace_CreatePrimitive( &ws, wedge ) );
+        }
+        const auto axes = separated ? map_ortho_axes_t::TOP : map_ortho_axes_t::SIDE;
+        std::unique_ptr<QWidget> view( MapOrthoView_Create( nullptr, &ws, axes ) );
+        ShowAt( view.get(), 800, 600 ); MapWorkspace_Frame( &ws, CY_TRUE ); QCoreApplication::processEvents();
+        view->setAttribute( Qt::WA_UnderMouse, true ); HoverMouse( view.get(), { 20, 20 } );
+        // The aggregate +V side cap legitimately occupies the gap midpoint.
+        // Probe farther along that empty side, clear of the cap and pointer,
+        // so only an invented envelope stroke could paint this region.
+        const QPointF emptyWorld = separated ? QPointF( 32, 128 ) : QPointF( 64, 128 );
+        const QPointF empty = MapOrthoView_WorldToView( view.get(), emptyWorld );
+        CHECK( MapOrthoView_Pick( view.get(), empty ) == 0u );
+        const QImage idle = view->grab().toImage(); CHECK( NonBackgroundPixelsNear( idle, empty, Qt::white ) == 0 );
+        // A real Select body gesture must keep the same clear silhouette in
+        // its private transform preview rather than reinstating an AABB cage.
+        const QPointF body = MapOrthoView_WorldToView( view.get(), separated ? QPointF( -192, -40 ) : QPointF( -96, 24 ) );
+        REQUIRE( MapOrthoView_Pick( view.get(), body ) != 0u );
+        const QPointF travel( 30, 0 ); const auto *document = ws.pDocument;
+        const usize steps = EditorHistory_StepCount( &ws.history );
+        // Root body motion intentionally requires an unmodified initial
+        // press; Ctrl is only the captured movement snap bypass.
+        DragMouse( view.get(), QEvent::MouseButtonPress, body );
+        DragMouse( view.get(), QEvent::MouseMove, body + travel, Qt::ControlModifier );
+        REQUIRE( ws.editPreview.bActive ); REQUIRE( ws.editPreview.transform.kind == map_transform_preview_kind_t::TRANSLATE );
+        CHECK( NonBackgroundPixelsNear( view->grab().toImage(), empty + travel, Qt::white ) == 0 );
+        CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+        QKeyEvent escape( QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier ); QCoreApplication::sendEvent( view.get(), &escape );
+        DragMouse( view.get(), QEvent::MouseButtonRelease, body + travel );
+        CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.pDocument == document ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+    }
 }
 
 TEST_CASE( "Dimension glyphs use their own readable theme font without a dark outline", "[map][gui][views][render][selection-clarity][dimension-font]" )
@@ -8600,8 +8803,8 @@ TEST_CASE( "Dimension glyphs use their own readable theme font without a dark ou
         CHECK( BackdropProbePixels( small, small.rect() ) == 0 );
         UseClarityProbeTheme( session, "dimensions_large", 24, 9 );
         const QImage large = SelectionDimensionPixels( view.get(), settings, perspective );
-        // Both captures also recolor the same real measured side. Excluding
-        // their common ink isolates the glyph growth from that fixed edge.
+        // Excluding shared ink isolates glyph growth; perspective measurements
+        // also retain the fixed recolor of their real measured side.
         const int smallFontInk = ExclusivePaintedPixelCount( small, large ); REQUIRE( smallFontInk > 20 );
         CHECK( ExclusivePaintedPixelCount( large, small ) > smallFontInk * 2 );
         CHECK( BackdropProbePixels( large, large.rect() ) == 0 );

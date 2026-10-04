@@ -168,7 +168,6 @@ constexpr setting_descriptor_t kFramework[]{
     Flag( "editor.viewport.show_rulers", CY_TRUE, "Rulers", "Coordinate rulers along 2D panes.", kDisplay2D ),
     Flag( "editor.viewport.show_fps", CY_FALSE, "Frame time", "Frame time readout in the 3D pane.", kViewports ),
     Flag( "editor.viewport.show_metrics", CY_FALSE, "Viewport metrics", "Show pixel scale and object counts in the 2D panes.", kDisplay2D ),
-    Flag( "editor.viewport.show_selection_bounds", CY_TRUE, "Selection bounds", "Draw selection bounds in the 2D panes.", kDisplay2D ),
     Flag( "editor.viewport.show_selection_dimensions", CY_TRUE, "Selection dimensions", "Show selection dimensions in the 2D panes.", kDisplay2D ),
     Flag( "editor.viewport.show_selection_vertices", CY_FALSE, "Selection vertices", "Draw selected geometry vertices in the 2D panes.", kDisplay2D ),
     Choice( "editor.viewport.antialiasing", kAntialiasing, "4x", "Antialiasing", "Multisampling of the 3D view.", kViewports ),

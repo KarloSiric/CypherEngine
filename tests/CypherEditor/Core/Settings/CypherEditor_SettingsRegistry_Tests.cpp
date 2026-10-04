@@ -85,7 +85,7 @@ TEST_CASE( "The framework catalogue registers once with valid defaults", "[edito
     usize nFramework = 0u;
     const setting_descriptor_t *pFramework = EditorSettings_FrameworkCatalogue( &nFramework );
     CHECK( EditorSettings_Count( &r.registry ) == nFramework );
-    CHECK( nFramework == 101u ); // Includes opt-in geometry alignment and its screen-space distance.
+    CHECK( nFramework == 100u ); // Includes geometry alignment; the retired 2D bounds display is absent.
     CHECK( EditorSettings_Register( &r.registry, pFramework, 1u ) == settings_registry_status_t::DUPLICATE );
     // With no scopes everything is its default.
     CHECK( EditorSettings_Integer( &r.registry, "editor.grid.size", 0 ) == 16 );
@@ -95,6 +95,8 @@ TEST_CASE( "The framework catalogue registers once with valid defaults", "[edito
     CHECK( EditorSettings_Bool( &r.registry, "editor.grid.show", CY_FALSE ) );
     CHECK( EditorSettings_Bool( &r.registry, "editor.grid.show_surface_3d", CY_FALSE ) );
     CHECK( EditorSettings_Bool( &r.registry, "editor.viewport.perspective.show_axes", CY_FALSE ) );
+    CHECK( EditorSettings_Find( &r.registry, StringView_FromCString( "editor.viewport.show_selection_bounds" ) ) == nullptr );
+    CHECK( EditorSettings_Bool( &r.registry, "editor.viewport.perspective.show_selection_bounds", CY_FALSE ) );
     CHECK( EditorSettings_Bool( &r.registry, "editor.viewport.activate_on_hover", CY_FALSE ) );
     CHECK( std::string( EditorSettings_Text( &r.registry, "editor.ui.theme", {} ).pData, 8u ) == "charcoal" );
     CHECK( EditorSettings_Integer( &r.registry, "no.such.setting", 42 ) == 42 );

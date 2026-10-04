@@ -174,6 +174,8 @@ TEST_CASE( "Tool properties expose the key reference and execute selection opera
     REQUIRE( pTitle != nullptr );
     CHECK( pTitle->text() == QStringLiteral( "Selection Tool" ) );
     CHECK( pTitle->font().bold() );
+    CHECK( pTitle->toolTip().contains( QStringLiteral( "2D resize control on the real boundary" ) ) );
+    CHECK( pTitle->toolTip().contains( QStringLiteral( "Zoom in or use another pane" ) ) );
     auto *pKeys = panel->findChild<QTreeWidget *>( QStringLiteral( "MapToolKeys" ) );
     REQUIRE( pKeys != nullptr );
     CHECK( pKeys->headerItem()->text( 0 ) == QStringLiteral( "Key" ) );
@@ -200,15 +202,22 @@ TEST_CASE( "Tool properties expose the key reference and execute selection opera
     auto *pReference = panel->findChild<QWidget *>( QStringLiteral( "MapToolShortcuts" ) );
     REQUIRE( pReference != nullptr );
     CHECK( gui::EditorSection_IsExpanded( pReference ) );
-    // Turning a 2D aid off must not also remove it from the perspective view.
-    auto *bounds2d = Setting<QCheckBox>( *panel, "editor.viewport.show_selection_bounds" );
+    // The retired 2D border has no dead control. Perspective bounds retain
+    // their own toggle, independent of the remaining 2D drawing aids.
+    CHECK( panel->findChild<QWidget *>( QStringLiteral( "editor.viewport.show_selection_bounds" ) ) == nullptr );
+    CHECK_FALSE( MapToolProperties_Options( panel.get() ).contains( QStringLiteral( "editor.viewport.show_selection_bounds" ) ) );
+    auto *dimensions2d = Setting<QCheckBox>( *panel, "editor.viewport.show_selection_dimensions" );
     auto *bounds3d = Setting<QCheckBox>( *panel, "editor.viewport.perspective.show_selection_bounds" );
-    REQUIRE( bounds2d->isChecked() );
+    REQUIRE( dimensions2d->isChecked() );
     REQUIRE( bounds3d->isChecked() );
-    bounds2d->setChecked( false );
+    dimensions2d->setChecked( false );
     CHECK( bounds3d->isChecked() );
     CHECK( EditorSettings_Bool( &session.gui.settings, "editor.viewport.perspective.show_selection_bounds", CY_FALSE ) );
-    bounds2d->setChecked( true );
+    dimensions2d->setChecked( true );
+    bounds3d->setChecked( false );
+    CHECK_FALSE( EditorSettings_Bool( &session.gui.settings, "editor.viewport.perspective.show_selection_bounds", CY_TRUE ) );
+    CHECK( dimensions2d->isChecked() );
+    bounds3d->setChecked( true );
     auto *pHide = Operation( *panel, "map.hide.selected" );
     CHECK_FALSE( pHide->isEnabled() );
     CHECK( pHide->toolButtonStyle() == Qt::ToolButtonIconOnly );

@@ -37,7 +37,7 @@ Added - Mason map authoring
   Supported in 2D and 3D axis/world-plane handles. Free camera-plane movement,
   component edits and resizing retain prior behavior. This is coordinate
   alignment of bounds, not arbitrary surface contact.
-- Live block/transform dimensions, readable RGB labels, surface grids, separate
+- Live block/transform dimensions, readable RGB labels in 3D, surface grids, separate
   move/resize handles and world-unit grid snapping. Multi-object resizing can
   extend each root equally or scale the combined bounds.
 - Authored brush Push/Pull, brush-to-mesh conversion, mesh-face Extrude/Inset/
@@ -63,6 +63,14 @@ Added - Mason map authoring
   framing controls; Home frames the map from a geometric viewport.
 
 Changed
+- Simpler 2D selection: yellow authored outlines and dimension numbers. Removed
+  extra selection/construction/transform bounds rectangles, RGB edge repainting
+  and dotted leaders to displaced controls. Side resize caps stay at the actual
+  projected boundary; move arrows shorten for distinct pickups. Thin/distant
+  views omit indistinguishable controls until zooming/framing or switching panes.
+  Captured resizing stays active as geometry shrinks. Retired the 2D Bounds
+  setting/menu row; independent 3D bounds, RGB gizmos and dimensions retain prior
+  behavior.
 - Keybindings reserves more space for actions, shows Action/Bindings by default
   and groups profile operations in one menu. Advanced details retain identity,
   platform overrides, contexts and metadata. Settings opens larger when the
@@ -88,9 +96,10 @@ Fixed
   shaded 3D surface grids. Face highlights and the normal handle follow the
   candidate across panes. Invalid/stale candidates and release after a failed
   preview cannot publish; snapping, attributes and undo/redo are retained.
-- Separated 2D resize squares from move-arrow pickups by 24 logical pixels,
-  including small selections and configured gizmo sizes. Draw/hover/press use
-  one layout; world anchors, snapping, captured offsets and undo are retained.
+- 2D move/resize drawing, hover and press share a boundary layout with distinct
+  pickups and retained world anchors, grid snapping, captured offset and undo.
+  Inward off-center grabs cannot reverse the pointer or create a nonfinite
+  direction when the captured pickup crosses the candidate center.
 - Shift-modified movement retains camera input during a camera gesture or held
   flight direction, preventing overlapping tool selection. Idle Navigation
   still accepts explicit tool chords; effective remaps and speed/framing/document
@@ -148,6 +157,17 @@ Validation and remaining work
   Capture review found a pane-edge hint clipping issue; complete text now fits
   or is omitted when the pane is too narrow. Both affected full suites pass
   after repair. No new dependencies or additional build tree were added.
+  GitHub Actions run 37229789086 passed all 15 jobs for the published commit.
+- Simpler 2D selection: five local suites, 227640 assertions / 900 cases.
+  Focused selection/resize/face rendering passes 18944 / 24 at normal and 2x.
+  Actual Mason thin-wall resizing covers a world-grid step, private preview,
+  unchanged neighbors, undo/redo and save/reopen; captures inspected at both
+  scales. Independent review caught the captured-cap center case before build;
+  signed-axis direction fixes it and its regression checks visible pointer ink.
+  Initial failures were outdated test probes/pickups/cursors; corrected fixtures
+  follow real controls and the complete Mason suite passes after repair. The
+  displaced-control layout is superseded at the user's request. No dependencies
+  or additional build tree were created.
 - Component edit adapters, face UV edits, full Hammer shortcut parity and
   renderer/ECS/audio/physics/gameplay integration remain unfinished. Embedded
   TileEditor hosting and terrain sculpting are also unfinished; existing tile

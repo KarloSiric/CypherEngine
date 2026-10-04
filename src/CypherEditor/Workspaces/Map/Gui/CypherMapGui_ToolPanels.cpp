@@ -977,7 +977,7 @@ struct tool_panel_t {
 
 constexpr tool_panel_t kToolPanels[]{
     // SELECT
-    { "Click in any view to select; Ctrl/Command+click toggles and Shift+click adds. In Objects or Groups mode, drag a selected object or an RGB move handle to move the selection. Drag a 2D bounds side/corner or a 3D RGB bounds handle to resize with the opposite side fixed. With multiple objects, Each applies the same grid-distance change to every object; Group scales their combined bounds. Hold Shift when grabbing a resize handle to widen both sides around the center. The anchor is captured at press. Ctrl/Command bypasses snapping. A dashed red source outline and travel guide mark the starting position during movement. Dimensions update in every view. Double-click an object to inspect it, or empty space for view options.",
+    { "Click in any view to select; Ctrl/Command+click toggles and Shift+click adds. In Objects or Groups mode, drag a selected object or an RGB move handle to move the selection. Drag a 2D resize control on the real boundary or a 3D RGB bounds handle to resize with the opposite side fixed. Zoom in or use another pane if handles are too close to distinguish. With multiple objects, Each applies the same grid-distance change to every object; Group scales their combined bounds. Hold Shift when grabbing a resize handle to widen both sides around the center. The anchor is captured at press. Ctrl/Command bypasses snapping. A dashed red source outline and travel guide mark the starting position during movement. Dimensions update in every view. Double-click an object to inspect it, or empty space for view options.",
       { { keymap_section_t::MOUSE, "map.viewport" }, { keymap_section_t::BINDINGS, "map.viewport" }, { keymap_section_t::MOUSE, "map.viewport.2d" } },
       { { "Vertex Editing", {}, { "map.mesh.merge", "map.mesh.collapse", "map.mesh.bevel", "map.mesh.dissolve", "map.mesh.fill_hole", "map.select.grow", "map.select.shrink", "map.pivot.clear" },
           kVertexMode, true, "MapToolModeVertices", "Pick mesh vertices. Convert brushes to meshes first. Vertex transforms and topology edits are planned." },
@@ -994,7 +994,7 @@ constexpr tool_panel_t kToolPanels[]{
         { "Selection", { "editor.map.select_created" }, { "edit.select_all", "edit.invert_selection", "map.select.same_class", "map.select.same_material", "map.select.touching" }, kRootModes },
         { "Movement snapping", { "editor.grid.size", "editor.grid.snap", "editor.grid.geometry_snap", "editor.grid.geometry_snap_pixels" }, {}, kRootModes },
         { "Bounds resizing", { "editor.map.resize_mode", "editor.map.resize_from_center" }, {}, kRootModes },
-        { "2D display", { "editor.viewport.show_selection_bounds", "editor.viewport.show_selection_dimensions", "editor.viewport.show_selection_vertices", "editor.viewport.entity_names" },
+        { "2D display", { "editor.viewport.show_selection_dimensions", "editor.viewport.show_selection_vertices", "editor.viewport.entity_names" },
           { "map.view.center_selection_2d" } },
         { "3D display", { "editor.viewport.perspective.show_selection_bounds", "editor.viewport.perspective.show_selection_dimensions", "editor.viewport.perspective.show_selection_vertices", "editor.viewport.perspective.entity_names" },
           { "map.view.center_selection_3d" } },
