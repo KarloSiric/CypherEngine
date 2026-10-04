@@ -116,6 +116,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   its startup layout, instead of leaving the first editing key in a toolbar
   field. A restored maximized pane receives focus as well. Explicit Fast Asset
   Search still opens matching results; later window shows retain chosen focus.
+- Wheel travel during a captured camera orbit changes the radius around the
+  same pivot and keeps orbit active. Continuing or releasing the mouse retains
+  the new radius, including off-center selections. Sensitivity, inversion,
+  speed modifiers and effective keymap routing remain authoritative; inward
+  travel stops before the pivot crosses the near plane. Cursor-directed idle
+  travel remains separate from radial orbit movement.
 - Camera wheel input preserves captured look and held flight keys. Captured
   look has remappable wheel speed actions; idle wheel retains dolly. Wheel
   direction follows the profile, fractional trackpad input changes speed
@@ -232,6 +238,17 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   was rebuilt once at the tested checkpoint using the existing compact tree,
   without compiler warnings/errors or new dependencies. Startup overview,
   deferred fitting, other panes and authored state are covered.
+- GitHub Actions run 37239274379 passed all 15 jobs for the exact published
+  camera-framing commit, independently verifying its subset of the shared tree.
+- Captured orbit wheel and adjacent look/navigation/framing checks passed
+  4,690 assertions in 18 cases at normal and 2x scaling. Complete affected
+  local Map GUI/Mason suites passed 85,420 assertions in 567 cases, including
+  another collaborator's unpublished adapter/component-conversion work.
+  Only orbit source, its test-target entry and six new contracts are published
+  by this increment. Mason was rebuilt once at the checkpoint in the existing
+  tree without compiler warnings/errors or additional dependencies. The first
+  focused run found a remapped-wheel acceptance assumption in one fixture;
+  that assertion now distinguishes ignored input from consumed reservations.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
   Embedded TileEditor hosting and terrain sculpting are also unfinished; the

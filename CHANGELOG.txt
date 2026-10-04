@@ -93,6 +93,11 @@ Fixed
   restoration, including a restored maximized pane. The first editing key no
   longer starts in a toolbar field. Explicit Fast Asset Search retains matching
   results, and later window shows retain chosen focus.
+- Wheel travel during captured orbit changes radius about the same pivot and
+  retains capture/new radius through continued motion or release, including
+  off-center selections. Sensitivity, inversion, speed modifiers and effective
+  keymaps still apply; inward travel stops before the pivot crosses the near
+  plane. Idle cursor-directed travel remains separate from radial orbit.
 - Camera wheel input preserves captured look and held flight keys, with
   remappable look-context wheel speed actions and idle dolly. Fractional and
   multiple-notch events publish one atomic clamped setting; direction follows
@@ -189,6 +194,16 @@ Validation and remaining work
   the tested checkpoint in the compact tree, with no compiler warnings/errors
   or new dependencies. Startup overview, deferred fitting, other panes and
   authored state are covered.
+- GitHub Actions run 37239274379 passed all 15 jobs for the exact published
+  camera-framing commit, independently verifying its shared-tree subset.
+- Captured orbit wheel plus look/navigation/framing checks: 4690 assertions /
+  18 cases at normal and 2x scaling. Complete affected local Map GUI/Mason:
+  85420 / 567, including another collaborator's unpublished adapters/component
+  conversion. This increment publishes only orbit source, its test-target entry
+  and six new contracts. Mason rebuilt once in the existing tree, with no
+  compiler warnings/errors or added dependencies. The first focused failure
+  was a remapped-wheel acceptance fixture; ignored input and consumed
+  reservations now have distinct assertions.
 - Component edit adapters, face UV edits, full Hammer shortcut parity and
   renderer/ECS/audio/physics/gameplay integration remain unfinished. Embedded
   TileEditor hosting and terrain sculpting are also unfinished; existing tile

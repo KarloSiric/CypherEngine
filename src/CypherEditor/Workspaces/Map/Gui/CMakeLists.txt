@@ -50,6 +50,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Gui/CypherEditorGui_TestMain.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_Workspace_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_Views_Tests.cpp"
+        "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_OrbitWheel_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_ViewContent_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_ToolPanels_Tests.cpp"
         "${CYPHERENGINE_ROOT_DIR}/tests/CypherEditor/Workspaces/Map/Gui/CypherMapGui_Outliner_Tests.cpp"

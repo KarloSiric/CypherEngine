@@ -3880,6 +3880,7 @@ protected:
              ( AdjustBlockDepth( m_drag, *m_pWorkspace, *pEvent ) ||
                ( m_drag.kind == edit_drag_t::NONE && AdjustStagedBlockDepth( *m_pWorkspace, *pEvent ) ) ) ) { update(); pEvent->accept(); return; }
         const bool lookCaptured = m_cameraDrag.kind == map_camera_gesture_t::LOOK;
+        const bool orbitCaptured = m_cameraDrag.kind == map_camera_gesture_t::ORBIT;
         const auto action = MapInput_CameraWheelAction( m_pWorkspace, pEvent, lookCaptured );
         if ( action == map_camera_wheel_action_t::NONE ) { pEvent->ignore(); return; }
         const f64 steps = pEvent->angleDelta().y() != 0 ? pEvent->angleDelta().y() / 120.0 : pEvent->pixelDelta().y() / 40.0;
@@ -3896,11 +3897,32 @@ protected:
             pEvent->accept(); return;
         }
         CancelDrag( m_drag, *m_pWorkspace );
-        if ( !lookCaptured ) { StopCameraDrag(); }
+        if ( !lookCaptured && !orbitCaptured ) { StopCameraDrag(); }
         if ( m_bFramePending ) { ApplyFrame(); }
         Basis();
         f64 units = steps * kCameraWheelStep * Setting( "editor.camera.zoom_sensitivity", 1.0 ) * SpeedFactor( pEvent->modifiers() );
         if ( DisplayFlag( *m_pWorkspace, "editor.camera.invert_wheel", CY_FALSE ) ) { units = -units; }
+        if ( orbitCaptured ) {
+            const auto offset = Sub( m_position, m_cameraDrag.pivot );
+            const f64 radius = std::sqrt( Dot( offset, offset ) );
+            const f64 depth = -Dot( offset, m_forward );
+            if ( std::isfinite( units ) && std::isfinite( radius ) && radius > 0.0 && std::isfinite( depth ) && depth > 0.0 ) {
+                // Keep the pivot at its captured screen location while changing
+                // radius. Forward depth, rather than radius alone, limits an
+                // off-center pivot to the same near guard as drag dolly.
+                const f64 factor = std::max( kCameraNear * 2.0 / depth, 1.0 - units / radius );
+                if ( std::isfinite( factor ) && factor > 0.0 ) {
+                    m_position = Add( m_cameraDrag.pivot, Scale( offset, factor ) );
+                    // Orbit recomputes from the press frame on every mouse
+                    // event. Scale that baseline too, so continued motion and
+                    // release cannot restore the old radius.
+                    m_cameraDrag.position = Add( m_cameraDrag.pivot, Scale( Sub( m_cameraDrag.position, m_cameraDrag.pivot ), factor ) );
+                    m_cameraDrag.depth *= factor;
+                    m_cameraDrag.unitsPerPixel *= factor;
+                }
+            }
+            update(); pEvent->accept(); return;
+        }
         const math::vec3d_t direction = DisplayFlag( *m_pWorkspace, "editor.camera.zoom_to_cursor" )
             ? ScreenDirection( pEvent->position() ) : m_forward;
         m_position = Add( m_position, Scale( direction, units ) );
