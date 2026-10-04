@@ -4595,10 +4595,8 @@ private:
     {
         if ( width() <= 1 || height() <= 1 || !m_frameBounds.bHas ) { return; }
         const math::vec3d_t center = MapBounds_Center( m_frameBounds );
-        // Equal-axis overview: horizontal floors and vertical walls remain
-        // readable, rather than starting at floor level looking edge-on.
-        m_yaw = 45.0;
-        m_pitch = -35.264389682754654;
+        // Fit along the user's viewing direction so framing keeps the angle
+        // chosen while inspecting or editing the geometry.
         Basis();
         math::vec3d_t corners[8];
         BoundsCorners( m_frameBounds, corners );
@@ -5569,7 +5567,7 @@ private:
     f64 m_gizmoScale{ 1.0 }; // Last effective scale, including inherited scope values.
     f64 m_moveSpeed{ 1000.0 }; // Last effective setting; scope replacement may inherit another value.
     f64 m_yaw{ 45.0 };   // Degrees; 0 looks along +x.
-    f64 m_pitch{ -30.0 };
+    f64 m_pitch{ -35.264389682754654 }; // Initial equal-axis overview; later frames keep the chosen angle.
     QTimer m_timer{};
     QTimer m_speedFeedbackTimer{}; // Brief feedback remains visible with viewport metrics hidden.
     QElapsedTimer m_clock{};

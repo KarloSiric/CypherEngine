@@ -196,6 +196,46 @@ void FacePositiveX( QWidget *camera )
     CHECK( std::abs( MapCameraView_Forward( camera ).z ) < 1e-10 );
 }
 
+// These framing tests use sensitivity 1 and an uninverted Y axis. Acquire
+// the direction through the same captured RMB gesture as an editor user.
+void LookCameraAtAngles( QWidget *camera, f64 yaw, f64 pitch )
+{
+    constexpr f64 radiansToDegrees = 180.0 / 3.14159265358979323846;
+    const auto forward = MapCameraView_Forward( camera );
+    const QPointF start( camera->width() * 0.5, camera->height() * 0.5 );
+    const QPointF end = start + QPointF( std::atan2( forward.y, forward.x ) * radiansToDegrees - yaw,
+                                         std::asin( forward.z ) * radiansToDegrees - pitch );
+    DragButton( camera, QEvent::MouseButtonPress, start, Qt::RightButton );
+    DragButton( camera, QEvent::MouseMove, end, Qt::RightButton );
+    DragButton( camera, QEvent::MouseButtonRelease, end, Qt::RightButton );
+    const f64 yawRadians = yaw / radiansToDegrees, pitchRadians = pitch / radiansToDegrees;
+    CheckPointClose( MapCameraView_Forward( camera ),
+        { std::cos( pitchRadians ) * std::cos( yawRadians ), std::cos( pitchRadians ) * std::sin( yawRadians ), std::sin( pitchRadians ) } );
+}
+
+// Observe projection results rather than reproducing the camera's fitting
+// distance calculation. Every corner must remain in front and inside the pane.
+void CheckCameraBoundsFit( QWidget *camera, const map_bounds_t &bounds )
+{
+    REQUIRE( bounds.bHas );
+    const auto position = MapCameraView_Position( camera );
+    CHECK( std::isfinite( position.x ) ); CHECK( std::isfinite( position.y ) ); CHECK( std::isfinite( position.z ) );
+    QPointF screen;
+    REQUIRE( MapCameraView_WorldToView( camera, MapBounds_Center( bounds ), &screen ) );
+    CHECK( QLineF( screen, QPointF( camera->width() * 0.5, camera->height() * 0.5 ) ).length() < 1e-6 );
+    const auto &box = bounds.box;
+    for ( u32 i = 0u; i < 8u; ++i ) {
+        CAPTURE( i );
+        const math::vec3d_t corner{ ( i & 1u ) ? box.maximum.x : box.minimum.x,
+                                    ( i & 2u ) ? box.maximum.y : box.minimum.y,
+                                    ( i & 4u ) ? box.maximum.z : box.minimum.z };
+        REQUIRE( MapCameraView_WorldToView( camera, corner, &screen ) );
+        CHECK( std::isfinite( screen.x() ) ); CHECK( std::isfinite( screen.y() ) );
+        CHECK( screen.x() >= camera->width() * 0.04 ); CHECK( screen.x() <= camera->width() * 0.96 );
+        CHECK( screen.y() >= camera->height() * 0.04 ); CHECK( screen.y() <= camera->height() * 0.96 );
+    }
+}
+
 int ChangedPixelsNear( const QImage &before, const QImage &after, QPointF logicalPoint, int logicalRadius = 3 )
 {
     REQUIRE( before.size() == after.size() );
@@ -1718,6 +1758,8 @@ TEST_CASE( "Camera framing fits actual pane aspect and all bounds corners", "[ma
             const math::vec3d_t center = MapBounds_Center( session.workspace.frameBounds );
             CHECK( MapCameraView_Position( view.get() ).z > center.z );
             CHECK( MapCameraView_Forward( view.get() ).z < -0.5 );
+            const f64 initialAxis = 1.0 / std::sqrt( 3.0 );
+            CheckPointClose( MapCameraView_Forward( view.get() ), { initialAxis, initialAxis, -initialAxis } );
             QPointF screen;
             REQUIRE( MapCameraView_WorldToView( view.get(), center, &screen ) );
             CHECK( std::abs( screen.x() - size.width() * 0.5 ) < 1e-6 );
@@ -1740,6 +1782,124 @@ TEST_CASE( "Camera framing fits actual pane aspect and all bounds corners", "[ma
             CHECK( MapCameraView_Position( view.get() ).x == moved.x );
             CHECK( MapCameraView_Position( view.get() ).z == moved.z );
         }
+    }
+}
+
+TEST_CASE( "Selection and map frames fit the bounds along the direction acquired by mouse look", "[map][gui][views][camera][camera-frame-direction]" )
+{
+    session_t session; auto &ws = session.workspace;
+    REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+    map_bounds_t selectedBounds{}, otherBounds{};
+    MapBounds_AddPoint( selectedBounds, { 300, -700, 140 } ); MapBounds_AddPoint( selectedBounds, { 1500, 100, 172 } );
+    MapBounds_AddPoint( otherBounds, { -400, 700, -900 } ); MapBounds_AddPoint( otherBounds, { -336, 764, 1500 } );
+    REQUIRE( MapWorkspace_CreateBox( &ws, selectedBounds ) ); const u64 selected = EditorSelection_At( &ws.selection, 0 );
+    REQUIRE( MapWorkspace_CreateBox( &ws, otherBounds ) ); const u64 other = EditorSelection_At( &ws.selection, 0 );
+    MapWorkspace_Select( &ws, selected, MAP_SELECT_REPLACE );
+    map_bounds_t mapBounds = selectedBounds; MapBounds_AddBounds( mapBounds, otherBounds );
+    const auto selectedVertices = ObjectLineVertices( ws.wire, selected ), otherVertices = ObjectLineVertices( ws.wire, other );
+    const auto *document = ws.pDocument;
+    const auto revision = document->geometry.revision, nextId = document->nextId, selectionRevision = ws.selection.revision;
+    const usize steps = EditorHistory_StepCount( &ws.history ), applied = EditorHistory_AppliedStepCount( &ws.history );
+    const auto historyToken = UndoRedo_StateToken( ws.history.pUndo ); const bool modified = MapWorkspace_IsModified( &ws );
+    view_settings_t settings( &session.gui.settings );
+    settings.Real( "editor.camera.look_sensitivity", 1.0 ); settings.Set( "editor.camera.invert_y", false );
+    settings.Real( "editor.camera.frame_margin", 1.2 );
+    // Both FOV limits cross the narrow/wide aspect cases. Near-vertical
+    // directions exercise fitting without returning to the startup overview.
+    const struct { QSize size; f64 fov, yaw, pitch; } cases[]{
+        { QSize( 240, 800 ), 25, 0, 0 }, { QSize( 240, 800 ), 110, 137, -31 },
+        { QSize( 1200, 240 ), 25, -130, 88 }, { QSize( 1200, 240 ), 110, 75, -88 },
+        { QSize( 640, 480 ), 75, 180, 0 }, { QSize( 640, 480 ), 75, -45, 30 }
+    };
+    for ( const auto &item : cases ) {
+        CAPTURE( item.size.width(), item.size.height(), item.fov, item.yaw, item.pitch );
+        settings.Real( "editor.camera.fov", item.fov );
+        std::unique_ptr<QWidget> camera( MapCameraView_Create( nullptr, &ws ) );
+        ShowAt( camera.get(), item.size.width(), item.size.height() );
+        LookCameraAtAngles( camera.get(), item.yaw, item.pitch );
+        const auto facing = MapCameraView_Forward( camera.get() );
+        for ( const bool selectionOnly : { true, false } ) {
+            CAPTURE( selectionOnly );
+            const auto &expected = selectionOnly ? selectedBounds : mapBounds;
+            MapWorkspace_Frame( &ws, selectionOnly, map_frame_target_t::PERSPECTIVE ); QCoreApplication::processEvents();
+            CheckPointClose( MapCameraView_Forward( camera.get() ), facing );
+            CheckPointClose( ws.frameBounds.box.minimum, expected.box.minimum ); CheckPointClose( ws.frameBounds.box.maximum, expected.box.maximum );
+            CheckCameraBoundsFit( camera.get(), expected );
+            const auto framedPosition = MapCameraView_Position( camera.get() );
+            MapWorkspace_Frame( &ws, selectionOnly, map_frame_target_t::PERSPECTIVE ); QCoreApplication::processEvents();
+            CheckPointClose( MapCameraView_Forward( camera.get() ), facing );
+            CheckPointClose( MapCameraView_Position( camera.get() ), framedPosition );
+            CheckCameraBoundsFit( camera.get(), expected );
+        }
+        CHECK( ws.pDocument == document ); CHECK( ws.pDocument->geometry.revision == revision ); CHECK( ws.pDocument->nextId == nextId );
+        CHECK( ws.selection.revision == selectionRevision ); CHECK( EditorSelection_Count( &ws.selection ) == 1u ); CHECK( EditorSelection_At( &ws.selection, 0 ) == selected );
+        CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied );
+        CHECK( UndoRedo_StateTokenEquals( historyToken, UndoRedo_StateToken( ws.history.pUndo ) ) ); CHECK( MapWorkspace_IsModified( &ws ) == modified );
+        CheckObjectVertices( ws.wire, selected, selectedVertices ); CheckObjectVertices( ws.wire, other, otherVertices );
+        CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.tool == map_tool_t::SELECT ); CHECK( ws.elementMode == map_element_mode_t::OBJECTS );
+    }
+}
+
+TEST_CASE( "A hidden camera pane applies its pending frame without resetting mouse-look direction or other panes", "[map][gui][views][camera][camera-frame-direction][pending-frame]" )
+{
+    for ( const bool paneFrame : { true, false } ) {
+        CAPTURE( paneFrame );
+        session_t session; auto &ws = session.workspace;
+        REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK );
+        map_bounds_t selectedBounds{}, otherBounds{};
+        MapBounds_AddPoint( selectedBounds, { 300, -700, 140 } ); MapBounds_AddPoint( selectedBounds, { 1500, 100, 172 } );
+        MapBounds_AddPoint( otherBounds, { -400, 700, -900 } ); MapBounds_AddPoint( otherBounds, { -336, 764, 1500 } );
+        REQUIRE( MapWorkspace_CreateBox( &ws, selectedBounds ) ); const u64 selected = EditorSelection_At( &ws.selection, 0 );
+        REQUIRE( MapWorkspace_CreateBox( &ws, otherBounds ) ); const u64 other = EditorSelection_At( &ws.selection, 0 );
+        MapWorkspace_Select( &ws, selected, MAP_SELECT_REPLACE );
+        map_bounds_t expected = selectedBounds; if ( !paneFrame ) { MapBounds_AddBounds( expected, otherBounds ); }
+        const auto selectedVertices = ObjectLineVertices( ws.wire, selected ), otherVertices = ObjectLineVertices( ws.wire, other );
+        view_settings_t settings( &session.gui.settings );
+        settings.Real( "editor.camera.look_sensitivity", 1.0 ); settings.Set( "editor.camera.invert_y", false );
+        settings.Real( "editor.camera.frame_margin", 1.2 ); settings.Real( "editor.camera.fov", paneFrame ? 25.0 : 110.0 );
+        std::unique_ptr<QWidget> views( MapViews_Create( nullptr, &ws ) ); ShowAt( views.get(), 1400, 550 );
+        QWidget *camera = MapViews_PaneView( views.get(), 0 ); REQUIRE( camera != nullptr );
+        LookCameraAtAngles( camera, paneFrame ? -110.0 : 63.0, paneFrame ? 88.0 : -50.0 );
+        const auto facing = MapCameraView_Forward( camera ), position = MapCameraView_Position( camera );
+        const auto *document = ws.pDocument;
+        const auto revision = document->geometry.revision, selectionRevision = ws.selection.revision;
+        const usize steps = EditorHistory_StepCount( &ws.history ), applied = EditorHistory_AppliedStepCount( &ws.history );
+        const auto historyToken = UndoRedo_StateToken( ws.history.pUndo ); const bool modified = MapWorkspace_IsModified( &ws );
+        QPointF otherCenters[3]; f64 otherZooms[3]{};
+        for ( int i = 1; i < MAP_VIEW_PANE_COUNT; ++i ) {
+            QWidget *ortho = MapViews_PaneView( views.get(), i );
+            Wheel( ortho );
+            otherCenters[i - 1] = MapOrthoView_ViewToWorld( ortho, { ortho->width() * 0.5, ortho->height() * 0.5 } );
+            otherZooms[i - 1] = MapOrthoView_Zoom( ortho );
+        }
+        MapViews_SetPaneVisible( views.get(), 0, false ); QCoreApplication::processEvents(); REQUIRE_FALSE( camera->isVisible() );
+        const auto requestFrame = [&]() {
+            if ( paneFrame ) { MapViews_FramePane( views.get(), 0 ); }
+            else { MapWorkspace_Frame( &ws, CY_FALSE, map_frame_target_t::PERSPECTIVE ); }
+            QCoreApplication::processEvents();
+        };
+        requestFrame();
+        // Getters do not project or paint, so this checks actual deferral.
+        CheckPointClose( MapCameraView_Position( camera ), position ); CheckPointClose( MapCameraView_Forward( camera ), facing );
+        views->resize( 600, 1100 ); QCoreApplication::processEvents();
+        MapViews_SetPaneVisible( views.get(), 0, true ); QCoreApplication::processEvents(); REQUIRE( camera->isVisible() );
+        CHECK( TestDistance( MapCameraView_Position( camera ), position ) > 1.0 );
+        CheckPointClose( MapCameraView_Forward( camera ), facing ); CheckCameraBoundsFit( camera, expected );
+        const auto framedPosition = MapCameraView_Position( camera );
+        requestFrame();
+        CheckPointClose( MapCameraView_Forward( camera ), facing ); CheckPointClose( MapCameraView_Position( camera ), framedPosition );
+        CheckCameraBoundsFit( camera, expected );
+        for ( int i = 1; i < MAP_VIEW_PANE_COUNT; ++i ) {
+            QWidget *ortho = MapViews_PaneView( views.get(), i );
+            const QPointF center = MapOrthoView_ViewToWorld( ortho, { ortho->width() * 0.5, ortho->height() * 0.5 } );
+            CHECK( QLineF( center, otherCenters[i - 1] ).length() < 1e-6 ); CHECK( MapOrthoView_Zoom( ortho ) == otherZooms[i - 1] );
+        }
+        CHECK( ws.pDocument == document ); CHECK( ws.pDocument->geometry.revision == revision );
+        CHECK( ws.selection.revision == selectionRevision ); CHECK( EditorSelection_Count( &ws.selection ) == 1u ); CHECK( EditorSelection_At( &ws.selection, 0 ) == selected );
+        CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied );
+        CHECK( UndoRedo_StateTokenEquals( historyToken, UndoRedo_StateToken( ws.history.pUndo ) ) ); CHECK( MapWorkspace_IsModified( &ws ) == modified );
+        CheckObjectVertices( ws.wire, selected, selectedVertices ); CheckObjectVertices( ws.wire, other, otherVertices );
+        CHECK_FALSE( ws.editPreview.bActive ); CHECK( ws.tool == map_tool_t::SELECT ); CHECK( ws.elementMode == map_element_mode_t::OBJECTS );
     }
 }
 

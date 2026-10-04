@@ -21,7 +21,7 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
-## [Unreleased] - 2026-10-04
+## [Unreleased] - 2026-10-05
 
 ### Added
 
@@ -80,6 +80,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Perspective Frame Selection, Frame Map and pane framing retain the viewing
+  direction chosen by the user. The existing bounds fit still uses the pane's
+  aspect ratio, field of view, padding and near plane. Initial overview angles
+  retain their previous appearance.
 - Simplified 2D selection to yellow authored outlines and yellow dimension
   numbers. Removed the extra selection/construction/transform bounds rectangle,
   RGB edge recolouring and dotted leaders to displaced controls. Side resize
@@ -219,6 +223,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   input. Mason was rebuilt in the existing compact tree; the final test build
   has no compiler warnings or errors. Human map work and the live editor were
   preserved.
+  GitHub Actions run 37233882189 passed all 15 jobs for the published commit.
+- Orientation-preserving camera framing passed 2,860 focused assertions in
+  five cases at normal and 2x scaling. Complete local Map GUI and Mason suites
+  passed in the shared working tree (83,689 assertions in 560 cases). That
+  local tree also contains another ongoing geometry adapter implementation;
+  this framing increment publishes only its own view code and tests. Mason
+  was rebuilt once at the tested checkpoint using the existing compact tree,
+  without compiler warnings/errors or new dependencies. Startup overview,
+  deferred fitting, other panes and authored state are covered.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
   Embedded TileEditor hosting and terrain sculpting are also unfinished; the
