@@ -75,6 +75,12 @@ CYPHER_COMMON_API void KeyValue_DestroyDocument(
 CYPHER_COMMON_API void KeyValue_ClearDocument(
     key_value_document_t *pDocument ) noexcept;
 
+// Bytes owned by the document and its complete node/payload arena capacities,
+// including recycled nodes and replaced string data. No allocation or mutation.
+// Returns zero for null; saturates at CY_USIZE_MAX on arithmetic overflow.
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize KeyValue_OwnedBytes( const key_value_document_t *pDocument ) noexcept;
+
 // Assigns owned language and schema identity to a semantic document.
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t KeyValue_SetDocumentHeader(
@@ -122,6 +128,16 @@ CYPHER_NODISCARD CYPHER_COMMON_API bool_t KeyValue_SetContainerType( key_value_d
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 usize KeyValue_ChildCount( const key_value_t *pContainer ) noexcept;
+
+// Constant-time read-only traversal in authored order. FirstChild returns null
+// for null/scalar/empty nodes; NextSibling returns null for null/root/last nodes.
+// Returned pointers are borrowed: finish traversal before mutating the tree,
+// clearing/destroying its document, or replacing the owning map document.
+CYPHER_NODISCARD CYPHER_COMMON_API
+const key_value_t *KeyValue_FirstChild( const key_value_t *pContainer ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+const key_value_t *KeyValue_NextSibling( const key_value_t *pValue ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 key_value_t *KeyValue_ChildAt( key_value_t *pContainer, usize iChild ) noexcept;

@@ -461,6 +461,30 @@ bool MeshPoolsAreValid( const editable_mesh_t *pMesh ) noexcept
            common::GenerationPool_IsValid( &pMesh->shells );
 }
 
+// A surface ray does not require a closed genus-zero solid. Boundary
+// half-edges have a canonical absent twin; every present twin must still be
+// reciprocal and run in the opposite direction along the shared edge.
+bool RaycastSurfaceTwinsAreValid( const editable_mesh_t *pMesh ) noexcept
+{
+    bool valid = true;
+    (void)common::GenerationPool_ForEach(
+        &pMesh->halfEdges,
+        [&]( geometry_mesh_half_edge_handle_t hHalfEdge,
+             const mesh_half_edge_record_t &halfEdge ) noexcept -> bool_t {
+            if ( !common::GenerationHandle_IsValid( halfEdge.hTwin ) ) {
+                valid = halfEdge.hTwin.nSlot == common::CY_INVALID_INDEX && halfEdge.hTwin.nGeneration == 0u;
+                return valid;
+            }
+            const auto *twin = common::GenerationPool_Get( &pMesh->halfEdges, halfEdge.hTwin );
+            const auto *next = common::GenerationPool_Get( &pMesh->halfEdges, halfEdge.hNext );
+            valid = twin != nullptr && next != nullptr &&
+                twin->hTwin.nSlot == hHalfEdge.nSlot && twin->hTwin.nGeneration == hHalfEdge.nGeneration &&
+                twin->hOrigin.nSlot == next->hOrigin.nSlot && twin->hOrigin.nGeneration == next->hOrigin.nGeneration;
+            return valid;
+        } );
+    return valid;
+}
+
 geometry_status_t ValidateMeshRaycastInput(
     const editable_mesh_t *pMesh,
     const geometry_policy_t &policy,
@@ -503,6 +527,24 @@ geometry_status_t ValidateMeshRaycastInput(
         return geometry_status_t::INVALID_TOPOLOGY;
     }
 
+    // The shared validator computes winding and volume even after another
+    // structural check fails. Bound cached traversal counts before entering
+    // it, so corrupt metadata cannot turn a query into billions of steps.
+    geometry_status_t loopStatus = geometry_status_t::OK;
+    (void)common::GenerationPool_ForEach(
+        &pMesh->loops,
+        [&]( geometry_mesh_loop_handle_t,
+             const mesh_loop_record_t &loop ) noexcept -> bool_t {
+            if ( loop.cHalfEdges < 3u || static_cast<usize>( loop.cHalfEdges ) > cHalfEdges ) {
+                loopStatus = geometry_status_t::INVALID_TOPOLOGY;
+            } else if ( loopStatus == geometry_status_t::OK &&
+                        static_cast<u64>( loop.cHalfEdges ) > policy.limits.cTraversalDepthMax ) {
+                loopStatus = geometry_status_t::LIMIT_EXCEEDED;
+            }
+            return true;
+        } );
+    if ( loopStatus != geometry_status_t::OK ) { return loopStatus; }
+
     bool bCoordinatesValid = true;
     (void)common::GenerationPool_ForEach(
         &pMesh->vertices,
@@ -531,8 +573,13 @@ geometry_status_t ValidateMeshRaycastInput(
 
     const mesh_validation_result_t validation =
         MeshValidation_Validate( pMesh );
-    if ( validation.status != geometry_status_t::OK ) {
-        return validation.status;
+    // Reuse all applicable structural checks, without imposing the solid
+    // validator's Euler/positive-volume requirements on editable surfaces.
+    // The solid validator itself keeps its existing stricter contract.
+    if ( !validation.bClosedLoops || !validation.bAllVerticesReferenced ||
+         !validation.bEdgeLinks || !validation.bShellLinks ||
+         !validation.bConsistentWinding || !RaycastSurfaceTwinsAreValid( pMesh ) ) {
+        return geometry_status_t::INVALID_TOPOLOGY;
     }
 
     mesh_query_profile_t profile{};

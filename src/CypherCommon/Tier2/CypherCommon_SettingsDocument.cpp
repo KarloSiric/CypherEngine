@@ -266,8 +266,13 @@ settings_document_status_t SettingsDocument_Write(
         return settings_document_status_t::OUT_OF_MEMORY;
     }
     const key_value_t *pRoot = KeyValue_Root( pStore->pDocument );
+    // Settings files are edited by hand as often as by tools, so they are
+    // written the way the format docs write them: bare keys where CYKV
+    // allows, dotted IDs ("ui.background", "file.save") quoted, and reals as
+    // typed (0.3, not 0.29999999999999999).
     key_value_write_options_t options{};
-    options.flags = KEY_VALUE_WRITE_FLAG_PRETTY | KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE;
+    options.flags = KEY_VALUE_WRITE_FLAG_PRETTY | KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE | KEY_VALUE_WRITE_FLAG_BARE_KEYS |
+                    KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS | KEY_VALUE_WRITE_FLAG_SHORTEST_REALS;
     options.nIndentSpaces = 4u;
     const key_value_write_result_t measured = KeyValue_WriteText( pRoot, options, nullptr, 0u );
     if ( measured.status != key_value_write_status_t::OUTPUT_TRUNCATED &&
@@ -288,7 +293,9 @@ settings_document_status_t SettingsDocument_Write(
         pRoot, options, TextBuffer_Data( &pending ), TextBuffer_Capacity( &pending ) + 1u );
     if ( written.status != key_value_write_status_t::OK ||
          written.cchWritten != measured.cchRequired ) {
-        return settings_document_status_t::WRITE_FAILED;
+        return written.status == key_value_write_status_t::OUT_OF_MEMORY
+            ? settings_document_status_t::OUT_OF_MEMORY
+            : settings_document_status_t::WRITE_FAILED;
     }
     if ( !TextBuffer_Assign( pTextOut, TextBuffer_View( &pending ) ) ) {
         return settings_document_status_t::OUT_OF_MEMORY;

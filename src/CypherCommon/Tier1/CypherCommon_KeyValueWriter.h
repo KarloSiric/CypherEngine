@@ -8,8 +8,14 @@
 //  Details: Output can target a bounded buffer or callback sink. Canonical mode fixes
 //           ordering and whitespace for reproducible source control and content hashing.
 //
+//           The compact layout (bare keys, shortest reals, and a nonzero line width)
+//           is for documents people read and diff, such as map chunks: short
+//           containers go on one line and long lists of numbers are packed. It is
+//           opt-in, so documents written without it keep their exact bytes.
+//
 //  History:
 //  - Created by Karlo Siric on 2026-06-22
+//  - Compact layout options added on 2026-09-27
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -32,7 +38,16 @@ enum key_value_write_flags_t : flags32_t {
     KEY_VALUE_WRITE_FLAG_PRETTY = CYPHER_BIT32( 0 ), // Emit indentation and line breaks.
     KEY_VALUE_WRITE_FLAG_CANONICAL = CYPHER_BIT32( 1 ), // Sort keys and stabilize spelling.
     KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE = CYPHER_BIT32( 2 ), // End text with LF.
-    KEY_VALUE_WRITE_FLAG_ASCII_ONLY = CYPHER_BIT32( 3 ) // Escape non-ASCII code points.
+    KEY_VALUE_WRITE_FLAG_ASCII_ONLY = CYPHER_BIT32( 3 ), // Escape non-ASCII code points.
+    // Write keys that are CYKV bare keys without quotes (CYKV text only).
+    KEY_VALUE_WRITE_FLAG_BARE_KEYS = CYPHER_BIT32( 4 ),
+    // Write each real with the fewest significant digits (15-17) that parse
+    // back to the same value: 39.37 rather than 39.369999999999997.
+    KEY_VALUE_WRITE_FLAG_SHORTEST_REALS = CYPHER_BIT32( 5 ),
+    // With BARE_KEYS: keys holding a '.' stay quoted. Dotted IDs ("ui.border",
+    // "file.save") are single member names, never nested paths; quotes keep
+    // that visible to people reading the file.
+    KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS = CYPHER_BIT32( 6 )
 };
 
 enum class key_value_write_status_t : u8 {
@@ -51,6 +66,11 @@ struct key_value_write_options_t {
                      KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE }; // Formatting and canonicalization policy.
     u8 nIndentSpaces{ 4u };  // Spaces emitted for each pretty-print level.
     usize nMaxDepth{ 128u }; // Maximum tree depth accepted by the writer.
+    // Pretty CYKV only. Nonzero: a container whose one-line form ends within
+    // this many columns is written on one line, and a list of scalars that
+    // does not fit is packed as many per line as fit. Zero: one element per
+    // line, the long-standing layout.
+    u16 nLineWidth{ 0u };
 };
 
 struct key_value_write_result_t {
@@ -77,6 +97,18 @@ using key_value_write_fn_t = bool_t ( * )(
 CYPHER_NODISCARD CYPHER_COMMON_API
 key_value_write_result_t KeyValue_WriteText(
     const key_value_t *pRoot,
+    const key_value_write_options_t &options,
+    char *pDest,
+    usize cchDest ) noexcept;
+
+// Writes one native CYKV value without a document or schema header. The value
+// may be any owned scalar, array, or object subtree; its member name is omitted.
+// Numeric kinds, escapes, formatting flags, depth limits, measurement, and NUL
+// termination follow WriteText. A document parser needs the fragment wrapped
+// in a named object member after the document's required CYKV/schema header.
+CYPHER_NODISCARD CYPHER_COMMON_API
+key_value_write_result_t KeyValue_WriteValueText(
+    const key_value_t *pValue,
     const key_value_write_options_t &options,
     char *pDest,
     usize cchDest ) noexcept;

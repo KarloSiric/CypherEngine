@@ -1,0 +1,28 @@
+@cykv 1
+@schema "cypher.map" 10
+
+{
+    map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
+    name = "Research Facility (example)"
+    game = "reap"
+    game_version = 3u
+    next_id = 1362u
+    description = "The complete example map of CYMAP.md: one room, one wave, every object kind."
+    authors = [ "Karlo" ]
+    tags = [ "example", "indoor", "waves" ]
+    units_per_meter = 39.37
+    cell_size = [ 1024.0, 1024.0, 0.0 ]
+    layers = [
+        { id = "structure" name = "Structure" color = "#6fa8dc" },
+        { id = "detail" name = "Detail" },
+        { id = "gameplay" name = "Gameplay" },
+        { id = "notes" name = "Designer notes" editor_only = true }
+    ]
+    visgroups = [ { id = 10u name = "Lights" color = "#ffd84a" } ]
+    selection_sets = [ { id = 11u name = "Room shell" members = [ 1000u, 1001u, 1002u, 1003u, 1004u, 1005u ] } ]
+    cordons = [ { name = "Room" bounds = [ -512.0, -512.0, -32.0, 512.0, 512.0, 320.0 ] } ]
+    settings = {
+        map = { sky = "materials/sky/dusk.cymat" gravity = 800.0 ambient_color = "#202028" fog_color = "#101820" fog_start = 2048.0 fog_end = 12000.0 }
+        game = { wave_count = 12 wave_intermission = 8.0 difficulty = "normal" }
+    }
+}

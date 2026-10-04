@@ -1,0 +1,10 @@
+@cykv 1
+@schema "cypher.map_chunk" 10
+
+{
+    map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
+    layer = "gameplay"
+    cell = [ 0, -1 ]
+    info = { entities = 1 bounds = [ 256.0, -256.0, 16.0, 256.0, -256.0, 16.0 ] }
+    entities = [ { id = 102u class = "info_player_start" name = "spawn_b" origin = [ 256.0, -256.0, 16.0 ] angles = [ 0.0, 135.0, 0.0 ] properties = { team = "blue" priority = 10 } } ]
+}

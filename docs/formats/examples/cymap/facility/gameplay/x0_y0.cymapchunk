@@ -1,0 +1,93 @@
+@cykv 1
+@schema "cypher.map_chunk" 10
+
+{
+    map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
+    layer = "gameplay"
+    cell = [ 0, 0 ]
+    info = { entities = 5 shapes = 1 prefabs = 1 bounds = [ -400.0, -300.0, 0.0, 600.0, 504.0, 280.0 ] }
+    entities = [
+        {
+            id = 110u
+            class = "trigger_once"
+            name = "wave1_trigger"
+            origin = [ 0.0, 0.0, 0.0 ]
+            info = { bounds = [ -64.0, -64.0, 0.0, 64.0, 64.0, 128.0 ] }
+            properties = { start_disabled = false filter = "players" }
+            outputs = [ { output = "on_trigger" target = "wave1" input = "start" parameter = "" delay = 0.5 times = 1 } ]
+            brushes = [
+                {
+                    id = 111u
+                    info = { bounds = [ -64.0, -64.0, 0.0, 64.0, 64.0, 128.0 ] }
+                    faces = [
+                        { id = 1310u plane = [ 1.0, 0.0, 0.0, 64.0 ] material = "materials/editor/trigger.cymat" uv_u = [ 0.0, 1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                        { id = 1311u plane = [ -1.0, 0.0, 0.0, 64.0 ] material = "materials/editor/trigger.cymat" uv_u = [ 0.0, -1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                        { id = 1312u plane = [ 0.0, 1.0, 0.0, 64.0 ] material = "materials/editor/trigger.cymat" uv_u = [ -1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                        { id = 1313u plane = [ 0.0, -1.0, 0.0, 64.0 ] material = "materials/editor/trigger.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                        { id = 1314u plane = [ 0.0, 0.0, 1.0, 128.0 ] material = "materials/editor/trigger.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, -1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] },
+                        { id = 1315u plane = [ 0.0, 0.0, -1.0, 0.0 ] material = "materials/editor/trigger.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] }
+                    ]
+                }
+            ]
+        },
+        {
+            id = 120u
+            class = "info_wave_start"
+            name = "wave1"
+            origin = [ 0.0, 400.0, 32.0 ]
+            properties = { start_disabled = false wave = 1 spawn_group = "wave1" delay = 3.0 announce = "sounds/announcer/wave1.cysnd" }
+            outputs = [
+                { output = "on_cleared" target = "wave2" input = "start" parameter = "" delay = 8.0 times = 1 },
+                { output = "on_started" target = "arena_door" input = "close" parameter = "" delay = 0.0 times = -1 }
+            ]
+        },
+        {
+            id = 131u
+            class = "info_enemy_spawn"
+            origin = [ 400.0, 400.0, 0.0 ]
+            angles = [ 0.0, -90.0, 0.0 ]
+            properties = { start_disabled = true enemy = "stalker" spawn_group = "wave1" count = 2 flags = [ "face_player", "silent" ] }
+        },
+        {
+            id = 140u
+            class = "light"
+            name = "hall_light"
+            origin = [ 0.0, 0.0, 280.0 ]
+            visgroups = [ 10u ]
+            properties = { start_disabled = false color = "#ffd8a0" intensity = 450.0 range = 768.0 cast_shadows = true }
+        },
+        {
+            id = 150u
+            class = "func_door"
+            name = "arena_door"
+            origin = [ 0.0, 504.0, 64.0 ]
+            info = { bounds = [ -64.0, 488.0, 0.0, 64.0, 496.0, 128.0 ] }
+            properties = { start_disabled = false move_dir = [ 0.0, 90.0, 0.0 ] speed = 200.0 lip = 8.0 wait = -1.0 open_sound = "" locked = false }
+            brushes = [
+                {
+                    id = 151u
+                    info = { bounds = [ -64.0, 488.0, 0.0, 64.0, 496.0, 128.0 ] }
+                    faces = [
+                        { id = 1316u plane = [ 1.0, 0.0, 0.0, 64.0 ] material = "materials/metal/door02.cymat" uv_u = [ 0.0, 1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                        { id = 1317u plane = [ -1.0, 0.0, 0.0, 64.0 ] material = "materials/metal/door02.cymat" uv_u = [ 0.0, -1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                        { id = 1318u plane = [ 0.0, 1.0, 0.0, 496.0 ] material = "materials/metal/door02.cymat" uv_u = [ -1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                        { id = 1319u plane = [ 0.0, -1.0, 0.0, -488.0 ] material = "materials/metal/door02.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                        { id = 1320u plane = [ 0.0, 0.0, 1.0, 128.0 ] material = "materials/metal/door02.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, -1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] },
+                        { id = 1321u plane = [ 0.0, 0.0, -1.0, 0.0 ] material = "materials/metal/door02.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] }
+                    ]
+                }
+            ]
+        }
+    ]
+    shapes = [
+        {
+            id = 180u
+            name = "patrol_route_a"
+            info = { bounds = [ -400.0, -300.0, 16.0, 400.0, 300.0, 16.0 ] }
+            type = "catmull_rom"
+            closed = true
+            points = [ [ -400.0, 300.0, 16.0 ], [ 400.0, 300.0, 16.0 ], [ 400.0, -300.0, 16.0 ], [ -400.0, -300.0, 16.0 ] ]
+        }
+    ]
+    prefabs = [ { id = 200u name = "yard_gate" source = "prefabs/security_door.cyprefab" origin = [ 600.0, 0.0, 0.0 ] angles = [ 0.0, 90.0, 0.0 ] overrides = { door.name = "yard_door" } } ]
+}

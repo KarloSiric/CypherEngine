@@ -1,0 +1,41 @@
+@cykv 1
+@schema "cypher.theme" 2
+// Bundled preset, ported from the TileEditor palette of the same name.
+// Partial on purpose: it sets the base colours and names Charcoal as its
+// base, so every derived shade follows these colours (CYTHEME.md 3).
+{
+    id = "coastal_dusk"
+    name = "Coastal Dusk"
+    author = "CypherEngine"
+    description = "Teal sea-green interface with sand and gold highlights."
+    appearance = "dark"
+    base = "charcoal"
+    colors = {
+        // Interface: base colours.
+        "ui.background" = "#123b43"
+        "ui.panel" = "#092e36"
+        "ui.text" = "#e9e4d1"
+        "ui.accent" = "#c18b27"
+
+        // Viewport: frame.
+        "viewport.active_border" = "#d9574f"
+
+        // Viewport: backgrounds and grid.
+        "viewport.background.2d" = "#10363e"
+        "viewport.background.3d" = "#061f25"
+        "viewport.grid.minor" = "#204a51"
+        "viewport.grid.major" = "#487078"
+        "viewport.axis.x" = "#d95a51"
+        "viewport.axis.y" = "#88a44e"
+        "viewport.axis.z" = "#3c91c8"
+
+        // Viewport: objects.
+        "viewport.wire.world" = "#cbd1c6"
+        "viewport.wire.entity" = "#3eaaa4"
+        "viewport.wire.patch" = "#8ea34a"
+        "viewport.wire.terrain" = "#daae45"
+        "viewport.face.world" = "#879a9b"
+        "viewport.selection" = "#daa13a"
+        "viewport.selection.fill" = "#daa13a40"
+    }
+}

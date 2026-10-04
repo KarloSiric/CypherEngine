@@ -339,6 +339,69 @@ jobs:
             --timeout 120 \
             -R "^(cypher_common_tier1_fileio_tests|cypher_common_vfs_tests|cypher_common_render_asset_format_tests|cypher_common_cooked_resource_format_tests|cypher_common_cooked_shader_format_tests|cypher_common_cooked_texture_format_tests|cypher_common_cooked_material_format_tests|cypher_editor_geometry_contract_tests|cypher_toolframework_core_tests|cypher_toolframework_cli_tests|cypher_toolframework_compiler_tests|cypher_shader_compiler_tests|cypher_texture_compiler_tests|cypher_material_compiler_tests|cypher_resource_compiler_help|cypher_resource_compiler_version|cypher_resource_compiler_list_compilers|cypher_resource_compiler_describe_shader|cypher_resource_compiler_describe_texture|cypher_resource_compiler_describe_material|cypher_resource_compiler_list_formats_json|cypher_resource_compiler_smoke|cypher_resource_compiler_output_contract)$"
 
+  mason-editor:
+    name: macOS Mason Editor
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Qt and macOS build dependencies
+        run: |
+          brew install qt autoconf autoconf-archive automake libtool
+          if ! command -v libtoolize >/dev/null 2>&1 && command -v glibtoolize >/dev/null 2>&1; then
+            sudo ln -sf "$(command -v glibtoolize)" /usr/local/bin/libtoolize
+          fi
+
+      - name: Bootstrap pinned vcpkg
+        run: |
+          mkdir -p "$VCPKG_DOWNLOADS"
+          cmake -P cmake/CypherBootstrapVcpkg.cmake
+
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/vcpkg/archives
+            .vcpkg-downloads
+          key: vcpkg-${{ runner.os }}-mason-${{ hashFiles('vcpkg.json', '.gitmodules', 'cmake/CypherBootstrapVcpkg.cmake') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Configure Mason and editor contracts
+        run: |
+          cmake -S . -B build-mason \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCYPHERENGINE_BUILD_MASON=ON \
+            -DCYPHERENGINE_BUILD_TESTS=ON \
+            -DVCPKG_MANIFEST_FEATURES=tests \
+            "-DCMAKE_PREFIX_PATH=$(brew --prefix qt)" \
+            "-DCMAKE_TOOLCHAIN_FILE=$PWD/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build Mason and editor contract tests
+        run: |
+          cmake --build build-mason --parallel "$CYPHER_CI_BUILD_JOBS" --target \
+            Mason \
+            cypher_editor_core_contract_tests \
+            cypher_editor_gui_contract_tests \
+            cypher_editor_map_core_contract_tests \
+            cypher_editor_map_gui_contract_tests \
+            cypher_mason_smoke_tests
+
+      - name: Test editor workflows
+        run: |
+          ctest --test-dir build-mason --output-on-failure --no-tests=error --timeout 120 \
+            -R "^(cypher_editor_core_contract_tests|cypher_editor_gui_contract_tests|cypher_editor_map_core_contract_tests|cypher_editor_map_gui_contract_tests|cypher_mason_smoke_tests)$"
+
   benchmark-build:
     name: ${{ matrix.name }} Bench Build
     runs-on: ${{ matrix.os }}

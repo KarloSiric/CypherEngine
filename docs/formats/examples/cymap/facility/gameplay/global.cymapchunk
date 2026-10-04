@@ -1,0 +1,11 @@
+@cykv 1
+@schema "cypher.map_chunk" 10
+
+{
+    map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
+    layer = "gameplay"
+    cell = "global"
+    info = { entities = 1 groups = 1 }
+    entities = [ { id = 170u class = "logic_relay" name = "spawn_music" comment = "Plays the spawn sting." properties = { start_disabled = false } } ]
+    groups = [ { id = 190u name = "Wave 1" members = [ 110u, 120u, 130u, 131u ] } ]
+}

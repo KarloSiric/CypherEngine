@@ -207,3 +207,98 @@ TEST_CASE( "UndoRedo cancellation discards pending transaction history",
     REQUIRE_FALSE( UndoRedo_CanUndo( pHistory ) );
     UndoRedo_Destroy( pHistory );
 }
+
+TEST_CASE( "UndoRedo state tokens return with undo and change with merges and new edits",
+           "[common][tier1][undoredo]" )
+{
+    undo_history_t *pHistory = UndoRedo_Create( { Allocator_GetSystem(), 64u, CY_MIB } );
+    REQUIRE( pHistory != nullptr );
+    undo_test_state_t state{};
+    i8 one = 1;
+    i8 two = 2;
+    const undo_state_token_t empty = UndoRedo_StateToken( pHistory );
+    CHECK( empty.nGroup == 0u );
+
+    REQUIRE( UndoRedo_Push( pHistory, Operation( 1u, &one, &state, "Move" ) ) );
+    const undo_state_token_t saved = UndoRedo_StateToken( pHistory );
+    REQUIRE( UndoRedo_Push( pHistory, Operation( 2u, &two, &state, "Rotate" ) ) );
+    CHECK_FALSE( UndoRedo_StateTokenEquals( saved, UndoRedo_StateToken( pHistory ) ) );
+    CHECK( UndoRedo_GroupCount( pHistory ) == 2u );
+    CHECK( UndoRedo_AppliedGroupCount( pHistory ) == 2u );
+    CHECK( StringView_Equals( UndoRedo_GroupLabelAt( pHistory, 1u ), StringView_FromCString( "Rotate" ) ) );
+    CHECK( UndoRedo_GroupLabelAt( pHistory, 2u ).cchLength == 0u );
+
+    REQUIRE( Cy_ErrorSucceeded( UndoRedo_Undo( pHistory ) ) );
+    CHECK( UndoRedo_StateTokenEquals( saved, UndoRedo_StateToken( pHistory ) ) );
+    CHECK( UndoRedo_AppliedGroupCount( pHistory ) == 1u );
+    CHECK( UndoRedo_GroupCount( pHistory ) == 2u );
+    REQUIRE( Cy_ErrorSucceeded( UndoRedo_Undo( pHistory ) ) );
+    CHECK( UndoRedo_StateTokenEquals( empty, UndoRedo_StateToken( pHistory ) ) );
+    REQUIRE( Cy_ErrorSucceeded( UndoRedo_Redo( pHistory ) ) );
+    CHECK( UndoRedo_StateTokenEquals( saved, UndoRedo_StateToken( pHistory ) ) );
+
+    // A merge into the newest group changes the state even though the group
+    // stays the same.
+    i8 three = 3;
+    undo_history_t *pMerging = UndoRedo_Create( { Allocator_GetSystem(), 64u, CY_MIB } );
+    REQUIRE( pMerging != nullptr );
+    REQUIRE( UndoRedo_Push( pMerging, Operation( 3u, &three, &state, "Drag", 7u ) ) );
+    const undo_state_token_t beforeMerge = UndoRedo_StateToken( pMerging );
+    REQUIRE( UndoRedo_Push( pMerging, Operation( 4u, &three, &state, "Drag", 7u ) ) );
+    const undo_state_token_t afterMerge = UndoRedo_StateToken( pMerging );
+    CHECK( afterMerge.nGroup == beforeMerge.nGroup );
+    CHECK_FALSE( UndoRedo_StateTokenEquals( beforeMerge, afterMerge ) );
+    CHECK( UndoRedo_GroupCount( pMerging ) == 1u );
+    CHECK( UndoRedo_EvictedGroupCount( pMerging ) == 0u );
+
+    // Budgets drop the oldest groups and count them.
+    undo_history_t *pSmall = UndoRedo_Create( { Allocator_GetSystem(), 2u, CY_MIB } );
+    REQUIRE( pSmall != nullptr );
+    for ( u64 i = 0u; i < 4u; ++i ) { REQUIRE( UndoRedo_Push( pSmall, Operation( 10u + i, &one, &state, "Step" ) ) ); }
+    CHECK( UndoRedo_GroupCount( pSmall ) == 2u );
+    CHECK( UndoRedo_EvictedGroupCount( pSmall ) == 2u );
+    UndoRedo_Destroy( pSmall );
+
+    // A new edit after undo is a new state, never the saved one.
+    REQUIRE( Cy_ErrorSucceeded( UndoRedo_Undo( pHistory ) ) );
+    REQUIRE( UndoRedo_Push( pHistory, Operation( 5u, &two, &state, "Scale" ) ) );
+    CHECK_FALSE( UndoRedo_StateTokenEquals( saved, UndoRedo_StateToken( pHistory ) ) );
+    UndoRedo_Destroy( pMerging );
+    UndoRedo_Destroy( pHistory );
+}
+
+TEST_CASE( "UndoRedo disposes referenced ownership and charges it to its budget", "[CypherCommon][Tier1][UndoRedo][ownership]" )
+{
+    struct ownership_t { int disposed{ 0 }; } state;
+    const auto apply = +[]( binary_block_t, void * ) noexcept -> error_code_t { return CY_ERROR_OK; };
+    const auto dispose = +[]( binary_block_t, void *context ) noexcept { ++static_cast<ownership_t *>( context )->disposed; };
+    auto *history = UndoRedo_Create( { Allocator_GetSystem(), 8, 64 } );
+    REQUIRE( history != nullptr );
+    u64 marker = 1;
+    undo_operation_desc_t op{};
+    op.id = 1; op.label = StringView_FromCString( "Owned snapshot" );
+    op.payload = BinaryBlock_FromData( &marker, sizeof( marker ) );
+    op.pfnUndo = apply; op.pfnRedo = apply; op.pfnDispose = dispose; op.pUserData = &state; op.cbOwnedBytes = 32;
+    REQUIRE( UndoRedo_Push( history, op ) );
+    op.id = 2;
+    REQUIRE( UndoRedo_Push( history, op ) ); // Two entries need 80 bytes: first is evicted.
+    CHECK( state.disposed == 1 );
+    REQUIRE( UndoRedo_Undo( history ) == CY_ERROR_OK );
+    CHECK( state.disposed == 1 ); // Applying changes never releases ownership.
+    op.id = 3;
+    REQUIRE( UndoRedo_Push( history, op ) ); // Redo invalidation releases the second.
+    CHECK( state.disposed == 2 );
+    op.cbOwnedBytes = 64;
+    CHECK_FALSE( UndoRedo_Push( history, op ) );
+    CHECK( state.disposed == 2 ); // Failed push leaves ownership with caller.
+    UndoRedo_Clear( history );
+    CHECK( state.disposed == 3 );
+    op.cbOwnedBytes = 32;
+    REQUIRE( UndoRedo_BeginTransaction( history, StringView_FromCString( "Gesture" ) ) );
+    REQUIRE( UndoRedo_Push( history, op ) );
+    UndoRedo_CancelTransaction( history );
+    CHECK( state.disposed == 4 );
+    REQUIRE( UndoRedo_Push( history, op ) );
+    UndoRedo_Destroy( history );
+    CHECK( state.disposed == 5 );
+}

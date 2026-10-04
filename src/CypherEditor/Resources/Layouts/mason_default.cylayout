@@ -1,0 +1,74 @@
+@cykv 1
+@schema "cypher.layout" 2
+// Hammer 5's arrangement: a dominant perspective view over two 2D views,
+// Tool Properties and Active Material on the left, and on the right Auto
+// Vis Groups over Selection Sets beside the Outliner (Undo History as its
+// neighbouring tab), with Object Properties and diagnostics underneath.
+// Console starts closed. Assets open in their separate window or a chosen
+// view pane rather than taking permanent sidebar space.
+// "Reset Layout" returns here.
+{
+    id = "mason_default"
+    name = "Mason Modeling"
+    author = "CypherEngine"
+    description = "Perspective-led modeling with contextual tools, visible history and object inspection; assets open in the Asset Browser window."
+    workspace = "map"
+    root = {
+        split = "horizontal"
+        sizes = [ 0.18, 0.56, 0.26 ]
+        children = [
+            {
+                split = "vertical"
+                sizes = [ 0.72, 0.28 ]
+                children = [
+                    { tabs = [ "map.tool_properties" ] },
+                    { tabs = [ "map.active_material" ] }
+                ]
+            },
+            { tabs = [ "mason.views" ] },
+            {
+                split = "vertical"
+                sizes = [ 0.5, 0.5 ]
+                children = [
+                    {
+                        split = "horizontal"
+                        sizes = [ 0.45, 0.55 ]
+                        children = [
+                            {
+                                split = "vertical"
+                                sizes = [ 0.62, 0.38 ]
+                                children = [
+                                    { tabs = [ "map.visgroups" ] },
+                                    { tabs = [ "map.selection_sets" ] }
+                                ]
+                            },
+                            { tabs = [ "map.outliner", "map.history" ] }
+                        ]
+                    },
+                    { tabs = [ "map.properties", "console", "output", "problems" ] }
+                ]
+            }
+        ]
+    }
+    toolbars = [
+        { id = "mason.main" area = "top" row = 0 order = 0 },
+        { id = "map.view" area = "top" row = 0 order = 1 },
+        { id = "map.utilities" area = "top" row = 0 order = 2 },
+        { id = "map.select" area = "top" row = 1 order = 0 },
+        { id = "map.edit" area = "top" row = 1 order = 1 },
+        { id = "map.geometry" area = "top" row = 1 order = 2 },
+        { id = "map.tools" area = "left" row = 0 order = 0 }
+    ]
+    status_bar = { visible = true }
+    views = {
+        arrangement = "three_top"
+        active = 0
+        maximized = -1
+        panes = [
+            { view = "perspective" render = "textured" grid = false },
+            { view = "top" render = "wireframe" grid = true },
+            { view = "front" render = "wireframe" grid = true },
+            { view = "side" render = "wireframe" grid = true }
+        ]
+    }
+}

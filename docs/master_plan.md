@@ -20,6 +20,10 @@
 
 # CypherEngine Master Development Plan
 
+> **2026-09-27:** the long-range order now lives in
+> [full_engine_plan.md](full_engine_plan.md). This document's dated schedule is
+> historical; its reference lessons and size targets remain useful context.
+
 Last updated: 2026-06-27
 
 This document is the long-form plan for building CypherEngine into a serious game engine runtime, toolchain, and later Mason editor.

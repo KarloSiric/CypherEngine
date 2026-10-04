@@ -1,0 +1,41 @@
+@cykv 1
+@schema "cypher.theme" 2
+// Bundled preset, ported from the TileEditor palette of the same name.
+// Partial on purpose: it sets the base colours and names Charcoal as its
+// base, so every derived shade follows these colours (CYTHEME.md 3).
+{
+    id = "sandstone_light"
+    name = "Sandstone Light"
+    author = "CypherEngine"
+    description = "Warm paper-light interface with earthy geometry colours."
+    appearance = "light"
+    base = "charcoal"
+    colors = {
+        // Interface: base colours.
+        "ui.background" = "#d8d1c5"
+        "ui.panel" = "#f2eee7"
+        "ui.text" = "#2b2a27"
+        "ui.accent" = "#9c5b16"
+
+        // Viewport: frame.
+        "viewport.active_border" = "#a2342d"
+
+        // Viewport: backgrounds and grid.
+        "viewport.background.2d" = "#e6e1d7"
+        "viewport.background.3d" = "#bfc5c3"
+        "viewport.grid.minor" = "#cec6b8"
+        "viewport.grid.major" = "#a69b88"
+        "viewport.axis.x" = "#b33c38"
+        "viewport.axis.y" = "#35764d"
+        "viewport.axis.z" = "#356fa3"
+
+        // Viewport: objects.
+        "viewport.wire.world" = "#4c5354"
+        "viewport.wire.entity" = "#356e8a"
+        "viewport.wire.patch" = "#34745a"
+        "viewport.wire.terrain" = "#8a621b"
+        "viewport.face.world" = "#9b9485"
+        "viewport.selection" = "#a85213"
+        "viewport.selection.fill" = "#a8521340"
+    }
+}

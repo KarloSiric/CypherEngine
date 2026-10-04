@@ -52,7 +52,10 @@
 namespace cypher::editor
 {
 
-inline constexpr common::u32 EDITOR_KEYMAP_SCHEMA_VERSION = 1u;
+inline constexpr common::u32 EDITOR_KEYMAP_SCHEMA_VERSION = 2u;        // Written.
+inline constexpr common::u32 EDITOR_KEYMAP_OLDEST_SCHEMA_VERSION = 1u; // Still read; V1 is V2 with bindings only.
+inline constexpr common::usize EDITOR_KEYMAP_MAX_CONTEXT_STACK = 16u;
+inline constexpr common::usize EDITOR_MOUSE_GESTURE_TEXT_CAPACITY = 64u;
 inline constexpr common::usize EDITOR_KEY_CHORD_MAX_STROKES = 4u;   // "Ctrl+K, Ctrl+C" style sequences.
 inline constexpr common::usize EDITOR_KEY_CHORD_TEXT_CAPACITY = 128u;
 inline constexpr common::usize EDITOR_KEYMAP_MAX_CHORDS = 4u;       // Chords bound to one command.
@@ -76,7 +79,51 @@ enum key_code_t : common::u16 {
     KEY_F1 = 0x140u, // KEY_F1 + n - 1 for F1..F24.
     KEY_NUMPAD_0 = 0x160u, // KEY_NUMPAD_0 + n for Num0..Num9.
     KEY_NUMPAD_ADD = 0x16Au, KEY_NUMPAD_SUBTRACT, KEY_NUMPAD_MULTIPLY, KEY_NUMPAD_DIVIDE,
-    KEY_NUMPAD_DECIMAL, KEY_NUMPAD_ENTER
+    KEY_NUMPAD_DECIMAL, KEY_NUMPAD_ENTER,
+    // A modifier on its own is a key only for held actions ("Shift" = go fast).
+    KEY_MODIFIER_KEY_CTRL = 0x180u, KEY_MODIFIER_KEY_ALT, KEY_MODIFIER_KEY_SHIFT, KEY_MODIFIER_KEY_META
+};
+
+enum class keymap_platform_t : common::u8 {
+    NONE = 0u, // Main sections only.
+    MACOS,
+    WINDOWS,
+    LINUX
+};
+
+enum class keymap_section_t : common::u8 {
+    BINDINGS = 0u, // Commands, once per press.
+    HELD,          // Actions active while keys are down.
+    MOUSE          // Actions triggered by mouse gestures.
+};
+
+enum mouse_button_t : common::u8 {
+    MOUSE_BUTTON_NONE = 0u, // Wheel gestures.
+    MOUSE_BUTTON_LEFT,
+    MOUSE_BUTTON_RIGHT,
+    MOUSE_BUTTON_MIDDLE,
+    MOUSE_BUTTON_BACK,
+    MOUSE_BUTTON_FORWARD
+};
+
+enum mouse_action_t : common::u8 {
+    MOUSE_ACTION_CLICK = 0u,
+    MOUSE_ACTION_DOUBLE_CLICK,
+    MOUSE_ACTION_DRAG,
+    MOUSE_ACTION_PRESS,
+    MOUSE_ACTION_WHEEL,       // Either direction, as an axis.
+    MOUSE_ACTION_WHEEL_UP,
+    MOUSE_ACTION_WHEEL_DOWN,
+    MOUSE_ACTION_WHEEL_LEFT,
+    MOUSE_ACTION_WHEEL_RIGHT
+};
+
+// "[Ctrl+][Alt+][Shift+][Meta+][<Key>+]<Button><Action>" or "[mods+]<Wheel>".
+struct mouse_gesture_t {
+    common::u8 modifiers{ 0u };                  // key_modifier_flags_t bits.
+    common::u16 heldKey{ 0u };                   // KEY_NONE, or a key held during the gesture.
+    common::u8 button{ MOUSE_BUTTON_NONE };      // mouse_button_t.
+    common::u8 action{ MOUSE_ACTION_CLICK };     // mouse_action_t.
 };
 
 struct key_stroke_t {
@@ -101,6 +148,15 @@ common::usize EditorKeyChord_Format( const key_chord_t &chord, char ( &buffer )[
 
 CYPHER_NODISCARD common::bool_t EditorKeyChord_Equals( const key_chord_t &a, const key_chord_t &b ) noexcept;
 
+// Held triggers: one key, or one modifier alone, optionally with modifiers
+// that must also be down ("W", "Shift", "Ctrl+W").
+CYPHER_NODISCARD common::bool_t EditorHeldKey_Parse( common::string_view_t text, key_stroke_t *pStrokeOut ) noexcept;
+common::usize EditorHeldKey_Format( const key_stroke_t &stroke, char ( &buffer )[EDITOR_KEY_CHORD_TEXT_CAPACITY] ) noexcept;
+
+CYPHER_NODISCARD common::bool_t EditorMouseGesture_Parse( common::string_view_t text, mouse_gesture_t *pGestureOut ) noexcept;
+common::usize EditorMouseGesture_Format( const mouse_gesture_t &gesture, char ( &buffer )[EDITOR_MOUSE_GESTURE_TEXT_CAPACITY] ) noexcept;
+CYPHER_NODISCARD common::bool_t EditorMouseGesture_Equals( const mouse_gesture_t &a, const mouse_gesture_t &b ) noexcept;
+
 /*
 ================
 Keymap Documents
@@ -112,7 +168,12 @@ struct keymap_header_t {
     common::string_view_t id{};
     common::string_view_t name{};
     common::string_view_t base{};
+    common::string_view_t author{};      // V2.
+    common::string_view_t description{}; // V2.
 };
+
+// The platform this build runs on, for platform overlays.
+CYPHER_NODISCARD keymap_platform_t EditorKeymap_HostPlatform() noexcept;
 
 CYPHER_NODISCARD keymap_header_t EditorKeymap_Header( const common::key_value_t *pKeymapRoot ) noexcept;
 
@@ -137,6 +198,43 @@ CYPHER_NODISCARD keymap_lookup_t EditorKeymap_FindBinding(
     common::string_view_t context,
     common::string_view_t command,
     keymap_binding_t *pBindingOut ) noexcept;
+
+// As FindBinding, with the platform overlay: within each keymap of the
+// chain, `platforms.<platform>.bindings` is consulted before `bindings`.
+CYPHER_NODISCARD keymap_lookup_t EditorKeymap_FindBindingOn(
+    const common::key_value_t *const *ppChain,
+    common::usize nChain,
+    keymap_platform_t platform,
+    common::string_view_t context,
+    common::string_view_t command,
+    keymap_binding_t *pBindingOut ) noexcept;
+
+// Raw trigger texts of a command or action in any section (held keys and
+// mouse gestures are parsed by their own parsers). Views borrow the keymap.
+struct keymap_triggers_t {
+    common::string_view_t texts[EDITOR_KEYMAP_MAX_CHORDS]{};
+    common::usize nTexts{ 0u };
+    common::usize iSource{ common::CY_INVALID_SIZE };
+};
+
+CYPHER_NODISCARD keymap_lookup_t EditorKeymap_FindTriggers(
+    const common::key_value_t *const *ppChain,
+    common::usize nChain,
+    keymap_section_t section,
+    keymap_platform_t platform,
+    common::string_view_t context,
+    common::string_view_t id,
+    keymap_triggers_t *pTriggersOut ) noexcept;
+
+// Finds the command a chord triggers through a context stack (most specific
+// first): the first context with a match wins (CYKEYMAP.md 3).
+CYPHER_NODISCARD common::string_view_t EditorKeymap_FindCommandInStack(
+    const common::key_value_t *const *ppChain,
+    common::usize nChain,
+    keymap_platform_t platform,
+    const common::string_view_t *pContexts,
+    common::usize nContexts,
+    const key_chord_t &chord ) noexcept;
 
 // Finds the command a chord triggers in a context, honouring overrides: a
 // base keymap's binding only counts when no more specific keymap redefines
@@ -177,6 +275,73 @@ CYPHER_NODISCARD keymap_status_t EditorKeymap_SetBinding(
     common::string_view_t command,
     const key_chord_t *pChords,
     common::usize nChords ) noexcept;
+
+// Stores trigger texts for held or mouse actions (or bindings); each text is
+// validated with the section's parser. nTexts == 0 explicitly unbinds.
+CYPHER_NODISCARD keymap_status_t EditorKeymap_SetTriggers(
+    common::settings_document_t *pKeymap,
+    keymap_section_t section,
+    common::string_view_t context,
+    common::string_view_t id,
+    const common::string_view_t *pTexts,
+    common::usize nTexts ) noexcept;
+
+// As SetTriggers, in the platform's overlay (`platforms.<platform>.<section>`);
+// NONE writes the main section.
+CYPHER_NODISCARD keymap_status_t EditorKeymap_SetTriggersOn(
+    common::settings_document_t *pKeymap,
+    keymap_platform_t platform,
+    keymap_section_t section,
+    common::string_view_t context,
+    common::string_view_t id,
+    const common::string_view_t *pTexts,
+    common::usize nTexts ) noexcept;
+
+// Removes one entry from a section or overlay, so it inherits again.
+CYPHER_NODISCARD keymap_status_t EditorKeymap_ResetOn(
+    common::settings_document_t *pKeymap,
+    keymap_platform_t platform,
+    keymap_section_t section,
+    common::string_view_t context,
+    common::string_view_t id ) noexcept;
+
+// Identity: id and name are required; an empty base removes it (a root
+// keymap).
+CYPHER_NODISCARD keymap_status_t EditorKeymap_SetHeader(
+    common::settings_document_t *pKeymap,
+    common::string_view_t id,
+    common::string_view_t name,
+    common::string_view_t base ) noexcept;
+
+// Fills ppChainOut with pRoot followed by its bases, each found by ID in
+// ppLibrary (first match wins, so the library's order is its precedence).
+// Stops at a missing base, a cycle, or EDITOR_KEYMAP_MAX_DEPTH; pbCompleteOut
+// is false when one of those cut the chain short.
+CYPHER_NODISCARD common::usize EditorKeymap_BuildChain(
+    const common::key_value_t *const *ppLibrary,
+    common::usize nLibrary,
+    const common::key_value_t *pRoot,
+    const common::key_value_t **ppChainOut,
+    common::usize nCapacity,
+    common::bool_t *pbCompleteOut ) noexcept;
+
+// Flattens a chain into pKeymap (normally a fresh root keymap): every entry
+// any keymap of the chain mentions, in every section and platform overlay,
+// with the triggers that decide it there, in canonical text. The result
+// resolves exactly like the chain on every platform, with no base. IDs the
+// running build does not register are kept (CYKEYMAP.md 2); entries whose
+// triggers are all unusable fall through to wider keymaps, as they do when
+// resolving.
+CYPHER_NODISCARD keymap_status_t EditorKeymap_WriteComplete(
+    common::settings_document_t *pKeymap,
+    const common::key_value_t *const *ppChain,
+    common::usize nChain ) noexcept;
+
+// V2 header details; empty views remove the member.
+CYPHER_NODISCARD keymap_status_t EditorKeymap_SetDetails(
+    common::settings_document_t *pKeymap,
+    common::string_view_t author,
+    common::string_view_t description ) noexcept;
 
 // Removes the keymap's own entry so the command inherits from the base.
 CYPHER_NODISCARD keymap_status_t EditorKeymap_ResetBinding(

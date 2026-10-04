@@ -2813,16 +2813,37 @@ if (CYPHERENGINE_BUILD_BENCHMARKS)
 endif()
 
 option(CYPHERENGINE_BUILD_TOOLS "Build tool targets" OFF)
+option(CYPHERENGINE_BUILD_MASON "Build the Qt6 Mason editor and its EditorGui framework" OFF)
 
 if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherEditor/Geometry/CMakeLists.txt")
-    if (CYPHERENGINE_BUILD_TESTS OR CYPHERENGINE_BUILD_TOOLS OR CYPHERENGINE_BUILD_BENCHMARKS)
+    if (CYPHERENGINE_BUILD_TESTS OR CYPHERENGINE_BUILD_TOOLS OR CYPHERENGINE_BUILD_BENCHMARKS OR CYPHERENGINE_BUILD_MASON)
         add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherEditor/Geometry")
     endif()
 endif()
 
 if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherEditor/Core/CMakeLists.txt")
-    if (CYPHERENGINE_BUILD_TESTS OR CYPHERENGINE_BUILD_TOOLS)
+    if (CYPHERENGINE_BUILD_TESTS OR CYPHERENGINE_BUILD_TOOLS OR CYPHERENGINE_BUILD_MASON)
         add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherEditor/Core")
+    endif()
+endif()
+
+if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherEditor/Workspaces/Map/Core/CMakeLists.txt")
+    if (CYPHERENGINE_BUILD_TESTS OR CYPHERENGINE_BUILD_TOOLS OR CYPHERENGINE_BUILD_MASON)
+        add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherEditor/Workspaces/Map/Core")
+    endif()
+endif()
+
+# The Qt editor: framework, workspace front ends, and the Mason executable.
+# Off by default so engine and CI builds never need Qt.
+if (CYPHERENGINE_BUILD_MASON)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Svg Widgets)
+    cypher_configure_qtads()
+    add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherEditor/Gui")
+    if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherEditor/Workspaces/Map/Gui/CMakeLists.txt")
+        add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherEditor/Workspaces/Map/Gui")
+    endif()
+    if (EXISTS "${CYPHERENGINE_SRC_DIR}/CypherEditor/App/Mason/CMakeLists.txt")
+        add_subdirectory("${CYPHERENGINE_SRC_DIR}/CypherEditor/App/Mason")
     endif()
 endif()
 

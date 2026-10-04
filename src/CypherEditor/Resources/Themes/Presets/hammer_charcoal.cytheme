@@ -1,0 +1,56 @@
+@cykv 1
+@schema "cypher.theme" 2
+// Bundled preset, refined from the TileEditor palette of the same name.
+// Partial on purpose: it sets the base colours and names Charcoal as its
+// base, so every derived shade follows these colours (CYTHEME.md 3).
+{
+    id = "hammer_charcoal"
+    name = "Hammer Charcoal"
+    author = "CypherEngine"
+    description = "Layered charcoal panels, blue hover, restrained amber tools, and clear architectural wireframes."
+    appearance = "dark"
+    base = "charcoal"
+    metrics = {
+        "ui.icon_size" = 28
+        "ui.tool_strip.icon_size" = 32
+    }
+    choices = { "ui.density" = "compact" }
+    colors = {
+        // Interface: base colours.
+        "ui.background" = "#303133"
+        "ui.panel" = "#242628"
+        "ui.text" = "#dce0e3"
+        "ui.accent" = "#e68a24"
+        // Chrome and glyph tones remain editable in Appearance/Theme Studio.
+        "ui.chrome" = "#333537"
+        "ui.header" = "#414447"
+        "ui.button" = "#3c3f42"
+        "ui.hover" = "auto"
+        "ui.border" = "#505458"
+        "ui.border.highlight" = "#666b70"
+        "ui.edge" = "#202224"
+        "ui.text.muted" = "#aab1b7"
+        "ui.text.disabled" = "#697078"
+
+        // Viewport: frame.
+        "viewport.active_border" = "#d93e36"
+
+        // Viewport: backgrounds and grid.
+        "viewport.background.2d" = "#191c1f"
+        "viewport.background.3d" = "#151719"
+        "viewport.grid.minor" = "#292e32"
+        "viewport.grid.major" = "#454d54"
+        "viewport.axis.x" = "#de524c"
+        "viewport.axis.y" = "#52be69"
+        "viewport.axis.z" = "#4b8be8"
+
+        // Viewport: objects.
+        "viewport.wire.world" = "#c1c8cd"
+        "viewport.wire.entity" = "#9fb2bf"
+        "viewport.wire.patch" = "#bcc6c1"
+        "viewport.wire.terrain" = "#c6c0b4"
+        "viewport.face.world" = "#6f8b99"
+        "viewport.selection" = "#d0ba62"
+        "viewport.selection.fill" = "#d0ba6240"
+    }
+}

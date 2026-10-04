@@ -1,0 +1,41 @@
+@cykv 1
+@schema "cypher.theme" 2
+// Bundled preset, ported from the TileEditor palette of the same name.
+// Partial on purpose: it sets the base colours and names Charcoal as its
+// base, so every derived shade follows these colours (CYTHEME.md 3).
+{
+    id = "radiant_light"
+    name = "Radiant Light"
+    author = "CypherEngine"
+    description = "A light interface with pale 2D views for bright rooms."
+    appearance = "light"
+    base = "charcoal"
+    colors = {
+        // Interface: base colours.
+        "ui.background" = "#dddfe3"
+        "ui.panel" = "#f4f5f7"
+        "ui.text" = "#252a31"
+        "ui.accent" = "#aa6600"
+
+        // Viewport: frame.
+        "viewport.active_border" = "#b42f30"
+
+        // Viewport: backgrounds and grid.
+        "viewport.background.2d" = "#edf0f3"
+        "viewport.background.3d" = "#d8e0e6"
+        "viewport.grid.minor" = "#d4dce3"
+        "viewport.grid.major" = "#a6b4c2"
+        "viewport.axis.x" = "#bd4949"
+        "viewport.axis.y" = "#33825b"
+        "viewport.axis.z" = "#426fb4"
+
+        // Viewport: objects.
+        "viewport.wire.world" = "#566775"
+        "viewport.wire.entity" = "#39749d"
+        "viewport.wire.patch" = "#338059"
+        "viewport.wire.terrain" = "#9b6f1c"
+        "viewport.face.world" = "#91a9b5"
+        "viewport.selection" = "#a85506"
+        "viewport.selection.fill" = "#a8550640"
+    }
+}

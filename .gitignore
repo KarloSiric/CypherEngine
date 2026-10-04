@@ -35,6 +35,9 @@ Testing/
 /install_manifest.txt
 /Makefile
 
+# Local verification captures, generated demo maps, and cleanup reports
+/artifacts/
+
 # Ignoring unnecessary MD files
 CLAUDE.md
 CODEX.md

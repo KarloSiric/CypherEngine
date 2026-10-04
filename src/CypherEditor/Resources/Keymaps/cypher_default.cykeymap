@@ -1,0 +1,269 @@
+@cykv 1
+@schema "cypher.editor_keymap" 2
+// Built-in editor bindings and reserved discovery entries from CYKEYMAP.md.
+// The registered command inventory is authoritative for build availability;
+// a binding here does not enable an unfinished tool. Empty lists are explicit
+// unbindings. Supported map keys draw from Hammer and Mason conveniences,
+// documented in mason_geometry_workflow_research.md. "Ctrl" is Command
+// on macOS. User keymaps name this as their base and store only their
+// changes; an empty list unbinds a command. Commands a build does not
+// register yet are kept and ignored until they exist.
+{
+    id = "cypher_default"
+    name = "Cypher Default"
+    author = "CypherEngine"
+    description = "Hammer-style keys for Mason."
+    bindings = {
+        global = {
+            "file.new" = [ "Ctrl+N" ]
+            "file.open" = [ "Ctrl+O" ]
+            "file.save" = [ "Ctrl+S" ]
+            "file.save_as" = [ "Ctrl+Shift+S" ]
+            "file.save_all" = [ "Ctrl+Alt+S" ]
+            "file.close" = [ "Ctrl+F4" ]
+            "file.import" = []
+            "file.export" = []
+            "file.open_project" = []
+            "file.open_workspace" = []
+            "file.exit" = [ "Ctrl+Q" ]
+            "edit.undo" = [ "Ctrl+Z" ]
+            "edit.redo" = [ "Ctrl+Y", "Ctrl+Shift+Z" ]
+            "edit.repeat_command" = [ "Shift+G" ]
+            "edit.cut" = [ "Ctrl+X" ]
+            "edit.copy" = [ "Ctrl+C" ]
+            "edit.paste" = [ "Ctrl+V" ]
+            "edit.paste_special" = [ "Ctrl+Shift+V" ]
+            // Mason convenience binding. Source 2 uses Ctrl+D for pivot
+            // operations in some contexts; Shift+Translate drag clones there.
+            "edit.duplicate" = [ "Ctrl+D" ]
+            "edit.delete" = [ "Delete" ]
+            "edit.select_all" = [ "Ctrl+A" ]
+            "edit.select_none" = [ "Ctrl+Shift+A" ]
+            "edit.invert_selection" = [ "Ctrl+Shift+I" ]
+            "edit.find" = [ "Ctrl+F" ]
+            "edit.find_replace" = [ "Ctrl+Shift+H" ]
+            "view.console" = [ "Backquote" ]
+            "view.outliner" = [ "Alt+1" ]
+            "view.properties" = [ "Alt+2" ]
+            "view.assets" = [ "Alt+3" ]
+            "view.history" = [ "Alt+4" ]
+            "view.command_palette" = [ "Ctrl+Shift+P" ]
+            "view.fullscreen" = [ "F11" ]
+            "view.layout.reset" = [ "Ctrl+Shift+R" ]
+            "view.layout.save" = []
+            "view.layout.manage" = []
+            "tools.settings" = [ "Ctrl+Comma" ]
+            "tools.theme_editor" = []
+            "tools.keymap_editor" = []
+            "tools.plugins" = []
+            "tools.reload_plugins" = []
+            "help.manual" = [ "F1" ]
+            "help.shortcuts" = [ "Ctrl+Slash" ]
+            "help.about" = []
+        }
+        map = {
+            "map.tool.select" = [ "Shift+S" ]
+            "map.tool.camera" = [ "Shift+C" ]
+            "map.tool.navigation" = []
+            "map.tool.entity" = [ "Shift+E" ]
+            "map.tool.block" = [ "Shift+B" ]
+            "map.tool.texture" = [ "Shift+A" ]
+            "map.tool.apply_material" = [ "Shift+T" ]
+            "map.tool.decal" = [ "Shift+D" ]
+            "map.tool.overlay" = [ "Shift+O" ]
+            "map.tool.clip" = [ "Shift+X" ]
+            "map.tool.vertex" = [ "Shift+V" ]
+            "map.tool.path" = [ "Shift+P" ]
+            "map.tool.measure" = [ "Shift+M" ]
+            "map.tool.terrain" = []
+            "map.tool.patch" = []
+            "map.tool.translate" = [ "T" ]
+            "map.tool.rotate" = [ "R" ]
+            "map.tool.scale" = [ "E" ]
+            // Mason convenience: convex brush-face push/pull, not Hammer's
+            // topology-creating Shift+gizmo mesh extrusion.
+            "map.tool.extrude" = [ "X" ]
+            "map.brush.hollow" = [ "Ctrl+H" ]
+            "map.brush.carve" = [ "Ctrl+Shift+C" ]
+            "map.brush.merge" = [ "Ctrl+Shift+M" ]
+            "map.brush.to_mesh" = []
+            "map.brush.snap_to_grid" = [ "Ctrl+B" ]
+            "map.transform.dialog" = [ "Ctrl+M" ]
+            "map.transform.flip_horizontal" = [ "Ctrl+L" ]
+            "map.transform.flip_vertical" = [ "Ctrl+I" ]
+            "map.transform.rotate_cw" = []
+            "map.transform.rotate_ccw" = []
+            "map.entity.tie" = [ "Ctrl+T" ]
+            "map.entity.move_to_world" = [ "Ctrl+W" ]
+            "view.properties.open" = [ "Alt+Enter" ]
+            "map.entity.properties" = []
+            "map.entity.connections" = [ "Ctrl+Shift+O" ]
+            "map.group.create" = [ "Ctrl+G" ]
+            "map.group.ungroup" = [ "Ctrl+U" ]
+            "map.hide.selected" = [ "H" ]
+            "map.hide.unselected" = [ "Shift+H" ]
+            "map.hide.show_all" = [ "U" ]
+            "map.visgroup.create" = []
+            "map.layer.create" = []
+            "map.layer.move_selection" = []
+            "map.select.touching" = [ "Ctrl+Shift+T" ]
+            "map.select.inside" = []
+            "map.select.same_material" = []
+            "map.select.same_class" = []
+            "map.grid.smaller" = [ "BracketLeft", "Minus", "NumSubtract" ]
+            "map.grid.larger" = [ "BracketRight", "Plus", "Shift+Plus", "NumAdd" ]
+            "map.grid.show" = [ "Shift+R" ]
+            "map.grid.snap" = [ "Shift+W" ]
+            "map.grid.show_3d" = [ "Ctrl+Shift+W" ]
+            "map.texture.lock" = [ "Shift+L" ]
+            "map.texture.scale_lock" = []
+            "map.texture.browser" = [ "Alt+T" ]
+            "map.texture.replace" = []
+            "map.view.center_selection_2d" = [ "Ctrl+E" ]
+            "map.view.center_selection_3d" = [ "Ctrl+Shift+E" ]
+            "map.view.top" = [ "F2", "Ctrl+Alt+1" ]
+            "map.view.front" = [ "F3", "Ctrl+Alt+2" ]
+            "map.view.side" = [ "F4", "Ctrl+Alt+3" ]
+            "map.view.perspective" = [ "Ctrl+Alt+4" ]
+            "map.view.cycle_2d" = [ "Ctrl+Space" ]
+            "map.view.maximize" = [ "Shift+Z" ]
+            "map.render.wireframe" = []
+            "map.render.shaded" = []
+            "map.render.fullbright" = []
+            "map.render.normals" = []
+            "map.render.mesh_edges" = []
+            "map.render.wire_overlay" = []
+            "map.cordon.toggle" = []
+            "map.cordon.edit" = []
+            "map.go_to" = [ "Ctrl+Shift+G" ]
+            "map.info" = []
+            "map.check" = [ "Alt+P" ]
+            "map.compile" = [ "Ctrl+F9" ]
+            "map.run" = [ "F9" ]
+            "map.stop" = [ "Shift+F9" ]
+            "map.leak.show" = [ "Ctrl+Shift+L" ]
+        }
+        // Whole authored meshes in Objects/Groups can reverse all normals.
+        // Faces/Edges retain their own future component operation contexts;
+        // this does not enable mesh-component selection or brush reversal.
+        "map.selection.objects" = {
+            "map.mesh.flip_normals" = [ "F" ]
+        }
+        "map.selection.groups" = {
+            "map.mesh.flip_normals" = [ "F" ]
+        }
+        // Authored single mesh-face operations. Context wins only in Faces mode;
+        // camera flight and text editors retain their input reservations.
+        "map.selection.faces" = {
+            "map.mesh.extrude" = [ "X" ]
+            "map.mesh.inset" = [ "I" ]
+            "map.mesh.quad_slice" = [ "Ctrl+Shift+U" ]
+        }
+        "map.viewport" = {
+            // These act only from geometric viewports. F6 is Mason's fixed
+            // directional preview, F7 is its normals diagnostic. F8/F11
+            // follow the discovery inventory; F11 elsewhere is fullscreen.
+            "map.render.fullbright" = [ "F5" ]
+            "map.render.shaded" = [ "F6" ]
+            "map.render.normals" = [ "F7" ]
+            "map.render.wire_overlay" = [ "F8" ]
+            "map.render.mesh_edges" = [ "F11" ]
+            "map.select_mode.faces" = [ "3" ]
+            "map.select_mode.objects" = [ "5" ]
+            "map.select_mode.groups" = [ "6" ]
+            "map.tool.cancel" = [ "Escape" ]
+            "map.tool.confirm" = [ "Enter", "NumEnter" ]
+            // Mason convenience: cycle visible panes. Hammer's local/world
+            // gizmo-axis toggle remains unavailable until frames are authored.
+            "map.view.cycle" = [ "Tab" ]
+        }
+        "map.viewport.2d" = {
+            "map.nudge.left" = [ "Left" ]
+            "map.nudge.right" = [ "Right" ]
+            "map.nudge.up" = [ "Up" ]
+            "map.nudge.down" = [ "Down" ]
+            "map.nudge_fine.left" = [ "Shift+Left" ]
+            "map.nudge_fine.right" = [ "Shift+Right" ]
+            "map.nudge_fine.up" = [ "Shift+Up" ]
+            "map.nudge_fine.down" = [ "Shift+Down" ]
+        }
+        "map.viewport.3d" = {
+        }
+        "map.tool.clip" = {
+            "map.clip.flip" = []
+        }
+        "map.tool.vertex" = {
+            "map.vertex.merge" = [ "Ctrl+M" ]
+            "map.vertex.split_edge" = []
+            "map.vertex.snap" = [ "Ctrl+B" ]
+        }
+        "map.tool.texture" = {
+            "map.texture.fit" = []
+            "map.texture.align_world" = []
+            "map.texture.align_face" = []
+            "map.texture.justify_left" = []
+            "map.texture.right" = []
+            "map.texture.top" = []
+            "map.texture.bottom" = []
+            "map.texture.center" = []
+        }
+        "map.tool.block" = {
+            "map.block.next_shape" = []
+        }
+        "map.tool.entity" = {
+            "map.entity.next_class" = []
+        }
+        console = {
+            "console.history_previous" = [ "Up" ]
+            "console.history_next" = [ "Down" ]
+            "console.complete" = [ "Tab" ]
+            "console.clear" = [ "Ctrl+L" ]
+        }
+        outliner = {
+            "outliner.rename" = [ "F2" ]
+            "outliner.focus_in_views" = [ "F" ]
+        }
+        properties = {
+            "properties.apply" = [ "Enter" ]
+            "properties.revert" = [ "Escape" ]
+        }
+    }
+    held = {
+        "map.viewport.3d" = {
+            "map.camera.forward" = [ "W", "Up" ]
+            "map.camera.back" = [ "S", "Down" ]
+            "map.camera.left" = [ "A", "Left" ]
+            "map.camera.right" = [ "D", "Right" ]
+            "map.camera.up" = [ "E", "PageUp" ]
+            "map.camera.down" = [ "Q", "PageDown" ]
+            "map.camera.fast" = [ "Shift" ]
+            "map.camera.slow" = [ "Alt" ]
+        }
+    }
+    mouse = {
+        "map.viewport.3d" = {
+            "map.camera.look" = [ "RightDrag", "Alt+MiddleDrag" ]
+            "map.camera.orbit" = [ "Alt+LeftDrag" ]
+            "map.camera.pan" = [ "MiddleDrag", "Space+LeftDrag" ]
+            "map.camera.dolly" = [ "Alt+RightDrag", "Wheel" ]
+        }
+        "map.viewport.2d" = {
+            "map.view.pan" = [ "RightDrag", "MiddleDrag", "Space+LeftDrag" ]
+            "map.view.zoom" = [ "Wheel" ]
+            "map.context_menu" = [ "RightClick" ]
+        }
+        "map.viewport" = {
+            "map.select.pick" = [ "LeftClick" ]
+            "map.select.toggle" = [ "Ctrl+LeftClick" ]
+            "map.select.box" = [ "LeftDrag" ]
+            "map.select.cycle" = [ "Alt+LeftClick" ]
+            "map.transform.drag" = [ "LeftDrag" ]
+            "map.transform.clone_drag" = [ "Shift+LeftDrag" ]
+        }
+    }
+    platforms = {
+        // Mac keyboards label Backspace "delete"; both delete there.
+        // Command+Space is Spotlight; the Control key cycles the 2D view there.
+        macos = { bindings = { global = { "edit.delete" = [ "Delete", "Backspace" ] } map = { "map.view.cycle_2d" = [ "Meta+Space" ] } } }
+    }
+}

@@ -54,9 +54,20 @@ Read these in order when resuming work:
 25. [formats/CYKV_2_PROPOSAL.md](formats/CYKV_2_PROPOSAL.md)
 26. [formats/INPUT_ACTIONS.md](formats/INPUT_ACTIONS.md)
 27. [formats/EDITOR_FORMATS.md](formats/EDITOR_FORMATS.md)
-28. [reference_engine_lessons.md](reference_engine_lessons.md)
-29. [security_model.md](security_model.md)
-30. [future_implementations.md](future_implementations.md)
+28. [formats/CYMAP.md](formats/CYMAP.md)
+29. [formats/CYGAME.md](formats/CYGAME.md)
+30. [formats/CYTHEME.md](formats/CYTHEME.md)
+31. [formats/CYKEYMAP.md](formats/CYKEYMAP.md)
+32. [formats/CYLAYOUT.md](formats/CYLAYOUT.md)
+33. [formats/CYWORKSPACE.md](formats/CYWORKSPACE.md)
+34. [formats/CYPROJECT.md](formats/CYPROJECT.md)
+35. [formats/CYSETTINGS.md](formats/CYSETTINGS.md)
+36. [formats/CYFONT.md](formats/CYFONT.md)
+37. [formats/CYPLUGIN.md](formats/CYPLUGIN.md)
+38. [reference_engine_lessons.md](reference_engine_lessons.md)
+39. [security_model.md](security_model.md)
+40. [future_implementations.md](future_implementations.md)
+41. [full_engine_plan.md](full_engine_plan.md)
 
 API docs:
 
@@ -98,6 +109,7 @@ Project memory:
 - [adr/0008-editor-framework-and-workspace-layout.md](adr/0008-editor-framework-and-workspace-layout.md)
 - [adr/0009-editor-and-map-file-identities.md](adr/0009-editor-and-map-file-identities.md)
 - [adr/0010-runtime-service-folders.md](adr/0010-runtime-service-folders.md)
+- [adr/0011-map-source-format.md](adr/0011-map-source-format.md)
 
 ## What each document is for
 
@@ -234,9 +246,33 @@ Project memory:
   - conditionals, exact numeric intent, optional non-finite values, and binary
     evolution remain proposals rather than implemented behavior
 - `formats/EDITOR_FORMATS`
-  - `.cysettings` V2, `.cyproject` V2, `.cyworkspace`, `.cytheme`, `.cykeymap`
-    (editor shortcuts), `.cylayout`, and `.cyfont` field contracts
+  - index of Mason's formats with links to each specification
   - settings scopes, per-value fallback, sparse writes, and safe file saving
+- `formats/CYGAME`
+  - what a game profile is for: entity definitions versus map instances
+  - classes, typed properties, I/O, editor helpers, includes, migrations
+- `formats/CYTHEME`
+  - complete editor token catalogue: chrome, status, viewport, grid, objects,
+    tools, gizmos, console, fonts, metrics, choices
+  - complete saves with `"auto"` derived tokens
+- `formats/CYKEYMAP`
+  - key chords, held keys, mouse gestures, platforms, and the context stack
+  - Mason's built-in keymap, which is also its command catalogue
+- `formats/CYLAYOUT`
+  - window, docks, floating windows, hidden placements, toolbars, viewport
+    grid, and panel state; layout profiles per user, project, and workspace
+- `formats/CYWORKSPACE`
+  - session state, per-map cameras, bookmarks, visibility, selection, and tool
+- `formats/CYPROJECT`
+  - V3: game profile, engine version, paths, languages, team editor
+    resources, build and cook profiles, run configurations
+- `formats/CYSETTINGS`
+  - why settings are sparse, and the complete editor settings catalogue
+- `formats/CYFONT`
+  - V2 shared editor and game fonts: faces, rendering, glyphs, metrics,
+    features, language fallbacks, cooked form
+- `formats/CYPLUGIN`
+  - plugin identity, compatibility, contributions, and permissions
 - `formats/INPUT_ACTIONS`
   - proposed `.cyinput`, `.cyinput_c`/`CYIN`, and `.cybindings` family
   - action, context, control, trigger, processor, conflict, accessibility,

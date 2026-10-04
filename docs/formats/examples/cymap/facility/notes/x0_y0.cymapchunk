@@ -1,0 +1,10 @@
+@cykv 1
+@schema "cypher.map_chunk" 10
+
+{
+    map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
+    layer = "notes"
+    cell = [ 0, 0 ]
+    info = { notes = 1 bounds = [ 0.0, 0.0, 200.0, 0.0, 0.0, 200.0 ] }
+    notes = [ { id = 300u position = [ 0.0, 0.0, 200.0 ] text = "Needs cover for wave 4." color = "#ffd84a" } ]
+}

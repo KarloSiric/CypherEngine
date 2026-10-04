@@ -625,6 +625,23 @@ void KeyValue_ClearDocument( key_value_document_t *pDocument ) noexcept
     InitializeRoot( *pDocument );
 }
 
+usize KeyValue_OwnedBytes( const key_value_document_t *pDocument ) noexcept
+{
+    if ( !KeyValue_InternalDocumentIsValid( pDocument ) ) { return 0u; }
+    usize bytes = sizeof( key_value_document_t );
+    for ( const auto *block = pDocument->pNodeBlocks; block != nullptr; block = block->pNext ) {
+        usize allocation = 0u;
+        if ( !NodeAllocationSize( block->nCapacity, allocation ) || allocation > CY_USIZE_MAX - bytes ) { return CY_USIZE_MAX; }
+        bytes += allocation;
+    }
+    for ( const auto *block = pDocument->pDataBlocks; block != nullptr; block = block->pNext ) {
+        usize allocation = 0u;
+        if ( !DataAllocationSize( block->cbCapacity, allocation ) || allocation > CY_USIZE_MAX - bytes ) { return CY_USIZE_MAX; }
+        bytes += allocation;
+    }
+    return bytes;
+}
+
 bool_t KeyValue_SetDocumentHeader(
     key_value_document_t *pDocument,
     const key_value_document_header_t &header ) noexcept
@@ -865,6 +882,17 @@ usize KeyValue_ChildCount( const key_value_t *pContainer ) noexcept
     return pContainer != nullptr && IsContainerType( pContainer->type )
         ? pContainer->nChildren
         : 0u;
+}
+
+const key_value_t *KeyValue_FirstChild( const key_value_t *pContainer ) noexcept
+{
+    return pContainer != nullptr && IsContainerType( pContainer->type )
+        ? pContainer->pFirstChild : nullptr;
+}
+
+const key_value_t *KeyValue_NextSibling( const key_value_t *pValue ) noexcept
+{
+    return pValue != nullptr && pValue->pParent != nullptr ? pValue->pNext : nullptr;
 }
 
 key_value_t *KeyValue_ChildAt(

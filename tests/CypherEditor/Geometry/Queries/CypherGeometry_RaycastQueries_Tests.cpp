@@ -22,6 +22,8 @@
 #include "CypherGeometry_IdAllocator.h"
 #include "CypherGeometry_MeshBuilder.h"
 #include "CypherGeometry_MeshTopologyOps.h"
+#include "CypherGeometry_MeshSource.h"
+#include "CypherGeometry_MeshValidation.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -70,6 +72,27 @@ struct RaycastFixture {
         BrushBoundary_Shutdown( &boundary );
         BrushSolid_Shutdown( &brush );
     }
+};
+
+struct OpenQuadFixture {
+    common::allocator_t allocator{ *common::Allocator_GetSystem() };
+    geometry_policy_t policy{};
+    mesh_source_t source{};
+
+    OpenQuadFixture()
+    {
+        mesh_source_description_t desc{};
+        REQUIRE( MeshSourceDescription_Init( &desc, &allocator, { 1200u } ) == geometry_status_t::OK );
+        const math::vec3d_t positions[]{ { 256, 256, 0 }, { 384, 256, 0 }, { 384, 384, 48 }, { 256, 384, 48 } };
+        for ( common::u32 i = 0; i < 4; ++i ) {
+            REQUIRE( MeshSourceDescription_TryAddVertex( &desc, positions[i], { 1201u + i }, nullptr ) == geometry_status_t::OK );
+        }
+        const common::u32 corners[]{ 0, 1, 2, 3 };
+        REQUIRE( MeshSourceDescription_TryAddFace( &desc, { corners, 4u }, { 1205u }, {}, nullptr ) == geometry_status_t::OK );
+        REQUIRE( MeshSource_TryBuild( &desc, &allocator, &source ) == geometry_status_t::OK );
+        MeshSourceDescription_Shutdown( &desc );
+    }
+    ~OpenQuadFixture() { MeshSource_Shutdown( &source ); }
 };
 
 struct ConcavePrismFixture {
@@ -514,6 +537,76 @@ TEST_CASE( "RaycastQueries: mesh hit retains source face and corner handles",
     RequireScratchEmpty( scratch );
 
     REQUIRE( GeometryScratch_Release( &scratch ) == geometry_status_t::OK );
+}
+
+TEST_CASE( "RaycastQueries: authored open surfaces are pickable from either side",
+           "[RaycastQueries][Queries]" )
+{
+    OpenQuadFixture f;
+    // Surface support must not silently relax the existing solid validator.
+    REQUIRE( MeshValidation_Validate( &f.source.mesh ).status == geometry_status_t::INVALID_TOPOLOGY );
+    common::usize bytes = 0;
+    REQUIRE( MeshQueries_TryGetRaycastScratchSize( &f.source.mesh, f.policy, &bytes ) == geometry_status_t::OK );
+    geometry_scratch_t scratch{};
+    std::vector<common::byte> storage;
+    REQUIRE( AcquireScratch( &scratch, &storage, bytes, &f.allocator ) == geometry_status_t::OK );
+    for ( const common::f64 side : { -1.0, 1.0 } ) {
+        const geometry_raycast_ray_t ray{ { 320, 320, 24 + side * 64 }, { 0, 0, -side } };
+        mesh_raycast_hit_t hit{};
+        REQUIRE( MeshQueries_TryRaycast( &f.source.mesh, f.source.sourceId, ray, DefaultOptions(), f.policy, &scratch, &hit ) == geometry_status_t::OK );
+        CHECK( hit.bHit );
+        CHECK( hit.fDistance == Approx( 64 ) );
+        CHECK( hit.position.z == Approx( 24 ) );
+        CHECK( hit.meshSourceId.value == 1200u );
+        RequireScratchEmpty( scratch );
+    }
+    REQUIRE( GeometryScratch_Release( &scratch ) == geometry_status_t::OK );
+}
+
+TEST_CASE( "RaycastQueries: allowing boundary twins preserves malformed topology rejection",
+           "[RaycastQueries][Queries]" )
+{
+    OpenQuadFixture f;
+    auto &mesh = f.source.mesh;
+    geometry_mesh_half_edge_handle_t first{};
+    (void)common::GenerationPool_ForEach( &mesh.halfEdges,
+        [&]( geometry_mesh_half_edge_handle_t handle, const mesh_half_edge_record_t & ) noexcept -> common::bool_t { first = handle; return false; } );
+    auto *edge = common::GenerationPool_Get( &mesh.halfEdges, first );
+    REQUIRE( edge != nullptr );
+    SECTION( "a self twin is not a boundary" ) { edge->hTwin = first; }
+    SECTION( "a stale twin is not a boundary" ) { edge->hTwin = first; ++edge->hTwin.nGeneration; }
+    SECTION( "a noncanonical absent twin is rejected" ) { edge->hTwin.nSlot = first.nSlot; edge->hTwin.nGeneration = 0u; }
+    SECTION( "a broken face loop is rejected" ) { edge->hNext = first; }
+    SECTION( "an adversarial cached loop count is rejected before traversal" ) {
+        (void)common::GenerationPool_ForEach( &mesh.loops,
+            []( geometry_mesh_loop_handle_t, mesh_loop_record_t &loop ) noexcept -> common::bool_t {
+                loop.cHalfEdges = common::CY_U32_MAX;
+                return false;
+            } );
+    }
+    SECTION( "a stale shell is rejected" ) {
+        (void)common::GenerationPool_ForEach( &mesh.faces,
+            []( geometry_mesh_face_handle_t, mesh_face_record_t &face ) noexcept -> common::bool_t { ++face.hShell.nGeneration; return false; } );
+    }
+    common::usize bytes = 99;
+    CHECK( MeshQueries_TryGetRaycastScratchSize( &mesh, f.policy, &bytes ) == geometry_status_t::INVALID_TOPOLOGY );
+    CHECK( bytes == 0u );
+    mesh_raycast_hit_t hit{};
+    hit.bHit = true;
+    CHECK( MeshQueries_TryRaycast( &mesh, f.source.sourceId, { { 320, 320, 88 }, { 0, 0, -1 } },
+        DefaultOptions(), f.policy, nullptr, &hit ) == geometry_status_t::INVALID_TOPOLOGY );
+    CHECK_FALSE( hit.bHit );
+}
+
+TEST_CASE( "RaycastQueries: a missing interior twin is not mistaken for a valid boundary",
+           "[RaycastQueries][Queries]" )
+{
+    RaycastFixture f;
+    (void)common::GenerationPool_ForEach( &f.mesh.halfEdges,
+        []( geometry_mesh_half_edge_handle_t, mesh_half_edge_record_t &edge ) noexcept -> common::bool_t { edge.hTwin = {}; return false; } );
+    common::usize bytes = 99;
+    CHECK( MeshQueries_TryGetRaycastScratchSize( &f.mesh, f.policy, &bytes ) == geometry_status_t::INVALID_TOPOLOGY );
+    CHECK( bytes == 0u );
 }
 
 TEST_CASE( "RaycastQueries: mesh scratch failure is explicit and rewound",

@@ -34,6 +34,11 @@ using undo_apply_fn_t = error_code_t ( * )(
     binary_block_t payload,
     void *pUserData ) noexcept;
 
+// Releases resources referenced by a copied payload when its journal entry
+// is discarded. Ownership transfers only after Push succeeds. This callback
+// must not re-enter the history; it never applies an edit to the live document.
+using undo_dispose_fn_t = void ( * )( binary_block_t payload, void *pUserData ) noexcept;
+
 // History copies label and payload. Callbacks and pUserData must outlive the entry.
 struct undo_operation_desc_t {
     undo_operation_id_t id{ 0u };       // Nonzero identity used by tools and diagnostics.
@@ -43,6 +48,8 @@ struct undo_operation_desc_t {
     undo_apply_fn_t pfnUndo{ nullptr }; // Applies the inverse operation.
     undo_apply_fn_t pfnRedo{ nullptr }; // Reapplies the original operation.
     void *pUserData{ nullptr };          // Borrowed callback context; never owned here.
+    undo_dispose_fn_t pfnDispose{ nullptr };
+    usize cbOwnedBytes{ 0u };            // Referenced owned memory, also charged to the payload budget.
 };
 
 struct undo_history_desc_t {
@@ -102,6 +109,38 @@ usize UndoRedo_OperationCount( const undo_history_t *pHistory ) noexcept;
 
 CYPHER_NODISCARD CYPHER_COMMON_API
 bool_t UndoRedo_IsTransactionOpen( const undo_history_t *pHistory ) noexcept;
+
+// Identifies the applied state: the newest applied group and how many of its
+// operations are applied. Undoing back to a state reproduces its token; a
+// new edit, or a merge into the newest group, produces a different one. Tools
+// compare tokens to know whether a document still matches what was saved.
+struct undo_state_token_t {
+    u64 nGroup{ 0u };    // 0 when nothing is applied.
+    usize nApplied{ 0u };
+};
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+undo_state_token_t UndoRedo_StateToken( const undo_history_t *pHistory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+bool_t UndoRedo_StateTokenEquals( undo_state_token_t a, undo_state_token_t b ) noexcept;
+
+// Groups the budgets have dropped since creation; never reset. Once the
+// oldest groups are gone, the empty state ("nothing applied") can no longer
+// be reached by undoing, which matters to anyone who marked it saved.
+CYPHER_NODISCARD CYPHER_COMMON_API
+u64 UndoRedo_EvictedGroupCount( const undo_history_t *pHistory ) noexcept;
+
+// Groups (undo steps) in the history, applied ones first, for history views.
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize UndoRedo_GroupCount( const undo_history_t *pHistory ) noexcept;
+
+CYPHER_NODISCARD CYPHER_COMMON_API
+usize UndoRedo_AppliedGroupCount( const undo_history_t *pHistory ) noexcept;
+
+// Display label of a group, oldest first; empty when out of range.
+CYPHER_NODISCARD CYPHER_COMMON_API
+string_view_t UndoRedo_GroupLabelAt( const undo_history_t *pHistory, usize iGroup ) noexcept;
 
 } // namespace cypher::common
 

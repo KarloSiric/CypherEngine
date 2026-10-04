@@ -1,0 +1,41 @@
+@cykv 1
+@schema "cypher.theme" 2
+// Bundled preset, ported from the TileEditor palette of the same name.
+// Partial on purpose: it sets the base colours and names Charcoal as its
+// base, so every derived shade follows these colours (CYTHEME.md 3).
+{
+    id = "blueprint_blue"
+    name = "Blueprint Blue"
+    author = "CypherEngine"
+    description = "Blueprint-paper 2D views with bright cyan wireframes."
+    appearance = "dark"
+    base = "charcoal"
+    colors = {
+        // Interface: base colours.
+        "ui.background" = "#263747"
+        "ui.panel" = "#1b2935"
+        "ui.text" = "#dceaf2"
+        "ui.accent" = "#e39a3b"
+
+        // Viewport: frame.
+        "viewport.active_border" = "#e05252"
+
+        // Viewport: backgrounds and grid.
+        "viewport.background.2d" = "#163047"
+        "viewport.background.3d" = "#0f1820"
+        "viewport.grid.minor" = "#21445f"
+        "viewport.grid.major" = "#3b6985"
+        "viewport.axis.x" = "#dc6666"
+        "viewport.axis.y" = "#72bd83"
+        "viewport.axis.z" = "#69aee8"
+
+        // Viewport: objects.
+        "viewport.wire.world" = "#b5d0de"
+        "viewport.wire.entity" = "#67c1ec"
+        "viewport.wire.patch" = "#72c5a4"
+        "viewport.wire.terrain" = "#edc269"
+        "viewport.face.world" = "#7e9cae"
+        "viewport.selection" = "#ffae48"
+        "viewport.selection.fill" = "#ffae4840"
+    }
+}

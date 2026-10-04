@@ -1,0 +1,267 @@
+/* CypherEditor stylesheet template (ADR 0008: themes are data).
+   Colour placeholders are theme token IDs between at-signs (for example
+   the border colour token); EditorStyle_BuildStyleSheet fills them from
+   the resolved theme, so any registered colour token can be used here.
+   Upper-case placeholders carry derived sizes and the docking icon
+   variant. Qt's CSS parser never sees a placeholder, and an unfilled one
+   fails the build's tests.
+   Pixel sizes scale with the interface font size. The look follows
+   Hammer 5: boxed, slightly raised controls on neutral grey, dark strips
+   for menus, titles and the status bar. Hover has a quiet blue surface;
+   checked tools retain their orange rim and semantic icon colours. */
+* { selection-background-color: @ui.selection@; selection-color: @ui.text.selected@; }
+QMainWindow, QDialog { background: @ui.background@; }
+QWidget:disabled { color: @ui.text.disabled@; }
+QToolTip { color: @ui.text@; background: @ui.inset@; border: 1px solid @ui.border@; padding: 5px; }
+
+/* Menus and dock chrome. */
+QMenuBar { background: @ui.chrome@; border-bottom: 1px solid @ui.edge@; padding: 1px 3px; }
+QMenuBar::item { padding: 2px 7px; }
+QMenuBar::item:selected { background: @ui.hover@; }
+QMenu { color: @ui.text@; background: @ui.background@; border: 1px solid @ui.border@; padding: 3px; }
+QMenu::item { padding: 3px 28px 3px 28px; border-left: 2px solid transparent; }
+QMenu::item:selected:enabled { background: @ui.hover@; color: @ui.text.selected@; }
+QMenu::item:disabled { color: @ui.text.disabled@; }
+QMenu::indicator { width: 14px; height: 14px; }
+QMenu::icon:checked:enabled { background: @ui.checked@; border: 1px solid @ui.accent@; }
+QMenu::right-arrow { width: 7px; height: 7px; }
+QMenu::separator { height: 1px; background: @ui.border@; margin: 4px 6px 4px 28px; }
+QMainWindow::separator { background: @ui.edge@; width: 3px; height: 3px; }
+QMainWindow::separator:hover { background: @ui.hover@; }
+QDockWidget { color: @ui.text@; border: 1px solid @ui.edge@; }
+QDockWidget::title { background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 @ui.header@, stop: 1 @ui.chrome@); border-top: 1px solid @ui.border.highlight@; border-bottom: 1px solid @ui.edge@; padding: 2px 5px; }
+QDockWidget::close-button, QDockWidget::float-button { border: 1px solid transparent; background: transparent; padding: 1px; }
+QDockWidget::close-button:hover, QDockWidget::float-button:hover { border-color: @ui.border.highlight@; background: @ui.hover@; }
+
+/* Docking (Qt Advanced Docking System). Its own stylesheet is off; these
+   rules give panels the same chrome as the rest of the editor. A panel group
+   is a title strip of tabs over its content. Only the focused tab carries
+   the accent, so dock focus does not compete with the active modeling tool. */
+ads--CDockContainerWidget { background: @ui.edge@; }
+ads--CDockContainerWidget > QSplitter { padding: 0; }
+ads--CDockSplitter::handle { background: @ui.edge@; }
+ads--CDockSplitter::handle:hover { background: @viewport.gutter.hover@; }
+ads--CDockAreaWidget { background: @ui.background@; border: 1px solid @ui.edge@; }
+ads--CDockAreaTitleBar { background: @ui.header@; border: 0; border-bottom: 1px solid @ui.edge@; min-height: 19px; }
+ads--CDockAreaWidget[focused="true"] ads--CDockAreaTitleBar { border-bottom-color: @ui.border@; }
+ads--CDockWidgetTab { background: transparent; border: 0; border-right: 1px solid @ui.edge@; border-top: 1px solid transparent; padding: 0 2px; }
+ads--CDockWidgetTab:hover { background: @ui.hover@; }
+ads--CDockWidgetTab[activeTab="true"] { background: @ui.background@; border-top-color: @ui.border@; }
+ads--CDockWidgetTab[focused="true"] { border-top-color: @ui.border@; } /* Focus changes nothing visible: Hammer's panels never light up when clicked. */
+ads--CDockWidgetTab[activeTab="true"]:hover { background: @ui.hover@; }
+ads--CDockWidgetTab QLabel { color: @ui.text.muted@; font-size: @HEADER_FONT@pt; font-weight: 400; }
+ads--CDockWidgetTab[activeTab="true"] QLabel { color: @ui.text@; }
+ads--CDockWidgetTab[focused="true"] QLabel { color: @ui.text@; }
+ads--CDockWidget { background: @ui.background@; border: 0; }
+ads--CTitleBarButton { background: transparent; border: 1px solid transparent; padding: 1px; }
+ads--CTitleBarButton:hover { background: @ui.hover@; border-color: @ui.border.highlight@; }
+#tabsMenuButton::menu-indicator { image: none; }
+#tabsMenuButton { qproperty-icon: url(:/ads/images/tabs-menu-button@ADS_ICON@.svg); qproperty-iconSize: 14px; }
+#dockAreaCloseButton { qproperty-icon: url(:/ads/images/close-button@ADS_ICON@.svg), url(:/ads/images/close-button-disabled@ADS_ICON@.svg) disabled; qproperty-iconSize: 14px; }
+#detachGroupButton { qproperty-icon: url(:/ads/images/detach-button@ADS_ICON@.svg), url(:/ads/images/detach-button-disabled@ADS_ICON@.svg) disabled; qproperty-iconSize: 14px; }
+#tabCloseButton { margin-top: 1px; background: none; border: 1px solid transparent; padding: 0; qproperty-icon: url(:/ads/images/close-button@ADS_ICON@.svg), url(:/ads/images/close-button-disabled@ADS_ICON@.svg) disabled; qproperty-iconSize: 12px; }
+#tabCloseButton:hover { border-color: @ui.border.highlight@; background: @ui.hover@; }
+#tabCloseButton:pressed { background: @ui.inset@; }
+ads--CFloatingDockContainer { background: @ui.background@; }
+ads--CFloatingWidgetTitleBar { background: @ui.header@; qproperty-maximizeIcon: url(:/ads/images/maximize-button@ADS_ICON@.svg); qproperty-normalIcon: url(:/ads/images/restore-button@ADS_ICON@.svg); }
+#floatingTitleCloseButton, #floatingTitleMaximizeButton { qproperty-iconSize: 14px; border: 1px solid transparent; background: none; }
+#floatingTitleCloseButton { qproperty-icon: url(:/ads/images/close-button@ADS_ICON@.svg); }
+#floatingTitleCloseButton:hover, #floatingTitleMaximizeButton:hover { border-color: @ui.border.highlight@; background: @ui.hover@; }
+
+/* Hammer 5's buttons, measured from its screenshots: a flat face a step
+   above the toolbar with a light rim; checked is a lighter grey face with
+   an accent rim and accent label, never an orange fill. */
+QToolBar { background: @ui.chrome@; border: 0; border-bottom: 1px solid @ui.edge@; spacing: 1px; padding: 2px 2px; }
+QToolBar::separator { background: @ui.edge@; width: 1px; height: 1px; margin: 3px; }
+QToolButton, QPushButton { background: @ui.button@; border: 1px solid @ui.border@; border-radius: 2px; padding: 2px 6px; }
+QToolButton:hover:enabled, QPushButton:hover:enabled { background: @ui.hover@; border-color: @ui.border.highlight@; }
+QToolButton:pressed:enabled, QPushButton:pressed:enabled { background: @ui.pressed@; border-color: @ui.edge@; }
+QToolButton:checked:enabled, QPushButton:checked:enabled { background: @ui.checked@; border-color: @ui.accent@; color: @ui.accent.light@; }
+QToolButton:checked:hover:enabled, QPushButton:checked:hover:enabled { background: @ui.checked.hover@; border-color: @ui.accent.light@; }
+QToolButton:disabled, QPushButton:disabled { background: @ui.button@; border-color: @ui.edge@; color: @ui.text.disabled@; }
+QPushButton:default { border-color: @ui.accent@; }
+QToolBar QToolButton { background: @ui.button@; border: 1px solid @ui.border@; border-radius: 2px; padding: @TOOLBAR_PADDING@px; margin: 0 1px 0 0; }
+QToolBar QToolButton:hover:enabled { background: @ui.hover@; border-color: @ui.border.highlight@; }
+QToolBar QToolButton:pressed:enabled { background: @ui.pressed@; border-color: @ui.edge@; }
+QToolBar QToolButton:checked:enabled { background: @ui.checked@; border-color: @ui.accent@; color: @ui.accent.light@; }
+QToolBar QToolButton:checked:hover:enabled { background: @ui.checked.hover@; border-color: @ui.accent.light@; }
+QToolBar QToolButton:disabled { background: @ui.button@; border-color: @ui.edge@; color: @ui.text.disabled@; }
+/* Split snap controls need their menu half painted by QSS as well; the
+   native subcontrol otherwise leaves a black inset beside the themed face.
+   Qt strips State_On from inactive menu subcontrols. Keep this options
+   surface neutral; the main face and outer border indicate the toggle state. */
+QToolButton[popupMode="1"] { padding-right: 16px; }
+QToolButton[popupMode="1"]::menu-button { subcontrol-origin: padding; subcontrol-position: top right; width: 12px; background: @ui.chrome@; border: 0; border-left: 1px solid @ui.border@; border-radius: 0; }
+QToolButton[popupMode="1"]::menu-button:hover:enabled { background: @ui.hover@; border-left-color: @ui.border.highlight@; }
+QToolButton[popupMode="1"]::menu-button:pressed:enabled { background: @ui.pressed@; }
+QToolButton[popupMode="1"]::menu-button:disabled { background: @ui.chrome@; border-left-color: @ui.button@; }
+QToolButton[popupMode="1"]::menu-arrow { image: url(:/ads/images/tabs-menu-button@ADS_ICON@.svg); width: 7px; height: 7px; }
+QToolBar#EditorToolStrip { background: @ui.chrome@; border: 0; border-right: 1px solid @ui.edge@; padding: 2px; }
+QToolBar#EditorToolStrip QToolButton { min-width: 22px; min-height: 22px; padding: @TOOL_PALETTE_PADDING@px; margin: 0; }
+QToolBar#EditorToolStrip QToolButton[authoringTool="true"]:checked:enabled { background: @ui.checked@; border-color: @ui.accent@; color: @ui.accent.light@; }
+QToolBar#EditorToolStrip QToolButton[authoringTool="true"]:checked:hover:enabled { background: @ui.checked.hover@; border-color: @ui.accent.light@; }
+QToolBar QLabel[toolbarLabel="true"] { color: @ui.text.muted@; padding: 0 3px; }
+QToolBar#masonSelectModes QToolButton { padding: @TOOLBAR_PADDING@px 4px; margin: 0 1px 0 0; }
+QToolBar#masonSelectModes QToolButton:checked:enabled { background: @ui.checked@; border-color: @ui.accent@; color: @ui.accent.light@; }
+QToolBar#masonSelectModes QToolButton:checked:hover:enabled { background: @ui.checked.hover@; border-color: @ui.accent.light@; }
+/* Group menus are quiet labels until opened; the arrow remains visible. */
+QToolBar QToolButton[toolbarGroup="true"] { background: transparent; color: @ui.text.muted@; border: 1px solid transparent; padding: 2px 14px 2px 5px; min-width: 0px; min-height: 22px; }
+QToolBar QToolButton[toolbarGroup="true"]:hover:enabled { background: @ui.hover@; border-color: @ui.border@; color: @ui.text@; }
+QToolBar QToolButton[toolbarGroup="true"]:pressed:enabled { background: @ui.selection@; border-color: @ui.border.highlight@; color: @ui.accent@; }
+QToolBar QToolButton[toolbarGroup="true"]::menu-indicator { subcontrol-origin: padding; subcontrol-position: right center; width: 7px; height: 7px; right: 3px; }
+QToolBar#EditorToolStrip QToolButton[authoringTool="true"]:disabled, QToolBar#masonSelectModes QToolButton:disabled { background: @ui.button@; border-color: @ui.edge@; color: @ui.text.disabled@; }
+QToolBar#masonEditingTools, QToolBar#masonViewFilters { border-left: 1px solid @ui.edge@; padding-left: 3px; }
+QToolButton#masonCommandSearch { background: @ui.inset@; color: @ui.text.muted@; border: 1px solid @ui.edge@; border-bottom-color: @ui.border@; padding: 2px 7px; }
+QToolButton#masonCommandSearch:hover:enabled { background: @ui.hover@; color: @ui.text@; border-color: @ui.border.highlight@; }
+QComboBox#masonWorkspacePreset { min-width: 86px; }
+QToolBar#masonSessionToolbar { background: @ui.chrome@; border-top: 1px solid @ui.border@; padding: 0; }
+QToolBar#masonSessionToolbar QToolButton { padding: 1px 3px; background: transparent; border-color: transparent; }
+QToolBar#masonSessionToolbar QToolButton:hover:enabled { background: @ui.hover@; border-color: @ui.border@; }
+QToolButton#masonLayoutPreset { padding: 1px 14px 1px 3px; }
+QMenu#masonLayoutMenu QToolButton { background: transparent; border: 1px solid transparent; padding: 2px; }
+QMenu#masonLayoutMenu QToolButton:hover { background: @ui.hover@; border-color: @ui.border@; }
+QMenu#masonLayoutMenu QToolButton:checked { background: @ui.checked@; border-color: @ui.accent@; }
+
+/* Viewport surface: one continuous workspace with dark gutters; pane titles
+   are compact strips, not full title bars. */
+QWidget#EditorViewGrid { background: @viewport.gutter@; }
+QSplitter#EditorViewRows::handle, QSplitter#EditorViewRow::handle { background: @viewport.gutter@; }
+QSplitter#EditorViewRows::handle:hover, QSplitter#EditorViewRow::handle:hover { background: @viewport.gutter.hover@; }
+QWidget#EditorViewHeader { background: transparent; border: 0; }
+QWidget#EditorViewHeader[active="true"] { background: transparent; }
+QWidget#EditorViewHeader QLabel { color: @ui.text.muted@; font-size: @HEADER_FONT@pt; font-weight: 500; }
+QWidget#EditorViewHeader QLabel[viewNumber="true"] { color: @ui.text.selected@; background: @ui.deepest@; border: 1px solid @ui.edge@; min-width: 15px; min-height: 14px; padding: 0 2px; font-weight: 700; }
+QWidget#EditorViewHeader QToolButton { padding: 0 2px; min-width: 14px; min-height: 15px; background: transparent; border: 1px solid transparent; color: @ui.text.muted@; font-size: @HEADER_FONT@pt; }
+QWidget#EditorViewHeader QToolButton:checked:enabled { background: @ui.checked@; border-color: @ui.accent@; color: @ui.accent.light@; }
+QWidget#EditorViewHeader QToolButton:checked:hover:enabled { background: @ui.checked.hover@; border-color: @ui.accent.light@; }
+QWidget#EditorViewHeader QToolButton:hover:enabled { background: @ui.hover@; border-color: @ui.border.highlight@; color: @ui.text@; }
+QWidget#EditorViewHeader QToolButton:disabled { background: transparent; border-color: transparent; color: @ui.text.disabled@; }
+QWidget#EditorViewHeader[active="true"] QToolButton { color: @ui.text@; }
+QWidget#EditorViewHeader QToolButton[viewOptions="true"]::menu-indicator { image: none; width: 0px; }
+QWidget#EditorViewHeader QToolButton[viewOptions="true"] { background: @ui.chrome@; border: 1px solid @ui.edge@; color: @ui.text@; padding: 1px 6px; min-height: 17px; }
+QWidget#EditorViewHeader QToolButton[viewOptions="true"]:hover:enabled { background: @ui.hover@; border-color: @ui.border.highlight@; }
+QWidget#EditorViewHeader QToolButton[viewTitle="true"] { min-width: 96px; text-align: left; }
+QSplitter::handle { background: @ui.edge@; }
+QSplitter::handle:hover { background: @viewport.gutter.hover@; }
+QSplitter#EditorViewRows::handle:vertical { background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 @viewport.gutter.light@, stop: 0.20 @viewport.gutter@, stop: 0.80 @viewport.gutter@, stop: 1 @viewport.gutter.shadow@); border: 0; }
+QSplitter#EditorViewRow::handle:horizontal { background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 @viewport.gutter.light@, stop: 0.20 @viewport.gutter@, stop: 0.80 @viewport.gutter@, stop: 1 @viewport.gutter.shadow@); border: 0; }
+QLabel#EditorViewOverlay { background: @viewport.overlay.background@; color: @ui.text.muted@; border: 1px solid @ui.border@; padding: 2px 5px; }
+
+/* Properties, lists, and compact forms. */
+QTabWidget::pane { border: 1px solid @ui.edge@; background: @ui.background@; }
+QTabBar::tab { color: @ui.text.muted@; background: @ui.chrome@; border: 1px solid @ui.edge@; padding: 4px 8px; }
+QTabBar::tab:selected { color: @ui.text@; background: @ui.panel@; border-top-color: @ui.border.highlight@; }
+QTabBar::tab:hover:enabled { background: @ui.hover@; }
+QTreeWidget, QTreeView, QListWidget, QTableWidget, QPlainTextEdit { background: @ui.panel@; border: 1px solid @ui.edge@; border-bottom-color: @ui.border@; outline: 0; alternate-background-color: @ui.row.alternate@; }
+QTreeWidget::item, QTreeView::item, QListWidget::item { min-height: 17px; padding: 1px 4px; border-left: 2px solid transparent; }
+QTreeWidget::item:selected, QTreeView::item:selected, QListWidget::item:selected { background: @ui.selection@; border-left-color: transparent; color: @ui.text.selected@; }
+QTreeWidget::item:hover:enabled, QTreeView::item:hover:enabled, QListWidget::item:hover:enabled { background: @ui.hover@; }
+/* Multi-column rows: the accent edge marks the row once, on its first cell. */
+QTreeWidget::item:selected:middle, QTreeWidget::item:selected:last, QTreeView::item:selected:middle, QTreeView::item:selected:last { border-left-color: transparent; }
+QHeaderView::section { color: @ui.text@; background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 @ui.border@, stop: 1 @ui.button@); border: 0; border-right: 1px solid @ui.edge@; border-bottom: 1px solid @ui.edge@; padding: 3px 5px; font-weight: 600; }
+QHeaderView::section:hover:enabled { background: @ui.hover@; }
+QGroupBox { border: 1px solid @ui.edge@; border-bottom-color: @ui.border@; background: @ui.chrome@; margin-top: 9px; padding: 4px 3px 3px; font-weight: 600; }
+QGroupBox::title { subcontrol-origin: margin; left: 7px; padding: 0 4px; color: @ui.text@; }
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QKeySequenceEdit { background: @ui.inset@; border: 1px solid @ui.edge@; border-bottom-color: @ui.border@; min-height: 15px; padding: 1px 4px; }
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QKeySequenceEdit:focus { border-color: @ui.focus@; }
+QLineEdit:hover:enabled, QSpinBox:hover:enabled, QDoubleSpinBox:hover:enabled, QComboBox:hover:enabled, QKeySequenceEdit:hover:enabled { background: @ui.hover@; border-color: @ui.border.highlight@; }
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled { background: @ui.inset@; color: @ui.text.disabled@; border-color: @ui.border@; }
+QCheckBox { spacing: 4px; padding: 1px 0; }
+QLabel[muted="true"] { color: @ui.text.muted@; }
+QLabel[error="true"] { color: @ui.status.error.text@; }
+
+/* Settings retain the editor theme while giving each preference room for help. */
+QTreeWidget#SettingsCategories { background: @ui.chrome@; border: 1px solid @ui.edge@; }
+QTreeWidget#SettingsCategories::item { min-height: 25px; padding: 3px 6px; }
+QLabel#SettingsPageTitle { font-size: 20px; font-weight: 600; }
+QLabel#SettingsBreadcrumb { padding-top: 2px; }
+QLabel#SettingsSectionTitle { font-weight: 600; padding: 10px 2px 4px; }
+QWidget#SettingsRow { background: @ui.panel@; border: 1px solid @ui.edge@; }
+QWidget#SettingsRow:hover { border-color: @ui.border@; }
+QLabel#SettingsScopeBadge { background: @ui.inset@; color: @ui.text.muted@; border: 1px solid @ui.edge@; padding: 2px 5px; }
+QLabel#SettingsDescription, QLabel#SettingsScopeNotice { border: 0; background: transparent; }
+QLabel#SettingsScopeNotice { color: @ui.status.warning.text@; }
+QLineEdit#SettingsSearch { min-height: 24px; padding: 3px 8px; }
+
+/* Settings > Appearance: colour rows read like the TileEditor's swatch buttons. */
+QWidget#AppearanceColorRow QToolButton { background: @ui.button@; border: 1px solid @ui.edge@; border-bottom-color: @ui.border@; padding: 1px 4px; min-height: 17px; }
+QWidget#AppearanceColorRow QToolButton:hover:enabled { background: @ui.hover@; border-color: @ui.border.highlight@; }
+/* Following the formula is the usual state, so it stays quiet; a pinned colour's raised button is what stands out. */
+QWidget#AppearanceColorRow QToolButton:checked:enabled { background: @ui.inset@; color: @ui.text.muted@; border-color: @ui.edge@; }
+QWidget#AppearanceColorRow QToolButton:disabled { color: @ui.text.disabled@; background: @ui.chrome@; }
+QGroupBox#AppearanceThemeStudio { background: @ui.header@; }
+QLabel#EditorPanelPlaceholder { color: @ui.text.muted@; background: @ui.panel@; padding: 12px; }
+
+/* Collapsible panel sections (Hammer 5's Tool Properties). */
+/* Hammer: a recessed dark strip, the title bold and centred, the collapse
+   marker in a small box at the right. */
+QWidget#EditorSectionHeader { background: @ui.deepest@; border: 1px solid @ui.edge@; margin: 2px 2px 0 2px; }
+QWidget#EditorSectionHeader:hover { background: @ui.hover@; }
+QLabel#EditorSectionTitle { color: @ui.text@; font-weight: 700; qproperty-alignment: AlignCenter; }
+QLabel#EditorSectionMarker { color: @ui.text@; font-weight: 700; background: @ui.button@; border: 1px solid @ui.edge@; min-width: 13px; max-width: 13px; qproperty-alignment: AlignCenter; }
+QWidget#EditorSectionBody { background: @ui.background@; }
+QLabel#MapToolTitle { font-weight: 600; color: @ui.text@; }
+QLabel#MapToolSelection { color: @ui.text.muted@; }
+QToolButton#MapToolOperation { padding: 2px; }
+QLabel#MapToolUnavailable { color: @ui.status.warning.text@; background: @ui.status.warning.background@; border: 1px solid @ui.status.warning.border@; padding: 3px 5px; }
+QTreeWidget#MapToolKeys { border: 0; }
+QTreeWidget#MapToolKeys::item { min-height: 16px; padding: 1px 3px; }
+QWidget#MapToolProperties QPushButton { padding: 3px 5px; }
+QLabel#MapMaterialPreview { background: @ui.deepest@; border: 1px solid @ui.edge@; }
+QLabel#MapPropertiesTitle { color: @ui.text.selected@; background: @ui.inset@; border: 1px solid @ui.edge@; border-left: 3px solid @ui.accent@; padding: 3px 6px; }
+QLabel#MapPropertiesHelp { background: @ui.chrome@; border: 1px solid @ui.edge@; padding: 5px; color: @ui.text.muted@; }
+QWidget#EditorToolPalette QToolButton { min-width: 22px; min-height: 22px; padding: @TOOL_PALETTE_PADDING@px; }
+QScrollArea#EditorToolPaletteScroll, QWidget#EditorToolPalette { border: 0; background: @ui.chrome@; }
+QFrame#EditorToolPaletteDivider { background: transparent; border: 0; border-top: 1px solid @ui.edge@; margin: 0 4px; }
+QTreeWidget#MapOutlinerTree { background: @ui.panel@; border: 0; show-decoration-selected: 1; }
+QTreeWidget#MapOutlinerTree::item { min-height: 18px; padding: 2px 3px; }
+QWidget#MapOutlinerFilters { background: @ui.chrome@; border-bottom: 1px solid @ui.edge@; }
+QWidget#MapOutlinerFilters QToolButton { padding: 2px; background: transparent; border-color: transparent; }
+QWidget#MapOutlinerFilters QToolButton:checked:enabled { background: @ui.checked@; border-color: @ui.accent@; }
+QWidget#MapOutlinerFilters QToolButton:hover:enabled { background: @ui.hover@; border-color: @ui.border.highlight@; }
+QWidget#MapOutlinerFilters QToolButton:checked:hover:enabled { background: @ui.checked.hover@; border-color: @ui.accent.light@; }
+QLabel#MapOutlinerStatus { color: @ui.text.muted@; background: @ui.chrome@; border-top: 1px solid @ui.edge@; padding: 3px 5px; }
+
+/* Asset browsing uses the same quiet panel hierarchy, with category tabs
+   distinct from content thumbnails and the folder tree. */
+QWidget#AssetBrowserToolbar, QWidget#EditorConsoleToolbar { background: @ui.chrome@; border-bottom: 1px solid @ui.edge@; }
+QWidget#AssetBrowserToolbar QToolButton, QWidget#EditorConsoleToolbar QToolButton { background: transparent; border-color: transparent; padding: 2px 4px; }
+QWidget#AssetBrowserToolbar QToolButton:hover:enabled, QWidget#EditorConsoleToolbar QToolButton:hover:enabled { background: @ui.hover@; border-color: @ui.border.highlight@; }
+QWidget#AssetBrowserToolbar QToolButton:checked:enabled, QWidget#EditorConsoleToolbar QToolButton:checked:enabled { background: @ui.checked@; border-color: @ui.accent@; color: @ui.accent.light@; }
+QWidget#AssetBrowserToolbar QToolButton:checked:hover:enabled, QWidget#EditorConsoleToolbar QToolButton:checked:hover:enabled { background: @ui.checked.hover@; border-color: @ui.accent.light@; }
+QTabBar#AssetBrowserTabs::tab { border-top: 0; border-bottom: 2px solid transparent; padding: 4px 8px; }
+QTabBar#AssetBrowserTabs::tab:selected { background: @ui.panel@; border-bottom-color: @ui.border.highlight@; }
+QTabBar#AssetBrowserTabs::tab:hover:enabled { background: @ui.hover@; }
+QTreeView#AssetBrowserFolders { border: 0; border-right: 1px solid @ui.edge@; }
+QListView#AssetBrowserView { background: @ui.panel@; border: 0; outline: 0; }
+QLabel#AssetBrowserStatus { background: @ui.chrome@; border-top: 1px solid @ui.edge@; padding: 2px 5px; }
+
+/* Welcome window: TrenchBroom's split, the introduction on a darker strip. */
+QWidget#MasonWelcomeIntro { background: @ui.chrome@; border-right: 1px solid @ui.edge@; }
+QLabel#MasonWelcomeRecentTitle { background: @ui.header@; color: @ui.text@; font-weight: 700; padding: 6px 10px; border-bottom: 1px solid @ui.edge@; }
+QListWidget#MasonWelcomeRecent { border: 0; }
+QListWidget#MasonWelcomeRecent::item { padding: 6px 8px; border-left: 2px solid transparent; }
+
+/* Command palette: a floating search box over the window. */
+QFrame#EditorCommandPalette { background: @ui.background@; border: 1px solid @ui.accent@; border-radius: 0; }
+QLineEdit#EditorCommandPaletteQuery { background: @ui.inset@; border: 1px solid @ui.edge@; min-height: 20px; padding: 2px 6px; }
+QListWidget#EditorCommandPaletteList { background: @ui.panel@; border: 0; }
+QListWidget#EditorCommandPaletteList::item { min-height: 20px; padding: 1px 6px; }
+
+/* Console and status bar stay visually quiet. */
+QWidget#EditorConsoleInputRow { background: @ui.inset@; border-top: 1px solid @ui.border@; }
+QPlainTextEdit#EditorConsoleOutput { background: @console.background@; border: 0; padding: 5px; }
+QLineEdit#EditorConsoleInput { background: transparent; border: 0; }
+QLabel#EditorConsolePrompt { color: @console.prompt@; font-weight: 700; padding-left: 4px; }
+QStatusBar { background: @ui.chrome@; border-top: 1px solid @ui.edge@; min-height: 30px; }
+/* Icon-only buttons sized from their icon: padding stays small at every density. */
+QToolButton[compactIcon="true"] { padding: 1px; min-width: 0px; min-height: 0px; }
+QStatusBar QLabel { color: @ui.text.muted@; padding: 0 6px; border-left: 1px solid @ui.edge@; }
+
+QScrollBar:vertical { background: @ui.inset@; width: 9px; }
+QScrollBar:horizontal { background: @ui.inset@; height: 9px; }
+QScrollBar::handle:vertical { background: @ui.border@; min-height: 28px; }
+QScrollBar::handle:horizontal { background: @ui.border@; min-width: 28px; }
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover { background: @ui.hover@; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }

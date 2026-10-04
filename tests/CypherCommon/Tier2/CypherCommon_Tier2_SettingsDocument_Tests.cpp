@@ -289,3 +289,62 @@ TEST_CASE( "Setting colours parse both forms and format canonically",
     REQUIRE( SettingColor_Format( 0x1A2B3C80u, text ) == 9u );
     REQUIRE( std::string( text ) == "#1a2b3c80" );
 }
+
+TEST_CASE( "Settings writes propagate allocation failures and preserve the output and authored tree",
+           "[CypherCommon][Tier2][SettingsDocument][allocation]" )
+{
+    struct audit_t {
+        usize calls{}, bytes{}, failAt{ CY_USIZE_MAX };
+        allocator_t allocator{};
+        audit_t()
+        {
+            allocator.pUserData = this;
+            allocator.pfnAllocate = []( void *context, usize size, usize alignment ) noexcept -> void * {
+                auto &audit = *static_cast<audit_t *>( context );
+                if ( audit.calls++ == audit.failAt ) { return nullptr; }
+                void *pMemory = Allocator_Allocate( Allocator_GetSystem(), size, alignment );
+                if ( pMemory != nullptr ) { audit.bytes += size; }
+                return pMemory;
+            };
+            allocator.pfnFree = []( void *context, void *pMemory, usize size, usize alignment ) noexcept {
+                if ( pMemory != nullptr ) { static_cast<audit_t *>( context )->bytes -= size; }
+                Allocator_Free( Allocator_GetSystem(), pMemory, size, alignment );
+            };
+        }
+    } audit;
+    {
+        settings_document_t store{};
+        REQUIRE( SettingsDocument_Init( &store, &audit.allocator, kIdentity ) == settings_document_status_t::OK );
+        REQUIRE( SettingsDocument_Load( &store, View(
+            "@cykv 1\n@schema \"cypher.test_settings\" 2\n"
+            "{ editor = { grid = 32 } future = { text = \"user\\nmetadata\" } }" ) ).status == settings_document_status_t::OK );
+        text_buffer_t output{};
+        REQUIRE( TextBuffer_Init( &output, &audit.allocator, 1024u ) );
+        audit.calls = 0u;
+        REQUIRE( SettingsDocument_Write( &store, &output ) == settings_document_status_t::OK );
+        const usize allocations = audit.calls;
+        REQUIRE( allocations > 1u ); // Includes string escaping in both writer passes.
+        REQUIRE( TextBuffer_Assign( &output, View( "previous output" ) ) );
+        const usize baselineBytes = audit.bytes;
+        const auto *pOriginal = store.pDocument;
+        const setting_descriptor_t grid = IntegerSetting( "editor.grid", 16, 1, 1024 );
+        for ( usize failure = 0u; failure < allocations; ++failure ) {
+            CAPTURE( failure, allocations );
+            audit.calls = 0u; audit.failAt = failure;
+            const auto status = SettingsDocument_Write( &store, &output );
+            audit.failAt = CY_USIZE_MAX;
+            CHECK( status == settings_document_status_t::OUT_OF_MEMORY );
+            CHECK( Text( output ) == "previous output" );
+            CHECK( store.pDocument == pOriginal );
+            CHECK( audit.bytes == baselineBytes );
+            setting_value_t value{};
+            REQUIRE( Setting_Read( SettingsDocument_Root( &store ), grid, &value, nullptr ) == setting_read_status_t::VALUE );
+            CHECK( value.nValue == 32 );
+            const auto *pFuture = KeyValue_Find( SettingsDocument_Root( &store ), View( "future" ) );
+            string_view_t text{};
+            REQUIRE( KeyValue_GetString( KeyValue_Find( pFuture, View( "text" ) ), &text ) );
+            CHECK( StringView_Equals( text, View( "user\nmetadata" ) ) );
+        }
+    }
+    CHECK( audit.bytes == 0u );
+}

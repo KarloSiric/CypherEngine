@@ -50,6 +50,7 @@ CYPHER_NODISCARD string_view_t SectionName( theme_token_kind_t kind ) noexcept
         case theme_token_kind_t::COLOR: return ThemeText( "colors" );
         case theme_token_kind_t::FONT: return ThemeText( "fonts" );
         case theme_token_kind_t::METRIC: return ThemeText( "metrics" );
+        case theme_token_kind_t::CHOICE: return ThemeText( "choices" );
     }
     return ThemeText( "colors" );
 }
@@ -100,11 +101,29 @@ CYPHER_NODISCARD bool_t ReadNumber( const key_value_t *pValue, f64 &valueOut ) n
 
 enum class read_t : u8 { VALUE, ABSENT, INVALID };
 
+// "auto" reads as absent: the token passes on to the base theme and, at the
+// end of the chain, to its formula.
 CYPHER_NODISCARD read_t ReadColor( const key_value_t *pEntry, u32 &rgbaOut ) noexcept
 {
     if ( pEntry == nullptr ) { return read_t::ABSENT; }
     string_view_t text{};
-    return KeyValue_GetString( pEntry, &text ) && SettingColor_Parse( text, &rgbaOut ) ? read_t::VALUE : read_t::INVALID;
+    if ( !KeyValue_GetString( pEntry, &text ) ) { return read_t::INVALID; }
+    if ( StringView_Equals( text, ThemeText( "auto" ) ) ) { return read_t::ABSENT; }
+    return SettingColor_Parse( text, &rgbaOut ) ? read_t::VALUE : read_t::INVALID;
+}
+
+CYPHER_NODISCARD read_t ReadChoice( const key_value_t *pEntry, const theme_token_t &token, string_view_t &valueOut ) noexcept
+{
+    if ( pEntry == nullptr ) { return read_t::ABSENT; }
+    string_view_t text{};
+    if ( !KeyValue_GetString( pEntry, &text ) ) { return read_t::INVALID; }
+    for ( usize i = 0u; i < token.nChoices; ++i ) {
+        if ( StringView_Equals( text, StringView_FromCString( token.ppChoices[i] ) ) ) {
+            valueOut = text;
+            return read_t::VALUE;
+        }
+    }
+    return read_t::INVALID;
 }
 
 CYPHER_NODISCARD read_t ReadMetric( const key_value_t *pEntry, const theme_token_t &token, f64 &valueOut ) noexcept
@@ -185,8 +204,158 @@ CYPHER_NODISCARD bool_t TokenDefaultValid( const theme_token_t &token ) noexcept
         case theme_token_kind_t::METRIC:
             return std::isfinite( token.flMin ) && std::isfinite( token.flMax ) && token.flMin <= token.flMax &&
                    token.flDefault >= token.flMin && token.flDefault <= token.flMax;
+        case theme_token_kind_t::CHOICE: {
+            if ( token.ppChoices == nullptr || token.nChoices == 0u || token.nChoices > EDITOR_THEME_MAX_CHOICES ||
+                 token.pChoiceDefault == nullptr ) {
+                return CY_FALSE;
+            }
+            for ( usize i = 0u; i < token.nChoices; ++i ) {
+                if ( token.ppChoices[i] != nullptr && std::strcmp( token.ppChoices[i], token.pChoiceDefault ) == 0 ) { return CY_TRUE; }
+            }
+            return CY_FALSE;
+        }
     }
     return CY_FALSE;
+}
+
+CYPHER_NODISCARD bool_t DeriveValid( const theme_derive_t &derive ) noexcept
+{
+    switch ( derive.op ) {
+        case theme_derive_op_t::NONE: return CY_TRUE;
+        case theme_derive_op_t::COPY: return derive.pA != nullptr;
+        case theme_derive_op_t::MIX: return derive.pA != nullptr && derive.pB != nullptr && derive.flAmount >= 0.0 && derive.flAmount <= 1.0;
+        case theme_derive_op_t::LIGHTER:
+        case theme_derive_op_t::DARKER: return derive.pA != nullptr && derive.flAmount > 0.0;
+        case theme_derive_op_t::MIX_STATUS:
+            return derive.pA != nullptr && derive.flAmount >= 0.0 && derive.flAmount <= 1.0 && derive.flHue >= 0.0 && derive.flHue < 1.0;
+    }
+    return CY_FALSE;
+}
+
+// ---------------------------------------------------------------------------
+// Colour arithmetic for derived tokens. Mixing matches the Qt editor's
+// QColor::fromRgbF rounding and lighter/darker follow QColor's HSV rule, so
+// a derived token resolves to the same value the GUI used to compute.
+// ---------------------------------------------------------------------------
+
+struct rgb_t {
+    f64 r{ 0.0 };
+    f64 g{ 0.0 };
+    f64 b{ 0.0 };
+    f64 a{ 1.0 };
+};
+
+CYPHER_NODISCARD rgb_t ToRgb( u32 rgba ) noexcept
+{
+    return { ( ( rgba >> 24u ) & 0xFFu ) / 255.0, ( ( rgba >> 16u ) & 0xFFu ) / 255.0, ( ( rgba >> 8u ) & 0xFFu ) / 255.0,
+             ( rgba & 0xFFu ) / 255.0 };
+}
+
+// QColor stores 16-bit channels (rounded from float) and reports 8-bit ones
+// as the high byte.
+CYPHER_NODISCARD u32 Channel8( f64 value ) noexcept
+{
+    const f32 clamped = static_cast<f32>( value < 0.0 ? 0.0 : ( value > 1.0 ? 1.0 : value ) );
+    const u32 wide = static_cast<u32>( clamped * 65535.0f + 0.5f );
+    return wide >> 8u;
+}
+
+CYPHER_NODISCARD u32 FromRgb( const rgb_t &c ) noexcept
+{
+    return ( Channel8( c.r ) << 24u ) | ( Channel8( c.g ) << 16u ) | ( Channel8( c.b ) << 8u ) | Channel8( c.a );
+}
+
+CYPHER_NODISCARD u32 Mix( u32 a, u32 b, f64 t ) noexcept
+{
+    const rgb_t ca = ToRgb( a );
+    const rgb_t cb = ToRgb( b );
+    // Derived colours are opaque, as the Qt blend was.
+    return FromRgb( { ca.r + ( cb.r - ca.r ) * t, ca.g + ( cb.g - ca.g ) * t, ca.b + ( cb.b - ca.b ) * t, 1.0 } );
+}
+
+struct hsv_t {
+    f64 h{ 0.0 }; // 0..1
+    f64 s{ 0.0 };
+    f64 v{ 0.0 };
+};
+
+CYPHER_NODISCARD hsv_t ToHsv( const rgb_t &c ) noexcept
+{
+    const f64 maxC = std::fmax( c.r, std::fmax( c.g, c.b ) );
+    const f64 minC = std::fmin( c.r, std::fmin( c.g, c.b ) );
+    const f64 delta = maxC - minC;
+    hsv_t hsv{ 0.0, maxC > 0.0 ? delta / maxC : 0.0, maxC };
+    if ( delta > 0.0 ) {
+        if ( maxC == c.r ) { hsv.h = std::fmod( ( c.g - c.b ) / delta, 6.0 ); }
+        else if ( maxC == c.g ) { hsv.h = ( c.b - c.r ) / delta + 2.0; }
+        else { hsv.h = ( c.r - c.g ) / delta + 4.0; }
+        hsv.h /= 6.0;
+        if ( hsv.h < 0.0 ) { hsv.h += 1.0; }
+    }
+    return hsv;
+}
+
+CYPHER_NODISCARD rgb_t FromHsv( const hsv_t &hsv, f64 alpha ) noexcept
+{
+    const f64 h = hsv.h * 6.0;
+    const f64 c = hsv.v * hsv.s;
+    const f64 x = c * ( 1.0 - std::fabs( std::fmod( h, 2.0 ) - 1.0 ) );
+    const f64 m = hsv.v - c;
+    f64 r = 0.0;
+    f64 g = 0.0;
+    f64 b = 0.0;
+    if ( h < 1.0 ) { r = c; g = x; }
+    else if ( h < 2.0 ) { r = x; g = c; }
+    else if ( h < 3.0 ) { g = c; b = x; }
+    else if ( h < 4.0 ) { g = x; b = c; }
+    else if ( h < 5.0 ) { r = x; b = c; }
+    else { r = c; b = x; }
+    return { r + m, g + m, b + m, alpha };
+}
+
+// QColor::lighter: value scaled by the factor; overflow drains saturation.
+CYPHER_NODISCARD u32 Lighter( u32 rgba, f64 percent ) noexcept
+{
+    const rgb_t c = ToRgb( rgba );
+    hsv_t hsv = ToHsv( c );
+    f64 v = hsv.v * percent / 100.0;
+    if ( v > 1.0 ) {
+        hsv.s = std::fmax( 0.0, hsv.s - ( v - 1.0 ) );
+        v = 1.0;
+    }
+    hsv.v = v;
+    return FromRgb( FromHsv( hsv, c.a ) );
+}
+
+CYPHER_NODISCARD u32 Darker( u32 rgba, f64 percent ) noexcept
+{
+    const rgb_t c = ToRgb( rgba );
+    hsv_t hsv = ToHsv( c );
+    hsv.v = hsv.v * 100.0 / percent;
+    return FromRgb( FromHsv( hsv, c.a ) );
+}
+
+CYPHER_NODISCARD f64 HslLightness( const rgb_t &c ) noexcept
+{
+    return ( std::fmax( c.r, std::fmax( c.g, c.b ) ) + std::fmin( c.r, std::fmin( c.g, c.b ) ) ) * 0.5;
+}
+
+CYPHER_NODISCARD f64 HslSaturation( const rgb_t &c ) noexcept
+{
+    const f64 maxC = std::fmax( c.r, std::fmax( c.g, c.b ) );
+    const f64 minC = std::fmin( c.r, std::fmin( c.g, c.b ) );
+    const f64 l = ( maxC + minC ) * 0.5;
+    const f64 delta = maxC - minC;
+    if ( delta <= 0.0 ) { return 0.0; }
+    return delta / ( 1.0 - std::fabs( 2.0 * l - 1.0 ) );
+}
+
+CYPHER_NODISCARD u32 FromHsl( f64 h, f64 s, f64 l ) noexcept
+{
+    const f64 c = ( 1.0 - std::fabs( 2.0 * l - 1.0 ) ) * s;
+    const f64 v = l + c * 0.5;
+    const f64 sv = v > 0.0 ? 2.0 * ( 1.0 - l / v ) : 0.0;
+    return FromRgb( FromHsv( { h, sv, v }, 1.0 ) );
 }
 
 CYPHER_NODISCARD bool_t IsThemeId( string_view_t id ) noexcept
@@ -218,7 +387,7 @@ theme_status_t EditorThemeRegistry_Register(
     // Validate the whole table first so registration is all or nothing.
     for ( usize iToken = 0u; iToken < nTokens; ++iToken ) {
         const string_view_t id = StringView_FromCString( pTokens[iToken].pId != nullptr ? pTokens[iToken].pId : "" );
-        if ( !IsTokenId( id ) || !TokenDefaultValid( pTokens[iToken] ) ) {
+        if ( !IsTokenId( id ) || !TokenDefaultValid( pTokens[iToken] ) || !DeriveValid( pTokens[iToken].derive ) ) {
             return theme_status_t::INVALID_ARGUMENT;
         }
         if ( EditorThemeRegistry_Find( pRegistry, id ) != nullptr ) {
@@ -268,7 +437,7 @@ const theme_token_t *EditorThemeRegistry_Find( const theme_registry_t *pRegistry
 
 settings_document_identity_t EditorTheme_Identity() noexcept
 {
-    return { ThemeText( "cypher.theme" ), EDITOR_THEME_SCHEMA_VERSION, EDITOR_THEME_SCHEMA_VERSION };
+    return { ThemeText( "cypher.theme" ), EDITOR_THEME_OLDEST_SCHEMA_VERSION, EDITOR_THEME_SCHEMA_VERSION };
 }
 
 theme_header_t EditorTheme_Header( const key_value_t *pThemeRoot ) noexcept
@@ -285,6 +454,14 @@ theme_header_t EditorTheme_Header( const key_value_t *pThemeRoot ) noexcept
     if ( KeyValue_GetString( KeyValue_Find( pThemeRoot, ThemeText( "base" ) ), &text ) && IsThemeId( text ) ) {
         header.base = text;
     }
+    if ( KeyValue_GetString( KeyValue_Find( pThemeRoot, ThemeText( "author" ) ), &text ) && text.cchLength <= 128u ) {
+        header.author = text;
+    }
+    if ( KeyValue_GetString( KeyValue_Find( pThemeRoot, ThemeText( "description" ) ), &text ) && text.cchLength <= 1024u ) {
+        header.description = text;
+    }
+    header.bLight = KeyValue_GetString( KeyValue_Find( pThemeRoot, ThemeText( "appearance" ) ), &text ) &&
+                    StringView_Equals( text, ThemeText( "light" ) );
     return header;
 }
 
@@ -404,6 +581,177 @@ f64 EditorTheme_ResolveMetric(
     return flValue;
 }
 
+namespace
+{
+
+CYPHER_NODISCARD u32 ResolveDerived(
+    const theme_registry_t *pRegistry,
+    const key_value_t *const *ppChain,
+    usize nChain,
+    const theme_token_t &token,
+    usize depth,
+    theme_resolution_t &resolution ) noexcept;
+
+// A formula operand: a colour literal, or another token resolved fully.
+CYPHER_NODISCARD bool_t ResolveOperand(
+    const theme_registry_t *pRegistry,
+    const key_value_t *const *ppChain,
+    usize nChain,
+    const char *pOperand,
+    usize depth,
+    theme_resolution_t &resolution,
+    u32 &rgbaOut ) noexcept
+{
+    const string_view_t operand = StringView_FromCString( pOperand );
+    if ( operand.cchLength != 0u && operand.pData[0] == '#' ) { return SettingColor_Parse( operand, &rgbaOut ); }
+    const theme_token_t *pToken = EditorThemeRegistry_Find( pRegistry, operand );
+    if ( pToken == nullptr || pToken->kind != theme_token_kind_t::COLOR ) { return CY_FALSE; }
+    // An invalid value in an operand is that token's problem and is counted
+    // when that token resolves; counting it again for every formula that
+    // uses it would inflate the theme editor's count.
+    theme_resolution_t inner{};
+    rgbaOut = ResolveDerived( pRegistry, ppChain, nChain, *pToken, depth + 1u, inner );
+    ( void )resolution;
+    return depth + 1u < EDITOR_THEME_MAX_DERIVE_DEPTH;
+}
+
+u32 ResolveDerived(
+    const theme_registry_t *pRegistry,
+    const key_value_t *const *ppChain,
+    usize nChain,
+    const theme_token_t &token,
+    usize depth,
+    theme_resolution_t &resolution ) noexcept
+{
+    const u32 own = EditorTheme_ResolveColor( ppChain, nChain, token, &resolution );
+    if ( resolution.iSource != CY_INVALID_SIZE || token.derive.op == theme_derive_op_t::NONE ) { return own; }
+    if ( depth >= EDITOR_THEME_MAX_DERIVE_DEPTH ) { return token.rgbaDefault; } // A cycle in the formulas.
+    const theme_derive_t &derive = token.derive;
+    u32 a = 0u;
+    u32 b = 0u;
+    if ( !ResolveOperand( pRegistry, ppChain, nChain, derive.pA, depth, resolution, a ) ) { return token.rgbaDefault; }
+    switch ( derive.op ) {
+        case theme_derive_op_t::NONE: break;
+        case theme_derive_op_t::COPY: return a;
+        case theme_derive_op_t::MIX:
+            if ( !ResolveOperand( pRegistry, ppChain, nChain, derive.pB, depth, resolution, b ) ) { return token.rgbaDefault; }
+            return Mix( a, b, derive.flAmount );
+        case theme_derive_op_t::LIGHTER: return Lighter( a, derive.flAmount );
+        case theme_derive_op_t::DARKER: return Darker( a, derive.flAmount );
+        case theme_derive_op_t::MIX_STATUS: {
+            // Status hues keep their meaning in every theme; saturation
+            // follows the accent and lightness the background.
+            u32 accent = 0u;
+            u32 background = 0u;
+            if ( !ResolveOperand( pRegistry, ppChain, nChain, "ui.accent", depth, resolution, accent ) ||
+                 !ResolveOperand( pRegistry, ppChain, nChain, "ui.background", depth, resolution, background ) ) {
+                return token.rgbaDefault;
+            }
+            const f64 accentSaturation = HslSaturation( ToRgb( accent ) );
+            const f64 saturation = accentSaturation < 0.05 ? 0.70 : std::fmin( 0.90, std::fmax( 0.58, accentSaturation ) );
+            const f64 lightness = HslLightness( ToRgb( background ) ) < 0.5 ? 0.68 : 0.36;
+            return Mix( a, FromHsl( derive.flHue, saturation, lightness ), derive.flAmount );
+        }
+    }
+    return token.rgbaDefault;
+}
+
+} // namespace
+
+u32 EditorTheme_ResolveColorIn(
+    const theme_registry_t *pRegistry,
+    const key_value_t *const *ppChain,
+    usize nChain,
+    const theme_token_t &token,
+    theme_resolution_t *pResolutionOut ) noexcept
+{
+    theme_resolution_t resolution{};
+    const u32 rgba = ResolveDerived( pRegistry, ppChain, nChain, token, 0u, resolution );
+    if ( pResolutionOut != nullptr ) { *pResolutionOut = resolution; }
+    return rgba;
+}
+
+string_view_t EditorTheme_ResolveChoice(
+    const key_value_t *const *ppChain,
+    usize nChain,
+    const theme_token_t &token,
+    theme_resolution_t *pResolutionOut ) noexcept
+{
+    theme_resolution_t resolution{};
+    string_view_t value = StringView_FromCString( token.pChoiceDefault != nullptr ? token.pChoiceDefault : "" );
+    const string_view_t id = StringView_FromCString( token.pId );
+    for ( usize iTheme = 0u; token.kind == theme_token_kind_t::CHOICE && ppChain != nullptr && iTheme < nChain; ++iTheme ) {
+        string_view_t text{};
+        const read_t read = ReadChoice( FindEntry( ppChain[iTheme], theme_token_kind_t::CHOICE, id ), token, text );
+        if ( read == read_t::VALUE ) { value = text; resolution.iSource = iTheme; break; }
+        if ( read == read_t::INVALID ) { ++resolution.nInvalidSkipped; }
+    }
+    if ( pResolutionOut != nullptr ) { *pResolutionOut = resolution; }
+    return value;
+}
+
+theme_status_t EditorTheme_SetDetails(
+    settings_document_t *pTheme,
+    string_view_t author,
+    string_view_t description,
+    bool_t bLight ) noexcept
+{
+    if ( !SettingsDocument_IsInitialized( pTheme ) || author.cchLength > 128u || description.cchLength > 1024u ) {
+        return theme_status_t::INVALID_ARGUMENT;
+    }
+    const struct { const char *pKey; string_view_t value; } fields[]{
+        { "author", author },
+        { "description", description },
+        { "appearance", bLight ? ThemeText( "light" ) : ThemeText( "dark" ) },
+    };
+    for ( const auto &field : fields ) {
+        settings_path_t path{};
+        if ( !SettingsPath_Append( &path, StringView_FromCString( field.pKey ) ) ) { return theme_status_t::INVALID_ARGUMENT; }
+        if ( field.value.cchLength == 0u ) {
+            const theme_status_t removed = FromStore( SettingsDocument_Remove( pTheme, path ) );
+            if ( removed != theme_status_t::OK ) { return removed; }
+            continue;
+        }
+        key_value_t *pNode = nullptr;
+        const theme_status_t ensured = FromStore( SettingsDocument_Ensure( pTheme, path, &pNode ) );
+        if ( ensured != theme_status_t::OK ) { return ensured; }
+        if ( !KeyValue_SetString( pTheme->pDocument, pNode, field.value ) ) { return theme_status_t::OUT_OF_MEMORY; }
+    }
+    return theme_status_t::OK;
+}
+
+theme_status_t EditorTheme_SetColorAuto( settings_document_t *pTheme, const theme_token_t &token ) noexcept
+{
+    settings_path_t path{};
+    if ( !SettingsDocument_IsInitialized( pTheme ) || token.kind != theme_token_kind_t::COLOR || !EntryPath( token.kind, token.pId, path ) ) {
+        return theme_status_t::INVALID_ARGUMENT;
+    }
+    key_value_t *pNode = nullptr;
+    const theme_status_t ensured = FromStore( SettingsDocument_Ensure( pTheme, path, &pNode ) );
+    if ( ensured != theme_status_t::OK ) { return ensured; }
+    return KeyValue_SetString( pTheme->pDocument, pNode, ThemeText( "auto" ) ) ? theme_status_t::OK : theme_status_t::OUT_OF_MEMORY;
+}
+
+theme_status_t EditorTheme_SetChoice(
+    settings_document_t *pTheme,
+    const theme_token_t &token,
+    string_view_t value,
+    string_view_t inherited ) noexcept
+{
+    settings_path_t path{};
+    if ( !SettingsDocument_IsInitialized( pTheme ) || token.kind != theme_token_kind_t::CHOICE || !EntryPath( token.kind, token.pId, path ) ) {
+        return theme_status_t::INVALID_ARGUMENT;
+    }
+    bool_t bListed = CY_FALSE;
+    for ( usize i = 0u; i < token.nChoices && !bListed; ++i ) { bListed = StringView_Equals( value, StringView_FromCString( token.ppChoices[i] ) ); }
+    if ( !bListed ) { return theme_status_t::INVALID_ARGUMENT; }
+    if ( StringView_Equals( value, inherited ) ) { return FromStore( SettingsDocument_Remove( pTheme, path ) ); }
+    key_value_t *pNode = nullptr;
+    const theme_status_t ensured = FromStore( SettingsDocument_Ensure( pTheme, path, &pNode ) );
+    if ( ensured != theme_status_t::OK ) { return ensured; }
+    return KeyValue_SetString( pTheme->pDocument, pNode, value ) ? theme_status_t::OK : theme_status_t::OUT_OF_MEMORY;
+}
+
 theme_status_t EditorTheme_SetHeader(
     settings_document_t *pTheme,
     string_view_t id,
@@ -517,6 +865,86 @@ theme_status_t EditorTheme_SetMetric(
     return KeyValue_SetF64( pTheme->pDocument, pNode, flValue ) ? theme_status_t::OK : theme_status_t::OUT_OF_MEMORY;
 }
 
+theme_status_t EditorTheme_WriteComplete(
+    settings_document_t *pTheme,
+    const theme_registry_t *pRegistry,
+    const theme_token_t *const *ppTokens,
+    usize nTokens,
+    const key_value_t *const *ppChain,
+    usize nChain ) noexcept
+{
+    if ( !SettingsDocument_IsInitialized( pTheme ) || ( ppTokens == nullptr && nTokens != 0u ) ) { return theme_status_t::INVALID_ARGUMENT; }
+    for ( usize i = 0u; i < nTokens; ++i ) {
+        const theme_token_t &token = *ppTokens[i];
+        theme_status_t status = theme_status_t::OK;
+        switch ( token.kind ) {
+            case theme_token_kind_t::COLOR: {
+                theme_resolution_t own{};
+                ( void )EditorTheme_ResolveColor( ppChain, nChain, token, &own );
+                if ( own.iSource == CY_INVALID_SIZE && token.derive.op != theme_derive_op_t::NONE ) {
+                    status = EditorTheme_SetColorAuto( pTheme, token );
+                } else {
+                    const u32 rgba = EditorTheme_ResolveColorIn( pRegistry, ppChain, nChain, token, nullptr );
+                    status = EditorTheme_SetColor( pTheme, token, rgba, ~rgba ); // A different "inherited" value forces the write.
+                }
+                break;
+            }
+            case theme_token_kind_t::FONT: {
+                const theme_font_t font = EditorTheme_ResolveFont( ppChain, nChain, token, nullptr );
+                status = EditorTheme_SetFont( pTheme, token, font, theme_font_t{ {}, 0.0, 0u } );
+                break;
+            }
+            case theme_token_kind_t::METRIC: {
+                const f64 value = EditorTheme_ResolveMetric( ppChain, nChain, token, nullptr );
+                // Nothing compares equal to NaN, so the value is always stored.
+                status = EditorTheme_SetMetric( pTheme, token, value, std::nan( "" ) );
+                break;
+            }
+            case theme_token_kind_t::CHOICE:
+                status = EditorTheme_SetChoice( pTheme, token, EditorTheme_ResolveChoice( ppChain, nChain, token, nullptr ), string_view_t{} );
+                break;
+        }
+        if ( status != theme_status_t::OK ) { return status; }
+    }
+    return theme_status_t::OK;
+}
+
+theme_status_t EditorTheme_KeepUnknownTokens(
+    settings_document_t *pTheme,
+    const theme_registry_t *pRegistry,
+    const key_value_t *const *ppChain,
+    usize nChain ) noexcept
+{
+    if ( !SettingsDocument_IsInitialized( pTheme ) || pRegistry == nullptr || ( ppChain == nullptr && nChain != 0u ) ) {
+        return theme_status_t::INVALID_ARGUMENT;
+    }
+    key_value_t *pRoot = KeyValue_Root( pTheme->pDocument );
+    constexpr theme_token_kind_t kKinds[]{ theme_token_kind_t::COLOR, theme_token_kind_t::FONT, theme_token_kind_t::METRIC,
+                                           theme_token_kind_t::CHOICE };
+    for ( const theme_token_kind_t kind : kKinds ) {
+        for ( usize iTheme = 0u; iTheme < nChain; ++iTheme ) {
+            const key_value_t *pSection = KeyValue_Find( ppChain[iTheme], SectionName( kind ) );
+            if ( KeyValue_Type( pSection ) != key_value_type_t::OBJECT ) { continue; }
+            for ( usize iEntry = 0u; iEntry < KeyValue_ChildCount( pSection ); ++iEntry ) {
+                const key_value_t *pEntry = KeyValue_ChildAt( pSection, iEntry );
+                const string_view_t id = KeyValue_Name( pEntry );
+                // Registered tokens are WriteComplete's; a registered token in
+                // the wrong section never resolves, so it is not carried.
+                if ( EditorThemeRegistry_Find( pRegistry, id ) != nullptr ) { continue; }
+                key_value_t *pDest = KeyValue_Find( pRoot, SectionName( kind ) );
+                if ( pDest == nullptr ) {
+                    pDest = KeyValue_ObjectInsert( pTheme->pDocument, pRoot, SectionName( kind ), key_value_type_t::OBJECT );
+                    if ( pDest == nullptr ) { return theme_status_t::OUT_OF_MEMORY; }
+                }
+                if ( KeyValue_Type( pDest ) != key_value_type_t::OBJECT ) { return theme_status_t::STORE_FAILED; }
+                if ( KeyValue_Find( pDest, id ) != nullptr ) { continue; } // A more specific theme gave it already.
+                if ( KeyValue_CloneInto( pTheme->pDocument, pDest, pEntry ) == nullptr ) { return theme_status_t::OUT_OF_MEMORY; }
+            }
+        }
+    }
+    return theme_status_t::OK;
+}
+
 theme_status_t EditorTheme_Reset( settings_document_t *pTheme, const theme_token_t &token ) noexcept
 {
     settings_path_t path{};
@@ -537,7 +965,8 @@ usize EditorTheme_Audit(
         if ( pProblems != nullptr && nProblems < nCapacity ) { pProblems[nProblems] = { code, id }; }
         ++nProblems;
     };
-    constexpr theme_token_kind_t kKinds[]{ theme_token_kind_t::COLOR, theme_token_kind_t::FONT, theme_token_kind_t::METRIC };
+    constexpr theme_token_kind_t kKinds[]{ theme_token_kind_t::COLOR, theme_token_kind_t::FONT, theme_token_kind_t::METRIC,
+                                           theme_token_kind_t::CHOICE };
     for ( const theme_token_kind_t kind : kKinds ) {
         const key_value_t *pSection = KeyValue_Find( pThemeRoot, SectionName( kind ) );
         if ( KeyValue_Type( pSection ) != key_value_type_t::OBJECT ) { continue; }
@@ -550,7 +979,10 @@ usize EditorTheme_Audit(
             bool_t bValid = CY_TRUE;
             if ( kind == theme_token_kind_t::COLOR ) {
                 u32 rgba = 0u;
-                bValid = ReadColor( pEntry, rgba ) == read_t::VALUE;
+                bValid = ReadColor( pEntry, rgba ) != read_t::INVALID; // "auto" is valid.
+            } else if ( kind == theme_token_kind_t::CHOICE ) {
+                string_view_t text{};
+                bValid = ReadChoice( pEntry, *pToken, text ) == read_t::VALUE;
             } else if ( kind == theme_token_kind_t::METRIC ) {
                 f64 flValue = 0.0;
                 bValid = ReadMetric( pEntry, *pToken, flValue ) == read_t::VALUE;

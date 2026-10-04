@@ -496,6 +496,27 @@ tests. It must:
 Canonicalization is semantic, not lossless. Two source documents with different
 comments or formatting may have identical canonical output.
 
+**Known divergence (2026-09-27):** the Tier1 writer emits reals with 17
+significant digits in canonical mode (`0.10000000000000001`), not the shortest
+form this section requires. Changing it changes every canonical content hash,
+so it is tracked as a deliberate follow-up rather than fixed in passing.
+
+## Compact Layout (Writer Option)
+
+Documents people read and diff - map chunks above all - may be written with
+the compact layout. It changes spelling and whitespace only; the parsed
+document is identical. It is opt-in, and canonical mode ignores it.
+
+| Option | Effect |
+| --- | --- |
+| `KEY_VALUE_WRITE_FLAG_BARE_KEYS` | keys matching `bare-key` are written unquoted, except `true`, `false`, `null`, `hex`, `inf`, `nan`, and `infinity` |
+| `KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS` | with `BARE_KEYS`, keys holding a `.` stay quoted, so dotted IDs (`"ui.border"`, `"file.save"`) never read as nested paths; settings documents (themes, keymaps, layouts, settings) are written this way |
+| `KEY_VALUE_WRITE_FLAG_SHORTEST_REALS` | each real is written with the fewest significant digits (15-17) that parse back to the identical value (`39.37`, not `39.369999999999997`); reals always carry a `.` or exponent |
+| `nLineWidth` (pretty output) | a container whose one-line form, plus a following comma, ends within the width is written on one line (`[ 1.0, 2.0, 3.0 ]`, `{ a = 1 b = 2 }`); a list of containers that does not fit shares one layout - every element on its own line when all fit, otherwise every element spread - so similar records read uniformly; a list of scalars that does not fit is packed with as many elements per line as fit; the document root always spreads over lines |
+
+One-line forms put one space inside brackets and braces, `, ` between array
+elements, and one space between object members.
+
 ## Versioning
 
 The number after `@cykv` is the language major version. A breaking grammar or

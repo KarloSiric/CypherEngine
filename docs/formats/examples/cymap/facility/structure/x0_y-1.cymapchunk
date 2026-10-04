@@ -1,0 +1,24 @@
+@cykv 1
+@schema "cypher.map_chunk" 10
+
+{
+    map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
+    layer = "structure"
+    cell = [ 0, -1 ]
+    info = { brushes = 1 bounds = [ -512.0, -512.0, 0.0, 512.0, -496.0, 288.0 ] }
+    brushes = [
+        {
+            id = 1003u
+            name = "south wall"
+            info = { bounds = [ -512.0, -512.0, 0.0, 512.0, -496.0, 288.0 ] }
+            faces = [
+                { id = 1340u plane = [ 1.0, 0.0, 0.0, 512.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 0.0, 1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1341u plane = [ -1.0, 0.0, 0.0, 512.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 0.0, -1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1342u plane = [ 0.0, 1.0, 0.0, -496.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ -1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1343u plane = [ 0.0, -1.0, 0.0, 512.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1344u plane = [ 0.0, 0.0, 1.0, 288.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, -1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1345u plane = [ 0.0, 0.0, -1.0, 0.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] }
+            ]
+        }
+    ]
+}

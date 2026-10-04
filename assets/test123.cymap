@@ -1,0 +1,10 @@
+@cykv 1
+@schema "cypher.map" 10
+
+{
+    map_id = "b6f0a189-9d8c-4456-b5d6-6a4a45c7b615"
+    name = "Untitled"
+    game = "reap"
+    next_id = 44u
+    layers = [ { id = "default" } ]
+}

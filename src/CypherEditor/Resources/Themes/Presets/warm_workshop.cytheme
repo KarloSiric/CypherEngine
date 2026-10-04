@@ -1,0 +1,41 @@
+@cykv 1
+@schema "cypher.theme" 2
+// Bundled preset, ported from the TileEditor palette of the same name.
+// Partial on purpose: it sets the base colours and names Charcoal as its
+// base, so every derived shade follows these colours (CYTHEME.md 3).
+{
+    id = "warm_workshop"
+    name = "Warm Workshop"
+    author = "CypherEngine"
+    description = "Warm browns and amber, easy on the eyes for long sessions."
+    appearance = "dark"
+    base = "charcoal"
+    colors = {
+        // Interface: base colours.
+        "ui.background" = "#3b3530"
+        "ui.panel" = "#292522"
+        "ui.text" = "#e8e0d4"
+        "ui.accent" = "#e09a3e"
+
+        // Viewport: frame.
+        "viewport.active_border" = "#d05b48"
+
+        // Viewport: backgrounds and grid.
+        "viewport.background.2d" = "#26211d"
+        "viewport.background.3d" = "#151310"
+        "viewport.grid.minor" = "#3b332d"
+        "viewport.grid.major" = "#655446"
+        "viewport.axis.x" = "#c96759"
+        "viewport.axis.y" = "#78a77d"
+        "viewport.axis.z" = "#7294c2"
+
+        // Viewport: objects.
+        "viewport.wire.world" = "#cfc4b5"
+        "viewport.wire.entity" = "#c2a785"
+        "viewport.wire.patch" = "#8fb79b"
+        "viewport.wire.terrain" = "#e3b15a"
+        "viewport.face.world" = "#a4937f"
+        "viewport.selection" = "#f0a34b"
+        "viewport.selection.fill" = "#f0a34b40"
+    }
+}

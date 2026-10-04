@@ -1,0 +1,39 @@
+@cykv 1
+@schema "cypher.map_chunk" 10
+
+{
+    map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
+    layer = "detail"
+    cell = [ 0, 0 ]
+    info = { meshes = 1 patches = 1 foliage = 1 bounds = [ -64.0, 90.0, 0.0, 760.0, 496.0, 192.0 ] }
+    meshes = [
+        {
+            id = 1200u
+            name = "loading ramp"
+            info = { bounds = [ 256.0, 256.0, 0.0, 384.0, 384.0, 48.0 ] vertices = 4 faces = 1 }
+            vertices = [ [ 256.0, 256.0, 0.0 ], [ 384.0, 256.0, 0.0 ], [ 384.0, 384.0, 48.0 ], [ 256.0, 384.0, 48.0 ] ]
+            vertex_ids = [ 1201u, 1202u, 1203u, 1204u ]
+            faces = [ { id = 1205u vertices = [ 0, 1, 2, 3 ] material = "materials/metal/grate01.cymat" uv = [ [ 0.0, 0.0 ], [ 1.0, 0.0 ], [ 1.0, 1.0 ], [ 0.0, 1.0 ] ] } ]
+            edges = [ { vertices = [ 0, 1 ] hard = true } ]
+            modifiers = [ { type = "mirror" axis = "x" offset = 256.0 weld = true } ]
+        }
+    ]
+    patches = [
+        {
+            id = 1300u
+            name = "doorway arch"
+            info = { bounds = [ -64.0, 496.0, 128.0, 64.0, 496.0, 192.0 ] }
+            basis = "quadratic"
+            columns = 3
+            rows = 3
+            material = "materials/concrete/arch.cymat"
+            controls = [
+                [ [ -64.0, 496.0, 128.0, 0.0, 0.0 ], [ 0.0, 496.0, 128.0, 0.5, 0.0 ], [ 64.0, 496.0, 128.0, 1.0, 0.0 ] ],
+                [ [ -64.0, 496.0, 160.0, 0.0, 0.5 ], [ 0.0, 496.0, 192.0, 0.5, 0.5 ], [ 64.0, 496.0, 160.0, 1.0, 0.5 ] ],
+                [ [ -64.0, 496.0, 192.0, 0.0, 1.0 ], [ 0.0, 496.0, 192.0, 0.5, 1.0 ], [ 64.0, 496.0, 192.0, 1.0, 1.0 ] ]
+            ]
+            control_ids = [ 1301u, 1302u, 1303u, 1304u, 1305u, 1306u, 1307u, 1308u, 1309u ]
+        }
+    ]
+    foliage = [ { model = "models/foliage/pine01.cymodel" instances = [ [ 760.0, 90.0, 0.0, 0.0, 260.0, 0.0, 1.0 ] ] properties = { cast_shadows = true fade_distance = 4000.0 } } ]
+}

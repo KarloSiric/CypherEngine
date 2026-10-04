@@ -127,7 +127,9 @@ MeshQueries_TryGetRaycastScratchSize(
     common::usize *pBytesOut ) noexcept;
 
 // Triangulates every simple planar mesh face with the shared binary64 polygon
-// ear clipper, then tests all emitted triangles. The query performs no heap
+// ear clipper, then tests all emitted triangles. Open surfaces are accepted;
+// all present twins, face loops and vertex/edge/shell links must remain valid.
+// Queries do not require genus zero or positive enclosed volume. The query performs no heap
 // allocation: non-empty meshes require initialized Geometry scratch. All scratch
 // allocations are rewound before return, including failure paths. Near-equal
 // hits use face handle slot/generation and triangle index as the deterministic

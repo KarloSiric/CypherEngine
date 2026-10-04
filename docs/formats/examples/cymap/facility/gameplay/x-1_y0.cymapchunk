@@ -1,0 +1,18 @@
+@cykv 1
+@schema "cypher.map_chunk" 10
+
+{
+    map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
+    layer = "gameplay"
+    cell = [ -1, 0 ]
+    info = { entities = 1 bounds = [ -400.0, 400.0, 0.0, -400.0, 400.0, 0.0 ] }
+    entities = [
+        {
+            id = 130u
+            class = "info_enemy_spawn"
+            origin = [ -400.0, 400.0, 0.0 ]
+            angles = [ 0.0, -90.0, 0.0 ]
+            properties = { start_disabled = true enemy = "grunt" spawn_group = "wave1" count = 4 flags = [ "face_player" ] }
+        }
+    ]
+}

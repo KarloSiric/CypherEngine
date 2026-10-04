@@ -48,8 +48,11 @@ Language and generic-profile details live in [CYKV 1](CYKV.md),
 | --- | --- | --- | --- |
 | Generic structured data language | CYKV text V1 and V2 | CYKV binary pack where useful | V1 implemented; V2 Tier1 definitions/includes/bases, resolver, resolved writer, and canonical hash implemented; Tier2 schemas, compilers, provenance, and manifests pending |
 | Generic schema-selected document profile | `.cydf`, encoded as CYKV | Schema-owned cooked resource when justified; no universal CYDF binary | Specified; dedicated dispatch, schemas, compilers, and consumers not implemented |
-| Project manifest | `.cyproject`, `cypher.project` V2 | None | V1 and V2 decoders implemented ([Editor Formats](EDITOR_FORMATS.md)); application integration pending |
-| Workspace | `.cyworkspace`, `cypher.workspace` V1 | None | Decoder, creation, and scope stack implemented in EditorCore; never packaged |
+| Project manifest | `.cyproject`, `cypher.project` V3 ([spec](CYPROJECT.md)) | None | V1 and V2 decoders implemented; V3 specified; application integration pending |
+| Workspace | `.cyworkspace`, `cypher.workspace` V2 ([spec](CYWORKSPACE.md)) | None | V1 decoder, creation, and scope stack implemented in EditorCore; V2 session and per-map state specified; never packaged |
+| Map source | `.cymap` + `.cymapchunk`, `cypher.map` V10 ([spec](CYMAP.md)) | `.cymap_c` via the map compiler (planned; ADR 0009) | Implemented in the Map workspace core: readable geometry codec (brushes, meshes, patches, terrains), nested brush entities, shapes, foliage, notes, groups, prefabs, info annotations, compact layout, hand-edit identity rules, damage handling, disk load and staged save of the chunk folder; example map under `docs/formats/examples/cymap` verified byte for byte by the tests |
+| Editor theme, keymap, layout | `.cytheme` V2, `.cykeymap` V2, `.cylayout` V2 ([specs](EDITOR_FORMATS.md)) | None | V1 and V2 implemented in EditorCore (V1 files still read, saves write V2); the built-in theme and keymap are complete catalogues checked by tests |
+| Game profile, plugin manifest | `.cygame` V1, `.cyplugin` V1 ([specs](EDITOR_FORMATS.md)) | None | Specified; decoders not implemented |
 | Settings | `.cysettings`, `cypher.settings` V2 | None | Tolerant V1/V2 decoding, settings store, scope resolution, and safe file policy implemented |
 | Command/CVar script | `.cfg` / `.cycfg` | None | Implemented runtime family |
 | Generic cooked resource | N/A | `CYRS` container V1 | Implemented |
@@ -93,9 +96,9 @@ are forbidden.
 
 | Purpose | Source | Cooked/runtime | Status |
 | --- | --- | --- | --- |
-| Map | `.cymap`: `cypher.map` V10 and later; root document plus chunk documents | `.cymap_c` | Specified identity (ADR 0009); schema and chunk layout not frozen. `cypher.map` V1-V3 are the legacy tile-map lineage, read only by TileEditor's import |
+| Map | `.cymap`: `cypher.map` V10 and later; root document plus chunk documents ([spec](CYMAP.md)) | `.cymap_c` | Source implemented (see the Map source row above); cooked layout planned. `cypher.map` V1-V3 are the legacy tile-map lineage, read only by TileEditor's import |
 | Tile map | `.cytilemap`: `cypher.tilemap` V1 | `.cytilemap_c` only if a tile runtime product requires it | Authored source, deterministic persistence, validation, generated blockout geometry, and preview implemented in CypherTileEditor |
-| Prefab/entity template | `.cyprefab` | `.cyprefab_c` | Planned |
+| Prefab/entity template | `.cyprefab`, `cypher.prefab` V1 ([spec](CYMAP.md), section 6.12) | `.cyprefab_c` | Specified; decoder not implemented |
 | Physics setup | `.cyphys` | `.cyphys_c` | Planned |
 | Navigation | `.cynav` | `.cynav_c` | Planned |
 | Mission/logic graph | `.cyflow` | `.cyflow_c` | Planned |
@@ -111,7 +114,7 @@ are forbidden.
 | Sound sample/stream recipe | `.cysnd` | `.cysnd_c` | Planned |
 | Audio event/rule stack | `.cyaudioevent` provisional | Cooked event resource | Proposal; exact name not frozen |
 | Audio mixer/bus graph | `.cymix` provisional | Cooked mixer graph | Proposal; exact name not frozen |
-| Font family | `.cyfont`, `cypher.font` V1 | `.cyfont_c` | Source decoder implemented (faces, fallbacks); cooked atlas planned |
+| Font family | `.cyfont`, `cypher.font` V2 ([spec](CYFONT.md)) | `.cyfont_c` | V1 source decoder implemented (faces, fallbacks); V2 rendering, glyph, and metric members specified; cooked atlas planned |
 | Localization catalog | `.cyloc` | `.cyloc_c` | Proposal |
 | Captions/subtitles | `.cycaption` | `.cycaption_c` | Proposal |
 | UI layout/style | `.cyui` | `.cyui_c` | Planned |
@@ -125,7 +128,7 @@ are forbidden.
 | Package archive | `.cypak` | V10 reader/writer and FileSystem mount implemented with sorted uncompressed payloads and per-file hashes; timestamp serialization currently prevents a full reproducibility claim; compression, archive hashes/signatures, and a formal external specification remain future work |
 | Resource/build/release manifests | `.cymanifest` with exact schema IDs | Planned; resource, preload, package, and release responsibilities must remain distinct |
 | Mod/add-on metadata | `.cymod` | Proposal |
-| Plug-in/module metadata | `.cyplugin` | Proposal |
+| Plug-in/module metadata | `.cyplugin` V1 ([spec](CYPLUGIN.md)) | Specified; decoder not implemented |
 | Derived-data cache | Internal | Planned |
 
 ## Generated Runtime Records And Tool-Local State
@@ -134,9 +137,9 @@ are forbidden.
 | --- | --- | --- |
 | Replay/demo | `.cyreplay`, proposed `CYRP` | Proposal; generated versioned runtime record, not an authored/cooked pair |
 | Save/checkpoint/profile | `.cysave`, proposed `CYSV` | Proposal; generated writable record with migration and backup policy |
-| Editor theme | `.cytheme`, `cypher.theme` V1 | Token registry, base chains, resolution, editing, and audit implemented in EditorCore; TileEditor's INI themes to be migrated |
-| Editor keymap | `.cykeymap`, `cypher.editor_keymap` V1 | Chords, lookup, conflicts, and editing implemented in EditorCore; editor shortcuts only, game input is `.cyinput`/`.cybindings` |
-| Editor dock layout | `.cylayout`, `cypher.layout` V1 | Decoder, builders, and encoder implemented in EditorCore |
+| Editor theme | `.cytheme`, `cypher.theme` V2 | Token registry, base chains, derived colours and `"auto"`, choices, resolution, editing, and audit implemented in EditorCore; the framework catalogue (138 tokens) is registered by EditorGui; TileEditor's INI themes to be migrated |
+| Editor keymap | `.cykeymap`, `cypher.editor_keymap` V2 | Chords, held keys, mouse gestures, platform overlays, context stacks, lookup, conflicts, and editing implemented in EditorCore; editor shortcuts only, game input is `.cyinput`/`.cybindings` |
+| Editor dock layout | `.cylayout`, `cypher.layout` V2 | Decoder, builders, and encoder implemented in EditorCore, including window placement, closed panels, toolbars, status bar, and the view grid; shown through the Qt Advanced Docking System |
 | Per-map editor state | Workspace state (ADR 0009) | Planned; kept in the `.cyworkspace`, not beside the map |
 | Recovery journal/autosave | Internal | Planned tool-operational format |
 | Asset/dependency/cook database | Internal, likely query-oriented storage | Planned; no public `.cyassetmeta` sidecar is approved |

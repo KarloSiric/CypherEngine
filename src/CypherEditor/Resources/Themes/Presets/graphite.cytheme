@@ -1,0 +1,41 @@
+@cykv 1
+@schema "cypher.theme" 2
+// Bundled preset, ported from the TileEditor palette of the same name.
+// Partial on purpose: it sets the base colours and names Charcoal as its
+// base, so every derived shade follows these colours (CYTHEME.md 3).
+{
+    id = "graphite"
+    name = "Graphite"
+    author = "CypherEngine"
+    description = "Graphite greys with muted, desaturated geometry colours."
+    appearance = "dark"
+    base = "charcoal"
+    colors = {
+        // Interface: base colours.
+        "ui.background" = "#333537"
+        "ui.panel" = "#27292b"
+        "ui.text" = "#e3e5e7"
+        "ui.accent" = "#e68a24"
+
+        // Viewport: frame.
+        "viewport.active_border" = "#cc4f48"
+
+        // Viewport: backgrounds and grid.
+        "viewport.background.2d" = "#1d2022"
+        "viewport.background.3d" = "#121314"
+        "viewport.grid.minor" = "#303438"
+        "viewport.grid.major" = "#555b60"
+        "viewport.axis.x" = "#c86a65"
+        "viewport.axis.y" = "#76a77e"
+        "viewport.axis.z" = "#718fbd"
+
+        // Viewport: objects.
+        "viewport.wire.world" = "#cfd3d6"
+        "viewport.wire.entity" = "#a5b3bc"
+        "viewport.wire.patch" = "#8fbea6"
+        "viewport.wire.terrain" = "#cba45e"
+        "viewport.face.world" = "#899198"
+        "viewport.selection" = "#e29a42"
+        "viewport.selection.fill" = "#e29a4240"
+    }
+}

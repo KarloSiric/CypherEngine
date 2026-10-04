@@ -34,13 +34,17 @@ documented alias of `.cfg`, the command/CVar script family. TileEditor writes
 | --- | --- | --- | --- |
 | `.cymap` | `cypher.map` V10 and later | Mason map workspace | The full map: root document plus chunk documents |
 | `.cytilemap` | `cypher.tilemap` V1 | CypherTileEditor | Tile maps (content model of legacy `cypher.map` V3) |
-| `.cyproject` | `cypher.project` V2 | CypherCommon Tier2 | Project identity, content roots, start map, team settings |
-| `.cyworkspace` | `cypher.workspace` V1 | EditorCore | One developer's working area on one machine |
+| `.cyproject` | `cypher.project` V3 | CypherCommon Tier2 | Project identity, content roots, game profile, team settings and editor resources, build, cook, and run configurations |
+| `.cyworkspace` | `cypher.workspace` V2 | EditorCore | One developer's working area on one machine: personal settings, live layout, open documents, per-map cameras and visibility |
 | `.cysettings` | `cypher.settings` V2 | CypherCommon Tier2 | Sectioned settings (engine and editor) |
-| `.cytheme` | `cypher.theme` V1 | EditorCore | A complete editor colour scheme: every UI, viewport, grid, gizmo, and console colour, plus fonts and metrics |
-| `.cykeymap` | `cypher.editor_keymap` V1 | EditorCore | Editor shortcuts: editor command to key chords per editor context |
-| `.cylayout` | `cypher.layout` V1 | EditorCore | Named dock layouts |
-| `.cyfont` | `cypher.font` V1 | CypherCommon Tier2 | Font family definition shared by editor and runtime |
+| `.cytheme` | `cypher.theme` V2 | EditorCore | A complete editor colour scheme: every UI, viewport, grid, gizmo, and console colour, plus fonts and metrics |
+| `.cykeymap` | `cypher.editor_keymap` V2 | EditorCore | Every editor shortcut: key chords, held keys, and mouse gestures per editor context |
+| `.cylayout` | `cypher.layout` V2 | EditorCore | Named window arrangements: docks, toolbars, viewport grid, panel state |
+| `.cyfont` | `cypher.font` V2 | CypherCommon Tier2 | Font family shared by editor and runtime: faces, rendering, glyph coverage, fallbacks |
+| `.cymapchunk` | `cypher.map_chunk` V10 | Map workspace | One layer's objects in one cell of a map ([ADR 0011](0011-map-source-format.md)) |
+| `.cygame` | `cypher.game` V1 | EditorCore | A game profile: entity class definitions, game map settings, editor defaults |
+| `.cyprefab` | `cypher.prefab` V1 | Map workspace | A reusable piece of a level: the object sections of a chunk in its own ID space, with overridable parameters ([CYMAP.md](../formats/CYMAP.md) 6.12) |
+| `.cyplugin` | `cypher.plugin` V1 | EditorCore | Python editor plugin manifest |
 
 Unchanged: `.cfg`/`.cycfg` remain command/CVar scripts, never settings.
 
@@ -100,9 +104,11 @@ A large map cannot be one text document: the CYKV parser's default policy
 bounds a document at 64 MiB and about one million values, a single file loads
 serially, and it cannot be merged. A `.cymap` is therefore a root document
 (identity, game profile, map settings, layer and chunk index) plus chunk
-documents that parse independently, with bulk arrays stored as binary blobs
-and every object keyed by a stable ID in deterministic order. The chunk layout
-is specified with the map schema; no single-document map loader is written.
+documents that parse independently, with bulk arrays stored as flat numeric
+arrays (never binary blobs) and every object keyed by a stable ID in
+deterministic order. The chunk layout is specified in
+[ADR 0011](0011-map-source-format.md); no single-document map loader is
+written.
 
 ### Scopes
 
@@ -171,7 +177,7 @@ theme stays valid when new tokens are added.
 - Every automated or remote edit enters through the editor command system, so
   it is validated, undoable, and logged like a user's edit.
 
-Field-level contracts: [Editor And Settings Formats](../formats/EDITOR_FORMATS.md).
+Field-level contracts: one specification per format, indexed by [Editor And Settings Formats](../formats/EDITOR_FORMATS.md) (versions updated 2026-09-27).
 
 ## Consequences
 

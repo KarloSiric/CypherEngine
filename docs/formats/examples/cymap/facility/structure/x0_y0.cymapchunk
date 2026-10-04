@@ -1,0 +1,106 @@
+@cykv 1
+@schema "cypher.map_chunk" 10
+
+{
+    map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
+    layer = "structure"
+    cell = [ 0, 0 ]
+    info = { brushes = 4 terrains = 1 bounds = [ -512.0, -512.0, -32.0, 856.0, 512.0, 320.0 ] }
+    brushes = [
+        {
+            id = 1000u
+            name = "floor"
+            info = { bounds = [ -512.0, -512.0, -32.0, 512.0, 512.0, 0.0 ] }
+            faces = [
+                { id = 1322u plane = [ 1.0, 0.0, 0.0, 512.0 ] material = "materials/concrete/floor01.cymat" uv_u = [ 0.0, 1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1323u plane = [ -1.0, 0.0, 0.0, 512.0 ] material = "materials/concrete/floor01.cymat" uv_u = [ 0.0, -1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1324u plane = [ 0.0, 1.0, 0.0, 512.0 ] material = "materials/concrete/floor01.cymat" uv_u = [ -1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1325u plane = [ 0.0, -1.0, 0.0, 512.0 ] material = "materials/concrete/floor01.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1326u plane = [ 0.0, 0.0, 1.0, 0.0 ] material = "materials/concrete/floor01.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, -1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1327u plane = [ 0.0, 0.0, -1.0, 32.0 ] material = "materials/concrete/floor01.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] }
+            ]
+        },
+        {
+            id = 1001u
+            name = "ceiling"
+            info = { bounds = [ -512.0, -512.0, 288.0, 512.0, 512.0, 320.0 ] }
+            faces = [
+                { id = 1328u plane = [ 1.0, 0.0, 0.0, 512.0 ] material = "materials/concrete/ceiling01.cymat" uv_u = [ 0.0, 1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1329u plane = [ -1.0, 0.0, 0.0, 512.0 ] material = "materials/concrete/ceiling01.cymat" uv_u = [ 0.0, -1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1330u plane = [ 0.0, 1.0, 0.0, 512.0 ] material = "materials/concrete/ceiling01.cymat" uv_u = [ -1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1331u plane = [ 0.0, -1.0, 0.0, 512.0 ] material = "materials/concrete/ceiling01.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1332u plane = [ 0.0, 0.0, 1.0, 320.0 ] material = "materials/concrete/ceiling01.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, -1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1333u plane = [ 0.0, 0.0, -1.0, -288.0 ] material = "materials/concrete/ceiling01.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] }
+            ]
+        },
+        {
+            id = 1002u
+            name = "north wall"
+            info = { bounds = [ -512.0, 496.0, 0.0, 512.0, 512.0, 288.0 ] }
+            faces = [
+                { id = 1334u plane = [ 1.0, 0.0, 0.0, 512.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 0.0, 1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1335u plane = [ -1.0, 0.0, 0.0, 512.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 0.0, -1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1336u plane = [ 0.0, 1.0, 0.0, 512.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ -1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1337u plane = [ 0.0, -1.0, 0.0, -496.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1338u plane = [ 0.0, 0.0, 1.0, 288.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, -1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1339u plane = [ 0.0, 0.0, -1.0, 0.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] }
+            ]
+        },
+        {
+            id = 1004u
+            name = "east wall"
+            info = { bounds = [ 496.0, -496.0, 0.0, 512.0, 496.0, 288.0 ] }
+            faces = [
+                { id = 1346u plane = [ 1.0, 0.0, 0.0, 512.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 0.0, 1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1347u plane = [ -1.0, 0.0, 0.0, -496.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 0.0, -1.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1348u plane = [ 0.0, 1.0, 0.0, 496.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ -1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1349u plane = [ 0.0, -1.0, 0.0, 496.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 0.0, -1.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1350u plane = [ 0.0, 0.0, 1.0, 288.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, -1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] },
+                { id = 1351u plane = [ 0.0, 0.0, -1.0, 0.0 ] material = "materials/concrete/wall03.cymat" uv_u = [ 1.0, 0.0, 0.0 ] uv_v = [ 0.0, 1.0, 0.0 ] uv_size = [ 128.0, 128.0 ] }
+            ]
+        }
+    ]
+    terrains = [
+        {
+            id = 1100u
+            name = "yard"
+            info = { bounds = [ 600.0, -128.0, 0.0, 856.0, 128.0, 40.0 ] }
+            origin = [ 600.0, -128.0, 0.0 ]
+            cell_size = 32.0
+            cells = [ 8, 8 ]
+            tile_cells = 4
+            heights = [
+                [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ],
+                [ 0.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 0.0 ],
+                [ 0.0, 4.0, 12.0, 12.0, 12.0, 12.0, 12.0, 4.0, 0.0 ],
+                [ 0.0, 4.0, 12.0, 24.0, 24.0, 24.0, 12.0, 4.0, 0.0 ],
+                [ 0.0, 4.0, 12.0, 24.0, 40.0, 24.0, 12.0, 4.0, 0.0 ],
+                [ 0.0, 4.0, 12.0, 24.0, 24.0, 24.0, 12.0, 4.0, 0.0 ],
+                [ 0.0, 4.0, 12.0, 12.0, 12.0, 12.0, 12.0, 4.0, 0.0 ],
+                [ 0.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 0.0 ],
+                [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+            ]
+            holes = [ [ 7, 0 ] ]
+            tile_ids = [ 1358u, 1359u, 1360u, 1361u ]
+            paint = {
+                base = "materials/terrain/dirt.cymat"
+                layers = [
+                    {
+                        material = "materials/terrain/grass.cymat"
+                        weights = [
+                            [ 255, 255, 255, 255, 255, 255, 255, 255, 255 ],
+                            [ 255, 200, 200, 200, 200, 200, 200, 200, 255 ],
+                            [ 255, 200, 90, 90, 90, 90, 90, 200, 255 ],
+                            [ 255, 200, 90, 0, 0, 0, 90, 200, 255 ],
+                            [ 255, 200, 90, 0, 0, 0, 90, 200, 255 ],
+                            [ 255, 200, 90, 0, 0, 0, 90, 200, 255 ],
+                            [ 255, 200, 90, 90, 90, 90, 90, 200, 255 ],
+                            [ 255, 200, 200, 200, 200, 200, 200, 200, 255 ],
+                            [ 255, 255, 255, 255, 255, 255, 255, 255, 255 ]
+                        ]
+                    }
+                ]
+            }
+        }
+    ]
+}

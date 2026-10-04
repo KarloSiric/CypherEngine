@@ -24,6 +24,7 @@
 #include "CypherCommon/Tier2/CypherCommon_DataValidation.h"
 
 #include <cmath>
+#include <utility>
 
 namespace cypher::editor
 {
@@ -190,6 +191,369 @@ CYPHER_NODISCARD bool_t EncodeNode(
     return CY_TRUE;
 }
 
+// ---------------------------------------------------------------------------
+// V2 members
+// ---------------------------------------------------------------------------
+
+constexpr const char *kAreaNames[]{ "left", "right", "top", "bottom", "floating" };
+constexpr const char *kArrangementNames[]{ "single",        "columns",    "rows",      "quad",       "three_left", "three_right",
+                                           "three_top",     "three_bottom", "three_columns", "three_rows", "four_left",  "four_right",
+                                           "four_top",      "four_bottom", "four_columns", "four_rows" };
+constexpr const char *kViewNames[]{ "top", "front", "side", "perspective", "bottom", "back", "left", "uv" };
+constexpr const char *kRenderNames[]{ "wireframe", "flat", "textured", "lit", "lighting_only", "normals" };
+constexpr const char *kOverlayNames[]{ "entities", "entity_names", "helpers", "io", "models", "decals", "terrain", "patches", "cordon" };
+
+// Index of a name in a table, or -1.
+template <usize nNames>
+CYPHER_NODISCARD i32 FindName( const key_value_t *pValue, const char *const ( &names )[nNames] ) noexcept
+{
+    string_view_t text{};
+    if ( !KeyValue_GetString( pValue, &text ) ) { return -1; }
+    for ( usize i = 0u; i < nNames; ++i ) {
+        if ( StringView_Equals( text, StringView_FromCString( names[i] ) ) ) { return static_cast<i32>( i ); }
+    }
+    return -1;
+}
+
+// Reads an optional member with a fallback; a present but invalid value
+// counts as a problem.
+struct v2_reader_t {
+    layout_t &layout;
+
+    void Invalid() noexcept { ++layout.nInvalidMembers; }
+
+    CYPHER_NODISCARD bool_t Bool( const key_value_t *pObject, const char *pKey, bool_t fallback ) noexcept
+    {
+        const key_value_t *pValue = KeyValue_Find( pObject, StringView_FromCString( pKey ) );
+        bool_t value = fallback;
+        if ( pValue != nullptr && !KeyValue_GetBool( pValue, &value ) ) { Invalid(); return fallback; }
+        return value;
+    }
+
+    CYPHER_NODISCARD f64 Number( const key_value_t *pObject, const char *pKey, f64 fallback, f64 min, f64 max ) noexcept
+    {
+        const key_value_t *pValue = KeyValue_Find( pObject, StringView_FromCString( pKey ) );
+        f64 value = fallback;
+        if ( pValue == nullptr ) { return fallback; }
+        if ( !ReadNumber( pValue, value ) || value < min || value > max ) { Invalid(); return fallback; }
+        return value;
+    }
+
+    template <usize nNames>
+    CYPHER_NODISCARD i32 Name( const key_value_t *pObject, const char *pKey, const char *const ( &names )[nNames], i32 fallback ) noexcept
+    {
+        const key_value_t *pValue = KeyValue_Find( pObject, StringView_FromCString( pKey ) );
+        if ( pValue == nullptr ) { return fallback; }
+        const i32 index = FindName( pValue, names );
+        if ( index < 0 ) { Invalid(); return fallback; }
+        return index;
+    }
+
+    // Stores an optional string member; false only when out of memory.
+    CYPHER_NODISCARD bool_t Text( const key_value_t *pObject, const char *pKey, usize cchMax, layout_text_t &out ) noexcept
+    {
+        const key_value_t *pValue = KeyValue_Find( pObject, StringView_FromCString( pKey ) );
+        string_view_t text{};
+        if ( pValue == nullptr ) { return CY_TRUE; }
+        if ( !KeyValue_GetString( pValue, &text ) || text.cchLength > cchMax ) { Invalid(); return CY_TRUE; }
+        return StoreText( layout, text, out );
+    }
+
+    // Relative weights; anything but a list of positive numbers is ignored.
+    void Weights( const key_value_t *pObject, const char *pKey, f32 ( &weights )[EDITOR_LAYOUT_MAX_GRID_TRACKS], u32 &nOut ) noexcept
+    {
+        const key_value_t *pValue = KeyValue_Find( pObject, StringView_FromCString( pKey ) );
+        nOut = 0u;
+        if ( pValue == nullptr ) { return; }
+        const usize nChildren = KeyValue_ChildCount( pValue );
+        if ( KeyValue_Type( pValue ) != key_value_type_t::ARRAY || nChildren == 0u || nChildren > EDITOR_LAYOUT_MAX_GRID_TRACKS ) { Invalid(); return; }
+        for ( usize i = 0u; i < nChildren; ++i ) {
+            f64 value = 0.0;
+            if ( !ReadNumber( KeyValue_ChildAt( pValue, i ), value ) || !( value > 0.0 ) ) { Invalid(); nOut = 0u; return; }
+            weights[i] = static_cast<f32>( value );
+        }
+        nOut = static_cast<u32>( nChildren );
+    }
+};
+
+CYPHER_NODISCARD layout_status_t DecodeV2( layout_t &layout, const key_value_t *pRoot ) noexcept
+{
+    v2_reader_t read{ layout };
+    if ( !read.Text( pRoot, "author", 128u, layout.author ) || !read.Text( pRoot, "description", 1024u, layout.description ) ) {
+        return layout_status_t::OUT_OF_MEMORY;
+    }
+
+    const key_value_t *pWindow = KeyValue_Find( pRoot, LayoutText( "window" ) );
+    if ( KeyValue_Type( pWindow ) == key_value_type_t::OBJECT ) {
+        layout_main_window_t &window = layout.window;
+        window.bPresent = CY_TRUE;
+        window.x = static_cast<i32>( read.Number( pWindow, "x", 0.0, -1.0e6, 1.0e6 ) );
+        window.y = static_cast<i32>( read.Number( pWindow, "y", 0.0, -1.0e6, 1.0e6 ) );
+        window.width = static_cast<u32>( read.Number( pWindow, "width", 1280.0, 320.0, 1.0e5 ) );
+        window.height = static_cast<u32>( read.Number( pWindow, "height", 800.0, 240.0, 1.0e5 ) );
+        window.bMaximized = read.Bool( pWindow, "maximized", CY_FALSE );
+        window.bFullscreen = read.Bool( pWindow, "fullscreen", CY_FALSE );
+        if ( !read.Text( pWindow, "screen", 128u, window.screen ) ) { return layout_status_t::OUT_OF_MEMORY; }
+    } else if ( pWindow != nullptr ) {
+        read.Invalid();
+    }
+
+    const key_value_t *pHidden = KeyValue_Find( pRoot, LayoutText( "hidden" ) );
+    for ( usize i = 0u; KeyValue_Type( pHidden ) == key_value_type_t::ARRAY && i < KeyValue_ChildCount( pHidden ); ++i ) {
+        const key_value_t *pEntry = KeyValue_ChildAt( pHidden, i );
+        string_view_t panel{};
+        if ( KeyValue_Type( pEntry ) != key_value_type_t::OBJECT || !KeyValue_GetString( KeyValue_Find( pEntry, LayoutText( "panel" ) ), &panel ) ||
+             !IsPanelId( panel ) || Vector_Count( &layout.hidden ) >= EDITOR_LAYOUT_MAX_HIDDEN ) {
+            read.Invalid();
+            continue;
+        }
+        layout_hidden_t hidden{};
+        if ( !StoreText( layout, panel, hidden.panel ) || !read.Text( pEntry, "beside", EDITOR_LAYOUT_PANEL_ID_MAX_LENGTH, hidden.beside ) ) {
+            return layout_status_t::OUT_OF_MEMORY;
+        }
+        hidden.area = static_cast<layout_area_t>( read.Name( pEntry, "area", kAreaNames, static_cast<i32>( layout_area_t::RIGHT ) ) );
+        hidden.bTabbed = read.Bool( pEntry, "tabbed", CY_FALSE );
+        if ( !Vector_PushBack( &layout.hidden, hidden ) ) { return layout_status_t::OUT_OF_MEMORY; }
+    }
+    if ( pHidden != nullptr && KeyValue_Type( pHidden ) != key_value_type_t::ARRAY ) { read.Invalid(); }
+
+    const key_value_t *pToolbars = KeyValue_Find( pRoot, LayoutText( "toolbars" ) );
+    for ( usize i = 0u; KeyValue_Type( pToolbars ) == key_value_type_t::ARRAY && i < KeyValue_ChildCount( pToolbars ); ++i ) {
+        const key_value_t *pEntry = KeyValue_ChildAt( pToolbars, i );
+        string_view_t id{};
+        if ( KeyValue_Type( pEntry ) != key_value_type_t::OBJECT || !KeyValue_GetString( KeyValue_Find( pEntry, LayoutText( "id" ) ), &id ) ||
+             !IsPanelId( id ) || Vector_Count( &layout.toolbars ) >= EDITOR_LAYOUT_MAX_TOOLBARS ) {
+            read.Invalid();
+            continue;
+        }
+        layout_toolbar_t toolbar{};
+        toolbar.area = static_cast<layout_area_t>( read.Name( pEntry, "area", kAreaNames, static_cast<i32>( layout_area_t::TOP ) ) );
+        toolbar.row = static_cast<u32>( read.Number( pEntry, "row", 0.0, 0.0, 64.0 ) );
+        toolbar.order = static_cast<u32>( read.Number( pEntry, "order", 0.0, 0.0, 1024.0 ) );
+        toolbar.bVisible = read.Bool( pEntry, "visible", CY_TRUE );
+        toolbar.iconSize = read.Number( pEntry, "icon_size", 0.0, 8.0, 128.0 );
+        toolbar.x = static_cast<i32>( read.Number( pEntry, "x", 0.0, -1.0e6, 1.0e6 ) );
+        toolbar.y = static_cast<i32>( read.Number( pEntry, "y", 0.0, -1.0e6, 1.0e6 ) );
+        const key_value_t *pItems = KeyValue_Find( pEntry, LayoutText( "items" ) );
+        if ( KeyValue_Type( pItems ) == key_value_type_t::ARRAY ) {
+            toolbar.bHasItems = CY_TRUE;
+            toolbar.iFirstItem = static_cast<u32>( Vector_Count( &layout.toolbarItems ) );
+            for ( usize iItem = 0u; iItem < KeyValue_ChildCount( pItems ) && toolbar.nItems < EDITOR_LAYOUT_MAX_TOOLBAR_ITEMS; ++iItem ) {
+                string_view_t item{};
+                layout_text_t stored{};
+                if ( !KeyValue_GetString( KeyValue_ChildAt( pItems, iItem ), &item ) || !IsPanelId( item ) ) { read.Invalid(); continue; }
+                if ( !StoreText( layout, item, stored ) || !Vector_PushBack( &layout.toolbarItems, stored ) ) { return layout_status_t::OUT_OF_MEMORY; }
+                ++toolbar.nItems;
+            }
+        } else if ( pItems != nullptr ) {
+            read.Invalid();
+        }
+        if ( !StoreText( layout, id, toolbar.id ) || !Vector_PushBack( &layout.toolbars, toolbar ) ) { return layout_status_t::OUT_OF_MEMORY; }
+    }
+    if ( pToolbars != nullptr && KeyValue_Type( pToolbars ) != key_value_type_t::ARRAY ) { read.Invalid(); }
+
+    const key_value_t *pStatus = KeyValue_Find( pRoot, LayoutText( "status_bar" ) );
+    if ( KeyValue_Type( pStatus ) == key_value_type_t::OBJECT ) {
+        layout.bStatusBarVisible = read.Bool( pStatus, "visible", CY_TRUE );
+    } else if ( pStatus != nullptr ) {
+        read.Invalid();
+    }
+
+    const key_value_t *pViews = KeyValue_Find( pRoot, LayoutText( "views" ) );
+    if ( KeyValue_Type( pViews ) == key_value_type_t::OBJECT ) {
+        layout_views_t &views = layout.views;
+        views.bPresent = CY_TRUE;
+        views.arrangement = static_cast<layout_arrangement_t>( read.Name( pViews, "arrangement", kArrangementNames, static_cast<i32>( layout_arrangement_t::QUAD ) ) );
+        read.Weights( pViews, "columns", views.columns, views.nColumns );
+        read.Weights( pViews, "rows", views.rows, views.nRows );
+        views.active = static_cast<i32>( read.Number( pViews, "active", 0.0, 0.0, static_cast<f64>( EDITOR_LAYOUT_MAX_PANES - 1u ) ) );
+        views.maximized = static_cast<i32>( read.Number( pViews, "maximized", -1.0, -1.0, static_cast<f64>( EDITOR_LAYOUT_MAX_PANES - 1u ) ) );
+        const key_value_t *pPanes = KeyValue_Find( pViews, LayoutText( "panes" ) );
+        for ( usize i = 0u; KeyValue_Type( pPanes ) == key_value_type_t::ARRAY && i < KeyValue_ChildCount( pPanes ); ++i ) {
+            const key_value_t *pPane = KeyValue_ChildAt( pPanes, i );
+            if ( KeyValue_Type( pPane ) != key_value_type_t::OBJECT || views.nPanes >= EDITOR_LAYOUT_MAX_PANES ) { read.Invalid(); continue; }
+            layout_pane_t pane{};
+            pane.view = static_cast<layout_view_kind_t>( read.Name( pPane, "view", kViewNames, static_cast<i32>( layout_view_kind_t::TOP ) ) );
+            const bool_t b3d = pane.view == layout_view_kind_t::PERSPECTIVE;
+            pane.render = static_cast<layout_render_t>(
+                read.Name( pPane, "render", kRenderNames, static_cast<i32>( b3d ? layout_render_t::TEXTURED : layout_render_t::WIREFRAME ) ) );
+            pane.bGrid = read.Bool( pPane, "grid", !b3d );
+            const key_value_t *pShow = KeyValue_Find( pPane, LayoutText( "show" ) );
+            if ( KeyValue_Type( pShow ) == key_value_type_t::ARRAY ) {
+                pane.show = 0u;
+                for ( usize iShow = 0u; iShow < KeyValue_ChildCount( pShow ); ++iShow ) {
+                    const i32 index = FindName( KeyValue_ChildAt( pShow, iShow ), kOverlayNames );
+                    if ( index < 0 ) { read.Invalid(); continue; }
+                    pane.show |= 1u << static_cast<u32>( index );
+                }
+            } else if ( pShow != nullptr ) {
+                read.Invalid();
+            }
+            views.panes[views.nPanes++] = pane;
+        }
+    } else if ( pViews != nullptr ) {
+        read.Invalid();
+    }
+    return layout_status_t::OK;
+}
+
+CYPHER_NODISCARD key_value_t *Insert( key_value_document_t *pDocument, key_value_t *pObject, const char *pKey, key_value_type_t type ) noexcept
+{
+    return KeyValue_ObjectInsert( pDocument, pObject, StringView_FromCString( pKey ), type );
+}
+
+CYPHER_NODISCARD bool_t InsertString( key_value_document_t *pDocument, key_value_t *pObject, const char *pKey, string_view_t value ) noexcept
+{
+    key_value_t *pValue = Insert( pDocument, pObject, pKey, key_value_type_t::NULL_VALUE );
+    return pValue != nullptr && KeyValue_SetString( pDocument, pValue, value );
+}
+
+CYPHER_NODISCARD bool_t InsertI64( key_value_document_t *pDocument, key_value_t *pObject, const char *pKey, i64 value ) noexcept
+{
+    key_value_t *pValue = Insert( pDocument, pObject, pKey, key_value_type_t::NULL_VALUE );
+    return pValue != nullptr && KeyValue_SetI64( pDocument, pValue, value );
+}
+
+CYPHER_NODISCARD bool_t InsertBool( key_value_document_t *pDocument, key_value_t *pObject, const char *pKey, bool_t value ) noexcept
+{
+    key_value_t *pValue = Insert( pDocument, pObject, pKey, key_value_type_t::NULL_VALUE );
+    return pValue != nullptr && KeyValue_SetBool( pDocument, pValue, value );
+}
+
+CYPHER_NODISCARD bool_t InsertWeights( key_value_document_t *pDocument, key_value_t *pObject, const char *pKey, const f32 *pWeights, u32 nWeights ) noexcept
+{
+    key_value_t *pArray = Insert( pDocument, pObject, pKey, key_value_type_t::ARRAY );
+    if ( pArray == nullptr ) { return CY_FALSE; }
+    for ( u32 i = 0u; i < nWeights; ++i ) {
+        key_value_t *pValue = KeyValue_ArrayAppend( pDocument, pArray, key_value_type_t::NULL_VALUE );
+        if ( pValue == nullptr || !KeyValue_SetF64( pDocument, pValue, pWeights[i] ) ) { return CY_FALSE; }
+    }
+    return CY_TRUE;
+}
+
+// Replaces one top-level member: removed, then rebuilt when bWrite.
+CYPHER_NODISCARD key_value_t *ResetMember( settings_document_t *pStore, const char *pKey, key_value_type_t type, bool_t bWrite, bool_t &bOk ) noexcept
+{
+    settings_path_t path{};
+    bOk = SettingsPath_Append( &path, StringView_FromCString( pKey ) ) && SettingsDocument_Remove( pStore, path ) == settings_document_status_t::OK;
+    if ( !bOk || !bWrite ) { return nullptr; }
+    key_value_t *pNode = nullptr;
+    bOk = SettingsDocument_Ensure( pStore, path, &pNode ) == settings_document_status_t::OK &&
+          KeyValue_SetContainerType( pStore->pDocument, pNode, type );
+    return bOk ? pNode : nullptr;
+}
+
+CYPHER_NODISCARD bool_t EncodeV2( const layout_t &layout, settings_document_t *pStore ) noexcept
+{
+    key_value_document_t *pDocument = pStore->pDocument;
+    bool_t bOk = CY_TRUE;
+    const auto text = [&layout]( layout_text_t t ) noexcept { return EditorLayout_Text( &layout, t ); };
+
+    for ( const auto &field : { std::pair<const char *, layout_text_t>{ "author", layout.author }, std::pair<const char *, layout_text_t>{ "description", layout.description } } ) {
+        settings_path_t path{};
+        if ( !SettingsPath_Append( &path, StringView_FromCString( field.first ) ) ) { return CY_FALSE; }
+        if ( field.second.cchLength == 0u ) {
+            if ( SettingsDocument_Remove( pStore, path ) != settings_document_status_t::OK ) { return CY_FALSE; }
+            continue;
+        }
+        key_value_t *pNode = nullptr;
+        if ( SettingsDocument_Ensure( pStore, path, &pNode ) != settings_document_status_t::OK || !KeyValue_SetString( pDocument, pNode, text( field.second ) ) ) {
+            return CY_FALSE;
+        }
+    }
+
+    key_value_t *pWindow = ResetMember( pStore, "window", key_value_type_t::OBJECT, layout.window.bPresent, bOk );
+    if ( !bOk ) { return CY_FALSE; }
+    if ( pWindow != nullptr ) {
+        const layout_main_window_t &w = layout.window;
+        if ( !InsertI64( pDocument, pWindow, "x", w.x ) || !InsertI64( pDocument, pWindow, "y", w.y ) || !InsertI64( pDocument, pWindow, "width", w.width ) ||
+             !InsertI64( pDocument, pWindow, "height", w.height ) || !InsertBool( pDocument, pWindow, "maximized", w.bMaximized ) ||
+             !InsertBool( pDocument, pWindow, "fullscreen", w.bFullscreen ) ||
+             ( w.screen.cchLength != 0u && !InsertString( pDocument, pWindow, "screen", text( w.screen ) ) ) ) {
+            return CY_FALSE;
+        }
+    }
+
+    key_value_t *pHidden = ResetMember( pStore, "hidden", key_value_type_t::ARRAY, Vector_Count( &layout.hidden ) != 0u, bOk );
+    if ( !bOk ) { return CY_FALSE; }
+    for ( usize i = 0u; pHidden != nullptr && i < Vector_Count( &layout.hidden ); ++i ) {
+        const layout_hidden_t &hidden = layout.hidden.pData[i];
+        key_value_t *pEntry = KeyValue_ArrayAppend( pDocument, pHidden, key_value_type_t::OBJECT );
+        if ( pEntry == nullptr || !InsertString( pDocument, pEntry, "panel", text( hidden.panel ) ) ||
+             ( hidden.beside.cchLength != 0u && !InsertString( pDocument, pEntry, "beside", text( hidden.beside ) ) ) ||
+             !InsertString( pDocument, pEntry, "area", StringView_FromCString( kAreaNames[static_cast<usize>( hidden.area )] ) ) ||
+             ( hidden.bTabbed && !InsertBool( pDocument, pEntry, "tabbed", CY_TRUE ) ) ) {
+            return CY_FALSE;
+        }
+    }
+
+    key_value_t *pToolbars = ResetMember( pStore, "toolbars", key_value_type_t::ARRAY, Vector_Count( &layout.toolbars ) != 0u, bOk );
+    if ( !bOk ) { return CY_FALSE; }
+    for ( usize i = 0u; pToolbars != nullptr && i < Vector_Count( &layout.toolbars ); ++i ) {
+        const layout_toolbar_t &toolbar = layout.toolbars.pData[i];
+        key_value_t *pEntry = KeyValue_ArrayAppend( pDocument, pToolbars, key_value_type_t::OBJECT );
+        if ( pEntry == nullptr || !InsertString( pDocument, pEntry, "id", text( toolbar.id ) ) ||
+             !InsertString( pDocument, pEntry, "area", StringView_FromCString( kAreaNames[static_cast<usize>( toolbar.area )] ) ) ||
+             !InsertI64( pDocument, pEntry, "row", toolbar.row ) || !InsertI64( pDocument, pEntry, "order", toolbar.order ) ||
+             ( !toolbar.bVisible && !InsertBool( pDocument, pEntry, "visible", CY_FALSE ) ) ) {
+            return CY_FALSE;
+        }
+        if ( toolbar.iconSize > 0.0 ) {
+            key_value_t *pSize = Insert( pDocument, pEntry, "icon_size", key_value_type_t::NULL_VALUE );
+            if ( pSize == nullptr || !KeyValue_SetF64( pDocument, pSize, toolbar.iconSize ) ) { return CY_FALSE; }
+        }
+        if ( toolbar.area == layout_area_t::FLOATING && ( !InsertI64( pDocument, pEntry, "x", toolbar.x ) || !InsertI64( pDocument, pEntry, "y", toolbar.y ) ) ) {
+            return CY_FALSE;
+        }
+        if ( toolbar.bHasItems ) {
+            key_value_t *pItems = Insert( pDocument, pEntry, "items", key_value_type_t::ARRAY );
+            if ( pItems == nullptr ) { return CY_FALSE; }
+            for ( u32 iItem = 0u; iItem < toolbar.nItems; ++iItem ) {
+                key_value_t *pItem = KeyValue_ArrayAppend( pDocument, pItems, key_value_type_t::NULL_VALUE );
+                if ( pItem == nullptr || !KeyValue_SetString( pDocument, pItem, text( layout.toolbarItems.pData[toolbar.iFirstItem + iItem] ) ) ) {
+                    return CY_FALSE;
+                }
+            }
+        }
+    }
+
+    key_value_t *pStatus = ResetMember( pStore, "status_bar", key_value_type_t::OBJECT, CY_TRUE, bOk );
+    if ( !bOk || pStatus == nullptr || !InsertBool( pDocument, pStatus, "visible", layout.bStatusBarVisible ) ) { return CY_FALSE; }
+
+    key_value_t *pViews = ResetMember( pStore, "views", key_value_type_t::OBJECT, layout.views.bPresent, bOk );
+    if ( !bOk ) { return CY_FALSE; }
+    if ( pViews != nullptr ) {
+        const layout_views_t &views = layout.views;
+        if ( !InsertString( pDocument, pViews, "arrangement", StringView_FromCString( kArrangementNames[static_cast<usize>( views.arrangement )] ) ) ||
+             ( views.nColumns != 0u && !InsertWeights( pDocument, pViews, "columns", views.columns, views.nColumns ) ) ||
+             ( views.nRows != 0u && !InsertWeights( pDocument, pViews, "rows", views.rows, views.nRows ) ) ||
+             !InsertI64( pDocument, pViews, "active", views.active ) || !InsertI64( pDocument, pViews, "maximized", views.maximized ) ) {
+            return CY_FALSE;
+        }
+        key_value_t *pPanes = views.nPanes != 0u ? Insert( pDocument, pViews, "panes", key_value_type_t::ARRAY ) : nullptr;
+        if ( views.nPanes != 0u && pPanes == nullptr ) { return CY_FALSE; }
+        for ( u32 i = 0u; i < views.nPanes; ++i ) {
+            const layout_pane_t &pane = views.panes[i];
+            key_value_t *pPane = KeyValue_ArrayAppend( pDocument, pPanes, key_value_type_t::OBJECT );
+            if ( pPane == nullptr || !InsertString( pDocument, pPane, "view", StringView_FromCString( kViewNames[static_cast<usize>( pane.view )] ) ) ||
+                 !InsertString( pDocument, pPane, "render", StringView_FromCString( kRenderNames[static_cast<usize>( pane.render )] ) ) ||
+                 !InsertBool( pDocument, pPane, "grid", pane.bGrid ) ) {
+                return CY_FALSE;
+            }
+            if ( pane.show != LAYOUT_OVERLAYS_DEFAULT ) {
+                key_value_t *pShow = Insert( pDocument, pPane, "show", key_value_type_t::ARRAY );
+                if ( pShow == nullptr ) { return CY_FALSE; }
+                for ( usize iName = 0u; iName < std::size( kOverlayNames ); ++iName ) {
+                    if ( ( pane.show & ( 1u << iName ) ) == 0u ) { continue; }
+                    key_value_t *pName = KeyValue_ArrayAppend( pDocument, pShow, key_value_type_t::NULL_VALUE );
+                    if ( pName == nullptr || !KeyValue_SetString( pDocument, pName, StringView_FromCString( kOverlayNames[iName] ) ) ) { return CY_FALSE; }
+                }
+            }
+        }
+    }
+    return CY_TRUE;
+}
+
 } // namespace
 
 layout_status_t EditorLayout_Init( layout_t *pLayout, const allocator_t *pAllocator ) noexcept
@@ -197,7 +561,9 @@ layout_status_t EditorLayout_Init( layout_t *pLayout, const allocator_t *pAlloca
     if ( pLayout == nullptr || pAllocator == nullptr ) { return layout_status_t::INVALID_ARGUMENT; }
     const bool_t bOk = Vector_Init( &pLayout->nodes, pAllocator ) && Vector_Init( &pLayout->children, pAllocator ) &&
                        Vector_Init( &pLayout->sizes, pAllocator ) && Vector_Init( &pLayout->panels, pAllocator ) &&
-                       Vector_Init( &pLayout->windows, pAllocator ) && Vector_Init( &pLayout->text, pAllocator );
+                       Vector_Init( &pLayout->windows, pAllocator ) && Vector_Init( &pLayout->text, pAllocator ) &&
+                       Vector_Init( &pLayout->hidden, pAllocator ) && Vector_Init( &pLayout->toolbars, pAllocator ) &&
+                       Vector_Init( &pLayout->toolbarItems, pAllocator );
     EditorLayout_Clear( pLayout );
     return bOk ? layout_status_t::OK : layout_status_t::OUT_OF_MEMORY;
 }
@@ -210,6 +576,9 @@ void EditorLayout_Shutdown( layout_t *pLayout ) noexcept
     Vector_Shutdown( &pLayout->sizes );
     Vector_Shutdown( &pLayout->panels );
     Vector_Shutdown( &pLayout->windows );
+    Vector_Shutdown( &pLayout->hidden );
+    Vector_Shutdown( &pLayout->toolbars );
+    Vector_Shutdown( &pLayout->toolbarItems );
     Vector_Shutdown( &pLayout->text );
 }
 
@@ -221,12 +590,21 @@ void EditorLayout_Clear( layout_t *pLayout ) noexcept
     Vector_Clear( &pLayout->sizes );
     Vector_Clear( &pLayout->panels );
     Vector_Clear( &pLayout->windows );
+    Vector_Clear( &pLayout->hidden );
+    Vector_Clear( &pLayout->toolbars );
+    Vector_Clear( &pLayout->toolbarItems );
     Vector_Clear( &pLayout->text );
     pLayout->id = {};
     pLayout->name = {};
     pLayout->workspace = {};
     pLayout->iRoot = 0u;
     pLayout->bHasRoot = CY_FALSE;
+    pLayout->author = {};
+    pLayout->description = {};
+    pLayout->window = {};
+    pLayout->bStatusBarVisible = CY_TRUE;
+    pLayout->views = {};
+    pLayout->nInvalidMembers = 0u;
 }
 
 string_view_t EditorLayout_Text( const layout_t *pLayout, layout_text_t text ) noexcept
@@ -331,9 +709,56 @@ layout_status_t EditorLayout_SetHeader(
         ? layout_status_t::OK : layout_status_t::OUT_OF_MEMORY;
 }
 
+layout_status_t EditorLayout_SetDetails( layout_t *pLayout, string_view_t author, string_view_t description ) noexcept
+{
+    if ( pLayout == nullptr || author.cchLength > 128u || description.cchLength > 1024u ) { return layout_status_t::INVALID_ARGUMENT; }
+    return StoreText( *pLayout, author, pLayout->author ) && StoreText( *pLayout, description, pLayout->description )
+        ? layout_status_t::OK : layout_status_t::OUT_OF_MEMORY;
+}
+
+layout_status_t EditorLayout_SetWindow( layout_t *pLayout, const layout_main_window_t &window, string_view_t screen ) noexcept
+{
+    if ( pLayout == nullptr || window.width < 320u || window.height < 240u || screen.cchLength > 128u ) { return layout_status_t::INVALID_ARGUMENT; }
+    pLayout->window = window;
+    pLayout->window.bPresent = CY_TRUE;
+    return StoreText( *pLayout, screen, pLayout->window.screen ) ? layout_status_t::OK : layout_status_t::OUT_OF_MEMORY;
+}
+
+layout_status_t EditorLayout_AddHidden( layout_t *pLayout, string_view_t panel, string_view_t beside, layout_area_t area, bool_t bTabbed ) noexcept
+{
+    if ( pLayout == nullptr || !IsPanelId( panel ) || ( beside.cchLength != 0u && !IsPanelId( beside ) ) ||
+         Vector_Count( &pLayout->hidden ) >= EDITOR_LAYOUT_MAX_HIDDEN ) {
+        return layout_status_t::INVALID_ARGUMENT;
+    }
+    layout_hidden_t hidden{};
+    hidden.area = area;
+    hidden.bTabbed = bTabbed;
+    return StoreText( *pLayout, panel, hidden.panel ) && StoreText( *pLayout, beside, hidden.beside ) && Vector_PushBack( &pLayout->hidden, hidden )
+        ? layout_status_t::OK : layout_status_t::OUT_OF_MEMORY;
+}
+
+layout_status_t EditorLayout_AddToolbar( layout_t *pLayout, string_view_t id, const layout_toolbar_t &placement, const string_view_t *pItems, usize nItems ) noexcept
+{
+    if ( pLayout == nullptr || !IsPanelId( id ) || Vector_Count( &pLayout->toolbars ) >= EDITOR_LAYOUT_MAX_TOOLBARS ||
+         nItems > EDITOR_LAYOUT_MAX_TOOLBAR_ITEMS || ( pItems == nullptr && nItems != 0u ) ) {
+        return layout_status_t::INVALID_ARGUMENT;
+    }
+    layout_toolbar_t toolbar = placement;
+    toolbar.bHasItems = pItems != nullptr;
+    toolbar.iFirstItem = static_cast<u32>( Vector_Count( &pLayout->toolbarItems ) );
+    toolbar.nItems = 0u;
+    for ( usize i = 0u; i < nItems; ++i ) {
+        if ( !IsPanelId( pItems[i] ) ) { return layout_status_t::INVALID_ARGUMENT; }
+        layout_text_t stored{};
+        if ( !StoreText( *pLayout, pItems[i], stored ) || !Vector_PushBack( &pLayout->toolbarItems, stored ) ) { return layout_status_t::OUT_OF_MEMORY; }
+        ++toolbar.nItems;
+    }
+    return StoreText( *pLayout, id, toolbar.id ) && Vector_PushBack( &pLayout->toolbars, toolbar ) ? layout_status_t::OK : layout_status_t::OUT_OF_MEMORY;
+}
+
 settings_document_identity_t EditorLayout_Identity() noexcept
 {
-    return { LayoutText( "cypher.layout" ), EDITOR_LAYOUT_SCHEMA_VERSION, EDITOR_LAYOUT_SCHEMA_VERSION };
+    return { LayoutText( "cypher.layout" ), EDITOR_LAYOUT_OLDEST_SCHEMA_VERSION, EDITOR_LAYOUT_SCHEMA_VERSION };
 }
 
 layout_status_t EditorLayout_Decode( const key_value_document_t *pDocument, layout_t *pLayout ) noexcept
@@ -345,7 +770,8 @@ layout_status_t EditorLayout_Decode( const key_value_document_t *pDocument, layo
     const key_value_t *pRoot = KeyValue_Root( pDocument );
     if ( header.nLanguageVersion != CYKV_LANGUAGE_VERSION ||
          !StringView_Equals( header.schemaId, LayoutText( "cypher.layout" ) ) ||
-         header.nSchemaVersion != EDITOR_LAYOUT_SCHEMA_VERSION || KeyValue_Type( pRoot ) != key_value_type_t::OBJECT ) {
+         header.nSchemaVersion < EDITOR_LAYOUT_OLDEST_SCHEMA_VERSION || header.nSchemaVersion > EDITOR_LAYOUT_SCHEMA_VERSION ||
+         KeyValue_Type( pRoot ) != key_value_type_t::OBJECT ) {
         return layout_status_t::INVALID_HEADER;
     }
 
@@ -413,6 +839,10 @@ layout_status_t EditorLayout_Decode( const key_value_document_t *pDocument, layo
         }
     }
 
+    // V2 members fall back to defaults instead of rejecting the layout.
+    status = DecodeV2( scratch, pRoot );
+    if ( status != layout_status_t::OK ) { return fail( status ); }
+
     // Commit: release the caller's storage, then move the scratch vectors in
     // (a move needs an empty destination and cannot fail).
     EditorLayout_Shutdown( pLayout );
@@ -422,11 +852,20 @@ layout_status_t EditorLayout_Decode( const key_value_document_t *pDocument, layo
     Vector_Move( &pLayout->panels, &scratch.panels );
     Vector_Move( &pLayout->windows, &scratch.windows );
     Vector_Move( &pLayout->text, &scratch.text );
+    Vector_Move( &pLayout->hidden, &scratch.hidden );
+    Vector_Move( &pLayout->toolbars, &scratch.toolbars );
+    Vector_Move( &pLayout->toolbarItems, &scratch.toolbarItems );
     pLayout->id = scratch.id;
     pLayout->name = scratch.name;
     pLayout->workspace = scratch.workspace;
     pLayout->iRoot = scratch.iRoot;
     pLayout->bHasRoot = scratch.bHasRoot;
+    pLayout->author = scratch.author;
+    pLayout->description = scratch.description;
+    pLayout->window = scratch.window;
+    pLayout->bStatusBarVisible = scratch.bStatusBarVisible;
+    pLayout->views = scratch.views;
+    pLayout->nInvalidMembers = scratch.nInvalidMembers;
     return layout_status_t::OK;
 }
 
@@ -460,6 +899,7 @@ layout_status_t EditorLayout_Encode( const layout_t *pLayout, settings_document_
          !EncodeNode( *pLayout, pLayout->iRoot, pDocument, pTree ) ) {
         return layout_status_t::STORE_FAILED;
     }
+    if ( !EncodeV2( *pLayout, pStore ) ) { return layout_status_t::STORE_FAILED; }
     settings_path_t floatingPath{};
     if ( !SettingsPath_Append( &floatingPath, LayoutText( "floating" ) ) ) { return layout_status_t::INVALID_ARGUMENT; }
     if ( Vector_Count( &pLayout->windows ) == 0u ) {

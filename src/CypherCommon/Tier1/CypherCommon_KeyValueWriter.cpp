@@ -31,6 +31,7 @@ order must not depend on pointer values, locale, or process state.
 #include "CypherCommon_Sort.h"
 #include "CypherCommon_StringConvert.h"
 #include "CypherCommon_StringEscape.h"
+#include "CypherCommon_StringParse.h"
 #include "CypherCommon_Unicode.h"
 
 namespace cypher::common
@@ -43,7 +44,10 @@ constexpr flags32_t CY_KEY_VALUE_WRITE_VALID_FLAGS =
     KEY_VALUE_WRITE_FLAG_PRETTY |
     KEY_VALUE_WRITE_FLAG_CANONICAL |
     KEY_VALUE_WRITE_FLAG_FINAL_NEWLINE |
-    KEY_VALUE_WRITE_FLAG_ASCII_ONLY; // Reject unknown output policy bits.
+    KEY_VALUE_WRITE_FLAG_ASCII_ONLY |
+    KEY_VALUE_WRITE_FLAG_BARE_KEYS |
+    KEY_VALUE_WRITE_FLAG_SHORTEST_REALS |
+    KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS; // Reject unknown output policy bits.
 
 constexpr flags32_t CY_KEY_VALUE_ESCAPE_FLAGS =
     STRING_ESCAPE_FLAG_QUOTES |
@@ -59,6 +63,14 @@ struct writer_t {
     bool_t bStrictJson{ CY_FALSE };            // Select JSON syntax instead of CYKV syntax.
     bool_t bPretty{ CY_FALSE };                // Emit indentation and line breaks.
     bool_t bCanonical{ CY_FALSE };             // Sort keys and suppress optional whitespace.
+    // Compact layout (pretty CYKV only).
+    bool_t bBareKeys{ CY_FALSE };              // Unquoted keys where the grammar allows.
+    bool_t bQuoteDottedKeys{ CY_FALSE };       // ...except keys holding a '.'.
+    bool_t bShortestReals{ CY_FALSE };         // Fewest digits that round-trip.
+    usize nLineWidth{ 0u };                    // One-line and packed containers; 0 = off.
+    bool_t bInline{ CY_FALSE };                // Inside a container being written on one line.
+    bool_t bForceExpand{ CY_FALSE };           // The next container spreads over lines (its siblings did not fit).
+    usize column{ 0u };                        // Characters since the last line break.
 };
 
 struct buffer_sink_t {
@@ -153,6 +165,15 @@ CYPHER_NODISCARD bool_t Emit(
         return CY_FALSE;
     }
     writer.result.cchWritten += cchText;
+    // The column decides whether the next container fits on its line.
+    usize iLastBreak = cchText;
+    for ( usize i = cchText; i != 0u; --i ) {
+        if ( pText[i - 1u] == '\n' ) {
+            iLastBreak = i - 1u;
+            break;
+        }
+    }
+    writer.column = iLastBreak == cchText ? writer.column + cchText : cchText - iLastBreak - 1u;
     return CY_TRUE;
 }
 
@@ -256,19 +277,70 @@ CYPHER_NODISCARD bool_t EmitEscapedString(
     return bWritten && EmitLiteral( writer, "\"" );
 }
 
+// Scalars are formatted once into a small buffer so the compact layout can
+// measure exactly what will be written.
+struct scalar_text_t {
+    char text[128]{};
+    usize cch{ 0u };
+};
+
+CYPHER_NODISCARD bool_t FormatI64( i64 value, scalar_text_t &out ) noexcept
+{
+    string_integer_format_t format{};
+    const string_convert_result_t converted = StringConvert_I64( value, format, out.text, sizeof( out.text ) );
+    out.cch = converted.cchWritten;
+    return converted.status == string_convert_status_t::OK;
+}
+
+CYPHER_NODISCARD bool_t FormatU64( const writer_t &writer, u64 value, scalar_text_t &out ) noexcept
+{
+    const string_convert_result_t converted = StringConvert_U64( value, {}, out.text, sizeof( out.text ) - 1u );
+    if ( converted.status != string_convert_status_t::OK ) { return CY_FALSE; }
+    out.cch = converted.cchWritten;
+    if ( !writer.bStrictJson ) { out.text[out.cch++] = 'u'; }
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t FormatF64( const writer_t &writer, f64 value, scalar_text_t &out ) noexcept
+{
+    const auto format = [&]( u8 nDigits ) noexcept {
+        const string_convert_result_t converted = StringConvert_F64(
+            value,
+            { string_float_style_t::GENERAL, nDigits, STRING_FLOAT_FORMAT_FLAG_TRIM_TRAILING_ZERO },
+            out.text,
+            sizeof( out.text ) - 2u );
+        out.cch = converted.cchWritten;
+        return converted.status == string_convert_status_t::OK;
+    };
+    bool_t bFormatted = CY_FALSE;
+    if ( writer.bShortestReals ) {
+        // 17 significant digits always round-trip; fewer usually do and read
+        // far better. The reader's own parser decides what "round-trips".
+        for ( u8 nDigits = 15u; nDigits < 17u && !bFormatted; ++nDigits ) {
+            f64 back = 0.0;
+            bFormatted = format( nDigits ) &&
+                         StringParse_Succeeded( StringParse_F64( { out.text, out.cch }, STRING_PARSE_FLAG_ALLOW_PLUS_SIGN, &back ) ) &&
+                         Cy_MemCompare( &back, &value, sizeof( f64 ) ) == 0;
+        }
+    }
+    if ( !bFormatted && !format( 17u ) ) { return CY_FALSE; }
+    if ( writer.bStrictJson ) { return CY_TRUE; }
+    for ( usize iByte = 0u; iByte < out.cch; ++iByte ) {
+        if ( out.text[iByte] == '.' || out.text[iByte] == 'e' || out.text[iByte] == 'E' ) { return CY_TRUE; }
+    }
+    // A real is always spelled as one so it reads back as F64, not I64.
+    out.text[out.cch++] = '.';
+    out.text[out.cch++] = '0';
+    return CY_TRUE;
+}
+
 CYPHER_NODISCARD bool_t EmitI64(
     writer_t &writer,
     i64 value ) noexcept
 {
-    char text[64]{};
-    string_integer_format_t format{};
-    const string_convert_result_t converted = StringConvert_I64(
-        value,
-        format,
-        text,
-        sizeof( text ) );
-    return converted.status == string_convert_status_t::OK
-        ? Emit( writer, text, converted.cchWritten )
+    scalar_text_t text{};
+    return FormatI64( value, text )
+        ? Emit( writer, text.text, text.cch )
         : ( Fail( writer, key_value_write_status_t::INVALID_DOCUMENT ), CY_FALSE );
 }
 
@@ -276,52 +348,20 @@ CYPHER_NODISCARD bool_t EmitU64(
     writer_t &writer,
     u64 value ) noexcept
 {
-    char text[64]{};
-    const string_convert_result_t converted = StringConvert_U64(
-        value,
-        {},
-        text,
-        sizeof( text ) );
-    if ( converted.status != string_convert_status_t::OK ||
-         !Emit( writer, text, converted.cchWritten ) ) {
-        if ( converted.status != string_convert_status_t::OK ) {
-            Fail( writer, key_value_write_status_t::INVALID_DOCUMENT );
-        }
-        return CY_FALSE;
-    }
-    return writer.bStrictJson || EmitLiteral( writer, "u" );
+    scalar_text_t text{};
+    return FormatU64( writer, value, text )
+        ? Emit( writer, text.text, text.cch )
+        : ( Fail( writer, key_value_write_status_t::INVALID_DOCUMENT ), CY_FALSE );
 }
 
 CYPHER_NODISCARD bool_t EmitF64(
     writer_t &writer,
     f64 value ) noexcept
 {
-    char text[128]{};
-    const string_convert_result_t converted = StringConvert_F64(
-        value,
-        {
-            string_float_style_t::GENERAL,
-            17u,
-            STRING_FLOAT_FORMAT_FLAG_TRIM_TRAILING_ZERO
-        },
-        text,
-        sizeof( text ) );
-    if ( converted.status != string_convert_status_t::OK ||
-         !Emit( writer, text, converted.cchWritten ) ) {
-        if ( converted.status != string_convert_status_t::OK ) {
-            Fail( writer, key_value_write_status_t::INVALID_DOCUMENT );
-        }
-        return CY_FALSE;
-    }
-    if ( writer.bStrictJson ) {
-        return CY_TRUE;
-    }
-    for ( usize iByte = 0u; iByte < converted.cchWritten; ++iByte ) {
-        if ( text[iByte] == '.' || text[iByte] == 'e' || text[iByte] == 'E' ) {
-            return CY_TRUE;
-        }
-    }
-    return EmitLiteral( writer, ".0" );
+    scalar_text_t text{};
+    return FormatF64( writer, value, text )
+        ? Emit( writer, text.text, text.cch )
+        : ( Fail( writer, key_value_write_status_t::INVALID_DOCUMENT ), CY_FALSE );
 }
 
 CYPHER_NODISCARD bool_t EmitBinary(
@@ -357,6 +397,120 @@ CYPHER_NODISCARD bool_t WriteValue(
     writer_t &writer,
     const key_value_t *pValue,
     usize nDepth ) noexcept;
+
+// CYKV bare-key grammar: ASCII letter or '_', then letters, digits, '_',
+// '.', '-'. Words the reader treats as literals stay quoted.
+CYPHER_NODISCARD bool_t IsBareKey( string_view_t name ) noexcept
+{
+    if ( name.cchLength == 0u ) { return CY_FALSE; }
+    const auto isLetter = []( char c ) noexcept { return ( c >= 'a' && c <= 'z' ) || ( c >= 'A' && c <= 'Z' ); };
+    if ( !isLetter( name.pData[0] ) && name.pData[0] != '_' ) { return CY_FALSE; }
+    for ( usize i = 1u; i < name.cchLength; ++i ) {
+        const char c = name.pData[i];
+        if ( !isLetter( c ) && !( c >= '0' && c <= '9' ) && c != '_' && c != '.' && c != '-' ) { return CY_FALSE; }
+    }
+    for ( const char *pReserved : { "true", "false", "null", "hex", "inf", "nan", "infinity" } ) {
+        if ( StringView_Equals( name, StringView_FromCString( pReserved ) ) ) { return CY_FALSE; }
+    }
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t WritesBareKey( const writer_t &writer, string_view_t name ) noexcept
+{
+    if ( !writer.bBareKeys || writer.bStrictJson || !IsBareKey( name ) ) { return CY_FALSE; }
+    if ( writer.bQuoteDottedKeys ) {
+        for ( usize i = 0u; i < name.cchLength; ++i ) {
+            if ( name.pData[i] == '.' ) { return CY_FALSE; }
+        }
+    }
+    return CY_TRUE;
+}
+
+CYPHER_NODISCARD bool_t EmitKey( writer_t &writer, string_view_t name ) noexcept
+{
+    if ( WritesBareKey( writer, name ) ) { return Emit( writer, name.pData, name.cchLength ); }
+    return EmitEscapedString( writer, name );
+}
+
+CYPHER_NODISCARD usize EscapedLength( const writer_t &writer, string_view_t text ) noexcept
+{
+    flags32_t flags = CY_KEY_VALUE_ESCAPE_FLAGS;
+    if ( ( writer.options.flags & KEY_VALUE_WRITE_FLAG_ASCII_ONLY ) != 0u ) { flags |= STRING_ESCAPE_FLAG_NON_ASCII; }
+    const string_escape_result_t measured = StringEscape_Encode( text, string_escape_style_t::JSON, flags, nullptr, 0u );
+    return measured.cchRequired == CY_USIZE_MAX ? CY_USIZE_MAX / 2u : measured.cchRequired + 2u;
+}
+
+// Length of a value's one-line form, or more than nCap once it is known to
+// exceed it (so measuring a huge container stops early).
+CYPHER_NODISCARD usize FlatLength( const writer_t &writer, const key_value_t *pValue, usize nCap ) noexcept
+{
+    scalar_text_t text{};
+    switch ( pValue->type ) {
+        case key_value_type_t::NULL_VALUE: return 4u;
+        case key_value_type_t::BOOL: return pValue->value.bValue ? 4u : 5u;
+        case key_value_type_t::I64: return FormatI64( pValue->value.iValue, text ) ? text.cch : nCap + 1u;
+        case key_value_type_t::U64: return FormatU64( writer, pValue->value.uValue, text ) ? text.cch : nCap + 1u;
+        case key_value_type_t::F64: return FormatF64( writer, pValue->value.flValue, text ) ? text.cch : nCap + 1u;
+        case key_value_type_t::STRING:
+            return EscapedLength( writer, { reinterpret_cast<const char *>( pValue->value.bytes.pData ), pValue->value.bytes.cbSize } );
+        case key_value_type_t::BINARY: return 5u + 2u * pValue->value.bytes.cbSize;
+        case key_value_type_t::ARRAY:
+        case key_value_type_t::OBJECT: {
+            if ( pValue->nChildren == 0u ) { return 2u; }
+            const bool_t bObject = pValue->type == key_value_type_t::OBJECT;
+            usize cch = 4u; // "[ " and " ]", or "{ " and " }".
+            usize i = 0u;
+            for ( const key_value_t *pChild = pValue->pFirstChild; pChild != nullptr && cch <= nCap; pChild = pChild->pNext, ++i ) {
+                if ( i != 0u ) { cch += bObject ? 1u : 2u; } // " " between members, ", " between elements.
+                if ( bObject ) {
+                    const string_view_t name{ pChild->pName, pChild->cchName };
+                    cch += ( WritesBareKey( writer, name ) ? name.cchLength : EscapedLength( writer, name ) ) + 3u;
+                }
+                cch += FlatLength( writer, pChild, nCap - ( cch < nCap ? cch : nCap ) );
+            }
+            return cch;
+        }
+    }
+    return nCap + 1u;
+}
+
+CYPHER_NODISCARD bool_t IsScalar( const key_value_t *pValue ) noexcept
+{
+    return pValue->type != key_value_type_t::OBJECT && pValue->type != key_value_type_t::ARRAY;
+}
+
+CYPHER_NODISCARD bool_t UseCompactLayout( const writer_t &writer ) noexcept
+{
+    return writer.bPretty && !writer.bStrictJson && writer.nLineWidth != 0u;
+}
+
+// Whether a container starting at the current column fits on the line,
+// leaving room for a following comma.
+CYPHER_NODISCARD bool_t FitsOnLine( const writer_t &writer, const key_value_t *pContainer ) noexcept
+{
+    if ( writer.column + 1u >= writer.nLineWidth ) { return CY_FALSE; }
+    const usize nBudget = writer.nLineWidth - writer.column - 1u;
+    return FlatLength( writer, pContainer, nBudget ) <= nBudget;
+}
+
+CYPHER_NODISCARD bool_t WriteFlatContainer( writer_t &writer, const key_value_t *pContainer, usize nDepth ) noexcept
+{
+    const bool_t bObject = pContainer->type == key_value_type_t::OBJECT;
+    if ( pContainer->nChildren == 0u ) { return EmitLiteral( writer, bObject ? "{}" : "[]" ); }
+    const bool_t bWasInline = writer.bInline;
+    writer.bInline = CY_TRUE;
+    bool_t bSuccess = EmitLiteral( writer, bObject ? "{ " : "[ " );
+    usize i = 0u;
+    for ( const key_value_t *pChild = pContainer->pFirstChild; bSuccess && pChild != nullptr; pChild = pChild->pNext, ++i ) {
+        if ( i != 0u ) { bSuccess = EmitLiteral( writer, bObject ? " " : ", " ); }
+        if ( bSuccess && bObject ) {
+            bSuccess = EmitKey( writer, { pChild->pName, pChild->cchName } ) && EmitLiteral( writer, " = " );
+        }
+        bSuccess = bSuccess && WriteValue( writer, pChild, nDepth + 1u );
+    }
+    writer.bInline = bWasInline;
+    return bSuccess && EmitLiteral( writer, bObject ? " }" : " ]" );
+}
 
 CYPHER_NODISCARD canonical_child_t *BuildCanonicalOrder(
     writer_t &writer,
@@ -403,6 +557,12 @@ CYPHER_NODISCARD bool_t WriteObject(
         return CY_FALSE;
     }
     // Canonical mode supplies deterministic object order for hashing and cooked output.
+    const bool_t bForceExpand = writer.bForceExpand;
+    writer.bForceExpand = CY_FALSE;
+    // The document root always spreads over lines; one-line roots read badly.
+    if ( UseCompactLayout( writer ) && nDepth != 0u && ( writer.bInline || ( !bForceExpand && FitsOnLine( writer, pObject ) ) ) ) {
+        return WriteFlatContainer( writer, pObject, nDepth );
+    }
     canonical_child_t *pCanonical = writer.bCanonical
         ? BuildCanonicalOrder( writer, pObject )
         : nullptr;
@@ -419,7 +579,7 @@ CYPHER_NODISCARD bool_t WriteObject(
             : KeyValue_ChildAt( pObject, i );
         bSuccess = pChild != nullptr &&
                    EmitIndent( writer, nDepth + 1u ) &&
-                   EmitEscapedString(
+                   EmitKey(
                        writer,
                        { pChild->pName, pChild->cchName } ) &&
                    EmitLiteral(
@@ -461,6 +621,58 @@ CYPHER_NODISCARD bool_t WriteArray(
     if ( nDepth > writer.options.nMaxDepth ) {
         Fail( writer, key_value_write_status_t::DEPTH_LIMIT );
         return CY_FALSE;
+    }
+    const bool_t bForceExpand = writer.bForceExpand;
+    writer.bForceExpand = CY_FALSE;
+    if ( UseCompactLayout( writer ) ) {
+        if ( writer.bInline || ( !bForceExpand && FitsOnLine( writer, pArray ) ) ) { return WriteFlatContainer( writer, pArray, nDepth ); }
+        bool_t bAllContainers = pArray->nChildren != 0u;
+        for ( const key_value_t *pChild = pArray->pFirstChild; bAllContainers && pChild != nullptr; pChild = pChild->pNext ) {
+            bAllContainers = !IsScalar( pChild );
+        }
+        if ( bAllContainers ) {
+            // Siblings share one layout - every record on one line, or every
+            // record spread - so a list of similar records (brush faces,
+            // outputs) reads uniformly instead of alternating by a character.
+            const usize childColumn = ( nDepth + 1u ) * writer.options.nIndentSpaces;
+            const usize nBudget = childColumn + 1u < writer.nLineWidth ? writer.nLineWidth - childColumn - 1u : 0u;
+            bool_t bAllFit = CY_TRUE;
+            for ( const key_value_t *pChild = pArray->pFirstChild; bAllFit && pChild != nullptr; pChild = pChild->pNext ) {
+                bAllFit = FlatLength( writer, pChild, nBudget ) <= nBudget;
+            }
+            bool_t bWritten = EmitLiteral( writer, "[\n" );
+            for ( const key_value_t *pChild = pArray->pFirstChild; bWritten && pChild != nullptr; pChild = pChild->pNext ) {
+                bWritten = EmitIndent( writer, nDepth + 1u );
+                if ( bWritten && bAllFit ) {
+                    bWritten = WriteFlatContainer( writer, pChild, nDepth + 1u );
+                } else if ( bWritten ) {
+                    writer.bForceExpand = CY_TRUE;
+                    bWritten = WriteValue( writer, pChild, nDepth + 1u );
+                }
+                if ( bWritten && pChild->pNext != nullptr ) { bWritten = EmitLiteral( writer, "," ); }
+                if ( bWritten ) { bWritten = EmitLiteral( writer, "\n" ); }
+            }
+            return bWritten && EmitIndent( writer, nDepth ) && EmitLiteral( writer, "]" );
+        }
+        bool_t bAllScalars = pArray->nChildren != 0u;
+        for ( const key_value_t *pChild = pArray->pFirstChild; bAllScalars && pChild != nullptr; pChild = pChild->pNext ) {
+            bAllScalars = IsScalar( pChild );
+        }
+        if ( bAllScalars ) {
+            // Packed: as many scalars per line as fit, lines ending in commas.
+            bool_t bPacked = EmitLiteral( writer, "[\n" ) && EmitIndent( writer, nDepth + 1u );
+            usize i = 0u;
+            for ( const key_value_t *pChild = pArray->pFirstChild; bPacked && pChild != nullptr; pChild = pChild->pNext, ++i ) {
+                if ( i != 0u ) {
+                    const usize cchNext = 2u + FlatLength( writer, pChild, writer.nLineWidth ) + ( pChild->pNext != nullptr ? 1u : 0u );
+                    bPacked = writer.column + cchNext <= writer.nLineWidth
+                        ? EmitLiteral( writer, ", " )
+                        : EmitLiteral( writer, ",\n" ) && EmitIndent( writer, nDepth + 1u );
+                }
+                bPacked = bPacked && WriteValue( writer, pChild, nDepth + 1u );
+            }
+            return bPacked && EmitLiteral( writer, "\n" ) && EmitIndent( writer, nDepth ) && EmitLiteral( writer, "]" );
+        }
     }
     bool_t bSuccess = EmitLiteral( writer, "[" );
     if ( bSuccess && pArray->nChildren != 0u && writer.bPretty ) {
@@ -581,7 +793,8 @@ CYPHER_NODISCARD key_value_write_result_t WriteToSink(
     const key_value_write_options_t &options,
     key_value_write_fn_t pfnWrite,
     void *pUserData,
-    bool_t bStrictJson ) noexcept
+    bool_t bStrictJson,
+    bool_t bValueOnly = CY_FALSE ) noexcept
 {
     key_value_write_result_t invalid{};
     if ( pfnWrite == nullptr ||
@@ -597,7 +810,7 @@ CYPHER_NODISCARD key_value_write_result_t WriteToSink(
             : key_value_write_status_t::INVALID_DOCUMENT;
         return invalid;
     }
-    if ( !bStrictJson && KeyValue_Type( pRoot ) != key_value_type_t::OBJECT ) {
+    if ( !bStrictJson && !bValueOnly && KeyValue_Type( pRoot ) != key_value_type_t::OBJECT ) {
         invalid.status = key_value_write_status_t::INVALID_DOCUMENT;
         return invalid;
     }
@@ -612,8 +825,14 @@ CYPHER_NODISCARD key_value_write_result_t WriteToSink(
     // Canonical output deliberately overrides pretty formatting.
     writer.bPretty = !writer.bCanonical &&
         ( options.flags & KEY_VALUE_WRITE_FLAG_PRETTY ) != 0u;
+    // Canonical output is one fixed spelling for hashing; layout options
+    // never change it.
+    writer.bBareKeys = !writer.bCanonical && ( options.flags & KEY_VALUE_WRITE_FLAG_BARE_KEYS ) != 0u;
+    writer.bQuoteDottedKeys = ( options.flags & KEY_VALUE_WRITE_FLAG_QUOTE_DOTTED_KEYS ) != 0u;
+    writer.bShortestReals = !writer.bCanonical && ( options.flags & KEY_VALUE_WRITE_FLAG_SHORTEST_REALS ) != 0u;
+    writer.nLineWidth = writer.bPretty ? options.nLineWidth : 0u;
 
-    if ( !writer.bStrictJson ) {
+    if ( !writer.bStrictJson && !bValueOnly ) {
         static_cast<void>( WriteDocumentHeader(
             writer,
             pRoot->pDocument ) );
@@ -629,14 +848,13 @@ CYPHER_NODISCARD key_value_write_result_t WriteToSink(
     return writer.result;
 }
 
-} // namespace
-
-key_value_write_result_t KeyValue_InternalWriteText(
+CYPHER_NODISCARD key_value_write_result_t WriteToBuffer(
     const key_value_t *pRoot,
     const key_value_write_options_t &options,
     char *pDest,
     usize cchDest,
-    bool_t bStrictJson ) noexcept
+    bool_t bStrictJson,
+    bool_t bValueOnly = CY_FALSE ) noexcept
 {
     if ( pDest == nullptr && cchDest != 0u ) {
         return { key_value_write_status_t::INVALID_ARGUMENT, 0u, 0u };
@@ -652,7 +870,8 @@ key_value_write_result_t KeyValue_InternalWriteText(
         options,
         BufferSink,
         &sink,
-        bStrictJson );
+        bStrictJson,
+        bValueOnly );
     if ( pDest != nullptr && cchDest != 0u ) {
         pDest[sink.cchWritten] = '\0';
     }
@@ -662,6 +881,18 @@ key_value_write_result_t KeyValue_InternalWriteText(
         result.status = key_value_write_status_t::OUTPUT_TRUNCATED;
     }
     return result;
+}
+
+} // namespace
+
+key_value_write_result_t KeyValue_InternalWriteText(
+    const key_value_t *pRoot,
+    const key_value_write_options_t &options,
+    char *pDest,
+    usize cchDest,
+    bool_t bStrictJson ) noexcept
+{
+    return WriteToBuffer( pRoot, options, pDest, cchDest, bStrictJson );
 }
 
 key_value_write_result_t KeyValue_InternalWriteTextToSink(
@@ -691,6 +922,15 @@ key_value_write_result_t KeyValue_WriteText(
         pDest,
         cchDest,
         CY_FALSE );
+}
+
+key_value_write_result_t KeyValue_WriteValueText(
+    const key_value_t *pValue,
+    const key_value_write_options_t &options,
+    char *pDest,
+    usize cchDest ) noexcept
+{
+    return WriteToBuffer( pValue, options, pDest, cchDest, CY_FALSE, CY_TRUE );
 }
 
 key_value_write_result_t KeyValue_WriteTextToSink(

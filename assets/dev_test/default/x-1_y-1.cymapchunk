@@ -1,0 +1,827 @@
+@cykv 1
+@schema "cypher.map_chunk" 10
+
+{
+    map_id = "ee88b146-2720-40b8-9f9b-56d965a7ee8b"
+    layer = "default"
+    cell = [ -1, -1 ]
+    info = { brushes = 14 bounds = [ -3680.0, -3584.0, -640.0, 255.9999999999999, 1376.0000000000002, 672.0000000000001 ] }
+    brushes = [
+        {
+            id = 54u
+            info = { bounds = [ -1040.0, -1551.9999999999998, 608.0, 255.9999999999999, 1360.0, 640.0 ] }
+            faces = [
+                {
+                    id = 55u
+                    plane = [ 0.0, 0.0, 1.0, 640.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ 0.0, 0.0, -544.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 56u
+                    plane = [ 1.0, 0.0, 0.0, 255.9999999999999 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ 0.0, 1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ 0.0, 0.0, -544.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 57u
+                    plane = [ -1.0, 0.0, 0.0, 1040.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ 0.0, 0.0, -544.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 58u
+                    plane = [ 0.0, 1.0, 0.0, 1360.0 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ 0.0, 0.0, -544.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 59u
+                    plane = [ 0.0, -1.0, 0.0, 1551.9999999999998 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ 0.0, 0.0, -544.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 60u
+                    plane = [ 0.0, 0.0, -1.0, -608.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ 0.0, 0.0, -544.0 ]
+                    uv_normal = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 61u
+            info = { bounds = [ -1040.0, -1551.9999999999998, -640.0, 240.0, 1360.0, -608.0 ] }
+            faces = [
+                {
+                    id = 62u
+                    plane = [ 0.0, 0.0, -1.0, 640.0 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 63u
+                    plane = [ 1.0, 0.0, 0.0, 240.0 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ 0.0, 1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 64u
+                    plane = [ -1.0, 0.0, 0.0, 1040.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 65u
+                    plane = [ 0.0, 1.0, 0.0, 1360.0 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 66u
+                    plane = [ 0.0, -1.0, 0.0, 1551.9999999999998 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 67u
+                    plane = [ 0.0, 0.0, 1.0, -608.0 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_normal = [ 0.0, 0.0, -1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 107u
+            info = { bounds = [ -1840.0, -1551.9999999999998, 608.0000000000001, -1040.0, 1376.0000000000002, 639.9999999999999 ] }
+            faces = [
+                {
+                    id = 108u
+                    plane = [ 0.0, 0.0, 1.0, 639.9999999999999 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 109u
+                    plane = [ 1.0, 0.0, 0.0, -1040.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_normal = [ -1.0, 0.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 110u
+                    plane = [ -1.0, 0.0, 0.0, 1840.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 111u
+                    plane = [ 0.0, 1.0, 0.0, 1376.0000000000002 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 112u
+                    plane = [ 0.0, -1.0, 0.0, 1551.9999999999998 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 113u
+                    plane = [ 0.0, 0.0, -1.0, -608.0000000000001 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_normal = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 153u
+            info = { bounds = [ -3680.0, -1535.9999999999998, -640.0, -3664.0, 1344.0000000000005, 639.9999999999999 ] }
+            faces = [
+                {
+                    id = 154u
+                    plane = [ -1.0, 0.0, 0.0, 3680.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 155u
+                    plane = [ 0.0, 1.0, 0.0, 1344.0000000000005 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 156u
+                    plane = [ 0.0, -1.0, 0.0, 1535.9999999999998 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 157u
+                    plane = [ 0.0, 0.0, 1.0, 639.9999999999999 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 158u
+                    plane = [ 0.0, 0.0, -1.0, 640.0 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 159u
+                    plane = [ 1.0, 0.0, 0.0, -3664.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_normal = [ -1.0, 0.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 167u
+            info = { bounds = [ -3664.0, -1535.9999999999998, -640.0, -1840.0, -1519.9999999999998, 639.9999999999999 ] }
+            faces = [
+                {
+                    id = 168u
+                    plane = [ 0.0, -1.0, 0.0, 1535.9999999999998 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 169u
+                    plane = [ 0.0, 0.0, 1.0, 639.9999999999999 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 170u
+                    plane = [ 0.0, 0.0, -1.0, 640.0 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 171u
+                    plane = [ 1.0, 0.0, 0.0, -1840.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_normal = [ -1.0, 0.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 172u
+                    plane = [ -1.0, 0.0, 0.0, 3664.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 173u
+                    plane = [ 0.0, 1.0, 0.0, -1519.9999999999998 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_normal = [ 0.0, -1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 174u
+            info = { bounds = [ -3664.0, -1519.9999999999998, 623.9999999999999, -1840.0, 1328.0000000000005, 639.9999999999999 ] }
+            faces = [
+                {
+                    id = 175u
+                    plane = [ 0.0, 0.0, 1.0, 639.9999999999999 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 176u
+                    plane = [ 1.0, 0.0, 0.0, -1840.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_normal = [ -1.0, 0.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 177u
+                    plane = [ -1.0, 0.0, 0.0, 3664.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 178u
+                    plane = [ 0.0, 1.0, 0.0, 1328.0000000000005 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 179u
+                    plane = [ 0.0, -1.0, 0.0, 1519.9999999999998 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 180u
+                    plane = [ 0.0, 0.0, -1.0, -623.9999999999999 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_normal = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 181u
+            info = { bounds = [ -3664.0, -1519.9999999999998, -640.0, -1840.0, 1328.0000000000005, -624.0 ] }
+            faces = [
+                {
+                    id = 182u
+                    plane = [ 0.0, 0.0, -1.0, 640.0 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 183u
+                    plane = [ 1.0, 0.0, 0.0, -1840.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_normal = [ -1.0, 0.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 184u
+                    plane = [ -1.0, 0.0, 0.0, 3664.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 185u
+                    plane = [ 0.0, 1.0, 0.0, 1328.0000000000005 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 186u
+                    plane = [ 0.0, -1.0, 0.0, 1519.9999999999998 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 187u
+                    plane = [ 0.0, 0.0, 1.0, -624.0 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_normal = [ 0.0, 0.0, -1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 188u
+            info = { bounds = [ -1856.0, -1519.9999999999998, -624.0, -1840.0, 1328.0000000000005, 623.9999999999999 ] }
+            faces = [
+                {
+                    id = 189u
+                    plane = [ 1.0, 0.0, 0.0, -1840.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_normal = [ -1.0, 0.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 190u
+                    plane = [ 0.0, 1.0, 0.0, 1328.0000000000005 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 191u
+                    plane = [ 0.0, -1.0, 0.0, 1519.9999999999998 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 192u
+                    plane = [ 0.0, 0.0, 1.0, 623.9999999999999 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 193u
+                    plane = [ 0.0, 0.0, -1.0, 624.0 ]
+                    material = "materials/dev/surfaces/surface_masonry_block_gray.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 194u
+                    plane = [ -1.0, 0.0, 0.0, 1856.0 ]
+                    material = "materials/dev/surfaces/surface_steel_panel_blue.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 220u
+            info = { bounds = [ -1872.0, -3584.0, -640.0, -1856.0, -1696.0000000000005, 672.0000000000001 ] }
+            faces = [
+                {
+                    id = 221u
+                    plane = [ 1.0, 0.0, 0.0, -1856.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, 1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 222u
+                    plane = [ 0.0, 1.0, 0.0, -1696.0000000000005 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 223u
+                    plane = [ 0.0, -1.0, 0.0, 3584.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 224u
+                    plane = [ 0.0, 0.0, 1.0, 672.0000000000001 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 225u
+                    plane = [ 0.0, 0.0, -1.0, 640.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 226u
+                    plane = [ -1.0, 0.0, 0.0, 1872.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, 1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_normal = [ 1.0, 0.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 227u
+            info = { bounds = [ -3680.0, -3584.0, -640.0, -3664.0, -1696.0000000000005, 672.0000000000001 ] }
+            faces = [
+                {
+                    id = 228u
+                    plane = [ -1.0, 0.0, 0.0, 3680.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 229u
+                    plane = [ 0.0, 1.0, 0.0, -1696.0000000000005 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 230u
+                    plane = [ 0.0, -1.0, 0.0, 3584.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 231u
+                    plane = [ 0.0, 0.0, 1.0, 672.0000000000001 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 232u
+                    plane = [ 0.0, 0.0, -1.0, 640.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 233u
+                    plane = [ 1.0, 0.0, 0.0, -3664.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_normal = [ -1.0, 0.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 234u
+            info = { bounds = [ -3664.0, -1712.0000000000005, -640.0, -1872.0, -1696.0000000000005, 672.0000000000001 ] }
+            faces = [
+                {
+                    id = 235u
+                    plane = [ 0.0, 1.0, 0.0, -1696.0000000000005 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 236u
+                    plane = [ 0.0, 0.0, 1.0, 672.0000000000001 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 237u
+                    plane = [ 0.0, 0.0, -1.0, 640.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 238u
+                    plane = [ 1.0, 0.0, 0.0, -1872.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, 1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 239u
+                    plane = [ -1.0, 0.0, 0.0, 3664.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 240u
+                    plane = [ 0.0, -1.0, 0.0, 1712.0000000000005 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_normal = [ 0.0, 1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 241u
+            info = { bounds = [ -3664.0, -3584.0, -640.0, -1872.0, -3568.0, 672.0000000000001 ] }
+            faces = [
+                {
+                    id = 242u
+                    plane = [ 0.0, -1.0, 0.0, 3584.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 243u
+                    plane = [ 0.0, 0.0, 1.0, 672.0000000000001 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 244u
+                    plane = [ 0.0, 0.0, -1.0, 640.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 245u
+                    plane = [ 1.0, 0.0, 0.0, -1872.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, 1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 246u
+                    plane = [ -1.0, 0.0, 0.0, 3664.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 247u
+                    plane = [ 0.0, 1.0, 0.0, -3568.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_normal = [ 0.0, -1.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 248u
+            info = { bounds = [ -3664.0, -3568.0, 656.0000000000001, -1872.0, -1712.0000000000005, 672.0000000000001 ] }
+            faces = [
+                {
+                    id = 249u
+                    plane = [ 0.0, 0.0, 1.0, 672.0000000000001 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 250u
+                    plane = [ 1.0, 0.0, 0.0, -1872.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, 1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 251u
+                    plane = [ -1.0, 0.0, 0.0, 3664.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 252u
+                    plane = [ 0.0, 1.0, 0.0, -1712.0000000000005 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 253u
+                    plane = [ 0.0, -1.0, 0.0, 3568.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 254u
+                    plane = [ 0.0, 0.0, -1.0, -656.0000000000001 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_normal = [ 0.0, 0.0, 1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        },
+        {
+            id = 255u
+            info = { bounds = [ -3664.0, -3568.0, -640.0, -1872.0, -1712.0000000000005, -624.0 ] }
+            faces = [
+                {
+                    id = 256u
+                    plane = [ 0.0, 0.0, -1.0, 640.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 257u
+                    plane = [ 1.0, 0.0, 0.0, -1872.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, 1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 258u
+                    plane = [ -1.0, 0.0, 0.0, 3664.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 259u
+                    plane = [ 0.0, 1.0, 0.0, -1712.0000000000005 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 260u
+                    plane = [ 0.0, -1.0, 0.0, 3568.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 261u
+                    plane = [ 0.0, 0.0, 1.0, -624.0 ]
+                    material = "materials/dev/surfaces/surface_wood_planks.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -32.0, 864.0, -640.0 ]
+                    uv_normal = [ 0.0, 0.0, -1.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        }
+    ]
+}

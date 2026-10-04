@@ -1,0 +1,200 @@
+@cykv 1
+@schema "cypher.theme" 2
+// Built-in editor theme, complete: every framework token in catalogue order
+// (CYTHEME.md section 4). Derived colours say "auto" and follow their
+// formulas, so changing a base colour recolours everything built on it.
+// User themes name this one as their base, or copy it and change values.
+{
+    id = "charcoal"
+    name = "Charcoal"
+    author = "CypherEngine"
+    description = "The default editor look: neutral greys, light blue hover, orange checked rims, and restrained yellow/green viewport feedback."
+    appearance = "dark"
+    colors = {
+        // Interface: base colours.
+        "ui.background" = "#3c3c3c"
+        "ui.panel" = "#333333"
+        "ui.text" = "#dcdcdc"
+        "ui.accent" = "#e59a2f"
+
+        // Interface: chrome (derived).
+        "ui.chrome" = "auto"
+        "ui.header" = "auto"
+        "ui.border" = "auto"
+        "ui.border.highlight" = "auto"
+        "ui.edge" = "auto"
+        "ui.inset" = "auto"
+        "ui.deepest" = "auto"
+        "ui.button" = "auto"
+        "ui.hover" = "auto"
+        "ui.pressed" = "auto"
+        "ui.checked" = "auto"
+        "ui.checked.hover" = "auto"
+        "ui.accent.light" = "auto"
+        "ui.text.muted" = "auto"
+        "ui.text.disabled" = "auto"
+        "ui.text.selected" = "auto"
+        "ui.selection" = "auto"
+        "ui.row.alternate" = "auto"
+        "ui.focus" = "auto"
+        "ui.link" = "auto"
+
+        // Interface: status colours (derived).
+        "ui.status.error.text" = "auto"
+        "ui.status.error.background" = "auto"
+        "ui.status.error.border" = "auto"
+        "ui.status.warning.text" = "auto"
+        "ui.status.warning.background" = "auto"
+        "ui.status.warning.border" = "auto"
+        "ui.status.success.text" = "auto"
+        "ui.status.success.border" = "auto"
+        "ui.status.info.text" = "auto"
+        "ui.status.info.border" = "auto"
+
+        // Viewport: frame and overlays.
+        "viewport.gutter" = "auto"
+        "viewport.gutter.light" = "auto"
+        "viewport.gutter.shadow" = "auto"
+        "viewport.gutter.hover" = "auto"
+        "viewport.header" = "auto"
+        "viewport.header.active" = "auto"
+        "viewport.active_border" = "#d93e36"
+        "viewport.overlay.background" = "auto"
+        "viewport.overlay.text" = "auto"
+        "viewport.overlay.border" = "auto"
+
+        // Viewport: backgrounds and grid.
+        "viewport.background.2d" = "#000000"
+        "viewport.background.3d" = "#000000"
+        "viewport.background.3d.bottom" = "auto"
+        "viewport.grid.minor" = "#1f1f1f"
+        "viewport.grid.major" = "#3a3a3a"
+        "viewport.grid.band" = "auto"
+        "viewport.grid.highlight" = "auto"
+        "viewport.grid.origin" = "auto"
+        "viewport.grid.3d" = "auto"
+        "viewport.axis.x" = "#de524c"
+        "viewport.axis.y" = "#52be69"
+        "viewport.axis.z" = "#4b8be8"
+
+        // Viewport: objects.
+        "viewport.wire.world" = "#c8ccd2"
+        "viewport.wire.entity" = "#9db4c2"
+        "viewport.wire.mesh" = "#c8ccd2"
+        "viewport.wire.patch" = "#bcc6c1"
+        "viewport.wire.terrain" = "#c6c0b4"
+        "viewport.face.world" = "#8a8f96"
+        "viewport.selection" = "#d0ba62"
+        "viewport.selection.fill" = "#d0ba6240"
+        "viewport.selection.bounds" = "auto"
+        "viewport.hover" = "#8cba87"
+        "viewport.entity.default" = "#c0a2d6"
+        "viewport.entity.light" = "#d2c493"
+        "viewport.entity.info" = "#9cbdb0"
+        "viewport.entity.trigger" = "#c2a0cc"
+        "viewport.entity.prop" = "#93b8ce"
+        "viewport.entity.unknown" = "#ff00ff"
+        "viewport.entity.helper" = "#e6d36a"
+        "viewport.entity.name" = "auto"
+        "viewport.io.line" = "#4fd1c5"
+        "viewport.io.broken" = "auto"
+        "viewport.path" = "#f6ad55"
+        "viewport.light.radius" = "#fff3b0"
+        "viewport.model.bounds" = "#7f9cf5"
+        "viewport.decal" = "#f687b3"
+        "viewport.invalid" = "#ff3b30"
+        "viewport.hidden" = "auto"
+
+        // Viewport: tools and gizmos.
+        "viewport.tool.preview" = "#ffffff"
+        "viewport.tool.preview.fill" = "#ffffff20"
+        "viewport.transform.source" = "#ed756f"
+        "viewport.clip.plane" = "#ff6b6b"
+        "viewport.clip.kept" = "#68d391"
+        "viewport.clip.removed" = "#fc8181"
+        "viewport.vertex" = "#e2e8f0"
+        "viewport.vertex.selected" = "auto"
+        "viewport.vertex.hover" = "auto"
+        "viewport.edge.selected" = "auto"
+        "viewport.face.selected" = "#ff4d4d60"
+        "viewport.handle" = "auto"
+        "viewport.handle.hover" = "auto"
+        "viewport.gizmo.x" = "auto"
+        "viewport.gizmo.y" = "auto"
+        "viewport.gizmo.z" = "auto"
+        "viewport.gizmo.view" = "#d0d0d0"
+        "viewport.gizmo.hover" = "#ffe066"
+        "viewport.gizmo.active" = "auto"
+        "viewport.measure" = "#90cdf4"
+        "viewport.cordon" = "#ffcc00"
+        "viewport.cordon.outside" = "#00000080"
+        "viewport.camera" = "#a0aec0"
+        "viewport.camera.active" = "auto"
+
+        // Console.
+        "console.background" = "auto"
+        "console.text" = "auto"
+        "console.muted" = "auto"
+        "console.warning" = "auto"
+        "console.error" = "auto"
+        "console.success" = "auto"
+        "console.command" = "auto"
+        "console.prompt" = "auto"
+
+        // Code.
+        "code.background" = "auto"
+        "code.text" = "auto"
+        "code.current_line" = "auto"
+        "code.line_number" = "auto"
+        "code.keyword" = "#cc8a4e"
+        "code.type" = "#7fa9c4"
+        "code.builtin" = "#b39dcf"
+        "code.number" = "#79a6c9"
+        "code.string" = "#93b077"
+        "code.comment" = "#7d8389"
+        "code.preprocessor" = "#c2b260"
+    }
+    fonts = {
+        ui = { family = "system" size = 11.0 weight = 400 }
+        "ui.heading" = { family = "system" size = 11.0 weight = 600 }
+        "ui.small" = { family = "system" size = 10.0 weight = 400 }
+        console = { family = "system-mono" size = 11.0 weight = 400 }
+        code = { family = "system-mono" size = 12.0 weight = 400 }
+        "viewport.labels" = { family = "system" size = 9.0 weight = 500 }
+        "viewport.dimensions" = { family = "system" size = 12.0 weight = 500 }
+    }
+    metrics = {
+        "ui.icon_size" = 28.0
+        "ui.tool_strip.icon_size" = 32.0
+        "ui.menu.icon_size" = 16.0
+        "ui.spacing" = 4.0
+        "ui.tool_strip.spacing" = 1.0
+        "ui.tool_strip.separator_height" = 3.0
+        "ui.icon.color_strength" = 1.0
+        "ui.icon.hover_color_strength" = 0.35
+        "ui.icon.checked_color_strength" = 0.65
+        "ui.padding" = 4.0
+        "ui.row_height" = 20.0
+        "ui.splitter_width" = 3.0
+        "ui.scrollbar_width" = 9.0
+        "ui.border_radius" = 2.0
+        "viewport.splitter_width" = 6.0
+        "viewport.grid.line_width" = 1.0
+        "viewport.grid.major.line_width" = 1.0
+        "viewport.grid.origin.line_width" = 1.5
+        "viewport.grid.dot_size" = 2.0
+        "viewport.wire.line_width" = 1.2
+        "viewport.selection.line_width" = 1.5
+        "viewport.vertex.size" = 6.0
+        "viewport.handle.size" = 7.0
+        "viewport.gizmo.size" = 96.0
+        "viewport.gizmo.line_width" = 2.0
+        "viewport.entity.icon_size" = 16.0
+    }
+    choices = {
+        "ui.density" = "normal"
+        "viewport.grid.style" = "lines"
+        "viewport.selection.style" = "solid"
+        "viewport.background.3d.style" = "flat"
+    }
+}

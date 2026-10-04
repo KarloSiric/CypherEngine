@@ -244,3 +244,30 @@ function(cypher_require_benchmark_dependencies)
     find_package(benchmark CONFIG REQUIRED)
     set(benchmark_FOUND TRUE PARENT_SCOPE)
 endfunction()
+
+# Qt Advanced Docking System for the editor (thirdparty/qtads, pinned
+# submodule). LGPL-2.1, so it is always built as a shared library: users can
+# replace it without relinking Mason. Called by the Qt editor block after Qt 6
+# is found; creates Cypher::ThirdPartyQtAds.
+function(cypher_configure_qtads)
+    set(cypher_qtads_dir "${CYPHERENGINE_THIRDPARTY_DIR}/qtads")
+    if (NOT EXISTS "${cypher_qtads_dir}/src/DockManager.h")
+        message(FATAL_ERROR
+            "Qt Advanced Docking System is missing. Run: git submodule update --init thirdparty/qtads"
+        )
+    endif()
+    # ADS reads these through option(); plain variables win (CMP0077), so
+    # nothing generic lands in the cache.
+    set(BUILD_EXAMPLES OFF)
+    set(BUILD_STATIC OFF)
+    set(QT_VERSION_MAJOR 6)
+    add_subdirectory("${cypher_qtads_dir}" "${CMAKE_BINARY_DIR}/thirdparty/qtads" EXCLUDE_FROM_ALL)
+    # Beside the executables, so the editor runs from the build tree without
+    # extra search paths on every platform.
+    set_target_properties(qtadvanceddocking-qt6 PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}"
+    )
+    add_library(Cypher::ThirdPartyQtAds ALIAS qtadvanceddocking-qt6)
+endfunction()

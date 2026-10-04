@@ -1,0 +1,71 @@
+@cykv 1
+@schema "cypher.map_chunk" 10
+
+{
+    map_id = "b6f0a189-9d8c-4456-b5d6-6a4a45c7b615"
+    layer = "default"
+    cell = [ -1, 0 ]
+    info = { brushes = 1 bounds = [ -320.0, -255.99999999999997, 0.0, -255.99999999999994, 256.0, 1024.0 ] }
+    brushes = [
+        {
+            id = 23u
+            info = { bounds = [ -320.0, -255.99999999999997, 0.0, -255.99999999999994, 256.0, 1024.0 ] }
+            faces = [
+                {
+                    id = 24u
+                    plane = [ 1.0, 0.0, 0.0, -255.99999999999994 ]
+                    material = "materials/dev/surfaces/surface_concrete_cast.cymat"
+                    uv_u = [ 0.0, 1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -768.0, 192.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 25u
+                    plane = [ -1.0, 0.0, 0.0, 320.0 ]
+                    material = "materials/dev/surfaces/surface_concrete_cast.cymat"
+                    uv_u = [ 0.0, -1.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -768.0, 192.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 26u
+                    plane = [ 0.0, 1.0, 0.0, 256.0 ]
+                    material = "materials/dev/surfaces/surface_concrete_cast.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -768.0, 192.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 27u
+                    plane = [ 0.0, -1.0, 0.0, 255.99999999999997 ]
+                    material = "materials/dev/surfaces/surface_concrete_cast.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 0.0, 1.0 ]
+                    uv_origin = [ -768.0, 192.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 28u
+                    plane = [ 0.0, 0.0, 1.0, 1024.0 ]
+                    material = "materials/dev/surfaces/surface_concrete_cast.cymat"
+                    uv_u = [ 1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -768.0, 192.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                },
+                {
+                    id = 29u
+                    plane = [ 0.0, 0.0, -1.0, 0.0 ]
+                    material = "materials/dev/surfaces/surface_concrete_cast.cymat"
+                    uv_u = [ -1.0, 0.0, 0.0 ]
+                    uv_v = [ 0.0, 1.0, 0.0 ]
+                    uv_origin = [ -768.0, 192.0, 0.0 ]
+                    uv_size = [ 128.0, 128.0 ]
+                }
+            ]
+        }
+    ]
+}

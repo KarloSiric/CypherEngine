@@ -36,6 +36,8 @@ struct owned_undo_operation_t {
     undo_apply_fn_t pfnUndo{ nullptr };  // Inverse callback supplied by the caller.
     undo_apply_fn_t pfnRedo{ nullptr };  // Forward callback supplied by the caller.
     void *pUserData{ nullptr };          // Borrowed callback context.
+    undo_dispose_fn_t pfnDispose{ nullptr };
+    usize cbOwnedBytes{ 0u };
 };
 
 error_code_t CommonError( common_error_t error ) noexcept
@@ -85,6 +87,7 @@ struct undo_history_t {
     char *pTransactionLabel{ nullptr };              // Owned label until first push.
     usize cchTransactionLabel{ 0u };                // Transaction label byte count.
     bool_t bTransactionLabelTransferred{ CY_FALSE }; // First entry now owns label copy.
+    u64 nEvictedGroups{ 0u };                       // Groups dropped by budgets, ever; never reset.
 };
 
 namespace
@@ -119,6 +122,9 @@ void FreeOperation(
     undo_history_t &history,
     owned_undo_operation_t &operation ) noexcept
 {
+    if ( operation.pfnDispose != nullptr ) {
+        operation.pfnDispose( { operation.pPayload, operation.cbPayload }, operation.pUserData );
+    }
     FreeLabel( history, operation.pLabel, operation.cchLabel );
     Allocator_Free(
         history.pAllocator,
@@ -195,7 +201,7 @@ void RemoveRange(
     // Destroy owned fields before compacting the trivially stored entry records.
     usize cbRemoved = 0u;
     for ( usize iOperation = iFirst; iOperation < iEnd; ++iOperation ) {
-        cbRemoved += history.pOperations[iOperation].cbPayload;
+        cbRemoved += history.pOperations[iOperation].cbPayload + history.pOperations[iOperation].cbOwnedBytes;
         FreeOperation( history, history.pOperations[iOperation] );
     }
     const usize nTail = history.nCount - iEnd;
@@ -287,6 +293,7 @@ void EvictOldestGroups( undo_history_t &history ) noexcept
             ++iEnd;
         }
         RemoveRange( history, 0u, iEnd );
+        ++history.nEvictedGroups;
     }
 }
 
@@ -311,6 +318,7 @@ bool_t MakeRoomForOperation(
             ++iEnd;
         }
         RemoveRange( history, 0u, iEnd );
+        ++history.nEvictedGroups;
     }
     return CY_TRUE;
 }
@@ -492,13 +500,15 @@ bool_t UndoRedo_Push(
          operation.pfnRedo == nullptr ||
          !StringView_IsValid( operation.label ) ||
          !BinaryBlock_IsValid( operation.payload ) ||
-         operation.payload.cbSize > pHistory->cbMaxPayloads ) {
+         operation.payload.cbSize > pHistory->cbMaxPayloads ||
+         operation.cbOwnedBytes > pHistory->cbMaxPayloads - operation.payload.cbSize ) {
         return CY_FALSE;
     }
 
     // Verify the complete group can fit before copying or mutating history state.
     usize nActiveGroupCount = 1u;
-    usize cbActiveGroup = operation.payload.cbSize;
+    const usize cbCharge = operation.payload.cbSize + operation.cbOwnedBytes;
+    usize cbActiveGroup = cbCharge;
     u64 nProtectedGroup = 0u;
     if ( pHistory->bTransactionOpen ) {
         nProtectedGroup = pHistory->nTransactionGroup;
@@ -506,11 +516,11 @@ bool_t UndoRedo_Push(
               iOperation < pHistory->iCursor;
               ++iOperation ) {
             ++nActiveGroupCount;
-            if ( pHistory->pOperations[iOperation].cbPayload >
+            if ( pHistory->pOperations[iOperation].cbPayload + pHistory->pOperations[iOperation].cbOwnedBytes >
                  CY_USIZE_MAX - cbActiveGroup ) {
                 return CY_FALSE;
             }
-            cbActiveGroup += pHistory->pOperations[iOperation].cbPayload;
+            cbActiveGroup += pHistory->pOperations[iOperation].cbPayload + pHistory->pOperations[iOperation].cbOwnedBytes;
         }
     } else if ( operation.nMergeKey != 0u && pHistory->iCursor != 0u &&
                 pHistory->pOperations[pHistory->iCursor - 1u].nMergeKey ==
@@ -521,11 +531,11 @@ bool_t UndoRedo_Push(
                 pHistory->pOperations[iOperation - 1u].nGroup == nProtectedGroup ) {
             --iOperation;
             ++nActiveGroupCount;
-            if ( pHistory->pOperations[iOperation].cbPayload >
+            if ( pHistory->pOperations[iOperation].cbPayload + pHistory->pOperations[iOperation].cbOwnedBytes >
                  CY_USIZE_MAX - cbActiveGroup ) {
                 return CY_FALSE;
             }
-            cbActiveGroup += pHistory->pOperations[iOperation].cbPayload;
+            cbActiveGroup += pHistory->pOperations[iOperation].cbPayload + pHistory->pOperations[iOperation].cbOwnedBytes;
         }
     }
     if ( nActiveGroupCount > pHistory->nMaxOperations ||
@@ -562,7 +572,7 @@ bool_t UndoRedo_Push(
     }
     if ( !MakeRoomForOperation(
              *pHistory,
-             operation.payload.cbSize,
+             cbCharge,
              nProtectedGroup ) ) {
         FreeLabel( *pHistory, pLabel, displayLabel.cchLength );
         Allocator_Free(
@@ -623,10 +633,12 @@ bool_t UndoRedo_Push(
         operation.payload.cbSize,
         operation.pfnUndo,
         operation.pfnRedo,
-        operation.pUserData
+        operation.pUserData,
+        operation.pfnDispose,
+        operation.cbOwnedBytes
     };
     pHistory->iCursor = pHistory->nCount;
-    pHistory->cbPayloads += operation.payload.cbSize;
+    pHistory->cbPayloads += cbCharge;
     // Only the first transaction entry carries the group display label.
     if ( pHistory->bTransactionOpen &&
          !pHistory->bTransactionLabelTransferred ) {
@@ -747,6 +759,77 @@ usize UndoRedo_OperationCount( const undo_history_t *pHistory ) noexcept
 bool_t UndoRedo_IsTransactionOpen( const undo_history_t *pHistory ) noexcept
 {
     return HistoryIsValid( pHistory ) && pHistory->bTransactionOpen;
+}
+
+undo_state_token_t UndoRedo_StateToken( const undo_history_t *pHistory ) noexcept
+{
+    undo_state_token_t token{};
+    if ( !HistoryIsValid( pHistory ) || pHistory->iCursor == 0u ) {
+        return token;
+    }
+    // A group's operations are adjacent, so counting back from the cursor
+    // finds how much of the newest applied group is applied.
+    token.nGroup = pHistory->pOperations[pHistory->iCursor - 1u].nGroup;
+    for ( usize i = pHistory->iCursor;
+          i != 0u && pHistory->pOperations[i - 1u].nGroup == token.nGroup;
+          --i ) {
+        ++token.nApplied;
+    }
+    return token;
+}
+
+u64 UndoRedo_EvictedGroupCount( const undo_history_t *pHistory ) noexcept
+{
+    return HistoryIsValid( pHistory ) ? pHistory->nEvictedGroups : 0u;
+}
+
+bool_t UndoRedo_StateTokenEquals( undo_state_token_t a, undo_state_token_t b ) noexcept
+{
+    return a.nGroup == b.nGroup && a.nApplied == b.nApplied;
+}
+
+namespace
+{
+
+// Counts group starts among operations [0, iEnd).
+usize CountGroups( const undo_history_t &history, usize iEnd ) noexcept
+{
+    usize nGroups = 0u;
+    for ( usize i = 0u; i < iEnd; ++i ) {
+        if ( i == 0u || history.pOperations[i].nGroup != history.pOperations[i - 1u].nGroup ) {
+            ++nGroups;
+        }
+    }
+    return nGroups;
+}
+
+} // namespace
+
+usize UndoRedo_GroupCount( const undo_history_t *pHistory ) noexcept
+{
+    return HistoryIsValid( pHistory ) ? CountGroups( *pHistory, pHistory->nCount ) : 0u;
+}
+
+usize UndoRedo_AppliedGroupCount( const undo_history_t *pHistory ) noexcept
+{
+    return HistoryIsValid( pHistory ) ? CountGroups( *pHistory, pHistory->iCursor ) : 0u;
+}
+
+string_view_t UndoRedo_GroupLabelAt( const undo_history_t *pHistory, usize iGroup ) noexcept
+{
+    if ( !HistoryIsValid( pHistory ) ) {
+        return {};
+    }
+    usize nSeen = 0u;
+    for ( usize i = 0u; i < pHistory->nCount; ++i ) {
+        if ( i != 0u && pHistory->pOperations[i].nGroup == pHistory->pOperations[i - 1u].nGroup ) {
+            continue;
+        }
+        if ( nSeen++ == iGroup ) {
+            return GroupLabel( pHistory, i );
+        }
+    }
+    return {};
 }
 
 } // namespace cypher::common

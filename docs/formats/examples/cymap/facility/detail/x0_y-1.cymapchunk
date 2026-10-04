@@ -1,0 +1,10 @@
+@cykv 1
+@schema "cypher.map_chunk" 10
+
+{
+    map_id = "4c1f0a52-7a8e-4f3b-9d61-0b2d3e4f5a6b"
+    layer = "detail"
+    cell = [ 0, -1 ]
+    info = { foliage = 1 bounds = [ 700.0, -60.0, 0.0, 700.0, -60.0, 0.0 ] }
+    foliage = [ { model = "models/foliage/pine01.cymodel" instances = [ [ 700.0, -60.0, 0.0, 0.0, 17.0, 0.0, 0.95 ] ] properties = { cast_shadows = true fade_distance = 4000.0 } } ]
+}

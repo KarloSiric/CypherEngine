@@ -34,7 +34,7 @@ struct text_buffer_t {
 
     char *pData{ nullptr };       // Owned allocation; pData[cchLength] is always NUL.
     usize cchLength{ 0u };        // Live UTF-8 bytes, excluding the terminator.
-    usize cchCapacity{ 0u };      // Allocation bytes, including terminator space.
+    usize cchCapacity{ 0u };      // Text byte capacity; allocation adds one NUL byte.
     const allocator_t *pAllocator{ nullptr }; // Allocator that must release pData.
 };
 
