@@ -108,6 +108,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Mason gives keyboard focus to the visible active central pane after restoring
+  its startup layout, instead of leaving the first editing key in a toolbar
+  field. A restored maximized pane receives focus as well. Explicit Fast Asset
+  Search still opens matching results; later window shows retain chosen focus.
 - Camera wheel input preserves captured look and held flight keys. Captured
   look has remappable wheel speed actions; idle wheel retains dolly. Wheel
   direction follows the profile, fractional trackpad input changes speed
@@ -208,6 +212,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   real controls, with the complete affected Mason suite passing after repair.
   The earlier displaced-control layout has been superseded at the user's
   request. No dependencies or additional build tree were created.
+- Startup focus passed the complete Mason suite: 3,781 assertions in 68 cases.
+  Focused startup/asset checks passed 143 assertions in five cases at normal
+  and 2x scaling. They cover first printable tool keys, a real toolbar click,
+  restored maximization, deliberate search, later shows and modal welcome
+  input. Mason was rebuilt in the existing compact tree; the final test build
+  has no compiler warnings or errors. Human map work and the live editor were
+  preserved.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
   Embedded TileEditor hosting and terrain sculpting are also unfinished; the

@@ -733,6 +733,11 @@ void RestoreStartupLayout( mason_t &mason )
     ( void )MasonWorkspace_ApplyPanelPolicy( mason.docking.pManager, true );
     ApplyToolbarRows( mason );
     EditorActions_RefreshStates( &mason.actions );
+    // Start keyboard interaction in the restored active pane. Qt otherwise
+    // may choose a toolbar field and turn editing keys into asset searches.
+    if ( mason.docking.pCentral != nullptr ) {
+        MapViews_SetActivePane( mason.docking.pCentral, MapViews_ActivePane( mason.docking.pCentral ) );
+    }
 }
 
 command_result_t SaveLayout( void *pContext, const command_args_t & ) noexcept

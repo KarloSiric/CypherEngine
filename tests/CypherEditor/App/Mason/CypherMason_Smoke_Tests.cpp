@@ -81,6 +81,7 @@
 #include <QScrollArea>
 #include <QSplashScreen>
 #include <QStatusBar>
+#include <QVBoxLayout>
 
 #include <filesystem>
 #include <cmath>
@@ -110,13 +111,15 @@ QString ExampleRoot()
 
 // Owns a headless Mason for one test.
 struct mason_session_t {
-    mason_session_t()
+    explicit mason_session_t( bool show = true )
     {
         pMason = Mason_Create( App(), Allocator_GetSystem(), MASON_FLAG_HEADLESS );
         REQUIRE( pMason != nullptr );
         Mason_Window( pMason )->resize( 1400, 900 );
-        Mason_Window( pMason )->show();
-        QCoreApplication::processEvents();
+        if ( show ) {
+            Mason_Window( pMason )->show();
+            QCoreApplication::processEvents();
+        }
     }
     ~mason_session_t() { Mason_Destroy( pMason ); }
 
@@ -130,6 +133,141 @@ struct mason_session_t {
 };
 
 } // namespace
+
+TEST_CASE( "Mason startup directs unprimed keyboard and toolbar input to its active view", "[mason][smoke][input][startup-focus]" )
+{
+    for ( int gesture = 0; gesture < 3; ++gesture ) {
+        CAPTURE( gesture ); mason_session_t session;
+        auto *window = Mason_Window( session.pMason ); auto *ws = Mason_MapWorkspace( session.pMason );
+        // Model activating the launched window without selecting a control.
+        // Native Cocoa may not activate a background test application itself.
+        window->activateWindow(); QCoreApplication::processEvents();
+        auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views != nullptr );
+        auto *search = window->findChild<QLineEdit *>( QStringLiteral( "MasonFastAssetSearch" ) ); REQUIRE( search != nullptr );
+        auto *pane = MapViews_PaneView( views, MapViews_ActivePane( views ) ); REQUIRE( pane != nullptr );
+        auto *focused = QApplication::focusWidget(); REQUIRE( focused != nullptr );
+        INFO( "Natural startup focus: " << focused->metaObject()->className() << " / " << focused->objectName().toStdString() );
+        CHECK( pane->isVisible() ); CHECK( focused == pane ); CHECK_FALSE( search->hasFocus() );
+        CHECK( window->findChild<QDialog *>( QStringLiteral( "EditorAssetWindow" ) ) == nullptr );
+        const auto *document = ws->pDocument; const usize steps = EditorHistory_StepCount( &ws->history );
+        MapWorkspace_SetTool( ws, map_tool_t::NONE );
+        if ( gesture < 2 ) {
+            // Route actual text-bearing key events to Qt's naturally focused
+            // widget. A helper that first focuses a viewport hides this bug.
+            const int key = gesture == 0 ? Qt::Key_T : Qt::Key_S;
+            const Qt::KeyboardModifiers modifiers = gesture == 0 ? Qt::NoModifier : Qt::ShiftModifier;
+            const QString text = gesture == 0 ? QStringLiteral( "t" ) : QStringLiteral( "S" );
+            focused = QApplication::focusWidget(); REQUIRE( focused != nullptr );
+            QKeyEvent preflight( QEvent::ShortcutOverride, key, modifiers, text ); QCoreApplication::sendEvent( focused, &preflight );
+            QKeyEvent press( QEvent::KeyPress, key, modifiers, text ); QCoreApplication::sendEvent( focused, &press );
+            QKeyEvent release( QEvent::KeyRelease, key, modifiers, text ); QCoreApplication::sendEvent( focused, &release );
+            QCoreApplication::processEvents();
+            CHECK( ws->tool == ( gesture == 0 ? map_tool_t::TRANSLATE : map_tool_t::SELECT ) );
+        } else {
+            QToolButton *button = nullptr;
+            for ( auto *candidate : window->findChildren<QToolButton *>() ) {
+                if ( candidate->defaultAction() != nullptr && candidate->defaultAction()->objectName() == QStringLiteral( "map.tool.block" ) ) {
+                    button = candidate; break;
+                }
+            }
+            REQUIRE( button != nullptr ); REQUIRE( button->isVisible() );
+            const QPointF at = button->rect().center();
+            QMouseEvent press( QEvent::MouseButtonPress, at, button->mapToGlobal( at ), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+            QCoreApplication::sendEvent( button, &press );
+            QMouseEvent release( QEvent::MouseButtonRelease, at, button->mapToGlobal( at ), Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+            QCoreApplication::sendEvent( button, &release ); QCoreApplication::processEvents();
+            CHECK( ws->tool == map_tool_t::BLOCK ); CHECK( button->isChecked() );
+        }
+        auto *assetWindow = window->findChild<QDialog *>( QStringLiteral( "EditorAssetWindow" ) );
+        CHECK( ( assetWindow == nullptr || !assetWindow->isVisible() ) ); CHECK( search->text().isEmpty() );
+        CHECK( ws->pDocument == document ); CHECK( EditorHistory_StepCount( &ws->history ) == steps );
+        CHECK_FALSE( MapWorkspace_IsModified( ws ) );
+    }
+}
+
+TEST_CASE( "Mason startup focuses its restored maximized pane and later shows retain explicit asset search focus", "[mason][smoke][input][startup-focus][assets]" )
+{
+    // Save through the real command into this headless session's private
+    // workspace file before the first show queues startup layout restoration.
+    mason_session_t session( false ); auto *window = Mason_Window( session.pMason );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views != nullptr );
+    MapViews_SetArrangement( views, map_view_arrangement_t::FOUR );
+    MapViews_SetPaneType( views, 3, map_view_type_t::FRONT ); MapViews_SetActivePane( views, 3 ); MapViews_SetMaximized( views, 3 );
+    REQUIRE( session.Run( QStringLiteral( "view.layout.save" ) ) == command_result_t::OK );
+    MapViews_SetMaximized( views, -1 ); MapViews_SetActivePane( views, 0 ); MapViews_SetPaneType( views, 3, map_view_type_t::SIDE );
+    window->show(); QCoreApplication::processEvents();
+    window->activateWindow(); QCoreApplication::processEvents();
+    CHECK( MapViews_ActivePane( views ) == 3 ); CHECK( MapViews_MaximizedPane( views ) == 3 );
+    CHECK( MapViews_PaneType( views, 3 ) == map_view_type_t::FRONT );
+    auto *restored = MapViews_PaneView( views, 3 ); REQUIRE( restored != nullptr );
+    CHECK( restored->isVisible() ); CHECK( QApplication::focusWidget() == restored );
+    auto *search = window->findChild<QLineEdit *>( QStringLiteral( "MasonFastAssetSearch" ) ); REQUIRE( search != nullptr );
+    REQUIRE( session.Run( QStringLiteral( "assets.search" ) ) == command_result_t::OK );
+    QCoreApplication::processEvents(); REQUIRE( search->hasFocus() );
+    // Deliberate search focus retains the established typing-to-results path.
+    REQUIRE( QApplication::focusWidget() != nullptr );
+    QKeyEvent typing( QEvent::KeyPress, Qt::Key_unknown, Qt::NoModifier, QStringLiteral( "metal" ) );
+    QCoreApplication::sendEvent( QApplication::focusWidget(), &typing ); QCoreApplication::processEvents();
+    auto *assetWindow = window->findChild<QDialog *>( QStringLiteral( "EditorAssetWindow" ) ); REQUIRE( assetWindow != nullptr );
+    CHECK( assetWindow->isVisible() ); CHECK( search->hasFocus() ); CHECK( search->text() == QStringLiteral( "metal" ) );
+    CHECK( EditorAssetWindow_Visible( assetWindow ).contains( QStringLiteral( "materials/blockout/metal_panel.cymat" ) ) );
+    window->hide(); QCoreApplication::processEvents();
+    window->show(); window->activateWindow(); QCoreApplication::processEvents();
+    // A headless platform need not reactivate a re-shown native window. Its
+    // remembered focus must still be the explicitly chosen field, not a pane.
+    CHECK( window->focusWidget() == search ); CHECK( search->text() == QStringLiteral( "metal" ) );
+    CHECK( MapViews_ActivePane( views ) == 3 ); CHECK( MapViews_MaximizedPane( views ) == 3 );
+    CHECK_FALSE( MapWorkspace_IsModified( Mason_MapWorkspace( session.pMason ) ) );
+}
+
+TEST_CASE( "Mason pending startup layout retains modal welcome input and remembers viewport focus", "[mason][smoke][input][startup-focus][startup-modal]" )
+{
+    mason_session_t session( false ); auto *window = Mason_Window( session.pMason );
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views != nullptr );
+    auto *ws = Mason_MapWorkspace( session.pMason ); const auto *document = ws->pDocument;
+    const usize steps = EditorHistory_StepCount( &ws->history );
+    QDialog welcome( window ); welcome.setWindowTitle( QStringLiteral( "Startup welcome focus probe" ) );
+    welcome.setModal( true );
+    QVBoxLayout layout( &welcome ); QLineEdit input( &welcome ); layout.addWidget( &input );
+    bool inspected = false;
+    // Main.cpp opens Welcome before the outer application loop. First-show
+    // layout restoration therefore runs inside this modal loop in production.
+    window->show();
+    welcome.show();
+    // The offscreen platform does not activate modal native windows. Model
+    // OS activation before startup's queued callback, without choosing a child.
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED
+    QApplication::setActiveWindow( &welcome );
+    QT_WARNING_POP
+    CHECK( QApplication::activeModalWidget() == &welcome );
+    CHECK( QApplication::focusWidget() == &input );
+    QTimer::singleShot( 20, &welcome, [&]() {
+        inspected = true;
+        CHECK( QApplication::activeModalWidget() == &welcome );
+        CHECK( QApplication::activeWindow() == &welcome );
+        auto *focused = QApplication::focusWidget(); CHECK( focused == &input ); CHECK( input.hasFocus() );
+        auto *pane = MapViews_PaneView( views, MapViews_ActivePane( views ) );
+        CHECK( pane != nullptr );
+        if ( pane != nullptr ) { CHECK( pane->isVisible() ); CHECK( window->focusWidget() == pane ); }
+        // Native focus selection belongs to the dialog. Editing its field
+        // must work while the main window remembers its later viewport target.
+        if ( focused == &input ) {
+            QKeyEvent press( QEvent::KeyPress, Qt::Key_A, Qt::NoModifier, QStringLiteral( "a" ) );
+            QCoreApplication::sendEvent( focused, &press );
+            QKeyEvent release( QEvent::KeyRelease, Qt::Key_A, Qt::NoModifier, QStringLiteral( "a" ) );
+            QCoreApplication::sendEvent( focused, &release );
+        }
+        CHECK( input.text() == QStringLiteral( "a" ) );
+        CHECK( window->findChild<QDialog *>( QStringLiteral( "EditorAssetWindow" ) ) == nullptr );
+        welcome.accept();
+    } );
+    CHECK( welcome.exec() == QDialog::Accepted ); CHECK( inspected );
+    auto *pane = MapViews_PaneView( views, MapViews_ActivePane( views ) ); REQUIRE( pane != nullptr );
+    CHECK( pane->isVisible() ); CHECK( window->focusWidget() == pane );
+    CHECK( ws->pDocument == document ); CHECK( EditorHistory_StepCount( &ws->history ) == steps );
+    CHECK_FALSE( MapWorkspace_IsModified( ws ) );
+}
 
 TEST_CASE( "Mason category actions show mode properties empty and constrain Meshes selection commands", "[mason][smoke][selection-mode]" )
 {

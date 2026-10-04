@@ -86,6 +86,10 @@ Changed
 - Local validation uses one compact Mason build and existing system packages.
 
 Fixed
+- Startup keyboard focus follows the visible active central pane after layout
+  restoration, including a restored maximized pane. The first editing key no
+  longer starts in a toolbar field. Explicit Fast Asset Search retains matching
+  results, and later window shows retain chosen focus.
 - Camera wheel input preserves captured look and held flight keys, with
   remappable look-context wheel speed actions and idle dolly. Fractional and
   multiple-notch events publish one atomic clamped setting; direction follows
@@ -168,6 +172,12 @@ Validation and remaining work
   follow real controls and the complete Mason suite passes after repair. The
   displaced-control layout is superseded at the user's request. No dependencies
   or additional build tree were created.
+- Startup focus: complete Mason suite, 3781 assertions / 68 cases. Focused
+  startup/asset checks pass 143 / 5 at normal and 2x scaling: first printable
+  tool keys, real toolbar click, restored maximization, deliberate search,
+  later shows and modal welcome input. Mason rebuilt in the existing compact
+  tree; final test build has no compiler warnings/errors. Human maps and the
+  live editor were preserved.
 - Component edit adapters, face UV edits, full Hammer shortcut parity and
   renderer/ECS/audio/physics/gameplay integration remain unfinished. Embedded
   TileEditor hosting and terrain sculpting are also unfinished; existing tile
