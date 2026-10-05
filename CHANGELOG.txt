@@ -89,6 +89,11 @@ Changed
 - Local validation uses one compact Mason build and existing system packages.
 
 Fixed
+- With no visible selection, 3D orbit anchors to the actual brush/mesh/terrain
+  surface under the pointer; pan and drag-dolly use its physical depth too.
+  Component categories do not filter navigation surfaces. Hidden objects and
+  helper/outline picks cannot supply pivots; incomplete brush/mesh queries keep
+  the safe scene/view fallback. Visible selected bounds retain priority.
 - Wheel zoom during captured 2D pan retains the current pickup and updated
   center through continued motion/release: Top/Front/Side, middle drag,
   Space+left drag, Camera and Navigation, with cursor or centered zoom.
@@ -220,6 +225,16 @@ Validation and remaining work
   increment. Mason rebuilt once in the compact tree without compiler
   warnings/errors or new dependencies. View state changes preserve authored
   geometry and history.
+- GitHub Actions run 37246859376 passed all 15 jobs for the exact published
+  continuous 2D pan/zoom commit, independently verifying its publication subset.
+- Surface navigation and adjacent orbit/look/gesture checks: 5527 assertions /
+  21 cases at normal and 2x scaling. Old source fails 73 assertions across four
+  cases. Complete local Map GUI: 88889 / 509; Mason: 3779 / 68 on an isolated
+  retry under the unchanged 120-second limit after a parallel timeout without
+  assertion failures. Shared counts include preserved unrelated adapters; this
+  increment publishes only surface-pickup source and five new contracts.
+  Mason rebuilt once in the compact tree without compiler warnings/errors or
+  new dependencies. Authored state and history remain unchanged.
 - Component edit adapters, face UV edits, full Hammer shortcut parity and
   renderer/ECS/audio/physics/gameplay integration remain unfinished. Embedded
   TileEditor hosting and terrain sculpting are also unfinished; existing tile

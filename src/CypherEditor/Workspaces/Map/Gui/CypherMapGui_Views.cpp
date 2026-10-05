@@ -4100,10 +4100,14 @@ private:
         auto bounds = VisibleSelectionBounds( *m_pWorkspace );
         m_cameraDrag.pivot = MapBounds_Center( bounds );
         if ( !bounds.bHas ) {
-            geometry::brush_raycast_hit_t hit{};
-            ( void )Pick( event.position(), &hit );
-            m_cameraDrag.pivot = hit.bHit ? hit.position : MapBounds_Center( m_pWorkspace->wire.bounds );
-            bounds.bHas = hit.bHit || m_pWorkspace->wire.bounds.bHas;
+            f64 distance = 0.0;
+            bool complete = true;
+            // Navigation needs the nearest actual surface in any selection
+            // category. An incomplete query cannot establish which is nearest.
+            const bool hit = Pick( event.position(), nullptr, nullptr, false, &distance, true, &complete ) != 0u && complete;
+            m_cameraDrag.pivot = hit ? Add( m_position, Scale( ScreenDirection( event.position() ), distance ) ) :
+                MapBounds_Center( m_pWorkspace->wire.bounds );
+            bounds.bHas = hit || m_pWorkspace->wire.bounds.bHas;
         }
         f64 depth = Dot( Sub( m_cameraDrag.pivot, m_position ), m_forward );
         if ( !bounds.bHas || !std::isfinite( depth ) || depth <= kCameraNear * 2 ) {
