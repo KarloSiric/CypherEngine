@@ -112,6 +112,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Wheel zoom during a captured 2D pan keeps the current pointer pickup and
+  updated view center. Continued movement and release no longer restore the
+  old zoom's pan position. This applies to Top/Front/Side, middle drag,
+  Space+left drag, Camera and Navigation, with cursor or centered zoom.
+  Pan owns Shift+wheel over staged construction without changing block depth;
+  ordinary depth adjustment resumes after release.
 - Mason gives keyboard focus to the visible active central pane after restoring
   its startup layout, instead of leaving the first editing key in a toolbar
   field. A restored maximized pane receives focus as well. Explicit Fast Asset
@@ -249,6 +255,18 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   tree without compiler warnings/errors or additional dependencies. The first
   focused run found a remapped-wheel acceptance assumption in one fixture;
   that assertion now distinguishes ignored input from consumed reservations.
+- GitHub Actions run 37243421876 passed all 15 jobs for the exact published
+  orbit-wheel commit, independently verifying its isolated publication subset.
+- Continuous 2D pan/zoom plus adjacent pan and camera wheel checks passed
+  6,192 assertions in 17 cases at normal and 2x scaling. Before the source fix,
+  all four initial pan contracts failed (198 assertions), confirming the jump
+  and staged-depth conflict. Five final contracts also cover zoom limits,
+  first-move pickup, captured sensitivity, cancellation and release ownership.
+  Complete affected local Map GUI/Mason suites passed 89,518 assertions in
+  572 cases in the shared tree; unrelated geometry adapters remain unpublished
+  by this increment. Mason was rebuilt once in the existing compact tree,
+  without compiler warnings/errors or added dependencies. This changes view
+  state only; authored geometry and history remain unchanged.
 - Component movement/topology adapters, face UV editing, full Hammer shortcut
   parity and renderer/ECS/audio/physics/gameplay integration remain unfinished.
   Embedded TileEditor hosting and terrain sculpting are also unfinished; the

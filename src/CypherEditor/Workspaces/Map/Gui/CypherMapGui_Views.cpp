@@ -2261,6 +2261,13 @@ public:
         const QPointF before = ViewToWorld( anchor );
         m_zoom = std::clamp( m_zoom * std::pow( kZoomStep, notches ), MAP_VIEW_ZOOM_MIN, MAP_VIEW_ZOOM_MAX );
         m_center += before - ViewToWorld( anchor );
+        if ( m_bPanning ) {
+            // Keep the captured pointer pickup after either cursor-anchored or
+            // centered zoom. Reusing the old center/zoom on the next mouse
+            // event would undo the anchor correction and jump the view.
+            m_panStart = m_panCurrent;
+            m_panCenterStart = m_center;
+        }
         update();
     }
 
@@ -2596,8 +2603,8 @@ protected:
 
     void wheelEvent( QWheelEvent *pEvent ) override
     {
-        if ( AdjustBlockDepth( m_drag, *m_pWorkspace, *pEvent ) ||
-             ( m_drag.kind == edit_drag_t::NONE && AdjustStagedBlockDepth( *m_pWorkspace, *pEvent ) ) ) { update(); pEvent->accept(); return; }
+        if ( !m_bPanning && ( AdjustBlockDepth( m_drag, *m_pWorkspace, *pEvent ) ||
+             ( m_drag.kind == edit_drag_t::NONE && AdjustStagedBlockDepth( *m_pWorkspace, *pEvent ) ) ) ) { update(); pEvent->accept(); return; }
         const settings_registry_t &settings = m_pWorkspace->pGui->settings;
         f64 notches = pEvent->angleDelta().y() / 120.0;
         if ( notches == 0.0 ) { return; }
@@ -2617,7 +2624,7 @@ protected:
         if ( bPan ) {
             if ( m_drag.kind != edit_drag_t::NONE ) { CancelDrag( m_drag, *m_pWorkspace ); }
             m_bPanning = CY_TRUE;
-            m_panStart = pEvent->position();
+            m_panStart = m_panCurrent = pEvent->position();
             m_panCenterStart = m_center;
             m_panSensitivity = EditorSettings_Real( &m_pWorkspace->pGui->settings, "editor.camera.pan_sensitivity", 1.0 );
             setCursor( Qt::ClosedHandCursor );
@@ -2641,7 +2648,8 @@ protected:
         if ( TransformDrag( TransformTool( *m_pWorkspace ) ) != edit_drag_t::NONE || m_pWorkspace->tool == map_tool_t::CLIP ||
              ShowPushPullHandle() || MapWorkspace_HasBlockPreview( m_pWorkspace ) ) { update(); }
         if ( m_bPanning ) {
-            const QPointF delta = ( pEvent->position() - m_panStart ) * m_panSensitivity;
+            m_panCurrent = pEvent->position();
+            const QPointF delta = ( m_panCurrent - m_panStart ) * m_panSensitivity;
             m_center = QPointF( m_panCenterStart.x() - delta.x() / m_zoom, m_panCenterStart.y() + delta.y() / m_zoom );
             update();
         }
@@ -3373,7 +3381,7 @@ private:
     QImage m_background{};
     QRectF m_backgroundWorld{};
     f64 m_backgroundOpacity{ 0.5 };
-    QPointF m_panStart{};
+    QPointF m_panStart{}, m_panCurrent{};
     QPointF m_panCenterStart{};
     f64 m_panSensitivity{ 1.0 }; // Captured at press, so a settings edit cannot jump a live pan.
     map_bounds_t m_frameBounds{};

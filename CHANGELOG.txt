@@ -89,6 +89,11 @@ Changed
 - Local validation uses one compact Mason build and existing system packages.
 
 Fixed
+- Wheel zoom during captured 2D pan retains the current pickup and updated
+  center through continued motion/release: Top/Front/Side, middle drag,
+  Space+left drag, Camera and Navigation, with cursor or centered zoom.
+  Pan owns Shift+wheel over staged construction without changing block depth;
+  ordinary depth adjustment resumes after release.
 - Startup keyboard focus follows the visible active central pane after layout
   restoration, including a restored maximized pane. The first editing key no
   longer starts in a toolbar field. Explicit Fast Asset Search retains matching
@@ -204,6 +209,17 @@ Validation and remaining work
   compiler warnings/errors or added dependencies. The first focused failure
   was a remapped-wheel acceptance fixture; ignored input and consumed
   reservations now have distinct assertions.
+- GitHub Actions run 37243421876 passed all 15 jobs for the exact published
+  orbit-wheel commit, independently verifying its publication subset.
+- Continuous 2D pan/zoom and adjacent pan/camera wheel checks: 6192 assertions /
+  17 cases at normal and 2x scaling. Old source fails all four initial pan
+  contracts (198 assertions), detecting the jump/staged-depth conflict. Five
+  final contracts cover limits, first-move pickup, captured sensitivity,
+  cancellation and release ownership. Complete affected local Map GUI/Mason:
+  89518 / 572 in the shared tree; unrelated adapters are not published by this
+  increment. Mason rebuilt once in the compact tree without compiler
+  warnings/errors or new dependencies. View state changes preserve authored
+  geometry and history.
 - Component edit adapters, face UV edits, full Hammer shortcut parity and
   renderer/ECS/audio/physics/gameplay integration remain unfinished. Embedded
   TileEditor hosting and terrain sculpting are also unfinished; existing tile
