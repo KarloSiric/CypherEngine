@@ -16,7 +16,8 @@
 # //////////////////////////////////////////////////////////////////////////
 
 CompileFlags:
-  CompilationDatabase: out/build/tile-editor-debug
+  # Published from the active CMake build by the cypher_clangd target.
+  CompilationDatabase: build-clangd
 
 ---
 If:

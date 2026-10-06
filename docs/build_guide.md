@@ -49,6 +49,50 @@ cmake --build --preset debug
 ./out/build/debug/bin/CypherEngine
 ```
 
+## C++ language server and Sublime Text
+
+clangd needs the real CMake compile commands to resolve target-specific include
+paths, definitions, Qt settings, and C++20 flags. The repository `.clangd` reads
+`build-clangd/compile_commands.json`, an ignored link to the selected build.
+After configuring a build, select it without compiling any C++ targets:
+
+```bash
+cmake --build out/build/debug --target cypher_clangd
+```
+
+The target requires Python 3.9 or newer and a Makefiles or Ninja generator.
+The helper can also select a preset or any existing build directory directly:
+
+```bash
+python3 tools/dev/generate_clangd_compile_db.py --preset debug
+python3 tools/dev/generate_clangd_compile_db.py --build-dir build-mason
+```
+
+For the current compact local Mason build, reuse its configured cache and
+installed dependencies:
+
+```bash
+cmake -S . -B build-mason -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build build-mason --target cypher_clangd
+```
+
+These two commands regenerate build metadata and select the database; they do
+not rebuild Mason. The vcpkg presets still require the pinned checkout described
+above. Do not bootstrap packages or create another build tree just to repair
+indexing in an already configured local build.
+
+The link follows subsequent CMake database regeneration automatically. On
+systems that disallow symlinks, the helper publishes an atomic copy instead;
+rerun the target after reconfiguration to refresh that copy. Missing or invalid
+input leaves the previous selected database untouched.
+
+In Sublime Text, use LSP-clangd and let the repository `.clangd` choose the
+database. Remove a stale project-specific `clangd.compile-commands-dir` override
+if it points to a removed build. Then run **LSP: Restart Server** from the Command
+Palette while a Cypher C++ file is active. A missing compile database can cause
+one missing header to cascade into many unknown-type and namespace diagnostics;
+adding arbitrary include paths to silence those errors is not a build repair.
+
 ## Planned convenience layer
 
 A top-level `build.sh` will be introduced as a thin wrapper so the day-to-day build flow stays simple over the life of the project.

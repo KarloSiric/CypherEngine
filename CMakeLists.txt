@@ -72,6 +72,22 @@ set(CYPHER_BUILD_BRANCH "local" CACHE STRING "Source branch recorded in build id
 set(CYPHER_BUILD_COMMIT "local" CACHE STRING "Source revision recorded in build identity")
 set(CYPHER_BUILD_NUMBER "0" CACHE STRING "CI/build number recorded in build identity")
 
+# clangd reads one stable, ignored directory rather than a deleted or unrelated
+# preset build. This target only selects the current build's generated database;
+# it never compiles the engine or acquires dependencies.
+if (CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
+    find_package(Python3 3.9 QUIET COMPONENTS Interpreter)
+    if (Python3_Interpreter_FOUND)
+        add_custom_target(cypher_clangd
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CYPHERENGINE_ROOT_DIR}/tools/dev/generate_clangd_compile_db.py"
+                --build-dir "${CMAKE_BINARY_DIR}"
+            COMMENT "Selecting this CMake build for clangd"
+            VERBATIM
+        )
+    endif()
+endif()
+
 include(CypherDependencies)
 cypher_configure_runtime_dependencies(CYPHERENGINE_LINK_LIBS)
 
@@ -808,6 +824,17 @@ option(CYPHERENGINE_BUILD_TESTS "Build CypherEngine test targets" OFF)
 
 if (CYPHERENGINE_BUILD_TESTS)
     enable_testing()
+    if (TARGET cypher_clangd)
+        add_test(
+            NAME cypher_clangd_compile_database
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CYPHERENGINE_ROOT_DIR}/tests/DeveloperTools/test_clangd_compile_db.py"
+        )
+        set_tests_properties(cypher_clangd_compile_database PROPERTIES
+            LABELS "developer-tools"
+            TIMEOUT 15
+        )
+    endif()
     cypher_require_test_dependencies()
 
     add_executable(cypher_common_tier0_smoke

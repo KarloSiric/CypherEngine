@@ -20,7 +20,7 @@ CypherEngine Changelog
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
-[Unreleased] - 2026-10-05
+[Unreleased] - 2026-10-06
 -------------------------
 
 Added - Mason map authoring
@@ -89,6 +89,11 @@ Changed
 - Local validation uses one compact Mason build and existing system packages.
 
 Fixed
+- Restored clangd after build cleanup: stable build-clangd publication selects
+  the current CMake build instead of a removed Tile Editor preset. Added the
+  cypher_clangd target and existing-build-directory helper support, with atomic
+  validated publication and a copy fallback. No compilation/downloads required.
+  Removed the stale local Sublime CYPHER override so repo settings select the DB.
 - With no visible selection, 3D orbit anchors to the actual brush/mesh/terrain
   surface under the pointer; pan and drag-dolly use its physical depth too.
   Component categories do not filter navigation surfaces. Hidden objects and
@@ -135,6 +140,15 @@ Fixed
 - Explicit GCC 13 aggregate resets and canonical LF map checkout on Windows.
 
 Validation and remaining work
+- LSP repair: existing compact CMake configure/database target pass; six Python
+  regression cases cover publication, regeneration, invalid-input preservation,
+  copy fallback and path/CLI handling. Apple clangd 21 loads the selected DB
+  without a directory override and reports zero errors for Host, Render header,
+  Qt Views/Workspace and C GLAD. All 940 commands have existing sources/includes.
+  Full TU parses restrict token refactoring self-tests to one line and suppress
+  no compiler diagnostics. These are representative checks, not all-source or
+  all-configuration verification. Copy-fallback systems must republish after
+  CMake regeneration.
 - Published edge checkpoint: five local suites, 200136 assertions / 808 cases;
   GitHub Actions run 37197840651 passed all 15 jobs including Mason.
 - Following vertex checkpoint: five local suites, 201362 assertions / 825 cases;

@@ -21,7 +21,7 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
-## [Unreleased] - 2026-10-05
+## [Unreleased] - 2026-10-06
 
 ### Added
 
@@ -112,6 +112,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Restored C++ language-server configuration after local build cleanup. clangd
+  selects a stable `build-clangd` database published from the active CMake build,
+  instead of the removed Tile Editor preset. The `cypher_clangd` target and
+  helper accept existing build directories without compilation or dependency
+  downloads. Publication is atomic, validates its input and supports a copy
+  fallback when symlinks are unavailable. Removed the stale override in the
+  local Sublime CYPHER project; repository settings now own database selection.
 - With no visible selection, 3D orbit uses the actual brush, mesh or terrain
   surface under the pointer instead of falling back to the scene center for
   mesh/terrain hits. Pan and drag-dolly use the same physical reference depth.
@@ -170,6 +177,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation and remaining work
 
+- Language-server repair: CMake configuration and database publication pass
+  in the existing compact build. Six Python regressions cover regeneration,
+  switching, invalid-input preservation, copy fallback and path/CLI handling.
+  Apple clangd 21 loads the published database without an explicit override and
+  reports zero errors for Host, Render's public header, Qt Views/Workspace and
+  the C GLAD loader. All 940 commands have existing sources and include paths.
+  Checks parse the complete translation unit with token refactoring self-tests
+  limited to one line; no compiler diagnostics are suppressed. This verifies
+  representative files, not every source or future build configuration. A
+  platform using the copy fallback must republish after CMake regeneration.
 - The published edge checkpoint passed all five local editor suites:
   200,136 assertions in 808 cases. GitHub Actions run 37197840651 passed all
   15 jobs, including Mason, platform builds and sanitizer checks.
