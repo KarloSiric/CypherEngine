@@ -2083,6 +2083,15 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::Render
         )
         cypher_add_common_catch_test(
+            cypher_host_opengl_smoke_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherEngine/CypherHost_OpenGL_Smoke_Tests.cpp"
+            Cypher::Host
+        )
+        # Host already links Render's Glad object code. This test additionally
+        # needs its header for back-buffer readback without linking it twice.
+        target_include_directories(cypher_host_opengl_smoke_tests PRIVATE
+            $<TARGET_PROPERTY:CypherThirdPartyGlad,INTERFACE_INCLUDE_DIRECTORIES>)
+        cypher_add_common_catch_test(
             cypher_render_opengl_shader_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_OpenGL_Shader_Tests.cpp"
             Cypher::Render
@@ -2113,6 +2122,7 @@ if (CYPHERENGINE_BUILD_TESTS)
         set_tests_properties(
             cypher_render_opengl_smoke_tests
             cypher_render_host_surface_opengl_smoke_tests
+            cypher_host_opengl_smoke_tests
             PROPERTIES
                 SKIP_RETURN_CODE 4
                 TIMEOUT 30

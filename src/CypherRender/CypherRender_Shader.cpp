@@ -81,13 +81,13 @@ render_error_t R_ShaderSystemShutdown() noexcept
 {
     if ( !shaderSystem.initialized ) return render_error_t::OK;
     render_error_t firstError = render_error_t::OK;
-    if ( tr.backend == nullptr && !common::HandleTable_IsEmpty( &shaderSystem.records ) ) {
+    if ( tr.backend.api == nullptr && !common::HandleTable_IsEmpty( &shaderSystem.records ) ) {
         firstError = render_error_t::ERR_INTERNAL_ERROR;
-    } else if ( tr.backend != nullptr ) {
+    } else if ( tr.backend.api != nullptr ) {
         (void)common::HandleTable_ForEach(
             &shaderSystem.records,
             [&]( common::handle32_t, shader_record_t &record ) noexcept {
-                const render_error_t result = tr.backend->DestroyShader( record.native, tr.backend->state );
+                const render_error_t result = tr.backend.api->DestroyShader( record.native, tr.backend.state );
                 if ( firstError == render_error_t::OK && result != render_error_t::OK ) firstError = result;
                 record.native = R_INVALID_BACKEND_SHADER;
                 return common::CY_TRUE;
@@ -100,7 +100,7 @@ render_error_t R_ShaderSystemShutdown() noexcept
 
 render_error_t R_ValidateShaderDesc( const render_shader_desc_t &description ) noexcept
 {
-    if ( !tr.initialized || tr.backend == nullptr || !shaderSystem.initialized ) {
+    if ( !tr.initialized || tr.backend.api == nullptr || !shaderSystem.initialized ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
     if ( description.cookedShader == nullptr ) return render_error_t::ERR_INVALID_ARGUMENT;
@@ -159,7 +159,7 @@ render_error_t R_CreateShader(
     if ( validation != render_error_t::OK ) return validation;
 
     shader_record_t record{};
-    const render_error_t result = tr.backend->CreateShader( description, record.native, tr.backend->state );
+    const render_error_t result = tr.backend.api->CreateShader( description, record.native, tr.backend.state );
     if ( result != render_error_t::OK ) return result;
     if ( !R_IsBackendShaderValid( record.native ) ) return render_error_t::ERR_INTERNAL_ERROR;
     const common::cooked_shader_view_t &cooked = *description.cookedShader;
@@ -168,7 +168,7 @@ render_error_t R_CreateShader(
 
     const common::handle32_t tableHandle = common::HandleTable_Insert( &shaderSystem.records, record );
     if ( !common::Cy_Handle32IsValid( tableHandle ) ) {
-        (void)tr.backend->DestroyShader( record.native, tr.backend->state );
+        (void)tr.backend.api->DestroyShader( record.native, tr.backend.state );
         return common::HandleTable_Count( &shaderSystem.records ) >= common::CY_HANDLE_TABLE_MAX_CAPACITY
             ? render_error_t::ERR_LIMIT_EXCEEDED : render_error_t::ERR_OUT_OF_MEMORY;
     }
@@ -177,7 +177,7 @@ render_error_t R_CreateShader(
             common::Cy_Handle32Index( tableHandle ), common::Cy_Handle32Generation( tableHandle ),
             static_cast<common::u32>( render_object_type_t::SHADER ), &publicHandle ) ) {
         (void)common::HandleTable_Remove( &shaderSystem.records, tableHandle );
-        (void)tr.backend->DestroyShader( record.native, tr.backend->state );
+        (void)tr.backend.api->DestroyShader( record.native, tr.backend.state );
         return render_error_t::ERR_INTERNAL_ERROR;
     }
     *shaderOut = publicHandle;
@@ -186,7 +186,7 @@ render_error_t R_CreateShader(
 
 render_error_t R_DestroyShader( const render_shader_handle_t shader ) noexcept
 {
-    if ( !tr.initialized || tr.backend == nullptr || !shaderSystem.initialized ) {
+    if ( !tr.initialized || tr.backend.api == nullptr || !shaderSystem.initialized ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
     common::handle32_t tableHandle{};
@@ -194,7 +194,7 @@ render_error_t R_DestroyShader( const render_shader_handle_t shader ) noexcept
     const render_error_t resolve = R_ResolveShader( shader, tableHandle, record );
     if ( resolve != render_error_t::OK ) return resolve;
     if ( record->referenceCount != 0u ) return render_error_t::ERR_RESOURCE_BUSY;
-    const render_error_t result = tr.backend->DestroyShader( record->native, tr.backend->state );
+    const render_error_t result = tr.backend.api->DestroyShader( record->native, tr.backend.state );
     if ( result != render_error_t::OK ) return result;
     return common::HandleTable_Remove( &shaderSystem.records, tableHandle )
         ? render_error_t::OK : render_error_t::ERR_INTERNAL_ERROR;

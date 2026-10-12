@@ -21,6 +21,66 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
+## [Unreleased] - 2026-10-13
+
+### Added
+
+- Extended the Host OpenGL smoke test to submit an indexed triangle through
+  `Host_Render` and read the drawable's back buffer before presentation. It
+  checks a red center pixel against the dark clear color at a corner, then
+  releases shader, pipeline, vertex input, and buffer handles before Host
+  shutdown. This verifies the Host draw handoff; the normal runtime still has
+  no scene producer.
+
+### Changed
+
+- The standalone cube example reports its transform block size from the CPU
+  type rather than a stale literal.
+
+### Validation
+
+- Built ten focused renderer and Host test targets plus the cube example in the
+  existing `build-mason` tree. All ten tests passed, including OpenGL pixel
+  smoke tests on the local desktop context. The cube example presented three
+  hidden frames. No new dependency or build tree was created.
+
+## [Unreleased] - 2026-10-12
+
+### Changed
+
+- CypherRender now carries its selected backend API and runtime state together
+  through initialization, rollback, resource calls, drawing, and shutdown. The
+  private backend API table no longer stores mutable state; its contract version
+  is 7. Hosted OpenGL initialization also covers `AUTO` selection against the
+  host's existing surface.
+- Clarified that `allowBackendFallback` currently has no effect because OpenGL
+  is the only built backend. OpenGL still uses one static state.
+- Added renderer configuration resolution so `AUTO` is pinned to the same
+  concrete backend for window creation and renderer initialization. The runtime
+  Host now configures an OpenGL-capable window, initializes CypherRender, clears
+  and presents frames at the physical drawable size, and shuts the renderer
+  down before destroying its window. Minimized or zero-sized drawables skip
+  frame submission. A second Host initialization leaves the live renderer
+  untouched. Host also accepts one optional draw-submission callback inside
+  each frame and closes the frame before requesting shutdown when submission
+  fails. Render failures propagate to the executable's exit status. The runtime
+  still has no scene producer, so its default frame only clears and presents.
+- Fixed cooked-shader blob cleanup in the cube and tile-map renderer examples
+  on read, decode, and shader-creation paths. Corrected their System header
+  include paths.
+
+### Validation
+
+- Built the focused CypherRender targets in the existing `build-mason` tree and
+  passed seven renderer tests, including owned and hosted OpenGL smoke tests.
+  Rebuilt and passed the hosted smoke test with `AUTO` after adding that case.
+- Built `CypherEngine` and the new Host OpenGL smoke target in `build-mason`.
+  Renderer config resolution tests and the Host startup, duplicate-init,
+  callback-success, callback-failure, frame closure, and shutdown smoke test
+  passed. The graphics smoke test skips when the machine lacks a compatible
+  desktop OpenGL context. Built the standalone cube example; the tile-map
+  preview target is unavailable in this build configuration.
+
 ## [Unreleased] - 2026-10-06
 
 ### Added

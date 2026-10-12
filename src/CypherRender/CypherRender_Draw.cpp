@@ -82,7 +82,7 @@ render_error_t R_ValidateDrawVertexRanges(
 
 render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) noexcept
 {
-    if ( !tr.initialized || tr.backend == nullptr ) return render_error_t::ERR_NOT_INITIALIZED;
+    if ( !tr.initialized || tr.backend.api == nullptr ) return render_error_t::ERR_NOT_INITIALIZED;
     if ( !tr.frameActive ) return render_error_t::ERR_FRAME_NOT_ACTIVE;
     const auto maximumCount = static_cast<common::u32>( std::numeric_limits<common::i32>::max() );
     if ( description.indexCount == 0u || description.indexCount % 3u != 0u ||
@@ -141,7 +141,7 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
             return uniformInfo.mapped ? render_error_t::ERR_RESOURCE_BUSY : render_error_t::ERR_BINDING_MISMATCH;
         }
     }
-    result = tr.backend->DrawIndexed( native, tr.backend->state );
+    result = tr.backend.api->DrawIndexed( native, tr.backend.state );
     if ( hasUniform ) {
         const render_error_t releaseResult = R_BufferReleaseReference( description.uniformBuffer );
         if ( result == render_error_t::OK ) result = releaseResult;

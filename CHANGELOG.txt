@@ -20,6 +20,57 @@ CypherEngine Changelog
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
+[Unreleased] - 2026-10-13
+-------------------------
+
+Added
+- The Host OpenGL smoke test submits an indexed triangle through Host_Render,
+  reads center and corner pixels before presentation, and releases draw
+  resources before Host shutdown. This proves the Host draw handoff; the
+  ordinary runtime still has no scene producer.
+
+Changed
+- The standalone cube example reports transform-block size from its CPU type
+  instead of a stale literal.
+
+Validation
+- Built ten focused renderer and Host test targets plus the cube example in
+  the existing build-mason tree. All ten tests passed, including OpenGL pixel
+  smoke tests on the local desktop context; the cube example presented three
+  hidden frames. No new dependency or build tree was created.
+
+[Unreleased] - 2026-10-12
+-------------------------
+
+Changed
+- CypherRender passes a selected API and runtime state together through init,
+  rollback, resource dispatch, drawing and shutdown. Its private API table no
+  longer stores state; the backend contract version is 7. Hosted OpenGL init
+  also exercises AUTO against the existing host surface.
+- allowBackendFallback has no effect yet with only OpenGL built. OpenGL still
+  uses one static state.
+- AUTO is resolved to one concrete backend before window creation. The runtime
+  Host now creates an OpenGL-capable window, initializes CypherRender, clears
+  and presents at physical drawable size, skips minimized/zero-sized frames,
+  and shuts the renderer down before the window. Duplicate Host init preserves
+  the live renderer. An optional per-frame callback can submit renderer draws;
+  Host closes the frame before requesting shutdown on submission failure, and
+  render failures make the executable exit unsuccessfully. The default runtime
+  has no scene producer and still only clears and presents.
+- The cube and tile-map renderer examples release cooked-shader blobs after
+  read/decode failures and synchronous shader creation. Their System header
+  paths are corrected.
+
+Validation
+- Focused renderer targets built in the existing build-mason tree; seven tests
+  passed, including owned and hosted OpenGL smoke checks. The hosted smoke
+  test was rebuilt and passed with AUTO selection.
+- CypherEngine and the new Host OpenGL smoke target built in build-mason.
+  Renderer config resolution tests and the Host startup, duplicate-init,
+  callback-success, callback-failure, frame-closure and shutdown smoke test
+  passed; the graphics smoke skips without compatible desktop GL. The cube
+  example builds; the tile-map preview target is unavailable in this build.
+
 [Unreleased] - 2026-10-06
 -------------------------
 

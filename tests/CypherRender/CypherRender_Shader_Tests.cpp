@@ -58,9 +58,8 @@ struct shader_scope_t {
     {
         api.CreateShader = CreateShader;
         api.DestroyShader = DestroyShader;
-        api.state = &backend;
         render::tr = {};
-        render::tr.backend = &api;
+        render::tr.backend = { &api, &backend };
         render::tr.info.backend = render::render_backend_t::OPENGL;
         render::tr.info.apiMajorVersion = 4u;
         render::tr.info.apiMinorVersion = 1u;

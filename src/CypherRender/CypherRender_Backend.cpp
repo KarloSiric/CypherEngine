@@ -55,8 +55,7 @@ bool R_IsBackendValid( const backend_api_t *backend ) noexcept
         backend->CreateGraphicsPipeline != nullptr &&
         backend->DestroyGraphicsPipeline != nullptr &&
         backend->DrawIndexed != nullptr &&
-        ( ( backend->CreateTexture2D == nullptr ) == ( backend->DestroyTexture == nullptr ) ) &&
-        backend->state != nullptr;
+        ( ( backend->CreateTexture2D == nullptr ) == ( backend->DestroyTexture == nullptr ) );
 }
 
 render_error_t R_SelectBackend(
@@ -77,6 +76,9 @@ render_error_t R_SelectBackend(
 
         case render_backend_t::SOFTWARE:
         case render_backend_t::VULKAN:
+        // @FIXME: THis will be added properly when the time comes for the rest of the renderer to be included and added.
+        case render_backend_t::DX11:
+        case render_backend_t::DX12:
             return render_error_t::ERR_BACKEND_NOT_BUILT;
 
         case render_backend_t::COUNT:
@@ -89,6 +91,37 @@ render_error_t R_SelectBackend(
     }
 
     *backendOut = backend;
+    return render_error_t::OK;
+}
+
+render_error_t R_SelectBackendInstance(
+    const render_config_t &config,
+    backend_instance_t *instanceOut
+    ) noexcept
+{
+    if ( instanceOut == nullptr ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    *instanceOut = {};
+    const backend_api_t *api = nullptr;
+    const render_error_t selectionResult = R_SelectBackend( config, &api );
+    if ( R_ErrorFailed( selectionResult ) ) {
+        return selectionResult;
+    }
+    backend_instance_t candidate{};
+    switch( api->backend ) {
+        case render_backend_t::OPENGL:
+            candidate = GL_GetBackendInstance();
+            break;
+
+        default:
+            return render_error_t::ERR_BACKEND_NOT_BUILT;
+    }
+
+    if ( candidate.api != api || candidate.state == nullptr ) {
+        return render_error_t::ERR_INTERNAL_ERROR;
+    }
+    *instanceOut = candidate;
     return render_error_t::OK;
 }
 

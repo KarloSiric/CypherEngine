@@ -25,7 +25,7 @@
 #include "CypherRender/CypherRender_Pipeline.h"
 #include "CypherRender/CypherRender_Public.h"
 #include "CypherRender/CypherRender_Shader.h"
-#include "CypherSystem/CypherSystem_Public.h"
+#include "CypherSystem/Platform/CypherSystem_Public.h"
 #include "CypherTools/CypherTileEditor/Core/CypherTileCamera.h"
 #include "CypherTools/CypherTileEditor/Core/CypherTileMapGeometry.h"
 #include "CypherTools/CypherTileEditor/Core/CypherTileMapMaterials.h"
@@ -598,6 +598,7 @@ bool LoadShader( const char *pNativePath,
     if ( readResult != common::vfs_status_t::OK ) {
         std::fprintf( stderr, "Read cooked shader %s: %s\n", pNativePath,
             common::Vfs_StatusName( readResult ) );
+        common::Blob_Shutdown( &bytes );
         return false;
     }
 
@@ -607,13 +608,16 @@ bool LoadShader( const char *pNativePath,
     if ( !common::CookedShader_Succeeded( cookedResult ) ) {
         std::fprintf( stderr, "Invalid cooked shader %s: %s\n", pNativePath,
             common::CookedShader_StatusName( cookedResult.status ) );
+        common::Blob_Shutdown( &bytes );
         return false;
     }
 
     const render::render_shader_desc_t description{
         &view, "Cypher tile-map preview shader" };
-    return CheckRender(
+    const bool created = CheckRender(
         render::R_CreateShader( description, &shader ), "Create shader" );
+    common::Blob_Shutdown( &bytes );
+    return created;
 }
 
 bool CreateBuffer( render::render_buffer_handle_t &buffer,

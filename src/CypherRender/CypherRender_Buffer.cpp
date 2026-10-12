@@ -162,16 +162,16 @@ render_error_t R_BufferSystemShutdown() noexcept
     }
 
     render_error_t firstError = render_error_t::OK;
-    if ( tr.backend == nullptr ) {
+    if ( tr.backend.api == nullptr ) {
         firstError = render_error_t::ERR_INTERNAL_ERROR;
     } else {
         (void)::cypher::common::HandleTable_ForEach(
             &bufferSystem.records,
             [&]( ::cypher::common::handle32_t, buffer_record_t &record ) noexcept {
                 if ( record.info.mapped ) {
-                    const render_error_t unmapResult = tr.backend->UnmapBuffer(
+                    const render_error_t unmapResult = tr.backend.api->UnmapBuffer(
                         record.native,
-                        tr.backend->state );
+                        tr.backend.state );
                     if ( firstError == render_error_t::OK &&
                          unmapResult != render_error_t::OK ) {
                         firstError = unmapResult;
@@ -181,9 +181,9 @@ render_error_t R_BufferSystemShutdown() noexcept
                     record.info.mappedRange = {};
                 }
 
-                const render_error_t destroyResult = tr.backend->DestroyBuffer(
+                const render_error_t destroyResult = tr.backend.api->DestroyBuffer(
                     record.native,
-                    tr.backend->state );
+                    tr.backend.state );
                 if ( firstError == render_error_t::OK &&
                      destroyResult != render_error_t::OK ) {
                     firstError = destroyResult;
@@ -293,7 +293,7 @@ render_error_t R_CreateBuffer(
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     *bufferOut = R_INVALID_BUFFER;
-    if ( !tr.initialized || tr.backend == nullptr || !bufferSystem.initialized ) {
+    if ( !tr.initialized || tr.backend.api == nullptr || !bufferSystem.initialized ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
 
@@ -305,11 +305,11 @@ render_error_t R_CreateBuffer(
     }
 
     backend_buffer_t nativeBuffer{};
-    const render_error_t createResult = tr.backend->CreateBuffer(
+    const render_error_t createResult = tr.backend.api->CreateBuffer(
         description,
         initialData,
         nativeBuffer,
-        tr.backend->state );
+        tr.backend.state );
     if ( createResult != render_error_t::OK ) {
         return createResult;
     }
@@ -327,7 +327,7 @@ render_error_t R_CreateBuffer(
     const ::cypher::common::handle32_t tableHandle =
         ::cypher::common::HandleTable_Insert( &bufferSystem.records, record );
     if ( !::cypher::common::Cy_Handle32IsValid( tableHandle ) ) {
-        (void)tr.backend->DestroyBuffer( nativeBuffer, tr.backend->state );
+        (void)tr.backend.api->DestroyBuffer( nativeBuffer, tr.backend.state );
         return ::cypher::common::HandleTable_Count( &bufferSystem.records ) >=
             ::cypher::common::CY_HANDLE_TABLE_MAX_CAPACITY
             ? render_error_t::ERR_LIMIT_EXCEEDED
@@ -340,7 +340,7 @@ render_error_t R_CreateBuffer(
         (void)::cypher::common::HandleTable_Remove(
             &bufferSystem.records,
             tableHandle );
-        (void)tr.backend->DestroyBuffer( nativeBuffer, tr.backend->state );
+        (void)tr.backend.api->DestroyBuffer( nativeBuffer, tr.backend.state );
         return render_error_t::ERR_INTERNAL_ERROR;
     }
 
@@ -353,7 +353,7 @@ render_error_t R_UpdateBuffer(
     const ::cypher::common::u64 destinationOffset,
     const render_buffer_data_t &sourceData ) noexcept
 {
-    if ( !tr.initialized || tr.backend == nullptr || !bufferSystem.initialized ) {
+    if ( !tr.initialized || tr.backend.api == nullptr || !bufferSystem.initialized ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
     if ( sourceData.bytes == nullptr || sourceData.byteSize == 0u ) {
@@ -378,11 +378,11 @@ render_error_t R_UpdateBuffer(
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
 
-    return tr.backend->UpdateBuffer(
+    return tr.backend.api->UpdateBuffer(
         record->native,
         destinationOffset,
         sourceData,
-        tr.backend->state );
+        tr.backend.state );
 }
 
 render_error_t R_MapBuffer(
@@ -393,7 +393,7 @@ render_error_t R_MapBuffer(
 {
     if ( mappingOut == nullptr ) return render_error_t::ERR_INVALID_ARGUMENT;
     *mappingOut = {};
-    if ( !tr.initialized || tr.backend == nullptr || !bufferSystem.initialized ) {
+    if ( !tr.initialized || tr.backend.api == nullptr || !bufferSystem.initialized ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
     if ( access == R_BUFFER_MAP_NONE ||
@@ -419,15 +419,15 @@ render_error_t R_MapBuffer(
     }
 
     render_buffer_mapping_t mapping{};
-    const render_error_t mapResult = tr.backend->MapBuffer(
+    const render_error_t mapResult = tr.backend.api->MapBuffer(
         record->native,
         range,
         access,
         mapping,
-        tr.backend->state );
+        tr.backend.state );
     if ( mapResult != render_error_t::OK ) return mapResult;
     if ( mapping.bytes == nullptr || mapping.byteSize != range.byteSize ) {
-        (void)tr.backend->UnmapBuffer( record->native, tr.backend->state );
+        (void)tr.backend.api->UnmapBuffer( record->native, tr.backend.state );
         return render_error_t::ERR_INTERNAL_ERROR;
     }
 
@@ -442,7 +442,7 @@ render_error_t R_FlushMappedBuffer(
     const render_buffer_handle_t buffer,
     const render_buffer_range_t &range ) noexcept
 {
-    if ( !tr.initialized || tr.backend == nullptr || !bufferSystem.initialized ) {
+    if ( !tr.initialized || tr.backend.api == nullptr || !bufferSystem.initialized ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
 
@@ -461,17 +461,17 @@ render_error_t R_FlushMappedBuffer(
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
 
-    return tr.backend->FlushMappedBuffer(
+    return tr.backend.api->FlushMappedBuffer(
         record->native,
         range,
-        tr.backend->state );
+        tr.backend.state );
 }
 
 render_error_t R_InvalidateMappedBuffer(
     const render_buffer_handle_t buffer,
     const render_buffer_range_t &range ) noexcept
 {
-    if ( !tr.initialized || tr.backend == nullptr || !bufferSystem.initialized ) {
+    if ( !tr.initialized || tr.backend.api == nullptr || !bufferSystem.initialized ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
 
@@ -490,15 +490,15 @@ render_error_t R_InvalidateMappedBuffer(
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
 
-    return tr.backend->InvalidateMappedBuffer(
+    return tr.backend.api->InvalidateMappedBuffer(
         record->native,
         range,
-        tr.backend->state );
+        tr.backend.state );
 }
 
 render_error_t R_UnmapBuffer( const render_buffer_handle_t buffer ) noexcept
 {
-    if ( !tr.initialized || tr.backend == nullptr || !bufferSystem.initialized ) {
+    if ( !tr.initialized || tr.backend.api == nullptr || !bufferSystem.initialized ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
 
@@ -511,9 +511,9 @@ render_error_t R_UnmapBuffer( const render_buffer_handle_t buffer ) noexcept
     if ( resolveResult != render_error_t::OK ) return resolveResult;
     if ( !record->info.mapped ) return render_error_t::ERR_INVALID_STATE;
 
-    const render_error_t unmapResult = tr.backend->UnmapBuffer(
+    const render_error_t unmapResult = tr.backend.api->UnmapBuffer(
         record->native,
-        tr.backend->state );
+        tr.backend.state );
     record->info.mapped = false;
     record->info.mapAccess = R_BUFFER_MAP_NONE;
     record->info.mappedRange = {};
@@ -522,7 +522,7 @@ render_error_t R_UnmapBuffer( const render_buffer_handle_t buffer ) noexcept
 
 render_error_t R_DestroyBuffer( const render_buffer_handle_t buffer ) noexcept
 {
-    if ( !tr.initialized || tr.backend == nullptr || !bufferSystem.initialized ) {
+    if ( !tr.initialized || tr.backend.api == nullptr || !bufferSystem.initialized ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
 
@@ -537,9 +537,9 @@ render_error_t R_DestroyBuffer( const render_buffer_handle_t buffer ) noexcept
         return render_error_t::ERR_RESOURCE_BUSY;
     }
 
-    const render_error_t destroyResult = tr.backend->DestroyBuffer(
+    const render_error_t destroyResult = tr.backend.api->DestroyBuffer(
         record->native,
-        tr.backend->state );
+        tr.backend.state );
     if ( destroyResult != render_error_t::OK ) return destroyResult;
 
     return ::cypher::common::HandleTable_Remove(

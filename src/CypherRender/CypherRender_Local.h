@@ -31,13 +31,13 @@ namespace cypher::engine::render
     Private renderer frontend state
 
 The frontend owns policy and call ordering. The selected backend owns native
-graphics objects through backend_api_t::state, while Host continues to own the
+graphics objects through backend_instance_t::state, while Host continues to own the
 window referenced here. Renderer work remains confined to the render thread.
 
 ===============================================================================
 */
 struct renderer_state_t {
-    const backend_api_t *backend{ nullptr };            // Selected immutable dispatch table.
+    backend_instance_t backend{};                       // Selected dispatch table and its runtime state.
     ::cypher::engine::sys::window_t *window{ nullptr }; // Borrowed Host-owned presentation window.
     render_config_t config{};                           // Validated renderer policy requested by Host.
     render_info_t info{};                               // Actual device and capability snapshot.

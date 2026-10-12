@@ -38,7 +38,6 @@ struct draw_fixture_t {
 
     void Init()
     {
-        backend.state = this;
         backend.CreateBuffer = []( const render::render_buffer_desc_t &,
             const render::render_buffer_data_t *, render::backend_buffer_t &out, void *state ) noexcept {
             out.value = static_cast<draw_fixture_t *>( state )->nextToken++;
@@ -86,7 +85,7 @@ struct draw_fixture_t {
             return fixture.drawResult;
         };
         render::tr = {};
-        render::tr.backend = &backend;
+        render::tr.backend = { &backend, this };
         render::tr.initialized = true;
         render::tr.info.backend = render::render_backend_t::OPENGL;
         render::tr.info.apiMajorVersion = 4u;

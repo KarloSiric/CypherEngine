@@ -41,14 +41,16 @@ int main(int argc, char const *argv[])
         return ( EXIT_FAILURE );
     }
 
+    auto renderResult = rr::render::render_error_t::OK;
     while( host::Host_IsRunning( pHostState ) ) {
         host::Host_BeginFrame( pHostState );
         host::Host_Update( pHostState );
-        host::Host_Render( pHostState );
+        renderResult = host::Host_Render( pHostState );
         host::Host_EndFrame( pHostState );
     }
 
     host::Host_Shutdown( pHostState );
 
-    return ( EXIT_SUCCESS );
+    return renderResult == rr::render::render_error_t::OK
+        ? EXIT_SUCCESS : EXIT_FAILURE;
 }

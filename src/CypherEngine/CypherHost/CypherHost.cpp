@@ -62,6 +62,7 @@ struct host_startup_timings_t {
     double logApplyMilliseconds{ 0.0 };
     double runtimePolicyMilliseconds{ 0.0 };
     double windowMilliseconds{ 0.0 };
+    double rendererMilliseconds{ 0.0 };
     double finishMilliseconds{ 0.0 };
 };
 
@@ -1582,6 +1583,7 @@ Host_PrepareStateForInit
 void Host_PrepareStateForInit( state_t &pHostState ) {
     pHostState.stage = stage_t::INITIALIZING;
     pHostState.running = false;
+    pHostState.rendererInitialized = false;
     pHostState.bHasFocus = true;
     pHostState.frame = {};
 }
@@ -2195,6 +2197,22 @@ host_error_t Host_CreateWindow( state_t &pHostState )
     windowDescription.height       = pHostState.config.windowConfig.viewport.height;
     windowDescription.fullscreen   = pHostState.config.windowConfig.fullscreen;
 
+    render::render_config_t selectedConfig{};
+    const auto selectionResult = render::R_ResolveConfig(
+        pHostState.config.renderConfig, selectedConfig );
+    if ( selectionResult != render::render_error_t::OK ) {
+        LOG_ERROR( log::channel_t::HOST, "renderer selection failed: %s.", render::R_ErrorDescription( selectionResult ) );
+        COM_ERRORF( render::R_ErrorCode( selectionResult ), "Host_CreateWindow: renderer selection failed: %s", render::R_ErrorDescription( selectionResult ) );
+        return host_error_t::ERR_INITIALIZING;
+    }
+
+    const auto configureResult = render::R_ConfigureWindow( selectedConfig, windowDescription );
+    if ( configureResult != render::render_error_t::OK ) {
+        LOG_ERROR( log::channel_t::HOST, "renderer window configuration failed: %s.", render::R_ErrorDescription( configureResult ) );
+        COM_ERRORF( render::R_ErrorCode( configureResult ), "Host_CreateWindow: R_ConfigureWindow failed: %s", render::R_ErrorDescription( configureResult ) );
+        return host_error_t::ERR_INITIALIZING;
+    }
+
     const auto windowResult = sys::Sys_CreateWindow( windowDescription, pHostState.window );
     if ( windowResult != sys::sys_error_t::OK ) {
         LOG_ERROR( log::channel_t::HOST, "window creation failed: %s.", sys::Sys_ErrorDesc( windowResult ) );
@@ -2202,6 +2220,7 @@ host_error_t Host_CreateWindow( state_t &pHostState )
         return host_error_t::ERR_INITIALIZING;
     }
 
+    pHostState.config.renderConfig = selectedConfig;
     Host_LogWindowAndDisplayReport( windowDescription, pHostState.window );
 
     return host_error_t::OK;
@@ -2251,6 +2270,13 @@ Main engine startup sequence.
 ================
 */
 host_error_t Host_Init( state_t &pHostState ) {
+    if ( ( pHostState.stage != stage_t::UNINITIALIZED &&
+           pHostState.stage != stage_t::SHUTDOWN ) ||
+         pHostState.rendererInitialized ||
+         sys::Sys_WindowIsValid( pHostState.window ) ) {
+        return host_error_t::ERR_IS_INIT;
+    }
+
     const auto startupBegin = std::chrono::steady_clock::now();
     auto stageBegin = startupBegin;
     host_startup_timings_t timings{};
@@ -2322,6 +2348,18 @@ host_error_t Host_Init( state_t &pHostState ) {
     }
 
     stageBegin = std::chrono::steady_clock::now();
+    const auto rendererResult = render::R_Init(
+        pHostState.window, pHostState.config.renderConfig );
+    timings.rendererMilliseconds = Host_ElapsedMilliseconds( stageBegin );
+    if ( rendererResult != render::render_error_t::OK ) {
+        LOG_ERROR( log::channel_t::HOST, "renderer initialization failed: %s.", render::R_ErrorDescription( rendererResult ) );
+        COM_ERRORF( render::R_ErrorCode( rendererResult ), "Host_Init: R_Init failed: %s", render::R_ErrorDescription( rendererResult ) );
+        Host_Shutdown( pHostState );
+        return host_error_t::ERR_INITIALIZING;
+    }
+    pHostState.rendererInitialized = true;
+
+    stageBegin = std::chrono::steady_clock::now();
     result = Host_FinishInit( pHostState );
     timings.finishMilliseconds = Host_ElapsedMilliseconds( stageBegin );
     if ( result != host_error_t::OK ) {
@@ -2337,7 +2375,7 @@ host_error_t Host_Init( state_t &pHostState ) {
     HOST_LOG_FIELD(
         log::channel_t::HOST,
         "Runtime services",
-        "8 / 8 READY" );
+        "9 / 9 READY" );
     HOST_LOG_DETAIL(
         log::channel_t::HOST,
         "Core",
@@ -2345,7 +2383,7 @@ host_error_t Host_Init( state_t &pHostState ) {
     HOST_LOG_DETAIL(
         log::channel_t::HOST,
         "Runtime",
-        "Commands | CVars | Configuration | Window" );
+        "Commands | CVars | Configuration | Window | Renderer" );
     HOST_LOG_FIELD(
         log::channel_t::HOST,
         "Registries",
@@ -2363,6 +2401,7 @@ host_error_t Host_Init( state_t &pHostState ) {
     LOG_INFO( log::channel_t::HOST, "  %-24s %9.3f ms", "Logging policy", timings.logApplyMilliseconds );
     LOG_INFO( log::channel_t::HOST, "  %-24s %9.3f ms", "Runtime policy", timings.runtimePolicyMilliseconds );
     LOG_INFO( log::channel_t::HOST, "  %-24s %9.3f ms", "Window", timings.windowMilliseconds );
+    LOG_INFO( log::channel_t::HOST, "  %-24s %9.3f ms", "Renderer", timings.rendererMilliseconds );
     LOG_INFO( log::channel_t::HOST, "  %-24s %9.3f ms", "Finish", timings.finishMilliseconds );
     LOG_INFO( log::channel_t::HOST, "  %-24s %9.3f ms", "TOTAL", startupMilliseconds );
 
@@ -2398,7 +2437,19 @@ void Host_Shutdown( state_t &pHostState ) {
 	pHostState.running = false;
 	pHostState.stage = stage_t::SHUTDOWN;
 
-    (void)sys::Sys_DestroyWindow( pHostState.window );
+    if ( pHostState.rendererInitialized ) {
+        const auto rendererResult = render::R_Shutdown();
+        if ( rendererResult != render::render_error_t::OK ) {
+            LOG_ERROR( log::channel_t::HOST, "renderer shutdown failed: %s.", render::R_ErrorDescription( rendererResult ) );
+        }
+        pHostState.rendererInitialized = false;
+    }
+    if ( sys::Sys_WindowIsValid( pHostState.window ) ) {
+        const auto windowResult = sys::Sys_DestroyWindow( pHostState.window );
+        if ( windowResult != sys::sys_error_t::OK ) {
+            LOG_ERROR( log::channel_t::HOST, "window destruction failed: %s.", sys::Sys_ErrorDesc( windowResult ) );
+        }
+    }
     cfg::Cfg_Shutdown();
     cvar::Cvar_Shutdown();
     cmd::Cmd_Shutdown();
@@ -2482,12 +2533,67 @@ void Host_Update( state_t &pHostState ) {
 Host_Render
 ================
 */
-void Host_Render( state_t &pHostState ) {
+render::render_error_t Host_Render(
+    state_t &pHostState,
+    const host_render_submit_fn submit,
+    void *userData ) {
 	if ( pHostState.stage != stage_t::RUNNING || !pHostState.running ) {
-		return;
+		return render::render_error_t::OK;
 	}
 
-    // The runtime renderer is intentionally absent while its backend contract is rebuilt.
+    const render::render_info_t *renderInfo = render::R_GetInfo();
+    if ( !pHostState.rendererInitialized || renderInfo == nullptr ) {
+        LOG_ERROR( log::channel_t::HOST, "renderer is unavailable during a running frame." );
+        Host_RequestShutdown( pHostState );
+        return render::render_error_t::ERR_NOT_INITIALIZED;
+    }
+
+    const bool drawableAvailable = !pHostState.window.minimized &&
+        pHostState.window.width != 0u && pHostState.window.height != 0u;
+    const render::render_extent_t drawableExtent = drawableAvailable
+        ? render::render_extent_t{ pHostState.window.width, pHostState.window.height }
+        : render::render_extent_t{};
+
+    if ( renderInfo->drawableExtent.width != drawableExtent.width ||
+         renderInfo->drawableExtent.height != drawableExtent.height ) {
+        const auto resizeResult = render::R_Resize( drawableExtent );
+        if ( resizeResult != render::render_error_t::OK ) {
+            LOG_ERROR( log::channel_t::HOST, "renderer resize failed: %s.", render::R_ErrorDescription( resizeResult ) );
+            Host_RequestShutdown( pHostState );
+            return resizeResult;
+        }
+    }
+    if ( !drawableAvailable ) {
+        return render::render_error_t::OK;
+    }
+
+    render::render_frame_info_t frameInfo{};
+    frameInfo.frameIndex = pHostState.frame.index;
+    const common::f32 timescale = cvar::Cvar_GetFloat( "host_timescale" );
+    frameInfo.deltaSeconds = pHostState.frame.nDeltaTimeSeconds *
+        ( timescale >= 0.0f ? timescale : 1.0f );
+    frameInfo.drawableExtent = drawableExtent;
+
+    const auto beginResult = render::R_BeginFrame( frameInfo );
+    if ( beginResult != render::render_error_t::OK ) {
+        LOG_ERROR( log::channel_t::HOST, "renderer begin frame failed: %s.", render::R_ErrorDescription( beginResult ) );
+        Host_RequestShutdown( pHostState );
+        return beginResult;
+    }
+
+    const auto submitResult = submit != nullptr
+        ? submit( frameInfo, userData )
+        : render::render_error_t::OK;
+    const auto endResult = render::R_EndFrame();
+    if ( submitResult != render::render_error_t::OK ) {
+        LOG_ERROR( log::channel_t::HOST, "render submission failed: %s.", render::R_ErrorDescription( submitResult ) );
+        Host_RequestShutdown( pHostState );
+    }
+    if ( endResult != render::render_error_t::OK ) {
+        LOG_ERROR( log::channel_t::HOST, "renderer present failed: %s.", render::R_ErrorDescription( endResult ) );
+        Host_RequestShutdown( pHostState );
+    }
+    return submitResult != render::render_error_t::OK ? submitResult : endResult;
 }
 
 /*

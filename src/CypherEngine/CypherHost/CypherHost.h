@@ -25,6 +25,7 @@
 
 #include "CypherHost_Error.h"
 #include "CypherHost_Types.h"
+#include "CypherRender/CypherRender_Error.h"
 
 namespace cypher::engine::host
 {
@@ -44,7 +45,18 @@ void Host_BeginFrame( state_t &hostState );
 
 void Host_Update( state_t &hostState );
 
-void Host_Render( state_t &hostState );
+// Called once between R_BeginFrame and R_EndFrame. The Host borrows userData
+// only for this call; submission may use public renderer draw commands, but
+// must not begin or end the frame itself. An error requests shutdown and is
+// returned to the caller so the process can report a failed run.
+using host_render_submit_fn = render::render_error_t (*)(
+    const render::render_frame_info_t &frameInfo,
+    void *userData ) noexcept;
+
+CYPHER_NODISCARD render::render_error_t Host_Render(
+    state_t &hostState,
+    host_render_submit_fn submit = nullptr,
+    void *userData = nullptr );
 
 void Host_EndFrame( state_t &hostState );
 

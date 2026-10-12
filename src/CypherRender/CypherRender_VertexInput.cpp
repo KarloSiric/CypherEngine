@@ -196,7 +196,7 @@ render_error_t R_VertexInputSystemShutdown() noexcept
     if ( !vertexInputSystem.initialized ) return render_error_t::OK;
 
     render_error_t firstError = render_error_t::OK;
-    if ( tr.backend == nullptr ) {
+    if ( tr.backend.api == nullptr ) {
         firstError = render_error_t::ERR_INTERNAL_ERROR;
     } else {
         (void)::cypher::common::HandleTable_ForEach(
@@ -204,9 +204,9 @@ render_error_t R_VertexInputSystemShutdown() noexcept
             [&]( ::cypher::common::handle32_t,
                  vertex_input_record_t &record ) noexcept {
                 const render_error_t destroyResult =
-                    tr.backend->DestroyVertexInput(
+                    tr.backend.api->DestroyVertexInput(
                         record.native,
-                        tr.backend->state );
+                        tr.backend.state );
                 if ( firstError == render_error_t::OK &&
                      destroyResult != render_error_t::OK ) {
                     firstError = destroyResult;
@@ -323,7 +323,7 @@ render_error_t R_CreateVertexInput(
     const render_error_t validationResult = R_ValidateVertexInputDesc(
         description );
     if ( validationResult != render_error_t::OK ) return validationResult;
-    if ( tr.backend == nullptr ) return render_error_t::ERR_NOT_INITIALIZED;
+    if ( tr.backend.api == nullptr ) return render_error_t::ERR_NOT_INITIALIZED;
 
     backend_vertex_input_desc_t backendDescription{};
     backendDescription.layout = description.layout;
@@ -382,10 +382,10 @@ render_error_t R_CreateVertexInput(
     }
 
     backend_vertex_input_t nativeVertexInput{};
-    const render_error_t createResult = tr.backend->CreateVertexInput(
+    const render_error_t createResult = tr.backend.api->CreateVertexInput(
         backendDescription,
         nativeVertexInput,
-        tr.backend->state );
+        tr.backend.state );
     if ( createResult != render_error_t::OK ||
          !R_IsBackendVertexInputValid( nativeVertexInput ) ) {
         (void)R_ReleaseVertexInputBuffers( info );
@@ -402,9 +402,9 @@ render_error_t R_CreateVertexInput(
             &vertexInputSystem.records,
             record );
     if ( !::cypher::common::Cy_Handle32IsValid( tableHandle ) ) {
-        (void)tr.backend->DestroyVertexInput(
+        (void)tr.backend.api->DestroyVertexInput(
             nativeVertexInput,
-            tr.backend->state );
+            tr.backend.state );
         (void)R_ReleaseVertexInputBuffers( info );
         return ::cypher::common::HandleTable_Count( &vertexInputSystem.records ) >=
             ::cypher::common::CY_HANDLE_TABLE_MAX_CAPACITY
@@ -418,9 +418,9 @@ render_error_t R_CreateVertexInput(
         (void)::cypher::common::HandleTable_Remove(
             &vertexInputSystem.records,
             tableHandle );
-        (void)tr.backend->DestroyVertexInput(
+        (void)tr.backend.api->DestroyVertexInput(
             nativeVertexInput,
-            tr.backend->state );
+            tr.backend.state );
         (void)R_ReleaseVertexInputBuffers( info );
         return render_error_t::ERR_INTERNAL_ERROR;
     }
@@ -432,7 +432,7 @@ render_error_t R_CreateVertexInput(
 render_error_t R_DestroyVertexInput(
     const render_vertex_input_handle_t vertexInput ) noexcept
 {
-    if ( !tr.initialized || tr.backend == nullptr ||
+    if ( !tr.initialized || tr.backend.api == nullptr ||
          !vertexInputSystem.initialized ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
@@ -445,9 +445,9 @@ render_error_t R_DestroyVertexInput(
         record );
     if ( resolveResult != render_error_t::OK ) return resolveResult;
 
-    const render_error_t destroyResult = tr.backend->DestroyVertexInput(
+    const render_error_t destroyResult = tr.backend.api->DestroyVertexInput(
         record->native,
-        tr.backend->state );
+        tr.backend.state );
     if ( destroyResult != render_error_t::OK ) return destroyResult;
 
     const render_error_t releaseResult = R_ReleaseVertexInputBuffers(

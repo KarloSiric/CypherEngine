@@ -105,16 +105,17 @@ four vertices. All 36 indices are unsigned 16-bit values, and every triangle is
 counterclockwise from outside the cube. The vertex and index buffers are
 immutable; only the transform buffer changes each frame.
 
-The CPU structure and the GLSL `Transforms` block both contain three column-major
-matrices, with std140-compatible offsets:
+The CPU structure and the GLSL `Transforms` block contain three column-major
+matrices and a tint color, with std140-compatible offsets:
 
-| Matrix | Byte offset | Purpose |
+| Field | Byte offset | Purpose |
 | --- | --- | --- |
 | `model` | 0 | Rotate the cube from local space into world space. |
 | `view` | 64 | Transform world positions into camera space. |
 | `projection` | 128 | Project camera-space positions into clip space. |
+| `tint` | 192 | Multiply the cube's face colors. |
 
-The complete block is 192 bytes. Compile-time checks protect the CPU offsets and
+The complete block is 208 bytes. Compile-time checks protect the CPU offsets and
 size. Pipeline creation verifies the native uniform block's reflected size, and
 the renderer assigns that block to uniform binding zero. GLSL 4.10 does not use
 a `binding = 0` qualifier in the shader source.

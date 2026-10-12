@@ -147,8 +147,10 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
 
     REQUIRE( render::R_ValidateHostSurface( surface ) ==
         render::render_error_t::OK );
+    render::render_config_t hostedConfig = config;
+    hostedConfig.backend = render::render_backend_t::AUTO;
     const render::render_error_t rendererResult =
-        render::R_InitHostSurface( surface, config );
+        render::R_InitHostSurface( surface, hostedConfig );
     if ( rendererResult != render::render_error_t::OK ) {
         REQUIRE( sys::GLimp_DestroyContext( context ) == sys::sys_error_t::OK );
         REQUIRE( sys::Sys_DestroyWindow( window ) == sys::sys_error_t::OK );

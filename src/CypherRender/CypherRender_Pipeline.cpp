@@ -65,8 +65,8 @@ render_error_t R_PipelineSystemShutdown() noexcept
     (void)common::HandleTable_ForEach(
         &pipelineSystem.records,
         [&]( common::handle32_t, pipeline_record_t &record ) noexcept {
-            const render_error_t destroyResult = tr.backend != nullptr
-                ? tr.backend->DestroyGraphicsPipeline( record.native, tr.backend->state )
+            const render_error_t destroyResult = tr.backend.api != nullptr
+                ? tr.backend.api->DestroyGraphicsPipeline( record.native, tr.backend.state )
                 : render_error_t::ERR_INTERNAL_ERROR;
             const render_error_t releaseResult = R_ShaderReleaseReference( record.info.shader );
             if ( firstError == render_error_t::OK ) {
@@ -85,7 +85,7 @@ render_error_t R_CreateGraphicsPipeline(
 {
     if ( pipelineOut == nullptr ) return render_error_t::ERR_INVALID_ARGUMENT;
     *pipelineOut = R_INVALID_PIPELINE;
-    if ( !tr.initialized || !pipelineSystem.initialized || tr.backend == nullptr ) {
+    if ( !tr.initialized || !pipelineSystem.initialized || tr.backend.api == nullptr ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
     if ( R_ValidateVertexLayout( description.vertexLayout ) != render_error_t::OK ) {
@@ -109,7 +109,7 @@ render_error_t R_CreateGraphicsPipeline(
 
     if ( description.sampledTextureName != nullptr ) {
         if ( description.sampledTextureName[0] == '\0' ) return render_error_t::ERR_PIPELINE_DESC_INVALID;
-        if ( tr.backend->CreateTexture2D == nullptr || tr.backend->DestroyTexture == nullptr ) return render_error_t::ERR_UNSUPPORTED;
+        if ( tr.backend.api->CreateTexture2D == nullptr || tr.backend.api->DestroyTexture == nullptr ) return render_error_t::ERR_UNSUPPORTED;
         if ( tr.info.limits.maxCombinedTextureUnits == 0u ) return render_error_t::ERR_CAPABILITY_MISSING;
     }
 
@@ -128,7 +128,7 @@ render_error_t R_CreateGraphicsPipeline(
     nativeDescription.sampledTextureName = description.sampledTextureName;
 
     pipeline_record_t record{};
-    result = tr.backend->CreateGraphicsPipeline( nativeDescription, record.native, tr.backend->state );
+    result = tr.backend.api->CreateGraphicsPipeline( nativeDescription, record.native, tr.backend.state );
     if ( result != render_error_t::OK || !R_IsBackendPipelineValid( record.native ) ) {
         (void)R_ShaderReleaseReference( description.shader );
         return result != render_error_t::OK ? result : render_error_t::ERR_INTERNAL_ERROR;
@@ -144,7 +144,7 @@ render_error_t R_CreateGraphicsPipeline(
     record.info.sampledTextureRequired = description.sampledTextureName != nullptr;
     const common::handle32_t tableHandle = common::HandleTable_Insert( &pipelineSystem.records, record );
     if ( !common::Cy_Handle32IsValid( tableHandle ) ) {
-        (void)tr.backend->DestroyGraphicsPipeline( record.native, tr.backend->state );
+        (void)tr.backend.api->DestroyGraphicsPipeline( record.native, tr.backend.state );
         (void)R_ShaderReleaseReference( description.shader );
         return common::HandleTable_Count( &pipelineSystem.records ) >= common::CY_HANDLE_TABLE_MAX_CAPACITY
             ? render_error_t::ERR_LIMIT_EXCEEDED : render_error_t::ERR_OUT_OF_MEMORY;
@@ -154,7 +154,7 @@ render_error_t R_CreateGraphicsPipeline(
         static_cast<common::u32>( render_object_type_t::PIPELINE ) );
     if ( !common::Cy_Handle64IsValid( *pipelineOut ) ) {
         (void)common::HandleTable_Remove( &pipelineSystem.records, tableHandle );
-        (void)tr.backend->DestroyGraphicsPipeline( record.native, tr.backend->state );
+        (void)tr.backend.api->DestroyGraphicsPipeline( record.native, tr.backend.state );
         (void)R_ShaderReleaseReference( description.shader );
         return render_error_t::ERR_INTERNAL_ERROR;
     }
@@ -163,14 +163,14 @@ render_error_t R_CreateGraphicsPipeline(
 
 render_error_t R_DestroyGraphicsPipeline( const render_pipeline_handle_t pipeline ) noexcept
 {
-    if ( !tr.initialized || !pipelineSystem.initialized || tr.backend == nullptr ) {
+    if ( !tr.initialized || !pipelineSystem.initialized || tr.backend.api == nullptr ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
     common::handle32_t tableHandle{};
     pipeline_record_t *record = nullptr;
     const render_error_t resolveResult = R_ResolvePipeline( pipeline, tableHandle, record );
     if ( resolveResult != render_error_t::OK ) return resolveResult;
-    const render_error_t destroyResult = tr.backend->DestroyGraphicsPipeline( record->native, tr.backend->state );
+    const render_error_t destroyResult = tr.backend.api->DestroyGraphicsPipeline( record->native, tr.backend.state );
     if ( destroyResult != render_error_t::OK ) return destroyResult;
     const render_error_t releaseResult = R_ShaderReleaseReference( record->info.shader );
     if ( !common::HandleTable_Remove( &pipelineSystem.records, tableHandle ) ) {

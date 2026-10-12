@@ -57,8 +57,8 @@ render_error_t R_TextureSystemShutdown() noexcept
     render_error_t firstError = render_error_t::OK;
     (void)common::HandleTable_ForEach( &textureSystem.records,
         [&]( common::handle32_t, texture_record_t &record ) noexcept {
-            const auto result = tr.backend != nullptr && tr.backend->DestroyTexture != nullptr
-                ? tr.backend->DestroyTexture( record.native, tr.backend->state )
+            const auto result = tr.backend.api != nullptr && tr.backend.api->DestroyTexture != nullptr
+                ? tr.backend.api->DestroyTexture( record.native, tr.backend.state )
                 : render_error_t::ERR_INTERNAL_ERROR;
             if ( firstError == render_error_t::OK ) firstError = result;
             return common::CY_TRUE;
@@ -72,10 +72,10 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
 {
     if ( textureOut == nullptr ) return render_error_t::ERR_INVALID_ARGUMENT;
     *textureOut = R_INVALID_TEXTURE;
-    if ( !tr.initialized || !textureSystem.initialized || tr.backend == nullptr ) {
+    if ( !tr.initialized || !textureSystem.initialized || tr.backend.api == nullptr ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
-    if ( tr.backend->CreateTexture2D == nullptr || tr.backend->DestroyTexture == nullptr ) {
+    if ( tr.backend.api->CreateTexture2D == nullptr || tr.backend.api->DestroyTexture == nullptr ) {
         return render_error_t::ERR_UNSUPPORTED;
     }
     if ( description.width == 0u || description.height == 0u || data.bytes == nullptr ) {
@@ -91,7 +91,7 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
     if ( required > std::numeric_limits<common::usize>::max() ) return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     if ( data.byteSize != required ) return render_error_t::ERR_INVALID_ARGUMENT;
     texture_record_t record{};
-    const auto result = tr.backend->CreateTexture2D( description, data, record.native, tr.backend->state );
+    const auto result = tr.backend.api->CreateTexture2D( description, data, record.native, tr.backend.state );
     if ( result != render_error_t::OK || record.native.value == 0u ) {
         return result != render_error_t::OK ? result : render_error_t::ERR_INTERNAL_ERROR;
     }
@@ -103,7 +103,7 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
     }
     const auto slot = common::HandleTable_Insert( &textureSystem.records, record );
     if ( !common::Cy_Handle32IsValid( slot ) ) {
-        (void)tr.backend->DestroyTexture( record.native, tr.backend->state );
+        (void)tr.backend.api->DestroyTexture( record.native, tr.backend.state );
         return common::HandleTable_Count( &textureSystem.records ) >= common::CY_HANDLE_TABLE_MAX_CAPACITY
             ? render_error_t::ERR_LIMIT_EXCEEDED : render_error_t::ERR_OUT_OF_MEMORY;
     }
@@ -113,12 +113,12 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
 }
 render_error_t R_DestroyTexture( render_texture_handle_t texture ) noexcept
 {
-    if ( !tr.initialized || !textureSystem.initialized || tr.backend == nullptr ) return render_error_t::ERR_NOT_INITIALIZED;
+    if ( !tr.initialized || !textureSystem.initialized || tr.backend.api == nullptr ) return render_error_t::ERR_NOT_INITIALIZED;
     common::handle32_t slot{};
     texture_record_t *record = nullptr;
     const auto resolved = ResolveTexture( texture, slot, record );
     if ( resolved != render_error_t::OK ) return resolved;
-    const auto result = tr.backend->DestroyTexture( record->native, tr.backend->state );
+    const auto result = tr.backend.api->DestroyTexture( record->native, tr.backend.state );
     if ( result != render_error_t::OK ) return result;
     return common::HandleTable_Remove( &textureSystem.records, slot )
         ? render_error_t::OK : render_error_t::ERR_INTERNAL_ERROR;

@@ -20,7 +20,7 @@
 #include "CypherRender/CypherRender_Pipeline.h"
 #include "CypherRender/CypherRender_Public.h"
 #include "CypherRender/CypherRender_Shader.h"
-#include "CypherSystem/CypherSystem_Public.h"
+#include "CypherSystem/Platform/CypherSystem_Public.h"
 
 #include <algorithm>
 #include <charconv>
@@ -184,6 +184,7 @@ bool LoadShader( const char *nativePath, render::render_shader_handle_t &shader 
     if ( readResult != common::vfs_status_t::OK ) {
         std::fprintf( stderr, "Read cooked shader %s: %s\n", nativePath,
             common::Vfs_StatusName( readResult ) );
+        common::Blob_Shutdown( &bytes );
         return false;
     }
 
@@ -193,12 +194,16 @@ bool LoadShader( const char *nativePath, render::render_shader_handle_t &shader 
     if ( !common::CookedShader_Succeeded( cookedResult ) ) {
         std::fprintf( stderr, "Invalid cooked shader %s: %s\n", nativePath,
             common::CookedShader_StatusName( cookedResult.status ) );
+        common::Blob_Shutdown( &bytes );
         return false;
     }
 
     const render::render_shader_desc_t description{ &view, "First-draw cube shader" };
-    // Creation consumes the view synchronously. The blob may die on return.
-    return CheckRender( render::R_CreateShader( description, &shader ), "Create shader" );
+    // Creation consumes the view synchronously. Release its backing bytes afterward.
+    const bool created = CheckRender(
+        render::R_CreateShader( description, &shader ), "Create shader" );
+    common::Blob_Shutdown( &bytes );
+    return created;
 }
 
 bool CreateBuffer( render::render_buffer_handle_t &buffer, const void *bytes,
@@ -405,8 +410,8 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
          !CheckSystem( sys::Sys_CreateWindow( window, state.window ), "Create window" ) ||
          !CheckRender( render::R_Init( state.window, config ), "Initialize renderer" ) ||
          !CreateCube( state, options.shaderPath ) ) return false;
-    std::printf( "Cooked shader: %s\n24 vertices, 36 indices, 192-byte transform block.\n",
-        options.shaderPath );
+    std::printf( "Cooked shader: %s\n24 vertices, 36 indices, %zu-byte transform block.\n",
+        options.shaderPath, sizeof( cube_transforms_t ) );
     return RunFrames( state, options );
 }
 

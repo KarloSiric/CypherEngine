@@ -44,7 +44,7 @@ object tokens remain behind this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 6u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 7u;
 
 /*
 ================
@@ -366,7 +366,12 @@ struct backend_api_t {
     backend_create_texture_2d_fn_t CreateTexture2D{ nullptr };
     backend_destroy_texture_fn_t DestroyTexture{ nullptr };
 
-    void *state{ nullptr }; // Backend-owned runtime passed back unchanged to every callback.
+};
+
+// The table is shared; the instance supplies the state passed to its callbacks.
+struct backend_instance_t {
+    const backend_api_t *api{ nullptr }; // Immutable dispatch table.
+    void *state{ nullptr };              // Backend-owned runtime storage.
 };
 
 inline constexpr ::cypher::common::u32 R_BACKEND_API_SIZE =
@@ -378,6 +383,11 @@ CYPHER_NODISCARD bool R_IsBackendValid(
 CYPHER_NODISCARD render_error_t R_SelectBackend(
     const render_config_t &config,
     const backend_api_t **backendOut ) noexcept;
+
+CYPHER_NODISCARD render_error_t R_SelectBackendInstance(
+    const render_config_t &config,
+    backend_instance_t *instanceOut
+    ) noexcept;
 
 }           // namespace cypher::engine::render
 

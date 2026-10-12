@@ -24,6 +24,8 @@ namespace cypher::engine::render
 
 CYPHER_NODISCARD const backend_api_t *GL_GetBackendAPI() noexcept;
 
+CYPHER_NODISCARD const backend_instance_t GL_GetBackendInstance() noexcept;
+
 } // namespace cypher::engine::render
 
 #endif // CYPHER_ENGINE_RENDER_OPENGL_H

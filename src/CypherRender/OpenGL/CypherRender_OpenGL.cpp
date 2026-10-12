@@ -8,7 +8,7 @@
 //  Details: CypherSystem owns standalone SDL context operations; tool hosts
 //           may instead lend an existing context through public callbacks.
 //           This file owns GLAD, capability discovery, frame work, and backend
-//           state visible through the generic dispatch table.
+//           state returned with the generic dispatch table as an instance.
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -789,7 +789,7 @@ render_error_t GL_WaitIdle( void *backendState ) noexcept
     return GL_CheckErrors( glState.config.validation );
 }
 
-// Immutable dispatch metadata; only state refers to mutable backend storage.
+// Immutable dispatch metadata. The selected instance supplies mutable state.
 const backend_api_t glBackend = {
     .apiVersion = R_BACKEND_API_VERSION,
     .structSize = R_BACKEND_API_SIZE,
@@ -819,8 +819,7 @@ const backend_api_t glBackend = {
     .DestroyGraphicsPipeline = GL_DestroyGraphicsPipeline,
     .DrawIndexed = GL_DrawIndexed,
     .CreateTexture2D = GL_CreateTexture2D,
-    .DestroyTexture = GL_DestroyTexture,
-    .state = &glState
+    .DestroyTexture = GL_DestroyTexture
 };
 
 } // namespace
@@ -829,6 +828,15 @@ const backend_api_t glBackend = {
 const backend_api_t *GL_GetBackendAPI() noexcept
 {
     return &glBackend;
+}
+
+// Selecting the proper backend instance that we need and in this case
+const backend_instance_t GL_GetBackendInstance() noexcept
+{
+    return {
+        .api = GL_GetBackendAPI(),
+        .state = &glState
+    };
 }
 
 } // namespace cypher::engine::render

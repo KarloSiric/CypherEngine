@@ -57,6 +57,13 @@ CYPHER_NODISCARD render_config_t R_DefaultConfig() noexcept;
 CYPHER_NODISCARD render_error_t R_ValidateConfig(
     const render_config_t &config ) noexcept;
 
+// Resolves AUTO to a built backend so one concrete choice can be used for
+// both window configuration and renderer initialization. On failure, the
+// caller's output is unchanged.
+CYPHER_NODISCARD render_error_t R_ResolveConfig(
+    const render_config_t &request,
+    render_config_t &resolvedOut ) noexcept;
+
 CYPHER_NODISCARD render_error_t R_ConfigureWindow(
     const render_config_t &config,
     ::cypher::engine::sys::window_desc_t &windowDescription ) noexcept;

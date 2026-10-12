@@ -105,6 +105,7 @@ struct state_t {
     config_t config{};
     sys::window_t window{};
     bool running{ false };
+    bool rendererInitialized{ false };             // Host owns renderer shutdown before its window.
     bool bHasFocus{ false };
     frame_t frame{};
 };

@@ -44,6 +44,8 @@ enum class render_backend_t : ::cypher::common::u8 {
     SOFTWARE,  // CPU rasterization backend used for learning and diagnostics.
     OPENGL,    // Initial hardware rasterization backend.
     VULKAN,    // Future explicit backend and hardware ray-tracing path.
+    DX11,       // Future explicit backend support for directx11 mostly for legacy purposes and backwards compatibility and such.
+    DX12,       // latest directx supported and maintained, future addition.
     COUNT      // Number of backend values; never a valid selection.
 };
 
@@ -208,7 +210,7 @@ struct render_config_t {
         R_CAPABILITY_GPU_TIMESTAMPS }; // Enabled and reported when supported.
 
     ::cypher::common::u8 sampleCount{ 0u }; // Zero disables MSAA; otherwise requests a supported power of two.
-    bool allowBackendFallback{ true };      // AUTO may try another built backend when its first choice fails.
+    bool allowBackendFallback{ true };      // Reserved policy; no alternate backend exists in the OpenGL-only build.
     bool sRGBFramebuffer{ true };           // Request correct linear-to-sRGB conversion on presentation.
     bool requireAcceleration{ true };       // Reject a software driver for a hardware backend.
 };

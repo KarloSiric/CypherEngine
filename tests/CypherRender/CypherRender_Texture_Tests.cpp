@@ -25,7 +25,6 @@ struct texture_fixture_t {
 
     void Init()
     {
-        backend.state = this;
         backend.CreateTexture2D = []( const render::render_texture_desc_t &desc,
             const render::render_texture_data_t &, render::backend_texture_t &out, void *state ) noexcept {
             auto &self = *static_cast<texture_fixture_t *>( state );
@@ -71,7 +70,7 @@ struct texture_fixture_t {
             return texture_error_t::OK;
         };
         render::tr = {};
-        render::tr.backend = &backend;
+        render::tr.backend = { &backend, this };
         render::tr.initialized = true;
         render::tr.info.backend = render::render_backend_t::OPENGL;
         render::tr.info.apiMajorVersion = 4u;

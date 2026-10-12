@@ -130,6 +130,48 @@ TEST_CASE( "configuration validation rejects contradictory and unknown policy" )
     CHECK( render::R_ValidateConfig( config ) == render::render_error_t::ERR_UNSUPPORTED );
 }
 
+TEST_CASE( "renderer config resolution pins AUTO without changing other policy" )
+{
+    render::render_config_t request = render::R_DefaultConfig();
+    request.sampleCount = 4u;
+    request.validation = render::render_validation_t::VERBOSE;
+    request.presentMode = render::render_present_mode_t::IMMEDIATE;
+
+    render::render_config_t resolved{};
+    REQUIRE( render::R_ResolveConfig( request, resolved ) == render::render_error_t::OK );
+    CHECK( request.backend == render::render_backend_t::AUTO );
+    CHECK( resolved.backend == render::render_backend_t::OPENGL );
+    CHECK( resolved.sampleCount == request.sampleCount );
+    CHECK( resolved.validation == request.validation );
+    CHECK( resolved.presentMode == request.presentMode );
+    CHECK( resolved.requiredCapabilities == request.requiredCapabilities );
+
+    CHECK( render::R_ResolveConfig( resolved, resolved ) == render::render_error_t::OK );
+    CHECK( resolved.backend == render::render_backend_t::OPENGL );
+    CHECK( resolved.sampleCount == request.sampleCount );
+}
+
+TEST_CASE( "renderer config resolution preserves output on invalid or unavailable requests" )
+{
+    render::render_config_t request = render::R_DefaultConfig();
+    render::render_config_t resolved = render::R_DefaultConfig();
+    resolved.backend = render::render_backend_t::OPENGL;
+    resolved.sampleCount = 8u;
+
+    request.sampleCount = 3u;
+    CHECK( render::R_ResolveConfig( request, resolved ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( resolved.backend == render::render_backend_t::OPENGL );
+    CHECK( resolved.sampleCount == 8u );
+
+    request = render::R_DefaultConfig();
+    request.backend = render::render_backend_t::VULKAN;
+    CHECK( render::R_ResolveConfig( request, resolved ) ==
+        render::render_error_t::ERR_BACKEND_NOT_BUILT );
+    CHECK( resolved.backend == render::render_backend_t::OPENGL );
+    CHECK( resolved.sampleCount == 8u );
+}
+
 TEST_CASE( "host surface validation rejects incomplete or ambiguous ownership" )
 {
     render::render_host_surface_desc_t surface{};
@@ -231,9 +273,12 @@ TEST_CASE( "backend selection returns one complete concrete OpenGL table" )
     malformed = *backend;
     malformed.DrawIndexed = nullptr;
     CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
-    malformed = *backend;
-    malformed.state = nullptr;
-    CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
+    render::backend_instance_t instance{};
+    REQUIRE( render::R_SelectBackendInstance( config, &instance ) == render::render_error_t::OK );
+    CHECK( instance.api == backend );
+    CHECK( instance.state != nullptr );
+    CHECK( render::R_SelectBackendInstance( config, nullptr ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
 
     backend = reinterpret_cast<const render::backend_api_t *>( 1u );
     CHECK( render::R_SelectBackend( config, nullptr ) ==
