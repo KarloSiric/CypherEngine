@@ -24,6 +24,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Indexed OpenGL 4.1 line lists use the existing pipeline, draw and instancing
+  path. Line draws consume index pairs and share vertex/depth/blend state with
+  triangles. This is a one-pixel GPU primitive for grids and wireframes; the
+  editor has not been switched to it.
 - Offscreen OpenGL 4.1 targets pair a caller-owned GPU-only linear RGBA8
   texture with an owned D24 depth attachment. A non-nested target pass can
   render indexed geometry; its color can be sampled after the pass. The target
@@ -38,6 +42,9 @@ Added
   ordinary runtime still has no scene producer.
 
 Changed
+- The private backend contract is version 10 and public API version 3 for
+  immutable pipeline topology. Triangle lists remain the default and use
+  index triples; line lists require complete pairs.
 - The private backend contract is version 9 for target creation and passes.
   OpenGL restores frame draw/read FBO bindings and viewport after the pass,
   including a host-owned nonzero FBO. Targets are created/destroyed between
@@ -54,6 +61,10 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Rebuilt six renderer, hosted-context and Host targets in build-mason. All
+  six selected CTests passed. The local OpenGL smoke ran 260 assertions,
+  including a visible green line over a blue clear; draw tests cover topology
+  validation and backend propagation.
 - Rebuilt seven renderer, hosted-context and Host targets in the existing
   build-mason tree. All seven selected CTests passed. Native OpenGL smoke tests
   cover target-to-texture pixels, feedback rejection and restoration of

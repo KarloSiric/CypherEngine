@@ -88,6 +88,9 @@ render_error_t R_CreateGraphicsPipeline(
     if ( !tr.initialized || !pipelineSystem.initialized || tr.backend.api == nullptr ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
+    if ( description.topology >= render_primitive_topology_t::COUNT ) {
+        return render_error_t::ERR_PIPELINE_DESC_INVALID;
+    }
     if ( R_ValidateVertexLayout( description.vertexLayout ) != render_error_t::OK ) {
         return render_error_t::ERR_VERTEX_LAYOUT_INVALID;
     }
@@ -126,6 +129,7 @@ render_error_t R_CreateGraphicsPipeline(
     nativeDescription.uniformBlockBytes = description.uniformBlockBytes;
     nativeDescription.debugName = description.debugName;
     nativeDescription.sampledTextureName = description.sampledTextureName;
+    nativeDescription.topology = description.topology;
 
     pipeline_record_t record{};
     result = tr.backend.api->CreateGraphicsPipeline( nativeDescription, record.native, tr.backend.state );
@@ -142,6 +146,7 @@ render_error_t R_CreateGraphicsPipeline(
     record.info.alphaBlend = description.alphaBlend;
     record.info.uniformBlockBytes = description.uniformBlockBytes;
     record.info.sampledTextureRequired = description.sampledTextureName != nullptr;
+    record.info.topology = description.topology;
     const common::handle32_t tableHandle = common::HandleTable_Insert( &pipelineSystem.records, record );
     if ( !common::Cy_Handle32IsValid( tableHandle ) ) {
         (void)tr.backend.api->DestroyGraphicsPipeline( record.native, tr.backend.state );

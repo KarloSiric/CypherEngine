@@ -93,8 +93,8 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
     if ( !tr.initialized || tr.backend.api == nullptr ) return render_error_t::ERR_NOT_INITIALIZED;
     if ( !tr.frameActive ) return render_error_t::ERR_FRAME_NOT_ACTIVE;
     const auto maximumCount = static_cast<common::u32>( std::numeric_limits<common::i32>::max() );
-    if ( description.indexCount == 0u || description.indexCount % 3u != 0u ||
-         description.vertexCount == 0u || description.indexCount > maximumCount ||
+    if ( description.indexCount == 0u || description.vertexCount == 0u ||
+         description.indexCount > maximumCount ||
          description.vertexCount > maximumCount || description.instanceCount == 0u ||
          description.instanceCount > maximumCount ) {
         return render_error_t::ERR_DRAW_DESC_INVALID;
@@ -107,6 +107,12 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
     render_pipeline_info_t pipeline{};
     render_error_t result = R_PipelineResolveForDraw( description.pipeline, &native.pipeline, &pipeline );
     if ( result != render_error_t::OK ) return result;
+    const common::u32 primitiveSize = pipeline.topology == render_primitive_topology_t::TRIANGLE_LIST
+        ? 3u : pipeline.topology == render_primitive_topology_t::LINE_LIST ? 2u : 0u;
+    if ( primitiveSize == 0u || description.indexCount < primitiveSize ||
+         description.indexCount % primitiveSize != 0u ) {
+        return render_error_t::ERR_DRAW_DESC_INVALID;
+    }
     render_vertex_input_info_t input{};
     result = R_VertexInputResolveForDraw( description.vertexInput, &native.vertexInput, &input );
     if ( result != render_error_t::OK ) return result;

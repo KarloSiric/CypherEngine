@@ -4,7 +4,7 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherRender/CypherRender_Draw.h
-//  Purpose: Declares immediate backend-neutral indexed triangle submission.
+//  Purpose: Declares immediate backend-neutral indexed geometry submission.
 //  Details: Draw records reference validated renderer handles and numeric
 //           ranges. They never contain native OpenGL names or pointers to
 //           transient caller-owned geometry.
@@ -29,7 +29,7 @@ struct render_draw_indexed_desc_t {
     render_vertex_input_handle_t vertexInput{};
     render_buffer_handle_t uniformBuffer{}; // Whole buffer at binding zero, when required.
     ::cypher::common::u32 firstIndex{ 0u }; // Relative to the vertex input's index offset.
-    ::cypher::common::u32 indexCount{ 0u }; // Positive multiple of three.
+    ::cypher::common::u32 indexCount{ 0u }; // Complete pairs or triples for pipeline topology.
     ::cypher::common::u32 vertexCount{ 0u }; // Addressable vertices beginning at vertex zero.
     render_texture_handle_t sampledTexture{}; // Required exactly when the pipeline declares a sampler.
     ::cypher::common::u32 instanceCount{ 1u }; // Positive; one preserves ordinary indexed drawing.

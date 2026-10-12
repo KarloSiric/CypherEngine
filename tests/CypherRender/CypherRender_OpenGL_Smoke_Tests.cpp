@@ -279,6 +279,102 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     // shutdown. There must be no busy-reference failure from R_Shutdown below.
 }
 
+void CheckLineDrawing( const render::render_extent_t extent )
+{
+    constexpr char vertex[] =
+        "#version 410 core\n"
+        "layout(location=0) in vec3 position;\n"
+        "void main() { gl_Position=vec4(position,1.0); }\n";
+    constexpr char fragment[] =
+        "#version 410 core\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { color=vec4(0.0,1.0,0.0,1.0); }\n";
+    common::cooked_shader_view_t source{};
+    source.nLanguageVersion = 410u;
+    source.nStages = 2u;
+    source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+    source.stages[0].code = { reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+    source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+    source.stages[1].code = { reinterpret_cast<const common::byte *>( fragment ), sizeof( fragment ) };
+    render::render_shader_handle_t shader{};
+    REQUIRE( render::R_CreateShader( { &source, "Line pixel smoke" }, &shader ) == render::render_error_t::OK );
+
+    // Two one-pixel lines cross the center. Checking a small neighborhood avoids
+    // depending on the driver's half-pixel tie breaking at the viewport center.
+    const float positions[]{ -0.8f,0.0f,0.0f, 0.8f,0.0f,0.0f,
+                              0.0f,-0.8f,0.0f, 0.0f,0.8f,0.0f };
+    const common::u16 indices[]{ 0u,1u,2u,3u };
+    const auto makeBuffer = []( const void *bytes, const common::u64 size,
+                                const render::render_buffer_usage_flags_t usage ) {
+        render::render_buffer_desc_t desc{};
+        desc.byteSize = size;
+        desc.usage = usage;
+        const render::render_buffer_data_t data{ bytes, size };
+        render::render_buffer_handle_t result{};
+        REQUIRE( render::R_CreateBuffer( desc, &data, &result ) == render::render_error_t::OK );
+        return result;
+    };
+    const auto vertexBuffer = makeBuffer( positions, sizeof( positions ), render::R_BUFFER_USAGE_VERTEX );
+    const auto indexBuffer = makeBuffer( indices, sizeof( indices ), render::R_BUFFER_USAGE_INDEX );
+    render::render_vertex_input_desc_t inputDesc{};
+    inputDesc.layout.bindingCount = 1u;
+    inputDesc.layout.bindings[0].stride = 3u * sizeof( float );
+    inputDesc.layout.attributeCount = 1u;
+    inputDesc.layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    inputDesc.vertexBufferCount = 1u;
+    inputDesc.vertexBuffers[0] = { vertexBuffer, 0u, 0u };
+    inputDesc.indexBuffer = { indexBuffer, 0u, render::render_index_type_t::UINT16 };
+    render::render_vertex_input_handle_t input{};
+    REQUIRE( render::R_CreateVertexInput( inputDesc, &input ) == render::render_error_t::OK );
+    render::render_pipeline_desc_t pipelineDesc{};
+    pipelineDesc.shader = shader;
+    pipelineDesc.vertexLayout = inputDesc.layout;
+    pipelineDesc.topology = render::render_primitive_topology_t::LINE_LIST;
+    pipelineDesc.depthTest = false;
+    pipelineDesc.depthWrite = false;
+    render::render_pipeline_handle_t pipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &pipeline ) == render::render_error_t::OK );
+
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    frame.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
+    frame.clearColor = { 0.0f,0.0f,1.0f,1.0f };
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    render::render_draw_indexed_desc_t draw{};
+    draw.pipeline = pipeline;
+    draw.vertexInput = input;
+    draw.indexCount = 4u;
+    draw.vertexCount = 4u;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    std::array<common::u8, 5u * 5u * 4u> pixels{};
+    glReadBuffer( GL_BACK );
+    glReadPixels( static_cast<GLint>( extent.width / 2u ) - 2,
+                  static_cast<GLint>( extent.height / 2u ) - 2,
+                  5, 5, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data() );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    bool foundLinePixel = false;
+    for ( common::usize i = 0u; i < pixels.size(); i += 4u ) {
+        if ( pixels[i] <= 40u && pixels[i + 1u] >= 200u && pixels[i + 2u] <= 40u ) {
+            foundLinePixel = true;
+            break;
+        }
+    }
+    CHECK( foundLinePixel );
+    std::array<common::u8, 4u> corner{};
+    glReadPixels( 1, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, corner.data() );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    CHECK( corner[0] <= 15u );
+    CHECK( corner[1] <= 15u );
+    CHECK( corner[2] >= 240u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( vertexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
+}
+
 void CheckInstancedDrawing( const render::render_extent_t extent )
 {
     constexpr char vertex[] =
@@ -730,6 +826,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
 
     CheckCookedShaderCompilation();
     CheckIndexedDrawing( info->drawableExtent );
+    CheckLineDrawing( info->drawableExtent );
     CheckInstancedDrawing( info->drawableExtent );
     CheckSampledDrawing( info->drawableExtent );
     CheckOffscreenTarget( info->drawableExtent );

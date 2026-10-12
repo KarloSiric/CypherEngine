@@ -4,7 +4,7 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherRender/CypherRender_Pipeline.h
-//  Purpose: Declares the first immutable triangle graphics-pipeline contract.
+//  Purpose: Declares immutable indexed graphics-pipeline state.
 //  Details: Pipelines retain a live shader and describe vertex interpretation,
 //           depth, rasterization, blending, and one optional uniform block.
 //
@@ -25,9 +25,17 @@ namespace cypher::engine::render
 using render_pipeline_handle_t = render_handle_t;
 inline constexpr render_pipeline_handle_t R_INVALID_PIPELINE{};
 
-// First-draw scope: triangle lists, per-vertex streams, solid fill, LESS depth,
+enum class render_primitive_topology_t : ::cypher::common::u8 {
+    TRIANGLE_LIST = 0,
+    LINE_LIST,
+    COUNT
+};
+
+// First-draw scope: triangle or line lists, solid fill, LESS depth,
 // no stencil, and optional source-alpha blending into the presentation target.
-// All calls execute on the renderer thread. Names are borrowed only by Create.
+// Lines use the driver's one-pixel rasterization; culling and front-face state
+// have no effect on them. All calls execute on the renderer thread.
+// Names are borrowed only by Create.
 struct render_pipeline_desc_t {
     render_shader_handle_t shader{};
     render_vertex_layout_t vertexLayout{};
@@ -40,6 +48,7 @@ struct render_pipeline_desc_t {
     ::cypher::common::u32 uniformBlockBytes{ 0u }; // Exact reflected block size, including padding.
     const char *debugName{ nullptr };
     const char *sampledTextureName{ nullptr }; // Optional active sampler2D, unit zero.
+    render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
 };
 
 // Owns no pointers. A live pipeline retains its shader until destruction.
@@ -53,6 +62,7 @@ struct render_pipeline_info_t {
     bool alphaBlend{ false };
     ::cypher::common::u32 uniformBlockBytes{ 0u };
     bool sampledTextureRequired{ false };
+    render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
 };
 
 // Shader input locations and the optional block are checked against the linked

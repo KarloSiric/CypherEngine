@@ -25,6 +25,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Indexed line-list drawing through the existing OpenGL 4.1 pipeline and draw
+  path. Pipelines choose triangle or line topology; line draws consume index
+  pairs and can use the same vertex buffers, depth state, blending, and
+  instancing path. This provides a one-pixel GPU primitive for grids,
+  wireframes, and debug overlays; no editor grid has been switched to it yet.
 - Offscreen OpenGL 4.1 render targets with one caller-owned, GPU-only linear
   RGBA8 color texture and an owned D24 depth attachment. A frame can enter one
   non-nested target pass, draw indexed geometry, then sample its color after
@@ -46,6 +51,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Advanced the private renderer backend contract to version 10 and public API
+  version to 3 for topology in immutable pipeline descriptions. Triangle lists
+  remain the default and retain their multiple-of-three index validation;
+  line lists require complete pairs.
 - Advanced the private renderer backend contract to version 9 for target
   creation and target passes. The OpenGL implementation restores the frame's
   draw/read framebuffer bindings and viewport after a pass, including a
@@ -67,6 +76,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Rebuilt six relevant renderer, hosted-context, and Host targets in the
+  existing `build-mason` tree; all six selected CTest entries passed. The
+  local OpenGL smoke ran 260 assertions, including a green indexed line over
+  a blue clear and unchanged corner pixels. Draw tests cover invalid topology,
+  default triangles, line-count validation, and backend propagation.
 - Rebuilt seven renderer, hosted-context, and Host test targets in the existing
   `build-mason` tree; all seven selected CTest entries passed. Local native
   OpenGL tests include render-to-texture pixel readback, feedback rejection,

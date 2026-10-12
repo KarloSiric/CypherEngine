@@ -27,6 +27,7 @@ struct draw_fixture_t {
     draw_error_t pipelineResult{ draw_error_t::OK };
     draw_error_t pipelineDestroyResult{ draw_error_t::OK };
     draw_error_t drawResult{ draw_error_t::OK };
+    render::render_primitive_topology_t lastPipelineTopology{ render::render_primitive_topology_t::TRIANGLE_LIST };
     render::backend_draw_indexed_desc_t lastDraw{};
     common::byte mappedBytes[256]{};
     render::render_shader_handle_t shader{};
@@ -66,10 +67,11 @@ struct draw_fixture_t {
             ++static_cast<draw_fixture_t *>( state )->shaderDestroys;
             return draw_error_t::OK;
         };
-        backend.CreateGraphicsPipeline = []( const render::backend_pipeline_desc_t &,
+        backend.CreateGraphicsPipeline = []( const render::backend_pipeline_desc_t &description,
             render::backend_pipeline_t &out, void *state ) noexcept {
             auto &fixture = *static_cast<draw_fixture_t *>( state );
             ++fixture.pipelineCreates;
+            fixture.lastPipelineTopology = description.topology;
             out = {};
             if ( fixture.pipelineResult == draw_error_t::OK ) out.value = fixture.nextToken++;
             return fixture.pipelineResult;
@@ -265,6 +267,59 @@ TEST_CASE( "draw validates full offset ranges and dispatches only during an acti
     draw.vertexCount = 0u;
     CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_DRAW_DESC_INVALID );
     CHECK( fixture.drawCalls == 1u );
+}
+
+TEST_CASE( "triangle and line pipelines validate their own indexed primitive counts", "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    fixture.Geometry();
+    CHECK( fixture.PipelineDescription().topology == render::render_primitive_topology_t::TRIANGLE_LIST );
+    CHECK( fixture.lastPipelineTopology == render::render_primitive_topology_t::TRIANGLE_LIST );
+
+    render::render_pipeline_info_t triangleInfo{};
+    REQUIRE( render::R_GetGraphicsPipelineInfo( fixture.pipeline, &triangleInfo ) == draw_error_t::OK );
+    CHECK( triangleInfo.topology == render::render_primitive_topology_t::TRIANGLE_LIST );
+
+    auto lineDescription = fixture.PipelineDescription();
+    lineDescription.topology = static_cast<render::render_primitive_topology_t>( 255u );
+    render::render_pipeline_handle_t invalidPipeline{ 99u };
+    CHECK( render::R_CreateGraphicsPipeline( lineDescription, &invalidPipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    CHECK( invalidPipeline.value == 0u );
+    CHECK( fixture.pipelineCreates == 1u ); // Invalid enum never reaches the backend.
+
+    lineDescription.topology = render::render_primitive_topology_t::LINE_LIST;
+    render::render_pipeline_handle_t linePipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( lineDescription, &linePipeline ) == draw_error_t::OK );
+    CHECK( fixture.lastPipelineTopology == render::render_primitive_topology_t::LINE_LIST );
+    render::render_pipeline_info_t lineInfo{};
+    REQUIRE( render::R_GetGraphicsPipelineInfo( linePipeline, &lineInfo ) == draw_error_t::OK );
+    CHECK( lineInfo.topology == render::render_primitive_topology_t::LINE_LIST );
+
+    render::tr.frameActive = true;
+    auto draw = fixture.Draw();
+    draw.indexCount = 2u;
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_DRAW_DESC_INVALID );
+    draw.indexCount = 3u;
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+    CHECK( fixture.drawCalls == 1u );
+
+    draw.pipeline = linePipeline;
+    draw.indexCount = 1u;
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_DRAW_DESC_INVALID );
+    draw.indexCount = 3u;
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_DRAW_DESC_INVALID );
+    draw.indexCount = 2u;
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+    CHECK( fixture.lastDraw.indexCount == 2u );
+    draw.firstIndex = 0u;
+    draw.indexCount = 4u;
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+    CHECK( fixture.lastDraw.indexCount == 4u );
+    CHECK( fixture.drawCalls == 3u );
+
+    render::tr.frameActive = false;
+    REQUIRE( render::R_DestroyGraphicsPipeline( linePipeline ) == draw_error_t::OK );
 }
 
 TEST_CASE( "instanced draws validate the final divisor element and forward count", "[CypherRender][Draw]" )

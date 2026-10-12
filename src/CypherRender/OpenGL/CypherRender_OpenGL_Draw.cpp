@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////////
 // CypherEngine Source Code — Copyright (c) 2026 Karlo Siric.
-// Purpose: Validates linked shader interfaces and submits indexed triangles.
+// Purpose: Validates linked shader interfaces and submits indexed geometry.
 // Details: A native pipeline is an owned state record, not a GL program-pipeline
 //          object. The frontend retains its program until this record is freed.
 // This file is proprietary and confidential. See LICENSE for details.
@@ -28,6 +28,7 @@ struct gl_pipeline_record_t {
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };
+    render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
 };
 
 // Tokens are backend-private addresses. Look them up before dereferencing so a
@@ -213,6 +214,10 @@ render_error_t GL_CreateGraphicsPipeline(
     if ( R_ValidateVertexLayout( description.vertexLayout ) != render_error_t::OK ) {
         return render_error_t::ERR_VERTEX_LAYOUT_INVALID;
     }
+    if ( description.topology != render_primitive_topology_t::TRIANGLE_LIST &&
+         description.topology != render_primitive_topology_t::LINE_LIST ) {
+        return render_error_t::ERR_PIPELINE_DESC_INVALID;
+    }
     const bool hasBlock = description.uniformBlockName != nullptr;
     if ( hasBlock != ( description.uniformBlockBytes != 0u ) ||
          ( hasBlock && description.uniformBlockName[0] == '\0' ) ) {
@@ -251,6 +256,7 @@ render_error_t GL_CreateGraphicsPipeline(
     record->cullBackFaces = description.cullBackFaces;
     record->frontCounterClockwise = description.frontCounterClockwise;
     record->alphaBlend = description.alphaBlend;
+    record->topology = description.topology;
     record->next = glPipelines;
     glPipelines = record;
     pipelineOut.value = GL_PipelineToken( record );
@@ -287,9 +293,11 @@ render_error_t GL_DrawIndexed(
         return render_error_t::ERR_INVALID_HANDLE;
     }
     const common::u32 indexSize = R_IndexTypeSize( description.indexType );
+    const common::u32 primitiveIndexCount =
+        pipeline->topology == render_primitive_topology_t::LINE_LIST ? 2u : 3u;
     if ( indexSize == 0u || description.indexByteOffset % indexSize != 0u ||
          description.indexByteOffset > std::numeric_limits<std::uintptr_t>::max() ||
-         description.indexCount == 0u || description.indexCount % 3u != 0u ||
+         description.indexCount == 0u || description.indexCount % primitiveIndexCount != 0u ||
          description.indexCount > static_cast<common::u32>( std::numeric_limits<GLsizei>::max() ) ||
          description.vertexCount == 0u || description.instanceCount == 0u ||
          description.instanceCount > static_cast<common::u32>( std::numeric_limits<GLsizei>::max() ) ) {
@@ -311,6 +319,7 @@ render_error_t GL_DrawIndexed(
     glCullFace( GL_BACK );
     glFrontFace( pipeline->frontCounterClockwise ? GL_CCW : GL_CW );
     GL_SetCapability( GL_BLEND, pipeline->alphaBlend );
+    glLineWidth( 1.0f );
     glBlendEquationSeparate( GL_FUNC_ADD, GL_FUNC_ADD );
     glBlendFuncSeparate( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA );
     glDisable( GL_STENCIL_TEST );
@@ -331,7 +340,8 @@ render_error_t GL_DrawIndexed(
     render_error_t result = GL_CheckErrors( glState.config.validation );
     if ( result == render_error_t::OK ) {
         glDrawElementsInstanced(
-            GL_TRIANGLES, static_cast<GLsizei>( description.indexCount ),
+            pipeline->topology == render_primitive_topology_t::LINE_LIST ? GL_LINES : GL_TRIANGLES,
+            static_cast<GLsizei>( description.indexCount ),
             description.indexType == render_index_type_t::UINT16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT,
             reinterpret_cast<const void *>( static_cast<std::uintptr_t>( description.indexByteOffset ) ),
             static_cast<GLsizei>( description.instanceCount ) );

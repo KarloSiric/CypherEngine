@@ -39,13 +39,13 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version nine adds an offscreen color-and-depth target/pass contract. Linked
-shaders, immutable pipelines, immediate draws, and all native object tokens
-remain behind this private boundary.
+Version ten adds line-list topology to immutable pipelines. Offscreen targets,
+linked shaders, immediate draws, and all native object tokens remain behind
+this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 9u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 10u;
 
 /*
 ================
@@ -182,6 +182,7 @@ struct backend_pipeline_desc_t {
     ::cypher::common::u32 uniformBlockBytes{ 0u };
     const char *debugName{ nullptr };
     const char *sampledTextureName{ nullptr }; // Optional sampler2D at unit zero.
+    render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
 };
 
 struct backend_draw_indexed_desc_t {
