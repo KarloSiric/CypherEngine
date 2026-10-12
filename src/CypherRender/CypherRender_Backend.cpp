@@ -55,7 +55,11 @@ bool R_IsBackendValid( const backend_api_t *backend ) noexcept
         backend->CreateGraphicsPipeline != nullptr &&
         backend->DestroyGraphicsPipeline != nullptr &&
         backend->DrawIndexed != nullptr &&
-        ( ( backend->CreateTexture2D == nullptr ) == ( backend->DestroyTexture == nullptr ) );
+        ( ( backend->CreateTexture2D == nullptr ) == ( backend->DestroyTexture == nullptr ) ) &&
+        ( ( backend->CreateRenderTarget == nullptr && backend->DestroyRenderTarget == nullptr &&
+            backend->BeginTargetPass == nullptr && backend->EndTargetPass == nullptr ) ||
+          ( backend->CreateRenderTarget != nullptr && backend->DestroyRenderTarget != nullptr &&
+            backend->BeginTargetPass != nullptr && backend->EndTargetPass != nullptr ) );
 }
 
 render_error_t R_SelectBackend(

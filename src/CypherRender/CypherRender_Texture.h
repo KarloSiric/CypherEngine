@@ -25,6 +25,7 @@ struct render_texture_desc_t {
     bool generateMips{ true };
     bool repeat{ true };
     const char *debugName{ nullptr }; // Borrowed only during creation.
+    bool renderTarget{ false }; // GPU-only linear color attachment; also sampleable after its pass.
 };
 struct render_texture_data_t {
     const void *bytes{ nullptr };
@@ -37,10 +38,13 @@ struct render_texture_info_t {
     bool generateMips{ true };
     bool repeat{ true };
     ::cypher::common::u32 mipLevels{ 0u };
+    bool renderTarget{ false };
 };
 
-// Calls run on the renderer thread. Creation consumes all pixel bytes before
-// returning; no source pointer is retained. Draw bindings are immediate.
+// Calls run on the renderer thread. Creation consumes all supplied pixels before
+// returning. A renderTarget texture has no initial pixels (bytes=nullptr,
+// byteSize=0), is linear RGBA8, single-level and clamp-to-edge; its contents
+// become defined by a target pass. Draw bindings are immediate.
 CYPHER_NODISCARD render_error_t R_CreateTexture2D(
     const render_texture_desc_t &description,
     const render_texture_data_t &data,

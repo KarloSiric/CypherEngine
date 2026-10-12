@@ -137,6 +137,9 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
 
     const bool hasTexture = description.sampledTexture.value != R_INVALID_TEXTURE.value;
     if ( hasTexture != pipeline.sampledTextureRequired ) return render_error_t::ERR_BINDING_MISMATCH;
+    if ( hasTexture && description.sampledTexture.value == tr.activeTargetColor.value ) {
+        return render_error_t::ERR_COMMAND_STATE_INVALID;
+    }
     if ( hasTexture ) {
         render_texture_info_t textureInfo{};
         result = R_TextureResolveForDraw( description.sampledTexture, &native.sampledTexture, &textureInfo );

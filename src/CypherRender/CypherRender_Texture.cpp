@@ -17,6 +17,7 @@ namespace
 struct texture_record_t {
     backend_texture_t native{};
     render_texture_info_t info{};
+    common::u32 references{ 0u };
 };
 struct texture_system_t {
     common::handle_table_t<texture_record_t> records{};
@@ -78,7 +79,15 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
     if ( tr.backend.api->CreateTexture2D == nullptr || tr.backend.api->DestroyTexture == nullptr ) {
         return render_error_t::ERR_UNSUPPORTED;
     }
-    if ( description.width == 0u || description.height == 0u || data.bytes == nullptr ) {
+    if ( description.width == 0u || description.height == 0u ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    if ( description.renderTarget ) {
+        if ( description.sRGB || description.generateMips || description.repeat ||
+             data.bytes != nullptr || data.byteSize != 0u ) {
+            return render_error_t::ERR_INVALID_ARGUMENT;
+        }
+    } else if ( data.bytes == nullptr ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     if ( description.width > tr.info.limits.maxTexture2DSize ||
@@ -89,14 +98,17 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
     }
     const common::u64 required = static_cast<common::u64>( description.width ) * description.height * 4u;
     if ( required > std::numeric_limits<common::usize>::max() ) return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
-    if ( data.byteSize != required ) return render_error_t::ERR_INVALID_ARGUMENT;
+    if ( !description.renderTarget && data.byteSize != required ) return render_error_t::ERR_INVALID_ARGUMENT;
     texture_record_t record{};
     const auto result = tr.backend.api->CreateTexture2D( description, data, record.native, tr.backend.state );
     if ( result != render_error_t::OK || record.native.value == 0u ) {
+        if ( record.native.value != 0u ) {
+            (void)tr.backend.api->DestroyTexture( record.native, tr.backend.state );
+        }
         return result != render_error_t::OK ? result : render_error_t::ERR_INTERNAL_ERROR;
     }
     record.info = { description.width, description.height, description.sRGB,
-        description.generateMips, description.repeat, 1u };
+        description.generateMips, description.repeat, 1u, description.renderTarget };
     if ( description.generateMips ) {
         common::u32 extent = description.width > description.height ? description.width : description.height;
         while ( extent > 1u ) { extent /= 2u; ++record.info.mipLevels; }
@@ -118,6 +130,7 @@ render_error_t R_DestroyTexture( render_texture_handle_t texture ) noexcept
     texture_record_t *record = nullptr;
     const auto resolved = ResolveTexture( texture, slot, record );
     if ( resolved != render_error_t::OK ) return resolved;
+    if ( record->references != 0u ) return render_error_t::ERR_RESOURCE_BUSY;
     const auto result = tr.backend.api->DestroyTexture( record->native, tr.backend.state );
     if ( result != render_error_t::OK ) return result;
     return common::HandleTable_Remove( &textureSystem.records, slot )
@@ -148,6 +161,38 @@ render_error_t R_TextureResolveForDraw( render_texture_handle_t texture,
     if ( result != render_error_t::OK ) return result;
     *nativeOut = record->native;
     *infoOut = record->info;
+    return render_error_t::OK;
+}
+
+render_error_t R_TextureAcquireReference( render_texture_handle_t texture,
+    backend_texture_t *nativeOut, render_texture_info_t *infoOut ) noexcept
+{
+    if ( nativeOut == nullptr || infoOut == nullptr ) return render_error_t::ERR_INVALID_ARGUMENT;
+    *nativeOut = {};
+    *infoOut = {};
+    if ( !tr.initialized || !textureSystem.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
+    common::handle32_t slot{};
+    texture_record_t *record = nullptr;
+    const auto result = ResolveTexture( texture, slot, record );
+    if ( result != render_error_t::OK ) return result;
+    if ( record->references == std::numeric_limits<common::u32>::max() ) {
+        return render_error_t::ERR_LIMIT_EXCEEDED;
+    }
+    ++record->references;
+    *nativeOut = record->native;
+    *infoOut = record->info;
+    return render_error_t::OK;
+}
+
+render_error_t R_TextureReleaseReference( render_texture_handle_t texture ) noexcept
+{
+    if ( !tr.initialized || !textureSystem.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
+    common::handle32_t slot{};
+    texture_record_t *record = nullptr;
+    const auto result = ResolveTexture( texture, slot, record );
+    if ( result != render_error_t::OK ) return result;
+    if ( record->references == 0u ) return render_error_t::ERR_INTERNAL_ERROR;
+    --record->references;
     return render_error_t::OK;
 }
 } // namespace cypher::engine::render

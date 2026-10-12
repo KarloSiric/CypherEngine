@@ -53,7 +53,15 @@ struct gl_state_t {
     ::cypher::common::u64 activeFrameIndex{ 0u };        // Diagnostic identity of the active frame.
     bool initialized{ false };                          // Context and entry points are ready.
     bool frameActive{ false };                          // BeginFrame has no matching EndFrame.
+    bool targetPassActive{ false };                     // One non-nested offscreen pass is open.
     bool usesHostSurface{ false };                      // Context/presentation are borrowed from a tool host.
+
+    // PrepareFrame may bind a host-owned, nonzero presentation FBO. A target
+    // pass restores these actual bindings and the frame viewport, never an
+    // assumed default framebuffer.
+    GLint presentationDrawFramebuffer{ 0 };
+    GLint presentationReadFramebuffer{ 0 };
+    GLint presentationViewport[4]{};
 
     char apiName[GL_STRING_CAPACITY]{};                 // Stable strings borrowed by render_info_t.
     char deviceName[GL_STRING_CAPACITY]{};

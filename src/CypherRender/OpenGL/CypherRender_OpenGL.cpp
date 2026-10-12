@@ -20,6 +20,7 @@
 #include "CypherRender_OpenGL_Draw.h"
 #include "CypherRender_OpenGL_Local.h"
 #include "CypherRender_OpenGL_Shader.h"
+#include "CypherRender_OpenGL_Target.h"
 #include "CypherRender_OpenGL_Texture.h"
 #include "CypherRender_OpenGL_VertexInput.h"
 
@@ -587,12 +588,20 @@ render_error_t GL_Shutdown( void *backendState ) noexcept
 {
     if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;
     if ( !glState.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
-    if ( glState.frameActive ) return render_error_t::ERR_FRAME_ALREADY_ACTIVE;
+    if ( glState.frameActive || glState.targetPassActive ) {
+        return render_error_t::ERR_FRAME_ALREADY_ACTIVE;
+    }
 
     render_error_t result = render_error_t::ERR_CONTEXT_ACTIVATE_FAILED;
     if ( GL_ActivateContext() ) {
         glFinish();
         result = GL_CheckErrors( glState.config.validation );
+        const render_error_t targetResult = GL_TargetsShutdown();
+        if ( result == render_error_t::OK ) result = targetResult;
+    } else {
+        // Native objects die with a standalone context; a host may recover its
+        // borrowed one, but we cannot issue GL deletion without activation.
+        GL_TargetsAbandon();
     }
 
     if ( !glState.usesHostSurface &&
@@ -633,6 +642,15 @@ render_error_t GL_BeginFrame(
     }
 
     GL_ClearErrors();
+    if ( !glState.usesHostSurface ) {
+        // A standalone frame always presents the default framebuffer. A host
+        // may instead have prepared an FBO with a nonzero native name.
+        glBindFramebuffer( GL_FRAMEBUFFER, 0u );
+    }
+    GLint presentationDraw = 0;
+    GLint presentationRead = 0;
+    glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &presentationDraw );
+    glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &presentationRead );
     glViewport(
         0,
         0,
@@ -666,6 +684,8 @@ render_error_t GL_BeginFrame(
         glClear( clearMask );
     }
 
+    GLint presentationViewport[4]{};
+    glGetIntegerv( GL_VIEWPORT, presentationViewport );
     const render_error_t nativeResult = GL_CheckErrors( glState.config.validation );
     if ( nativeResult != render_error_t::OK ) {
         return nativeResult;
@@ -673,6 +693,11 @@ render_error_t GL_BeginFrame(
 
     glState.drawableExtent = frameInfo.drawableExtent;
     glState.activeFrameIndex = frameInfo.frameIndex;
+    glState.presentationDrawFramebuffer = presentationDraw;
+    glState.presentationReadFramebuffer = presentationRead;
+    for ( unsigned index = 0u; index < 4u; ++index ) {
+        glState.presentationViewport[index] = presentationViewport[index];
+    }
     glState.frameActive = true;
     return render_error_t::OK;
 }
@@ -726,6 +751,7 @@ render_error_t GL_EndFrame( void *backendState ) noexcept
         return render_error_t::ERR_NOT_INITIALIZED;
     }
     if ( !glState.frameActive ) return render_error_t::ERR_FRAME_NOT_ACTIVE;
+    if ( glState.targetPassActive ) return render_error_t::ERR_COMMAND_STATE_INVALID;
 
     render_error_t nativeResult = GL_CheckErrors( glState.config.validation );
     bool presentSucceeded = true;
@@ -746,6 +772,8 @@ render_error_t GL_EndFrame( void *backendState ) noexcept
             *glState.window ) == ::cypher::engine::sys::sys_error_t::OK;
     }
     glState.frameActive = false;
+    glState.presentationDrawFramebuffer = 0;
+    glState.presentationReadFramebuffer = 0;
 
     if ( nativeResult != render_error_t::OK ) return nativeResult;
     return presentSucceeded
@@ -819,7 +847,11 @@ const backend_api_t glBackend = {
     .DestroyGraphicsPipeline = GL_DestroyGraphicsPipeline,
     .DrawIndexed = GL_DrawIndexed,
     .CreateTexture2D = GL_CreateTexture2D,
-    .DestroyTexture = GL_DestroyTexture
+    .DestroyTexture = GL_DestroyTexture,
+    .CreateRenderTarget = GL_CreateRenderTarget,
+    .DestroyRenderTarget = GL_DestroyRenderTarget,
+    .BeginTargetPass = GL_BeginTargetPass,
+    .EndTargetPass = GL_EndTargetPass
 };
 
 } // namespace

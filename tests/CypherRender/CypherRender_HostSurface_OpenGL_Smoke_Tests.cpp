@@ -13,11 +13,14 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherRender/CypherRender_Public.h"
+#include "CypherRender/CypherRender_Target.h"
 #include "CypherSystem/Platform/CypherSystem_OpenGL.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
 #include "CypherSystem/Platform/CypherSystem_Window.h"
 
 #include <catch2/catch_test_macros.hpp>
+
+#include <glad/gl.h>
 
 #include <filesystem>
 #include <string>
@@ -33,6 +36,8 @@ struct hosted_context_t {
     sys::gl_context_t *pContext{ nullptr };
     int nActivations{ 0 };
     int nFramePreparations{ 0 };
+    GLuint presentationFramebuffer{ 0u };
+    GLuint presentationReadFramebuffer{ 0u };
 };
 
 bool ActivateHostedContext( void *pUserData ) noexcept
@@ -61,6 +66,10 @@ bool PrepareHostedFrame( void *pUserData ) noexcept
     auto *pHost = static_cast<hosted_context_t *>( pUserData );
     if ( pHost == nullptr ) return false;
     ++pHost->nFramePreparations;
+    if ( pHost->presentationFramebuffer != 0u ) {
+        glBindFramebuffer( GL_DRAW_FRAMEBUFFER, pHost->presentationFramebuffer );
+        glBindFramebuffer( GL_READ_FRAMEBUFFER, pHost->presentationReadFramebuffer );
+    }
     return true;
 }
 
@@ -177,13 +186,77 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     CHECK( render::R_GetInfo()->drawableExtent.height == resizedExtent.height );
     CHECK( host.nActivations > nActivationsAfterInit );
 
+    // A host widget may present into its own nonzero FBO. The renderer must
+    // restore this exact binding and viewport after an offscreen pass.
+    GLuint hostColor = 0u;
+    glGenTextures( 1, &hostColor );
+    glBindTexture( GL_TEXTURE_2D, hostColor );
+    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA8, 48, 32, 0,
+        GL_RGBA, GL_UNSIGNED_BYTE, nullptr );
+    glGenFramebuffers( 1, &host.presentationFramebuffer );
+    glBindFramebuffer( GL_FRAMEBUFFER, host.presentationFramebuffer );
+    glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        GL_TEXTURE_2D, hostColor, 0 );
+    REQUIRE( glCheckFramebufferStatus( GL_FRAMEBUFFER ) == GL_FRAMEBUFFER_COMPLETE );
+    GLuint hostReadColor = 0u;
+    glGenTextures( 1, &hostReadColor );
+    glBindTexture( GL_TEXTURE_2D, hostReadColor );
+    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA8, 48, 32, 0,
+        GL_RGBA, GL_UNSIGNED_BYTE, nullptr );
+    glGenFramebuffers( 1, &host.presentationReadFramebuffer );
+    glBindFramebuffer( GL_FRAMEBUFFER, host.presentationReadFramebuffer );
+    glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        GL_TEXTURE_2D, hostReadColor, 0 );
+    REQUIRE( glCheckFramebufferStatus( GL_FRAMEBUFFER ) == GL_FRAMEBUFFER_COMPLETE );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+
+    render::render_texture_handle_t targetColor{};
+    const render::render_texture_desc_t targetColorDesc{
+        16u, 16u, false, false, false, "Hosted offscreen color", true };
+    REQUIRE( render::R_CreateTexture2D( targetColorDesc, {}, &targetColor ) ==
+        render::render_error_t::OK );
+    render::render_target_handle_t target{};
+    REQUIRE( render::R_CreateRenderTarget( { targetColor }, &target ) ==
+        render::render_error_t::OK );
+
     render::render_frame_info_t frame{};
     frame.frameIndex = 1u;
     frame.deltaSeconds = 1.0f / 60.0f;
     frame.drawableExtent = resizedExtent;
+    frame.clearFlags = render::R_CLEAR_COLOR;
+    frame.clearColor = { 0.0f, 1.0f, 0.0f, 1.0f };
     REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    GLint bound = 0;
+    glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &bound );
+    CHECK( static_cast<GLuint>( bound ) == host.presentationFramebuffer );
+    render::render_target_pass_desc_t pass{};
+    pass.target = target;
+    pass.clearColor = { 1.0f, 0.0f, 0.0f, 1.0f };
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &bound );
+    CHECK( static_cast<GLuint>( bound ) != host.presentationFramebuffer );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &bound );
+    CHECK( static_cast<GLuint>( bound ) == host.presentationFramebuffer );
+    glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &bound );
+    CHECK( static_cast<GLuint>( bound ) == host.presentationReadFramebuffer );
+    GLint viewport[4]{};
+    glGetIntegerv( GL_VIEWPORT, viewport );
+    CHECK( viewport[2] == 48 );
+    CHECK( viewport[3] == 32 );
+    glBindFramebuffer( GL_READ_FRAMEBUFFER, host.presentationFramebuffer );
+    glReadBuffer( GL_COLOR_ATTACHMENT0 );
+    unsigned char hostPixel[4]{};
+    glReadPixels( 24, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, hostPixel );
+    CHECK( hostPixel[1] >= 240u );
+    CHECK( hostPixel[0] <= 15u );
+    glBindFramebuffer( GL_READ_FRAMEBUFFER, host.presentationReadFramebuffer );
+    REQUIRE( glGetError() == GL_NO_ERROR );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
     CHECK( host.nFramePreparations == 1 );
+
+    REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( targetColor ) == render::render_error_t::OK );
 
     const int nActivationsBeforeShutdown = host.nActivations;
     REQUIRE( render::R_Shutdown() == render::render_error_t::OK );
@@ -191,6 +264,12 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     CHECK( host.nActivations > nActivationsBeforeShutdown );
     // CypherRender borrowed the context; ownership remains with this host.
     REQUIRE( sys::GLimp_IsContextValid( context ) );
+    CHECK( glIsFramebuffer( host.presentationFramebuffer ) == GL_TRUE );
+    CHECK( glIsFramebuffer( host.presentationReadFramebuffer ) == GL_TRUE );
+    glDeleteFramebuffers( 1, &host.presentationFramebuffer );
+    glDeleteFramebuffers( 1, &host.presentationReadFramebuffer );
+    glDeleteTextures( 1, &hostColor );
+    glDeleteTextures( 1, &hostReadColor );
     REQUIRE( sys::GLimp_DestroyContext( context ) == sys::sys_error_t::OK );
     REQUIRE( sys::Sys_DestroyWindow( window ) == sys::sys_error_t::OK );
     REQUIRE( sys::Sys_Shutdown() == sys::sys_error_t::OK );

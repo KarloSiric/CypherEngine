@@ -385,6 +385,7 @@ set(CYPHERRENDER_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Backend.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Buffer.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Texture.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Target.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Draw.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Error.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/CypherRender_Pipeline.cpp"
@@ -395,6 +396,7 @@ set(CYPHERRENDER_SOURCES
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Buffer.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Texture.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Target.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Draw.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Shader.cpp"
     "${CYPHERENGINE_SRC_DIR}/CypherRender/OpenGL/CypherRender_OpenGL_Util.cpp"
@@ -2082,6 +2084,8 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_HostSurface_OpenGL_Smoke_Tests.cpp"
             Cypher::Render
         )
+        target_include_directories(cypher_render_host_surface_opengl_smoke_tests PRIVATE
+            $<TARGET_PROPERTY:CypherThirdPartyGlad,INTERFACE_INCLUDE_DIRECTORIES>)
         cypher_add_common_catch_test(
             cypher_host_opengl_smoke_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherEngine/CypherHost_OpenGL_Smoke_Tests.cpp"
@@ -2116,6 +2120,12 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::Render
         )
         set_tests_properties(cypher_render_texture_tests PROPERTIES TIMEOUT 20)
+        cypher_add_common_catch_test(
+            cypher_render_target_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_Target_Tests.cpp"
+            Cypher::Render
+        )
+        set_tests_properties(cypher_render_target_tests PROPERTIES TIMEOUT 20)
         # Catch2 returns 4 when a graphics test intentionally skips because the
         # CI host has no compatible display/context. CTest must distinguish that
         # environmental skip from a real assertion failure.

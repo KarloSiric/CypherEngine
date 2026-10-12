@@ -19,6 +19,7 @@ struct texture_fixture_t {
     common::u64 next{ 1u };
     unsigned creates{ 0u }, destroys{ 0u }, draws{ 0u };
     texture_error_t createResult{ texture_error_t::OK }, destroyResult{ texture_error_t::OK };
+    bool tokenOnCreateFailure{ false };
     render::render_texture_desc_t captured{};
     render::backend_draw_indexed_desc_t capturedDraw{};
     common::byte pixels[24]{};
@@ -31,7 +32,9 @@ struct texture_fixture_t {
             ++self.creates;
             self.captured = desc;
             out = {};
-            if ( self.createResult == texture_error_t::OK ) out.value = self.next++;
+            if ( self.createResult == texture_error_t::OK || self.tokenOnCreateFailure ) {
+                out.value = self.next++;
+            }
             return self.createResult;
         };
         backend.DestroyTexture = []( render::backend_texture_t, void *state ) noexcept {
@@ -202,6 +205,11 @@ TEST_CASE( "texture failures publish no handle and failed destruction preserves 
     render::render_texture_handle_t out{ 999u };
     CHECK( render::R_CreateTexture2D( fixture.Description(), fixture.Data(), &out ) == texture_error_t::ERR_OUT_OF_MEMORY );
     CHECK( out.value == 0u );
+    fixture.tokenOnCreateFailure = true;
+    CHECK( render::R_CreateTexture2D( fixture.Description(), fixture.Data(), &out ) == texture_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( out.value == 0u );
+    CHECK( fixture.destroys == 1u );
+    fixture.tokenOnCreateFailure = false;
     fixture.createResult = texture_error_t::OK;
     out = fixture.Create();
     fixture.destroyResult = texture_error_t::ERR_DEVICE_LOST;
@@ -210,7 +218,7 @@ TEST_CASE( "texture failures publish no handle and failed destruction preserves 
     fixture.destroyResult = texture_error_t::OK;
     CHECK( render::R_TextureSystemShutdown() == texture_error_t::OK );
     CHECK_FALSE( render::R_IsTextureValid( out ) );
-    CHECK( fixture.destroys == 2u );
+    CHECK( fixture.destroys == 3u );
 }
 TEST_CASE( "texture-less backend reports unsupported without changing existing resources", "[CypherRender][Texture]" )
 {

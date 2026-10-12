@@ -15,19 +15,28 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
     textureOut = {};
     if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;
     if ( !glState.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
-    if ( description.width == 0u || description.height == 0u || data.bytes == nullptr ) return render_error_t::ERR_INVALID_ARGUMENT;
+    if ( description.width == 0u || description.height == 0u ) return render_error_t::ERR_INVALID_ARGUMENT;
+    if ( description.renderTarget ) {
+        if ( description.sRGB || description.generateMips || description.repeat ||
+             data.bytes != nullptr || data.byteSize != 0u ) {
+            return render_error_t::ERR_INVALID_ARGUMENT;
+        }
+    } else if ( data.bytes == nullptr ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
     if ( description.width > glState.limits.maxTexture2DSize || description.height > glState.limits.maxTexture2DSize ||
          description.width > static_cast<::cypher::common::u32>( std::numeric_limits<GLsizei>::max() ) ||
          description.height > static_cast<::cypher::common::u32>( std::numeric_limits<GLsizei>::max() ) ) {
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
     const auto required = static_cast<::cypher::common::u64>( description.width ) * description.height * 4u;
-    if ( data.byteSize != required ) return render_error_t::ERR_INVALID_ARGUMENT;
+    if ( !description.renderTarget && data.byteSize != required ) return render_error_t::ERR_INVALID_ARGUMENT;
     // Qt and other hosts may leave pixel unpack buffers or non-default row
     // strides bound. Save and neutralize every setting affecting this 2D upload.
     GL_ClearErrors();
-    GLint previousTexture = 0, previousUnpackBuffer = 0;
+    GLint previousActiveTexture = 0, previousTexture = 0, previousUnpackBuffer = 0;
     GLint alignment = 0, rowLength = 0, skipRows = 0, skipPixels = 0;
+    glGetIntegerv( GL_ACTIVE_TEXTURE, &previousActiveTexture );
     glGetIntegerv( GL_TEXTURE_BINDING_2D, &previousTexture );
     glGetIntegerv( GL_PIXEL_UNPACK_BUFFER_BINDING, &previousUnpackBuffer );
     glGetIntegerv( GL_UNPACK_ALIGNMENT, &alignment );
@@ -68,6 +77,7 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
     glPixelStorei( GL_UNPACK_SKIP_PIXELS, skipPixels );
     glBindBuffer( GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>( previousUnpackBuffer ) );
     glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( previousTexture ) );
+    glActiveTexture( static_cast<GLenum>( previousActiveTexture ) );
     const auto restored = GL_CheckErrors( glState.config.validation );
     if ( result == render_error_t::OK ) result = restored;
     if ( result != render_error_t::OK ) {

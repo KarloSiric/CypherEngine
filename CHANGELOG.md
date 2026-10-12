@@ -25,6 +25,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Offscreen OpenGL 4.1 render targets with one caller-owned, GPU-only linear
+  RGBA8 color texture and an owned D24 depth attachment. A frame can enter one
+  non-nested target pass, draw indexed geometry, then sample its color after
+  ending the pass. The target retains its color texture until destruction;
+  sampling it while attached for drawing is rejected.
 - Indexed instanced drawing in the OpenGL 4.1 renderer. A draw now accepts an
   `instanceCount` (default one), pipelines accept per-instance vertex streams,
   and the backend submits them with `glDrawElementsInstanced`. The frontend
@@ -41,6 +46,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Advanced the private renderer backend contract to version 9 for target
+  creation and target passes. The OpenGL implementation restores the frame's
+  draw/read framebuffer bindings and viewport after a pass, including a
+  host-owned nonzero framebuffer. Target creation and destruction run between
+  frames; the first target format is fixed-size, single-sample RGBA8 plus D24.
+  Texture creation also releases a native token if a backend reports failure
+  after producing one. The public renderer API version is now 2 for the new
+  target operations and extended texture descriptor.
 - Advanced the private renderer backend contract to version 8 for the indexed
   draw descriptor's instance count. The public draw descriptor appends the new
   field so existing positional initializers retain their meaning. Devices
@@ -54,6 +67,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Rebuilt seven renderer, hosted-context, and Host test targets in the existing
+  `build-mason` tree; all seven selected CTest entries passed. Local native
+  OpenGL tests include render-to-texture pixel readback, feedback rejection,
+  and restoration of different nonzero host draw/read framebuffers. The
+  renderer still has no scene/world submission layer,
+  multisample target resolve, or editor viewport integration.
 - Rebuilt six renderer, hosted-context, and Host test targets in `build-mason`;
   all six selected CTest entries passed. The native OpenGL smoke ran locally
   and verified distinct colors and positions for two instances, including a

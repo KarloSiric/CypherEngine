@@ -15,6 +15,7 @@
 
 #include "CypherRender/CypherRender_Buffer.h"
 #include "CypherRender/CypherRender_Public.h"
+#include "CypherRender/CypherRender_Target.h"
 #include "CypherRender/CypherRender_VertexInput.h"
 #include "CypherRender/OpenGL/CypherRender_OpenGL_Local.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
@@ -522,6 +523,140 @@ void CheckSampledDrawing( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
 }
 
+void CheckOffscreenTarget( const render::render_extent_t extent )
+{
+    constexpr char vertex[] =
+        "#version 410 core\nlayout(location=0) in vec3 position;\n"
+        "out vec2 uv;\n"
+        "void main() { gl_Position=vec4(position,1.0); uv=position.xy*0.5+0.5; }\n";
+    constexpr char solidFragment[] =
+        "#version 410 core\nlayout(location=0) out vec4 color;\n"
+        "void main() { color=vec4(1.0,0.0,0.0,1.0); }\n";
+    constexpr char sampleFragment[] =
+        "#version 410 core\nin vec2 uv; uniform sampler2D base_color;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { color=texture(base_color,uv); }\n";
+    const auto makeShader = [&]( const char *fragment, const common::u64 bytes ) {
+        common::cooked_shader_view_t source{};
+        source.nLanguageVersion = 410u;
+        source.nStages = 2u;
+        source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+        source.stages[0].code = { reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+        source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+        source.stages[1].code = { reinterpret_cast<const common::byte *>( fragment ), bytes };
+        render::render_shader_handle_t shader{};
+        REQUIRE( render::R_CreateShader( { &source, "Offscreen target smoke" }, &shader ) == render::render_error_t::OK );
+        return shader;
+    };
+    const auto solidShader = makeShader( solidFragment, sizeof( solidFragment ) );
+    const auto sampleShader = makeShader( sampleFragment, sizeof( sampleFragment ) );
+
+    // The first triangle is drawn to the target; the second covers presentation.
+    const float vertices[]{
+        -0.8f,-0.8f,0.0f, 0.8f,-0.8f,0.0f, 0.0f,0.8f,0.0f,
+        -1.0f,-1.0f,0.0f, 3.0f,-1.0f,0.0f, -1.0f,3.0f,0.0f
+    };
+    const common::u16 indices[]{ 0u,1u,2u,3u,4u,5u };
+    const auto makeBuffer = []( const void *bytes, const common::u64 size,
+                                const render::render_buffer_usage_flags_t usage ) {
+        render::render_buffer_desc_t desc{};
+        desc.byteSize = size;
+        desc.usage = usage;
+        const render::render_buffer_data_t data{ bytes, size };
+        render::render_buffer_handle_t result{};
+        REQUIRE( render::R_CreateBuffer( desc, &data, &result ) == render::render_error_t::OK );
+        return result;
+    };
+    const auto vb = makeBuffer( vertices, sizeof( vertices ), render::R_BUFFER_USAGE_VERTEX );
+    const auto ib = makeBuffer( indices, sizeof( indices ), render::R_BUFFER_USAGE_INDEX );
+    render::render_vertex_input_desc_t inputDesc{};
+    inputDesc.layout.bindingCount = 1u;
+    inputDesc.layout.bindings[0].stride = 3u * sizeof( float );
+    inputDesc.layout.attributeCount = 1u;
+    inputDesc.layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    inputDesc.vertexBufferCount = 1u;
+    inputDesc.vertexBuffers[0] = { vb, 0u, 0u };
+    inputDesc.indexBuffer = { ib, 0u, render::render_index_type_t::UINT16 };
+    render::render_vertex_input_handle_t input{};
+    REQUIRE( render::R_CreateVertexInput( inputDesc, &input ) == render::render_error_t::OK );
+
+    render::render_pipeline_desc_t pipelineDesc{};
+    pipelineDesc.shader = solidShader;
+    pipelineDesc.vertexLayout = inputDesc.layout;
+    render::render_pipeline_handle_t solidPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &solidPipeline ) == render::render_error_t::OK );
+    pipelineDesc.shader = sampleShader;
+    pipelineDesc.sampledTextureName = "base_color";
+    render::render_pipeline_handle_t samplePipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &samplePipeline ) == render::render_error_t::OK );
+
+    render::render_texture_desc_t textureDesc{};
+    textureDesc.width = extent.width;
+    textureDesc.height = extent.height;
+    textureDesc.sRGB = false;
+    textureDesc.generateMips = false;
+    textureDesc.repeat = false;
+    textureDesc.renderTarget = true;
+    render::render_texture_handle_t color{};
+    REQUIRE( render::R_CreateTexture2D( textureDesc, {}, &color ) == render::render_error_t::OK );
+    render::render_target_handle_t target{};
+    REQUIRE( render::R_CreateRenderTarget( { color }, &target ) == render::render_error_t::OK );
+    CHECK( render::R_DestroyTexture( color ) == render::render_error_t::ERR_RESOURCE_BUSY );
+
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    frame.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
+    frame.clearColor = { 0.0f, 0.0f, 1.0f, 1.0f };
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    render::render_target_pass_desc_t pass{};
+    pass.target = target;
+    pass.clearColor = { 0.0f, 1.0f, 0.0f, 1.0f };
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    render::render_draw_indexed_desc_t draw{};
+    draw.pipeline = solidPipeline;
+    draw.vertexInput = input;
+    draw.indexCount = 3u;
+    draw.vertexCount = 6u;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    draw.pipeline = samplePipeline;
+    draw.sampledTexture = color;
+    CHECK( render::R_DrawIndexed( draw ) == render::render_error_t::ERR_COMMAND_STATE_INVALID );
+    CHECK( render::R_EndFrame() == render::render_error_t::ERR_COMMAND_STATE_INVALID );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+
+    const auto readPresentation = [&]( const GLint x, const GLint y ) {
+        std::array<common::u8, 4u> pixel{};
+        glReadBuffer( GL_BACK );
+        glReadPixels( x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel.data() );
+        REQUIRE( glGetError() == GL_NO_ERROR );
+        return pixel;
+    };
+    const GLint centerX = static_cast<GLint>( extent.width / 2u );
+    const GLint centerY = static_cast<GLint>( extent.height / 2u );
+    const auto beforeSampling = readPresentation( centerX, centerY );
+    CHECK( beforeSampling[2] >= 240u ); // Target draw did not touch presentation.
+    draw.firstIndex = 3u;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    const auto center = readPresentation( centerX, centerY );
+    const auto corner = readPresentation( 1, 1 );
+    CHECK( center[0] >= 240u );
+    CHECK( center[1] <= 15u );
+    CHECK( corner[1] >= 240u );
+    CHECK( corner[0] <= 15u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+    CHECK( render::R_IsTextureValid( color ) );
+    REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( solidPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( samplePipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( vb ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( ib ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( solidShader ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( sampleShader ) == render::render_error_t::OK );
+}
+
 } // namespace
 
 TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
@@ -597,6 +732,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckIndexedDrawing( info->drawableExtent );
     CheckInstancedDrawing( info->drawableExtent );
     CheckSampledDrawing( info->drawableExtent );
+    CheckOffscreenTarget( info->drawableExtent );
 
     ::cypher::common::u32 vertexWords[16]{};
     render::render_buffer_desc_t bufferDescription{};

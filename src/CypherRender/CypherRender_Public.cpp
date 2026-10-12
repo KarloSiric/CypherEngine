@@ -133,6 +133,18 @@ render_error_t R_CommitBackendInitialization(
         return textureInitResult;
     }
 
+    const render_error_t targetInitResult = R_TargetSystemInit();
+    if ( targetInitResult != render_error_t::OK ) {
+        (void)R_TextureSystemShutdown();
+        (void)R_PipelineSystemShutdown();
+        (void)R_ShaderSystemShutdown();
+        (void)R_VertexInputSystemShutdown();
+        (void)R_BufferSystemShutdown();
+        (void)backend.api->Shutdown( backend.state );
+        tr = {};
+        return targetInitResult;
+    }
+
     tr.initialized = true;
     tr.frameActive = false;
     return render_error_t::OK;
@@ -327,6 +339,7 @@ render_error_t R_Shutdown() noexcept
     }
 
     const render_error_t idleResult = tr.backend.api->WaitIdle( tr.backend.state );
+    const render_error_t targetResult = R_TargetSystemShutdown();
     const render_error_t pipelineResult = R_PipelineSystemShutdown();
     const render_error_t textureResult = R_TextureSystemShutdown();
     const render_error_t shaderResult = R_ShaderSystemShutdown();
@@ -337,6 +350,7 @@ render_error_t R_Shutdown() noexcept
     tr = {};
     if ( shutdownResult != render_error_t::OK ) return shutdownResult;
     if ( pipelineResult != render_error_t::OK ) return pipelineResult;
+    if ( targetResult != render_error_t::OK ) return targetResult;
     if ( textureResult != render_error_t::OK ) return textureResult;
     if ( shaderResult != render_error_t::OK ) return shaderResult;
     if ( vertexInputResult != render_error_t::OK ) return vertexInputResult;
@@ -408,6 +422,9 @@ render_error_t R_EndFrame() noexcept
     }
     if ( !tr.frameActive ) {
         return render_error_t::ERR_FRAME_NOT_ACTIVE;
+    }
+    if ( tr.activeTarget.value != R_INVALID_TARGET.value ) {
+        return render_error_t::ERR_COMMAND_STATE_INVALID;
     }
 
     const render_error_t result = tr.backend.api->EndFrame( tr.backend.state );

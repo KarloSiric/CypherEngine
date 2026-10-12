@@ -28,6 +28,7 @@
 #include "CypherRender_HostSurface.h"
 #include "CypherRender_Pipeline.h"
 #include "CypherRender_Shader.h"
+#include "CypherRender_Target.h"
 #include "CypherRender_Texture.h"
 #include "CypherRender_Types.h"
 #include "CypherRender_VertexInput.h"
@@ -38,7 +39,7 @@ namespace cypher::engine::render
 
 // Binary contract version shared by Host and renderer implementations. This is
 // deliberately independent from the CypherEngine product version.
-inline constexpr ::cypher::common::u32 RENDER_API_VERSION = 1u;
+inline constexpr ::cypher::common::u32 RENDER_API_VERSION = 2u;
 
 /*
 ===============================================================================

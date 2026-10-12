@@ -43,6 +43,8 @@ struct renderer_state_t {
     render_info_t info{};                               // Actual device and capability snapshot.
     bool initialized{ false };                          // Backend initialization completed successfully.
     bool frameActive{ false };                          // BeginFrame succeeded without a matching EndFrame.
+    render_target_handle_t activeTarget{};              // Nonzero only during one offscreen pass.
+    render_texture_handle_t activeTargetColor{};        // Reject read/write feedback during that pass.
 };
 
 // Quake-family renderers traditionally call the frontend process state `tr`.
@@ -84,9 +86,17 @@ CYPHER_NODISCARD render_error_t R_ShaderReleaseReference(
 
 CYPHER_NODISCARD render_error_t R_TextureSystemInit() noexcept;
 CYPHER_NODISCARD render_error_t R_TextureSystemShutdown() noexcept;
+CYPHER_NODISCARD render_error_t R_TextureAcquireReference(
+    render_texture_handle_t texture, CY_OUT backend_texture_t *nativeOut,
+    CY_OUT render_texture_info_t *infoOut ) noexcept;
+CYPHER_NODISCARD render_error_t R_TextureReleaseReference(
+    render_texture_handle_t texture ) noexcept;
 CYPHER_NODISCARD render_error_t R_TextureResolveForDraw(
     render_texture_handle_t texture, CY_OUT backend_texture_t *nativeOut,
     CY_OUT render_texture_info_t *infoOut ) noexcept;
+
+CYPHER_NODISCARD render_error_t R_TargetSystemInit() noexcept;
+CYPHER_NODISCARD render_error_t R_TargetSystemShutdown() noexcept;
 
 CYPHER_NODISCARD render_error_t R_PipelineSystemInit() noexcept;
 CYPHER_NODISCARD render_error_t R_PipelineSystemShutdown() noexcept;

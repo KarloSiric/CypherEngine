@@ -21,6 +21,7 @@
 #include "CypherRender_Texture.h"
 #include "CypherRender_HostSurface.h"
 #include "CypherRender_Shader.h"
+#include "CypherRender_Target.h"
 #include "CypherRender_Pipeline.h"
 #include "CypherRender_VertexInput.h"
 #include "CypherSystem/Platform/CypherSystem_Window.h"
@@ -38,13 +39,13 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version six adds immutable 2D textures and one sampled binding per draw. Linked
-shaders, immutable graphics pipelines, immediate indexed draws, and all native
-object tokens remain behind this private boundary.
+Version nine adds an offscreen color-and-depth target/pass contract. Linked
+shaders, immutable pipelines, immediate draws, and all native object tokens
+remain behind this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 8u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 9u;
 
 /*
 ================
@@ -137,6 +138,24 @@ struct backend_texture_t {
     ::cypher::common::u64 value{ 0u };
 };
 inline constexpr backend_texture_t R_INVALID_BACKEND_TEXTURE{};
+
+struct backend_render_target_t {
+    ::cypher::common::u64 value{ 0u };
+};
+inline constexpr backend_render_target_t R_INVALID_BACKEND_TARGET{};
+
+struct backend_render_target_desc_t {
+    backend_texture_t color{};
+    render_extent_t extent{};
+};
+
+struct backend_target_pass_desc_t {
+    backend_render_target_t target{};
+    render_extent_t extent{};
+    render_clear_flags_t clearFlags{ R_CLEAR_COLOR | R_CLEAR_DEPTH };
+    render_color_t clearColor{};
+    ::cypher::common::f32 clearDepth{ 1.0f };
+};
 
 struct backend_pipeline_t {
     ::cypher::common::u64 value{ 0u };
@@ -330,6 +349,14 @@ using backend_create_texture_2d_fn_t = render_error_t (*)(
 using backend_destroy_texture_fn_t = render_error_t (*)(
     backend_texture_t, void * ) noexcept;
 
+using backend_create_render_target_fn_t = render_error_t (*)(
+    const backend_render_target_desc_t &, backend_render_target_t &, void * ) noexcept;
+using backend_destroy_render_target_fn_t = render_error_t (*)(
+    backend_render_target_t, void * ) noexcept;
+using backend_begin_target_pass_fn_t = render_error_t (*)(
+    const backend_target_pass_desc_t &, void * ) noexcept;
+using backend_end_target_pass_fn_t = render_error_t (*)( void * ) noexcept;
+
 struct backend_api_t {
     ::cypher::common::u32 apiVersion{ 0u };              // Must equal R_BACKEND_API_VERSION.
     ::cypher::common::u32 structSize{ 0u };              // Exact table size rejects ABI layout mismatches.
@@ -366,6 +393,12 @@ struct backend_api_t {
     // Both callbacks may be absent for a backend without sampled images.
     backend_create_texture_2d_fn_t CreateTexture2D{ nullptr };
     backend_destroy_texture_fn_t DestroyTexture{ nullptr };
+
+    // Target callbacks are present or absent as a group.
+    backend_create_render_target_fn_t CreateRenderTarget{ nullptr };
+    backend_destroy_render_target_fn_t DestroyRenderTarget{ nullptr };
+    backend_begin_target_pass_fn_t BeginTargetPass{ nullptr };
+    backend_end_target_pass_fn_t EndTargetPass{ nullptr };
 
 };
 

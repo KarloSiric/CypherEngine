@@ -24,6 +24,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Offscreen OpenGL 4.1 targets pair a caller-owned GPU-only linear RGBA8
+  texture with an owned D24 depth attachment. A non-nested target pass can
+  render indexed geometry; its color can be sampled after the pass. The target
+  retains its color texture, and active-target feedback sampling is rejected.
 - Indexed instanced drawing in OpenGL 4.1. Public draws accept instanceCount
   (default one), pipelines accept per-instance streams, and the backend uses
   glDrawElementsInstanced. Stream ranges are validated using each divisor.
@@ -34,6 +38,12 @@ Added
   ordinary runtime still has no scene producer.
 
 Changed
+- The private backend contract is version 9 for target creation and passes.
+  OpenGL restores frame draw/read FBO bindings and viewport after the pass,
+  including a host-owned nonzero FBO. Targets are created/destroyed between
+  frames; this first format is fixed-size, single-sample RGBA8 plus D24.
+  Failed texture creation releases any native token the backend produced.
+  The public renderer API version is 2 for targets and the texture extension.
 - The private backend contract is version 8 for instance count propagation.
   The new public field is appended to preserve positional initializer meaning.
   Unsupported devices reject multi-instance draws and per-instance layouts.
@@ -44,6 +54,11 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Rebuilt seven renderer, hosted-context and Host targets in the existing
+  build-mason tree. All seven selected CTests passed. Native OpenGL smoke tests
+  cover target-to-texture pixels, feedback rejection and restoration of
+  separate nonzero host draw/read FBOs. Scene/world submission,
+  multisample target resolve and editor viewport integration remain open.
 - Rebuilt six renderer, hosted-context and Host targets in build-mason. All six
   selected CTest entries passed; local OpenGL readback confirmed two separate
   instances and the one-instance control. Draw tests cover divisor-two bounds,
