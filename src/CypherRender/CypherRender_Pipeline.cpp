@@ -92,9 +92,9 @@ render_error_t R_CreateGraphicsPipeline(
         return render_error_t::ERR_VERTEX_LAYOUT_INVALID;
     }
     for ( common::u32 i = 0u; i < description.vertexLayout.bindingCount; ++i ) {
-        if ( description.vertexLayout.bindings[i].inputRate !=
-             render_vertex_input_rate_t::PER_VERTEX ) {
-            return render_error_t::ERR_PIPELINE_DESC_INVALID;
+        if ( description.vertexLayout.bindings[i].inputRate == render_vertex_input_rate_t::PER_INSTANCE &&
+             ( tr.info.capabilities & R_CAPABILITY_INSTANCING ) == 0u ) {
+            return render_error_t::ERR_CAPABILITY_MISSING;
         }
     }
     const bool hasBlock = description.uniformBlockName != nullptr;

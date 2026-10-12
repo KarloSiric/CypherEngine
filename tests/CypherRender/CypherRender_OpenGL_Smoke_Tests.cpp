@@ -22,6 +22,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <filesystem>
 #include <cstring>
 #include <string>
@@ -277,6 +278,115 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     // shutdown. There must be no busy-reference failure from R_Shutdown below.
 }
 
+void CheckInstancedDrawing( const render::render_extent_t extent )
+{
+    constexpr char vertex[] =
+        "#version 410 core\n"
+        "layout(location=0) in vec3 position;\n"
+        "layout(location=1) in vec2 translation;\n"
+        "layout(location=2) in vec3 instanceColor;\n"
+        "out vec3 vertexColor;\n"
+        "void main() { gl_Position=vec4(position.xy+translation,position.z,1.0); vertexColor=instanceColor; }\n";
+    constexpr char fragment[] =
+        "#version 410 core\n"
+        "in vec3 vertexColor; layout(location=0) out vec4 color;\n"
+        "void main() { color=vec4(vertexColor,1.0); }\n";
+    common::cooked_shader_view_t source{};
+    source.nLanguageVersion = 410u;
+    source.nStages = 2u;
+    source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+    source.stages[0].code = { reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+    source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+    source.stages[1].code = { reinterpret_cast<const common::byte *>( fragment ), sizeof( fragment ) };
+    render::render_shader_handle_t shader{};
+    REQUIRE( render::R_CreateShader( { &source, "Instanced pixel smoke" }, &shader ) == render::render_error_t::OK );
+
+    const float positions[]{ -0.18f,-0.22f,0.0f, 0.18f,-0.22f,0.0f, 0.0f,0.22f,0.0f };
+    const float instances[]{ -0.5f,0.0f, 1.0f,0.0f,0.0f,
+                              0.5f,0.0f, 0.0f,1.0f,0.0f };
+    const common::u16 indices[]{ 0u, 1u, 2u };
+    const auto makeBuffer = []( const void *bytes, const common::u64 size,
+                                const render::render_buffer_usage_flags_t usage ) {
+        render::render_buffer_desc_t desc{};
+        desc.byteSize = size;
+        desc.usage = usage;
+        const render::render_buffer_data_t data{ bytes, size };
+        render::render_buffer_handle_t result{};
+        REQUIRE( render::R_CreateBuffer( desc, &data, &result ) == render::render_error_t::OK );
+        return result;
+    };
+    const auto positionBuffer = makeBuffer( positions, sizeof( positions ), render::R_BUFFER_USAGE_VERTEX );
+    const auto instanceBuffer = makeBuffer( instances, sizeof( instances ), render::R_BUFFER_USAGE_VERTEX );
+    const auto indexBuffer = makeBuffer( indices, sizeof( indices ), render::R_BUFFER_USAGE_INDEX );
+    render::render_vertex_input_desc_t inputDesc{};
+    inputDesc.layout.bindingCount = 2u;
+    inputDesc.layout.bindings[0].stride = 3u * sizeof( float );
+    inputDesc.layout.bindings[1].binding = 1u;
+    inputDesc.layout.bindings[1].stride = 5u * sizeof( float );
+    inputDesc.layout.bindings[1].inputRate = render::render_vertex_input_rate_t::PER_INSTANCE;
+    inputDesc.layout.bindings[1].instanceDivisor = 1u;
+    inputDesc.layout.attributeCount = 3u;
+    inputDesc.layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    inputDesc.layout.attributes[1] = { render::render_format_t::RG32_FLOAT, 0u, 1u, 1u };
+    inputDesc.layout.attributes[2] = { render::render_format_t::RGB32_FLOAT, 2u * sizeof( float ), 2u, 1u };
+    inputDesc.vertexBufferCount = 2u;
+    inputDesc.vertexBuffers[0] = { positionBuffer, 0u, 0u };
+    inputDesc.vertexBuffers[1] = { instanceBuffer, 0u, 1u };
+    inputDesc.indexBuffer = { indexBuffer, 0u, render::render_index_type_t::UINT16 };
+    render::render_vertex_input_handle_t input{};
+    REQUIRE( render::R_CreateVertexInput( inputDesc, &input ) == render::render_error_t::OK );
+    render::render_pipeline_desc_t pipelineDesc{};
+    pipelineDesc.shader = shader;
+    pipelineDesc.vertexLayout = inputDesc.layout;
+    render::render_pipeline_handle_t pipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &pipeline ) == render::render_error_t::OK );
+
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    frame.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
+    frame.clearColor = { 0.0f, 0.0f, 1.0f, 1.0f };
+    render::render_draw_indexed_desc_t draw{};
+    draw.pipeline = pipeline;
+    draw.vertexInput = input;
+    draw.indexCount = draw.vertexCount = 3u;
+    const auto readPixel = [&]( const GLint x ) {
+        std::array<common::u8, 4u> pixel{};
+        glReadBuffer( GL_BACK );
+        glReadPixels( x, static_cast<GLint>( extent.height / 2u ), 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel.data() );
+        REQUIRE( glGetError() == GL_NO_ERROR );
+        return pixel;
+    };
+    const GLint left = static_cast<GLint>( extent.width / 4u );
+    const GLint right = static_cast<GLint>( 3u * extent.width / 4u );
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    draw.instanceCount = 1u;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    const auto firstLeft = readPixel( left );
+    const auto firstRight = readPixel( right );
+    CHECK( firstLeft[0] >= 240u );
+    CHECK( firstLeft[1] <= 15u );
+    CHECK( firstRight[2] >= 240u ); // Instance two has not been drawn.
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    ++frame.frameIndex;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    draw.instanceCount = 2u;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    const auto secondLeft = readPixel( left );
+    const auto secondRight = readPixel( right );
+    CHECK( secondLeft[0] >= 240u );
+    CHECK( secondRight[1] >= 240u );
+    CHECK( secondRight[0] <= 15u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( positionBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( instanceBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
+}
+
 void CheckSampledDrawing( const render::render_extent_t extent )
 {
     constexpr char vertex[] =
@@ -485,6 +595,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
 
     CheckCookedShaderCompilation();
     CheckIndexedDrawing( info->drawableExtent );
+    CheckInstancedDrawing( info->drawableExtent );
     CheckSampledDrawing( info->drawableExtent );
 
     ::cypher::common::u32 vertexWords[16]{};

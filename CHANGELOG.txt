@@ -24,12 +24,19 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Indexed instanced drawing in OpenGL 4.1. Public draws accept instanceCount
+  (default one), pipelines accept per-instance streams, and the backend uses
+  glDrawElementsInstanced. Stream ranges are validated using each divisor.
+  Callers still build and submit their own instance buffers.
 - The Host OpenGL smoke test submits an indexed triangle through Host_Render,
   reads center and corner pixels before presentation, and releases draw
   resources before Host shutdown. This proves the Host draw handoff; the
   ordinary runtime still has no scene producer.
 
 Changed
+- The private backend contract is version 8 for instance count propagation.
+  The new public field is appended to preserve positional initializer meaning.
+  Unsupported devices reject multi-instance draws and per-instance layouts.
 - The standalone cube example reports transform-block size from its CPU type
   instead of a stale literal.
 - The Host OpenGL smoke test probes renderer initialization first. Drivers
@@ -37,6 +44,11 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Rebuilt six renderer, hosted-context and Host targets in build-mason. All six
+  selected CTest entries passed; local OpenGL readback confirmed two separate
+  instances and the one-instance control. Draw tests cover divisor-two bounds,
+  mapped buffers, count limits and missing capability. Tile-map batching and
+  base-instance drawing are not yet implemented.
 - Built ten focused renderer and Host test targets plus the cube example in
   the existing build-mason tree. All ten tests passed, including OpenGL pixel
   smoke tests on the local desktop context; the cube example presented three

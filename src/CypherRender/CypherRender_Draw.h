@@ -32,13 +32,15 @@ struct render_draw_indexed_desc_t {
     ::cypher::common::u32 indexCount{ 0u }; // Positive multiple of three.
     ::cypher::common::u32 vertexCount{ 0u }; // Addressable vertices beginning at vertex zero.
     render_texture_handle_t sampledTexture{}; // Required exactly when the pipeline declares a sampler.
+    ::cypher::common::u32 instanceCount{ 1u }; // Positive; one preserves ordinary indexed drawing.
 };
 
 // Executes immediately inside an active frame on the renderer thread. The
 // layout must match the pipeline; no referenced buffer may be CPU-mapped.
 // Buffer ranges are checked without reading indices back from the GPU: the
 // caller guarantees every selected index is strictly less than vertexCount.
-// No instancing, base vertex, primitive restart, or deferred pointer borrowing.
+// Per-instance attributes advance according to their layout divisor. No base
+// instance, base vertex, primitive restart, or deferred pointer borrowing.
 CYPHER_NODISCARD render_error_t R_DrawIndexed(
     const render_draw_indexed_desc_t &description ) noexcept;
 

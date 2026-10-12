@@ -46,7 +46,8 @@ bool R_LayoutsMatch( const render_vertex_layout_t &a, const render_vertex_layout
 }
 
 render_error_t R_ValidateDrawVertexRanges(
-    const render_vertex_input_info_t &input, const common::u32 vertexCount ) noexcept
+    const render_vertex_input_info_t &input, const common::u32 vertexCount,
+    const common::u32 instanceCount ) noexcept
 {
     for ( common::u32 i = 0u; i < input.vertexBufferCount; ++i ) {
         const auto &buffer = input.vertexBuffers[i];
@@ -58,11 +59,18 @@ render_error_t R_ValidateDrawVertexRanges(
         for ( common::u32 j = 0u; j < input.layout.bindingCount; ++j ) {
             if ( input.layout.bindings[j].binding == buffer.binding ) binding = &input.layout.bindings[j];
         }
-        if ( binding == nullptr || binding->inputRate != render_vertex_input_rate_t::PER_VERTEX ) {
+        if ( binding == nullptr ||
+             ( binding->inputRate == render_vertex_input_rate_t::PER_INSTANCE &&
+               binding->instanceDivisor == 0u ) ||
+             binding->inputRate >= render_vertex_input_rate_t::COUNT ) {
             return render_error_t::ERR_VERTEX_LAYOUT_INVALID;
         }
-        // u32 vertex count times the bounded stride is representable in u64.
-        const common::u64 lastVertexOffset = static_cast<common::u64>( vertexCount - 1u ) * binding->stride;
+        // GL's divisor selects floor(instanceID / divisor). Both counts and
+        // the validated stride fit safely in this u64 byte calculation.
+        const common::u32 lastElement = binding->inputRate == render_vertex_input_rate_t::PER_VERTEX
+            ? vertexCount - 1u
+            : ( instanceCount - 1u ) / binding->instanceDivisor;
+        const common::u64 lastElementOffset = static_cast<common::u64>( lastElement ) * binding->stride;
         for ( common::u32 j = 0u; j < input.layout.attributeCount; ++j ) {
             const auto &attribute = input.layout.attributes[j];
             if ( attribute.binding != buffer.binding ) continue;
@@ -70,7 +78,7 @@ render_error_t R_ValidateDrawVertexRanges(
             if ( !R_GetVertexFormatInfo( attribute.format, &format ) ) {
                 return render_error_t::ERR_VERTEX_LAYOUT_INVALID;
             }
-            const common::u64 required = lastVertexOffset + attribute.offset + format.byteSize;
+            const common::u64 required = lastElementOffset + attribute.offset + format.byteSize;
             if ( buffer.offset > info.byteSize || required > info.byteSize - buffer.offset ) {
                 return render_error_t::ERR_VERTEX_LAYOUT_INVALID;
             }
@@ -87,8 +95,13 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
     const auto maximumCount = static_cast<common::u32>( std::numeric_limits<common::i32>::max() );
     if ( description.indexCount == 0u || description.indexCount % 3u != 0u ||
          description.vertexCount == 0u || description.indexCount > maximumCount ||
-         description.vertexCount > maximumCount ) {
+         description.vertexCount > maximumCount || description.instanceCount == 0u ||
+         description.instanceCount > maximumCount ) {
         return render_error_t::ERR_DRAW_DESC_INVALID;
+    }
+    if ( description.instanceCount > 1u &&
+         ( tr.info.capabilities & R_CAPABILITY_INSTANCING ) == 0u ) {
+        return render_error_t::ERR_CAPABILITY_MISSING;
     }
     backend_draw_indexed_desc_t native{};
     render_pipeline_info_t pipeline{};
@@ -98,7 +111,7 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
     result = R_VertexInputResolveForDraw( description.vertexInput, &native.vertexInput, &input );
     if ( result != render_error_t::OK ) return result;
     if ( !R_LayoutsMatch( pipeline.vertexLayout, input.layout ) ) return render_error_t::ERR_BINDING_MISMATCH;
-    result = R_ValidateDrawVertexRanges( input, description.vertexCount );
+    result = R_ValidateDrawVertexRanges( input, description.vertexCount, description.instanceCount );
     if ( result != render_error_t::OK ) return result;
 
     const common::u32 indexSize = R_IndexTypeSize( input.indexBuffer.type );
@@ -120,6 +133,7 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
     native.indexByteOffset = base + firstByte;
     native.indexCount = description.indexCount;
     native.vertexCount = description.vertexCount;
+    native.instanceCount = description.instanceCount;
 
     const bool hasTexture = description.sampledTexture.value != R_INVALID_TEXTURE.value;
     if ( hasTexture != pipeline.sampledTextureRequired ) return render_error_t::ERR_BINDING_MISMATCH;

@@ -44,7 +44,7 @@ object tokens remain behind this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 7u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 8u;
 
 /*
 ================
@@ -174,6 +174,7 @@ struct backend_draw_indexed_desc_t {
     ::cypher::common::u64 indexByteOffset{ 0u };
     ::cypher::common::u32 indexCount{ 0u };
     ::cypher::common::u32 vertexCount{ 0u };
+    ::cypher::common::u32 instanceCount{ 0u };
 };
 
 // Selects graphics-related native-window attributes before Sys_CreateWindow.

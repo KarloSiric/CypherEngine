@@ -31,6 +31,7 @@ struct draw_fixture_t {
     common::byte mappedBytes[256]{};
     render::render_shader_handle_t shader{};
     render::render_buffer_handle_t vertices{};
+    render::render_buffer_handle_t instances{};
     render::render_buffer_handle_t indices{};
     render::render_vertex_input_handle_t input{};
     render::render_pipeline_handle_t pipeline{};
@@ -90,6 +91,7 @@ struct draw_fixture_t {
         render::tr.info.backend = render::render_backend_t::OPENGL;
         render::tr.info.apiMajorVersion = 4u;
         render::tr.info.apiMinorVersion = 1u;
+        render::tr.info.capabilities = render::R_CAPABILITY_INSTANCING;
         render::tr.info.limits.maxUniformBlockBytes = 16384u;
         render::tr.info.limits.maxUniformBufferBindings = 16u;
         REQUIRE( render::R_BufferSystemInit() == draw_error_t::OK );
@@ -206,7 +208,7 @@ TEST_CASE( "live pipeline ownership is released only after native destruction", 
     CHECK( render::R_DestroyShader( fixture.shader ) == draw_error_t::OK );
 }
 
-TEST_CASE( "pipeline validation rejects incomplete blocks and instancing before backend creation", "[CypherRender][Draw]" )
+TEST_CASE( "pipeline validation checks block shape and instancing capability", "[CypherRender][Draw]" )
 {
     draw_fixture_t fixture;
     fixture.Init();
@@ -222,8 +224,13 @@ TEST_CASE( "pipeline validation rejects incomplete blocks and instancing before 
     description = fixture.PipelineDescription();
     description.vertexLayout.bindings[0].inputRate = render::render_vertex_input_rate_t::PER_INSTANCE;
     description.vertexLayout.bindings[0].instanceDivisor = 1u;
-    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    render::tr.info.capabilities = render::R_CAPABILITY_NONE;
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_CAPABILITY_MISSING );
     CHECK( fixture.pipelineCreates == 0u );
+    render::tr.info.capabilities = render::R_CAPABILITY_INSTANCING;
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::OK );
+    CHECK( fixture.pipelineCreates == 1u );
+    REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == draw_error_t::OK );
     CHECK( render::R_DestroyShader( fixture.shader ) == draw_error_t::OK );
 }
 
@@ -240,6 +247,7 @@ TEST_CASE( "draw validates full offset ranges and dispatches only during an acti
     CHECK( fixture.lastDraw.indexByteOffset == 6u );
     CHECK( fixture.lastDraw.indexCount == 3u );
     CHECK( fixture.lastDraw.vertexCount == 3u );
+    CHECK( fixture.lastDraw.instanceCount == 1u );
     CHECK( fixture.lastDraw.indexType == render::render_index_type_t::UINT16 );
     draw.firstIndex = 2u;
     CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_INDEX_DATA_INVALID );
@@ -256,6 +264,53 @@ TEST_CASE( "draw validates full offset ranges and dispatches only during an acti
     draw = fixture.Draw();
     draw.vertexCount = 0u;
     CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_DRAW_DESC_INVALID );
+    CHECK( fixture.drawCalls == 1u );
+}
+
+TEST_CASE( "instanced draws validate the final divisor element and forward count", "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    fixture.layout.bindingCount = 2u;
+    fixture.layout.bindings[1].binding = 1u;
+    fixture.layout.bindings[1].stride = 12u;
+    fixture.layout.bindings[1].inputRate = render::render_vertex_input_rate_t::PER_INSTANCE;
+    fixture.layout.bindings[1].instanceDivisor = 2u;
+    fixture.layout.attributeCount = 3u;
+    fixture.layout.attributes[2] = { render::render_format_t::RGB32_FLOAT, 0u, 2u, 1u };
+    fixture.vertices = fixture.Buffer( 64u, render::R_BUFFER_USAGE_VERTEX );
+    fixture.instances = fixture.Buffer( 24u, render::R_BUFFER_USAGE_VERTEX );
+    fixture.indices = fixture.Buffer( 12u, render::R_BUFFER_USAGE_INDEX );
+    render::render_vertex_input_desc_t inputDesc{};
+    inputDesc.layout = fixture.layout;
+    inputDesc.vertexBufferCount = 2u;
+    inputDesc.vertexBuffers[0] = { fixture.vertices, 16u, 0u };
+    inputDesc.vertexBuffers[1] = { fixture.instances, 0u, 1u };
+    inputDesc.indexBuffer = { fixture.indices, 4u, render::render_index_type_t::UINT16 };
+    REQUIRE( render::R_CreateVertexInput( inputDesc, &fixture.input ) == draw_error_t::OK );
+    REQUIRE( render::R_CreateGraphicsPipeline( fixture.PipelineDescription(), &fixture.pipeline ) == draw_error_t::OK );
+    render::tr.frameActive = true;
+
+    auto draw = fixture.Draw();
+    draw.instanceCount = 4u; // Divisor two consumes precisely two 12-byte records.
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+    CHECK( fixture.lastDraw.instanceCount == 4u );
+    CHECK( fixture.drawCalls == 1u );
+
+    draw.instanceCount = 5u; // A third record would exceed the instance buffer.
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_VERTEX_LAYOUT_INVALID );
+    draw.instanceCount = 0u;
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_DRAW_DESC_INVALID );
+    draw.instanceCount = static_cast<common::u32>( std::numeric_limits<common::i32>::max() ) + 1u;
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_DRAW_DESC_INVALID );
+    draw.instanceCount = 2u;
+    render::tr.info.capabilities = render::R_CAPABILITY_NONE;
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_CAPABILITY_MISSING );
+    render::tr.info.capabilities = render::R_CAPABILITY_INSTANCING;
+    render::render_buffer_mapping_t mapping{};
+    REQUIRE( render::R_MapBuffer( fixture.instances, { 0u, 12u }, render::R_BUFFER_MAP_WRITE, &mapping ) == draw_error_t::OK );
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_RESOURCE_BUSY );
+    REQUIRE( render::R_UnmapBuffer( fixture.instances ) == draw_error_t::OK );
     CHECK( fixture.drawCalls == 1u );
 }
 

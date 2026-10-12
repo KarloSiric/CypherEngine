@@ -213,11 +213,6 @@ render_error_t GL_CreateGraphicsPipeline(
     if ( R_ValidateVertexLayout( description.vertexLayout ) != render_error_t::OK ) {
         return render_error_t::ERR_VERTEX_LAYOUT_INVALID;
     }
-    for ( common::u32 i = 0u; i < description.vertexLayout.bindingCount; ++i ) {
-        if ( description.vertexLayout.bindings[i].inputRate != render_vertex_input_rate_t::PER_VERTEX ) {
-            return render_error_t::ERR_PIPELINE_DESC_INVALID;
-        }
-    }
     const bool hasBlock = description.uniformBlockName != nullptr;
     if ( hasBlock != ( description.uniformBlockBytes != 0u ) ||
          ( hasBlock && description.uniformBlockName[0] == '\0' ) ) {
@@ -296,7 +291,8 @@ render_error_t GL_DrawIndexed(
          description.indexByteOffset > std::numeric_limits<std::uintptr_t>::max() ||
          description.indexCount == 0u || description.indexCount % 3u != 0u ||
          description.indexCount > static_cast<common::u32>( std::numeric_limits<GLsizei>::max() ) ||
-         description.vertexCount == 0u ) {
+         description.vertexCount == 0u || description.instanceCount == 0u ||
+         description.instanceCount > static_cast<common::u32>( std::numeric_limits<GLsizei>::max() ) ) {
         return render_error_t::ERR_DRAW_DESC_INVALID;
     }
     if ( ( description.uniformBuffer.value != 0u ) != ( pipeline->uniformBlockBytes != 0u ) ) {
@@ -334,10 +330,11 @@ render_error_t GL_DrawIndexed(
     glBindBufferBase( GL_UNIFORM_BUFFER, 0u, static_cast<GLuint>( description.uniformBuffer.value ) );
     render_error_t result = GL_CheckErrors( glState.config.validation );
     if ( result == render_error_t::OK ) {
-        glDrawElements(
+        glDrawElementsInstanced(
             GL_TRIANGLES, static_cast<GLsizei>( description.indexCount ),
             description.indexType == render_index_type_t::UINT16 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT,
-            reinterpret_cast<const void *>( static_cast<std::uintptr_t>( description.indexByteOffset ) ) );
+            reinterpret_cast<const void *>( static_cast<std::uintptr_t>( description.indexByteOffset ) ),
+            static_cast<GLsizei>( description.instanceCount ) );
         result = GL_CheckErrors( glState.config.validation );
     }
     // No transient native binding remains after an immediate draw. Fixed state

@@ -25,6 +25,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Indexed instanced drawing in the OpenGL 4.1 renderer. A draw now accepts an
+  `instanceCount` (default one), pipelines accept per-instance vertex streams,
+  and the backend submits them with `glDrawElementsInstanced`. The frontend
+  checks every referenced stream against the last vertex or divisor-selected
+  instance element before submission. This exposes the previously prepared
+  vertex-attribute divisor path; callers still assemble and submit their own
+  instance buffers.
 - Extended the Host OpenGL smoke test to submit an indexed triangle through
   `Host_Render` and read the drawable's back buffer before presentation. It
   checks a red center pixel against the dark clear color at a corner, then
@@ -34,6 +41,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Advanced the private renderer backend contract to version 8 for the indexed
+  draw descriptor's instance count. The public draw descriptor appends the new
+  field so existing positional initializers retain their meaning. Devices
+  without instancing capability reject multi-instance draws or per-instance
+  pipeline layouts.
 - The standalone cube example reports its transform block size from the CPU
   type rather than a stale literal.
 - The Host OpenGL smoke test probes renderer initialization before exercising
@@ -42,6 +54,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Rebuilt six renderer, hosted-context, and Host test targets in `build-mason`;
+  all six selected CTest entries passed. The native OpenGL smoke ran locally
+  and verified distinct colors and positions for two instances, including a
+  one-instance control. Draw tests cover divisor-two buffer bounds, mapped
+  resources, capability checks, and count validation. Instancing does not yet
+  batch the tile-map example or provide base-instance draws.
 - Built ten focused renderer and Host test targets plus the cube example in the
   existing `build-mason` tree. All ten tests passed, including OpenGL pixel
   smoke tests on the local desktop context. The cube example presented three
