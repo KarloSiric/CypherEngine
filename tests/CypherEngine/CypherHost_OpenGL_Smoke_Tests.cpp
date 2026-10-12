@@ -15,7 +15,6 @@
 
 #include "CypherEngine/CypherHost/CypherHost.h"
 #include "CypherRender/CypherRender_Public.h"
-#include "CypherSystem/Platform/CypherSystem_OpenGL.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
 #include "CypherSystem/Platform/CypherSystem_Window.h"
 
@@ -50,14 +49,10 @@ struct temporary_workspace_t {
 
 struct graphics_probe_t {
     sys::window_t window{};
-    sys::gl_context_t context{};
     bool systemInitialized{ false };
 
     ~graphics_probe_t()
     {
-        if ( sys::GLimp_IsContextValid( context ) ) {
-            (void)sys::GLimp_DestroyContext( context );
-        }
         if ( sys::Sys_WindowIsValid( window ) ) {
             (void)sys::Sys_DestroyWindow( window );
         }
@@ -191,8 +186,8 @@ TEST_CASE( "runtime Host initializes, renders, and releases OpenGL",
         "-userpath", userPathString.c_str()
     };
 
-    // Probe the same graphics window policy that Host will use. Once this
-    // succeeds, a Host_Init failure is a regression rather than a CI skip.
+    // Probe the renderer, not just context creation. Virtualized drivers can
+    // report OpenGL 4.1 while missing entry points CypherRender needs.
     {
         graphics_probe_t probe{};
         const sys::init_info_t initInfo{
@@ -219,20 +214,17 @@ TEST_CASE( "runtime Host initializes, renders, and releases OpenGL",
         }
         REQUIRE( windowResult == sys::sys_error_t::OK );
 
-        const sys::sys_error_t contextResult =
-            sys::GLimp_CreateContext( probe.window, probe.context );
-        if ( contextResult == sys::sys_error_t::ERR_GRAPHICS_CONTEXT_FAILED ) {
-            SKIP( "The desktop driver cannot create an OpenGL 4.1 context" );
+        const render::render_error_t rendererProbe =
+            render::R_Init( probe.window, config );
+        if ( rendererProbe == render::render_error_t::ERR_CONTEXT_CREATE_FAILED ||
+             rendererProbe == render::render_error_t::ERR_CONTEXT_ACTIVATE_FAILED ||
+             rendererProbe == render::render_error_t::ERR_ENTRYPOINT_LOAD_FAILED ||
+             rendererProbe == render::render_error_t::ERR_BACKEND_VERSION_UNSUPPORTED ||
+             rendererProbe == render::render_error_t::ERR_CAPABILITY_MISSING ) {
+            SKIP( "The desktop driver cannot run the required OpenGL 4.1 backend" );
         }
-        REQUIRE( contextResult == sys::sys_error_t::OK );
-
-        sys::gl_context_info_t contextInfo{};
-        REQUIRE( sys::GLimp_QueryContextInfo( contextInfo ) == sys::sys_error_t::OK );
-        if ( contextInfo.majorVersion < 4u ||
-             ( contextInfo.majorVersion == 4u && contextInfo.minorVersion < 1u ) ||
-             !contextInfo.accelerated || !contextInfo.sRGBFramebuffer ) {
-            SKIP( "The desktop context lacks a required Host OpenGL capability" );
-        }
+        REQUIRE( rendererProbe == render::render_error_t::OK );
+        REQUIRE( render::R_Shutdown() == render::render_error_t::OK );
     }
 
     REQUIRE_FALSE( sys::Sys_IsInitialized() );

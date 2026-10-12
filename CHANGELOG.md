@@ -36,13 +36,18 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 - The standalone cube example reports its transform block size from the CPU
   type rather than a stale literal.
+- The Host OpenGL smoke test probes renderer initialization before exercising
+  Host. Drivers that report a 4.1 context but lack required entry points now
+  skip this graphics test; unexpected initialization errors remain failures.
 
 ### Validation
 
 - Built ten focused renderer and Host test targets plus the cube example in the
   existing `build-mason` tree. All ten tests passed, including OpenGL pixel
   smoke tests on the local desktop context. The cube example presented three
-  hidden frames. No new dependency or build tree was created.
+  hidden frames. Rebuilt the Host smoke test after refining its driver probe;
+  it passed all 65 assertions locally. No new dependency or build tree was
+  created.
 
 ## [Unreleased] - 2026-10-12
 

@@ -32,12 +32,16 @@ Added
 Changed
 - The standalone cube example reports transform-block size from its CPU type
   instead of a stale literal.
+- The Host OpenGL smoke test probes renderer initialization first. Drivers
+  that report 4.1 but lack required entry points skip the graphics test;
+  unexpected initialization errors still fail.
 
 Validation
 - Built ten focused renderer and Host test targets plus the cube example in
   the existing build-mason tree. All ten tests passed, including OpenGL pixel
   smoke tests on the local desktop context; the cube example presented three
-  hidden frames. No new dependency or build tree was created.
+  hidden frames. The refined Host smoke test passed all 65 assertions locally.
+  No new dependency or build tree was created.
 
 [Unreleased] - 2026-10-12
 -------------------------
