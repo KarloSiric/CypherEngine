@@ -71,7 +71,7 @@ struct render_draw_indexed_desc_t {
 // explicit sampler overrides texture-owned sampling for its paired image; a
 // null sampler retains the original policy. A depth-comparison binding requires
 // D24 storage and an explicit comparison sampler; scalar bindings reject a
-// comparison sampler. Mip samplers require generated mips. Enabled scissor and
+// comparison sampler. Mip samplers require a complete generated or authored mip chain. Enabled scissor and
 // viewport rectangles must fit the active framebuffer.
 // An explicit uniform range selects one record in a shared buffer.
 // A viewport does not clip; combine it with scissor when clipping is needed. No base

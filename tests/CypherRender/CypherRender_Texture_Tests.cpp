@@ -32,6 +32,10 @@ struct texture_fixture_t {
     render::render_texture_desc_t captured{};
     common::byte capturedPixels[24]{};
     common::u64 capturedPixelBytes{ 0u };
+    common::u32 capturedMipCount{ 0u };
+    common::u32 capturedMipWidths[3]{}, capturedMipHeights[3]{};
+    common::u64 capturedMipBytes[3]{};
+    common::byte capturedMipPixels[3][32]{};
     render::render_sampler_desc_t capturedSampler{};
     render::backend_draw_indexed_desc_t capturedDraw{};
     common::byte pixels[24]{};
@@ -47,6 +51,31 @@ struct texture_fixture_t {
             self.capturedPixelBytes = data.byteSize;
             if ( data.bytes != nullptr && data.byteSize <= sizeof( self.capturedPixels ) ) {
                 std::memcpy( self.capturedPixels, data.bytes, static_cast<std::size_t>( data.byteSize ) );
+            }
+            out = {};
+            if ( self.createResult == texture_error_t::OK || self.tokenOnCreateFailure ) {
+                out.value = self.next++;
+            }
+            return self.createResult;
+        };
+        backend.CreateTexture2DLevels = []( const render::render_texture_desc_t &desc,
+            const render::render_texture_mip_data_t *levels, common::u32 levelCount,
+            render::backend_texture_t &out, void *state ) noexcept {
+            auto &self = *static_cast<texture_fixture_t *>( state );
+            ++self.creates;
+            self.captured = desc;
+            self.capturedMipCount = levelCount;
+            if ( levels != nullptr && levelCount <= 3u ) {
+                for ( common::u32 level = 0u; level < levelCount; ++level ) {
+                    self.capturedMipWidths[level] = levels[level].width;
+                    self.capturedMipHeights[level] = levels[level].height;
+                    self.capturedMipBytes[level] = levels[level].data.byteSize;
+                    if ( levels[level].data.bytes != nullptr &&
+                         levels[level].data.byteSize <= sizeof( self.capturedMipPixels[level] ) ) {
+                        std::memcpy( self.capturedMipPixels[level], levels[level].data.bytes,
+                            static_cast<std::size_t>( levels[level].data.byteSize ) );
+                    }
+                }
             }
             out = {};
             if ( self.createResult == texture_error_t::OK || self.tokenOnCreateFailure ) {
@@ -405,7 +434,7 @@ TEST_CASE( "cooked RGBA8 images upload their exact pixels and retain no borrowed
     REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
 }
 
-TEST_CASE( "cooked texture adoption refuses valid layouts outside the current RGBA8 base-image path",
+TEST_CASE( "cooked texture adoption refuses unsupported color-image layouts",
     "[CypherRender][Texture][Cooked]" )
 {
     texture_fixture_t fixture;
@@ -423,9 +452,15 @@ TEST_CASE( "cooked texture adoption refuses valid layouts outside the current RG
     common::cooked_texture_view_t view{};
     render::render_texture_handle_t texture{ 99u };
 
-    SECTION( "multiple authored mips" ) {
+    SECTION( "incomplete authored chain" ) {
+        common::byte partial[40]{};
+        desc.nWidth = 4u;
         desc.nMipLevels = 2u;
-        WriteCookedTexture( desc, mips, 2u, file, view );
+        const common::cooked_texture_mip_source_t partialMips[2]{
+            { 4u, 2u, 1u, 16u, { partial, 32u } },
+            { 2u, 1u, 1u, 8u, { partial + 32u, 8u } }
+        };
+        WriteCookedTexture( desc, partialMips, 2u, file, view );
     }
     SECTION( "streamed mip tail" ) {
         desc.nMipLevels = 2u;
@@ -478,6 +513,98 @@ TEST_CASE( "cooked texture adoption refuses valid layouts outside the current RG
            texture_error_t::ERR_RESOURCE_FORMAT_UNSUPPORTED );
     CHECK( texture.value == 0u );
     CHECK( fixture.creates == 0u );
+}
+
+TEST_CASE( "complete authored RGBA8 mips upload each level without regenerating pixels",
+    "[CypherRender][Texture][Cooked][Mips]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    common::byte pixels[44]{};
+    for ( common::u32 i = 0u; i < sizeof( pixels ); ++i ) pixels[i] = static_cast<common::byte>( i + 1u );
+    common::cooked_texture_desc_t desc{};
+    desc.nWidth = 4u;
+    desc.nHeight = 2u;
+    desc.nMipLevels = 3u;
+    const common::cooked_texture_mip_source_t mips[3]{
+        { 4u, 2u, 1u, 16u, { pixels, 32u } },
+        { 2u, 1u, 1u, 8u, { pixels + 32u, 8u } },
+        { 1u, 1u, 1u, 4u, { pixels + 40u, 4u } }
+    };
+    std::vector<common::byte> file;
+    common::cooked_texture_view_t view{};
+    WriteCookedTexture( desc, mips, 3u, file, view );
+
+    render::render_texture_handle_t texture{};
+    REQUIRE( render::R_CreateTexture2DFromCooked( view, &texture ) == texture_error_t::OK );
+    CHECK( fixture.creates == 1u );
+    CHECK( fixture.capturedMipCount == 3u );
+    CHECK_FALSE( fixture.captured.generateMips );
+    CHECK( fixture.capturedMipWidths[0] == 4u );
+    CHECK( fixture.capturedMipHeights[0] == 2u );
+    CHECK( fixture.capturedMipWidths[1] == 2u );
+    CHECK( fixture.capturedMipHeights[1] == 1u );
+    CHECK( fixture.capturedMipWidths[2] == 1u );
+    CHECK( fixture.capturedMipHeights[2] == 1u );
+    CHECK( fixture.capturedMipBytes[0] == 32u );
+    CHECK( fixture.capturedMipBytes[1] == 8u );
+    CHECK( fixture.capturedMipBytes[2] == 4u );
+    CHECK( std::memcmp( fixture.capturedMipPixels[0], pixels, 32u ) == 0 );
+    CHECK( std::memcmp( fixture.capturedMipPixels[1], pixels + 32u, 8u ) == 0 );
+    CHECK( std::memcmp( fixture.capturedMipPixels[2], pixels + 40u, 4u ) == 0 );
+
+    for ( auto &byte : file ) byte = 0u;
+    file.clear();
+    render::render_texture_info_t info{};
+    REQUIRE( render::R_GetTextureInfo( texture, &info ) == texture_error_t::OK );
+    CHECK( info.mipLevels == 3u );
+    CHECK( info.completeMipChain );
+    CHECK_FALSE( info.generateMips );
+    CHECK( std::memcmp( fixture.capturedMipPixels[2], pixels + 40u, 4u ) == 0 );
+    REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
+}
+
+TEST_CASE( "authored mip upload validates all levels and cleans backend failure",
+    "[CypherRender][Texture][Cooked][Mips]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    const common::byte pixels[40]{};
+    common::cooked_texture_desc_t desc{};
+    desc.nWidth = desc.nHeight = 2u;
+    desc.nMipLevels = 2u;
+    const common::cooked_texture_mip_source_t mips[2]{
+        { 2u, 2u, 1u, 8u, { pixels, 16u } },
+        { 1u, 1u, 1u, 4u, { pixels + 16u, 4u } }
+    };
+    std::vector<common::byte> file;
+    common::cooked_texture_view_t view{};
+    WriteCookedTexture( desc, mips, 2u, file, view );
+    render::render_texture_handle_t texture{ 99u };
+
+    auto changed = view;
+    changed.mips[1].cbRowPitch = 8u;
+    CHECK( render::R_CreateTexture2DFromCooked( changed, &texture ) ==
+           texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( texture.value == 0u );
+    CHECK( fixture.creates == 0u );
+
+    const auto createLevels = fixture.backend.CreateTexture2DLevels;
+    fixture.backend.CreateTexture2DLevels = nullptr;
+    texture = { 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( view, &texture ) ==
+           texture_error_t::ERR_UNSUPPORTED );
+    CHECK( texture.value == 0u );
+    fixture.backend.CreateTexture2DLevels = createLevels;
+
+    fixture.createResult = texture_error_t::ERR_OUT_OF_MEMORY;
+    fixture.tokenOnCreateFailure = true;
+    texture = { 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( view, &texture ) ==
+           texture_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( texture.value == 0u );
+    CHECK( fixture.creates == 1u );
+    CHECK( fixture.destroys == 1u );
 }
 
 TEST_CASE( "cooked texture adoption rejects absent or changed borrowed file data",

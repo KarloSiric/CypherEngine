@@ -210,7 +210,7 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
                 return render_error_t::ERR_BINDING_MISMATCH;
             }
             if ( samplerInfo.mipFilter != render_sampler_mip_filter_t::NONE &&
-                 !textureInfo.generateMips ) {
+                 !textureInfo.completeMipChain ) {
                 return render_error_t::ERR_BINDING_MISMATCH;
             }
         }

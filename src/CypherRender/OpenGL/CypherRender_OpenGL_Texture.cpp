@@ -101,6 +101,113 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
     textureOut.value = texture;
     return render_error_t::OK;
 }
+render_error_t GL_CreateTexture2DLevels( const render_texture_desc_t &description,
+    const render_texture_mip_data_t *levels, const ::cypher::common::u32 levelCount,
+    backend_texture_t &textureOut, void *backendState ) noexcept
+{
+    textureOut = {};
+    if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;
+    if ( !glState.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
+    if ( levels == nullptr || levelCount < 2u || levelCount > 32u ||
+         description.width == 0u || description.height == 0u ||
+         description.format != render_texture_format_t::RGBA8 ||
+         description.renderTarget || description.generateMips ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    if ( description.width > glState.limits.maxTexture2DSize ||
+         description.height > glState.limits.maxTexture2DSize ||
+         description.width > static_cast<::cypher::common::u32>( std::numeric_limits<GLsizei>::max() ) ||
+         description.height > static_cast<::cypher::common::u32>( std::numeric_limits<GLsizei>::max() ) ) {
+        return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
+    }
+
+    ::cypher::common::u32 width = description.width;
+    ::cypher::common::u32 height = description.height;
+    for ( ::cypher::common::u32 level = 0u; level < levelCount; ++level ) {
+        const ::cypher::common::u64 required =
+            static_cast<::cypher::common::u64>( width ) * height * 4u;
+        if ( levels[level].width != width || levels[level].height != height ||
+             levels[level].data.bytes == nullptr ||
+             levels[level].data.byteSize != required ) {
+            return render_error_t::ERR_INVALID_ARGUMENT;
+        }
+        if ( required > std::numeric_limits<::cypher::common::usize>::max() ) {
+            return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
+        }
+        if ( width == 1u && height == 1u && level + 1u != levelCount ) {
+            return render_error_t::ERR_INVALID_ARGUMENT;
+        }
+        width = width > 1u ? width / 2u : 1u;
+        height = height > 1u ? height / 2u : 1u;
+    }
+    if ( width != 1u || height != 1u ||
+         ( levels[levelCount - 1u].width != 1u || levels[levelCount - 1u].height != 1u ) ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+
+    // The host may leave a pixel unpack buffer and non-default row layout
+    // bound. Upload all borrowed spans synchronously, then restore its state.
+    GL_ClearErrors();
+    GLint previousActiveTexture = 0, previousTexture = 0, previousUnpackBuffer = 0;
+    GLint alignment = 0, rowLength = 0, skipRows = 0, skipPixels = 0;
+    glGetIntegerv( GL_ACTIVE_TEXTURE, &previousActiveTexture );
+    glGetIntegerv( GL_TEXTURE_BINDING_2D, &previousTexture );
+    glGetIntegerv( GL_PIXEL_UNPACK_BUFFER_BINDING, &previousUnpackBuffer );
+    glGetIntegerv( GL_UNPACK_ALIGNMENT, &alignment );
+    glGetIntegerv( GL_UNPACK_ROW_LENGTH, &rowLength );
+    glGetIntegerv( GL_UNPACK_SKIP_ROWS, &skipRows );
+    glGetIntegerv( GL_UNPACK_SKIP_PIXELS, &skipPixels );
+    auto result = GL_CheckErrors( glState.config.validation );
+    if ( result != render_error_t::OK ) return result;
+
+    GLuint texture = 0u;
+    glGenTextures( 1, &texture );
+    if ( texture == 0u ) {
+        result = GL_CheckErrors( glState.config.validation );
+        return result != render_error_t::OK ? result : render_error_t::ERR_RESOURCE_CREATE_FAILED;
+    }
+    glBindTexture( GL_TEXTURE_2D, texture );
+    glBindBuffer( GL_PIXEL_UNPACK_BUFFER, 0u );
+    glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
+    glPixelStorei( GL_UNPACK_ROW_LENGTH, 0 );
+    glPixelStorei( GL_UNPACK_SKIP_ROWS, 0 );
+    glPixelStorei( GL_UNPACK_SKIP_PIXELS, 0 );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, description.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, description.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0 );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>( levelCount - 1u ) );
+    result = GL_CheckErrors( glState.config.validation );
+    if ( result == render_error_t::OK ) {
+        for ( ::cypher::common::u32 level = 0u; level < levelCount; ++level ) {
+            glTexImage2D( GL_TEXTURE_2D, static_cast<GLint>( level ),
+                description.sRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+                static_cast<GLsizei>( levels[level].width ),
+                static_cast<GLsizei>( levels[level].height ), 0,
+                GL_RGBA, GL_UNSIGNED_BYTE, levels[level].data.bytes );
+            result = GL_CheckErrors( glState.config.validation );
+            if ( result != render_error_t::OK ) break;
+        }
+    }
+
+    glPixelStorei( GL_UNPACK_ALIGNMENT, alignment );
+    glPixelStorei( GL_UNPACK_ROW_LENGTH, rowLength );
+    glPixelStorei( GL_UNPACK_SKIP_ROWS, skipRows );
+    glPixelStorei( GL_UNPACK_SKIP_PIXELS, skipPixels );
+    glBindBuffer( GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>( previousUnpackBuffer ) );
+    glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( previousTexture ) );
+    glActiveTexture( static_cast<GLenum>( previousActiveTexture ) );
+    const auto restored = GL_CheckErrors( glState.config.validation );
+    if ( result == render_error_t::OK ) result = restored;
+    if ( result != render_error_t::OK ) {
+        glDeleteTextures( 1, &texture );
+        (void)GL_CheckErrors( glState.config.validation );
+        return result;
+    }
+    textureOut.value = texture;
+    return render_error_t::OK;
+}
 render_error_t GL_DestroyTexture( backend_texture_t texture, void *backendState ) noexcept
 {
     if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;

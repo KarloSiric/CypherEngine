@@ -49,6 +49,7 @@ struct render_texture_info_t {
     ::cypher::common::u32 mipLevels{ 0u };
     bool renderTarget{ false };
     render_texture_format_t format{ render_texture_format_t::RGBA8 };
+    bool completeMipChain{ false }; // Generated or authored levels reach 1x1; usable with mip samplers.
 };
 
 // Calls run on the renderer thread. Creation consumes all supplied pixels before
@@ -60,11 +61,12 @@ CYPHER_NODISCARD render_error_t R_CreateTexture2D(
     const render_texture_desc_t &description,
     const render_texture_data_t &data,
     CY_OUT render_texture_handle_t *textureOut ) noexcept;
-// Revalidates an owned CYTX view and synchronously uploads its base image.
-// This first adoption path accepts only a fully resident, tightly packed,
-// single-mip RGBA8 2D color texture with one frame/layer/face. The caller must
-// keep the cooked file bytes alive and unchanged until the call returns; the
-// renderer retains neither the view nor its borrowed pixel storage.
+// Revalidates an owned CYTX view and synchronously uploads every authored mip.
+// This adoption path accepts only a fully resident, tightly packed RGBA8 2D
+// color texture with one frame/layer/face and either one level or a complete
+// authored mip chain. The caller must keep the cooked file bytes alive and
+// unchanged until the call returns; the renderer retains neither the view nor
+// its borrowed pixel storage.
 CYPHER_NODISCARD render_error_t R_CreateTexture2DFromCooked(
     const ::cypher::common::cooked_texture_view_t &cooked,
     CY_OUT render_texture_handle_t *textureOut ) noexcept;

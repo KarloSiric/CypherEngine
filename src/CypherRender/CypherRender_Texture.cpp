@@ -41,6 +41,26 @@ render_error_t ResolveTexture( render_texture_handle_t texture,
     record = common::HandleTable_Get( &textureSystem.records, tableHandle );
     return record != nullptr ? render_error_t::OK : render_error_t::ERR_STALE_HANDLE;
 }
+
+render_error_t RegisterCreatedTexture( const render_texture_desc_t &description,
+    const backend_texture_t native, const common::u32 mipLevels,
+    const bool completeMipChain, render_texture_handle_t *textureOut ) noexcept
+{
+    texture_record_t record{};
+    record.native = native;
+    record.info = { description.width, description.height, description.sRGB,
+        description.generateMips, description.repeat, mipLevels,
+        description.renderTarget, description.format, completeMipChain };
+    const auto slot = common::HandleTable_Insert( &textureSystem.records, record );
+    if ( !common::Cy_Handle32IsValid( slot ) ) {
+        (void)tr.backend.api->DestroyTexture( native, tr.backend.state );
+        return common::HandleTable_Count( &textureSystem.records ) >= common::CY_HANDLE_TABLE_MAX_CAPACITY
+            ? render_error_t::ERR_LIMIT_EXCEEDED : render_error_t::ERR_OUT_OF_MEMORY;
+    }
+    *textureOut = common::Cy_Handle64Make( common::Cy_Handle32Index( slot ),
+        common::Cy_Handle32Generation( slot ), static_cast<common::u32>( render_object_type_t::TEXTURE ) );
+    return render_error_t::OK;
+}
 } // namespace
 
 render_error_t R_TextureSystemInit() noexcept
@@ -103,30 +123,22 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
     const common::u64 required = static_cast<common::u64>( description.width ) * description.height * 4u;
     if ( required > std::numeric_limits<common::usize>::max() ) return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     if ( !description.renderTarget && data.byteSize != required ) return render_error_t::ERR_INVALID_ARGUMENT;
-    texture_record_t record{};
-    const auto result = tr.backend.api->CreateTexture2D( description, data, record.native, tr.backend.state );
-    if ( result != render_error_t::OK || record.native.value == 0u ) {
-        if ( record.native.value != 0u ) {
-            (void)tr.backend.api->DestroyTexture( record.native, tr.backend.state );
+    backend_texture_t native{};
+    const auto result = tr.backend.api->CreateTexture2D( description, data, native, tr.backend.state );
+    if ( result != render_error_t::OK || native.value == 0u ) {
+        if ( native.value != 0u ) {
+            (void)tr.backend.api->DestroyTexture( native, tr.backend.state );
         }
         return result != render_error_t::OK ? result : render_error_t::ERR_INTERNAL_ERROR;
     }
-    record.info = { description.width, description.height, description.sRGB,
-        description.generateMips, description.repeat, 1u, description.renderTarget,
-        description.format };
+    common::u32 mipLevels = 1u;
     if ( description.generateMips ) {
         common::u32 extent = description.width > description.height ? description.width : description.height;
-        while ( extent > 1u ) { extent /= 2u; ++record.info.mipLevels; }
+        while ( extent > 1u ) { extent /= 2u; ++mipLevels; }
     }
-    const auto slot = common::HandleTable_Insert( &textureSystem.records, record );
-    if ( !common::Cy_Handle32IsValid( slot ) ) {
-        (void)tr.backend.api->DestroyTexture( record.native, tr.backend.state );
-        return common::HandleTable_Count( &textureSystem.records ) >= common::CY_HANDLE_TABLE_MAX_CAPACITY
-            ? render_error_t::ERR_LIMIT_EXCEEDED : render_error_t::ERR_OUT_OF_MEMORY;
-    }
-    *textureOut = common::Cy_Handle64Make( common::Cy_Handle32Index( slot ),
-        common::Cy_Handle32Generation( slot ), static_cast<common::u32>( render_object_type_t::TEXTURE ) );
-    return render_error_t::OK;
+    return RegisterCreatedTexture( description, native, mipLevels,
+        description.generateMips || ( description.width == 1u && description.height == 1u ),
+        textureOut );
 }
 render_error_t R_CreateTexture2DFromCooked(
     const common::cooked_texture_view_t &cooked,
@@ -176,11 +188,22 @@ render_error_t R_CreateTexture2DFromCooked(
          cooked.desc.nStreamingPriority != verified.desc.nStreamingPriority ||
          cooked.desc.iResidentFirstSubresource != verified.desc.iResidentFirstSubresource ||
          cooked.desc.cbResidentData != verified.desc.cbResidentData ||
-         cooked.desc.cbData != verified.desc.cbData ||
-         cooked.mips[0].pixels.pData != verified.mips[0].pixels.pData ||
-         cooked.mips[0].pixels.cbSize != verified.mips[0].pixels.cbSize ||
-         cooked.mips[0].cbRowPitch != verified.mips[0].cbRowPitch ) {
+         cooked.desc.cbData != verified.desc.cbData ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    for ( common::u32 level = 0u; level < verified.nMipLevels; ++level ) {
+        const auto &supplied = cooked.mips[level];
+        const auto &canonical = verified.mips[level];
+        if ( supplied.nLevel != canonical.nLevel ||
+             supplied.nWidth != canonical.nWidth ||
+             supplied.nHeight != canonical.nHeight ||
+             supplied.nDepth != canonical.nDepth ||
+             supplied.cbRowPitch != canonical.cbRowPitch ||
+             supplied.pixels.pData != canonical.pixels.pData ||
+             supplied.pixels.cbSize != canonical.pixels.cbSize ||
+             !common::ContentHash_Equals( supplied.contentHash, canonical.contentHash ) ) {
+            return render_error_t::ERR_INVALID_ARGUMENT;
+        }
     }
 
     if ( verified.desc.dimension != common::render_texture_dimension_t::TEXTURE_2D ||
@@ -188,35 +211,60 @@ render_error_t R_CreateTexture2DFromCooked(
          verified.desc.residency != common::cooked_texture_residency_t::FULLY_RESIDENT ||
          verified.desc.nDepth != 1u || verified.desc.nFrames != 1u ||
          verified.desc.nLayers != 1u || verified.desc.nFaces != 1u ||
-         verified.desc.nMipLevels != 1u || verified.nMipLevels != 1u ||
-         verified.nSubresources != 1u ||
+         verified.desc.nMipLevels != verified.nMipLevels ||
+         verified.nSubresources != verified.nMipLevels ||
          ( verified.desc.pixelFormat != common::render_texture_pixel_format_t::RGBA8_UNORM &&
            verified.desc.pixelFormat != common::render_texture_pixel_format_t::RGBA8_SRGB ) ) {
         return render_error_t::ERR_RESOURCE_FORMAT_UNSUPPORTED;
     }
 
-    common::cooked_texture_subresource_view_t suppliedBase{};
-    common::cooked_texture_subresource_view_t base{};
-    if ( !common::CookedTexture_GetSubresource( cooked, 0u, 0u, 0u, 0u, &suppliedBase ) ||
-         !common::CookedTexture_GetSubresource( verified, 0u, 0u, 0u, 0u, &base ) ||
-         suppliedBase.pixels.pData != base.pixels.pData ||
-         suppliedBase.pixels.cbSize != base.pixels.cbSize ||
-         suppliedBase.cbRowPitch != base.cbRowPitch ||
-         suppliedBase.cbSlicePitch != base.cbSlicePitch ||
-         suppliedBase.nWidth != base.nWidth ||
-         suppliedBase.nHeight != base.nHeight ) {
-        return render_error_t::ERR_INVALID_ARGUMENT;
+    // A one-level texture keeps the original upload route. Multiple levels
+    // must reach 1x1 so mip-filtered sampling is complete without synthesis.
+    common::u32 expectedLevels = 1u;
+    common::u32 extent = verified.desc.nWidth > verified.desc.nHeight
+        ? verified.desc.nWidth : verified.desc.nHeight;
+    while ( extent > 1u ) { extent /= 2u; ++expectedLevels; }
+    if ( verified.nMipLevels > 1u && verified.nMipLevels != expectedLevels ) {
+        return render_error_t::ERR_RESOURCE_FORMAT_UNSUPPORTED;
     }
 
-    const common::u64 rowBytes = static_cast<common::u64>( verified.desc.nWidth ) * 4u;
-    const common::u64 imageBytes = rowBytes * verified.desc.nHeight;
-    if ( base.pixels.pData == nullptr ||
-         base.nWidth != verified.desc.nWidth ||
-         base.nHeight != verified.desc.nHeight ||
-         base.cbRowPitch != rowBytes ||
-         base.cbSlicePitch != imageBytes ||
-         base.pixels.cbSize != imageBytes ) {
-        return render_error_t::ERR_RESOURCE_FORMAT_UNSUPPORTED;
+    render_texture_mip_data_t levels[common::CY_COOKED_TEXTURE_MAX_MIP_LEVELS]{};
+    common::u32 width = verified.desc.nWidth;
+    common::u32 height = verified.desc.nHeight;
+    for ( common::u32 level = 0u; level < verified.nMipLevels; ++level ) {
+        common::cooked_texture_subresource_view_t supplied{};
+        common::cooked_texture_subresource_view_t canonical{};
+        if ( !common::CookedTexture_GetSubresource( cooked, level, 0u, 0u, 0u, &supplied ) ||
+             !common::CookedTexture_GetSubresource( verified, level, 0u, 0u, 0u, &canonical ) ||
+             supplied.nMipLevel != canonical.nMipLevel ||
+             supplied.nFrame != canonical.nFrame ||
+             supplied.nLayer != canonical.nLayer ||
+             supplied.nFace != canonical.nFace ||
+             supplied.nWidth != canonical.nWidth ||
+             supplied.nHeight != canonical.nHeight ||
+             supplied.nDepth != canonical.nDepth ||
+             supplied.cbRowPitch != canonical.cbRowPitch ||
+             supplied.cbSlicePitch != canonical.cbSlicePitch ||
+             supplied.pixels.pData != canonical.pixels.pData ||
+             supplied.pixels.cbSize != canonical.pixels.cbSize ||
+             !common::ContentHash_Equals( supplied.contentHash, canonical.contentHash ) ) {
+            return render_error_t::ERR_INVALID_ARGUMENT;
+        }
+        const common::u64 rowBytes = static_cast<common::u64>( width ) * 4u;
+        const common::u64 imageBytes = rowBytes * height;
+        if ( canonical.pixels.pData == nullptr ||
+             canonical.nMipLevel != level || canonical.nWidth != width ||
+             canonical.nHeight != height || canonical.nDepth != 1u ||
+             canonical.cbRowPitch != rowBytes ||
+             canonical.cbSlicePitch != imageBytes ||
+             canonical.pixels.cbSize != imageBytes ||
+             imageBytes > std::numeric_limits<common::usize>::max() ) {
+            return render_error_t::ERR_RESOURCE_FORMAT_UNSUPPORTED;
+        }
+        levels[level] = { width, height,
+            { canonical.pixels.pData, canonical.pixels.cbSize } };
+        width = width > 1u ? width / 2u : 1u;
+        height = height > 1u ? height / 2u : 1u;
     }
 
     render_texture_desc_t description{};
@@ -226,8 +274,30 @@ render_error_t R_CreateTexture2DFromCooked(
         common::render_texture_pixel_format_t::RGBA8_SRGB;
     description.generateMips = false;
     description.repeat = true;
-    return R_CreateTexture2D( description,
-        { base.pixels.pData, base.pixels.cbSize }, textureOut );
+    if ( verified.nMipLevels == 1u ) {
+        return R_CreateTexture2D( description, levels[0].data, textureOut );
+    }
+    if ( tr.backend.api->CreateTexture2DLevels == nullptr ||
+         tr.backend.api->DestroyTexture == nullptr ) {
+        return render_error_t::ERR_UNSUPPORTED;
+    }
+    if ( description.width > tr.info.limits.maxTexture2DSize ||
+         description.height > tr.info.limits.maxTexture2DSize ||
+         description.width > static_cast<common::u32>( std::numeric_limits<common::i32>::max() ) ||
+         description.height > static_cast<common::u32>( std::numeric_limits<common::i32>::max() ) ) {
+        return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
+    }
+    backend_texture_t native{};
+    const render_error_t result = tr.backend.api->CreateTexture2DLevels(
+        description, levels, verified.nMipLevels, native, tr.backend.state );
+    if ( result != render_error_t::OK || native.value == 0u ) {
+        if ( native.value != 0u ) {
+            (void)tr.backend.api->DestroyTexture( native, tr.backend.state );
+        }
+        return result != render_error_t::OK ? result : render_error_t::ERR_INTERNAL_ERROR;
+    }
+    return RegisterCreatedTexture( description, native, verified.nMipLevels,
+        true, textureOut );
 }
 render_error_t R_DestroyTexture( render_texture_handle_t texture ) noexcept
 {

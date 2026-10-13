@@ -40,7 +40,7 @@ namespace cypher::engine::render
 
 // Binary contract version shared by Host and renderer implementations. This is
 // deliberately independent from the CypherEngine product version.
-inline constexpr ::cypher::common::u32 RENDER_API_VERSION = 14u;
+inline constexpr ::cypher::common::u32 RENDER_API_VERSION = 15u;
 
 /*
 ===============================================================================

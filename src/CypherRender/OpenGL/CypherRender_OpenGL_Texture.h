@@ -12,6 +12,9 @@ namespace cypher::engine::render
 CYPHER_NODISCARD render_error_t GL_CreateTexture2D(
     const render_texture_desc_t &, const render_texture_data_t &,
     backend_texture_t &, void * ) noexcept;
+CYPHER_NODISCARD render_error_t GL_CreateTexture2DLevels(
+    const render_texture_desc_t &, const render_texture_mip_data_t *,
+    ::cypher::common::u32, backend_texture_t &, void * ) noexcept;
 CYPHER_NODISCARD render_error_t GL_DestroyTexture( backend_texture_t, void * ) noexcept;
 }
 #endif

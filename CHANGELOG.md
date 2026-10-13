@@ -25,6 +25,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Cooked RGBA8 texture adoption now uploads a fully resident, complete authored
+  mip chain level by level, preserving its offline-filtered pixels. Draws with
+  explicit mip samplers accept that chain; texture info distinguishes it from
+  backend-generated levels. The frontend checks every level against the
+  reparsed CYTX file, and OpenGL restores host unpack state after upload.
+  Unit, native pixel, and hosted renderer checks passed (11 renderer CTests);
+  the cube example rendered two hidden frames. Compression, partial streaming,
+  and cooked material binding remain separate work.
 - Indexed draws can select an aligned uniform-buffer byte range for each
   declared block while `{0,0}` keeps whole-buffer binding. The device reports
   its required offset alignment; the frontend checks block size, buffer
@@ -39,10 +47,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   renderer headers first no longer changes their namespace lookup.
 - A validated CYTX texture view can now create a renderer texture handle via
   `R_CreateTexture2DFromCooked`. The bridge reparses the borrowed file, checks
-  that the view still matches it, and copies the base pixels synchronously.
-  It currently accepts only fully resident, tightly packed single-mip 2D
-  color RGBA8 (linear or sRGB); compression, streaming, 3D images, extra mips,
-  and cooked material binding remain unsupported.
+  that the view still matches it, and copies pixels synchronously. It accepts
+  fully resident, tightly packed 2D color RGBA8 (linear or sRGB), including a
+  complete authored mip chain. Compression, streaming, 3D images, and cooked
+  material binding remain unsupported.
 - Immutable OpenGL 4.1 samplers can now compare a shader-supplied reference
   against D24 depth. A pipeline declares `DEPTH_COMPARE_2D` for an active
   `sampler2DShadow`; draws require a D24 texture and an explicit comparison

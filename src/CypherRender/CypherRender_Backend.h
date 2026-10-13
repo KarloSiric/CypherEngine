@@ -41,13 +41,13 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version twenty adds per-draw uniform-buffer subranges. Offscreen targets,
+Version twenty-one adds synchronous authored texture mip-chain uploads. Offscreen targets,
 linked shaders, immediate draws, and all native object tokens remain behind
 this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 20u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 21u;
 
 /*
 ================
@@ -362,6 +362,16 @@ using backend_draw_indexed_fn_t = render_error_t (*)(
 using backend_create_texture_2d_fn_t = render_error_t (*)(
     const render_texture_desc_t &, const render_texture_data_t &,
     backend_texture_t &, void * ) noexcept;
+// Borrowed level pixels are consumed before return; each level is a tightly
+// packed RGBA8 image. The frontend supplies a complete base-to-1x1 chain.
+struct render_texture_mip_data_t {
+    ::cypher::common::u32 width{ 0u };
+    ::cypher::common::u32 height{ 0u };
+    render_texture_data_t data{};
+};
+using backend_create_texture_2d_levels_fn_t = render_error_t (*)(
+    const render_texture_desc_t &, const render_texture_mip_data_t *,
+    ::cypher::common::u32, backend_texture_t &, void * ) noexcept;
 using backend_destroy_texture_fn_t = render_error_t (*)(
     backend_texture_t, void * ) noexcept;
 
@@ -414,6 +424,8 @@ struct backend_api_t {
     // Both callbacks may be absent for a backend without sampled images.
     backend_create_texture_2d_fn_t CreateTexture2D{ nullptr };
     backend_destroy_texture_fn_t DestroyTexture{ nullptr };
+    // Optional until a backend supports authored, fully resident mip chains.
+    backend_create_texture_2d_levels_fn_t CreateTexture2DLevels{ nullptr };
 
     // Both callbacks may be absent for a backend without sampler objects.
     backend_create_sampler_fn_t CreateSampler{ nullptr };

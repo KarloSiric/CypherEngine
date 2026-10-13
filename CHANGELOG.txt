@@ -24,6 +24,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Cooked RGBA8 texture adoption uploads fully resident authored mip chains
+  level by level without regenerating the offline-filtered pixels. Texture
+  info reports a complete chain, and explicit mip samplers can use it. Every
+  level is checked against the reparsed CYTX file; OpenGL restores host unpack
+  state. Eleven renderer CTests passed, including a native LOD pixel check;
+  the cube rendered two hidden frames. Compression, partial streaming, and
+  cooked material binding remain separate work.
 - Indexed draws can bind an aligned byte range of a uniform buffer for each
   declared block; {0,0} keeps whole-buffer binding. The device reports the
   offset alignment, and the frontend validates size, bounds, mapped state and
@@ -36,9 +43,9 @@ Added
   headers now bind common explicitly, independent of header include order.
 - A validated CYTX texture view can create a renderer texture handle through
   R_CreateTexture2DFromCooked. The bridge reparses borrowed file bytes,
-  verifies the view and copies the base pixels synchronously. It accepts only
-  fully resident, tightly packed, single-mip 2D color RGBA8, linear or sRGB.
-  Compression, streaming, 3D images, extra mips and cooked material binding
+  verifies the view and copies pixels synchronously. It accepts fully resident,
+  tightly packed 2D color RGBA8, linear or sRGB, including a complete authored
+  mip chain. Compression, streaming, 3D images and cooked material binding
   remain unsupported.
 - Immutable OpenGL 4.1 samplers can compare a reference against D24 depth.
   DEPTH_COMPARE_2D pipeline slots require an active sampler2DShadow, D24

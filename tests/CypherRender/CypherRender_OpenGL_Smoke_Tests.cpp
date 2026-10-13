@@ -19,6 +19,7 @@
 #include "CypherRender/CypherRender_Target.h"
 #include "CypherRender/CypherRender_VertexInput.h"
 #include "CypherRender/OpenGL/CypherRender_OpenGL_Local.h"
+#include "CypherCommon/Formats/CypherCommon_CookedTexture.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
 #include "CypherSystem/Platform/CypherSystem_Window.h"
 
@@ -790,6 +791,48 @@ void CheckSampledDrawing( const render::render_extent_t extent )
     textureDesc.generateMips = false;
     textureDesc.repeat = false;
     REQUIRE( render::R_CreateTexture2D( textureDesc, { pixels, sizeof( pixels ) }, &linear ) == render::render_error_t::OK );
+    // The authored second level is green while the base level is red. Sampling
+    // LOD 1 below proves the backend uploaded authored data instead of calling
+    // glGenerateMipmap on the base image.
+    const common::byte authoredPixels[20]{
+        255u,0u,0u,255u, 255u,0u,0u,255u,
+        255u,0u,0u,255u, 255u,0u,0u,255u,
+        0u,255u,0u,255u
+    };
+    common::cooked_texture_desc_t cookedDesc{};
+    cookedDesc.pixelFormat = common::render_texture_pixel_format_t::RGBA8_UNORM;
+    cookedDesc.storageFormat = common::render_format_t::RGBA8_UNORM;
+    cookedDesc.colorSpace = common::render_texture_color_space_t::LINEAR;
+    cookedDesc.nWidth = cookedDesc.nHeight = 2u;
+    cookedDesc.nMipLevels = 2u;
+    const common::cooked_texture_mip_source_t authoredMips[2]{
+        { 2u, 2u, 1u, 8u, { authoredPixels, 16u } },
+        { 1u, 1u, 1u, 4u, { authoredPixels + 16u, 4u } }
+    };
+    const auto cookedSource = common::span_t<const common::cooked_texture_mip_source_t>{
+        authoredMips, 2u };
+    const auto cookedSize = common::CookedTexture_RequiredSize( cookedDesc, cookedSource );
+    REQUIRE( cookedSize > 0u );
+    std::vector<common::byte> cookedFile( cookedSize );
+    REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Write(
+        cookedDesc, cookedSource, {}, { cookedFile.data(), cookedFile.size() } ) ) );
+    common::cooked_texture_view_t cookedView{};
+    REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Read(
+        { cookedFile.data(), cookedFile.size() }, &cookedView ) ) );
+    render::render_texture_handle_t authored{};
+    REQUIRE( render::R_CreateTexture2DFromCooked( cookedView, &authored ) ==
+        render::render_error_t::OK );
+    render::render_texture_info_t authoredInfo{};
+    REQUIRE( render::R_GetTextureInfo( authored, &authoredInfo ) == render::render_error_t::OK );
+    CHECK( authoredInfo.mipLevels == 2u );
+    CHECK( authoredInfo.completeMipChain );
+    CHECK_FALSE( authoredInfo.generateMips );
+    glGetIntegerv( GL_PIXEL_UNPACK_BUFFER_BINDING, &captured );
+    CHECK( static_cast<GLuint>( captured ) == hostUnpack );
+    glGetIntegerv( GL_UNPACK_ALIGNMENT, &captured ); CHECK( captured == 8 );
+    glGetIntegerv( GL_UNPACK_ROW_LENGTH, &captured ); CHECK( captured == 9 );
+    glGetIntegerv( GL_UNPACK_SKIP_ROWS, &captured ); CHECK( captured == 2 );
+    glGetIntegerv( GL_UNPACK_SKIP_PIXELS, &captured ); CHECK( captured == 3 );
     glBindBuffer( GL_PIXEL_UNPACK_BUFFER, 0 );
     glDeleteBuffers( 1, &hostUnpack );
     glPixelStorei( GL_UNPACK_ALIGNMENT, 4 );
@@ -824,6 +867,41 @@ void CheckSampledDrawing( const render::render_extent_t extent )
     const auto unorm = sampledPixel( linear );
     CHECK( unorm >= 126u );
     CHECK( unorm <= 130u );
+    constexpr char mipFragment[] =
+        "#version 410 core\nuniform sampler2D base_color;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { color=textureLod(base_color,vec2(0.5),1.0); }\n";
+    source.stages[1].code = { reinterpret_cast<const common::byte *>( mipFragment ), sizeof( mipFragment ) };
+    render::render_shader_handle_t mipShader{};
+    REQUIRE( render::R_CreateShader( { &source, "Authored mip smoke" }, &mipShader ) ==
+        render::render_error_t::OK );
+    auto mipPipe = pipe;
+    mipPipe.shader = mipShader;
+    render::render_pipeline_handle_t mipPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( mipPipe, &mipPipeline ) == render::render_error_t::OK );
+    render::render_sampler_desc_t mipSamplerDesc{};
+    mipSamplerDesc.minFilter = mipSamplerDesc.magFilter = render::render_sampler_filter_t::NEAREST;
+    mipSamplerDesc.mipFilter = render::render_sampler_mip_filter_t::NEAREST;
+    render::render_sampler_handle_t mipSampler{};
+    REQUIRE( render::R_CreateSampler( mipSamplerDesc, &mipSampler ) == render::render_error_t::OK );
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    draw.pipeline = mipPipeline;
+    draw.sampledTextures[0] = authored;
+    draw.samplers[0] = mipSampler;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    common::byte mipPixel[4]{};
+    glReadBuffer( GL_BACK );
+    glReadPixels( static_cast<GLint>( extent.width / 2u ), static_cast<GLint>( extent.height / 2u ),
+        1, 1, GL_RGBA, GL_UNSIGNED_BYTE, mipPixel );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    CHECK( mipPixel[0] <= 2u );
+    CHECK( mipPixel[1] >= 253u );
+    CHECK( mipPixel[2] <= 2u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+    REQUIRE( render::R_DestroySampler( mipSampler ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( mipPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( mipShader ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( authored ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyTexture( srgb ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyTexture( linear ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );

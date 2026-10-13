@@ -1089,6 +1089,7 @@ const backend_api_t glBackend = {
     .DrawIndexed = GL_DrawIndexed,
     .CreateTexture2D = GL_CreateTexture2D,
     .DestroyTexture = GL_DestroyTexture,
+    .CreateTexture2DLevels = GL_CreateTexture2DLevels,
     .CreateSampler = GL_CreateSampler,
     .DestroySampler = GL_DestroySampler,
     .CreateRenderTarget = GL_CreateRenderTarget,
