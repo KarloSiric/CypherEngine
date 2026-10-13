@@ -9,6 +9,7 @@
 #include "CypherRender_OpenGL_Draw.h"
 #include "CypherRender_OpenGL_Local.h"
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -36,6 +37,9 @@ struct gl_pipeline_record_t {
     bool alphaBlend{ false };
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
     GLenum polygonMode{ GL_FILL };
+    bool depthBiasEnable{ false };
+    GLfloat depthBiasSlopeFactor{ 0.0f };
+    GLfloat depthBiasConstantUnits{ 0.0f };
 };
 
 // Tokens are backend-private addresses. Look them up before dereferencing so a
@@ -277,7 +281,12 @@ render_error_t GL_CreateGraphicsPipeline(
     const GLenum polygonMode = GL_PolygonMode( description.polygonMode );
     if ( polygonMode == 0u ||
          ( description.topology == render_primitive_topology_t::LINE_LIST &&
-           description.polygonMode != render_polygon_mode_t::FILL ) ) {
+           description.polygonMode != render_polygon_mode_t::FILL ) ||
+         !std::isfinite( description.depthBiasSlopeFactor ) ||
+         !std::isfinite( description.depthBiasConstantUnits ) ||
+         ( description.depthBiasEnable &&
+           ( description.topology != render_primitive_topology_t::TRIANGLE_LIST ||
+             description.polygonMode != render_polygon_mode_t::FILL ) ) ) {
         return render_error_t::ERR_PIPELINE_DESC_INVALID;
     }
     const GLenum depthCompare = GL_DepthCompare( description.depthCompare );
@@ -365,6 +374,9 @@ render_error_t GL_CreateGraphicsPipeline(
     record->alphaBlend = description.alphaBlend;
     record->topology = description.topology;
     record->polygonMode = polygonMode;
+    record->depthBiasEnable = description.depthBiasEnable;
+    record->depthBiasSlopeFactor = description.depthBiasSlopeFactor;
+    record->depthBiasConstantUnits = description.depthBiasConstantUnits;
     record->next = glPipelines;
     glPipelines = record;
     pipelineOut.value = GL_PipelineToken( record );
@@ -516,7 +528,9 @@ render_error_t GL_DrawIndexed(
     glDisable( GL_STENCIL_TEST );
     glDisable( GL_PRIMITIVE_RESTART );
     glDisable( GL_RASTERIZER_DISCARD );
-    glDisable( GL_POLYGON_OFFSET_FILL );
+    glPolygonOffset( pipeline->depthBiasEnable ? pipeline->depthBiasSlopeFactor : 0.0f,
+        pipeline->depthBiasEnable ? pipeline->depthBiasConstantUnits : 0.0f );
+    GL_SetCapability( GL_POLYGON_OFFSET_FILL, pipeline->depthBiasEnable );
     // Hosted editors may enable these for their own wire overlays. Neither
     // belongs to the pipeline contract, so line draws must not inherit them.
     glDisable( GL_POLYGON_OFFSET_LINE );

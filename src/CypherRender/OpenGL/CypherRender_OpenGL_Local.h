@@ -84,6 +84,8 @@ struct gl_host_frame_state_t {
     GLint stencilWriteMaskBack{ 0 };
     GLint clearStencil{ 0 };
     GLfloat lineWidth{ 1.0f };
+    GLfloat polygonOffsetFactor{ 0.0f };
+    GLfloat polygonOffsetUnits{ 0.0f };
     GLfloat clearColor[4]{};
     GLdouble clearDepth{ 1.0 };
     GLboolean depthWriteMask{ GL_TRUE };

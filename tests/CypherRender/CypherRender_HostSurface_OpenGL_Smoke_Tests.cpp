@@ -352,6 +352,15 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     render::render_pipeline_handle_t pipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &pipeline ) ==
         render::render_error_t::OK );
+    pipelineDesc.depthBiasEnable = true;
+    pipelineDesc.depthBiasSlopeFactor = 1.25f;
+    pipelineDesc.depthBiasConstantUnits = 2.0f;
+    render::render_pipeline_handle_t biasedPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &biasedPipeline ) ==
+        render::render_error_t::OK );
+    pipelineDesc.depthBiasEnable = false;
+    pipelineDesc.depthBiasSlopeFactor = 0.0f;
+    pipelineDesc.depthBiasConstantUnits = 0.0f;
     pipelineDesc.polygonMode = render::render_polygon_mode_t::LINE;
     render::render_pipeline_handle_t wireframePipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &wireframePipeline ) ==
@@ -418,6 +427,8 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glCullFace( GL_FRONT );
     glFrontFace( GL_CW );
     glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+    glPolygonOffset( 3.25f, -4.5f );
+    glEnable( GL_POLYGON_OFFSET_FILL );
     glEnable( GL_POLYGON_OFFSET_LINE );
     glEnable( GL_LINE_SMOOTH );
     GLint maxViewports = 0;
@@ -542,7 +553,13 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     draw.viewport = { true, 8u, 4u, 32u, 24u };
     draw.scissor = { true, 24u, 0u, 24u, 32u };
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    CHECK( glIsEnabled( GL_POLYGON_OFFSET_FILL ) == GL_FALSE );
     CHECK( glIsEnabled( GL_POLYGON_OFFSET_LINE ) == GL_FALSE );
+    GLfloat currentBias = -1.0f;
+    glGetFloatv( GL_POLYGON_OFFSET_FACTOR, &currentBias );
+    CHECK( currentBias == 0.0f );
+    glGetFloatv( GL_POLYGON_OFFSET_UNITS, &currentBias );
+    CHECK( currentBias == 0.0f );
     CHECK( glIsEnabled( GL_LINE_SMOOTH ) == GL_FALSE );
     glGetIntegerv( GL_VIEWPORT, viewport );
     CHECK( viewport[0] == 8 );
@@ -586,6 +603,21 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
     CHECK( glIsEnabled( GL_POLYGON_OFFSET_LINE ) == GL_FALSE );
     CHECK( glIsEnabled( GL_LINE_SMOOTH ) == GL_FALSE );
+    draw.pipeline = biasedPipeline;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    CHECK( glIsEnabled( GL_POLYGON_OFFSET_FILL ) == GL_TRUE );
+    CHECK( glIsEnabled( GL_POLYGON_OFFSET_LINE ) == GL_FALSE );
+    glGetFloatv( GL_POLYGON_OFFSET_FACTOR, &currentBias );
+    CHECK( currentBias == 1.25f );
+    glGetFloatv( GL_POLYGON_OFFSET_UNITS, &currentBias );
+    CHECK( currentBias == 2.0f );
+    draw.pipeline = pipeline;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    CHECK( glIsEnabled( GL_POLYGON_OFFSET_FILL ) == GL_FALSE );
+    glGetFloatv( GL_POLYGON_OFFSET_FACTOR, &currentBias );
+    CHECK( currentBias == 0.0f );
+    glGetFloatv( GL_POLYGON_OFFSET_UNITS, &currentBias );
+    CHECK( currentBias == 0.0f );
     draw.pipeline = depthOnlyPipeline;
     draw.viewport = {};
     draw.scissor = {};
@@ -651,7 +683,13 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glGetIntegerv( GL_POLYGON_MODE, restoredPolygonMode );
     CHECK( restoredPolygonMode[0] == GL_LINE );
     CHECK( restoredPolygonMode[1] == GL_LINE );
+    CHECK( glIsEnabled( GL_POLYGON_OFFSET_FILL ) == GL_TRUE );
     CHECK( glIsEnabled( GL_POLYGON_OFFSET_LINE ) == GL_TRUE );
+    GLfloat restoredBias = 0.0f;
+    glGetFloatv( GL_POLYGON_OFFSET_FACTOR, &restoredBias );
+    CHECK( restoredBias == 3.25f );
+    glGetFloatv( GL_POLYGON_OFFSET_UNITS, &restoredBias );
+    CHECK( restoredBias == -4.5f );
     CHECK( glIsEnabled( GL_LINE_SMOOTH ) == GL_TRUE );
     CHECK( glIsEnabled( GL_SCISSOR_TEST ) == GL_TRUE );
     GLint scissorBox[4]{};
@@ -726,6 +764,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
 
     REQUIRE( render::R_DestroyGraphicsPipeline( depthOnlyPipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( wireframePipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( biasedPipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroySampler( rendererSampler ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );

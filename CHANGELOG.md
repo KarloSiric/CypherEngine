@@ -61,6 +61,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Graphics pipelines now expose disabled-by-default slope and constant depth
+  bias for filled triangles. The OpenGL 4.1 backend applies polygon offset per
+  draw, clears it for ordinary draws, and restores a hosted context's offset
+  factors and enable bits. The graybox shadow pass uses caster bias and a
+  smaller shader comparison bias. Non-finite inputs and enabled bias on line
+  or wireframe pipelines are rejected; public/backend API versions advance to
+  19/24. The compact renderer targets build, four focused CTests and the
+  120-frame shadow sample pass. Shadow bias still needs visual tuning across
+  real scenes and different GPUs.
 - The OpenGL 4.1 graybox sample now renders a fixed directional shadow: all
   five World objects draw into a 1024×1024 D24 depth target before the four
   camera-visible draws sample it with a `LESS_EQUAL` comparison sampler. The

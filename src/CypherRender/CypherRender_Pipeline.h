@@ -91,6 +91,12 @@ struct render_pipeline_desc_t {
     render_sampled_texture_binding_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
     render_polygon_mode_t polygonMode{ render_polygon_mode_t::FILL };
+    // Filled triangles only. Positive values increase window-space depth;
+    // useful for a depth-writing shadow caster pass with a LESS depth test. These are
+    // backend-neutral slope and constant terms, not clip-space depth values.
+    bool depthBiasEnable{ false };
+    ::cypher::common::f32 depthBiasSlopeFactor{ 0.0f };
+    ::cypher::common::f32 depthBiasConstantUnits{ 0.0f };
 };
 
 // Owns no pointers. A live pipeline retains its shader until destruction.
@@ -110,6 +116,9 @@ struct render_pipeline_info_t {
     render_sampled_texture_kind_t sampledTextureKinds[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
     render_polygon_mode_t polygonMode{ render_polygon_mode_t::FILL };
+    bool depthBiasEnable{ false };
+    ::cypher::common::f32 depthBiasSlopeFactor{ 0.0f };
+    ::cypher::common::f32 depthBiasConstantUnits{ 0.0f };
 };
 
 // Declared slots are contiguous from zero and map to GL uniform-buffer binding

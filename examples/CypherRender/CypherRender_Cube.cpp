@@ -525,6 +525,11 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
 
     pipeline.shader = state.shadowShader;
     pipeline.colorWrite = false;
+    // Bias depth written by filled shadow casters. This avoids relying only
+    // on the receiver's fixed comparison bias in the fragment shader.
+    pipeline.depthBiasEnable = true;
+    pipeline.depthBiasSlopeFactor = 1.25f;
+    pipeline.depthBiasConstantUnits = 2.0f;
     pipeline.uniformBlocks[0] = { "LightConstants", sizeof( shadow_light_constants_t ) };
     pipeline.uniformBlocks[1] = { "ObjectConstants", sizeof( shadow_object_constants_t ) };
     pipeline.sampledTextureCount = 0u;

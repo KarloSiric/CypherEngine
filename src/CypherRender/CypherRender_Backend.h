@@ -41,13 +41,13 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version twenty-three adds optional synchronous RGBA8 readback from an explicit
-offscreen target. Offscreen targets, linked shaders, immediate draws, and all
+Version twenty-four adds filled-triangle depth bias to immutable pipelines.
+Offscreen targets, linked shaders, immediate draws, and all
 native object tokens remain behind this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 23u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 24u;
 
 /*
 ================
@@ -203,6 +203,9 @@ struct backend_pipeline_desc_t {
     render_sampled_texture_binding_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
     render_polygon_mode_t polygonMode{ render_polygon_mode_t::FILL };
+    bool depthBiasEnable{ false };
+    ::cypher::common::f32 depthBiasSlopeFactor{ 0.0f };
+    ::cypher::common::f32 depthBiasConstantUnits{ 0.0f };
 };
 
 struct backend_draw_indexed_desc_t {

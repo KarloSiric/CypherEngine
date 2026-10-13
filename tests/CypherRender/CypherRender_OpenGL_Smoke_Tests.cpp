@@ -1609,7 +1609,7 @@ void CheckShadowPassLighting( const render::render_extent_t extent )
         "layout(location=0) out vec4 color;\n"
         "void main() { vec4 clip=lightVP*vec4(worldPosition,1.0);"
         " vec3 ndc=clip.xyz/clip.w; vec2 uv=ndc.xy*0.5+0.5;"
-        " float reference=ndc.z*0.5+0.5-0.0025;"
+        " float reference=ndc.z*0.5+0.5-0.00025;"
         " float visible=texture(shadowMap,vec3(uv,reference));"
         " float base=texture(albedo,vec2(0.5)).r;"
         " color=vec4(vec3(base*(0.2+0.7*visible)),1.0); }\n";

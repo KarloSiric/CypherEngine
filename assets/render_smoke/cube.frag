@@ -30,7 +30,7 @@ void main()
         vec3 lightNdc = lightClip.xyz / lightClip.w;
         if (all(lessThanEqual(abs(lightNdc), vec3(1.0)))) {
             vec2 shadowUV = lightNdc.xy * 0.5 + 0.5;
-            float referenceDepth = lightNdc.z * 0.5 + 0.5 - 0.0025;
+            float referenceDepth = lightNdc.z * 0.5 + 0.5 - 0.00025;
             visibility = texture(shadowMap, vec3(shadowUV, referenceDepth));
         }
     }

@@ -39,6 +39,9 @@ struct draw_fixture_t {
     render::render_polygon_mode_t lastPipelinePolygonMode{ render::render_polygon_mode_t::FILL };
     render::render_depth_compare_t lastPipelineDepthCompare{ render::render_depth_compare_t::LESS };
     bool lastPipelineColorWrite{ true };
+    bool lastPipelineDepthBiasEnable{ false };
+    float lastPipelineDepthBiasSlopeFactor{ 0.0f };
+    float lastPipelineDepthBiasConstantUnits{ 0.0f };
     render::backend_draw_indexed_desc_t lastDraw{};
     common::byte mappedBytes[256]{};
     render::render_shader_handle_t shader{};
@@ -102,6 +105,9 @@ struct draw_fixture_t {
             fixture.lastPipelinePolygonMode = description.polygonMode;
             fixture.lastPipelineDepthCompare = description.depthCompare;
             fixture.lastPipelineColorWrite = description.colorWrite;
+            fixture.lastPipelineDepthBiasEnable = description.depthBiasEnable;
+            fixture.lastPipelineDepthBiasSlopeFactor = description.depthBiasSlopeFactor;
+            fixture.lastPipelineDepthBiasConstantUnits = description.depthBiasConstantUnits;
             out = {};
             if ( fixture.pipelineResult == draw_error_t::OK || fixture.failedCreateReturnsNative ) {
                 out.value = fixture.nextToken++;
@@ -502,6 +508,64 @@ TEST_CASE( "color write state defaults on and survives backend creation and insp
     REQUIRE( render::R_GetGraphicsPipelineInfo( visible, &info ) == draw_error_t::OK );
     CHECK( info.colorWrite );
     REQUIRE( render::R_DestroyGraphicsPipeline( visible ) == draw_error_t::OK );
+}
+
+TEST_CASE( "depth bias validates filled triangles and survives pipeline inspection",
+           "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    auto description = fixture.PipelineDescription();
+    CHECK_FALSE( description.depthBiasEnable );
+    CHECK( description.depthBiasSlopeFactor == 0.0f );
+    CHECK( description.depthBiasConstantUnits == 0.0f );
+
+    render::render_pipeline_handle_t rejected{ 99u };
+    description.depthBiasSlopeFactor = std::numeric_limits<float>::quiet_NaN();
+    CHECK( render::R_CreateGraphicsPipeline( description, &rejected ) ==
+        draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    CHECK( rejected.value == 0u );
+    description = fixture.PipelineDescription();
+    description.depthBiasConstantUnits = std::numeric_limits<float>::infinity();
+    CHECK( render::R_CreateGraphicsPipeline( description, &rejected ) ==
+        draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description = fixture.PipelineDescription();
+    description.depthBiasEnable = true;
+    description.polygonMode = render::render_polygon_mode_t::LINE;
+    CHECK( render::R_CreateGraphicsPipeline( description, &rejected ) ==
+        draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description = fixture.PipelineDescription();
+    description.depthBiasEnable = true;
+    description.topology = render::render_primitive_topology_t::LINE_LIST;
+    CHECK( render::R_CreateGraphicsPipeline( description, &rejected ) ==
+        draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    CHECK( fixture.pipelineCreates == 0u );
+
+    description = fixture.PipelineDescription();
+    description.depthBiasEnable = true;
+    description.depthBiasSlopeFactor = 1.25f;
+    description.depthBiasConstantUnits = 2.0f;
+    render::render_pipeline_handle_t biased{};
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &biased ) == draw_error_t::OK );
+    CHECK( fixture.lastPipelineDepthBiasEnable );
+    CHECK( fixture.lastPipelineDepthBiasSlopeFactor == 1.25f );
+    CHECK( fixture.lastPipelineDepthBiasConstantUnits == 2.0f );
+    render::render_pipeline_info_t info{};
+    REQUIRE( render::R_GetGraphicsPipelineInfo( biased, &info ) == draw_error_t::OK );
+    CHECK( info.depthBiasEnable );
+    CHECK( info.depthBiasSlopeFactor == 1.25f );
+    CHECK( info.depthBiasConstantUnits == 2.0f );
+    REQUIRE( render::R_DestroyGraphicsPipeline( biased ) == draw_error_t::OK );
+
+    description = fixture.PipelineDescription();
+    render::render_pipeline_handle_t unbiased{};
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &unbiased ) == draw_error_t::OK );
+    CHECK_FALSE( fixture.lastPipelineDepthBiasEnable );
+    REQUIRE( render::R_GetGraphicsPipelineInfo( unbiased, &info ) == draw_error_t::OK );
+    CHECK_FALSE( info.depthBiasEnable );
+    CHECK( info.depthBiasSlopeFactor == 0.0f );
+    CHECK( info.depthBiasConstantUnits == 0.0f );
+    REQUIRE( render::R_DestroyGraphicsPipeline( unbiased ) == draw_error_t::OK );
 }
 
 TEST_CASE( "draw validates full offset ranges and dispatches only during an active frame", "[CypherRender][Draw]" )

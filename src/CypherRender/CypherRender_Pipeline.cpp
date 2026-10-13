@@ -8,6 +8,7 @@
 #include "CypherRender_Local.h"
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 #include "CypherCommon/Tier1/CypherCommon_HandleTable.h"
+#include <cmath>
 #include <cstring>
 
 namespace cypher::engine::render
@@ -93,7 +94,12 @@ render_error_t R_CreateGraphicsPipeline(
          description.polygonMode >= render_polygon_mode_t::COUNT ||
          ( description.topology == render_primitive_topology_t::LINE_LIST &&
            description.polygonMode != render_polygon_mode_t::FILL ) ||
-         description.depthCompare >= render_depth_compare_t::COUNT ) {
+         description.depthCompare >= render_depth_compare_t::COUNT ||
+         !std::isfinite( description.depthBiasSlopeFactor ) ||
+         !std::isfinite( description.depthBiasConstantUnits ) ||
+         ( description.depthBiasEnable &&
+           ( description.topology != render_primitive_topology_t::TRIANGLE_LIST ||
+             description.polygonMode != render_polygon_mode_t::FILL ) ) ) {
         return render_error_t::ERR_PIPELINE_DESC_INVALID;
     }
     if ( R_ValidateVertexLayout( description.vertexLayout ) != render_error_t::OK ) {
@@ -184,6 +190,9 @@ render_error_t R_CreateGraphicsPipeline(
     }
     nativeDescription.topology = description.topology;
     nativeDescription.polygonMode = description.polygonMode;
+    nativeDescription.depthBiasEnable = description.depthBiasEnable;
+    nativeDescription.depthBiasSlopeFactor = description.depthBiasSlopeFactor;
+    nativeDescription.depthBiasConstantUnits = description.depthBiasConstantUnits;
 
     pipeline_record_t record{};
     result = tr.backend.api->CreateGraphicsPipeline( nativeDescription, record.native, tr.backend.state );
@@ -216,6 +225,9 @@ render_error_t R_CreateGraphicsPipeline(
     }
     record.info.topology = description.topology;
     record.info.polygonMode = description.polygonMode;
+    record.info.depthBiasEnable = description.depthBiasEnable;
+    record.info.depthBiasSlopeFactor = description.depthBiasSlopeFactor;
+    record.info.depthBiasConstantUnits = description.depthBiasConstantUnits;
     const common::handle32_t tableHandle = common::HandleTable_Insert( &pipelineSystem.records, record );
     if ( !common::Cy_Handle32IsValid( tableHandle ) ) {
         (void)tr.backend.api->DestroyGraphicsPipeline( record.native, tr.backend.state );

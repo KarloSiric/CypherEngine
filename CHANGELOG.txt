@@ -53,6 +53,14 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- Graphics pipelines have disabled-by-default slope and constant depth bias
+  for filled triangles. OpenGL 4.1 applies offset per draw, clears it for
+  ordinary draws and restores hosted offset factors and enable bits. The
+  graybox shadow pass uses caster bias and a smaller shader comparison bias.
+  Invalid non-finite and line/wireframe uses are rejected; public/backend API
+  versions are 19/24. Compact targets build, four focused tests and the
+  120-frame hidden shadow sample pass. Visual tuning across scenes and GPUs
+  remains future work.
 - The OpenGL 4.1 graybox sample renders a fixed directional shadow: all five
   World objects draw into a 1024x1024 D24 depth target before the four camera-
   visible draws sample it with a LESS_EQUAL comparison sampler. Two pipelines

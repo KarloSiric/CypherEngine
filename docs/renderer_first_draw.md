@@ -339,8 +339,28 @@ maps its clip coordinates to depth-texture coordinates, and treats fragments
 outside the fixed light volume as lit. It applies a constant reference-depth
 bias and attenuates directional diffuse light on a failed comparison; ambient
 light remains. The light position and volume, map size, bias, and single sample
-are demonstration choices. There is no slope-scale bias, filtering, cascades,
-dynamic light selection, or authored World light component here.
+are demonstration choices. There is no filtering, cascades, dynamic light
+selection, or authored World light component here.
+
+### Pipeline depth bias
+
+Filled triangle pipelines can enable a slope factor and constant depth-offset
+term for their rasterized fragments. The shadow caster pipeline uses this
+offset while writing the D24 map; ordinary and wireframe pipelines leave it
+disabled. A positive offset moves generated depth toward larger window-depth
+values under OpenGL's conventional `LESS` projection. This helps keep a surface
+from shadowing itself when its sampled depth differs slightly from the value
+written during rasterization. The fragment shader retains a small comparison
+bias; both terms still need tuning for a real scene, because too much offset
+can detach a shadow from its caster.
+
+Pipeline creation rejects non-finite bias values and enabled bias on line or
+wireframe topology. Each draw sets the fill-offset state explicitly, so a
+shadow pass cannot leak it into subsequent camera draws. When the renderer
+borrows an editor's OpenGL context, it restores the host's polygon-offset
+factor, units, and enable bits at the end of the hosted frame. This is
+pipeline state, not an authored material property or an automatic shadow
+quality setting.
 
 OpenGL 4.1 treats depth textures as red textures for ordinary sampling; see
 sections 3.8.9 and 3.8.16 of the [OpenGL 4.1 Core Specification](https://registry.khronos.org/OpenGL/specs/gl/glspec41.core.pdf).

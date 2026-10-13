@@ -148,6 +148,8 @@ render_error_t GL_CaptureHostFrameState( gl_host_frame_state_t &state ) noexcept
     glGetIntegerv( GL_STENCIL_BACK_WRITEMASK, &state.stencilWriteMaskBack );
     glGetIntegerv( GL_STENCIL_CLEAR_VALUE, &state.clearStencil );
     glGetFloatv( GL_LINE_WIDTH, &state.lineWidth );
+    glGetFloatv( GL_POLYGON_OFFSET_FACTOR, &state.polygonOffsetFactor );
+    glGetFloatv( GL_POLYGON_OFFSET_UNITS, &state.polygonOffsetUnits );
     glGetFloatv( GL_COLOR_CLEAR_VALUE, state.clearColor );
     glGetDoublev( GL_DEPTH_CLEAR_VALUE, &state.clearDepth );
     glGetBooleanv( GL_DEPTH_WRITEMASK, &state.depthWriteMask );
@@ -221,6 +223,7 @@ render_error_t GL_RestoreHostFrameState( gl_host_frame_state_t &state ) noexcept
         static_cast<GLenum>( state.drawBuffer0.blendSourceAlpha ),
         static_cast<GLenum>( state.drawBuffer0.blendDestinationAlpha ) );
     glLineWidth( state.lineWidth );
+    glPolygonOffset( state.polygonOffsetFactor, state.polygonOffsetUnits );
     GL_SetEnabled( GL_STENCIL_TEST, state.stencilTest );
     GL_SetEnabled( GL_PRIMITIVE_RESTART, state.primitiveRestart );
     GL_SetEnabled( GL_RASTERIZER_DISCARD, state.rasterizerDiscard );
