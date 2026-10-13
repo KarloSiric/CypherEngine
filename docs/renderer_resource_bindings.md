@@ -170,12 +170,19 @@ The first supported material value is one F32X4 `tint` at byte offset zero.
 The cooked shader must declare a matching MATERIAL VALUE and a 16-byte
 MATERIAL uniform block named `Material`, whose GLSL std140 member is
 `vec4 tint`. For this subset the caller declares `View` at uniform slot 0,
-`Model` at slot 1 (a 64-byte `mat4`, or a 112-byte `mat4` plus std140-padded
-inverse-transpose `mat3`), and `Material` at slot 2. The bridge packs the
+`Model` at slot 1 (a 64-byte `mat4`, an 80-byte `mat4` plus cutoff `vec4`, a
+112-byte `mat4` plus std140-padded inverse-transpose `mat3`, or a 128-byte
+record with both normal matrix and cutoff), and `Material` at slot 2. The
+bridge packs the
 decoded value into native float bytes, creates and owns the slot-2 buffer,
 and binds it per draw. The exact member name and offset are an authoring
 convention: native pipeline reflection verifies the block's size, not its
-member layout. Other value types and Model block sizes still fail preflight.
+member layout. Other value types and Model block sizes fail preflight for this
+tint path.
+The 80- and 128-byte variants match the World camera adapter's opt-in cutout
+records; the shader must use the cutoff and discard sampled alpha for `MASK`.
+The current authored shader cooker does not yet emit these uniform-block
+bindings, so these layouts require a compatible hand-built cooked shader.
 All shader resource bindings must fit those texture slots or the caller's
 declared uniform blocks. A two-sided material disables back-face culling; its
 casts-shadows flag is consumed by the World light-view adapter. The

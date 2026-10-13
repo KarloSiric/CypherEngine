@@ -25,6 +25,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Cooked tint materials now accept the World camera adapter's 80-byte
+  `MODEL_CUTOUT` and 128-byte `MODEL_NORMAL_CUTOUT` std140 blocks as well as
+  the existing 64/112-byte layouts. A mismatched cooked shader binding or
+  unsupported size still fails before GPU creation. Material-bridge CPU tests
+  and native OpenGL 4.1 pixels pass for both cutout layouts, including cooked
+  alpha discard and tint. These tests build compatible cooked assets directly;
+  authored shader recipes do not yet emit the required uniform-block bindings,
+  and Mason's live viewport is not connected to this renderer path.
 - World light-view shadow preparation now accepts opt-in `MASK` casters with
   dedicated depth-only pipelines. It packs a 64-byte Model record for opaque
   casters or an 80-byte record with the alpha cutoff for masked casters, binds

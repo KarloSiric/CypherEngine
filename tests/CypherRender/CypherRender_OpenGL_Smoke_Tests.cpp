@@ -4024,6 +4024,399 @@ void CheckWorldCameraMaskCutoutDrawing( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) == render::render_error_t::OK );
 }
 
+void CheckCookedTintWorldMaskDrawing( const render::render_extent_t extent,
+    const bool withNormalMatrix )
+{
+    CAPTURE( withNormalMatrix );
+    // The cooked bundle owns both the texture and tint buffer. World supplies
+    // the 80- or 128-byte Model record; the shader uses its cutoff in discard.
+    constexpr char vertexSource[] =
+        "#version 410 core\n"
+        "layout(location=0) in vec3 position;\n"
+        "layout(std140) uniform View { mat4 view; };\n"
+        "layout(std140) uniform Model { mat4 model; vec4 cutout; };\n"
+        "out vec2 uv;\n"
+        "void main(){ gl_Position=view*model*vec4(position,1.0);"
+        " uv=position.xy*0.5+0.5; }\n";
+    constexpr char fragmentSource[] =
+        "#version 410 core\n"
+        "layout(std140) uniform Model { mat4 model; vec4 cutout; };\n"
+        "layout(std140) uniform Material { vec4 tint; };\n"
+        "uniform sampler2D AlbedoMap; in vec2 uv;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main(){ vec4 sampleColor=texture(AlbedoMap,uv);"
+        " if(sampleColor.a<cutout.x) discard;"
+        " color=vec4(sampleColor.rgb*tint.rgb,1.0); }\n";
+    constexpr char normalVertexSource[] =
+        "#version 410 core\n"
+        "layout(location=0) in vec3 position;\n"
+        "layout(std140) uniform View { mat4 view; };\n"
+        "layout(std140) uniform Model { mat4 model; mat3 normalMatrix;"
+        " vec4 cutout; };\n"
+        "out vec2 uv;\n"
+        "void main(){ vec3 normal=normalMatrix*vec3(0.0,0.0,1.0);"
+        " gl_Position=view*model*vec4(position+normal*0.000001,1.0);"
+        " uv=position.xy*0.5+0.5; }\n";
+    constexpr char normalFragmentSource[] =
+        "#version 410 core\n"
+        "layout(std140) uniform Model { mat4 model; mat3 normalMatrix;"
+        " vec4 cutout; };\n"
+        "layout(std140) uniform Material { vec4 tint; };\n"
+        "uniform sampler2D AlbedoMap; in vec2 uv;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main(){ vec4 sampleColor=texture(AlbedoMap,uv);"
+        " if(sampleColor.a<cutout.x) discard;"
+        " color=vec4(sampleColor.rgb*tint.rgb,1.0); }\n";
+    constexpr char materialSourcePath[] = "materials/cutout_tint.cymat";
+    constexpr char shaderSourcePath[] = "shaders/cutout_tint.cyshader";
+    constexpr char textureSourcePath[] = "textures/cutout_tint.cytex";
+    constexpr char materialCookedPath[] = "materials/cutout_tint.cymat_c";
+    constexpr char shaderCookedPath[] = "shaders/cutout_tint.cyshader_c";
+    constexpr char textureCookedPath[] = "textures/cutout_tint.cytex_c";
+
+    common::cooked_shader_binding_source_t bindings[5]{};
+    const auto setBlock = [&]( common::u32 index, const char *name,
+        common::u32 byteSize, common::flags32_t stageMask,
+        common::flags32_t ownership ) {
+        auto &binding = bindings[index];
+        binding.name = common::StringView_FromCString( name );
+        binding.kind = common::render_shader_binding_kind_t::UNIFORM_BUFFER;
+        binding.resourceType = common::render_shader_resource_type_t::UNIFORM_BUFFER;
+        binding.stageMask = stageMask;
+        binding.flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED | ownership;
+        binding.cbByteSize = byteSize;
+    };
+    setBlock( 0u, "View", 64u, common::RENDER_SHADER_STAGE_MASK_VERTEX,
+        common::COOKED_SHADER_BINDING_FLAG_INSTANCE );
+    const common::u32 modelBytes = withNormalMatrix ? 128u : 80u;
+    setBlock( 1u, "Model", modelBytes,
+        common::RENDER_SHADER_STAGE_MASK_ALL_GRAPHICS,
+        common::COOKED_SHADER_BINDING_FLAG_INSTANCE );
+    setBlock( 2u, "Material", 16u, common::RENDER_SHADER_STAGE_MASK_FRAGMENT,
+        common::COOKED_SHADER_BINDING_FLAG_MATERIAL );
+    bindings[3].name = common::StringView_FromCString( "AlbedoMap" );
+    bindings[3].kind = common::render_shader_binding_kind_t::SAMPLED_TEXTURE;
+    bindings[3].resourceType = common::render_shader_resource_type_t::TEXTURE_2D;
+    bindings[3].stageMask = common::RENDER_SHADER_STAGE_MASK_FRAGMENT;
+    bindings[3].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
+        common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
+    bindings[4].name = common::StringView_FromCString( "tint" );
+    bindings[4].kind = common::render_shader_binding_kind_t::VALUE;
+    bindings[4].valueType = common::render_shader_value_type_t::F32X4;
+    bindings[4].stageMask = common::RENDER_SHADER_STAGE_MASK_FRAGMENT;
+    bindings[4].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
+        common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
+    bindings[4].cbByteSize = 16u;
+    for ( auto &binding : bindings ) {
+        REQUIRE( common::CookedShader_MakeLogicalBindingId(
+            binding.name, &binding.nLogicalBinding ) );
+    }
+    const common::cooked_shader_interface_source_t shaderInterface{
+        { bindings, 5u }
+    };
+    common::content_hash_t interfaceHash{};
+    REQUIRE( common::CookedShader_ComputeInterfaceHash(
+        shaderInterface, &interfaceHash ) );
+    common::cooked_shader_stage_source_t stages[2]{};
+    stages[0].stage = common::render_shader_stage_t::VERTEX;
+    stages[0].code = withNormalMatrix
+        ? common::binary_block_t{
+            reinterpret_cast<const common::byte *>( normalVertexSource ),
+            sizeof( normalVertexSource ) }
+        : common::binary_block_t{
+            reinterpret_cast<const common::byte *>( vertexSource ),
+            sizeof( vertexSource ) };
+    stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+    stages[1].code = withNormalMatrix
+        ? common::binary_block_t{
+            reinterpret_cast<const common::byte *>( normalFragmentSource ),
+            sizeof( normalFragmentSource ) }
+        : common::binary_block_t{
+            reinterpret_cast<const common::byte *>( fragmentSource ),
+            sizeof( fragmentSource ) };
+    std::vector<common::byte> shaderBytes( common::CookedShader_RequiredSizeV3(
+        {}, { stages, 2u }, shaderInterface ) );
+    REQUIRE_FALSE( shaderBytes.empty() );
+    REQUIRE( common::CookedShader_Succeeded( common::CookedShader_WriteV3(
+        {}, { stages, 2u }, shaderInterface,
+        common::ContentHash_String( common::StringView_FromCString(
+            shaderSourcePath ) ),
+        { shaderBytes.data(), shaderBytes.size() } ) ) );
+
+    // The left texel is below the authored 0.7 cutoff. The right texel is
+    // above it and must render with the independently cooked RGB tint.
+    constexpr common::byte pixels[8]{
+        200u, 160u, 80u, 64u, 200u, 160u, 80u, 224u
+    };
+    common::cooked_texture_desc_t textureDescription{};
+    textureDescription.pixelFormat =
+        common::render_texture_pixel_format_t::RGBA8_UNORM;
+    textureDescription.colorSpace = common::render_texture_color_space_t::LINEAR;
+    textureDescription.nWidth = 2u;
+    textureDescription.nHeight = 1u;
+    textureDescription.nMipLevels = 1u;
+    const common::cooked_texture_mip_source_t mip{
+        2u, 1u, 1u, sizeof( pixels ), { pixels, sizeof( pixels ) }
+    };
+    std::vector<common::byte> textureBytes( common::CookedTexture_RequiredSize(
+        textureDescription, { &mip, 1u } ) );
+    REQUIRE_FALSE( textureBytes.empty() );
+    REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Write(
+        textureDescription, { &mip, 1u },
+        common::ContentHash_String( common::StringView_FromCString(
+            textureSourcePath ) ),
+        { textureBytes.data(), textureBytes.size() } ) ) );
+
+    common::cooked_material_texture_source_v2_t materialTexture{};
+    materialTexture.binding = bindings[3].name;
+    materialTexture.texture = common::StringView_FromCString( textureSourcePath );
+    materialTexture.nLogicalBinding = bindings[3].nLogicalBinding;
+    common::cooked_material_parameter_source_v2_t tint{};
+    tint.name = bindings[4].name;
+    tint.nLogicalBinding = bindings[4].nLogicalBinding;
+    tint.type = common::render_shader_value_type_t::F32X4;
+    tint.cbByteSize = 16u;
+    tint.floatingValues[0] = 0.5;
+    tint.floatingValues[1] = 0.25;
+    tint.floatingValues[2] = 0.75;
+    tint.floatingValues[3] = 1.0;
+    common::cooked_material_source_v2_t materialDescription{};
+    materialDescription.shader = common::StringView_FromCString( shaderSourcePath );
+    materialDescription.shaderInterfaceHash = interfaceHash;
+    materialDescription.alphaMode = common::render_material_alpha_mode_t::MASK;
+    materialDescription.alphaCutoff = 0.7f;
+    materialDescription.textures = { &materialTexture, 1u };
+    materialDescription.parameters = { &tint, 1u };
+    std::vector<common::byte> materialBytes( common::CookedMaterial_RequiredSizeV2(
+        materialDescription ) );
+    REQUIRE_FALSE( materialBytes.empty() );
+    REQUIRE( common::CookedMaterial_Succeeded( common::CookedMaterial_WriteV2(
+        materialDescription,
+        common::ContentHash_String( common::StringView_FromCString(
+            materialSourcePath ) ),
+        { materialBytes.data(), materialBytes.size() } ) ) );
+
+    struct memory_file_t {
+        common::string_view_t path{};
+        common::binary_block_t contents{};
+    };
+    struct memory_vfs_t {
+        memory_file_t files[3]{};
+    } memory{};
+    memory.files[0] = { common::StringView_FromCString( materialCookedPath ),
+        { materialBytes.data(), materialBytes.size() } };
+    memory.files[1] = { common::StringView_FromCString( shaderCookedPath ),
+        { shaderBytes.data(), shaderBytes.size() } };
+    memory.files[2] = { common::StringView_FromCString( textureCookedPath ),
+        { textureBytes.data(), textureBytes.size() } };
+    static const common::vfs_ops_t operations{
+        []( void *userData, common::string_view_t path, common::usize maximum,
+            common::blob_t *destination ) noexcept -> common::vfs_status_t {
+            const auto &files = *static_cast<const memory_vfs_t *>( userData );
+            for ( const auto &file : files.files ) {
+                if ( !common::StringView_Equals( path, file.path ) ) continue;
+                if ( file.contents.cbSize > maximum ) return common::vfs_status_t::SIZE_LIMIT;
+                return common::Blob_Assign( destination, file.contents )
+                    ? common::vfs_status_t::OK : common::vfs_status_t::OUT_OF_MEMORY;
+            }
+            return common::vfs_status_t::NOT_FOUND;
+        }, nullptr, nullptr, nullptr
+    };
+    const common::vfs_t vfs{ &operations, &memory, common::VFS_CAPABILITY_READ_ALL };
+    resource::render_asset_loader_context_t loader{};
+    REQUIRE( resource::Res_InitRenderAssetLoader(
+        &loader, resource::Res_DefaultRenderAssetLoaderConfig( &vfs ) ) );
+    resource::resource_manager_t resources{};
+    auto resourceConfig = resource::Res_DefaultConfig();
+    resourceConfig.cResourceCapacity = 8u;
+    resourceConfig.cTypeCapacity = 3u;
+    REQUIRE( resource::Res_Init( &resources, resourceConfig ) ==
+        resource::resource_error_t::OK );
+    REQUIRE( resource::Res_RegisterRenderAssetLoaders(
+        &resources, &loader ) == resource::resource_error_t::OK );
+
+    render::render_vertex_layout_t layout{};
+    layout.bindingCount = 1u;
+    layout.bindings[0].stride = 3u * sizeof( float );
+    layout.attributeCount = 1u;
+    layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    render::render_material_bundle_desc_t bundleDescription{};
+    bundleDescription.pResources = &resources;
+    bundleDescription.cookedMaterialPath =
+        common::StringView_FromCString( materialCookedPath );
+    bundleDescription.vertexLayout = layout;
+    bundleDescription.uniformBlockCount = 3u;
+    bundleDescription.uniformBlocks[0] = { "View", 64u };
+    bundleDescription.uniformBlocks[1] = { "Model", modelBytes };
+    bundleDescription.uniformBlocks[2] = { "Material", 16u };
+    bundleDescription.debugName = "Native cooked tint MASK camera";
+    render::render_material_bundle_t bundle{};
+    REQUIRE( render::R_CreateCookedMaterialBundle(
+        bundleDescription, &bundle ).status ==
+        render::render_material_bridge_status_t::OK );
+    CHECK( resource::Res_GetStats( &resources ).cLiveResources == 0u );
+    REQUIRE( resource::Res_Shutdown( &resources ) == resource::resource_error_t::OK );
+    std::memset( materialBytes.data(), 0, materialBytes.size() );
+    std::memset( shaderBytes.data(), 0, shaderBytes.size() );
+    std::memset( textureBytes.data(), 0, textureBytes.size() );
+
+    constexpr float vertices[9]{
+        -1.0f, -1.0f, 0.0f, 3.0f, -1.0f, 0.0f, -1.0f, 3.0f, 0.0f
+    };
+    constexpr common::u16 indices[3]{ 0u, 1u, 2u };
+    render::render_static_mesh_source_t meshSource{};
+    meshSource.vertexLayout = layout;
+    meshSource.vertexBytes = vertices;
+    meshSource.vertexByteSize = sizeof( vertices );
+    meshSource.vertexCount = 3u;
+    meshSource.indexBytes = indices;
+    meshSource.indexByteSize = sizeof( indices );
+    meshSource.indexCount = 3u;
+    render::render_static_mesh_bundle_t mesh{};
+    REQUIRE( render::R_CreateStaticMeshBundle( meshSource, &mesh ).status ==
+        render::render_static_mesh_bridge_status_t::OK );
+
+    world::world_t *pWorld = nullptr;
+    world::world_submission_t *pSubmission = nullptr;
+    REQUIRE( world::World_Init( &pWorld, common::Allocator_GetSystem(), 1u ) ==
+        world::world_error_t::OK );
+    REQUIRE( world::WorldSubmission_Init(
+        &pSubmission, common::Allocator_GetSystem(), 1u ) ==
+        world::world_submission_error_t::OK );
+    world::world_object_t object{};
+    object.localToWorld = math::Affine3_FromTranslation( { 0.0f, 0.0f, 0.0f } );
+    object.worldBounds = math::Aabb_Make(
+        { -1.0f, -1.0f, -0.01f }, { 3.0f, 3.0f, 0.01f } );
+    object.layerMask = 1u;
+    object.meshSlot = 0u;
+    object.materialSlot = 0u;
+    world::world_object_id_t objectId{};
+    REQUIRE( world::World_AddObject( pWorld, &object, &objectId ) ==
+        world::world_error_t::OK );
+    world::world_view_query_t view{};
+    constexpr common::f32 frustumExtent = 20.0f;
+    view.frustum.planes[0] = math::Plane_Make( { 1.0f, 0.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[1] = math::Plane_Make( { -1.0f, 0.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[2] = math::Plane_Make( { 0.0f, 1.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[3] = math::Plane_Make( { 0.0f, -1.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[4] = math::Plane_Make( { 0.0f, 0.0f, 1.0f }, frustumExtent );
+    view.frustum.planes[5] = math::Plane_Make( { 0.0f, 0.0f, -1.0f }, frustumExtent );
+    view.cameraPosition = { 0.0f, 0.0f, 1.0f };
+    view.maxDistance = 100.0f;
+    view.layerMask = 1u;
+    world::world_submission_token_t token{};
+    REQUIRE( world::WorldSubmission_Build(
+        pSubmission, pWorld, &view, &token ) ==
+        world::world_submission_error_t::OK );
+
+    render::render_uniform_batch_t modelUniforms{};
+    REQUIRE( render::R_CreateUniformBatch( modelBytes, nullptr, &modelUniforms ) ==
+        render::render_error_t::OK );
+    constexpr float identity[16]{
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    };
+    render::render_buffer_desc_t viewDescription{};
+    viewDescription.byteSize = sizeof( identity );
+    viewDescription.usage = render::R_BUFFER_USAGE_UNIFORM;
+    const render::render_buffer_data_t viewData{ identity, sizeof( identity ) };
+    render::render_buffer_handle_t viewBuffer{};
+    REQUIRE( render::R_CreateBuffer( viewDescription, &viewData, &viewBuffer ) ==
+        render::render_error_t::OK );
+    render::render_scene_item_t sceneScratch[1]{};
+    common::u32 indexScratch[1]{};
+    render::render_world_camera_prepare_desc_t prepare{};
+    prepare.submission = pSubmission;
+    prepare.token = token;
+    prepare.meshes = &mesh;
+    prepare.meshCount = 1u;
+    prepare.materials = &bundle;
+    prepare.materialCount = 1u;
+    prepare.modelUniforms = &modelUniforms;
+    prepare.modelUniformSlot = 1u;
+    prepare.modelLayout = withNormalMatrix
+        ? render::render_world_model_layout_t::MODEL_NORMAL_CUTOUT
+        : render::render_world_model_layout_t::MODEL_CUTOUT;
+    prepare.drawTemplate.uniformBuffers[0] = viewBuffer;
+    prepare.sceneItemsScratch = sceneScratch;
+    prepare.sceneItemCapacity = 1u;
+    prepare.passIndicesScratch = indexScratch;
+    prepare.passIndexCapacity = 1u;
+    render::render_world_camera_draw_t draws[1]{};
+    render::render_world_camera_pass_counts_t counts{};
+    REQUIRE( render::R_PrepareWorldCameraDraws(
+        prepare, draws, 1u, &counts ) == render::render_error_t::OK );
+    REQUIRE( counts.opaqueCount == 1u );
+    CHECK( counts.blendCount == 0u );
+    CHECK( counts.additiveCount == 0u );
+    CHECK( draws[0].objectId.incarnation == objectId.incarnation );
+    CHECK( draws[0].draw.uniformRanges[1].byteSize == modelBytes );
+    CHECK( draws[0].draw.uniformBuffers[2].value ==
+        bundle.materialUniformBuffer.value );
+
+    render::render_texture_desc_t targetDescription{};
+    targetDescription.width = targetDescription.height = 8u;
+    targetDescription.sRGB = false;
+    targetDescription.generateMips = false;
+    targetDescription.repeat = false;
+    targetDescription.renderTarget = true;
+    targetDescription.format = render::render_texture_format_t::RGBA8;
+    render::render_texture_handle_t color{}, depth{};
+    REQUIRE( render::R_CreateTexture2D( targetDescription, {}, &color ) ==
+        render::render_error_t::OK );
+    targetDescription.format = render::render_texture_format_t::D24;
+    REQUIRE( render::R_CreateTexture2D( targetDescription, {}, &depth ) ==
+        render::render_error_t::OK );
+    render::render_target_handle_t target{};
+    REQUIRE( render::R_CreateRenderTarget( { color, depth }, &target ) ==
+        render::render_error_t::OK );
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    render::render_target_pass_desc_t pass{};
+    pass.target = target;
+    pass.clearColor = { 0.0f, 0.0f, 1.0f, 1.0f };
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    REQUIRE( render::R_DrawIndexed( draws[0].draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    const auto readPixel = [&]( common::u32 x ) {
+        std::array<common::u8, 4u> pixel{};
+        REQUIRE( render::R_ReadTargetRGBA8( target, { x, 4u, 1u, 1u },
+            pixel.data(), pixel.size(), 4u ) == render::render_error_t::OK );
+        return pixel;
+    };
+    const auto transparent = readPixel( 2u );
+    const auto tinted = readPixel( 6u );
+    CAPTURE( transparent[0], transparent[1], transparent[2],
+        tinted[0], tinted[1], tinted[2] );
+    CHECK( transparent[0] <= 5u );
+    CHECK( transparent[1] <= 5u );
+    CHECK( transparent[2] >= 250u );
+    CHECK( tinted[0] >= 95u );
+    CHECK( tinted[0] <= 105u );
+    CHECK( tinted[1] >= 35u );
+    CHECK( tinted[1] <= 45u );
+    CHECK( tinted[2] >= 55u );
+    CHECK( tinted[2] <= 65u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
+    world::WorldSubmission_End( pSubmission );
+    world::WorldSubmission_Shutdown( &pSubmission );
+    world::World_Shutdown( &pWorld );
+    REQUIRE( render::R_DestroyUniformBatch( &modelUniforms ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( viewBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyCookedMaterialBundle( &bundle ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) ==
+        render::render_error_t::OK );
+}
+
 void CheckCookedWorldCameraPassDrawing( const render::render_extent_t extent )
 {
     // Deliberately add the near translucent object first. The camera adapter
@@ -4955,6 +5348,8 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckCookedMaterialBundleDrawing( info->drawableExtent, false, false, true, true );
     CheckWorldLitNormalModelDrawing( info->drawableExtent );
     CheckWorldCameraMaskCutoutDrawing( info->drawableExtent );
+    CheckCookedTintWorldMaskDrawing( info->drawableExtent, false );
+    CheckCookedTintWorldMaskDrawing( info->drawableExtent, true );
     CheckCookedWorldCameraPassDrawing( info->drawableExtent );
     CheckWorldMaskShadowDrawing( info->drawableExtent );
     CheckCookedWorldShadowDrawing( info->drawableExtent );

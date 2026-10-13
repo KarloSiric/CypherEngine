@@ -275,7 +275,9 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
                  !common::StringView_Equals( common::StringView_FromCString(
                      description.uniformBlocks[2].name ), kMaterialBlockName ) ||
                  ( description.uniformBlocks[1].byteSize != 64u &&
-                   description.uniformBlocks[1].byteSize != 112u ) ||
+                   description.uniformBlocks[1].byteSize != 80u &&
+                   description.uniformBlocks[1].byteSize != 112u &&
+                   description.uniformBlocks[1].byteSize != 128u ) ||
                  description.uniformBlocks[2].byteSize != kTintByteSize ) {
                 result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
                 break;

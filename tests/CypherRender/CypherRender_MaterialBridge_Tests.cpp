@@ -205,23 +205,50 @@ struct cooked_files_t {
             "layout(std140) uniform View { mat4 view; };\n"
             "layout(std140) uniform Model { mat4 model; mat3 normalMatrix; };\n"
             "void main(){gl_Position=view*model*vec4(normalMatrix[0],1.0);}\n";
+        constexpr char cutoutVertex[] =
+            "#version 410 core\n"
+            "layout(std140) uniform View { mat4 view; };\n"
+            "layout(std140) uniform Model { mat4 model; vec4 cutout; };\n"
+            "out float alphaCutoff;\n"
+            "void main(){alphaCutoff=cutout.x;gl_Position=view*model*vec4(0,0,0,1);}\n";
+        constexpr char litCutoutVertex[] =
+            "#version 410 core\n"
+            "layout(std140) uniform View { mat4 view; };\n"
+            "layout(std140) uniform Model { mat4 model; mat3 normalMatrix; vec4 cutout; };\n"
+            "out float alphaCutoff;\n"
+            "void main(){alphaCutoff=cutout.x;gl_Position=view*model*vec4(normalMatrix[0],1.0);}\n";
         constexpr char fragment[] =
             "#version 410 core\n"
             "layout(std140) uniform Material { vec4 tint; };\n"
             "out vec4 c;void main(){c=tint;}\n";
+        constexpr char cutoutFragment[] =
+            "#version 410 core\n"
+            "layout(std140) uniform Material { vec4 tint; };\n"
+            "in float alphaCutoff;out vec4 c;\n"
+            "void main(){if(alphaCutoff>1.0)discard;c=tint;}\n";
         common::cooked_shader_stage_source_t stages[2]{};
         stages[0].stage = common::render_shader_stage_t::VERTEX;
-        stages[0].code = modelBlockBytes == 112u
-            ? common::binary_block_t{
-                reinterpret_cast<const common::byte *>( litVertex ),
-                sizeof( litVertex ) }
-            : common::binary_block_t{
-                reinterpret_cast<const common::byte *>( vertex ),
+        if ( modelBlockBytes == 128u ) {
+            stages[0].code = { reinterpret_cast<const common::byte *>( litCutoutVertex ),
+                sizeof( litCutoutVertex ) };
+        } else if ( modelBlockBytes == 112u ) {
+            stages[0].code = { reinterpret_cast<const common::byte *>( litVertex ),
+                sizeof( litVertex ) };
+        } else if ( modelBlockBytes == 80u ) {
+            stages[0].code = { reinterpret_cast<const common::byte *>( cutoutVertex ),
+                sizeof( cutoutVertex ) };
+        } else {
+            stages[0].code = { reinterpret_cast<const common::byte *>( vertex ),
                 sizeof( vertex ) };
+        }
         stages[1].stage = common::render_shader_stage_t::FRAGMENT;
-        stages[1].code = {
-            reinterpret_cast<const common::byte *>( fragment ), sizeof( fragment )
-        };
+        stages[1].code = modelBlockBytes == 80u || modelBlockBytes == 128u
+            ? common::binary_block_t{
+                reinterpret_cast<const common::byte *>( cutoutFragment ),
+                sizeof( cutoutFragment ) }
+            : common::binary_block_t{
+                reinterpret_cast<const common::byte *>( fragment ),
+                sizeof( fragment ) };
         shader.resize( common::CookedShader_RequiredSizeV3(
             {}, { stages, 2u }, shaderInterface ) );
         REQUIRE_FALSE( shader.empty() );
@@ -825,6 +852,19 @@ TEST_CASE( "cooked tint creates a native float material uniform and owns its lif
 TEST_CASE( "cooked tint preflights its exact VALUE and Material block convention",
     "[CypherRender][MaterialBridge][Tint]" )
 {
+    SECTION( "cutout Model block carries a std140 cutoff after its matrix" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint( Text( "tint" ),
+            common::render_shader_value_type_t::F32X4, 16u, 80u );
+        auto description = fixture.TintDescription();
+        description.uniformBlocks[1].byteSize = 80u;
+        const auto result = render::R_CreateCookedMaterialBundle(
+            description, &fixture.bundle );
+        REQUIRE( result.status == render::render_material_bridge_status_t::OK );
+        CHECK( fixture.pipelineCreates == 2u );
+        CHECK( render::R_IsBufferValid( fixture.bundle.materialUniformBuffer ) );
+    }
     SECTION( "lit Model block can carry a padded normal matrix" ) {
         bridge_fixture_t fixture{};
         fixture.Init( 0u );
@@ -838,12 +878,39 @@ TEST_CASE( "cooked tint preflights its exact VALUE and Material block convention
         CHECK( fixture.pipelineCreates == 2u );
         CHECK( render::R_IsBufferValid( fixture.bundle.materialUniformBuffer ) );
     }
-    SECTION( "other Model block sizes remain unsupported" ) {
+    SECTION( "lit cutout Model block carries a normal matrix and cutoff" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint( Text( "tint" ),
+            common::render_shader_value_type_t::F32X4, 16u, 128u );
+        auto description = fixture.TintDescription();
+        description.uniformBlocks[1].byteSize = 128u;
+        const auto result = render::R_CreateCookedMaterialBundle(
+            description, &fixture.bundle );
+        REQUIRE( result.status == render::render_material_bridge_status_t::OK );
+        CHECK( fixture.pipelineCreates == 2u );
+        CHECK( render::R_IsBufferValid( fixture.bundle.materialUniformBuffer ) );
+    }
+    SECTION( "unsupported Model block sizes fail before GPU creation" ) {
         bridge_fixture_t fixture{};
         fixture.Init( 0u );
         fixture.UseTint();
         auto description = fixture.TintDescription();
         description.uniformBlocks[1].byteSize = 96u;
+        const auto result = render::R_CreateCookedMaterialBundle(
+            description, &fixture.bundle );
+        CHECK( result.status ==
+            render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.bufferCreates == 0u );
+        CHECK( fixture.pipelineCreates == 0u );
+    }
+    SECTION( "declared cutout size must match the cooked shader binding" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint();
+        auto description = fixture.TintDescription();
+        description.uniformBlocks[1].byteSize = 80u;
         const auto result = render::R_CreateCookedMaterialBundle(
             description, &fixture.bundle );
         CHECK( result.status ==
