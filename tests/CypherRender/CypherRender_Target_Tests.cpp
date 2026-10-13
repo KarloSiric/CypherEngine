@@ -8,6 +8,7 @@
 #include "CypherRender/CypherRender_Local.h"
 #include "CypherRender/CypherRender_Public.h"
 #include <catch2/catch_test_macros.hpp>
+#include <array>
 #include <limits>
 
 namespace render = ::cypher::engine::render;
@@ -24,12 +25,15 @@ struct target_fixture_t {
     common::u32 passBegins{ 0u };
     common::u32 passEnds{ 0u };
     common::u32 frameEnds{ 0u };
+    common::u32 readCalls{ 0u };
     target_error_t createResult{ target_error_t::OK };
     target_error_t destroyResult{ target_error_t::OK };
     target_error_t beginResult{ target_error_t::OK };
+    target_error_t readResult{ target_error_t::OK };
     bool tokenOnCreateFailure{ false };
     render::backend_render_target_desc_t lastTarget{};
     render::backend_target_pass_desc_t lastPass{};
+    render::backend_target_readback_desc_t lastRead{};
 
     void Init()
     {
@@ -66,6 +70,24 @@ struct target_fixture_t {
         };
         backend.EndTargetPass = []( void *state ) noexcept {
             ++static_cast<target_fixture_t *>( state )->passEnds;
+            return target_error_t::OK;
+        };
+        backend.ReadTargetRGBA8 = []( const render::backend_target_readback_desc_t &desc,
+            void *state ) noexcept {
+            auto &self = *static_cast<target_fixture_t *>( state );
+            ++self.readCalls;
+            self.lastRead = desc;
+            if ( self.readResult != target_error_t::OK ) return self.readResult;
+            for ( common::u32 y = 0u; y < desc.rect.height; ++y ) {
+                auto *row = desc.pixelsOut + static_cast<common::u64>( y ) * desc.rowPitchBytes;
+                for ( common::u32 x = 0u; x < desc.rect.width; ++x ) {
+                    const common::u32 offset = x * 4u;
+                    row[offset + 0u] = static_cast<common::byte>( desc.rect.x + x );
+                    row[offset + 1u] = static_cast<common::byte>( desc.rect.y + y );
+                    row[offset + 2u] = 0x7fu;
+                    row[offset + 3u] = 0xffu;
+                }
+            }
             return target_error_t::OK;
         };
         backend.EndFrame = []( void *state ) noexcept {
@@ -375,4 +397,93 @@ TEST_CASE( "offscreen passes require a frame, valid clears, and an explicit end"
     CHECK( fixture.frameEnds == 1u );
     REQUIRE( render::R_DestroyRenderTarget( target ) == target_error_t::OK );
     REQUIRE( render::R_DestroyTexture( color ) == target_error_t::OK );
+}
+
+TEST_CASE( "target readback validates ownership, frame state, and exact row capacity",
+           "[CypherRender][Target][Readback]" )
+{
+    target_fixture_t fixture;
+    fixture.Init();
+    const auto color = fixture.Color();
+    const auto depth = fixture.Depth();
+    render::render_target_handle_t target{};
+    render::render_target_handle_t depthTarget{};
+    REQUIRE( render::R_CreateRenderTarget( { color }, &target ) == target_error_t::OK );
+    const common::u64 nativeTargetToken = fixture.nextToken - 1u;
+    REQUIRE( render::R_CreateRenderTarget( { {}, depth }, &depthTarget ) == target_error_t::OK );
+
+    std::array<common::byte, 32u> pixels{};
+    pixels.fill( 0xccu );
+    const render::render_readback_rect_t rect{ 3u, 4u, 2u, 2u };
+    const auto rejected = [&]( const render::render_target_handle_t which,
+        const render::render_readback_rect_t area, common::byte *destination,
+        const common::u64 capacity, const common::u32 pitch,
+        const target_error_t expected ) {
+        CHECK( render::R_ReadTargetRGBA8( which, area, destination, capacity, pitch ) == expected );
+        CHECK( fixture.readCalls == 0u );
+        for ( const common::byte pixel : pixels ) CHECK( pixel == 0xccu );
+    };
+
+    rejected( target, rect, pixels.data(), 24u, 16u, target_error_t::ERR_FRAME_NOT_ACTIVE );
+    render::tr.frameActive = true;
+    rejected( depthTarget, rect, pixels.data(), 24u, 16u,
+        target_error_t::ERR_CAPTURE_UNSUPPORTED );
+    rejected( {}, rect, pixels.data(), 24u, 16u, target_error_t::ERR_INVALID_HANDLE );
+    rejected( color, rect, pixels.data(), 24u, 16u,
+        target_error_t::ERR_RESOURCE_TYPE_MISMATCH );
+    rejected( target, rect, nullptr, 24u, 16u, target_error_t::ERR_INVALID_ARGUMENT );
+    rejected( target, { 3u, 4u, 0u, 2u }, pixels.data(), 24u, 16u,
+        target_error_t::ERR_INVALID_ARGUMENT );
+    rejected( target, { 31u, 4u, 2u, 2u }, pixels.data(), 24u, 16u,
+        target_error_t::ERR_INVALID_ARGUMENT );
+    rejected( target, { 3u, 15u, 2u, 2u }, pixels.data(), 24u, 16u,
+        target_error_t::ERR_INVALID_ARGUMENT );
+    rejected( target, { std::numeric_limits<common::u32>::max(), 4u, 2u, 2u },
+        pixels.data(), 24u, 16u, target_error_t::ERR_INVALID_ARGUMENT );
+    rejected( target, rect, pixels.data(), 23u, 16u, target_error_t::ERR_INVALID_ARGUMENT );
+    rejected( target, rect, pixels.data(), 24u, 7u, target_error_t::ERR_INVALID_ARGUMENT );
+    rejected( target, rect, pixels.data(), 24u, 9u, target_error_t::ERR_INVALID_ARGUMENT );
+
+    render::render_target_pass_desc_t pass{};
+    pass.target = target;
+    REQUIRE( render::R_BeginTargetPass( pass ) == target_error_t::OK );
+    rejected( target, rect, pixels.data(), 24u, 16u,
+        target_error_t::ERR_COMMAND_STATE_INVALID );
+    REQUIRE( render::R_EndTargetPass() == target_error_t::OK );
+
+    const auto readCallback = fixture.backend.ReadTargetRGBA8;
+    fixture.backend.ReadTargetRGBA8 = nullptr;
+    rejected( target, rect, pixels.data(), 24u, 16u,
+        target_error_t::ERR_CAPTURE_UNSUPPORTED );
+    fixture.backend.ReadTargetRGBA8 = readCallback;
+
+    // Capacity ends at the last pixel, so trailing padding is not required.
+    REQUIRE( render::R_ReadTargetRGBA8( target, rect, pixels.data(), 24u, 16u ) ==
+        target_error_t::OK );
+    CHECK( fixture.readCalls == 1u );
+    CHECK( fixture.lastRead.target.value == nativeTargetToken );
+    CHECK( fixture.lastRead.rowPitchBytes == 16u );
+    CHECK( fixture.lastRead.byteCapacity == 24u );
+    CHECK( pixels[0] == 3u ); CHECK( pixels[1] == 4u );
+    CHECK( pixels[4] == 4u ); CHECK( pixels[5] == 4u );
+    CHECK( pixels[16] == 3u ); CHECK( pixels[17] == 5u );
+    CHECK( pixels[20] == 4u ); CHECK( pixels[21] == 5u );
+    for ( common::u32 i = 8u; i < 16u; ++i ) CHECK( pixels[i] == 0xccu );
+    for ( common::u32 i = 24u; i < 32u; ++i ) CHECK( pixels[i] == 0xccu );
+
+    pixels.fill( 0xccu );
+    fixture.readResult = target_error_t::ERR_DEVICE_LOST;
+    CHECK( render::R_ReadTargetRGBA8( target, rect, pixels.data(), 24u, 16u ) ==
+        target_error_t::ERR_DEVICE_LOST );
+    CHECK( fixture.readCalls == 2u );
+    for ( const common::byte pixel : pixels ) CHECK( pixel == 0xccu );
+    render::tr.frameActive = false;
+    REQUIRE( render::R_DestroyRenderTarget( target ) == target_error_t::OK );
+    render::tr.frameActive = true;
+    CHECK( render::R_ReadTargetRGBA8( target, rect, pixels.data(), 24u, 16u ) ==
+        target_error_t::ERR_STALE_HANDLE );
+    render::tr.frameActive = false;
+    REQUIRE( render::R_DestroyRenderTarget( depthTarget ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( color ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == target_error_t::OK );
 }

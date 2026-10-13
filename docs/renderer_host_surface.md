@@ -12,8 +12,9 @@ The second path is the correct boundary for an in-process CypherTileEditor
 preview. Wrapping a Qt native child with SDL is not a dependable macOS solution:
 SDL's current Cocoa external-window path can replace the parent window's content
 view instead of behaving as an isolated child view ([SDL issue #12141][sdl-12141]).
-A readback-based preview would also add a render-target, texture, transfer, and
-synchronization API before the renderer needs those contracts. Letting
+A readback-based preview would transfer pixels to the CPU and back into Qt's
+composition path on each update. The renderer's explicit-target readback is a
+synchronous diagnostic operation, not the editor presentation path. Letting
 `QOpenGLWidget` own the context keeps Qt's event loop and composition rules intact
 and lets CypherRender draw directly into the widget's framebuffer.
 

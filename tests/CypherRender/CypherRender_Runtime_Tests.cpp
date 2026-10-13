@@ -273,6 +273,9 @@ TEST_CASE( "backend selection returns one complete concrete OpenGL table" )
     malformed = *backend;
     malformed.DrawIndexed = nullptr;
     CHECK_FALSE( render::R_IsBackendValid( &malformed ) );
+    malformed = *backend;
+    malformed.ReadTargetRGBA8 = nullptr;
+    CHECK( render::R_IsBackendValid( &malformed ) );
     render::backend_instance_t instance{};
     REQUIRE( render::R_SelectBackendInstance( config, &instance ) == render::render_error_t::OK );
     CHECK( instance.api == backend );

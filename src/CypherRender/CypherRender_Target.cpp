@@ -274,4 +274,50 @@ render_error_t R_EndTargetPass() noexcept
     tr.activeTargetDepth = R_INVALID_TEXTURE;
     return result;
 }
+
+render_error_t R_ReadTargetRGBA8( const render_target_handle_t target,
+    const render_readback_rect_t &rect, common::byte *pixelsOut,
+    const common::u64 byteCapacity, const common::u32 rowPitchBytes ) noexcept
+{
+    if ( !tr.initialized || !targetSystem.initialized || tr.backend.api == nullptr ) {
+        return render_error_t::ERR_NOT_INITIALIZED;
+    }
+    if ( !tr.frameActive ) return render_error_t::ERR_FRAME_NOT_ACTIVE;
+    if ( tr.activeTarget.value != R_INVALID_TARGET.value ) {
+        return render_error_t::ERR_COMMAND_STATE_INVALID;
+    }
+
+    common::handle32_t slot{};
+    target_record_t *record = nullptr;
+    const render_error_t resolved = ResolveTarget( target, slot, record );
+    if ( resolved != render_error_t::OK ) return resolved;
+    if ( record->info.color.value == R_INVALID_TEXTURE.value ) {
+        return render_error_t::ERR_CAPTURE_UNSUPPORTED;
+    }
+
+    const render_extent_t extent = record->info.extent;
+    if ( pixelsOut == nullptr || rect.width == 0u || rect.height == 0u ||
+         rect.x >= extent.width || rect.y >= extent.height ||
+         rect.width > extent.width - rect.x ||
+         rect.height > extent.height - rect.y ||
+         ( rowPitchBytes & 3u ) != 0u ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    constexpr common::u64 bytesPerPixel = 4u;
+    const common::u64 rowBytes = static_cast<common::u64>( rect.width ) * bytesPerPixel;
+    if ( rowBytes > rowPitchBytes ) return render_error_t::ERR_INVALID_ARGUMENT;
+    const common::u64 rowStart = static_cast<common::u64>( rect.height - 1u ) * rowPitchBytes;
+    if ( rowStart > std::numeric_limits<common::u64>::max() - rowBytes ||
+         rowStart + rowBytes > std::numeric_limits<common::usize>::max() ||
+         byteCapacity < rowStart + rowBytes ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    if ( tr.backend.api->ReadTargetRGBA8 == nullptr ) {
+        return render_error_t::ERR_CAPTURE_UNSUPPORTED;
+    }
+
+    const backend_target_readback_desc_t native{ record->native, rect,
+        pixelsOut, byteCapacity, rowPitchBytes };
+    return tr.backend.api->ReadTargetRGBA8( native, tr.backend.state );
+}
 } // namespace cypher::engine::render

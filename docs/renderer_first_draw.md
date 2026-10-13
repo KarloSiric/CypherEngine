@@ -304,6 +304,26 @@ and light-space view setup remain separate work.
 OpenGL 4.1 treats depth textures as red textures for ordinary sampling; see
 sections 3.8.9 and 3.8.16 of the [OpenGL 4.1 Core Specification](https://registry.khronos.org/OpenGL/specs/gl/glspec41.core.pdf).
 
+## Offscreen color readback
+
+`R_ReadTargetRGBA8` copies a rectangle from an explicit offscreen target's
+linear RGBA8 color attachment into caller-owned bytes. Call it inside an active
+frame after `R_EndTargetPass` and before `R_EndFrame`; it rejects an open target
+pass, depth-only target, stale handle, or out-of-bounds rectangle. Coordinates
+start at the target's bottom-left pixel. Rows are bottom-up RGBA8, with the
+caller choosing a four-byte-aligned row pitch of at least `width * 4` bytes.
+Capacity must cover the last row's pixels but need not include padding after
+them. Validation errors do not modify the destination; a native transfer
+failure may leave a partial result.
+
+The OpenGL backend reads from the target's private framebuffer and restores
+the host's previous read framebuffer and pixel-pack state, including a bound
+pixel-pack buffer. It is synchronous and may stall the CPU for the GPU. The
+initial use is a deterministic pixel oracle for renderer tests and a narrow
+diagnostic path. A presentation screenshot, multisample resolve, asynchronous
+transfer, image encoding, row flip, and linear-to-sRGB conversion are separate
+features.
+
 ## Per-draw viewport and clipping
 
 An indexed draw can enable a viewport rectangle to map clip-space coordinates

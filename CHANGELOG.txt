@@ -53,6 +53,13 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- R_ReadTargetRGBA8 synchronously copies a validated offscreen RGBA8 rectangle
+  into caller-owned pitched bytes after its target pass. The OpenGL 4.1 path
+  restores read-framebuffer and pixel-pack state. Four focused renderer CTests
+  pass, including fake-backend validation and native pixels/row order/padding
+  and host-state restoration. Public/backend API versions are 18/23. Present
+  capture, multisample resolve, asynchronous transfer and injected native GL
+  failure validation remain future work.
 - The graybox sample supplies ambient RGB and one directional light through
   its 176-byte per-view uniform block instead of hardcoding shader constants.
   The initial values preserve the prior shading. Offline shader validation,

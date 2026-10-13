@@ -61,6 +61,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- `R_ReadTargetRGBA8` now synchronously reads a validated rectangle from an
+  offscreen linear RGBA8 color target into caller-owned, pitched storage after
+  its target pass ends. The OpenGL 4.1 path restores the host's read framebuffer
+  and pixel-pack buffer/layout state. Fake-backend and native pixel tests cover
+  bounds, exact capacity, row order, padding, stale/depth-only handles, and
+  state restoration; four focused renderer CTests pass locally. Public and
+  backend API versions advance to 18 and 23. Presentation capture,
+  multisample resolve, and asynchronous transfer remain separate work; native
+  GL failure restoration has not been fault-injected in a test.
 - The graybox sample now supplies ambient RGB and one directional light through
   its 176-byte per-view uniform block instead of embedding those values in the
   fragment shader. The initial values preserve the prior shading. Its shader

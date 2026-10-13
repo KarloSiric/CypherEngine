@@ -37,6 +37,15 @@ struct render_target_pass_desc_t {
     ::cypher::common::f32 clearDepth{ 1.0f };
 };
 
+// A rectangle of physical pixels in a target's color attachment. The origin
+// is the bottom-left pixel, matching target-pass viewport coordinates.
+struct render_readback_rect_t {
+    ::cypher::common::u32 x{ 0u };
+    ::cypher::common::u32 y{ 0u };
+    ::cypher::common::u32 width{ 0u };
+    ::cypher::common::u32 height{ 0u };
+};
+
 // Resource creation/destruction runs between frames. A pass begins inside an
 // active frame and is non-nestable. EndTargetPass restores that frame's actual
 // presentation framebuffer and viewport, including a host-owned nonzero FBO.
@@ -51,5 +60,18 @@ CYPHER_NODISCARD render_error_t R_GetRenderTargetInfo(
 CYPHER_NODISCARD render_error_t R_BeginTargetPass(
     const render_target_pass_desc_t &description ) noexcept;
 CYPHER_NODISCARD render_error_t R_EndTargetPass() noexcept;
+
+// Synchronously copies the RGBA8 color attachment to caller-owned storage
+// while a frame is active and no target pass is open. Rows start at the
+// rectangle's bottom edge and advance by rowPitchBytes. Each row contains
+// width * 4 RGBA bytes; padding is left untouched. byteCapacity need only
+// cover the last row's pixels, not the final row's padding. The pitch must be
+// at least width * 4 and a multiple of four. Validation failures leave the
+// output untouched. This is a blocking diagnostic/capture operation, not a
+// general asynchronous GPU transfer path.
+CYPHER_NODISCARD render_error_t R_ReadTargetRGBA8(
+    render_target_handle_t target, const render_readback_rect_t &rect,
+    ::cypher::common::byte *pixelsOut, ::cypher::common::u64 byteCapacity,
+    ::cypher::common::u32 rowPitchBytes ) noexcept;
 } // namespace cypher::engine::render
 #endif // CYPHER_ENGINE_RENDER_TARGET_H

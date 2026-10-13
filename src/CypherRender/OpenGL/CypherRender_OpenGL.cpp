@@ -1099,7 +1099,8 @@ const backend_api_t glBackend = {
     .CreateRenderTarget = GL_CreateRenderTarget,
     .DestroyRenderTarget = GL_DestroyRenderTarget,
     .BeginTargetPass = GL_BeginTargetPass,
-    .EndTargetPass = GL_EndTargetPass
+    .EndTargetPass = GL_EndTargetPass,
+    .ReadTargetRGBA8 = GL_ReadTargetRGBA8
 };
 
 } // namespace

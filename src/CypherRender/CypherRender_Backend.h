@@ -41,13 +41,13 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version twenty-one adds synchronous authored texture mip-chain uploads. Offscreen targets,
-linked shaders, immediate draws, and all native object tokens remain behind
-this private boundary.
+Version twenty-three adds optional synchronous RGBA8 readback from an explicit
+offscreen target. Offscreen targets, linked shaders, immediate draws, and all
+native object tokens remain behind this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 22u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 23u;
 
 /*
 ================
@@ -163,6 +163,14 @@ struct backend_target_pass_desc_t {
     render_clear_flags_t clearFlags{ R_CLEAR_COLOR | R_CLEAR_DEPTH };
     render_color_t clearColor{};
     ::cypher::common::f32 clearDepth{ 1.0f };
+};
+
+struct backend_target_readback_desc_t {
+    backend_render_target_t target{};
+    render_readback_rect_t rect{};
+    ::cypher::common::byte *pixelsOut{ nullptr };
+    ::cypher::common::u64 byteCapacity{ 0u };
+    ::cypher::common::u32 rowPitchBytes{ 0u };
 };
 
 struct backend_pipeline_t {
@@ -394,6 +402,8 @@ using backend_destroy_render_target_fn_t = render_error_t (*)(
 using backend_begin_target_pass_fn_t = render_error_t (*)(
     const backend_target_pass_desc_t &, void * ) noexcept;
 using backend_end_target_pass_fn_t = render_error_t (*)( void * ) noexcept;
+using backend_read_target_rgba8_fn_t = render_error_t (*)(
+    const backend_target_readback_desc_t &, void * ) noexcept;
 
 struct backend_api_t {
     ::cypher::common::u32 apiVersion{ 0u };              // Must equal R_BACKEND_API_VERSION.
@@ -443,6 +453,9 @@ struct backend_api_t {
     backend_destroy_render_target_fn_t DestroyRenderTarget{ nullptr };
     backend_begin_target_pass_fn_t BeginTargetPass{ nullptr };
     backend_end_target_pass_fn_t EndTargetPass{ nullptr };
+
+    // Optional. A backend may support target passes without CPU readback.
+    backend_read_target_rgba8_fn_t ReadTargetRGBA8{ nullptr };
 
 };
 

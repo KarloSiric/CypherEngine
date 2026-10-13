@@ -48,6 +48,7 @@ static_assert( std::is_trivially_copyable_v<render::render_vertex_input_info_t> 
 static_assert( std::is_trivially_copyable_v<render::render_sampler_desc_t> );
 static_assert( std::is_trivially_copyable_v<render::render_sampler_info_t> );
 static_assert( std::is_trivially_copyable_v<render::render_viewport_rect_t> );
+static_assert( std::is_trivially_copyable_v<render::render_readback_rect_t> );
 static_assert( std::is_trivially_copyable_v<render::render_config_t> );
 static_assert( std::is_trivially_copyable_v<render::render_info_t> );
 static_assert( std::is_trivially_copyable_v<render::render_frame_info_t> );
@@ -77,6 +78,10 @@ using create_buffer_fn_t = render::render_error_t (*)(
 using create_vertex_input_fn_t = render::render_error_t (*)(
     const render::render_vertex_input_desc_t &,
     render::render_vertex_input_handle_t * ) noexcept;
+using read_target_rgba8_fn_t = render::render_error_t (*)(
+    render::render_target_handle_t, const render::render_readback_rect_t &,
+    ::cypher::common::byte *, ::cypher::common::u64,
+    ::cypher::common::u32 ) noexcept;
 
 static_assert( std::is_same_v<
     decltype( &render::R_ConfigureWindow ),
@@ -94,8 +99,9 @@ static_assert( std::is_same_v<decltype( &render::R_CreateBuffer ), create_buffer
 static_assert( std::is_same_v<
     decltype( &render::R_CreateVertexInput ),
     create_vertex_input_fn_t> );
-static_assert( render::R_BACKEND_API_VERSION == 22u );
-static_assert( render::RENDER_API_VERSION == 17u );
+static_assert( std::is_same_v<decltype( &render::R_ReadTargetRGBA8 ), read_target_rgba8_fn_t> );
+static_assert( render::R_BACKEND_API_VERSION == 23u );
+static_assert( render::RENDER_API_VERSION == 18u );
 
 int main()
 {

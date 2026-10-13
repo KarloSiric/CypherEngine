@@ -1386,7 +1386,87 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     draw.sampledTextures[0] = depth;
     CHECK( render::R_DrawIndexed( draw ) == render::render_error_t::ERR_COMMAND_STATE_INVALID );
     CHECK( render::R_EndFrame() == render::render_error_t::ERR_COMMAND_STATE_INVALID );
+    // Seed two known bottom-edge rows to prove readback row orientation, not
+    // just pixel values. This deliberately uses native GL inside the smoke
+    // fixture; normal callers interact with the target through renderer APIs.
+    glEnable( GL_SCISSOR_TEST );
+    glScissor( 4, 4, 2, 1 );
+    glClearColor( 1.0f, 0.0f, 0.0f, 1.0f );
+    glClear( GL_COLOR_BUFFER_BIT );
+    glScissor( 4, 5, 2, 1 );
+    glClearColor( 0.0f, 0.0f, 1.0f, 1.0f );
+    glClear( GL_COLOR_BUFFER_BIT );
+    glDisable( GL_SCISSOR_TEST );
+    REQUIRE( glGetError() == GL_NO_ERROR );
     REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+
+    // Read a color target while the frame is still active. A host can leave
+    // both an unrelated read FBO and a pixel-pack buffer bound, with a custom
+    // pack layout. Readback must use caller memory, write bottom-up rows at the
+    // requested pitch, and return all host GL state exactly as it found it.
+    GLint previousReadFbo = 0;
+    GLint previousPackBuffer = 0;
+    GLint previousPackAlignment = 0;
+    GLint previousPackRowLength = 0;
+    GLint previousPackSkipRows = 0;
+    GLint previousPackSkipPixels = 0;
+    glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &previousReadFbo );
+    glGetIntegerv( GL_PIXEL_PACK_BUFFER_BINDING, &previousPackBuffer );
+    glGetIntegerv( GL_PACK_ALIGNMENT, &previousPackAlignment );
+    glGetIntegerv( GL_PACK_ROW_LENGTH, &previousPackRowLength );
+    glGetIntegerv( GL_PACK_SKIP_ROWS, &previousPackSkipRows );
+    glGetIntegerv( GL_PACK_SKIP_PIXELS, &previousPackSkipPixels );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    GLuint unrelatedReadFbo = 0u;
+    GLuint unrelatedPackBuffer = 0u;
+    glGenFramebuffers( 1, &unrelatedReadFbo );
+    glGenBuffers( 1, &unrelatedPackBuffer );
+    glBindFramebuffer( GL_READ_FRAMEBUFFER, unrelatedReadFbo );
+    glBindBuffer( GL_PIXEL_PACK_BUFFER, unrelatedPackBuffer );
+    glBufferData( GL_PIXEL_PACK_BUFFER, 64, nullptr, GL_STREAM_READ );
+    glPixelStorei( GL_PACK_ALIGNMENT, 8 );
+    glPixelStorei( GL_PACK_ROW_LENGTH, 13 );
+    glPixelStorei( GL_PACK_SKIP_ROWS, 2 );
+    glPixelStorei( GL_PACK_SKIP_PIXELS, 3 );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    std::array<common::u8, 32u> targetPixels{};
+    targetPixels.fill( 0xcdu );
+    const render::render_readback_rect_t readRect{ 4u, 4u, 2u, 2u };
+    CHECK( render::R_ReadTargetRGBA8( target, readRect, targetPixels.data(), 23u, 16u ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+    for ( const common::u8 byte : targetPixels ) CHECK( byte == 0xcdu );
+    REQUIRE( render::R_ReadTargetRGBA8( target, readRect, targetPixels.data(), 24u, 16u ) ==
+        render::render_error_t::OK );
+    for ( const common::u32 row : { 0u, 1u } ) {
+        for ( const common::u32 x : { 0u, 1u } ) {
+            const common::u32 offset = row * 16u + x * 4u;
+            CHECK( targetPixels[offset + 0u] == ( row == 0u ? 255u : 0u ) );
+            CHECK( targetPixels[offset + 1u] == 0u );
+            CHECK( targetPixels[offset + 2u] == ( row == 0u ? 0u : 255u ) );
+            CHECK( targetPixels[offset + 3u] >= 240u );
+        }
+    }
+    for ( common::u32 i = 8u; i < 16u; ++i ) CHECK( targetPixels[i] == 0xcdu );
+    for ( common::u32 i = 24u; i < 32u; ++i ) CHECK( targetPixels[i] == 0xcdu );
+    GLint capturedPackState = 0;
+    glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &capturedPackState );
+    CHECK( capturedPackState == static_cast<GLint>( unrelatedReadFbo ) );
+    glGetIntegerv( GL_PIXEL_PACK_BUFFER_BINDING, &capturedPackState );
+    CHECK( capturedPackState == static_cast<GLint>( unrelatedPackBuffer ) );
+    glGetIntegerv( GL_PACK_ALIGNMENT, &capturedPackState ); CHECK( capturedPackState == 8 );
+    glGetIntegerv( GL_PACK_ROW_LENGTH, &capturedPackState ); CHECK( capturedPackState == 13 );
+    glGetIntegerv( GL_PACK_SKIP_ROWS, &capturedPackState ); CHECK( capturedPackState == 2 );
+    glGetIntegerv( GL_PACK_SKIP_PIXELS, &capturedPackState ); CHECK( capturedPackState == 3 );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    glBindFramebuffer( GL_READ_FRAMEBUFFER, static_cast<GLuint>( previousReadFbo ) );
+    glBindBuffer( GL_PIXEL_PACK_BUFFER, static_cast<GLuint>( previousPackBuffer ) );
+    glPixelStorei( GL_PACK_ALIGNMENT, previousPackAlignment );
+    glPixelStorei( GL_PACK_ROW_LENGTH, previousPackRowLength );
+    glPixelStorei( GL_PACK_SKIP_ROWS, previousPackSkipRows );
+    glPixelStorei( GL_PACK_SKIP_PIXELS, previousPackSkipPixels );
+    glDeleteFramebuffers( 1, &unrelatedReadFbo );
+    glDeleteBuffers( 1, &unrelatedPackBuffer );
+    REQUIRE( glGetError() == GL_NO_ERROR );
 
     const auto readPresentation = [&]( const GLint x, const GLint y ) {
         std::array<common::u8, 4u> pixel{};

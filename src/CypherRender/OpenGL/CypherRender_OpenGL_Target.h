@@ -18,6 +18,8 @@ CYPHER_NODISCARD render_error_t GL_DestroyRenderTarget(
 CYPHER_NODISCARD render_error_t GL_BeginTargetPass(
     const backend_target_pass_desc_t &, void * ) noexcept;
 CYPHER_NODISCARD render_error_t GL_EndTargetPass( void * ) noexcept;
+CYPHER_NODISCARD render_error_t GL_ReadTargetRGBA8(
+    const backend_target_readback_desc_t &, void * ) noexcept;
 
 // Called with the context current during backend shutdown, after frontend
 // resource systems have released their records. Also cleans up a partial

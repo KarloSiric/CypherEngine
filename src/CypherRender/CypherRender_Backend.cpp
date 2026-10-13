@@ -30,8 +30,9 @@ bool R_IsBackendValid( const backend_api_t *backend ) noexcept
         return false;
     }
 
-    // Every callback below is part of the current private contract. A backend is
-    // rejected as one unit rather than failing later through a null call.
+    // The required callbacks and paired resource families form the private
+    // contract. ReadTargetRGBA8 remains optional even when target passes are
+    // supported; the frontend reports ERR_CAPTURE_UNSUPPORTED if it is absent.
     return backend->ConfigureWindow != nullptr &&
         backend->Init != nullptr &&
         backend->InitHostSurface != nullptr &&
