@@ -50,6 +50,7 @@ struct world_draw_fixture_t {
     render::render_shader_handle_t shader{};
     render::render_pipeline_handle_t pipelines[2]{};
     render::render_buffer_handle_t viewBuffer{};
+    render::render_buffer_handle_t materialBuffer{};
     render::render_uniform_batch_t batch{};
     world::world_t *pWorld{ nullptr };
     world::world_submission_t *pSubmission{ nullptr };
@@ -236,6 +237,7 @@ struct world_draw_fixture_t {
         world::WorldSubmission_Shutdown( &pSubmission );
         world::World_Shutdown( &pWorld );
         (void)render::R_DestroyUniformBatch( &batch );
+        if ( materialBuffer.value != 0u ) (void)render::R_DestroyBuffer( materialBuffer );
         if ( viewBuffer.value != 0u ) (void)render::R_DestroyBuffer( viewBuffer );
         for ( auto pipeline : pipelines ) {
             if ( pipeline.value != 0u ) (void)render::R_DestroyGraphicsPipeline( pipeline );
@@ -288,6 +290,58 @@ TEST_CASE( "visible opaque World objects resolve ordered draws and aligned model
     std::memcpy( &secondModel, fixture.uploaded + 256u, sizeof( secondModel ) );
     CHECK( firstModel.m[12] == 0.0f );
     CHECK( secondModel.m[12] == 4.0f );
+}
+
+TEST_CASE( "World draw preparation carries an owned material uniform binding",
+    "[CypherRender][WorldDraw]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    REQUIRE( render::R_DestroyGraphicsPipeline( fixture.pipelines[1] ) ==
+        render::render_error_t::OK );
+    fixture.pipelines[1] = {};
+
+    render::render_vertex_input_info_t input{};
+    REQUIRE( render::R_GetVertexInputInfo( fixture.mesh.vertexInput, &input ) ==
+        render::render_error_t::OK );
+    render::render_pipeline_desc_t pipeline{};
+    pipeline.shader = fixture.shader;
+    pipeline.vertexLayout = input.layout;
+    pipeline.uniformBlockCount = 3u;
+    pipeline.uniformBlocks[0] = { "View", 64u };
+    pipeline.uniformBlocks[1] = { "Model", 64u };
+    pipeline.uniformBlocks[2] = { "Material", 16u };
+    REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &fixture.pipelines[1] ) ==
+        render::render_error_t::OK );
+    fixture.materials[1].pipeline = fixture.pipelines[1];
+
+    const common::f32 tint[4]{ 0.25f, 0.5f, 0.75f, 1.0f };
+    render::render_buffer_desc_t materialDesc{};
+    materialDesc.byteSize = sizeof( tint );
+    materialDesc.usage = render::R_BUFFER_USAGE_UNIFORM;
+    materialDesc.memory = render::render_buffer_memory_t::UPLOAD;
+    materialDesc.updatePolicy = render::render_buffer_update_t::DYNAMIC;
+    const render::render_buffer_data_t materialData{ tint, sizeof( tint ) };
+    REQUIRE( render::R_CreateBuffer( materialDesc,
+        &materialData,
+        &fixture.materialBuffer ) == render::render_error_t::OK );
+    fixture.materials[1].materialUniformBuffer = fixture.materialBuffer;
+    fixture.materials[1].materialUniformSlot = 2u;
+
+    const auto id = fixture.Add( 0u, 1u, 0.0f );
+    fixture.Build();
+    render::render_world_opaque_draw_t output{};
+    common::u32 count = 0u;
+    REQUIRE( render::R_PrepareOpaqueWorldDraws(
+        fixture.Description(), &output, 1u, &count ) ==
+        render::render_error_t::OK );
+    CHECK( count == 1u );
+    CHECK( output.objectId.slot.value == id.slot.value );
+    CHECK( output.draw.uniformBuffers[0].value == fixture.viewBuffer.value );
+    CHECK( output.draw.uniformBuffers[1].value == fixture.batch.buffer.value );
+    CHECK( output.draw.uniformBuffers[2].value == fixture.materialBuffer.value );
+    CHECK( output.draw.uniformRanges[2].offset == 0u );
+    CHECK( output.draw.uniformRanges[2].byteSize == 0u );
 }
 
 TEST_CASE( "World draw preflight preserves outputs and batch on bad slots or capacity",

@@ -17,6 +17,12 @@ namespace
 constexpr common::string_view_t kMaterialSuffix{ ".cymat_c", 8u };
 constexpr common::string_view_t kShaderSuffix{ ".cyshader", 9u };
 constexpr common::string_view_t kTextureSuffix{ ".cytex", 6u };
+constexpr common::string_view_t kTintName{ "tint", 4u };
+constexpr common::string_view_t kViewBlockName{ "View", 4u };
+constexpr common::string_view_t kModelBlockName{ "Model", 5u };
+constexpr common::string_view_t kMaterialBlockName{ "Material", 8u };
+constexpr common::u32 kMaterialUniformSlot = 2u;
+constexpr common::u32 kTintByteSize = 4u * sizeof( common::f32 );
 constexpr common::u32 kAcquiredCapacity = 2u + R_MAX_SAMPLED_TEXTURE_BINDINGS;
 
 bool HasSuffix( const common::string_view_t path,
@@ -67,11 +73,21 @@ bool MaterialSubsetSupported( const common::cooked_material_view_t &material ) n
          !( material.alphaCutoff >= 0.0F && material.alphaCutoff <= 1.0F ) ||
          ( material.alphaMode != common::render_material_alpha_mode_t::MASK &&
            material.alphaCutoff != 0.5F ) || material.nFeatures != 0u ||
-         material.nParameters != 0u ||
+         material.nParameters > 1u ||
          material.nTextures > R_MAX_SAMPLED_TEXTURE_BINDINGS ||
          material.bHasSurface || material.surface.cchLength != 0u ||
-         material.constantData.cbSize != 0u ||
          !common::ContentHash_Equals( material.variantHash, emptyVariantHash ) ) return false;
+    if ( material.nParameters == 0u ) {
+        if ( material.constantData.cbSize != 0u ) return false;
+    } else {
+        const auto &tint = material.parameters[0];
+        if ( !common::StringView_Equals( tint.name, kTintName ) ||
+             tint.shaderType != common::render_shader_value_type_t::F32X4 ||
+             tint.iByteOffset != 0u || tint.cbValue != kTintByteSize ||
+             tint.cbByteSize != kTintByteSize ||
+             tint.data.cbSize != kTintByteSize ||
+             material.constantData.cbSize != kTintByteSize ) return false;
+    }
     for ( common::u32 i = 0u; i < material.nTextures; ++i ) {
         const auto &texture = material.textures[i];
         if ( texture.bHasSampler || texture.sampler.cchLength != 0u ||
@@ -151,8 +167,14 @@ render_error_t R_DestroyCookedMaterialBundle(
         if ( firstError == render_error_t::OK ) firstError = error;
         if ( error == render_error_t::OK ) texture = {};
     }
+    if ( bundle->materialUniformBuffer.value != 0u ) {
+        const render_error_t error = R_DestroyBuffer( bundle->materialUniformBuffer );
+        if ( firstError == render_error_t::OK ) firstError = error;
+        if ( error == render_error_t::OK ) bundle->materialUniformBuffer = {};
+    }
     if ( bundle->pipeline.value == 0u && bundle->shader.value == 0u &&
-         bundle->textures[0].value == 0u && bundle->textures[1].value == 0u ) {
+         bundle->textures[0].value == 0u && bundle->textures[1].value == 0u &&
+         bundle->materialUniformBuffer.value == 0u ) {
         *bundle = {};
     }
     return firstError;
@@ -230,6 +252,48 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
             break;
         }
 
+        const bool hasTint = pMaterial->nParameters == 1u;
+        if ( hasTint ) {
+            // CYSH VALUE records describe packed material storage but do not
+            // identify a parent GLSL block. This first path uses an exact
+            // View/Model/Material slot convention rather than guessing.
+            if ( description.uniformBlockCount != 3u ||
+                 description.uniformBlocks[0].name == nullptr ||
+                 description.uniformBlocks[1].name == nullptr ||
+                 description.uniformBlocks[2].name == nullptr ||
+                 !common::StringView_Equals( common::StringView_FromCString(
+                     description.uniformBlocks[0].name ), kViewBlockName ) ||
+                 !common::StringView_Equals( common::StringView_FromCString(
+                     description.uniformBlocks[1].name ), kModelBlockName ) ||
+                 !common::StringView_Equals( common::StringView_FromCString(
+                     description.uniformBlocks[2].name ), kMaterialBlockName ) ||
+                 description.uniformBlocks[1].byteSize != 64u ||
+                 description.uniformBlocks[2].byteSize != kTintByteSize ) {
+                result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
+                break;
+            }
+            const auto &tint = pMaterial->parameters[0];
+            const auto *value = common::CookedShader_FindBindingById(
+                *pShader, tint.nLogicalBinding );
+            const auto *block = common::CookedShader_FindBinding(
+                *pShader, kMaterialBlockName );
+            if ( value == nullptr || block == nullptr ||
+                 !common::StringView_Equals( value->name, kTintName ) ||
+                 value->kind != common::render_shader_binding_kind_t::VALUE ||
+                 value->valueType != common::render_shader_value_type_t::F32X4 ||
+                 value->resourceType != common::render_shader_resource_type_t::NONE ||
+                 value->nArrayElements != 1u || value->iByteOffset != 0u ||
+                 value->cbByteSize != kTintByteSize ||
+                 ( value->flags & common::COOKED_SHADER_BINDING_FLAG_MATERIAL ) == 0u ||
+                 block->kind != common::render_shader_binding_kind_t::UNIFORM_BUFFER ||
+                 block->resourceType != common::render_shader_resource_type_t::UNIFORM_BUFFER ||
+                 block->nArrayElements != 1u || block->cbByteSize != kTintByteSize ||
+                 ( block->flags & common::COOKED_SHADER_BINDING_FLAG_MATERIAL ) == 0u ) {
+                result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
+                break;
+            }
+        }
+
         pipeline.vertexLayout = description.vertexLayout;
         pipeline.uniformBlockCount = description.uniformBlockCount;
         pipeline.sampledTextureCount = pMaterial->nTextures;
@@ -264,7 +328,7 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
         }
         if ( result.status != render_material_bridge_status_t::OK ) break;
 
-        // Reject resources the two-slot draw contract cannot represent. Every
+        // Reject resources the bounded draw contract cannot represent. Every
         // declared shader texture and uniform block must have exactly one owner.
         for ( common::u32 i = 0u; i < pShader->nBindings; ++i ) {
             const auto &binding = pShader->bindings[i];
@@ -290,6 +354,14 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
                     }
                 }
                 if ( !found ) {
+                    result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
+                    break;
+                }
+            } else if ( binding.kind == common::render_shader_binding_kind_t::VALUE ) {
+                const auto *value = common::CookedMaterial_FindParameterById(
+                    *pMaterial, binding.nLogicalBinding );
+                if ( !hasTint || value == nullptr ||
+                     !common::StringView_Equals( binding.name, value->name ) ) {
                     result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
                     break;
                 }
@@ -370,6 +442,28 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
         }
         if ( result.status != render_material_bridge_status_t::OK ) break;
 
+        if ( hasTint ) {
+            // CYMT stores explicit little-endian bytes. Upload decoded values
+            // as native f32 instead of assuming the host byte order.
+            const auto &tint = pMaterial->parameters[0];
+            common::f32 nativeTint[4]{};
+            for ( common::u32 i = 0u; i < 4u; ++i ) {
+                nativeTint[i] = static_cast<common::f32>( tint.floatingValues[i] );
+            }
+            render_buffer_desc_t buffer{};
+            buffer.byteSize = sizeof( nativeTint );
+            buffer.usage = R_BUFFER_USAGE_UNIFORM;
+            buffer.debugName = description.debugName;
+            const render_buffer_data_t data{ nativeTint, sizeof( nativeTint ) };
+            renderError = R_CreateBuffer( buffer, &data,
+                &pending.materialUniformBuffer );
+            if ( renderError != render_error_t::OK ) {
+                result = RenderFailure( renderError );
+                break;
+            }
+            pending.materialUniformSlot = kMaterialUniformSlot;
+        }
+
         pipeline.shader = pending.shader;
         renderError = R_CreateGraphicsPipeline( pipeline, &pending.pipeline );
         if ( renderError != render_error_t::OK ) {
@@ -417,11 +511,40 @@ render_error_t R_ApplyCookedMaterialBundleToDraw(
             return render_error_t::ERR_INVALID_HANDLE;
         }
     }
+    const bool hasTint = bundle.materialUniformBuffer.value != 0u;
+    if ( hasTint ) {
+        if ( bundle.materialUniformSlot != kMaterialUniformSlot ||
+             pipelineInfo.uniformBlockCount != kMaterialUniformSlot + 1u ||
+             pipelineInfo.uniformBlockBytes[kMaterialUniformSlot] != kTintByteSize ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+        if ( ( draw->uniformBuffers[kMaterialUniformSlot].value != 0u &&
+               draw->uniformBuffers[kMaterialUniformSlot].value !=
+                   bundle.materialUniformBuffer.value ) ||
+             draw->uniformRanges[kMaterialUniformSlot].offset != 0u ||
+             draw->uniformRanges[kMaterialUniformSlot].byteSize != 0u ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+        render_buffer_info_t buffer{};
+        const render_error_t bufferError = R_GetBufferInfo(
+            bundle.materialUniformBuffer, &buffer );
+        if ( bufferError != render_error_t::OK ) return bufferError;
+        if ( buffer.mapped || buffer.byteSize != kTintByteSize ||
+             ( buffer.usage & R_BUFFER_USAGE_UNIFORM ) == 0u ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+    } else if ( bundle.materialUniformSlot != R_MAX_UNIFORM_BLOCK_BINDINGS ) {
+        return render_error_t::ERR_BINDING_MISMATCH;
+    }
     draw->pipeline = bundle.pipeline;
     for ( common::u32 i = 0u; i < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++i ) {
         draw->sampledTextures[i] = i < bundle.textureCount
             ? bundle.textures[i] : R_INVALID_TEXTURE;
         draw->samplers[i] = R_INVALID_SAMPLER;
+    }
+    if ( hasTint ) {
+        draw->uniformBuffers[kMaterialUniformSlot] = bundle.materialUniformBuffer;
+        draw->uniformRanges[kMaterialUniformSlot] = {};
     }
     return render_error_t::OK;
 }

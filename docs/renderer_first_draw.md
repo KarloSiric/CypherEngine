@@ -202,8 +202,8 @@ and the same 144-byte object record at slot 1. Compile-time checks protect the C
 offsets and sizes; pipeline creation checks the shader's
 reflected block sizes. OpenGL 4.1 assigns binding slots through the renderer
 pipeline, so GLSL 4.10 does not use a `binding` qualifier in source. The
-current two-slot limit is enough for this demonstration, not a final material
-binding convention.
+sample uses two of the available three uniform slots; the third supports the
+limited cooked-material tint convention described in `renderer_resource_bindings.md`.
 
 The sample host writes ambient color, one directional light with a fixed shadow
 view/projection, and two bounded point lights into the camera record. The
@@ -732,8 +732,9 @@ The camera pipelines have two uniform blocks and two sampled texture slots; a
 copied World submission and separate shadow, opaque, sorted translucent, and
 additive draw lists feed those passes. The depth pipeline also samples albedo so
 its masked silhouette matches the camera pass.
-The renderer also has samplers, two binding slots, offscreen RGBA8/RGBA16F
-color and sampleable depth targets, and a limited cooked-material bridge.
+The renderer also has samplers, three uniform and two sampled-texture binding
+slots, offscreen RGBA8/RGBA16F color and sampleable depth targets, and a
+limited cooked-material bridge.
 Authored scene and mesh loading, broader material support, full command
 scheduling, and shader hot reload
 remain separate work.

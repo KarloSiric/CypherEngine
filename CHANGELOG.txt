@@ -78,6 +78,23 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- Graphics pipelines support three named uniform-buffer slots. Borrowed
+  OpenGL 4.1 frames capture and restore all three indexed host bindings,
+  offsets and sizes; frontend/backend contract versions are now 24/29.
+  Hosted native smoke draws through slot 2 with a different host buffer
+  there and verifies restoration. Draw tests pass 447 assertions in 22
+  cases; hosted smoke passes 244 assertions in one case.
+- The cooked-material bridge accepts one F32X4 tint under an explicit
+  View/Model/Material std140 convention. It owns a 16-byte material uniform
+  buffer, binds it per draw and carries it through World draw preparation.
+  Failed rollback publishes live handles for retry. Other value layouts
+  fail preflight before GPU creation. Material-bridge tests pass 1170
+  assertions in ten cases; World-draw tests pass 233 assertions in ten cases;
+  native OpenGL
+  smoke passes 1402 assertions in two cases including a cooked HDR albedo
+  and tint pixel oracle. Six focused CTests pass. Native shader reflection
+  checks block size but not member names/offsets; checked-in source recipes
+  cannot yet emit the required CYMT V2/CYSH V3 Material block.
 - Cooked-material adoption accepts fully resident linear RGBA32_FLOAT 2D
   color textures with one level or complete authored mips alongside RGBA8.
   Float DATA images and streamed mip tails fail before GPU creation; existing
@@ -85,8 +102,7 @@ Added
   uploads. Material-bridge tests pass 807 assertions in seven cases; native
   OpenGL 4.1 smoke passes 1342 assertions in two cases, including unclamped
   4.0 red sampled from cooked float albedo into an RGBA16F target. Fourteen
-  focused World/render CTests pass. Material value parameters, cubemaps and
-  streaming remain separate work.
+  focused World/render CTests pass. Cubemaps and streaming remain separate work.
 - A separate CypherRenderWorldRuntime bridge prepares bounded opaque camera
   draws from an active, copied World submission. It resolves logical
   mesh/material slots through borrowed bundles, validates the visible set and
@@ -106,7 +122,8 @@ Added
   byte-swap and buffer state, and preserves values above 1.0 when sampled
   into an HDR target. Raw images may generate mips; float images are
   sampled-only, while RGBA16F remains the HDR target format. Public/backend
-  contracts are versions 23/28. Texture tests pass 781 assertions in 26
+  contracts were versions 23/28 for that increment. Texture tests pass 781
+  assertions in 26
   cases, native OpenGL smoke passes 1282 assertions including raw and mip
   pixels, and ten focused renderer CTests pass. The 120-frame hidden sample
   still renders its scene. Cooked-material RGBA32F adoption is recorded above;

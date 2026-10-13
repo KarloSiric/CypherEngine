@@ -347,6 +347,17 @@ TEST_CASE( "pipeline validation checks block shape and instancing capability", "
     CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
     description.uniformBlocks[1] = { "Material", 0u };
     CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description = fixture.PipelineDescription( 64u );
+    description.uniformBlockCount = 3u;
+    description.uniformBlocks[1] = { "Material", 32u };
+    description.uniformBlocks[2] = { "Material", 16u };
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description.uniformBlocks[2] = { "Object", 0u };
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description.uniformBlocks[2] = { "Object", 16u };
+    render::tr.info.limits.maxUniformBufferBindings = 2u;
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED );
+    render::tr.info.limits.maxUniformBufferBindings = 16u;
     description = fixture.PipelineDescription();
     description.uniformBlocks[1] = { "Undeclared", 16u };
     CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
@@ -396,21 +407,23 @@ TEST_CASE( "comparison pipelines need backend sampler support", "[CypherRender][
     CHECK( fixture.pipelineCreates == 0u );
 }
 
-TEST_CASE( "pipeline info preserves two declared uniform block byte sizes",
+TEST_CASE( "pipeline info preserves three declared uniform block byte sizes",
            "[CypherRender][Draw]" )
 {
     draw_fixture_t fixture;
     fixture.Init();
     auto description = fixture.PipelineDescription( 64u );
-    description.uniformBlockCount = 2u;
+    description.uniformBlockCount = 3u;
     description.uniformBlocks[1] = { "Material", 32u };
+    description.uniformBlocks[2] = { "Object", 16u };
     render::render_pipeline_handle_t pipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::OK );
     render::render_pipeline_info_t info{};
     REQUIRE( render::R_GetGraphicsPipelineInfo( pipeline, &info ) == draw_error_t::OK );
-    CHECK( info.uniformBlockCount == 2u );
+    CHECK( info.uniformBlockCount == 3u );
     CHECK( info.uniformBlockBytes[0] == 64u );
     CHECK( info.uniformBlockBytes[1] == 32u );
+    CHECK( info.uniformBlockBytes[2] == 16u );
     CHECK( info.sampledTextureCount == 0u );
 }
 
@@ -927,33 +940,45 @@ TEST_CASE( "uniform ranges select aligned records and reject invalid slices befo
     CHECK( render::R_DestroyBuffer( uniform ) == draw_error_t::OK );
 }
 
-TEST_CASE( "independent uniform slots unwind references after a second-range failure",
+TEST_CASE( "independent uniform slots unwind references after range failures",
            "[CypherRender][Draw]" )
 {
     draw_fixture_t fixture;
     fixture.Init();
     fixture.Geometry();
     auto description = fixture.PipelineDescription( 64u );
-    description.uniformBlockCount = 2u;
+    description.uniformBlockCount = 3u;
     description.uniformBlocks[1] = { "Material", 32u };
-    render::render_pipeline_handle_t twoBlocks{};
-    REQUIRE( render::R_CreateGraphicsPipeline( description, &twoBlocks ) == draw_error_t::OK );
+    description.uniformBlocks[2] = { "Object", 16u };
+    render::render_pipeline_handle_t threeBlocks{};
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &threeBlocks ) == draw_error_t::OK );
     const auto transforms = fixture.Buffer( 1024u, render::R_BUFFER_USAGE_UNIFORM );
     const auto materials = fixture.Buffer( 1024u, render::R_BUFFER_USAGE_UNIFORM );
+    const auto objects = fixture.Buffer( 1024u, render::R_BUFFER_USAGE_UNIFORM );
     render::tr.frameActive = true;
     auto draw = fixture.Draw();
-    draw.pipeline = twoBlocks;
+    draw.pipeline = threeBlocks;
     draw.uniformBuffers[0] = transforms;
     draw.uniformBuffers[1] = materials;
+    draw.uniformBuffers[2] = objects;
     draw.uniformRanges[0] = { 256u, 64u };
     draw.uniformRanges[1] = { 512u, 32u };
+    draw.uniformRanges[2] = { 768u, 16u };
     REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
     CHECK( fixture.lastDraw.uniformRanges[0].offset == 256u );
     CHECK( fixture.lastDraw.uniformRanges[1].offset == 512u );
+    CHECK( fixture.lastDraw.uniformRanges[2].offset == 768u );
 
+    draw.uniformBuffers[2] = {};
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_BINDING_MISMATCH );
+    draw.uniformBuffers[2] = objects;
     draw.uniformRanges[1].offset = 513u;
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_BINDING_MISMATCH );
+    draw.uniformRanges[1].offset = 512u;
+    draw.uniformRanges[2].offset = 769u;
     CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_BINDING_MISMATCH );
     CHECK( fixture.drawCalls == 1u );
     CHECK( render::R_DestroyBuffer( transforms ) == draw_error_t::OK );
     CHECK( render::R_DestroyBuffer( materials ) == draw_error_t::OK );
+    CHECK( render::R_DestroyBuffer( objects ) == draw_error_t::OK );
 }

@@ -89,6 +89,23 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Graphics pipelines now support three named uniform-buffer slots. Borrowed
+  OpenGL 4.1 frames capture and restore all three indexed host buffer bindings,
+  offsets, and sizes; frontend and backend contract versions are 24 and 29.
+  A hosted native smoke draws through slot 2 while a different host buffer is
+  bound there, then verifies restoration. Draw tests pass 447 assertions in
+  22 cases; hosted native smoke passes 244 assertions in one case.
+- The cooked-material bridge now accepts one F32X4 `tint` value under an
+  explicit `View`/`Model`/`Material` std140 convention. It owns a 16-byte
+  material uniform buffer, binds it per draw, carries it through World draw
+  preparation, and preserves live handles for retry if rollback fails.
+  Preflight rejects other value layouts before GPU creation. Material-bridge
+  tests pass 1,170 assertions in ten cases; World-draw tests pass 233
+  assertions in ten cases;
+  native OpenGL smoke passes 1,402 assertions in two cases, including a cooked
+  HDR albedo and tint pixel oracle. Six focused CTests pass. The native shader
+  checks block size but not member names/offsets; checked-in source recipes
+  still cannot emit the required CYMT V2/CYSH V3 `Material` block.
 - Cooked-material adoption now accepts fully resident linear RGBA32_FLOAT
   2D color textures with a single level or complete authored mips, alongside
   the existing RGBA8 textures. The bridge rejects float DATA images and
@@ -97,8 +114,7 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   Material-bridge tests pass 807 assertions in seven cases; native OpenGL 4.1
   smoke passes 1,342 assertions in two cases, including a cooked float albedo
   sampled as unclamped 4.0 red into an RGBA16F target. Fourteen focused
-  World/render CTests pass. This does not add material value parameters,
-  cubemaps, or texture streaming.
+  World/render CTests pass. Cubemaps and texture streaming remain separate work.
 - A separate `CypherRenderWorldRuntime` bridge now prepares bounded opaque
   camera draws from an active, copied World submission. It resolves logical
   mesh/material slots through borrowed bundle tables, checks every visible
@@ -119,7 +135,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   unpack byte-swap and buffer state, and preserves values above 1.0 when
   sampled into an HDR target. Raw images may generate mips; float images are
   sampled-only, while RGBA16F remains the offscreen HDR target format. Public
-  and backend renderer contracts are versions 23 and 28. The texture suite
+  and backend renderer contracts were versions 23 and 28 for that increment.
+  The texture suite
   passes 781 assertions in 26 cases, native OpenGL smoke passes 1,282
   assertions including raw and authored-mip pixels, and ten focused renderer
   CTests pass. The 120-frame hidden sample still renders its existing scene.

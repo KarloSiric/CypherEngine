@@ -30,6 +30,8 @@ struct render_material_bundle_t {
     render_shader_handle_t shader{};
     render_pipeline_handle_t pipeline{};
     render_texture_handle_t textures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
+    render_buffer_handle_t materialUniformBuffer{};
+    ::cypher::common::u32 materialUniformSlot{ R_MAX_UNIFORM_BLOCK_BINDINGS };
     ::cypher::common::u32 textureCount{ 0u };
     ::cypher::common::render_material_alpha_mode_t alphaMode{
         ::cypher::common::render_material_alpha_mode_t::OPAQUE
@@ -55,10 +57,17 @@ struct render_material_bridge_result_t {
     render_error_t cleanupRenderError{ render_error_t::OK };
 };
 
-// Accepts CYMT V2 / CYSH V3 with no features, material parameters or named
+// Accepts CYMT V2 / CYSH V3 with no features or named
 // surface; SURFACE + OPAQUE, MASK, BLEND, or ADDITIVE state; zero to two
 // 2D color textures (linear/sRGB RGBA8 or linear RGBA32_FLOAT) with identity
-// UV0 and no sampler preset. All shader
+// UV0 and no sampler preset. The only supported material value is one F32X4
+// `tint` at byte offset zero. Its shader must declare a matching MATERIAL VALUE
+// and a 16-byte MATERIAL uniform block named `Material` with GLSL std140
+// member `vec4 tint`. The caller declares View at slot 0, 64-byte Model at
+// slot 1, and Material at slot 2; the bundle owns and binds only slot 2.
+// GLSL block member names and offsets are a shader-authoring convention here:
+// native pipeline reflection currently verifies the block size, not members.
+// All shader
 // resource bindings must be represented by those textures or caller-declared
 // uniform blocks. The renderer must support the selected shader and textures.
 // Resource views are borrowed until synchronous GPU creation finishes. All
@@ -83,14 +92,16 @@ CYPHER_NODISCARD render_material_bridge_result_t R_CreateCookedMaterialBundle(
     const render_material_bundle_desc_t &description,
     CY_OUT render_material_bundle_t *bundleOut ) noexcept;
 
-// Destroys pipeline before shader and all independent textures. On a backend
+// Destroys pipeline before shader, independent textures, and the optional
+// material uniform buffer. On a backend
 // destroy failure, keeps the still-live handles in bundle for a later retry.
 CYPHER_NODISCARD render_error_t R_DestroyCookedMaterialBundle(
     render_material_bundle_t *bundle ) noexcept;
 
-// Copies pipeline and sampled-texture slots into an existing draw record and
-// clears both sampler slots to use the textures' default sampling policy. The
-// caller supplies vertex input, uniform buffers, geometry and frame state.
+// Copies pipeline and sampled-texture slots into an existing draw record,
+// clears both sampler slots to use the textures' default sampling policy, and
+// binds the bundle-owned Material uniform in slot 2 when present. The caller
+// supplies vertex input, View/Model uniform buffers, geometry and frame state.
 CYPHER_NODISCARD render_error_t R_ApplyCookedMaterialBundleToDraw(
     const render_material_bundle_t &bundle,
     render_draw_indexed_desc_t *draw ) noexcept;

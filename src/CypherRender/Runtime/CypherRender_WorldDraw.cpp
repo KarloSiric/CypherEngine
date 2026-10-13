@@ -240,6 +240,12 @@ void PublishDraw(
             ? material.textures[i] : R_INVALID_TEXTURE;
         draw.samplers[i] = R_INVALID_SAMPLER;
     }
+    if ( material.materialUniformBuffer.value != R_INVALID_BUFFER.value ) {
+        // Material bridge preflight already verified this owned binding.
+        draw.uniformBuffers[material.materialUniformSlot] =
+            material.materialUniformBuffer;
+        draw.uniformRanges[material.materialUniformSlot] = {};
+    }
     draw.uniformBuffers[description.modelUniformSlot] =
         description.modelUniforms->buffer;
     draw.uniformRanges[description.modelUniformSlot] = {

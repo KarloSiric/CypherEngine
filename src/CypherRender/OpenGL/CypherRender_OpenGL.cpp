@@ -115,8 +115,8 @@ void GL_SetIndexedEnabled(
 }
 
 // All queries are limited to state the hosted frame, indexed slot-zero draw,
-// and target pass actually modify. Other viewport/draw-buffer slots remain
-// owned by the host and are never touched by those paths.
+// declared uniform slots, and target pass actually modify. Other viewport/
+// draw-buffer slots remain owned by the host and are never touched by those paths.
 render_error_t GL_CaptureHostFrameState( gl_host_frame_state_t &state ) noexcept
 {
     glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &state.drawFramebuffer );
@@ -133,12 +133,14 @@ render_error_t GL_CaptureHostFrameState( gl_host_frame_state_t &state ) noexcept
     glGetIntegerv( GL_SAMPLER_BINDING, &state.samplerUnit1 );
     glActiveTexture( static_cast<GLenum>( state.activeTexture ) );
     glGetIntegerv( GL_UNIFORM_BUFFER_BINDING, &state.uniformBuffer );
-    glGetIntegeri_v( GL_UNIFORM_BUFFER_BINDING, 0u, &state.uniformBufferIndex0 );
-    glGetInteger64i_v( GL_UNIFORM_BUFFER_START, 0u, &state.uniformBufferStart0 );
-    glGetInteger64i_v( GL_UNIFORM_BUFFER_SIZE, 0u, &state.uniformBufferSize0 );
-    glGetIntegeri_v( GL_UNIFORM_BUFFER_BINDING, 1u, &state.uniformBufferIndex1 );
-    glGetInteger64i_v( GL_UNIFORM_BUFFER_START, 1u, &state.uniformBufferStart1 );
-    glGetInteger64i_v( GL_UNIFORM_BUFFER_SIZE, 1u, &state.uniformBufferSize1 );
+    for ( common::u32 slot = 0u; slot < R_MAX_UNIFORM_BLOCK_BINDINGS; ++slot ) {
+        glGetIntegeri_v( GL_UNIFORM_BUFFER_BINDING, slot,
+            &state.uniformBufferIndices[slot] );
+        glGetInteger64i_v( GL_UNIFORM_BUFFER_START, slot,
+            &state.uniformBufferStarts[slot] );
+        glGetInteger64i_v( GL_UNIFORM_BUFFER_SIZE, slot,
+            &state.uniformBufferSizes[slot] );
+    }
 
     glGetIntegerv( GL_DEPTH_FUNC, &state.depthFunction );
     glGetIntegerv( GL_CULL_FACE_MODE, &state.cullFaceMode );
@@ -254,23 +256,17 @@ render_error_t GL_RestoreHostFrameState( gl_host_frame_state_t &state ) noexcept
     glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( state.texture2DUnit1 ) );
     glBindSampler( 1u, static_cast<GLuint>( state.samplerUnit1 ) );
     glActiveTexture( static_cast<GLenum>( state.activeTexture ) );
-    if ( state.uniformBufferIndex0 != 0 && state.uniformBufferSize0 > 0 ) {
-        glBindBufferRange( GL_UNIFORM_BUFFER, 0u,
-            static_cast<GLuint>( state.uniformBufferIndex0 ),
-            static_cast<GLintptr>( state.uniformBufferStart0 ),
-            static_cast<GLsizeiptr>( state.uniformBufferSize0 ) );
-    } else {
-        glBindBufferBase( GL_UNIFORM_BUFFER, 0u,
-            static_cast<GLuint>( state.uniformBufferIndex0 ) );
-    }
-    if ( state.uniformBufferIndex1 != 0 && state.uniformBufferSize1 > 0 ) {
-        glBindBufferRange( GL_UNIFORM_BUFFER, 1u,
-            static_cast<GLuint>( state.uniformBufferIndex1 ),
-            static_cast<GLintptr>( state.uniformBufferStart1 ),
-            static_cast<GLsizeiptr>( state.uniformBufferSize1 ) );
-    } else {
-        glBindBufferBase( GL_UNIFORM_BUFFER, 1u,
-            static_cast<GLuint>( state.uniformBufferIndex1 ) );
+    for ( common::u32 slot = 0u; slot < R_MAX_UNIFORM_BLOCK_BINDINGS; ++slot ) {
+        if ( state.uniformBufferIndices[slot] != 0 &&
+             state.uniformBufferSizes[slot] > 0 ) {
+            glBindBufferRange( GL_UNIFORM_BUFFER, slot,
+                static_cast<GLuint>( state.uniformBufferIndices[slot] ),
+                static_cast<GLintptr>( state.uniformBufferStarts[slot] ),
+                static_cast<GLsizeiptr>( state.uniformBufferSizes[slot] ) );
+        } else {
+            glBindBufferBase( GL_UNIFORM_BUFFER, slot,
+                static_cast<GLuint>( state.uniformBufferIndices[slot] ) );
+        }
     }
     glBindBuffer( GL_UNIFORM_BUFFER, static_cast<GLuint>( state.uniformBuffer ) );
 

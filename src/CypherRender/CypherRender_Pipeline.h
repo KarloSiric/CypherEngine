@@ -56,7 +56,7 @@ enum class render_blend_mode_t : ::cypher::common::u8 {
     COUNT
 };
 
-inline constexpr ::cypher::common::u32 R_MAX_UNIFORM_BLOCK_BINDINGS = 2u;
+inline constexpr ::cypher::common::u32 R_MAX_UNIFORM_BLOCK_BINDINGS = 3u;
 inline constexpr ::cypher::common::u32 R_MAX_SAMPLED_TEXTURE_BINDINGS = 2u;
 
 enum class render_sampled_texture_kind_t : ::cypher::common::u8 {

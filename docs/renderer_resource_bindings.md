@@ -1,7 +1,7 @@
-# Renderer resource bindings: first two-slot contract
+# Renderer resource bindings: bounded OpenGL 4.1 contract
 
-An immutable graphics pipeline declares zero, one, or two named GLSL uniform
-blocks and zero, one, or two named sampled-image uniforms. Each sampled slot
+An immutable graphics pipeline declares up to three named GLSL uniform
+blocks and up to two named sampled-image uniforms. Each sampled slot
 declares either ordinary `sampler2D` (the default) or `sampler2DShadow`.
 Bindings occupy consecutive logical slots beginning at zero. The matching
 indexed draw supplies one live uniform buffer or texture handle for every
@@ -153,18 +153,28 @@ acquires the CYMT material and its referenced CYSH/CYTX files through
 V3 identity, and validates each texture name and logical binding ID. It loads
 all dependencies before creating GPU objects. Creation then builds a shader,
 textures, and a pipeline, releases the CPU resource handles, and publishes one
-caller-owned bundle. `R_ApplyCookedMaterialBundleToDraw` copies its pipeline and
-texture slots into a draw record; the caller still supplies geometry, uniform
-buffers, and frame state. `R_DestroyCookedMaterialBundle` releases the pipeline
-before its shader, followed by independent textures.
+caller-owned bundle. `R_ApplyCookedMaterialBundleToDraw` copies its pipeline
+and texture slots into a draw record, plus the owned material uniform buffer
+when present; the caller supplies geometry, view/model uniforms, and frame
+state. `R_DestroyCookedMaterialBundle` releases the pipeline before its shader,
+followed by independent textures and its optional material uniform buffer.
 
 This first bridge accepts CYMT V2 opaque, mask, blend, or additive surface
-materials with the default empty feature variant, no value parameters, no named
+materials with the default empty feature variant, no named
 surface, identity UV0, and no authored sampler preset. It supports zero to
 two fully resident 2D color textures in linear/sRGB RGBA8 or linear
 RGBA32_FLOAT, with one or a complete authored mip chain, that the existing
 texture-adoption path can upload. Float DATA textures and streamed mip tails
 remain unsupported and are rejected before GPU creation.
+The first supported material value is one F32X4 `tint` at byte offset zero.
+The cooked shader must declare a matching MATERIAL VALUE and a 16-byte
+MATERIAL uniform block named `Material`, whose GLSL std140 member is
+`vec4 tint`. For this subset the caller declares `View` at uniform slot 0,
+64-byte `Model` at slot 1, and `Material` at slot 2. The bridge packs the
+decoded value into native float bytes, creates and owns the slot-2 buffer,
+and binds it per draw. The exact member name and offset are an authoring
+convention: native pipeline reflection verifies the block's size, not its
+member layout. Other value types and layouts still fail preflight.
 All shader resource bindings must fit those texture slots or the caller's
 declared uniform blocks. A two-sided material disables back-face culling; its
 shadow flags remain metadata for a later scene/pass scheduler. The bundle
@@ -196,10 +206,12 @@ their CPU handles, and verifies the RGBA8 image with a framebuffer pixel read.
 A second draw adopts a cooked RGBA32_FLOAT albedo through the material bridge,
 samples a red value of 4.0 into an RGBA16F target, and reads it back without
 clipping. Its geometry comes from the validated static-mesh upload bundle and
-an active World submission. These tests prove the narrow bridges reach real
-OpenGL 4.1 draws. Checked-in
-authored `.cymat` and `.cyshader` recipes still use schema V1 and do not yet
-produce the CYMT V2/CYSH V3 pair required by this bridge.
+an active World submission. A third draw verifies that cooked
+`{4, 0.5, 0.25, 1}` albedo multiplied by cooked `{0.25, 0.5, 0.75, 1}` tint
+reaches the HDR target as approximately `{1, 0.25, 0.1875, 1}`. These tests
+prove the narrow bridges reach real OpenGL 4.1 draws. Checked-in authored
+`.cymat` and `.cyshader` recipes still use schema V1 and do not yet produce
+the CYMT V2/CYSH V3 pair or `Material` UBO required by this bridge.
 
 ## Native creation failure ownership
 

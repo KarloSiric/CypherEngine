@@ -3176,9 +3176,11 @@ void CheckShadowPassLighting( const render::render_extent_t extent )
 }
 
 void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
-    const bool floatAlbedo )
+    const bool floatAlbedo, const bool withTint )
 {
     CAPTURE( floatAlbedo );
+    CAPTURE( withTint );
+    REQUIRE( ( !withTint || floatAlbedo ) );
     const auto materialPath = common::StringView_FromCString( "materials/native.cymat_c" );
     const auto shaderPath = common::StringView_FromCString( "shaders/native.cyshader_c" );
     const auto texturePath = common::StringView_FromCString( "textures/native.cytex_c" );
@@ -3189,11 +3191,23 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
         "layout(location=0) in vec3 position;\n"
         "layout(std140) uniform Model { mat4 model; };\n"
         "void main(){ gl_Position=model*vec4(position,1.0); }\n";
+    constexpr char tintedVertexSource[] =
+        "#version 410 core\n"
+        "layout(location=0) in vec3 position;\n"
+        "layout(std140) uniform View { mat4 view; };\n"
+        "layout(std140) uniform Model { mat4 model; };\n"
+        "void main(){ gl_Position=view*model*vec4(position,1.0); }\n";
     constexpr char fragmentSource[] =
         "#version 410 core\n"
         "uniform sampler2D AlbedoMap;\n"
         "layout(location=0) out vec4 color;\n"
         "void main(){ color=texture(AlbedoMap,vec2(0.5)); }\n";
+    constexpr char tintedFragmentSource[] =
+        "#version 410 core\n"
+        "uniform sampler2D AlbedoMap;\n"
+        "layout(std140) uniform Material { vec4 tint; };\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main(){ color=texture(AlbedoMap,vec2(0.5))*tint; }\n";
     common::cooked_shader_binding_source_t sampledImage{};
     sampledImage.name = bindingName;
     sampledImage.kind = common::render_shader_binding_kind_t::SAMPLED_TEXTURE;
@@ -3213,9 +3227,33 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
     modelBlock.cbByteSize = 64u;
     REQUIRE( common::CookedShader_MakeLogicalBindingId(
         modelBlock.name, &modelBlock.nLogicalBinding ) );
-    const common::cooked_shader_binding_source_t bindings[]{ sampledImage, modelBlock };
+    common::cooked_shader_binding_source_t bindings[5]{ sampledImage, modelBlock };
+    if ( withTint ) {
+        bindings[2] = modelBlock;
+        bindings[2].name = common::StringView_FromCString( "View" );
+        bindings[2].stageMask = common::RENDER_SHADER_STAGE_MASK_VERTEX;
+        REQUIRE( common::CookedShader_MakeLogicalBindingId(
+            bindings[2].name, &bindings[2].nLogicalBinding ) );
+        bindings[3] = modelBlock;
+        bindings[3].name = common::StringView_FromCString( "Material" );
+        bindings[3].stageMask = common::RENDER_SHADER_STAGE_MASK_FRAGMENT;
+        bindings[3].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
+            common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
+        bindings[3].cbByteSize = 16u;
+        REQUIRE( common::CookedShader_MakeLogicalBindingId(
+            bindings[3].name, &bindings[3].nLogicalBinding ) );
+        bindings[4].name = common::StringView_FromCString( "tint" );
+        bindings[4].kind = common::render_shader_binding_kind_t::VALUE;
+        bindings[4].valueType = common::render_shader_value_type_t::F32X4;
+        bindings[4].stageMask = common::RENDER_SHADER_STAGE_MASK_FRAGMENT;
+        bindings[4].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
+            common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
+        bindings[4].cbByteSize = 16u;
+        REQUIRE( common::CookedShader_MakeLogicalBindingId(
+            bindings[4].name, &bindings[4].nLogicalBinding ) );
+    }
     const common::cooked_shader_interface_source_t shaderInterface{
-        { bindings, 2u }
+        { bindings, withTint ? 5u : 2u }
     };
     common::content_hash_t interfaceHash{};
     REQUIRE( common::CookedShader_ComputeInterfaceHash(
@@ -3229,6 +3267,16 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
     stages[1].code = {
         reinterpret_cast<const common::byte *>( fragmentSource ), sizeof( fragmentSource )
     };
+    if ( withTint ) {
+        stages[0].code = {
+            reinterpret_cast<const common::byte *>( tintedVertexSource ),
+            sizeof( tintedVertexSource )
+        };
+        stages[1].code = {
+            reinterpret_cast<const common::byte *>( tintedFragmentSource ),
+            sizeof( tintedFragmentSource )
+        };
+    }
     std::vector<common::byte> shaderBytes( common::CookedShader_RequiredSizeV3(
         {}, { stages, 2u }, shaderInterface ) );
     REQUIRE_FALSE( shaderBytes.empty() );
@@ -3274,6 +3322,19 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
     materialDescription.shader = common::StringView_FromCString( "shaders/native.cyshader" );
     materialDescription.shaderInterfaceHash = interfaceHash;
     materialDescription.textures = { &materialTexture, 1u };
+    common::cooked_material_parameter_source_v2_t tint{};
+    if ( withTint ) {
+        tint.name = common::StringView_FromCString( "tint" );
+        REQUIRE( common::CookedShader_MakeLogicalBindingId(
+            tint.name, &tint.nLogicalBinding ) );
+        tint.type = common::render_shader_value_type_t::F32X4;
+        tint.cbByteSize = 16u;
+        tint.floatingValues[0] = 0.25;
+        tint.floatingValues[1] = 0.5;
+        tint.floatingValues[2] = 0.75;
+        tint.floatingValues[3] = 1.0;
+        materialDescription.parameters = { &tint, 1u };
+    }
     std::vector<common::byte> materialBytes( common::CookedMaterial_RequiredSizeV2(
         materialDescription ) );
     REQUIRE_FALSE( materialBytes.empty() );
@@ -3327,8 +3388,14 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
     bundleDescription.pResources = &resources;
     bundleDescription.cookedMaterialPath = materialPath;
     bundleDescription.vertexLayout = layout;
-    bundleDescription.uniformBlockCount = 1u;
-    bundleDescription.uniformBlocks[0] = { "Model", 64u };
+    bundleDescription.uniformBlockCount = withTint ? 3u : 1u;
+    if ( withTint ) {
+        bundleDescription.uniformBlocks[0] = { "View", 64u };
+        bundleDescription.uniformBlocks[1] = { "Model", 64u };
+        bundleDescription.uniformBlocks[2] = { "Material", 16u };
+    } else {
+        bundleDescription.uniformBlocks[0] = { "Model", 64u };
+    }
     bundleDescription.debugName = "Native cooked material smoke";
     render::render_material_bundle_t bundle{};
     const auto adopted = render::R_CreateCookedMaterialBundle(
@@ -3398,6 +3465,21 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
     render::render_uniform_batch_t modelUniforms{};
     REQUIRE( render::R_CreateUniformBatch(
         64u, nullptr, &modelUniforms ) == render::render_error_t::OK );
+    render::render_buffer_handle_t viewBuffer{};
+    if ( withTint ) {
+        constexpr float identity[16]{
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f
+        };
+        render::render_buffer_desc_t viewDescription{};
+        viewDescription.byteSize = sizeof( identity );
+        viewDescription.usage = render::R_BUFFER_USAGE_UNIFORM;
+        const render::render_buffer_data_t viewData{ identity, sizeof( identity ) };
+        REQUIRE( render::R_CreateBuffer( viewDescription, &viewData, &viewBuffer ) ==
+            render::render_error_t::OK );
+    }
     render::render_world_opaque_prepare_desc_t prepare{};
     prepare.submission = pSubmission;
     prepare.token = token;
@@ -3406,6 +3488,10 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
     prepare.materials = &bundle;
     prepare.materialCount = 1u;
     prepare.modelUniforms = &modelUniforms;
+    if ( withTint ) {
+        prepare.modelUniformSlot = 1u;
+        prepare.drawTemplate.uniformBuffers[0] = viewBuffer;
+    }
     render::render_world_opaque_draw_t draws[1]{};
     common::u32 drawCount = 0u;
     REQUIRE( render::R_PrepareOpaqueWorldDraws(
@@ -3447,12 +3533,15 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
         // must preserve HDR albedo through shader sampling and target writes.
         REQUIRE( render::R_ReadTargetRGBA32F( hdrTarget, { 2u, 2u, 1u, 1u },
             &center, sizeof( center ), sizeof( center ) ) == render::render_error_t::OK );
-        CHECK( center.red >= 3.98f );
-        CHECK( center.red <= 4.02f );
-        CHECK( center.green >= 0.49f );
-        CHECK( center.green <= 0.51f );
-        CHECK( center.blue >= 0.24f );
-        CHECK( center.blue <= 0.26f );
+        const float expectedRed = withTint ? 1.0f : 4.0f;
+        const float expectedGreen = withTint ? 0.25f : 0.5f;
+        const float expectedBlue = withTint ? 0.1875f : 0.25f;
+        CHECK( center.red >= expectedRed - 0.02f );
+        CHECK( center.red <= expectedRed + 0.02f );
+        CHECK( center.green >= expectedGreen - 0.01f );
+        CHECK( center.green <= expectedGreen + 0.01f );
+        CHECK( center.blue >= expectedBlue - 0.01f );
+        CHECK( center.blue <= expectedBlue + 0.01f );
         CHECK( center.alpha >= 0.99f );
         CHECK( center.alpha <= 1.01f );
     } else {
@@ -3477,6 +3566,9 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
     world::World_Shutdown( &pWorld );
     REQUIRE( render::R_DestroyUniformBatch( &modelUniforms ) ==
         render::render_error_t::OK );
+    if ( withTint ) {
+        REQUIRE( render::R_DestroyBuffer( viewBuffer ) == render::render_error_t::OK );
+    }
 
     const auto shader = bundle.shader;
     const auto pipeline = bundle.pipeline;
@@ -3573,8 +3665,9 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckHDRTranslucentCompositing( info->drawableExtent );
     CheckAlphaMaskCutout( info->drawableExtent );
     CheckShadowPassLighting( info->drawableExtent );
-    CheckCookedMaterialBundleDrawing( info->drawableExtent, false );
-    CheckCookedMaterialBundleDrawing( info->drawableExtent, true );
+    CheckCookedMaterialBundleDrawing( info->drawableExtent, false, false );
+    CheckCookedMaterialBundleDrawing( info->drawableExtent, true, false );
+    CheckCookedMaterialBundleDrawing( info->drawableExtent, true, true );
 
     ::cypher::common::u32 vertexWords[16]{};
     render::render_buffer_desc_t bufferDescription{};

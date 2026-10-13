@@ -158,6 +158,87 @@ struct cooked_files_t {
             { material.data(), material.size() } ) ) );
     }
 
+    void BuildTint( common::string_view_t shaderValueName = Text( "tint" ),
+        common::render_shader_value_type_t shaderValueType =
+            common::render_shader_value_type_t::F32X4,
+        common::u32 materialBlockBytes = 16u )
+    {
+        common::cooked_shader_binding_source_t bindings[4]{};
+        bindings[0].name = Text( "View" );
+        bindings[1].name = Text( "Model" );
+        bindings[2].name = Text( "Material" );
+        for ( common::u32 i = 0u; i < 3u; ++i ) {
+            auto &binding = bindings[i];
+            binding.kind = common::render_shader_binding_kind_t::UNIFORM_BUFFER;
+            binding.resourceType = common::render_shader_resource_type_t::UNIFORM_BUFFER;
+            binding.stageMask = common::RENDER_SHADER_STAGE_MASK_ALL_GRAPHICS;
+            binding.flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
+                ( i == 2u ? common::COOKED_SHADER_BINDING_FLAG_MATERIAL
+                          : common::COOKED_SHADER_BINDING_FLAG_INSTANCE );
+            binding.cbByteSize = i == 2u ? materialBlockBytes : 64u;
+            binding.nLogicalBinding = BindingId( binding.name );
+        }
+        bindings[3].name = shaderValueName;
+        bindings[3].kind = common::render_shader_binding_kind_t::VALUE;
+        bindings[3].valueType = shaderValueType;
+        bindings[3].stageMask = common::RENDER_SHADER_STAGE_MASK_FRAGMENT;
+        bindings[3].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
+            common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
+        bindings[3].cbByteSize = common::CookedShader_ValueTypeStorageSize(
+            shaderValueType );
+        bindings[3].nLogicalBinding = BindingId( shaderValueName );
+        const common::cooked_shader_interface_source_t shaderInterface{
+            { bindings, 4u }
+        };
+        REQUIRE( common::CookedShader_ComputeInterfaceHash(
+            shaderInterface, &interfaceHash ) );
+        constexpr char vertex[] =
+            "#version 410 core\n"
+            "layout(std140) uniform View { mat4 view; };\n"
+            "layout(std140) uniform Model { mat4 model; };\n"
+            "void main(){gl_Position=view*model*vec4(0.0,0.0,0.0,1.0);}\n";
+        constexpr char fragment[] =
+            "#version 410 core\n"
+            "layout(std140) uniform Material { vec4 tint; };\n"
+            "out vec4 c;void main(){c=tint;}\n";
+        common::cooked_shader_stage_source_t stages[2]{};
+        stages[0].stage = common::render_shader_stage_t::VERTEX;
+        stages[0].code = {
+            reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex )
+        };
+        stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+        stages[1].code = {
+            reinterpret_cast<const common::byte *>( fragment ), sizeof( fragment )
+        };
+        shader.resize( common::CookedShader_RequiredSizeV3(
+            {}, { stages, 2u }, shaderInterface ) );
+        REQUIRE_FALSE( shader.empty() );
+        REQUIRE( common::CookedShader_Succeeded( common::CookedShader_WriteV3(
+            {}, { stages, 2u }, shaderInterface,
+            common::ContentHash_String( Text( "shaders/bridge.cyshader" ) ),
+            { shader.data(), shader.size() } ) ) );
+
+        common::cooked_material_parameter_source_v2_t tint{};
+        tint.name = Text( "tint" );
+        tint.nLogicalBinding = BindingId( tint.name );
+        tint.type = common::render_shader_value_type_t::F32X4;
+        tint.cbByteSize = 16u;
+        tint.floatingValues[0] = 0.25;
+        tint.floatingValues[1] = 0.5;
+        tint.floatingValues[2] = 0.75;
+        tint.floatingValues[3] = 1.0;
+        common::cooked_material_source_v2_t description{};
+        description.shader = Text( "shaders/bridge.cyshader" );
+        description.shaderInterfaceHash = interfaceHash;
+        description.parameters = { &tint, 1u };
+        material.resize( common::CookedMaterial_RequiredSizeV2( description ) );
+        REQUIRE_FALSE( material.empty() );
+        REQUIRE( common::CookedMaterial_Succeeded( common::CookedMaterial_WriteV2(
+            description,
+            common::ContentHash_String( Text( "materials/bridge.cymat" ) ),
+            { material.data(), material.size() } ) ) );
+    }
+
     static void MakeTexture( std::vector<common::byte> &file,
         common::string_view_t name, const common::byte ( &pixels )[4] )
     {
@@ -266,6 +347,13 @@ struct bridge_fixture_t {
     common::u32 shaderCreates{ 0u }, shaderDestroys{ 0u };
     common::u32 pipelineCreates{ 0u }, pipelineDestroys{ 0u };
     common::u32 textureCreates{ 0u }, textureDestroys{ 0u };
+    common::u32 bufferCreates{ 0u }, bufferDestroys{ 0u };
+    bool failBufferCreate{ false };
+    bool tokenOnBufferFailure{ false };
+    bool failNextBufferDestroy{ false };
+    common::f32 uploadedTint[4]{};
+    common::u64 uploadedBufferBytes{ 0u };
+    render::render_buffer_usage_flags_t uploadedBufferUsage{ render::R_BUFFER_USAGE_NONE };
     common::u32 failTextureAt{ 0u };
     bool tokenOnTextureFailure{ false };
     bool failNextTextureDestroy{ false };
@@ -408,6 +496,38 @@ struct bridge_fixture_t {
             }
             return render::render_error_t::OK;
         };
+        backend.CreateBuffer = []( const render::render_buffer_desc_t &description,
+            const render::render_buffer_data_t *data,
+            render::backend_buffer_t &out, void *state ) noexcept {
+            auto &fixture = *static_cast<bridge_fixture_t *>( state );
+            ++fixture.bufferCreates;
+            out = {};
+            if ( data == nullptr || data->bytes == nullptr ||
+                 description.byteSize != sizeof( fixture.uploadedTint ) ||
+                 data->byteSize != sizeof( fixture.uploadedTint ) ||
+                 description.usage != render::R_BUFFER_USAGE_UNIFORM ) {
+                return render::render_error_t::ERR_INVALID_ARGUMENT;
+            }
+            fixture.uploadedBufferBytes = data->byteSize;
+            fixture.uploadedBufferUsage = description.usage;
+            std::memcpy( fixture.uploadedTint, data->bytes,
+                static_cast<common::usize>( data->byteSize ) );
+            if ( fixture.failBufferCreate ) {
+                if ( fixture.tokenOnBufferFailure ) out.value = fixture.nextToken++;
+                return render::render_error_t::ERR_OUT_OF_MEMORY;
+            }
+            out.value = fixture.nextToken++;
+            return render::render_error_t::OK;
+        };
+        backend.DestroyBuffer = []( render::backend_buffer_t, void *state ) noexcept {
+            auto &fixture = *static_cast<bridge_fixture_t *>( state );
+            if ( fixture.failNextBufferDestroy ) {
+                fixture.failNextBufferDestroy = false;
+                return render::render_error_t::ERR_DEVICE_LOST;
+            }
+            ++fixture.bufferDestroys;
+            return render::render_error_t::OK;
+        };
         render::tr = {};
         render::tr.backend = { &backend, this };
         render::tr.initialized = true;
@@ -418,6 +538,7 @@ struct bridge_fixture_t {
         render::tr.info.limits.maxCombinedTextureUnits = 16u;
         render::tr.info.limits.maxUniformBlockBytes = 16384u;
         render::tr.info.limits.maxUniformBufferBindings = 16u;
+        REQUIRE( render::R_BufferSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_ShaderSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_TextureSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_PipelineSystemInit() == render::render_error_t::OK );
@@ -437,6 +558,26 @@ struct bridge_fixture_t {
         return description;
     }
 
+    void UseTint( common::string_view_t shaderValueName = Text( "tint" ),
+        common::render_shader_value_type_t shaderValueType =
+            common::render_shader_value_type_t::F32X4,
+        common::u32 materialBlockBytes = 16u )
+    {
+        cooked.BuildTint( shaderValueName, shaderValueType, materialBlockBytes );
+        storage.files[0].contents = { cooked.material.data(), cooked.material.size() };
+        storage.files[1].contents = { cooked.shader.data(), cooked.shader.size() };
+    }
+
+    render::render_material_bundle_desc_t TintDescription()
+    {
+        auto description = Description();
+        description.uniformBlockCount = 3u;
+        description.uniformBlocks[0] = { "View", 64u };
+        description.uniformBlocks[1] = { "Model", 64u };
+        description.uniformBlocks[2] = { "Material", 16u };
+        return description;
+    }
+
     void UseFloatAlbedo( bool authoredMips,
         common::render_texture_usage_t usage = common::render_texture_usage_t::COLOR,
         common::cooked_texture_residency_t residency =
@@ -452,6 +593,7 @@ struct bridge_fixture_t {
         (void)render::R_PipelineSystemShutdown();
         (void)render::R_TextureSystemShutdown();
         (void)render::R_ShaderSystemShutdown();
+        (void)render::R_BufferSystemShutdown();
         render::tr = savedRenderer;
         if ( resource::Res_IsInitialized( &resources ) ) {
             CHECK( resource::Res_Shutdown( &resources ) == resource::resource_error_t::OK );
@@ -514,6 +656,189 @@ TEST_CASE( "cooked material bridge owns zero to two textures after VFS views exp
         CHECK( fixture.pipelineDestroys == 1u );
         CHECK( fixture.shaderDestroys == 1u );
         CHECK( fixture.textureDestroys == textureCount );
+    }
+}
+
+TEST_CASE( "cooked tint creates a native float material uniform and owns its lifetime",
+    "[CypherRender][MaterialBridge][Tint]" )
+{
+    bridge_fixture_t fixture{};
+    fixture.Init( 0u );
+    fixture.UseTint();
+    const auto result = render::R_CreateCookedMaterialBundle(
+        fixture.TintDescription(), &fixture.bundle );
+    REQUIRE( result.status == render::render_material_bridge_status_t::OK );
+    CHECK( fixture.shaderCreates == 1u );
+    CHECK( fixture.bufferCreates == 1u );
+    CHECK( fixture.pipelineCreates == 1u );
+    CHECK( fixture.uploadedBufferBytes == 4u * sizeof( common::f32 ) );
+    CHECK( fixture.uploadedBufferUsage == render::R_BUFFER_USAGE_UNIFORM );
+    CHECK( fixture.uploadedTint[0] == 0.25F );
+    CHECK( fixture.uploadedTint[1] == 0.5F );
+    CHECK( fixture.uploadedTint[2] == 0.75F );
+    CHECK( fixture.uploadedTint[3] == 1.0F );
+    CHECK( fixture.bundle.materialUniformSlot == 2u );
+    CHECK( render::R_IsBufferValid( fixture.bundle.materialUniformBuffer ) );
+    CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+
+    std::memset( fixture.cooked.material.data(), 0, fixture.cooked.material.size() );
+    std::memset( fixture.cooked.shader.data(), 0, fixture.cooked.shader.size() );
+    render::render_draw_indexed_desc_t draw{};
+    draw.uniformBuffers[2].value = fixture.bundle.materialUniformBuffer.value + 1u;
+    CHECK( render::R_ApplyCookedMaterialBundleToDraw( fixture.bundle, &draw ) ==
+        render::render_error_t::ERR_BINDING_MISMATCH );
+    CHECK( draw.pipeline.value == 0u );
+    draw.uniformBuffers[2] = {};
+    draw.uniformRanges[2] = { 16u, 16u };
+    CHECK( render::R_ApplyCookedMaterialBundleToDraw( fixture.bundle, &draw ) ==
+        render::render_error_t::ERR_BINDING_MISMATCH );
+    draw.uniformRanges[2] = {};
+    REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
+        fixture.bundle, &draw ) == render::render_error_t::OK );
+    CHECK( draw.pipeline.value == fixture.bundle.pipeline.value );
+    CHECK( draw.uniformBuffers[2].value == fixture.bundle.materialUniformBuffer.value );
+    CHECK( draw.uniformRanges[2].offset == 0u );
+    CHECK( draw.uniformRanges[2].byteSize == 0u );
+
+    REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+        render::render_error_t::OK );
+    CHECK( fixture.pipelineDestroys == 1u );
+    CHECK( fixture.shaderDestroys == 1u );
+    CHECK( fixture.bufferDestroys == 1u );
+    CHECK( fixture.bundle.materialUniformBuffer.value == 0u );
+    CHECK( fixture.bundle.materialUniformSlot == render::R_MAX_UNIFORM_BLOCK_BINDINGS );
+}
+
+TEST_CASE( "cooked tint preflights its exact VALUE and Material block convention",
+    "[CypherRender][MaterialBridge][Tint]" )
+{
+    SECTION( "mismatched VALUE name" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint( Text( "otherTint" ) );
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.TintDescription(), &fixture.bundle );
+        CHECK( result.status ==
+            render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.bufferCreates == 0u );
+        CHECK( fixture.pipelineCreates == 0u );
+        CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+    }
+    SECTION( "mismatched VALUE type" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint( Text( "tint" ), common::render_shader_value_type_t::F32X3 );
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.TintDescription(), &fixture.bundle );
+        CHECK( result.status ==
+            render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.bufferCreates == 0u );
+        CHECK( fixture.pipelineCreates == 0u );
+    }
+    SECTION( "mismatched Material block size" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint( Text( "tint" ),
+            common::render_shader_value_type_t::F32X4, 32u );
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.TintDescription(), &fixture.bundle );
+        CHECK( result.status ==
+            render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.bufferCreates == 0u );
+        CHECK( fixture.pipelineCreates == 0u );
+    }
+    SECTION( "Material block must be declared at slot two" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint();
+        auto description = fixture.TintDescription();
+        description.uniformBlocks[2].name = "Other";
+        const auto result = render::R_CreateCookedMaterialBundle(
+            description, &fixture.bundle );
+        CHECK( result.status ==
+            render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.bufferCreates == 0u );
+        CHECK( fixture.pipelineCreates == 0u );
+    }
+}
+
+TEST_CASE( "cooked tint buffer failure rolls back and destroy failure remains retryable",
+    "[CypherRender][MaterialBridge][Tint]" )
+{
+    SECTION( "failed native buffer creation retires returned token and shader" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint();
+        fixture.failBufferCreate = true;
+        fixture.tokenOnBufferFailure = true;
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.TintDescription(), &fixture.bundle );
+        CHECK( result.status == render::render_material_bridge_status_t::RENDER_ERROR );
+        CHECK( result.renderError == render::render_error_t::ERR_OUT_OF_MEMORY );
+        CHECK( fixture.shaderCreates == 1u );
+        CHECK( fixture.shaderDestroys == 1u );
+        CHECK( fixture.bufferCreates == 1u );
+        CHECK( fixture.bufferDestroys == 1u );
+        CHECK( fixture.pipelineCreates == 0u );
+        CHECK( fixture.bundle.materialUniformBuffer.value == 0u );
+        CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+    }
+    SECTION( "failed pipeline creation retires the material uniform" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint();
+        fixture.pipelineResult = render::render_error_t::ERR_OUT_OF_MEMORY;
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.TintDescription(), &fixture.bundle );
+        CHECK( result.status == render::render_material_bridge_status_t::RENDER_ERROR );
+        CHECK( result.renderError == render::render_error_t::ERR_OUT_OF_MEMORY );
+        CHECK( fixture.shaderCreates == 1u );
+        CHECK( fixture.shaderDestroys == 1u );
+        CHECK( fixture.bufferCreates == 1u );
+        CHECK( fixture.bufferDestroys == 1u );
+        CHECK( fixture.pipelineCreates == 1u );
+        CHECK( fixture.bundle.materialUniformBuffer.value == 0u );
+        CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+    }
+    SECTION( "rollback failure publishes the surviving material uniform" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint();
+        fixture.pipelineResult = render::render_error_t::ERR_OUT_OF_MEMORY;
+        fixture.failNextBufferDestroy = true;
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.TintDescription(), &fixture.bundle );
+        CHECK( result.status == render::render_material_bridge_status_t::CLEANUP_FAILED );
+        CHECK( result.cleanupRenderError == render::render_error_t::ERR_DEVICE_LOST );
+        CHECK( fixture.bundle.shader.value == 0u );
+        CHECK( fixture.bundle.pipeline.value == 0u );
+        CHECK( render::R_IsBufferValid( fixture.bundle.materialUniformBuffer ) );
+        CHECK( fixture.bundle.materialUniformSlot == 2u );
+        CHECK( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+            render::render_error_t::OK );
+        CHECK( fixture.bufferDestroys == 1u );
+        CHECK( fixture.bundle.materialUniformBuffer.value == 0u );
+    }
+    SECTION( "destroy failure retains live uniform buffer for retry" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint();
+        REQUIRE( render::R_CreateCookedMaterialBundle(
+            fixture.TintDescription(), &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::OK );
+        fixture.failNextBufferDestroy = true;
+        CHECK( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+            render::render_error_t::ERR_DEVICE_LOST );
+        CHECK( render::R_IsBufferValid( fixture.bundle.materialUniformBuffer ) );
+        CHECK( fixture.bufferDestroys == 0u );
+        CHECK( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+            render::render_error_t::OK );
+        CHECK( fixture.bufferDestroys == 1u );
+        CHECK( fixture.bundle.materialUniformBuffer.value == 0u );
     }
 }
 

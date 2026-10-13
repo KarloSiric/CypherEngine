@@ -20,6 +20,7 @@
 #include "CypherCommon/Formats/CypherCommon_CookedShader.h"
 #include "CypherRender/CypherRender_Error.h"
 #include "CypherRender/CypherRender_HostSurface.h"
+#include "CypherRender/CypherRender_Pipeline.h"
 #include "CypherRender/CypherRender_Types.h"
 #include "CypherSystem/Platform/CypherSystem_OpenGL.h"
 #include "CypherSystem/Platform/CypherSystem_Window.h"
@@ -69,13 +70,10 @@ struct gl_host_frame_state_t {
     GLint samplerUnit0{ 0 };
     GLint texture2DUnit1{ 0 };
     GLint samplerUnit1{ 0 };
-    GLint uniformBuffer{ 0 };       // Generic target, changed by BindBufferBase.
-    GLint uniformBufferIndex0{ 0 }; // Indexed binding, with its range below.
-    GLint64 uniformBufferStart0{ 0 };
-    GLint64 uniformBufferSize0{ 0 };
-    GLint uniformBufferIndex1{ 0 };
-    GLint64 uniformBufferStart1{ 0 };
-    GLint64 uniformBufferSize1{ 0 };
+    GLint uniformBuffer{ 0 }; // Generic target, changed by BindBufferBase.
+    GLint uniformBufferIndices[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
+    GLint64 uniformBufferStarts[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
+    GLint64 uniformBufferSizes[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
     GLint depthFunction{ GL_LESS };
     GLint cullFaceMode{ GL_BACK };
     GLint frontFace{ GL_CCW };

@@ -114,8 +114,8 @@ static_assert( offsetof( render::render_color_t, red ) == 0u );
 static_assert( offsetof( render::render_color_t, green ) == 4u );
 static_assert( offsetof( render::render_color_t, blue ) == 8u );
 static_assert( offsetof( render::render_color_t, alpha ) == 12u );
-static_assert( render::R_BACKEND_API_VERSION == 28u );
-static_assert( render::RENDER_API_VERSION == 23u );
+static_assert( render::R_BACKEND_API_VERSION == 29u );
+static_assert( render::RENDER_API_VERSION == 24u );
 
 int main()
 {
