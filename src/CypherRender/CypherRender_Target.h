@@ -74,5 +74,17 @@ CYPHER_NODISCARD render_error_t R_ReadTargetRGBA8(
     render_target_handle_t target, const render_readback_rect_t &rect,
     ::cypher::common::byte *pixelsOut, ::cypher::common::u64 byteCapacity,
     ::cypher::common::u32 rowPitchBytes ) noexcept;
+
+// Synchronously converts an RGBA16F target to caller-owned RGBA32F pixels.
+// Each render_color_t occupies 16 bytes in red/green/blue/alpha order. Rows
+// start at the rectangle's bottom edge; padding remains untouched. The byte
+// capacity must cover the last row's pixels, but not its trailing padding.
+// Pitch must be a multiple of 16 and at least width * 16. Invalid input and
+// unsupported target formats do not modify the destination. This is a
+// blocking diagnostic/capture operation, not an asynchronous transfer.
+CYPHER_NODISCARD render_error_t R_ReadTargetRGBA32F(
+    render_target_handle_t target, const render_readback_rect_t &rect,
+    render_color_t *pixelsOut, ::cypher::common::u64 byteCapacity,
+    ::cypher::common::u32 rowPitchBytes ) noexcept;
 } // namespace cypher::engine::render
 #endif // CYPHER_ENGINE_RENDER_TARGET_H

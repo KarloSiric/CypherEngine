@@ -214,12 +214,13 @@ fragments can exceed 1.0 before tone mapping. These are sample-owned light
 records, not authored World lights, point-light shadows, or a general lighting
 pass.
 
-A native OpenGL smoke oracle uploads the matching 320-byte std140 block and
-compares actual RGBA8 pixels with zero lights, one in-range red light, the same
-light outside its range, and a second blue light. It checks that the RGB
-contribution follows the range and count fields while alpha stays unchanged.
-The oracle uses a small shader with the same point-light equation, rather than
-reading pixels from the full graybox sample shader.
+A native OpenGL smoke oracle compiles the checked-in graybox vertex and fragment
+stages, uploads the 320-byte view and 144-byte object records, and binds white
+albedo and a D24 comparison texture. It compares actual RGBA8 pixels with zero
+lights, one in-range red light, the same light outside its range, and a second
+blue light. The RGB contribution follows the range and count fields while alpha
+stays unchanged. This exercises the sample shader itself; the test constructs a
+shader view from its source files rather than loading the offline-cooked CYSH.
 
 Common Math uses column vectors, so the vertex shader applies
 `projection * view * model * position`. World space follows the engine's Z-up
@@ -374,9 +375,9 @@ this color attachment.
 RGBA16F preserves linear values above 1.0 between passes. A later pass must
 explicitly map those values into the chosen output range and color space;
 merely sampling the texture does not tone-map it. The native smoke test draws
-different HDR values into this target and checks distinct tone-mapped RGBA8
-pixels in a second offscreen pass. Float uploads, cooked float textures, HDR
-CPU readback, configurable exposure, and an automatic postprocess chain remain
+HDR values into this target, reads an unclamped RGBA32F pixel, and checks
+tone-mapped RGBA8 pixels in a second offscreen pass. Float uploads, cooked float
+textures, configurable exposure, and an automatic postprocess chain remain
 separate work. `R_ReadTargetRGBA8` rejects an RGBA16F target without changing
 the caller's buffer; it does not silently clamp HDR pixels.
 
@@ -397,8 +398,8 @@ framebuffer sRGB conversion with this shader would encode twice.
 On a nonzero drawable resize, the host calls `R_Resize` and recreates the
 fixed-size HDR target between frames. It destroys the old target before its
 retained color texture; partial creation failure exits through the sample's
-normal cleanup path. Native pixel oracles check float preservation, tone
-mapping, translucent compositing, and opaque-depth occlusion; a separate
+normal cleanup path. Native pixel oracles check unclamped RGBA32F readback,
+tone mapping, translucent compositing, and opaque-depth occlusion; a separate
 regression checks the disabled sRGB policy on a
 capable context. The 120-frame hidden sample checks all three pass submissions
 and cleanup. Its interactive appearance and resize are not covered by an
@@ -540,6 +541,16 @@ caller choosing a four-byte-aligned row pitch of at least `width * 4` bytes.
 Capacity must cover the last row's pixels but need not include padding after
 them. Validation errors do not modify the destination; a native transfer
 failure may leave a partial result.
+
+`R_ReadTargetRGBA32F` applies the same frame, pass, rectangle, and ownership
+rules to an RGBA16F target. It converts each pixel to a 16-byte
+`render_color_t` with linear float red, green, blue, and alpha channels. The
+row pitch must be a multiple of 16 bytes and at least `width * 16`; capacity
+again need only cover the last row's pixels. RGBA8 and depth-only targets are
+rejected without touching output. The native smoke test reads `(4, 1, 0, 1)`
+from an RGBA16F target before tone mapping, demonstrating that HDR red is not
+clamped to 1.0. This is a diagnostic readback, not a texture upload or a
+real-time capture pipeline.
 
 The OpenGL backend reads from the target's private framebuffer and restores
 the host's previous read framebuffer and pixel-pack state, including a bound

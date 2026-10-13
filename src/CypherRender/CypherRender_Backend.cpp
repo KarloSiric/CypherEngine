@@ -31,8 +31,8 @@ bool R_IsBackendValid( const backend_api_t *backend ) noexcept
     }
 
     // The required callbacks and paired resource families form the private
-    // contract. ReadTargetRGBA8 remains optional even when target passes are
-    // supported; the frontend reports ERR_CAPTURE_UNSUPPORTED if it is absent.
+    // contract. Both target readback callbacks remain optional even when
+    // target passes are supported; missing callbacks report capture unsupported.
     return backend->ConfigureWindow != nullptr &&
         backend->Init != nullptr &&
         backend->InitHostSurface != nullptr &&

@@ -41,7 +41,8 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version twenty-six adds explicit straight-alpha and additive pipeline blending.
+Version twenty-seven adds optional RGBA16F-to-RGBA32F target readback.
+Version twenty-six added explicit straight-alpha and additive pipeline blending.
 Version twenty-five added an explicit target color format for RGBA16F readback
 validation. Version twenty-four added filled-triangle depth bias.
 Offscreen targets, linked shaders, immediate draws, and all
@@ -49,7 +50,7 @@ native object tokens remain behind this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 26u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 27u;
 
 /*
 ================
@@ -172,6 +173,14 @@ struct backend_target_readback_desc_t {
     backend_render_target_t target{};
     render_readback_rect_t rect{};
     ::cypher::common::byte *pixelsOut{ nullptr };
+    ::cypher::common::u64 byteCapacity{ 0u };
+    ::cypher::common::u32 rowPitchBytes{ 0u };
+};
+
+struct backend_target_float_readback_desc_t {
+    backend_render_target_t target{};
+    render_readback_rect_t rect{};
+    render_color_t *pixelsOut{ nullptr };
     ::cypher::common::u64 byteCapacity{ 0u };
     ::cypher::common::u32 rowPitchBytes{ 0u };
 };
@@ -410,6 +419,8 @@ using backend_begin_target_pass_fn_t = render_error_t (*)(
 using backend_end_target_pass_fn_t = render_error_t (*)( void * ) noexcept;
 using backend_read_target_rgba8_fn_t = render_error_t (*)(
     const backend_target_readback_desc_t &, void * ) noexcept;
+using backend_read_target_rgba32f_fn_t = render_error_t (*)(
+    const backend_target_float_readback_desc_t &, void * ) noexcept;
 
 struct backend_api_t {
     ::cypher::common::u32 apiVersion{ 0u };              // Must equal R_BACKEND_API_VERSION.
@@ -462,6 +473,7 @@ struct backend_api_t {
 
     // Optional. A backend may support target passes without CPU readback.
     backend_read_target_rgba8_fn_t ReadTargetRGBA8{ nullptr };
+    backend_read_target_rgba32f_fn_t ReadTargetRGBA32F{ nullptr };
 
 };
 

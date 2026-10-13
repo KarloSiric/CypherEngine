@@ -33,6 +33,8 @@
 #include <cstddef>
 #include <filesystem>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -1783,6 +1785,79 @@ void CheckHDRTargetToneMap( const render::render_extent_t extent )
         rejectedReadback.size(), 4u ) == render::render_error_t::ERR_CAPTURE_UNSUPPORTED );
     for ( const auto channel : rejectedReadback ) CHECK( channel == 0xcdu );
 
+    GLint previousReadFbo = 0;
+    GLint previousPackBuffer = 0;
+    GLint previousPackAlignment = 0;
+    GLint previousPackRowLength = 0;
+    GLint previousPackSkipRows = 0;
+    GLint previousPackSkipPixels = 0;
+    GLint previousPackSwapBytes = 0;
+    glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &previousReadFbo );
+    glGetIntegerv( GL_PIXEL_PACK_BUFFER_BINDING, &previousPackBuffer );
+    glGetIntegerv( GL_PACK_ALIGNMENT, &previousPackAlignment );
+    glGetIntegerv( GL_PACK_ROW_LENGTH, &previousPackRowLength );
+    glGetIntegerv( GL_PACK_SKIP_ROWS, &previousPackSkipRows );
+    glGetIntegerv( GL_PACK_SKIP_PIXELS, &previousPackSkipPixels );
+    glGetIntegerv( GL_PACK_SWAP_BYTES, &previousPackSwapBytes );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    GLuint unrelatedReadFbo = 0u;
+    GLuint unrelatedPackBuffer = 0u;
+    glGenFramebuffers( 1, &unrelatedReadFbo );
+    glGenBuffers( 1, &unrelatedPackBuffer );
+    glBindFramebuffer( GL_READ_FRAMEBUFFER, unrelatedReadFbo );
+    glBindBuffer( GL_PIXEL_PACK_BUFFER, unrelatedPackBuffer );
+    glBufferData( GL_PIXEL_PACK_BUFFER, 64, nullptr, GL_STREAM_READ );
+    glPixelStorei( GL_PACK_ALIGNMENT, 8 );
+    glPixelStorei( GL_PACK_ROW_LENGTH, 13 );
+    glPixelStorei( GL_PACK_SKIP_ROWS, 2 );
+    glPixelStorei( GL_PACK_SKIP_PIXELS, 3 );
+    glPixelStorei( GL_PACK_SWAP_BYTES, GL_TRUE );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+
+    // Float readback must use caller memory and undo every changed host pack
+    // setting, even when an unrelated PBO and read framebuffer were bound.
+    render::render_color_t hdrPixel{};
+    REQUIRE( render::R_ReadTargetRGBA32F( hdrTarget, center, &hdrPixel,
+        sizeof( hdrPixel ), sizeof( hdrPixel ) ) == render::render_error_t::OK );
+    CHECK( hdrPixel.red >= 3.98f );
+    CHECK( hdrPixel.red <= 4.02f );
+    CHECK( hdrPixel.green >= 0.98f );
+    CHECK( hdrPixel.green <= 1.02f );
+    CHECK( hdrPixel.blue >= 0.0f );
+    CHECK( hdrPixel.blue <= 0.02f );
+    CHECK( hdrPixel.alpha >= 0.98f );
+    CHECK( hdrPixel.alpha <= 1.02f );
+    GLint capturedPackState = 0;
+    glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &capturedPackState );
+    CHECK( capturedPackState == static_cast<GLint>( unrelatedReadFbo ) );
+    glGetIntegerv( GL_PIXEL_PACK_BUFFER_BINDING, &capturedPackState );
+    CHECK( capturedPackState == static_cast<GLint>( unrelatedPackBuffer ) );
+    glGetIntegerv( GL_PACK_ALIGNMENT, &capturedPackState ); CHECK( capturedPackState == 8 );
+    glGetIntegerv( GL_PACK_ROW_LENGTH, &capturedPackState ); CHECK( capturedPackState == 13 );
+    glGetIntegerv( GL_PACK_SKIP_ROWS, &capturedPackState ); CHECK( capturedPackState == 2 );
+    glGetIntegerv( GL_PACK_SKIP_PIXELS, &capturedPackState ); CHECK( capturedPackState == 3 );
+    glGetIntegerv( GL_PACK_SWAP_BYTES, &capturedPackState ); CHECK( capturedPackState == GL_TRUE );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    glBindFramebuffer( GL_READ_FRAMEBUFFER, static_cast<GLuint>( previousReadFbo ) );
+    glBindBuffer( GL_PIXEL_PACK_BUFFER, static_cast<GLuint>( previousPackBuffer ) );
+    glPixelStorei( GL_PACK_ALIGNMENT, previousPackAlignment );
+    glPixelStorei( GL_PACK_ROW_LENGTH, previousPackRowLength );
+    glPixelStorei( GL_PACK_SKIP_ROWS, previousPackSkipRows );
+    glPixelStorei( GL_PACK_SKIP_PIXELS, previousPackSkipPixels );
+    glPixelStorei( GL_PACK_SWAP_BYTES, previousPackSwapBytes );
+    glDeleteFramebuffers( 1, &unrelatedReadFbo );
+    glDeleteBuffers( 1, &unrelatedPackBuffer );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+
+    render::render_color_t rejectedFloat{ 9.0f, 9.0f, 9.0f, 9.0f };
+    CHECK( render::R_ReadTargetRGBA32F( ldrTarget, center, &rejectedFloat,
+        sizeof( rejectedFloat ), sizeof( rejectedFloat ) ) ==
+        render::render_error_t::ERR_CAPTURE_UNSUPPORTED );
+    CHECK( rejectedFloat.red == 9.0f );
+    CHECK( rejectedFloat.green == 9.0f );
+    CHECK( rejectedFloat.blue == 9.0f );
+    CHECK( rejectedFloat.alpha == 9.0f );
+
     pass.target = ldrTarget;
     REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
     draw.pipeline = toneMapPipeline;
@@ -1823,12 +1898,12 @@ void CheckPointLightPixels( const render::render_extent_t extent )
     // original 240-byte prefix. The pixel checks below exercise the tail as
     // real OpenGL uniform data, not only the host-side structure offsets.
     struct alignas( 16 ) view_constants_t {
-        float view[16]{};
-        float projection[16]{};
+        float view[16]{ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+        float projection[16]{ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
         float ambientLight[4]{ 0.1f, 0.1f, 0.1f, 0.0f };
-        float lightDirection[4]{};
+        float lightDirection[4]{ 0.0f, 0.0f, 1.0f, 0.0f };
         float lightColor[4]{};
-        float lightViewProjection[16]{};
+        float lightViewProjection[16]{ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
         float pointLightPositionRange[2][4]{};
         float pointLightColorIntensity[2][4]{};
         common::i32 pointLightControl[4]{};
@@ -1838,55 +1913,57 @@ void CheckPointLightPixels( const render::render_extent_t extent )
     static_assert( offsetof( view_constants_t, pointLightColorIntensity ) == 272u );
     static_assert( offsetof( view_constants_t, pointLightControl ) == 304u );
 
-    constexpr char vertex[] =
-        "#version 410 core\nlayout(location=0) in vec3 position;\n"
-        "void main() { gl_Position=vec4(position,1.0); }\n";
-    constexpr char fragment[] = R"(#version 410 core
-layout(std140) uniform ViewConstants {
-    mat4 view;
-    mat4 projection;
-    vec4 ambientLight;
-    vec4 lightDirection;
-    vec4 lightColor;
-    mat4 lightViewProjection;
-    vec4 pointLightPositionRange[2];
-    vec4 pointLightColorIntensity[2];
-    ivec4 pointLightControl;
-};
-layout(location=0) out vec4 color;
-void main() {
-    vec3 lighting = ambientLight.rgb;
-    vec3 worldPosition = vec3(0.0);
-    vec3 normal = vec3(0.0, 0.0, 1.0);
-    for (int i = 0; i < 2; ++i) {
-        if (i >= pointLightControl.x) break;
-        float range = pointLightPositionRange[i].w;
-        vec3 toLight = pointLightPositionRange[i].xyz - worldPosition;
-        float distanceToLight = length(toLight);
-        if (range <= 0.0 || distanceToLight <= 0.0001 || distanceToLight >= range) continue;
-        float lambert = max(dot(normal, toLight / distanceToLight), 0.0);
-        float remainingRange = 1.0 - distanceToLight / range;
-        lighting += pointLightColorIntensity[i].rgb *
-            (pointLightColorIntensity[i].a * lambert * remainingRange * remainingRange);
-    }
-    color = vec4(lighting, 0.6);
-}
-)";
+    struct alignas( 16 ) object_constants_t {
+        float model[16]{ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+        float tint[4]{ 1.0f, 1.0f, 1.0f, 0.6f };
+        // GLSL std140 mat3 stores three columns with a 16-byte stride.
+        float normalMatrix[3][4]{ { 1,0,0,0 }, { 0,1,0,0 }, { 0,0,1,0 } };
+        float cutout[4]{};
+    };
+    static_assert( sizeof( object_constants_t ) == 144u );
+    static_assert( offsetof( object_constants_t, tint ) == 64u );
+    static_assert( offsetof( object_constants_t, normalMatrix ) == 80u );
+    static_assert( offsetof( object_constants_t, cutout ) == 128u );
+
+    // Compile the same checked-in stages as the graybox sample. This catches
+    // stage/interface drift that a copied lighting equation would miss.
+    const auto readShader = []( const char *name ) {
+        const auto path = std::filesystem::path( CYPHER_RENDER_SMOKE_SHADER_DIR ) / name;
+        INFO( "Reading sample shader " << path.string() );
+        std::ifstream file( path, std::ios::binary );
+        REQUIRE( file.is_open() );
+        std::string source( std::istreambuf_iterator<char>{ file },
+            std::istreambuf_iterator<char>{} );
+        REQUIRE( !file.bad() );
+        REQUIRE( !source.empty() );
+        source.push_back( '\0' );
+        return source;
+    };
+    const std::string vertex = readShader( "cube.vert" );
+    const std::string fragment = readShader( "cube.frag" );
     common::cooked_shader_view_t source{};
     source.nLanguageVersion = 410u;
     source.nStages = 2u;
     source.stages[0].stage = common::render_shader_stage_t::VERTEX;
     source.stages[0].code = {
-        reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+        reinterpret_cast<const common::byte *>( vertex.data() ), vertex.size() };
     source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
     source.stages[1].code = {
-        reinterpret_cast<const common::byte *>( fragment ), sizeof( fragment ) };
+        reinterpret_cast<const common::byte *>( fragment.data() ), fragment.size() };
     render::render_shader_handle_t shader{};
-    REQUIRE( render::R_CreateShader( { &source, "Point-light pixel oracle" },
+    REQUIRE( render::R_CreateShader( { &source, "Graybox point-light pixel oracle" },
         &shader ) == render::render_error_t::OK );
 
-    constexpr float vertices[]{ -1.0f,-1.0f,0.0f, 3.0f,-1.0f,0.0f,
-                                -1.0f,3.0f,0.0f };
+    struct vertex_t {
+        float position[3];
+        float normal[3];
+        float texcoord[2];
+    };
+    constexpr vertex_t vertices[]{
+        { { -1.0f,-1.0f,0.0f }, { 0,0,1 }, { 0.5f,0.5f } },
+        { {  3.0f,-1.0f,0.0f }, { 0,0,1 }, { 0.5f,0.5f } },
+        { { -1.0f, 3.0f,0.0f }, { 0,0,1 }, { 0.5f,0.5f } }
+    };
     constexpr common::u16 indices[]{ 0u, 1u, 2u };
     const auto makeBuffer = []( const void *bytes, const common::u64 size,
                                 const render::render_buffer_usage_flags_t usage,
@@ -1912,13 +1989,20 @@ void main() {
     view_constants_t constants{};
     const auto viewBuffer = makeBuffer( &constants, sizeof( constants ),
         render::R_BUFFER_USAGE_UNIFORM, true );
+    const object_constants_t objectConstants{};
+    const auto objectBuffer = makeBuffer( &objectConstants, sizeof( objectConstants ),
+        render::R_BUFFER_USAGE_UNIFORM );
 
     render::render_vertex_input_desc_t inputDescription{};
     inputDescription.layout.bindingCount = 1u;
-    inputDescription.layout.bindings[0].stride = 3u * sizeof( float );
-    inputDescription.layout.attributeCount = 1u;
+    inputDescription.layout.bindings[0].stride = sizeof( vertex_t );
+    inputDescription.layout.attributeCount = 3u;
     inputDescription.layout.attributes[0] = {
         render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    inputDescription.layout.attributes[1] = {
+        render::render_format_t::RGB32_FLOAT, 12u, 1u, 0u };
+    inputDescription.layout.attributes[2] = {
+        render::render_format_t::RG32_FLOAT, 24u, 2u, 0u };
     inputDescription.vertexBufferCount = 1u;
     inputDescription.vertexBuffers[0] = { vertexBuffer, 0u, 0u };
     inputDescription.indexBuffer = {
@@ -1933,8 +2017,15 @@ void main() {
     pipelineDescription.depthTest = false;
     pipelineDescription.depthWrite = false;
     pipelineDescription.cullBackFaces = false;
-    pipelineDescription.uniformBlockCount = 1u;
+    pipelineDescription.uniformBlockCount = 2u;
     pipelineDescription.uniformBlocks[0] = { "ViewConstants", sizeof( constants ) };
+    pipelineDescription.uniformBlocks[1] = {
+        "ObjectConstants", sizeof( objectConstants ) };
+    pipelineDescription.sampledTextureCount = 2u;
+    pipelineDescription.sampledTextures[0] = {
+        "albedoTexture", render::render_sampled_texture_kind_t::SCALAR_2D };
+    pipelineDescription.sampledTextures[1] = {
+        "shadowMap", render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D };
     render::render_pipeline_handle_t pipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDescription,
         &pipeline ) == render::render_error_t::OK );
@@ -1954,14 +2045,48 @@ void main() {
     REQUIRE( render::R_CreateRenderTarget( { color, {} }, &target ) ==
         render::render_error_t::OK );
 
+    textureDescription.format = render::render_texture_format_t::D24;
+    render::render_texture_handle_t shadowDepth{};
+    REQUIRE( render::R_CreateTexture2D( textureDescription, {}, &shadowDepth ) ==
+        render::render_error_t::OK );
+    render::render_target_handle_t shadowTarget{};
+    REQUIRE( render::R_CreateRenderTarget( { {}, shadowDepth }, &shadowTarget ) ==
+        render::render_error_t::OK );
+
+    constexpr common::u8 whitePixel[4]{ 255u, 255u, 255u, 255u };
+    render::render_texture_desc_t albedoDescription{};
+    albedoDescription.width = albedoDescription.height = 1u;
+    albedoDescription.sRGB = false;
+    albedoDescription.generateMips = false;
+    albedoDescription.repeat = false;
+    render::render_texture_handle_t whiteAlbedo{};
+    REQUIRE( render::R_CreateTexture2D( albedoDescription,
+        { whitePixel, sizeof( whitePixel ) }, &whiteAlbedo ) == render::render_error_t::OK );
+    render::render_sampler_desc_t comparisonDescription{};
+    comparisonDescription.minFilter = comparisonDescription.magFilter =
+        render::render_sampler_filter_t::NEAREST;
+    comparisonDescription.addressU = comparisonDescription.addressV =
+        render::render_sampler_address_t::CLAMP_TO_EDGE;
+    comparisonDescription.compare = render::render_sampler_compare_t::LESS_EQUAL;
+    render::render_sampler_handle_t comparisonSampler{};
+    REQUIRE( render::R_CreateSampler( comparisonDescription,
+        &comparisonSampler ) == render::render_error_t::OK );
+
     render::render_frame_info_t frame{};
     frame.drawableExtent = extent;
     render::render_target_pass_desc_t pass{};
     pass.target = target;
+    render::render_target_pass_desc_t shadowPass{};
+    shadowPass.target = shadowTarget;
+    shadowPass.clearFlags = render::R_CLEAR_DEPTH;
     render::render_draw_indexed_desc_t draw{};
     draw.pipeline = pipeline;
     draw.vertexInput = input;
     draw.uniformBuffers[0] = viewBuffer;
+    draw.uniformBuffers[1] = objectBuffer;
+    draw.sampledTextures[0] = whiteAlbedo;
+    draw.sampledTextures[1] = shadowDepth;
+    draw.samplers[1] = comparisonSampler;
     draw.indexCount = draw.vertexCount = 3u;
     const render::render_readback_rect_t center{
         textureDescription.width / 2u, textureDescription.height / 2u, 1u, 1u };
@@ -1970,6 +2095,8 @@ void main() {
             { &constants, sizeof( constants ) } ) == render::render_error_t::OK );
         frame.frameIndex = frameIndex;
         REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+        REQUIRE( render::R_BeginTargetPass( shadowPass ) == render::render_error_t::OK );
+        REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
         REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
         REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
         REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
@@ -2020,10 +2147,15 @@ void main() {
     CHECK( redLight[3] == ambientOnly[3] );
     CHECK( redAndBlueLights[3] == ambientOnly[3] );
 
+    REQUIRE( render::R_DestroyRenderTarget( shadowTarget ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroySampler( comparisonSampler ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( whiteAlbedo ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( shadowDepth ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( objectBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( viewBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( vertexBuffer ) == render::render_error_t::OK );

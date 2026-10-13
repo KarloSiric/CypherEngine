@@ -2207,6 +2207,8 @@ if (CYPHERENGINE_BUILD_TESTS)
         # for pixel readback and should not link a second Glad archive.
         target_include_directories(cypher_render_opengl_smoke_tests PRIVATE
             $<TARGET_PROPERTY:CypherThirdPartyGlad,INTERFACE_INCLUDE_DIRECTORIES>)
+        target_compile_definitions(cypher_render_opengl_smoke_tests PRIVATE
+            CYPHER_RENDER_SMOKE_SHADER_DIR="${CYPHERENGINE_ROOT_DIR}/assets/render_smoke")
         cypher_add_common_catch_test(
             cypher_render_host_surface_opengl_smoke_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_HostSurface_OpenGL_Smoke_Tests.cpp"

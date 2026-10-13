@@ -71,16 +71,25 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- R_ReadTargetRGBA32F reads RGBA16F offscreen color into caller-owned linear
+  float pixels, preserving values above 1.0. Frontend validation covers
+  frame/pass state, format, bounds, capacity and 16-byte row pitch; OpenGL
+  restores the host read framebuffer, pixel-pack buffer and changed pack
+  settings. Backend/public renderer contracts are versions 27/22. Native
+  HDR readback sees a value of 4.0 before tone mapping, and ten focused
+  renderer CTests pass. This synchronous path is for diagnostics, not live
+  streaming capture.
 - The OpenGL 4.1 graybox sample shades with two fixed, range-limited point
   lights alongside ambient and a shadowed directional light. A 320-byte
   std140 view record carries positions, ranges, linear colors, intensities
   and active count; the fragment shader adds unshadowed Lambert diffuse with
   quadratic range fade and preserves alpha cutout. Shader cooking has zero
-  diagnostics; native OpenGL smoke passes 1127 assertions including count,
+  diagnostics; native OpenGL smoke passes 1176 assertions including count,
   range, color and unchanged-alpha pixels. The 120-frame hidden sample keeps
-  840 scene, 600 shadow and 120 presentation draws. The oracle uses a small
-  matching shader rather than pixel-comparing the full sample; World-authored
-  lights and point-light shadows remain future work.
+  840 scene, 600 shadow and 120 presentation draws. The native oracle now
+  compiles the checked-in graybox stages and compares zero-, one- and two-
+  light pixels. World-authored lights and point-light shadows remain future
+  work.
 - Scene classification has a separate, input-ordered ADDITIVE pass after
   opaque and far-to-near BLEND draws. It preflights the new output capacity
   and overlaps before writing indices. The graybox sample renders one

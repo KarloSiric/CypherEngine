@@ -82,17 +82,26 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- `R_ReadTargetRGBA32F` now reads an RGBA16F offscreen color target into
+  caller-owned linear float pixels, preserving values above 1.0. The frontend
+  validates frame/pass state, format, bounds, byte capacity, and 16-byte row
+  pitch before dispatch; OpenGL restores the host's read framebuffer, pixel-
+  pack buffer, and changed pack state. Backend and public renderer contracts
+  are versions 27 and 22. The native HDR pixel test reads a value of 4.0 before
+  tone mapping, and ten focused renderer CTests pass. The readback is
+  synchronous and intended for diagnostics, not streaming capture.
 - The OpenGL 4.1 graybox sample now shades its existing geometry with two
   fixed, range-limited point lights alongside ambient and a shadowed
   directional light. A 320-byte std140 view record carries positions, ranges,
   linear colors, intensities, and an active count; the fragment shader adds
   unshadowed Lambert diffuse with quadratic range fade without changing
   alpha-cutout behavior. The shader cooks with zero diagnostics, native
-  OpenGL smoke passes 1,127 assertions including light count/range/color and
+  OpenGL smoke passes 1,176 assertions including light count/range/color and
   unchanged-alpha pixels, and the 120-frame hidden sample retains 840 scene,
-  600 shadow, and 120 presentation draws. The native oracle uses a matching
-  small shader; it does not pixel-compare the full sample. Lights remain fixed
-  sample data, with no World-authored lights or point-light shadows.
+  600 shadow, and 120 presentation draws. The native oracle now compiles the
+  checked-in graybox shader stages and checks their pixels with zero, one, and
+  two point lights. Lights remain fixed sample data, with no World-authored
+  lights or point-light shadows.
 - Scene classification now returns a separate, input-ordered `ADDITIVE` pass
   after opaque and far-to-near `BLEND` draws. It preflights the added output
   capacity and overlaps before writing any pass indices. The graybox sample

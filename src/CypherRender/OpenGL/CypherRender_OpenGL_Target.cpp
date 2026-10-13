@@ -407,6 +407,90 @@ render_error_t GL_ReadTargetRGBA8( const backend_target_readback_desc_t &descrip
         ? render_error_t::ERR_CAPTURE_FAILED : result;
 }
 
+render_error_t GL_ReadTargetRGBA32F(
+    const backend_target_float_readback_desc_t &description,
+    void *backendState ) noexcept
+{
+    static_assert( sizeof( render_color_t ) == 16u );
+    if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;
+    if ( !glState.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
+    if ( !glState.frameActive ) return render_error_t::ERR_FRAME_NOT_ACTIVE;
+    if ( glState.targetPassActive ) return render_error_t::ERR_COMMAND_STATE_INVALID;
+    const gl_target_record_t *record = GL_FindTarget( description.target );
+    if ( record == nullptr ) return render_error_t::ERR_INVALID_HANDLE;
+    if ( !record->hasColor || record->colorFormat != render_texture_format_t::RGBA16F ) {
+        return render_error_t::ERR_CAPTURE_UNSUPPORTED;
+    }
+
+    const render_readback_rect_t &rect = description.rect;
+    if ( description.pixelsOut == nullptr || rect.width == 0u || rect.height == 0u ||
+         rect.x >= record->extent.width || rect.y >= record->extent.height ||
+         rect.width > record->extent.width - rect.x ||
+         rect.height > record->extent.height - rect.y ||
+         ( description.rowPitchBytes & 15u ) != 0u ||
+         description.rowPitchBytes / 16u >
+             static_cast<common::u32>( std::numeric_limits<GLint>::max() ) ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    const common::u64 rowBytes = static_cast<common::u64>( rect.width ) * 16u;
+    if ( rowBytes > description.rowPitchBytes ) return render_error_t::ERR_INVALID_ARGUMENT;
+    const common::u64 rowStart = static_cast<common::u64>( rect.height - 1u ) *
+        description.rowPitchBytes;
+    if ( rowStart > std::numeric_limits<common::u64>::max() - rowBytes ||
+         rowStart + rowBytes > std::numeric_limits<common::usize>::max() ||
+         description.byteCapacity < rowStart + rowBytes ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+
+    // The host may have a PBO bound and arbitrary pixel-pack layout. Preserve
+    // all pack parameters changed for this synchronous CPU destination.
+    GL_ClearErrors();
+    GLint previousReadFramebuffer = 0;
+    GLint previousPackBuffer = 0;
+    GLint previousPackAlignment = 0;
+    GLint previousPackRowLength = 0;
+    GLint previousPackSkipRows = 0;
+    GLint previousPackSkipPixels = 0;
+    GLint previousPackSwapBytes = 0;
+    glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &previousReadFramebuffer );
+    glGetIntegerv( GL_PIXEL_PACK_BUFFER_BINDING, &previousPackBuffer );
+    glGetIntegerv( GL_PACK_ALIGNMENT, &previousPackAlignment );
+    glGetIntegerv( GL_PACK_ROW_LENGTH, &previousPackRowLength );
+    glGetIntegerv( GL_PACK_SKIP_ROWS, &previousPackSkipRows );
+    glGetIntegerv( GL_PACK_SKIP_PIXELS, &previousPackSkipPixels );
+    glGetIntegerv( GL_PACK_SWAP_BYTES, &previousPackSwapBytes );
+    const render_error_t captureResult = GL_CheckErrors( glState.config.validation );
+    if ( captureResult != render_error_t::OK ) return captureResult;
+
+    glBindFramebuffer( GL_READ_FRAMEBUFFER, record->framebuffer );
+    glBindBuffer( GL_PIXEL_PACK_BUFFER, 0u );
+    glPixelStorei( GL_PACK_ALIGNMENT, 1 );
+    glPixelStorei( GL_PACK_ROW_LENGTH,
+        static_cast<GLint>( description.rowPitchBytes / 16u ) );
+    glPixelStorei( GL_PACK_SKIP_ROWS, 0 );
+    glPixelStorei( GL_PACK_SKIP_PIXELS, 0 );
+    glPixelStorei( GL_PACK_SWAP_BYTES, GL_FALSE );
+    render_error_t result = GL_CheckErrors( glState.config.validation );
+    if ( result == render_error_t::OK ) {
+        glReadPixels( static_cast<GLint>( rect.x ), static_cast<GLint>( rect.y ),
+            static_cast<GLsizei>( rect.width ), static_cast<GLsizei>( rect.height ),
+            GL_RGBA, GL_FLOAT, description.pixelsOut );
+        result = GL_CheckErrors( glState.config.validation );
+    }
+
+    glBindFramebuffer( GL_READ_FRAMEBUFFER, static_cast<GLuint>( previousReadFramebuffer ) );
+    glBindBuffer( GL_PIXEL_PACK_BUFFER, static_cast<GLuint>( previousPackBuffer ) );
+    glPixelStorei( GL_PACK_ALIGNMENT, previousPackAlignment );
+    glPixelStorei( GL_PACK_ROW_LENGTH, previousPackRowLength );
+    glPixelStorei( GL_PACK_SKIP_ROWS, previousPackSkipRows );
+    glPixelStorei( GL_PACK_SKIP_PIXELS, previousPackSkipPixels );
+    glPixelStorei( GL_PACK_SWAP_BYTES, previousPackSwapBytes );
+    const render_error_t restoreResult = GL_CheckErrors( glState.config.validation );
+    if ( result == render_error_t::OK ) result = restoreResult;
+    return result == render_error_t::ERR_FAILED
+        ? render_error_t::ERR_CAPTURE_FAILED : result;
+}
+
 render_error_t GL_TargetsShutdown() noexcept
 {
     GL_ClearErrors();

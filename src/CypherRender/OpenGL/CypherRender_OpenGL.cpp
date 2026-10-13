@@ -1115,7 +1115,8 @@ const backend_api_t glBackend = {
     .DestroyRenderTarget = GL_DestroyRenderTarget,
     .BeginTargetPass = GL_BeginTargetPass,
     .EndTargetPass = GL_EndTargetPass,
-    .ReadTargetRGBA8 = GL_ReadTargetRGBA8
+    .ReadTargetRGBA8 = GL_ReadTargetRGBA8,
+    .ReadTargetRGBA32F = GL_ReadTargetRGBA32F
 };
 
 } // namespace

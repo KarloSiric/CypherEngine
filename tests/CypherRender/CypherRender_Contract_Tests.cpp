@@ -13,6 +13,7 @@
 #include "CypherRender/CypherRender_Backend.h"
 #include "CypherRender/CypherRender_Public.h"
 
+#include <cstddef>
 #include <type_traits>
 
 namespace render = ::cypher::engine::render;
@@ -82,6 +83,10 @@ using read_target_rgba8_fn_t = render::render_error_t (*)(
     render::render_target_handle_t, const render::render_readback_rect_t &,
     ::cypher::common::byte *, ::cypher::common::u64,
     ::cypher::common::u32 ) noexcept;
+using read_target_rgba32f_fn_t = render::render_error_t (*)(
+    render::render_target_handle_t, const render::render_readback_rect_t &,
+    render::render_color_t *, ::cypher::common::u64,
+    ::cypher::common::u32 ) noexcept;
 
 static_assert( std::is_same_v<
     decltype( &render::R_ConfigureWindow ),
@@ -100,8 +105,15 @@ static_assert( std::is_same_v<
     decltype( &render::R_CreateVertexInput ),
     create_vertex_input_fn_t> );
 static_assert( std::is_same_v<decltype( &render::R_ReadTargetRGBA8 ), read_target_rgba8_fn_t> );
-static_assert( render::R_BACKEND_API_VERSION == 26u );
-static_assert( render::RENDER_API_VERSION == 21u );
+static_assert( std::is_same_v<decltype( &render::R_ReadTargetRGBA32F ), read_target_rgba32f_fn_t> );
+static_assert( std::is_standard_layout_v<render::render_color_t> );
+static_assert( sizeof( render::render_color_t ) == 16u );
+static_assert( offsetof( render::render_color_t, red ) == 0u );
+static_assert( offsetof( render::render_color_t, green ) == 4u );
+static_assert( offsetof( render::render_color_t, blue ) == 8u );
+static_assert( offsetof( render::render_color_t, alpha ) == 12u );
+static_assert( render::R_BACKEND_API_VERSION == 27u );
+static_assert( render::RENDER_API_VERSION == 22u );
 
 int main()
 {
