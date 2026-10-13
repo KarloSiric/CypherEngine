@@ -399,7 +399,9 @@ jobs:
 
       - name: Test editor workflows
         run: |
-          ctest --test-dir build-mason --output-on-failure --no-tests=error --timeout 120 \
+          # The Mason smoke test has passed in 118s and timed out at 120s on macOS CI.
+          # Keep a bounded limit while allowing runner timing variation.
+          ctest --test-dir build-mason --output-on-failure --no-tests=error --timeout 300 \
             -R "^(cypher_editor_core_contract_tests|cypher_editor_gui_contract_tests|cypher_editor_map_core_contract_tests|cypher_editor_map_gui_contract_tests|cypher_mason_smoke_tests)$"
 
   benchmark-build:

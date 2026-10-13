@@ -85,6 +85,6 @@ if (CYPHERENGINE_BUILD_TESTS)
     set_tests_properties(cypher_mason_smoke_tests PROPERTIES
         LABELS "CypherEditor;Mason;Smoke"
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 120
+        TIMEOUT 600
     )
 endif()
