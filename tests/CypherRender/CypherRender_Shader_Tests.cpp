@@ -79,6 +79,7 @@ struct shader_scope_t {
 common::cooked_shader_view_t MakeCooked()
 {
     common::cooked_shader_view_t cooked{};
+    cooked.interfaceHash = { 0x123456789abcdef0ull, 0xfedcba9876543210ull };
     cooked.nLanguageVersion = 410u;
     cooked.nStages = 2u;
     cooked.stages[0].stage = common::render_shader_stage_t::VERTEX;
@@ -144,16 +145,24 @@ TEST_CASE( "shader metadata is copied and destroyed handles remain stale", "[Cyp
     REQUIRE( render::R_GetShaderInfo( first, &info ) == render::render_error_t::OK );
     CHECK( info.languageVersion == 410u );
     CHECK( info.stageCount == 2u );
+    CHECK( info.interfaceHash.low == 0x123456789abcdef0ull );
+    CHECK( info.interfaceHash.high == 0xfedcba9876543210ull );
     REQUIRE( render::R_DestroyShader( first ) == render::render_error_t::OK );
     CHECK_FALSE( render::R_IsShaderValid( first ) );
 
     cooked = MakeCooked();
+    cooked.interfaceHash = {}; // Pre-V3 views have no logical interface identity.
     render::render_shader_handle_t second{};
     REQUIRE( render::R_CreateShader( { &cooked, nullptr }, &second ) == render::render_error_t::OK );
     CHECK( first.value != second.value );
     CHECK( render::R_GetShaderInfo( first, &info ) == render::render_error_t::ERR_STALE_HANDLE );
     CHECK( info.stageCount == 0u );
     CHECK( info.languageVersion == 0u );
+    CHECK( info.interfaceHash.low == 0u );
+    CHECK( info.interfaceHash.high == 0u );
+    REQUIRE( render::R_GetShaderInfo( second, &info ) == render::render_error_t::OK );
+    CHECK( info.interfaceHash.low == 0u );
+    CHECK( info.interfaceHash.high == 0u );
     const auto buffer = common::Cy_Handle64Make( 0u, 1u,
         static_cast<common::u32>( render::render_object_type_t::BUFFER ) );
     CHECK( render::R_DestroyShader( buffer ) == render::render_error_t::ERR_RESOURCE_TYPE_MISMATCH );

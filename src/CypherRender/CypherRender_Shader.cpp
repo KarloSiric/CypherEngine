@@ -164,7 +164,8 @@ render_error_t R_CreateShader(
     if ( !R_IsBackendShaderValid( record.native ) ) return render_error_t::ERR_INTERNAL_ERROR;
     const common::cooked_shader_view_t &cooked = *description.cookedShader;
     record.info = { cooked.backend, cooked.kind, cooked.languageProfile,
-                    cooked.nLanguageVersion, cooked.flags, cooked.sourceHash, cooked.nStages };
+                    cooked.nLanguageVersion, cooked.flags, cooked.sourceHash, cooked.nStages,
+                    cooked.interfaceHash };
 
     const common::handle32_t tableHandle = common::HandleTable_Insert( &shaderSystem.records, record );
     if ( !common::Cy_Handle32IsValid( tableHandle ) ) {

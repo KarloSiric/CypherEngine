@@ -18,6 +18,14 @@ active resource and cannot be declared. The backend sets block and sampler
 assignments at each draw because multiple pipelines may share one GL program
 with different slot orders.
 
+`R_GetShaderInfo` also returns a copy of the cooked shader's
+`interfaceHash`. CYSH V3 derives this identity from its canonical logical
+binding interface; older cooked views report the all-zero hash. The value
+survives release of the caller's cooked view and lets a future material
+binder compare declared interface identities before constructing bindings.
+It does not replace the pipeline's live OpenGL reflection checks or bind a
+material by itself.
+
 For example, a shader with active `ViewData` and `ObjectData` blocks plus
 `base_color` and `detail_color` samplers can use this description:
 

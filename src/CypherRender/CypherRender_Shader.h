@@ -89,6 +89,7 @@ struct render_shader_info_t {
     ::cypher::common::flags32_t flags{ 0u };
     ::cypher::common::content_hash_t sourceHash{};
     ::cypher::common::u32 stageCount{ 0u };
+    ::cypher::common::content_hash_t interfaceHash{}; // CYSH V3 logical interface identity; zero for older views.
 };
 
 // Validates cooked metadata, stage spans, and active-backend compatibility.

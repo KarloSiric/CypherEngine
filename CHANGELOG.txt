@@ -24,6 +24,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Renderer shader-info snapshots now copy the cooked CYSH V3 logical
+  interfaceHash, retaining it after the borrowed view is released. Older
+  cooked views keep the zero hash. Public renderer API version is 16; a shader
+  ownership test checks copied and cleared hashes. Material matching and
+  automatic binding remain separate work.
 - The tile-map preview packs up to 128 device-aligned transform records into a
   bounded upload and selects each box's record with a uniform-buffer range.
   Its source passes a C++20 syntax check. Runtime preview validation is pending:
