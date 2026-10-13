@@ -768,6 +768,54 @@ TEST_CASE( "World camera pass preflight rejects mismatched alpha pipelines atomi
     CHECK( fixture.uploadCalls == 0u );
 }
 
+TEST_CASE( "World camera and opaque preflight reject invalid color and winding pipelines",
+    "[CypherRender][WorldDraw][CameraPasses]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    (void)fixture.Add( 0u, 0u, 0.0f ); // Valid object precedes the bad one.
+    (void)fixture.Add( 0u, 1u, 4.0f );
+    fixture.Build();
+
+    SECTION( "depth-only pipeline cannot serve as a camera material" ) {
+        fixture.InitShadowPipelines();
+        fixture.materials[1].pipeline = fixture.shadowPipeline;
+    }
+    SECTION( "ordinary transform cannot use reversed front-face winding" ) {
+        fixture.materials[1].pipeline = fixture.mirroredPipelines[1];
+    }
+
+    render::render_world_opaque_draw_t opaqueOutput[2]{};
+    opaqueOutput[0].draw.pipeline.value = 12345u;
+    common::u32 opaqueCount = 77u;
+    CHECK( render::R_PrepareOpaqueWorldDraws(
+        fixture.Description(), opaqueOutput, 2u, &opaqueCount ) ==
+        render::render_error_t::ERR_BINDING_MISMATCH );
+    CHECK( opaqueCount == 77u );
+    CHECK( opaqueOutput[0].draw.pipeline.value == 12345u );
+
+    render::render_scene_item_t sceneItems[2]{};
+    common::u32 passIndices[2]{};
+    auto cameraDesc = fixture.CameraDescription();
+    cameraDesc.sceneItemsScratch = sceneItems;
+    cameraDesc.sceneItemCapacity = 2u;
+    cameraDesc.passIndicesScratch = passIndices;
+    cameraDesc.passIndexCapacity = 2u;
+    render::render_world_camera_draw_t cameraOutput[2]{};
+    cameraOutput[0].draw.pipeline.value = 54321u;
+    render::render_world_camera_pass_counts_t counts{ 77u, 88u, 99u };
+    CHECK( render::R_PrepareWorldCameraDraws(
+        cameraDesc, cameraOutput, 2u, &counts ) ==
+        render::render_error_t::ERR_BINDING_MISMATCH );
+    CHECK( counts.opaqueCount == 77u );
+    CHECK( counts.blendCount == 88u );
+    CHECK( counts.additiveCount == 99u );
+    CHECK( cameraOutput[0].draw.pipeline.value == 54321u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
 TEST_CASE( "World camera draws retain visible blend boxes crossing the eye",
     "[CypherRender][WorldDraw][CameraPasses]" )
 {

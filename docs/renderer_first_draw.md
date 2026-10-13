@@ -332,9 +332,9 @@ two-sided shaders. A zero determinant remains unsupported.
 `R_PrepareWorldCameraDraws` accepts OPAQUE, BLEND, and ADDITIVE cooked material
 bundles and returns three contiguous draw spans: opaque in submission order,
 BLEND far-to-near, then ADDITIVE in submission order. It checks each selected
-pipeline's blend, depth-test, and depth-write state before staging; negative
-determinants use the material's reversed-winding pipeline in every accepted
-pass. The caller supplies a finite affine camera-view matrix matching the
+pipeline's blend, depth-test, depth-write, and color-write state before
+staging; negative determinants use the material's reversed-winding pipeline
+in every accepted pass. The caller supplies a finite affine camera-view matrix matching the
 World query, one scratch scene item and one scratch index per visible object,
 and a model-uniform batch. Classification uses the existing CPU scene-pass
 sorter; one upload carries the model matrices in final draw order. A visible

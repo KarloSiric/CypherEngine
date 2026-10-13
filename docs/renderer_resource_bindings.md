@@ -177,9 +177,9 @@ convention: native pipeline reflection verifies the block's size, not its
 member layout. Other value types and layouts still fail preflight.
 All shader resource bindings must fit those texture slots or the caller's
 declared uniform blocks. A two-sided material disables back-face culling; its
-shadow flags remain metadata for a later scene/pass scheduler. The bundle
-owns ordinary and winding-reversed graphics pipelines that share one shader.
-The second pipeline flips only the front-face sense; culling, depth, and blend
+casts-shadows flag is consumed by the opaque World light-view adapter. The
+bundle owns ordinary and winding-reversed graphics pipelines that share one
+shader. The second pipeline flips only the front-face sense; culling, depth, and blend
 policy stay the same. It is used for a negative-determinant model transform,
 including when a two-sided shader uses `gl_FrontFacing`. Both pipelines must
 be destroyed before the shader can be released. The bundle preserves the

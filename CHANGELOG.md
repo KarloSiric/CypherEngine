@@ -49,6 +49,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- World camera and opaque draw preflight now rejects a color-write-disabled
+  material pipeline before staging uniforms or publishing draws. The cooked
+  material apply helper already rejects winding mismatches; that contract has
+  a focused regression check. Wireframe polygon mode remains available for
+  intentional viewport previews. World-draw and native OpenGL 4.1 smoke tests
+  pass locally.
 - Opaque World draw preparation now accepts finite, nonsingular mirrored
   transforms. Cooked material adoption owns a second pipeline with reversed
   front-face winding for every supported alpha mode, while preserving culling,

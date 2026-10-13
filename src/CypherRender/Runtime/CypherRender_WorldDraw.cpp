@@ -217,6 +217,7 @@ render_error_t PreflightObject(
          pipeline.blendMode != expectedBlend ||
          pipeline.depthWrite != ( expectedBlend == render_blend_mode_t::DISABLED ) ||
          ( !opaqueOnly && !pipeline.depthTest ) ||
+         !pipeline.colorWrite ||
          pipeline.topology != render_primitive_topology_t::TRIANGLE_LIST ||
          draw.indexCount < 3u || draw.indexCount % 3u != 0u ||
          draw.vertexCount > static_cast<common::u32>(

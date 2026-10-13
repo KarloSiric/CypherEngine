@@ -45,6 +45,11 @@ Added
   editor integration remain separate work.
 
 Fixed
+- World camera and opaque draw preflight rejects a color-write-disabled
+  material pipeline before staging or publication. The material apply helper
+  already checks selected winding; a focused regression covers it. Wireframe
+  polygon mode remains available for intentional viewport previews.
+  World-draw and native OpenGL 4.1 smoke tests pass locally.
 - Opaque World draw preparation accepts finite, nonsingular mirrored
   transforms. Cooked material adoption owns a second, winding-reversed
   pipeline for every supported alpha mode while preserving culling, depth,
