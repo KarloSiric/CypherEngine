@@ -25,6 +25,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- World camera and opaque draws can opt into a 112-byte std140 `Model` record
+  containing a model matrix and inverse-transpose normal matrix. Preflight
+  rejects singular or unrepresentable normal inverses before staging any
+  object; the existing 64-byte model-only default and shadow adapter remain
+  available. Cooked tint materials accept either Model block size while
+  keeping tint in a separate material uniform. Focused World-draw and
+  material-bridge tests pass, and a native OpenGL 4.1 pixel test verifies the
+  sheared nonuniform normal through GLSL std140. This does not yet implement
+  general lighting, MASK/cutout World draws, or editor integration.
 - World light-view shadow preparation now filters a separate submission by
   cooked casts-shadows flags and produces opaque depth draws, including a
   reversed-winding pipeline for mirrored models. It preflights depth-only
@@ -45,7 +54,7 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   pass locally, including a framebuffer check for transparent ordering and
   depth-write behavior. Sorting uses caller-maintained world AABBs and a
   matching camera view; intersecting translucent objects remain approximate.
-  MASK, shadow submission, and editor integration are still separate work.
+  MASK and editor integration are still separate work.
 
 ### Fixed
 
@@ -66,8 +75,7 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   frontend cleanup limitation. The material-bridge,
   World-draw, and native OpenGL 4.1 smoke tests pass locally, including a
   framebuffer check that distinguishes culled, back-facing, and front-facing
-  mirrored geometry. This adds opaque World camera draws only; shadow and
-  transparent World pass scheduling remain separate work.
+  mirrored geometry. MASK World camera and shadow draws remain separate work.
 - Opaque World draw preparation now accepts valid small positive scales such
   as 0.001 on each axis. It computes orientation in binary64 without an
   unused inverse-matrix tolerance; singular transforms still fail before

@@ -3629,6 +3629,179 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
     REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) == render::render_error_t::OK );
 }
 
+void CheckWorldLitNormalModelDrawing( const render::render_extent_t extent )
+{
+    // The shader reads all three std140 mat3 columns. The resulting pixel
+    // distinguishes inverse-transpose normals from model-space normals and
+    // from applying the nonuniform/sheared model matrix directly.
+    constexpr char vertexSource[] =
+        "#version 410 core\n"
+        "layout(location=0) in vec3 position;\n"
+        "layout(std140) uniform Model { mat4 model; mat3 normalMatrix; };\n"
+        "out vec3 worldNormal;\n"
+        "void main(){ gl_Position=model*vec4(position,1.0); "
+        "worldNormal=normalize(normalMatrix*vec3(1.0)); }\n";
+    constexpr char fragmentSource[] =
+        "#version 410 core\n"
+        "in vec3 worldNormal; layout(location=0) out vec4 color;\n"
+        "void main(){ color=vec4(worldNormal,1.0); }\n";
+    common::cooked_shader_view_t shaderSource{};
+    shaderSource.nLanguageVersion = 410u;
+    shaderSource.nStages = 2u;
+    shaderSource.stages[0].stage = common::render_shader_stage_t::VERTEX;
+    shaderSource.stages[0].code = {
+        reinterpret_cast<const common::byte *>( vertexSource ), sizeof( vertexSource )
+    };
+    shaderSource.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+    shaderSource.stages[1].code = {
+        reinterpret_cast<const common::byte *>( fragmentSource ), sizeof( fragmentSource )
+    };
+    render::render_shader_handle_t shader{};
+    REQUIRE( render::R_CreateShader( { &shaderSource, "World lit normal Model oracle" },
+        &shader ) == render::render_error_t::OK );
+
+    render::render_vertex_layout_t layout{};
+    layout.bindingCount = 1u;
+    layout.bindings[0].stride = 3u * sizeof( float );
+    layout.attributeCount = 1u;
+    layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    render::render_pipeline_desc_t pipelineDescription{};
+    pipelineDescription.shader = shader;
+    pipelineDescription.vertexLayout = layout;
+    pipelineDescription.uniformBlockCount = 1u;
+    pipelineDescription.uniformBlocks[0] = { "Model", 112u };
+    render::render_pipeline_handle_t pipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDescription, &pipeline ) ==
+        render::render_error_t::OK );
+    // The World adapter accepts borrowed live material handles. This direct
+    // bundle avoids unrelated cooked-asset setup in the native layout oracle.
+    render::render_material_bundle_t material{};
+    material.shader = shader;
+    material.pipeline = pipeline;
+
+    constexpr float vertices[9]{
+        -1.0f, -1.0f, 0.0f,
+         2.0f, -1.0f, 0.0f,
+        -1.0f,  2.0f, 0.0f
+    };
+    constexpr common::u16 indices[3]{ 0u, 1u, 2u };
+    render::render_static_mesh_source_t meshSource{};
+    meshSource.vertexLayout = layout;
+    meshSource.vertexBytes = vertices;
+    meshSource.vertexByteSize = sizeof( vertices );
+    meshSource.vertexCount = 3u;
+    meshSource.indexBytes = indices;
+    meshSource.indexByteSize = sizeof( indices );
+    meshSource.indexCount = 3u;
+    render::render_static_mesh_bundle_t mesh{};
+    REQUIRE( render::R_CreateStaticMeshBundle( meshSource, &mesh ).status ==
+        render::render_static_mesh_bridge_status_t::OK );
+
+    world::world_t *pWorld = nullptr;
+    world::world_submission_t *pSubmission = nullptr;
+    REQUIRE( world::World_Init( &pWorld, common::Allocator_GetSystem(), 1u ) ==
+        world::world_error_t::OK );
+    REQUIRE( world::WorldSubmission_Init(
+        &pSubmission, common::Allocator_GetSystem(), 1u ) ==
+        world::world_submission_error_t::OK );
+    world::world_object_t object{};
+    object.localToWorld = math::Affine3_FromColumns(
+        { 2.0f, 0.0f, 0.0f }, { 1.0f, 3.0f, 0.0f },
+        { 0.0f, 0.0f, 4.0f }, { 0.0f, 0.0f, 0.0f } );
+    object.worldBounds = math::Aabb_Make(
+        { -3.0f, -3.0f, -0.1f }, { 3.0f, 6.0f, 0.1f } );
+    object.layerMask = 1u;
+    object.meshSlot = 0u;
+    object.materialSlot = 0u;
+    world::world_object_id_t objectId{};
+    REQUIRE( world::World_AddObject( pWorld, &object, &objectId ) ==
+        world::world_error_t::OK );
+    world::world_view_query_t view{};
+    constexpr common::f32 frustumExtent = 20.0f;
+    view.frustum.planes[0] = math::Plane_Make( { 1.0f, 0.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[1] = math::Plane_Make( { -1.0f, 0.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[2] = math::Plane_Make( { 0.0f, 1.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[3] = math::Plane_Make( { 0.0f, -1.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[4] = math::Plane_Make( { 0.0f, 0.0f, 1.0f }, frustumExtent );
+    view.frustum.planes[5] = math::Plane_Make( { 0.0f, 0.0f, -1.0f }, frustumExtent );
+    view.cameraPosition = { 0.0f, 0.0f, 0.0f };
+    view.maxDistance = 100.0f;
+    view.layerMask = 1u;
+    world::world_submission_token_t token{};
+    REQUIRE( world::WorldSubmission_Build( pSubmission, pWorld, &view, &token ) ==
+        world::world_submission_error_t::OK );
+
+    render::render_uniform_batch_t models{};
+    REQUIRE( render::R_CreateUniformBatch( 112u, nullptr, &models ) ==
+        render::render_error_t::OK );
+    render::render_world_opaque_prepare_desc_t prepare{};
+    prepare.submission = pSubmission;
+    prepare.token = token;
+    prepare.meshes = &mesh;
+    prepare.meshCount = 1u;
+    prepare.materials = &material;
+    prepare.materialCount = 1u;
+    prepare.modelUniforms = &models;
+    prepare.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL;
+    render::render_world_opaque_draw_t draw{};
+    common::u32 drawCount = 0u;
+    REQUIRE( render::R_PrepareOpaqueWorldDraws( prepare, &draw, 1u, &drawCount ) ==
+        render::render_error_t::OK );
+    REQUIRE( drawCount == 1u );
+    CHECK( draw.objectId.incarnation == objectId.incarnation );
+    CHECK( draw.draw.uniformRanges[0].byteSize == 112u );
+
+    render::render_texture_desc_t textureDescription{};
+    textureDescription.width = textureDescription.height = 8u;
+    textureDescription.sRGB = false;
+    textureDescription.generateMips = false;
+    textureDescription.repeat = false;
+    textureDescription.renderTarget = true;
+    textureDescription.format = render::render_texture_format_t::RGBA8;
+    render::render_texture_handle_t color{};
+    REQUIRE( render::R_CreateTexture2D( textureDescription, {}, &color ) ==
+        render::render_error_t::OK );
+    textureDescription.format = render::render_texture_format_t::D24;
+    render::render_texture_handle_t depth{};
+    REQUIRE( render::R_CreateTexture2D( textureDescription, {}, &depth ) ==
+        render::render_error_t::OK );
+    render::render_target_handle_t target{};
+    REQUIRE( render::R_CreateRenderTarget( { color, depth }, &target ) ==
+        render::render_error_t::OK );
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    render::render_target_pass_desc_t pass{};
+    pass.target = target;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    REQUIRE( render::R_DrawIndexed( draw.draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    std::array<common::byte, 4u> center{};
+    REQUIRE( render::R_ReadTargetRGBA8( target, { 4u, 4u, 1u, 1u },
+        center.data(), center.size(), 4u ) == render::render_error_t::OK );
+    CAPTURE( center[0], center[1], center[2], center[3] );
+    // inverse-transpose(A) * (1,1,1) has the normalized ratio (6,2,3)/7.
+    CHECK( center[0] >= 209u );
+    CHECK( center[0] <= 229u );
+    CHECK( center[1] >= 63u );
+    CHECK( center[1] <= 83u );
+    CHECK( center[2] >= 99u );
+    CHECK( center[2] <= 119u );
+    CHECK( center[3] >= 250u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
+    world::WorldSubmission_End( pSubmission );
+    world::WorldSubmission_Shutdown( &pSubmission );
+    world::World_Shutdown( &pWorld );
+    REQUIRE( render::R_DestroyUniformBatch( &models ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
+}
+
 void CheckCookedWorldCameraPassDrawing( const render::render_extent_t extent )
 {
     // Deliberately add the near translucent object first. The camera adapter
@@ -4369,6 +4542,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckCookedMaterialBundleDrawing( info->drawableExtent, true, true );
     CheckCookedMaterialBundleDrawing( info->drawableExtent, false, false, true );
     CheckCookedMaterialBundleDrawing( info->drawableExtent, false, false, true, true );
+    CheckWorldLitNormalModelDrawing( info->drawableExtent );
     CheckCookedWorldCameraPassDrawing( info->drawableExtent );
     CheckCookedWorldShadowDrawing( info->drawableExtent );
 

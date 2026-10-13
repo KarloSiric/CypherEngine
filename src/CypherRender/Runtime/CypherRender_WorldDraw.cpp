@@ -10,6 +10,7 @@
 #include "CypherRender/CypherRender_Public.h"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 
@@ -23,11 +24,77 @@ namespace
 
 static_assert( sizeof( math::mat4_t ) == 64u );
 
+struct alignas( 16 ) world_model_normal_record_t {
+    math::mat4_t model{};
+    common::f32 normalColumns[3][4]{};
+};
+static_assert( sizeof( world_model_normal_record_t ) == 112u );
+static_assert( offsetof( world_model_normal_record_t, normalColumns ) == 64u );
+
+common::u64 ModelRecordByteSize(
+    const render_world_model_layout_t layout ) noexcept
+{
+    switch ( layout ) {
+    case render_world_model_layout_t::MODEL_ONLY:
+        return sizeof( math::mat4_t );
+    case render_world_model_layout_t::MODEL_NORMAL:
+        return sizeof( world_model_normal_record_t );
+    }
+    return 0u;
+}
+
+bool PackModelNormal(
+    const math::affine3_t &transform,
+    world_model_normal_record_t *output ) noexcept
+{
+    if ( output == nullptr || !math::Affine3_IsFinite( transform ) ) return false;
+    const math::mat3_t linear = math::Affine3_LinearPart( transform );
+    const common::f64 a[3][3]{
+        { linear.m[0], linear.m[1], linear.m[2] },
+        { linear.m[3], linear.m[4], linear.m[5] },
+        { linear.m[6], linear.m[7], linear.m[8] }
+    }; // Column-major basis vectors promoted before products.
+    // The columns of inverse-transpose are the three cyclic cofactors divided
+    // by determinant. Binary64 keeps small but representable float transforms
+    // from underflowing during determinant/inverse calculation.
+    const common::f64 cofactors[3][3]{
+        { a[1][1] * a[2][2] - a[1][2] * a[2][1],
+          a[1][2] * a[2][0] - a[1][0] * a[2][2],
+          a[1][0] * a[2][1] - a[1][1] * a[2][0] },
+        { a[2][1] * a[0][2] - a[2][2] * a[0][1],
+          a[2][2] * a[0][0] - a[2][0] * a[0][2],
+          a[2][0] * a[0][1] - a[2][1] * a[0][0] },
+        { a[0][1] * a[1][2] - a[0][2] * a[1][1],
+          a[0][2] * a[1][0] - a[0][0] * a[1][2],
+          a[0][0] * a[1][1] - a[0][1] * a[1][0] }
+    };
+    const common::f64 determinant =
+        a[0][0] * cofactors[0][0] +
+        a[0][1] * cofactors[0][1] +
+        a[0][2] * cofactors[0][2];
+    if ( !std::isfinite( determinant ) || determinant == 0.0 ) return false;
+
+    world_model_normal_record_t packed{};
+    packed.model = math::Affine3_ToMat4( transform );
+    const common::f64 maximum = std::numeric_limits<common::f32>::max();
+    for ( common::u32 column = 0u; column < 3u; ++column ) {
+        for ( common::u32 row = 0u; row < 3u; ++row ) {
+            const common::f64 component = cofactors[column][row] / determinant;
+            if ( !std::isfinite( component ) || std::fabs( component ) > maximum ) {
+                return false;
+            }
+            packed.normalColumns[column][row] =
+                static_cast<common::f32>( component );
+        }
+    }
+    *output = packed;
+    return true;
+}
+
 int Orientation( const math::mat3_t &linear ) noexcept
 {
-    // Only the model matrix is uploaded here. Compute the determinant in
-    // binary64 so valid small float scales do not underflow or hit an
-    // arbitrary inverse-matrix tolerance.
+    // Compute winding in binary64 so valid small float scales do not
+    // underflow or hit an arbitrary inverse-matrix tolerance.
     const auto a = static_cast<common::f64>( linear.m[0] );
     const auto b = static_cast<common::f64>( linear.m[1] );
     const auto c = static_cast<common::f64>( linear.m[2] );
@@ -82,22 +149,24 @@ bool NextModelOffset(
     const common::u64 cursor,
     const common::u64 alignment,
     const common::u64 capacity,
+    const common::u64 recordBytes,
     common::u64 *offsetOut,
     common::u64 *nextOut ) noexcept
 {
-    if ( alignment == 0u || cursor > capacity ) return false;
+    if ( alignment == 0u || recordBytes == 0u || cursor > capacity ) return false;
     const common::u64 remainder = cursor % alignment;
     const common::u64 padding = remainder == 0u ? 0u : alignment - remainder;
     if ( padding > capacity - cursor ) return false;
     const common::u64 offset = cursor + padding;
-    if ( sizeof( math::mat4_t ) > capacity - offset ) return false;
+    if ( recordBytes > capacity - offset ) return false;
     *offsetOut = offset;
-    *nextOut = offset + sizeof( math::mat4_t );
+    *nextOut = offset + recordBytes;
     return true;
 }
 
 render_error_t ValidateBatch(
-    const render_uniform_batch_t &batch ) noexcept
+    const render_uniform_batch_t &batch,
+    const common::u64 recordBytes ) noexcept
 {
     if ( !R_IsInitialized() ) return render_error_t::ERR_NOT_INITIALIZED;
     const render_info_t *info = R_GetInfo();
@@ -110,7 +179,7 @@ render_error_t ValidateBatch(
          batch.alignment != info->limits.uniformBufferOffsetAlignment ) {
         return render_error_t::ERR_INVALID_STATE;
     }
-    if ( info->limits.maxUniformBlockBytes < sizeof( math::mat4_t ) ) {
+    if ( recordBytes == 0u || info->limits.maxUniformBlockBytes < recordBytes ) {
         return render_error_t::ERR_LIMIT_EXCEEDED;
     }
     render_buffer_info_t buffer{};
@@ -121,6 +190,26 @@ render_error_t ValidateBatch(
         return render_error_t::ERR_INVALID_STATE;
     }
     return render_error_t::OK;
+}
+
+render_error_t AppendModelRecord(
+    const render_world_opaque_prepare_desc_t &description,
+    const world::world_object_snapshot_t &snapshot ) noexcept
+{
+    render_uniform_record_t ignored{};
+    if ( description.modelLayout == render_world_model_layout_t::MODEL_NORMAL ) {
+        world_model_normal_record_t record{};
+        // Preflight already packed this same immutable World transform.
+        if ( !PackModelNormal( snapshot.object.localToWorld, &record ) ) {
+            return render_error_t::ERR_UNSUPPORTED;
+        }
+        return R_AppendUniformRecord( description.modelUniforms,
+            &record, sizeof( record ), &ignored );
+    }
+    const math::mat4_t model =
+        math::Affine3_ToMat4( snapshot.object.localToWorld );
+    return R_AppendUniformRecord( description.modelUniforms,
+        &model, sizeof( model ), &ignored );
 }
 
 render_error_t ValidateOtherUniforms(
@@ -185,6 +274,14 @@ render_error_t PreflightObject(
         // A zero determinant collapses triangles and has no front face.
         return render_error_t::ERR_UNSUPPORTED;
     }
+    if ( description.modelLayout == render_world_model_layout_t::MODEL_NORMAL ) {
+        world_model_normal_record_t record{};
+        if ( !PackModelNormal( object.localToWorld, &record ) ) {
+            // Even a nonsingular transform can have a normal inverse outside
+            // the shader's finite float range.
+            return render_error_t::ERR_UNSUPPORTED;
+        }
+    }
 
     const render_material_bundle_t &material =
         description.materials[object.materialSlot];
@@ -213,7 +310,7 @@ render_error_t PreflightObject(
     if ( error != render_error_t::OK ) return error;
     if ( pipeline.uniformBlockCount <= description.modelUniformSlot ||
          pipeline.uniformBlockBytes[description.modelUniformSlot] !=
-             sizeof( math::mat4_t ) ||
+             ModelRecordByteSize( description.modelLayout ) ||
          pipeline.blendMode != expectedBlend ||
          pipeline.depthWrite != ( expectedBlend == render_blend_mode_t::DISABLED ) ||
          ( !opaqueOnly && !pipeline.depthTest ) ||
@@ -269,7 +366,7 @@ void PublishDraw(
     draw.uniformBuffers[description.modelUniformSlot] =
         description.modelUniforms->buffer;
     draw.uniformRanges[description.modelUniformSlot] = {
-        modelOffset, sizeof( math::mat4_t )
+        modelOffset, ModelRecordByteSize( description.modelLayout )
     };
     output->objectId = snapshot.id;
     output->draw = draw;
@@ -287,6 +384,7 @@ render_world_opaque_prepare_desc_t CameraDrawBase(
     base.materialCount = camera.materialCount;
     base.modelUniforms = camera.modelUniforms;
     base.modelUniformSlot = camera.modelUniformSlot;
+    base.modelLayout = camera.modelLayout;
     base.drawTemplate = camera.drawTemplate;
     return base;
 }
@@ -573,6 +671,7 @@ render_error_t R_PrepareOpaqueWorldDraws(
 {
     if ( description.submission == nullptr || outCount == nullptr ||
          description.modelUniformSlot >= R_MAX_UNIFORM_BLOCK_BINDINGS ||
+         ModelRecordByteSize( description.modelLayout ) == 0u ||
          description.drawTemplate.instanceCount != 1u ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
@@ -594,7 +693,8 @@ render_error_t R_PrepareOpaqueWorldDraws(
          description.modelUniforms == nullptr ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
-    render_error_t result = ValidateBatch( *description.modelUniforms );
+    const common::u64 recordBytes = ModelRecordByteSize( description.modelLayout );
+    render_error_t result = ValidateBatch( *description.modelUniforms, recordBytes );
     if ( result != render_error_t::OK ) return result;
 
     for ( common::u32 i = 0u; i < visibleCount; ++i ) {
@@ -612,7 +712,8 @@ render_error_t R_PrepareOpaqueWorldDraws(
     for ( common::u32 i = 0u; i < visibleCount; ++i ) {
         common::u64 offset = 0u;
         if ( !NextModelOffset( cursor, description.modelUniforms->alignment,
-                 description.modelUniforms->capacityBytes, &offset, &cursor ) ) {
+                 description.modelUniforms->capacityBytes, recordBytes,
+                 &offset, &cursor ) ) {
             return render_error_t::ERR_COMMAND_CAPACITY_EXCEEDED;
         }
     }
@@ -624,10 +725,7 @@ render_error_t R_PrepareOpaqueWorldDraws(
              world::world_submission_error_t::OK ) {
             return render_error_t::ERR_INVALID_STATE;
         }
-        const math::mat4_t model = math::Affine3_ToMat4( snapshot.object.localToWorld );
-        render_uniform_record_t ignored{};
-        result = R_AppendUniformRecord( description.modelUniforms,
-            &model, sizeof( model ), &ignored );
+        result = AppendModelRecord( description, snapshot );
         if ( result != render_error_t::OK ) return result;
     }
     result = R_CommitUniformBatch( description.modelUniforms );
@@ -642,7 +740,8 @@ render_error_t R_PrepareOpaqueWorldDraws(
             description.submission, description.token, i, &snapshot );
         common::u64 offset = 0u;
         (void)NextModelOffset( cursor, description.modelUniforms->alignment,
-            description.modelUniforms->capacityBytes, &offset, &cursor );
+            description.modelUniforms->capacityBytes, recordBytes,
+            &offset, &cursor );
         PublishDraw( description, snapshot, offset, &output[i] );
     }
     *outCount = visibleCount;
@@ -657,6 +756,7 @@ render_error_t R_PrepareWorldCameraDraws(
 {
     if ( description.submission == nullptr || outCounts == nullptr ||
          description.modelUniformSlot >= R_MAX_UNIFORM_BLOCK_BINDINGS ||
+         ModelRecordByteSize( description.modelLayout ) == 0u ||
          description.drawTemplate.instanceCount != 1u ||
          !math::Mat4_IsAffine( description.viewFromWorld, 0.0f ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
@@ -684,7 +784,8 @@ render_error_t R_PrepareWorldCameraDraws(
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     const render_world_opaque_prepare_desc_t base = CameraDrawBase( description );
-    render_error_t result = ValidateBatch( *description.modelUniforms );
+    const common::u64 recordBytes = ModelRecordByteSize( description.modelLayout );
+    render_error_t result = ValidateBatch( *description.modelUniforms, recordBytes );
     if ( result != render_error_t::OK ) return result;
     result = CameraScratchIsDisjoint(
         description, output, outCounts, visibleCount );
@@ -741,7 +842,8 @@ render_error_t R_PrepareWorldCameraDraws(
     for ( common::u32 i = 0u; i < visibleCount; ++i ) {
         common::u64 offset = 0u;
         if ( !NextModelOffset( cursor, description.modelUniforms->alignment,
-                 description.modelUniforms->capacityBytes, &offset, &cursor ) ) {
+                 description.modelUniforms->capacityBytes, recordBytes,
+                 &offset, &cursor ) ) {
             return render_error_t::ERR_COMMAND_CAPACITY_EXCEEDED;
         }
     }
@@ -755,10 +857,7 @@ render_error_t R_PrepareWorldCameraDraws(
                  &snapshot ) != world::world_submission_error_t::OK ) {
             return render_error_t::ERR_INVALID_STATE;
         }
-        const math::mat4_t model = math::Affine3_ToMat4( snapshot.object.localToWorld );
-        render_uniform_record_t ignored{};
-        result = R_AppendUniformRecord( description.modelUniforms,
-            &model, sizeof( model ), &ignored );
+        result = AppendModelRecord( base, snapshot );
         if ( result != render_error_t::OK ) return result;
     }
     result = R_CommitUniformBatch( description.modelUniforms );
@@ -773,7 +872,8 @@ render_error_t R_PrepareWorldCameraDraws(
             description.token, description.passIndicesScratch[i], &snapshot );
         common::u64 offset = 0u;
         (void)NextModelOffset( cursor, description.modelUniforms->alignment,
-            description.modelUniforms->capacityBytes, &offset, &cursor );
+            description.modelUniforms->capacityBytes, recordBytes,
+            &offset, &cursor );
         PublishDraw( base, snapshot, offset, &output[i] );
     }
     *outCounts = counts;
@@ -835,7 +935,8 @@ render_error_t R_PrepareWorldShadowDraws(
          description.modelUniforms == nullptr ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
-    render_error_t result = ValidateBatch( *description.modelUniforms );
+    render_error_t result = ValidateBatch(
+        *description.modelUniforms, sizeof( math::mat4_t ) );
     if ( result != render_error_t::OK ) return result;
     result = ShadowOutputIsDisjoint(
         description, output, casterCount, outCount );
@@ -858,7 +959,8 @@ render_error_t R_PrepareWorldShadowDraws(
     for ( common::u32 i = 0u; i < casterCount; ++i ) {
         common::u64 offset = 0u;
         if ( !NextModelOffset( cursor, description.modelUniforms->alignment,
-                 description.modelUniforms->capacityBytes, &offset, &cursor ) ) {
+                 description.modelUniforms->capacityBytes,
+                 sizeof( math::mat4_t ), &offset, &cursor ) ) {
             return render_error_t::ERR_COMMAND_CAPACITY_EXCEEDED;
         }
     }
@@ -890,7 +992,8 @@ render_error_t R_PrepareWorldShadowDraws(
                  snapshot.object.materialSlot] ) ) continue;
         common::u64 offset = 0u;
         (void)NextModelOffset( cursor, description.modelUniforms->alignment,
-            description.modelUniforms->capacityBytes, &offset, &cursor );
+            description.modelUniforms->capacityBytes,
+            sizeof( math::mat4_t ), &offset, &cursor );
         PublishShadowDraw(
             description, snapshot, offset, &output[published++] );
     }

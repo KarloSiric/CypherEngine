@@ -24,6 +24,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- World camera and opaque draws can opt into a 112-byte std140 Model record
+  with model and inverse-transpose normal matrices. Invalid normal inverses
+  fail before staging; the 64-byte default and shadow adapter remain available.
+  Cooked tint materials accept either Model block size with tint in a separate
+  uniform. Focused CPU and native OpenGL 4.1 pixel tests pass locally. General
+  lighting, MASK/cutout World draws and editor integration remain separate work.
 - World light-view shadow preparation filters a separate submission by
   cooked casts-shadows flags and prepares opaque depth draws, including
   reversed winding for mirrored models. It preflights depth-only pipeline
@@ -41,8 +47,8 @@ Added
   Focused World-draw, scene-pass, material-bridge and native OpenGL 4.1 smoke
   tests pass locally, including transparent-order and depth-write pixels.
   Sort depth uses caller-maintained world AABBs and a matching camera view;
-  intersecting translucent objects remain approximate. MASK, shadows and
-  editor integration remain separate work.
+  intersecting translucent objects remain approximate. MASK and editor
+  integration remain separate work.
 
 Fixed
 - World camera and opaque draw preflight rejects a color-write-disabled

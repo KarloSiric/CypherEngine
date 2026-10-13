@@ -64,8 +64,9 @@ struct render_material_bridge_result_t {
 // UV0 and no sampler preset. The only supported material value is one F32X4
 // `tint` at byte offset zero. Its shader must declare a matching MATERIAL VALUE
 // and a 16-byte MATERIAL uniform block named `Material` with GLSL std140
-// member `vec4 tint`. The caller declares View at slot 0, 64-byte Model at
-// slot 1, and Material at slot 2; the bundle owns and binds only slot 2.
+// member `vec4 tint`. The caller declares View at slot 0, Model at slot 1
+// (64-byte mat4, or 112-byte mat4 plus std140-padded normal mat3), and Material
+// at slot 2; the bundle owns and binds only slot 2.
 // GLSL block member names and offsets are a shader-authoring convention here:
 // native pipeline reflection currently verifies the block size, not members.
 // All shader

@@ -17,11 +17,23 @@
 namespace cypher::engine::render
 {
 
+// Selects the shader-visible Model uniform record for camera color draws.
+// MODEL_ONLY is one column-major mat4 (64 bytes). MODEL_NORMAL adds three
+// std140-padded columns of the exact inverse-transpose linear transform at
+// byte offsets 64, 80, and 96 (112 bytes total). A vertex shader can then
+// transform normals under shear/nonuniform scale without recomputing the
+// inverse for every vertex. The inverse must fit finite f32 components; the
+// shadow adapter keeps its separate 64-byte Model contract.
+enum class render_world_model_layout_t : ::cypher::common::u8 {
+    MODEL_ONLY = 0u,
+    MODEL_NORMAL
+};
+
 // Host owns every borrowed table, World submission, batch, and output. Logical
 // World asset slots index the two tables; no World object stores a GPU handle.
-// The shader's block at modelUniformSlot must contain exactly one column-major
-// mat4 model transform (64 bytes). Other uniform slots in drawTemplate are
-// caller-owned view/pass data. The first slice accepts only OPAQUE materials,
+// The shader's block at modelUniformSlot must match modelLayout exactly. Other
+// uniform slots in drawTemplate are caller-owned view/pass data. The first
+// slice accepts only OPAQUE materials,
 // nonsingular transforms, and one instance per World object. A negative
 // determinant reverses authored mesh winding, so the material's mirrored
 // pipeline is selected; a collapsed transform remains unsupported.
@@ -34,6 +46,7 @@ struct render_world_opaque_prepare_desc_t {
     ::cypher::common::u32 materialCount{ 0u };
     render_uniform_batch_t *modelUniforms{ nullptr };
     ::cypher::common::u32 modelUniformSlot{ 0u };
+    render_world_model_layout_t modelLayout{ render_world_model_layout_t::MODEL_ONLY };
     render_draw_indexed_desc_t drawTemplate{};
 };
 
@@ -77,6 +90,7 @@ struct render_world_camera_prepare_desc_t {
     ::cypher::common::u32 materialCount{ 0u };
     render_uniform_batch_t *modelUniforms{ nullptr };
     ::cypher::common::u32 modelUniformSlot{ 0u };
+    render_world_model_layout_t modelLayout{ render_world_model_layout_t::MODEL_ONLY };
     render_draw_indexed_desc_t drawTemplate{};
     ::cypher::math::mat4_t viewFromWorld{ ::cypher::math::CY_MAT4_IDENTITY };
     render_scene_item_t *sceneItemsScratch{ nullptr };

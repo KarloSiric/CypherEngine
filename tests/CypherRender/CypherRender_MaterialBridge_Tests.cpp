@@ -162,7 +162,8 @@ struct cooked_files_t {
     void BuildTint( common::string_view_t shaderValueName = Text( "tint" ),
         common::render_shader_value_type_t shaderValueType =
             common::render_shader_value_type_t::F32X4,
-        common::u32 materialBlockBytes = 16u )
+        common::u32 materialBlockBytes = 16u,
+        common::u32 modelBlockBytes = 64u )
     {
         common::cooked_shader_binding_source_t bindings[4]{};
         bindings[0].name = Text( "View" );
@@ -176,7 +177,8 @@ struct cooked_files_t {
             binding.flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
                 ( i == 2u ? common::COOKED_SHADER_BINDING_FLAG_MATERIAL
                           : common::COOKED_SHADER_BINDING_FLAG_INSTANCE );
-            binding.cbByteSize = i == 2u ? materialBlockBytes : 64u;
+            binding.cbByteSize = i == 2u ? materialBlockBytes :
+                i == 1u ? modelBlockBytes : 64u;
             binding.nLogicalBinding = BindingId( binding.name );
         }
         bindings[3].name = shaderValueName;
@@ -198,15 +200,24 @@ struct cooked_files_t {
             "layout(std140) uniform View { mat4 view; };\n"
             "layout(std140) uniform Model { mat4 model; };\n"
             "void main(){gl_Position=view*model*vec4(0.0,0.0,0.0,1.0);}\n";
+        constexpr char litVertex[] =
+            "#version 410 core\n"
+            "layout(std140) uniform View { mat4 view; };\n"
+            "layout(std140) uniform Model { mat4 model; mat3 normalMatrix; };\n"
+            "void main(){gl_Position=view*model*vec4(normalMatrix[0],1.0);}\n";
         constexpr char fragment[] =
             "#version 410 core\n"
             "layout(std140) uniform Material { vec4 tint; };\n"
             "out vec4 c;void main(){c=tint;}\n";
         common::cooked_shader_stage_source_t stages[2]{};
         stages[0].stage = common::render_shader_stage_t::VERTEX;
-        stages[0].code = {
-            reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex )
-        };
+        stages[0].code = modelBlockBytes == 112u
+            ? common::binary_block_t{
+                reinterpret_cast<const common::byte *>( litVertex ),
+                sizeof( litVertex ) }
+            : common::binary_block_t{
+                reinterpret_cast<const common::byte *>( vertex ),
+                sizeof( vertex ) };
         stages[1].stage = common::render_shader_stage_t::FRAGMENT;
         stages[1].code = {
             reinterpret_cast<const common::byte *>( fragment ), sizeof( fragment )
@@ -589,9 +600,11 @@ struct bridge_fixture_t {
     void UseTint( common::string_view_t shaderValueName = Text( "tint" ),
         common::render_shader_value_type_t shaderValueType =
             common::render_shader_value_type_t::F32X4,
-        common::u32 materialBlockBytes = 16u )
+        common::u32 materialBlockBytes = 16u,
+        common::u32 modelBlockBytes = 64u )
     {
-        cooked.BuildTint( shaderValueName, shaderValueType, materialBlockBytes );
+        cooked.BuildTint( shaderValueName, shaderValueType,
+            materialBlockBytes, modelBlockBytes );
         storage.files[0].contents = { cooked.material.data(), cooked.material.size() };
         storage.files[1].contents = { cooked.shader.data(), cooked.shader.size() };
     }
@@ -812,6 +825,33 @@ TEST_CASE( "cooked tint creates a native float material uniform and owns its lif
 TEST_CASE( "cooked tint preflights its exact VALUE and Material block convention",
     "[CypherRender][MaterialBridge][Tint]" )
 {
+    SECTION( "lit Model block can carry a padded normal matrix" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint( Text( "tint" ),
+            common::render_shader_value_type_t::F32X4, 16u, 112u );
+        auto description = fixture.TintDescription();
+        description.uniformBlocks[1].byteSize = 112u;
+        const auto result = render::R_CreateCookedMaterialBundle(
+            description, &fixture.bundle );
+        REQUIRE( result.status == render::render_material_bridge_status_t::OK );
+        CHECK( fixture.pipelineCreates == 2u );
+        CHECK( render::R_IsBufferValid( fixture.bundle.materialUniformBuffer ) );
+    }
+    SECTION( "other Model block sizes remain unsupported" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 0u );
+        fixture.UseTint();
+        auto description = fixture.TintDescription();
+        description.uniformBlocks[1].byteSize = 96u;
+        const auto result = render::R_CreateCookedMaterialBundle(
+            description, &fixture.bundle );
+        CHECK( result.status ==
+            render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.bufferCreates == 0u );
+        CHECK( fixture.pipelineCreates == 0u );
+    }
     SECTION( "mismatched VALUE name" ) {
         bridge_fixture_t fixture{};
         fixture.Init( 0u );

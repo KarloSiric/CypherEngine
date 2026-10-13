@@ -328,6 +328,20 @@ sense. Both pipelines retain the same shader and all other raster, depth, and
 blend settings. The reversed sense also preserves `gl_FrontFacing` for
 two-sided shaders. A zero determinant remains unsupported.
 
+Camera and opaque preparation can opt into `MODEL_NORMAL` when the selected
+shader declares `layout(std140) uniform Model { mat4 model; mat3 normalMatrix; };`
+at the chosen slot. This 112-byte record stores the model matrix at byte zero
+and three padded inverse-transpose normal columns at bytes 64, 80, and 96.
+The adapter calculates the normal matrix once per object in binary64 and
+rejects a singular transform or any component that cannot fit a finite float
+before staging the batch. `MODEL_ONLY` remains the 64-byte default and keeps
+accepting nonsingular transforms that do not have a representable float normal
+inverse. The light-view shadow adapter still uses its separate 64-byte Model
+record. Cooked tint stays in its material-owned slot-2 buffer; the 144-byte
+graybox `ObjectConstants` block remains sample-specific. A native OpenGL 4.1
+pixel test compiles a shader that reads all three normal columns and checks the
+inverse-transpose result under a sheared, nonuniform transform.
+
 `R_PrepareOpaqueWorldDraws` remains the small opaque-only entry point.
 `R_PrepareWorldCameraDraws` accepts OPAQUE, BLEND, and ADDITIVE cooked material
 bundles and returns three contiguous draw spans: opaque in submission order,

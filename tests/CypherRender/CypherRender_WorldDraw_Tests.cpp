@@ -10,6 +10,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <cstring>
 
 namespace common = ::cypher::common;
@@ -52,6 +53,8 @@ struct world_draw_fixture_t {
     render::render_pipeline_handle_t mirroredPipelines[4]{};
     render::render_pipeline_handle_t shadowPipeline{};
     render::render_pipeline_handle_t mirroredShadowPipeline{};
+    render::render_pipeline_handle_t litPipeline{};
+    render::render_pipeline_handle_t mirroredLitPipeline{};
     render::render_buffer_handle_t viewBuffer{};
     render::render_buffer_handle_t materialBuffer{};
     render::render_uniform_batch_t batch{};
@@ -266,6 +269,28 @@ struct world_draw_fixture_t {
             pipeline, &mirroredShadowPipeline ) == render::render_error_t::OK );
     }
 
+    void EnableLitMaterial( common::u32 slot )
+    {
+        REQUIRE( slot < 2u );
+        REQUIRE( litPipeline.value == 0u );
+        render::render_vertex_input_info_t input{};
+        REQUIRE( render::R_GetVertexInputInfo( mesh.vertexInput, &input ) ==
+            render::render_error_t::OK );
+        render::render_pipeline_desc_t pipeline{};
+        pipeline.shader = shader;
+        pipeline.vertexLayout = input.layout;
+        pipeline.uniformBlockCount = 2u;
+        pipeline.uniformBlocks[0] = { "View", 64u };
+        pipeline.uniformBlocks[1] = { "Model", 112u };
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &litPipeline ) == render::render_error_t::OK );
+        pipeline.frontCounterClockwise = false;
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &mirroredLitPipeline ) == render::render_error_t::OK );
+        materials[slot].pipeline = litPipeline;
+        materials[slot].mirroredPipeline = mirroredLitPipeline;
+    }
+
     render::render_world_shadow_prepare_desc_t ShadowDescription()
     {
         render::render_world_shadow_prepare_desc_t desc{};
@@ -360,6 +385,10 @@ struct world_draw_fixture_t {
             (void)render::R_DestroyGraphicsPipeline( shadowPipeline );
         if ( mirroredShadowPipeline.value != 0u )
             (void)render::R_DestroyGraphicsPipeline( mirroredShadowPipeline );
+        if ( litPipeline.value != 0u )
+            (void)render::R_DestroyGraphicsPipeline( litPipeline );
+        if ( mirroredLitPipeline.value != 0u )
+            (void)render::R_DestroyGraphicsPipeline( mirroredLitPipeline );
         if ( shader.value != 0u ) (void)render::R_DestroyShader( shader );
         (void)render::R_DestroyStaticMeshBundle( &mesh );
         (void)render::R_PipelineSystemShutdown();
@@ -384,8 +413,10 @@ TEST_CASE( "visible opaque World objects resolve ordered draws and aligned model
 
     render::render_world_opaque_draw_t output[3]{};
     common::u32 count = 99u;
+    const auto description = fixture.Description();
+    CHECK( description.modelLayout == render::render_world_model_layout_t::MODEL_ONLY );
     REQUIRE( render::R_PrepareOpaqueWorldDraws(
-        fixture.Description(), output, 3u, &count ) == render::render_error_t::OK );
+        description, output, 3u, &count ) == render::render_error_t::OK );
     CHECK( count == 2u );
     CHECK( fixture.uploadCalls == 1u );
     CHECK( fixture.drawCalls == 0u );
@@ -408,6 +439,211 @@ TEST_CASE( "visible opaque World objects resolve ordered draws and aligned model
     std::memcpy( &secondModel, fixture.uploaded + 256u, sizeof( secondModel ) );
     CHECK( firstModel.m[12] == 0.0f );
     CHECK( secondModel.m[12] == 4.0f );
+}
+
+TEST_CASE( "World lit Model records pack inverse-transpose columns after the model matrix",
+    "[CypherRender][WorldDraw][LitModel]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.EnableLitMaterial( 0u );
+    const auto sheared = fixture.Add( 0u, 0u, 0.0f );
+    const auto mirrored = fixture.Add( 0u, 0u, 4.0f );
+    world::world_object_t object{};
+    REQUIRE( world::World_GetObject( fixture.pWorld, sheared, &object ) ==
+        world::world_error_t::OK );
+    object.localToWorld = math::Affine3_FromColumns(
+        { 2.0f, 0.0f, 0.0f }, { 1.0f, 3.0f, 0.0f },
+        { 0.0f, 0.0f, 4.0f }, { 0.0f, 0.0f, 0.0f } );
+    REQUIRE( world::World_UpdateObject( fixture.pWorld, sheared, &object ) ==
+        world::world_error_t::OK );
+    REQUIRE( world::World_GetObject( fixture.pWorld, mirrored, &object ) ==
+        world::world_error_t::OK );
+    object.localToWorld = math::Affine3_FromScale( { -2.0f, 3.0f, 4.0f } );
+    REQUIRE( world::World_UpdateObject( fixture.pWorld, mirrored, &object ) ==
+        world::world_error_t::OK );
+    fixture.Build();
+
+    auto description = fixture.Description();
+    description.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL;
+    render::render_world_opaque_draw_t output[2]{};
+    common::u32 count = 0u;
+    REQUIRE( render::R_PrepareOpaqueWorldDraws(
+        description, output, 2u, &count ) == render::render_error_t::OK );
+    REQUIRE( count == 2u );
+    CHECK( output[0].objectId.slot.value == sheared.slot.value );
+    CHECK( output[1].objectId.slot.value == mirrored.slot.value );
+    CHECK( output[0].draw.pipeline.value == fixture.litPipeline.value );
+    CHECK( output[1].draw.pipeline.value == fixture.mirroredLitPipeline.value );
+    CHECK( output[0].draw.uniformRanges[1].offset == 0u );
+    CHECK( output[1].draw.uniformRanges[1].offset == 256u );
+    CHECK( output[0].draw.uniformRanges[1].byteSize == 112u );
+    CHECK( output[1].draw.uniformRanges[1].byteSize == 112u );
+    CHECK( fixture.uploadCalls == 1u );
+    CHECK( fixture.uploadedSize == 368u );
+
+    // std140 mat3 columns have a fourth padding float; this record is exactly
+    // a 64-byte column-major mat4 followed by three 16-byte normal columns.
+    common::f32 shearRecord[28]{};
+    common::f32 mirroredRecord[28]{};
+    std::memcpy( shearRecord, fixture.uploaded, sizeof( shearRecord ) );
+    std::memcpy( mirroredRecord, fixture.uploaded + 256u,
+        sizeof( mirroredRecord ) );
+    CHECK( shearRecord[0] == 2.0f );
+    CHECK( shearRecord[4] == 1.0f );
+    CHECK( shearRecord[5] == 3.0f );
+    CHECK( shearRecord[10] == 4.0f );
+    CHECK( shearRecord[15] == 1.0f );
+    CHECK( shearRecord[16] == 0.5f );
+    CHECK( std::abs( shearRecord[17] + 1.0f / 6.0f ) < 1.0e-6f );
+    CHECK( shearRecord[18] == 0.0f );
+    CHECK( shearRecord[20] == 0.0f );
+    CHECK( std::abs( shearRecord[21] - 1.0f / 3.0f ) < 1.0e-6f );
+    CHECK( shearRecord[22] == 0.0f );
+    CHECK( shearRecord[24] == 0.0f );
+    CHECK( shearRecord[25] == 0.0f );
+    CHECK( shearRecord[26] == 0.25f );
+    CHECK( shearRecord[19] == 0.0f );
+    CHECK( shearRecord[23] == 0.0f );
+    CHECK( shearRecord[27] == 0.0f );
+
+    CHECK( mirroredRecord[0] == -2.0f );
+    CHECK( mirroredRecord[5] == 3.0f );
+    CHECK( mirroredRecord[10] == 4.0f );
+    CHECK( mirroredRecord[16] == -0.5f );
+    CHECK( std::abs( mirroredRecord[21] - 1.0f / 3.0f ) < 1.0e-6f );
+    CHECK( mirroredRecord[26] == 0.25f );
+    CHECK( mirroredRecord[19] == 0.0f );
+    CHECK( mirroredRecord[23] == 0.0f );
+    CHECK( mirroredRecord[27] == 0.0f );
+}
+
+TEST_CASE( "World camera draws opt into the lit Model record",
+    "[CypherRender][WorldDraw][LitModel][CameraPasses]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.EnableLitMaterial( 0u );
+    const auto id = fixture.AddAtZ( 0u, 0.0f, -4.0f );
+    fixture.Build();
+    render::render_scene_item_t sceneItem{};
+    common::u32 passIndex{};
+    auto description = fixture.CameraDescription();
+    description.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL;
+    description.sceneItemsScratch = &sceneItem;
+    description.sceneItemCapacity = 1u;
+    description.passIndicesScratch = &passIndex;
+    description.passIndexCapacity = 1u;
+    render::render_world_camera_draw_t output{};
+    render::render_world_camera_pass_counts_t counts{};
+    REQUIRE( render::R_PrepareWorldCameraDraws(
+        description, &output, 1u, &counts ) == render::render_error_t::OK );
+    CHECK( counts.opaqueCount == 1u );
+    CHECK( counts.blendCount == 0u );
+    CHECK( counts.additiveCount == 0u );
+    CHECK( output.objectId.slot.value == id.slot.value );
+    CHECK( output.draw.uniformRanges[1].byteSize == 112u );
+    CHECK( fixture.uploadedSize == 112u );
+    common::f32 normalColumns[12]{};
+    std::memcpy( normalColumns, fixture.uploaded + 64u,
+        sizeof( normalColumns ) );
+    CHECK( normalColumns[0] == 1.0f );
+    CHECK( normalColumns[5] == 1.0f );
+    CHECK( normalColumns[10] == 1.0f );
+    CHECK( normalColumns[3] == 0.0f );
+    CHECK( normalColumns[7] == 0.0f );
+    CHECK( normalColumns[11] == 0.0f );
+}
+
+TEST_CASE( "World lit preflight rejects invalid normals and block sizes without staging",
+    "[CypherRender][WorldDraw][LitModel]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    (void)fixture.Add( 0u, 0u, 0.0f ); // A valid object precedes the bad one.
+    const auto bad = fixture.Add( 0u, 0u, 4.0f );
+    SECTION( "zero determinant" ) {
+        fixture.EnableLitMaterial( 0u );
+        world::world_object_t object{};
+        REQUIRE( world::World_GetObject( fixture.pWorld, bad, &object ) ==
+            world::world_error_t::OK );
+        object.localToWorld = math::Affine3_FromScale( { 0.0f, 1.0f, 1.0f } );
+        REQUIRE( world::World_UpdateObject( fixture.pWorld, bad, &object ) ==
+            world::world_error_t::OK );
+    }
+    SECTION( "inverse cannot fit a finite float normal column" ) {
+        fixture.EnableLitMaterial( 0u );
+        world::world_object_t object{};
+        REQUIRE( world::World_GetObject( fixture.pWorld, bad, &object ) ==
+            world::world_error_t::OK );
+        object.localToWorld = math::Affine3_FromScale( { 1.0e-40f, 1.0f, 1.0f } );
+        REQUIRE( world::World_UpdateObject( fixture.pWorld, bad, &object ) ==
+            world::world_error_t::OK );
+    }
+    SECTION( "pipeline still declares only a 64-byte Model block" ) {
+        // No lit pipeline: the requested record must match the actual block.
+    }
+    fixture.Build();
+    auto description = fixture.Description();
+    description.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL;
+
+    render::render_world_opaque_draw_t output[2]{};
+    output[0].draw.pipeline.value = 12345u;
+    common::u32 count = 77u;
+    const auto error = render::R_PrepareOpaqueWorldDraws(
+        description, output, 2u, &count );
+    CHECK( error == ( fixture.litPipeline.value != 0u
+        ? render::render_error_t::ERR_UNSUPPORTED
+        : render::render_error_t::ERR_BINDING_MISMATCH ) );
+    CHECK( count == 77u );
+    CHECK( output[0].draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
+TEST_CASE( "World lit capacity and upload failures keep public draws unpublished",
+    "[CypherRender][WorldDraw][LitModel]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.EnableLitMaterial( 0u );
+    (void)fixture.Add( 0u, 0u, 0.0f );
+    (void)fixture.Add( 0u, 0u, 4.0f );
+    fixture.Build();
+    auto description = fixture.Description();
+    description.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL;
+    render::render_world_opaque_draw_t output[2]{};
+    output[0].draw.pipeline.value = 12345u;
+    common::u32 count = 77u;
+
+    SECTION( "the aligned second record exceeds capacity" ) {
+        REQUIRE( render::R_DestroyUniformBatch( &fixture.batch ) ==
+            render::render_error_t::OK );
+        REQUIRE( render::R_CreateUniformBatch(
+            320u, common::Allocator_GetSystem(), &fixture.batch ) ==
+            render::render_error_t::OK );
+        CHECK( render::R_PrepareOpaqueWorldDraws(
+            description, output, 2u, &count ) ==
+            render::render_error_t::ERR_COMMAND_CAPACITY_EXCEEDED );
+        CHECK( fixture.batch.usedBytes == 0u );
+        CHECK_FALSE( fixture.batch.sealed );
+        CHECK( fixture.uploadCalls == 0u );
+    }
+    SECTION( "backend upload fails after staging both records" ) {
+        fixture.failNextUpload = true;
+        CHECK( render::R_PrepareOpaqueWorldDraws(
+            description, output, 2u, &count ) ==
+            render::render_error_t::ERR_RESOURCE_TRANSFER_FAILED );
+        CHECK( fixture.batch.usedBytes == 368u );
+        CHECK( fixture.batch.sealed );
+        CHECK( fixture.uploadCalls == 1u );
+        REQUIRE( render::R_CommitUniformBatch( &fixture.batch ) ==
+            render::render_error_t::OK );
+        CHECK( fixture.uploadCalls == 2u );
+    }
+    CHECK( count == 77u );
+    CHECK( output[0].draw.pipeline.value == 12345u );
 }
 
 TEST_CASE( "World draw preparation carries an owned material uniform binding",
