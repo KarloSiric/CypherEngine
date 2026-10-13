@@ -5,9 +5,9 @@
 //
 //  File: examples/CypherRender/CypherRender_Cube.cpp
 //  Purpose: Demonstrates a visible-world-object public-renderer drawing path.
-//  Details: Loads a cooked shader through the loose-directory VFS, resolves
-//           two indexed meshes from logical World slots, and uploads aligned
-//           per-view and per-object constants for visible objects each frame.
+//  Details: Loads a cooked shader and floor texture through the loose-directory
+//           VFS, resolves meshes and textures from logical World slots, and
+//           uploads aligned constants for visible objects each frame.
 //           No graphics-driver or native-window API crosses into this host.
 //
 //  This file is proprietary and confidential. See LICENSE for details.
@@ -26,6 +26,7 @@
 #include "CypherRender/CypherRender_Pipeline.h"
 #include "CypherRender/CypherRender_Public.h"
 #include "CypherRender/CypherRender_Shader.h"
+#include "CypherRender/CypherRender_Texture.h"
 #include "CypherRender/Runtime/CypherRender_MeshBridge.h"
 #include "CypherRender/Runtime/CypherRender_DrawQueue.h"
 #include "CypherRender/Runtime/CypherRender_UniformBatch.h"
@@ -45,6 +46,9 @@
 
 #ifndef CYPHER_RENDER_CUBE_SHADER_PATH
     #define CYPHER_RENDER_CUBE_SHADER_PATH "cooked/render_smoke/cube.cyshader_c"
+#endif
+#ifndef CYPHER_RENDER_CUBE_TEXTURE_PATH
+    #define CYPHER_RENDER_CUBE_TEXTURE_PATH "cooked/textures/blockout/floor_checker.cytex_c"
 #endif
 
 namespace common = ::cypher::common;
@@ -128,6 +132,7 @@ static_assert( offsetof( cube_object_constants_t, tint ) == 64u );
 
 struct cube_options_t {
     const char *shaderPath{ CYPHER_RENDER_CUBE_SHADER_PATH };
+    const char *texturePath{ CYPHER_RENDER_CUBE_TEXTURE_PATH };
     common::u32 frameLimit{ 0u }; // Zero is an interactive run.
     bool hidden{ false };
     bool help{ false };
@@ -151,17 +156,22 @@ constexpr common::u32 WORLD_OBJECT_COUNT = CUBE_INSTANCE_COUNT + 1u;
 constexpr common::u32 MESH_SLOT_CUBE = 0u;
 constexpr common::u32 MESH_SLOT_FLOOR = 1u;
 constexpr common::u32 MESH_SLOT_COUNT = 2u;
+constexpr common::u32 TEXTURE_SLOT_WHITE = 0u;
+constexpr common::u32 TEXTURE_SLOT_FLOOR = 1u;
+constexpr common::u32 TEXTURE_SLOT_COUNT = 2u;
 
 struct sample_material_t {
     float tint[4];
+    common::u32 textureSlot;
 };
-// Logical material slots are CPU-only sample colors, not GPU resource names.
+// Logical material slots contain appearance and another logical texture slot,
+// never a GPU resource name or a renderer handle.
 constexpr sample_material_t MATERIALS[WORLD_OBJECT_COUNT] = {
-    { { 0.75f, 0.28f, 0.18f, 1.0f } },
-    { { 0.10f, 0.55f, 0.76f, 1.0f } },
-    { { 0.36f, 0.72f, 0.32f, 1.0f } },
-    { { 0.72f, 0.28f, 0.68f, 1.0f } },
-    { { 0.38f, 0.42f, 0.47f, 1.0f } }
+    { { 0.75f, 0.28f, 0.18f, 1.0f }, TEXTURE_SLOT_WHITE },
+    { { 0.10f, 0.55f, 0.76f, 1.0f }, TEXTURE_SLOT_WHITE },
+    { { 0.36f, 0.72f, 0.32f, 1.0f }, TEXTURE_SLOT_WHITE },
+    { { 0.72f, 0.28f, 0.68f, 1.0f }, TEXTURE_SLOT_WHITE },
+    { { 0.90f, 0.90f, 0.90f, 1.0f }, TEXTURE_SLOT_FLOOR }
 };
 constexpr common::u32 MATERIAL_COUNT =
     static_cast<common::u32>( sizeof( MATERIALS ) / sizeof( MATERIALS[0] ) );
@@ -173,6 +183,7 @@ struct cube_state_t {
     render::render_pipeline_handle_t pipeline{};
     // The host owns this bounded slot table; World stores only slot numbers.
     render::render_static_mesh_bundle_t meshes[MESH_SLOT_COUNT]{};
+    render::render_texture_handle_t textures[TEXTURE_SLOT_COUNT]{};
     render::render_buffer_handle_t viewConstants{};
     render::render_uniform_batch_t objectConstants{};
     render::render_draw_queue_t *pDrawQueue{ nullptr };
@@ -274,6 +285,8 @@ bool ParseOptions( int argc, char **argv, cube_options_t &options ) noexcept
         else if ( std::strcmp( argv[i], "--help" ) == 0 ) options.help = true;
         else if ( std::strcmp( argv[i], "--shader" ) == 0 && i + 1 < argc ) {
             options.shaderPath = argv[++i];
+        } else if ( std::strcmp( argv[i], "--texture" ) == 0 && i + 1 < argc ) {
+            options.texturePath = argv[++i];
         } else if ( std::strcmp( argv[i], "--frames" ) == 0 && i + 1 < argc ) {
             const char *first = argv[++i];
             const char *last = first + std::strlen( first );
@@ -292,7 +305,8 @@ bool ParseOptions( int argc, char **argv, cube_options_t &options ) noexcept
     return true;
 }
 
-bool LoadShader( const char *nativePath, render::render_shader_handle_t &shader )
+bool ReadCookedFile( const char *nativePath, common::usize maxBytes,
+    common::blob_t &bytes )
 {
     const std::filesystem::path path = std::filesystem::absolute( nativePath );
     const std::string root = path.parent_path().string();
@@ -301,28 +315,34 @@ bool LoadShader( const char *nativePath, render::render_shader_handle_t &shader 
     const common::vfs_status_t mountResult = common::VfsDirectory_Init(
         &directory, { root.data(), root.size() } );
     if ( mountResult != common::vfs_status_t::OK ) {
-        std::fprintf( stderr, "Shader directory: %s (%s)\n", root.c_str(),
+        std::fprintf( stderr, "Cooked asset directory: %s (%s)\n", root.c_str(),
             common::Vfs_StatusName( mountResult ) );
         return false;
     }
 
-    common::blob_t bytes{};
     if ( !common::Blob_Init( &bytes, common::Allocator_GetSystem() ) ) {
         common::VfsDirectory_Shutdown( &directory );
-        std::fprintf( stderr, "Could not initialize cooked shader storage.\n" );
+        std::fprintf( stderr, "Could not initialize cooked asset storage.\n" );
         return false;
     }
     const common::vfs_t vfs = common::VfsDirectory_Make( &directory );
-    constexpr common::usize MAX_SHADER_FILE_BYTES = 40u * 1024u * 1024u;
     const common::vfs_status_t readResult = common::Vfs_ReadAll(
-        &vfs, { filename.data(), filename.size() }, MAX_SHADER_FILE_BYTES, &bytes );
+        &vfs, { filename.data(), filename.size() }, maxBytes, &bytes );
     common::VfsDirectory_Shutdown( &directory );
     if ( readResult != common::vfs_status_t::OK ) {
-        std::fprintf( stderr, "Read cooked shader %s: %s\n", nativePath,
+        std::fprintf( stderr, "Read cooked asset %s: %s\n", nativePath,
             common::Vfs_StatusName( readResult ) );
         common::Blob_Shutdown( &bytes );
         return false;
     }
+    return true;
+}
+
+bool LoadShader( const char *nativePath, render::render_shader_handle_t &shader )
+{
+    common::blob_t bytes{};
+    constexpr common::usize MAX_SHADER_FILE_BYTES = 40u * 1024u * 1024u;
+    if ( !ReadCookedFile( nativePath, MAX_SHADER_FILE_BYTES, bytes ) ) return false;
 
     common::cooked_shader_view_t view{};
     const common::cooked_shader_result_t cookedResult =
@@ -342,9 +362,46 @@ bool LoadShader( const char *nativePath, render::render_shader_handle_t &shader 
     return created;
 }
 
-bool CreateScene( cube_state_t &state, const char *shaderPath )
+bool LoadTexture( const char *nativePath, render::render_texture_handle_t &texture )
 {
-    if ( !LoadShader( shaderPath, state.shader ) ) return false;
+    common::blob_t bytes{};
+    constexpr common::usize MAX_TEXTURE_FILE_BYTES = 40u * 1024u * 1024u;
+    if ( !ReadCookedFile( nativePath, MAX_TEXTURE_FILE_BYTES, bytes ) ) return false;
+
+    common::cooked_texture_view_t view{};
+    const common::cooked_texture_result_t cookedResult =
+        common::CookedTexture_Read( common::Blob_Block( &bytes ), &view );
+    if ( !common::CookedTexture_Succeeded( cookedResult ) ) {
+        std::fprintf( stderr, "Invalid cooked texture %s: %s\n", nativePath,
+            common::CookedTexture_StatusName( cookedResult.status ) );
+        common::Blob_Shutdown( &bytes );
+        return false;
+    }
+
+    // The renderer consumes every mip synchronously; no borrowed VFS bytes
+    // survive beyond this call, including when creation fails.
+    const bool created = CheckRender(
+        render::R_CreateTexture2DFromCooked( view, &texture ),
+        "Create floor texture" );
+    common::Blob_Shutdown( &bytes );
+    return created;
+}
+
+bool CreateScene( cube_state_t &state, const cube_options_t &options )
+{
+    if ( !LoadShader( options.shaderPath, state.shader ) ) return false;
+
+    constexpr common::u8 WHITE_PIXEL[4] = { 255u, 255u, 255u, 255u };
+    render::render_texture_desc_t white{};
+    white.width = 1u;
+    white.height = 1u;
+    white.generateMips = false;
+    white.debugName = "Graybox white texture";
+    if ( !CheckRender( render::R_CreateTexture2D( white,
+            { WHITE_PIXEL, sizeof( WHITE_PIXEL ) },
+            &state.textures[TEXTURE_SLOT_WHITE] ), "Create white texture" ) ||
+         !LoadTexture( options.texturePath,
+             state.textures[TEXTURE_SLOT_FLOOR] ) ) return false;
     render::render_static_mesh_source_t source{};
     source.vertexLayout.bindingCount = 1u;
     source.vertexLayout.bindings[0].stride = sizeof( cube_vertex_t );
@@ -398,6 +455,9 @@ bool CreateScene( cube_state_t &state, const char *shaderPath )
     pipeline.uniformBlockCount = 2u;
     pipeline.uniformBlocks[0] = { "ViewConstants", sizeof( cube_view_constants_t ) };
     pipeline.uniformBlocks[1] = { "ObjectConstants", sizeof( cube_object_constants_t ) };
+    pipeline.sampledTextureCount = 1u;
+    pipeline.sampledTextures[0] = { "albedoTexture",
+        render::render_sampled_texture_kind_t::SCALAR_2D };
     pipeline.debugName = "Depth-tested graybox pipeline";
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline, &state.pipeline ),
             "Create cube pipeline" ) ) return false;
@@ -706,6 +766,13 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             // The World snapshot contains logical slots, never renderer handles.
             draws[i].pipeline = state.pipeline;
             draws[i].uniformBuffers[0] = state.viewConstants;
+            const auto textureSlot = MATERIALS[object.materialSlot].textureSlot;
+            if ( textureSlot >= TEXTURE_SLOT_COUNT ||
+                 !render::R_IsTextureValid( state.textures[textureSlot] ) ) {
+                std::fprintf( stderr, "Graybox material has an invalid texture slot.\n" );
+                return false;
+            }
+            draws[i].sampledTextures[0] = state.textures[textureSlot];
             if ( !CheckRender( render::R_ApplyStaticMeshBundleToDraw(
                      state.meshes[object.meshSlot], &draws[i] ),
                      "Resolve visible mesh" ) ) return false;
@@ -774,6 +841,13 @@ bool Shutdown( cube_state_t &state ) noexcept
             success = CheckRender( render::R_DestroyGraphicsPipeline( state.pipeline ),
                 "Destroy pipeline" ) && success;
         }
+        for ( common::u32 i = TEXTURE_SLOT_COUNT; i > 0u; --i ) {
+            auto &texture = state.textures[i - 1u];
+            if ( texture.value != 0u ) {
+                success = CheckRender( render::R_DestroyTexture( texture ),
+                    "Destroy graybox texture" ) && success;
+            }
+        }
         success = CheckRender( render::R_DestroyUniformBatch( &state.objectConstants ),
             "Destroy object constants batch" ) && success;
         if ( state.viewConstants.value != 0u ) {
@@ -817,10 +891,10 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
     if ( !CheckRender( render::R_ConfigureWindow( config, window ), "Configure window" ) ||
          !CheckSystem( sys::Sys_CreateWindow( window, state.window ), "Create window" ) ||
          !CheckRender( render::R_Init( state.window, config ), "Initialize renderer" ) ||
-         !CreateScene( state, options.shaderPath ) ||
+         !CreateScene( state, options ) ||
          !CreateWorld( state ) ) return false;
-    std::printf( "Cooked shader: %s\nCube and floor meshes, %u world objects; one view upload and one visible-object batch per frame.\n",
-        options.shaderPath, WORLD_OBJECT_COUNT );
+    std::printf( "Cooked shader: %s\nCooked floor texture: %s\nCube and floor meshes, %u world objects; one view upload and one visible-object batch per frame.\n",
+        options.shaderPath, options.texturePath, WORLD_OBJECT_COUNT );
     return RunFrames( state, options );
 }
 
@@ -831,11 +905,12 @@ int main( int argc, char **argv )
     cube_options_t options{};
     if ( !ParseOptions( argc, argv, options ) ) return 2;
     if ( options.help ) {
-        std::puts( "Usage: cypher_render_cube [--shader PATH] [--frames N] [--hidden]\n"
+        std::puts( "Usage: cypher_render_cube [--shader PATH] [--texture PATH] [--frames N] [--hidden]\n"
                    "Hold right mouse to fly: mouse look, WASD move, Space/C up/down, Shift faster.\n"
                    "Release right mouse to free the cursor. Escape or close exits.\n"
                    "Resize changes the projection.\n"
                    "--shader reads an existing .cyshader_c; cooking is an offline step.\n"
+                   "--texture reads an existing .cytex_c floor texture.\n"
                    "--frames keeps the fixed camera and deterministic animation, then exits.\n"
                    "--hidden defaults to 120 frames when --frames is omitted." );
         return 0;

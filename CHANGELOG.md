@@ -53,6 +53,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The OpenGL 4.1 graybox sample now reads a cooked floor checker through the
+  VFS and `CookedTexture_Read`, adopts its pixels with the renderer texture API,
+  and resolves each visible World material to either that image or a 1×1 white
+  cube texture. Its shader samples one declared texture slot, replacing the
+  procedural grid overlay. The compact build, cooked shader/texture, native
+  texture smoke, and hidden 120-frame sample pass with 480 draws. This is a
+  sample-owned material lookup, not general cooked-material or scene loading;
+  visible appearance has not yet been manually inspected.
 - The graybox renderer sample now has a small interactive fly camera: hold
   right mouse for relative look, use WASD and Space/C to move, and Shift to
   move faster. The sample uses one pose for its view matrix and World culling;

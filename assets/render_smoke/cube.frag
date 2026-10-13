@@ -3,17 +3,16 @@
 in vec3 worldNormal;
 in vec3 faceColor;
 in vec2 faceUV;
+uniform sampler2D albedoTexture;
 layout(location = 0) out vec4 color;
 
 void main()
 {
     vec3 lightDirection = normalize(vec3(0.4, -0.7, 1.0));
     float diffuse = max(dot(normalize(worldNormal), lightDirection), 0.0);
-    // UV grid lines make all three vertex attributes visible without textures.
-    vec2 grid = abs(fract(faceUV * 4.0 - 0.5) - 0.5);
-    vec2 lineWidth = max(fwidth(faceUV * 4.0), vec2(0.001));
-    float line = 1.0 - min(smoothstep(vec2(0.0), lineWidth, grid).x,
-                           smoothstep(vec2(0.0), lineWidth, grid).y);
-    vec3 shaded = faceColor * (0.30 + 0.70 * diffuse);
-    color = vec4(mix(shaded, shaded * 0.45, line * 0.7), 1.0);
+    // The white texture preserves cube color while the floor samples its
+    // independently cooked blockout image through the same shader slot.
+    vec3 albedo = texture(albedoTexture, faceUV).rgb;
+    vec3 shaded = faceColor * albedo * (0.30 + 0.70 * diffuse);
+    color = vec4(shaded, 1.0);
 }

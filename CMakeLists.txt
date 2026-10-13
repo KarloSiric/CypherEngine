@@ -3021,8 +3021,11 @@ target_link_libraries(cypher_render_cube PRIVATE
 )
 set(CYPHER_RENDER_CUBE_SHADER
     "${CMAKE_BINARY_DIR}/cooked/render_smoke/cube.cyshader_c")
+set(CYPHER_RENDER_CUBE_TEXTURE
+    "${CMAKE_BINARY_DIR}/cooked/textures/blockout/floor_checker.cytex_c")
 target_compile_definitions(cypher_render_cube PRIVATE
     CYPHER_RENDER_CUBE_SHADER_PATH="${CYPHER_RENDER_CUBE_SHADER}"
+    CYPHER_RENDER_CUBE_TEXTURE_PATH="${CYPHER_RENDER_CUBE_TEXTURE}"
 )
 if (TARGET CypherResourceCompiler)
     add_custom_command(
@@ -3040,6 +3043,20 @@ if (TARGET CypherResourceCompiler)
     )
     add_custom_target(cypher_render_cube_shader DEPENDS "${CYPHER_RENDER_CUBE_SHADER}")
     add_dependencies(cypher_render_cube cypher_render_cube_shader)
+    add_custom_command(
+        OUTPUT "${CYPHER_RENDER_CUBE_TEXTURE}"
+        COMMAND $<TARGET_FILE:CypherResourceCompiler> compile
+            --source-root "${CYPHERENGINE_ROOT_DIR}/assets"
+            --output-root "${CMAKE_BINARY_DIR}/cooked"
+            --color never --progress none textures/blockout/floor_checker.cytex
+        DEPENDS CypherResourceCompiler
+            "${CYPHERENGINE_ROOT_DIR}/assets/textures/blockout/floor_checker.cytex"
+            "${CYPHERENGINE_ROOT_DIR}/assets/textures/blockout/floor_checker.png"
+        COMMENT "Cooking the graybox floor texture"
+        VERBATIM
+    )
+    add_custom_target(cypher_render_cube_texture DEPENDS "${CYPHER_RENDER_CUBE_TEXTURE}")
+    add_dependencies(cypher_render_cube cypher_render_cube_texture)
 endif()
 
 # CypherTileEditor development preview. The editor/core owns authored map

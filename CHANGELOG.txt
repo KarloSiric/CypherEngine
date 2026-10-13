@@ -47,6 +47,12 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The OpenGL 4.1 graybox sample VFS-reads and adopts a cooked floor checker,
+  resolves visible World materials to it or a white cube texture, and samples
+  the declared texture slot in its shader. The procedural grid is removed.
+  The compact build, cooked assets, native texture smoke, and hidden 120-frame
+  run pass at 480 draws. This is sample-owned material resolution, not general
+  cooked-material or scene loading; appearance has not yet been inspected.
 - The graybox renderer sample has interactive fly navigation: right mouse
   captures relative look, WASD and Space/C move, and Shift speeds movement.
   View and World culling share one pose; release, focus loss, minimize, quit,

@@ -124,10 +124,11 @@ mesh/material slots, with a token valid until the host ends the submission.
 They contain no OpenGL names or backend commands. Lights, terrain chunks, and
 environment values remain planned additions.
 
-The graybox sample host now has two GPU mesh bundles: one shared by four cube
-World objects and one floor quad. A bounded host-owned slot table resolves
-each visible object's logical mesh slot; a separate table resolves its tint
-material slot. The host checks every slot and live mesh bundle before appending
+The graybox sample host has two GPU mesh bundles: one shared by four cube
+World objects and one floor quad. Bounded host-owned slot tables resolve
+each visible object's logical mesh and tint/texture material slots. The cube
+materials bind a white texture; the floor binds a cooked checker texture.
+The host checks every slot and live mesh/texture handle before appending
 any draw, uploads one shared view record and a batch of visible-object records,
 then fills indexed draw descriptions with two uniform slots. An ordered
 fixed-capacity list flushes them through the validated immediate draw path.

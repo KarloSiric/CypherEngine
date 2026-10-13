@@ -1,6 +1,6 @@
 # First drawing milestone: a graybox scene from a visible World view
 
-This milestone connects cooked shader loading, runtime program creation,
+This milestone connects cooked shader and texture loading, runtime program creation,
 immutable graphics pipelines, vertex input, an in-memory World view submission,
 aligned uniform records, and indexed drawing.
 The example is a small host for the renderer, with explicit startup and cleanup.
@@ -18,7 +18,7 @@ cmake --build --preset shader-tools-debug --target cypher_render_cube --parallel
 ```
 
 The window displays three differently tinted, rotating cubes over a graybox
-floor with a UV grid. A fourth cube sits behind the camera and is rejected by
+floor with a cooked checker texture. A fourth cube sits behind the camera and is rejected by
 the World view query. The cubes share one mesh; the floor is a second mesh.
 Both use one pipeline and a distinct transform/tint record for each visible
 object. Depth testing hides rear surfaces, and back-face culling removes
@@ -49,14 +49,17 @@ per frame, or 480 draws in the default hidden run. A graphics context is still
 required for hidden runs. Finite runs keep the original fixed camera and do not
 consume fly controls, so the smoke check remains deterministic.
 
-`--shader PATH` selects another **already cooked** `.cyshader_c` file. The runtime
-does not invoke a compiler or open raw GLSL source. This override also lets a
-renderer-only debug build use a shader produced by a separate tools build:
+`--shader PATH` and `--texture PATH` select **already cooked** `.cyshader_c`
+and `.cytex_c` files. A replacement shader must declare the sample's reflected
+uniform blocks and `albedoTexture` sampler. The runtime does not invoke a
+compiler or open raw source assets. These overrides also let a renderer-only
+debug build use assets produced by a separate tools build:
 
 ```sh
 cmake --build --preset debug --target cypher_render_cube --parallel 4
 ./out/build/debug/bin/cypher_render_cube \
-  --shader out/build/shader-tools-debug/cooked/render_smoke/cube.cyshader_c
+  --shader out/build/shader-tools-debug/cooked/render_smoke/cube.cyshader_c \
+  --texture out/build/shader-tools-debug/cooked/textures/blockout/floor_checker.cytex_c
 ```
 
 To run the offline step explicitly:
@@ -66,6 +69,10 @@ To run the offline step explicitly:
   --source-root assets \
   --output-root out/build/shader-tools-debug/cooked \
   --color never --progress none render_smoke/cube.cyshader
+./out/build/shader-tools-debug/bin/CypherResourceCompiler compile \
+  --source-root assets \
+  --output-root out/build/shader-tools-debug/cooked \
+  --color never --progress none textures/blockout/floor_checker.cytex
 ```
 
 The example's default cooked path is supplied by CMake. Cooked output lives in
@@ -74,27 +81,27 @@ the build directory; source control owns the authored recipe and stage files.
 ## Follow the data
 
 ```text
-assets/render_smoke/cube.cyshader
-    + cube.vert + cube.frag
+assets/render_smoke/cube.cyshader + cube.vert + cube.frag
+assets/textures/blockout/floor_checker.cytex + floor_checker.png
         |
         | CypherResourceCompiler, offline
         v
-cooked/render_smoke/cube.cyshader_c
+cooked shader and texture files
         |
         | VfsDirectory -> Vfs_ReadAll -> owned blob
         v
-CookedShader_Read -> borrowed cooked_shader_view_t
+CookedShader_Read / CookedTexture_Read -> borrowed validated views
         |
-        | R_CreateShader, synchronous
+        | R_CreateShader / R_CreateTexture2DFromCooked, synchronous
         v
-public shader handle -> frontend record -> linked native program
+public shader and texture handles -> native program and image
         |
         | R_CreateGraphicsPipeline
         v
 pipeline: program + vertex layout + depth/cull/blend policy
         |
         | World_QueryView -> copied, frame-scoped World submission
-        | host resolves logical mesh/material slots and validates live bundles
+        | host resolves logical mesh/material/texture slots and validates live handles
         | one view upload + one aligned object-record batch for accepted objects
         | ordered draw-list record -> R_BeginFrame -> flush -> R_DrawIndexed -> R_EndFrame
         | WorldSubmission_End invalidates the view token
@@ -102,11 +109,14 @@ pipeline: program + vertex layout + depth/cull/blend policy
 36 cube indices or 6 floor indices -> distinct indexed draws
 ```
 
-The VFS directory provider is initialized with the cooked file's parent directory.
-The filename is a canonical virtual path within that provider. The file is read
-through `Vfs_ReadAll`, and `CookedShader_Read` validates the container before the
-renderer sees its view. The owning blob survives through `R_CreateShader` and is
-then released. The renderer retains no borrowed source pointers.
+For each cooked file, the VFS directory provider is initialized with its parent
+directory. The filename is a canonical virtual path within that provider.
+`Vfs_ReadAll` owns the bytes while the cooked shader or texture view is validated
+and adopted synchronously. The blob is then released; the renderer retains no
+borrowed source pointers. Cube material slots bind a 1×1 white image, while the
+floor slot binds the cooked checker. Both draws satisfy the pipeline's one
+declared sampled texture slot, and the renderer validates live handles again
+when the queued draw is flushed.
 
 ## Geometry and transforms
 
@@ -200,13 +210,14 @@ permits copied record reads until the host ends the submission after the
 renderer frame. It uploads those object records once and selects one per
 indexed draw, alongside the shared view buffer. The host resolves the objects'
 logical mesh and material slots through bounded tables containing two static
-mesh bundles and five sample tints. It checks every visible slot and live mesh
-bundle before appending any draw. The final pipeline, uniform, and draw-range
+mesh bundles and five sample tint/texture-slot records. It checks every visible
+slot and live mesh/texture handle before appending any draw. The final pipeline,
+texture, uniform, and draw-range
 validation still happens inside `R_DrawIndexed` during flush. World never owns
 GPU handles.
 The batch resets after the preceding frame ends. This exercises a bounded
-linear visibility query through the public OpenGL 4.1 path. The camera and
-objects remain hardcoded; there is no scene asset loading, spatial
+linear visibility query through the public OpenGL 4.1 path. Interactive camera
+input can move the view; the object layout remains hardcoded. There is no scene asset loading, spatial
 acceleration, material sorting, or pass scheduling.
 
 ## Ordered draw list
@@ -215,7 +226,7 @@ The sample now copies each completed `render_draw_indexed_desc_t` into a
 fixed-capacity renderer draw list before beginning the frame. A flush in the
 active frame calls the existing validated `R_DrawIndexed` path in append order.
 The list holds renderer handles by value but does not retain the underlying GPU
-resources, so the host keeps both meshes, pipeline, view buffer, and uniform batch alive
+resources, so the host keeps both meshes, textures, pipeline, view buffer, and uniform batch alive
 through flush. It allocates at initialization, then resets between frames
 without another allocation. This is the first CPU command-storage boundary,
 not pass classification, sorting, or asynchronous GPU submission.
@@ -370,7 +381,7 @@ not define a `.cymesh` format, importer, or scene draw queue.
 - `examples/CypherRender/CypherRender_Cube.cpp`: host ownership, geometry, file
   loading, per-frame transforms, events, and ordered cleanup.
 - `assets/render_smoke/cube.cyshader`, `cube.vert`, `cube.frag`: authoring input,
-  shader interface, lighting, and the UV grid.
+  shader interface, sample lighting, and texture sampling.
 - `src/CypherRender/CypherRender_Shader.cpp`: public generational shader handles.
 - `src/CypherRender/OpenGL/CypherRender_OpenGL_Shader.cpp`: stage compilation,
   link diagnostics, and native program ownership.
@@ -379,9 +390,9 @@ not define a `.cymesh` format, importer, or scene draw queue.
 - `src/CypherRender/CypherRender_Draw.cpp`: frame, layout, buffer, and range
   validation before native draw submission.
 
-The graybox sample uses two triangle-list meshes, two uniform blocks, a copied
-World submission, and an ordered draw list for direct window drawing. The
-renderer also has textures, samplers, two binding slots,
+The graybox sample uses two triangle-list meshes, two uniform blocks, two sampled
+textures, a copied World submission, and an ordered draw list for direct window
+drawing. The renderer also has samplers, two binding slots,
 offscreen color and sampleable depth targets, and a limited cooked-material
 bridge. Authored scene and mesh loading, broader material support, pass
 classification and sorting, full command scheduling, and shader hot reload
