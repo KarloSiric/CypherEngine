@@ -2969,7 +2969,8 @@ add_executable(cypher_render_cube EXCLUDE_FROM_ALL
     "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_Cube.cpp"
 )
 target_link_libraries(cypher_render_cube PRIVATE
-    Cypher::Render Cypher::VfsDirectory Cypher::Math
+    Cypher::Render Cypher::RenderMeshRuntime Cypher::RenderUniformRuntime
+    Cypher::VfsDirectory Cypher::Math
 )
 set(CYPHER_RENDER_CUBE_SHADER
     "${CMAKE_BINARY_DIR}/cooked/render_smoke/cube.cyshader_c")

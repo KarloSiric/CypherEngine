@@ -1,7 +1,8 @@
-# First drawing milestone: indexed rotating cube
+# First drawing milestone: shared indexed mesh and three objects
 
 This milestone connects cooked shader loading, runtime program creation,
-immutable graphics pipelines, vertex input, uniform updates, and indexed drawing.
+immutable graphics pipelines, vertex input, aligned uniform records, and indexed
+drawing.
 The example is a small host for the renderer, with explicit startup and cleanup.
 It is not a new gameplay framework or a replacement for the engine Host.
 
@@ -16,9 +17,10 @@ cmake --build --preset shader-tools-debug --target cypher_render_cube --parallel
 ./out/build/shader-tools-debug/bin/cypher_render_cube
 ```
 
-The window displays a lit cube with a UV grid. The cube rotates, depth testing
-hides rear surfaces, and back-face culling removes outward triangles facing away
-from the camera. Resize the window to check the viewport and projection. Press
+The window displays three differently tinted, rotating cubes with a UV grid.
+They share one mesh and one pipeline; each uses its own transform record. Depth
+testing hides rear surfaces, and back-face culling removes outward triangles
+facing away from the camera. Resize the window to check the projection. Press
 Escape or close the window to exit.
 
 Run a finite smoke check through the same public API:
@@ -77,9 +79,10 @@ public shader handle -> frontend record -> linked native program
         v
 pipeline: program + vertex layout + depth/cull/blend policy
         |
-        | R_BeginFrame -> R_DrawIndexed -> R_EndFrame
+        | one aligned uniform upload
+        | R_BeginFrame -> three R_DrawIndexed calls -> R_EndFrame
         v
-36 indices -> 12 triangles -> visible cube
+36 shared indices -> 12 triangles per object -> three visible cubes
 ```
 
 The VFS directory provider is initialized with the cooked file's parent directory.
@@ -103,14 +106,14 @@ position is shared with neighboring faces. Each vertex has this 32-byte layout:
 Six faces each use the index pattern `0, 1, 2, 0, 2, 3`, shifted to that face's
 four vertices. All 36 indices are unsigned 16-bit values, and every triangle is
 counterclockwise from outside the cube. The vertex and index buffers are
-immutable; only the transform buffer changes each frame.
+immutable. A uniform batch uploads the three transform records once each frame.
 
 The CPU structure and the GLSL `Transforms` block contain three column-major
 matrices and a tint color, with std140-compatible offsets:
 
 | Field | Byte offset | Purpose |
 | --- | --- | --- |
-| `model` | 0 | Rotate the cube from local space into world space. |
+| `model` | 0 | Rotate and translate one cube from local space into world space. |
 | `view` | 64 | Transform world positions into camera space. |
 | `projection` | 128 | Project camera-space positions into clip space. |
 | `tint` | 192 | Multiply the cube's face colors. |
@@ -163,7 +166,12 @@ records intact. Failed GPU upload leaves the batch staged for a retry, and
 destroys the batch and owns the surrounding frame and draw order. Reusing the
 same GPU buffer in a later frame is correct but can stall while the GPU reads
 older draws; a measured multi-buffer strategy can be added when needed. This
-helper does not implement scene visibility, sort order, or command recording.
+cube example uses this helper to stage three model matrices and tints, upload
+them once, then select one record per indexed draw. It resets the batch after
+the preceding frame ends. The GPU buffer, mesh, and pipeline stay live through
+all three draws. This proves multi-object submission through the public OpenGL
+4.1 path, but the view is hardcoded: there is no World object table, visibility
+query, material sorting, or command recording.
 
 ## Depth comparison policy
 
@@ -316,10 +324,8 @@ not define a `.cymesh` format, importer, or scene draw queue.
 - `src/CypherRender/CypherRender_Draw.cpp`: frame, layout, buffer, and range
   validation before native draw submission.
 
-The cube itself uses a triangle list, one uniform block, and direct window
-submission. The renderer has since gained textures, samplers, two binding slots,
-offscreen color targets, and additional draw state; those contracts are described
-in the resource-binding notes. Mesh asset loading, cooked material binding, a
-world draw queue, sampleable depth, command recording, and shader hot reload
-remain separate work. The visible cube continues to exercise the first complete
-draw path.
+The three-cube sample uses a triangle list, one uniform block, and direct window
+submission. The renderer also has textures, samplers, two binding slots,
+offscreen color and sampleable depth targets, and a limited cooked-material
+bridge. Authored mesh loading, broader material support, World visibility and
+draw scheduling, command recording, and shader hot reload remain separate work.

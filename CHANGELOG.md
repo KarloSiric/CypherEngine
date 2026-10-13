@@ -37,6 +37,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The `cypher_render_cube` example now draws three differently tinted objects
+  from one validated static mesh and one pipeline. It stages three aligned
+  model/view/projection records, uploads them once per frame, and selects a
+  different record for each OpenGL 4.1 draw. The explicit compact-build target,
+  120-frame hidden run, and four focused renderer CTests pass. This is a
+  hardcoded multi-object sample; World visibility, scene ordering, and GPU
+  frame pacing remain future gates.
 - `CypherRenderUniformRuntime` now stages bounded per-object uniform records
   at the device's required alignment and uploads the populated span once.
   Draws can select committed records through the existing GL 4.1 uniform-range

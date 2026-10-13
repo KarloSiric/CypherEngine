@@ -4,9 +4,10 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: examples/CypherRender/CypherRender_Cube.cpp
-//  Purpose: Demonstrates the first complete public-renderer drawing path.
-//  Details: Loads a real cooked shader through the loose-directory VFS, draws
-//           an indexed cube, and owns the System/Renderer startup and shutdown.
+//  Purpose: Demonstrates the first many-object public-renderer drawing path.
+//  Details: Loads a cooked shader through the loose-directory VFS, shares one
+//           indexed mesh, and uploads aligned per-object transforms once per
+//           frame before drawing three cubes.
 //           No graphics-driver or native-window API crosses into this host.
 //
 //  This file is proprietary and confidential. See LICENSE for details.
@@ -20,6 +21,8 @@
 #include "CypherRender/CypherRender_Pipeline.h"
 #include "CypherRender/CypherRender_Public.h"
 #include "CypherRender/CypherRender_Shader.h"
+#include "CypherRender/Runtime/CypherRender_MeshBridge.h"
+#include "CypherRender/Runtime/CypherRender_UniformBatch.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
 
 #include <algorithm>
@@ -110,11 +113,22 @@ struct cube_state_t {
     sys::window_t window{};
     render::render_shader_handle_t shader{};
     render::render_pipeline_handle_t pipeline{};
-    render::render_vertex_input_handle_t vertexInput{};
-    render::render_buffer_handle_t vertices{};
-    render::render_buffer_handle_t indices{};
-    render::render_buffer_handle_t transforms{};
+    render::render_static_mesh_bundle_t mesh{};
+    render::render_uniform_batch_t transforms{};
 };
+
+struct cube_instance_t {
+    math::vec3_t position;
+    float tint[4];
+};
+
+constexpr cube_instance_t CUBE_INSTANCES[] = {
+    { { -2.4f, -1.6f, 0.0f }, { 0.75f, 0.28f, 0.18f, 1.0f } },
+    { { 0.0f, 0.0f, 0.0f }, { 0.10f, 0.55f, 0.76f, 1.0f } },
+    { { 2.4f, 1.6f, 0.0f }, { 0.36f, 0.72f, 0.32f, 1.0f } }
+};
+constexpr common::u32 CUBE_INSTANCE_COUNT =
+    static_cast<common::u32>( sizeof( CUBE_INSTANCES ) / sizeof( CUBE_INSTANCES[0] ) );
 
 bool CheckRender( render::render_error_t result, const char *operation ) noexcept
 {
@@ -206,55 +220,35 @@ bool LoadShader( const char *nativePath, render::render_shader_handle_t &shader 
     return created;
 }
 
-bool CreateBuffer( render::render_buffer_handle_t &buffer, const void *bytes,
-    common::u64 size, render::render_buffer_usage_flags_t usage,
-    bool stream, const char *name ) noexcept
-{
-    render::render_buffer_desc_t description{};
-    description.byteSize = size;
-    description.usage = usage;
-    description.updatePolicy = stream ? render::render_buffer_update_t::STREAM
-                                     : render::render_buffer_update_t::IMMUTABLE;
-    description.memory = stream ? render::render_buffer_memory_t::UPLOAD
-                                : render::render_buffer_memory_t::DEVICE_LOCAL;
-    description.debugName = name;
-    const render::render_buffer_data_t data{ bytes, size };
-    return CheckRender( render::R_CreateBuffer( description, &data, &buffer ), name );
-}
-
 bool CreateCube( cube_state_t &state, const char *shaderPath )
 {
     if ( !LoadShader( shaderPath, state.shader ) ) return false;
-    const cube_transforms_t initial{
-        math::CY_MAT4_IDENTITY,
-        math::CY_MAT4_IDENTITY,
-        math::CY_MAT4_IDENTITY,
-        { 0.10f, 0.55f, 0.76f, 1.0f } };
-    if ( !CreateBuffer( state.vertices, CUBE_VERTICES, sizeof( CUBE_VERTICES ),
-            render::R_BUFFER_USAGE_VERTEX, false, "Cube vertex buffer" ) ||
-         !CreateBuffer( state.indices, CUBE_INDICES, sizeof( CUBE_INDICES ),
-            render::R_BUFFER_USAGE_INDEX, false, "Cube index buffer" ) ||
-         !CreateBuffer( state.transforms, &initial, sizeof( initial ),
-            render::R_BUFFER_USAGE_UNIFORM | render::R_BUFFER_USAGE_TRANSFER_DESTINATION,
-            true, "Cube transform buffer" ) ) return false;
-
-    render::render_vertex_input_desc_t input{};
-    input.layout.bindingCount = 1u;
-    input.layout.bindings[0].stride = sizeof( cube_vertex_t );
-    input.layout.attributeCount = 3u;
-    input.layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
-    input.layout.attributes[1] = { render::render_format_t::RGB32_FLOAT, 12u, 1u, 0u };
-    input.layout.attributes[2] = { render::render_format_t::RG32_FLOAT, 24u, 2u, 0u };
-    input.vertexBufferCount = 1u;
-    input.vertexBuffers[0] = { state.vertices, 0u, 0u };
-    input.indexBuffer = { state.indices, 0u, render::render_index_type_t::UINT16 };
-    input.debugName = "Cube vertex input";
-    if ( !CheckRender( render::R_CreateVertexInput( input, &state.vertexInput ),
-            "Create cube vertex input" ) ) return false;
+    render::render_static_mesh_source_t source{};
+    source.vertexLayout.bindingCount = 1u;
+    source.vertexLayout.bindings[0].stride = sizeof( cube_vertex_t );
+    source.vertexLayout.attributeCount = 3u;
+    source.vertexLayout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    source.vertexLayout.attributes[1] = { render::render_format_t::RGB32_FLOAT, 12u, 1u, 0u };
+    source.vertexLayout.attributes[2] = { render::render_format_t::RG32_FLOAT, 24u, 2u, 0u };
+    source.vertexBytes = CUBE_VERTICES;
+    source.vertexByteSize = sizeof( CUBE_VERTICES );
+    source.vertexCount = static_cast<common::u32>( sizeof( CUBE_VERTICES ) / sizeof( CUBE_VERTICES[0] ) );
+    source.indexBytes = CUBE_INDICES;
+    source.indexByteSize = sizeof( CUBE_INDICES );
+    source.indexCount = static_cast<common::u32>( sizeof( CUBE_INDICES ) / sizeof( CUBE_INDICES[0] ) );
+    source.indexType = render::render_index_type_t::UINT16;
+    source.debugName = "Shared cube mesh";
+    const auto meshResult = render::R_CreateStaticMeshBundle( source, &state.mesh );
+    if ( meshResult.status != render::render_static_mesh_bridge_status_t::OK ) {
+        std::fprintf( stderr, "Create cube mesh: %s (%u)\n",
+            render::R_ErrorName( meshResult.renderError ),
+            static_cast<unsigned>( meshResult.status ) );
+        return false;
+    }
 
     render::render_pipeline_desc_t pipeline{};
     pipeline.shader = state.shader;
-    pipeline.vertexLayout = input.layout;
+    pipeline.vertexLayout = state.mesh.vertexLayout;
     pipeline.depthTest = true;
     pipeline.depthWrite = true;
     pipeline.cullBackFaces = true;
@@ -263,8 +257,18 @@ bool CreateCube( cube_state_t &state, const char *shaderPath )
     pipeline.uniformBlockCount = 1u;
     pipeline.uniformBlocks[0] = { "Transforms", sizeof( cube_transforms_t ) };
     pipeline.debugName = "Depth-tested cube pipeline";
-    return CheckRender( render::R_CreateGraphicsPipeline( pipeline, &state.pipeline ),
-        "Create cube pipeline" );
+    if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline, &state.pipeline ),
+            "Create cube pipeline" ) ) return false;
+
+    const render::render_info_t *info = render::R_GetInfo();
+    if ( info == nullptr || info->limits.uniformBufferOffsetAlignment == 0u ) return false;
+    const common::u64 alignment = info->limits.uniformBufferOffsetAlignment;
+    const common::u64 recordStride =
+        ( sizeof( cube_transforms_t ) + alignment - 1u ) / alignment * alignment;
+    const common::u64 capacity =
+        ( CUBE_INSTANCE_COUNT - 1u ) * recordStride + sizeof( cube_transforms_t );
+    return CheckRender( render::R_CreateUniformBatch( capacity, nullptr,
+        &state.transforms ), "Create transform batch" );
 }
 
 bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
@@ -312,23 +316,37 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             math::CY_VEC3_UP, math::Angle_FromRadians( rotationTime * 0.55f ) );
         const math::quat_t tilt = math::Quat_FromUnitAxisAngle(
             math::CY_VEC3_FORWARD, math::Angle_FromRadians( 0.18f + rotationTime * 0.21f ) );
-        cube_transforms_t transforms{};
-        transforms.model = math::Mat4_FromQuaternion( math::Quat_Multiply( yaw, tilt ) );
-        transforms.tint[0] = 0.10f;
-        transforms.tint[1] = 0.55f;
-        transforms.tint[2] = 0.76f;
-        transforms.tint[3] = 1.0f;
+        math::mat4_t view{};
+        math::mat4_t projection{};
         if ( !math::Mat4_TryLookAtRH( { 4.0f, -6.0f, 3.2f }, math::CY_VEC3_ZERO,
-                 math::CY_VEC3_UP, 0.0001f, &transforms.view ) ||
+                 math::CY_VEC3_UP, 0.0001f, &view ) ||
              !math::Mat4_TryPerspectiveRH( math::Angle_FromDegrees( 45.0f ),
                  static_cast<float>( extent.width ) / static_cast<float>( extent.height ),
                  0.1f, 100.0f, math::clip_depth_range_t::NEGATIVE_ONE_TO_ONE,
-                 &transforms.projection ) ) {
+                 &projection ) ) {
             std::fprintf( stderr, "Could not construct cube camera matrices.\n" );
             return false;
         }
-        if ( !CheckRender( render::R_UpdateBuffer( state.transforms, 0u,
-                 { &transforms, sizeof( transforms ) } ), "Upload transforms" ) ) return false;
+        if ( renderedFrames != 0u && !CheckRender(
+                 render::R_ResetUniformBatch( &state.transforms ),
+                 "Reset transform batch" ) ) return false;
+        render::render_uniform_record_t records[CUBE_INSTANCE_COUNT]{};
+        const math::mat4_t rotation =
+            math::Mat4_FromQuaternion( math::Quat_Multiply( yaw, tilt ) );
+        for ( common::u32 i = 0u; i < CUBE_INSTANCE_COUNT; ++i ) {
+            cube_transforms_t transforms{};
+            transforms.model = math::Mat4_Multiply(
+                math::Mat4_FromTranslation( CUBE_INSTANCES[i].position ), rotation );
+            transforms.view = view;
+            transforms.projection = projection;
+            std::memcpy( transforms.tint, CUBE_INSTANCES[i].tint,
+                sizeof( transforms.tint ) );
+            if ( !CheckRender( render::R_AppendUniformRecord( &state.transforms,
+                     &transforms, sizeof( transforms ), &records[i] ),
+                     "Stage object transforms" ) ) return false;
+        }
+        if ( !CheckRender( render::R_CommitUniformBatch( &state.transforms ),
+                 "Upload object transforms" ) ) return false;
 
         render::render_frame_info_t frame{};
         frame.frameIndex = renderedFrames;
@@ -339,17 +357,19 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         if ( !CheckRender( render::R_BeginFrame( frame ), "Begin frame" ) ) return false;
         render::render_draw_indexed_desc_t draw{};
         draw.pipeline = state.pipeline;
-        draw.vertexInput = state.vertexInput;
-        draw.uniformBuffers[0] = state.transforms;
-        draw.indexCount = 36u;
-        draw.vertexCount = 24u;
-        const bool drawOK = CheckRender( render::R_DrawIndexed( draw ), "Draw cube" );
+        bool drawOK = CheckRender( render::R_ApplyStaticMeshBundleToDraw(
+            state.mesh, &draw ), "Bind cube mesh" );
+        for ( common::u32 i = 0u; drawOK && i < CUBE_INSTANCE_COUNT; ++i ) {
+            drawOK = CheckRender( render::R_ApplyUniformRecordToDraw(
+                state.transforms, records[i], 0u, &draw ), "Bind object transforms" );
+            if ( drawOK ) drawOK = CheckRender( render::R_DrawIndexed( draw ), "Draw cube" );
+        }
         const bool endOK = CheckRender( render::R_EndFrame(), "End frame" );
         if ( !drawOK || !endOK ) return false;
         ++renderedFrames;
         if ( options.frameLimit != 0u && renderedFrames >= options.frameLimit ) break;
     }
-    std::printf( "Rendered %u indexed cube frames.\n", renderedFrames );
+    std::printf( "Rendered %u three-object cube frames.\n", renderedFrames );
     return options.frameLimit == 0u || renderedFrames == options.frameLimit;
 }
 
@@ -367,15 +387,10 @@ bool Shutdown( cube_state_t &state ) noexcept
             success = CheckRender( render::R_DestroyGraphicsPipeline( state.pipeline ),
                 "Destroy pipeline" ) && success;
         }
-        if ( state.vertexInput.value != 0u ) {
-            success = CheckRender( render::R_DestroyVertexInput( state.vertexInput ),
-                "Destroy vertex input" ) && success;
-        }
-        for ( const auto buffer : { state.transforms, state.indices, state.vertices } ) {
-            if ( buffer.value != 0u ) {
-                success = CheckRender( render::R_DestroyBuffer( buffer ), "Destroy buffer" ) && success;
-            }
-        }
+        success = CheckRender( render::R_DestroyUniformBatch( &state.transforms ),
+            "Destroy transform batch" ) && success;
+        success = CheckRender( render::R_DestroyStaticMeshBundle( &state.mesh ),
+            "Destroy cube mesh" ) && success;
         if ( state.shader.value != 0u ) {
             success = CheckRender( render::R_DestroyShader( state.shader ), "Destroy shader" ) && success;
         }
@@ -402,7 +417,7 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
     config.requireAcceleration = false;
     config.optionalCapabilities = render::R_CAPABILITY_NONE;
     sys::window_desc_t window{};
-    window.title = "Cypher Renderer | First Draw | Esc to exit";
+    window.title = "Cypher Renderer | Three Objects | Esc to exit";
     window.width = 1100u;
     window.height = 760u;
     if ( options.hidden ) window.flags |= sys::SYS_WINDOW_HIDDEN;
@@ -410,8 +425,8 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
          !CheckSystem( sys::Sys_CreateWindow( window, state.window ), "Create window" ) ||
          !CheckRender( render::R_Init( state.window, config ), "Initialize renderer" ) ||
          !CreateCube( state, options.shaderPath ) ) return false;
-    std::printf( "Cooked shader: %s\n24 vertices, 36 indices, %zu-byte transform block.\n",
-        options.shaderPath, sizeof( cube_transforms_t ) );
+    std::printf( "Cooked shader: %s\nOne 24-vertex mesh, %u objects, one transform upload per frame.\n",
+        options.shaderPath, CUBE_INSTANCE_COUNT );
     return RunFrames( state, options );
 }
 

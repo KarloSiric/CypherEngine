@@ -34,6 +34,12 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The cypher_render_cube example now draws three differently tinted objects
+  from one validated static mesh and one pipeline. It stages three aligned
+  model/view/projection records, uploads once per frame, and selects a record
+  for each OpenGL 4.1 draw. Its compact-build target, 120-frame hidden run and
+  four focused renderer CTests pass. World visibility, scene ordering and GPU
+  frame pacing remain later.
 - CypherRenderUniformRuntime stages bounded per-object uniform records at the
   device's offset alignment and uploads their populated span once. Draws select
   committed records through OpenGL 4.1 uniform ranges; borrowed bytes are
