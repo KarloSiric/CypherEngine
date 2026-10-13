@@ -62,6 +62,16 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- Graphics pipelines choose DISABLED, STRAIGHT_ALPHA or ADDITIVE blending
+  explicitly instead of a boolean. Additive draws contribute source RGB
+  weighted by source alpha, preserve destination alpha, and do not write
+  depth in the CYMT V2 material bridge's pipeline. The bridge now adopts
+  featureless ADDITIVE materials. Backend/public renderer contracts are
+  versions 26/21. Frontend draw tests pass 438 assertions, material bridge
+  tests 571, native OpenGL smoke 1026 including additive color/alpha/depth
+  pixels, and the graybox sample completes 120 hidden frames. The sample
+  has no authored additive object or dedicated additive queue yet; callers
+  schedule these draws after opaque geometry.
 - The graybox camera pass uses a per-object inverse-transpose normal matrix
   for nonuniform scale and shear. The sample packs three padded std140 columns
   once per object into a shared 144-byte camera/shadow record and rejects

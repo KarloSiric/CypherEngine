@@ -34,7 +34,7 @@ struct gl_pipeline_record_t {
     bool colorWrite{ true };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
-    bool alphaBlend{ false };
+    render_blend_mode_t blendMode{ render_blend_mode_t::DISABLED };
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
     GLenum polygonMode{ GL_FILL };
     bool depthBiasEnable{ false };
@@ -280,6 +280,7 @@ render_error_t GL_CreateGraphicsPipeline(
     }
     const GLenum polygonMode = GL_PolygonMode( description.polygonMode );
     if ( polygonMode == 0u ||
+         description.blendMode >= render_blend_mode_t::COUNT ||
          ( description.topology == render_primitive_topology_t::LINE_LIST &&
            description.polygonMode != render_polygon_mode_t::FILL ) ||
          !std::isfinite( description.depthBiasSlopeFactor ) ||
@@ -371,7 +372,7 @@ render_error_t GL_CreateGraphicsPipeline(
     record->colorWrite = description.colorWrite;
     record->cullBackFaces = description.cullBackFaces;
     record->frontCounterClockwise = description.frontCounterClockwise;
-    record->alphaBlend = description.alphaBlend;
+    record->blendMode = description.blendMode;
     record->topology = description.topology;
     record->polygonMode = polygonMode;
     record->depthBiasEnable = description.depthBiasEnable;
@@ -509,24 +510,30 @@ render_error_t GL_DrawIndexed(
     // A host may use other MRT attachments with independent blend and write
     // state. Our current pipeline writes only color output zero, so hosted
     // draws change only that indexed slot.
+    const bool blendEnabled = pipeline->blendMode != render_blend_mode_t::DISABLED;
+    const bool additiveBlend = pipeline->blendMode == render_blend_mode_t::ADDITIVE;
     if ( glState.usesHostSurface ) {
-        if ( pipeline->alphaBlend ) glEnablei( GL_BLEND, 0u );
+        if ( blendEnabled ) glEnablei( GL_BLEND, 0u );
         else glDisablei( GL_BLEND, 0u );
     } else {
-        GL_SetCapability( GL_BLEND, pipeline->alphaBlend );
+        GL_SetCapability( GL_BLEND, blendEnabled );
     }
     glLineWidth( 1.0f );
     if ( glState.usesHostSurface ) {
         glBlendEquationSeparatei( 0u, GL_FUNC_ADD, GL_FUNC_ADD );
-        glBlendFuncSeparatei( 0u, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
-            GL_ONE, GL_ONE_MINUS_SRC_ALPHA );
+        glBlendFuncSeparatei( 0u, GL_SRC_ALPHA,
+            additiveBlend ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA,
+            additiveBlend ? GL_ZERO : GL_ONE,
+            additiveBlend ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA );
     } else {
         glBlendEquationSeparate( GL_FUNC_ADD, GL_FUNC_ADD );
-        glBlendFuncSeparate( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
-            GL_ONE, GL_ONE_MINUS_SRC_ALPHA );
+        glBlendFuncSeparate( GL_SRC_ALPHA,
+            additiveBlend ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA,
+            additiveBlend ? GL_ZERO : GL_ONE,
+            additiveBlend ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA );
     }
-    // Host MSAA coverage policy must not change this pipeline's straight-alpha
-    // blending or silently discard samples. Keep numeric host settings intact.
+    // Host MSAA coverage policy must not change this pipeline's blend behavior
+    // or silently discard samples. Keep numeric host settings intact.
     glDisable( GL_SAMPLE_ALPHA_TO_COVERAGE );
     glDisable( GL_SAMPLE_ALPHA_TO_ONE );
     glDisable( GL_SAMPLE_COVERAGE );

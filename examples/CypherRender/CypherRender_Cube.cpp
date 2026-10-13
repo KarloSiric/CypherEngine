@@ -647,7 +647,7 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
     pipeline.depthWrite = true;
     pipeline.cullBackFaces = true;
     pipeline.frontCounterClockwise = true;
-    pipeline.alphaBlend = false;
+    pipeline.blendMode = render::render_blend_mode_t::DISABLED;
     pipeline.uniformBlockCount = 2u;
     pipeline.uniformBlocks[0] = { "ViewConstants", sizeof( cube_view_constants_t ) };
     pipeline.uniformBlocks[1] = { "ObjectConstants", sizeof( cube_object_constants_t ) };
@@ -663,14 +663,14 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
     // Transparent surfaces test against the opaque scene depth but leave that
     // depth intact so later translucent surfaces can blend over one another.
     pipeline.depthWrite = false;
-    pipeline.alphaBlend = true;
+    pipeline.blendMode = render::render_blend_mode_t::STRAIGHT_ALPHA;
     pipeline.debugName = "Depth-tested translucent graybox pipeline";
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
              &state.transparentPipeline ), "Create translucent pipeline" ) ) return false;
 
     pipeline.shader = state.shadowShader;
     pipeline.depthWrite = true;
-    pipeline.alphaBlend = false;
+    pipeline.blendMode = render::render_blend_mode_t::DISABLED;
     pipeline.colorWrite = false;
     // Bias depth written by filled shadow casters. This avoids relying only
     // on the receiver's fixed comparison bias in the fragment shader.

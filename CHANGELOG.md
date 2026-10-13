@@ -72,6 +72,17 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Graphics pipelines now choose `DISABLED`, `STRAIGHT_ALPHA`, or `ADDITIVE`
+  blending explicitly instead of using a boolean. Additive draws contribute
+  source RGB weighted by source alpha, retain destination alpha, and leave
+  depth writes to the caller's pipeline policy. The CYMT V2 bridge adopts
+  featureless `ADDITIVE` materials as depth-tested, non-depth-writing
+  pipelines. The backend contract is version 26 and the public renderer
+  contract is version 21. Frontend draw tests pass 438 assertions, material
+  bridge tests 571, and native OpenGL smoke 1026 including additive color,
+  alpha, and depth pixels; the graybox sample still completes 120 hidden
+  frames. The sample has no authored additive object or dedicated additive
+  queue yet; callers schedule these draws after opaque geometry.
 - The graybox camera pass now transforms normals with a per-object
   inverse-transpose matrix, so nonuniform scale and shear retain correct
   surface lighting. The sample packs three padded std140 columns once per

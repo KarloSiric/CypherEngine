@@ -195,7 +195,8 @@ struct bridge_fixture_t {
     bool failNextTextureDestroy{ false };
     render::render_error_t pipelineResult{ render::render_error_t::OK };
     common::u32 lastPipelineTextureCount{ 0u };
-    bool lastPipelineAlphaBlend{ false };
+    render::render_blend_mode_t lastPipelineBlendMode{
+        render::render_blend_mode_t::DISABLED };
     bool lastPipelineDepthWrite{ true };
     bool pipelineTextureNamesMatch{ false };
     common::byte uploadedPixels[2][4]{};
@@ -240,7 +241,7 @@ struct bridge_fixture_t {
             auto &fixture = *static_cast<bridge_fixture_t *>( state );
             ++fixture.pipelineCreates;
             fixture.lastPipelineTextureCount = description.sampledTextureCount;
-            fixture.lastPipelineAlphaBlend = description.alphaBlend;
+            fixture.lastPipelineBlendMode = description.blendMode;
             fixture.lastPipelineDepthWrite = description.depthWrite;
             fixture.pipelineTextureNamesMatch = description.sampledTextureCount == 0u ||
                 ( description.sampledTextures[0].name != nullptr &&
@@ -347,7 +348,7 @@ TEST_CASE( "cooked material bridge owns zero to two textures after VFS views exp
         CHECK( fixture.textureCreates == textureCount );
         CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
         CHECK( fixture.lastPipelineTextureCount == textureCount );
-        CHECK_FALSE( fixture.lastPipelineAlphaBlend );
+        CHECK( fixture.lastPipelineBlendMode == render::render_blend_mode_t::DISABLED );
         CHECK( fixture.lastPipelineDepthWrite );
         CHECK( fixture.pipelineTextureNamesMatch );
         CHECK( fixture.bundle.textureCount == textureCount );
@@ -399,14 +400,14 @@ TEST_CASE( "cooked blend material adopts depth-tested straight-alpha pipeline st
     CHECK( fixture.bundle.alphaMode == common::render_material_alpha_mode_t::BLEND );
     CHECK( fixture.bundle.alphaCutoff == 0.5F );
     CHECK( fixture.bundle.materialFlags == common::COOKED_MATERIAL_FLAG_NONE );
-    CHECK( fixture.lastPipelineAlphaBlend );
+    CHECK( fixture.lastPipelineBlendMode == render::render_blend_mode_t::STRAIGHT_ALPHA );
     CHECK_FALSE( fixture.lastPipelineDepthWrite );
     render::render_pipeline_info_t pipelineInfo{};
     REQUIRE( render::R_GetGraphicsPipelineInfo( fixture.bundle.pipeline,
         &pipelineInfo ) == render::render_error_t::OK );
     CHECK( pipelineInfo.depthTest );
     CHECK_FALSE( pipelineInfo.depthWrite );
-    CHECK( pipelineInfo.alphaBlend );
+    CHECK( pipelineInfo.blendMode == render::render_blend_mode_t::STRAIGHT_ALPHA );
     CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
     std::memset( fixture.cooked.material.data(), 0, fixture.cooked.material.size() );
     CHECK( fixture.bundle.alphaMode == common::render_material_alpha_mode_t::BLEND );
@@ -435,14 +436,14 @@ TEST_CASE( "cooked mask material retains cutoff and opaque depth state",
         CHECK( fixture.shaderCreates == 1u );
         CHECK( fixture.textureCreates == 1u );
         CHECK( fixture.pipelineCreates == 1u );
-        CHECK_FALSE( fixture.lastPipelineAlphaBlend );
+        CHECK( fixture.lastPipelineBlendMode == render::render_blend_mode_t::DISABLED );
         CHECK( fixture.lastPipelineDepthWrite );
         render::render_pipeline_info_t pipelineInfo{};
         REQUIRE( render::R_GetGraphicsPipelineInfo( fixture.bundle.pipeline,
             &pipelineInfo ) == render::render_error_t::OK );
         CHECK( pipelineInfo.depthTest );
         CHECK( pipelineInfo.depthWrite );
-        CHECK_FALSE( pipelineInfo.alphaBlend );
+        CHECK( pipelineInfo.blendMode == render::render_blend_mode_t::DISABLED );
         CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
 
         std::memset( fixture.cooked.material.data(), 0, fixture.cooked.material.size() );
@@ -461,6 +462,41 @@ TEST_CASE( "cooked mask material retains cutoff and opaque depth state",
         CHECK( fixture.bundle.alphaMode == common::render_material_alpha_mode_t::OPAQUE );
         CHECK( fixture.bundle.alphaCutoff == 0.5F );
     }
+}
+
+TEST_CASE( "cooked additive material adopts weighted RGB addition without depth writes",
+    "[CypherRender][MaterialBridge]" )
+{
+    bridge_fixture_t fixture{};
+    fixture.Init( 1u, false, false, false,
+        common::render_material_alpha_mode_t::ADDITIVE );
+    const auto result = render::R_CreateCookedMaterialBundle(
+        fixture.Description(), &fixture.bundle );
+    REQUIRE( result.status == render::render_material_bridge_status_t::OK );
+    CHECK( fixture.bundle.alphaMode == common::render_material_alpha_mode_t::ADDITIVE );
+    CHECK( fixture.bundle.alphaCutoff == 0.5F );
+    CHECK( fixture.lastPipelineBlendMode == render::render_blend_mode_t::ADDITIVE );
+    CHECK_FALSE( fixture.lastPipelineDepthWrite );
+    render::render_pipeline_info_t pipelineInfo{};
+    REQUIRE( render::R_GetGraphicsPipelineInfo( fixture.bundle.pipeline,
+        &pipelineInfo ) == render::render_error_t::OK );
+    CHECK( pipelineInfo.depthTest );
+    CHECK_FALSE( pipelineInfo.depthWrite );
+    CHECK( pipelineInfo.blendMode == render::render_blend_mode_t::ADDITIVE );
+    CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+
+    std::memset( fixture.cooked.material.data(), 0, fixture.cooked.material.size() );
+    CHECK( fixture.bundle.alphaMode == common::render_material_alpha_mode_t::ADDITIVE );
+    render::render_draw_indexed_desc_t draw{};
+    REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
+        fixture.bundle, &draw ) == render::render_error_t::OK );
+    CHECK( draw.pipeline.value == fixture.bundle.pipeline.value );
+    CHECK( draw.sampledTextures[0].value == fixture.bundle.textures[0].value );
+    REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+        render::render_error_t::OK );
+    CHECK( fixture.shaderDestroys == 1u );
+    CHECK( fixture.pipelineDestroys == 1u );
+    CHECK( fixture.textureDestroys == 1u );
 }
 
 TEST_CASE( "cooked material bridge rejects mismatched and unsupported interfaces before GPU creation",
@@ -500,9 +536,9 @@ TEST_CASE( "cooked material bridge rejects mismatched and unsupported interfaces
         CHECK( fixture.shaderCreates == 0u );
         CHECK( fixture.textureCreates == 0u );
     }
-    SECTION( "additive state is not silently treated as blending" ) {
+    SECTION( "additive feature variants are not silently dropped" ) {
         bridge_fixture_t fixture{};
-        fixture.Init( 1u, false, false, false,
+        fixture.Init( 1u, false, true, false,
             common::render_material_alpha_mode_t::ADDITIVE );
         const auto result = render::R_CreateCookedMaterialBundle(
             fixture.Description(), &fixture.bundle );

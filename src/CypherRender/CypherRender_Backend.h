@@ -41,14 +41,15 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version twenty-five adds an explicit target color format for RGBA16F readback
+Version twenty-six adds explicit straight-alpha and additive pipeline blending.
+Version twenty-five added an explicit target color format for RGBA16F readback
 validation. Version twenty-four added filled-triangle depth bias.
 Offscreen targets, linked shaders, immediate draws, and all
 native object tokens remain behind this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 25u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 26u;
 
 /*
 ================
@@ -197,7 +198,7 @@ struct backend_pipeline_desc_t {
     bool colorWrite{ true };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
-    bool alphaBlend{ false };
+    render_blend_mode_t blendMode{ render_blend_mode_t::DISABLED };
     ::cypher::common::u32 uniformBlockCount{ 0u };
     render_uniform_block_binding_t uniformBlocks[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
     const char *debugName{ nullptr };

@@ -8,6 +8,7 @@
 #include "CypherRender/CypherRender_Draw.h"
 #include "CypherRender/CypherRender_Local.h"
 #include <catch2/catch_test_macros.hpp>
+#include <initializer_list>
 #include <limits>
 #include <utility>
 
@@ -38,6 +39,7 @@ struct draw_fixture_t {
     render::render_primitive_topology_t lastPipelineTopology{ render::render_primitive_topology_t::TRIANGLE_LIST };
     render::render_polygon_mode_t lastPipelinePolygonMode{ render::render_polygon_mode_t::FILL };
     render::render_depth_compare_t lastPipelineDepthCompare{ render::render_depth_compare_t::LESS };
+    render::render_blend_mode_t lastPipelineBlendMode{ render::render_blend_mode_t::DISABLED };
     bool lastPipelineColorWrite{ true };
     bool lastPipelineDepthBiasEnable{ false };
     float lastPipelineDepthBiasSlopeFactor{ 0.0f };
@@ -104,6 +106,7 @@ struct draw_fixture_t {
             fixture.lastPipelineTopology = description.topology;
             fixture.lastPipelinePolygonMode = description.polygonMode;
             fixture.lastPipelineDepthCompare = description.depthCompare;
+            fixture.lastPipelineBlendMode = description.blendMode;
             fixture.lastPipelineColorWrite = description.colorWrite;
             fixture.lastPipelineDepthBiasEnable = description.depthBiasEnable;
             fixture.lastPipelineDepthBiasSlopeFactor = description.depthBiasSlopeFactor;
@@ -441,6 +444,37 @@ TEST_CASE( "depth comparison validates before backend creation and survives pipe
     CHECK( fixture.lastPipelineDepthCompare == render::render_depth_compare_t::LESS );
     REQUIRE( render::R_GetGraphicsPipelineInfo( pipeline, &info ) == draw_error_t::OK );
     CHECK( info.depthCompare == render::render_depth_compare_t::LESS );
+}
+
+TEST_CASE( "blend mode validates before backend creation and survives pipeline inspection",
+           "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    auto description = fixture.PipelineDescription();
+    CHECK( description.blendMode == render::render_blend_mode_t::DISABLED );
+
+    description.blendMode = static_cast<render::render_blend_mode_t>( 255u );
+    render::render_pipeline_handle_t invalid{ 99u };
+    CHECK( render::R_CreateGraphicsPipeline( description, &invalid ) ==
+           draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    CHECK( invalid.value == 0u );
+    CHECK( fixture.pipelineCreates == 0u );
+
+    for ( const auto mode : { render::render_blend_mode_t::DISABLED,
+             render::render_blend_mode_t::STRAIGHT_ALPHA,
+             render::render_blend_mode_t::ADDITIVE } ) {
+        description.blendMode = mode;
+        render::render_pipeline_handle_t pipeline{};
+        REQUIRE( render::R_CreateGraphicsPipeline( description, &pipeline ) ==
+            draw_error_t::OK );
+        CHECK( fixture.lastPipelineBlendMode == mode );
+        render::render_pipeline_info_t info{};
+        REQUIRE( render::R_GetGraphicsPipelineInfo( pipeline, &info ) ==
+            draw_error_t::OK );
+        CHECK( info.blendMode == mode );
+        REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == draw_error_t::OK );
+    }
 }
 
 TEST_CASE( "polygon mode validates before backend creation and survives pipeline inspection",

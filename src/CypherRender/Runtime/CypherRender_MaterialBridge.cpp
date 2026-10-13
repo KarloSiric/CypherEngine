@@ -62,7 +62,8 @@ bool MaterialSubsetSupported( const common::cooked_material_view_t &material ) n
          material.domain != common::render_material_domain_t::SURFACE ||
          ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE &&
            material.alphaMode != common::render_material_alpha_mode_t::MASK &&
-           material.alphaMode != common::render_material_alpha_mode_t::BLEND ) ||
+           material.alphaMode != common::render_material_alpha_mode_t::BLEND &&
+           material.alphaMode != common::render_material_alpha_mode_t::ADDITIVE ) ||
          !( material.alphaCutoff >= 0.0F && material.alphaCutoff <= 1.0F ) ||
          ( material.alphaMode != common::render_material_alpha_mode_t::MASK &&
            material.alphaCutoff != 0.5F ) || material.nFeatures != 0u ||
@@ -227,9 +228,13 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
         pipeline.vertexLayout = description.vertexLayout;
         pipeline.uniformBlockCount = description.uniformBlockCount;
         pipeline.sampledTextureCount = pMaterial->nTextures;
-        pipeline.alphaBlend =
-            pMaterial->alphaMode == common::render_material_alpha_mode_t::BLEND;
-        pipeline.depthWrite = !pipeline.alphaBlend;
+        pipeline.blendMode = render_blend_mode_t::DISABLED;
+        if ( pMaterial->alphaMode == common::render_material_alpha_mode_t::BLEND ) {
+            pipeline.blendMode = render_blend_mode_t::STRAIGHT_ALPHA;
+        } else if ( pMaterial->alphaMode == common::render_material_alpha_mode_t::ADDITIVE ) {
+            pipeline.blendMode = render_blend_mode_t::ADDITIVE;
+        }
+        pipeline.depthWrite = pipeline.blendMode == render_blend_mode_t::DISABLED;
         pipeline.cullBackFaces =
             ( pMaterial->flags & common::COOKED_MATERIAL_FLAG_TWO_SIDED ) == 0u;
         pipeline.debugName = description.debugName;

@@ -56,15 +56,20 @@ struct render_material_bridge_result_t {
 };
 
 // Accepts CYMT V2 / CYSH V3 with no features, material parameters or named
-// surface; SURFACE + OPAQUE, MASK, or BLEND state; zero to two 2D color textures with identity
-// UV0 and no sampler preset. All shader resource bindings must be represented
-// by those textures or caller-declared uniform blocks. The current renderer
-// must support the selected shader and textures. Resource views are borrowed
-// until synchronous GPU creation finishes, then all acquired CPU references
-// are released. Successful output owns no CPU resource handle or borrowed view.
+// surface; SURFACE + OPAQUE, MASK, BLEND, or ADDITIVE state; zero to two
+// 2D color textures with identity UV0 and no sampler preset. All shader
+// resource bindings must be represented by those textures or caller-declared
+// uniform blocks. The renderer must support the selected shader and textures.
+// Resource views are borrowed until synchronous GPU creation finishes. All
+// acquired CPU references are then released; successful output owns no CPU
+// resource handle or borrowed view.
 // BLEND uses straight-alpha blending with depth testing and no depth writes.
-// Its shader must emit straight (unassociated) alpha. The caller submits BLEND
-// draws after opaque draws, back-to-front; this bridge does not sort them.
+// Its shader must emit unassociated RGB and a separate alpha. The caller
+// submits BLEND draws after opaque draws, back-to-front; this bridge does not
+// sort them.
+// ADDITIVE uses source alpha as its RGB weight, adds to destination RGB, and
+// preserves destination alpha. It tests depth without writing it; the caller
+// submits it after opaque geometry. The bridge does not schedule draws.
 // MASK keeps opaque depth testing and writes with blending disabled. The caller
 // must supply the cooked alphaCutoff through its existing uniform-block contract
 // to both color and shadow shaders; each shader must sample alpha and discard

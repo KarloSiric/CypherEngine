@@ -1794,6 +1794,7 @@ void CheckHDRTranslucentCompositing( const render::render_extent_t extent )
     constexpr float opaqueGreen[]{ 0.0f,2.0f,0.0f,1.0f };
     constexpr float farBlue[]{ 0.0f,0.0f,2.0f,0.5f };
     constexpr float nearRed[]{ 2.0f,0.0f,0.0f,0.5f };
+    constexpr float additiveTint[]{ 0.5f,0.25f,0.125f,0.5f };
     const auto makeBuffer = []( const void *bytes, const common::u64 size,
                                 const render::render_buffer_usage_flags_t usage ) {
         render::render_buffer_desc_t description{};
@@ -1810,6 +1811,8 @@ void CheckHDRTranslucentCompositing( const render::render_extent_t extent )
     const auto greenBuffer = makeBuffer( opaqueGreen, sizeof( opaqueGreen ), render::R_BUFFER_USAGE_UNIFORM );
     const auto blueBuffer = makeBuffer( farBlue, sizeof( farBlue ), render::R_BUFFER_USAGE_UNIFORM );
     const auto redBuffer = makeBuffer( nearRed, sizeof( nearRed ), render::R_BUFFER_USAGE_UNIFORM );
+    const auto additiveBuffer = makeBuffer( additiveTint, sizeof( additiveTint ),
+        render::R_BUFFER_USAGE_UNIFORM );
     render::render_vertex_input_desc_t inputDescription{};
     inputDescription.layout.bindingCount = 1u;
     inputDescription.layout.bindings[0].stride = 3u * sizeof( float );
@@ -1833,13 +1836,17 @@ void CheckHDRTranslucentCompositing( const render::render_extent_t extent )
     render::render_pipeline_handle_t opaquePipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDescription,
         &opaquePipeline ) == render::render_error_t::OK );
-    pipelineDescription.alphaBlend = true;
+    pipelineDescription.blendMode = render::render_blend_mode_t::STRAIGHT_ALPHA;
     pipelineDescription.depthWrite = false;
     render::render_pipeline_handle_t translucentPipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDescription,
         &translucentPipeline ) == render::render_error_t::OK );
+    pipelineDescription.blendMode = render::render_blend_mode_t::ADDITIVE;
+    render::render_pipeline_handle_t additivePipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDescription,
+        &additivePipeline ) == render::render_error_t::OK );
     pipelineDescription.shader = toneMapShader;
-    pipelineDescription.alphaBlend = false;
+    pipelineDescription.blendMode = render::render_blend_mode_t::DISABLED;
     pipelineDescription.depthTest = false;
     pipelineDescription.uniformBlockCount = 0u;
     pipelineDescription.uniformBlocks[0] = {};
@@ -1864,10 +1871,14 @@ void CheckHDRTranslucentCompositing( const render::render_extent_t extent )
     render::render_texture_handle_t ldrColor{};
     REQUIRE( render::R_CreateTexture2D( textureDescription, {}, &ldrColor ) ==
         render::render_error_t::OK );
+    textureDescription.format = render::render_texture_format_t::D24;
+    render::render_texture_handle_t ldrDepth{};
+    REQUIRE( render::R_CreateTexture2D( textureDescription, {}, &ldrDepth ) ==
+        render::render_error_t::OK );
     render::render_target_handle_t hdrTarget{}, ldrTarget{};
     REQUIRE( render::R_CreateRenderTarget( { hdrColor, {} }, &hdrTarget ) ==
         render::render_error_t::OK );
-    REQUIRE( render::R_CreateRenderTarget( { ldrColor, {} }, &ldrTarget ) ==
+    REQUIRE( render::R_CreateRenderTarget( { ldrColor, ldrDepth }, &ldrTarget ) ==
         render::render_error_t::OK );
 
     render::render_frame_info_t frame{};
@@ -1945,17 +1956,56 @@ void CheckHDRTranslucentCompositing( const render::render_extent_t extent )
     CHECK( depthProbe[1] >= 165u );
     CHECK( depthProbe[1] <= 175u );
     CHECK( depthProbe[2] <= 5u );
+
+    // Read the RGBA8 attachment directly: additive color uses src alpha but
+    // keeps the destination alpha. An opaque draw behind the additive surface
+    // must still pass the depth test because additive draws do not write depth.
+    pass.clearColor = { 0.125f, 0.25f, 0.375f, 0.25f };
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    draw.pipeline = additivePipeline;
+    draw.firstIndex = 6u; // Clip-space z = 0: window depth 0.5.
+    draw.uniformBuffers[0] = additiveBuffer;
+    draw.sampledTextures[0] = {};
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    draw.pipeline = opaquePipeline;
+    draw.firstIndex = 3u; // Clip-space z = 0.5: window depth 0.75.
+    draw.uniformBuffers[0] = greenBuffer;
+    draw.scissor = { true, textureDescription.width / 2u,
+                     textureDescription.height / 2u,
+                     textureDescription.width / 2u,
+                     textureDescription.height / 2u };
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    const auto additive = readPixel( textureDescription.width / 4u,
+        textureDescription.height / 4u );
+    const auto additiveDepthProbe = readPixel( 3u * textureDescription.width / 4u,
+        3u * textureDescription.height / 4u );
+    CAPTURE( additive[0], additive[1], additive[2], additive[3] );
+    CHECK( additive[0] >= 92u ); // 0.125 + 0.5 * 0.5 = 0.375.
+    CHECK( additive[0] <= 100u );
+    CHECK( additive[1] >= 92u ); // 0.25 + 0.25 * 0.5 = 0.375.
+    CHECK( additive[1] <= 100u );
+    CHECK( additive[2] >= 108u ); // 0.375 + 0.125 * 0.5 = 0.4375.
+    CHECK( additive[2] <= 116u );
+    CHECK( additive[3] >= 60u ); // Destination alpha 0.25 is preserved.
+    CHECK( additive[3] <= 68u );
+    CHECK( additiveDepthProbe[0] <= 5u );
+    CHECK( additiveDepthProbe[1] >= 250u );
+    CHECK( additiveDepthProbe[2] <= 5u );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
 
     REQUIRE( render::R_DestroyRenderTarget( ldrTarget ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyRenderTarget( hdrTarget ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( ldrDepth ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyTexture( ldrColor ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyTexture( hdrColor ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( toneMapPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( additivePipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( translucentPipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( opaquePipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( redBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( additiveBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( blueBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( greenBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );

@@ -149,10 +149,11 @@ texture slots into a draw record; the caller still supplies geometry, uniform
 buffers, and frame state. `R_DestroyCookedMaterialBundle` releases the pipeline
 before its shader, followed by independent textures.
 
-This first bridge accepts CYMT V2 opaque, mask, or blend surface materials with the
-default empty feature variant, no value parameters, no named surface, identity
-UV0, and no authored sampler preset. It supports zero to two 2D color RGBA8
-textures (linear or sRGB) that the existing texture-adoption path can upload.
+This first bridge accepts CYMT V2 opaque, mask, blend, or additive surface
+materials with the default empty feature variant, no value parameters, no named
+surface, identity UV0, and no authored sampler preset. It supports zero to
+two 2D color RGBA8 textures (linear or sRGB) that the existing texture-adoption
+path can upload.
 All shader resource bindings must fit those texture slots or the caller's
 declared uniform blocks. A two-sided material disables back-face culling; its
 shadow flags remain metadata for a later scene/pass scheduler. The bundle
@@ -164,9 +165,10 @@ sort scene draws. `MASK` uses opaque depth writes and no blending; the caller
 passes the copied cutoff through its own uniform block and uses color and
 shadow shaders that discard sampled alpha below it. The bridge cannot verify
 shader discard semantics or select the alpha-source texture. `ADDITIVE`
-remains unsupported because its blend-factor policy is not represented here.
-Unsupported
-material data returns `MATERIAL_UNSUPPORTED` instead of being dropped. A
+creates a depth-tested pipeline without depth writes. It adds
+`source.rgb * source.a` to destination RGB while preserving destination alpha.
+The caller draws it after opaque geometry; the bridge does not schedule it.
+Unsupported material data returns `MATERIAL_UNSUPPORTED` instead of being dropped. A
 shader hash or binding mismatch returns `SHADER_INTERFACE_MISMATCH` before any
 GPU object is created.
 

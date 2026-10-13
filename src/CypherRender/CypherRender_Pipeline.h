@@ -49,6 +49,13 @@ enum class render_depth_compare_t : ::cypher::common::u8 {
     COUNT
 };
 
+enum class render_blend_mode_t : ::cypher::common::u8 {
+    DISABLED = 0,  // Replace destination color with the shader output.
+    STRAIGHT_ALPHA, // RGB: source*sourceAlpha + destination*(1-sourceAlpha).
+    ADDITIVE,       // RGB: source*sourceAlpha + destination; preserve destination alpha.
+    COUNT
+};
+
 inline constexpr ::cypher::common::u32 R_MAX_UNIFORM_BLOCK_BINDINGS = 2u;
 inline constexpr ::cypher::common::u32 R_MAX_SAMPLED_TEXTURE_BINDINGS = 2u;
 
@@ -69,7 +76,7 @@ struct render_sampled_texture_binding_t {
 };
 
 // First-draw scope: triangle or line lists, fill or triangle wireframe, selectable depth test,
-// no stencil, and optional source-alpha blending into the presentation target.
+// no stencil, and optional straight-alpha or additive blending into color output zero.
 // Lines use the driver's one-pixel rasterization; culling and front-face state
 // have no effect on them. Polygon LINE mode is valid only for TRIANGLE_LIST;
 // LINE_LIST geometry is already lines. All calls execute on the renderer thread.
@@ -83,7 +90,7 @@ struct render_pipeline_desc_t {
     bool colorWrite{ true };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
-    bool alphaBlend{ false };
+    render_blend_mode_t blendMode{ render_blend_mode_t::DISABLED };
     ::cypher::common::u32 uniformBlockCount{ 0u };
     render_uniform_block_binding_t uniformBlocks[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
     const char *debugName{ nullptr };
@@ -109,7 +116,7 @@ struct render_pipeline_info_t {
     bool colorWrite{ true };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
-    bool alphaBlend{ false };
+    render_blend_mode_t blendMode{ render_blend_mode_t::DISABLED };
     ::cypher::common::u32 uniformBlockCount{ 0u };
     ::cypher::common::u32 uniformBlockBytes[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
     ::cypher::common::u32 sampledTextureCount{ 0u };

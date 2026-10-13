@@ -399,9 +399,20 @@ both an overlap pixel and an opaque-occluded pixel. This verifies the existing
 blend and depth-write states through actual rendered output. Sorting whole
 objects by center cannot correctly order intersecting transparent geometry or
 every transparent triangle within one mesh. The cooked material bridge can
-build an opaque or straight-alpha `BLEND` pipeline and expose its mode; a scene
-owner maps that mode and its own shadow policy into classifier input. The
-sample still uses fixed material records instead of cooked material bundles.
+build opaque, straight-alpha `BLEND`, or `ADDITIVE` pipelines and expose their
+authored modes. A scene owner maps opaque and straight-alpha materials, plus
+its own shadow policy, into classifier input. The classifier has no dedicated
+additive list yet, so an owner schedules additive draws after opaque geometry.
+The sample still uses fixed material records instead of cooked material bundles.
+
+The pipeline blend mode is explicit: disabled, straight alpha, or additive.
+Additive color uses `source.rgb * source.a + destination.rgb`; its separate
+alpha factors preserve destination alpha. An additive material tests depth but
+does not write it, so the scene owner submits it after opaque geometry. A
+native RGBA8 pixel check verifies the RGB sum, preserved alpha, and that an
+opaque depth probe behind the additive surface can still draw. The graybox
+sample does not yet place an additive object or schedule a distinct additive
+pass; the bridge exposes the state for a caller to use.
 
 ### Alpha cutout and matching shadows
 

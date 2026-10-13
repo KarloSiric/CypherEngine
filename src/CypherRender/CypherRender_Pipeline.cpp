@@ -95,6 +95,7 @@ render_error_t R_CreateGraphicsPipeline(
          ( description.topology == render_primitive_topology_t::LINE_LIST &&
            description.polygonMode != render_polygon_mode_t::FILL ) ||
          description.depthCompare >= render_depth_compare_t::COUNT ||
+         description.blendMode >= render_blend_mode_t::COUNT ||
          !std::isfinite( description.depthBiasSlopeFactor ) ||
          !std::isfinite( description.depthBiasConstantUnits ) ||
          ( description.depthBiasEnable &&
@@ -178,7 +179,7 @@ render_error_t R_CreateGraphicsPipeline(
     nativeDescription.colorWrite = description.colorWrite;
     nativeDescription.cullBackFaces = description.cullBackFaces;
     nativeDescription.frontCounterClockwise = description.frontCounterClockwise;
-    nativeDescription.alphaBlend = description.alphaBlend;
+    nativeDescription.blendMode = description.blendMode;
     nativeDescription.uniformBlockCount = description.uniformBlockCount;
     for ( common::u32 i = 0u; i < R_MAX_UNIFORM_BLOCK_BINDINGS; ++i ) {
         nativeDescription.uniformBlocks[i] = description.uniformBlocks[i];
@@ -214,7 +215,7 @@ render_error_t R_CreateGraphicsPipeline(
     record.info.colorWrite = description.colorWrite;
     record.info.cullBackFaces = description.cullBackFaces;
     record.info.frontCounterClockwise = description.frontCounterClockwise;
-    record.info.alphaBlend = description.alphaBlend;
+    record.info.blendMode = description.blendMode;
     record.info.uniformBlockCount = description.uniformBlockCount;
     for ( common::u32 i = 0u; i < R_MAX_UNIFORM_BLOCK_BINDINGS; ++i ) {
         record.info.uniformBlockBytes[i] = description.uniformBlocks[i].byteSize;

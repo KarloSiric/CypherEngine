@@ -724,7 +724,7 @@ bool CreatePreviewResources( preview_state_t &state,
     pipeline.depthWrite = true;
     pipeline.cullBackFaces = true;
     pipeline.frontCounterClockwise = true;
-    pipeline.alphaBlend = false;
+    pipeline.blendMode = render::render_blend_mode_t::DISABLED;
     pipeline.uniformBlockCount = 1u;
     pipeline.uniformBlocks[0] = { "Transforms", offsetof( preview_transforms_t, uvScale ) };
     pipeline.debugName = "Tile-map blockout pipeline";
