@@ -1964,6 +1964,262 @@ void CheckHDRTranslucentCompositing( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyShader( paintShader ) == render::render_error_t::OK );
 }
 
+void CheckAlphaMaskCutout( const render::render_extent_t extent )
+{
+    // A 2x1 texture splits a fullscreen surface at the center. Both texels
+    // are red, but only the right texel's alpha meets the 0.5 cutoff.
+    constexpr char vertex[] =
+        "#version 410 core\nlayout(location=0) in vec3 position;\n"
+        "out vec2 uv;\n"
+        "void main() { gl_Position=vec4(position,1.0); uv=position.xy*0.5+0.5; }\n";
+    constexpr char maskFragment[] =
+        "#version 410 core\nin vec2 uv; uniform sampler2D alphaMap;\n"
+        "layout(std140) uniform MaskConstants { vec4 cutoff; };\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { if (texture(alphaMap,uv).a < cutoff.x) discard;"
+        " color=vec4(1.0,0.0,0.0,1.0); }\n";
+    constexpr char probeFragment[] =
+        "#version 410 core\nlayout(location=0) out vec4 color;\n"
+        "void main() { color=vec4(0.0,1.0,0.0,1.0); }\n";
+    constexpr char shadowFragment[] =
+        "#version 410 core\nin vec2 uv; uniform sampler2DShadow shadowMap;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { float visible=texture(shadowMap,vec3(uv,0.5));"
+        " color=vec4(vec3(visible),1.0); }\n";
+    const auto makeShader = [&]( const char *fragment, const common::u64 byteSize ) {
+        common::cooked_shader_view_t source{};
+        source.nLanguageVersion = 410u;
+        source.nStages = 2u;
+        source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+        source.stages[0].code = { reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+        source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+        source.stages[1].code = { reinterpret_cast<const common::byte *>( fragment ), byteSize };
+        render::render_shader_handle_t shader{};
+        REQUIRE( render::R_CreateShader( { &source, "Alpha mask pixel oracle" }, &shader ) ==
+            render::render_error_t::OK );
+        return shader;
+    };
+    const auto maskShader = makeShader( maskFragment, sizeof( maskFragment ) );
+    const auto probeShader = makeShader( probeFragment, sizeof( probeFragment ) );
+    const auto shadowShader = makeShader( shadowFragment, sizeof( shadowFragment ) );
+
+    // The masked surface sits at depth 0.25; the later green probe at 0.5.
+    const float vertices[]{
+        -1.0f,-1.0f,-0.5f, 3.0f,-1.0f,-0.5f, -1.0f,3.0f,-0.5f,
+        -1.0f,-1.0f, 0.0f, 3.0f,-1.0f, 0.0f, -1.0f,3.0f, 0.0f
+    };
+    const common::u16 indices[]{ 0u, 1u, 2u, 3u, 4u, 5u };
+    const auto makeBuffer = []( const void *bytes, const common::u64 byteSize,
+                                const render::render_buffer_usage_flags_t usage ) {
+        render::render_buffer_desc_t desc{};
+        desc.byteSize = byteSize;
+        desc.usage = usage;
+        const render::render_buffer_data_t data{ bytes, byteSize };
+        render::render_buffer_handle_t buffer{};
+        REQUIRE( render::R_CreateBuffer( desc, &data, &buffer ) == render::render_error_t::OK );
+        return buffer;
+    };
+    const auto vb = makeBuffer( vertices, sizeof( vertices ), render::R_BUFFER_USAGE_VERTEX );
+    const auto ib = makeBuffer( indices, sizeof( indices ), render::R_BUFFER_USAGE_INDEX );
+    const float cutoffData[4]{ 0.5f, 0.0f, 0.0f, 0.0f };
+    const auto maskUniform = makeBuffer( cutoffData, sizeof( cutoffData ),
+        render::R_BUFFER_USAGE_UNIFORM );
+    render::render_vertex_input_desc_t inputDesc{};
+    inputDesc.layout.bindingCount = 1u;
+    inputDesc.layout.bindings[0].stride = 3u * sizeof( float );
+    inputDesc.layout.attributeCount = 1u;
+    inputDesc.layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    inputDesc.vertexBufferCount = 1u;
+    inputDesc.vertexBuffers[0] = { vb, 0u, 0u };
+    inputDesc.indexBuffer = { ib, 0u, render::render_index_type_t::UINT16 };
+    render::render_vertex_input_handle_t input{};
+    REQUIRE( render::R_CreateVertexInput( inputDesc, &input ) == render::render_error_t::OK );
+
+    render::render_pipeline_desc_t pipelineDesc{};
+    pipelineDesc.shader = maskShader;
+    pipelineDesc.vertexLayout = inputDesc.layout;
+    pipelineDesc.sampledTextureCount = 1u;
+    pipelineDesc.sampledTextures[0] = { "alphaMap",
+        render::render_sampled_texture_kind_t::SCALAR_2D };
+    pipelineDesc.uniformBlockCount = 1u;
+    pipelineDesc.uniformBlocks[0] = { "MaskConstants", 16u };
+    render::render_pipeline_handle_t maskPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &maskPipeline ) ==
+        render::render_error_t::OK );
+    pipelineDesc.colorWrite = false;
+    render::render_pipeline_handle_t maskDepthPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &maskDepthPipeline ) ==
+        render::render_error_t::OK );
+    pipelineDesc.shader = probeShader;
+    pipelineDesc.colorWrite = true;
+    pipelineDesc.sampledTextureCount = 0u;
+    pipelineDesc.sampledTextures[0] = {};
+    pipelineDesc.uniformBlockCount = 0u;
+    pipelineDesc.uniformBlocks[0] = {};
+    render::render_pipeline_handle_t probePipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &probePipeline ) ==
+        render::render_error_t::OK );
+    pipelineDesc.shader = shadowShader;
+    pipelineDesc.depthTest = false;
+    pipelineDesc.depthWrite = false;
+    pipelineDesc.sampledTextureCount = 1u;
+    pipelineDesc.sampledTextures[0] = { "shadowMap",
+        render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D };
+    render::render_pipeline_handle_t shadowPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &shadowPipeline ) ==
+        render::render_error_t::OK );
+
+    constexpr common::u8 alphaPixels[]{
+        255u, 0u, 0u, 64u, 255u, 0u, 0u, 192u
+    };
+    render::render_texture_desc_t alphaDesc{ 2u, 1u, false, false, false,
+        "Cutout alpha texture" };
+    render::render_texture_handle_t alpha{};
+    REQUIRE( render::R_CreateTexture2D( alphaDesc,
+        { alphaPixels, sizeof( alphaPixels ) }, &alpha ) == render::render_error_t::OK );
+    render::render_sampler_desc_t nearestDesc{};
+    nearestDesc.minFilter = nearestDesc.magFilter = render::render_sampler_filter_t::NEAREST;
+    nearestDesc.addressU = nearestDesc.addressV = render::render_sampler_address_t::CLAMP_TO_EDGE;
+    render::render_sampler_handle_t nearest{};
+    REQUIRE( render::R_CreateSampler( nearestDesc, &nearest ) == render::render_error_t::OK );
+    nearestDesc.compare = render::render_sampler_compare_t::LESS_EQUAL;
+    render::render_sampler_handle_t compare{};
+    REQUIRE( render::R_CreateSampler( nearestDesc, &compare ) == render::render_error_t::OK );
+
+    render::render_texture_desc_t targetDesc{};
+    targetDesc.width = extent.width;
+    targetDesc.height = extent.height;
+    targetDesc.sRGB = false;
+    targetDesc.generateMips = false;
+    targetDesc.repeat = false;
+    targetDesc.renderTarget = true;
+    targetDesc.format = render::render_texture_format_t::RGBA8;
+    render::render_texture_handle_t color{};
+    REQUIRE( render::R_CreateTexture2D( targetDesc, {}, &color ) == render::render_error_t::OK );
+    targetDesc.format = render::render_texture_format_t::D24;
+    render::render_texture_handle_t sceneDepth{}, shadowDepth{};
+    REQUIRE( render::R_CreateTexture2D( targetDesc, {}, &sceneDepth ) == render::render_error_t::OK );
+    REQUIRE( render::R_CreateTexture2D( targetDesc, {}, &shadowDepth ) == render::render_error_t::OK );
+    render::render_target_handle_t sceneTarget{}, shadowTarget{};
+    REQUIRE( render::R_CreateRenderTarget( { color, sceneDepth }, &sceneTarget ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CreateRenderTarget( { {}, shadowDepth }, &shadowTarget ) ==
+        render::render_error_t::OK );
+
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    render::render_target_pass_desc_t pass{};
+    pass.target = sceneTarget;
+    pass.clearColor = { 0.0f, 0.0f, 1.0f, 1.0f };
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    render::render_draw_indexed_desc_t draw{};
+    draw.pipeline = maskPipeline;
+    draw.vertexInput = input;
+    draw.indexCount = 3u;
+    draw.vertexCount = 6u;
+    draw.sampledTextures[0] = alpha;
+    draw.samplers[0] = nearest;
+    draw.uniformBuffers[0] = maskUniform;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+
+    const auto readScene = [&]( const common::u32 x ) {
+        std::array<common::u8, 4u> pixel{};
+        REQUIRE( render::R_ReadTargetRGBA8( sceneTarget,
+            { x, extent.height / 2u, 1u, 1u }, pixel.data(), pixel.size(), 4u ) ==
+            render::render_error_t::OK );
+        return pixel;
+    };
+    const common::u32 leftX = extent.width / 4u;
+    const common::u32 rightX = extent.width * 3u / 4u;
+    const auto cutout = readScene( leftX );
+    const auto opaque = readScene( rightX );
+    CAPTURE( cutout[0], cutout[1], cutout[2], opaque[0], opaque[1], opaque[2] );
+    CHECK( cutout[0] <= 15u );
+    CHECK( cutout[1] <= 15u );
+    CHECK( cutout[2] >= 240u );
+    CHECK( opaque[0] >= 240u );
+    CHECK( opaque[1] <= 15u );
+    CHECK( opaque[2] <= 15u );
+
+    // Preserve both attachments. The later depth-tested probe passes through
+    // discarded texels and fails behind surviving cutout fragments.
+    pass.clearFlags = 0u;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    draw.pipeline = probePipeline;
+    draw.firstIndex = 3u;
+    draw.sampledTextures[0] = {};
+    draw.samplers[0] = {};
+    draw.uniformBuffers[0] = {};
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    const auto uncovered = readScene( leftX );
+    const auto blocked = readScene( rightX );
+    CAPTURE( uncovered[0], uncovered[1], uncovered[2], blocked[0], blocked[1], blocked[2] );
+    CHECK( uncovered[0] <= 15u );
+    CHECK( uncovered[1] >= 240u );
+    CHECK( uncovered[2] <= 15u );
+    CHECK( blocked[0] >= 240u );
+    CHECK( blocked[1] <= 15u );
+    CHECK( blocked[2] <= 15u );
+
+    // Reuse the cutout shader in a depth-only light pass. A receiver at depth
+    // 0.5 is lit where alpha discarded and shadowed where depth 0.25 survived.
+    pass = {};
+    pass.target = shadowTarget;
+    pass.clearFlags = render::R_CLEAR_DEPTH;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    draw.pipeline = maskDepthPipeline;
+    draw.firstIndex = 0u;
+    draw.sampledTextures[0] = alpha;
+    draw.samplers[0] = nearest;
+    draw.uniformBuffers[0] = maskUniform;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+
+    pass = {};
+    pass.target = sceneTarget;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    draw.pipeline = shadowPipeline;
+    draw.firstIndex = 3u;
+    draw.sampledTextures[0] = shadowDepth;
+    draw.samplers[0] = compare;
+    draw.uniformBuffers[0] = {};
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    const auto lit = readScene( leftX );
+    const auto shadowed = readScene( rightX );
+    CAPTURE( lit[0], lit[1], lit[2], shadowed[0], shadowed[1], shadowed[2] );
+    CHECK( lit[0] >= 240u );
+    CHECK( lit[1] >= 240u );
+    CHECK( lit[2] >= 240u );
+    CHECK( shadowed[0] <= 15u );
+    CHECK( shadowed[1] <= 15u );
+    CHECK( shadowed[2] <= 15u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    REQUIRE( render::R_DestroyRenderTarget( shadowTarget ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyRenderTarget( sceneTarget ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( shadowDepth ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( sceneDepth ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroySampler( compare ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroySampler( nearest ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( alpha ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( shadowPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( probePipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( maskDepthPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( maskPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( maskUniform ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( ib ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( vb ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( shadowShader ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( probeShader ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( maskShader ) == render::render_error_t::OK );
+}
+
 void CheckShadowPassLighting( const render::render_extent_t extent )
 {
     // In light clip space the left triangle writes depth 0.5. A fullscreen
@@ -2424,6 +2680,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckOffscreenTarget( info->drawableExtent );
     CheckHDRTargetToneMap( info->drawableExtent );
     CheckHDRTranslucentCompositing( info->drawableExtent );
+    CheckAlphaMaskCutout( info->drawableExtent );
     CheckShadowPassLighting( info->drawableExtent );
     CheckCookedMaterialBundleDrawing( info->drawableExtent );
 

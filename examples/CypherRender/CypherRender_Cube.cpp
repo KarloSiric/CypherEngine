@@ -155,17 +155,14 @@ struct alignas( 16 ) shadow_light_constants_t {
 };
 static_assert( sizeof( shadow_light_constants_t ) == 64u );
 
-struct alignas( 16 ) shadow_object_constants_t {
-    math::mat4_t model;
-};
-static_assert( sizeof( shadow_object_constants_t ) == 64u );
-
 struct alignas( 16 ) cube_object_constants_t {
     math::mat4_t model;
     alignas( 16 ) float tint[4];
+    alignas( 16 ) float cutout[4];
 };
-static_assert( sizeof( cube_object_constants_t ) == 80u );
+static_assert( sizeof( cube_object_constants_t ) == 96u );
 static_assert( offsetof( cube_object_constants_t, tint ) == 64u );
+static_assert( offsetof( cube_object_constants_t, cutout ) == 80u );
 
 struct cube_options_t {
     const char *shaderPath{ CYPHER_RENDER_CUBE_SHADER_PATH };
@@ -206,25 +203,27 @@ constexpr common::u32 MESH_SLOT_FLOOR = 1u;
 constexpr common::u32 MESH_SLOT_COUNT = 2u;
 constexpr common::u32 TEXTURE_SLOT_WHITE = 0u;
 constexpr common::u32 TEXTURE_SLOT_FLOOR = 1u;
-constexpr common::u32 TEXTURE_SLOT_COUNT = 2u;
+constexpr common::u32 TEXTURE_SLOT_MASK = 2u;
+constexpr common::u32 TEXTURE_SLOT_COUNT = 3u;
 
 struct sample_material_t {
     float tint[4];
     common::u32 textureSlot;
     render::render_scene_alpha_t alpha;
     bool castsShadow;
+    float alphaCutoff;
 };
 // Logical material slots contain appearance and another logical texture slot,
 // never a GPU resource name or a renderer handle. Alpha class and shadow policy
 // are explicit; tint alpha alone cannot decide a material's render pass.
 constexpr sample_material_t MATERIALS[WORLD_OBJECT_COUNT] = {
-    { { 0.75f, 0.28f, 0.18f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true },
-    { { 0.10f, 0.55f, 0.76f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true },
-    { { 0.36f, 0.72f, 0.32f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true },
-    { { 0.72f, 0.28f, 0.68f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true },
-    { { 0.90f, 0.90f, 0.90f, 1.0f }, TEXTURE_SLOT_FLOOR, render::render_scene_alpha_t::OPAQUE, true },
-    { { 0.18f, 0.70f, 0.86f, 0.42f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::BLEND, false },
-    { { 0.95f, 0.42f, 0.32f, 0.38f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::BLEND, false }
+    { { 0.75f, 0.28f, 0.18f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true, -1.0f },
+    { { 0.10f, 0.55f, 0.76f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true, -1.0f },
+    { { 0.36f, 0.72f, 0.32f, 1.0f }, TEXTURE_SLOT_MASK, render::render_scene_alpha_t::OPAQUE, true, 0.5f },
+    { { 0.72f, 0.28f, 0.68f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true, -1.0f },
+    { { 0.90f, 0.90f, 0.90f, 1.0f }, TEXTURE_SLOT_FLOOR, render::render_scene_alpha_t::OPAQUE, true, -1.0f },
+    { { 0.18f, 0.70f, 0.86f, 0.42f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::BLEND, false, -1.0f },
+    { { 0.95f, 0.42f, 0.32f, 0.38f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::BLEND, false, -1.0f }
 };
 constexpr common::u32 MATERIAL_COUNT =
     static_cast<common::u32>( sizeof( MATERIALS ) / sizeof( MATERIALS[0] ) );
@@ -511,6 +510,32 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
          !LoadTexture( options.texturePath,
              state.textures[TEXTURE_SLOT_FLOOR] ) ) return false;
 
+    // A centered hole on each cube face makes color and shadow cutout use the
+    // same alpha texels. Texture creation consumes these temporary bytes.
+    constexpr common::u32 MASK_SIZE = 8u;
+    common::u8 maskPixels[MASK_SIZE * MASK_SIZE * 4u]{};
+    for ( common::u32 y = 0u; y < MASK_SIZE; ++y ) {
+        for ( common::u32 x = 0u; x < MASK_SIZE; ++x ) {
+            const common::u32 at = ( y * MASK_SIZE + x ) * 4u;
+            const bool opening = x >= 2u && x < 6u && y >= 2u && y < 6u;
+            maskPixels[at] = 255u;
+            maskPixels[at + 1u] = 255u;
+            maskPixels[at + 2u] = 255u;
+            maskPixels[at + 3u] = opening ? 0u : 255u;
+        }
+    }
+    render::render_texture_desc_t mask{};
+    mask.width = MASK_SIZE;
+    mask.height = MASK_SIZE;
+    mask.sRGB = false;
+    mask.generateMips = false;
+    mask.repeat = false;
+    mask.debugName = "Graybox alpha-cutout texture";
+    if ( !CheckRender( render::R_CreateTexture2D( mask,
+            { maskPixels, sizeof( maskPixels ) },
+            &state.textures[TEXTURE_SLOT_MASK] ),
+            "Create cutout texture" ) ) return false;
+
     render::render_texture_desc_t shadowDepth{};
     shadowDepth.width = SHADOW_MAP_SIZE;
     shadowDepth.height = SHADOW_MAP_SIZE;
@@ -635,9 +660,10 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
     pipeline.depthBiasSlopeFactor = 1.25f;
     pipeline.depthBiasConstantUnits = 2.0f;
     pipeline.uniformBlocks[0] = { "LightConstants", sizeof( shadow_light_constants_t ) };
-    pipeline.uniformBlocks[1] = { "ObjectConstants", sizeof( shadow_object_constants_t ) };
-    pipeline.sampledTextureCount = 0u;
-    pipeline.sampledTextures[0] = {};
+    pipeline.uniformBlocks[1] = { "ObjectConstants", sizeof( cube_object_constants_t ) };
+    pipeline.sampledTextureCount = 1u;
+    pipeline.sampledTextures[0] = { "albedoTexture",
+        render::render_sampled_texture_kind_t::SCALAR_2D };
     pipeline.sampledTextures[1] = {};
     pipeline.debugName = "Graybox directional shadow depth pipeline";
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
@@ -676,7 +702,7 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
     const common::u64 recordStride =
         ( sizeof( cube_object_constants_t ) + alignment - 1u ) / alignment * alignment;
     const common::u64 capacity =
-        ( WORLD_OBJECT_COUNT * 2u - 1u ) * recordStride + sizeof( cube_object_constants_t );
+        ( WORLD_OBJECT_COUNT - 1u ) * recordStride + sizeof( cube_object_constants_t );
     if ( !CheckRender( render::R_CreateUniformBatch( capacity, nullptr,
             &state.objectConstants ), "Create object constants batch" ) ) return false;
     return CheckRender( render::R_InitDrawQueue( &state.pDrawQueue,
@@ -1014,7 +1040,6 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                 viewData ), "Upload view constants" ) ) return false;
 
         render::render_uniform_record_t mainRecords[WORLD_OBJECT_COUNT]{};
-        render::render_uniform_record_t shadowRecords[WORLD_OBJECT_COUNT]{};
         render::render_draw_indexed_desc_t mainDraws[WORLD_OBJECT_COUNT]{};
         render::render_draw_indexed_desc_t shadowDrawsByObject[WORLD_OBJECT_COUNT]{};
         render::render_scene_item_t sceneItems[WORLD_OBJECT_COUNT]{};
@@ -1057,6 +1082,8 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             if ( material.castsShadow ) {
                 shadowDrawsByObject[i].pipeline = state.shadowPipeline;
                 shadowDrawsByObject[i].uniformBuffers[0] = state.lightConstants;
+                shadowDrawsByObject[i].sampledTextures[0] =
+                    state.textures[textureSlot];
                 if ( !CheckRender( render::R_ApplyStaticMeshBundleToDraw(
                          state.meshes[object.meshSlot], &shadowDrawsByObject[i] ),
                          "Resolve shadow-pass mesh" ) ) return false;
@@ -1066,15 +1093,10 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             constants.model = math::Affine3_ToMat4( object.localToWorld );
             std::memcpy( constants.tint, MATERIALS[object.materialSlot].tint,
                 sizeof( constants.tint ) );
-            if ( material.castsShadow ) {
-                const shadow_object_constants_t shadowConstants{ constants.model };
-                if ( !CheckRender( render::R_AppendUniformRecord( &state.objectConstants,
-                         &shadowConstants, sizeof( shadowConstants ), &shadowRecords[i] ),
-                         "Stage shadow object constants" ) ) return false;
-            }
+            constants.cutout[0] = material.alphaCutoff;
             if ( !CheckRender( render::R_AppendUniformRecord( &state.objectConstants,
                      &constants, sizeof( constants ), &mainRecords[i] ),
-                     "Stage main object constants" ) ) return false;
+                     "Stage shared object constants" ) ) return false;
         }
         if ( !CheckRender( render::R_CommitUniformBatch( &state.objectConstants ),
                  "Upload graybox object constants" ) ) return false;
@@ -1085,7 +1107,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             sceneItems[i].cameraDraw = mainDraws[i];
             if ( !sceneItems[i].castsShadow ) continue;
             if ( !CheckRender( render::R_ApplyUniformRecordToDraw(
-                     state.objectConstants, shadowRecords[i], 1u,
+                     state.objectConstants, mainRecords[i], 1u,
                      &shadowDrawsByObject[i] ),
                      "Resolve shadow object constants" ) ) return false;
             sceneItems[i].shadowDraw = shadowDrawsByObject[i];

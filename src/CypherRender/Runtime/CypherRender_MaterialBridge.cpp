@@ -61,8 +61,11 @@ bool MaterialSubsetSupported( const common::cooked_material_view_t &material ) n
     if ( material.nResourceVersion != common::CY_COOKED_MATERIAL_RESOURCE_VERSION_V2 ||
          material.domain != common::render_material_domain_t::SURFACE ||
          ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE &&
+           material.alphaMode != common::render_material_alpha_mode_t::MASK &&
            material.alphaMode != common::render_material_alpha_mode_t::BLEND ) ||
-         material.alphaCutoff != 0.5F || material.nFeatures != 0u ||
+         !( material.alphaCutoff >= 0.0F && material.alphaCutoff <= 1.0F ) ||
+         ( material.alphaMode != common::render_material_alpha_mode_t::MASK &&
+           material.alphaCutoff != 0.5F ) || material.nFeatures != 0u ||
          material.nParameters != 0u ||
          material.nTextures > R_MAX_SAMPLED_TEXTURE_BINDINGS ||
          material.bHasSurface || material.surface.cchLength != 0u ||
@@ -345,6 +348,7 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
         }
         pending.textureCount = pMaterial->nTextures;
         pending.alphaMode = pMaterial->alphaMode;
+        pending.alphaCutoff = pMaterial->alphaCutoff;
         pending.materialFlags = pMaterial->flags;
         for ( common::u32 i = 0u; i < pMaterial->nTextures; ++i ) {
             renderError = R_CreateTexture2DFromCooked( *textures[i],

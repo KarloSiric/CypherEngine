@@ -17,6 +17,7 @@ layout(std140) uniform ViewConstants {
 layout(std140) uniform ObjectConstants {
     mat4 model;
     vec4 tint;
+    vec4 cutout;
 };
 
 out vec3 worldNormal;

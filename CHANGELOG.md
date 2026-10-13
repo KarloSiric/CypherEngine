@@ -72,6 +72,19 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The graybox renderer now demonstrates alpha-cutout geometry in both camera
+  and fixed D24 shadow passes. One cube's 8×8 alpha image and 0.5 cutoff travel
+  through a shared 96-byte object uniform record; both fragment shaders discard
+  below-cutoff texels before depth writes. Other surfaces keep their prior
+  appearance. The CYMT V2 material bridge also accepts featureless `MASK`,
+  preserves its 0..1 authored cutoff, and creates an opaque depth-writing
+  pipeline; callers must use matching color and shadow shader discard logic.
+  The two shaders cook with zero diagnostics, material-bridge tests pass 534
+  assertions, native OpenGL smoke passes 1003 assertions including color,
+  depth, and shadow pixels, and the sample completes 120 hidden frames with
+  600 shadow, 720 scene (240 translucent), and 120 presentation draws. The
+  sample still uses fixed material records and a temporary CPU alpha image;
+  authored masked-material loading and anti-aliased cutout remain future work.
 - A CPU-only scene pass classifier now turns caller-resolved draws into
   shadow, opaque-camera, and blended-camera index lists. Alpha class and shadow
   policy are explicit rather than inferred from tint; off-camera casters still
@@ -86,8 +99,9 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 - The cooked material bridge now adopts CYMT V2 surface `BLEND` materials in
   addition to `OPAQUE`. It creates a depth-tested pipeline with straight-alpha
   blending and depth writes disabled, and exposes the cooked alpha mode so a
-  caller can place the draw after opaque geometry. `MASK` and `ADDITIVE` still
-  fail before GPU creation; shaders for `BLEND` must output straight alpha, and
+  caller can place the draw after opaque geometry. At this stage, `MASK` and
+  `ADDITIVE` failed before GPU creation; shaders for `BLEND` must output straight
+  alpha, and
   scene ordering remains caller-owned. The material-bridge tests pass 418
   assertions across four cases, including pipeline state, ownership, and
   unsupported-mode rejection. The rebuilt sample completes 120 hidden frames;

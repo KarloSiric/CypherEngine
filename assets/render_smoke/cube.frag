@@ -12,6 +12,11 @@ layout(std140) uniform ViewConstants {
     vec4 lightColor;
     mat4 lightViewProjection;
 };
+layout(std140) uniform ObjectConstants {
+    mat4 model;
+    vec4 tint;
+    vec4 cutout;
+};
 uniform sampler2D albedoTexture;
 uniform sampler2DShadow shadowMap;
 layout(location = 0) out vec4 color;
@@ -22,6 +27,7 @@ void main()
     // The white texture preserves cube color while the floor samples its
     // independently cooked blockout image through the same shader slot.
     vec4 albedo = texture(albedoTexture, faceUV);
+    if (albedo.a < cutout.x) discard;
     // This fixed light uses one shadow map. Fragments outside its coverage
     // remain lit rather than clamping to an unrelated border texel.
     float visibility = 1.0;

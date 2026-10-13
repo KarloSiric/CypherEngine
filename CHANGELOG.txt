@@ -62,6 +62,18 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The graybox renderer demonstrates alpha cutout in camera and fixed D24
+  shadow passes. One cube's 8x8 alpha image and 0.5 cutoff use a shared
+  96-byte object uniform record; both fragment shaders discard below-cutoff
+  texels before depth writes. Other sample surfaces retain their appearance.
+  The CYMT V2 bridge accepts featureless MASK, preserves its 0..1 cutoff and
+  creates an opaque depth-writing pipeline; callers supply matching color and
+  shadow shader discard logic. Both shaders cook without diagnostics, the
+  bridge tests pass 534 assertions, native OpenGL smoke passes 1003 assertions
+  including color/depth/shadow pixels, and 120 hidden frames retain 600 shadow,
+  720 scene (240 translucent) and 120 presentation draws. The sample still
+  uses fixed material records and a temporary CPU alpha image; authored MASK
+  loading and anti-aliased cutout are not implemented.
 - A CPU-only scene pass classifier prepares caller-owned shadow, opaque-camera
   and blend-camera index lists. Alpha class and shadow policy are explicit;
   hidden casters still enter the shadow pass. BLEND sorts far-to-near by
@@ -74,8 +86,9 @@ Added
   authored scenes or provide a general pass graph.
 - The cooked material bridge adopts CYMT V2 surface BLEND as well as OPAQUE.
   BLEND makes a depth-tested, straight-alpha pipeline with depth writes off and
-  preserves the cooked mode for caller-side draw ordering. MASK and ADDITIVE
-  still reject before GPU creation. BLEND shaders must emit straight alpha;
+  preserves the cooked mode for caller-side draw ordering. At this stage, MASK
+  and ADDITIVE rejected before GPU creation. BLEND shaders must emit straight
+  alpha;
   callers order transparent draws after opaque ones. Material-bridge tests pass
   418 assertions across four cases, and the rebuilt fixed-material graybox
   sample completes 120 hidden frames.

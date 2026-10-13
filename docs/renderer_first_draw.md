@@ -61,7 +61,8 @@ deterministic.
 `--texture PATH` select **already cooked** `.cyshader_c` and `.cytex_c` files.
 A replacement camera shader must declare the sample's reflected uniform blocks,
 `albedoTexture`, and the `shadowMap` comparison sampler. A replacement depth
-shader must declare the light and object blocks; a replacement presentation
+shader must declare the light and object blocks plus `albedoTexture` for the
+matching cutout; a replacement presentation
 shader must declare `sceneColor` as a scalar `sampler2D`. The runtime does not
 invoke a compiler or open raw source assets. These overrides also let a
 renderer-only debug build use assets produced by a separate tools build:
@@ -147,9 +148,11 @@ For each cooked file, the VFS directory provider is initialized with its parent
 directory. The filename is a canonical virtual path within that provider.
 `Vfs_ReadAll` owns the bytes while the cooked shader or texture view is validated
 and adopted synchronously. The blob is then released; the renderer retains no
-borrowed source pointers. Cube material slots bind a 1×1 white image, while the
-floor slot binds the cooked checker. Camera draws bind albedo in slot 0 and the
-comparison-sampled D24 shadow map in slot 1; depth draws sample no textures.
+borrowed source pointers. Most cube material slots bind a 1×1 white image, one
+cube binds a small CPU-authored cutout image, and the floor binds the cooked
+checker. Camera draws bind albedo in slot 0 and the comparison-sampled D24
+shadow map in slot 1; depth draws bind the same albedo in slot 0 to discard
+masked texels consistently.
 The renderer validates live handles again when the queued draw is flushed.
 
 ## Geometry and transforms
@@ -184,10 +187,11 @@ pipeline's CPU structures match two GLSL std140 blocks:
 | `ViewConstants`, 0 | `lightViewProjection` | 176 | Project world positions into the shadow map. |
 | `ObjectConstants`, 1 | `model` | 0 | Transform one cube or the floor from local to world space. |
 | `ObjectConstants`, 1 | `tint` | 64 | Multiply that object's face colors. |
+| `ObjectConstants`, 1 | `cutout` | 80 | Alpha cutoff in X; negative disables discard for the sample's other surfaces. |
 
-The camera view block is 240 bytes and each camera object block is 80 bytes.
-The depth pipeline instead reads a 64-byte `LightConstants` matrix at slot 0
-and a 64-byte model matrix at slot 1. Compile-time checks protect the CPU
+The camera view block is 240 bytes and the shared camera/depth object block is
+96 bytes. The depth pipeline reads a 64-byte `LightConstants` matrix at slot 0
+and the same 96-byte object record at slot 1. Compile-time checks protect the CPU
 offsets and sizes; pipeline creation checks the shader's
 reflected block sizes. OpenGL 4.1 assigns binding slots through the renderer
 pipeline, so GLSL 4.10 does not use a `binding` qualifier in source. The
@@ -255,8 +259,8 @@ by that camera query. The
 submission storage is allocated once; each build uses the linear World query
 without allocating. A checked token
 permits copied record reads until the host marks camera-visible scene items and
-ends the submission. The host selects a depth model record and a
-camera model/tint record for each object from one batch upload. The host
+ends the submission. The host selects one model/tint/cutout record for each
+object from one batch upload and binds it in both passes. The host
 resolves the objects'
 logical mesh and material slots through bounded tables containing two static
 mesh bundles and seven sample tint/texture-slot records. It checks every visible
@@ -392,6 +396,28 @@ build an opaque or straight-alpha `BLEND` pipeline and expose its mode; a scene
 owner maps that mode and its own shadow policy into classifier input. The
 sample still uses fixed material records instead of cooked material bundles.
 
+### Alpha cutout and matching shadows
+
+One cube uses an 8×8 RGBA image with a transparent center. Its material record
+keeps opaque depth and blend state, but supplies a 0.5 cutoff through the shared
+object uniform block. The camera fragment shader discards alpha below that
+cutoff before writing color or depth. The shadow vertex shader carries the
+same UV, and the shadow fragment shader samples the same image and cutoff
+before its D24 write. Other sample materials use a negative cutoff so their
+existing opaque and blended behavior is unchanged. The sample's masked cube
+still occupies the opaque camera list and casts into the light pass.
+
+The native OpenGL pixel test supplies cutoff through a uniform buffer. Below-
+cutoff texels leave the background visible and allow a later depth-tested draw;
+surviving texels block it. The same mask in a depth-only pass produces lit and
+shadowed receiver pixels on the expected sides. CYMT V2 `MASK` adoption now
+copies its authored cutoff into a caller-owned bundle and creates an opaque,
+depth-writing pipeline. The scene owner must pass that cutoff to matching color
+and shadow shaders; the bridge cannot inspect shader code to prove discard
+semantics. The sample still uses fixed records and a temporary CPU image, so it
+does not demonstrate loading an authored masked material. Coverage-preserving
+mips and anti-aliased cutout edges are separate work.
+
 ### Depth-only target
 
 For a depth-only target, leave `color` invalid and supply the D24 `depth`
@@ -418,14 +444,16 @@ shadow-pass scheduling and authored light-space setup remain separate work.
 
 The sample creates a 1024×1024 D24 depth texture, a depth-only target, and a
 pipeline that writes depth without color. A fixed orthographic light view
-covers its five opaque World objects. The host stages one aligned uniform batch
-and three draw queues before beginning the frame, because queues seal on flush
-and cannot reset inside a frame. Every opaque object casts in the light pass,
+covers its five opaque-pass World objects, including the masked cube. The host
+stages one aligned uniform batch and three draw queues before beginning the
+frame, because queues seal on flush and cannot reset inside a frame. Every
+sample object marked as a caster enters the light pass,
 including the cube outside the camera frustum. After ending the target pass,
 the four opaque camera-visible draws and two translucent panel draws bind the
 depth texture with a nearest-filtered
 `LESS_EQUAL` comparison sampler in texture slot 1; slot 0 still carries the
-cube white image or cooked floor checker.
+cube white image, cutout image, or cooked floor checker. The shadow pass also
+samples slot 0 and discards the same masked texels before writing depth.
 
 The camera fragment shader transforms world position by the same light matrix,
 maps its clip coordinates to depth-texture coordinates, and treats fragments
@@ -603,7 +631,8 @@ The graybox sample uses two scene meshes and one fullscreen triangle, a fixed
 D24 light pass, a linear RGBA16F camera pass, and a tone-map presentation pass.
 The camera pipelines have two uniform blocks and two sampled texture slots; a
 copied World submission and separate shadow, opaque, and sorted translucent
-draw lists feed those passes.
+draw lists feed those passes. The depth pipeline also samples albedo so its
+masked silhouette matches the camera pass.
 The renderer also has samplers, two binding slots, offscreen RGBA8/RGBA16F
 color and sampleable depth targets, and a limited cooked-material bridge.
 Authored scene and mesh loading, broader material support, full command

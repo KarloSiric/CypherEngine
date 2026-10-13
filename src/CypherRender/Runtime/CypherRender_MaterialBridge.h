@@ -34,6 +34,7 @@ struct render_material_bundle_t {
     ::cypher::common::render_material_alpha_mode_t alphaMode{
         ::cypher::common::render_material_alpha_mode_t::OPAQUE
     }; // Caller uses this to place BLEND draws after opaque draws.
+    ::cypher::common::f32 alphaCutoff{ 0.5F }; // MASK threshold for caller-owned shader constants.
     ::cypher::common::flags32_t materialFlags{ 0u }; // Preserved for scene shadow policy.
 };
 
@@ -55,7 +56,7 @@ struct render_material_bridge_result_t {
 };
 
 // Accepts CYMT V2 / CYSH V3 with no features, material parameters or named
-// surface; SURFACE + OPAQUE or BLEND state; zero to two 2D color textures with identity
+// surface; SURFACE + OPAQUE, MASK, or BLEND state; zero to two 2D color textures with identity
 // UV0 and no sampler preset. All shader resource bindings must be represented
 // by those textures or caller-declared uniform blocks. The current renderer
 // must support the selected shader and textures. Resource views are borrowed
@@ -64,6 +65,11 @@ struct render_material_bridge_result_t {
 // BLEND uses straight-alpha blending with depth testing and no depth writes.
 // Its shader must emit straight (unassociated) alpha. The caller submits BLEND
 // draws after opaque draws, back-to-front; this bridge does not sort them.
+// MASK keeps opaque depth testing and writes with blending disabled. The caller
+// must supply the cooked alphaCutoff through its existing uniform-block contract
+// to both color and shadow shaders; each shader must sample alpha and discard
+// fragments below that cutoff. The bridge cannot verify shader discard behavior
+// or choose an alpha-source texture for the caller.
 // Ordinary failure leaves bundleOut empty. If GPU rollback itself fails,
 // CLEANUP_FAILED reports that error and publishes remaining live handles in
 // bundleOut; the caller must retry R_DestroyCookedMaterialBundle before shutdown.
