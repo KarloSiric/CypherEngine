@@ -4,10 +4,10 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: examples/CypherRender/CypherRender_Cube.cpp
-//  Purpose: Demonstrates the first many-object public-renderer drawing path.
+//  Purpose: Demonstrates a visible-world-object public-renderer drawing path.
 //  Details: Loads a cooked shader through the loose-directory VFS, shares one
-//           indexed mesh, and uploads aligned per-object transforms once per
-//           frame before drawing three cubes.
+//           indexed mesh, queries a small in-memory world, and uploads aligned
+//           transforms of its visible objects once per frame.
 //           No graphics-driver or native-window API crosses into this host.
 //
 //  This file is proprietary and confidential. See LICENSE for details.
@@ -15,6 +15,9 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherCommon/FileSystem/CypherCommon_VfsDirectory.h"
+#include "CypherCommon/Mathlib/CypherMath_Affine3.h"
+#include "CypherCommon/Mathlib/CypherMath_Bounds.h"
+#include "CypherCommon/Mathlib/CypherMath_Frustum.h"
 #include "CypherCommon/Mathlib/CypherMath_Matrix4.h"
 #include "CypherCommon/Mathlib/CypherMath_Quaternion.h"
 #include "CypherRender/CypherRender_Draw.h"
@@ -24,6 +27,7 @@
 #include "CypherRender/Runtime/CypherRender_MeshBridge.h"
 #include "CypherRender/Runtime/CypherRender_UniformBatch.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
+#include "CypherWorld/CypherWorld_Public.h"
 
 #include <algorithm>
 #include <charconv>
@@ -42,6 +46,7 @@ namespace common = ::cypher::common;
 namespace math = ::cypher::math;
 namespace render = ::cypher::engine::render;
 namespace sys = ::cypher::engine::sys;
+namespace world = ::cypher::engine::world;
 
 namespace
 {
@@ -109,14 +114,6 @@ struct cube_options_t {
     bool help{ false };
 };
 
-struct cube_state_t {
-    sys::window_t window{};
-    render::render_shader_handle_t shader{};
-    render::render_pipeline_handle_t pipeline{};
-    render::render_static_mesh_bundle_t mesh{};
-    render::render_uniform_batch_t transforms{};
-};
-
 struct cube_instance_t {
     math::vec3_t position;
     float tint[4];
@@ -125,10 +122,34 @@ struct cube_instance_t {
 constexpr cube_instance_t CUBE_INSTANCES[] = {
     { { -2.4f, -1.6f, 0.0f }, { 0.75f, 0.28f, 0.18f, 1.0f } },
     { { 0.0f, 0.0f, 0.0f }, { 0.10f, 0.55f, 0.76f, 1.0f } },
-    { { 2.4f, 1.6f, 0.0f }, { 0.36f, 0.72f, 0.32f, 1.0f } }
+    { { 2.4f, 1.6f, 0.0f }, { 0.36f, 0.72f, 0.32f, 1.0f } },
+    // Deliberately behind the camera. The World query rejects this object.
+    { { 12.0f, -18.0f, 9.6f }, { 0.72f, 0.28f, 0.68f, 1.0f } }
 };
 constexpr common::u32 CUBE_INSTANCE_COUNT =
     static_cast<common::u32>( sizeof( CUBE_INSTANCES ) / sizeof( CUBE_INSTANCES[0] ) );
+
+struct cube_state_t {
+    sys::window_t window{};
+    render::render_shader_handle_t shader{};
+    render::render_pipeline_handle_t pipeline{};
+    render::render_static_mesh_bundle_t mesh{};
+    render::render_uniform_batch_t transforms{};
+    world::world_t *pWorld{ nullptr };
+    world::world_object_id_t objectIds[CUBE_INSTANCE_COUNT]{};
+};
+
+constexpr math::vec3_t CUBE_CAMERA_POSITION{ 4.0f, -6.0f, 3.2f };
+constexpr math::aabb_t CUBE_LOCAL_BOUNDS{
+    { -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f } };
+
+bool CheckWorld( world::world_error_t result, const char *operation ) noexcept
+{
+    if ( result == world::world_error_t::OK ) return true;
+    std::fprintf( stderr, "%s: World error %u\n", operation,
+        static_cast<unsigned>( result ) );
+    return false;
+}
 
 bool CheckRender( render::render_error_t result, const char *operation ) noexcept
 {
@@ -271,6 +292,29 @@ bool CreateCube( cube_state_t &state, const char *shaderPath )
         &state.transforms ), "Create transform batch" );
 }
 
+bool CreateWorld( cube_state_t &state ) noexcept
+{
+    if ( !CheckWorld( world::World_Init( &state.pWorld,
+             common::Allocator_GetSystem(), CUBE_INSTANCE_COUNT ),
+             "Create cube world" ) ) return false;
+
+    for ( common::u32 i = 0u; i < CUBE_INSTANCE_COUNT; ++i ) {
+        world::world_object_t object{};
+        object.localToWorld = math::Affine3_FromTranslation(
+            CUBE_INSTANCES[i].position );
+        object.worldBounds = math::Aabb_TransformAffine(
+            CUBE_LOCAL_BOUNDS, object.localToWorld );
+        object.layerMask = 1u;
+        object.meshSlot = 0u; // The host resolves this logical slot to state.mesh.
+        object.materialSlot = i; // The host resolves this slot to a sample tint.
+        if ( !CheckWorld( world::World_AddObject( state.pWorld,
+                 &object, &state.objectIds[i] ), "Add cube world object" ) ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
 {
     const double started = sys::Sys_TimeNowSeconds();
@@ -278,6 +322,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
     const double timeout = std::max( 30.0, 10.0 + options.frameLimit / 15.0 );
     float rotationTime = 0.0f;
     common::u32 renderedFrames = 0u;
+    common::u64 visibleDraws = 0u;
     render::render_extent_t extent = render::R_GetInfo()->drawableExtent;
 
     while ( !sys::Sys_IsQuitRequested() && !sys::Sys_WindowShouldClose( state.window ) ) {
@@ -318,7 +363,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             math::CY_VEC3_FORWARD, math::Angle_FromRadians( 0.18f + rotationTime * 0.21f ) );
         math::mat4_t view{};
         math::mat4_t projection{};
-        if ( !math::Mat4_TryLookAtRH( { 4.0f, -6.0f, 3.2f }, math::CY_VEC3_ZERO,
+        if ( !math::Mat4_TryLookAtRH( CUBE_CAMERA_POSITION, math::CY_VEC3_ZERO,
                  math::CY_VEC3_UP, 0.0001f, &view ) ||
              !math::Mat4_TryPerspectiveRH( math::Angle_FromDegrees( 45.0f ),
                  static_cast<float>( extent.width ) / static_cast<float>( extent.height ),
@@ -327,26 +372,66 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             std::fprintf( stderr, "Could not construct cube camera matrices.\n" );
             return false;
         }
+        math::frustum_t frustum{};
+        if ( !math::Frustum_TryFromViewProjection(
+                 math::Mat4_Multiply( projection, view ),
+                 math::clip_depth_range_t::NEGATIVE_ONE_TO_ONE,
+                 0.000001f, &frustum ) ) {
+            std::fprintf( stderr, "Could not construct cube view frustum.\n" );
+            return false;
+        }
+
+        const math::quat_t rotation = math::Quat_Multiply( yaw, tilt );
+        for ( common::u32 i = 0u; i < CUBE_INSTANCE_COUNT; ++i ) {
+            world::world_object_t object{};
+            object.localToWorld = math::Affine3_FromTRS(
+                CUBE_INSTANCES[i].position, rotation, math::Vec3_Splat( 1.0f ) );
+            object.worldBounds = math::Aabb_TransformAffine(
+                CUBE_LOCAL_BOUNDS, object.localToWorld );
+            object.layerMask = 1u;
+            object.meshSlot = 0u;
+            object.materialSlot = i;
+            if ( !CheckWorld( world::World_UpdateObject( state.pWorld,
+                     state.objectIds[i], &object ), "Update cube world object" ) ) {
+                return false;
+            }
+        }
+
+        world::world_view_query_t query{};
+        query.frustum = frustum;
+        query.cameraPosition = CUBE_CAMERA_POSITION;
+        query.maxDistance = 100.0f;
+        query.layerMask = 1u;
+        query.frustumTolerance = 0.00001f;
+        world::world_object_snapshot_t visible[CUBE_INSTANCE_COUNT]{};
+        common::u32 visibleCount = 0u;
+        if ( !CheckWorld( world::World_QueryView( state.pWorld, &query,
+                 visible, CUBE_INSTANCE_COUNT, &visibleCount ),
+                 "Query visible cube objects" ) ) return false;
+
         if ( renderedFrames != 0u && !CheckRender(
                  render::R_ResetUniformBatch( &state.transforms ),
                  "Reset transform batch" ) ) return false;
         render::render_uniform_record_t records[CUBE_INSTANCE_COUNT]{};
-        const math::mat4_t rotation =
-            math::Mat4_FromQuaternion( math::Quat_Multiply( yaw, tilt ) );
-        for ( common::u32 i = 0u; i < CUBE_INSTANCE_COUNT; ++i ) {
+        for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+            const world::world_object_t &object = visible[i].object;
+            if ( object.meshSlot != 0u || object.materialSlot >= CUBE_INSTANCE_COUNT ) {
+                std::fprintf( stderr, "Cube world returned an unresolved asset slot.\n" );
+                return false;
+            }
             cube_transforms_t transforms{};
-            transforms.model = math::Mat4_Multiply(
-                math::Mat4_FromTranslation( CUBE_INSTANCES[i].position ), rotation );
+            transforms.model = math::Affine3_ToMat4( object.localToWorld );
             transforms.view = view;
             transforms.projection = projection;
-            std::memcpy( transforms.tint, CUBE_INSTANCES[i].tint,
+            std::memcpy( transforms.tint, CUBE_INSTANCES[object.materialSlot].tint,
                 sizeof( transforms.tint ) );
             if ( !CheckRender( render::R_AppendUniformRecord( &state.transforms,
                      &transforms, sizeof( transforms ), &records[i] ),
                      "Stage object transforms" ) ) return false;
         }
-        if ( !CheckRender( render::R_CommitUniformBatch( &state.transforms ),
-                 "Upload object transforms" ) ) return false;
+        if ( visibleCount != 0u && !CheckRender(
+                 render::R_CommitUniformBatch( &state.transforms ),
+                 "Upload visible object transforms" ) ) return false;
 
         render::render_frame_info_t frame{};
         frame.frameIndex = renderedFrames;
@@ -357,25 +442,31 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         if ( !CheckRender( render::R_BeginFrame( frame ), "Begin frame" ) ) return false;
         render::render_draw_indexed_desc_t draw{};
         draw.pipeline = state.pipeline;
-        bool drawOK = CheckRender( render::R_ApplyStaticMeshBundleToDraw(
-            state.mesh, &draw ), "Bind cube mesh" );
-        for ( common::u32 i = 0u; drawOK && i < CUBE_INSTANCE_COUNT; ++i ) {
+        bool drawOK = visibleCount == 0u || CheckRender(
+            render::R_ApplyStaticMeshBundleToDraw( state.mesh, &draw ),
+            "Bind cube mesh" );
+        for ( common::u32 i = 0u; drawOK && i < visibleCount; ++i ) {
             drawOK = CheckRender( render::R_ApplyUniformRecordToDraw(
                 state.transforms, records[i], 0u, &draw ), "Bind object transforms" );
-            if ( drawOK ) drawOK = CheckRender( render::R_DrawIndexed( draw ), "Draw cube" );
+            if ( drawOK ) {
+                drawOK = CheckRender( render::R_DrawIndexed( draw ), "Draw cube" );
+                if ( drawOK ) ++visibleDraws;
+            }
         }
         const bool endOK = CheckRender( render::R_EndFrame(), "End frame" );
         if ( !drawOK || !endOK ) return false;
         ++renderedFrames;
         if ( options.frameLimit != 0u && renderedFrames >= options.frameLimit ) break;
     }
-    std::printf( "Rendered %u three-object cube frames.\n", renderedFrames );
+    std::printf( "Rendered %u frames and %llu visible-object draws.\n",
+        renderedFrames, static_cast<unsigned long long>( visibleDraws ) );
     return options.frameLimit == 0u || renderedFrames == options.frameLimit;
 }
 
 bool Shutdown( cube_state_t &state ) noexcept
 {
     bool success = true;
+    world::World_Shutdown( &state.pWorld );
     if ( render::R_IsInitialized() ) {
         if ( render::R_IsFrameActive() ) {
             success = CheckRender( render::R_EndFrame(), "Finish active frame" ) && success;
@@ -417,15 +508,16 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
     config.requireAcceleration = false;
     config.optionalCapabilities = render::R_CAPABILITY_NONE;
     sys::window_desc_t window{};
-    window.title = "Cypher Renderer | Three Objects | Esc to exit";
+    window.title = "Cypher Renderer | Visible World View | Esc to exit";
     window.width = 1100u;
     window.height = 760u;
     if ( options.hidden ) window.flags |= sys::SYS_WINDOW_HIDDEN;
     if ( !CheckRender( render::R_ConfigureWindow( config, window ), "Configure window" ) ||
          !CheckSystem( sys::Sys_CreateWindow( window, state.window ), "Create window" ) ||
          !CheckRender( render::R_Init( state.window, config ), "Initialize renderer" ) ||
-         !CreateCube( state, options.shaderPath ) ) return false;
-    std::printf( "Cooked shader: %s\nOne 24-vertex mesh, %u objects, one transform upload per frame.\n",
+         !CreateCube( state, options.shaderPath ) ||
+         !CreateWorld( state ) ) return false;
+    std::printf( "Cooked shader: %s\nOne 24-vertex mesh, %u world objects; visible objects share one transform upload per frame.\n",
         options.shaderPath, CUBE_INSTANCE_COUNT );
     return RunFrames( state, options );
 }

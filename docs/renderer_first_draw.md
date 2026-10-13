@@ -1,8 +1,8 @@
-# First drawing milestone: shared indexed mesh and three objects
+# First drawing milestone: shared indexed mesh and a visible World view
 
 This milestone connects cooked shader loading, runtime program creation,
-immutable graphics pipelines, vertex input, aligned uniform records, and indexed
-drawing.
+immutable graphics pipelines, vertex input, an in-memory World view query,
+aligned uniform records, and indexed drawing.
 The example is a small host for the renderer, with explicit startup and cleanup.
 It is not a new gameplay framework or a replacement for the engine Host.
 
@@ -18,9 +18,11 @@ cmake --build --preset shader-tools-debug --target cypher_render_cube --parallel
 ```
 
 The window displays three differently tinted, rotating cubes with a UV grid.
-They share one mesh and one pipeline; each uses its own transform record. Depth
-testing hides rear surfaces, and back-face culling removes outward triangles
-facing away from the camera. Resize the window to check the projection. Press
+A fourth object sits behind the camera and is rejected by the World view query.
+They share one mesh and one pipeline; each visible object uses its own transform
+record. Depth testing hides rear surfaces, and back-face culling removes
+outward triangles facing away from the camera. Resize the window to check the
+projection. Press
 Escape or close the window to exit.
 
 Run a finite smoke check through the same public API:
@@ -79,10 +81,11 @@ public shader handle -> frontend record -> linked native program
         v
 pipeline: program + vertex layout + depth/cull/blend policy
         |
-        | one aligned uniform upload
-        | R_BeginFrame -> three R_DrawIndexed calls -> R_EndFrame
+        | World_QueryView -> copied visible objects
+        | one aligned uniform upload for accepted objects
+        | R_BeginFrame -> visible R_DrawIndexed calls -> R_EndFrame
         v
-36 shared indices -> 12 triangles per object -> three visible cubes
+36 shared indices -> 12 triangles per drawn object
 ```
 
 The VFS directory provider is initialized with the cooked file's parent directory.
@@ -106,7 +109,7 @@ position is shared with neighboring faces. Each vertex has this 32-byte layout:
 Six faces each use the index pattern `0, 1, 2, 0, 2, 3`, shifted to that face's
 four vertices. All 36 indices are unsigned 16-bit values, and every triangle is
 counterclockwise from outside the cube. The vertex and index buffers are
-immutable. A uniform batch uploads the three transform records once each frame.
+immutable. A uniform batch uploads the visible transform records once each frame.
 
 The CPU structure and the GLSL `Transforms` block contain three column-major
 matrices and a tint color, with std140-compatible offsets:
@@ -166,12 +169,15 @@ records intact. Failed GPU upload leaves the batch staged for a retry, and
 destroys the batch and owns the surrounding frame and draw order. Reusing the
 same GPU buffer in a later frame is correct but can stall while the GPU reads
 older draws; a measured multi-buffer strategy can be added when needed. This
-cube example uses this helper to stage three model matrices and tints, upload
-them once, then select one record per indexed draw. It resets the batch after
-the preceding frame ends. The GPU buffer, mesh, and pipeline stay live through
-all three draws. This proves multi-object submission through the public OpenGL
-4.1 path, but the view is hardcoded: there is no World object table, visibility
-query, material sorting, or command recording.
+cube example updates four World transforms and conservative world-space bounds,
+queries one frustum/layer/distance view, then stages only the accepted model
+matrices and tints. It uploads those records once and selects one per indexed
+draw. The host resolves the objects' logical mesh and material slots to its
+single shared mesh and sample tint table; World never owns GPU handles. The
+batch resets after the preceding frame ends. This exercises a bounded linear
+visibility query through the public OpenGL 4.1 path. The camera and objects
+remain hardcoded; there is no scene asset loading, spatial acceleration,
+material sorting, command recording, or renderer frame queue.
 
 ## Depth comparison policy
 

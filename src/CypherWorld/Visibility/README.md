@@ -32,5 +32,9 @@ Visibility is not simulation activation. An object outside the camera can still
 need AI, networking, animation, audio, or physics updates. Those policies remain
 with their owning systems and are coordinated separately.
 
-First implementation: deterministic linear frustum culling with explicit layer
-and distance masks. Portals and occlusion are later gates.
+The first implementation is a deterministic linear scan of the bounded object
+table. It tests any matching layer bit, intersects each caller-maintained
+world-space AABB with a validated frustum, and applies an inclusive distance
+limit to the closest point on the bounds. It copies accepted records in slot
+order. Portals, LOD, residency, occlusion, and spatial acceleration are later
+gates.

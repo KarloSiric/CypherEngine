@@ -13,6 +13,7 @@
 #include "CypherWorld_Public.h"
 
 #include "CypherCommon/Tier1/CypherCommon_HandleTable.h"
+#include "CypherCommon/Mathlib/CypherMath_Intersection.h"
 
 #include <atomic>
 #include <new>
@@ -69,6 +70,26 @@ common::bool_t IsLiveId( const world_t *pWorld, world_object_id_t id ) noexcept
     const world_object_entry_t *pEntry = common::HandleTable_Get(
         &pWorld->objects, id.slot );
     return pEntry != nullptr && pEntry->incarnation == id.incarnation;
+}
+
+common::bool_t MatchesView(
+    const world_object_t &object,
+    const world_view_query_t &query,
+    common::f64 maxDistanceSquared ) noexcept
+{
+    if ( ( object.layerMask & query.layerMask ) == 0u ||
+         math::Intersection_FrustumAabb(
+             query.frustum, object.worldBounds,
+             query.frustumTolerance ) == math::volume_relation_t::OUTSIDE ) {
+        return common::CY_FALSE;
+    }
+
+    // Binary64 prevents the square of a large but finite f32 world distance
+    // from overflowing and making a far object appear to satisfy the limit.
+    return math::Aabbd_DistanceSquaredToPoint(
+               math::Aabbd_FromAabb( object.worldBounds ),
+               math::Vec3d_FromVec3( query.cameraPosition ) ) <=
+           maxDistanceSquared;
 }
 
 } // namespace
@@ -240,6 +261,62 @@ world_error_t World_SnapshotObjects(
             return common::CY_TRUE;
         } );
     (void)visited;
+    *pOutCount = copied;
+    return world_error_t::OK;
+}
+
+world_error_t World_QueryView(
+    const world_t *pWorld,
+    const world_view_query_t *pQuery,
+    world_object_snapshot_t *pOutput,
+    common::u32 outputCapacity,
+    common::u32 *pOutCount ) noexcept
+{
+    if ( pWorld == nullptr || pQuery == nullptr || pOutCount == nullptr ||
+         !math::Frustum_IsValid(
+             pQuery->frustum, math::CY_FRUSTUM_PLANE_UNIT_TOLERANCE ) ||
+         !math::Vec3_IsFinite( pQuery->cameraPosition ) ||
+         !math::Scalar_IsFinite( pQuery->maxDistance ) ||
+         pQuery->maxDistance < 0.0f ||
+         !math::Scalar_IsFinite( pQuery->frustumTolerance ) ||
+         pQuery->frustumTolerance < 0.0f ) {
+        return world_error_t::INVALID_ARGUMENT;
+    }
+
+    const common::f64 maxDistance =
+        static_cast<common::f64>( pQuery->maxDistance );
+    const common::f64 maxDistanceSquared = maxDistance * maxDistance;
+    common::u32 required = 0u;
+    const common::usize visited = common::HandleTable_ForEach(
+        &pWorld->objects,
+        [&]( common::handle32_t,
+             const world_object_entry_t &entry ) noexcept -> common::bool_t {
+            required += MatchesView(
+                entry.object, *pQuery, maxDistanceSquared ) ? 1u : 0u;
+            return common::CY_TRUE;
+        } );
+    (void)visited;
+
+    if ( outputCapacity < required ) {
+        *pOutCount = required;
+        return world_error_t::CAPACITY_EXCEEDED;
+    }
+    if ( required != 0u && pOutput == nullptr ) {
+        return world_error_t::INVALID_ARGUMENT;
+    }
+
+    common::u32 copied = 0u;
+    const common::usize copiedVisits = common::HandleTable_ForEach(
+        &pWorld->objects,
+        [&]( common::handle32_t slot,
+             const world_object_entry_t &entry ) noexcept -> common::bool_t {
+            if ( MatchesView( entry.object, *pQuery, maxDistanceSquared ) ) {
+                pOutput[copied++] = {
+                    { slot, pWorld->serial, entry.incarnation }, entry.object };
+            }
+            return common::CY_TRUE;
+        } );
+    (void)copiedVisits;
     *pOutCount = copied;
     return world_error_t::OK;
 }

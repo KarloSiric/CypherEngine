@@ -21,9 +21,9 @@
 
 ## Status
 
-Architecture approved; the bounded in-memory object table is implemented.
-The remaining Gate 1 view query and immutable renderer handoff are not yet
-implemented.
+Architecture approved; the bounded in-memory object table and a linear
+frustum/layer/distance view query are implemented. The remaining Gate 1
+immutable renderer handoff is not yet implemented.
 
 This is a source-ownership and sequencing map. A listed `.cpp` file is not
 created until it has executable behavior and focused tests. The final module is

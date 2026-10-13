@@ -2985,6 +2985,7 @@ add_executable(cypher_render_cube EXCLUDE_FROM_ALL
 )
 target_link_libraries(cypher_render_cube PRIVATE
     Cypher::Render Cypher::RenderMeshRuntime Cypher::RenderUniformRuntime
+    Cypher::WorldRuntime
     Cypher::VfsDirectory Cypher::Math
 )
 set(CYPHER_RENDER_CUBE_SHADER

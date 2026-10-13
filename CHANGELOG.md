@@ -25,6 +25,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Public CypherWorld headers now qualify engine-wide Common and Math types
+  explicitly, so they compile when included after headers declaring the
+  separate `cypher::engine::common` namespace. The World test now exercises
+  that include order.
 - The macOS Mason CI smoke test now has enough time for the observed runner
   variance: a 120-second cap failed after a previous 118-second pass, while
   its focused CTest and workflow limits now remain bounded at 600 and 300
@@ -37,6 +41,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- `World_QueryView` now performs a bounded linear CPU query over live objects:
+  any matching layer bit, a validated six-plane frustum, and inclusive
+  distance to each object's world-space bounds. It returns copied objects in
+  slot order; insufficient output capacity reports the required count without
+  partial writes. The cube host now updates four World objects, draws only the
+  three visible ones, and resolves their logical slots to its shared mesh and
+  tints. The focused World and four renderer CTests, compact example build, and
+  120-frame hidden run (360 visible draws) pass locally. This is a hardcoded
+  linear view; map loading, spatial acceleration, pass sorting, and an
+  immutable renderer submission object remain future work.
 - `CypherWorldRuntime` now has a fixed-capacity in-memory object table with
   explicit allocation/cleanup, finite affine transforms and caller-maintained
   world-space bounds, layers, and logical mesh/material slots. IDs include a
