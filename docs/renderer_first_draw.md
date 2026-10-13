@@ -1,4 +1,4 @@
-# First drawing milestone: shared indexed mesh and a visible World view
+# First drawing milestone: a graybox scene from a visible World view
 
 This milestone connects cooked shader loading, runtime program creation,
 immutable graphics pipelines, vertex input, an in-memory World view submission,
@@ -17,13 +17,13 @@ cmake --build --preset shader-tools-debug --target cypher_render_cube --parallel
 ./out/build/shader-tools-debug/bin/cypher_render_cube
 ```
 
-The window displays three differently tinted, rotating cubes with a UV grid.
-A fourth object sits behind the camera and is rejected by the World view query.
-They share one mesh and one pipeline; each visible object uses its own transform
-record. Depth testing hides rear surfaces, and back-face culling removes
-outward triangles facing away from the camera. Resize the window to check the
-projection. Press
-Escape or close the window to exit.
+The window displays three differently tinted, rotating cubes over a graybox
+floor with a UV grid. A fourth cube sits behind the camera and is rejected by
+the World view query. The cubes share one mesh; the floor is a second mesh.
+Both use one pipeline and a distinct transform/tint record for each visible
+object. Depth testing hides rear surfaces, and back-face culling removes
+triangles facing away from the camera. Resize the window to check the
+projection. Press Escape or close the window to exit.
 
 Run a finite smoke check through the same public API:
 
@@ -35,7 +35,9 @@ Run a finite smoke check through the same public API:
 completing cleanup. A timeout also prevents a minimized finite run from waiting
 forever. Finite runs advance animation at a fixed 1/60 second per rendered frame;
 interactive runs use elapsed time. `--hidden` defaults to 120 frames if no frame
-limit is supplied. A graphics context is still required for hidden runs.
+limit is supplied. The current five-object scene produces four visible draws
+per frame, or 480 draws in the default hidden run. A graphics context is still
+required for hidden runs.
 
 `--shader PATH` selects another **already cooked** `.cyshader_c` file. The runtime
 does not invoke a compiler or open raw GLSL source. This override also lets a
@@ -82,11 +84,12 @@ public shader handle -> frontend record -> linked native program
 pipeline: program + vertex layout + depth/cull/blend policy
         |
         | World_QueryView -> copied, frame-scoped World submission
+        | host resolves logical mesh/material slots and validates live bundles
         | one view upload + one aligned object-record batch for accepted objects
-        | R_BeginFrame -> ordered draw-list flush -> R_DrawIndexed -> R_EndFrame
+        | ordered draw-list record -> R_BeginFrame -> flush -> R_DrawIndexed -> R_EndFrame
         | WorldSubmission_End invalidates the view token
         v
-36 shared indices -> 12 triangles per drawn object
+36 cube indices or 6 floor indices -> distinct indexed draws
 ```
 
 The VFS directory provider is initialized with the cooked file's parent directory.
@@ -109,16 +112,20 @@ position is shared with neighboring faces. Each vertex has this 32-byte layout:
 
 Six faces each use the index pattern `0, 1, 2, 0, 2, 3`, shifted to that face's
 four vertices. All 36 indices are unsigned 16-bit values, and every triangle is
-counterclockwise from outside the cube. The vertex and index buffers are
-immutable. The host uploads one view record and batches the visible objects'
-records each frame. The CPU structures match two GLSL std140 blocks:
+counterclockwise from outside the cube. The floor uses four vertices and six
+unsigned 16-bit indices with a +Z normal and counterclockwise winding from
+above. Its zero-thickness local bounds match the XY quad, and its translated
+world bounds are submitted to the World visibility query. Both meshes use the
+same vertex layout and immutable GPU buffers. The host uploads one view record
+and batches the visible objects' records each frame. The CPU structures match
+two GLSL std140 blocks:
 
 | Block and slot | Field | Byte offset | Purpose |
 | --- | --- | --- | --- |
 | `ViewConstants`, 0 | `view` | 0 | Transform world positions into camera space. |
 | `ViewConstants`, 0 | `projection` | 64 | Project camera-space positions into clip space. |
-| `ObjectConstants`, 1 | `model` | 0 | Rotate and translate one cube from local space into world space. |
-| `ObjectConstants`, 1 | `tint` | 64 | Multiply the cube's face colors. |
+| `ObjectConstants`, 1 | `model` | 0 | Transform one cube or the floor from local to world space. |
+| `ObjectConstants`, 1 | `tint` | 64 | Multiply that object's face colors. |
 
 The view block is 128 bytes and each object block is 80 bytes. Compile-time
 checks protect the CPU offsets and sizes; pipeline creation checks the shader's
@@ -174,19 +181,23 @@ records intact. Failed GPU upload leaves the batch staged for a retry, and
 destroys the batch and owns the surrounding frame and draw order. Reusing the
 same GPU buffer in a later frame is correct but can stall while the GPU reads
 older draws; a measured multi-buffer strategy can be added when needed. This
-cube example updates four World transforms and conservative world-space bounds,
-builds one frustum/layer/distance view submission, then stages only its copied
+graybox example updates four cube transforms and conservative world-space bounds,
+while the floor stays static. It holds five World objects and builds one
+frustum/layer/distance view submission, then stages only its copied
 objects' model matrices and tints. The submission storage is allocated once;
 each build uses the linear World query without allocating. A checked token
 permits copied record reads until the host ends the submission after the
 renderer frame. It uploads those object records once and selects one per
 indexed draw, alongside the shared view buffer. The host resolves the objects'
-logical mesh and material slots
-to its single shared mesh and sample tint table; World never owns GPU handles.
+logical mesh and material slots through bounded tables containing two static
+mesh bundles and five sample tints. It checks every visible slot and live mesh
+bundle before appending any draw. The final pipeline, uniform, and draw-range
+validation still happens inside `R_DrawIndexed` during flush. World never owns
+GPU handles.
 The batch resets after the preceding frame ends. This exercises a bounded
 linear visibility query through the public OpenGL 4.1 path. The camera and
 objects remain hardcoded; there is no scene asset loading, spatial
-acceleration, material sorting, pass scheduling, or renderer frame queue.
+acceleration, material sorting, or pass scheduling.
 
 ## Ordered draw list
 
@@ -194,7 +205,7 @@ The sample now copies each completed `render_draw_indexed_desc_t` into a
 fixed-capacity renderer draw list before beginning the frame. A flush in the
 active frame calls the existing validated `R_DrawIndexed` path in append order.
 The list holds renderer handles by value but does not retain the underlying GPU
-resources, so the host keeps its mesh, pipeline, view buffer, and uniform batch alive
+resources, so the host keeps both meshes, pipeline, view buffer, and uniform batch alive
 through flush. It allocates at initialization, then resets between frames
 without another allocation. This is the first CPU command-storage boundary,
 not pass classification, sorting, or asynchronous GPU submission.
@@ -331,7 +342,8 @@ ctest --preset shader-tools-debug --output-on-failure \
 Draw validation checks the selected index byte range and vertex-buffer capacity.
 It does not download GPU indices to inspect each value: the caller must ensure
 that every selected index is less than `vertexCount`. Validate imported index
-values during mesh loading. This example's fixed cube indices meet that contract.
+values during mesh loading. This example's fixed cube and floor indices meet
+that contract.
 For one interleaved static stream, `R_CreateStaticMeshBundle` now performs the
 CPU index scan before creating its vertex buffer, index buffer, and vertex input.
 It accepts native-endian U16 or U32 indices and exact byte extents, then copies
@@ -357,8 +369,10 @@ not define a `.cymesh` format, importer, or scene draw queue.
 - `src/CypherRender/CypherRender_Draw.cpp`: frame, layout, buffer, and range
   validation before native draw submission.
 
-The three-cube sample uses a triangle list, one uniform block, and direct window
-submission. The renderer also has textures, samplers, two binding slots,
+The graybox sample uses two triangle-list meshes, two uniform blocks, a copied
+World submission, and an ordered draw list for direct window drawing. The
+renderer also has textures, samplers, two binding slots,
 offscreen color and sampleable depth targets, and a limited cooked-material
-bridge. Authored mesh loading, broader material support, World visibility and
-draw scheduling, command recording, and shader hot reload remain separate work.
+bridge. Authored scene and mesh loading, broader material support, pass
+classification and sorting, full command scheduling, and shader hot reload
+remain separate work.

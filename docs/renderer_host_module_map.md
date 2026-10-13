@@ -124,10 +124,16 @@ mesh/material slots, with a token valid until the host ends the submission.
 They contain no OpenGL names or backend commands. Lights, terrain chunks, and
 environment values remain planned additions.
 
-The cube host currently resolves each logical slot, uploads one shared view
-record and a batch of visible-object records, constructs renderer draw
-descriptions with two uniform slots, appends them to an ordered fixed-capacity
-draw list, and flushes it through the validated immediate draw path.
+The graybox sample host now has two GPU mesh bundles: one shared by four cube
+World objects and one floor quad. A bounded host-owned slot table resolves
+each visible object's logical mesh slot; a separate table resolves its tint
+material slot. The host checks every slot and live mesh bundle before appending
+any draw, uploads one shared view record and a batch of visible-object records,
+then fills indexed draw descriptions with two uniform slots. An ordered
+fixed-capacity list flushes them through the validated immediate draw path.
+Final pipeline, uniform, and draw-range validation still occurs at draw time.
+The default 120-frame hidden run reports 480 visible-object draws: three cubes
+and the floor each frame, with a fourth cube culled behind the camera.
 CypherRender remains independent of CypherWorld. Pass classification, sorting,
 batching, and a production asset resolver are later gates.
 

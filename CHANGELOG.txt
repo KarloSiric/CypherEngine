@@ -47,6 +47,13 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The OpenGL 4.1 graybox sample resolves two static mesh bundles through
+  bounded host-owned logical slots: four World cubes share one mesh and a floor
+  uses its own quad, bounds and tint. It checks visible mesh/material slots and
+  live bundles before queuing draws. The compact target, five focused tests and
+  120-frame hidden run pass with 480 visible draws. This is in-memory host
+  data, not cooked scene/mesh loading; final pipeline/uniform checks remain at
+  draw-list flush.
 - The visible-world cube sample now uses a 128-byte per-view block at uniform
   slot 0 and aligned 80-byte per-object blocks at slot 1. View/projection are
   updated once each frame; model/tint records are batched for visible objects

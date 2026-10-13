@@ -58,6 +58,11 @@ error flags cannot be queried without consuming them. Resource creation and
 destruction outside a frame are separate calls; this frame boundary does not
 establish a general state-preservation guarantee for them.
 
+Each indexed draw also disables host polygon line offset and line smoothing,
+including for wireframe pipelines. Hosted frames restore those two enable flags
+after the final draw, so an editor's line overlays can keep their own raster
+policy without changing CypherRender's output.
+
 ## Minimal `QOpenGLWidget` adapter
 
 Request the portable renderer baseline before constructing the widget. On

@@ -5,8 +5,8 @@
 //
 //  File: examples/CypherRender/CypherRender_Cube.cpp
 //  Purpose: Demonstrates a visible-world-object public-renderer drawing path.
-//  Details: Loads a cooked shader through the loose-directory VFS, shares one
-//           indexed mesh, queries a small in-memory world, and uploads aligned
+//  Details: Loads a cooked shader through the loose-directory VFS, resolves
+//           two indexed meshes from logical World slots, and uploads aligned
 //           per-view and per-object constants for visible objects each frame.
 //           No graphics-driver or native-window API crosses into this host.
 //
@@ -20,6 +20,7 @@
 #include "CypherCommon/Mathlib/CypherMath_Frustum.h"
 #include "CypherCommon/Mathlib/CypherMath_Matrix4.h"
 #include "CypherCommon/Mathlib/CypherMath_Quaternion.h"
+#include "CypherRender/CypherRender_Buffer.h"
 #include "CypherRender/CypherRender_Draw.h"
 #include "CypherRender/CypherRender_Pipeline.h"
 #include "CypherRender/CypherRender_Public.h"
@@ -97,6 +98,16 @@ constexpr common::u16 CUBE_INDICES[] = {
     16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23
 };
 
+// XY is the ground plane in the engine's Z-up world. Counterclockwise winding
+// from above gives these two triangles their +Z normal for back-face culling.
+constexpr cube_vertex_t FLOOR_VERTICES[] = {
+    { { -6.0f, -5.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f } },
+    { { 6.0f, -5.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 2.0f, 0.0f } },
+    { { 6.0f, 5.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 2.0f, 2.0f } },
+    { { -6.0f, 5.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 2.0f } }
+};
+constexpr common::u16 FLOOR_INDICES[] = { 0u, 1u, 2u, 0u, 2u, 3u };
+
 // mat4_t is column-major. The two structures match separate GLSL std140 blocks.
 struct alignas( 16 ) cube_view_constants_t {
     math::mat4_t view;
@@ -121,35 +132,57 @@ struct cube_options_t {
 
 struct cube_instance_t {
     math::vec3_t position;
-    float tint[4];
 };
 
 constexpr cube_instance_t CUBE_INSTANCES[] = {
-    { { -2.4f, -1.6f, 0.0f }, { 0.75f, 0.28f, 0.18f, 1.0f } },
-    { { 0.0f, 0.0f, 0.0f }, { 0.10f, 0.55f, 0.76f, 1.0f } },
-    { { 2.4f, 1.6f, 0.0f }, { 0.36f, 0.72f, 0.32f, 1.0f } },
+    { { -2.4f, -1.6f, 0.0f } },
+    { { 0.0f, 0.0f, 0.0f } },
+    { { 2.4f, 1.6f, 0.0f } },
     // Deliberately behind the camera. The World query rejects this object.
-    { { 12.0f, -18.0f, 9.6f }, { 0.72f, 0.28f, 0.68f, 1.0f } }
+    { { 12.0f, -18.0f, 9.6f } }
 };
 constexpr common::u32 CUBE_INSTANCE_COUNT =
     static_cast<common::u32>( sizeof( CUBE_INSTANCES ) / sizeof( CUBE_INSTANCES[0] ) );
+constexpr common::u32 FLOOR_OBJECT_INDEX = CUBE_INSTANCE_COUNT;
+constexpr common::u32 WORLD_OBJECT_COUNT = CUBE_INSTANCE_COUNT + 1u;
+constexpr common::u32 MESH_SLOT_CUBE = 0u;
+constexpr common::u32 MESH_SLOT_FLOOR = 1u;
+constexpr common::u32 MESH_SLOT_COUNT = 2u;
+
+struct sample_material_t {
+    float tint[4];
+};
+// Logical material slots are CPU-only sample colors, not GPU resource names.
+constexpr sample_material_t MATERIALS[WORLD_OBJECT_COUNT] = {
+    { { 0.75f, 0.28f, 0.18f, 1.0f } },
+    { { 0.10f, 0.55f, 0.76f, 1.0f } },
+    { { 0.36f, 0.72f, 0.32f, 1.0f } },
+    { { 0.72f, 0.28f, 0.68f, 1.0f } },
+    { { 0.38f, 0.42f, 0.47f, 1.0f } }
+};
+constexpr common::u32 MATERIAL_COUNT =
+    static_cast<common::u32>( sizeof( MATERIALS ) / sizeof( MATERIALS[0] ) );
 
 struct cube_state_t {
     sys::window_t window{};
     render::render_shader_handle_t shader{};
     render::render_pipeline_handle_t pipeline{};
-    render::render_static_mesh_bundle_t mesh{};
+    // The host owns this bounded slot table; World stores only slot numbers.
+    render::render_static_mesh_bundle_t meshes[MESH_SLOT_COUNT]{};
     render::render_buffer_handle_t viewConstants{};
     render::render_uniform_batch_t objectConstants{};
     render::render_draw_queue_t *pDrawQueue{ nullptr };
     world::world_t *pWorld{ nullptr };
     world::world_submission_t *pSubmission{ nullptr };
-    world::world_object_id_t objectIds[CUBE_INSTANCE_COUNT]{};
+    world::world_object_id_t objectIds[WORLD_OBJECT_COUNT]{};
 };
 
 constexpr math::vec3_t CUBE_CAMERA_POSITION{ 4.0f, -6.0f, 3.2f };
 constexpr math::aabb_t CUBE_LOCAL_BOUNDS{
     { -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f } };
+constexpr math::vec3_t FLOOR_POSITION{ 0.0f, 0.0f, -1.8f };
+constexpr math::aabb_t FLOOR_LOCAL_BOUNDS{
+    { -6.0f, -5.0f, 0.0f }, { 6.0f, 5.0f, 0.0f } };
 
 bool CheckWorld( world::world_error_t result, const char *operation ) noexcept
 {
@@ -258,7 +291,7 @@ bool LoadShader( const char *nativePath, render::render_shader_handle_t &shader 
     return created;
 }
 
-bool CreateCube( cube_state_t &state, const char *shaderPath )
+bool CreateScene( cube_state_t &state, const char *shaderPath )
 {
     if ( !LoadShader( shaderPath, state.shader ) ) return false;
     render::render_static_mesh_source_t source{};
@@ -276,7 +309,8 @@ bool CreateCube( cube_state_t &state, const char *shaderPath )
     source.indexCount = static_cast<common::u32>( sizeof( CUBE_INDICES ) / sizeof( CUBE_INDICES[0] ) );
     source.indexType = render::render_index_type_t::UINT16;
     source.debugName = "Shared cube mesh";
-    const auto meshResult = render::R_CreateStaticMeshBundle( source, &state.mesh );
+    auto meshResult = render::R_CreateStaticMeshBundle(
+        source, &state.meshes[MESH_SLOT_CUBE] );
     if ( meshResult.status != render::render_static_mesh_bridge_status_t::OK ) {
         std::fprintf( stderr, "Create cube mesh: %s (%u)\n",
             render::R_ErrorName( meshResult.renderError ),
@@ -284,9 +318,27 @@ bool CreateCube( cube_state_t &state, const char *shaderPath )
         return false;
     }
 
+    source.vertexBytes = FLOOR_VERTICES;
+    source.vertexByteSize = sizeof( FLOOR_VERTICES );
+    source.vertexCount = static_cast<common::u32>(
+        sizeof( FLOOR_VERTICES ) / sizeof( FLOOR_VERTICES[0] ) );
+    source.indexBytes = FLOOR_INDICES;
+    source.indexByteSize = sizeof( FLOOR_INDICES );
+    source.indexCount = static_cast<common::u32>(
+        sizeof( FLOOR_INDICES ) / sizeof( FLOOR_INDICES[0] ) );
+    source.debugName = "Graybox floor mesh";
+    meshResult = render::R_CreateStaticMeshBundle(
+        source, &state.meshes[MESH_SLOT_FLOOR] );
+    if ( meshResult.status != render::render_static_mesh_bridge_status_t::OK ) {
+        std::fprintf( stderr, "Create floor mesh: %s (%u)\n",
+            render::R_ErrorName( meshResult.renderError ),
+            static_cast<unsigned>( meshResult.status ) );
+        return false;
+    }
+
     render::render_pipeline_desc_t pipeline{};
     pipeline.shader = state.shader;
-    pipeline.vertexLayout = state.mesh.vertexLayout;
+    pipeline.vertexLayout = state.meshes[MESH_SLOT_CUBE].vertexLayout;
     pipeline.depthTest = true;
     pipeline.depthWrite = true;
     pipeline.cullBackFaces = true;
@@ -295,7 +347,7 @@ bool CreateCube( cube_state_t &state, const char *shaderPath )
     pipeline.uniformBlockCount = 2u;
     pipeline.uniformBlocks[0] = { "ViewConstants", sizeof( cube_view_constants_t ) };
     pipeline.uniformBlocks[1] = { "ObjectConstants", sizeof( cube_object_constants_t ) };
-    pipeline.debugName = "Depth-tested cube pipeline";
+    pipeline.debugName = "Depth-tested graybox pipeline";
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline, &state.pipeline ),
             "Create cube pipeline" ) ) return false;
 
@@ -314,21 +366,21 @@ bool CreateCube( cube_state_t &state, const char *shaderPath )
     const common::u64 recordStride =
         ( sizeof( cube_object_constants_t ) + alignment - 1u ) / alignment * alignment;
     const common::u64 capacity =
-        ( CUBE_INSTANCE_COUNT - 1u ) * recordStride + sizeof( cube_object_constants_t );
+        ( WORLD_OBJECT_COUNT - 1u ) * recordStride + sizeof( cube_object_constants_t );
     if ( !CheckRender( render::R_CreateUniformBatch( capacity, nullptr,
             &state.objectConstants ), "Create object constants batch" ) ) return false;
     return CheckRender( render::R_InitDrawQueue( &state.pDrawQueue,
-        common::Allocator_GetSystem(), CUBE_INSTANCE_COUNT ),
-        "Create cube draw queue" );
+        common::Allocator_GetSystem(), WORLD_OBJECT_COUNT ),
+        "Create graybox draw queue" );
 }
 
 bool CreateWorld( cube_state_t &state ) noexcept
 {
     if ( !CheckWorld( world::World_Init( &state.pWorld,
-             common::Allocator_GetSystem(), CUBE_INSTANCE_COUNT ),
+             common::Allocator_GetSystem(), WORLD_OBJECT_COUNT ),
              "Create cube world" ) ) return false;
     if ( !CheckSubmission( world::WorldSubmission_Init( &state.pSubmission,
-             common::Allocator_GetSystem(), CUBE_INSTANCE_COUNT ),
+             common::Allocator_GetSystem(), WORLD_OBJECT_COUNT ),
              "Create cube view storage" ) ) return false;
 
     for ( common::u32 i = 0u; i < CUBE_INSTANCE_COUNT; ++i ) {
@@ -338,13 +390,23 @@ bool CreateWorld( cube_state_t &state ) noexcept
         object.worldBounds = math::Aabb_TransformAffine(
             CUBE_LOCAL_BOUNDS, object.localToWorld );
         object.layerMask = 1u;
-        object.meshSlot = 0u; // The host resolves this logical slot to state.mesh.
-        object.materialSlot = i; // The host resolves this slot to a sample tint.
+        object.meshSlot = MESH_SLOT_CUBE;
+        object.materialSlot = i;
         if ( !CheckWorld( world::World_AddObject( state.pWorld,
                  &object, &state.objectIds[i] ), "Add cube world object" ) ) {
             return false;
         }
     }
+    world::world_object_t floor{};
+    floor.localToWorld = math::Affine3_FromTranslation( FLOOR_POSITION );
+    floor.worldBounds = math::Aabb_TransformAffine(
+        FLOOR_LOCAL_BOUNDS, floor.localToWorld );
+    floor.layerMask = 1u;
+    floor.meshSlot = MESH_SLOT_FLOOR;
+    floor.materialSlot = FLOOR_OBJECT_INDEX;
+    if ( !CheckWorld( world::World_AddObject( state.pWorld,
+             &floor, &state.objectIds[FLOOR_OBJECT_INDEX] ),
+             "Add floor world object" ) ) return false;
     return true;
 }
 
@@ -422,7 +484,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             object.worldBounds = math::Aabb_TransformAffine(
                 CUBE_LOCAL_BOUNDS, object.localToWorld );
             object.layerMask = 1u;
-            object.meshSlot = 0u;
+            object.meshSlot = MESH_SLOT_CUBE;
             object.materialSlot = i;
             if ( !CheckWorld( world::World_UpdateObject( state.pWorld,
                      state.objectIds[i], &object ), "Update cube world object" ) ) {
@@ -444,6 +506,12 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         if ( !CheckSubmission( world::WorldSubmission_Count(
                  state.pSubmission, submissionToken, &visibleCount ),
                  "Count visible cube objects" ) ) return false;
+        if ( visibleCount > WORLD_OBJECT_COUNT ||
+             !render::R_IsGraphicsPipelineValid( state.pipeline ) ||
+             !render::R_IsBufferValid( state.viewConstants ) ) {
+            std::fprintf( stderr, "Graybox view capacity or shared render resource is invalid.\n" );
+            return false;
+        }
 
         if ( renderedFrames != 0u ) {
             if ( !CheckRender( render::R_ResetUniformBatch( &state.objectConstants ),
@@ -457,20 +525,29 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         if ( !CheckRender( render::R_UpdateBuffer( state.viewConstants, 0u,
                 viewData ), "Upload view constants" ) ) return false;
 
-        render::render_uniform_record_t records[CUBE_INSTANCE_COUNT]{};
+        render::render_uniform_record_t records[WORLD_OBJECT_COUNT]{};
+        render::render_draw_indexed_desc_t draws[WORLD_OBJECT_COUNT]{};
         for ( common::u32 i = 0u; i < visibleCount; ++i ) {
             world::world_object_snapshot_t visible{};
             if ( !CheckSubmission( world::WorldSubmission_Get(
                      state.pSubmission, submissionToken, i, &visible ),
                      "Read visible cube object" ) ) return false;
             const world::world_object_t &object = visible.object;
-            if ( object.meshSlot != 0u || object.materialSlot >= CUBE_INSTANCE_COUNT ) {
-                std::fprintf( stderr, "Cube world returned an unresolved asset slot.\n" );
+            if ( object.meshSlot >= MESH_SLOT_COUNT ||
+                 object.materialSlot >= MATERIAL_COUNT ) {
+                std::fprintf( stderr, "Graybox world returned an unresolved asset slot.\n" );
                 return false;
             }
+            // Resolve every visible mesh and material before recording any draw.
+            // The World snapshot contains logical slots, never renderer handles.
+            draws[i].pipeline = state.pipeline;
+            draws[i].uniformBuffers[0] = state.viewConstants;
+            if ( !CheckRender( render::R_ApplyStaticMeshBundleToDraw(
+                     state.meshes[object.meshSlot], &draws[i] ),
+                     "Resolve visible mesh" ) ) return false;
             cube_object_constants_t constants{};
             constants.model = math::Affine3_ToMat4( object.localToWorld );
-            std::memcpy( constants.tint, CUBE_INSTANCES[object.materialSlot].tint,
+            std::memcpy( constants.tint, MATERIALS[object.materialSlot].tint,
                 sizeof( constants.tint ) );
             if ( !CheckRender( render::R_AppendUniformRecord( &state.objectConstants,
                      &constants, sizeof( constants ), &records[i] ),
@@ -480,18 +557,15 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                  render::R_CommitUniformBatch( &state.objectConstants ),
                  "Upload visible object constants" ) ) return false;
 
-        render::render_draw_indexed_desc_t draw{};
-        draw.pipeline = state.pipeline;
-        draw.uniformBuffers[0] = state.viewConstants;
-        if ( visibleCount != 0u && !CheckRender(
-            render::R_ApplyStaticMeshBundleToDraw( state.mesh, &draw ),
-            "Bind cube mesh" ) ) return false;
         for ( common::u32 i = 0u; i < visibleCount; ++i ) {
             if ( !CheckRender( render::R_ApplyUniformRecordToDraw(
-                     state.objectConstants, records[i], 1u, &draw ),
-                     "Bind object constants" ) ||
-                 !CheckRender( render::R_AppendDrawQueue( state.pDrawQueue, draw ),
-                     "Queue cube draw" ) ) return false;
+                     state.objectConstants, records[i], 1u, &draws[i] ),
+                     "Resolve object constants" ) ) return false;
+        }
+        for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+            if ( !CheckRender( render::R_AppendDrawQueue(
+                     state.pDrawQueue, draws[i] ),
+                     "Queue graybox draw" ) ) return false;
         }
 
         render::render_frame_info_t frame{};
@@ -503,7 +577,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         if ( !CheckRender( render::R_BeginFrame( frame ), "Begin frame" ) ) return false;
         common::u32 completedDraws = 0u;
         const bool drawOK = CheckRender( render::R_FlushDrawQueue(
-            state.pDrawQueue, &completedDraws ), "Draw queued cubes" );
+            state.pDrawQueue, &completedDraws ), "Draw queued graybox objects" );
         visibleDraws += completedDraws;
         const bool endOK = CheckRender( render::R_EndFrame(), "End frame" );
         world::WorldSubmission_End( state.pSubmission );
@@ -539,8 +613,10 @@ bool Shutdown( cube_state_t &state ) noexcept
             success = CheckRender( render::R_DestroyBuffer( state.viewConstants ),
                 "Destroy view constants" ) && success;
         }
-        success = CheckRender( render::R_DestroyStaticMeshBundle( &state.mesh ),
-            "Destroy cube mesh" ) && success;
+        success = CheckRender( render::R_DestroyStaticMeshBundle(
+            &state.meshes[MESH_SLOT_FLOOR] ), "Destroy floor mesh" ) && success;
+        success = CheckRender( render::R_DestroyStaticMeshBundle(
+            &state.meshes[MESH_SLOT_CUBE] ), "Destroy cube mesh" ) && success;
         if ( state.shader.value != 0u ) {
             success = CheckRender( render::R_DestroyShader( state.shader ), "Destroy shader" ) && success;
         }
@@ -567,17 +643,17 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
     config.requireAcceleration = false;
     config.optionalCapabilities = render::R_CAPABILITY_NONE;
     sys::window_desc_t window{};
-    window.title = "Cypher Renderer | Visible World View | Esc to exit";
+    window.title = "Cypher Renderer | Graybox World View | Esc to exit";
     window.width = 1100u;
     window.height = 760u;
     if ( options.hidden ) window.flags |= sys::SYS_WINDOW_HIDDEN;
     if ( !CheckRender( render::R_ConfigureWindow( config, window ), "Configure window" ) ||
          !CheckSystem( sys::Sys_CreateWindow( window, state.window ), "Create window" ) ||
          !CheckRender( render::R_Init( state.window, config ), "Initialize renderer" ) ||
-         !CreateCube( state, options.shaderPath ) ||
+         !CreateScene( state, options.shaderPath ) ||
          !CreateWorld( state ) ) return false;
-    std::printf( "Cooked shader: %s\nOne 24-vertex mesh, %u world objects; one view upload and one visible-object batch per frame.\n",
-        options.shaderPath, CUBE_INSTANCE_COUNT );
+    std::printf( "Cooked shader: %s\nCube and floor meshes, %u world objects; one view upload and one visible-object batch per frame.\n",
+        options.shaderPath, WORLD_OBJECT_COUNT );
     return RunFrames( state, options );
 }
 

@@ -53,6 +53,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The OpenGL 4.1 graybox sample now resolves two distinct static mesh bundles
+  from bounded host-owned logical slots: four World cubes share one mesh, while
+  a floor uses its own quad, bounds, and tint. It preflights every visible
+  mesh/material slot and live mesh bundle before appending ordered draws. The
+  compact target builds; five focused World/renderer tests and a 120-frame
+  hidden run pass with 480 visible draws. This is an in-memory host fixture,
+  not cooked scene or mesh loading; final pipeline/uniform validation still
+  happens at draw-list flush.
 - The visible-world cube sample now separates one 128-byte view block at
   uniform slot 0 from aligned 80-byte per-object blocks at slot 1. It updates
   view/projection once per frame, batches model/tint records for visible
