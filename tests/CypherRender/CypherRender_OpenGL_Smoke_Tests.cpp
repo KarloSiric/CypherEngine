@@ -2090,12 +2090,33 @@ void CheckPointLightPixels( const render::render_extent_t extent )
     draw.indexCount = draw.vertexCount = 3u;
     const render::render_readback_rect_t center{
         textureDescription.width / 2u, textureDescription.height / 2u, 1u, 1u };
-    const auto readCenter = [&]( const common::u64 frameIndex ) {
+    const auto readCenter = [&]( const common::u64 frameIndex,
+                                 const bool halfShadow = false ) {
         REQUIRE( render::R_UpdateBuffer( viewBuffer, 0u,
             { &constants, sizeof( constants ) } ) == render::render_error_t::OK );
         frame.frameIndex = frameIndex;
         REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
         REQUIRE( render::R_BeginTargetPass( shadowPass ) == render::render_error_t::OK );
+        if ( halfShadow ) {
+            // The pass has already cleared the complete map to lit depth.
+            // Write a nearer left half so the real sample shader's center
+            // fragment sees both lit and occluded PCF taps.
+            const GLboolean previousScissorEnabled = glIsEnabled( GL_SCISSOR_TEST );
+            GLint previousScissorBox[4]{};
+            GLdouble previousClearDepth = 1.0;
+            glGetIntegerv( GL_SCISSOR_BOX, previousScissorBox );
+            glGetDoublev( GL_DEPTH_CLEAR_VALUE, &previousClearDepth );
+            glEnable( GL_SCISSOR_TEST );
+            glScissor( 0, 0, static_cast<GLsizei>( textureDescription.width / 2u ),
+                static_cast<GLsizei>( textureDescription.height ) );
+            glClearDepth( 0.25 );
+            glClear( GL_DEPTH_BUFFER_BIT );
+            glClearDepth( previousClearDepth );
+            glScissor( previousScissorBox[0], previousScissorBox[1],
+                previousScissorBox[2], previousScissorBox[3] );
+            if ( previousScissorEnabled == GL_FALSE ) glDisable( GL_SCISSOR_TEST );
+            REQUIRE( glGetError() == GL_NO_ERROR );
+        }
         REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
         REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
         REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
@@ -2146,6 +2167,30 @@ void CheckPointLightPixels( const render::render_extent_t extent )
     CHECK( ambientOnly[3] <= 157u );
     CHECK( redLight[3] == ambientOnly[3] );
     CHECK( redAndBlueLights[3] == ambientOnly[3] );
+
+    // The sample's directional light uses the same comparison depth map.
+    // A half-covered map must produce an intermediate value at the seam;
+    // a single nearest comparison would produce only lit or shadowed.
+    constants.pointLightControl[0] = 0;
+    constants.lightColor[0] = constants.lightColor[1] =
+        constants.lightColor[2] = 0.5f;
+    shadowPass.clearDepth = 1.0f;
+    const auto fullyLit = readCenter( 4u );
+    shadowPass.clearDepth = 0.25f;
+    const auto fullyShadowed = readCenter( 5u );
+    shadowPass.clearDepth = 1.0f;
+    const auto shadowEdge = readCenter( 6u, true );
+    INFO( "directional-shadow pixels: lit " << static_cast<int>( fullyLit[0] )
+        << ", shadowed " << static_cast<int>( fullyShadowed[0] )
+        << ", edge " << static_cast<int>( shadowEdge[0] ) );
+    for ( common::u32 channel = 0u; channel < 3u; ++channel ) {
+        CHECK( fullyLit[channel] >= fullyShadowed[channel] + 70u );
+        CHECK( shadowEdge[channel] >= fullyShadowed[channel] + 20u );
+        CHECK( shadowEdge[channel] + 20u <= fullyLit[channel] );
+    }
+    CHECK( fullyLit[3] == ambientOnly[3] );
+    CHECK( fullyShadowed[3] == ambientOnly[3] );
+    CHECK( shadowEdge[3] == ambientOnly[3] );
 
     REQUIRE( render::R_DestroyRenderTarget( shadowTarget ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );

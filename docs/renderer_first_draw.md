@@ -219,8 +219,11 @@ stages, uploads the 320-byte view and 144-byte object records, and binds white
 albedo and a D24 comparison texture. It compares actual RGBA8 pixels with zero
 lights, one in-range red light, the same light outside its range, and a second
 blue light. The RGB contribution follows the range and count fields while alpha
-stays unchanged. This exercises the sample shader itself; the test constructs a
-shader view from its source files rather than loading the offline-cooked CYSH.
+stays unchanged. The same fixture checks fully lit, fully shadowed, and
+partially shadowed pixels across a controlled depth-map edge; the edge must
+fall between the two endpoint colors without changing alpha. This exercises
+the sample shader itself; the test constructs a shader view from its source
+files rather than loading the offline-cooked CYSH.
 
 Common Math uses column vectors, so the vertex shader applies
 `projection * view * model * position`. World space follows the engine's Z-up
@@ -502,10 +505,13 @@ samples slot 0 and discards the same masked texels before writing depth.
 The camera fragment shader transforms world position by the same light matrix,
 maps its clip coordinates to depth-texture coordinates, and treats fragments
 outside the fixed light volume as lit. It applies a constant reference-depth
-bias and attenuates directional diffuse light on a failed comparison; ambient
-light remains. The light position and volume, map size, bias, and single sample
-are demonstration choices. There is no filtering, cascades, dynamic light
-selection, or authored World light component here.
+bias, then averages a fixed 3×3 neighborhood of nearest-filtered depth
+comparisons. Taps beyond the shadow texture are counted as lit. This softens
+the directional shadow edge while leaving ambient and the unshadowed point
+lights unchanged. It costs up to nine depth comparisons per covered fragment;
+the light position and volume, map size, and bias are demonstration choices.
+There are no cascades, dynamic light selection, tunable filter radius, or
+authored World light component here.
 
 ### Pipeline depth bias
 

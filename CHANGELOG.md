@@ -82,6 +82,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The graybox sample's fixed directional shadow now averages a 3×3 neighborhood
+  of nearest-filtered depth comparisons. Out-of-map taps count as lit, so its
+  edge softens without darkening outside the light volume. A native pixel test
+  compiles the checked-in sample shader and distinguishes fully lit, fully
+  shadowed, and partial-edge pixels while verifying alpha stays unchanged.
+  Shader validation/cooking report zero diagnostics; native OpenGL smoke passes
+  1,216 assertions, ten focused renderer CTests pass, and the 120-frame hidden
+  sample completes 840 scene, 600 shadow, and 120 presentation draws. This
+  sample-only filter makes up to nine depth comparisons per covered fragment;
+  cascades, authored lights, and adjustable quality remain unimplemented.
 - `R_ReadTargetRGBA32F` now reads an RGBA16F offscreen color target into
   caller-owned linear float pixels, preserving values above 1.0. The frontend
   validates frame/pass state, format, bounds, byte capacity, and 16-byte row

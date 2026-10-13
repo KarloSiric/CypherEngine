@@ -71,6 +71,16 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The graybox sample's fixed directional shadow averages a 3x3 neighborhood
+  of nearest-filtered depth comparisons. Out-of-map taps count as lit, so
+  the edge softens without darkening outside the light volume. A native
+  pixel test compiles the checked-in shader and checks lit, shadowed and
+  partial-edge colors with unchanged alpha. Shader validation/cooking has
+  zero diagnostics; native OpenGL smoke passes 1216 assertions, ten focused
+  renderer CTests pass, and the 120-frame hidden sample completes 840 scene,
+  600 shadow and 120 presentation draws. The sample-only filter costs up to
+  nine comparisons per covered fragment; cascades, authored lights and
+  adjustable quality remain future work.
 - R_ReadTargetRGBA32F reads RGBA16F offscreen color into caller-owned linear
   float pixels, preserving values above 1.0. Frontend validation covers
   frame/pass state, format, bounds, capacity and 16-byte row pitch; OpenGL

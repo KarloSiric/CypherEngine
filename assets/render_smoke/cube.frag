@@ -42,7 +42,21 @@ void main()
         if (all(lessThanEqual(abs(lightNdc), vec3(1.0)))) {
             vec2 shadowUV = lightNdc.xy * 0.5 + 0.5;
             float referenceDepth = lightNdc.z * 0.5 + 0.5 - 0.00025;
-            visibility = texture(shadowMap, vec3(shadowUV, referenceDepth));
+            vec2 shadowTexel = 1.0 / vec2(textureSize(shadowMap, 0));
+            float litTaps = 0.0;
+            for (int y = -1; y <= 1; ++y) {
+                for (int x = -1; x <= 1; ++x) {
+                    vec2 tapUV = shadowUV + vec2(x, y) * shadowTexel;
+                    // Border taps are lit even when the depth sampler clamps.
+                    if (all(greaterThanEqual(tapUV, vec2(0.0))) &&
+                        all(lessThanEqual(tapUV, vec2(1.0)))) {
+                        litTaps += texture(shadowMap, vec3(tapUV, referenceDepth));
+                    } else {
+                        litTaps += 1.0;
+                    }
+                }
+            }
+            visibility = litTaps / 9.0;
         }
     }
     vec3 pointLighting = vec3(0.0);
