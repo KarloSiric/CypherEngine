@@ -20,6 +20,7 @@
 #include "CypherRender/CypherRender_VertexInput.h"
 #include "CypherRender/OpenGL/CypherRender_OpenGL_Local.h"
 #include "CypherRender/Runtime/CypherRender_MaterialBridge.h"
+#include "CypherRender/Runtime/CypherRender_MeshBridge.h"
 #include "CypherCommon/Formats/CypherCommon_CookedTexture.h"
 #include "CypherResource/CypherResource_RenderAssets.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
@@ -1598,38 +1599,23 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
     constexpr float vertices[9]{ -1.0f, -1.0f, 0.0f, 3.0f, -1.0f, 0.0f,
                                  -1.0f, 3.0f, 0.0f };
     constexpr common::u16 indices[3]{ 0u, 1u, 2u };
-    const auto createBuffer = []( const void *bytes, const common::u64 byteSize,
-        const render::render_buffer_usage_flags_t usage ) {
-        render::render_buffer_desc_t description{};
-        description.byteSize = byteSize;
-        description.usage = usage;
-        description.updatePolicy = render::render_buffer_update_t::IMMUTABLE;
-        description.memory = render::render_buffer_memory_t::DEVICE_LOCAL;
-        const render::render_buffer_data_t data{ bytes, byteSize };
-        render::render_buffer_handle_t handle{};
-        REQUIRE( render::R_CreateBuffer( description, &data, &handle ) ==
-            render::render_error_t::OK );
-        return handle;
-    };
-    const auto vertexBuffer = createBuffer( vertices, sizeof( vertices ),
-        render::R_BUFFER_USAGE_VERTEX );
-    const auto indexBuffer = createBuffer( indices, sizeof( indices ),
-        render::R_BUFFER_USAGE_INDEX );
-    render::render_vertex_input_desc_t inputDescription{};
-    inputDescription.layout = layout;
-    inputDescription.vertexBufferCount = 1u;
-    inputDescription.vertexBuffers[0].buffer = vertexBuffer;
-    inputDescription.indexBuffer.buffer = indexBuffer;
-    render::render_vertex_input_handle_t vertexInput{};
-    REQUIRE( render::R_CreateVertexInput( inputDescription, &vertexInput ) ==
-        render::render_error_t::OK );
+    render::render_static_mesh_source_t meshSource{};
+    meshSource.vertexLayout = layout;
+    meshSource.vertexBytes = vertices;
+    meshSource.vertexByteSize = sizeof( vertices );
+    meshSource.vertexCount = 3u;
+    meshSource.indexBytes = indices;
+    meshSource.indexByteSize = sizeof( indices );
+    meshSource.indexCount = 3u;
+    render::render_static_mesh_bundle_t mesh{};
+    REQUIRE( render::R_CreateStaticMeshBundle( meshSource, &mesh ).status ==
+        render::render_static_mesh_bridge_status_t::OK );
 
     render::render_draw_indexed_desc_t draw{};
     REQUIRE( render::R_ApplyCookedMaterialBundleToDraw( bundle, &draw ) ==
         render::render_error_t::OK );
-    draw.vertexInput = vertexInput;
-    draw.indexCount = 3u;
-    draw.vertexCount = 3u;
+    REQUIRE( render::R_ApplyStaticMeshBundleToDraw( mesh, &draw ) ==
+        render::render_error_t::OK );
     render::render_frame_info_t frame{};
     frame.drawableExtent = extent;
     frame.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
@@ -1653,9 +1639,7 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
     CHECK_FALSE( render::R_IsShaderValid( shader ) );
     CHECK_FALSE( render::R_IsGraphicsPipelineValid( pipeline ) );
     CHECK_FALSE( render::R_IsTextureValid( texture ) );
-    REQUIRE( render::R_DestroyVertexInput( vertexInput ) == render::render_error_t::OK );
-    REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );
-    REQUIRE( render::R_DestroyBuffer( vertexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) == render::render_error_t::OK );
 }
 
 } // namespace

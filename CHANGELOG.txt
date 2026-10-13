@@ -30,10 +30,17 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- CypherRenderMeshRuntime validates and uploads one interleaved static vertex
+  stream with U16 or U32 indices. It checks exact byte extents and every index
+  before GPU allocation, owns vertex/index buffers and a vertex input as a
+  retryable bundle, and fills only draw geometry fields. The material pixel
+  smoke now uses this path on OpenGL 4.1. Focused mesh and native smoke tests
+  pass. Cooked mesh files, importers, multi-stream geometry and scene scheduling
+  remain separate work.
 - Native OpenGL 4.1 pixel smoke now loads an in-memory CYMT V2 material and
   CYSH V3/CYTX V2 dependencies through the VFS, releases CPU resources, draws
   with its sampled texture and checks a red center pixel. The focused material,
-  draw and OpenGL tests pass (674 native smoke assertions). Checked-in authored
+  draw and OpenGL tests pass. Checked-in authored
   material and shader recipes still use schema V1.
 - A separate CypherRenderMaterialRuntime bridge adopts a limited CYMT V2
   material into caller-owned shader, pipeline and zero to two texture handles.

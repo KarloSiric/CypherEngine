@@ -170,7 +170,8 @@ CYMT feature implementation.
 The hidden-window OpenGL smoke generates one compatible material, shader, and
 texture in memory, loads them through the VFS and resource manager, releases
 their CPU handles, and verifies the bound texture with a framebuffer pixel
-read. This proves the narrow bridge reaches a real OpenGL 4.1 draw. Checked-in
+read. Its geometry comes from the validated static-mesh upload bundle. This
+proves the two narrow bridges reach a real OpenGL 4.1 draw. Checked-in
 authored `.cymat` and `.cyshader` recipes still use schema V1 and do not yet
 produce the CYMT V2/CYSH V3 pair required by this bridge.
 

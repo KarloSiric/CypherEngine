@@ -33,11 +33,18 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- `CypherRenderMeshRuntime` now validates and uploads one interleaved static
+  vertex stream with U16 or U32 indices. It checks exact byte extents and every
+  index before GPU allocation, owns the vertex/index buffers and vertex input
+  as a retryable bundle, and fills only the geometry fields of a draw. The
+  material pixel smoke now uses this mesh path on OpenGL 4.1. Focused mesh and
+  native smoke tests pass. Cooked mesh files, importers, multi-stream geometry,
+  and scene scheduling remain separate work.
 - The cooked-material bridge now has a native OpenGL 4.1 pixel smoke: an
   in-memory CYMT V2 material loads CYSH V3 and CYTX V2 through the VFS,
   survives CPU resource release, binds a sampled texture, and renders the
-  expected red center pixel. The focused material, draw, and OpenGL tests pass
-  (674 assertions in the native smoke). Checked-in authored material and shader
+  expected red center pixel. The focused material, draw, and OpenGL tests pass.
+  Checked-in authored material and shader
   recipes still use schema V1 and are not yet migrated to this bridge.
 - A separate `CypherRenderMaterialRuntime` bridge now adopts a limited CYMT V2
   material into caller-owned shader, pipeline, and zero to two texture handles.

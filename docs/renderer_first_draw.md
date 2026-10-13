@@ -256,6 +256,16 @@ Draw validation checks the selected index byte range and vertex-buffer capacity.
 It does not download GPU indices to inspect each value: the caller must ensure
 that every selected index is less than `vertexCount`. Validate imported index
 values during mesh loading. This example's fixed cube indices meet that contract.
+For one interleaved static stream, `R_CreateStaticMeshBundle` now performs the
+CPU index scan before creating its vertex buffer, index buffer, and vertex input.
+It accepts native-endian U16 or U32 indices and exact byte extents, then copies
+the source bytes synchronously. The caller can release its CPU arrays after
+creation. `R_ApplyStaticMeshBundleToDraw` fills the input and counts while
+preserving the draw's pipeline, material textures, uniforms, and frame state.
+`R_DestroyStaticMeshBundle` releases the input before its buffers; a failed
+destroy leaves still-live handles in the bundle for retry. Direct `R_DrawIndexed`
+callers remain responsible for validating their own indices. This helper does
+not define a `.cymesh` format, importer, or scene draw queue.
 
 ## Where to read next
 

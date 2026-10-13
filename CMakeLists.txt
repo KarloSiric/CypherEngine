@@ -682,6 +682,15 @@ target_link_libraries(CypherRenderMaterialRuntime
     PUBLIC Cypher::RenderResourceRuntime Cypher::Render
 )
 
+# Static geometry validation and ownership without freezing a mesh file format.
+add_library(CypherRenderMeshRuntime STATIC
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/Runtime/CypherRender_MeshBridge.cpp"
+)
+add_library(Cypher::RenderMeshRuntime ALIAS CypherRenderMeshRuntime)
+target_compile_features(CypherRenderMeshRuntime PUBLIC cxx_std_20)
+target_include_directories(CypherRenderMeshRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
+target_link_libraries(CypherRenderMeshRuntime PUBLIC Cypher::Render)
+
 add_library(CypherPak STATIC ${CYPHER_PAK_SOURCES})
 add_library(Cypher::Pak ALIAS CypherPak)
 target_compile_features(CypherPak PUBLIC cxx_std_20)
@@ -1796,6 +1805,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::RenderMaterialRuntime
         )
         cypher_add_common_catch_test(
+            cypher_render_mesh_bridge_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_MeshBridge_Tests.cpp"
+            Cypher::RenderMeshRuntime
+        )
+        cypher_add_common_catch_test(
             cypher_common_render_preview_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/CypherCommon_RenderPreview_Tests.cpp"
             Cypher::RenderPreview
@@ -2106,6 +2120,7 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_OpenGL_Smoke_Tests.cpp"
             Cypher::RenderMaterialRuntime
         )
+        target_link_libraries(cypher_render_opengl_smoke_tests PRIVATE Cypher::RenderMeshRuntime)
         # Render links Glad privately; this test only needs its native headers
         # for pixel readback and should not link a second Glad archive.
         target_include_directories(cypher_render_opengl_smoke_tests PRIVATE
