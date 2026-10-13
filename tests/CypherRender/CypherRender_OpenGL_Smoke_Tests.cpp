@@ -1061,6 +1061,15 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
         "#version 410 core\nin vec2 uv; uniform sampler2D base_color;\n"
         "layout(location=0) out vec4 color;\n"
         "void main() { float d=texture(base_color,uv).r; color=vec4(d,d,d,1.0); }\n";
+    constexpr char shadowSampleFragment[] =
+        "#version 410 core\nin vec2 uv; uniform sampler2DShadow shadow_map;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { float low=texture(shadow_map,vec3(uv,0.25));"
+        " float high=texture(shadow_map,vec3(uv,0.75)); color=vec4(low,high,0.0,1.0); }\n";
+    constexpr char inactiveShadowFragment[] =
+        "#version 410 core\nuniform sampler2DShadow shadow_map;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { color=vec4(1.0); }\n";
     const auto makeShader = [&]( const char *fragment, const common::u64 bytes ) {
         common::cooked_shader_view_t source{};
         source.nLanguageVersion = 410u;
@@ -1076,6 +1085,8 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     const auto solidShader = makeShader( solidFragment, sizeof( solidFragment ) );
     const auto sampleShader = makeShader( sampleFragment, sizeof( sampleFragment ) );
     const auto depthSampleShader = makeShader( depthSampleFragment, sizeof( depthSampleFragment ) );
+    const auto shadowSampleShader = makeShader( shadowSampleFragment, sizeof( shadowSampleFragment ) );
+    const auto inactiveShadowShader = makeShader( inactiveShadowFragment, sizeof( inactiveShadowFragment ) );
 
     // The first triangle is drawn to the target; the second covers presentation.
     const float vertices[]{
@@ -1121,6 +1132,21 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     pipelineDesc.shader = depthSampleShader;
     render::render_pipeline_handle_t depthSamplePipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &depthSamplePipeline ) == render::render_error_t::OK );
+    render::render_pipeline_handle_t invalidShadowPipeline{};
+    pipelineDesc.sampledTextures[0].kind = render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D;
+    CHECK( render::R_CreateGraphicsPipeline( pipelineDesc, &invalidShadowPipeline ) ==
+        render::render_error_t::ERR_SHADER_INTERFACE_MISMATCH );
+    pipelineDesc.shader = shadowSampleShader;
+    pipelineDesc.sampledTextures[0] = { "shadow_map",
+        render::render_sampled_texture_kind_t::SCALAR_2D };
+    CHECK( render::R_CreateGraphicsPipeline( pipelineDesc, &invalidShadowPipeline ) ==
+        render::render_error_t::ERR_SHADER_INTERFACE_MISMATCH );
+    pipelineDesc.sampledTextures[0].kind = render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D;
+    render::render_pipeline_handle_t shadowSamplePipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &shadowSamplePipeline ) == render::render_error_t::OK );
+    pipelineDesc.shader = inactiveShadowShader;
+    CHECK( render::R_CreateGraphicsPipeline( pipelineDesc, &invalidShadowPipeline ) ==
+        render::render_error_t::ERR_SHADER_INTERFACE_MISMATCH );
     pipelineDesc.shader = solidShader;
     pipelineDesc.sampledTextureCount = 0u;
     pipelineDesc.sampledTextures[0] = {};
@@ -1144,6 +1170,12 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     REQUIRE( render::R_CreateTexture2D( textureDesc, {}, &depth ) == render::render_error_t::OK );
     render::render_texture_handle_t depthOnlyTexture{};
     REQUIRE( render::R_CreateTexture2D( textureDesc, {}, &depthOnlyTexture ) == render::render_error_t::OK );
+    render::render_sampler_desc_t compareDesc{};
+    compareDesc.minFilter = compareDesc.magFilter = render::render_sampler_filter_t::NEAREST;
+    compareDesc.addressU = compareDesc.addressV = render::render_sampler_address_t::CLAMP_TO_EDGE;
+    compareDesc.compare = render::render_sampler_compare_t::LESS_EQUAL;
+    render::render_sampler_handle_t compareSampler{};
+    REQUIRE( render::R_CreateSampler( compareDesc, &compareSampler ) == render::render_error_t::OK );
     render::render_target_handle_t target{};
     REQUIRE( render::R_CreateRenderTarget( { color, depth }, &target ) == render::render_error_t::OK );
     render::render_target_handle_t depthOnlyTarget{};
@@ -1265,6 +1297,25 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     CHECK( depthOnlyNear[1] <= 145u );
     CHECK( depthOnlyFar[0] >= 240u );
     CHECK( depthOnlyFar[1] >= 240u );
+
+    // The depth-only pass wrote 0.5 inside the triangle and cleared the rest
+    // to 1.0. A nearest LEQUAL shadow sampler must pass reference 0.25 on
+    // both texels, but reject reference 0.75 only over the drawn triangle.
+    draw.pipeline = shadowSamplePipeline;
+    draw.samplers[0] = compareSampler;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    const auto shadowed = readPresentation( sampleRightX, sampleY );
+    const auto clearDepth = readPresentation( 1, 1 );
+    CHECK( shadowed[0] >= 240u );
+    CHECK( shadowed[1] <= 15u );
+    CHECK( clearDepth[0] >= 240u );
+    CHECK( clearDepth[1] >= 240u );
+    draw.pipeline = depthSamplePipeline;
+    draw.samplers[0] = {};
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    const auto rawAfterCompare = readPresentation( sampleRightX, sampleY );
+    CHECK( rawAfterCompare[0] >= 110u );
+    CHECK( rawAfterCompare[0] <= 145u );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
 
     REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
@@ -1274,9 +1325,11 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyTexture( depthOnlyTexture ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroySampler( compareSampler ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( solidPipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( samplePipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( depthSamplePipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( shadowSamplePipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( depthOnlyPipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( vb ) == render::render_error_t::OK );
@@ -1284,6 +1337,8 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyShader( solidShader ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyShader( sampleShader ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyShader( depthSampleShader ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( shadowSampleShader ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( inactiveShadowShader ) == render::render_error_t::OK );
 }
 
 } // namespace

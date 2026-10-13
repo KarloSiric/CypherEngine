@@ -34,9 +34,24 @@ enum class render_sampler_address_t : ::cypher::common::u8 {
     COUNT
 };
 
+// NONE reads the stored texel value. Other modes compare a shader-supplied
+// reference against depth storage when paired with a shadow-sampler binding.
+enum class render_sampler_compare_t : ::cypher::common::u8 {
+    NONE = 0,
+    LESS,
+    LESS_EQUAL,
+    GREATER,
+    GREATER_EQUAL,
+    EQUAL,
+    NOT_EQUAL,
+    ALWAYS,
+    NEVER,
+    COUNT
+};
+
 // A default-constructed explicit sampler uses linear min/mag filtering,
-// base-level-only sampling, and repeat addressing on both axes. Omit the
-// sampler handle on a draw to retain that texture's original sampling policy.
+// base-level-only sampling, repeat addressing, and no depth comparison. Omit
+// the sampler handle on a draw to retain that texture's original sampling policy.
 struct render_sampler_desc_t {
     render_sampler_filter_t minFilter{ render_sampler_filter_t::LINEAR };
     render_sampler_filter_t magFilter{ render_sampler_filter_t::LINEAR };
@@ -44,6 +59,7 @@ struct render_sampler_desc_t {
     render_sampler_address_t addressU{ render_sampler_address_t::REPEAT };
     render_sampler_address_t addressV{ render_sampler_address_t::REPEAT };
     const char *debugName{ nullptr }; // Borrowed only during creation.
+    render_sampler_compare_t compare{ render_sampler_compare_t::NONE };
 };
 
 struct render_sampler_info_t {
@@ -52,6 +68,7 @@ struct render_sampler_info_t {
     render_sampler_mip_filter_t mipFilter{ render_sampler_mip_filter_t::NONE };
     render_sampler_address_t addressU{ render_sampler_address_t::REPEAT };
     render_sampler_address_t addressV{ render_sampler_address_t::REPEAT };
+    render_sampler_compare_t compare{ render_sampler_compare_t::NONE };
 };
 
 CYPHER_NODISCARD render_error_t R_CreateSampler(

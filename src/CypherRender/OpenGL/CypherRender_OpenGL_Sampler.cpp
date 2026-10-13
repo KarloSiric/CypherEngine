@@ -45,6 +45,21 @@ GLenum GL_Address( const render_sampler_address_t address ) noexcept
         default: return 0u;
     }
 }
+
+GLenum GL_Compare( const render_sampler_compare_t compare ) noexcept
+{
+    switch ( compare ) {
+        case render_sampler_compare_t::LESS: return GL_LESS;
+        case render_sampler_compare_t::LESS_EQUAL: return GL_LEQUAL;
+        case render_sampler_compare_t::GREATER: return GL_GREATER;
+        case render_sampler_compare_t::GREATER_EQUAL: return GL_GEQUAL;
+        case render_sampler_compare_t::EQUAL: return GL_EQUAL;
+        case render_sampler_compare_t::NOT_EQUAL: return GL_NOTEQUAL;
+        case render_sampler_compare_t::ALWAYS: return GL_ALWAYS;
+        case render_sampler_compare_t::NEVER: return GL_NEVER;
+        default: return 0u;
+    }
+}
 } // namespace
 
 render_error_t GL_CreateSampler( const render_sampler_desc_t &description,
@@ -57,7 +72,12 @@ render_error_t GL_CreateSampler( const render_sampler_desc_t &description,
     const GLenum magFilter = GL_Filter( description.magFilter );
     const GLenum addressU = GL_Address( description.addressU );
     const GLenum addressV = GL_Address( description.addressV );
+    const GLenum compareFunc = GL_Compare( description.compare );
     if ( minFilter == 0u || magFilter == 0u || addressU == 0u || addressV == 0u ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    if ( description.compare >= render_sampler_compare_t::COUNT ||
+         ( description.compare != render_sampler_compare_t::NONE && compareFunc == 0u ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
 
@@ -72,6 +92,12 @@ render_error_t GL_CreateSampler( const render_sampler_desc_t &description,
     glSamplerParameteri( sampler, GL_TEXTURE_MAG_FILTER, static_cast<GLint>( magFilter ) );
     glSamplerParameteri( sampler, GL_TEXTURE_WRAP_S, static_cast<GLint>( addressU ) );
     glSamplerParameteri( sampler, GL_TEXTURE_WRAP_T, static_cast<GLint>( addressV ) );
+    glSamplerParameteri( sampler, GL_TEXTURE_COMPARE_MODE,
+        description.compare == render_sampler_compare_t::NONE
+            ? GL_NONE : GL_COMPARE_REF_TO_TEXTURE );
+    if ( description.compare != render_sampler_compare_t::NONE ) {
+        glSamplerParameteri( sampler, GL_TEXTURE_COMPARE_FUNC, static_cast<GLint>( compareFunc ) );
+    }
     const auto result = GL_CheckErrors( glState.config.validation );
     if ( result != render_error_t::OK ) {
         glDeleteSamplers( 1, &sampler );

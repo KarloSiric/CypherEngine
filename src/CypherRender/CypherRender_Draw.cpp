@@ -192,10 +192,22 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
         render_texture_info_t textureInfo{};
         result = R_TextureResolveForDraw( handle, &native.sampledTextures[i], &textureInfo );
         if ( result != render_error_t::OK ) return result;
+        const auto kind = pipeline.sampledTextureKinds[i];
+        if ( kind == render_sampled_texture_kind_t::DEPTH_COMPARE_2D &&
+             ( textureInfo.format != render_texture_format_t::D24 ||
+               sampler.value == R_INVALID_SAMPLER.value ) ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
         if ( sampler.value != R_INVALID_SAMPLER.value ) {
             render_sampler_info_t samplerInfo{};
             result = R_SamplerResolveForDraw( sampler, &native.samplers[i], &samplerInfo );
             if ( result != render_error_t::OK ) return result;
+            if ( ( kind == render_sampled_texture_kind_t::SCALAR_2D &&
+                   samplerInfo.compare != render_sampler_compare_t::NONE ) ||
+                 ( kind == render_sampled_texture_kind_t::DEPTH_COMPARE_2D &&
+                   samplerInfo.compare == render_sampler_compare_t::NONE ) ) {
+                return render_error_t::ERR_BINDING_MISMATCH;
+            }
             if ( samplerInfo.mipFilter != render_sampler_mip_filter_t::NONE &&
                  !textureInfo.generateMips ) {
                 return render_error_t::ERR_BINDING_MISMATCH;

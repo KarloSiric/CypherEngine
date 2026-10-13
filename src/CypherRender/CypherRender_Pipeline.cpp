@@ -127,10 +127,12 @@ render_error_t R_CreateGraphicsPipeline(
     if ( description.uniformBlockCount > tr.info.limits.maxUniformBufferBindings ) {
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
+    bool requiresComparisonSampler = false;
     for ( common::u32 i = 0u; i < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++i ) {
         const auto &texture = description.sampledTextures[i];
         if ( i < description.sampledTextureCount ) {
-            if ( texture.name == nullptr || texture.name[0] == '\0' ) {
+            if ( texture.name == nullptr || texture.name[0] == '\0' ||
+                 texture.kind >= render_sampled_texture_kind_t::COUNT ) {
                 return render_error_t::ERR_PIPELINE_DESC_INVALID;
             }
             for ( common::u32 j = 0u; j < i; ++j ) {
@@ -138,7 +140,9 @@ render_error_t R_CreateGraphicsPipeline(
                     return render_error_t::ERR_PIPELINE_DESC_INVALID;
                 }
             }
-        } else if ( texture.name != nullptr ) {
+            requiresComparisonSampler |= texture.kind == render_sampled_texture_kind_t::DEPTH_COMPARE_2D;
+        } else if ( texture.name != nullptr ||
+                    texture.kind != render_sampled_texture_kind_t::SCALAR_2D ) {
             return render_error_t::ERR_PIPELINE_DESC_INVALID;
         }
     }
@@ -149,6 +153,10 @@ render_error_t R_CreateGraphicsPipeline(
         if ( description.sampledTextureCount > tr.info.limits.maxCombinedTextureUnits ) {
             return render_error_t::ERR_CAPABILITY_MISSING;
         }
+    }
+    if ( requiresComparisonSampler &&
+         ( tr.backend.api->CreateSampler == nullptr || tr.backend.api->DestroySampler == nullptr ) ) {
+        return render_error_t::ERR_UNSUPPORTED;
     }
 
     backend_pipeline_desc_t nativeDescription{};
@@ -193,6 +201,9 @@ render_error_t R_CreateGraphicsPipeline(
         record.info.uniformBlockBytes[i] = description.uniformBlocks[i].byteSize;
     }
     record.info.sampledTextureCount = description.sampledTextureCount;
+    for ( common::u32 i = 0u; i < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++i ) {
+        record.info.sampledTextureKinds[i] = description.sampledTextures[i].kind;
+    }
     record.info.topology = description.topology;
     const common::handle32_t tableHandle = common::HandleTable_Insert( &pipelineSystem.records, record );
     if ( !common::Cy_Handle32IsValid( tableHandle ) ) {

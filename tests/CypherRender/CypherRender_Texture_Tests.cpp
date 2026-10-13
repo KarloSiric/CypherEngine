@@ -154,7 +154,8 @@ struct texture_fixture_t {
         REQUIRE( render::R_CreateBuffer( desc, nullptr, &result ) == texture_error_t::OK );
         return result;
     }
-    render::render_draw_indexed_desc_t MakeDraw( bool textured, bool twoBindings = false )
+    render::render_draw_indexed_desc_t MakeDraw( bool textured, bool twoBindings = false,
+        render::render_sampled_texture_kind_t kind = render::render_sampled_texture_kind_t::SCALAR_2D )
     {
         constexpr char source[] = "#version 410 core\nvoid main() {}\n";
         common::cooked_shader_view_t cooked{};
@@ -174,7 +175,10 @@ struct texture_fixture_t {
         pipeline.shader = shader;
         pipeline.vertexLayout = layout;
         pipeline.sampledTextureCount = textured ? ( twoBindings ? 2u : 1u ) : 0u;
-        if ( textured ) pipeline.sampledTextures[0].name = "base_color";
+        if ( textured ) {
+            pipeline.sampledTextures[0].name = "base_color";
+            pipeline.sampledTextures[0].kind = kind;
+        }
         if ( twoBindings ) {
             pipeline.sampledTextures[1].name = "detail";
             pipeline.uniformBlockCount = 2u;
@@ -187,6 +191,7 @@ struct texture_fixture_t {
         REQUIRE( render::R_GetGraphicsPipelineInfo( draw.pipeline, &pipelineInfo ) == texture_error_t::OK );
         CHECK( pipelineInfo.sampledTextureCount == pipeline.sampledTextureCount );
         CHECK( pipelineInfo.uniformBlockCount == pipeline.uniformBlockCount );
+        if ( textured ) CHECK( pipelineInfo.sampledTextureKinds[0] == kind );
         auto makeBuffer = []( common::u64 bytes, render::render_buffer_usage_flags_t usage ) {
             render::render_buffer_desc_t desc{};
             desc.byteSize = bytes;
@@ -386,6 +391,45 @@ TEST_CASE( "active depth attachment cannot be sampled until its pass ends",
     CHECK( fixture.capturedDraw.sampledTextures[0].value != 0u );
     REQUIRE( render::R_DestroyTexture( depth ) == texture_error_t::OK );
 }
+
+TEST_CASE( "shadow draws require depth storage and an explicit comparison sampler",
+           "[CypherRender][Texture][Depth][Sampler][Draw]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    auto shadow = fixture.MakeDraw( true, false,
+        render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D );
+    auto scalar = fixture.MakeDraw( true );
+    const auto color = fixture.Create();
+    render::render_texture_desc_t depthDesc{ 4u, 4u, false, false, false,
+        "Shadow depth", true, render::render_texture_format_t::D24 };
+    render::render_texture_handle_t depth{};
+    REQUIRE( render::R_CreateTexture2D( depthDesc, {}, &depth ) == texture_error_t::OK );
+    render::render_sampler_desc_t compareDesc{};
+    compareDesc.compare = render::render_sampler_compare_t::LESS_EQUAL;
+    render::render_sampler_handle_t compare{};
+    REQUIRE( render::R_CreateSampler( compareDesc, &compare ) == texture_error_t::OK );
+    const auto raw = fixture.Sampler();
+
+    shadow.sampledTextures[0] = color;
+    shadow.samplers[0] = compare;
+    CHECK( render::R_DrawIndexed( shadow ) == texture_error_t::ERR_BINDING_MISMATCH );
+    shadow.sampledTextures[0] = depth;
+    shadow.samplers[0] = {};
+    CHECK( render::R_DrawIndexed( shadow ) == texture_error_t::ERR_BINDING_MISMATCH );
+    shadow.samplers[0] = raw;
+    CHECK( render::R_DrawIndexed( shadow ) == texture_error_t::ERR_BINDING_MISMATCH );
+    shadow.samplers[0] = compare;
+    REQUIRE( render::R_DrawIndexed( shadow ) == texture_error_t::OK );
+
+    scalar.sampledTextures[0] = depth;
+    scalar.samplers[0] = compare;
+    CHECK( render::R_DrawIndexed( scalar ) == texture_error_t::ERR_BINDING_MISMATCH );
+    scalar.samplers[0] = raw;
+    REQUIRE( render::R_DrawIndexed( scalar ) == texture_error_t::OK );
+    CHECK( fixture.draws == 2u );
+}
+
 TEST_CASE( "untextured pipelines reject an undeclared sampled binding", "[CypherRender][Texture][Draw]" )
 {
     texture_fixture_t fixture;
@@ -485,6 +529,7 @@ TEST_CASE( "immutable samplers validate policy and retain inspected metadata",
     CHECK( desc.minFilter == render::render_sampler_filter_t::LINEAR );
     CHECK( desc.magFilter == render::render_sampler_filter_t::LINEAR );
     CHECK( desc.mipFilter == render::render_sampler_mip_filter_t::NONE );
+    CHECK( desc.compare == render::render_sampler_compare_t::NONE );
 
     render::render_sampler_handle_t out{ 99u };
     for ( const auto invalidFilter : {
@@ -506,16 +551,21 @@ TEST_CASE( "immutable samplers validate policy and retain inspected metadata",
     desc.addressU = render::render_sampler_address_t::CLAMP_TO_EDGE;
     desc.addressV = static_cast<render::render_sampler_address_t>( 255u );
     CHECK( render::R_CreateSampler( desc, &out ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    desc.addressV = render::render_sampler_address_t::REPEAT;
+    desc.compare = static_cast<render::render_sampler_compare_t>( 255u );
+    CHECK( render::R_CreateSampler( desc, &out ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( out.value == 0u );
     CHECK( fixture.samplerCreates == 0u );
     CHECK( render::R_CreateSampler( desc, nullptr ) == texture_error_t::ERR_INVALID_ARGUMENT );
 
-    desc.addressV = render::render_sampler_address_t::REPEAT;
+    desc.compare = render::render_sampler_compare_t::LESS_EQUAL;
     desc.debugName = "Immutable sampler";
     REQUIRE( render::R_CreateSampler( desc, &out ) == texture_error_t::OK );
     CHECK( render::R_IsSamplerValid( out ) );
     CHECK( fixture.samplerCreates == 1u );
     CHECK( fixture.capturedSampler.minFilter == desc.minFilter );
     CHECK( fixture.capturedSampler.mipFilter == desc.mipFilter );
+    CHECK( fixture.capturedSampler.compare == render::render_sampler_compare_t::LESS_EQUAL );
     render::render_sampler_info_t info{};
     REQUIRE( render::R_GetSamplerInfo( out, &info ) == texture_error_t::OK );
     CHECK( info.minFilter == desc.minFilter );
@@ -523,6 +573,7 @@ TEST_CASE( "immutable samplers validate policy and retain inspected metadata",
     CHECK( info.mipFilter == desc.mipFilter );
     CHECK( info.addressU == desc.addressU );
     CHECK( info.addressV == desc.addressV );
+    CHECK( info.compare == desc.compare );
     CHECK( render::R_GetSamplerInfo( out, nullptr ) == texture_error_t::ERR_INVALID_ARGUMENT );
 
     const auto wrongKind = common::Cy_Handle64Make( common::Cy_Handle64Index( out ),

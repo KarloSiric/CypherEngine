@@ -173,8 +173,12 @@ texture in a later draw. Binding either active attachment for sampling is
 rejected to prevent read/write feedback. The current shader interface accepts
 ordinary `sampler2D`; read `texture(depth_image, uv).r` and perform any depth
 comparison explicitly in the shader. This supports depth diagnostics and
-manual shadow experiments. Hardware comparison samplers and automatic shadow
-pass scheduling remain separate work.
+manual shadow experiments. For an OpenGL 4.1 shadow comparison, declare the
+pipeline slot as `DEPTH_COMPARE_2D` for an active `sampler2DShadow` uniform,
+then pair the D24 texture with an explicit sampler whose `compare` is not
+`NONE`. A scalar slot rejects a comparison sampler; a shadow slot rejects a
+color texture or missing comparison sampler. Automatic shadow-pass scheduling
+and light-space view setup remain separate work.
 
 OpenGL 4.1 treats depth textures as red textures for ordinary sampling; see
 sections 3.8.9 and 3.8.16 of the [OpenGL 4.1 Core Specification](https://registry.khronos.org/OpenGL/specs/gl/glspec41.core.pdf).

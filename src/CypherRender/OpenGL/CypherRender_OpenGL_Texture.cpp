@@ -68,8 +68,8 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0 );
     if ( !description.generateMips ) glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0 );
     if ( description.format == render_texture_format_t::D24 ) {
-        // A scalar sampler2D reads the stored depth for manual comparison.
-        // Keep hardware shadow-comparison mode disabled for this contract.
+        // The texture default keeps scalar sampler2D reads available. An
+        // explicit comparison sampler overrides this state for shadow reads.
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE );
         glTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24,
             static_cast<GLsizei>( description.width ), static_cast<GLsizei>( description.height ),

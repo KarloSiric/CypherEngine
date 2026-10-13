@@ -1,11 +1,13 @@
 # Renderer resource bindings: first two-slot contract
 
 An immutable graphics pipeline declares zero, one, or two named GLSL uniform
-blocks and zero, one, or two named scalar `sampler2D` uniforms. Entries occupy
-consecutive logical slots beginning at zero. The matching indexed draw supplies
-one live uniform buffer or texture handle for every declared slot, and leaves
-every unused slot invalid. A block uses its whole buffer; the buffer must be at
-least as large as the block's reflected byte size and may not be CPU-mapped.
+blocks and zero, one, or two named sampled-image uniforms. Each sampled slot
+declares either ordinary `sampler2D` (the default) or `sampler2DShadow`.
+Bindings occupy consecutive logical slots beginning at zero. The matching
+indexed draw supplies one live uniform buffer or texture handle for every
+declared slot and leaves every unused slot invalid. A block uses its whole
+buffer; the buffer must be at least as large as the block's reflected byte
+size and may not be CPU-mapped.
 
 The OpenGL 4.1 backend maps uniform slot *i* to uniform-buffer binding point
 *i*, and texture slot *i* to texture unit *i*. Pipeline creation reflects the
@@ -58,8 +60,16 @@ texture slot is a binding mismatch. A mip-filtered sampler cannot be paired with
 a texture created without mip levels, including a render-target texture.
 This includes D24 target depth: it has one mip level and can be read by a
 scalar `sampler2D` after its target pass ends. The shader reads depth from the
-sample's red component. Depth comparison remains a shader operation in this
-contract; shadow-comparison samplers are not exposed yet.
+sample's red component. For hardware depth comparison, declare that pipeline
+slot as `DEPTH_COMPARE_2D`, use an active `sampler2DShadow` uniform, and bind
+a D24 texture with an explicit sampler whose `compare` is, for example,
+`LESS_EQUAL`. A shadow slot rejects a color texture, an omitted sampler, or a
+sampler with `compare = NONE`. A scalar slot rejects a comparison sampler.
+These checks prevent undefined OpenGL shader/sampler combinations. The D24
+texture itself retains ordinary scalar sampling as its default; the explicit
+sampler supplies comparison behavior for that draw. Nearest filtering gives a
+single comparison; the exact filtering of multiple depth comparisons with
+linear sampling is implementation-dependent.
 
 Sampler handles are generational renderer objects, independent of texture
 handles. Draws resolve them immediately on the renderer thread; neither object
@@ -68,7 +78,7 @@ the corresponding texture unit, or binds sampler zero for the legacy policy.
 Hosted frames restore the host's sampler bindings for both used units.
 
 This is a binding contract, not yet a material system. Cooked material loading,
-anisotropy and comparison samplers, arrays, cubemaps, storage buffers, ordinary
+anisotropy, arrays, cubemaps, storage buffers, ordinary
 uniforms, more than two slots, and reusable draw queues remain separate work.
 The hosted frame preserves both slots of borrowed OpenGL texture, sampler, and
 indexed uniform-buffer state. It currently queries this state each frame; its

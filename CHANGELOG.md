@@ -25,6 +25,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Immutable OpenGL 4.1 samplers can now compare a shader-supplied reference
+  against D24 depth. A pipeline declares `DEPTH_COMPARE_2D` for an active
+  `sampler2DShadow`; draws require a D24 texture and an explicit comparison
+  sampler. Ordinary `sampler2D` depth reads remain available and reject
+  comparison samplers. The backend reflects the declared GLSL sampler type
+  before pipeline creation. Light-space setup, shadow-pass scheduling, and
+  material integration remain separate work.
 - A D24 depth texture can now form an offscreen target without a color
   attachment. The target derives its extent from depth and routes OpenGL draw
   and read color buffers to `GL_NONE`. Depth-only passes reject color clears;
@@ -117,6 +124,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Advanced the public renderer API to version 12 and private backend contract
+  to version 19 for typed sampled-image bindings and comparison sampler state.
+  Invalid slot declarations, missing backend sampler support, mismatched
+  textures, and incompatible sampler policies are rejected before a draw.
 - Advanced the public renderer API to version 11 and private backend contract
   to version 18 for colorless depth targets. Both frontend and OpenGL backend
   validate the presence of at least one attachment. Target creation and
@@ -163,6 +174,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Rebuilt the focused renderer, Host, resource-runtime, and cube targets in the
+  existing `build-mason` tree. All eleven selected renderer/Host CTests passed.
+  The native OpenGL smoke passed 599 assertions and verified nearest `LESS_EQUAL`
+  shadow comparisons against drawn 0.5 depth and cleared 1.0 depth, followed by
+  ordinary raw depth sampling. Draw and texture tests passed 274 and 390
+  assertions; the cube rendered two hidden frames. Independent source review
+  found no blocking issue.
 - Rebuilt the renderer, Host, resource-runtime, and cube targets in the existing
   `build-mason` tree. All eleven selected renderer/Host CTests passed. Native
   and hosted OpenGL smokes passed 577 and 197 assertions; native pixels read

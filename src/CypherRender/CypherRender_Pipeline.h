@@ -46,13 +46,20 @@ enum class render_depth_compare_t : ::cypher::common::u8 {
 inline constexpr ::cypher::common::u32 R_MAX_UNIFORM_BLOCK_BINDINGS = 2u;
 inline constexpr ::cypher::common::u32 R_MAX_SAMPLED_TEXTURE_BINDINGS = 2u;
 
+enum class render_sampled_texture_kind_t : ::cypher::common::u8 {
+    SCALAR_2D = 0,       // Active scalar sampler2D; RGBA8 or raw D24 depth.
+    DEPTH_COMPARE_2D,    // Active sampler2DShadow; D24 and an explicit compare sampler.
+    COUNT
+};
+
 struct render_uniform_block_binding_t {
     const char *name{ nullptr };
     ::cypher::common::u32 byteSize{ 0u };
 };
 
 struct render_sampled_texture_binding_t {
-    const char *name{ nullptr }; // Active scalar sampler2D.
+    const char *name{ nullptr }; // Active GLSL sampler with the declared kind.
+    render_sampled_texture_kind_t kind{ render_sampled_texture_kind_t::SCALAR_2D };
 };
 
 // First-draw scope: triangle or line lists, solid fill, selectable depth test,
@@ -92,13 +99,15 @@ struct render_pipeline_info_t {
     ::cypher::common::u32 uniformBlockCount{ 0u };
     ::cypher::common::u32 uniformBlockBytes[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
     ::cypher::common::u32 sampledTextureCount{ 0u };
+    render_sampled_texture_kind_t sampledTextureKinds[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
 };
 
 // Declared slots are contiguous from zero and map to GL uniform-buffer binding
 // points and texture units of the same index. Shader names and exact block sizes
-// are reflected against the linked program. Unused array entries must be empty.
-// Other ordinary uniforms remain unsupported.
+// and sampler kinds are reflected against the linked program. SCALAR_2D uses
+// GLSL sampler2D; DEPTH_COMPARE_2D uses sampler2DShadow. Unused array entries
+// must be empty. Other ordinary uniforms remain unsupported.
 CYPHER_NODISCARD render_error_t R_CreateGraphicsPipeline(
     const render_pipeline_desc_t &description,
     CY_OUT render_pipeline_handle_t *pipelineOut ) noexcept;

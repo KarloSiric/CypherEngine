@@ -46,7 +46,8 @@ bool ValidSamplerDescription( const render_sampler_desc_t &description ) noexcep
         description.magFilter < render_sampler_filter_t::COUNT &&
         description.mipFilter < render_sampler_mip_filter_t::COUNT &&
         description.addressU < render_sampler_address_t::COUNT &&
-        description.addressV < render_sampler_address_t::COUNT;
+        description.addressV < render_sampler_address_t::COUNT &&
+        description.compare < render_sampler_compare_t::COUNT;
 }
 } // namespace
 
@@ -99,7 +100,7 @@ render_error_t R_CreateSampler( const render_sampler_desc_t &description,
         return result != render_error_t::OK ? result : render_error_t::ERR_INTERNAL_ERROR;
     }
     record.info = { description.minFilter, description.magFilter, description.mipFilter,
-        description.addressU, description.addressV };
+        description.addressU, description.addressV, description.compare };
     const auto slot = common::HandleTable_Insert( &samplerSystem.records, record );
     if ( !common::Cy_Handle32IsValid( slot ) ) {
         (void)tr.backend.api->DestroySampler( record.native, tr.backend.state );

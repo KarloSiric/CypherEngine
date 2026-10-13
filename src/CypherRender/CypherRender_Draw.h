@@ -66,8 +66,10 @@ struct render_draw_indexed_desc_t {
 // caller guarantees every selected index is strictly less than vertexCount.
 // Per-instance attributes advance according to their layout divisor. An
 // explicit sampler overrides texture-owned sampling for its paired image; a
-// null sampler retains the original policy. Mip samplers require generated
-// mips. Enabled scissor and viewport rectangles must fit the active framebuffer.
+// null sampler retains the original policy. A depth-comparison binding requires
+// D24 storage and an explicit comparison sampler; scalar bindings reject a
+// comparison sampler. Mip samplers require generated mips. Enabled scissor and
+// viewport rectangles must fit the active framebuffer.
 // A viewport does not clip; combine it with scissor when clipping is needed. No base
 // instance, base vertex, primitive restart, or deferred pointers.
 CYPHER_NODISCARD render_error_t R_DrawIndexed(

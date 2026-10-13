@@ -255,6 +255,14 @@ TEST_CASE( "pipeline validation checks block shape and instancing capability", "
     description.sampledTextures[0].name = "base_color";
     description.sampledTextures[1].name = "base_color";
     CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description = fixture.PipelineDescription();
+    description.sampledTextureCount = 1u;
+    description.sampledTextures[0] = { "shadow_map",
+        static_cast<render::render_sampled_texture_kind_t>( 255u ) };
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description = fixture.PipelineDescription();
+    description.sampledTextures[1].kind = render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D;
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
     description = fixture.PipelineDescription( 16385u );
     CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED );
     description = fixture.PipelineDescription();
@@ -268,6 +276,21 @@ TEST_CASE( "pipeline validation checks block shape and instancing capability", "
     CHECK( fixture.pipelineCreates == 1u );
     REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == draw_error_t::OK );
     CHECK( render::R_DestroyShader( fixture.shader ) == draw_error_t::OK );
+}
+
+TEST_CASE( "comparison pipelines need backend sampler support", "[CypherRender][Draw][Depth]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    render::tr.info.limits.maxCombinedTextureUnits = 16u;
+    auto description = fixture.PipelineDescription();
+    description.sampledTextureCount = 1u;
+    description.sampledTextures[0] = { "shadow_map",
+        render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D };
+    render::render_pipeline_handle_t pipeline{};
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_UNSUPPORTED );
+    CHECK( pipeline.value == 0u );
+    CHECK( fixture.pipelineCreates == 0u );
 }
 
 TEST_CASE( "pipeline info preserves two declared uniform block byte sizes",

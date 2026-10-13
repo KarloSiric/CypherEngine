@@ -24,6 +24,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Immutable OpenGL 4.1 samplers can compare a reference against D24 depth.
+  DEPTH_COMPARE_2D pipeline slots require an active sampler2DShadow, D24
+  storage and an explicit comparison sampler. Ordinary sampler2D depth reads
+  remain available and reject comparison samplers. GLSL sampler types are
+  reflected at pipeline creation. Light-space setup, shadow-pass scheduling
+  and material integration remain separate work.
 - A D24 texture can now form a depth-only offscreen target. Its extent comes
   from depth, and OpenGL draw/read color routing is GL_NONE. Depth-only passes
   reject color clears and use R_CLEAR_DEPTH. Existing color-only targets keep
@@ -93,6 +99,9 @@ Added
   ordinary runtime still has no scene producer.
 
 Changed
+- Public renderer API version 12 and private backend version 19 add typed
+  sampled-image bindings and comparison sampler state. Invalid declarations,
+  missing backend support, incompatible textures and samplers are rejected.
 - Public renderer API version 11 and private backend version 18 permit
   colorless depth targets. Creation and shutdown retain/release only supplied
   attachments, and both layers reject a target without any attachment.
@@ -131,6 +140,12 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Focused renderer, Host, resource-runtime and cube targets rebuilt in the
+  existing build-mason tree. All eleven selected renderer/Host CTests passed.
+  Native OpenGL smoke passed 599 assertions, verifying nearest LESS_EQUAL
+  shadow comparisons against drawn 0.5 and cleared 1.0 depth, then ordinary
+  raw depth sampling. Draw and texture tests passed 274 and 390 assertions;
+  cube rendered two hidden frames. Independent source review found no blocker.
 - Renderer, Host, resource-runtime and cube targets rebuilt in the existing
   build-mason tree. All eleven selected renderer/Host CTests passed. Native
   and hosted OpenGL smokes passed 577 and 197 assertions; depth-only pixels

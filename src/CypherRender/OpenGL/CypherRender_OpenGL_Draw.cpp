@@ -171,8 +171,8 @@ render_error_t GL_ValidatePipelineUniforms(
         if ( samplerLocationsOut[slot] < 0 ) return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
     }
     common::u32 samplerCount = 0u;
-    // Only declared scalar sampler2D uniforms are supported. Reject every other
-    // ordinary uniform, sampler type, multi-element array, or undeclared binding.
+    // Only declared scalar sampler2D or sampler2DShadow uniforms are supported.
+    // Reject every other ordinary uniform, array, or undeclared binding.
     for ( GLint i = 0; i < uniformCount; ++i ) {
         const GLuint uniform = static_cast<GLuint>( i );
         GLint blockIndex = -1;
@@ -185,7 +185,7 @@ render_error_t GL_ValidatePipelineUniforms(
             glGetActiveUniformsiv( program, 1, &uniform, GL_UNIFORM_SIZE, &size );
             result = GL_CheckErrors( glState.config.validation );
             if ( result != render_error_t::OK ) return result;
-            if ( type != GL_SAMPLER_2D || size != 1 ) return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
+            if ( size != 1 ) return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
             bool declared = false;
             for ( common::u32 slot = 0u; slot < description.sampledTextureCount; ++slot ) {
                 GLuint expectedIndex = GL_INVALID_INDEX;
@@ -193,7 +193,15 @@ render_error_t GL_ValidatePipelineUniforms(
                 glGetUniformIndices( program, 1, &name, &expectedIndex );
                 result = GL_CheckErrors( glState.config.validation );
                 if ( result != render_error_t::OK ) return result;
-                if ( expectedIndex == uniform ) declared = true;
+                if ( expectedIndex == uniform ) {
+                    const GLenum expectedType = description.sampledTextures[slot].kind ==
+                            render_sampled_texture_kind_t::DEPTH_COMPARE_2D
+                        ? GL_SAMPLER_2D_SHADOW : GL_SAMPLER_2D;
+                    if ( type != static_cast<GLint>( expectedType ) ) {
+                        return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
+                    }
+                    declared = true;
+                }
             }
             if ( !declared ) return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
             ++samplerCount;
@@ -289,7 +297,8 @@ render_error_t GL_CreateGraphicsPipeline(
     for ( common::u32 slot = 0u; slot < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++slot ) {
         const auto &texture = description.sampledTextures[slot];
         if ( slot < description.sampledTextureCount ) {
-            if ( texture.name == nullptr || texture.name[0] == '\0' ) {
+            if ( texture.name == nullptr || texture.name[0] == '\0' ||
+                 texture.kind >= render_sampled_texture_kind_t::COUNT ) {
                 return render_error_t::ERR_PIPELINE_DESC_INVALID;
             }
             for ( common::u32 previous = 0u; previous < slot; ++previous ) {
@@ -297,7 +306,8 @@ render_error_t GL_CreateGraphicsPipeline(
                     return render_error_t::ERR_PIPELINE_DESC_INVALID;
                 }
             }
-        } else if ( texture.name != nullptr ) {
+        } else if ( texture.name != nullptr ||
+                    texture.kind != render_sampled_texture_kind_t::SCALAR_2D ) {
             return render_error_t::ERR_PIPELINE_DESC_INVALID;
         }
     }

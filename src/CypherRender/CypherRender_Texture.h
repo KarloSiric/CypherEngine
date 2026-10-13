@@ -16,7 +16,8 @@ using render_texture_handle_t = render_handle_t;
 inline constexpr render_texture_handle_t R_INVALID_TEXTURE{};
 
 // One-layer, one-face sampled images. D24 is GPU-only depth storage for an
-// offscreen target; shaders may sample its scalar depth after the pass ends.
+// offscreen target; shaders may sample scalar depth or compare a reference
+// against it after the pass ends.
 enum class render_texture_format_t : ::cypher::common::u8 {
     RGBA8 = 0,
     D24,
