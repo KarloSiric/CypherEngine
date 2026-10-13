@@ -412,6 +412,36 @@ TEST_CASE( "World draw preparation rejects singular transforms before staging",
     CHECK( fixture.uploadCalls == 0u );
 }
 
+TEST_CASE( "World draw preparation preserves small positive object scales",
+    "[CypherRender][WorldDraw]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    const auto id = fixture.Add( 0u, 0u, 0.0f );
+    world::world_object_t object{};
+    REQUIRE( world::World_GetObject(
+        fixture.pWorld, id, &object ) == world::world_error_t::OK );
+    object.localToWorld = math::Affine3_FromScale(
+        { 0.001f, 0.001f, 0.001f } );
+    REQUIRE( world::World_UpdateObject(
+        fixture.pWorld, id, &object ) == world::world_error_t::OK );
+    fixture.Build();
+
+    render::render_world_opaque_draw_t output{};
+    common::u32 count = 0u;
+    REQUIRE( render::R_PrepareOpaqueWorldDraws(
+        fixture.Description(), &output, 1u, &count ) ==
+        render::render_error_t::OK );
+    CHECK( count == 1u );
+    CHECK( fixture.uploadCalls == 1u );
+    CHECK( output.objectId.slot.value == id.slot.value );
+    math::mat4_t model{};
+    std::memcpy( &model, fixture.uploaded, sizeof( model ) );
+    CHECK( model.m[0] == 0.001f );
+    CHECK( model.m[5] == 0.001f );
+    CHECK( model.m[10] == 0.001f );
+}
+
 TEST_CASE( "World draw preparation rejects nonopaque materials before staging",
     "[CypherRender][WorldDraw]" )
 {

@@ -25,6 +25,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Opaque World draw preparation now accepts valid small positive scales such
+  as 0.001 on each axis. It computes orientation in binary64 without an
+  unused inverse-matrix tolerance; singular and mirrored transforms still
+  fail before staging. The World-draw test passes 207 assertions in nine cases.
+- Cooked-material preflight now rejects incomplete authored mip chains before
+  creating shader or texture GPU objects, for RGBA8 and RGBA32_FLOAT. The
+  material-bridge test passes 807 assertions in seven cases.
 - Mirrored graybox objects now keep their outward faces under back-face
   culling. Normal packing reports the sign of a validated transform
   determinant without changing its 48-byte std140 layout; the sample selects
@@ -82,6 +89,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Cooked-material adoption now accepts fully resident linear RGBA32_FLOAT
+  2D color textures with a single level or complete authored mips, alongside
+  the existing RGBA8 textures. The bridge rejects float DATA images and
+  streamed mip tails before GPU creation, while the renderer's cooked-texture
+  validation and rollback still own exact bytes, upload, and failure cleanup.
+  Material-bridge tests pass 807 assertions in seven cases; native OpenGL 4.1
+  smoke passes 1,342 assertions in two cases, including a cooked float albedo
+  sampled as unclamped 4.0 red into an RGBA16F target. Fourteen focused
+  World/render CTests pass. This does not add material value parameters,
+  cubemaps, or texture streaming.
 - A separate `CypherRenderWorldRuntime` bridge now prepares bounded opaque
   camera draws from an active, copied World submission. It resolves logical
   mesh/material slots through borrowed bundle tables, checks every visible
@@ -89,8 +106,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   once, and publishes ordered draws only after a successful upload. Stale
   tokens, unresolved slots, unsupported modes/transforms, and insufficient
   capacity leave output unchanged; an upload failure keeps the caller's batch
-  sealed for retry or reset. The focused test passes 184 assertions across
-  eight cases; a native OpenGL 4.1 pixel oracle verifies that a World model
+  sealed for retry or reset. The focused test passes 207 assertions across
+  nine cases; a native OpenGL 4.1 pixel oracle verifies that a World model
   transform moves otherwise offscreen geometry into view through the cooked
   material and static mesh path (1,291 smoke assertions in two cases). Six
   focused World/render CTests pass. This does not yet cover mirrored
@@ -106,8 +123,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   passes 781 assertions in 26 cases, native OpenGL smoke passes 1,282
   assertions including raw and authored-mip pixels, and ten focused renderer
   CTests pass. The 120-frame hidden sample still renders its existing scene.
-  Cooked-material adoption remains RGBA8-only; cubemaps and streaming are
-  still separate work.
+  Cooked-material adoption for RGBA32F is recorded above; cubemaps and
+  streaming are still separate work.
 - The graybox sample's fixed directional shadow now averages a 3×3 neighborhood
   of nearest-filtered depth comparisons. Out-of-map taps count as lit, so its
   edge softens without darkening outside the light volume. A native pixel test

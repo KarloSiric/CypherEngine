@@ -57,7 +57,8 @@ struct render_material_bridge_result_t {
 
 // Accepts CYMT V2 / CYSH V3 with no features, material parameters or named
 // surface; SURFACE + OPAQUE, MASK, BLEND, or ADDITIVE state; zero to two
-// 2D color textures with identity UV0 and no sampler preset. All shader
+// 2D color textures (linear/sRGB RGBA8 or linear RGBA32_FLOAT) with identity
+// UV0 and no sampler preset. All shader
 // resource bindings must be represented by those textures or caller-declared
 // uniform blocks. The renderer must support the selected shader and textures.
 // Resource views are borrowed until synchronous GPU creation finishes. All

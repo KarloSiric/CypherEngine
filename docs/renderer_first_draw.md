@@ -320,7 +320,9 @@ Missing slots, stale renderer handles, unsupported material modes, invalid
 transforms, and insufficient draw or uniform capacity leave the caller's draw
 array and count unpublished. A failed GPU upload can leave the uniform batch
 sealed with staged data; the host must retry the upload or reset the batch after
-the frame. The first bridge slice handles opaque camera draws with a model-only
+the frame. This model-only path accepts any finite, positive-orientation,
+nonsingular transform, including small scales; it does not require a usable
+inverse matrix. The first bridge slice handles opaque camera draws with a model-only
 object uniform record. It does not replace the graybox sample's separate shadow,
 translucent, additive, normal-matrix, or mirrored-winding policy, and it is not
 an authored map or mesh loader. The focused CPU test covers two visible objects
@@ -412,10 +414,14 @@ An immutable linear RGBA32F 2D image can now be uploaded through
 `R_CreateTexture2D` with 16 bytes per texel, or adopted from a fully resident
 cooked RGBA32_FLOAT color image. A complete authored mip chain is uploaded as
 written; direct pixels may request generated mips. This is sampled input, not
-a render-target format or automatic material binding. The native smoke test
+a render-target format. The limited cooked-material bridge now accepts a
+compatible linear RGBA32_FLOAT color dependency; it does not provide a general
+material system or automatic binding outside that bridge. The native smoke test
 samples a 4.0 red texel into an RGBA16F target and reads it back as float,
 then samples an authored 3.0 green mip with explicit LOD. It also checks that
-uploads restore a host's pixel-unpack buffer and byte-swap settings.
+uploads restore a host's pixel-unpack buffer and byte-swap settings. A separate
+cooked-material pixel check adopts a 4.0-red float albedo through the bridge
+and reads the unclamped result from an HDR target.
 
 ### HDR presentation in the graybox sample
 

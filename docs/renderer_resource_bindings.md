@@ -139,9 +139,9 @@ A valid CYTX file using compression, streaming, an incomplete multi-level
 chain, 3D storage, or another pixel format returns
 `ERR_RESOURCE_FORMAT_UNSUPPORTED`. Invalid or modified views and file bytes
 return `ERR_INVALID_ARGUMENT`. A backend without authored-level upload returns
-`ERR_UNSUPPORTED`. The current cooked-material bridge still accepts only
-RGBA8 textures; float images can be bound directly by a scene owner. Cubemaps,
-streaming, and wider material binding remain separate work.
+`ERR_UNSUPPORTED`. Compatible float images can also be adopted by the limited
+cooked-material bridge described below. Cubemaps, streaming, and wider material
+binding remain separate work.
 
 ## Adopting a cooked material subset
 
@@ -161,8 +161,10 @@ before its shader, followed by independent textures.
 This first bridge accepts CYMT V2 opaque, mask, blend, or additive surface
 materials with the default empty feature variant, no value parameters, no named
 surface, identity UV0, and no authored sampler preset. It supports zero to
-two 2D color RGBA8 textures (linear or sRGB) that the existing texture-adoption
-path can upload.
+two fully resident 2D color textures in linear/sRGB RGBA8 or linear
+RGBA32_FLOAT, with one or a complete authored mip chain, that the existing
+texture-adoption path can upload. Float DATA textures and streamed mip tails
+remain unsupported and are rejected before GPU creation.
 All shader resource bindings must fit those texture slots or the caller's
 declared uniform blocks. A two-sided material disables back-face culling; its
 shadow flags remain metadata for a later scene/pass scheduler. The bundle
@@ -188,11 +190,14 @@ retry destruction before renderer shutdown. This is synchronous adoption, not
 a cache, material hot reload, asset dependency residency manager, or complete
 CYMT feature implementation.
 
-The hidden-window OpenGL smoke generates one compatible material, shader, and
-texture in memory, loads them through the VFS and resource manager, releases
-their CPU handles, and verifies the bound texture with a framebuffer pixel
-read. Its geometry comes from the validated static-mesh upload bundle. This
-proves the two narrow bridges reach a real OpenGL 4.1 draw. Checked-in
+The hidden-window OpenGL smoke generates compatible materials, a shader, and
+textures in memory, loads them through the VFS and resource manager, releases
+their CPU handles, and verifies the RGBA8 image with a framebuffer pixel read.
+A second draw adopts a cooked RGBA32_FLOAT albedo through the material bridge,
+samples a red value of 4.0 into an RGBA16F target, and reads it back without
+clipping. Its geometry comes from the validated static-mesh upload bundle and
+an active World submission. These tests prove the narrow bridges reach real
+OpenGL 4.1 draws. Checked-in
 authored `.cymat` and `.cyshader` recipes still use schema V1 and do not yet
 produce the CYMT V2/CYSH V3 pair required by this bridge.
 

@@ -175,6 +175,82 @@ struct cooked_files_t {
             description, { &mip, 1u }, common::ContentHash_String( name ),
             { file.data(), file.size() } ) ) );
     }
+
+    static void MakeFloatTexture( std::vector<common::byte> &file,
+        bool authoredMips,
+        common::render_texture_usage_t usage = common::render_texture_usage_t::COLOR,
+        common::cooked_texture_residency_t residency =
+            common::cooked_texture_residency_t::FULLY_RESIDENT )
+    {
+        // The second level starts at byte 64. These are finite, exactly
+        // representable values, including a channel above display white.
+        const float pixels[20]{ 4.0F, 0.5F, 0.25F, 1.0F,
+            2.0F, 0.25F, 0.5F, 1.0F, 1.0F, 0.5F, 0.25F, 1.0F,
+            0.5F, 0.25F, 0.125F, 1.0F, 3.0F, 0.5F, 0.25F, 1.0F };
+        const auto *bytes = reinterpret_cast<const common::byte *>( pixels );
+        common::cooked_texture_desc_t description{};
+        description.pixelFormat = common::render_texture_pixel_format_t::RGBA32_FLOAT;
+        description.storageFormat = common::render_format_t::RGBA32_FLOAT;
+        description.colorSpace = common::render_texture_color_space_t::LINEAR;
+        description.usage = usage;
+        description.residency = residency;
+        if ( usage == common::render_texture_usage_t::DATA ) {
+            description.alphaMode = common::cooked_texture_alpha_mode_t::DATA;
+        }
+        description.nWidth = authoredMips ? 2u : 1u;
+        description.nHeight = authoredMips ? 2u : 1u;
+        description.nMipLevels = authoredMips ? 2u : 1u;
+        if ( residency == common::cooked_texture_residency_t::MIP_STREAMED ) {
+            description.nResidentMipLevels = 1u;
+        }
+        const common::cooked_texture_mip_source_t mips[2]{
+            { description.nWidth, description.nHeight, 1u,
+                description.nWidth * 16u,
+                { bytes, authoredMips ? 64u : 16u } },
+            { 1u, 1u, 1u, 16u, { bytes + 64u, 16u } }
+        };
+        const common::span_t<const common::cooked_texture_mip_source_t> source{
+            mips, description.nMipLevels
+        };
+        file.resize( common::CookedTexture_RequiredSize( description, source ) );
+        REQUIRE( !file.empty() );
+        REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Write(
+            description, source,
+            common::ContentHash_String( Text( "textures/albedo.cytex" ) ),
+            { file.data(), file.size() } ) ) );
+    }
+
+    static void MakeIncompleteMipTexture( std::vector<common::byte> &file,
+        bool floating )
+    {
+        // CYTX permits a partial authored chain. The material bridge cannot
+        // adopt it because its current sampler path requires the full chain.
+        const common::byte pixels[320]{};
+        const common::u32 bytesPerPixel = floating ? 16u : 4u;
+        common::cooked_texture_desc_t description{};
+        description.nWidth = description.nHeight = 4u;
+        description.nMipLevels = 2u; // The required 1x1 level is absent.
+        if ( floating ) {
+            description.pixelFormat = common::render_texture_pixel_format_t::RGBA32_FLOAT;
+            description.storageFormat = common::render_format_t::RGBA32_FLOAT;
+            description.colorSpace = common::render_texture_color_space_t::LINEAR;
+        }
+        const common::cooked_texture_mip_source_t mips[2]{
+            { 4u, 4u, 1u, 4u * bytesPerPixel,
+                { pixels, 16u * bytesPerPixel } },
+            { 2u, 2u, 1u, 2u * bytesPerPixel,
+                { pixels + 16u * bytesPerPixel, 4u * bytesPerPixel } }
+        };
+        const common::span_t<const common::cooked_texture_mip_source_t> source{
+            mips, 2u
+        };
+        file.resize( common::CookedTexture_RequiredSize( description, source ) );
+        REQUIRE( !file.empty() );
+        REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Write(
+            description, source,
+            common::ContentHash_String( Text( "textures/albedo.cytex" ) ),
+            { file.data(), file.size() } ) ) );
+    }
 };
 
 struct bridge_fixture_t {
@@ -200,6 +276,53 @@ struct bridge_fixture_t {
     bool lastPipelineDepthWrite{ true };
     bool pipelineTextureNamesMatch{ false };
     common::byte uploadedPixels[2][4]{};
+    common::byte uploadedLevelPixels[2][2][64]{};
+    common::u32 uploadedLevelSizes[2][2]{};
+    common::u32 uploadedLevelCount[2]{};
+    render::render_texture_format_t uploadedFormats[2]{};
+    bool uploadedSrgb[2]{};
+
+    render::render_error_t CaptureTexture(
+        const render::render_texture_desc_t &description,
+        const render::render_texture_mip_data_t *levels,
+        common::u32 levelCount, render::backend_texture_t &out ) noexcept
+    {
+        const common::u32 index = textureCreates++;
+        out = {};
+        if ( index >= 2u || levels == nullptr || levelCount == 0u ||
+             levelCount > 2u ) return render::render_error_t::ERR_INVALID_ARGUMENT;
+        const common::u32 bytesPerPixel =
+            description.format == render::render_texture_format_t::RGBA32F ? 16u : 4u;
+        if ( description.format != render::render_texture_format_t::RGBA32F &&
+             description.format != render::render_texture_format_t::RGBA8 ) {
+            return render::render_error_t::ERR_INVALID_ARGUMENT;
+        }
+        common::u32 width = description.width;
+        common::u32 height = description.height;
+        for ( common::u32 level = 0u; level < levelCount; ++level ) {
+            const common::u32 expectedBytes = width * height * bytesPerPixel;
+            if ( levels[level].width != width || levels[level].height != height ||
+                 levels[level].data.bytes == nullptr ||
+                 levels[level].data.byteSize != expectedBytes || expectedBytes > 64u ) {
+                return render::render_error_t::ERR_INVALID_ARGUMENT;
+            }
+            uploadedLevelSizes[index][level] = expectedBytes;
+            std::memcpy( uploadedLevelPixels[index][level],
+                levels[level].data.bytes, expectedBytes );
+            width = width > 1u ? width / 2u : 1u;
+            height = height > 1u ? height / 2u : 1u;
+        }
+        uploadedLevelCount[index] = levelCount;
+        uploadedFormats[index] = description.format;
+        uploadedSrgb[index] = description.sRGB;
+        std::memcpy( uploadedPixels[index], uploadedLevelPixels[index][0], 4u );
+        if ( failTextureAt == textureCreates ) {
+            if ( tokenOnTextureFailure ) out.value = nextToken++;
+            return render::render_error_t::ERR_OUT_OF_MEMORY;
+        }
+        out.value = nextToken++;
+        return render::render_error_t::OK;
+    }
 
     void Init( common::u32 textureCount, bool mismatch = false,
         bool withFeature = false, bool withSampler = false,
@@ -259,25 +382,22 @@ struct bridge_fixture_t {
             ++static_cast<bridge_fixture_t *>( state )->pipelineDestroys;
             return render::render_error_t::OK;
         };
-        backend.CreateTexture2D = []( const render::render_texture_desc_t &,
+        backend.CreateTexture2D = []( const render::render_texture_desc_t &description,
             const render::render_texture_data_t &data,
             render::backend_texture_t &out, void *state ) noexcept {
             auto &fixture = *static_cast<bridge_fixture_t *>( state );
-            ++fixture.textureCreates;
-            out = {};
-            if ( data.bytes == nullptr || data.byteSize != 4u ) {
-                return render::render_error_t::ERR_INVALID_ARGUMENT;
-            }
-            if ( fixture.textureCreates <= 2u ) {
-                std::memcpy( fixture.uploadedPixels[fixture.textureCreates - 1u],
-                    data.bytes, 4u );
-            }
-            if ( fixture.failTextureAt == fixture.textureCreates ) {
-                if ( fixture.tokenOnTextureFailure ) out.value = fixture.nextToken++;
-                return render::render_error_t::ERR_OUT_OF_MEMORY;
-            }
-            out.value = fixture.nextToken++;
-            return render::render_error_t::OK;
+            const render::render_texture_mip_data_t level{
+                description.width, description.height, data
+            };
+            return fixture.CaptureTexture( description, &level, 1u, out );
+        };
+        backend.CreateTexture2DLevels = [](
+            const render::render_texture_desc_t &description,
+            const render::render_texture_mip_data_t *levels,
+            common::u32 levelCount, render::backend_texture_t &out,
+            void *state ) noexcept {
+            return static_cast<bridge_fixture_t *>( state )->CaptureTexture(
+                description, levels, levelCount, out );
         };
         backend.DestroyTexture = []( render::backend_texture_t, void *state ) noexcept {
             auto &fixture = *static_cast<bridge_fixture_t *>( state );
@@ -315,6 +435,15 @@ struct bridge_fixture_t {
             render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u
         };
         return description;
+    }
+
+    void UseFloatAlbedo( bool authoredMips,
+        common::render_texture_usage_t usage = common::render_texture_usage_t::COLOR,
+        common::cooked_texture_residency_t residency =
+            common::cooked_texture_residency_t::FULLY_RESIDENT )
+    {
+        cooked.MakeFloatTexture( cooked.albedo, authoredMips, usage, residency );
+        storage.files[2].contents = { cooked.albedo.data(), cooked.albedo.size() };
     }
 
     ~bridge_fixture_t()
@@ -385,6 +514,59 @@ TEST_CASE( "cooked material bridge owns zero to two textures after VFS views exp
         CHECK( fixture.pipelineDestroys == 1u );
         CHECK( fixture.shaderDestroys == 1u );
         CHECK( fixture.textureDestroys == textureCount );
+    }
+}
+
+TEST_CASE( "cooked material bridge adopts linear float albedo with a single level or authored mips",
+    "[CypherRender][MaterialBridge][HDR]" )
+{
+    for ( const bool authoredMips : { false, true } ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 2u );
+        fixture.UseFloatAlbedo( authoredMips );
+        common::cooked_texture_view_t floatView{};
+        REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Read(
+            { fixture.cooked.albedo.data(), fixture.cooked.albedo.size() },
+            &floatView ) ) );
+        REQUIRE( floatView.nMipLevels == ( authoredMips ? 2u : 1u ) );
+
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.Description(), &fixture.bundle );
+        REQUIRE( result.status == render::render_material_bridge_status_t::OK );
+        CHECK( fixture.shaderCreates == 1u );
+        CHECK( fixture.textureCreates == 2u );
+        CHECK( fixture.pipelineCreates == 1u );
+        CHECK( fixture.bundle.textureCount == 2u );
+        CHECK( fixture.uploadedFormats[0] == render::render_texture_format_t::RGBA32F );
+        CHECK_FALSE( fixture.uploadedSrgb[0] );
+        CHECK( fixture.uploadedLevelCount[0] == floatView.nMipLevels );
+        for ( common::u32 level = 0u; level < floatView.nMipLevels; ++level ) {
+            CHECK( fixture.uploadedLevelSizes[0][level] ==
+                floatView.mips[level].pixels.cbSize );
+            CHECK( std::memcmp( fixture.uploadedLevelPixels[0][level],
+                floatView.mips[level].pixels.pData,
+                floatView.mips[level].pixels.cbSize ) == 0 );
+        }
+        CHECK( fixture.uploadedFormats[1] == render::render_texture_format_t::RGBA8 );
+        CHECK( fixture.uploadedPixels[1][0] == 0x13u );
+        render::render_texture_info_t textureInfo{};
+        REQUIRE( render::R_GetTextureInfo( fixture.bundle.textures[0],
+            &textureInfo ) == render::render_error_t::OK );
+        CHECK( textureInfo.format == render::render_texture_format_t::RGBA32F );
+        CHECK( textureInfo.mipLevels == floatView.nMipLevels );
+        CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+
+        std::memset( fixture.cooked.albedo.data(), 0, fixture.cooked.albedo.size() );
+        render::render_draw_indexed_desc_t draw{};
+        REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
+            fixture.bundle, &draw ) == render::render_error_t::OK );
+        CHECK( draw.sampledTextures[0].value == fixture.bundle.textures[0].value );
+        CHECK( draw.sampledTextures[1].value == fixture.bundle.textures[1].value );
+        REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+            render::render_error_t::OK );
+        CHECK( fixture.shaderDestroys == 1u );
+        CHECK( fixture.textureDestroys == 2u );
+        CHECK( fixture.pipelineDestroys == 1u );
     }
 }
 
@@ -576,11 +758,81 @@ TEST_CASE( "cooked material bridge rejects mismatched and unsupported interfaces
         CHECK( fixture.textureCreates == 0u );
         CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
     }
+    SECTION( "float data texture is not silently bound as a color texture" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 1u );
+        fixture.UseFloatAlbedo( false, common::render_texture_usage_t::DATA );
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.Description(), &fixture.bundle );
+        CHECK( result.status == render::render_material_bridge_status_t::MATERIAL_UNSUPPORTED );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.textureCreates == 0u );
+        CHECK( fixture.pipelineCreates == 0u );
+        CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+    }
+    SECTION( "streamed float mip tail has no material adoption path" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 1u );
+        fixture.UseFloatAlbedo( true, common::render_texture_usage_t::COLOR,
+            common::cooked_texture_residency_t::MIP_STREAMED );
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.Description(), &fixture.bundle );
+        CHECK( result.status == render::render_material_bridge_status_t::MATERIAL_UNSUPPORTED );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.textureCreates == 0u );
+        CHECK( fixture.pipelineCreates == 0u );
+        CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+    }
+    SECTION( "incomplete authored mip chains are rejected before GPU creation" ) {
+        for ( const bool floating : { false, true } ) {
+            CAPTURE( floating );
+            bridge_fixture_t fixture{};
+            fixture.Init( 1u );
+            fixture.cooked.MakeIncompleteMipTexture(
+                fixture.cooked.albedo, floating );
+            fixture.storage.files[2].contents = {
+                fixture.cooked.albedo.data(), fixture.cooked.albedo.size()
+            };
+            common::cooked_texture_view_t view{};
+            REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Read(
+                fixture.storage.files[2].contents, &view ) ) );
+            REQUIRE( view.nMipLevels == 2u );
+            REQUIRE( common::CookedTexture_FullMipCount(
+                view.desc.nWidth, view.desc.nHeight ) == 3u );
+
+            const auto result = render::R_CreateCookedMaterialBundle(
+                fixture.Description(), &fixture.bundle );
+            CHECK( result.status ==
+                render::render_material_bridge_status_t::MATERIAL_UNSUPPORTED );
+            CHECK( fixture.shaderCreates == 0u );
+            CHECK( fixture.textureCreates == 0u );
+            CHECK( fixture.pipelineCreates == 0u );
+            CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+        }
+    }
 }
 
 TEST_CASE( "cooked material bridge rolls back partially created GPU bundles",
     "[CypherRender][MaterialBridge]" )
 {
+    SECTION( "failed float mip upload destroys a returned token and shader" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 1u );
+        fixture.UseFloatAlbedo( true );
+        fixture.failTextureAt = 1u;
+        fixture.tokenOnTextureFailure = true;
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.Description(), &fixture.bundle );
+        CHECK( result.status == render::render_material_bridge_status_t::RENDER_ERROR );
+        CHECK( result.renderError == render::render_error_t::ERR_OUT_OF_MEMORY );
+        CHECK( fixture.shaderCreates == 1u );
+        CHECK( fixture.shaderDestroys == 1u );
+        CHECK( fixture.textureCreates == 1u );
+        CHECK( fixture.textureDestroys == 1u );
+        CHECK( fixture.pipelineCreates == 0u );
+        CHECK( fixture.bundle.textureCount == 0u );
+        CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+    }
     SECTION( "second texture reports GPU memory failure and returns a token" ) {
         bridge_fixture_t fixture{};
         fixture.Init( 2u );

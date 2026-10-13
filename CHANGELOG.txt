@@ -24,6 +24,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Fixed
+- Opaque World draw preparation accepts valid small positive scales such as
+  0.001 on each axis. Orientation uses binary64 without an unused inverse-
+  matrix tolerance; singular and mirrored transforms still fail before
+  staging. World-draw tests pass 207 assertions in nine cases.
+- Cooked-material preflight rejects incomplete authored mip chains before
+  shader or texture GPU creation for RGBA8 and RGBA32_FLOAT. Material-bridge
+  tests pass 807 assertions in seven cases.
 - Mirrored graybox objects keep their outward faces under back-face culling.
   Normal packing reports validated transform handedness without changing its
   48-byte std140 layout; the sample chooses CW-front camera and shadow
@@ -71,6 +78,15 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- Cooked-material adoption accepts fully resident linear RGBA32_FLOAT 2D
+  color textures with one level or complete authored mips alongside RGBA8.
+  Float DATA images and streamed mip tails fail before GPU creation; existing
+  cooked-texture validation and rollback handle exact bytes and failed
+  uploads. Material-bridge tests pass 807 assertions in seven cases; native
+  OpenGL 4.1 smoke passes 1342 assertions in two cases, including unclamped
+  4.0 red sampled from cooked float albedo into an RGBA16F target. Fourteen
+  focused World/render CTests pass. Material value parameters, cubemaps and
+  streaming remain separate work.
 - A separate CypherRenderWorldRuntime bridge prepares bounded opaque camera
   draws from an active, copied World submission. It resolves logical
   mesh/material slots through borrowed bundles, validates the visible set and
@@ -78,7 +94,7 @@ Added
   publishes ordered draws only after the upload succeeds. Stale tokens, bad
   slots, unsupported modes/transforms and capacity failure leave output
   unchanged; upload failure seals the caller's batch for retry or reset.
-  The focused test passes 184 assertions in eight cases; a native OpenGL 4.1
+  The focused test passes 207 assertions in nine cases; a native OpenGL 4.1
   pixel oracle verifies a World model transform brings otherwise offscreen
   geometry into view through cooked material and static mesh bundles (1291
   smoke assertions in two cases). Six focused World/render CTests pass.
@@ -93,7 +109,7 @@ Added
   contracts are versions 23/28. Texture tests pass 781 assertions in 26
   cases, native OpenGL smoke passes 1282 assertions including raw and mip
   pixels, and ten focused renderer CTests pass. The 120-frame hidden sample
-  still renders its scene. Cooked-material adoption remains RGBA8-only;
+  still renders its scene. Cooked-material RGBA32F adoption is recorded above;
   cubemaps and streaming remain future work.
 - The graybox sample's fixed directional shadow averages a 3x3 neighborhood
   of nearest-filtered depth comparisons. Out-of-map taps count as lit, so

@@ -3175,8 +3175,10 @@ void CheckShadowPassLighting( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyShader( depthShader ) == render::render_error_t::OK );
 }
 
-void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
+void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
+    const bool floatAlbedo )
 {
+    CAPTURE( floatAlbedo );
     const auto materialPath = common::StringView_FromCString( "materials/native.cymat_c" );
     const auto shaderPath = common::StringView_FromCString( "shaders/native.cyshader_c" );
     const auto texturePath = common::StringView_FromCString( "textures/native.cytex_c" );
@@ -3237,14 +3239,23 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
         { shaderBytes.data(), shaderBytes.size() } ) ) );
 
     constexpr common::byte redPixel[4]{ 255u, 0u, 0u, 255u };
+    constexpr float hdrPixel[4]{ 4.0f, 0.5f, 0.25f, 1.0f };
+    const auto *pixelBytes = floatAlbedo
+        ? reinterpret_cast<const common::byte *>( hdrPixel ) : redPixel;
+    const common::u32 pixelByteSize = floatAlbedo
+        ? sizeof( hdrPixel ) : sizeof( redPixel );
     common::cooked_texture_desc_t textureDescription{};
-    textureDescription.pixelFormat = common::render_texture_pixel_format_t::RGBA8_UNORM;
+    textureDescription.pixelFormat = floatAlbedo
+        ? common::render_texture_pixel_format_t::RGBA32_FLOAT
+        : common::render_texture_pixel_format_t::RGBA8_UNORM;
+    if ( floatAlbedo ) textureDescription.storageFormat =
+        common::render_format_t::RGBA32_FLOAT;
     textureDescription.colorSpace = common::render_texture_color_space_t::LINEAR;
     textureDescription.nWidth = 1u;
     textureDescription.nHeight = 1u;
     textureDescription.nMipLevels = 1u;
     const common::cooked_texture_mip_source_t mip{
-        1u, 1u, 1u, 4u, { redPixel, sizeof( redPixel ) }
+        1u, 1u, 1u, pixelByteSize, { pixelBytes, pixelByteSize }
     };
     std::vector<common::byte> textureBytes( common::CookedTexture_RequiredSize(
         textureDescription, { &mip, 1u } ) );
@@ -3323,6 +3334,12 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
     const auto adopted = render::R_CreateCookedMaterialBundle(
         bundleDescription, &bundle );
     REQUIRE( adopted.status == render::render_material_bridge_status_t::OK );
+    if ( floatAlbedo ) {
+        render::render_texture_info_t textureInfo{};
+        REQUIRE( render::R_GetTextureInfo( bundle.textures[0], &textureInfo ) ==
+            render::render_error_t::OK );
+        CHECK( textureInfo.format == render::render_texture_format_t::RGBA32F );
+    }
     CHECK( resource::Res_GetStats( &resources ).cLiveResources == 0u );
     REQUIRE( resource::Res_Shutdown( &resources ) == resource::resource_error_t::OK );
     std::memset( materialBytes.data(), 0, materialBytes.size() );
@@ -3401,17 +3418,59 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
     frame.drawableExtent = extent;
     frame.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
     frame.clearColor = { 0.0f, 0.0f, 1.0f, 1.0f };
+    render::render_texture_handle_t hdrColor{};
+    render::render_target_handle_t hdrTarget{};
+    if ( floatAlbedo ) {
+        render::render_texture_desc_t hdrDescription{};
+        hdrDescription.width = hdrDescription.height = 4u;
+        hdrDescription.sRGB = false;
+        hdrDescription.generateMips = false;
+        hdrDescription.repeat = false;
+        hdrDescription.renderTarget = true;
+        hdrDescription.format = render::render_texture_format_t::RGBA16F;
+        REQUIRE( render::R_CreateTexture2D( hdrDescription, {}, &hdrColor ) ==
+            render::render_error_t::OK );
+        REQUIRE( render::R_CreateRenderTarget( { hdrColor, {} }, &hdrTarget ) ==
+            render::render_error_t::OK );
+    }
     REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    if ( floatAlbedo ) {
+        render::render_target_pass_desc_t pass{};
+        pass.target = hdrTarget;
+        REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    }
     REQUIRE( render::R_DrawIndexed( draws[0].draw ) == render::render_error_t::OK );
-    common::byte center[4]{};
-    glReadPixels( static_cast<GLint>( extent.width / 2u ),
-        static_cast<GLint>( extent.height / 2u ), 1, 1,
-        GL_RGBA, GL_UNSIGNED_BYTE, center );
-    CHECK( glGetError() == GL_NO_ERROR );
-    CHECK( center[0] > 240u );
-    CHECK( center[1] < 16u );
-    CHECK( center[2] < 16u );
+    if ( floatAlbedo ) {
+        REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+        render::render_color_t center{};
+        // The cooked material, rather than a directly-created float texture,
+        // must preserve HDR albedo through shader sampling and target writes.
+        REQUIRE( render::R_ReadTargetRGBA32F( hdrTarget, { 2u, 2u, 1u, 1u },
+            &center, sizeof( center ), sizeof( center ) ) == render::render_error_t::OK );
+        CHECK( center.red >= 3.98f );
+        CHECK( center.red <= 4.02f );
+        CHECK( center.green >= 0.49f );
+        CHECK( center.green <= 0.51f );
+        CHECK( center.blue >= 0.24f );
+        CHECK( center.blue <= 0.26f );
+        CHECK( center.alpha >= 0.99f );
+        CHECK( center.alpha <= 1.01f );
+    } else {
+        common::byte center[4]{};
+        glReadPixels( static_cast<GLint>( extent.width / 2u ),
+            static_cast<GLint>( extent.height / 2u ), 1, 1,
+            GL_RGBA, GL_UNSIGNED_BYTE, center );
+        CHECK( glGetError() == GL_NO_ERROR );
+        CHECK( center[0] > 240u );
+        CHECK( center[1] < 16u );
+        CHECK( center[2] < 16u );
+    }
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    if ( floatAlbedo ) {
+        REQUIRE( render::R_DestroyRenderTarget( hdrTarget ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyTexture( hdrColor ) == render::render_error_t::OK );
+    }
 
     world::WorldSubmission_End( pSubmission );
     world::WorldSubmission_Shutdown( &pSubmission );
@@ -3514,7 +3573,8 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckHDRTranslucentCompositing( info->drawableExtent );
     CheckAlphaMaskCutout( info->drawableExtent );
     CheckShadowPassLighting( info->drawableExtent );
-    CheckCookedMaterialBundleDrawing( info->drawableExtent );
+    CheckCookedMaterialBundleDrawing( info->drawableExtent, false );
+    CheckCookedMaterialBundleDrawing( info->drawableExtent, true );
 
     ::cypher::common::u32 vertexWords[16]{};
     render::render_buffer_desc_t bufferDescription{};

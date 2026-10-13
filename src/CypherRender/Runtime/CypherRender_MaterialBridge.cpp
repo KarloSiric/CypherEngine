@@ -89,10 +89,15 @@ bool TextureSubsetSupported( const common::cooked_texture_view_t &texture ) noex
         desc.usage == common::render_texture_usage_t::COLOR &&
         desc.residency == common::cooked_texture_residency_t::FULLY_RESIDENT &&
         ( desc.pixelFormat == common::render_texture_pixel_format_t::RGBA8_UNORM ||
-          desc.pixelFormat == common::render_texture_pixel_format_t::RGBA8_SRGB ) &&
+          desc.pixelFormat == common::render_texture_pixel_format_t::RGBA8_SRGB ||
+          ( desc.pixelFormat == common::render_texture_pixel_format_t::RGBA32_FLOAT &&
+            desc.colorSpace == common::render_texture_color_space_t::LINEAR ) ) &&
         desc.nDepth == 1u && desc.nFrames == 1u && desc.nLayers == 1u &&
         desc.nFaces == 1u && desc.nMipLevels == texture.nMipLevels &&
-        texture.nSubresources == texture.nMipLevels;
+        texture.nSubresources == texture.nMipLevels &&
+        ( desc.nMipLevels == 1u ||
+          desc.nMipLevels == common::CookedTexture_FullMipCount(
+              desc.nWidth, desc.nHeight ) );
 }
 
 render_material_bridge_result_t ResourceFailure( resource::resource_error_t error ) noexcept

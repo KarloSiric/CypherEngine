@@ -19,7 +19,24 @@ namespace
 {
 
 static_assert( sizeof( math::mat4_t ) == 64u );
-constexpr common::f32 kMinimumPositiveDeterminant = 1.0e-8f;
+
+bool HasPositiveOrientation( const math::mat3_t &linear ) noexcept
+{
+    // Only the model matrix is uploaded here. Compute the determinant in
+    // binary64 so valid small float scales do not underflow or hit an
+    // arbitrary inverse-matrix tolerance.
+    const auto a = static_cast<common::f64>( linear.m[0] );
+    const auto b = static_cast<common::f64>( linear.m[1] );
+    const auto c = static_cast<common::f64>( linear.m[2] );
+    const auto d = static_cast<common::f64>( linear.m[3] );
+    const auto e = static_cast<common::f64>( linear.m[4] );
+    const auto f = static_cast<common::f64>( linear.m[5] );
+    const auto g = static_cast<common::f64>( linear.m[6] );
+    const auto h = static_cast<common::f64>( linear.m[7] );
+    const auto i = static_cast<common::f64>( linear.m[8] );
+    return a * ( e * i - h * f ) - d * ( b * i - h * c ) +
+           g * ( b * f - e * c ) > 0.0;
+}
 
 bool LayoutsMatch(
     const render_vertex_layout_t &a,
@@ -158,11 +175,7 @@ render_error_t PreflightObject(
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     const math::mat3_t linear = math::Affine3_LinearPart( object.localToWorld );
-    const common::f32 determinant = math::Mat3_Determinant( linear );
-    math::mat3_t inverse{};
-    if ( !( determinant > kMinimumPositiveDeterminant ) ||
-         !math::Mat3_TryInverse(
-             linear, kMinimumPositiveDeterminant, &inverse ) ) {
+    if ( !HasPositiveOrientation( linear ) ) {
         // A mirrored object needs a different front-face pipeline policy.
         return render_error_t::ERR_UNSUPPORTED;
     }
