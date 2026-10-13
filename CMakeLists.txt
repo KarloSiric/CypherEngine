@@ -1772,6 +1772,13 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::RenderResourceRuntime
         )
         cypher_add_common_catch_test(
+            cypher_render_resource_texture_bridge_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_ResourceTextureBridge_Tests.cpp"
+            Cypher::Render
+        )
+        target_link_libraries(cypher_render_resource_texture_bridge_tests
+            PRIVATE Cypher::RenderResourceRuntime)
+        cypher_add_common_catch_test(
             cypher_common_render_preview_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/CypherCommon_RenderPreview_Tests.cpp"
             Cypher::RenderPreview

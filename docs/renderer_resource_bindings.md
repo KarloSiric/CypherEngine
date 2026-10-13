@@ -93,6 +93,13 @@ view still describes that file, and synchronously uploads the base image;
 the renderer retains neither the view nor its borrowed bytes. The returned
 handle follows the ordinary `R_DestroyTexture` lifetime rules.
 
+For a runtime-owned file, acquire the texture's typed resource handle, call
+`Res_GetCookedTexture`, upload that borrowed view, then release the resource
+handle. The GPU texture remains valid because creation consumed the pixels
+before returning. A focused resource-to-renderer test exercises that ownership
+boundary, including an upload failure and retry. No automatic GPU cache or
+material dependency tracking is implied by this handoff.
+
 For now the bridge accepts only a fully resident, tightly packed 2D color
 image with one frame, layer, face, and mip, in linear or sRGB RGBA8. A valid
 CYTX file using compression, multiple mips, streaming, 3D storage, or another

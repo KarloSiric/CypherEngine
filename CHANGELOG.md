@@ -25,6 +25,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- A resource-to-renderer integration test now covers typed CYTX acquisition
+  through the VFS, synchronous upload, backend allocation failure and retry,
+  and independent GPU texture lifetime after releasing the resource handle.
+  The resource public headers now bind `common` explicitly, so including
+  renderer headers first no longer changes their namespace lookup.
 - A validated CYTX texture view can now create a renderer texture handle via
   `R_CreateTexture2DFromCooked`. The bridge reparses the borrowed file, checks
   that the view still matches it, and copies the base pixels synchronously.
@@ -180,6 +185,9 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- The new resource-to-GPU bridge test and renderer contract, draw, native
+  OpenGL, and hosted OpenGL tests passed (five focused CTests). The bridge
+  test compiles with renderer headers included before resource headers.
 - Rebuilt the focused renderer, Host, resource-runtime, and cube targets in the
   existing `build-mason` tree. All eleven selected renderer/Host CTests passed;
   cooked-texture adoption passed 189 assertions in five cases, and the full

@@ -29,6 +29,10 @@
 namespace cypher::engine::resource
 {
 
+// Keep resource contracts bound to the foundational common namespace even
+// when a renderer header has already declared cypher::engine::common.
+namespace common = ::cypher::common;
+
 inline constexpr common::u32 CYPHER_RESOURCE_DEFAULT_CAPACITY = 1024u;       // Initial number of simultaneously live resource records.
 inline constexpr common::u32 CYPHER_RESOURCE_DEFAULT_TYPE_CAPACITY = 64u;   // Initial number of registered loader types.
 inline constexpr common::u32 CYPHER_RESOURCE_MAX_CAPACITY =
