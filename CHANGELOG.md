@@ -25,6 +25,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- The macOS Mason CI smoke test now has enough time for the observed runner
+  variance: a 120-second cap failed after a previous 118-second pass, while
+  its focused CTest and workflow limits now remain bounded at 600 and 300
+  seconds respectively. The preceding run's other 14 jobs passed.
 - Buffer, vertex-input, and graphics-pipeline creation now defensively destroy
   a native token returned alongside a backend creation error. Pipeline cleanup
   precedes shader-reference release, and vertex-input cleanup precedes buffer-
@@ -33,6 +37,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Triangle-list graphics pipelines now select filled or wireframe polygon
+  rasterization through an immutable renderer setting. The frontend rejects
+  invalid modes and line-list/wireframe combinations; each OpenGL 4.1 draw
+  applies its own mode, and the native pixel smoke checks that a later filled
+  draw does not inherit wireframe state. A hosted OpenGL smoke also verifies
+  restoration of the host's polygon mode. The public/backend API versions are
+  17/22. This supports mesh inspection; overlay depth bias and scene-level
+  debug-view scheduling remain separate work.
 - `CypherRenderMeshRuntime` now validates and uploads one interleaved static
   vertex stream with U16 or U32 indices. It checks exact byte extents and every
   index before GPU allocation, owns the vertex/index buffers and vertex input
@@ -44,8 +56,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   in-memory CYMT V2 material loads CYSH V3 and CYTX V2 through the VFS,
   survives CPU resource release, binds a sampled texture, and renders the
   expected red center pixel. The focused material, draw, and OpenGL tests pass.
-  Checked-in authored material and shader
-  recipes still use schema V1 and are not yet migrated to this bridge.
+  Checked-in authored material and shader recipes still use schema V1 and are
+  not yet migrated to this bridge.
 - A separate `CypherRenderMaterialRuntime` bridge now adopts a limited CYMT V2
   material into caller-owned shader, pipeline, and zero to two texture handles.
   It checks the CYSH V3 interface hash and binding identities, acquires all

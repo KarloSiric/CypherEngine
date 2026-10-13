@@ -36,6 +36,7 @@ struct draw_fixture_t {
     common::u64 lastDestroyedVertexInput{ 0u };
     common::u64 lastDestroyedPipeline{ 0u };
     render::render_primitive_topology_t lastPipelineTopology{ render::render_primitive_topology_t::TRIANGLE_LIST };
+    render::render_polygon_mode_t lastPipelinePolygonMode{ render::render_polygon_mode_t::FILL };
     render::render_depth_compare_t lastPipelineDepthCompare{ render::render_depth_compare_t::LESS };
     bool lastPipelineColorWrite{ true };
     render::backend_draw_indexed_desc_t lastDraw{};
@@ -98,6 +99,7 @@ struct draw_fixture_t {
             auto &fixture = *static_cast<draw_fixture_t *>( state );
             ++fixture.pipelineCreates;
             fixture.lastPipelineTopology = description.topology;
+            fixture.lastPipelinePolygonMode = description.polygonMode;
             fixture.lastPipelineDepthCompare = description.depthCompare;
             fixture.lastPipelineColorWrite = description.colorWrite;
             out = {};
@@ -433,6 +435,47 @@ TEST_CASE( "depth comparison validates before backend creation and survives pipe
     CHECK( fixture.lastPipelineDepthCompare == render::render_depth_compare_t::LESS );
     REQUIRE( render::R_GetGraphicsPipelineInfo( pipeline, &info ) == draw_error_t::OK );
     CHECK( info.depthCompare == render::render_depth_compare_t::LESS );
+}
+
+TEST_CASE( "polygon mode validates before backend creation and survives pipeline inspection",
+           "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    auto description = fixture.PipelineDescription();
+    CHECK( description.polygonMode == render::render_polygon_mode_t::FILL );
+
+    description.polygonMode = static_cast<render::render_polygon_mode_t>( 255u );
+    render::render_pipeline_handle_t rejected{ 99u };
+    CHECK( render::R_CreateGraphicsPipeline( description, &rejected ) ==
+           draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    CHECK( rejected.value == 0u );
+    CHECK( fixture.pipelineCreates == 0u );
+
+    description.polygonMode = render::render_polygon_mode_t::LINE;
+    description.topology = render::render_primitive_topology_t::LINE_LIST;
+    rejected = { 99u };
+    CHECK( render::R_CreateGraphicsPipeline( description, &rejected ) ==
+           draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    CHECK( rejected.value == 0u );
+    CHECK( fixture.pipelineCreates == 0u );
+
+    description.topology = render::render_primitive_topology_t::TRIANGLE_LIST;
+    render::render_pipeline_handle_t wireframe{};
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &wireframe ) == draw_error_t::OK );
+    CHECK( fixture.pipelineCreates == 1u );
+    CHECK( fixture.lastPipelinePolygonMode == render::render_polygon_mode_t::LINE );
+    render::render_pipeline_info_t info{};
+    REQUIRE( render::R_GetGraphicsPipelineInfo( wireframe, &info ) == draw_error_t::OK );
+    CHECK( info.polygonMode == render::render_polygon_mode_t::LINE );
+    REQUIRE( render::R_DestroyGraphicsPipeline( wireframe ) == draw_error_t::OK );
+
+    description = fixture.PipelineDescription();
+    render::render_pipeline_handle_t filled{};
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &filled ) == draw_error_t::OK );
+    CHECK( fixture.lastPipelinePolygonMode == render::render_polygon_mode_t::FILL );
+    REQUIRE( render::R_GetGraphicsPipelineInfo( filled, &info ) == draw_error_t::OK );
+    CHECK( info.polygonMode == render::render_polygon_mode_t::FILL );
 }
 
 TEST_CASE( "color write state defaults on and survives backend creation and inspection",

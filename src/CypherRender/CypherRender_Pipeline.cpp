@@ -90,6 +90,9 @@ render_error_t R_CreateGraphicsPipeline(
         return render_error_t::ERR_NOT_INITIALIZED;
     }
     if ( description.topology >= render_primitive_topology_t::COUNT ||
+         description.polygonMode >= render_polygon_mode_t::COUNT ||
+         ( description.topology == render_primitive_topology_t::LINE_LIST &&
+           description.polygonMode != render_polygon_mode_t::FILL ) ||
          description.depthCompare >= render_depth_compare_t::COUNT ) {
         return render_error_t::ERR_PIPELINE_DESC_INVALID;
     }
@@ -180,6 +183,7 @@ render_error_t R_CreateGraphicsPipeline(
         nativeDescription.sampledTextures[i] = description.sampledTextures[i];
     }
     nativeDescription.topology = description.topology;
+    nativeDescription.polygonMode = description.polygonMode;
 
     pipeline_record_t record{};
     result = tr.backend.api->CreateGraphicsPipeline( nativeDescription, record.native, tr.backend.state );
@@ -211,6 +215,7 @@ render_error_t R_CreateGraphicsPipeline(
         record.info.sampledTextureKinds[i] = description.sampledTextures[i].kind;
     }
     record.info.topology = description.topology;
+    record.info.polygonMode = description.polygonMode;
     const common::handle32_t tableHandle = common::HandleTable_Insert( &pipelineSystem.records, record );
     if ( !common::Cy_Handle32IsValid( tableHandle ) ) {
         (void)tr.backend.api->DestroyGraphicsPipeline( record.native, tr.backend.state );

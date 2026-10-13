@@ -47,7 +47,7 @@ this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 21u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 22u;
 
 /*
 ================
@@ -194,6 +194,7 @@ struct backend_pipeline_desc_t {
     ::cypher::common::u32 sampledTextureCount{ 0u };
     render_sampled_texture_binding_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
+    render_polygon_mode_t polygonMode{ render_polygon_mode_t::FILL };
 };
 
 struct backend_draw_indexed_desc_t {

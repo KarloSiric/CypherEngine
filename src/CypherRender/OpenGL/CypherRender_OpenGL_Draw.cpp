@@ -35,6 +35,7 @@ struct gl_pipeline_record_t {
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
+    GLenum polygonMode{ GL_FILL };
 };
 
 // Tokens are backend-private addresses. Look them up before dereferencing so a
@@ -87,6 +88,15 @@ GLenum GL_DepthCompare( const render_depth_compare_t compare ) noexcept
         case render_depth_compare_t::NOT_EQUAL: return GL_NOTEQUAL;
         case render_depth_compare_t::GREATER_EQUAL: return GL_GEQUAL;
         case render_depth_compare_t::ALWAYS: return GL_ALWAYS;
+        default: return 0u;
+    }
+}
+
+GLenum GL_PolygonMode( const render_polygon_mode_t mode ) noexcept
+{
+    switch ( mode ) {
+        case render_polygon_mode_t::FILL: return GL_FILL;
+        case render_polygon_mode_t::LINE: return GL_LINE;
         default: return 0u;
     }
 }
@@ -264,6 +274,12 @@ render_error_t GL_CreateGraphicsPipeline(
          description.topology != render_primitive_topology_t::LINE_LIST ) {
         return render_error_t::ERR_PIPELINE_DESC_INVALID;
     }
+    const GLenum polygonMode = GL_PolygonMode( description.polygonMode );
+    if ( polygonMode == 0u ||
+         ( description.topology == render_primitive_topology_t::LINE_LIST &&
+           description.polygonMode != render_polygon_mode_t::FILL ) ) {
+        return render_error_t::ERR_PIPELINE_DESC_INVALID;
+    }
     const GLenum depthCompare = GL_DepthCompare( description.depthCompare );
     if ( depthCompare == 0u ) return render_error_t::ERR_PIPELINE_DESC_INVALID;
     if ( description.uniformBlockCount > R_MAX_UNIFORM_BLOCK_BINDINGS ||
@@ -348,6 +364,7 @@ render_error_t GL_CreateGraphicsPipeline(
     record->frontCounterClockwise = description.frontCounterClockwise;
     record->alphaBlend = description.alphaBlend;
     record->topology = description.topology;
+    record->polygonMode = polygonMode;
     record->next = glPipelines;
     glPipelines = record;
     pipelineOut.value = GL_PipelineToken( record );
@@ -500,7 +517,7 @@ render_error_t GL_DrawIndexed(
     glDisable( GL_PRIMITIVE_RESTART );
     glDisable( GL_RASTERIZER_DISCARD );
     glDisable( GL_POLYGON_OFFSET_FILL );
-    glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
+    glPolygonMode( GL_FRONT_AND_BACK, pipeline->polygonMode );
     const GLboolean colorMask = pipeline->colorWrite ? GL_TRUE : GL_FALSE;
     if ( glState.usesHostSurface ) glColorMaski( 0u, colorMask, colorMask, colorMask, colorMask );
     else glColorMask( colorMask, colorMask, colorMask, colorMask );

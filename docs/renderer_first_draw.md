@@ -130,6 +130,21 @@ rotation only. A future mesh instance with nonuniform scale needs the
 inverse-transpose normal matrix. That is a separate transform requirement;
 silently extending this example's expression to arbitrary scale would be wrong.
 
+## Wireframe inspection
+
+For a triangle-list mesh, an immutable graphics pipeline can select
+`render_polygon_mode_t::LINE` to rasterize triangle edges instead of filled
+triangles. `FILL` remains the default. The mode belongs to the pipeline rather
+than a global OpenGL setting, so a later filled draw restores filled
+rasterization without depending on what a previous draw did. Line-list
+pipelines already draw lines and reject the polygon `LINE` mode.
+
+This is a topology inspection view, not a second mesh format or an automatic
+outline overlay. Shared edges can be drawn twice, line width remains the
+driver's one-pixel behavior, and a wire overlay on filled geometry still needs
+an explicit depth policy to avoid z-fighting. The host's prior polygon state
+is restored when a hosted frame ends.
+
 ## Depth comparison policy
 
 Graphics pipelines default to `render_depth_compare_t::LESS` with depth testing

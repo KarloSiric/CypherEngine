@@ -274,6 +274,48 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     readPixel( static_cast<GLint>( extent.width / 2u ), static_cast<GLint>( extent.height / 2u ), 1 );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
 
+    // The preceding FILL draw covers the center. Reuse the exact geometry and
+    // shader with LINE mode, then switch back to FILL in the same frame. A
+    // pixel near the bottom edge proves LINE actually rasterized geometry;
+    // the center must remain the blue clear color until FILL is restored.
+    pipelineDesc.polygonMode = render::render_polygon_mode_t::LINE;
+    render::render_pipeline_handle_t wireframe{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &wireframe ) ==
+        render::render_error_t::OK );
+    render::render_pipeline_info_t wireframeInfo{};
+    REQUIRE( render::R_GetGraphicsPipelineInfo( wireframe, &wireframeInfo ) ==
+        render::render_error_t::OK );
+    CHECK( wireframeInfo.polygonMode == render::render_polygon_mode_t::LINE );
+    pipelineDesc.polygonMode = render::render_polygon_mode_t::FILL;
+
+    ++frame.frameIndex;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    draw.pipeline = wireframe;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( static_cast<GLint>( extent.width / 2u ),
+               static_cast<GLint>( extent.height / 2u ), 2 );
+    std::array<common::u8, 5u * 5u * 4u> edgePixels{};
+    glReadBuffer( GL_BACK );
+    glReadPixels( static_cast<GLint>( extent.width / 2u ) - 2,
+                  static_cast<GLint>( extent.height / 10u ) - 2,
+                  5, 5, GL_RGBA, GL_UNSIGNED_BYTE, edgePixels.data() );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    bool edgeWasDrawn = false;
+    for ( std::size_t i = 0u; i < edgePixels.size(); i += 4u ) {
+        if ( edgePixels[i] <= 15u && edgePixels[i + 1u] >= 240u &&
+             edgePixels[i + 2u] <= 15u ) {
+            edgeWasDrawn = true;
+            break;
+        }
+    }
+    CHECK( edgeWasDrawn );
+    draw.pipeline = pipeline;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( static_cast<GLint>( extent.width / 2u ),
+               static_cast<GLint>( extent.height / 2u ), 1 );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( wireframe ) == render::render_error_t::OK );
+
     // The compare mode is pipeline state, not a global toggle. Reuse the same
     // indexed triangle and depth attachment while changing only that mode.
     // A red prepass provides the exact same rasterized depth for equality

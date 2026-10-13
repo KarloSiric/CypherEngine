@@ -24,12 +24,23 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Fixed
+- The macOS Mason CI smoke test now allows runner timing variance: a
+  120-second cap failed after an earlier 118-second pass. Its focused CTest
+  limit is 600 seconds and workflow limit is 300 seconds; the other 14 jobs in
+  the preceding run passed.
 - Buffer, vertex-input and graphics-pipeline creation now defensively destroy
   a native token returned with a backend creation error. Dependent shader and
   buffer references are released afterward. Three fake-backend failure tests
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- Triangle-list graphics pipelines select filled or wireframe polygon
+  rasterization as immutable state. Invalid modes and line-list/wireframe
+  combinations are rejected; each OpenGL 4.1 draw applies its own mode. A
+  native pixel smoke checks that a following filled draw restores fill, and a
+  hosted smoke checks restoration of the host's polygon mode. Public/backend
+  API versions are 17/22. Overlay depth bias and scene-level debug-view
+  scheduling remain separate.
 - CypherRenderMeshRuntime validates and uploads one interleaved static vertex
   stream with U16 or U32 indices. It checks exact byte extents and every index
   before GPU allocation, owns vertex/index buffers and a vertex input as a
@@ -40,8 +51,8 @@ Added
 - Native OpenGL 4.1 pixel smoke now loads an in-memory CYMT V2 material and
   CYSH V3/CYTX V2 dependencies through the VFS, releases CPU resources, draws
   with its sampled texture and checks a red center pixel. The focused material,
-  draw and OpenGL tests pass. Checked-in authored
-  material and shader recipes still use schema V1.
+  draw and OpenGL tests pass. Checked-in authored material and shader recipes
+  still use schema V1.
 - A separate CypherRenderMaterialRuntime bridge adopts a limited CYMT V2
   material into caller-owned shader, pipeline and zero to two texture handles.
   It checks the CYSH V3 interface hash and binding identities, loads cooked

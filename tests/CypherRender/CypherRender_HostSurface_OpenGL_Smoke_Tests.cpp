@@ -412,6 +412,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glEnable( GL_CULL_FACE );
     glCullFace( GL_FRONT );
     glFrontFace( GL_CW );
+    glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
     GLint maxViewports = 0;
     GLint maxDrawBuffers = 0;
     glGetIntegerv( GL_MAX_VIEWPORTS, &maxViewports );
@@ -627,6 +628,10 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     CHECK( restoredViewport[1] == 3 );
     CHECK( restoredViewport[2] == 40 );
     CHECK( restoredViewport[3] == 25 );
+    GLint restoredPolygonMode[2]{};
+    glGetIntegerv( GL_POLYGON_MODE, restoredPolygonMode );
+    CHECK( restoredPolygonMode[0] == GL_LINE );
+    CHECK( restoredPolygonMode[1] == GL_LINE );
     CHECK( glIsEnabled( GL_SCISSOR_TEST ) == GL_TRUE );
     GLint scissorBox[4]{};
     glGetIntegerv( GL_SCISSOR_BOX, scissorBox );

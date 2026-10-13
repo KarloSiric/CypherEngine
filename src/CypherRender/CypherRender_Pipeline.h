@@ -31,6 +31,12 @@ enum class render_primitive_topology_t : ::cypher::common::u8 {
     COUNT
 };
 
+enum class render_polygon_mode_t : ::cypher::common::u8 {
+    FILL = 0, // Rasterize triangle interiors.
+    LINE,     // Rasterize triangle edges at the driver's one-pixel line width.
+    COUNT
+};
+
 enum class render_depth_compare_t : ::cypher::common::u8 {
     NEVER = 0,
     LESS,
@@ -62,10 +68,11 @@ struct render_sampled_texture_binding_t {
     render_sampled_texture_kind_t kind{ render_sampled_texture_kind_t::SCALAR_2D };
 };
 
-// First-draw scope: triangle or line lists, solid fill, selectable depth test,
+// First-draw scope: triangle or line lists, fill or triangle wireframe, selectable depth test,
 // no stencil, and optional source-alpha blending into the presentation target.
 // Lines use the driver's one-pixel rasterization; culling and front-face state
-// have no effect on them. All calls execute on the renderer thread.
+// have no effect on them. Polygon LINE mode is valid only for TRIANGLE_LIST;
+// LINE_LIST geometry is already lines. All calls execute on the renderer thread.
 // Names are borrowed only by Create.
 struct render_pipeline_desc_t {
     render_shader_handle_t shader{};
@@ -83,6 +90,7 @@ struct render_pipeline_desc_t {
     ::cypher::common::u32 sampledTextureCount{ 0u };
     render_sampled_texture_binding_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
+    render_polygon_mode_t polygonMode{ render_polygon_mode_t::FILL };
 };
 
 // Owns no pointers. A live pipeline retains its shader until destruction.
@@ -101,6 +109,7 @@ struct render_pipeline_info_t {
     ::cypher::common::u32 sampledTextureCount{ 0u };
     render_sampled_texture_kind_t sampledTextureKinds[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
+    render_polygon_mode_t polygonMode{ render_polygon_mode_t::FILL };
 };
 
 // Declared slots are contiguous from zero and map to GL uniform-buffer binding
