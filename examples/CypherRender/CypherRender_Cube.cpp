@@ -20,6 +20,7 @@
 #include "CypherCommon/Mathlib/CypherMath_Frustum.h"
 #include "CypherCommon/Mathlib/CypherMath_Matrix4.h"
 #include "CypherCommon/Mathlib/CypherMath_Quaternion.h"
+#include "CypherRender_CubeCamera.h"
 #include "CypherRender/CypherRender_Buffer.h"
 #include "CypherRender/CypherRender_Draw.h"
 #include "CypherRender/CypherRender_Pipeline.h"
@@ -29,6 +30,7 @@
 #include "CypherRender/Runtime/CypherRender_DrawQueue.h"
 #include "CypherRender/Runtime/CypherRender_UniformBatch.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
+#include "CypherSystem/Platform/CypherSystem_Window.h"
 #include "CypherWorld/CypherWorld_Public.h"
 #include "CypherWorld/Submission/CypherWorld_Submission.h"
 
@@ -50,6 +52,7 @@ namespace math = ::cypher::math;
 namespace render = ::cypher::engine::render;
 namespace sys = ::cypher::engine::sys;
 namespace world = ::cypher::engine::world;
+namespace camera = ::cypher::samples::render;
 
 namespace
 {
@@ -165,6 +168,7 @@ constexpr common::u32 MATERIAL_COUNT =
 
 struct cube_state_t {
     sys::window_t window{};
+    bool cameraCursorHidden{ false };
     render::render_shader_handle_t shader{};
     render::render_pipeline_handle_t pipeline{};
     // The host owns this bounded slot table; World stores only slot numbers.
@@ -183,6 +187,22 @@ constexpr math::aabb_t CUBE_LOCAL_BOUNDS{
 constexpr math::vec3_t FLOOR_POSITION{ 0.0f, 0.0f, -1.8f };
 constexpr math::aabb_t FLOOR_LOCAL_BOUNDS{
     { -6.0f, -5.0f, 0.0f }, { 6.0f, 5.0f, 0.0f } };
+
+struct cube_input_state_t {
+    bool held[static_cast<common::u32>( sys::sys_key_t::COUNT )]{};
+    float lookDeltaX{ 0.0f };
+    float lookDeltaY{ 0.0f };
+};
+
+bool KeyHeld( const cube_input_state_t &input, const sys::sys_key_t key ) noexcept
+{
+    return input.held[static_cast<common::u32>( key )];
+}
+
+void ClearCameraInput( cube_input_state_t &input ) noexcept
+{
+    input = {};
+}
 
 bool CheckWorld( world::world_error_t result, const char *operation ) noexcept
 {
@@ -214,6 +234,37 @@ bool CheckSystem( sys::sys_error_t result, const char *operation ) noexcept
     if ( result == sys::sys_error_t::OK ) return true;
     std::fprintf( stderr, "%s: %s\n", operation, sys::Sys_ErrorName( result ) );
     return false;
+}
+
+bool SetCameraCapture( cube_state_t &state, const bool captured ) noexcept
+{
+    if ( captured ) {
+        if ( state.window.relativeMouseEnabled && state.cameraCursorHidden ) return true;
+        if ( !CheckSystem( sys::Sys_SetRelativeMouseMode( state.window, true ),
+                 "Capture camera mouse" ) ) return false;
+        if ( !CheckSystem( sys::Sys_SetCursorVisible( false ),
+                 "Hide camera cursor" ) ) {
+            (void)sys::Sys_SetRelativeMouseMode( state.window, false );
+            return false;
+        }
+        state.cameraCursorHidden = true;
+        return true;
+    }
+
+    bool success = true;
+    if ( state.window.relativeMouseEnabled ) {
+        success = CheckSystem( sys::Sys_SetRelativeMouseMode( state.window, false ),
+            "Release camera mouse" ) && success;
+    }
+    if ( state.cameraCursorHidden ) {
+        if ( CheckSystem( sys::Sys_SetCursorVisible( true ),
+                 "Restore camera cursor" ) ) {
+            state.cameraCursorHidden = false;
+        } else {
+            success = false;
+        }
+    }
+    return success;
 }
 
 bool ParseOptions( int argc, char **argv, cube_options_t &options ) noexcept
@@ -410,6 +461,98 @@ bool CreateWorld( cube_state_t &state ) noexcept
     return true;
 }
 
+bool PollSampleInput(
+    cube_state_t &state, cube_input_state_t &input,
+    const bool interactive ) noexcept
+{
+    // Native events are pumped before we can enable relative mode. Motion from
+    // the capture-start pump therefore belongs to the old pointer mode.
+    const bool capturedAtPumpStart =
+        state.window.relativeMouseEnabled && state.cameraCursorHidden;
+    bool motionEligible = capturedAtPumpStart;
+    bool wantsCapture = capturedAtPumpStart;
+    bool focused = state.window.focused;
+    input.lookDeltaX = 0.0f;
+    input.lookDeltaY = 0.0f;
+    const common::u64 droppedBefore = sys::Sys_DroppedEventCount();
+    sys::Sys_PollWindowEvents( state.window );
+    const bool overflowed = sys::Sys_DroppedEventCount() != droppedBefore;
+
+    sys::sys_event_t event{};
+    while ( sys::Sys_PollEvent( event ) ) {
+        if ( event.type == sys::sys_event_type_t::QUIT_REQUESTED ) {
+            sys::Sys_RequestQuit();
+            continue;
+        }
+        if ( event.type == sys::sys_event_type_t::WINDOW_FOCUS_LOST &&
+             event.payload.window.windowId == state.window.id ) {
+            focused = false;
+            wantsCapture = false;
+            motionEligible = false;
+            ClearCameraInput( input );
+            continue;
+        }
+        if ( event.type == sys::sys_event_type_t::WINDOW_FOCUS_GAINED &&
+             event.payload.window.windowId == state.window.id ) {
+            focused = true;
+            continue;
+        }
+        if ( event.type == sys::sys_event_type_t::WINDOW_MINIMIZED &&
+             event.payload.window.windowId == state.window.id ) {
+            wantsCapture = false;
+            motionEligible = false;
+            ClearCameraInput( input );
+            continue;
+        }
+        if ( event.type == sys::sys_event_type_t::KEY &&
+             event.payload.key.windowId == state.window.id ) {
+            const auto key = event.payload.key.key;
+            const auto action = event.payload.key.action;
+            if ( key == sys::sys_key_t::ESCAPE &&
+                 action == sys::sys_input_action_t::PRESSED ) {
+                sys::Sys_RequestQuit();
+            } else if ( interactive && focused ) {
+                if ( action == sys::sys_input_action_t::PRESSED ) {
+                    input.held[static_cast<common::u32>( key )] = true;
+                } else if ( action == sys::sys_input_action_t::RELEASED ) {
+                    input.held[static_cast<common::u32>( key )] = false;
+                }
+                // Key repeats do not change a held-key transition.
+            }
+            continue;
+        }
+        if ( !interactive ) continue;
+        if ( event.type == sys::sys_event_type_t::MOUSE_BUTTON &&
+             event.payload.mouseButton.windowId == state.window.id &&
+             event.payload.mouseButton.button == sys::sys_mouse_button_t::RIGHT ) {
+            if ( event.payload.mouseButton.action == sys::sys_input_action_t::RELEASED ) {
+                wantsCapture = false;
+                motionEligible = false;
+                input.lookDeltaX = 0.0f;
+                input.lookDeltaY = 0.0f;
+            } else if ( focused ) {
+                wantsCapture = true;
+            }
+            continue;
+        }
+        if ( event.type == sys::sys_event_type_t::MOUSE_MOTION &&
+             event.payload.mouseMotion.windowId == state.window.id &&
+             focused && motionEligible && wantsCapture ) {
+            input.lookDeltaX += event.payload.mouseMotion.deltaX;
+            input.lookDeltaY += event.payload.mouseMotion.deltaY;
+        }
+    }
+
+    // The queue drops its oldest event on overflow, which may be a key-up or
+    // mouse release. Clear every held control instead of guessing its state.
+    if ( overflowed || !state.window.focused || state.window.minimized ||
+         sys::Sys_IsQuitRequested() || sys::Sys_WindowShouldClose( state.window ) ) {
+        wantsCapture = false;
+        ClearCameraInput( input );
+    }
+    return !interactive || SetCameraCapture( state, wantsCapture );
+}
+
 bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
 {
     const double started = sys::Sys_TimeNowSeconds();
@@ -419,18 +562,18 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
     common::u32 renderedFrames = 0u;
     common::u64 visibleDraws = 0u;
     render::render_extent_t extent = render::R_GetInfo()->drawableExtent;
+    const bool interactive = options.frameLimit == 0u && !options.hidden;
+    cube_input_state_t input{};
+    camera::cube_camera_t flyCamera{};
+    if ( interactive && !camera::CubeCamera_FromLookAt(
+             CUBE_CAMERA_POSITION, math::CY_VEC3_ZERO, 5.0f,
+             &flyCamera ) ) {
+        std::fprintf( stderr, "Could not initialize the sample fly camera.\n" );
+        return false;
+    }
 
     while ( !sys::Sys_IsQuitRequested() && !sys::Sys_WindowShouldClose( state.window ) ) {
-        sys::Sys_PollWindowEvents( state.window );
-        sys::sys_event_t event{};
-        while ( sys::Sys_PollEvent( event ) ) {
-            if ( event.type == sys::sys_event_type_t::QUIT_REQUESTED ||
-                 ( event.type == sys::sys_event_type_t::KEY &&
-                   event.payload.key.key == sys::sys_key_t::ESCAPE &&
-                   event.payload.key.action == sys::sys_input_action_t::PRESSED ) ) {
-                sys::Sys_RequestQuit();
-            }
-        }
+        if ( !PollSampleInput( state, input, interactive ) ) return false;
         if ( sys::Sys_IsQuitRequested() || sys::Sys_WindowShouldClose( state.window ) ) break;
 
         const double now = sys::Sys_TimeNowSeconds();
@@ -458,8 +601,29 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             math::CY_VEC3_FORWARD, math::Angle_FromRadians( 0.18f + rotationTime * 0.21f ) );
         math::mat4_t view{};
         math::mat4_t projection{};
-        if ( !math::Mat4_TryLookAtRH( CUBE_CAMERA_POSITION, math::CY_VEC3_ZERO,
-                 math::CY_VEC3_UP, 0.0001f, &view ) ||
+        if ( interactive && state.window.relativeMouseEnabled && state.window.focused ) {
+            camera::cube_camera_input_t cameraInput{};
+            cameraInput.forward = static_cast<float>( KeyHeld( input, sys::sys_key_t::W ) ) -
+                static_cast<float>( KeyHeld( input, sys::sys_key_t::S ) );
+            cameraInput.right = static_cast<float>( KeyHeld( input, sys::sys_key_t::D ) ) -
+                static_cast<float>( KeyHeld( input, sys::sys_key_t::A ) );
+            cameraInput.up = static_cast<float>( KeyHeld( input, sys::sys_key_t::SPACE ) ) -
+                static_cast<float>( KeyHeld( input, sys::sys_key_t::C ) );
+            cameraInput.lookDeltaX = input.lookDeltaX;
+            cameraInput.lookDeltaY = input.lookDeltaY;
+            cameraInput.fast = KeyHeld( input, sys::sys_key_t::LEFT_SHIFT ) ||
+                KeyHeld( input, sys::sys_key_t::RIGHT_SHIFT );
+            if ( !camera::CubeCamera_Advance( &flyCamera, cameraInput, delta ) ) {
+                std::fprintf( stderr, "Could not advance the sample fly camera.\n" );
+                return false;
+            }
+        }
+        const math::vec3_t cameraPosition = interactive
+            ? flyCamera.position : CUBE_CAMERA_POSITION;
+        if ( !( interactive
+                ? camera::CubeCamera_TryView( flyCamera, &view )
+                : math::Mat4_TryLookAtRH( CUBE_CAMERA_POSITION, math::CY_VEC3_ZERO,
+                    math::CY_VEC3_UP, 0.0001f, &view ) ) ||
              !math::Mat4_TryPerspectiveRH( math::Angle_FromDegrees( 45.0f ),
                  static_cast<float>( extent.width ) / static_cast<float>( extent.height ),
                  0.1f, 100.0f, math::clip_depth_range_t::NEGATIVE_ONE_TO_ONE,
@@ -494,7 +658,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
 
         world::world_view_query_t query{};
         query.frustum = frustum;
-        query.cameraPosition = CUBE_CAMERA_POSITION;
+        query.cameraPosition = cameraPosition;
         query.maxDistance = 100.0f;
         query.layerMask = 1u;
         query.frustumTolerance = 0.00001f;
@@ -593,6 +757,9 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
 bool Shutdown( cube_state_t &state ) noexcept
 {
     bool success = true;
+    if ( state.window.valid ) {
+        success = SetCameraCapture( state, false ) && success;
+    }
     render::R_ShutdownDrawQueue( &state.pDrawQueue );
     world::WorldSubmission_Shutdown( &state.pSubmission );
     world::World_Shutdown( &state.pWorld );
@@ -643,7 +810,7 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
     config.requireAcceleration = false;
     config.optionalCapabilities = render::R_CAPABILITY_NONE;
     sys::window_desc_t window{};
-    window.title = "Cypher Renderer | Graybox World View | Esc to exit";
+    window.title = "Cypher Renderer | Graybox World View | Hold RMB to fly | Esc to exit";
     window.width = 1100u;
     window.height = 760u;
     if ( options.hidden ) window.flags |= sys::SYS_WINDOW_HIDDEN;
@@ -665,9 +832,11 @@ int main( int argc, char **argv )
     if ( !ParseOptions( argc, argv, options ) ) return 2;
     if ( options.help ) {
         std::puts( "Usage: cypher_render_cube [--shader PATH] [--frames N] [--hidden]\n"
-                   "Escape or close the window to quit. Resize changes the projection.\n"
+                   "Hold right mouse to fly: mouse look, WASD move, Space/C up/down, Shift faster.\n"
+                   "Release right mouse to free the cursor. Escape or close exits.\n"
+                   "Resize changes the projection.\n"
                    "--shader reads an existing .cyshader_c; cooking is an offline step.\n"
-                   "--frames makes animation deterministic and exits after N frames.\n"
+                   "--frames keeps the fixed camera and deterministic animation, then exits.\n"
                    "--hidden defaults to 120 frames when --frames is omitted." );
         return 0;
     }

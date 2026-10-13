@@ -47,6 +47,13 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The graybox renderer sample has interactive fly navigation: right mouse
+  captures relative look, WASD and Space/C move, and Shift speeds movement.
+  View and World culling share one pose; release, focus loss, minimize, quit,
+  and event overflow clear input and restore the pointer. Pure camera tests,
+  the compact build, three focused tests and the hidden 120-frame OpenGL run
+  pass with 480 draws. Visible mouse interaction has not yet been manually
+  exercised; finite runs retain the fixed camera.
 - The OpenGL 4.1 graybox sample resolves two static mesh bundles through
   bounded host-owned logical slots: four World cubes share one mesh and a floor
   uses its own quad, bounds and tint. It checks visible mesh/material slots and
@@ -60,7 +67,7 @@ Added
   and both bindings are recorded in ordered draws. The compact build, four
   focused renderer tests, shader cook and 120-frame hidden run (360 draws)
   pass locally. This is a scope boundary, not a measured performance gain;
-  free camera input and a general view/material binding convention remain.
+  a general view/material binding convention remains.
 - CypherRenderDrawQueueRuntime stores bounded, ordered copies of indexed draw
   descriptions and flushes them through the renderer's existing draw API in
   an active frame. It allocates once, rejects overflow without mutation,

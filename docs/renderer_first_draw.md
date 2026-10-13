@@ -25,6 +25,15 @@ object. Depth testing hides rear surfaces, and back-face culling removes
 triangles facing away from the camera. Resize the window to check the
 projection. Press Escape or close the window to exit.
 
+In the interactive run, hold the right mouse button to capture the pointer and
+look around. WASD moves along the view, Space/C moves up/down in the Z-up
+world, and Shift increases movement speed. Release the right button to free
+the pointer. Focus loss, minimization, and event-queue overflow also release
+capture and clear held movement so a lost key-up cannot leave the camera moving.
+The sample feeds the same camera pose to its view matrix, view frustum, and
+World visibility query. This is sample-host navigation, not a renderer-owned
+input system or a gameplay camera.
+
 Run a finite smoke check through the same public API:
 
 ```sh
@@ -37,7 +46,8 @@ forever. Finite runs advance animation at a fixed 1/60 second per rendered frame
 interactive runs use elapsed time. `--hidden` defaults to 120 frames if no frame
 limit is supplied. The current five-object scene produces four visible draws
 per frame, or 480 draws in the default hidden run. A graphics context is still
-required for hidden runs.
+required for hidden runs. Finite runs keep the original fixed camera and do not
+consume fly controls, so the smoke check remains deterministic.
 
 `--shader PATH` selects another **already cooked** `.cyshader_c` file. The runtime
 does not invoke a compiler or open raw GLSL source. This override also lets a

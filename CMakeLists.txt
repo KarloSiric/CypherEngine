@@ -1859,6 +1859,15 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::RenderDrawQueueRuntime
         )
         cypher_add_common_catch_test(
+            cypher_render_cube_camera_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_CubeCamera_Tests.cpp"
+            Cypher::Math
+        )
+        target_sources(cypher_render_cube_camera_tests PRIVATE
+            "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_CubeCamera.cpp")
+        target_include_directories(cypher_render_cube_camera_tests PRIVATE
+            "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender")
+        cypher_add_common_catch_test(
             cypher_common_render_preview_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/CypherCommon_RenderPreview_Tests.cpp"
             Cypher::RenderPreview
@@ -3002,6 +3011,7 @@ endif()
 # runtime consumes only CYSH bytes through the VFS and renderer public API.
 add_executable(cypher_render_cube EXCLUDE_FROM_ALL
     "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_Cube.cpp"
+    "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_CubeCamera.cpp"
 )
 target_link_libraries(cypher_render_cube PRIVATE
     Cypher::Render Cypher::RenderMeshRuntime Cypher::RenderUniformRuntime

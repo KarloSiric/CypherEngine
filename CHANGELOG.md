@@ -53,6 +53,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The graybox renderer sample now has a small interactive fly camera: hold
+  right mouse for relative look, use WASD and Space/C to move, and Shift to
+  move faster. The sample uses one pose for its view matrix and World culling;
+  release, focus loss, minimize, quit, and event overflow clear held input and
+  restore the pointer. Camera math is platform-independent and covered by a
+  focused test. The compact build, three focused tests, and 120-frame hidden
+  OpenGL run pass with the original 480 draws. Visible mouse interaction has
+  not yet been manually exercised; finite runs retain the fixed camera.
 - The OpenGL 4.1 graybox sample now resolves two distinct static mesh bundles
   from bounded host-owned logical slots: four World cubes share one mesh, while
   a floor uses its own quad, bounds, and tint. It preflights every visible
@@ -67,8 +75,7 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   objects, and records both bindings in ordered draws. The existing compact
   build, four focused renderer tests, shader cook, and 120-frame hidden run
   (360 draws) pass locally. This establishes data scope rather than a measured
-  speedup; free camera input and a general material/view binding convention
-  remain future work.
+  speedup; a general material/view binding convention remains future work.
 - `CypherRenderDrawQueueRuntime` now stores a bounded, ordered copy of indexed
   draw descriptions and flushes them through the existing renderer draw API
   inside an active frame. It allocates once, rejects overflow without changing
