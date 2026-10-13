@@ -6,8 +6,9 @@ declares either ordinary `sampler2D` (the default) or `sampler2DShadow`.
 Bindings occupy consecutive logical slots beginning at zero. The matching
 indexed draw supplies one live uniform buffer or texture handle for every
 declared slot and leaves every unused slot invalid. A block uses its whole
-buffer; the buffer must be at least as large as the block's reflected byte
-size and may not be CPU-mapped.
+buffer by default, or an explicit per-draw byte range; the bound span must
+be at least as large as the block's reflected byte size and may not be
+CPU-mapped.
 
 The OpenGL 4.1 backend maps uniform slot *i* to uniform-buffer binding point
 *i*, and texture slot *i* to texture unit *i*. Pipeline creation reflects the
@@ -46,6 +47,17 @@ The frontend rejects missing, extra, stale, mapped, wrongly typed, and
 undersized resources before backend submission. It also rejects sampling
 either attachment of the active render target in either slot. A failed
 validation or backend draw releases any temporary uniform-buffer references.
+
+For many objects, pack their uniform records into one buffer and select a
+record per draw with `draw.uniformRanges[slot] = { offset, byteSize }`.
+`{0,0}` keeps the original whole-buffer binding. An explicit range needs a
+positive size covering the pipeline's reflected block and an offset divisible
+by `R_GetInfo()->limits.uniformBufferOffsetAlignment`; the complete span must
+fit the buffer and the native signed address range. The OpenGL 4.1 backend
+uses `glBindBufferRange` for a slice and `glBindBufferBase` for the default.
+Hosted frames restore the application's prior indexed uniform-buffer ranges.
+This avoids rewriting the same transform buffer before each draw, but draw
+submission and resource ownership remain immediate.
 
 ## Sampling policy
 

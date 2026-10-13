@@ -6,6 +6,7 @@
 
 #include "CypherRender_Draw.h"
 #include "CypherRender_Local.h"
+#include <cstdint>
 #include <limits>
 
 namespace cypher::engine::render
@@ -218,22 +219,52 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
     common::u32 acquiredUniforms = 0u;
     for ( common::u32 i = 0u; i < R_MAX_UNIFORM_BLOCK_BINDINGS; ++i ) {
         const auto handle = description.uniformBuffers[i];
+        const auto range = description.uniformRanges[i];
         const bool required = i < pipeline.uniformBlockCount;
         if ( ( handle.value != R_INVALID_BUFFER.value ) != required ) {
             result = render_error_t::ERR_BINDING_MISMATCH;
             break;
         }
-        if ( !required ) continue;
+        if ( !required ) {
+            if ( range.offset != 0u || range.byteSize != 0u ) {
+                result = render_error_t::ERR_BINDING_MISMATCH;
+                break;
+            }
+            continue;
+        }
         render_buffer_info_t uniformInfo{};
         result = R_BufferAcquireReference(
             handle, R_BUFFER_USAGE_UNIFORM, &native.uniformBuffers[i], &uniformInfo );
         if ( result != render_error_t::OK ) break;
         ++acquiredUniforms;
-        if ( uniformInfo.mapped || uniformInfo.byteSize < pipeline.uniformBlockBytes[i] ) {
-            result = uniformInfo.mapped
-                ? render_error_t::ERR_RESOURCE_BUSY : render_error_t::ERR_BINDING_MISMATCH;
+        if ( uniformInfo.mapped ) {
+            result = render_error_t::ERR_RESOURCE_BUSY;
             break;
         }
+        if ( range.offset == 0u && range.byteSize == 0u ) {
+            if ( uniformInfo.byteSize < pipeline.uniformBlockBytes[i] ) {
+                result = render_error_t::ERR_BINDING_MISMATCH;
+                break;
+            }
+            continue;
+        }
+        const common::u32 alignment = tr.info.limits.uniformBufferOffsetAlignment;
+        if ( alignment == 0u ) {
+            result = render_error_t::ERR_INTERNAL_ERROR;
+            break;
+        }
+        const auto nativeMax = static_cast<common::u64>(
+            std::numeric_limits<std::intptr_t>::max() );
+        if ( range.byteSize < pipeline.uniformBlockBytes[i] ||
+             range.offset % alignment != 0u ||
+             range.offset > nativeMax || range.byteSize > nativeMax ||
+             range.byteSize > nativeMax - range.offset ||
+             range.offset > uniformInfo.byteSize ||
+             range.byteSize > uniformInfo.byteSize - range.offset ) {
+            result = render_error_t::ERR_BINDING_MISMATCH;
+            break;
+        }
+        native.uniformRanges[i] = range;
     }
     if ( result != render_error_t::OK ) {
         for ( common::u32 i = 0u; i < acquiredUniforms; ++i ) {

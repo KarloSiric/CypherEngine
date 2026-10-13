@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace render = ::cypher::engine::render;
 namespace sys = ::cypher::engine::sys;
@@ -441,6 +442,38 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     readPixel( static_cast<GLint>( extent.width / 2u ),
                static_cast<GLint>( extent.height / 2u ), 1 );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    // One upload holds two object records. The draw selects each record by
+    // an aligned UBO range and maps the same geometry into opposite viewports.
+    const render::render_info_t *deviceInfo = render::R_GetInfo();
+    REQUIRE( deviceInfo != nullptr );
+    const common::u64 alignment = deviceInfo->limits.uniformBufferOffsetAlignment;
+    REQUIRE( alignment > 0u );
+    const common::u64 recordStride =
+        ( sizeof( redUniforms ) + alignment - 1u ) / alignment * alignment;
+    std::vector<common::byte> packedUniforms(
+        static_cast<std::size_t>( recordStride + sizeof( redUniforms ) ), 0u );
+    std::memcpy( packedUniforms.data(), redUniforms, sizeof( redUniforms ) );
+    std::memcpy( packedUniforms.data() + recordStride, uniforms, sizeof( uniforms ) );
+    const auto packedBuffer = createBuffer( packedUniforms.data(), packedUniforms.size(),
+        render::R_BUFFER_USAGE_UNIFORM, false );
+    ++frame.frameIndex;
+    frame.clearDepth = 1.0f;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    draw.pipeline = pipeline;
+    draw.uniformBuffers[0] = packedBuffer;
+    draw.uniformRanges[0] = { 0u, sizeof( redUniforms ) };
+    draw.viewport = { true, 0u, 0u, extent.width / 2u, extent.height };
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    draw.uniformRanges[0] = { recordStride, sizeof( uniforms ) };
+    draw.viewport.x = extent.width / 2u;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( static_cast<GLint>( extent.width / 4u ),
+               static_cast<GLint>( extent.height / 2u ), 0 );
+    readPixel( static_cast<GLint>( extent.width * 3u / 4u ),
+               static_cast<GLint>( extent.height / 2u ), 1 );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( packedBuffer ) == render::render_error_t::OK );
 
     REQUIRE( render::R_DestroyGraphicsPipeline( depthOnly ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( colorAtEqualDepth ) == render::render_error_t::OK );

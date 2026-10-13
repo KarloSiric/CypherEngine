@@ -100,6 +100,7 @@ struct draw_fixture_t {
         render::tr.info.capabilities = render::R_CAPABILITY_INSTANCING;
         render::tr.info.limits.maxUniformBlockBytes = 16384u;
         render::tr.info.limits.maxUniformBufferBindings = 16u;
+        render::tr.info.limits.uniformBufferOffsetAlignment = 256u;
         REQUIRE( render::R_BufferSystemInit() == draw_error_t::OK );
         REQUIRE( render::R_VertexInputSystemInit() == draw_error_t::OK );
         REQUIRE( render::R_ShaderSystemInit() == draw_error_t::OK );
@@ -638,4 +639,89 @@ TEST_CASE( "uniform validation and failed draws release temporary buffer referen
     CHECK( fixture.drawCalls == 1u );
     CHECK( fixture.lastDraw.uniformBuffers[0].value != 0u );
     CHECK( render::R_DestroyBuffer( uniform ) == draw_error_t::OK );
+}
+
+TEST_CASE( "uniform ranges select aligned records and reject invalid slices before submission",
+           "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    fixture.Geometry( 64u );
+    render::tr.frameActive = true;
+    const auto uniform = fixture.Buffer( 1024u, render::R_BUFFER_USAGE_UNIFORM );
+    auto draw = fixture.Draw();
+    draw.uniformBuffers[0] = uniform;
+
+    // The zero range keeps the original whole-buffer behavior.
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+    CHECK( fixture.lastDraw.uniformRanges[0].offset == 0u );
+    CHECK( fixture.lastDraw.uniformRanges[0].byteSize == 0u );
+    draw.uniformRanges[0] = { 256u, 64u };
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+    CHECK( fixture.lastDraw.uniformRanges[0].offset == 256u );
+    CHECK( fixture.lastDraw.uniformRanges[0].byteSize == 64u );
+    CHECK( fixture.drawCalls == 2u );
+
+    for ( const render::render_buffer_range_t invalid : {
+        render::render_buffer_range_t{ 256u, 0u },
+        render::render_buffer_range_t{ 1u, 64u },
+        render::render_buffer_range_t{ 256u, 63u },
+        render::render_buffer_range_t{ 768u, 257u },
+        render::render_buffer_range_t{ std::numeric_limits<common::u64>::max(), 64u },
+        render::render_buffer_range_t{ 256u, std::numeric_limits<common::u64>::max() }
+    } ) {
+        draw.uniformRanges[0] = invalid;
+        CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_BINDING_MISMATCH );
+    }
+    draw.uniformRanges[0] = { 256u, 64u };
+    draw.uniformRanges[1] = { 0u, 64u };
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_BINDING_MISMATCH );
+    draw.uniformRanges[1] = {};
+    CHECK( fixture.drawCalls == 2u );
+
+    render::render_buffer_mapping_t mapping{};
+    REQUIRE( render::R_MapBuffer( uniform, { 256u, 64u }, render::R_BUFFER_MAP_WRITE,
+                 &mapping ) == draw_error_t::OK );
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_RESOURCE_BUSY );
+    REQUIRE( render::R_UnmapBuffer( uniform ) == draw_error_t::OK );
+    render::tr.info.limits.uniformBufferOffsetAlignment = 0u;
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_INTERNAL_ERROR );
+    draw.uniformRanges[0] = {};
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+    CHECK( fixture.drawCalls == 3u );
+
+    fixture.drawResult = draw_error_t::ERR_SUBMISSION_FAILED;
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_SUBMISSION_FAILED );
+    CHECK( render::R_DestroyBuffer( uniform ) == draw_error_t::OK );
+}
+
+TEST_CASE( "independent uniform slots unwind references after a second-range failure",
+           "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    fixture.Geometry();
+    auto description = fixture.PipelineDescription( 64u );
+    description.uniformBlockCount = 2u;
+    description.uniformBlocks[1] = { "Material", 32u };
+    render::render_pipeline_handle_t twoBlocks{};
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &twoBlocks ) == draw_error_t::OK );
+    const auto transforms = fixture.Buffer( 1024u, render::R_BUFFER_USAGE_UNIFORM );
+    const auto materials = fixture.Buffer( 1024u, render::R_BUFFER_USAGE_UNIFORM );
+    render::tr.frameActive = true;
+    auto draw = fixture.Draw();
+    draw.pipeline = twoBlocks;
+    draw.uniformBuffers[0] = transforms;
+    draw.uniformBuffers[1] = materials;
+    draw.uniformRanges[0] = { 256u, 64u };
+    draw.uniformRanges[1] = { 512u, 32u };
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+    CHECK( fixture.lastDraw.uniformRanges[0].offset == 256u );
+    CHECK( fixture.lastDraw.uniformRanges[1].offset == 512u );
+
+    draw.uniformRanges[1].offset = 513u;
+    CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_BINDING_MISMATCH );
+    CHECK( fixture.drawCalls == 1u );
+    CHECK( render::R_DestroyBuffer( transforms ) == draw_error_t::OK );
+    CHECK( render::R_DestroyBuffer( materials ) == draw_error_t::OK );
 }

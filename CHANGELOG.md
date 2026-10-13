@@ -25,6 +25,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Indexed draws can select an aligned uniform-buffer byte range for each
+  declared block while `{0,0}` keeps whole-buffer binding. The device reports
+  its required offset alignment; the frontend checks block size, buffer
+  bounds, signed native range, mapped state, and undeclared slots before a
+  draw reaches OpenGL 4.1 `glBindBufferRange`. A native pixel test reads two
+  differently colored records from one buffer, and hosted frames restore a
+  host-owned nonzero range. Scene batching remains caller work.
 - A resource-to-renderer integration test now covers typed CYTX acquisition
   through the VFS, synchronous upload, backend allocation failure and retry,
   and independent GPU texture lifetime after releasing the resource handle.
@@ -185,6 +192,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Rebuilt the renderer, resource-runtime, Host, and cube targets in the existing
+  `build-mason` tree. All twelve selected renderer/Host CTests passed, including
+  the new resource-to-GPU bridge, native uniform-range pixel test, and hosted
+  range restoration; the cube rendered two hidden frames. Independent review
+  found no blocking uniform-range issue.
 - The new resource-to-GPU bridge test and renderer contract, draw, native
   OpenGL, and hosted OpenGL tests passed (five focused CTests). The bridge
   test compiles with renderer headers included before resource headers.

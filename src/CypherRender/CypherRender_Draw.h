@@ -58,6 +58,9 @@ struct render_draw_indexed_desc_t {
     render_scissor_rect_t scissor{}; // Optional per-draw clipping in the active frame or target pass.
     render_viewport_rect_t viewport{}; // Optional per-draw mapping within the active frame or target pass.
     ::cypher::common::u32 instanceCount{ 1u }; // Positive; one preserves ordinary indexed drawing.
+    // {0,0} binds the whole uniform buffer. Otherwise the offset must meet
+    // uniformBufferOffsetAlignment and byteSize must cover the shader block.
+    render_buffer_range_t uniformRanges[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
 };
 
 // Executes immediately inside an active frame on the renderer thread. The
@@ -70,6 +73,7 @@ struct render_draw_indexed_desc_t {
 // D24 storage and an explicit comparison sampler; scalar bindings reject a
 // comparison sampler. Mip samplers require generated mips. Enabled scissor and
 // viewport rectangles must fit the active framebuffer.
+// An explicit uniform range selects one record in a shared buffer.
 // A viewport does not clip; combine it with scissor when clipping is needed. No base
 // instance, base vertex, primitive restart, or deferred pointers.
 CYPHER_NODISCARD render_error_t R_DrawIndexed(

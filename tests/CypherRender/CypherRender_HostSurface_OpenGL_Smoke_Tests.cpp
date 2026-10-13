@@ -375,9 +375,12 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     GLuint hostUniform = 0u, hostUniform1 = 0u;
     glGenBuffers( 1, &hostUniform );
     glGenBuffers( 1, &hostUniform1 );
+    const GLintptr hostUniformStart =
+        static_cast<GLintptr>( pInfo->limits.uniformBufferOffsetAlignment );
+    REQUIRE( hostUniformStart > 0 );
     glBindBuffer( GL_UNIFORM_BUFFER, hostUniform );
-    glBufferData( GL_UNIFORM_BUFFER, 64, nullptr, GL_STATIC_DRAW );
-    glBindBufferBase( GL_UNIFORM_BUFFER, 0u, hostUniform );
+    glBufferData( GL_UNIFORM_BUFFER, hostUniformStart + 64, nullptr, GL_STATIC_DRAW );
+    glBindBufferRange( GL_UNIFORM_BUFFER, 0u, hostUniform, hostUniformStart, 64 );
     glBindBuffer( GL_UNIFORM_BUFFER, hostUniform1 );
     glBufferData( GL_UNIFORM_BUFFER, 32, nullptr, GL_STATIC_DRAW );
     glBindBufferBase( GL_UNIFORM_BUFFER, 1u, hostUniform1 );
@@ -601,6 +604,11 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     GLint indexedUniform = 0;
     glGetIntegeri_v( GL_UNIFORM_BUFFER_BINDING, 0u, &indexedUniform );
     CHECK( static_cast<GLuint>( indexedUniform ) == hostUniform );
+    GLint64 indexedStart = 0, indexedSize = 0;
+    glGetInteger64i_v( GL_UNIFORM_BUFFER_START, 0u, &indexedStart );
+    glGetInteger64i_v( GL_UNIFORM_BUFFER_SIZE, 0u, &indexedSize );
+    CHECK( indexedStart == hostUniformStart );
+    CHECK( indexedSize == 64 );
     glGetIntegeri_v( GL_UNIFORM_BUFFER_BINDING, 1u, &indexedUniform );
     CHECK( static_cast<GLuint>( indexedUniform ) == hostUniform1 );
     checkInteger( GL_ACTIVE_TEXTURE, GL_TEXTURE2 );

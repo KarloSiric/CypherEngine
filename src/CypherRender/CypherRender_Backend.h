@@ -41,13 +41,13 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version nineteen adds comparison samplers and typed sampled-image bindings. Offscreen targets,
+Version twenty adds per-draw uniform-buffer subranges. Offscreen targets,
 linked shaders, immediate draws, and all native object tokens remain behind
 this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 19u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 20u;
 
 /*
 ================
@@ -209,6 +209,7 @@ struct backend_draw_indexed_desc_t {
     ::cypher::common::u32 indexCount{ 0u };
     ::cypher::common::u32 vertexCount{ 0u };
     ::cypher::common::u32 instanceCount{ 0u };
+    render_buffer_range_t uniformRanges[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
 };
 
 // Selects graphics-related native-window attributes before Sys_CreateWindow.

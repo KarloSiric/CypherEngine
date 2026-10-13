@@ -166,9 +166,10 @@ struct render_buffer_data_t {
 ================
 Buffer range
 
-Offsets are measured from the beginning of the buffer. Zero-sized ranges are
-invalid; every operation verifies that offset + byteSize does not overflow and
-does not exceed the buffer allocation.
+Offsets are measured from the beginning of the buffer. Buffer mapping and
+updates require a nonzero size; draw uniform binding uses {0,0} to request
+the whole buffer. Explicit ranges verify that offset + byteSize does not
+overflow or exceed the buffer allocation.
 ================
 */
 struct render_buffer_range_t {

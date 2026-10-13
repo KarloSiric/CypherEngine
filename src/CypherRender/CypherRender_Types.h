@@ -193,6 +193,7 @@ struct render_limits_t {
     ::cypher::common::u32 maxViewportWidth{ 0u };          // Maximum physical viewport width.
     ::cypher::common::u32 maxViewportHeight{ 0u };         // Maximum physical viewport height.
     ::cypher::common::u64 maxUniformBlockBytes{ 0u };      // Maximum storage in one uniform block.
+    ::cypher::common::u32 uniformBufferOffsetAlignment{ 0u }; // Byte alignment of uniform-buffer subrange offsets.
 };
 
 struct render_config_t {

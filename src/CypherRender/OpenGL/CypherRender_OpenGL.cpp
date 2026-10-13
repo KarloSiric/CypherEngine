@@ -353,13 +353,16 @@ bool GL_QueryLimits( render_limits_t &limitsOut ) noexcept
         GL_QueryUnsignedLimit( GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, limitsOut.maxCombinedTextureUnits ) &&
         GL_QueryUnsignedLimit( GL_MAX_VERTEX_ATTRIBS, limitsOut.maxVertexAttributes ) &&
         GL_QueryUnsignedLimit( GL_MAX_UNIFORM_BUFFER_BINDINGS, limitsOut.maxUniformBufferBindings ) &&
+        GL_QueryUnsignedLimit( GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT,
+            limitsOut.uniformBufferOffsetAlignment ) &&
         GL_QueryUnsignedLimit( GL_MAX_COLOR_ATTACHMENTS, limitsOut.maxColorAttachments ) &&
         GL_QueryUnsignedLimit( GL_MAX_DRAW_BUFFERS, limitsOut.maxDrawBuffers ) &&
         GL_QueryUnsignedLimit( GL_MAX_SAMPLES, limitsOut.maxSamples );
 
     glGetIntegerv( GL_MAX_VIEWPORT_DIMS, viewportDimensions );
     glGetInteger64v( GL_MAX_UNIFORM_BLOCK_SIZE, &uniformBlockBytes );
-    if ( !scalarQueriesSucceeded || viewportDimensions[0] <= 0 ||
+    if ( !scalarQueriesSucceeded || limitsOut.uniformBufferOffsetAlignment == 0u ||
+         viewportDimensions[0] <= 0 ||
          viewportDimensions[1] <= 0 || uniformBlockBytes <= 0 ) {
         limitsOut = {};
         return false;

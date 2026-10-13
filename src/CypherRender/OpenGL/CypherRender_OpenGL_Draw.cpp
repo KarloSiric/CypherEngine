@@ -385,9 +385,23 @@ render_error_t GL_DrawIndexed(
         if ( description.uniformBuffers[slot].value > std::numeric_limits<GLuint>::max() ) {
             return render_error_t::ERR_INVALID_HANDLE;
         }
-        if ( ( description.uniformBuffers[slot].value != 0u ) !=
-             ( slot < pipeline->uniformBlockCount ) ) {
+        const bool required = slot < pipeline->uniformBlockCount;
+        if ( ( description.uniformBuffers[slot].value != 0u ) != required ) {
             return render_error_t::ERR_BINDING_MISMATCH;
+        }
+        const auto range = description.uniformRanges[slot];
+        const bool explicitRange = range.offset != 0u || range.byteSize != 0u;
+        if ( !required && explicitRange ) return render_error_t::ERR_BINDING_MISMATCH;
+        if ( required && explicitRange ) {
+            const auto nativeMax = static_cast<common::u64>(
+                std::numeric_limits<GLintptr>::max() );
+            if ( glState.limits.uniformBufferOffsetAlignment == 0u ||
+                 range.byteSize < pipeline->uniformBlockBytes[slot] ||
+                 range.offset % glState.limits.uniformBufferOffsetAlignment != 0u ||
+                 range.offset > nativeMax || range.byteSize > nativeMax ||
+                 range.byteSize > nativeMax - range.offset ) {
+                return render_error_t::ERR_BINDING_MISMATCH;
+            }
         }
     }
     for ( common::u32 slot = 0u; slot < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++slot ) {
@@ -501,8 +515,16 @@ render_error_t GL_DrawIndexed(
     glBindVertexArray( static_cast<GLuint>( description.vertexInput.value ) );
     for ( common::u32 slot = 0u; slot < pipeline->uniformBlockCount; ++slot ) {
         glUniformBlockBinding( pipeline->program, pipeline->uniformBlockIndices[slot], slot );
-        glBindBufferBase( GL_UNIFORM_BUFFER, slot,
-            static_cast<GLuint>( description.uniformBuffers[slot].value ) );
+        const auto range = description.uniformRanges[slot];
+        if ( range.offset == 0u && range.byteSize == 0u ) {
+            glBindBufferBase( GL_UNIFORM_BUFFER, slot,
+                static_cast<GLuint>( description.uniformBuffers[slot].value ) );
+        } else {
+            glBindBufferRange( GL_UNIFORM_BUFFER, slot,
+                static_cast<GLuint>( description.uniformBuffers[slot].value ),
+                static_cast<GLintptr>( range.offset ),
+                static_cast<GLsizeiptr>( range.byteSize ) );
+        }
     }
     render_error_t result = GL_CheckErrors( glState.config.validation );
     if ( result == render_error_t::OK ) {
