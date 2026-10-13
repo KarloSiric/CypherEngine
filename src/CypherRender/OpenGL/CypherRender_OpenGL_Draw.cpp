@@ -225,6 +225,17 @@ void GL_SetCapability( const GLenum capability, const bool enabled ) noexcept
     if ( enabled ) glEnable( capability );
     else glDisable( capability );
 }
+
+bool GL_RectFitsExtent( const common::u32 x, const common::u32 y,
+    const common::u32 width, const common::u32 height,
+    const render_extent_t extent ) noexcept
+{
+    const auto maximumCount = static_cast<common::u32>( std::numeric_limits<GLint>::max() );
+    return width != 0u && height != 0u && x <= maximumCount && y <= maximumCount &&
+        width <= maximumCount && height <= maximumCount &&
+        x < extent.width && y < extent.height &&
+        width <= extent.width - x && height <= extent.height - y;
+}
 } // namespace
 
 render_error_t GL_CreateGraphicsPipeline(
@@ -393,25 +404,40 @@ render_error_t GL_DrawIndexed(
          description.instanceCount > static_cast<common::u32>( std::numeric_limits<GLsizei>::max() ) ) {
         return render_error_t::ERR_DRAW_DESC_INVALID;
     }
-    if ( description.scissor.enabled ) {
+    if ( description.scissor.enabled || description.viewport.enabled ) {
         const render_extent_t extent = glState.targetPassActive
             ? glState.targetPassExtent : glState.drawableExtent;
-        const auto maximumScissor = static_cast<common::u32>(
-            std::numeric_limits<GLint>::max() );
-        if ( description.scissor.width == 0u || description.scissor.height == 0u ||
-             description.scissor.x > maximumScissor ||
-             description.scissor.y > maximumScissor ||
-             description.scissor.width > maximumScissor ||
-             description.scissor.height > maximumScissor ||
-             description.scissor.x >= extent.width || description.scissor.y >= extent.height ||
-             description.scissor.width > extent.width - description.scissor.x ||
-             description.scissor.height > extent.height - description.scissor.y ) {
+        if ( ( description.scissor.enabled &&
+               !GL_RectFitsExtent( description.scissor.x, description.scissor.y,
+                   description.scissor.width, description.scissor.height, extent ) ) ||
+             ( description.viewport.enabled &&
+               !GL_RectFitsExtent( description.viewport.x, description.viewport.y,
+                   description.viewport.width, description.viewport.height, extent ) ) ) {
             return render_error_t::ERR_DRAW_DESC_INVALID;
         }
     }
     GL_ClearErrors();
-    // Set slot zero on every draw so a clipped draw never leaks into the next
-    // unclipped one. Hosted contexts may own other indexed viewport slots.
+    // Set viewport zero on every draw so a custom region never leaks into the
+    // next full-frame draw. Hosted contexts may own other viewport indices.
+    const render_extent_t extent = glState.targetPassActive
+        ? glState.targetPassExtent : glState.drawableExtent;
+    const GLint viewportX = description.viewport.enabled
+        ? static_cast<GLint>( description.viewport.x ) : 0;
+    const GLint viewportY = description.viewport.enabled
+        ? static_cast<GLint>( description.viewport.y ) : 0;
+    const GLsizei viewportWidth = static_cast<GLsizei>( description.viewport.enabled
+        ? description.viewport.width : extent.width );
+    const GLsizei viewportHeight = static_cast<GLsizei>( description.viewport.enabled
+        ? description.viewport.height : extent.height );
+    if ( glState.usesHostSurface ) {
+        glViewportIndexedf( 0u, static_cast<GLfloat>( viewportX ),
+            static_cast<GLfloat>( viewportY ),
+            static_cast<GLfloat>( viewportWidth ),
+            static_cast<GLfloat>( viewportHeight ) );
+    } else {
+        glViewport( viewportX, viewportY, viewportWidth, viewportHeight );
+    }
+    // Set scissor slot zero on every draw too, so clipped draws do not leak.
     if ( description.scissor.enabled ) {
         glScissorIndexed( 0u, static_cast<GLint>( description.scissor.x ),
             static_cast<GLint>( description.scissor.y ),

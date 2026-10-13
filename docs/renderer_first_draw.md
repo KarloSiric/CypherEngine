@@ -154,14 +154,22 @@ controls draw output only: the current render target has an internal D24 depth
 attachment that cannot be sampled as a shadow map, and no scene queue schedules
 the two passes yet.
 
-## Per-draw clipping
+## Per-draw viewport and clipping
 
-An indexed draw can enable a scissor rectangle to limit its pixels to one
-region of the active framebuffer. Coordinates are physical pixels from the
+An indexed draw can enable a viewport rectangle to map clip-space coordinates
+into one region, and a scissor rectangle to prevent pixels outside a region.
+These controls serve different purposes: a viewport changes where geometry
+lands; a scissor clips fragments after that mapping. For an editor panel, set
+both to the panel's bounds. Coordinates are physical pixels from the
 bottom-left corner; when drawing into an offscreen target, they are relative to
 that target rather than the presentation surface. For example:
 
 ```cpp
+draw.viewport.enabled = true;
+draw.viewport.x = panelLeft;
+draw.viewport.y = panelBottom;
+draw.viewport.width = panelWidth;
+draw.viewport.height = panelHeight;
 draw.scissor.enabled = true;
 draw.scissor.x = panelLeft;
 draw.scissor.y = panelBottom;
@@ -169,13 +177,14 @@ draw.scissor.width = panelWidth;
 draw.scissor.height = panelHeight;
 ```
 
-The rectangle must have a positive size and fit entirely inside the active
-extent. The renderer applies or disables scissoring on every draw, so a later
-draw with the default disabled rectangle covers the full framebuffer again.
-Frame and target-pass clears still cover the whole attachment. A host supplying
-its own OpenGL context gets its scissor box and enable state restored at frame
-end. This is a draw boundary for panels and overlays; the renderer does not yet
-schedule viewport draws or own editor panel layout.
+Each enabled rectangle must have a positive size and fit entirely inside the
+active extent. The renderer sets viewport and scissor state on every draw. A
+later draw with both rectangles disabled again maps to, and can cover, the full
+framebuffer. Frame and target-pass clears still cover the whole attachment. A
+host supplying its own OpenGL context gets its viewport, scissor box, and
+scissor enable state restored at frame end. This supplies draw controls for
+panels and overlays; the renderer does not yet schedule viewport draws or own
+editor panel layout.
 
 ## Lifecycle and cleanup
 

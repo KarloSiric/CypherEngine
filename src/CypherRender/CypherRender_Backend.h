@@ -41,13 +41,13 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version fifteen adds optional per-draw scissor clipping. Offscreen targets,
+Version sixteen adds optional per-draw viewport mapping. Offscreen targets,
 linked shaders, immediate draws, and all native object tokens remain behind
 this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 15u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 16u;
 
 /*
 ================
@@ -202,6 +202,7 @@ struct backend_draw_indexed_desc_t {
     backend_texture_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     backend_sampler_t samplers[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_scissor_rect_t scissor{};
+    render_viewport_rect_t viewport{};
     render_index_type_t indexType{ render_index_type_t::UINT16 };
     ::cypher::common::u64 indexByteOffset{ 0u };
     ::cypher::common::u32 indexCount{ 0u };

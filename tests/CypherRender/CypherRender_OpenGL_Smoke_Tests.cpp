@@ -411,6 +411,37 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
                static_cast<GLint>( extent.height / 2u ), 1 );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
 
+    // The same triangle should move with the viewport transform, without
+    // clipping or changing its vertices. A following ordinary draw must use
+    // the full drawable again, rather than inheriting the previous viewport.
+    ++frame.frameIndex;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    draw.pipeline = readOnlyDepth;
+    draw.uniformBuffers[0] = redUniformBuffer;
+    draw.viewport = { true, 0u, 0u, extent.width / 2u, extent.height };
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    GLint activeViewport[4]{};
+    glGetIntegerv( GL_VIEWPORT, activeViewport );
+    CHECK( activeViewport[0] == 0 );
+    CHECK( activeViewport[1] == 0 );
+    CHECK( activeViewport[2] == static_cast<GLint>( extent.width / 2u ) );
+    CHECK( activeViewport[3] == static_cast<GLint>( extent.height ) );
+    readPixel( static_cast<GLint>( extent.width / 4u ),
+               static_cast<GLint>( extent.height / 2u ), 0 );
+    readPixel( static_cast<GLint>( extent.width / 2u ),
+               static_cast<GLint>( extent.height / 2u ), 2 );
+    draw.viewport = {};
+    draw.uniformBuffers[0] = uniformBuffer;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    glGetIntegerv( GL_VIEWPORT, activeViewport );
+    CHECK( activeViewport[0] == 0 );
+    CHECK( activeViewport[1] == 0 );
+    CHECK( activeViewport[2] == static_cast<GLint>( extent.width ) );
+    CHECK( activeViewport[3] == static_cast<GLint>( extent.height ) );
+    readPixel( static_cast<GLint>( extent.width / 2u ),
+               static_cast<GLint>( extent.height / 2u ), 1 );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
     REQUIRE( render::R_DestroyGraphicsPipeline( depthOnly ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( colorAtEqualDepth ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( farGreenBuffer ) == render::render_error_t::OK );
@@ -1108,6 +1139,10 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     draw.vertexInput = input;
     draw.indexCount = 3u;
     draw.vertexCount = 6u;
+    draw.viewport = { true, 0u, 0u, textureDesc.width + 1u,
+                      textureDesc.height };
+    CHECK( render::R_DrawIndexed( draw ) == render::render_error_t::ERR_DRAW_DESC_INVALID );
+    draw.viewport = { true, 0u, 0u, textureDesc.width, textureDesc.height };
     // This rectangle fits the drawable but overruns the smaller active target.
     draw.scissor = { true, 0u, 0u, textureDesc.width + 1u,
                      textureDesc.height };
@@ -1116,6 +1151,7 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
                      textureDesc.width / 2u, textureDesc.height };
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
     draw.scissor = {};
+    draw.viewport = {};
     draw.pipeline = samplePipeline;
     draw.sampledTextures[0] = color;
     CHECK( render::R_DrawIndexed( draw ) == render::render_error_t::ERR_COMMAND_STATE_INVALID );

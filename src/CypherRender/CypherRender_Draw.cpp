@@ -13,6 +13,18 @@ namespace cypher::engine::render
 namespace common = ::cypher::common;
 namespace
 {
+bool R_RectFitsExtent( const common::u32 x, const common::u32 y,
+    const common::u32 width, const common::u32 height,
+    const render_extent_t extent, const common::u32 maximumCount ) noexcept
+{
+    // Subtract only after checking the origin so an untrusted u32 far edge
+    // cannot wrap. OpenGL origins use GLint and sizes use GLsizei.
+    return width != 0u && height != 0u && x <= maximumCount && y <= maximumCount &&
+        width <= maximumCount && height <= maximumCount &&
+        x < extent.width && y < extent.height &&
+        width <= extent.width - x && height <= extent.height - y;
+}
+
 bool R_LayoutsMatch( const render_vertex_layout_t &a, const render_vertex_layout_t &b ) noexcept
 {
     if ( a.bindingCount != b.bindingCount || a.attributeCount != b.attributeCount ) return false;
@@ -103,7 +115,7 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
          ( tr.info.capabilities & R_CAPABILITY_INSTANCING ) == 0u ) {
         return render_error_t::ERR_CAPABILITY_MISSING;
     }
-    if ( description.scissor.enabled ) {
+    if ( description.scissor.enabled || description.viewport.enabled ) {
         render_extent_t extent = tr.info.drawableExtent;
         if ( tr.activeTarget.value != R_INVALID_TARGET.value ) {
             render_target_info_t target{};
@@ -111,20 +123,20 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
             if ( targetResult != render_error_t::OK ) return targetResult;
             extent = target.extent;
         }
-        // Subtract only after checking the origin so caller-supplied u32
-        // coordinates cannot wrap when computing the far edge.
-        if ( description.scissor.width == 0u || description.scissor.height == 0u ||
-             description.scissor.x > maximumCount || description.scissor.y > maximumCount ||
-             description.scissor.width > maximumCount ||
-             description.scissor.height > maximumCount ||
-             description.scissor.x >= extent.width || description.scissor.y >= extent.height ||
-             description.scissor.width > extent.width - description.scissor.x ||
-             description.scissor.height > extent.height - description.scissor.y ) {
+        if ( ( description.scissor.enabled &&
+               !R_RectFitsExtent( description.scissor.x, description.scissor.y,
+                   description.scissor.width, description.scissor.height,
+                   extent, maximumCount ) ) ||
+             ( description.viewport.enabled &&
+               !R_RectFitsExtent( description.viewport.x, description.viewport.y,
+                   description.viewport.width, description.viewport.height,
+                   extent, maximumCount ) ) ) {
             return render_error_t::ERR_DRAW_DESC_INVALID;
         }
     }
     backend_draw_indexed_desc_t native{};
     native.scissor = description.scissor;
+    native.viewport = description.viewport;
     render_pipeline_info_t pipeline{};
     render_error_t result = R_PipelineResolveForDraw( description.pipeline, &native.pipeline, &pipeline );
     if ( result != render_error_t::OK ) return result;

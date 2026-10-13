@@ -24,6 +24,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Indexed draws can map geometry into an optional physical-pixel viewport
+  rectangle in the active frame or offscreen target. Default draws reset to the
+  full extent; enabled rectangles reject empty, out-of-bounds, or OpenGL-range-
+  exceeding coordinates. Hosted draws touch viewport index zero and restore
+  the host's viewport at frame end. Viewport placement and scissor clipping
+  remain independent for editor panels.
 - Indexed draws can use a physical-pixel scissor rectangle relative to the
   active frame or offscreen target's bottom-left corner. Empty, out-of-bounds,
   and OpenGL-range-exceeding rectangles are rejected. Every draw sets clipped
@@ -75,6 +81,8 @@ Added
   ordinary runtime still has no scene producer.
 
 Changed
+- Public renderer API version 9 and private backend version 16 add optional
+  per-draw viewport placement.
 - Public renderer API version 8 and private backend version 15 add optional
   per-draw scissor clipping.
 - Public renderer API version 7 and private backend version 14 add immutable
@@ -104,6 +112,12 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Rebuilt eleven focused renderer, Host and cube targets in the existing
+  build-mason tree. Ten selected renderer/Host CTests passed; native and hosted
+  OpenGL smokes passed 531 and 184 assertions. Native pixels verify a
+  subviewport draw and full-extent follow-up; offscreen bounds, hosted
+  viewport-index-one preservation and host viewport restoration are covered.
+  Cube rendered two hidden frames.
 - Rebuilt eleven focused renderer, Host and cube targets in the existing
   build-mason tree. Ten selected renderer/Host CTests passed; native and hosted
   OpenGL smokes passed 506 and 172 assertions. Pixel checks cover presentation

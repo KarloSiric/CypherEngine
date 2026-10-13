@@ -416,6 +416,50 @@ TEST_CASE( "draw scissor clips to the drawable and leaves ordinary draws unrestr
     CHECK( fixture.drawCalls == 2u );
 }
 
+TEST_CASE( "draw viewport defaults to the full drawable and validates enabled bounds",
+           "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    fixture.Geometry();
+    render::tr.info.drawableExtent = { 64u, 48u };
+    render::tr.frameActive = true;
+
+    auto draw = fixture.Draw();
+    CHECK_FALSE( draw.viewport.enabled );
+    draw.viewport = { false, std::numeric_limits<common::u32>::max(),
+                      std::numeric_limits<common::u32>::max(), 0u, 0u };
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+    CHECK_FALSE( fixture.lastDraw.viewport.enabled );
+
+    draw.viewport = { true, 16u, 8u, 48u, 40u }; // Exact upper/right edge.
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+    CHECK( fixture.lastDraw.viewport.enabled );
+    CHECK( fixture.lastDraw.viewport.x == 16u );
+    CHECK( fixture.lastDraw.viewport.y == 8u );
+    CHECK( fixture.lastDraw.viewport.width == 48u );
+    CHECK( fixture.lastDraw.viewport.height == 40u );
+
+    for ( const render::render_viewport_rect_t invalid : {
+        render::render_viewport_rect_t{ true, 0u, 0u, 0u, 1u },
+        render::render_viewport_rect_t{ true, 0u, 0u, 1u, 0u },
+        render::render_viewport_rect_t{ true, 64u, 0u, 1u, 1u },
+        render::render_viewport_rect_t{ true, 0u, 48u, 1u, 1u },
+        render::render_viewport_rect_t{ true, 63u, 0u, 2u, 1u },
+        render::render_viewport_rect_t{ true, 0u, 47u, 1u, 2u },
+        render::render_viewport_rect_t{ true,
+            std::numeric_limits<common::u32>::max(), 0u, 1u, 1u },
+        render::render_viewport_rect_t{ true,
+            0u, std::numeric_limits<common::u32>::max(), 1u, 1u },
+        render::render_viewport_rect_t{ true, 1u, 1u,
+            std::numeric_limits<common::u32>::max(), 1u }
+    } ) {
+        draw.viewport = invalid;
+        CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_DRAW_DESC_INVALID );
+    }
+    CHECK( fixture.drawCalls == 2u );
+}
+
 TEST_CASE( "triangle and line pipelines validate their own indexed primitive counts", "[CypherRender][Draw]" )
 {
     draw_fixture_t fixture;

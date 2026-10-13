@@ -35,6 +35,17 @@ struct render_scissor_rect_t {
     ::cypher::common::u32 height{ 0u };
 };
 
+// Physical pixels measured from the active framebuffer's bottom-left corner.
+// A disabled viewport uses the full frame or target pass; its coordinates are
+// ignored. A viewport maps clip-space coordinates but does not clip fragments.
+struct render_viewport_rect_t {
+    bool enabled{ false };
+    ::cypher::common::u32 x{ 0u };
+    ::cypher::common::u32 y{ 0u };
+    ::cypher::common::u32 width{ 0u };
+    ::cypher::common::u32 height{ 0u };
+};
+
 struct render_draw_indexed_desc_t {
     render_pipeline_handle_t pipeline{};
     render_vertex_input_handle_t vertexInput{};
@@ -45,6 +56,7 @@ struct render_draw_indexed_desc_t {
     render_texture_handle_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_sampler_handle_t samplers[R_MAX_SAMPLED_TEXTURE_BINDINGS]{}; // Optional per declared texture slot.
     render_scissor_rect_t scissor{}; // Optional per-draw clipping in the active frame or target pass.
+    render_viewport_rect_t viewport{}; // Optional per-draw mapping within the active frame or target pass.
     ::cypher::common::u32 instanceCount{ 1u }; // Positive; one preserves ordinary indexed drawing.
 };
 
@@ -55,7 +67,8 @@ struct render_draw_indexed_desc_t {
 // Per-instance attributes advance according to their layout divisor. An
 // explicit sampler overrides texture-owned sampling for its paired image; a
 // null sampler retains the original policy. Mip samplers require generated
-// mips. Enabled scissor rectangles must fit the active framebuffer. No base
+// mips. Enabled scissor and viewport rectangles must fit the active framebuffer.
+// A viewport does not clip; combine it with scissor when clipping is needed. No base
 // instance, base vertex, primitive restart, or deferred pointers.
 CYPHER_NODISCARD render_error_t R_DrawIndexed(
     const render_draw_indexed_desc_t &description ) noexcept;

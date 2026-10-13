@@ -25,6 +25,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Indexed draws can map clip-space geometry into an optional physical-pixel
+  viewport rectangle within the active frame or offscreen target. The default
+  draw resets to the full active extent, and enabled rectangles reject empty,
+  out-of-bounds, or OpenGL-range-exceeding coordinates. Hosted draws change
+  only viewport index zero and restore the application's prior viewport at
+  frame end. Viewport placement and scissor clipping are independent, so an
+  editor panel can use both without changing its mesh data.
 - Indexed draws can opt into a physical-pixel scissor rectangle measured from
   the active frame or offscreen target's bottom-left corner. The frontend
   rejects empty, out-of-bounds, or OpenGL-range-exceeding rectangles before
@@ -96,6 +103,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Advanced the public renderer API to version 9 and private backend contract
+  to version 16 for optional per-draw viewport placement.
 - Advanced the public renderer API to version 8 and private backend contract
   to version 15 for optional per-draw scissor clipping.
 - Advanced the public renderer API to version 7 and private backend contract
@@ -132,6 +141,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Rebuilt eleven focused renderer, Host, and cube targets in the existing
+  `build-mason` tree. All ten selected renderer/Host CTests passed; direct
+  native and hosted OpenGL smokes passed 531 and 184 assertions. Native pixels
+  show a triangle mapped into a subviewport and a following draw restored to
+  full extent. Offscreen target bounds and hosted index-one preservation and
+  viewport restoration are covered. The cube rendered two hidden frames.
 - Rebuilt eleven focused renderer, Host, and cube targets in the existing
   `build-mason` tree. All ten selected renderer/Host CTests passed; direct
   native and hosted OpenGL smokes passed 506 and 172 assertions. Pixel checks
