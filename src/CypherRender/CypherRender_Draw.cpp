@@ -185,7 +185,8 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
             return render_error_t::ERR_BINDING_MISMATCH;
         }
         if ( !required ) continue;
-        if ( handle.value == tr.activeTargetColor.value ) {
+        if ( handle.value == tr.activeTargetColor.value ||
+             handle.value == tr.activeTargetDepth.value ) {
             return render_error_t::ERR_COMMAND_STATE_INVALID;
         }
         render_texture_info_t textureInfo{};

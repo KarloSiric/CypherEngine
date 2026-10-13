@@ -1057,6 +1057,10 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
         "#version 410 core\nin vec2 uv; uniform sampler2D base_color;\n"
         "layout(location=0) out vec4 color;\n"
         "void main() { color=texture(base_color,uv); }\n";
+    constexpr char depthSampleFragment[] =
+        "#version 410 core\nin vec2 uv; uniform sampler2D base_color;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { float d=texture(base_color,uv).r; color=vec4(d,d,d,1.0); }\n";
     const auto makeShader = [&]( const char *fragment, const common::u64 bytes ) {
         common::cooked_shader_view_t source{};
         source.nLanguageVersion = 410u;
@@ -1071,6 +1075,7 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     };
     const auto solidShader = makeShader( solidFragment, sizeof( solidFragment ) );
     const auto sampleShader = makeShader( sampleFragment, sizeof( sampleFragment ) );
+    const auto depthSampleShader = makeShader( depthSampleFragment, sizeof( depthSampleFragment ) );
 
     // The first triangle is drawn to the target; the second covers presentation.
     const float vertices[]{
@@ -1107,10 +1112,15 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     render::render_pipeline_handle_t solidPipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &solidPipeline ) == render::render_error_t::OK );
     pipelineDesc.shader = sampleShader;
+    pipelineDesc.depthTest = false; // Sampling overlays replace earlier presentation pixels.
+    pipelineDesc.depthWrite = false;
     pipelineDesc.sampledTextureCount = 1u;
     pipelineDesc.sampledTextures[0].name = "base_color";
     render::render_pipeline_handle_t samplePipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &samplePipeline ) == render::render_error_t::OK );
+    pipelineDesc.shader = depthSampleShader;
+    render::render_pipeline_handle_t depthSamplePipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &depthSamplePipeline ) == render::render_error_t::OK );
 
     render::render_texture_desc_t textureDesc{};
     textureDesc.width = extent.width / 2u;
@@ -1121,9 +1131,13 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     textureDesc.renderTarget = true;
     render::render_texture_handle_t color{};
     REQUIRE( render::R_CreateTexture2D( textureDesc, {}, &color ) == render::render_error_t::OK );
+    textureDesc.format = render::render_texture_format_t::D24;
+    render::render_texture_handle_t depth{};
+    REQUIRE( render::R_CreateTexture2D( textureDesc, {}, &depth ) == render::render_error_t::OK );
     render::render_target_handle_t target{};
-    REQUIRE( render::R_CreateRenderTarget( { color }, &target ) == render::render_error_t::OK );
+    REQUIRE( render::R_CreateRenderTarget( { color, depth }, &target ) == render::render_error_t::OK );
     CHECK( render::R_DestroyTexture( color ) == render::render_error_t::ERR_RESOURCE_BUSY );
+    CHECK( render::R_DestroyTexture( depth ) == render::render_error_t::ERR_RESOURCE_BUSY );
 
     render::render_frame_info_t frame{};
     frame.drawableExtent = extent;
@@ -1155,6 +1169,8 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     draw.pipeline = samplePipeline;
     draw.sampledTextures[0] = color;
     CHECK( render::R_DrawIndexed( draw ) == render::render_error_t::ERR_COMMAND_STATE_INVALID );
+    draw.sampledTextures[0] = depth;
+    CHECK( render::R_DrawIndexed( draw ) == render::render_error_t::ERR_COMMAND_STATE_INVALID );
     CHECK( render::R_EndFrame() == render::render_error_t::ERR_COMMAND_STATE_INVALID );
     REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
 
@@ -1171,6 +1187,7 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     const auto beforeSampling = readPresentation( sampleRightX, sampleY );
     CHECK( beforeSampling[2] >= 240u ); // Target draw did not touch presentation.
     draw.firstIndex = 3u;
+    draw.sampledTextures[0] = color;
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
     const auto right = readPresentation( sampleRightX, sampleY );
     const auto left = readPresentation( sampleLeftX, sampleY );
@@ -1181,18 +1198,37 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     CHECK( left[0] <= 15u );
     CHECK( corner[1] >= 240u );
     CHECK( corner[0] <= 15u );
+
+    // The same pass wrote depth 0.5 under its clipped triangle and left 1.0
+    // elsewhere. Reading D24 as a plain sampler2D after EndTargetPass proves
+    // that it is a sampleable attachment, not an unobservable renderbuffer.
+    draw.pipeline = depthSamplePipeline;
+    draw.sampledTextures[0] = depth;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    const auto nearDepth = readPresentation( sampleRightX, sampleY );
+    const auto farDepth = readPresentation( sampleLeftX, sampleY );
+    CHECK( nearDepth[0] >= 110u );
+    CHECK( nearDepth[0] <= 145u );
+    CHECK( nearDepth[1] >= 110u );
+    CHECK( nearDepth[1] <= 145u );
+    CHECK( farDepth[0] >= 240u );
+    CHECK( farDepth[1] >= 240u );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
 
     REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
     CHECK( render::R_IsTextureValid( color ) );
+    CHECK( render::R_IsTextureValid( depth ) );
     REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( solidPipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( samplePipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( depthSamplePipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( vb ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( ib ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyShader( solidShader ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyShader( sampleShader ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( depthSampleShader ) == render::render_error_t::OK );
 }
 
 } // namespace

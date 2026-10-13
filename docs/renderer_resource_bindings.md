@@ -41,9 +41,9 @@ draw.vertexCount = vertexCount;
 ```
 
 The frontend rejects missing, extra, stale, mapped, wrongly typed, and
-undersized resources before backend submission. It also rejects sampling the
-active render target's color attachment in either slot. A failed validation or
-backend draw releases any temporary uniform-buffer references.
+undersized resources before backend submission. It also rejects sampling
+either attachment of the active render target in either slot. A failed
+validation or backend draw releases any temporary uniform-buffer references.
 
 ## Sampling policy
 
@@ -56,6 +56,10 @@ slot keeps that texture's existing creation-time filter and wrap settings;
 existing draws therefore need no sampler changes. A sampler in an undeclared
 texture slot is a binding mismatch. A mip-filtered sampler cannot be paired with
 a texture created without mip levels, including a render-target texture.
+This includes D24 target depth: it has one mip level and can be read by a
+scalar `sampler2D` after its target pass ends. The shader reads depth from the
+sample's red component. Depth comparison remains a shader operation in this
+contract; shadow-comparison samplers are not exposed yet.
 
 Sampler handles are generational renderer objects, independent of texture
 handles. Draws resolve them immediately on the renderer thread; neither object

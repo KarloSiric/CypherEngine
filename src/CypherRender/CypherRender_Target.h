@@ -14,16 +14,19 @@ namespace cypher::engine::render
 using render_target_handle_t = render_handle_t;
 inline constexpr render_target_handle_t R_INVALID_TARGET{};
 
-// The caller owns color, and the target retains it until target destruction.
-// The first target format is one linear RGBA8 color texture plus D24 depth,
-// single-sample and fixed-size. Recreate both resources to resize.
+// The caller owns both attachments; the target retains them until destruction.
+// A target requires linear RGBA8 color and accepts optional sampleable D24
+// depth. Without explicit depth, it owns a private D24 renderbuffer. Targets
+// are single-sample and fixed-size; recreate attachments to resize.
 struct render_target_desc_t {
     render_texture_handle_t color{};
+    render_texture_handle_t depth{};
 };
 
 struct render_target_info_t {
     render_texture_handle_t color{};
     render_extent_t extent{};
+    render_texture_handle_t depth{};
 };
 
 struct render_target_pass_desc_t {
@@ -36,7 +39,7 @@ struct render_target_pass_desc_t {
 // Resource creation/destruction runs between frames. A pass begins inside an
 // active frame and is non-nestable. EndTargetPass restores that frame's actual
 // presentation framebuffer and viewport, including a host-owned nonzero FBO.
-// Sampling the active target's color texture is forbidden until the pass ends.
+// Sampling either active attachment is forbidden until the pass ends.
 CYPHER_NODISCARD render_error_t R_CreateRenderTarget(
     const render_target_desc_t &description,
     CY_OUT render_target_handle_t *targetOut ) noexcept;

@@ -45,6 +45,7 @@ struct renderer_state_t {
     bool frameActive{ false };                          // BeginFrame succeeded without a matching EndFrame.
     render_target_handle_t activeTarget{};              // Nonzero only during one offscreen pass.
     render_texture_handle_t activeTargetColor{};        // Reject read/write feedback during that pass.
+    render_texture_handle_t activeTargetDepth{};        // Reject depth read/write feedback too.
 };
 
 // Quake-family renderers traditionally call the frontend process state `tr`.

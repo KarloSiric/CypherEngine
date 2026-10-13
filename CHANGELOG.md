@@ -25,6 +25,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Offscreen targets can retain an optional caller-owned, GPU-only D24 depth
+  texture alongside their required linear RGBA8 color texture. With no depth
+  texture they keep the existing private D24 renderbuffer. Both attachments
+  must match in extent; active-pass sampling of either attachment is rejected.
+  After the pass ends, a `sampler2D` shader can read the depth component for
+  explicit comparisons or diagnostics. This does not yet supply a colorless
+  depth target, hardware shadow-comparison sampler, or automatic shadow pass.
 - Indexed draws can map clip-space geometry into an optional physical-pixel
   viewport rectangle within the active frame or offscreen target. The default
   draw resets to the full active extent, and enabled rectangles reject empty,
@@ -103,6 +110,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Advanced the public renderer API to version 10 and private backend contract
+  to version 17 for texture format and optional target depth attachment fields.
+  Target creation retains both attachments and rolls back their references on
+  validation, native creation, or handle allocation failure.
 - Advanced the public renderer API to version 9 and private backend contract
   to version 16 for optional per-draw viewport placement.
 - Advanced the public renderer API to version 8 and private backend contract
@@ -141,6 +152,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Rebuilt the focused renderer, Host, resource-runtime, and cube targets in
+  the existing `build-mason` tree. All eleven selected renderer/Host CTests
+  passed; native and hosted OpenGL smokes passed 549 and 184 assertions. The
+  native pixel check read approximately 0.5 depth where geometry was drawn
+  and 1.0 where only the depth clear remained. Target ownership and failure
+  tests passed 113 assertions, and the cube rendered two hidden frames.
 - Rebuilt eleven focused renderer, Host, and cube targets in the existing
   `build-mason` tree. All ten selected renderer/Host CTests passed; direct
   native and hosted OpenGL smokes passed 531 and 184 assertions. Native pixels

@@ -243,6 +243,55 @@ TEST_CASE( "textures reject invalid sizes and incomplete pixels before backend u
     CHECK( render::R_CreateTexture2D( desc, { nullptr, 24u }, &out ) == texture_error_t::ERR_INVALID_ARGUMENT );
     CHECK( fixture.creates == 0u );
 }
+TEST_CASE( "D24 textures require GPU-only depth attachment storage", "[CypherRender][Texture][Depth]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    auto desc = fixture.Description();
+    desc.width = 8u;
+    desc.height = 4u;
+    desc.sRGB = false;
+    desc.generateMips = false;
+    desc.repeat = false;
+    desc.renderTarget = true;
+    desc.format = render::render_texture_format_t::D24;
+    render::render_texture_handle_t depth{ 99u };
+
+    auto invalid = desc;
+    invalid.renderTarget = false;
+    CHECK( render::R_CreateTexture2D( invalid, {}, &depth ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( depth.value == 0u );
+    invalid = desc;
+    invalid.sRGB = true;
+    CHECK( render::R_CreateTexture2D( invalid, {}, &depth ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    invalid = desc;
+    invalid.generateMips = true;
+    CHECK( render::R_CreateTexture2D( invalid, {}, &depth ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    invalid = desc;
+    invalid.repeat = true;
+    CHECK( render::R_CreateTexture2D( invalid, {}, &depth ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    invalid = desc;
+    invalid.format = static_cast<render::render_texture_format_t>( 255u );
+    CHECK( render::R_CreateTexture2D( invalid, {}, &depth ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( render::R_CreateTexture2D( desc, { fixture.pixels, sizeof( fixture.pixels ) }, &depth ) ==
+           texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( render::R_CreateTexture2D( desc, { nullptr, 1u }, &depth ) ==
+           texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( fixture.creates == 0u );
+
+    REQUIRE( render::R_CreateTexture2D( desc, {}, &depth ) == texture_error_t::OK );
+    CHECK( fixture.captured.format == render::render_texture_format_t::D24 );
+    render::render_texture_info_t info{};
+    REQUIRE( render::R_GetTextureInfo( depth, &info ) == texture_error_t::OK );
+    CHECK( info.format == render::render_texture_format_t::D24 );
+    CHECK( info.renderTarget );
+    CHECK_FALSE( info.sRGB );
+    CHECK_FALSE( info.generateMips );
+    CHECK_FALSE( info.repeat );
+    CHECK( info.mipLevels == 1u );
+    REQUIRE( render::R_DestroyTexture( depth ) == texture_error_t::OK );
+    CHECK_FALSE( render::R_IsTextureValid( depth ) );
+}
 TEST_CASE( "textures retain immutable metadata and invalidate recycled generations", "[CypherRender][Texture]" )
 {
     texture_fixture_t fixture;
@@ -316,6 +365,26 @@ TEST_CASE( "sampled draws require a live texture of the right type", "[CypherRen
     REQUIRE( render::R_DestroyTexture( draw.sampledTextures[0] ) == texture_error_t::OK );
     CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_STALE_HANDLE );
     CHECK( fixture.draws == 1u );
+}
+TEST_CASE( "active depth attachment cannot be sampled until its pass ends",
+           "[CypherRender][Texture][Depth][Draw]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    auto draw = fixture.MakeDraw( true );
+    render::render_texture_desc_t desc{ 4u, 4u, false, false, false,
+        "Sampleable depth", true, render::render_texture_format_t::D24 };
+    render::render_texture_handle_t depth{};
+    REQUIRE( render::R_CreateTexture2D( desc, {}, &depth ) == texture_error_t::OK );
+    draw.sampledTextures[0] = depth;
+    render::tr.activeTargetDepth = depth;
+    CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_COMMAND_STATE_INVALID );
+    CHECK( fixture.draws == 0u );
+    render::tr.activeTargetDepth = {};
+    REQUIRE( render::R_DrawIndexed( draw ) == texture_error_t::OK );
+    CHECK( fixture.draws == 1u );
+    CHECK( fixture.capturedDraw.sampledTextures[0].value != 0u );
+    REQUIRE( render::R_DestroyTexture( depth ) == texture_error_t::OK );
 }
 TEST_CASE( "untextured pipelines reject an undeclared sampled binding", "[CypherRender][Texture][Draw]" )
 {

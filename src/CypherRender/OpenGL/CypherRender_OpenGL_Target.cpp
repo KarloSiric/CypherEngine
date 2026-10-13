@@ -1,8 +1,8 @@
 //////////////////////////////////////////////////////////////////////////
 // CypherEngine Source Code — Copyright (c) 2026 Karlo Siric.
 // Purpose: Owns OpenGL 4.1 offscreen color-and-depth framebuffer records.
-// Details: The color image belongs to the texture system; each target owns
-//          only its framebuffer, D24 renderbuffer, and CPU bookkeeping.
+// Details: Attachments belong to the texture system. Targets own their
+//          framebuffer and, without a depth texture, a private D24 renderbuffer.
 // This file is proprietary and confidential. See LICENSE for details.
 //////////////////////////////////////////////////////////////////////////
 
@@ -82,6 +82,9 @@ render_error_t GL_CreateRenderTarget( const backend_render_target_desc_t &descri
          description.color.value > std::numeric_limits<GLuint>::max() ) {
         return render_error_t::ERR_INVALID_HANDLE;
     }
+    if ( description.depth.value > std::numeric_limits<GLuint>::max() ) {
+        return render_error_t::ERR_INVALID_HANDLE;
+    }
     if ( !GL_TargetExtentSupported( description.extent ) ) {
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
@@ -99,36 +102,47 @@ render_error_t GL_CreateRenderTarget( const backend_render_target_desc_t &descri
     glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &previousDraw );
     glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &previousRead );
     glGetIntegerv( GL_RENDERBUFFER_BINDING, &previousRenderbuffer );
-    glGetIntegerv( GL_MAX_RENDERBUFFER_SIZE, &maxRenderbufferSize );
+    if ( description.depth.value == 0u ) {
+        glGetIntegerv( GL_MAX_RENDERBUFFER_SIZE, &maxRenderbufferSize );
+    }
     render_error_t result = GL_CheckErrors( glState.config.validation );
     if ( result != render_error_t::OK ) {
         GL_FreeTargetRecord( record );
         return result;
     }
-    if ( maxRenderbufferSize <= 0 ||
-         description.extent.width > static_cast<common::u32>( maxRenderbufferSize ) ||
-         description.extent.height > static_cast<common::u32>( maxRenderbufferSize ) ) {
+    if ( description.depth.value == 0u &&
+         ( maxRenderbufferSize <= 0 ||
+           description.extent.width > static_cast<common::u32>( maxRenderbufferSize ) ||
+           description.extent.height > static_cast<common::u32>( maxRenderbufferSize ) ) ) {
         GL_FreeTargetRecord( record );
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
 
     glGenFramebuffers( 1, &record->framebuffer );
-    glGenRenderbuffers( 1, &record->depthRenderbuffer );
+    if ( description.depth.value == 0u ) {
+        glGenRenderbuffers( 1, &record->depthRenderbuffer );
+    }
     result = GL_CheckErrors( glState.config.validation );
     if ( result == render_error_t::OK &&
-         ( record->framebuffer == 0u || record->depthRenderbuffer == 0u ) ) {
+         ( record->framebuffer == 0u ||
+           ( description.depth.value == 0u && record->depthRenderbuffer == 0u ) ) ) {
         result = render_error_t::ERR_RESOURCE_CREATE_FAILED;
     }
     if ( result == render_error_t::OK ) {
         glBindFramebuffer( GL_FRAMEBUFFER, record->framebuffer );
         glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
             GL_TEXTURE_2D, static_cast<GLuint>( description.color.value ), 0 );
-        glBindRenderbuffer( GL_RENDERBUFFER, record->depthRenderbuffer );
-        glRenderbufferStorage( GL_RENDERBUFFER, GL_DEPTH_COMPONENT24,
-            static_cast<GLsizei>( description.extent.width ),
-            static_cast<GLsizei>( description.extent.height ) );
-        glFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-            GL_RENDERBUFFER, record->depthRenderbuffer );
+        if ( description.depth.value != 0u ) {
+            glFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                GL_TEXTURE_2D, static_cast<GLuint>( description.depth.value ), 0 );
+        } else {
+            glBindRenderbuffer( GL_RENDERBUFFER, record->depthRenderbuffer );
+            glRenderbufferStorage( GL_RENDERBUFFER, GL_DEPTH_COMPONENT24,
+                static_cast<GLsizei>( description.extent.width ),
+                static_cast<GLsizei>( description.extent.height ) );
+            glFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                GL_RENDERBUFFER, record->depthRenderbuffer );
+        }
         glDrawBuffer( GL_COLOR_ATTACHMENT0 );
         glReadBuffer( GL_COLOR_ATTACHMENT0 );
         result = GL_CheckErrors( glState.config.validation );
@@ -175,7 +189,9 @@ render_error_t GL_DestroyRenderTarget( const backend_render_target_t target,
     gl_target_record_t *record = *link;
 
     GL_ClearErrors();
-    glDeleteRenderbuffers( 1, &record->depthRenderbuffer );
+    if ( record->depthRenderbuffer != 0u ) {
+        glDeleteRenderbuffers( 1, &record->depthRenderbuffer );
+    }
     glDeleteFramebuffers( 1, &record->framebuffer );
     const render_error_t result = GL_CheckErrors( glState.config.validation );
     // A GL deletion error is rare, but leave the record linked so shutdown can
@@ -307,7 +323,9 @@ render_error_t GL_TargetsShutdown() noexcept
     while ( glTargets != nullptr ) {
         gl_target_record_t *record = glTargets;
         glTargets = record->next;
-        glDeleteRenderbuffers( 1, &record->depthRenderbuffer );
+        if ( record->depthRenderbuffer != 0u ) {
+            glDeleteRenderbuffers( 1, &record->depthRenderbuffer );
+        }
         glDeleteFramebuffers( 1, &record->framebuffer );
         GL_FreeTargetRecord( record );
     }

@@ -82,6 +82,10 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
     if ( description.width == 0u || description.height == 0u ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
+    if ( description.format >= render_texture_format_t::COUNT ||
+         ( description.format == render_texture_format_t::D24 && !description.renderTarget ) ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
     if ( description.renderTarget ) {
         if ( description.sRGB || description.generateMips || description.repeat ||
              data.bytes != nullptr || data.byteSize != 0u ) {
@@ -108,7 +112,8 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
         return result != render_error_t::OK ? result : render_error_t::ERR_INTERNAL_ERROR;
     }
     record.info = { description.width, description.height, description.sRGB,
-        description.generateMips, description.repeat, 1u, description.renderTarget };
+        description.generateMips, description.repeat, 1u, description.renderTarget,
+        description.format };
     if ( description.generateMips ) {
         common::u32 extent = description.width > description.height ? description.width : description.height;
         while ( extent > 1u ) { extent /= 2u; ++record.info.mipLevels; }

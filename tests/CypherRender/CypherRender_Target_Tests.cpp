@@ -27,6 +27,7 @@ struct target_fixture_t {
     target_error_t createResult{ target_error_t::OK };
     target_error_t destroyResult{ target_error_t::OK };
     target_error_t beginResult{ target_error_t::OK };
+    bool tokenOnCreateFailure{ false };
     render::backend_render_target_desc_t lastTarget{};
     render::backend_target_pass_desc_t lastPass{};
 
@@ -46,7 +47,9 @@ struct target_fixture_t {
             auto &self = *static_cast<target_fixture_t *>( state );
             ++self.nativeCreates;
             self.lastTarget = desc;
-            if ( self.createResult == target_error_t::OK ) out.value = self.nextToken++;
+            if ( self.createResult == target_error_t::OK || self.tokenOnCreateFailure ) {
+                out.value = self.nextToken++;
+            }
             return self.createResult;
         };
         backend.DestroyRenderTarget = []( render::backend_render_target_t, void *state ) noexcept {
@@ -88,11 +91,22 @@ struct target_fixture_t {
         return color;
     }
 
+    render::render_texture_handle_t Depth( common::u32 width = 32u,
+                                          common::u32 height = 16u )
+    {
+        const render::render_texture_desc_t desc{ width, height, false, false,
+            false, "Target depth", true, render::render_texture_format_t::D24 };
+        render::render_texture_handle_t depth{};
+        REQUIRE( render::R_CreateTexture2D( desc, {}, &depth ) == target_error_t::OK );
+        return depth;
+    }
+
     ~target_fixture_t()
     {
         render::tr.frameActive = false;
         render::tr.activeTarget = {};
         render::tr.activeTargetColor = {};
+        render::tr.activeTargetDepth = {};
         destroyResult = target_error_t::OK;
         (void)render::R_TargetSystemShutdown();
         (void)render::R_TextureSystemShutdown();
@@ -166,6 +180,85 @@ TEST_CASE( "failed target creation and destruction preserve precise resource own
     REQUIRE( render::R_DestroyRenderTarget( target ) == target_error_t::OK );
     CHECK( render::R_DestroyTexture( color ) == target_error_t::OK );
     CHECK( fixture.nativeDestroys == 2u );
+}
+
+TEST_CASE( "sampleable depth attachments match the color extent and retain both textures",
+           "[CypherRender][Target][Depth]" )
+{
+    target_fixture_t fixture;
+    fixture.Init();
+    const auto color = fixture.Color();
+    const auto depth = fixture.Depth();
+    const auto wrongSize = fixture.Depth( 16u, 16u );
+    render::render_target_handle_t target{ 99u };
+
+    CHECK( render::R_CreateRenderTarget( { depth }, &target ) ==
+           target_error_t::ERR_RENDER_TARGET_INVALID );
+    CHECK( target.value == 0u );
+    CHECK( render::R_CreateRenderTarget( { color, color }, &target ) ==
+           target_error_t::ERR_RENDER_TARGET_INVALID );
+    CHECK( target.value == 0u );
+    CHECK( render::R_CreateRenderTarget( { color, wrongSize }, &target ) ==
+           target_error_t::ERR_RENDER_TARGET_INVALID );
+    CHECK( target.value == 0u );
+    CHECK( fixture.nativeCreates == 0u );
+    CHECK( render::R_DestroyTexture( wrongSize ) == target_error_t::OK );
+
+    REQUIRE( render::R_CreateRenderTarget( { color, depth }, &target ) == target_error_t::OK );
+    CHECK( fixture.lastTarget.color.value != 0u );
+    CHECK( fixture.lastTarget.depth.value != 0u );
+    render::render_target_info_t info{};
+    REQUIRE( render::R_GetRenderTargetInfo( target, &info ) == target_error_t::OK );
+    CHECK( info.color.value == color.value );
+    CHECK( info.depth.value == depth.value );
+    CHECK( info.extent.width == 32u );
+    CHECK( info.extent.height == 16u );
+    CHECK( render::R_DestroyTexture( color ) == target_error_t::ERR_RESOURCE_BUSY );
+    CHECK( render::R_DestroyTexture( depth ) == target_error_t::ERR_RESOURCE_BUSY );
+    render::tr.frameActive = true;
+    render::render_target_pass_desc_t pass{};
+    pass.target = target;
+    REQUIRE( render::R_BeginTargetPass( pass ) == target_error_t::OK );
+    CHECK( render::tr.activeTargetDepth.value == depth.value );
+    REQUIRE( render::R_EndTargetPass() == target_error_t::OK );
+    CHECK( render::tr.activeTargetDepth.value == 0u );
+    render::tr.frameActive = false;
+    REQUIRE( render::R_DestroyRenderTarget( target ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( color ) == target_error_t::OK );
+}
+
+TEST_CASE( "failed depth target creation and destruction release both references precisely",
+           "[CypherRender][Target][Depth]" )
+{
+    target_fixture_t fixture;
+    fixture.Init();
+    auto color = fixture.Color();
+    auto depth = fixture.Depth();
+    render::render_target_handle_t target{ 99u };
+    fixture.createResult = target_error_t::ERR_OUT_OF_MEMORY;
+    fixture.tokenOnCreateFailure = true; // Native failure after partial allocation.
+    CHECK( render::R_CreateRenderTarget( { color, depth }, &target ) ==
+           target_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( target.value == 0u );
+    CHECK( fixture.nativeDestroys == 1u );
+    REQUIRE( render::R_DestroyTexture( color ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == target_error_t::OK );
+
+    color = fixture.Color();
+    depth = fixture.Depth();
+    fixture.createResult = target_error_t::OK;
+    fixture.tokenOnCreateFailure = false;
+    REQUIRE( render::R_CreateRenderTarget( { color, depth }, &target ) == target_error_t::OK );
+    fixture.destroyResult = target_error_t::ERR_DEVICE_LOST;
+    CHECK( render::R_DestroyRenderTarget( target ) == target_error_t::ERR_DEVICE_LOST );
+    CHECK( render::R_IsRenderTargetValid( target ) );
+    CHECK( render::R_DestroyTexture( color ) == target_error_t::ERR_RESOURCE_BUSY );
+    CHECK( render::R_DestroyTexture( depth ) == target_error_t::ERR_RESOURCE_BUSY );
+    fixture.destroyResult = target_error_t::OK;
+    REQUIRE( render::R_DestroyRenderTarget( target ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( color ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == target_error_t::OK );
 }
 
 TEST_CASE( "offscreen passes require a frame, valid clears, and an explicit end",

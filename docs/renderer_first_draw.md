@@ -150,9 +150,28 @@ writes active. For a depth prepass, draw opaque geometry with `colorWrite =
 false`, `depthWrite = true`, and `LESS`; then shade that geometry with color
 writes enabled, `depthWrite = false`, and `EQUAL`. The color mask is set by each
 draw, so a later ordinary pipeline does not inherit the prepass mask. This
-controls draw output only: the current render target has an internal D24 depth
-attachment that cannot be sampled as a shadow map, and no scene queue schedules
-the two passes yet.
+controls draw output only; no scene queue schedules these passes yet.
+
+## Sampleable target depth
+
+An offscreen target still requires one linear RGBA8 color texture. By default
+it owns a private D24 renderbuffer for depth. To read depth in a later pass,
+create a second GPU-only target texture with `format =
+render_texture_format_t::D24` and supply it as the target's optional `depth`
+handle. Both attachments must have the same extent. D24 textures have no
+initial pixel data, generated mip chain, sRGB conversion, or repeat addressing. The
+target retains both caller-owned textures until it is destroyed.
+
+Clear or draw depth in a target pass, then end that pass before binding the
+texture in a later draw. Binding either active attachment for sampling is
+rejected to prevent read/write feedback. The current shader interface accepts
+ordinary `sampler2D`; read `texture(depth_image, uv).r` and perform any depth
+comparison explicitly in the shader. This supports depth diagnostics and
+manual shadow experiments. A colorless depth-only target and hardware
+comparison samplers remain separate work.
+
+OpenGL 4.1 treats depth textures as red textures for ordinary sampling; see
+sections 3.8.9 and 3.8.16 of the [OpenGL 4.1 Core Specification](https://registry.khronos.org/OpenGL/specs/gl/glspec41.core.pdf).
 
 ## Per-draw viewport and clipping
 

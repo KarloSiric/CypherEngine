@@ -24,6 +24,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Offscreen targets may retain a caller-owned GPU-only D24 depth texture
+  alongside required linear RGBA8 color. Without one, they retain their
+  private D24 renderbuffer. Attachment extents must match and neither active
+  attachment may be sampled. After the pass, sampler2D can read scalar depth
+  for explicit comparisons or diagnostics. Colorless targets, shadow-
+  comparison samplers and automatic shadow passes remain future work.
 - Indexed draws can map geometry into an optional physical-pixel viewport
   rectangle in the active frame or offscreen target. Default draws reset to the
   full extent; enabled rectangles reject empty, out-of-bounds, or OpenGL-range-
@@ -81,6 +87,10 @@ Added
   ordinary runtime still has no scene producer.
 
 Changed
+- Public renderer API version 10 and private backend version 17 add texture
+  format and optional target-depth fields. Target creation retains both
+  attachments and rolls their references back on validation, native creation
+  or handle allocation failure.
 - Public renderer API version 9 and private backend version 16 add optional
   per-draw viewport placement.
 - Public renderer API version 8 and private backend version 15 add optional
@@ -112,6 +122,11 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Focused renderer, Host, resource-runtime and cube targets rebuilt in the
+  existing build-mason tree. All eleven renderer/Host CTests passed; native
+  and hosted OpenGL smokes passed 549 and 184 assertions. Native pixels read
+  about 0.5 drawn depth against a 1.0 clear. Target ownership/failure tests
+  passed 113 assertions; the cube rendered two hidden frames.
 - Rebuilt eleven focused renderer, Host and cube targets in the existing
   build-mason tree. Ten selected renderer/Host CTests passed; native and hosted
   OpenGL smokes passed 531 and 184 assertions. Native pixels verify a

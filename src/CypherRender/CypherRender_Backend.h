@@ -41,13 +41,13 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version sixteen adds optional per-draw viewport mapping. Offscreen targets,
+Version seventeen adds optional sampleable D24 target depth. Offscreen targets,
 linked shaders, immediate draws, and all native object tokens remain behind
 this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 16u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 17u;
 
 /*
 ================
@@ -154,6 +154,7 @@ inline constexpr backend_render_target_t R_INVALID_BACKEND_TARGET{};
 struct backend_render_target_desc_t {
     backend_texture_t color{};
     render_extent_t extent{};
+    backend_texture_t depth{};
 };
 
 struct backend_target_pass_desc_t {

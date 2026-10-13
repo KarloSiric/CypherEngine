@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////////
 // CypherEngine Source Code — Copyright (c) 2026 Karlo Siric.
-// Purpose: Uploads RGBA8/sRGB images without depending on host pixel-store state.
+// Purpose: Creates RGBA8 and D24 images without depending on host pixel-store state.
 // This file is proprietary and confidential. See LICENSE for details.
 //////////////////////////////////////////////////////////////////////////
 #include "CypherRender_OpenGL_Texture.h"
@@ -16,6 +16,10 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
     if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;
     if ( !glState.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
     if ( description.width == 0u || description.height == 0u ) return render_error_t::ERR_INVALID_ARGUMENT;
+    if ( description.format >= render_texture_format_t::COUNT ||
+         ( description.format == render_texture_format_t::D24 && !description.renderTarget ) ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
     if ( description.renderTarget ) {
         if ( description.sRGB || description.generateMips || description.repeat ||
              data.bytes != nullptr || data.byteSize != 0u ) {
@@ -63,9 +67,18 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, description.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0 );
     if ( !description.generateMips ) glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0 );
-    glTexImage2D( GL_TEXTURE_2D, 0, description.sRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8,
-        static_cast<GLsizei>( description.width ), static_cast<GLsizei>( description.height ),
-        0, GL_RGBA, GL_UNSIGNED_BYTE, data.bytes );
+    if ( description.format == render_texture_format_t::D24 ) {
+        // A scalar sampler2D reads the stored depth for manual comparison.
+        // Keep hardware shadow-comparison mode disabled for this contract.
+        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE );
+        glTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24,
+            static_cast<GLsizei>( description.width ), static_cast<GLsizei>( description.height ),
+            0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr );
+    } else {
+        glTexImage2D( GL_TEXTURE_2D, 0, description.sRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+            static_cast<GLsizei>( description.width ), static_cast<GLsizei>( description.height ),
+            0, GL_RGBA, GL_UNSIGNED_BYTE, data.bytes );
+    }
     result = GL_CheckErrors( glState.config.validation );
     if ( result == render_error_t::OK && description.generateMips ) {
         glGenerateMipmap( GL_TEXTURE_2D );

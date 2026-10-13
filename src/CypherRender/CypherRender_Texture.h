@@ -15,8 +15,14 @@ namespace cypher::engine::render
 using render_texture_handle_t = render_handle_t;
 inline constexpr render_texture_handle_t R_INVALID_TEXTURE{};
 
-// First sampled-image contract: tightly packed RGBA8, one layer, one face.
-// Filtering is linear (trilinear with mips). Addressing is repeat or edge clamp.
+// One-layer, one-face sampled images. D24 is GPU-only depth storage for an
+// offscreen target; shaders may sample its scalar depth after the pass ends.
+enum class render_texture_format_t : ::cypher::common::u8 {
+    RGBA8 = 0,
+    D24,
+    COUNT
+};
+
 // These immutable sampling defaults apply when a draw has no explicit sampler.
 struct render_texture_desc_t {
     ::cypher::common::u32 width{ 0u };
@@ -25,11 +31,12 @@ struct render_texture_desc_t {
     bool generateMips{ true };
     bool repeat{ true };
     const char *debugName{ nullptr }; // Borrowed only during creation.
-    bool renderTarget{ false }; // GPU-only linear color attachment; also sampleable after its pass.
+    bool renderTarget{ false }; // GPU-only attachment; also sampleable after its pass.
+    render_texture_format_t format{ render_texture_format_t::RGBA8 };
 };
 struct render_texture_data_t {
     const void *bytes{ nullptr };
-    ::cypher::common::u64 byteSize{ 0u }; // Exactly width * height * four bytes.
+    ::cypher::common::u64 byteSize{ 0u }; // Uploaded RGBA8: width * height * four; targets: zero.
 };
 struct render_texture_info_t {
     ::cypher::common::u32 width{ 0u };
@@ -39,12 +46,14 @@ struct render_texture_info_t {
     bool repeat{ true };
     ::cypher::common::u32 mipLevels{ 0u };
     bool renderTarget{ false };
+    render_texture_format_t format{ render_texture_format_t::RGBA8 };
 };
 
 // Calls run on the renderer thread. Creation consumes all supplied pixels before
 // returning. A renderTarget texture has no initial pixels (bytes=nullptr,
-// byteSize=0), is linear RGBA8, single-level and clamp-to-edge; its contents
-// become defined by a target pass. Draw bindings are immediate.
+// byteSize=0), is linear, single-level and clamp-to-edge; its contents become
+// defined by a target pass. D24 can only be a renderTarget texture. Draw
+// bindings are immediate.
 CYPHER_NODISCARD render_error_t R_CreateTexture2D(
     const render_texture_desc_t &description,
     const render_texture_data_t &data,
