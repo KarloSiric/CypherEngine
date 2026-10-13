@@ -128,6 +128,107 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
         common::Cy_Handle32Generation( slot ), static_cast<common::u32>( render_object_type_t::TEXTURE ) );
     return render_error_t::OK;
 }
+render_error_t R_CreateTexture2DFromCooked(
+    const common::cooked_texture_view_t &cooked,
+    render_texture_handle_t *textureOut ) noexcept
+{
+    if ( textureOut == nullptr ) return render_error_t::ERR_INVALID_ARGUMENT;
+    *textureOut = R_INVALID_TEXTURE;
+    if ( !tr.initialized || !textureSystem.initialized || tr.backend.api == nullptr ) {
+        return render_error_t::ERR_NOT_INITIALIZED;
+    }
+    if ( cooked.fileBytes.pData == nullptr || cooked.fileBytes.cbSize == 0u ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+
+    // The view borrows its source bytes, so do not trust caller-modified
+    // descriptor fields or pixel spans. Reparse the file and use only the
+    // canonical view after checking that the supplied view still describes it.
+    common::cooked_texture_view_t verified{};
+    if ( !common::CookedTexture_Succeeded(
+             common::CookedTexture_Read( cooked.fileBytes, &verified ) ) ||
+         cooked.nResourceVersion != verified.nResourceVersion ||
+         cooked.nMipLevels != verified.nMipLevels ||
+         cooked.nSubresources != verified.nSubresources ||
+         !common::ContentHash_Equals( cooked.sourceHash, verified.sourceHash ) ||
+         cooked.metadataBytes.pData != verified.metadataBytes.pData ||
+         cooked.metadataBytes.cbSize != verified.metadataBytes.cbSize ||
+         cooked.desc.dimension != verified.desc.dimension ||
+         cooked.desc.pixelFormat != verified.desc.pixelFormat ||
+         cooked.desc.storageFormat != verified.desc.storageFormat ||
+         cooked.desc.usage != verified.desc.usage ||
+         cooked.desc.colorSpace != verified.desc.colorSpace ||
+         cooked.desc.alphaMode != verified.desc.alphaMode ||
+         cooked.desc.alphaCutoff != verified.desc.alphaCutoff ||
+         cooked.desc.target != verified.desc.target ||
+         cooked.desc.residency != verified.desc.residency ||
+         cooked.desc.flags != verified.desc.flags ||
+         cooked.desc.nWidth != verified.desc.nWidth ||
+         cooked.desc.nHeight != verified.desc.nHeight ||
+         cooked.desc.nDepth != verified.desc.nDepth ||
+         cooked.desc.nFrames != verified.desc.nFrames ||
+         cooked.desc.nLayers != verified.desc.nLayers ||
+         cooked.desc.nFaces != verified.desc.nFaces ||
+         cooked.desc.nMipLevels != verified.desc.nMipLevels ||
+         cooked.desc.nSubresources != verified.desc.nSubresources ||
+         cooked.desc.nResidentMipLevels != verified.desc.nResidentMipLevels ||
+         cooked.desc.nResidentSubresources != verified.desc.nResidentSubresources ||
+         cooked.desc.nStreamingPriority != verified.desc.nStreamingPriority ||
+         cooked.desc.iResidentFirstSubresource != verified.desc.iResidentFirstSubresource ||
+         cooked.desc.cbResidentData != verified.desc.cbResidentData ||
+         cooked.desc.cbData != verified.desc.cbData ||
+         cooked.mips[0].pixels.pData != verified.mips[0].pixels.pData ||
+         cooked.mips[0].pixels.cbSize != verified.mips[0].pixels.cbSize ||
+         cooked.mips[0].cbRowPitch != verified.mips[0].cbRowPitch ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+
+    if ( verified.desc.dimension != common::render_texture_dimension_t::TEXTURE_2D ||
+         verified.desc.usage != common::render_texture_usage_t::COLOR ||
+         verified.desc.residency != common::cooked_texture_residency_t::FULLY_RESIDENT ||
+         verified.desc.nDepth != 1u || verified.desc.nFrames != 1u ||
+         verified.desc.nLayers != 1u || verified.desc.nFaces != 1u ||
+         verified.desc.nMipLevels != 1u || verified.nMipLevels != 1u ||
+         verified.nSubresources != 1u ||
+         ( verified.desc.pixelFormat != common::render_texture_pixel_format_t::RGBA8_UNORM &&
+           verified.desc.pixelFormat != common::render_texture_pixel_format_t::RGBA8_SRGB ) ) {
+        return render_error_t::ERR_RESOURCE_FORMAT_UNSUPPORTED;
+    }
+
+    common::cooked_texture_subresource_view_t suppliedBase{};
+    common::cooked_texture_subresource_view_t base{};
+    if ( !common::CookedTexture_GetSubresource( cooked, 0u, 0u, 0u, 0u, &suppliedBase ) ||
+         !common::CookedTexture_GetSubresource( verified, 0u, 0u, 0u, 0u, &base ) ||
+         suppliedBase.pixels.pData != base.pixels.pData ||
+         suppliedBase.pixels.cbSize != base.pixels.cbSize ||
+         suppliedBase.cbRowPitch != base.cbRowPitch ||
+         suppliedBase.cbSlicePitch != base.cbSlicePitch ||
+         suppliedBase.nWidth != base.nWidth ||
+         suppliedBase.nHeight != base.nHeight ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+
+    const common::u64 rowBytes = static_cast<common::u64>( verified.desc.nWidth ) * 4u;
+    const common::u64 imageBytes = rowBytes * verified.desc.nHeight;
+    if ( base.pixels.pData == nullptr ||
+         base.nWidth != verified.desc.nWidth ||
+         base.nHeight != verified.desc.nHeight ||
+         base.cbRowPitch != rowBytes ||
+         base.cbSlicePitch != imageBytes ||
+         base.pixels.cbSize != imageBytes ) {
+        return render_error_t::ERR_RESOURCE_FORMAT_UNSUPPORTED;
+    }
+
+    render_texture_desc_t description{};
+    description.width = verified.desc.nWidth;
+    description.height = verified.desc.nHeight;
+    description.sRGB = verified.desc.pixelFormat ==
+        common::render_texture_pixel_format_t::RGBA8_SRGB;
+    description.generateMips = false;
+    description.repeat = true;
+    return R_CreateTexture2D( description,
+        { base.pixels.pData, base.pixels.cbSize }, textureOut );
+}
 render_error_t R_DestroyTexture( render_texture_handle_t texture ) noexcept
 {
     if ( !tr.initialized || !textureSystem.initialized || tr.backend.api == nullptr ) return render_error_t::ERR_NOT_INITIALIZED;

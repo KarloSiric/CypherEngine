@@ -95,7 +95,7 @@ static_assert( std::is_same_v<
     decltype( &render::R_CreateVertexInput ),
     create_vertex_input_fn_t> );
 static_assert( render::R_BACKEND_API_VERSION == 19u );
-static_assert( render::RENDER_API_VERSION == 12u );
+static_assert( render::RENDER_API_VERSION == 13u );
 
 int main()
 {

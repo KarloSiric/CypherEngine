@@ -7,8 +7,12 @@
 #include "CypherRender/CypherRender_Sampler.h"
 #include "CypherRender/CypherRender_Local.h"
 #include "CypherRender/CypherRender_Draw.h"
+#include "CypherCommon/Tier0/CypherCommon_MemoryOps.h"
+#include "CypherCommon/Tier1/CypherCommon_ByteWriter.h"
 #include <catch2/catch_test_macros.hpp>
+#include <cstring>
 #include <limits>
+#include <vector>
 
 namespace render = ::cypher::engine::render;
 namespace common = ::cypher::common;
@@ -26,6 +30,8 @@ struct texture_fixture_t {
     bool tokenOnCreateFailure{ false };
     bool samplerTokenOnCreateFailure{ false };
     render::render_texture_desc_t captured{};
+    common::byte capturedPixels[24]{};
+    common::u64 capturedPixelBytes{ 0u };
     render::render_sampler_desc_t capturedSampler{};
     render::backend_draw_indexed_desc_t capturedDraw{};
     common::byte pixels[24]{};
@@ -34,10 +40,14 @@ struct texture_fixture_t {
     void Init()
     {
         backend.CreateTexture2D = []( const render::render_texture_desc_t &desc,
-            const render::render_texture_data_t &, render::backend_texture_t &out, void *state ) noexcept {
+            const render::render_texture_data_t &data, render::backend_texture_t &out, void *state ) noexcept {
             auto &self = *static_cast<texture_fixture_t *>( state );
             ++self.creates;
             self.captured = desc;
+            self.capturedPixelBytes = data.byteSize;
+            if ( data.bytes != nullptr && data.byteSize <= sizeof( self.capturedPixels ) ) {
+                std::memcpy( self.capturedPixels, data.bytes, static_cast<std::size_t>( data.byteSize ) );
+            }
             out = {};
             if ( self.createResult == texture_error_t::OK || self.tokenOnCreateFailure ) {
                 out.value = self.next++;
@@ -226,6 +236,349 @@ struct texture_fixture_t {
         render::tr = {};
     }
 };
+
+void WriteCookedTexture( const common::cooked_texture_desc_t &desc,
+    const common::cooked_texture_mip_source_t *mips, common::u32 mipCount,
+    std::vector<common::byte> &file, common::cooked_texture_view_t &view )
+{
+    const auto source = common::span_t<const common::cooked_texture_mip_source_t>{ mips, mipCount };
+    const auto required = common::CookedTexture_RequiredSize( desc, source );
+    REQUIRE( required > 0u );
+    file.assign( required, 0u );
+    constexpr char path[] = "textures/renderer-adoption.cytex";
+    const auto hash = common::ContentHash_String( { path, sizeof( path ) - 1u } );
+    const auto written = common::CookedTexture_Write( desc, source, hash,
+        { file.data(), file.size() } );
+    REQUIRE( common::CookedTexture_Succeeded( written ) );
+    REQUIRE( written.cbWritten == file.size() );
+    const auto read = common::CookedTexture_Read( { file.data(), file.size() }, &view );
+    REQUIRE( common::CookedTexture_Succeeded( read ) );
+}
+
+void WriteCookedSubresources( const common::cooked_texture_desc_t &desc,
+    const common::cooked_texture_subresource_source_t *subresources,
+    common::u32 count, std::vector<common::byte> &file,
+    common::cooked_texture_view_t &view )
+{
+    const auto source = common::span_t<const common::cooked_texture_subresource_source_t>{
+        subresources, count };
+    const auto required = common::CookedTexture_RequiredSizeSubresources( desc, source );
+    REQUIRE( required > 0u );
+    file.assign( required, 0u );
+    const auto written = common::CookedTexture_WriteSubresources( desc, source, {},
+        { file.data(), file.size() } );
+    REQUIRE( common::CookedTexture_Succeeded( written ) );
+    REQUIRE( written.cbWritten == file.size() );
+    const auto read = common::CookedTexture_Read( { file.data(), file.size() }, &view );
+    REQUIRE( common::CookedTexture_Succeeded( read ) );
+}
+
+std::vector<common::byte> BuildLegacyCookedTexture()
+{
+    constexpr common::byte pixels[]{ 0x10u, 0x20u, 0x30u, 0x40u };
+    constexpr auto metadataSize = common::CY_COOKED_TEXTURE_METADATA_HEADER_SIZE_V1 +
+                                  common::CY_COOKED_TEXTURE_MIP_RECORD_SIZE_V1;
+    common::cooked_chunk_desc_t chunks[2]{};
+    common::usize offset = common::CookedResource_PrefixSize( 2u );
+    if ( !common::Cy_AlignUpChecked( offset, common::CY_COOKED_TEXTURE_METADATA_ALIGNMENT, offset ) ) {
+        return {};
+    }
+    chunks[0].chunkType = common::CY_COOKED_TEXTURE_METADATA_CHUNK;
+    chunks[0].flags = common::COOKED_CHUNK_FLAG_HAS_CONTENT_HASH;
+    chunks[0].nAlignment = common::CY_COOKED_TEXTURE_METADATA_ALIGNMENT;
+    chunks[0].iOffset = offset;
+    chunks[0].cbStored = chunks[0].cbDecoded = metadataSize;
+    offset += metadataSize;
+    if ( !common::Cy_AlignUpChecked( offset, common::CY_COOKED_TEXTURE_DATA_ALIGNMENT, offset ) ) {
+        return {};
+    }
+    chunks[1].chunkType = common::CY_COOKED_TEXTURE_DATA_CHUNK;
+    chunks[1].flags = common::COOKED_CHUNK_FLAG_HAS_CONTENT_HASH;
+    chunks[1].nAlignment = common::CY_COOKED_TEXTURE_DATA_ALIGNMENT;
+    chunks[1].iOffset = offset;
+    chunks[1].cbStored = chunks[1].cbDecoded = sizeof( pixels );
+    chunks[1].contentHash = common::ContentHash_Data( { pixels, sizeof( pixels ) } );
+
+    std::vector<common::byte> file( offset + sizeof( pixels ), 0u );
+    // The v1 metadata header is 64 bytes, followed by one 32-byte mip record.
+    // Keep this fixture as a compatibility input; the current writer emits v2.
+    constexpr common::u32 fields[]{
+        common::CY_COOKED_TEXTURE_METADATA_MAGIC,
+        common::CY_COOKED_TEXTURE_METADATA_VERSION_V1,
+        static_cast<common::u32>( common::CY_COOKED_TEXTURE_METADATA_HEADER_SIZE_V1 ),
+        static_cast<common::u32>( common::render_texture_dimension_t::TEXTURE_2D ),
+        static_cast<common::u32>( common::render_texture_pixel_format_t::RGBA8_SRGB ),
+        static_cast<common::u32>( common::render_texture_usage_t::COLOR ),
+        static_cast<common::u32>( common::render_texture_color_space_t::SRGB ),
+        common::COOKED_TEXTURE_FLAG_NONE,
+        1u, 1u, 1u, 1u, 1u, 1u, 0u, 0u, 0u, 1u, 1u, 1u, 4u, 1u
+    };
+    common::byte_writer_t writer{};
+    if ( !common::ByteWriter_Init( &writer,
+             { file.data() + chunks[0].iOffset, metadataSize },
+             common::data_byte_order_t::LITTLE ) ) {
+        return {};
+    }
+    for ( const auto field : fields ) {
+        if ( !common::ByteWriter_WriteU32( &writer, field ) ) return {};
+    }
+    if ( !common::ByteWriter_WriteU64( &writer, sizeof( pixels ) ) ) return {};
+    chunks[0].contentHash = common::ContentHash_Data(
+        { file.data() + chunks[0].iOffset, metadataSize } );
+    std::memcpy( file.data() + chunks[1].iOffset, pixels, sizeof( pixels ) );
+
+    common::cooked_resource_header_t header{};
+    header.resourceType = common::CY_RENDER_TEXTURE_RESOURCE_TYPE;
+    header.nResourceVersion = common::CY_COOKED_TEXTURE_RESOURCE_VERSION_V1;
+    header.nChunks = 2u;
+    header.cbFile = file.size();
+    if ( !common::CookedResource_Succeeded( common::CookedResource_WriteLayout(
+             header, { chunks, 2u }, { file.data(), file.size() } ) ) ) {
+        return {};
+    }
+    header.flags = common::COOKED_RESOURCE_FLAG_HAS_CONTENT_HASH;
+    header.contentHash = common::CookedResource_ComputeContentHash(
+        { file.data(), file.size() } );
+    if ( !common::CookedResource_Succeeded( common::CookedResource_WriteLayout(
+             header, { chunks, 2u }, { file.data(), file.size() } ) ) ) {
+        return {};
+    }
+    return file;
+}
+}
+
+TEST_CASE( "cooked RGBA8 images upload their exact pixels and retain no borrowed file storage",
+    "[CypherRender][Texture][Cooked]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+
+    bool linear = false;
+    SECTION( "linear" ) { linear = true; }
+    SECTION( "sRGB" ) {}
+    const common::byte pixels[16]{
+        0x15u, 0x2Au, 0x3Fu, 0x80u, 0xE1u, 0xC2u, 0xA3u, 0xFFu,
+        0x01u, 0x23u, 0x45u, 0x67u, 0x89u, 0xABu, 0xCDu, 0xEFu
+    };
+    const common::u32 height = linear ? 1u : 2u;
+    const common::u64 pixelBytes = 8u * height;
+    common::cooked_texture_desc_t desc{};
+    desc.pixelFormat = linear ? common::render_texture_pixel_format_t::RGBA8_UNORM
+                              : common::render_texture_pixel_format_t::RGBA8_SRGB;
+    desc.storageFormat = linear ? common::render_format_t::RGBA8_UNORM
+                                : common::render_format_t::RGBA8_SRGB;
+    desc.colorSpace = linear ? common::render_texture_color_space_t::LINEAR
+                             : common::render_texture_color_space_t::SRGB;
+    desc.nWidth = 2u;
+    desc.nHeight = height;
+    desc.nMipLevels = 1u;
+    const common::cooked_texture_mip_source_t mip{ 2u, height, 1u, 8u,
+        { pixels, pixelBytes } };
+    std::vector<common::byte> file;
+    common::cooked_texture_view_t view{};
+    WriteCookedTexture( desc, &mip, 1u, file, view );
+
+    render::render_texture_handle_t texture{ 99u };
+    REQUIRE( render::R_CreateTexture2DFromCooked( view, &texture ) == texture_error_t::OK );
+    REQUIRE( render::R_IsTextureValid( texture ) );
+    CHECK( fixture.creates == 1u );
+    CHECK( fixture.captured.width == 2u );
+    CHECK( fixture.captured.height == height );
+    CHECK( fixture.captured.sRGB == !linear );
+    CHECK( fixture.captured.format == render::render_texture_format_t::RGBA8 );
+    CHECK_FALSE( fixture.captured.generateMips );
+    CHECK_FALSE( fixture.captured.renderTarget );
+    REQUIRE( fixture.capturedPixelBytes == pixelBytes );
+    CHECK( std::memcmp( fixture.capturedPixels, pixels,
+        static_cast<std::size_t>( pixelBytes ) ) == 0 );
+
+    for ( auto &byte : file ) byte = 0u;
+    file.clear();
+    render::render_texture_info_t info{};
+    REQUIRE( render::R_GetTextureInfo( texture, &info ) == texture_error_t::OK );
+    CHECK( info.width == 2u );
+    CHECK( info.height == height );
+    CHECK( info.sRGB == !linear );
+    CHECK( info.mipLevels == 1u );
+    CHECK( std::memcmp( fixture.capturedPixels, pixels,
+        static_cast<std::size_t>( pixelBytes ) ) == 0 );
+    REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
+}
+
+TEST_CASE( "cooked texture adoption refuses valid layouts outside the current RGBA8 base-image path",
+    "[CypherRender][Texture][Cooked]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    common::cooked_texture_desc_t desc{};
+    desc.nWidth = 2u;
+    desc.nHeight = 2u;
+    desc.nMipLevels = 1u;
+    common::byte rgba[32]{};
+    common::cooked_texture_mip_source_t mips[2]{
+        { 2u, 2u, 1u, 8u, { rgba, 16u } },
+        { 1u, 1u, 1u, 4u, { rgba + 16u, 4u } }
+    };
+    std::vector<common::byte> file;
+    common::cooked_texture_view_t view{};
+    render::render_texture_handle_t texture{ 99u };
+
+    SECTION( "multiple authored mips" ) {
+        desc.nMipLevels = 2u;
+        WriteCookedTexture( desc, mips, 2u, file, view );
+    }
+    SECTION( "streamed mip tail" ) {
+        desc.nMipLevels = 2u;
+        desc.residency = common::cooked_texture_residency_t::MIP_STREAMED;
+        desc.nResidentMipLevels = 1u;
+        WriteCookedTexture( desc, mips, 2u, file, view );
+    }
+    SECTION( "floating-point storage" ) {
+        desc.nWidth = desc.nHeight = 1u;
+        desc.pixelFormat = common::render_texture_pixel_format_t::RGBA32_FLOAT;
+        desc.storageFormat = common::render_format_t::RGBA32_FLOAT;
+        desc.colorSpace = common::render_texture_color_space_t::LINEAR;
+        mips[0] = { 1u, 1u, 1u, 16u, { rgba, 16u } };
+        WriteCookedTexture( desc, mips, 1u, file, view );
+    }
+    SECTION( "block-compressed storage" ) {
+        common::byte blocks[64]{};
+        desc.storageFormat = common::render_format_t::BC7_SRGB;
+        desc.alphaMode = common::cooked_texture_alpha_mode_t::MASK;
+        desc.alphaCutoff = 0.375f;
+        desc.target = common::cooked_texture_target_t::DESKTOP;
+        desc.nWidth = desc.nHeight = 5u;
+        const common::cooked_texture_subresource_source_t compressed{
+            0u, 0u, 0u, 0u, 5u, 5u, 1u, 32u, 64u,
+            { blocks, sizeof( blocks ) }
+        };
+        WriteCookedSubresources( desc, &compressed, 1u, file, view );
+    }
+    SECTION( "non-color data" ) {
+        desc.pixelFormat = common::render_texture_pixel_format_t::RGBA8_UNORM;
+        desc.storageFormat = common::render_format_t::RGBA8_UNORM;
+        desc.colorSpace = common::render_texture_color_space_t::LINEAR;
+        desc.usage = common::render_texture_usage_t::DATA;
+        desc.alphaMode = common::cooked_texture_alpha_mode_t::DATA;
+        WriteCookedTexture( desc, mips, 1u, file, view );
+    }
+    SECTION( "volume texture" ) {
+        desc.dimension = common::render_texture_dimension_t::TEXTURE_3D;
+        desc.pixelFormat = common::render_texture_pixel_format_t::RGBA8_UNORM;
+        desc.storageFormat = common::render_format_t::RGBA8_UNORM;
+        desc.colorSpace = common::render_texture_color_space_t::LINEAR;
+        desc.nDepth = 2u;
+        const common::cooked_texture_subresource_source_t volume{
+            0u, 0u, 0u, 0u, 2u, 2u, 2u, 8u, 16u,
+            { rgba, sizeof( rgba ) }
+        };
+        WriteCookedSubresources( desc, &volume, 1u, file, view );
+    }
+    CHECK( render::R_CreateTexture2DFromCooked( view, &texture ) ==
+           texture_error_t::ERR_RESOURCE_FORMAT_UNSUPPORTED );
+    CHECK( texture.value == 0u );
+    CHECK( fixture.creates == 0u );
+}
+
+TEST_CASE( "cooked texture adoption rejects absent or changed borrowed file data",
+    "[CypherRender][Texture][Cooked]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    const common::byte pixels[16]{ 2u, 3u, 5u, 7u, 11u, 13u, 17u, 19u,
+        23u, 29u, 31u, 37u, 41u, 43u, 47u, 53u };
+    common::cooked_texture_desc_t desc{};
+    desc.nWidth = desc.nHeight = 2u;
+    desc.nMipLevels = 1u;
+    const common::cooked_texture_mip_source_t mip{ 2u, 2u, 1u, 8u,
+        { pixels, sizeof( pixels ) } };
+    std::vector<common::byte> file;
+    common::cooked_texture_view_t view{};
+    WriteCookedTexture( desc, &mip, 1u, file, view );
+
+    render::render_texture_handle_t texture{ 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( view, nullptr ) ==
+           texture_error_t::ERR_INVALID_ARGUMENT );
+    auto absent = view;
+    absent.fileBytes = {};
+    CHECK( render::R_CreateTexture2DFromCooked( absent, &texture ) ==
+           texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( texture.value == 0u );
+    auto changedView = view;
+    changedView.desc.nWidth = 1u;
+    texture = { 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( changedView, &texture ) ==
+           texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( texture.value == 0u );
+
+    changedView = view;
+    changedView.mips[0].cbRowPitch = 12u;
+    texture = { 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( changedView, &texture ) ==
+           texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( texture.value == 0u );
+
+    auto *pixelInFile = const_cast<common::byte *>( view.mips[0].pixels.pData );
+    REQUIRE( pixelInFile != nullptr );
+    *pixelInFile ^= 0x80u;
+    texture = { 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( view, &texture ) ==
+           texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( texture.value == 0u );
+    CHECK( fixture.creates == 0u );
+}
+
+TEST_CASE( "cooked texture adoption preserves backend creation failures and no handle escapes",
+    "[CypherRender][Texture][Cooked]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    const common::byte pixels[4]{ 7u, 11u, 13u, 17u };
+    common::cooked_texture_desc_t desc{};
+    desc.nWidth = desc.nHeight = desc.nMipLevels = 1u;
+    const common::cooked_texture_mip_source_t mip{ 1u, 1u, 1u, 4u,
+        { pixels, sizeof( pixels ) } };
+    std::vector<common::byte> file;
+    common::cooked_texture_view_t view{};
+    WriteCookedTexture( desc, &mip, 1u, file, view );
+
+    fixture.createResult = texture_error_t::ERR_OUT_OF_MEMORY;
+    render::render_texture_handle_t texture{ 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( view, &texture ) ==
+           texture_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( texture.value == 0u );
+    CHECK( fixture.creates == 1u );
+    CHECK( fixture.destroys == 0u );
+    fixture.tokenOnCreateFailure = true;
+    texture = { 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( view, &texture ) ==
+           texture_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( texture.value == 0u );
+    CHECK( fixture.creates == 2u );
+    CHECK( fixture.destroys == 1u );
+}
+
+TEST_CASE( "cooked texture adoption reads legacy CYTX v1 through the validated view",
+    "[CypherRender][Texture][Cooked][Compatibility]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    auto file = BuildLegacyCookedTexture();
+    REQUIRE_FALSE( file.empty() );
+    common::cooked_texture_view_t view{};
+    REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Read(
+        { file.data(), file.size() }, &view ) ) );
+    REQUIRE( view.nResourceVersion == common::CY_COOKED_TEXTURE_RESOURCE_VERSION_V1 );
+
+    render::render_texture_handle_t texture{};
+    REQUIRE( render::R_CreateTexture2DFromCooked( view, &texture ) == texture_error_t::OK );
+    CHECK( fixture.captured.width == 1u );
+    CHECK( fixture.captured.height == 1u );
+    CHECK( fixture.captured.sRGB );
+    REQUIRE( fixture.capturedPixelBytes == 4u );
+    const common::byte expected[]{ 0x10u, 0x20u, 0x30u, 0x40u };
+    CHECK( std::memcmp( fixture.capturedPixels, expected, sizeof( expected ) ) == 0 );
+    REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
 }
 
 TEST_CASE( "textures reject invalid sizes and incomplete pixels before backend upload", "[CypherRender][Texture]" )

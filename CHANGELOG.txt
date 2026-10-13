@@ -24,6 +24,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- A validated CYTX texture view can create a renderer texture handle through
+  R_CreateTexture2DFromCooked. The bridge reparses borrowed file bytes,
+  verifies the view and copies the base pixels synchronously. It accepts only
+  fully resident, tightly packed, single-mip 2D color RGBA8, linear or sRGB.
+  Compression, streaming, 3D images, extra mips and cooked material binding
+  remain unsupported.
 - Immutable OpenGL 4.1 samplers can compare a reference against D24 depth.
   DEPTH_COMPARE_2D pipeline slots require an active sampler2DShadow, D24
   storage and an explicit comparison sampler. Ordinary sampler2D depth reads
@@ -140,6 +146,11 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Focused renderer, Host, resource-runtime and cube targets rebuilt in the
+  existing build-mason tree. All eleven selected renderer/Host CTests passed;
+  cooked-texture adoption passed 189 assertions in five cases, and the full
+  texture suite passed 579 assertions in twenty cases. Cube rendered two hidden
+  frames. Independent source review found no blocking issue.
 - Focused renderer, Host, resource-runtime and cube targets rebuilt in the
   existing build-mason tree. All eleven selected renderer/Host CTests passed.
   Native OpenGL smoke passed 599 assertions, verifying nearest LESS_EQUAL

@@ -9,6 +9,7 @@
 
 #include "CypherRender_Error.h"
 #include "CypherRender_Types.h"
+#include "CypherCommon/Formats/CypherCommon_CookedTexture.h"
 
 namespace cypher::engine::render
 {
@@ -58,6 +59,14 @@ struct render_texture_info_t {
 CYPHER_NODISCARD render_error_t R_CreateTexture2D(
     const render_texture_desc_t &description,
     const render_texture_data_t &data,
+    CY_OUT render_texture_handle_t *textureOut ) noexcept;
+// Revalidates an owned CYTX view and synchronously uploads its base image.
+// This first adoption path accepts only a fully resident, tightly packed,
+// single-mip RGBA8 2D color texture with one frame/layer/face. The caller must
+// keep the cooked file bytes alive and unchanged until the call returns; the
+// renderer retains neither the view nor its borrowed pixel storage.
+CYPHER_NODISCARD render_error_t R_CreateTexture2DFromCooked(
+    const ::cypher::common::cooked_texture_view_t &cooked,
     CY_OUT render_texture_handle_t *textureOut ) noexcept;
 CYPHER_NODISCARD render_error_t R_DestroyTexture( render_texture_handle_t texture ) noexcept;
 CYPHER_NODISCARD bool R_IsTextureValid( render_texture_handle_t texture ) noexcept;

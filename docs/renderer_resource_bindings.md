@@ -83,3 +83,20 @@ uniforms, more than two slots, and reusable draw queues remain separate work.
 The hosted frame preserves both slots of borrowed OpenGL texture, sampler, and
 indexed uniform-buffer state. It currently queries this state each frame; its
 effect on editor frame time still needs measurement.
+
+## Adopting a cooked texture
+
+`R_CreateTexture2DFromCooked` is the first direct bridge from a validated CYTX
+file to a renderer texture handle. Keep the cooked file bytes alive and
+unchanged for the call. The function reparses them, verifies that the supplied
+view still describes that file, and synchronously uploads the base image;
+the renderer retains neither the view nor its borrowed bytes. The returned
+handle follows the ordinary `R_DestroyTexture` lifetime rules.
+
+For now the bridge accepts only a fully resident, tightly packed 2D color
+image with one frame, layer, face, and mip, in linear or sRGB RGBA8. A valid
+CYTX file using compression, multiple mips, streaming, 3D storage, or another
+pixel format returns `ERR_RESOURCE_FORMAT_UNSUPPORTED`. Invalid or modified
+views and file bytes return `ERR_INVALID_ARGUMENT`. This is a narrow upload
+path; cooked material binding and broader texture format support are still
+separate work.
