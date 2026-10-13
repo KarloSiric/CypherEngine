@@ -33,6 +33,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The cooked-material bridge now has a native OpenGL 4.1 pixel smoke: an
+  in-memory CYMT V2 material loads CYSH V3 and CYTX V2 through the VFS,
+  survives CPU resource release, binds a sampled texture, and renders the
+  expected red center pixel. The focused material, draw, and OpenGL tests pass
+  (674 assertions in the native smoke). Checked-in authored material and shader
+  recipes still use schema V1 and are not yet migrated to this bridge.
 - A separate `CypherRenderMaterialRuntime` bridge now adopts a limited CYMT V2
   material into caller-owned shader, pipeline, and zero to two texture handles.
   It checks the CYSH V3 interface hash and binding identities, acquires all

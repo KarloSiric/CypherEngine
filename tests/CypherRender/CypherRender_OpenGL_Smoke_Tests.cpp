@@ -19,7 +19,9 @@
 #include "CypherRender/CypherRender_Target.h"
 #include "CypherRender/CypherRender_VertexInput.h"
 #include "CypherRender/OpenGL/CypherRender_OpenGL_Local.h"
+#include "CypherRender/Runtime/CypherRender_MaterialBridge.h"
 #include "CypherCommon/Formats/CypherCommon_CookedTexture.h"
+#include "CypherResource/CypherResource_RenderAssets.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
 #include "CypherSystem/Platform/CypherSystem_Window.h"
 
@@ -32,6 +34,7 @@
 #include <vector>
 
 namespace render = ::cypher::engine::render;
+namespace resource = ::cypher::engine::resource;
 namespace sys = ::cypher::engine::sys;
 namespace common = ::cypher::common;
 
@@ -1452,6 +1455,209 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyShader( inactiveShadowShader ) == render::render_error_t::OK );
 }
 
+void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
+{
+    const auto materialPath = common::StringView_FromCString( "materials/native.cymat_c" );
+    const auto shaderPath = common::StringView_FromCString( "shaders/native.cyshader_c" );
+    const auto texturePath = common::StringView_FromCString( "textures/native.cytex_c" );
+    const auto bindingName = common::StringView_FromCString( "AlbedoMap" );
+
+    constexpr char vertexSource[] =
+        "#version 410 core\n"
+        "layout(location=0) in vec3 position;\n"
+        "void main(){ gl_Position=vec4(position,1.0); }\n";
+    constexpr char fragmentSource[] =
+        "#version 410 core\n"
+        "uniform sampler2D AlbedoMap;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main(){ color=texture(AlbedoMap,vec2(0.5)); }\n";
+    common::cooked_shader_binding_source_t sampledImage{};
+    sampledImage.name = bindingName;
+    sampledImage.kind = common::render_shader_binding_kind_t::SAMPLED_TEXTURE;
+    sampledImage.resourceType = common::render_shader_resource_type_t::TEXTURE_2D;
+    sampledImage.stageMask = common::RENDER_SHADER_STAGE_MASK_FRAGMENT;
+    sampledImage.flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
+        common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
+    REQUIRE( common::CookedShader_MakeLogicalBindingId(
+        bindingName, &sampledImage.nLogicalBinding ) );
+    const common::cooked_shader_interface_source_t shaderInterface{
+        { &sampledImage, 1u }
+    };
+    common::content_hash_t interfaceHash{};
+    REQUIRE( common::CookedShader_ComputeInterfaceHash(
+        shaderInterface, &interfaceHash ) );
+    common::cooked_shader_stage_source_t stages[2]{};
+    stages[0].stage = common::render_shader_stage_t::VERTEX;
+    stages[0].code = {
+        reinterpret_cast<const common::byte *>( vertexSource ), sizeof( vertexSource )
+    };
+    stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+    stages[1].code = {
+        reinterpret_cast<const common::byte *>( fragmentSource ), sizeof( fragmentSource )
+    };
+    std::vector<common::byte> shaderBytes( common::CookedShader_RequiredSizeV3(
+        {}, { stages, 2u }, shaderInterface ) );
+    REQUIRE_FALSE( shaderBytes.empty() );
+    REQUIRE( common::CookedShader_Succeeded( common::CookedShader_WriteV3(
+        {}, { stages, 2u }, shaderInterface,
+        common::ContentHash_String( common::StringView_FromCString(
+            "shaders/native.cyshader" ) ),
+        { shaderBytes.data(), shaderBytes.size() } ) ) );
+
+    constexpr common::byte redPixel[4]{ 255u, 0u, 0u, 255u };
+    common::cooked_texture_desc_t textureDescription{};
+    textureDescription.pixelFormat = common::render_texture_pixel_format_t::RGBA8_UNORM;
+    textureDescription.colorSpace = common::render_texture_color_space_t::LINEAR;
+    textureDescription.nWidth = 1u;
+    textureDescription.nHeight = 1u;
+    textureDescription.nMipLevels = 1u;
+    const common::cooked_texture_mip_source_t mip{
+        1u, 1u, 1u, 4u, { redPixel, sizeof( redPixel ) }
+    };
+    std::vector<common::byte> textureBytes( common::CookedTexture_RequiredSize(
+        textureDescription, { &mip, 1u } ) );
+    REQUIRE_FALSE( textureBytes.empty() );
+    REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Write(
+        textureDescription, { &mip, 1u },
+        common::ContentHash_String( common::StringView_FromCString(
+            "textures/native.cytex" ) ),
+        { textureBytes.data(), textureBytes.size() } ) ) );
+
+    common::cooked_material_texture_source_v2_t materialTexture{};
+    materialTexture.binding = bindingName;
+    materialTexture.texture = common::StringView_FromCString( "textures/native.cytex" );
+    materialTexture.nLogicalBinding = sampledImage.nLogicalBinding;
+    common::cooked_material_source_v2_t materialDescription{};
+    materialDescription.shader = common::StringView_FromCString( "shaders/native.cyshader" );
+    materialDescription.shaderInterfaceHash = interfaceHash;
+    materialDescription.textures = { &materialTexture, 1u };
+    std::vector<common::byte> materialBytes( common::CookedMaterial_RequiredSizeV2(
+        materialDescription ) );
+    REQUIRE_FALSE( materialBytes.empty() );
+    REQUIRE( common::CookedMaterial_Succeeded( common::CookedMaterial_WriteV2(
+        materialDescription,
+        common::ContentHash_String( common::StringView_FromCString(
+            "materials/native.cymat" ) ),
+        { materialBytes.data(), materialBytes.size() } ) ) );
+
+    struct memory_file_t {
+        common::string_view_t path{};
+        common::binary_block_t contents{};
+    };
+    struct memory_vfs_t {
+        memory_file_t files[3]{};
+    } memory{};
+    memory.files[0] = { materialPath, { materialBytes.data(), materialBytes.size() } };
+    memory.files[1] = { shaderPath, { shaderBytes.data(), shaderBytes.size() } };
+    memory.files[2] = { texturePath, { textureBytes.data(), textureBytes.size() } };
+    static const common::vfs_ops_t operations{
+        []( void *userData, common::string_view_t path, common::usize maximum,
+            common::blob_t *destination ) noexcept -> common::vfs_status_t {
+            const auto &files = *static_cast<const memory_vfs_t *>( userData );
+            for ( const auto &file : files.files ) {
+                if ( !common::StringView_Equals( path, file.path ) ) continue;
+                if ( file.contents.cbSize > maximum ) return common::vfs_status_t::SIZE_LIMIT;
+                return common::Blob_Assign( destination, file.contents )
+                    ? common::vfs_status_t::OK : common::vfs_status_t::OUT_OF_MEMORY;
+            }
+            return common::vfs_status_t::NOT_FOUND;
+        }, nullptr, nullptr, nullptr
+    };
+    const common::vfs_t vfs{ &operations, &memory, common::VFS_CAPABILITY_READ_ALL };
+    resource::render_asset_loader_context_t loader{};
+    REQUIRE( resource::Res_InitRenderAssetLoader(
+        &loader, resource::Res_DefaultRenderAssetLoaderConfig( &vfs ) ) );
+    resource::resource_manager_t resources{};
+    auto resourceConfig = resource::Res_DefaultConfig();
+    resourceConfig.cResourceCapacity = 8u;
+    resourceConfig.cTypeCapacity = 3u;
+    REQUIRE( resource::Res_Init( &resources, resourceConfig ) == resource::resource_error_t::OK );
+    REQUIRE( resource::Res_RegisterRenderAssetLoaders(
+        &resources, &loader ) == resource::resource_error_t::OK );
+
+    render::render_vertex_layout_t layout{};
+    layout.bindingCount = 1u;
+    layout.bindings[0].stride = 3u * sizeof( float );
+    layout.attributeCount = 1u;
+    layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    render::render_material_bundle_desc_t bundleDescription{};
+    bundleDescription.pResources = &resources;
+    bundleDescription.cookedMaterialPath = materialPath;
+    bundleDescription.vertexLayout = layout;
+    bundleDescription.debugName = "Native cooked material smoke";
+    render::render_material_bundle_t bundle{};
+    const auto adopted = render::R_CreateCookedMaterialBundle(
+        bundleDescription, &bundle );
+    REQUIRE( adopted.status == render::render_material_bridge_status_t::OK );
+    CHECK( resource::Res_GetStats( &resources ).cLiveResources == 0u );
+    REQUIRE( resource::Res_Shutdown( &resources ) == resource::resource_error_t::OK );
+    std::memset( materialBytes.data(), 0, materialBytes.size() );
+    std::memset( shaderBytes.data(), 0, shaderBytes.size() );
+    std::memset( textureBytes.data(), 0, textureBytes.size() );
+
+    constexpr float vertices[9]{ -1.0f, -1.0f, 0.0f, 3.0f, -1.0f, 0.0f,
+                                 -1.0f, 3.0f, 0.0f };
+    constexpr common::u16 indices[3]{ 0u, 1u, 2u };
+    const auto createBuffer = []( const void *bytes, const common::u64 byteSize,
+        const render::render_buffer_usage_flags_t usage ) {
+        render::render_buffer_desc_t description{};
+        description.byteSize = byteSize;
+        description.usage = usage;
+        description.updatePolicy = render::render_buffer_update_t::IMMUTABLE;
+        description.memory = render::render_buffer_memory_t::DEVICE_LOCAL;
+        const render::render_buffer_data_t data{ bytes, byteSize };
+        render::render_buffer_handle_t handle{};
+        REQUIRE( render::R_CreateBuffer( description, &data, &handle ) ==
+            render::render_error_t::OK );
+        return handle;
+    };
+    const auto vertexBuffer = createBuffer( vertices, sizeof( vertices ),
+        render::R_BUFFER_USAGE_VERTEX );
+    const auto indexBuffer = createBuffer( indices, sizeof( indices ),
+        render::R_BUFFER_USAGE_INDEX );
+    render::render_vertex_input_desc_t inputDescription{};
+    inputDescription.layout = layout;
+    inputDescription.vertexBufferCount = 1u;
+    inputDescription.vertexBuffers[0].buffer = vertexBuffer;
+    inputDescription.indexBuffer.buffer = indexBuffer;
+    render::render_vertex_input_handle_t vertexInput{};
+    REQUIRE( render::R_CreateVertexInput( inputDescription, &vertexInput ) ==
+        render::render_error_t::OK );
+
+    render::render_draw_indexed_desc_t draw{};
+    REQUIRE( render::R_ApplyCookedMaterialBundleToDraw( bundle, &draw ) ==
+        render::render_error_t::OK );
+    draw.vertexInput = vertexInput;
+    draw.indexCount = 3u;
+    draw.vertexCount = 3u;
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    frame.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
+    frame.clearColor = { 0.0f, 0.0f, 1.0f, 1.0f };
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    common::byte center[4]{};
+    glReadPixels( static_cast<GLint>( extent.width / 2u ),
+        static_cast<GLint>( extent.height / 2u ), 1, 1,
+        GL_RGBA, GL_UNSIGNED_BYTE, center );
+    CHECK( glGetError() == GL_NO_ERROR );
+    CHECK( center[0] > 240u );
+    CHECK( center[1] < 16u );
+    CHECK( center[2] < 16u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    const auto shader = bundle.shader;
+    const auto pipeline = bundle.pipeline;
+    const auto texture = bundle.textures[0];
+    REQUIRE( render::R_DestroyCookedMaterialBundle( &bundle ) == render::render_error_t::OK );
+    CHECK_FALSE( render::R_IsShaderValid( shader ) );
+    CHECK_FALSE( render::R_IsGraphicsPipelineValid( pipeline ) );
+    CHECK_FALSE( render::R_IsTextureValid( texture ) );
+    REQUIRE( render::R_DestroyVertexInput( vertexInput ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( vertexBuffer ) == render::render_error_t::OK );
+}
+
 } // namespace
 
 TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
@@ -1531,6 +1737,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckPerSlotSamplerPolicy( info->drawableExtent );
     CheckTwoTextureTwoBlockDrawing( info->drawableExtent );
     CheckOffscreenTarget( info->drawableExtent );
+    CheckCookedMaterialBundleDrawing( info->drawableExtent );
 
     ::cypher::common::u32 vertexWords[16]{};
     render::render_buffer_desc_t bufferDescription{};

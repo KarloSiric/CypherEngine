@@ -2104,9 +2104,12 @@ if (CYPHERENGINE_BUILD_TESTS)
         cypher_add_common_catch_test(
             cypher_render_opengl_smoke_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_OpenGL_Smoke_Tests.cpp"
-            Cypher::Render
+            Cypher::RenderMaterialRuntime
         )
-        target_link_libraries(cypher_render_opengl_smoke_tests PRIVATE Cypher::ThirdPartyGlad)
+        # Render links Glad privately; this test only needs its native headers
+        # for pixel readback and should not link a second Glad archive.
+        target_include_directories(cypher_render_opengl_smoke_tests PRIVATE
+            $<TARGET_PROPERTY:CypherThirdPartyGlad,INTERFACE_INCLUDE_DIRECTORIES>)
         cypher_add_common_catch_test(
             cypher_render_host_surface_opengl_smoke_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_HostSurface_OpenGL_Smoke_Tests.cpp"
