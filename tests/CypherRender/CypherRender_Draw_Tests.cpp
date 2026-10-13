@@ -21,12 +21,20 @@ struct draw_fixture_t {
     render::backend_api_t backend{};
     common::u64 nextToken{ 1u };
     common::u32 drawCalls{ 0u };
+    common::u32 bufferDestroys{ 0u };
+    common::u32 vertexInputDestroys{ 0u };
     common::u32 pipelineCreates{ 0u };
     common::u32 pipelineDestroys{ 0u };
     common::u32 shaderDestroys{ 0u };
+    draw_error_t bufferResult{ draw_error_t::OK };
+    draw_error_t vertexInputResult{ draw_error_t::OK };
     draw_error_t pipelineResult{ draw_error_t::OK };
     draw_error_t pipelineDestroyResult{ draw_error_t::OK };
     draw_error_t drawResult{ draw_error_t::OK };
+    bool failedCreateReturnsNative{ false };
+    common::u64 lastDestroyedBuffer{ 0u };
+    common::u64 lastDestroyedVertexInput{ 0u };
+    common::u64 lastDestroyedPipeline{ 0u };
     render::render_primitive_topology_t lastPipelineTopology{ render::render_primitive_topology_t::TRIANGLE_LIST };
     render::render_depth_compare_t lastPipelineDepthCompare{ render::render_depth_compare_t::LESS };
     bool lastPipelineColorWrite{ true };
@@ -44,10 +52,18 @@ struct draw_fixture_t {
     {
         backend.CreateBuffer = []( const render::render_buffer_desc_t &,
             const render::render_buffer_data_t *, render::backend_buffer_t &out, void *state ) noexcept {
-            out.value = static_cast<draw_fixture_t *>( state )->nextToken++;
+            auto &fixture = *static_cast<draw_fixture_t *>( state );
+            if ( fixture.bufferResult == draw_error_t::OK || fixture.failedCreateReturnsNative ) {
+                out.value = fixture.nextToken++;
+            }
+            return fixture.bufferResult;
+        };
+        backend.DestroyBuffer = []( render::backend_buffer_t buffer, void *state ) noexcept {
+            auto &fixture = *static_cast<draw_fixture_t *>( state );
+            ++fixture.bufferDestroys;
+            fixture.lastDestroyedBuffer = buffer.value;
             return draw_error_t::OK;
         };
-        backend.DestroyBuffer = []( render::backend_buffer_t, void * ) noexcept { return draw_error_t::OK; };
         backend.MapBuffer = []( render::backend_buffer_t, const render::render_buffer_range_t &range,
             render::render_buffer_map_flags_t, render::render_buffer_mapping_t &out, void *state ) noexcept {
             out = { static_cast<draw_fixture_t *>( state )->mappedBytes, range.byteSize };
@@ -56,10 +72,18 @@ struct draw_fixture_t {
         backend.UnmapBuffer = []( render::backend_buffer_t, void * ) noexcept { return draw_error_t::OK; };
         backend.CreateVertexInput = []( const render::backend_vertex_input_desc_t &,
             render::backend_vertex_input_t &out, void *state ) noexcept {
-            out.value = static_cast<draw_fixture_t *>( state )->nextToken++;
+            auto &fixture = *static_cast<draw_fixture_t *>( state );
+            if ( fixture.vertexInputResult == draw_error_t::OK || fixture.failedCreateReturnsNative ) {
+                out.value = fixture.nextToken++;
+            }
+            return fixture.vertexInputResult;
+        };
+        backend.DestroyVertexInput = []( render::backend_vertex_input_t input, void *state ) noexcept {
+            auto &fixture = *static_cast<draw_fixture_t *>( state );
+            ++fixture.vertexInputDestroys;
+            fixture.lastDestroyedVertexInput = input.value;
             return draw_error_t::OK;
         };
-        backend.DestroyVertexInput = []( render::backend_vertex_input_t, void * ) noexcept { return draw_error_t::OK; };
         backend.CreateShader = []( const render::render_shader_desc_t &,
             render::backend_shader_t &out, void *state ) noexcept {
             out.value = static_cast<draw_fixture_t *>( state )->nextToken++;
@@ -77,12 +101,15 @@ struct draw_fixture_t {
             fixture.lastPipelineDepthCompare = description.depthCompare;
             fixture.lastPipelineColorWrite = description.colorWrite;
             out = {};
-            if ( fixture.pipelineResult == draw_error_t::OK ) out.value = fixture.nextToken++;
+            if ( fixture.pipelineResult == draw_error_t::OK || fixture.failedCreateReturnsNative ) {
+                out.value = fixture.nextToken++;
+            }
             return fixture.pipelineResult;
         };
-        backend.DestroyGraphicsPipeline = []( render::backend_pipeline_t, void *state ) noexcept {
+        backend.DestroyGraphicsPipeline = []( render::backend_pipeline_t pipeline, void *state ) noexcept {
             auto &fixture = *static_cast<draw_fixture_t *>( state );
             ++fixture.pipelineDestroys;
+            fixture.lastDestroyedPipeline = pipeline.value;
             return fixture.pipelineDestroyResult;
         };
         backend.DrawIndexed = []( const render::backend_draw_indexed_desc_t &description, void *state ) noexcept {
@@ -195,6 +222,70 @@ TEST_CASE( "pipelines retain shaders, roll back failed creation, and invalidate 
     // A failed pipeline must not leave a shader reference behind.
     CHECK( render::R_DestroyShader( fixture.shader ) == draw_error_t::OK );
     CHECK( fixture.shaderDestroys == 1u );
+}
+
+TEST_CASE( "failed pipeline creation destroys a returned native token and releases its shader", "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    fixture.failedCreateReturnsNative = true;
+    fixture.pipelineResult = draw_error_t::ERR_OUT_OF_MEMORY;
+    const common::u64 failedNativeToken = fixture.nextToken;
+    render::render_pipeline_handle_t failed{ 99u };
+
+    CHECK( render::R_CreateGraphicsPipeline( fixture.PipelineDescription(), &failed ) == draw_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( failed.value == 0u );
+    CHECK( fixture.pipelineCreates == 1u );
+    CHECK( fixture.pipelineDestroys == 1u );
+    CHECK( fixture.lastDestroyedPipeline == failedNativeToken );
+    CHECK( render::R_DestroyShader( fixture.shader ) == draw_error_t::OK );
+    CHECK( fixture.shaderDestroys == 1u );
+}
+
+TEST_CASE( "failed buffer creation destroys a returned native token without publishing a handle", "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    fixture.failedCreateReturnsNative = true;
+    fixture.bufferResult = draw_error_t::ERR_OUT_OF_MEMORY;
+    const common::u64 failedNativeToken = fixture.nextToken;
+    render::render_buffer_desc_t description{};
+    description.byteSize = 64u;
+    description.usage = render::R_BUFFER_USAGE_VERTEX;
+    description.memory = render::render_buffer_memory_t::UPLOAD;
+    description.updatePolicy = render::render_buffer_update_t::DYNAMIC;
+    render::render_buffer_handle_t failed{ 99u };
+
+    CHECK( render::R_CreateBuffer( description, nullptr, &failed ) == draw_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( failed.value == 0u );
+    CHECK( fixture.bufferDestroys == 1u );
+    CHECK( fixture.lastDestroyedBuffer == failedNativeToken );
+}
+
+TEST_CASE( "failed vertex input creation destroys a returned native token and releases both buffers", "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    const auto vertices = fixture.Buffer( 64u, render::R_BUFFER_USAGE_VERTEX );
+    const auto indices = fixture.Buffer( 12u, render::R_BUFFER_USAGE_INDEX );
+    render::render_vertex_input_desc_t description{};
+    description.layout = fixture.layout;
+    description.vertexBufferCount = 1u;
+    description.vertexBuffers[0] = { vertices, 0u, 0u };
+    description.indexBuffer = { indices, 0u, render::render_index_type_t::UINT16 };
+    fixture.failedCreateReturnsNative = true;
+    fixture.vertexInputResult = draw_error_t::ERR_OUT_OF_MEMORY;
+    const common::u64 failedNativeToken = fixture.nextToken;
+    render::render_vertex_input_handle_t failed{ 99u };
+
+    CHECK( render::R_CreateVertexInput( description, &failed ) == draw_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( failed.value == 0u );
+    CHECK( fixture.vertexInputDestroys == 1u );
+    CHECK( fixture.lastDestroyedVertexInput == failedNativeToken );
+    CHECK( render::R_DestroyBuffer( vertices ) == draw_error_t::OK );
+    CHECK( render::R_DestroyBuffer( indices ) == draw_error_t::OK );
+    CHECK_FALSE( render::R_IsBufferValid( vertices ) );
+    CHECK_FALSE( render::R_IsBufferValid( indices ) );
 }
 
 TEST_CASE( "live pipeline ownership is released only after native destruction", "[CypherRender][Draw]" )

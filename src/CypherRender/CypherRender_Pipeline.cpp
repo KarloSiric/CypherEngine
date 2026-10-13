@@ -184,6 +184,12 @@ render_error_t R_CreateGraphicsPipeline(
     pipeline_record_t record{};
     result = tr.backend.api->CreateGraphicsPipeline( nativeDescription, record.native, tr.backend.state );
     if ( result != render_error_t::OK || !R_IsBackendPipelineValid( record.native ) ) {
+        // Destroy a token published by a failing backend while the shader is
+        // still retained by this creation attempt.
+        if ( R_IsBackendPipelineValid( record.native ) ) {
+            (void)tr.backend.api->DestroyGraphicsPipeline(
+                record.native, tr.backend.state );
+        }
         (void)R_ShaderReleaseReference( description.shader );
         return result != render_error_t::OK ? result : render_error_t::ERR_INTERNAL_ERROR;
     }

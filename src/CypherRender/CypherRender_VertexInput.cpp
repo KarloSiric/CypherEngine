@@ -388,6 +388,13 @@ render_error_t R_CreateVertexInput(
         tr.backend.state );
     if ( createResult != render_error_t::OK ||
          !R_IsBackendVertexInputValid( nativeVertexInput ) ) {
+        // A failed backend may still have published a native object. Release
+        // it while the input's referenced buffers are still retained.
+        if ( R_IsBackendVertexInputValid( nativeVertexInput ) ) {
+            (void)tr.backend.api->DestroyVertexInput(
+                nativeVertexInput,
+                tr.backend.state );
+        }
         (void)R_ReleaseVertexInputBuffers( info );
         return createResult != render_error_t::OK
             ? createResult

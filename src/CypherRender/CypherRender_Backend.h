@@ -261,6 +261,9 @@ using backend_wait_idle_fn_t =
     render_error_t (*)( void *backendState ) noexcept;
 
 // Allocates native storage and optionally consumes complete initial contents.
+// Creation callbacks should release partial objects and leave output invalid on
+// failure. If a valid token is published despite an error, it transfers to the
+// frontend for a defensive Destroy call; Destroy must accept that token.
 using backend_create_buffer_fn_t = render_error_t (*)(
     const render_buffer_desc_t &description,
     const render_buffer_data_t *initialData,
@@ -305,6 +308,7 @@ using backend_destroy_buffer_fn_t = render_error_t (*)(
     void *backendState ) noexcept;
 
 // Materializes one validated layout and native buffer-binding package.
+// The same failed-creation token rule as CreateBuffer applies.
 using backend_create_vertex_input_fn_t = render_error_t (*)(
     const backend_vertex_input_desc_t &description,
     backend_vertex_input_t &vertexInputOut,
@@ -346,6 +350,8 @@ using backend_destroy_shader_fn_t = render_error_t (*)(
     backend_shader_t shader,
     void *backendState ) noexcept;
 
+// The same failed-creation token rule as CreateBuffer applies. A published
+// pipeline token is destroyed before the frontend releases its shader.
 using backend_create_graphics_pipeline_fn_t = render_error_t (*)(
     const backend_pipeline_desc_t &description,
     backend_pipeline_t &pipelineOut,

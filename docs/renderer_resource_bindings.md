@@ -166,3 +166,15 @@ leaves the output empty. If a backend destruction call itself fails, it returns
 retry destruction before renderer shutdown. This is synchronous adoption, not
 a cache, material hot reload, asset dependency residency manager, or complete
 CYMT feature implementation.
+
+## Native creation failure ownership
+
+The OpenGL backend cleans up a partially created buffer, vertex input, or
+pipeline and leaves its output token invalid when creation fails. The backend
+contract permits a nonzero token on error only if its matching destroy callback
+can retire that token. The renderer frontend defensively calls that destroy
+callback before returning the creation error. For a vertex input it does so
+before releasing retained buffers; for a pipeline it does so before releasing
+the shader. No public handle is published on failure. A backend that reports a
+destruction error for a failed creation still violates the stronger cleanup
+expectation; this fallback does not provide a retryable public handle.

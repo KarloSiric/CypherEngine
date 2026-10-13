@@ -23,6 +23,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 [Unreleased] - 2026-10-13
 -------------------------
 
+Fixed
+- Buffer, vertex-input and graphics-pipeline creation now defensively destroy
+  a native token returned with a backend creation error. Dependent shader and
+  buffer references are released afterward. Three fake-backend failure tests
+  and the focused draw test target pass; OpenGL already clears partial objects.
+
 Added
 - A separate CypherRenderMaterialRuntime bridge adopts a limited CYMT V2
   material into caller-owned shader, pipeline and zero to two texture handles.

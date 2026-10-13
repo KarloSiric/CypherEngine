@@ -311,6 +311,11 @@ render_error_t R_CreateBuffer(
         nativeBuffer,
         tr.backend.state );
     if ( createResult != render_error_t::OK ) {
+        // Backends normally clear the output on failure. Retire a published
+        // native token defensively before returning the creation error.
+        if ( R_IsBackendBufferValid( nativeBuffer ) ) {
+            (void)tr.backend.api->DestroyBuffer( nativeBuffer, tr.backend.state );
+        }
         return createResult;
     }
     if ( !R_IsBackendBufferValid( nativeBuffer ) ) {
