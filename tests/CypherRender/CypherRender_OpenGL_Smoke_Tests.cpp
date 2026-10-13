@@ -30,6 +30,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <cstddef>
 #include <filesystem>
 #include <cstring>
 #include <string>
@@ -1816,6 +1817,219 @@ void CheckHDRTargetToneMap( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyShader( hdrShader ) == render::render_error_t::OK );
 }
 
+void CheckPointLightPixels( const render::render_extent_t extent )
+{
+    // Match the sample's complete std140 ViewConstants block, including the
+    // original 240-byte prefix. The pixel checks below exercise the tail as
+    // real OpenGL uniform data, not only the host-side structure offsets.
+    struct alignas( 16 ) view_constants_t {
+        float view[16]{};
+        float projection[16]{};
+        float ambientLight[4]{ 0.1f, 0.1f, 0.1f, 0.0f };
+        float lightDirection[4]{};
+        float lightColor[4]{};
+        float lightViewProjection[16]{};
+        float pointLightPositionRange[2][4]{};
+        float pointLightColorIntensity[2][4]{};
+        common::i32 pointLightControl[4]{};
+    };
+    static_assert( sizeof( view_constants_t ) == 320u );
+    static_assert( offsetof( view_constants_t, pointLightPositionRange ) == 240u );
+    static_assert( offsetof( view_constants_t, pointLightColorIntensity ) == 272u );
+    static_assert( offsetof( view_constants_t, pointLightControl ) == 304u );
+
+    constexpr char vertex[] =
+        "#version 410 core\nlayout(location=0) in vec3 position;\n"
+        "void main() { gl_Position=vec4(position,1.0); }\n";
+    constexpr char fragment[] = R"(#version 410 core
+layout(std140) uniform ViewConstants {
+    mat4 view;
+    mat4 projection;
+    vec4 ambientLight;
+    vec4 lightDirection;
+    vec4 lightColor;
+    mat4 lightViewProjection;
+    vec4 pointLightPositionRange[2];
+    vec4 pointLightColorIntensity[2];
+    ivec4 pointLightControl;
+};
+layout(location=0) out vec4 color;
+void main() {
+    vec3 lighting = ambientLight.rgb;
+    vec3 worldPosition = vec3(0.0);
+    vec3 normal = vec3(0.0, 0.0, 1.0);
+    for (int i = 0; i < 2; ++i) {
+        if (i >= pointLightControl.x) break;
+        float range = pointLightPositionRange[i].w;
+        vec3 toLight = pointLightPositionRange[i].xyz - worldPosition;
+        float distanceToLight = length(toLight);
+        if (range <= 0.0 || distanceToLight <= 0.0001 || distanceToLight >= range) continue;
+        float lambert = max(dot(normal, toLight / distanceToLight), 0.0);
+        float remainingRange = 1.0 - distanceToLight / range;
+        lighting += pointLightColorIntensity[i].rgb *
+            (pointLightColorIntensity[i].a * lambert * remainingRange * remainingRange);
+    }
+    color = vec4(lighting, 0.6);
+}
+)";
+    common::cooked_shader_view_t source{};
+    source.nLanguageVersion = 410u;
+    source.nStages = 2u;
+    source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+    source.stages[0].code = {
+        reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+    source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+    source.stages[1].code = {
+        reinterpret_cast<const common::byte *>( fragment ), sizeof( fragment ) };
+    render::render_shader_handle_t shader{};
+    REQUIRE( render::R_CreateShader( { &source, "Point-light pixel oracle" },
+        &shader ) == render::render_error_t::OK );
+
+    constexpr float vertices[]{ -1.0f,-1.0f,0.0f, 3.0f,-1.0f,0.0f,
+                                -1.0f,3.0f,0.0f };
+    constexpr common::u16 indices[]{ 0u, 1u, 2u };
+    const auto makeBuffer = []( const void *bytes, const common::u64 size,
+                                const render::render_buffer_usage_flags_t usage,
+                                const bool dynamic = false ) {
+        render::render_buffer_desc_t description{};
+        description.byteSize = size;
+        description.usage = usage |
+            ( dynamic ? render::R_BUFFER_USAGE_TRANSFER_DESTINATION : 0u );
+        description.updatePolicy = dynamic ? render::render_buffer_update_t::DYNAMIC
+                                           : render::render_buffer_update_t::IMMUTABLE;
+        description.memory = dynamic ? render::render_buffer_memory_t::UPLOAD
+                                     : render::render_buffer_memory_t::DEVICE_LOCAL;
+        const render::render_buffer_data_t data{ bytes, size };
+        render::render_buffer_handle_t buffer{};
+        REQUIRE( render::R_CreateBuffer( description, &data, &buffer ) ==
+            render::render_error_t::OK );
+        return buffer;
+    };
+    const auto vertexBuffer = makeBuffer( vertices, sizeof( vertices ),
+        render::R_BUFFER_USAGE_VERTEX );
+    const auto indexBuffer = makeBuffer( indices, sizeof( indices ),
+        render::R_BUFFER_USAGE_INDEX );
+    view_constants_t constants{};
+    const auto viewBuffer = makeBuffer( &constants, sizeof( constants ),
+        render::R_BUFFER_USAGE_UNIFORM, true );
+
+    render::render_vertex_input_desc_t inputDescription{};
+    inputDescription.layout.bindingCount = 1u;
+    inputDescription.layout.bindings[0].stride = 3u * sizeof( float );
+    inputDescription.layout.attributeCount = 1u;
+    inputDescription.layout.attributes[0] = {
+        render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    inputDescription.vertexBufferCount = 1u;
+    inputDescription.vertexBuffers[0] = { vertexBuffer, 0u, 0u };
+    inputDescription.indexBuffer = {
+        indexBuffer, 0u, render::render_index_type_t::UINT16 };
+    render::render_vertex_input_handle_t input{};
+    REQUIRE( render::R_CreateVertexInput( inputDescription, &input ) ==
+        render::render_error_t::OK );
+
+    render::render_pipeline_desc_t pipelineDescription{};
+    pipelineDescription.vertexLayout = inputDescription.layout;
+    pipelineDescription.shader = shader;
+    pipelineDescription.depthTest = false;
+    pipelineDescription.depthWrite = false;
+    pipelineDescription.cullBackFaces = false;
+    pipelineDescription.uniformBlockCount = 1u;
+    pipelineDescription.uniformBlocks[0] = { "ViewConstants", sizeof( constants ) };
+    render::render_pipeline_handle_t pipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDescription,
+        &pipeline ) == render::render_error_t::OK );
+
+    render::render_texture_desc_t textureDescription{};
+    textureDescription.width = extent.width / 2u;
+    textureDescription.height = extent.height / 2u;
+    textureDescription.sRGB = false;
+    textureDescription.generateMips = false;
+    textureDescription.repeat = false;
+    textureDescription.renderTarget = true;
+    textureDescription.format = render::render_texture_format_t::RGBA8;
+    render::render_texture_handle_t color{};
+    REQUIRE( render::R_CreateTexture2D( textureDescription, {}, &color ) ==
+        render::render_error_t::OK );
+    render::render_target_handle_t target{};
+    REQUIRE( render::R_CreateRenderTarget( { color, {} }, &target ) ==
+        render::render_error_t::OK );
+
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    render::render_target_pass_desc_t pass{};
+    pass.target = target;
+    render::render_draw_indexed_desc_t draw{};
+    draw.pipeline = pipeline;
+    draw.vertexInput = input;
+    draw.uniformBuffers[0] = viewBuffer;
+    draw.indexCount = draw.vertexCount = 3u;
+    const render::render_readback_rect_t center{
+        textureDescription.width / 2u, textureDescription.height / 2u, 1u, 1u };
+    const auto readCenter = [&]( const common::u64 frameIndex ) {
+        REQUIRE( render::R_UpdateBuffer( viewBuffer, 0u,
+            { &constants, sizeof( constants ) } ) == render::render_error_t::OK );
+        frame.frameIndex = frameIndex;
+        REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+        REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+        REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+        REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+        std::array<common::u8, 4u> pixel{};
+        REQUIRE( render::R_ReadTargetRGBA8( target, center, pixel.data(),
+            pixel.size(), 4u ) == render::render_error_t::OK );
+        REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+        return pixel;
+    };
+
+    const auto ambientOnly = readCenter( 0u );
+    constants.pointLightPositionRange[0][2] = 1.0f;
+    constants.pointLightPositionRange[0][3] = 2.0f;
+    constants.pointLightColorIntensity[0][0] = 1.0f;
+    constants.pointLightColorIntensity[0][3] = 1.0f;
+    constants.pointLightControl[0] = 1;
+    const auto redLight = readCenter( 1u );
+    constants.pointLightPositionRange[0][2] = 3.0f;
+    const auto outOfRange = readCenter( 2u );
+    constants.pointLightPositionRange[0][2] = 1.0f;
+    constants.pointLightPositionRange[1][2] = 1.0f;
+    constants.pointLightPositionRange[1][3] = 2.0f;
+    constants.pointLightColorIntensity[1][2] = 1.0f;
+    constants.pointLightColorIntensity[1][3] = 2.0f;
+    constants.pointLightControl[0] = 2;
+    const auto redAndBlueLights = readCenter( 3u );
+
+    INFO( "point-light pixels: ambient (" << static_cast<int>( ambientOnly[0] ) << ", "
+        << static_cast<int>( ambientOnly[1] ) << ", "
+        << static_cast<int>( ambientOnly[2] ) << "), red ("
+        << static_cast<int>( redLight[0] ) << ", "
+        << static_cast<int>( redLight[1] ) << ", "
+        << static_cast<int>( redLight[2] ) << "), red+blue ("
+        << static_cast<int>( redAndBlueLights[0] ) << ", "
+        << static_cast<int>( redAndBlueLights[1] ) << ", "
+        << static_cast<int>( redAndBlueLights[2] ) << ")" );
+    CHECK( ambientOnly[0] >= 23u );
+    CHECK( ambientOnly[0] <= 29u );
+    CHECK( redLight[0] >= ambientOnly[0] + 55u );
+    CHECK( redLight[1] == ambientOnly[1] );
+    CHECK( redLight[2] == ambientOnly[2] );
+    CHECK( outOfRange == ambientOnly );
+    CHECK( redAndBlueLights[0] == redLight[0] );
+    CHECK( redAndBlueLights[1] == redLight[1] );
+    CHECK( redAndBlueLights[2] >= redLight[2] + 110u );
+    CHECK( ambientOnly[3] >= 149u );
+    CHECK( ambientOnly[3] <= 157u );
+    CHECK( redLight[3] == ambientOnly[3] );
+    CHECK( redAndBlueLights[3] == ambientOnly[3] );
+
+    REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( viewBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( vertexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
+}
+
 void CheckHDRTranslucentCompositing( const render::render_extent_t extent )
 {
     // The color-only HDR target supplies a private D24 attachment. An opaque
@@ -2800,6 +3014,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckTwoTextureTwoBlockDrawing( info->drawableExtent );
     CheckOffscreenTarget( info->drawableExtent );
     CheckHDRTargetToneMap( info->drawableExtent );
+    CheckPointLightPixels( info->drawableExtent );
     CheckHDRTranslucentCompositing( info->drawableExtent );
     CheckAlphaMaskCutout( info->drawableExtent );
     CheckShadowPassLighting( info->drawableExtent );

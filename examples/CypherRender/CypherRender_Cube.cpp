@@ -143,13 +143,19 @@ struct alignas( 16 ) cube_view_constants_t {
     alignas( 16 ) float lightDirection[4];
     alignas( 16 ) float lightColor[4];
     math::mat4_t lightViewProjection;
+    alignas( 16 ) float pointLightPositionRange[2][4];
+    alignas( 16 ) float pointLightColorIntensity[2][4];
+    alignas( 16 ) common::i32 pointLightControl[4];
 };
-static_assert( sizeof( cube_view_constants_t ) == 240u );
+static_assert( sizeof( cube_view_constants_t ) == 320u );
 static_assert( offsetof( cube_view_constants_t, projection ) == 64u );
 static_assert( offsetof( cube_view_constants_t, ambientLight ) == 128u );
 static_assert( offsetof( cube_view_constants_t, lightDirection ) == 144u );
 static_assert( offsetof( cube_view_constants_t, lightColor ) == 160u );
 static_assert( offsetof( cube_view_constants_t, lightViewProjection ) == 176u );
+static_assert( offsetof( cube_view_constants_t, pointLightPositionRange ) == 240u );
+static_assert( offsetof( cube_view_constants_t, pointLightColorIntensity ) == 272u );
+static_assert( offsetof( cube_view_constants_t, pointLightControl ) == 304u );
 
 struct alignas( 16 ) shadow_light_constants_t {
     math::mat4_t lightViewProjection;
@@ -1114,7 +1120,14 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             // Bright directional values deliberately exceed linear 1.0 on
             // illuminated faces, making the HDR intermediate meaningful.
             { 1.75f, 1.75f, 1.75f, 0.0f },
-            lightViewProjection
+            lightViewProjection,
+            // Two sample-owned point lights: xyz position + range, then
+            // linear RGB + intensity. They do not cast shadow maps.
+            { { -2.0f, -1.0f, 1.3f, 4.5f },
+              { 2.2f, 1.6f, 1.5f, 4.0f } },
+            { { 1.0f, 0.42f, 0.18f, 1.2f },
+              { 0.18f, 0.35f, 1.0f, 1.3f } },
+            { 2, 0, 0, 0 }
         };
         const render::render_buffer_data_t viewData{ &viewConstants,
             sizeof( viewConstants ) };
@@ -1498,7 +1511,7 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
          !CreateScene( state, options ) ||
          !RecreateSceneTarget( state, render::R_GetInfo()->drawableExtent ) ||
          !CreateWorld( state ) ) return false;
-    std::printf( "Cooked shader: %s\nCooked shadow shader: %s\nCooked tone-map shader: %s\nCooked floor texture: %s\nCube and floor meshes, %u world objects; fixed shadow depth, opaque then sorted translucent then additive HDR scene, and tone-map presentation passes per frame.\n",
+    std::printf( "Cooked shader: %s\nCooked shadow shader: %s\nCooked tone-map shader: %s\nCooked floor texture: %s\nCube and floor meshes, %u world objects; one shadowed directional and two unshadowed point lights; opaque then sorted translucent then additive HDR scene, and tone-map presentation passes per frame.\n",
         options.shaderPath, options.shadowShaderPath, options.toneMapShaderPath,
         options.texturePath,
         WORLD_OBJECT_COUNT );

@@ -11,6 +11,9 @@ layout(std140) uniform ViewConstants {
     vec4 lightDirection;
     vec4 lightColor;
     mat4 lightViewProjection;
+    vec4 pointLightPositionRange[2];
+    vec4 pointLightColorIntensity[2];
+    ivec4 pointLightControl;
 };
 layout(std140) uniform ObjectConstants {
     mat4 model;
@@ -24,7 +27,8 @@ layout(location = 0) out vec4 color;
 
 void main()
 {
-    float diffuse = max(dot(normalize(worldNormal), normalize(lightDirection.xyz)), 0.0);
+    vec3 surfaceNormal = normalize(worldNormal);
+    float diffuse = max(dot(surfaceNormal, normalize(lightDirection.xyz)), 0.0);
     // The white texture preserves cube color while the floor samples its
     // independently cooked blockout image through the same shader slot.
     vec4 albedo = texture(albedoTexture, faceUV);
@@ -41,7 +45,23 @@ void main()
             visibility = texture(shadowMap, vec3(shadowUV, referenceDepth));
         }
     }
+    vec3 pointLighting = vec3(0.0);
+    for (int lightIndex = 0; lightIndex < 2; ++lightIndex) {
+        if (lightIndex >= pointLightControl.x) break;
+
+        float range = pointLightPositionRange[lightIndex].w;
+        vec3 toLight = pointLightPositionRange[lightIndex].xyz - worldPosition;
+        float distanceToLight = length(toLight);
+        if (range <= 0.0 || distanceToLight <= 0.0001 || distanceToLight >= range) continue;
+
+        float lambert = max(dot(surfaceNormal, toLight / distanceToLight), 0.0);
+        float remainingRange = 1.0 - distanceToLight / range;
+        float falloff = remainingRange * remainingRange;
+        pointLighting += pointLightColorIntensity[lightIndex].rgb *
+            (pointLightColorIntensity[lightIndex].a * lambert * falloff);
+    }
+
     vec3 shaded = faceColor.rgb * albedo.rgb *
-        (ambientLight.rgb + lightColor.rgb * diffuse * visibility);
+        (ambientLight.rgb + lightColor.rgb * diffuse * visibility + pointLighting);
     color = vec4(shaded, faceColor.a * albedo.a);
 }

@@ -71,6 +71,16 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The OpenGL 4.1 graybox sample shades with two fixed, range-limited point
+  lights alongside ambient and a shadowed directional light. A 320-byte
+  std140 view record carries positions, ranges, linear colors, intensities
+  and active count; the fragment shader adds unshadowed Lambert diffuse with
+  quadratic range fade and preserves alpha cutout. Shader cooking has zero
+  diagnostics; native OpenGL smoke passes 1127 assertions including count,
+  range, color and unchanged-alpha pixels. The 120-frame hidden sample keeps
+  840 scene, 600 shadow and 120 presentation draws. The oracle uses a small
+  matching shader rather than pixel-comparing the full sample; World-authored
+  lights and point-light shadows remain future work.
 - Scene classification has a separate, input-ordered ADDITIVE pass after
   opaque and far-to-near BLEND draws. It preflights the new output capacity
   and overlaps before writing indices. The graybox sample renders one

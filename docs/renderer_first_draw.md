@@ -188,12 +188,15 @@ pipeline's CPU structures match two GLSL std140 blocks:
 | `ViewConstants`, 0 | `lightDirection` | 144 | Point from a surface toward one directional light. |
 | `ViewConstants`, 0 | `lightColor` | 160 | Scale the light's diffuse RGB contribution. |
 | `ViewConstants`, 0 | `lightViewProjection` | 176 | Project world positions into the shadow map. |
+| `ViewConstants`, 0 | `pointLightPositionRange[2]` | 240 | Two world positions in XYZ and positive range in W. |
+| `ViewConstants`, 0 | `pointLightColorIntensity[2]` | 272 | Linear RGB and intensity in W for each point light. |
+| `ViewConstants`, 0 | `pointLightControl` | 304 | Active point-light count in X, bounded to two. |
 | `ObjectConstants`, 1 | `model` | 0 | Transform one cube or the floor from local to world space. |
 | `ObjectConstants`, 1 | `tint` | 64 | Multiply that object's face colors. |
 | `ObjectConstants`, 1 | `normalMatrix` | 80 | Three padded `vec4` columns holding the inverse-transpose of the model's linear part. |
 | `ObjectConstants`, 1 | `cutout` | 128 | Alpha cutoff in X; negative disables discard for the sample's other surfaces. |
 
-The camera view block is 240 bytes and the shared camera/depth object block is
+The camera view block is 320 bytes and the shared camera/depth object block is
 144 bytes. The depth pipeline reads a 64-byte `LightConstants` matrix at slot 0
 and the same 144-byte object record at slot 1. Compile-time checks protect the CPU
 offsets and sizes; pipeline creation checks the shader's
@@ -202,12 +205,21 @@ pipeline, so GLSL 4.10 does not use a `binding` qualifier in source. The
 current two-slot limit is enough for this demonstration, not a final material
 binding convention.
 
-The sample host writes ambient color, one directional light, and a matching
-fixed light view/projection into the camera record. The fragment shader
-combines albedo, normal, diffuse light, and one depth comparison from the
-shadow map. The directional RGB is 1.75, so lit fragments can exceed 1.0
-before tone mapping. This is sample-owned lighting, not authored World lights
-or a general lighting pass.
+The sample host writes ambient color, one directional light with a fixed shadow
+view/projection, and two bounded point lights into the camera record. The
+fragment shader combines albedo, normal, shadowed directional diffuse, and
+unshadowed point-light diffuse. Each point light uses a range cutoff and a
+quadratic `(1 - distance / range)^2` fade. The directional RGB is 1.75, so lit
+fragments can exceed 1.0 before tone mapping. These are sample-owned light
+records, not authored World lights, point-light shadows, or a general lighting
+pass.
+
+A native OpenGL smoke oracle uploads the matching 320-byte std140 block and
+compares actual RGBA8 pixels with zero lights, one in-range red light, the same
+light outside its range, and a second blue light. It checks that the RGB
+contribution follows the range and count fields while alpha stays unchanged.
+The oracle uses a small shader with the same point-light equation, rather than
+reading pixels from the full graybox sample shader.
 
 Common Math uses column vectors, so the vertex shader applies
 `projection * view * model * position`. World space follows the engine's Z-up
@@ -257,7 +269,7 @@ at the device's required uniform-buffer offset alignment. After one successful
 for a chosen uniform slot without changing the draw's geometry or material.
 The OpenGL 4.1 draw then uses the existing `glBindBufferRange` path. This
 replaces one upload per object with one upload for the object batch, while keeping
-each object's model or tint distinct. The shared 240-byte camera record and
+each object's model or tint distinct. The shared 320-byte camera record and
 64-byte light record use separate mutable buffers. The depth and camera passes
 share one aligned object-record batch, staged and uploaded before the frame.
 These are distinct lifetimes rather than a measured speedup.

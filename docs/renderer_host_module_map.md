@@ -132,9 +132,12 @@ each visible object's logical mesh and tint/texture material slots. The cube
 materials bind a white texture; the floor binds a cooked checker texture.
 The host checks every slot and live mesh/texture handle before appending
 any draw, uploads one shared view record and a batch of visible-object records,
-then fills indexed draw descriptions with two uniform slots. Separate ordered
-fixed-capacity shadow, opaque, translucent, and additive lists flush through the
-validated immediate draw path; the sample sorts its visible translucent objects
+then fills indexed draw descriptions with two uniform slots.
+The view record contains one shadowed directional light and two fixed,
+range-limited point lights; these remain sample-owned rather than World light
+objects. Separate ordered fixed-capacity shadow, opaque, translucent, and
+additive lists flush through the validated immediate draw path; the sample
+sorts its visible translucent objects
 by camera-space center and preserves input order for additive objects.
 The first visible cube has negative X scale. Its validated transform determinant
 selects CW-front camera and shadow pipeline variants so back-face culling does

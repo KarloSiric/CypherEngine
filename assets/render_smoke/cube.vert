@@ -12,6 +12,9 @@ layout(std140) uniform ViewConstants {
     vec4 lightDirection;
     vec4 lightColor;
     mat4 lightViewProjection;
+    vec4 pointLightPositionRange[2];
+    vec4 pointLightColorIntensity[2];
+    ivec4 pointLightControl;
 };
 
 layout(std140) uniform ObjectConstants {
