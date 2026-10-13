@@ -160,6 +160,8 @@ render_error_t GL_CaptureHostFrameState( gl_host_frame_state_t &state ) noexcept
     state.primitiveRestart = glIsEnabled( GL_PRIMITIVE_RESTART );
     state.rasterizerDiscard = glIsEnabled( GL_RASTERIZER_DISCARD );
     state.polygonOffsetFill = glIsEnabled( GL_POLYGON_OFFSET_FILL );
+    state.polygonOffsetLine = glIsEnabled( GL_POLYGON_OFFSET_LINE );
+    state.lineSmooth = glIsEnabled( GL_LINE_SMOOTH );
     state.framebufferSRGB = glIsEnabled( GL_FRAMEBUFFER_SRGB );
     state.multisample = glIsEnabled( GL_MULTISAMPLE );
 
@@ -223,6 +225,8 @@ render_error_t GL_RestoreHostFrameState( gl_host_frame_state_t &state ) noexcept
     GL_SetEnabled( GL_PRIMITIVE_RESTART, state.primitiveRestart );
     GL_SetEnabled( GL_RASTERIZER_DISCARD, state.rasterizerDiscard );
     GL_SetEnabled( GL_POLYGON_OFFSET_FILL, state.polygonOffsetFill );
+    GL_SetEnabled( GL_POLYGON_OFFSET_LINE, state.polygonOffsetLine );
+    GL_SetEnabled( GL_LINE_SMOOTH, state.lineSmooth );
     // Core profile accepts only FRONT_AND_BACK; both captured values are the
     // same mode for the portable OpenGL 4.1 renderer.
     glPolygonMode( GL_FRONT_AND_BACK,

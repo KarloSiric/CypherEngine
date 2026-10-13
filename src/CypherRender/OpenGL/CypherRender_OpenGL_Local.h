@@ -95,6 +95,8 @@ struct gl_host_frame_state_t {
     GLboolean primitiveRestart{ GL_FALSE };
     GLboolean rasterizerDiscard{ GL_FALSE };
     GLboolean polygonOffsetFill{ GL_FALSE };
+    GLboolean polygonOffsetLine{ GL_FALSE };
+    GLboolean lineSmooth{ GL_FALSE };
     GLboolean framebufferSRGB{ GL_FALSE };
     GLboolean multisample{ GL_FALSE };
     bool captured{ false };

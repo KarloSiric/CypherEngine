@@ -517,6 +517,10 @@ render_error_t GL_DrawIndexed(
     glDisable( GL_PRIMITIVE_RESTART );
     glDisable( GL_RASTERIZER_DISCARD );
     glDisable( GL_POLYGON_OFFSET_FILL );
+    // Hosted editors may enable these for their own wire overlays. Neither
+    // belongs to the pipeline contract, so line draws must not inherit them.
+    glDisable( GL_POLYGON_OFFSET_LINE );
+    glDisable( GL_LINE_SMOOTH );
     glPolygonMode( GL_FRONT_AND_BACK, pipeline->polygonMode );
     const GLboolean colorMask = pipeline->colorWrite ? GL_TRUE : GL_FALSE;
     if ( glState.usesHostSurface ) glColorMaski( 0u, colorMask, colorMask, colorMask, colorMask );

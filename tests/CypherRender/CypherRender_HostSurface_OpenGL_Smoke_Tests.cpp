@@ -352,6 +352,11 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     render::render_pipeline_handle_t pipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &pipeline ) ==
         render::render_error_t::OK );
+    pipelineDesc.polygonMode = render::render_polygon_mode_t::LINE;
+    render::render_pipeline_handle_t wireframePipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &wireframePipeline ) ==
+        render::render_error_t::OK );
+    pipelineDesc.polygonMode = render::render_polygon_mode_t::FILL;
     pipelineDesc.colorWrite = false;
     render::render_pipeline_handle_t depthOnlyPipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &depthOnlyPipeline ) ==
@@ -413,6 +418,8 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glCullFace( GL_FRONT );
     glFrontFace( GL_CW );
     glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+    glEnable( GL_POLYGON_OFFSET_LINE );
+    glEnable( GL_LINE_SMOOTH );
     GLint maxViewports = 0;
     GLint maxDrawBuffers = 0;
     glGetIntegerv( GL_MAX_VIEWPORTS, &maxViewports );
@@ -535,6 +542,8 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     draw.viewport = { true, 8u, 4u, 32u, 24u };
     draw.scissor = { true, 24u, 0u, 24u, 32u };
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    CHECK( glIsEnabled( GL_POLYGON_OFFSET_LINE ) == GL_FALSE );
+    CHECK( glIsEnabled( GL_LINE_SMOOTH ) == GL_FALSE );
     glGetIntegerv( GL_VIEWPORT, viewport );
     CHECK( viewport[0] == 8 );
     CHECK( viewport[1] == 4 );
@@ -567,6 +576,16 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glReadPixels( 17, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, hostPixel );
     CHECK( hostPixel[1] >= 240u ); // Geometry inside viewport, outside scissor.
     CHECK( hostPixel[0] <= 15u );
+    // Re-enable host-only line state between draws: the LINE pipeline must
+    // establish its own deterministic raster state before drawing.
+    glEnable( GL_POLYGON_OFFSET_LINE );
+    glEnable( GL_LINE_SMOOTH );
+    draw.pipeline = wireframePipeline;
+    draw.viewport = {};
+    draw.scissor = {};
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    CHECK( glIsEnabled( GL_POLYGON_OFFSET_LINE ) == GL_FALSE );
+    CHECK( glIsEnabled( GL_LINE_SMOOTH ) == GL_FALSE );
     draw.pipeline = depthOnlyPipeline;
     draw.viewport = {};
     draw.scissor = {};
@@ -632,6 +651,8 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glGetIntegerv( GL_POLYGON_MODE, restoredPolygonMode );
     CHECK( restoredPolygonMode[0] == GL_LINE );
     CHECK( restoredPolygonMode[1] == GL_LINE );
+    CHECK( glIsEnabled( GL_POLYGON_OFFSET_LINE ) == GL_TRUE );
+    CHECK( glIsEnabled( GL_LINE_SMOOTH ) == GL_TRUE );
     CHECK( glIsEnabled( GL_SCISSOR_TEST ) == GL_TRUE );
     GLint scissorBox[4]{};
     glGetIntegerv( GL_SCISSOR_BOX, scissorBox );
@@ -704,6 +725,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     REQUIRE( glGetError() == GL_NO_ERROR );
 
     REQUIRE( render::R_DestroyGraphicsPipeline( depthOnlyPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( wireframePipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroySampler( rendererSampler ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
