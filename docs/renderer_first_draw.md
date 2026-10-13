@@ -187,11 +187,12 @@ pipeline's CPU structures match two GLSL std140 blocks:
 | `ViewConstants`, 0 | `lightViewProjection` | 176 | Project world positions into the shadow map. |
 | `ObjectConstants`, 1 | `model` | 0 | Transform one cube or the floor from local to world space. |
 | `ObjectConstants`, 1 | `tint` | 64 | Multiply that object's face colors. |
-| `ObjectConstants`, 1 | `cutout` | 80 | Alpha cutoff in X; negative disables discard for the sample's other surfaces. |
+| `ObjectConstants`, 1 | `normalMatrix` | 80 | Three padded `vec4` columns holding the inverse-transpose of the model's linear part. |
+| `ObjectConstants`, 1 | `cutout` | 128 | Alpha cutoff in X; negative disables discard for the sample's other surfaces. |
 
 The camera view block is 240 bytes and the shared camera/depth object block is
-96 bytes. The depth pipeline reads a 64-byte `LightConstants` matrix at slot 0
-and the same 96-byte object record at slot 1. Compile-time checks protect the CPU
+144 bytes. The depth pipeline reads a 64-byte `LightConstants` matrix at slot 0
+and the same 144-byte object record at slot 1. Compile-time checks protect the CPU
 offsets and sizes; pipeline creation checks the shader's
 reflected block sizes. OpenGL 4.1 assigns binding slots through the renderer
 pipeline, so GLSL 4.10 does not use a `binding` qualifier in source. The
@@ -210,10 +211,16 @@ Common Math uses column vectors, so the vertex shader applies
 convention. The right-handed view looks along negative camera Z, and the
 projection explicitly selects normalized depth from -1 to +1 for OpenGL.
 
-The shader's normal transform uses `mat3(model)` because this example applies
-rotation only. A future mesh instance with nonuniform scale needs the
-inverse-transpose normal matrix. That is a separate transform requirement;
-silently extending this example's expression to arbitrary scale would be wrong.
+The sample computes `transpose(inverse(linear(model)))` once per object and
+uploads it in the shared object record. The vertex shader multiplies normals
+by this matrix; the fragment shader normalizes the result before lighting.
+Using `mat3(model)` would make a normal cease to be perpendicular to its
+surface under nonuniform scale or shear. The visible center cube applies both,
+and its World bounds are recomputed from the same transform. Singular or
+nonfinite transforms fail before the uniform record is staged. The focused
+normal-packing test checks transformed tangent orthogonality, std140 padding,
+and failure atomicity. Mirrored transforms still need matching front-face
+handling before they can be shown with back-face culling.
 
 ## Wireframe inspection
 
@@ -259,7 +266,7 @@ by that camera query. The
 submission storage is allocated once; each build uses the linear World query
 without allocating. A checked token
 permits copied record reads until the host marks camera-visible scene items and
-ends the submission. The host selects one model/tint/cutout record for each
+ends the submission. The host selects one model/tint/normal/cutout record for each
 object from one batch upload and binds it in both passes. The host
 resolves the objects'
 logical mesh and material slots through bounded tables containing two static

@@ -72,6 +72,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The graybox camera pass now transforms normals with a per-object
+  inverse-transpose matrix, so nonuniform scale and shear retain correct
+  surface lighting. The sample packs three padded std140 columns once per
+  object into a shared 144-byte camera/shadow record and rejects singular or
+  nonfinite transforms before staging. A visible cube uses scale and shear,
+  with World bounds rebuilt from its actual transform. The focused packing
+  test passes 14 assertions across two cases; both shaders cook with zero
+  diagnostics, and the OpenGL sample completes 120 hidden frames with the
+  existing 600 shadow, 720 scene, and 120 presentation draws. Mirrored
+  transforms still need a matching front-face policy.
 - The graybox renderer now demonstrates alpha-cutout geometry in both camera
   and fixed D24 shadow passes. One cube's 8×8 alpha image and 0.5 cutoff travel
   through a shared 96-byte object uniform record; both fragment shaders discard

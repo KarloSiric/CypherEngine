@@ -4,6 +4,7 @@ in vec2 faceUV;
 layout(std140) uniform ObjectConstants {
     mat4 model;
     vec4 tint;
+    mat3 normalMatrix;
     vec4 cutout;
 };
 uniform sampler2D albedoTexture;

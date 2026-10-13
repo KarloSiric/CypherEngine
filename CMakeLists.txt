@@ -1882,6 +1882,15 @@ if (CYPHERENGINE_BUILD_TESTS)
         target_include_directories(cypher_render_cube_camera_tests PRIVATE
             "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender")
         cypher_add_common_catch_test(
+            cypher_render_cube_normal_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_CubeNormal_Tests.cpp"
+            Cypher::Math
+        )
+        target_sources(cypher_render_cube_normal_tests PRIVATE
+            "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_CubeNormal.cpp")
+        target_include_directories(cypher_render_cube_normal_tests PRIVATE
+            "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender")
+        cypher_add_common_catch_test(
             cypher_common_render_preview_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/CypherCommon_RenderPreview_Tests.cpp"
             Cypher::RenderPreview
@@ -3026,6 +3035,7 @@ endif()
 add_executable(cypher_render_cube EXCLUDE_FROM_ALL
     "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_Cube.cpp"
     "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_CubeCamera.cpp"
+    "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_CubeNormal.cpp"
 )
 target_link_libraries(cypher_render_cube PRIVATE
     Cypher::Render Cypher::RenderMeshRuntime Cypher::RenderUniformRuntime

@@ -17,6 +17,7 @@ layout(std140) uniform ViewConstants {
 layout(std140) uniform ObjectConstants {
     mat4 model;
     vec4 tint;
+    mat3 normalMatrix;
     vec4 cutout;
 };
 
@@ -29,8 +30,7 @@ void main()
 {
     vec4 worldPoint = model * vec4(position, 1.0);
     gl_Position = projection * view * worldPoint;
-    // The demo uses rotation only, so an inverse-transpose is unnecessary.
-    worldNormal = mat3(model) * normal;
+    worldNormal = normalMatrix * normal;
     float faceTone = mix(0.72, 1.12, 0.5 + 0.5 * normal.z);
     faceColor = vec4(tint.rgb * faceTone, tint.a);
     faceUV = texcoord;

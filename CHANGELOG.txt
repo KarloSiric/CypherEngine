@@ -62,6 +62,14 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The graybox camera pass uses a per-object inverse-transpose normal matrix
+  for nonuniform scale and shear. The sample packs three padded std140 columns
+  once per object into a shared 144-byte camera/shadow record and rejects
+  singular or nonfinite transforms before staging. A visible cube uses scale
+  and shear, with World bounds rebuilt from the same transform. The focused
+  packing test passes 14 assertions in two cases; both shaders cook without
+  diagnostics, and 120 hidden frames retain 600 shadow, 720 scene and 120
+  presentation draws. Mirrored transforms need a matching front-face policy.
 - The graybox renderer demonstrates alpha cutout in camera and fixed D24
   shadow passes. One cube's 8x8 alpha image and 0.5 cutoff use a shared
   96-byte object uniform record; both fragment shaders discard below-cutoff

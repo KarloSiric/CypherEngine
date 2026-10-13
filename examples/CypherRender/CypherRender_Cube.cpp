@@ -21,6 +21,7 @@
 #include "CypherCommon/Mathlib/CypherMath_Matrix4.h"
 #include "CypherCommon/Mathlib/CypherMath_Quaternion.h"
 #include "CypherRender_CubeCamera.h"
+#include "CypherRender_CubeNormal.h"
 #include "CypherRender/CypherRender_Buffer.h"
 #include "CypherRender/CypherRender_Draw.h"
 #include "CypherRender/CypherRender_Pipeline.h"
@@ -158,11 +159,13 @@ static_assert( sizeof( shadow_light_constants_t ) == 64u );
 struct alignas( 16 ) cube_object_constants_t {
     math::mat4_t model;
     alignas( 16 ) float tint[4];
+    camera::cube_normal_columns_t normalMatrix;
     alignas( 16 ) float cutout[4];
 };
-static_assert( sizeof( cube_object_constants_t ) == 96u );
+static_assert( sizeof( cube_object_constants_t ) == 144u );
 static_assert( offsetof( cube_object_constants_t, tint ) == 64u );
-static_assert( offsetof( cube_object_constants_t, cutout ) == 80u );
+static_assert( offsetof( cube_object_constants_t, normalMatrix ) == 80u );
+static_assert( offsetof( cube_object_constants_t, cutout ) == 128u );
 
 struct cube_options_t {
     const char *shaderPath{ CYPHER_RENDER_CUBE_SHADER_PATH };
@@ -176,15 +179,30 @@ struct cube_options_t {
 
 struct cube_instance_t {
     math::vec3_t position;
+    math::vec3_t scale;
+    bool sheared;
 };
 
 constexpr cube_instance_t CUBE_INSTANCES[] = {
-    { { -2.4f, -1.6f, 0.0f } },
-    { { 0.0f, 0.0f, 0.0f } },
-    { { 2.4f, 1.6f, 0.0f } },
+    { { -2.4f, -1.6f, 0.0f }, { 1.0f, 1.0f, 1.0f }, false },
+    // The center cube exposes the difference between model and normal transforms.
+    { { 0.0f, 0.0f, 0.0f }, { 0.8f, 1.15f, 0.72f }, true },
+    { { 2.4f, 1.6f, 0.0f }, { 1.0f, 1.0f, 1.0f }, false },
     // Deliberately behind the camera. The World query rejects this object.
-    { { 12.0f, -18.0f, 9.6f } }
+    { { 12.0f, -18.0f, 9.6f }, { 1.0f, 1.0f, 1.0f }, false }
 };
+constexpr math::affine3_t CUBE_SHEAR = math::Affine3_FromColumns(
+    { 1.0f, 0.0f, 0.0f }, { 0.22f, 1.0f, 0.0f },
+    { 0.16f, 0.11f, 1.0f }, { 0.0f, 0.0f, 0.0f } );
+
+math::affine3_t CubeInstanceTransform(
+    const cube_instance_t &instance, math::quat_t rotation ) noexcept
+{
+    const math::affine3_t transform = math::Affine3_FromTRS(
+        instance.position, rotation, instance.scale );
+    return instance.sheared
+        ? math::Affine3_Multiply( transform, CUBE_SHEAR ) : transform;
+}
 constexpr common::u32 CUBE_INSTANCE_COUNT =
     static_cast<common::u32>( sizeof( CUBE_INSTANCES ) / sizeof( CUBE_INSTANCES[0] ) );
 constexpr common::u32 FLOOR_OBJECT_INDEX = CUBE_INSTANCE_COUNT;
@@ -727,8 +745,8 @@ bool CreateWorld( cube_state_t &state ) noexcept
 
     for ( common::u32 i = 0u; i < CUBE_INSTANCE_COUNT; ++i ) {
         world::world_object_t object{};
-        object.localToWorld = math::Affine3_FromTranslation(
-            CUBE_INSTANCES[i].position );
+        object.localToWorld = CubeInstanceTransform(
+            CUBE_INSTANCES[i], math::CY_QUAT_IDENTITY );
         object.worldBounds = math::Aabb_TransformAffine(
             CUBE_LOCAL_BOUNDS, object.localToWorld );
         object.layerMask = 1u;
@@ -971,8 +989,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         const math::quat_t rotation = math::Quat_Multiply( yaw, tilt );
         for ( common::u32 i = 0u; i < CUBE_INSTANCE_COUNT; ++i ) {
             world::world_object_t object{};
-            object.localToWorld = math::Affine3_FromTRS(
-                CUBE_INSTANCES[i].position, rotation, math::Vec3_Splat( 1.0f ) );
+            object.localToWorld = CubeInstanceTransform( CUBE_INSTANCES[i], rotation );
             object.worldBounds = math::Aabb_TransformAffine(
                 CUBE_LOCAL_BOUNDS, object.localToWorld );
             object.layerMask = 1u;
@@ -1091,6 +1108,11 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
 
             cube_object_constants_t constants{};
             constants.model = math::Affine3_ToMat4( object.localToWorld );
+            if ( !camera::CubeNormal_TryPack(
+                     object.localToWorld, &constants.normalMatrix ) ) {
+                std::fprintf( stderr, "World object has a singular or nonfinite normal transform.\n" );
+                return false;
+            }
             std::memcpy( constants.tint, MATERIALS[object.materialSlot].tint,
                 sizeof( constants.tint ) );
             constants.cutout[0] = material.alphaCutoff;
