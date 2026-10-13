@@ -191,17 +191,17 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     render::render_pipeline_desc_t pipelineDesc{};
     pipelineDesc.shader = shader;
     pipelineDesc.vertexLayout = inputDesc.layout;
-    pipelineDesc.uniformBlockName = "TestDraw";
-    pipelineDesc.uniformBlockBytes = sizeof( uniforms );
+    pipelineDesc.uniformBlockCount = 1u;
+    pipelineDesc.uniformBlocks[0] = { "TestDraw", sizeof( uniforms ) };
     render::render_pipeline_handle_t pipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &pipeline ) == render::render_error_t::OK );
     CHECK( render::R_DestroyShader( shader ) == render::render_error_t::ERR_RESOURCE_BUSY );
 
     render::render_pipeline_handle_t invalidPipeline{};
-    pipelineDesc.uniformBlockBytes += 16u;
+    pipelineDesc.uniformBlocks[0].byteSize += 16u;
     CHECK( render::R_CreateGraphicsPipeline( pipelineDesc, &invalidPipeline ) == render::render_error_t::ERR_SHADER_INTERFACE_MISMATCH );
     CHECK_FALSE( render::R_IsGraphicsPipelineValid( invalidPipeline ) );
-    pipelineDesc.uniformBlockBytes = sizeof( uniforms );
+    pipelineDesc.uniformBlocks[0].byteSize = sizeof( uniforms );
     pipelineDesc.vertexLayout.attributes[0].location = 1u;
     CHECK( render::R_CreateGraphicsPipeline( pipelineDesc, &invalidPipeline ) == render::render_error_t::ERR_SHADER_INTERFACE_MISMATCH );
     pipelineDesc.vertexLayout = inputDesc.layout;
@@ -212,7 +212,7 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     render::render_draw_indexed_desc_t draw{};
     draw.pipeline = pipeline;
     draw.vertexInput = input;
-    draw.uniformBuffer = uniformBuffer;
+    draw.uniformBuffers[0] = uniformBuffer;
     draw.indexCount = 3u;
     draw.vertexCount = 3u;
     CHECK( render::R_DrawIndexed( draw ) == render::render_error_t::ERR_FRAME_NOT_ACTIVE );
@@ -229,7 +229,7 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     invalidDraw.vertexCount = 4u;
     CHECK( render::R_DrawIndexed( invalidDraw ) == render::render_error_t::ERR_VERTEX_LAYOUT_INVALID );
     invalidDraw = draw;
-    invalidDraw.uniformBuffer = {};
+    invalidDraw.uniformBuffers[0] = {};
     CHECK( render::R_DrawIndexed( invalidDraw ) == render::render_error_t::ERR_BINDING_MISMATCH );
     render::render_buffer_mapping_t mapping{};
     REQUIRE( render::R_MapBuffer( vertexBuffer, { 0u, sizeof( vertices ) }, render::R_BUFFER_MAP_WRITE, &mapping ) == render::render_error_t::OK );
@@ -532,9 +532,10 @@ void CheckSampledDrawing( const render::render_extent_t extent )
     render::render_pipeline_handle_t pipeline{};
     // Sampler use is explicit: missing or mismatched binding names cannot pass.
     CHECK( render::R_CreateGraphicsPipeline( pipe, &pipeline ) == render::render_error_t::ERR_SHADER_INTERFACE_MISMATCH );
-    pipe.sampledTextureName = "wrong_binding";
+    pipe.sampledTextureCount = 1u;
+    pipe.sampledTextures[0].name = "wrong_binding";
     CHECK( render::R_CreateGraphicsPipeline( pipe, &pipeline ) == render::render_error_t::ERR_SHADER_INTERFACE_MISMATCH );
-    pipe.sampledTextureName = "base_color";
+    pipe.sampledTextures[0].name = "base_color";
     REQUIRE( render::R_CreateGraphicsPipeline( pipe, &pipeline ) == render::render_error_t::OK );
 
     // A named binding still needs the exact sampler2D type. A generic float
@@ -591,7 +592,7 @@ void CheckSampledDrawing( const render::render_extent_t extent )
     frame.drawableExtent = extent;
     auto sampledPixel = [&]( render::render_texture_handle_t texture ) {
         REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
-        draw.sampledTexture = texture;
+        draw.sampledTextures[0] = texture;
         REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
         common::byte pixel[4]{};
         glReadBuffer( GL_BACK );
@@ -616,6 +617,130 @@ void CheckSampledDrawing( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( vb ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( ib ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
+}
+
+void CheckTwoTextureTwoBlockDrawing( const render::render_extent_t extent )
+{
+    constexpr char vertex[] =
+        "#version 410 core\n"
+        "layout(location=0) in vec3 position;\n"
+        "layout(std140) uniform Offset { vec4 offset; };\n"
+        "void main() { gl_Position=vec4(position.xy+offset.xy,position.z,1.0); }\n";
+    constexpr char fragment[] =
+        "#version 410 core\n"
+        "layout(std140) uniform MixWeights { vec4 weights; };\n"
+        "uniform sampler2D base_color; uniform sampler2D detail_color;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { color=texture(base_color,vec2(0.5))*weights.x"
+        "+texture(detail_color,vec2(0.5))*weights.y; }\n";
+    common::cooked_shader_view_t source{};
+    source.nLanguageVersion = 410u;
+    source.nStages = 2u;
+    source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+    source.stages[0].code = { reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+    source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+    source.stages[1].code = { reinterpret_cast<const common::byte *>( fragment ), sizeof( fragment ) };
+    render::render_shader_handle_t shader{};
+    REQUIRE( render::R_CreateShader( { &source, "Two-slot pixel smoke" }, &shader ) == render::render_error_t::OK );
+
+    const float positions[]{ -0.9f,-0.9f,0.0f, 0.9f,-0.9f,0.0f, 0.0f,0.9f,0.0f };
+    const common::u16 indices[]{ 0u,1u,2u };
+    const float offset[]{ 0.0f,0.0f,0.0f,0.0f };
+    const float weights[]{ 0.25f,0.75f,0.0f,0.0f };
+    const auto createBuffer = []( const void *data, common::u64 size,
+                                  render::render_buffer_usage_flags_t usage ) {
+        render::render_buffer_desc_t desc{};
+        desc.byteSize = size;
+        desc.usage = usage;
+        const render::render_buffer_data_t contents{ data, size };
+        render::render_buffer_handle_t buffer{};
+        REQUIRE( render::R_CreateBuffer( desc, &contents, &buffer ) == render::render_error_t::OK );
+        return buffer;
+    };
+    const auto vb = createBuffer( positions, sizeof( positions ), render::R_BUFFER_USAGE_VERTEX );
+    const auto ib = createBuffer( indices, sizeof( indices ), render::R_BUFFER_USAGE_INDEX );
+    const auto offsetBuffer = createBuffer( offset, sizeof( offset ), render::R_BUFFER_USAGE_UNIFORM );
+    const auto weightBuffer = createBuffer( weights, sizeof( weights ), render::R_BUFFER_USAGE_UNIFORM );
+    render::render_vertex_input_desc_t inputDesc{};
+    inputDesc.layout.bindingCount = 1u;
+    inputDesc.layout.bindings[0].stride = 3u * sizeof( float );
+    inputDesc.layout.attributeCount = 1u;
+    inputDesc.layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    inputDesc.vertexBufferCount = 1u;
+    inputDesc.vertexBuffers[0] = { vb, 0u, 0u };
+    inputDesc.indexBuffer = { ib, 0u, render::render_index_type_t::UINT16 };
+    render::render_vertex_input_handle_t input{};
+    REQUIRE( render::R_CreateVertexInput( inputDesc, &input ) == render::render_error_t::OK );
+
+    render::render_pipeline_desc_t pipelineDesc{};
+    pipelineDesc.shader = shader;
+    pipelineDesc.vertexLayout = inputDesc.layout;
+    pipelineDesc.uniformBlockCount = 2u;
+    pipelineDesc.uniformBlocks[0] = { "Offset", sizeof( offset ) };
+    pipelineDesc.uniformBlocks[1] = { "MixWeights", sizeof( weights ) };
+    pipelineDesc.sampledTextureCount = 2u;
+    pipelineDesc.sampledTextures[0].name = "base_color";
+    pipelineDesc.sampledTextures[1].name = "detail_color";
+    render::render_pipeline_handle_t failed{};
+    auto invalid = pipelineDesc;
+    invalid.sampledTextureCount = 1u;
+    invalid.sampledTextures[1] = {};
+    CHECK( render::R_CreateGraphicsPipeline( invalid, &failed ) ==
+        render::render_error_t::ERR_SHADER_INTERFACE_MISMATCH );
+    invalid = pipelineDesc;
+    invalid.uniformBlockCount = 1u;
+    invalid.uniformBlocks[1] = {};
+    CHECK( render::R_CreateGraphicsPipeline( invalid, &failed ) ==
+        render::render_error_t::ERR_SHADER_INTERFACE_MISMATCH );
+    invalid = pipelineDesc;
+    invalid.uniformBlocks[1].byteSize += 16u;
+    CHECK( render::R_CreateGraphicsPipeline( invalid, &failed ) ==
+        render::render_error_t::ERR_SHADER_INTERFACE_MISMATCH );
+    render::render_pipeline_handle_t pipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &pipeline ) == render::render_error_t::OK );
+
+    const common::u8 redPixels[16]{ 255,0,0,255, 255,0,0,255, 255,0,0,255, 255,0,0,255 };
+    const common::u8 greenPixels[16]{ 0,255,0,255, 0,255,0,255, 0,255,0,255, 0,255,0,255 };
+    render::render_texture_desc_t textureDesc{ 2u, 2u, false, false, false, "Two-slot smoke" };
+    render::render_texture_handle_t red{}, green{};
+    REQUIRE( render::R_CreateTexture2D( textureDesc, { redPixels, sizeof( redPixels ) }, &red ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CreateTexture2D( textureDesc, { greenPixels, sizeof( greenPixels ) }, &green ) ==
+        render::render_error_t::OK );
+
+    render::render_draw_indexed_desc_t draw{};
+    draw.pipeline = pipeline;
+    draw.vertexInput = input;
+    draw.uniformBuffers[0] = offsetBuffer;
+    draw.uniformBuffers[1] = weightBuffer;
+    draw.sampledTextures[0] = red;
+    draw.sampledTextures[1] = green;
+    draw.indexCount = draw.vertexCount = 3u;
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    common::u8 pixel[4]{};
+    glReadBuffer( GL_BACK );
+    glReadPixels( static_cast<GLint>( extent.width / 2u ), static_cast<GLint>( extent.height / 2u ),
+        1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    CHECK( pixel[0] >= 62u );
+    CHECK( pixel[0] <= 66u );
+    CHECK( pixel[1] >= 189u );
+    CHECK( pixel[1] <= 193u );
+    CHECK( pixel[2] <= 2u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    REQUIRE( render::R_DestroyTexture( green ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( red ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( weightBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( offsetBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( ib ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( vb ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
 }
 
@@ -682,7 +807,8 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     render::render_pipeline_handle_t solidPipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &solidPipeline ) == render::render_error_t::OK );
     pipelineDesc.shader = sampleShader;
-    pipelineDesc.sampledTextureName = "base_color";
+    pipelineDesc.sampledTextureCount = 1u;
+    pipelineDesc.sampledTextures[0].name = "base_color";
     render::render_pipeline_handle_t samplePipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &samplePipeline ) == render::render_error_t::OK );
 
@@ -715,7 +841,7 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     draw.vertexCount = 6u;
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
     draw.pipeline = samplePipeline;
-    draw.sampledTexture = color;
+    draw.sampledTextures[0] = color;
     CHECK( render::R_DrawIndexed( draw ) == render::render_error_t::ERR_COMMAND_STATE_INVALID );
     CHECK( render::R_EndFrame() == render::render_error_t::ERR_COMMAND_STATE_INVALID );
     REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
@@ -829,6 +955,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckLineDrawing( info->drawableExtent );
     CheckInstancedDrawing( info->drawableExtent );
     CheckSampledDrawing( info->drawableExtent );
+    CheckTwoTextureTwoBlockDrawing( info->drawableExtent );
     CheckOffscreenTarget( info->drawableExtent );
 
     ::cypher::common::u32 vertexWords[16]{};

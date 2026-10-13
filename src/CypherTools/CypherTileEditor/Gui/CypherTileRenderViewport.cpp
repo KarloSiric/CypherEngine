@@ -1541,8 +1541,8 @@ bool CypherTileRenderViewport::createRenderResources()
     pipeline.cullBackFaces = true;
     pipeline.frontCounterClockwise = true;
     pipeline.alphaBlend = false;
-    pipeline.uniformBlockName = "Transforms";
-    pipeline.uniformBlockBytes = offsetof( preview_transforms_t, uvScale );
+    pipeline.uniformBlockCount = 1u;
+    pipeline.uniformBlocks[0] = { "Transforms", offsetof( preview_transforms_t, uvScale ) };
     pipeline.debugName = "Tile editor embedded blockout pipeline";
     return checkRender(
         render::R_CreateGraphicsPipeline( pipeline, &m_pipeline ),
@@ -1581,9 +1581,10 @@ bool CypherTileRenderViewport::reloadMaterialResources()
         render::render_pipeline_desc_t pipeline{};
         pipeline.shader = candidateShader;
         pipeline.vertexLayout = base.vertexLayout;
-        pipeline.uniformBlockName = "Transforms";
-        pipeline.uniformBlockBytes = sizeof( preview_transforms_t );
-        pipeline.sampledTextureName = "base_color";
+        pipeline.uniformBlockCount = 1u;
+        pipeline.uniformBlocks[0] = { "Transforms", sizeof( preview_transforms_t ) };
+        pipeline.sampledTextureCount = 1u;
+        pipeline.sampledTextures[0] = { "base_color" };
         pipeline.debugName = "Tile material pipeline";
         if ( !checkRender( render::R_CreateGraphicsPipeline( pipeline, &candidatePipeline ), tr( "Create material pipeline" ), true ) ) { cleanup(); return false; }
     }
@@ -1664,7 +1665,7 @@ bool CypherTileRenderViewport::drawGeometry(
     render::render_draw_indexed_desc_t draw{};
     draw.pipeline = m_pipeline;
     draw.vertexInput = m_vertexInput;
-    draw.uniformBuffer = m_transforms;
+    draw.uniformBuffers[0] = m_transforms;
     draw.indexCount = 36u;
     draw.vertexCount = 24u;
 
@@ -1703,7 +1704,7 @@ bool CypherTileRenderViewport::drawGeometry(
         const auto *textured = box.kind == tile_map_geometry_box_kind_t::DOOR ? nullptr
             : CypherTileMaterialPreview_Find( m_materials, box.nMaterialSlot );
         draw.pipeline = textured != nullptr ? m_materialPipeline : m_pipeline;
-        draw.sampledTexture = textured != nullptr ? textured->texture : render::render_texture_handle_t{};
+        draw.sampledTextures[0] = textured != nullptr ? textured->texture : render::render_texture_handle_t{};
         if ( textured != nullptr ) {
             for ( int i = 0; i < 4; ++i ) transforms.tint[i] = textured->tint[i];
             transforms.uvScale[0] = textured->uvScale[0];

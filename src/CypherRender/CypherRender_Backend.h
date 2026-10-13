@@ -45,7 +45,7 @@ this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 10u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 11u;
 
 /*
 ================
@@ -178,18 +178,19 @@ struct backend_pipeline_desc_t {
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };
-    const char *uniformBlockName{ nullptr };
-    ::cypher::common::u32 uniformBlockBytes{ 0u };
+    ::cypher::common::u32 uniformBlockCount{ 0u };
+    render_uniform_block_binding_t uniformBlocks[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
     const char *debugName{ nullptr };
-    const char *sampledTextureName{ nullptr }; // Optional sampler2D at unit zero.
+    ::cypher::common::u32 sampledTextureCount{ 0u };
+    render_sampled_texture_binding_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
 };
 
 struct backend_draw_indexed_desc_t {
     backend_pipeline_t pipeline{};
     backend_vertex_input_t vertexInput{};
-    backend_buffer_t uniformBuffer{};
-    backend_texture_t sampledTexture{};
+    backend_buffer_t uniformBuffers[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
+    backend_texture_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_index_type_t indexType{ render_index_type_t::UINT16 };
     ::cypher::common::u64 indexByteOffset{ 0u };
     ::cypher::common::u32 indexCount{ 0u };

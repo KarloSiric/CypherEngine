@@ -27,11 +27,11 @@ namespace cypher::engine::render
 struct render_draw_indexed_desc_t {
     render_pipeline_handle_t pipeline{};
     render_vertex_input_handle_t vertexInput{};
-    render_buffer_handle_t uniformBuffer{}; // Whole buffer at binding zero, when required.
+    render_buffer_handle_t uniformBuffers[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
     ::cypher::common::u32 firstIndex{ 0u }; // Relative to the vertex input's index offset.
     ::cypher::common::u32 indexCount{ 0u }; // Complete pairs or triples for pipeline topology.
     ::cypher::common::u32 vertexCount{ 0u }; // Addressable vertices beginning at vertex zero.
-    render_texture_handle_t sampledTexture{}; // Required exactly when the pipeline declares a sampler.
+    render_texture_handle_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     ::cypher::common::u32 instanceCount{ 1u }; // Positive; one preserves ordinary indexed drawing.
 };
 

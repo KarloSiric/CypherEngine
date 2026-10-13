@@ -19,10 +19,12 @@ struct texture_fixture_t {
     common::u64 next{ 1u };
     unsigned creates{ 0u }, destroys{ 0u }, draws{ 0u };
     texture_error_t createResult{ texture_error_t::OK }, destroyResult{ texture_error_t::OK };
+    texture_error_t drawResult{ texture_error_t::OK };
     bool tokenOnCreateFailure{ false };
     render::render_texture_desc_t captured{};
     render::backend_draw_indexed_desc_t capturedDraw{};
     common::byte pixels[24]{};
+    common::byte mappedBytes[256]{};
 
     void Init()
     {
@@ -48,6 +50,14 @@ struct texture_fixture_t {
             return texture_error_t::OK;
         };
         backend.DestroyBuffer = []( render::backend_buffer_t, void * ) noexcept { return texture_error_t::OK; };
+        backend.MapBuffer = []( render::backend_buffer_t,
+            const render::render_buffer_range_t &range,
+            render::render_buffer_map_flags_t,
+            render::render_buffer_mapping_t &out, void *state ) noexcept {
+            out = { static_cast<texture_fixture_t *>( state )->mappedBytes, range.byteSize };
+            return texture_error_t::OK;
+        };
+        backend.UnmapBuffer = []( render::backend_buffer_t, void * ) noexcept { return texture_error_t::OK; };
         backend.CreateVertexInput = []( const render::backend_vertex_input_desc_t &,
             render::backend_vertex_input_t &out, void *state ) noexcept {
             out.value = static_cast<texture_fixture_t *>( state )->next++;
@@ -70,7 +80,7 @@ struct texture_fixture_t {
             auto &self = *static_cast<texture_fixture_t *>( state );
             ++self.draws;
             self.capturedDraw = desc;
-            return texture_error_t::OK;
+            return self.drawResult;
         };
         render::tr = {};
         render::tr.backend = { &backend, this };
@@ -80,6 +90,8 @@ struct texture_fixture_t {
         render::tr.info.apiMinorVersion = 1u;
         render::tr.info.limits.maxTexture2DSize = 4096u;
         render::tr.info.limits.maxCombinedTextureUnits = 16u;
+        render::tr.info.limits.maxUniformBlockBytes = 16384u;
+        render::tr.info.limits.maxUniformBufferBindings = 16u;
         REQUIRE( render::R_TextureSystemInit() == texture_error_t::OK );
         REQUIRE( render::R_BufferSystemInit() == texture_error_t::OK );
         REQUIRE( render::R_ShaderSystemInit() == texture_error_t::OK );
@@ -94,7 +106,18 @@ struct texture_fixture_t {
         REQUIRE( render::R_CreateTexture2D( Description(), Data(), &texture ) == texture_error_t::OK );
         return texture;
     }
-    render::render_draw_indexed_desc_t MakeDraw( bool textured )
+    render::render_buffer_handle_t Uniform( common::u64 bytes )
+    {
+        render::render_buffer_desc_t desc{};
+        desc.byteSize = bytes;
+        desc.usage = render::R_BUFFER_USAGE_UNIFORM;
+        desc.memory = render::render_buffer_memory_t::UPLOAD;
+        desc.updatePolicy = render::render_buffer_update_t::DYNAMIC;
+        render::render_buffer_handle_t result{};
+        REQUIRE( render::R_CreateBuffer( desc, nullptr, &result ) == texture_error_t::OK );
+        return result;
+    }
+    render::render_draw_indexed_desc_t MakeDraw( bool textured, bool twoBindings = false )
     {
         constexpr char source[] = "#version 410 core\nvoid main() {}\n";
         common::cooked_shader_view_t cooked{};
@@ -113,12 +136,20 @@ struct texture_fixture_t {
         render::render_pipeline_desc_t pipeline{};
         pipeline.shader = shader;
         pipeline.vertexLayout = layout;
-        pipeline.sampledTextureName = textured ? "base_color" : nullptr;
+        pipeline.sampledTextureCount = textured ? ( twoBindings ? 2u : 1u ) : 0u;
+        if ( textured ) pipeline.sampledTextures[0].name = "base_color";
+        if ( twoBindings ) {
+            pipeline.sampledTextures[1].name = "detail";
+            pipeline.uniformBlockCount = 2u;
+            pipeline.uniformBlocks[0] = { "Transform", 64u };
+            pipeline.uniformBlocks[1] = { "Material", 32u };
+        }
         render::render_draw_indexed_desc_t draw{};
         REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &draw.pipeline ) == texture_error_t::OK );
         render::render_pipeline_info_t pipelineInfo{};
         REQUIRE( render::R_GetGraphicsPipelineInfo( draw.pipeline, &pipelineInfo ) == texture_error_t::OK );
-        CHECK( pipelineInfo.sampledTextureRequired == textured );
+        CHECK( pipelineInfo.sampledTextureCount == pipeline.sampledTextureCount );
+        CHECK( pipelineInfo.uniformBlockCount == pipeline.uniformBlockCount );
         auto makeBuffer = []( common::u64 bytes, render::render_buffer_usage_flags_t usage ) {
             render::render_buffer_desc_t desc{};
             desc.byteSize = bytes;
@@ -238,12 +269,12 @@ TEST_CASE( "sampled draws require a live texture of the right type", "[CypherRen
     fixture.Init();
     auto draw = fixture.MakeDraw( true );
     CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_BINDING_MISMATCH );
-    draw.sampledTexture = draw.pipeline;
+    draw.sampledTextures[0] = draw.pipeline;
     CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_RESOURCE_TYPE_MISMATCH );
-    draw.sampledTexture = fixture.Create();
+    draw.sampledTextures[0] = fixture.Create();
     CHECK( render::R_DrawIndexed( draw ) == texture_error_t::OK );
-    CHECK( fixture.capturedDraw.sampledTexture.value != 0u );
-    REQUIRE( render::R_DestroyTexture( draw.sampledTexture ) == texture_error_t::OK );
+    CHECK( fixture.capturedDraw.sampledTextures[0].value != 0u );
+    REQUIRE( render::R_DestroyTexture( draw.sampledTextures[0] ) == texture_error_t::OK );
     CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_STALE_HANDLE );
     CHECK( fixture.draws == 1u );
 }
@@ -253,7 +284,86 @@ TEST_CASE( "untextured pipelines reject an undeclared sampled binding", "[Cypher
     fixture.Init();
     auto draw = fixture.MakeDraw( false );
     CHECK( render::R_DrawIndexed( draw ) == texture_error_t::OK );
-    draw.sampledTexture = fixture.Create();
+    draw.sampledTextures[0] = fixture.Create();
     CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_BINDING_MISMATCH );
     CHECK( fixture.draws == 1u );
+}
+
+TEST_CASE( "two sampled textures and two uniform blocks bind in stable slots",
+           "[CypherRender][Texture][Draw]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    auto draw = fixture.MakeDraw( true, true );
+    const auto baseColor = fixture.Create();
+    const auto detail = fixture.Create();
+    const auto transform = fixture.Uniform( 64u );
+    const auto material = fixture.Uniform( 32u );
+    draw.sampledTextures[0] = baseColor;
+    draw.sampledTextures[1] = detail;
+    draw.uniformBuffers[0] = transform;
+    draw.uniformBuffers[1] = material;
+
+    REQUIRE( render::R_DrawIndexed( draw ) == texture_error_t::OK );
+    CHECK( fixture.draws == 1u );
+    CHECK( fixture.capturedDraw.sampledTextures[0].value != 0u );
+    CHECK( fixture.capturedDraw.sampledTextures[1].value != 0u );
+    CHECK( fixture.capturedDraw.sampledTextures[0].value !=
+           fixture.capturedDraw.sampledTextures[1].value );
+    CHECK( fixture.capturedDraw.uniformBuffers[0].value != 0u );
+    CHECK( fixture.capturedDraw.uniformBuffers[1].value != 0u );
+    CHECK( fixture.capturedDraw.uniformBuffers[0].value !=
+           fixture.capturedDraw.uniformBuffers[1].value );
+
+    auto invalid = draw;
+    invalid.sampledTextures[1] = {};
+    CHECK( render::R_DrawIndexed( invalid ) == texture_error_t::ERR_BINDING_MISMATCH );
+    invalid = draw;
+    invalid.uniformBuffers[1] = {};
+    CHECK( render::R_DrawIndexed( invalid ) == texture_error_t::ERR_BINDING_MISMATCH );
+    invalid = draw;
+    invalid.sampledTextures[1] = draw.pipeline;
+    CHECK( render::R_DrawIndexed( invalid ) == texture_error_t::ERR_RESOURCE_TYPE_MISMATCH );
+    invalid = draw;
+    invalid.uniformBuffers[1] = baseColor;
+    CHECK( render::R_DrawIndexed( invalid ) == texture_error_t::ERR_RESOURCE_TYPE_MISMATCH );
+
+    render::tr.activeTargetColor = detail;
+    CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_COMMAND_STATE_INVALID );
+    render::tr.activeTargetColor = {};
+
+    const auto tooShort = fixture.Uniform( 31u );
+    invalid = draw;
+    invalid.uniformBuffers[1] = tooShort;
+    CHECK( render::R_DrawIndexed( invalid ) == texture_error_t::ERR_BINDING_MISMATCH );
+    CHECK( render::R_DestroyBuffer( tooShort ) == texture_error_t::OK );
+
+    render::render_buffer_mapping_t mapped{};
+    REQUIRE( render::R_MapBuffer( material, { 0u, 32u },
+        render::R_BUFFER_MAP_WRITE, &mapped ) == texture_error_t::OK );
+    CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_RESOURCE_BUSY );
+    REQUIRE( render::R_UnmapBuffer( material ) == texture_error_t::OK );
+    CHECK( fixture.draws == 1u ); // Validation never reached backend.
+
+    fixture.drawResult = texture_error_t::ERR_SUBMISSION_FAILED;
+    CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_SUBMISSION_FAILED );
+    CHECK( fixture.draws == 2u );
+    // Temporary draw references, including those from earlier slots, must be
+    // released even when a later binding or the backend submission fails.
+    CHECK( render::R_DestroyBuffer( transform ) == texture_error_t::OK );
+    CHECK( render::R_DestroyBuffer( material ) == texture_error_t::OK );
+    CHECK( render::R_DestroyTexture( baseColor ) == texture_error_t::OK );
+    CHECK( render::R_DestroyTexture( detail ) == texture_error_t::OK );
+}
+
+TEST_CASE( "one-slot pipelines reject a resource in an undeclared second slot",
+           "[CypherRender][Texture][Draw]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    auto draw = fixture.MakeDraw( true );
+    draw.sampledTextures[0] = fixture.Create();
+    draw.sampledTextures[1] = fixture.Create();
+    CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_BINDING_MISMATCH );
+    CHECK( fixture.draws == 0u );
 }

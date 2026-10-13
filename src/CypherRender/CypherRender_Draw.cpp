@@ -141,32 +141,50 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
     native.vertexCount = description.vertexCount;
     native.instanceCount = description.instanceCount;
 
-    const bool hasTexture = description.sampledTexture.value != R_INVALID_TEXTURE.value;
-    if ( hasTexture != pipeline.sampledTextureRequired ) return render_error_t::ERR_BINDING_MISMATCH;
-    if ( hasTexture && description.sampledTexture.value == tr.activeTargetColor.value ) {
-        return render_error_t::ERR_COMMAND_STATE_INVALID;
-    }
-    if ( hasTexture ) {
+    for ( common::u32 i = 0u; i < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++i ) {
+        const auto handle = description.sampledTextures[i];
+        const bool required = i < pipeline.sampledTextureCount;
+        if ( ( handle.value != R_INVALID_TEXTURE.value ) != required ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+        if ( !required ) continue;
+        if ( handle.value == tr.activeTargetColor.value ) {
+            return render_error_t::ERR_COMMAND_STATE_INVALID;
+        }
         render_texture_info_t textureInfo{};
-        result = R_TextureResolveForDraw( description.sampledTexture, &native.sampledTexture, &textureInfo );
+        result = R_TextureResolveForDraw( handle, &native.sampledTextures[i], &textureInfo );
         if ( result != render_error_t::OK ) return result;
     }
 
-    const bool hasUniform = description.uniformBuffer.value != R_INVALID_BUFFER.value;
-    if ( hasUniform != ( pipeline.uniformBlockBytes != 0u ) ) return render_error_t::ERR_BINDING_MISMATCH;
-    if ( hasUniform ) {
+    common::u32 acquiredUniforms = 0u;
+    for ( common::u32 i = 0u; i < R_MAX_UNIFORM_BLOCK_BINDINGS; ++i ) {
+        const auto handle = description.uniformBuffers[i];
+        const bool required = i < pipeline.uniformBlockCount;
+        if ( ( handle.value != R_INVALID_BUFFER.value ) != required ) {
+            result = render_error_t::ERR_BINDING_MISMATCH;
+            break;
+        }
+        if ( !required ) continue;
         render_buffer_info_t uniformInfo{};
         result = R_BufferAcquireReference(
-            description.uniformBuffer, R_BUFFER_USAGE_UNIFORM, &native.uniformBuffer, &uniformInfo );
-        if ( result != render_error_t::OK ) return result;
-        if ( uniformInfo.mapped || uniformInfo.byteSize < pipeline.uniformBlockBytes ) {
-            (void)R_BufferReleaseReference( description.uniformBuffer );
-            return uniformInfo.mapped ? render_error_t::ERR_RESOURCE_BUSY : render_error_t::ERR_BINDING_MISMATCH;
+            handle, R_BUFFER_USAGE_UNIFORM, &native.uniformBuffers[i], &uniformInfo );
+        if ( result != render_error_t::OK ) break;
+        ++acquiredUniforms;
+        if ( uniformInfo.mapped || uniformInfo.byteSize < pipeline.uniformBlockBytes[i] ) {
+            result = uniformInfo.mapped
+                ? render_error_t::ERR_RESOURCE_BUSY : render_error_t::ERR_BINDING_MISMATCH;
+            break;
         }
     }
+    if ( result != render_error_t::OK ) {
+        for ( common::u32 i = 0u; i < acquiredUniforms; ++i ) {
+            (void)R_BufferReleaseReference( description.uniformBuffers[i] );
+        }
+        return result;
+    }
     result = tr.backend.api->DrawIndexed( native, tr.backend.state );
-    if ( hasUniform ) {
-        const render_error_t releaseResult = R_BufferReleaseReference( description.uniformBuffer );
+    for ( common::u32 i = 0u; i < acquiredUniforms; ++i ) {
+        const render_error_t releaseResult = R_BufferReleaseReference( description.uniformBuffers[i] );
         if ( result == render_error_t::OK ) result = releaseResult;
     }
     return result;

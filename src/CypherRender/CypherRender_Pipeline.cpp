@@ -8,6 +8,7 @@
 #include "CypherRender_Local.h"
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 #include "CypherCommon/Tier1/CypherCommon_HandleTable.h"
+#include <cstring>
 
 namespace cypher::engine::render
 {
@@ -100,20 +101,53 @@ render_error_t R_CreateGraphicsPipeline(
             return render_error_t::ERR_CAPABILITY_MISSING;
         }
     }
-    const bool hasBlock = description.uniformBlockName != nullptr;
-    if ( hasBlock != ( description.uniformBlockBytes != 0u ) ||
-         ( hasBlock && description.uniformBlockName[0] == '\0' ) ) {
+    if ( description.uniformBlockCount > R_MAX_UNIFORM_BLOCK_BINDINGS ||
+         description.sampledTextureCount > R_MAX_SAMPLED_TEXTURE_BINDINGS ) {
         return render_error_t::ERR_PIPELINE_DESC_INVALID;
     }
-    if ( description.uniformBlockBytes > tr.info.limits.maxUniformBlockBytes ||
-         ( hasBlock && tr.info.limits.maxUniformBufferBindings == 0u ) ) {
+    for ( common::u32 i = 0u; i < R_MAX_UNIFORM_BLOCK_BINDINGS; ++i ) {
+        const auto &block = description.uniformBlocks[i];
+        if ( i < description.uniformBlockCount ) {
+            if ( block.name == nullptr || block.name[0] == '\0' || block.byteSize == 0u ) {
+                return render_error_t::ERR_PIPELINE_DESC_INVALID;
+            }
+            if ( block.byteSize > tr.info.limits.maxUniformBlockBytes ) {
+                return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
+            }
+            for ( common::u32 j = 0u; j < i; ++j ) {
+                if ( std::strcmp( block.name, description.uniformBlocks[j].name ) == 0 ) {
+                    return render_error_t::ERR_PIPELINE_DESC_INVALID;
+                }
+            }
+        } else if ( block.name != nullptr || block.byteSize != 0u ) {
+            return render_error_t::ERR_PIPELINE_DESC_INVALID;
+        }
+    }
+    if ( description.uniformBlockCount > tr.info.limits.maxUniformBufferBindings ) {
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
-
-    if ( description.sampledTextureName != nullptr ) {
-        if ( description.sampledTextureName[0] == '\0' ) return render_error_t::ERR_PIPELINE_DESC_INVALID;
-        if ( tr.backend.api->CreateTexture2D == nullptr || tr.backend.api->DestroyTexture == nullptr ) return render_error_t::ERR_UNSUPPORTED;
-        if ( tr.info.limits.maxCombinedTextureUnits == 0u ) return render_error_t::ERR_CAPABILITY_MISSING;
+    for ( common::u32 i = 0u; i < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++i ) {
+        const auto &texture = description.sampledTextures[i];
+        if ( i < description.sampledTextureCount ) {
+            if ( texture.name == nullptr || texture.name[0] == '\0' ) {
+                return render_error_t::ERR_PIPELINE_DESC_INVALID;
+            }
+            for ( common::u32 j = 0u; j < i; ++j ) {
+                if ( std::strcmp( texture.name, description.sampledTextures[j].name ) == 0 ) {
+                    return render_error_t::ERR_PIPELINE_DESC_INVALID;
+                }
+            }
+        } else if ( texture.name != nullptr ) {
+            return render_error_t::ERR_PIPELINE_DESC_INVALID;
+        }
+    }
+    if ( description.sampledTextureCount != 0u ) {
+        if ( tr.backend.api->CreateTexture2D == nullptr || tr.backend.api->DestroyTexture == nullptr ) {
+            return render_error_t::ERR_UNSUPPORTED;
+        }
+        if ( description.sampledTextureCount > tr.info.limits.maxCombinedTextureUnits ) {
+            return render_error_t::ERR_CAPABILITY_MISSING;
+        }
     }
 
     backend_pipeline_desc_t nativeDescription{};
@@ -125,10 +159,15 @@ render_error_t R_CreateGraphicsPipeline(
     nativeDescription.cullBackFaces = description.cullBackFaces;
     nativeDescription.frontCounterClockwise = description.frontCounterClockwise;
     nativeDescription.alphaBlend = description.alphaBlend;
-    nativeDescription.uniformBlockName = description.uniformBlockName;
-    nativeDescription.uniformBlockBytes = description.uniformBlockBytes;
+    nativeDescription.uniformBlockCount = description.uniformBlockCount;
+    for ( common::u32 i = 0u; i < R_MAX_UNIFORM_BLOCK_BINDINGS; ++i ) {
+        nativeDescription.uniformBlocks[i] = description.uniformBlocks[i];
+    }
     nativeDescription.debugName = description.debugName;
-    nativeDescription.sampledTextureName = description.sampledTextureName;
+    nativeDescription.sampledTextureCount = description.sampledTextureCount;
+    for ( common::u32 i = 0u; i < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++i ) {
+        nativeDescription.sampledTextures[i] = description.sampledTextures[i];
+    }
     nativeDescription.topology = description.topology;
 
     pipeline_record_t record{};
@@ -144,8 +183,11 @@ render_error_t R_CreateGraphicsPipeline(
     record.info.cullBackFaces = description.cullBackFaces;
     record.info.frontCounterClockwise = description.frontCounterClockwise;
     record.info.alphaBlend = description.alphaBlend;
-    record.info.uniformBlockBytes = description.uniformBlockBytes;
-    record.info.sampledTextureRequired = description.sampledTextureName != nullptr;
+    record.info.uniformBlockCount = description.uniformBlockCount;
+    for ( common::u32 i = 0u; i < R_MAX_UNIFORM_BLOCK_BINDINGS; ++i ) {
+        record.info.uniformBlockBytes[i] = description.uniformBlocks[i].byteSize;
+    }
+    record.info.sampledTextureCount = description.sampledTextureCount;
     record.info.topology = description.topology;
     const common::handle32_t tableHandle = common::HandleTable_Insert( &pipelineSystem.records, record );
     if ( !common::Cy_Handle32IsValid( tableHandle ) ) {

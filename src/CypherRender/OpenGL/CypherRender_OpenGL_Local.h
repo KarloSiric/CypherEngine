@@ -67,10 +67,15 @@ struct gl_host_frame_state_t {
     GLint activeTexture{ GL_TEXTURE0 };
     GLint texture2DUnit0{ 0 };
     GLint samplerUnit0{ 0 };
+    GLint texture2DUnit1{ 0 };
+    GLint samplerUnit1{ 0 };
     GLint uniformBuffer{ 0 };       // Generic target, changed by BindBufferBase.
     GLint uniformBufferIndex0{ 0 }; // Indexed binding, with its range below.
     GLint64 uniformBufferStart0{ 0 };
     GLint64 uniformBufferSize0{ 0 };
+    GLint uniformBufferIndex1{ 0 };
+    GLint64 uniformBufferStart1{ 0 };
+    GLint64 uniformBufferSize1{ 0 };
     GLint depthFunction{ GL_LESS };
     GLint cullFaceMode{ GL_BACK };
     GLint frontFace{ GL_CCW };

@@ -260,8 +260,8 @@ bool CreateCube( cube_state_t &state, const char *shaderPath )
     pipeline.cullBackFaces = true;
     pipeline.frontCounterClockwise = true;
     pipeline.alphaBlend = false;
-    pipeline.uniformBlockName = "Transforms";
-    pipeline.uniformBlockBytes = sizeof( cube_transforms_t );
+    pipeline.uniformBlockCount = 1u;
+    pipeline.uniformBlocks[0] = { "Transforms", sizeof( cube_transforms_t ) };
     pipeline.debugName = "Depth-tested cube pipeline";
     return CheckRender( render::R_CreateGraphicsPipeline( pipeline, &state.pipeline ),
         "Create cube pipeline" );
@@ -340,7 +340,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         render::render_draw_indexed_desc_t draw{};
         draw.pipeline = state.pipeline;
         draw.vertexInput = state.vertexInput;
-        draw.uniformBuffer = state.transforms;
+        draw.uniformBuffers[0] = state.transforms;
         draw.indexCount = 36u;
         draw.vertexCount = 24u;
         const bool drawOK = CheckRender( render::R_DrawIndexed( draw ), "Draw cube" );

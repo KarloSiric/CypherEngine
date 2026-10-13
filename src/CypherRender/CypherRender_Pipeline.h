@@ -31,6 +31,18 @@ enum class render_primitive_topology_t : ::cypher::common::u8 {
     COUNT
 };
 
+inline constexpr ::cypher::common::u32 R_MAX_UNIFORM_BLOCK_BINDINGS = 2u;
+inline constexpr ::cypher::common::u32 R_MAX_SAMPLED_TEXTURE_BINDINGS = 2u;
+
+struct render_uniform_block_binding_t {
+    const char *name{ nullptr };
+    ::cypher::common::u32 byteSize{ 0u };
+};
+
+struct render_sampled_texture_binding_t {
+    const char *name{ nullptr }; // Active scalar sampler2D.
+};
+
 // First-draw scope: triangle or line lists, solid fill, LESS depth,
 // no stencil, and optional source-alpha blending into the presentation target.
 // Lines use the driver's one-pixel rasterization; culling and front-face state
@@ -44,10 +56,11 @@ struct render_pipeline_desc_t {
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };
-    const char *uniformBlockName{ nullptr }; // Optional GLSL block, assigned binding zero.
-    ::cypher::common::u32 uniformBlockBytes{ 0u }; // Exact reflected block size, including padding.
+    ::cypher::common::u32 uniformBlockCount{ 0u };
+    render_uniform_block_binding_t uniformBlocks[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
     const char *debugName{ nullptr };
-    const char *sampledTextureName{ nullptr }; // Optional active sampler2D, unit zero.
+    ::cypher::common::u32 sampledTextureCount{ 0u };
+    render_sampled_texture_binding_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
 };
 
@@ -60,15 +73,16 @@ struct render_pipeline_info_t {
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };
-    ::cypher::common::u32 uniformBlockBytes{ 0u };
-    bool sampledTextureRequired{ false };
+    ::cypher::common::u32 uniformBlockCount{ 0u };
+    ::cypher::common::u32 uniformBlockBytes[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
+    ::cypher::common::u32 sampledTextureCount{ 0u };
     render_primitive_topology_t topology{ render_primitive_topology_t::TRIANGLE_LIST };
 };
 
-// Shader input locations and the optional block are checked against the linked
-// program. Name and byte size must both be present or both absent. The first
-// contract supports one active uniform block and one optional sampler2D. Other
-// ordinary uniforms remain unsupported.
+// Declared slots are contiguous from zero and map to GL uniform-buffer binding
+// points and texture units of the same index. Shader names and exact block sizes
+// are reflected against the linked program. Unused array entries must be empty.
+// Other ordinary uniforms remain unsupported.
 CYPHER_NODISCARD render_error_t R_CreateGraphicsPipeline(
     const render_pipeline_desc_t &description,
     CY_OUT render_pipeline_handle_t *pipelineOut ) noexcept;

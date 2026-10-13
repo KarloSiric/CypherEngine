@@ -135,8 +135,10 @@ struct draw_fixture_t {
         render::render_pipeline_desc_t description{};
         description.shader = shader;
         description.vertexLayout = layout;
-        description.uniformBlockName = uniformBytes != 0u ? "Transform" : nullptr;
-        description.uniformBlockBytes = uniformBytes;
+        if ( uniformBytes != 0u ) {
+            description.uniformBlockCount = 1u;
+            description.uniformBlocks[0] = { "Transform", uniformBytes };
+        }
         return description;
     }
 
@@ -155,7 +157,13 @@ struct draw_fixture_t {
 
     render::render_draw_indexed_desc_t Draw() const
     {
-        return { pipeline, input, {}, 1u, 3u, 3u };
+        render::render_draw_indexed_desc_t draw{};
+        draw.pipeline = pipeline;
+        draw.vertexInput = input;
+        draw.firstIndex = 1u;
+        draw.indexCount = 3u;
+        draw.vertexCount = 3u;
+        return draw;
     }
 
     ~draw_fixture_t()
@@ -196,7 +204,8 @@ TEST_CASE( "live pipeline ownership is released only after native destruction", 
     render::render_pipeline_info_t info{};
     REQUIRE( render::R_GetGraphicsPipelineInfo( pipeline, &info ) == draw_error_t::OK );
     CHECK( info.shader.value == fixture.shader.value );
-    CHECK( info.uniformBlockBytes == 64u );
+    CHECK( info.uniformBlockCount == 1u );
+    CHECK( info.uniformBlockBytes[0] == 64u );
     fixture.pipelineDestroyResult = draw_error_t::ERR_DEVICE_LOST;
     CHECK( render::R_DestroyGraphicsPipeline( pipeline ) == draw_error_t::ERR_DEVICE_LOST );
     CHECK( render::R_IsGraphicsPipelineValid( pipeline ) );
@@ -216,10 +225,31 @@ TEST_CASE( "pipeline validation checks block shape and instancing capability", "
     fixture.Init();
     auto description = fixture.PipelineDescription();
     render::render_pipeline_handle_t pipeline{};
-    description.uniformBlockName = "Transform";
+    description.uniformBlockCount = 1u;
+    description.uniformBlocks[0].name = "Transform";
     CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
-    description.uniformBlockName = nullptr;
-    description.uniformBlockBytes = 64u;
+    description.uniformBlocks[0].name = nullptr;
+    description.uniformBlocks[0].byteSize = 64u;
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description = fixture.PipelineDescription();
+    description.uniformBlockCount = render::R_MAX_UNIFORM_BLOCK_BINDINGS + 1u;
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description = fixture.PipelineDescription( 64u );
+    description.uniformBlockCount = 2u;
+    description.uniformBlocks[1] = { "Transform", 32u };
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description.uniformBlocks[1] = { "Material", 0u };
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description = fixture.PipelineDescription();
+    description.uniformBlocks[1] = { "Undeclared", 16u };
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description = fixture.PipelineDescription();
+    description.sampledTextureCount = render::R_MAX_SAMPLED_TEXTURE_BINDINGS + 1u;
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description = fixture.PipelineDescription();
+    description.sampledTextureCount = 2u;
+    description.sampledTextures[0].name = "base_color";
+    description.sampledTextures[1].name = "base_color";
     CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_PIPELINE_DESC_INVALID );
     description = fixture.PipelineDescription( 16385u );
     CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED );
@@ -234,6 +264,24 @@ TEST_CASE( "pipeline validation checks block shape and instancing capability", "
     CHECK( fixture.pipelineCreates == 1u );
     REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == draw_error_t::OK );
     CHECK( render::R_DestroyShader( fixture.shader ) == draw_error_t::OK );
+}
+
+TEST_CASE( "pipeline info preserves two declared uniform block byte sizes",
+           "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    auto description = fixture.PipelineDescription( 64u );
+    description.uniformBlockCount = 2u;
+    description.uniformBlocks[1] = { "Material", 32u };
+    render::render_pipeline_handle_t pipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::OK );
+    render::render_pipeline_info_t info{};
+    REQUIRE( render::R_GetGraphicsPipelineInfo( pipeline, &info ) == draw_error_t::OK );
+    CHECK( info.uniformBlockCount == 2u );
+    CHECK( info.uniformBlockBytes[0] == 64u );
+    CHECK( info.uniformBlockBytes[1] == 32u );
+    CHECK( info.sampledTextureCount == 0u );
 }
 
 TEST_CASE( "draw validates full offset ranges and dispatches only during an active frame", "[CypherRender][Draw]" )
@@ -407,14 +455,14 @@ TEST_CASE( "uniform validation and failed draws release temporary buffer referen
     render::tr.frameActive = true;
     auto draw = fixture.Draw();
     CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_BINDING_MISMATCH );
-    draw.uniformBuffer = fixture.vertices;
+    draw.uniformBuffers[0] = fixture.vertices;
     CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_BINDING_MISMATCH );
     const auto shortBuffer = fixture.Buffer( 63u, render::R_BUFFER_USAGE_UNIFORM );
-    draw.uniformBuffer = shortBuffer;
+    draw.uniformBuffers[0] = shortBuffer;
     CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_BINDING_MISMATCH );
     CHECK( render::R_DestroyBuffer( shortBuffer ) == draw_error_t::OK );
     const auto uniform = fixture.Buffer( 64u, render::R_BUFFER_USAGE_UNIFORM );
-    draw.uniformBuffer = uniform;
+    draw.uniformBuffers[0] = uniform;
     render::render_buffer_mapping_t mapping{};
     REQUIRE( render::R_MapBuffer( uniform, { 0u, 64u }, render::R_BUFFER_MAP_WRITE, &mapping ) == draw_error_t::OK );
     CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_RESOURCE_BUSY );
@@ -422,6 +470,6 @@ TEST_CASE( "uniform validation and failed draws release temporary buffer referen
     fixture.drawResult = draw_error_t::ERR_SUBMISSION_FAILED;
     CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_SUBMISSION_FAILED );
     CHECK( fixture.drawCalls == 1u );
-    CHECK( fixture.lastDraw.uniformBuffer.value != 0u );
+    CHECK( fixture.lastDraw.uniformBuffers[0].value != 0u );
     CHECK( render::R_DestroyBuffer( uniform ) == draw_error_t::OK );
 }

@@ -263,16 +263,20 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     REQUIRE( render::R_CreateRenderTarget( { targetColor }, &target ) ==
         render::render_error_t::OK );
 
-    // Render the offscreen color back into the host FBO. This also exercises
-    // the program, VAO, uniform binding, texture unit, and sampler mutations
-    // performed by a real renderer draw before EndFrame restores host state.
+    // Render the offscreen color back into the host FBO. Two uniform and
+    // sampled bindings exercise both renderer slots before EndFrame restores
+    // all host state.
     constexpr char vertexSource[] =
         "#version 410 core\nlayout(location=0) in vec3 position;\n"
-        "void main() { gl_Position = vec4(position, 1.0); }\n";
+        "layout(std140) uniform Offset { vec4 offset; };\n"
+        "void main() { gl_Position = vec4(position.xy + offset.xy, position.z, 1.0); }\n";
     constexpr char fragmentSource[] =
         "#version 410 core\nuniform sampler2D base_color;\n"
+        "uniform sampler2D detail_color;\n"
+        "layout(std140) uniform MixWeights { vec4 weights; };\n"
         "layout(location=0) out vec4 color;\n"
-        "void main() { color = texture(base_color, vec2(0.5)); }\n";
+        "void main() { color = texture(base_color, vec2(0.5)) * weights.x"
+        " + texture(detail_color, vec2(0.5)) * weights.y; }\n";
     common::cooked_shader_view_t source{};
     source.nLanguageVersion = 410u;
     source.nStages = 2u;
@@ -304,6 +308,12 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
         positions, sizeof( positions ), render::R_BUFFER_USAGE_VERTEX );
     const auto indexBuffer = createBuffer(
         indices, sizeof( indices ), render::R_BUFFER_USAGE_INDEX );
+    const float rendererOffset[4]{ 0.0f, 0.0f, 0.0f, 0.0f };
+    const float rendererWeights[4]{ 0.5f, 0.5f, 0.0f, 0.0f };
+    const auto offsetBuffer = createBuffer(
+        rendererOffset, sizeof( rendererOffset ), render::R_BUFFER_USAGE_UNIFORM );
+    const auto weightsBuffer = createBuffer(
+        rendererWeights, sizeof( rendererWeights ), render::R_BUFFER_USAGE_UNIFORM );
     render::render_vertex_input_desc_t inputDesc{};
     inputDesc.layout.bindingCount = 1u;
     inputDesc.layout.bindings[0].stride = 3u * sizeof( float );
@@ -320,7 +330,12 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     render::render_pipeline_desc_t pipelineDesc{};
     pipelineDesc.shader = shader;
     pipelineDesc.vertexLayout = inputDesc.layout;
-    pipelineDesc.sampledTextureName = "base_color";
+    pipelineDesc.uniformBlockCount = 2u;
+    pipelineDesc.uniformBlocks[0] = { "Offset", sizeof( rendererOffset ) };
+    pipelineDesc.uniformBlocks[1] = { "MixWeights", sizeof( rendererWeights ) };
+    pipelineDesc.sampledTextureCount = 2u;
+    pipelineDesc.sampledTextures[0].name = "base_color";
+    pipelineDesc.sampledTextures[1].name = "detail_color";
     pipelineDesc.depthTest = false;
     pipelineDesc.depthWrite = false;
     pipelineDesc.cullBackFaces = false;
@@ -334,19 +349,27 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     GLuint hostVertexArray = 0u;
     glGenVertexArrays( 1, &hostVertexArray );
     glBindVertexArray( hostVertexArray );
-    GLuint hostUniform = 0u;
+    GLuint hostUniform = 0u, hostUniform1 = 0u;
     glGenBuffers( 1, &hostUniform );
+    glGenBuffers( 1, &hostUniform1 );
     glBindBuffer( GL_UNIFORM_BUFFER, hostUniform );
     glBufferData( GL_UNIFORM_BUFFER, 64, nullptr, GL_STATIC_DRAW );
     glBindBufferBase( GL_UNIFORM_BUFFER, 0u, hostUniform );
-    GLuint hostSamplers[2]{};
-    glGenSamplers( 2, hostSamplers );
+    glBindBuffer( GL_UNIFORM_BUFFER, hostUniform1 );
+    glBufferData( GL_UNIFORM_BUFFER, 32, nullptr, GL_STATIC_DRAW );
+    glBindBufferBase( GL_UNIFORM_BUFFER, 1u, hostUniform1 );
+    glBindBuffer( GL_UNIFORM_BUFFER, hostUniform );
+    GLuint hostSamplers[3]{};
+    glGenSamplers( 3, hostSamplers );
     glActiveTexture( GL_TEXTURE0 );
     glBindTexture( GL_TEXTURE_2D, hostColor );
     glBindSampler( 0u, hostSamplers[0] );
+    glActiveTexture( GL_TEXTURE1 );
+    glBindTexture( GL_TEXTURE_2D, hostReadColor );
+    glBindSampler( 1u, hostSamplers[1] );
     glActiveTexture( GL_TEXTURE2 );
     glBindTexture( GL_TEXTURE_2D, hostReadColor );
-    glBindSampler( 2u, hostSamplers[1] );
+    glBindSampler( 2u, hostSamplers[2] );
     glUseProgram( hostProgram );
     glEnable( GL_SCISSOR_TEST );
     glScissor( 3, 4, 11, 13 );
@@ -456,7 +479,10 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     render::render_draw_indexed_desc_t draw{};
     draw.pipeline = pipeline;
     draw.vertexInput = input;
-    draw.sampledTexture = targetColor;
+    draw.sampledTextures[0] = targetColor;
+    draw.sampledTextures[1] = targetColor;
+    draw.uniformBuffers[0] = offsetBuffer;
+    draw.uniformBuffers[1] = weightsBuffer;
     draw.indexCount = draw.vertexCount = 3u;
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
     glBindFramebuffer( GL_READ_FRAMEBUFFER, host.presentationFramebuffer );
@@ -490,13 +516,18 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     GLint indexedUniform = 0;
     glGetIntegeri_v( GL_UNIFORM_BUFFER_BINDING, 0u, &indexedUniform );
     CHECK( static_cast<GLuint>( indexedUniform ) == hostUniform );
+    glGetIntegeri_v( GL_UNIFORM_BUFFER_BINDING, 1u, &indexedUniform );
+    CHECK( static_cast<GLuint>( indexedUniform ) == hostUniform1 );
     checkInteger( GL_ACTIVE_TEXTURE, GL_TEXTURE2 );
     glActiveTexture( GL_TEXTURE0 );
     checkInteger( GL_TEXTURE_BINDING_2D, static_cast<GLint>( hostColor ) );
     checkInteger( GL_SAMPLER_BINDING, static_cast<GLint>( hostSamplers[0] ) );
-    glActiveTexture( GL_TEXTURE2 );
+    glActiveTexture( GL_TEXTURE1 );
     checkInteger( GL_TEXTURE_BINDING_2D, static_cast<GLint>( hostReadColor ) );
     checkInteger( GL_SAMPLER_BINDING, static_cast<GLint>( hostSamplers[1] ) );
+    glActiveTexture( GL_TEXTURE2 );
+    checkInteger( GL_TEXTURE_BINDING_2D, static_cast<GLint>( hostReadColor ) );
+    checkInteger( GL_SAMPLER_BINDING, static_cast<GLint>( hostSamplers[2] ) );
     GLint restoredViewport[4]{};
     glGetIntegerv( GL_VIEWPORT, restoredViewport );
     CHECK( restoredViewport[0] == 2 );
@@ -577,6 +608,8 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( vertexBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( offsetBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( weightsBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyTexture( targetColor ) == render::render_error_t::OK );
@@ -592,9 +625,13 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glUseProgram( 0u );
     glBindVertexArray( 0u );
     glBindBufferBase( GL_UNIFORM_BUFFER, 0u, 0u );
+    glBindBufferBase( GL_UNIFORM_BUFFER, 1u, 0u );
     glActiveTexture( GL_TEXTURE0 );
     glBindTexture( GL_TEXTURE_2D, 0u );
     glBindSampler( 0u, 0u );
+    glActiveTexture( GL_TEXTURE1 );
+    glBindTexture( GL_TEXTURE_2D, 0u );
+    glBindSampler( 1u, 0u );
     glActiveTexture( GL_TEXTURE2 );
     glBindTexture( GL_TEXTURE_2D, 0u );
     glBindSampler( 2u, 0u );
@@ -602,7 +639,8 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glDeleteProgram( hostProgram );
     glDeleteVertexArrays( 1, &hostVertexArray );
     glDeleteBuffers( 1, &hostUniform );
-    glDeleteSamplers( 2, hostSamplers );
+    glDeleteBuffers( 1, &hostUniform1 );
+    glDeleteSamplers( 3, hostSamplers );
     glDeleteFramebuffers( 1, &host.presentationFramebuffer );
     glDeleteFramebuffers( 1, &host.presentationReadFramebuffer );
     glDeleteTextures( 1, &hostColor );

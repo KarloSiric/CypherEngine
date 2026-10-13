@@ -24,6 +24,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Graphics pipelines declare up to two contiguous named uniform blocks and
+  two scalar sampler2D inputs. Indexed draws supply matching buffer/texture
+  handles by slot. The frontend rejects missing/extra handles, mapped or short
+  buffers, and active-target color feedback in either texture slot. OpenGL
+  reflects exact active names, types, counts and block sizes, assigns blocks
+  per draw, and hosted frames restore both texture/sampler and UBO slots.
 - Hosted OpenGL frames restore the host's framebuffer, viewport, fixed draw
   state, program, vertex input, texture/sampler and uniform-buffer bindings.
   A failed frame start restores captured state; hosted resize no longer changes
@@ -46,6 +52,8 @@ Added
   ordinary runtime still has no scene producer.
 
 Changed
+- Public renderer API version 4 and private backend version 11 describe the
+  two-slot layouts. Existing cube, tile-map and Tile Editor callers use slot 0.
 - The private backend contract is version 10 and public API version 3 for
   immutable pipeline topology. Triangle lists remain the default and use
   index triples; line lists require complete pairs.
@@ -65,6 +73,14 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Renderer, Host OpenGL smoke, and cube example rebuilt in the existing
+  build-mason tree; ten selected renderer/Host CTests passed, and the cube
+  example rendered two hidden frames. Focused tests
+  cover two distinct native texture/UBO slots, invalid slot-one bindings and
+  rollback, target feedback, and hosted slot-one state restoration. The Tile
+  Map example and Tile Editor viewport passed syntax-only checks; their linked
+  targets are absent from this compact configuration. Cooked material binding,
+  world draw queue and Mason map rendering are still outstanding.
 - Rebuilt affected renderer and Host tests in the existing build-mason tree;
   all ten selected CTests passed. Native hosted OpenGL smoke ran 145 assertions,
   including offscreen sampling, exact state restoration and rejection of an

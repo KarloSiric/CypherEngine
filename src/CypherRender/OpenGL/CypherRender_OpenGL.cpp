@@ -127,11 +127,17 @@ render_error_t GL_CaptureHostFrameState( gl_host_frame_state_t &state ) noexcept
     glActiveTexture( GL_TEXTURE0 );
     glGetIntegerv( GL_TEXTURE_BINDING_2D, &state.texture2DUnit0 );
     glGetIntegerv( GL_SAMPLER_BINDING, &state.samplerUnit0 );
+    glActiveTexture( GL_TEXTURE1 );
+    glGetIntegerv( GL_TEXTURE_BINDING_2D, &state.texture2DUnit1 );
+    glGetIntegerv( GL_SAMPLER_BINDING, &state.samplerUnit1 );
     glActiveTexture( static_cast<GLenum>( state.activeTexture ) );
     glGetIntegerv( GL_UNIFORM_BUFFER_BINDING, &state.uniformBuffer );
     glGetIntegeri_v( GL_UNIFORM_BUFFER_BINDING, 0u, &state.uniformBufferIndex0 );
     glGetInteger64i_v( GL_UNIFORM_BUFFER_START, 0u, &state.uniformBufferStart0 );
     glGetInteger64i_v( GL_UNIFORM_BUFFER_SIZE, 0u, &state.uniformBufferSize0 );
+    glGetIntegeri_v( GL_UNIFORM_BUFFER_BINDING, 1u, &state.uniformBufferIndex1 );
+    glGetInteger64i_v( GL_UNIFORM_BUFFER_START, 1u, &state.uniformBufferStart1 );
+    glGetInteger64i_v( GL_UNIFORM_BUFFER_SIZE, 1u, &state.uniformBufferSize1 );
 
     glGetIntegerv( GL_DEPTH_FUNC, &state.depthFunction );
     glGetIntegerv( GL_CULL_FACE_MODE, &state.cullFaceMode );
@@ -224,6 +230,9 @@ render_error_t GL_RestoreHostFrameState( gl_host_frame_state_t &state ) noexcept
     glActiveTexture( GL_TEXTURE0 );
     glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( state.texture2DUnit0 ) );
     glBindSampler( 0u, static_cast<GLuint>( state.samplerUnit0 ) );
+    glActiveTexture( GL_TEXTURE1 );
+    glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( state.texture2DUnit1 ) );
+    glBindSampler( 1u, static_cast<GLuint>( state.samplerUnit1 ) );
     glActiveTexture( static_cast<GLenum>( state.activeTexture ) );
     if ( state.uniformBufferIndex0 != 0 && state.uniformBufferSize0 > 0 ) {
         glBindBufferRange( GL_UNIFORM_BUFFER, 0u,
@@ -233,6 +242,15 @@ render_error_t GL_RestoreHostFrameState( gl_host_frame_state_t &state ) noexcept
     } else {
         glBindBufferBase( GL_UNIFORM_BUFFER, 0u,
             static_cast<GLuint>( state.uniformBufferIndex0 ) );
+    }
+    if ( state.uniformBufferIndex1 != 0 && state.uniformBufferSize1 > 0 ) {
+        glBindBufferRange( GL_UNIFORM_BUFFER, 1u,
+            static_cast<GLuint>( state.uniformBufferIndex1 ),
+            static_cast<GLintptr>( state.uniformBufferStart1 ),
+            static_cast<GLsizeiptr>( state.uniformBufferSize1 ) );
+    } else {
+        glBindBufferBase( GL_UNIFORM_BUFFER, 1u,
+            static_cast<GLuint>( state.uniformBufferIndex1 ) );
     }
     glBindBuffer( GL_UNIFORM_BUFFER, static_cast<GLuint>( state.uniformBuffer ) );
 

@@ -697,8 +697,8 @@ bool CreatePreviewResources( preview_state_t &state,
     pipeline.cullBackFaces = true;
     pipeline.frontCounterClockwise = true;
     pipeline.alphaBlend = false;
-    pipeline.uniformBlockName = "Transforms";
-    pipeline.uniformBlockBytes = offsetof( preview_transforms_t, uvScale );
+    pipeline.uniformBlockCount = 1u;
+    pipeline.uniformBlocks[0] = { "Transforms", offsetof( preview_transforms_t, uvScale ) };
     pipeline.debugName = "Tile-map blockout pipeline";
     return CheckRender(
         render::R_CreateGraphicsPipeline( pipeline, &state.pipeline ),
@@ -804,9 +804,10 @@ bool ReloadPreviewMaterials( preview_state_t &state,
         render::render_pipeline_desc_t description{};
         description.shader = pendingShader;
         description.vertexLayout = blockout.vertexLayout;
-        description.uniformBlockName = "Transforms";
-        description.uniformBlockBytes = sizeof( preview_transforms_t );
-        description.sampledTextureName = "base_color";
+        description.uniformBlockCount = 1u;
+        description.uniformBlocks[0] = { "Transforms", sizeof( preview_transforms_t ) };
+        description.sampledTextureCount = 1u;
+        description.sampledTextures[0] = { "base_color" };
         description.debugName = "Tile-map textured material pipeline";
         if ( !CheckRender( render::R_CreateGraphicsPipeline( description, &pendingPipeline ),
                 "Create tile-map material pipeline" ) ) {
@@ -994,7 +995,7 @@ bool DrawMap( preview_state_t &state,
     render::render_draw_indexed_desc_t draw{};
     draw.pipeline = state.pipeline;
     draw.vertexInput = state.vertexInput;
-    draw.uniformBuffer = state.transforms;
+    draw.uniformBuffers[0] = state.transforms;
     draw.indexCount = 36u;
     draw.vertexCount = 24u;
 
@@ -1024,7 +1025,7 @@ bool DrawMap( preview_state_t &state,
         const auto *boundMaterial = bDoor ? nullptr :
             tile::CypherTileMaterialPreview_Find( state.materials, box.nMaterialSlot );
         draw.pipeline = boundMaterial != nullptr ? state.materialPipeline : state.pipeline;
-        draw.sampledTexture = boundMaterial != nullptr ? boundMaterial->texture :
+        draw.sampledTextures[0] = boundMaterial != nullptr ? boundMaterial->texture :
             render::R_INVALID_TEXTURE;
         if ( boundMaterial != nullptr ) {
             for ( unsigned int component = 0u; component < 3u; ++component ) {

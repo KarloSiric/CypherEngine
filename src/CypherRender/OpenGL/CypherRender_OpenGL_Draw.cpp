@@ -10,6 +10,7 @@
 #include "CypherRender_OpenGL_Local.h"
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <new>
 
@@ -21,8 +22,11 @@ namespace
 struct gl_pipeline_record_t {
     gl_pipeline_record_t *next{ nullptr };
     GLuint program{ 0u };
-    common::u32 uniformBlockBytes{ 0u };
-    GLint sampledTextureLocation{ -1 };
+    common::u32 uniformBlockCount{ 0u };
+    common::u32 uniformBlockBytes[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
+    GLuint uniformBlockIndices[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
+    common::u32 sampledTextureCount{ 0u };
+    GLint sampledTextureLocations[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     bool depthTest{ true };
     bool depthWrite{ true };
     bool cullBackFaces{ true };
@@ -129,7 +133,9 @@ render_error_t GL_ValidatePipelineAttributes(
 }
 
 render_error_t GL_ValidatePipelineUniforms(
-    const GLuint program, const backend_pipeline_desc_t &description ) noexcept
+    const GLuint program, const backend_pipeline_desc_t &description,
+    GLuint ( &blockIndicesOut )[R_MAX_UNIFORM_BLOCK_BINDINGS],
+    GLint ( &samplerLocationsOut )[R_MAX_SAMPLED_TEXTURE_BINDINGS] ) noexcept
 {
     GLint blockCount = 0;
     GLint uniformCount = 0;
@@ -137,20 +143,18 @@ render_error_t GL_ValidatePipelineUniforms(
     glGetProgramiv( program, GL_ACTIVE_UNIFORMS, &uniformCount );
     render_error_t result = GL_CheckErrors( glState.config.validation );
     if ( result != render_error_t::OK ) return result;
-    const bool hasBlock = description.uniformBlockBytes != 0u;
-    if ( blockCount != ( hasBlock ? 1 : 0 ) || uniformCount < 0 ) {
+    if ( blockCount != static_cast<GLint>( description.uniformBlockCount ) || uniformCount < 0 ) {
         return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
     }
-    const bool hasTexture = description.sampledTextureName != nullptr;
-    GLint samplerLocation = -1;
-    if ( hasTexture ) {
-        samplerLocation = glGetUniformLocation( program, description.sampledTextureName );
+    for ( common::u32 slot = 0u; slot < description.sampledTextureCount; ++slot ) {
+        samplerLocationsOut[slot] = glGetUniformLocation(
+            program, description.sampledTextures[slot].name );
         result = GL_CheckErrors( glState.config.validation );
         if ( result != render_error_t::OK ) return result;
-        if ( samplerLocation < 0 ) return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
+        if ( samplerLocationsOut[slot] < 0 ) return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
     }
-    unsigned samplerCount = 0u;
-    // Exactly one named scalar sampler2D is supported. Reject every other
+    common::u32 samplerCount = 0u;
+    // Only declared scalar sampler2D uniforms are supported. Reject every other
     // ordinary uniform, sampler type, multi-element array, or undeclared binding.
     for ( GLint i = 0; i < uniformCount; ++i ) {
         const GLuint uniform = static_cast<GLuint>( i );
@@ -159,24 +163,31 @@ render_error_t GL_ValidatePipelineUniforms(
         result = GL_CheckErrors( glState.config.validation );
         if ( result != render_error_t::OK ) return result;
         if ( blockIndex < 0 ) {
-            if ( !hasTexture ) return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
             GLint type = 0, size = 0;
             glGetActiveUniformsiv( program, 1, &uniform, GL_UNIFORM_TYPE, &type );
             glGetActiveUniformsiv( program, 1, &uniform, GL_UNIFORM_SIZE, &size );
-            GLuint expectedIndex = GL_INVALID_INDEX;
-            const GLchar *name = description.sampledTextureName;
-            glGetUniformIndices( program, 1, &name, &expectedIndex );
             result = GL_CheckErrors( glState.config.validation );
             if ( result != render_error_t::OK ) return result;
-            if ( type != GL_SAMPLER_2D || size != 1 || expectedIndex != uniform ) {
-                return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
+            if ( type != GL_SAMPLER_2D || size != 1 ) return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
+            bool declared = false;
+            for ( common::u32 slot = 0u; slot < description.sampledTextureCount; ++slot ) {
+                GLuint expectedIndex = GL_INVALID_INDEX;
+                const GLchar *name = description.sampledTextures[slot].name;
+                glGetUniformIndices( program, 1, &name, &expectedIndex );
+                result = GL_CheckErrors( glState.config.validation );
+                if ( result != render_error_t::OK ) return result;
+                if ( expectedIndex == uniform ) declared = true;
             }
+            if ( !declared ) return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
             ++samplerCount;
         }
     }
-    if ( samplerCount != ( hasTexture ? 1u : 0u ) ) return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
-    if ( hasBlock ) {
-        const GLuint block = glGetUniformBlockIndex( program, description.uniformBlockName );
+    if ( samplerCount != description.sampledTextureCount ) {
+        return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
+    }
+    for ( common::u32 slot = 0u; slot < description.uniformBlockCount; ++slot ) {
+        const auto &binding = description.uniformBlocks[slot];
+        const GLuint block = glGetUniformBlockIndex( program, binding.name );
         result = GL_CheckErrors( glState.config.validation );
         if ( result != render_error_t::OK ) return result;
         if ( block == GL_INVALID_INDEX ) return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
@@ -184,11 +195,10 @@ render_error_t GL_ValidatePipelineUniforms(
         glGetActiveUniformBlockiv( program, block, GL_UNIFORM_BLOCK_DATA_SIZE, &requiredBytes );
         result = GL_CheckErrors( glState.config.validation );
         if ( result != render_error_t::OK ) return result;
-        if ( requiredBytes <= 0 || static_cast<common::u32>( requiredBytes ) != description.uniformBlockBytes ) {
+        if ( requiredBytes <= 0 || static_cast<common::u32>( requiredBytes ) != binding.byteSize ) {
             return render_error_t::ERR_SHADER_INTERFACE_MISMATCH;
         }
-        glUniformBlockBinding( program, block, 0u );
-        return GL_CheckErrors( glState.config.validation );
+        blockIndicesOut[slot] = block;
     }
     return render_error_t::OK;
 }
@@ -218,18 +228,48 @@ render_error_t GL_CreateGraphicsPipeline(
          description.topology != render_primitive_topology_t::LINE_LIST ) {
         return render_error_t::ERR_PIPELINE_DESC_INVALID;
     }
-    const bool hasBlock = description.uniformBlockName != nullptr;
-    if ( hasBlock != ( description.uniformBlockBytes != 0u ) ||
-         ( hasBlock && description.uniformBlockName[0] == '\0' ) ) {
+    if ( description.uniformBlockCount > R_MAX_UNIFORM_BLOCK_BINDINGS ||
+         description.sampledTextureCount > R_MAX_SAMPLED_TEXTURE_BINDINGS ) {
         return render_error_t::ERR_PIPELINE_DESC_INVALID;
     }
-    if ( description.uniformBlockBytes > glState.limits.maxUniformBlockBytes ||
-         ( hasBlock && glState.limits.maxUniformBufferBindings == 0u ) ) {
+    if ( description.uniformBlockCount > glState.limits.maxUniformBufferBindings ) {
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
-    if ( description.sampledTextureName != nullptr ) {
-        if ( description.sampledTextureName[0] == '\0' ) return render_error_t::ERR_PIPELINE_DESC_INVALID;
-        if ( glState.limits.maxCombinedTextureUnits == 0u ) return render_error_t::ERR_CAPABILITY_MISSING;
+    if ( description.sampledTextureCount > glState.limits.maxCombinedTextureUnits ) {
+        return render_error_t::ERR_CAPABILITY_MISSING;
+    }
+    for ( common::u32 slot = 0u; slot < R_MAX_UNIFORM_BLOCK_BINDINGS; ++slot ) {
+        const auto &block = description.uniformBlocks[slot];
+        if ( slot < description.uniformBlockCount ) {
+            if ( block.name == nullptr || block.name[0] == '\0' || block.byteSize == 0u ) {
+                return render_error_t::ERR_PIPELINE_DESC_INVALID;
+            }
+            if ( block.byteSize > glState.limits.maxUniformBlockBytes ) {
+                return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
+            }
+            for ( common::u32 previous = 0u; previous < slot; ++previous ) {
+                if ( std::strcmp( block.name, description.uniformBlocks[previous].name ) == 0 ) {
+                    return render_error_t::ERR_PIPELINE_DESC_INVALID;
+                }
+            }
+        } else if ( block.name != nullptr || block.byteSize != 0u ) {
+            return render_error_t::ERR_PIPELINE_DESC_INVALID;
+        }
+    }
+    for ( common::u32 slot = 0u; slot < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++slot ) {
+        const auto &texture = description.sampledTextures[slot];
+        if ( slot < description.sampledTextureCount ) {
+            if ( texture.name == nullptr || texture.name[0] == '\0' ) {
+                return render_error_t::ERR_PIPELINE_DESC_INVALID;
+            }
+            for ( common::u32 previous = 0u; previous < slot; ++previous ) {
+                if ( std::strcmp( texture.name, description.sampledTextures[previous].name ) == 0 ) {
+                    return render_error_t::ERR_PIPELINE_DESC_INVALID;
+                }
+            }
+        } else if ( texture.name != nullptr ) {
+            return render_error_t::ERR_PIPELINE_DESC_INVALID;
+        }
     }
     const GLuint program = static_cast<GLuint>( description.shader.value );
     GL_ClearErrors();
@@ -240,7 +280,10 @@ render_error_t GL_CreateGraphicsPipeline(
     if ( linked != GL_TRUE ) return render_error_t::ERR_SHADER_LINK_FAILED;
     result = GL_ValidatePipelineAttributes( program, description.vertexLayout );
     if ( result != render_error_t::OK ) return result;
-    result = GL_ValidatePipelineUniforms( program, description );
+    GLuint blockIndices[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
+    GLint samplerLocations[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
+    result = GL_ValidatePipelineUniforms(
+        program, description, blockIndices, samplerLocations );
     if ( result != render_error_t::OK ) return result;
 
     void *storage = common::Allocator_Allocate(
@@ -248,9 +291,15 @@ render_error_t GL_CreateGraphicsPipeline(
     if ( storage == nullptr ) return render_error_t::ERR_OUT_OF_MEMORY;
     auto *record = new ( storage ) gl_pipeline_record_t{};
     record->program = program;
-    record->uniformBlockBytes = description.uniformBlockBytes;
-    record->sampledTextureLocation = description.sampledTextureName != nullptr
-        ? glGetUniformLocation( program, description.sampledTextureName ) : -1;
+    record->uniformBlockCount = description.uniformBlockCount;
+    record->sampledTextureCount = description.sampledTextureCount;
+    for ( common::u32 slot = 0u; slot < R_MAX_UNIFORM_BLOCK_BINDINGS; ++slot ) {
+        record->uniformBlockBytes[slot] = description.uniformBlocks[slot].byteSize;
+        record->uniformBlockIndices[slot] = blockIndices[slot];
+    }
+    for ( common::u32 slot = 0u; slot < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++slot ) {
+        record->sampledTextureLocations[slot] = samplerLocations[slot];
+    }
     record->depthTest = description.depthTest;
     record->depthWrite = description.depthWrite;
     record->cullBackFaces = description.cullBackFaces;
@@ -287,10 +336,26 @@ render_error_t GL_DrawIndexed(
     if ( !glState.frameActive ) return render_error_t::ERR_FRAME_NOT_ACTIVE;
     const gl_pipeline_record_t *pipeline = GL_FindPipeline( description.pipeline );
     if ( pipeline == nullptr || !R_IsBackendVertexInputValid( description.vertexInput ) ||
-         description.vertexInput.value > std::numeric_limits<GLuint>::max() ||
-         description.uniformBuffer.value > std::numeric_limits<GLuint>::max() ||
-         description.sampledTexture.value > std::numeric_limits<GLuint>::max() ) {
+         description.vertexInput.value > std::numeric_limits<GLuint>::max() ) {
         return render_error_t::ERR_INVALID_HANDLE;
+    }
+    for ( common::u32 slot = 0u; slot < R_MAX_UNIFORM_BLOCK_BINDINGS; ++slot ) {
+        if ( description.uniformBuffers[slot].value > std::numeric_limits<GLuint>::max() ) {
+            return render_error_t::ERR_INVALID_HANDLE;
+        }
+        if ( ( description.uniformBuffers[slot].value != 0u ) !=
+             ( slot < pipeline->uniformBlockCount ) ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+    }
+    for ( common::u32 slot = 0u; slot < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++slot ) {
+        if ( description.sampledTextures[slot].value > std::numeric_limits<GLuint>::max() ) {
+            return render_error_t::ERR_INVALID_HANDLE;
+        }
+        if ( ( description.sampledTextures[slot].value != 0u ) !=
+             ( slot < pipeline->sampledTextureCount ) ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
     }
     const common::u32 indexSize = R_IndexTypeSize( description.indexType );
     const common::u32 primitiveIndexCount =
@@ -303,14 +368,6 @@ render_error_t GL_DrawIndexed(
          description.instanceCount > static_cast<common::u32>( std::numeric_limits<GLsizei>::max() ) ) {
         return render_error_t::ERR_DRAW_DESC_INVALID;
     }
-    if ( ( description.uniformBuffer.value != 0u ) != ( pipeline->uniformBlockBytes != 0u ) ) {
-        return render_error_t::ERR_BINDING_MISMATCH;
-    }
-
-    if ( ( description.sampledTexture.value != 0u ) != ( pipeline->sampledTextureLocation >= 0 ) ) {
-        return render_error_t::ERR_BINDING_MISMATCH;
-    }
-
     GL_ClearErrors();
     GL_SetCapability( GL_DEPTH_TEST, pipeline->depthTest );
     glDepthMask( pipeline->depthWrite ? GL_TRUE : GL_FALSE );
@@ -345,14 +402,18 @@ render_error_t GL_DrawIndexed(
     if ( glState.usesHostSurface ) glColorMaski( 0u, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
     else glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
     glUseProgram( pipeline->program );
-    if ( pipeline->sampledTextureLocation >= 0 ) {
-        glActiveTexture( GL_TEXTURE0 );
-        glBindSampler( 0u, 0u ); // Host samplers must not override immutable texture policy.
-        glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( description.sampledTexture.value ) );
-        glUniform1i( pipeline->sampledTextureLocation, 0 );
+    for ( common::u32 slot = 0u; slot < pipeline->sampledTextureCount; ++slot ) {
+        glActiveTexture( GL_TEXTURE0 + slot );
+        glBindSampler( slot, 0u ); // Host samplers must not override immutable texture policy.
+        glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( description.sampledTextures[slot].value ) );
+        glUniform1i( pipeline->sampledTextureLocations[slot], static_cast<GLint>( slot ) );
     }
     glBindVertexArray( static_cast<GLuint>( description.vertexInput.value ) );
-    glBindBufferBase( GL_UNIFORM_BUFFER, 0u, static_cast<GLuint>( description.uniformBuffer.value ) );
+    for ( common::u32 slot = 0u; slot < pipeline->uniformBlockCount; ++slot ) {
+        glUniformBlockBinding( pipeline->program, pipeline->uniformBlockIndices[slot], slot );
+        glBindBufferBase( GL_UNIFORM_BUFFER, slot,
+            static_cast<GLuint>( description.uniformBuffers[slot].value ) );
+    }
     render_error_t result = GL_CheckErrors( glState.config.validation );
     if ( result == render_error_t::OK ) {
         glDrawElementsInstanced(
@@ -365,8 +426,14 @@ render_error_t GL_DrawIndexed(
     }
     // No transient native binding remains after an immediate draw. Fixed state
     // is re-established by every pipeline; BeginFrame resets the depth-write mask.
-    if ( pipeline->sampledTextureLocation >= 0 ) glBindTexture( GL_TEXTURE_2D, 0u );
-    glBindBufferBase( GL_UNIFORM_BUFFER, 0u, 0u );
+    for ( common::u32 slot = 0u; slot < pipeline->sampledTextureCount; ++slot ) {
+        glActiveTexture( GL_TEXTURE0 + slot );
+        glBindTexture( GL_TEXTURE_2D, 0u );
+    }
+    glActiveTexture( GL_TEXTURE0 );
+    for ( common::u32 slot = 0u; slot < pipeline->uniformBlockCount; ++slot ) {
+        glBindBufferBase( GL_UNIFORM_BUFFER, slot, 0u );
+    }
     glBindVertexArray( 0u );
     glUseProgram( 0u );
     const render_error_t cleanupResult = GL_CheckErrors( glState.config.validation );

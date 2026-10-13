@@ -25,6 +25,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Graphics pipelines now declare up to two contiguous named uniform-block
+  bindings and two scalar `sampler2D` bindings. Indexed draws provide matching
+  buffer and texture handles by slot. The frontend rejects missing or extra
+  handles, mapped or undersized buffers, and sampling the active target color
+  in either slot before GL submission. Native OpenGL reflection checks exact
+  active names, types, counts, and block sizes. Per-draw block assignment lets
+  pipelines share one shader program without depending on creation order.
+  Hosted frames restore both texture/sampler and indexed uniform-buffer slots.
 - Hosted OpenGL frames now save and restore the borrowed context's framebuffer,
   viewport, fixed draw state, program, vertex input, texture/sampler bindings,
   and uniform-buffer bindings. A failed frame start restores any captured state;
@@ -57,6 +65,9 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Advanced the public renderer API to version 4 and private backend contract
+  to version 11 for the two-slot descriptor layout. Existing one-slot callers
+  in the cube and tile-map examples and Tile Editor viewport use slot zero.
 - Advanced the private renderer backend contract to version 10 and public API
   version to 3 for topology in immutable pipeline descriptions. Triangle lists
   remain the default and retain their multiple-of-three index validation;
@@ -82,6 +93,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Rebuilt the renderer, Host OpenGL smoke, and cube example in the existing
+  `build-mason` tree; all ten selected renderer/Host CTests passed, and the
+  cube example rendered two hidden frames. Focused
+  coverage checks two distinct textures and uniform buffers in native pixels,
+  slot-one validation and reference rollback, active-target feedback rejection,
+  and borrowed host slot-one state restoration. The Tile Map example and Tile
+  Editor viewport passed syntax-only checks with existing local compile flags;
+  their linked targets are not configured in this compact build.
+  Cooked material binding, a world draw queue, and Mason map rendering remain
+  unimplemented.
 - Rebuilt the affected renderer and Host tests in the existing `build-mason`
   tree; all ten selected CTests passed. The native hosted OpenGL smoke ran 145
   assertions, including a sampled offscreen pass, exact host-state restoration,

@@ -47,10 +47,10 @@ clearing or drawing.
 The OpenGL backend captures the host's relevant state after `PrepareFrame` and
 restores it when a valid `R_EndFrame` closes the frame (or after a failed frame
 start that had captured state). That includes the separate draw/read framebuffer
-bindings, viewport,
-pipeline state, program, vertex input, uniform-buffer binding, and texture unit
-zero. It also leaves hosted `R_Resize` from changing the active GL viewport.
-This correctness path queries approximately 45 state values per hosted frame;
+bindings, viewport, pipeline state, program, vertex input, uniform-buffer
+bindings zero and one, and texture/sampler units zero and one. It also leaves
+hosted `R_Resize` from changing the active GL viewport. This correctness path
+queries approximately 50 state values per hosted frame;
 measure its cost in the Mason widget before choosing a more explicit state
 handoff. A pre-existing host GL error causes frame capture to fail because GL
 error flags cannot be queried without consuming them. Resource creation and
