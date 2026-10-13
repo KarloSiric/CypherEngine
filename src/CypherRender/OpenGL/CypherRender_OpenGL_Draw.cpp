@@ -525,6 +525,12 @@ render_error_t GL_DrawIndexed(
         glBlendFuncSeparate( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
             GL_ONE, GL_ONE_MINUS_SRC_ALPHA );
     }
+    // Host MSAA coverage policy must not change this pipeline's straight-alpha
+    // blending or silently discard samples. Keep numeric host settings intact.
+    glDisable( GL_SAMPLE_ALPHA_TO_COVERAGE );
+    glDisable( GL_SAMPLE_ALPHA_TO_ONE );
+    glDisable( GL_SAMPLE_COVERAGE );
+    glDisable( GL_SAMPLE_MASK );
     glDisable( GL_STENCIL_TEST );
     glDisable( GL_PRIMITIVE_RESTART );
     glDisable( GL_RASTERIZER_DISCARD );

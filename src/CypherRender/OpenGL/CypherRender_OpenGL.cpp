@@ -166,6 +166,10 @@ render_error_t GL_CaptureHostFrameState( gl_host_frame_state_t &state ) noexcept
     state.lineSmooth = glIsEnabled( GL_LINE_SMOOTH );
     state.framebufferSRGB = glIsEnabled( GL_FRAMEBUFFER_SRGB );
     state.multisample = glIsEnabled( GL_MULTISAMPLE );
+    state.sampleAlphaToCoverage = glIsEnabled( GL_SAMPLE_ALPHA_TO_COVERAGE );
+    state.sampleAlphaToOne = glIsEnabled( GL_SAMPLE_ALPHA_TO_ONE );
+    state.sampleCoverage = glIsEnabled( GL_SAMPLE_COVERAGE );
+    state.sampleMask = glIsEnabled( GL_SAMPLE_MASK );
 
     gl_host_draw_buffer_state_t &draw = state.drawBuffer0;
     draw.blend = glIsEnabledi( GL_BLEND, 0u );
@@ -236,6 +240,10 @@ render_error_t GL_RestoreHostFrameState( gl_host_frame_state_t &state ) noexcept
         static_cast<GLenum>( state.polygonMode[0] ) );
     GL_SetEnabled( GL_FRAMEBUFFER_SRGB, state.framebufferSRGB );
     GL_SetEnabled( GL_MULTISAMPLE, state.multisample );
+    GL_SetEnabled( GL_SAMPLE_ALPHA_TO_COVERAGE, state.sampleAlphaToCoverage );
+    GL_SetEnabled( GL_SAMPLE_ALPHA_TO_ONE, state.sampleAlphaToOne );
+    GL_SetEnabled( GL_SAMPLE_COVERAGE, state.sampleCoverage );
+    GL_SetEnabled( GL_SAMPLE_MASK, state.sampleMask );
 
     glUseProgram( static_cast<GLuint>( state.program ) );
     glBindVertexArray( static_cast<GLuint>( state.vertexArray ) );

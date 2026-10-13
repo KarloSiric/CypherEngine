@@ -101,6 +101,10 @@ struct gl_host_frame_state_t {
     GLboolean lineSmooth{ GL_FALSE };
     GLboolean framebufferSRGB{ GL_FALSE };
     GLboolean multisample{ GL_FALSE };
+    GLboolean sampleAlphaToCoverage{ GL_FALSE };
+    GLboolean sampleAlphaToOne{ GL_FALSE };
+    GLboolean sampleCoverage{ GL_FALSE };
+    GLboolean sampleMask{ GL_FALSE };
     bool captured{ false };
 };
 

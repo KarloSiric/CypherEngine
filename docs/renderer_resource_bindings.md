@@ -130,8 +130,8 @@ both the level count and whether the chain is complete. A valid CYTX file
 using compression, streaming, an incomplete multi-level chain, 3D storage,
 or another pixel format returns `ERR_RESOURCE_FORMAT_UNSUPPORTED`. Invalid
 or modified views and file bytes return `ERR_INVALID_ARGUMENT`. A backend
-without authored-level upload returns `ERR_UNSUPPORTED`. Cooked material
-General cooked material binding and broader texture format support remain
+without authored-level upload returns `ERR_UNSUPPORTED`. General cooked
+material binding and broader texture format support remain
 separate work.
 
 ## Adopting a cooked material subset
@@ -149,13 +149,20 @@ texture slots into a draw record; the caller still supplies geometry, uniform
 buffers, and frame state. `R_DestroyCookedMaterialBundle` releases the pipeline
 before its shader, followed by independent textures.
 
-This first bridge accepts only CYMT V2 opaque surface materials with the
+This first bridge accepts CYMT V2 opaque or blend surface materials with the
 default empty feature variant, no value parameters, no named surface, identity
 UV0, and no authored sampler preset. It supports zero to two 2D color RGBA8
 textures (linear or sRGB) that the existing texture-adoption path can upload.
 All shader resource bindings must fit those texture slots or the caller's
 declared uniform blocks. A two-sided material disables back-face culling; its
-shadow flags remain metadata for a later scene/pass scheduler. Unsupported
+shadow flags remain metadata for a later scene/pass scheduler. The bundle
+preserves the cooked alpha mode: `BLEND` creates a depth-tested pipeline with
+straight-alpha blending and no depth writes. Its shader must emit straight
+(unassociated) color and alpha. The caller must draw it after opaque surfaces
+and sort translucent objects back-to-front; the bridge does not classify or
+sort scene draws. `MASK` and `ADDITIVE` remain unsupported because their shader
+cutoff and blend-factor policies are not represented by this narrow bridge.
+Unsupported
 material data returns `MATERIAL_UNSUPPORTED` instead of being dropped. A
 shader hash or binding mismatch returns `SHADER_INTERFACE_MISMATCH` before any
 GPU object is created.

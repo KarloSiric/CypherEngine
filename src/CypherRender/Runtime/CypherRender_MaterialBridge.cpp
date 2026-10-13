@@ -60,7 +60,8 @@ bool MaterialSubsetSupported( const common::cooked_material_view_t &material ) n
     if ( !common::CookedMaterial_ComputeVariantHash( {}, &emptyVariantHash ) ) return false;
     if ( material.nResourceVersion != common::CY_COOKED_MATERIAL_RESOURCE_VERSION_V2 ||
          material.domain != common::render_material_domain_t::SURFACE ||
-         material.alphaMode != common::render_material_alpha_mode_t::OPAQUE ||
+         ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE &&
+           material.alphaMode != common::render_material_alpha_mode_t::BLEND ) ||
          material.alphaCutoff != 0.5F || material.nFeatures != 0u ||
          material.nParameters != 0u ||
          material.nTextures > R_MAX_SAMPLED_TEXTURE_BINDINGS ||
@@ -223,6 +224,9 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
         pipeline.vertexLayout = description.vertexLayout;
         pipeline.uniformBlockCount = description.uniformBlockCount;
         pipeline.sampledTextureCount = pMaterial->nTextures;
+        pipeline.alphaBlend =
+            pMaterial->alphaMode == common::render_material_alpha_mode_t::BLEND;
+        pipeline.depthWrite = !pipeline.alphaBlend;
         pipeline.cullBackFaces =
             ( pMaterial->flags & common::COOKED_MATERIAL_FLAG_TWO_SIDED ) == 0u;
         pipeline.debugName = description.debugName;
@@ -340,6 +344,7 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
             break;
         }
         pending.textureCount = pMaterial->nTextures;
+        pending.alphaMode = pMaterial->alphaMode;
         pending.materialFlags = pMaterial->flags;
         for ( common::u32 i = 0u; i < pMaterial->nTextures; ++i ) {
             renderError = R_CreateTexture2DFromCooked( *textures[i],

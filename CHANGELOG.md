@@ -25,6 +25,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Borrowed OpenGL 4.1 frames now snapshot and restore the host's
+  alpha-to-coverage, alpha-to-one, sample-coverage, and sample-mask enable bits.
+  Renderer draws disable these inherited controls so they cannot change
+  straight-alpha blending or sample coverage. Numeric coverage and mask values
+  are untouched. The focused host-surface native smoke passes 239 assertions;
+  it verifies state isolation, not multisampled pixel output.
 - Standalone OpenGL 4.1 now enables framebuffer sRGB conversion only when the
   renderer configuration requests it, even if the default framebuffer reports
   sRGB capability. `BeginFrame` reasserts that policy after external GL state
@@ -66,6 +72,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The cooked material bridge now adopts CYMT V2 surface `BLEND` materials in
+  addition to `OPAQUE`. It creates a depth-tested pipeline with straight-alpha
+  blending and depth writes disabled, and exposes the cooked alpha mode so a
+  caller can place the draw after opaque geometry. `MASK` and `ADDITIVE` still
+  fail before GPU creation; shaders for `BLEND` must output straight alpha, and
+  scene ordering remains caller-owned. The material-bridge tests pass 418
+  assertions across four cases, including pipeline state, ownership, and
+  unsupported-mode rejection. The rebuilt sample completes 120 hidden frames;
+  it still uses its fixed sample materials rather than a cooked `BLEND` asset.
 - The OpenGL 4.1 graybox sample now draws two overlapping translucent panels
   after opaque geometry and before HDR tone mapping. Their tint alpha reaches
   the fragment output, and a separate depth-tested, blend-enabled pipeline
@@ -77,9 +92,9 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   RGBA16F-to-RGBA8 pixel test confirms far-to-near compositing and opaque-depth
   occlusion and confirms that transparent draws leave depth unwritten; the
   focused OpenGL smoke case passes 915 assertions. This remains
-  sample-owned object sorting: intersecting transparent geometry, general
-  material classification, and cooked transparent materials are not yet
-  supported.
+  sample-owned object sorting: intersecting transparent geometry and general
+  material classification are not yet supported. Its panels use fixed sample
+  materials rather than cooked material bundles.
 - The graybox renderer sample now submits a third pass: after the fixed D24
   shadow pass, it shades visible objects into a drawable-sized linear RGBA16F
   target, then draws an indexed fullscreen triangle that applies fixed

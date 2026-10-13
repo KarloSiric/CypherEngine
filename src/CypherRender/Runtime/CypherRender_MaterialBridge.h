@@ -31,6 +31,9 @@ struct render_material_bundle_t {
     render_pipeline_handle_t pipeline{};
     render_texture_handle_t textures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     ::cypher::common::u32 textureCount{ 0u };
+    ::cypher::common::render_material_alpha_mode_t alphaMode{
+        ::cypher::common::render_material_alpha_mode_t::OPAQUE
+    }; // Caller uses this to place BLEND draws after opaque draws.
     ::cypher::common::flags32_t materialFlags{ 0u }; // Preserved for scene shadow policy.
 };
 
@@ -52,12 +55,15 @@ struct render_material_bridge_result_t {
 };
 
 // Accepts CYMT V2 / CYSH V3 with no features, material parameters or named
-// surface; SURFACE + OPAQUE state; zero to two 2D color textures with identity
+// surface; SURFACE + OPAQUE or BLEND state; zero to two 2D color textures with identity
 // UV0 and no sampler preset. All shader resource bindings must be represented
 // by those textures or caller-declared uniform blocks. The current renderer
 // must support the selected shader and textures. Resource views are borrowed
 // until synchronous GPU creation finishes, then all acquired CPU references
 // are released. Successful output owns no CPU resource handle or borrowed view.
+// BLEND uses straight-alpha blending with depth testing and no depth writes.
+// Its shader must emit straight (unassociated) alpha. The caller submits BLEND
+// draws after opaque draws, back-to-front; this bridge does not sort them.
 // Ordinary failure leaves bundleOut empty. If GPU rollback itself fails,
 // CLEANUP_FAILED reports that error and publishes remaining live handles in
 // bundleOut; the caller must retry R_DestroyCookedMaterialBundle before shutdown.

@@ -383,8 +383,9 @@ both an overlap pixel and an opaque-occluded pixel. This verifies the existing
 blend and depth-write states through actual rendered output. Sorting whole
 objects by center cannot correctly order intersecting transparent geometry or
 every transparent triangle within one mesh. The sample has no general
-transparency classifier; the cooked material bridge still accepts only opaque
-materials. A real scene policy must define those separately.
+transparency classifier. The cooked material bridge can now build an opaque
+or straight-alpha `BLEND` pipeline and expose its mode, but a real scene
+policy must classify and order those draws.
 
 ### Depth-only target
 
@@ -503,6 +504,14 @@ host supplying its own OpenGL context gets its viewport, scissor box, and
 scissor enable state restored at frame end. This supplies draw controls for
 panels and overlays; the renderer does not yet schedule viewport draws or own
 editor panel layout.
+
+When drawing into a borrowed OpenGL context, Cypher also disables inherited
+alpha-to-coverage, alpha-to-one, sample-coverage, and sample-mask controls for
+its draws. Those controls could otherwise change straight-alpha blending or
+discard samples in a multisampled host target. Their enable bits are restored
+at frame end; the host's numeric coverage and mask values are left untouched.
+The native hosted-context smoke checks this state isolation, though it does
+not supply a multisampled pixel oracle.
 
 ## Lifecycle and cleanup
 
