@@ -15,8 +15,8 @@ using render_target_handle_t = render_handle_t;
 inline constexpr render_target_handle_t R_INVALID_TARGET{};
 
 // The caller owns both attachments; the target retains them until destruction.
-// A target requires linear RGBA8 color and accepts optional sampleable D24
-// depth. Without explicit depth, it owns a private D24 renderbuffer. Targets
+// A target needs at least one attachment: linear RGBA8 color, sampleable D24
+// depth, or both. With color alone, it owns a private D24 renderbuffer. Targets
 // are single-sample and fixed-size; recreate attachments to resize.
 struct render_target_desc_t {
     render_texture_handle_t color{};
@@ -31,6 +31,7 @@ struct render_target_info_t {
 
 struct render_target_pass_desc_t {
     render_target_handle_t target{};
+    // Depth-only targets must omit R_CLEAR_COLOR explicitly.
     render_clear_flags_t clearFlags{ R_CLEAR_COLOR | R_CLEAR_DEPTH };
     render_color_t clearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
     ::cypher::common::f32 clearDepth{ 1.0f };

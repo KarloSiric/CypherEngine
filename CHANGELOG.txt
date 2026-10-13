@@ -24,6 +24,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- A D24 texture can now form a depth-only offscreen target. Its extent comes
+  from depth, and OpenGL draw/read color routing is GL_NONE. Depth-only passes
+  reject color clears and use R_CLEAR_DEPTH. Existing color-only targets keep
+  their private D24 renderbuffer; color-plus-depth targets still work. The
+  depth texture is sampleable after the pass, while shadow comparison and
+  pass scheduling remain caller work.
 - Offscreen targets may retain a caller-owned GPU-only D24 depth texture
   alongside required linear RGBA8 color. Without one, they retain their
   private D24 renderbuffer. Attachment extents must match and neither active
@@ -87,6 +93,9 @@ Added
   ordinary runtime still has no scene producer.
 
 Changed
+- Public renderer API version 11 and private backend version 18 permit
+  colorless depth targets. Creation and shutdown retain/release only supplied
+  attachments, and both layers reject a target without any attachment.
 - Public renderer API version 10 and private backend version 17 add texture
   format and optional target-depth fields. Target creation retains both
   attachments and rolls their references back on validation, native creation
@@ -122,6 +131,12 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Renderer, Host, resource-runtime and cube targets rebuilt in the existing
+  build-mason tree. All eleven selected renderer/Host CTests passed. Native
+  and hosted OpenGL smokes passed 577 and 197 assertions; depth-only pixels
+  read about 0.5 drawn depth against 1.0 clear. Hosted checks cover GL_NONE
+  routing and draw/read framebuffer restoration. Target tests passed 159
+  assertions in seven cases; cube rendered two hidden frames.
 - Focused renderer, Host, resource-runtime and cube targets rebuilt in the
   existing build-mason tree. All eleven renderer/Host CTests passed; native
   and hosted OpenGL smokes passed 549 and 184 assertions. Native pixels read

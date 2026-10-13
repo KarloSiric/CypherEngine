@@ -261,6 +261,83 @@ TEST_CASE( "failed depth target creation and destruction release both references
     REQUIRE( render::R_DestroyTexture( depth ) == target_error_t::OK );
 }
 
+TEST_CASE( "depth-only targets derive their extent and retain the depth attachment",
+           "[CypherRender][Target][DepthOnly]" )
+{
+    target_fixture_t fixture;
+    fixture.Init();
+    const auto color = fixture.Color();
+    const auto depth = fixture.Depth( 24u, 12u );
+    render::render_target_handle_t target{ 99u };
+
+    CHECK( render::R_CreateRenderTarget( { {}, color }, &target ) ==
+           target_error_t::ERR_RENDER_TARGET_INVALID );
+    CHECK( target.value == 0u );
+    CHECK( fixture.nativeCreates == 0u );
+    REQUIRE( render::R_CreateRenderTarget( { {}, depth }, &target ) == target_error_t::OK );
+    CHECK( fixture.nativeCreates == 1u );
+    CHECK( fixture.lastTarget.color.value == 0u );
+    CHECK( fixture.lastTarget.depth.value != 0u );
+    CHECK( fixture.lastTarget.extent.width == 24u );
+    CHECK( fixture.lastTarget.extent.height == 12u );
+    render::render_target_info_t info{};
+    REQUIRE( render::R_GetRenderTargetInfo( target, &info ) == target_error_t::OK );
+    CHECK( info.color.value == 0u );
+    CHECK( info.depth.value == depth.value );
+    CHECK( info.extent.width == 24u );
+    CHECK( info.extent.height == 12u );
+    CHECK( render::R_DestroyTexture( depth ) == target_error_t::ERR_RESOURCE_BUSY );
+
+    render::tr.frameActive = true;
+    render::render_target_pass_desc_t pass{};
+    pass.target = target;
+    CHECK( render::R_BeginTargetPass( pass ) == target_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( fixture.passBegins == 0u );
+    pass.clearFlags = render::R_CLEAR_COLOR;
+    CHECK( render::R_BeginTargetPass( pass ) == target_error_t::ERR_INVALID_ARGUMENT );
+    pass.clearFlags = render::R_CLEAR_DEPTH;
+    REQUIRE( render::R_BeginTargetPass( pass ) == target_error_t::OK );
+    CHECK( fixture.lastPass.clearFlags == render::R_CLEAR_DEPTH );
+    CHECK( fixture.lastPass.extent.width == 24u );
+    CHECK( render::tr.activeTargetColor.value == 0u );
+    CHECK( render::tr.activeTargetDepth.value == depth.value );
+    REQUIRE( render::R_EndTargetPass() == target_error_t::OK );
+    CHECK( render::tr.activeTargetDepth.value == 0u );
+    render::tr.frameActive = false;
+
+    REQUIRE( render::R_DestroyRenderTarget( target ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( color ) == target_error_t::OK );
+}
+
+TEST_CASE( "failed depth-only target creation and destruction release its reference",
+           "[CypherRender][Target][DepthOnly]" )
+{
+    target_fixture_t fixture;
+    fixture.Init();
+    auto depth = fixture.Depth();
+    render::render_target_handle_t target{ 99u };
+    fixture.createResult = target_error_t::ERR_OUT_OF_MEMORY;
+    fixture.tokenOnCreateFailure = true;
+    CHECK( render::R_CreateRenderTarget( { {}, depth }, &target ) ==
+           target_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( target.value == 0u );
+    CHECK( fixture.nativeDestroys == 1u );
+    REQUIRE( render::R_DestroyTexture( depth ) == target_error_t::OK );
+
+    depth = fixture.Depth();
+    fixture.createResult = target_error_t::OK;
+    fixture.tokenOnCreateFailure = false;
+    REQUIRE( render::R_CreateRenderTarget( { {}, depth }, &target ) == target_error_t::OK );
+    fixture.destroyResult = target_error_t::ERR_DEVICE_LOST;
+    CHECK( render::R_DestroyRenderTarget( target ) == target_error_t::ERR_DEVICE_LOST );
+    CHECK( render::R_IsRenderTargetValid( target ) );
+    CHECK( render::R_DestroyTexture( depth ) == target_error_t::ERR_RESOURCE_BUSY );
+    fixture.destroyResult = target_error_t::OK;
+    REQUIRE( render::R_DestroyRenderTarget( target ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == target_error_t::OK );
+}
+
 TEST_CASE( "offscreen passes require a frame, valid clears, and an explicit end",
            "[CypherRender][Target]" )
 {

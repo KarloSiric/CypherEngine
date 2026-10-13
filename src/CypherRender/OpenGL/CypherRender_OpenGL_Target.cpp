@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////////
 // CypherEngine Source Code — Copyright (c) 2026 Karlo Siric.
-// Purpose: Owns OpenGL 4.1 offscreen color-and-depth framebuffer records.
+// Purpose: Owns OpenGL 4.1 offscreen color and/or depth framebuffer records.
 // Details: Attachments belong to the texture system. Targets own their
 //          framebuffer and, without a depth texture, a private D24 renderbuffer.
 // This file is proprietary and confidential. See LICENSE for details.
@@ -25,6 +25,7 @@ struct gl_target_record_t {
     GLuint framebuffer{ 0u };
     GLuint depthRenderbuffer{ 0u };
     render_extent_t extent{};
+    bool hasColor{ false };
 };
 
 // Compare tokens before dereferencing. The frontend owns generation checks;
@@ -78,7 +79,9 @@ render_error_t GL_CreateRenderTarget( const backend_render_target_desc_t &descri
     if ( backendState != &glState ) return render_error_t::ERR_INVALID_ARGUMENT;
     if ( !glState.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
     if ( glState.frameActive ) return render_error_t::ERR_FRAME_ALREADY_ACTIVE;
-    if ( description.color.value == 0u ||
+    const bool hasColor = description.color.value != 0u;
+    const bool hasDepth = description.depth.value != 0u;
+    if ( ( !hasColor && !hasDepth ) ||
          description.color.value > std::numeric_limits<GLuint>::max() ) {
         return render_error_t::ERR_INVALID_HANDLE;
     }
@@ -130,9 +133,11 @@ render_error_t GL_CreateRenderTarget( const backend_render_target_desc_t &descri
     }
     if ( result == render_error_t::OK ) {
         glBindFramebuffer( GL_FRAMEBUFFER, record->framebuffer );
-        glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-            GL_TEXTURE_2D, static_cast<GLuint>( description.color.value ), 0 );
-        if ( description.depth.value != 0u ) {
+        if ( hasColor ) {
+            glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                GL_TEXTURE_2D, static_cast<GLuint>( description.color.value ), 0 );
+        }
+        if ( hasDepth ) {
             glFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
                 GL_TEXTURE_2D, static_cast<GLuint>( description.depth.value ), 0 );
         } else {
@@ -143,8 +148,8 @@ render_error_t GL_CreateRenderTarget( const backend_render_target_desc_t &descri
             glFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
                 GL_RENDERBUFFER, record->depthRenderbuffer );
         }
-        glDrawBuffer( GL_COLOR_ATTACHMENT0 );
-        glReadBuffer( GL_COLOR_ATTACHMENT0 );
+        glDrawBuffer( hasColor ? GL_COLOR_ATTACHMENT0 : GL_NONE );
+        glReadBuffer( hasColor ? GL_COLOR_ATTACHMENT0 : GL_NONE );
         result = GL_CheckErrors( glState.config.validation );
         if ( result == render_error_t::OK ) {
             const GLenum status = glCheckFramebufferStatus( GL_FRAMEBUFFER );
@@ -169,6 +174,7 @@ render_error_t GL_CreateRenderTarget( const backend_render_target_desc_t &descri
     }
 
     record->extent = description.extent;
+    record->hasColor = hasColor;
     record->next = glTargets;
     glTargets = record;
     targetOut.value = GL_TargetToken( record );
@@ -214,6 +220,7 @@ render_error_t GL_BeginTargetPass( const backend_target_pass_desc_t &description
     if ( description.extent.width != record->extent.width ||
          description.extent.height != record->extent.height ||
          ( description.clearFlags & ~( R_CLEAR_COLOR | R_CLEAR_DEPTH ) ) != 0u ||
+         ( !record->hasColor && ( description.clearFlags & R_CLEAR_COLOR ) != 0u ) ||
          !std::isfinite( description.clearDepth ) || description.clearDepth < 0.0f ||
          description.clearDepth > 1.0f ||
          !std::isfinite( description.clearColor.red ) ||

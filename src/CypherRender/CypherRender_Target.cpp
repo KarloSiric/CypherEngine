@@ -76,7 +76,8 @@ render_error_t R_TargetSystemShutdown() noexcept
                 tr.backend.api->DestroyRenderTarget != nullptr
                     ? tr.backend.api->DestroyRenderTarget( record.native, tr.backend.state )
                     : render_error_t::ERR_INTERNAL_ERROR;
-            const render_error_t releaseResult = R_TextureReleaseReference( record.info.color );
+            const render_error_t releaseResult = record.info.color.value != R_INVALID_TEXTURE.value
+                ? R_TextureReleaseReference( record.info.color ) : render_error_t::OK;
             const render_error_t depthReleaseResult = record.info.depth.value != R_INVALID_TEXTURE.value
                 ? R_TextureReleaseReference( record.info.depth ) : render_error_t::OK;
             if ( firstError == render_error_t::OK ) {
@@ -104,42 +105,50 @@ render_error_t R_CreateRenderTarget( const render_target_desc_t &description,
         return render_error_t::ERR_UNSUPPORTED;
     }
 
+    const bool hasColor = description.color.value != R_INVALID_TEXTURE.value;
+    const bool hasDepth = description.depth.value != R_INVALID_TEXTURE.value;
+    if ( !hasColor && !hasDepth ) return render_error_t::ERR_INVALID_HANDLE;
+
     backend_render_target_desc_t nativeDescription{};
     render_texture_info_t colorInfo{};
-    const render_error_t acquireResult = R_TextureAcquireReference(
-        description.color, &nativeDescription.color, &colorInfo );
-    if ( acquireResult != render_error_t::OK ) return acquireResult;
-    if ( colorInfo.format != render_texture_format_t::RGBA8 ||
-         !colorInfo.renderTarget || colorInfo.sRGB || colorInfo.generateMips ||
-         colorInfo.repeat || colorInfo.width == 0u || colorInfo.height == 0u ) {
-        (void)R_TextureReleaseReference( description.color );
-        return render_error_t::ERR_RENDER_TARGET_INVALID;
+    if ( hasColor ) {
+        const render_error_t acquireResult = R_TextureAcquireReference(
+            description.color, &nativeDescription.color, &colorInfo );
+        if ( acquireResult != render_error_t::OK ) return acquireResult;
+        if ( colorInfo.format != render_texture_format_t::RGBA8 ||
+             !colorInfo.renderTarget || colorInfo.sRGB || colorInfo.generateMips ||
+             colorInfo.repeat || colorInfo.width == 0u || colorInfo.height == 0u ) {
+            (void)R_TextureReleaseReference( description.color );
+            return render_error_t::ERR_RENDER_TARGET_INVALID;
+        }
+        nativeDescription.extent = { colorInfo.width, colorInfo.height };
     }
-    if ( colorInfo.width > tr.info.limits.maxViewportWidth ||
-         colorInfo.height > tr.info.limits.maxViewportHeight ||
-         colorInfo.width > static_cast<common::u32>( std::numeric_limits<common::i32>::max() ) ||
-         colorInfo.height > static_cast<common::u32>( std::numeric_limits<common::i32>::max() ) ) {
-        (void)R_TextureReleaseReference( description.color );
-        return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
-    }
-    nativeDescription.extent = { colorInfo.width, colorInfo.height };
-    const bool hasDepth = description.depth.value != R_INVALID_TEXTURE.value;
     if ( hasDepth ) {
         render_texture_info_t depthInfo{};
         const render_error_t depthResult = R_TextureAcquireReference(
             description.depth, &nativeDescription.depth, &depthInfo );
         if ( depthResult != render_error_t::OK ) {
-            (void)R_TextureReleaseReference( description.color );
+            if ( hasColor ) (void)R_TextureReleaseReference( description.color );
             return depthResult;
         }
         if ( depthInfo.format != render_texture_format_t::D24 ||
              !depthInfo.renderTarget || depthInfo.sRGB || depthInfo.generateMips ||
-             depthInfo.repeat || depthInfo.width != colorInfo.width ||
-             depthInfo.height != colorInfo.height ) {
+             depthInfo.repeat || depthInfo.width == 0u || depthInfo.height == 0u ||
+             ( hasColor && ( depthInfo.width != colorInfo.width ||
+                             depthInfo.height != colorInfo.height ) ) ) {
             (void)R_TextureReleaseReference( description.depth );
-            (void)R_TextureReleaseReference( description.color );
+            if ( hasColor ) (void)R_TextureReleaseReference( description.color );
             return render_error_t::ERR_RENDER_TARGET_INVALID;
         }
+        if ( !hasColor ) nativeDescription.extent = { depthInfo.width, depthInfo.height };
+    }
+    if ( nativeDescription.extent.width > tr.info.limits.maxViewportWidth ||
+         nativeDescription.extent.height > tr.info.limits.maxViewportHeight ||
+         nativeDescription.extent.width > static_cast<common::u32>( std::numeric_limits<common::i32>::max() ) ||
+         nativeDescription.extent.height > static_cast<common::u32>( std::numeric_limits<common::i32>::max() ) ) {
+        if ( hasDepth ) (void)R_TextureReleaseReference( description.depth );
+        if ( hasColor ) (void)R_TextureReleaseReference( description.color );
+        return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
     target_record_t record{};
     const render_error_t nativeResult = tr.backend.api->CreateRenderTarget(
@@ -149,7 +158,7 @@ render_error_t R_CreateRenderTarget( const render_target_desc_t &description,
             (void)tr.backend.api->DestroyRenderTarget( record.native, tr.backend.state );
         }
         if ( hasDepth ) (void)R_TextureReleaseReference( description.depth );
-        (void)R_TextureReleaseReference( description.color );
+        if ( hasColor ) (void)R_TextureReleaseReference( description.color );
         return nativeResult != render_error_t::OK ? nativeResult : render_error_t::ERR_INTERNAL_ERROR;
     }
     record.info = { description.color, nativeDescription.extent, description.depth };
@@ -157,7 +166,7 @@ render_error_t R_CreateRenderTarget( const render_target_desc_t &description,
     if ( !common::Cy_Handle32IsValid( slot ) ) {
         (void)tr.backend.api->DestroyRenderTarget( record.native, tr.backend.state );
         if ( hasDepth ) (void)R_TextureReleaseReference( description.depth );
-        (void)R_TextureReleaseReference( description.color );
+        if ( hasColor ) (void)R_TextureReleaseReference( description.color );
         return common::HandleTable_Count( &targetSystem.records ) >= common::CY_HANDLE_TABLE_MAX_CAPACITY
             ? render_error_t::ERR_LIMIT_EXCEEDED : render_error_t::ERR_OUT_OF_MEMORY;
     }
@@ -168,7 +177,7 @@ render_error_t R_CreateRenderTarget( const render_target_desc_t &description,
         (void)common::HandleTable_Remove( &targetSystem.records, slot );
         (void)tr.backend.api->DestroyRenderTarget( record.native, tr.backend.state );
         if ( hasDepth ) (void)R_TextureReleaseReference( description.depth );
-        (void)R_TextureReleaseReference( description.color );
+        if ( hasColor ) (void)R_TextureReleaseReference( description.color );
         return render_error_t::ERR_INTERNAL_ERROR;
     }
     return render_error_t::OK;
@@ -187,7 +196,8 @@ render_error_t R_DestroyRenderTarget( render_target_handle_t target ) noexcept
     const render_error_t nativeResult = tr.backend.api->DestroyRenderTarget(
         record->native, tr.backend.state );
     if ( nativeResult != render_error_t::OK ) return nativeResult;
-    const render_error_t releaseResult = R_TextureReleaseReference( record->info.color );
+    const render_error_t releaseResult = record->info.color.value != R_INVALID_TEXTURE.value
+        ? R_TextureReleaseReference( record->info.color ) : render_error_t::OK;
     const render_error_t depthReleaseResult = record->info.depth.value != R_INVALID_TEXTURE.value
         ? R_TextureReleaseReference( record->info.depth ) : render_error_t::OK;
     if ( !common::HandleTable_Remove( &targetSystem.records, slot ) ) {
@@ -232,6 +242,10 @@ render_error_t R_BeginTargetPass( const render_target_pass_desc_t &description )
     target_record_t *record = nullptr;
     const render_error_t resolved = ResolveTarget( description.target, slot, record );
     if ( resolved != render_error_t::OK ) return resolved;
+    if ( record->info.color.value == R_INVALID_TEXTURE.value &&
+         ( description.clearFlags & R_CLEAR_COLOR ) != 0u ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
     const backend_target_pass_desc_t native{ record->native, record->info.extent,
         description.clearFlags, description.clearColor, description.clearDepth };
     const render_error_t result = tr.backend.api->BeginTargetPass( native, tr.backend.state );

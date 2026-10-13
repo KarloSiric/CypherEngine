@@ -263,6 +263,15 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     render::render_target_handle_t target{};
     REQUIRE( render::R_CreateRenderTarget( { targetColor }, &target ) ==
         render::render_error_t::OK );
+    render::render_texture_desc_t depthOnlyDesc{
+        16u, 16u, false, false, false, "Hosted depth-only target", true,
+        render::render_texture_format_t::D24 };
+    render::render_texture_handle_t depthOnlyTexture{};
+    REQUIRE( render::R_CreateTexture2D( depthOnlyDesc, {}, &depthOnlyTexture ) ==
+        render::render_error_t::OK );
+    render::render_target_handle_t depthOnlyTarget{};
+    REQUIRE( render::R_CreateRenderTarget( { {}, depthOnlyTexture }, &depthOnlyTarget ) ==
+        render::render_error_t::OK );
 
     // Render the offscreen color back into the host FBO. Two uniform and
     // sampled bindings exercise both renderer slots before EndFrame restores
@@ -485,6 +494,25 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     CHECK( static_cast<GLuint>( bound ) == host.presentationFramebuffer );
     glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &bound );
     CHECK( static_cast<GLuint>( bound ) == host.presentationReadFramebuffer );
+    pass.target = depthOnlyTarget;
+    pass.clearFlags = render::R_CLEAR_DEPTH;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    GLint depthOnlyDrawBuffer = -1;
+    GLint depthOnlyReadBuffer = -1;
+    glGetIntegerv( GL_DRAW_BUFFER0, &depthOnlyDrawBuffer );
+    glGetIntegerv( GL_READ_BUFFER, &depthOnlyReadBuffer );
+    CHECK( depthOnlyDrawBuffer == GL_NONE );
+    CHECK( depthOnlyReadBuffer == GL_NONE );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &bound );
+    CHECK( static_cast<GLuint>( bound ) == host.presentationFramebuffer );
+    glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &bound );
+    CHECK( static_cast<GLuint>( bound ) == host.presentationReadFramebuffer );
+    glGetIntegerv( GL_DRAW_BUFFER0, &depthOnlyDrawBuffer );
+    glGetIntegerv( GL_READ_BUFFER, &depthOnlyReadBuffer );
+    CHECK( depthOnlyDrawBuffer == GL_COLOR_ATTACHMENT0 );
+    CHECK( depthOnlyReadBuffer == GL_COLOR_ATTACHMENT0 );
+    REQUIRE( glGetError() == GL_NO_ERROR );
     GLint viewport[4]{};
     glGetIntegerv( GL_VIEWPORT, viewport );
     CHECK( viewport[0] == 0 );
@@ -672,7 +700,9 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     REQUIRE( render::R_DestroyBuffer( weightsBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyRenderTarget( depthOnlyTarget ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyTexture( targetColor ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depthOnlyTexture ) == render::render_error_t::OK );
 
     const int nActivationsBeforeShutdown = host.nActivations;
     REQUIRE( render::R_Shutdown() == render::render_error_t::OK );

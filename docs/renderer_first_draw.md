@@ -154,21 +154,27 @@ controls draw output only; no scene queue schedules these passes yet.
 
 ## Sampleable target depth
 
-An offscreen target still requires one linear RGBA8 color texture. By default
-it owns a private D24 renderbuffer for depth. To read depth in a later pass,
-create a second GPU-only target texture with `format =
-render_texture_format_t::D24` and supply it as the target's optional `depth`
-handle. Both attachments must have the same extent. D24 textures have no
-initial pixel data, generated mip chain, sRGB conversion, or repeat addressing. The
-target retains both caller-owned textures until it is destroyed.
+An offscreen target accepts a linear RGBA8 color texture, a GPU-only D24 depth
+texture, or both. A color-only target keeps the existing private D24
+renderbuffer. When both textures are supplied, their extents must match. D24
+textures have no initial pixel data, generated mip chain, sRGB conversion, or
+repeat addressing. The target retains each supplied caller-owned texture until
+it is destroyed.
+
+For a depth-only target, leave `color` invalid and supply the D24 `depth`
+handle. Set the pass's `clearFlags` to `R_CLEAR_DEPTH`: the default includes
+`R_CLEAR_COLOR`, which is rejected when no color attachment exists. The OpenGL
+framebuffer routes both draw and read color buffers to `GL_NONE`; a pipeline
+with `colorWrite = false` makes the intent explicit. The target extent comes
+from the D24 texture.
 
 Clear or draw depth in a target pass, then end that pass before binding the
 texture in a later draw. Binding either active attachment for sampling is
 rejected to prevent read/write feedback. The current shader interface accepts
 ordinary `sampler2D`; read `texture(depth_image, uv).r` and perform any depth
 comparison explicitly in the shader. This supports depth diagnostics and
-manual shadow experiments. A colorless depth-only target and hardware
-comparison samplers remain separate work.
+manual shadow experiments. Hardware comparison samplers and automatic shadow
+pass scheduling remain separate work.
 
 OpenGL 4.1 treats depth textures as red textures for ordinary sampling; see
 sections 3.8.9 and 3.8.16 of the [OpenGL 4.1 Core Specification](https://registry.khronos.org/OpenGL/specs/gl/glspec41.core.pdf).

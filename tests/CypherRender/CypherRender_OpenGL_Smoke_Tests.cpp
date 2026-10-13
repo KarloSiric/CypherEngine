@@ -1121,6 +1121,14 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     pipelineDesc.shader = depthSampleShader;
     render::render_pipeline_handle_t depthSamplePipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &depthSamplePipeline ) == render::render_error_t::OK );
+    pipelineDesc.shader = solidShader;
+    pipelineDesc.sampledTextureCount = 0u;
+    pipelineDesc.sampledTextures[0] = {};
+    pipelineDesc.depthTest = true;
+    pipelineDesc.depthWrite = true;
+    pipelineDesc.colorWrite = false;
+    render::render_pipeline_handle_t depthOnlyPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &depthOnlyPipeline ) == render::render_error_t::OK );
 
     render::render_texture_desc_t textureDesc{};
     textureDesc.width = extent.width / 2u;
@@ -1134,10 +1142,16 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     textureDesc.format = render::render_texture_format_t::D24;
     render::render_texture_handle_t depth{};
     REQUIRE( render::R_CreateTexture2D( textureDesc, {}, &depth ) == render::render_error_t::OK );
+    render::render_texture_handle_t depthOnlyTexture{};
+    REQUIRE( render::R_CreateTexture2D( textureDesc, {}, &depthOnlyTexture ) == render::render_error_t::OK );
     render::render_target_handle_t target{};
     REQUIRE( render::R_CreateRenderTarget( { color, depth }, &target ) == render::render_error_t::OK );
+    render::render_target_handle_t depthOnlyTarget{};
+    REQUIRE( render::R_CreateRenderTarget( { {}, depthOnlyTexture }, &depthOnlyTarget ) ==
+        render::render_error_t::OK );
     CHECK( render::R_DestroyTexture( color ) == render::render_error_t::ERR_RESOURCE_BUSY );
     CHECK( render::R_DestroyTexture( depth ) == render::render_error_t::ERR_RESOURCE_BUSY );
+    CHECK( render::R_DestroyTexture( depthOnlyTexture ) == render::render_error_t::ERR_RESOURCE_BUSY );
 
     render::render_frame_info_t frame{};
     frame.drawableExtent = extent;
@@ -1215,14 +1229,55 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     CHECK( farDepth[1] >= 240u );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
 
+    // A depth-only FBO has no color route. Draw depth at 0.5, then sample its
+    // D24 attachment on the presentation framebuffer. An untouched texel must
+    // remain at the depth clear value of 1.0.
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    pass.target = depthOnlyTarget;
+    CHECK( render::R_BeginTargetPass( pass ) == render::render_error_t::ERR_INVALID_ARGUMENT );
+    pass.clearFlags = render::R_CLEAR_DEPTH;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    GLint drawBuffer = -1;
+    GLint readBuffer = -1;
+    glGetIntegerv( GL_DRAW_BUFFER0, &drawBuffer );
+    glGetIntegerv( GL_READ_BUFFER, &readBuffer );
+    CHECK( drawBuffer == GL_NONE );
+    CHECK( readBuffer == GL_NONE );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    draw.pipeline = depthOnlyPipeline;
+    draw.sampledTextures[0] = {};
+    draw.firstIndex = 0u;
+    draw.indexCount = 3u;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    draw.pipeline = depthSamplePipeline;
+    draw.sampledTextures[0] = depthOnlyTexture;
+    CHECK( render::R_DrawIndexed( draw ) == render::render_error_t::ERR_COMMAND_STATE_INVALID );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    const auto beforeDepthOnlySample = readPresentation( sampleRightX, sampleY );
+    CHECK( beforeDepthOnlySample[2] >= 240u );
+    draw.firstIndex = 3u;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    const auto depthOnlyNear = readPresentation( sampleRightX, sampleY );
+    const auto depthOnlyFar = readPresentation( 1, 1 );
+    CHECK( depthOnlyNear[0] >= 110u );
+    CHECK( depthOnlyNear[0] <= 145u );
+    CHECK( depthOnlyNear[1] >= 110u );
+    CHECK( depthOnlyNear[1] <= 145u );
+    CHECK( depthOnlyFar[0] >= 240u );
+    CHECK( depthOnlyFar[1] >= 240u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
     REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyRenderTarget( depthOnlyTarget ) == render::render_error_t::OK );
     CHECK( render::R_IsTextureValid( color ) );
     CHECK( render::R_IsTextureValid( depth ) );
     REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depthOnlyTexture ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( solidPipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( samplePipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( depthSamplePipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( depthOnlyPipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( vb ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( ib ) == render::render_error_t::OK );

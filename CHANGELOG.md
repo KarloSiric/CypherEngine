@@ -25,6 +25,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- A D24 depth texture can now form an offscreen target without a color
+  attachment. The target derives its extent from depth and routes OpenGL draw
+  and read color buffers to `GL_NONE`. Depth-only passes reject color clears;
+  callers explicitly request `R_CLEAR_DEPTH`. Color-only targets keep their
+  private D24 renderbuffer, and color-plus-depth targets still work. The depth
+  texture remains sampleable after its pass; shadow comparison and pass
+  scheduling are still caller responsibilities.
 - Offscreen targets can retain an optional caller-owned, GPU-only D24 depth
   texture alongside their required linear RGBA8 color texture. With no depth
   texture they keep the existing private D24 renderbuffer. Both attachments
@@ -110,6 +117,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Advanced the public renderer API to version 11 and private backend contract
+  to version 18 for colorless depth targets. Both frontend and OpenGL backend
+  validate the presence of at least one attachment. Target creation and
+  shutdown retain and release only the attachments actually supplied.
 - Advanced the public renderer API to version 10 and private backend contract
   to version 17 for texture format and optional target depth attachment fields.
   Target creation retains both attachments and rolls back their references on
@@ -152,6 +163,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Rebuilt the renderer, Host, resource-runtime, and cube targets in the existing
+  `build-mason` tree. All eleven selected renderer/Host CTests passed. Native
+  and hosted OpenGL smokes passed 577 and 197 assertions; native pixels read
+  about 0.5 drawn depth against a 1.0 clear from a depth-only target. Hosted
+  checks covered `GL_NONE` buffer routing and restoration of the host's draw
+  and read framebuffer state. Target tests passed 159 assertions in seven
+  cases, and the cube rendered two hidden frames.
 - Rebuilt the focused renderer, Host, resource-runtime, and cube targets in
   the existing `build-mason` tree. All eleven selected renderer/Host CTests
   passed; native and hosted OpenGL smokes passed 549 and 184 assertions. The
