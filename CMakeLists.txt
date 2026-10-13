@@ -670,6 +670,18 @@ target_link_libraries(CypherRenderResourceRuntime
         Cypher::RenderFormats
 )
 
+# Optional cooked-material adoption layer. Renderer stays independent of VFS,
+# resource-manager ownership, and serialized dependency paths.
+add_library(CypherRenderMaterialRuntime STATIC
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/Runtime/CypherRender_MaterialBridge.cpp"
+)
+add_library(Cypher::RenderMaterialRuntime ALIAS CypherRenderMaterialRuntime)
+target_compile_features(CypherRenderMaterialRuntime PUBLIC cxx_std_20)
+target_include_directories(CypherRenderMaterialRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
+target_link_libraries(CypherRenderMaterialRuntime
+    PUBLIC Cypher::RenderResourceRuntime Cypher::Render
+)
+
 add_library(CypherPak STATIC ${CYPHER_PAK_SOURCES})
 add_library(Cypher::Pak ALIAS CypherPak)
 target_compile_features(CypherPak PUBLIC cxx_std_20)
@@ -1778,6 +1790,11 @@ if (CYPHERENGINE_BUILD_TESTS)
         )
         target_link_libraries(cypher_render_resource_texture_bridge_tests
             PRIVATE Cypher::RenderResourceRuntime)
+        cypher_add_common_catch_test(
+            cypher_render_material_bridge_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_MaterialBridge_Tests.cpp"
+            Cypher::RenderMaterialRuntime
+        )
         cypher_add_common_catch_test(
             cypher_common_render_preview_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/CypherCommon_RenderPreview_Tests.cpp"

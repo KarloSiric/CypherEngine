@@ -98,9 +98,10 @@ retains the other. The OpenGL 4.1 backend binds an explicit sampler object on
 the corresponding texture unit, or binds sampler zero for the legacy policy.
 Hosted frames restore the host's sampler bindings for both used units.
 
-This is a binding contract, not yet a material system. Cooked material loading,
-anisotropy, arrays, cubemaps, storage buffers, ordinary
-uniforms, more than two slots, and reusable draw queues remain separate work.
+This is a binding contract, not a general material system. A narrow cooked
+material adoption layer is described below. Anisotropy, arrays, cubemaps,
+storage buffers, ordinary uniforms, more than two slots, and reusable draw
+queues remain separate work.
 The hosted frame preserves both slots of borrowed OpenGL texture, sampler, and
 indexed uniform-buffer state. It currently queries this state each frame; its
 effect on editor frame time still needs measurement.
@@ -130,4 +131,38 @@ using compression, streaming, an incomplete multi-level chain, 3D storage,
 or another pixel format returns `ERR_RESOURCE_FORMAT_UNSUPPORTED`. Invalid
 or modified views and file bytes return `ERR_INVALID_ARGUMENT`. A backend
 without authored-level upload returns `ERR_UNSUPPORTED`. Cooked material
-binding and broader texture format support remain separate work.
+General cooked material binding and broader texture format support remain
+separate work.
+
+## Adopting a cooked material subset
+
+`Cypher::RenderMaterialRuntime` sits above the renderer and resource loader. A
+caller passes a normalized cooked `.cymat_c` path, a vertex layout, and any
+shader uniform-block declarations to `R_CreateCookedMaterialBundle`. The bridge
+acquires the CYMT material and its referenced CYSH/CYTX files through
+`CypherResource`, compares the material's interface hash with the shader's CYSH
+V3 identity, and validates each texture name and logical binding ID. It loads
+all dependencies before creating GPU objects. Creation then builds a shader,
+textures, and a pipeline, releases the CPU resource handles, and publishes one
+caller-owned bundle. `R_ApplyCookedMaterialBundleToDraw` copies its pipeline and
+texture slots into a draw record; the caller still supplies geometry, uniform
+buffers, and frame state. `R_DestroyCookedMaterialBundle` releases the pipeline
+before its shader, followed by independent textures.
+
+This first bridge accepts only CYMT V2 opaque surface materials with the
+default empty feature variant, no value parameters, no named surface, identity
+UV0, and no authored sampler preset. It supports zero to two 2D color RGBA8
+textures (linear or sRGB) that the existing texture-adoption path can upload.
+All shader resource bindings must fit those texture slots or the caller's
+declared uniform blocks. A two-sided material disables back-face culling; its
+shadow flags remain metadata for a later scene/pass scheduler. Unsupported
+material data returns `MATERIAL_UNSUPPORTED` instead of being dropped. A
+shader hash or binding mismatch returns `SHADER_INTERFACE_MISMATCH` before any
+GPU object is created.
+
+If GPU creation fails, the bridge unwinds the objects it created and normally
+leaves the output empty. If a backend destruction call itself fails, it returns
+`CLEANUP_FAILED` with the still-live handles in the bundle so the caller can
+retry destruction before renderer shutdown. This is synchronous adoption, not
+a cache, material hot reload, asset dependency residency manager, or complete
+CYMT feature implementation.

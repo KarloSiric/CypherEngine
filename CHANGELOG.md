@@ -25,6 +25,17 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- A separate `CypherRenderMaterialRuntime` bridge now adopts a limited CYMT V2
+  material into caller-owned shader, pipeline, and zero to two texture handles.
+  It checks the CYSH V3 interface hash and binding identities, acquires all
+  cooked dependencies before GPU creation, and releases CPU resource handles
+  after synchronous upload. Opaque/default-variant materials with identity UVs
+  and no value parameters or sampler presets are supported; two-sided state
+  controls culling. GPU failure rolls back, with still-live handles returned
+  for retry if backend cleanup fails. Focused VFS/fake-backend tests passed,
+  including missing dependencies and cleanup failure. General CYMT variants,
+  constants, samplers, more than two textures, and scene material scheduling
+  remain unimplemented.
 - Renderer shader-info snapshots now retain the validated cooked shader's
   CYSH V3 logical `interfaceHash` after the borrowed view is released. Older
   cooked views keep the zero hash. The public renderer contract is version 16;
