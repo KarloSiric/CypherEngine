@@ -318,16 +318,32 @@ render_error_t GL_DrawIndexed(
     GL_SetCapability( GL_CULL_FACE, pipeline->cullBackFaces );
     glCullFace( GL_BACK );
     glFrontFace( pipeline->frontCounterClockwise ? GL_CCW : GL_CW );
-    GL_SetCapability( GL_BLEND, pipeline->alphaBlend );
+    // A host may use other MRT attachments with independent blend and write
+    // state. Our current pipeline writes only color output zero, so hosted
+    // draws change only that indexed slot.
+    if ( glState.usesHostSurface ) {
+        if ( pipeline->alphaBlend ) glEnablei( GL_BLEND, 0u );
+        else glDisablei( GL_BLEND, 0u );
+    } else {
+        GL_SetCapability( GL_BLEND, pipeline->alphaBlend );
+    }
     glLineWidth( 1.0f );
-    glBlendEquationSeparate( GL_FUNC_ADD, GL_FUNC_ADD );
-    glBlendFuncSeparate( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA );
+    if ( glState.usesHostSurface ) {
+        glBlendEquationSeparatei( 0u, GL_FUNC_ADD, GL_FUNC_ADD );
+        glBlendFuncSeparatei( 0u, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
+            GL_ONE, GL_ONE_MINUS_SRC_ALPHA );
+    } else {
+        glBlendEquationSeparate( GL_FUNC_ADD, GL_FUNC_ADD );
+        glBlendFuncSeparate( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
+            GL_ONE, GL_ONE_MINUS_SRC_ALPHA );
+    }
     glDisable( GL_STENCIL_TEST );
     glDisable( GL_PRIMITIVE_RESTART );
     glDisable( GL_RASTERIZER_DISCARD );
     glDisable( GL_POLYGON_OFFSET_FILL );
     glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
-    glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+    if ( glState.usesHostSurface ) glColorMaski( 0u, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+    else glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
     glUseProgram( pipeline->program );
     if ( pipeline->sampledTextureLocation >= 0 ) {
         glActiveTexture( GL_TEXTURE0 );

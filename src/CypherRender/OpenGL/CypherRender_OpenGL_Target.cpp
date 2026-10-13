@@ -215,16 +215,30 @@ render_error_t GL_BeginTargetPass( const backend_target_pass_desc_t &description
             static_cast<GLuint>( glState.presentationDrawFramebuffer ) );
         glBindFramebuffer( GL_READ_FRAMEBUFFER,
             static_cast<GLuint>( glState.presentationReadFramebuffer ) );
-        glViewport( glState.presentationViewport[0], glState.presentationViewport[1],
-            glState.presentationViewport[2], glState.presentationViewport[3] );
+        if ( glState.usesHostSurface ) {
+            glViewportIndexedfv( 0u, glState.presentationViewport );
+        } else {
+            glViewport( static_cast<GLint>( glState.presentationViewport[0] ),
+                static_cast<GLint>( glState.presentationViewport[1] ),
+                static_cast<GLsizei>( glState.presentationViewport[2] ),
+                static_cast<GLsizei>( glState.presentationViewport[3] ) );
+        }
         (void)GL_CheckErrors( glState.config.validation );
         return result;
     }
-    glViewport( 0, 0, static_cast<GLsizei>( record->extent.width ),
-        static_cast<GLsizei>( record->extent.height ) );
-    glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+    if ( glState.usesHostSurface ) {
+        glViewportIndexedf( 0u, 0.0f, 0.0f,
+            static_cast<GLfloat>( record->extent.width ),
+            static_cast<GLfloat>( record->extent.height ) );
+        glColorMaski( 0u, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+        glDisablei( GL_SCISSOR_TEST, 0u );
+    } else {
+        glViewport( 0, 0, static_cast<GLsizei>( record->extent.width ),
+            static_cast<GLsizei>( record->extent.height ) );
+        glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+        glDisable( GL_SCISSOR_TEST );
+    }
     glDepthMask( GL_TRUE );
-    glDisable( GL_SCISSOR_TEST );
     GLbitfield clearMask = 0u;
     if ( ( description.clearFlags & R_CLEAR_COLOR ) != 0u ) {
         glClearColor( description.clearColor.red, description.clearColor.green,
@@ -242,8 +256,14 @@ render_error_t GL_BeginTargetPass( const backend_target_pass_desc_t &description
             static_cast<GLuint>( glState.presentationDrawFramebuffer ) );
         glBindFramebuffer( GL_READ_FRAMEBUFFER,
             static_cast<GLuint>( glState.presentationReadFramebuffer ) );
-        glViewport( glState.presentationViewport[0], glState.presentationViewport[1],
-            glState.presentationViewport[2], glState.presentationViewport[3] );
+        if ( glState.usesHostSurface ) {
+            glViewportIndexedfv( 0u, glState.presentationViewport );
+        } else {
+            glViewport( static_cast<GLint>( glState.presentationViewport[0] ),
+                static_cast<GLint>( glState.presentationViewport[1] ),
+                static_cast<GLsizei>( glState.presentationViewport[2] ),
+                static_cast<GLsizei>( glState.presentationViewport[3] ) );
+        }
         (void)GL_CheckErrors( glState.config.validation );
         return result;
     }
@@ -264,8 +284,14 @@ render_error_t GL_EndTargetPass( void *backendState ) noexcept
         static_cast<GLuint>( glState.presentationDrawFramebuffer ) );
     glBindFramebuffer( GL_READ_FRAMEBUFFER,
         static_cast<GLuint>( glState.presentationReadFramebuffer ) );
-    glViewport( glState.presentationViewport[0], glState.presentationViewport[1],
-        glState.presentationViewport[2], glState.presentationViewport[3] );
+    if ( glState.usesHostSurface ) {
+        glViewportIndexedfv( 0u, glState.presentationViewport );
+    } else {
+        glViewport( static_cast<GLint>( glState.presentationViewport[0] ),
+            static_cast<GLint>( glState.presentationViewport[1] ),
+            static_cast<GLsizei>( glState.presentationViewport[2] ),
+            static_cast<GLsizei>( glState.presentationViewport[3] ) );
+    }
     const render_error_t result = GL_CheckErrors( glState.config.validation );
     // The frontend ends this pass even when restoration reports an error.
     // Keep backend frame state aligned so the caller can still close the frame.

@@ -25,6 +25,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Hosted OpenGL frames now save and restore the borrowed context's framebuffer,
+  viewport, fixed draw state, program, vertex input, texture/sampler bindings,
+  and uniform-buffer bindings. A failed frame start restores any captured state;
+  hosted resize records the new extent without changing Qt's live GL viewport.
+  The host must present exactly one active color draw buffer, matching the
+  current single-color shader output contract.
 - Indexed line-list drawing through the existing OpenGL 4.1 pipeline and draw
   path. Pipelines choose triangle or line topology; line draws consume index
   pairs and can use the same vertex buffers, depth state, blending, and
@@ -76,6 +82,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Rebuilt the affected renderer and Host tests in the existing `build-mason`
+  tree; all ten selected CTests passed. The native hosted OpenGL smoke ran 145
+  assertions, including a sampled offscreen pass, exact host-state restoration,
+  and rejection of a two-color host framebuffer before its contents changed.
+  Hosted frames currently query roughly 45 GL state values for correctness;
+  the M1 editor viewport cost and actual Mason integration remain unmeasured.
 - Rebuilt six relevant renderer, hosted-context, and Host targets in the
   existing `build-mason` tree; all six selected CTest entries passed. The
   local OpenGL smoke ran 260 assertions, including a green indexed line over

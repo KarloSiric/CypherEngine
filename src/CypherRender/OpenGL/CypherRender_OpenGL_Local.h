@@ -42,6 +42,58 @@ sees the opaque pointer stored in backend_api_t and never depends on this layout
 
 inline constexpr ::cypher::common::usize GL_STRING_CAPACITY = 256u;
 
+// The host lends a live GL context. A frame may clear or draw in it, but must
+// return every state item changed by this backend before control returns to
+// the host. Hosted draws use indexed slot zero so the other draw buffers and
+// viewports remain untouched; standalone draws retain their prior behavior.
+struct gl_host_draw_buffer_state_t {
+    GLboolean blend{ GL_FALSE };
+    GLboolean colorMask[4]{ GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE };
+    GLint blendEquationRGB{ GL_FUNC_ADD };
+    GLint blendEquationAlpha{ GL_FUNC_ADD };
+    GLint blendSourceRGB{ GL_ONE };
+    GLint blendDestinationRGB{ GL_ZERO };
+    GLint blendSourceAlpha{ GL_ONE };
+    GLint blendDestinationAlpha{ GL_ZERO };
+};
+
+struct gl_host_frame_state_t {
+    gl_host_draw_buffer_state_t drawBuffer0{};
+    GLint drawFramebuffer{ 0 };
+    GLint readFramebuffer{ 0 };
+    GLfloat viewport[4]{};
+    GLint program{ 0 };
+    GLint vertexArray{ 0 };
+    GLint activeTexture{ GL_TEXTURE0 };
+    GLint texture2DUnit0{ 0 };
+    GLint samplerUnit0{ 0 };
+    GLint uniformBuffer{ 0 };       // Generic target, changed by BindBufferBase.
+    GLint uniformBufferIndex0{ 0 }; // Indexed binding, with its range below.
+    GLint64 uniformBufferStart0{ 0 };
+    GLint64 uniformBufferSize0{ 0 };
+    GLint depthFunction{ GL_LESS };
+    GLint cullFaceMode{ GL_BACK };
+    GLint frontFace{ GL_CCW };
+    GLint polygonMode[2]{ GL_FILL, GL_FILL };
+    GLint stencilWriteMaskFront{ 0 };
+    GLint stencilWriteMaskBack{ 0 };
+    GLint clearStencil{ 0 };
+    GLfloat lineWidth{ 1.0f };
+    GLfloat clearColor[4]{};
+    GLdouble clearDepth{ 1.0 };
+    GLboolean depthWriteMask{ GL_TRUE };
+    GLboolean scissorTest{ GL_FALSE };
+    GLboolean depthTest{ GL_FALSE };
+    GLboolean cullFace{ GL_FALSE };
+    GLboolean stencilTest{ GL_FALSE };
+    GLboolean primitiveRestart{ GL_FALSE };
+    GLboolean rasterizerDiscard{ GL_FALSE };
+    GLboolean polygonOffsetFill{ GL_FALSE };
+    GLboolean framebufferSRGB{ GL_FALSE };
+    GLboolean multisample{ GL_FALSE };
+    bool captured{ false };
+};
+
 struct gl_state_t {
     ::cypher::engine::sys::window_t *window{ nullptr }; // Borrowed Host-owned presentation window.
     ::cypher::engine::sys::gl_context_t context{};      // Native context owned by this backend.
@@ -61,7 +113,8 @@ struct gl_state_t {
     // assumed default framebuffer.
     GLint presentationDrawFramebuffer{ 0 };
     GLint presentationReadFramebuffer{ 0 };
-    GLint presentationViewport[4]{};
+    GLfloat presentationViewport[4]{};
+    gl_host_frame_state_t hostFrameState{}; // Valid only while a hosted frame is active.
 
     char apiName[GL_STRING_CAPACITY]{};                 // Stable strings borrowed by render_info_t.
     char deviceName[GL_STRING_CAPACITY]{};

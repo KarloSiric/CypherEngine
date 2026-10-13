@@ -39,7 +39,23 @@ context is current.
 `QOpenGLWidget` renders into a Qt-owned framebuffer object, not necessarily
 framebuffer zero. Qt may replace that object after a resize. The host must bind
 `defaultFramebufferObject()` from `PrepareFrame` on every frame; it must not
-cache the framebuffer name.
+cache the framebuffer name. The current renderer writes one fragment color, so
+the prepared framebuffer must have one active color draw buffer in slot zero
+and no active higher draw buffers. `R_BeginFrame` rejects any other layout before
+clearing or drawing.
+
+The OpenGL backend captures the host's relevant state after `PrepareFrame` and
+restores it when a valid `R_EndFrame` closes the frame (or after a failed frame
+start that had captured state). That includes the separate draw/read framebuffer
+bindings, viewport,
+pipeline state, program, vertex input, uniform-buffer binding, and texture unit
+zero. It also leaves hosted `R_Resize` from changing the active GL viewport.
+This correctness path queries approximately 45 state values per hosted frame;
+measure its cost in the Mason widget before choosing a more explicit state
+handoff. A pre-existing host GL error causes frame capture to fail because GL
+error flags cannot be queried without consuming them. Resource creation and
+destruction outside a frame are separate calls; this frame boundary does not
+establish a general state-preservation guarantee for them.
 
 ## Minimal `QOpenGLWidget` adapter
 

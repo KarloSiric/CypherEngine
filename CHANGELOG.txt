@@ -24,6 +24,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Hosted OpenGL frames restore the host's framebuffer, viewport, fixed draw
+  state, program, vertex input, texture/sampler and uniform-buffer bindings.
+  A failed frame start restores captured state; hosted resize no longer changes
+  the live viewport. The host must provide exactly one active color draw buffer.
 - Indexed OpenGL 4.1 line lists use the existing pipeline, draw and instancing
   path. Line draws consume index pairs and share vertex/depth/blend state with
   triangles. This is a one-pixel GPU primitive for grids and wireframes; the
@@ -61,6 +65,11 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Rebuilt affected renderer and Host tests in the existing build-mason tree;
+  all ten selected CTests passed. Native hosted OpenGL smoke ran 145 assertions,
+  including offscreen sampling, exact state restoration and rejection of an
+  MRT host framebuffer before its contents changed. Hosted state capture makes
+  roughly 45 GL queries per frame; M1 editor cost and Mason wiring remain open.
 - Rebuilt six renderer, hosted-context and Host targets in build-mason. All
   six selected CTests passed. The local OpenGL smoke ran 260 assertions,
   including a visible green line over a blue clear; draw tests cover topology

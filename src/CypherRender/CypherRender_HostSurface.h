@@ -46,6 +46,12 @@ frame; Qt hosts use it to restore the QOpenGLWidget framebuffer. Present is
 optional because widgets normally composite after paintGL returns. When Present
 is absent, R_EndFrame flushes commands and leaves presentation to the host.
 
+For the OpenGL backend, PrepareFrame must leave a framebuffer bound for drawing
+with one active color draw buffer at slot zero and GL_NONE in every higher draw
+buffer slot. R_BeginFrame rejects other layouts before changing host GL state;
+the current draw contract emits only one fragment color. The host retains
+ownership of its framebuffer and all borrowed context state.
+
 ===============================================================================
 */
 using render_host_proc_t = void ( * )( void );

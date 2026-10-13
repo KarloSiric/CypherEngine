@@ -76,6 +76,170 @@ bool GL_PrepareFrameTarget() noexcept
             glState.hostSurface.userData );
 }
 
+// The current renderer emits one fragment color. If a host FBO routes other
+// fragment outputs to active draw buffers, those attachments could receive
+// undefined values even though our indexed blend/write state touches slot 0.
+render_error_t GL_ValidateHostDrawBuffers() noexcept
+{
+    if ( glState.limits.maxDrawBuffers == 0u ) {
+        return render_error_t::ERR_RENDER_TARGET_INVALID;
+    }
+    bool hasExactlyOneColorOutput = true;
+    for ( ::cypher::common::u32 index = 0u;
+          index < glState.limits.maxDrawBuffers; ++index ) {
+        GLint drawBuffer = GL_NONE;
+        glGetIntegerv( static_cast<GLenum>( GL_DRAW_BUFFER0 + index ),
+            &drawBuffer );
+        if ( index == 0u ) hasExactlyOneColorOutput &= drawBuffer != GL_NONE;
+        else hasExactlyOneColorOutput &= drawBuffer == GL_NONE;
+    }
+    const render_error_t queryResult = GL_CheckErrors( glState.config.validation );
+    if ( queryResult != render_error_t::OK ) return queryResult;
+    return hasExactlyOneColorOutput
+        ? render_error_t::OK
+        : render_error_t::ERR_RENDER_TARGET_INVALID;
+}
+
+void GL_SetEnabled( const GLenum capability, const GLboolean enabled ) noexcept
+{
+    if ( enabled == GL_TRUE ) glEnable( capability );
+    else glDisable( capability );
+}
+
+void GL_SetIndexedEnabled(
+    const GLenum capability, const GLuint index, const GLboolean enabled ) noexcept
+{
+    if ( enabled == GL_TRUE ) glEnablei( capability, index );
+    else glDisablei( capability, index );
+}
+
+// All queries are limited to state the hosted frame, indexed slot-zero draw,
+// and target pass actually modify. Other viewport/draw-buffer slots remain
+// owned by the host and are never touched by those paths.
+render_error_t GL_CaptureHostFrameState( gl_host_frame_state_t &state ) noexcept
+{
+    glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &state.drawFramebuffer );
+    glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &state.readFramebuffer );
+    glGetFloati_v( GL_VIEWPORT, 0u, state.viewport );
+    glGetIntegerv( GL_CURRENT_PROGRAM, &state.program );
+    glGetIntegerv( GL_VERTEX_ARRAY_BINDING, &state.vertexArray );
+    glGetIntegerv( GL_ACTIVE_TEXTURE, &state.activeTexture );
+    glActiveTexture( GL_TEXTURE0 );
+    glGetIntegerv( GL_TEXTURE_BINDING_2D, &state.texture2DUnit0 );
+    glGetIntegerv( GL_SAMPLER_BINDING, &state.samplerUnit0 );
+    glActiveTexture( static_cast<GLenum>( state.activeTexture ) );
+    glGetIntegerv( GL_UNIFORM_BUFFER_BINDING, &state.uniformBuffer );
+    glGetIntegeri_v( GL_UNIFORM_BUFFER_BINDING, 0u, &state.uniformBufferIndex0 );
+    glGetInteger64i_v( GL_UNIFORM_BUFFER_START, 0u, &state.uniformBufferStart0 );
+    glGetInteger64i_v( GL_UNIFORM_BUFFER_SIZE, 0u, &state.uniformBufferSize0 );
+
+    glGetIntegerv( GL_DEPTH_FUNC, &state.depthFunction );
+    glGetIntegerv( GL_CULL_FACE_MODE, &state.cullFaceMode );
+    glGetIntegerv( GL_FRONT_FACE, &state.frontFace );
+    glGetIntegerv( GL_POLYGON_MODE, state.polygonMode );
+    glGetIntegerv( GL_STENCIL_WRITEMASK, &state.stencilWriteMaskFront );
+    glGetIntegerv( GL_STENCIL_BACK_WRITEMASK, &state.stencilWriteMaskBack );
+    glGetIntegerv( GL_STENCIL_CLEAR_VALUE, &state.clearStencil );
+    glGetFloatv( GL_LINE_WIDTH, &state.lineWidth );
+    glGetFloatv( GL_COLOR_CLEAR_VALUE, state.clearColor );
+    glGetDoublev( GL_DEPTH_CLEAR_VALUE, &state.clearDepth );
+    glGetBooleanv( GL_DEPTH_WRITEMASK, &state.depthWriteMask );
+
+    state.scissorTest = glIsEnabledi( GL_SCISSOR_TEST, 0u );
+    state.depthTest = glIsEnabled( GL_DEPTH_TEST );
+    state.cullFace = glIsEnabled( GL_CULL_FACE );
+    state.stencilTest = glIsEnabled( GL_STENCIL_TEST );
+    state.primitiveRestart = glIsEnabled( GL_PRIMITIVE_RESTART );
+    state.rasterizerDiscard = glIsEnabled( GL_RASTERIZER_DISCARD );
+    state.polygonOffsetFill = glIsEnabled( GL_POLYGON_OFFSET_FILL );
+    state.framebufferSRGB = glIsEnabled( GL_FRAMEBUFFER_SRGB );
+    state.multisample = glIsEnabled( GL_MULTISAMPLE );
+
+    gl_host_draw_buffer_state_t &draw = state.drawBuffer0;
+    draw.blend = glIsEnabledi( GL_BLEND, 0u );
+    glGetBooleani_v( GL_COLOR_WRITEMASK, 0u, draw.colorMask );
+    glGetIntegeri_v( GL_BLEND_EQUATION_RGB, 0u, &draw.blendEquationRGB );
+    glGetIntegeri_v( GL_BLEND_EQUATION_ALPHA, 0u, &draw.blendEquationAlpha );
+    glGetIntegeri_v( GL_BLEND_SRC_RGB, 0u, &draw.blendSourceRGB );
+    glGetIntegeri_v( GL_BLEND_DST_RGB, 0u, &draw.blendDestinationRGB );
+    glGetIntegeri_v( GL_BLEND_SRC_ALPHA, 0u, &draw.blendSourceAlpha );
+    glGetIntegeri_v( GL_BLEND_DST_ALPHA, 0u, &draw.blendDestinationAlpha );
+    const render_error_t result = GL_CheckErrors( glState.config.validation );
+    if ( result != render_error_t::OK ) {
+        // A failed query cannot produce a trustworthy snapshot. No frame
+        // state has been changed yet, and the active texture was put back.
+        state = {};
+        return result;
+    }
+    state.captured = true;
+    return render_error_t::OK;
+}
+
+render_error_t GL_RestoreHostFrameState( gl_host_frame_state_t &state ) noexcept
+{
+    if ( !state.captured ) return render_error_t::OK;
+
+    glBindFramebuffer( GL_DRAW_FRAMEBUFFER, static_cast<GLuint>( state.drawFramebuffer ) );
+    glBindFramebuffer( GL_READ_FRAMEBUFFER, static_cast<GLuint>( state.readFramebuffer ) );
+    glViewportIndexedfv( 0u, state.viewport );
+    GL_SetIndexedEnabled( GL_SCISSOR_TEST, 0u, state.scissorTest );
+    glColorMaski( 0u, state.drawBuffer0.colorMask[0], state.drawBuffer0.colorMask[1],
+        state.drawBuffer0.colorMask[2], state.drawBuffer0.colorMask[3] );
+    glDepthMask( state.depthWriteMask );
+    glStencilMaskSeparate( GL_FRONT, static_cast<GLuint>( state.stencilWriteMaskFront ) );
+    glStencilMaskSeparate( GL_BACK, static_cast<GLuint>( state.stencilWriteMaskBack ) );
+    glClearColor( state.clearColor[0], state.clearColor[1],
+        state.clearColor[2], state.clearColor[3] );
+    glClearDepth( state.clearDepth );
+    glClearStencil( state.clearStencil );
+
+    GL_SetEnabled( GL_DEPTH_TEST, state.depthTest );
+    glDepthFunc( static_cast<GLenum>( state.depthFunction ) );
+    GL_SetEnabled( GL_CULL_FACE, state.cullFace );
+    glCullFace( static_cast<GLenum>( state.cullFaceMode ) );
+    glFrontFace( static_cast<GLenum>( state.frontFace ) );
+    GL_SetIndexedEnabled( GL_BLEND, 0u, state.drawBuffer0.blend );
+    glBlendEquationSeparatei( 0u,
+        static_cast<GLenum>( state.drawBuffer0.blendEquationRGB ),
+        static_cast<GLenum>( state.drawBuffer0.blendEquationAlpha ) );
+    glBlendFuncSeparatei( 0u,
+        static_cast<GLenum>( state.drawBuffer0.blendSourceRGB ),
+        static_cast<GLenum>( state.drawBuffer0.blendDestinationRGB ),
+        static_cast<GLenum>( state.drawBuffer0.blendSourceAlpha ),
+        static_cast<GLenum>( state.drawBuffer0.blendDestinationAlpha ) );
+    glLineWidth( state.lineWidth );
+    GL_SetEnabled( GL_STENCIL_TEST, state.stencilTest );
+    GL_SetEnabled( GL_PRIMITIVE_RESTART, state.primitiveRestart );
+    GL_SetEnabled( GL_RASTERIZER_DISCARD, state.rasterizerDiscard );
+    GL_SetEnabled( GL_POLYGON_OFFSET_FILL, state.polygonOffsetFill );
+    // Core profile accepts only FRONT_AND_BACK; both captured values are the
+    // same mode for the portable OpenGL 4.1 renderer.
+    glPolygonMode( GL_FRONT_AND_BACK,
+        static_cast<GLenum>( state.polygonMode[0] ) );
+    GL_SetEnabled( GL_FRAMEBUFFER_SRGB, state.framebufferSRGB );
+    GL_SetEnabled( GL_MULTISAMPLE, state.multisample );
+
+    glUseProgram( static_cast<GLuint>( state.program ) );
+    glBindVertexArray( static_cast<GLuint>( state.vertexArray ) );
+    glActiveTexture( GL_TEXTURE0 );
+    glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( state.texture2DUnit0 ) );
+    glBindSampler( 0u, static_cast<GLuint>( state.samplerUnit0 ) );
+    glActiveTexture( static_cast<GLenum>( state.activeTexture ) );
+    if ( state.uniformBufferIndex0 != 0 && state.uniformBufferSize0 > 0 ) {
+        glBindBufferRange( GL_UNIFORM_BUFFER, 0u,
+            static_cast<GLuint>( state.uniformBufferIndex0 ),
+            static_cast<GLintptr>( state.uniformBufferStart0 ),
+            static_cast<GLsizeiptr>( state.uniformBufferSize0 ) );
+    } else {
+        glBindBufferBase( GL_UNIFORM_BUFFER, 0u,
+            static_cast<GLuint>( state.uniformBufferIndex0 ) );
+    }
+    glBindBuffer( GL_UNIFORM_BUFFER, static_cast<GLuint>( state.uniformBuffer ) );
+
+    state.captured = false;
+    return GL_CheckErrors( glState.config.validation );
+}
+
 template <::cypher::common::usize Capacity>
 // Copies driver-owned strings because their lifetime ends with the GL context.
 bool GL_CopyDriverString(
@@ -550,15 +714,9 @@ render_error_t GL_InitHostSurface(
         return render_error_t::ERR_CAPABILITY_MISSING;
     }
 
-    glViewport(
-        0,
-        0,
-        static_cast<GLsizei>( surface.drawableExtent.width ),
-        static_cast<GLsizei>( surface.drawableExtent.height ) );
-    if ( surface.sRGBFramebuffer ) glEnable( GL_FRAMEBUFFER_SRGB );
-    else glDisable( GL_FRAMEBUFFER_SRGB );
-    if ( surface.sampleCount > 0u ) glEnable( GL_MULTISAMPLE );
-    else glDisable( GL_MULTISAMPLE );
+    // A borrowed context may be in the middle of the host's own render pass.
+    // Init verifies the advertised surface but leaves its viewport and fixed
+    // GL state alone; a hosted BeginFrame owns changes only for that frame.
     const render_error_t nativeResult = GL_CheckErrors( config.validation );
     if ( nativeResult != render_error_t::OK ) {
         glState = {};
@@ -641,29 +799,52 @@ render_error_t GL_BeginFrame(
         return render_error_t::ERR_PRESENT_TARGET_LOST;
     }
 
-    GL_ClearErrors();
+    if ( glState.usesHostSurface ) {
+        const render_error_t drawBufferResult = GL_ValidateHostDrawBuffers();
+        if ( drawBufferResult != render_error_t::OK ) return drawBufferResult;
+        // The host's PrepareFrame may select a nonzero presentation FBO. Its
+        // GL state is captured before we clear or draw anything in that context.
+        const render_error_t captureResult = GL_CaptureHostFrameState(
+            glState.hostFrameState );
+        if ( captureResult != render_error_t::OK ) return captureResult;
+    } else {
+        GL_ClearErrors();
+    }
     if ( !glState.usesHostSurface ) {
         // A standalone frame always presents the default framebuffer. A host
         // may instead have prepared an FBO with a nonzero native name.
         glBindFramebuffer( GL_FRAMEBUFFER, 0u );
     }
-    GLint presentationDraw = 0;
-    GLint presentationRead = 0;
-    glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &presentationDraw );
-    glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &presentationRead );
-    glViewport(
-        0,
-        0,
-        static_cast<GLsizei>( frameInfo.drawableExtent.width ),
-        static_cast<GLsizei>( frameInfo.drawableExtent.height ) );
+    GLint presentationDraw = glState.hostFrameState.drawFramebuffer;
+    GLint presentationRead = glState.hostFrameState.readFramebuffer;
+    if ( glState.usesHostSurface ) {
+        glViewportIndexedf( 0u, 0.0f, 0.0f,
+            static_cast<GLfloat>( frameInfo.drawableExtent.width ),
+            static_cast<GLfloat>( frameInfo.drawableExtent.height ) );
+        GL_SetEnabled( GL_FRAMEBUFFER_SRGB,
+            glState.config.sRGBFramebuffer ? GL_TRUE : GL_FALSE );
+        GL_SetEnabled( GL_MULTISAMPLE,
+            glState.config.sampleCount > 0u ? GL_TRUE : GL_FALSE );
+    } else {
+        glGetIntegerv( GL_DRAW_FRAMEBUFFER_BINDING, &presentationDraw );
+        glGetIntegerv( GL_READ_FRAMEBUFFER_BINDING, &presentationRead );
+        glViewport( 0, 0,
+            static_cast<GLsizei>( frameInfo.drawableExtent.width ),
+            static_cast<GLsizei>( frameInfo.drawableExtent.height ) );
+    }
 
     GLbitfield clearMask = 0u;
     // Clear operations honor write masks. A previous depth-read-only pipeline
     // must not prevent this frame from clearing its depth attachment.
-    glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+    if ( glState.usesHostSurface ) {
+        glColorMaski( 0u, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+        glDisablei( GL_SCISSOR_TEST, 0u );
+    } else {
+        glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+        glDisable( GL_SCISSOR_TEST );
+    }
     glDepthMask( GL_TRUE );
     glStencilMask( ~0u );
-    glDisable( GL_SCISSOR_TEST );
     if ( ( frameInfo.clearFlags & R_CLEAR_COLOR ) != 0u ) {
         glClearColor(
             frameInfo.clearColor.red,
@@ -680,14 +861,34 @@ render_error_t GL_BeginFrame(
         glClearStencil( static_cast<GLint>( frameInfo.clearStencil ) );
         clearMask |= GL_STENCIL_BUFFER_BIT;
     }
-    if ( clearMask != 0u ) {
+    if ( glState.usesHostSurface ) {
+        // glClear(GL_COLOR_BUFFER_BIT) broadcasts to every active host draw
+        // buffer. The renderer currently owns only color output zero.
+        if ( ( clearMask & GL_COLOR_BUFFER_BIT ) != 0u ) {
+            const GLfloat color[4]{ frameInfo.clearColor.red,
+                frameInfo.clearColor.green, frameInfo.clearColor.blue,
+                frameInfo.clearColor.alpha };
+            glClearBufferfv( GL_COLOR, 0, color );
+        }
+        if ( ( clearMask & GL_DEPTH_BUFFER_BIT ) != 0u ) {
+            const GLfloat depth = frameInfo.clearDepth;
+            glClearBufferfv( GL_DEPTH, 0, &depth );
+        }
+        if ( ( clearMask & GL_STENCIL_BUFFER_BIT ) != 0u ) {
+            const GLint stencil = static_cast<GLint>( frameInfo.clearStencil );
+            glClearBufferiv( GL_STENCIL, 0, &stencil );
+        }
+    } else if ( clearMask != 0u ) {
         glClear( clearMask );
     }
 
-    GLint presentationViewport[4]{};
-    glGetIntegerv( GL_VIEWPORT, presentationViewport );
+    GLfloat presentationViewport[4]{};
+    glGetFloati_v( GL_VIEWPORT, 0u, presentationViewport );
     const render_error_t nativeResult = GL_CheckErrors( glState.config.validation );
     if ( nativeResult != render_error_t::OK ) {
+        if ( glState.usesHostSurface ) {
+            (void)GL_RestoreHostFrameState( glState.hostFrameState );
+        }
         return nativeResult;
     }
 
@@ -725,6 +926,13 @@ render_error_t GL_Resize(
              std::numeric_limits<GLsizei>::max() ) ) {
         return render_error_t::ERR_RESIZE_FAILED;
     }
+    if ( glState.usesHostSurface ) {
+        // PrepareFrame will supply the actual presentation target and set the
+        // viewport when the next frame begins. A resize outside a frame must
+        // not leave the editor's live GL state changed.
+        glState.drawableExtent = drawableExtent;
+        return render_error_t::OK;
+    }
     if ( !GL_ActivateContext() ) {
         return render_error_t::ERR_CONTEXT_ACTIVATE_FAILED;
     }
@@ -756,6 +964,9 @@ render_error_t GL_EndFrame( void *backendState ) noexcept
     render_error_t nativeResult = GL_CheckErrors( glState.config.validation );
     bool presentSucceeded = true;
     if ( glState.usesHostSurface ) {
+        const render_error_t restoreResult = GL_RestoreHostFrameState(
+            glState.hostFrameState );
+        if ( nativeResult == render_error_t::OK ) nativeResult = restoreResult;
         if ( glState.hostSurface.Present != nullptr ) {
             presentSucceeded = glState.hostSurface.Present(
                 glState.hostSurface.userData );
