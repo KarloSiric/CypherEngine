@@ -24,6 +24,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Fixed
+- OpenGL draws disable inherited polygon line offset and line smoothing;
+  hosted frames restore both. The hosted smoke seeds those states and checks
+  both filled and wireframe draws plus restoration. Focused tests pass locally.
+- The draw-queue test uses a renderer-specific result alias instead of global
+  error_t, which collided with the Linux/POSIX typedef and broke Ubuntu Release
+  CI compilation. Its focused test builds and passes locally; published CI
+  validation follows this change.
 - Public CypherWorld headers now explicitly qualify engine-wide Common and
   Math types, so they compile after headers declaring the separate
   cypher::engine::common namespace. The World test covers that include order.
@@ -37,6 +44,13 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The visible-world cube sample now uses a 128-byte per-view block at uniform
+  slot 0 and aligned 80-byte per-object blocks at slot 1. View/projection are
+  updated once each frame; model/tint records are batched for visible objects
+  and both bindings are recorded in ordered draws. The compact build, four
+  focused renderer tests, shader cook and 120-frame hidden run (360 draws)
+  pass locally. This is a scope boundary, not a measured performance gain;
+  free camera input and a general view/material binding convention remain.
 - CypherRenderDrawQueueRuntime stores bounded, ordered copies of indexed draw
   descriptions and flushes them through the renderer's existing draw API in
   an active frame. It allocates once, rejects overflow without mutation,

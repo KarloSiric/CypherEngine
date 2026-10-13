@@ -124,11 +124,12 @@ mesh/material slots, with a token valid until the host ends the submission.
 They contain no OpenGL names or backend commands. Lights, terrain chunks, and
 environment values remain planned additions.
 
-The cube host currently resolves each logical slot, constructs a renderer draw
-description, appends it to an ordered fixed-capacity draw list, and flushes it
-through the validated immediate draw path. CypherRender remains independent of
-CypherWorld. Pass classification, sorting, batching, and a production asset
-resolver are later gates.
+The cube host currently resolves each logical slot, uploads one shared view
+record and a batch of visible-object records, constructs renderer draw
+descriptions with two uniform slots, appends them to an ordered fixed-capacity
+draw list, and flushes it through the validated immediate draw path.
+CypherRender remains independent of CypherWorld. Pass classification, sorting,
+batching, and a production asset resolver are later gates.
 
 The intended full consumer will eventually:
 

@@ -7,7 +7,7 @@
 //  Purpose: Demonstrates a visible-world-object public-renderer drawing path.
 //  Details: Loads a cooked shader through the loose-directory VFS, shares one
 //           indexed mesh, queries a small in-memory world, and uploads aligned
-//           transforms of its visible objects once per frame.
+//           per-view and per-object constants for visible objects each frame.
 //           No graphics-driver or native-window API crosses into this host.
 //
 //  This file is proprietary and confidential. See LICENSE for details.
@@ -97,17 +97,20 @@ constexpr common::u16 CUBE_INDICES[] = {
     16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23
 };
 
-// mat4_t is column-major. These byte offsets exactly match GLSL std140 mat4s.
-struct alignas( 16 ) cube_transforms_t {
-    math::mat4_t model;
+// mat4_t is column-major. The two structures match separate GLSL std140 blocks.
+struct alignas( 16 ) cube_view_constants_t {
     math::mat4_t view;
     math::mat4_t projection;
+};
+static_assert( sizeof( cube_view_constants_t ) == 128u );
+static_assert( offsetof( cube_view_constants_t, projection ) == 64u );
+
+struct alignas( 16 ) cube_object_constants_t {
+    math::mat4_t model;
     alignas( 16 ) float tint[4];
 };
-static_assert( sizeof( cube_transforms_t ) == 208u );
-static_assert( offsetof( cube_transforms_t, view ) == 64u );
-static_assert( offsetof( cube_transforms_t, projection ) == 128u );
-static_assert( offsetof( cube_transforms_t, tint ) == 192u );
+static_assert( sizeof( cube_object_constants_t ) == 80u );
+static_assert( offsetof( cube_object_constants_t, tint ) == 64u );
 
 struct cube_options_t {
     const char *shaderPath{ CYPHER_RENDER_CUBE_SHADER_PATH };
@@ -136,7 +139,8 @@ struct cube_state_t {
     render::render_shader_handle_t shader{};
     render::render_pipeline_handle_t pipeline{};
     render::render_static_mesh_bundle_t mesh{};
-    render::render_uniform_batch_t transforms{};
+    render::render_buffer_handle_t viewConstants{};
+    render::render_uniform_batch_t objectConstants{};
     render::render_draw_queue_t *pDrawQueue{ nullptr };
     world::world_t *pWorld{ nullptr };
     world::world_submission_t *pSubmission{ nullptr };
@@ -288,21 +292,31 @@ bool CreateCube( cube_state_t &state, const char *shaderPath )
     pipeline.cullBackFaces = true;
     pipeline.frontCounterClockwise = true;
     pipeline.alphaBlend = false;
-    pipeline.uniformBlockCount = 1u;
-    pipeline.uniformBlocks[0] = { "Transforms", sizeof( cube_transforms_t ) };
+    pipeline.uniformBlockCount = 2u;
+    pipeline.uniformBlocks[0] = { "ViewConstants", sizeof( cube_view_constants_t ) };
+    pipeline.uniformBlocks[1] = { "ObjectConstants", sizeof( cube_object_constants_t ) };
     pipeline.debugName = "Depth-tested cube pipeline";
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline, &state.pipeline ),
             "Create cube pipeline" ) ) return false;
+
+    render::render_buffer_desc_t viewBuffer{};
+    viewBuffer.byteSize = sizeof( cube_view_constants_t );
+    viewBuffer.usage = render::R_BUFFER_USAGE_UNIFORM;
+    viewBuffer.updatePolicy = render::render_buffer_update_t::STREAM;
+    viewBuffer.memory = render::render_buffer_memory_t::UPLOAD;
+    viewBuffer.debugName = "Cube view constants";
+    if ( !CheckRender( render::R_CreateBuffer( viewBuffer, nullptr,
+            &state.viewConstants ), "Create view constants" ) ) return false;
 
     const render::render_info_t *info = render::R_GetInfo();
     if ( info == nullptr || info->limits.uniformBufferOffsetAlignment == 0u ) return false;
     const common::u64 alignment = info->limits.uniformBufferOffsetAlignment;
     const common::u64 recordStride =
-        ( sizeof( cube_transforms_t ) + alignment - 1u ) / alignment * alignment;
+        ( sizeof( cube_object_constants_t ) + alignment - 1u ) / alignment * alignment;
     const common::u64 capacity =
-        ( CUBE_INSTANCE_COUNT - 1u ) * recordStride + sizeof( cube_transforms_t );
+        ( CUBE_INSTANCE_COUNT - 1u ) * recordStride + sizeof( cube_object_constants_t );
     if ( !CheckRender( render::R_CreateUniformBatch( capacity, nullptr,
-            &state.transforms ), "Create transform batch" ) ) return false;
+            &state.objectConstants ), "Create object constants batch" ) ) return false;
     return CheckRender( render::R_InitDrawQueue( &state.pDrawQueue,
         common::Allocator_GetSystem(), CUBE_INSTANCE_COUNT ),
         "Create cube draw queue" );
@@ -432,11 +446,17 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                  "Count visible cube objects" ) ) return false;
 
         if ( renderedFrames != 0u ) {
-            if ( !CheckRender( render::R_ResetUniformBatch( &state.transforms ),
-                     "Reset transform batch" ) ||
+            if ( !CheckRender( render::R_ResetUniformBatch( &state.objectConstants ),
+                     "Reset object constants batch" ) ||
                  !CheckRender( render::R_ResetDrawQueue( state.pDrawQueue ),
                      "Reset draw queue" ) ) return false;
         }
+        const cube_view_constants_t viewConstants{ view, projection };
+        const render::render_buffer_data_t viewData{ &viewConstants,
+            sizeof( viewConstants ) };
+        if ( !CheckRender( render::R_UpdateBuffer( state.viewConstants, 0u,
+                viewData ), "Upload view constants" ) ) return false;
+
         render::render_uniform_record_t records[CUBE_INSTANCE_COUNT]{};
         for ( common::u32 i = 0u; i < visibleCount; ++i ) {
             world::world_object_snapshot_t visible{};
@@ -448,29 +468,28 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                 std::fprintf( stderr, "Cube world returned an unresolved asset slot.\n" );
                 return false;
             }
-            cube_transforms_t transforms{};
-            transforms.model = math::Affine3_ToMat4( object.localToWorld );
-            transforms.view = view;
-            transforms.projection = projection;
-            std::memcpy( transforms.tint, CUBE_INSTANCES[object.materialSlot].tint,
-                sizeof( transforms.tint ) );
-            if ( !CheckRender( render::R_AppendUniformRecord( &state.transforms,
-                     &transforms, sizeof( transforms ), &records[i] ),
-                     "Stage object transforms" ) ) return false;
+            cube_object_constants_t constants{};
+            constants.model = math::Affine3_ToMat4( object.localToWorld );
+            std::memcpy( constants.tint, CUBE_INSTANCES[object.materialSlot].tint,
+                sizeof( constants.tint ) );
+            if ( !CheckRender( render::R_AppendUniformRecord( &state.objectConstants,
+                     &constants, sizeof( constants ), &records[i] ),
+                     "Stage object constants" ) ) return false;
         }
         if ( visibleCount != 0u && !CheckRender(
-                 render::R_CommitUniformBatch( &state.transforms ),
-                 "Upload visible object transforms" ) ) return false;
+                 render::R_CommitUniformBatch( &state.objectConstants ),
+                 "Upload visible object constants" ) ) return false;
 
         render::render_draw_indexed_desc_t draw{};
         draw.pipeline = state.pipeline;
+        draw.uniformBuffers[0] = state.viewConstants;
         if ( visibleCount != 0u && !CheckRender(
             render::R_ApplyStaticMeshBundleToDraw( state.mesh, &draw ),
             "Bind cube mesh" ) ) return false;
         for ( common::u32 i = 0u; i < visibleCount; ++i ) {
             if ( !CheckRender( render::R_ApplyUniformRecordToDraw(
-                     state.transforms, records[i], 0u, &draw ),
-                     "Bind object transforms" ) ||
+                     state.objectConstants, records[i], 1u, &draw ),
+                     "Bind object constants" ) ||
                  !CheckRender( render::R_AppendDrawQueue( state.pDrawQueue, draw ),
                      "Queue cube draw" ) ) return false;
         }
@@ -514,8 +533,12 @@ bool Shutdown( cube_state_t &state ) noexcept
             success = CheckRender( render::R_DestroyGraphicsPipeline( state.pipeline ),
                 "Destroy pipeline" ) && success;
         }
-        success = CheckRender( render::R_DestroyUniformBatch( &state.transforms ),
-            "Destroy transform batch" ) && success;
+        success = CheckRender( render::R_DestroyUniformBatch( &state.objectConstants ),
+            "Destroy object constants batch" ) && success;
+        if ( state.viewConstants.value != 0u ) {
+            success = CheckRender( render::R_DestroyBuffer( state.viewConstants ),
+                "Destroy view constants" ) && success;
+        }
         success = CheckRender( render::R_DestroyStaticMeshBundle( &state.mesh ),
             "Destroy cube mesh" ) && success;
         if ( state.shader.value != 0u ) {
@@ -553,7 +576,7 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
          !CheckRender( render::R_Init( state.window, config ), "Initialize renderer" ) ||
          !CreateCube( state, options.shaderPath ) ||
          !CreateWorld( state ) ) return false;
-    std::printf( "Cooked shader: %s\nOne 24-vertex mesh, %u world objects; visible objects share one transform upload per frame.\n",
+    std::printf( "Cooked shader: %s\nOne 24-vertex mesh, %u world objects; one view upload and one visible-object batch per frame.\n",
         options.shaderPath, CUBE_INSTANCE_COUNT );
     return RunFrames( state, options );
 }

@@ -82,7 +82,7 @@ public shader handle -> frontend record -> linked native program
 pipeline: program + vertex layout + depth/cull/blend policy
         |
         | World_QueryView -> copied, frame-scoped World submission
-        | one aligned uniform upload for accepted objects
+        | one view upload + one aligned object-record batch for accepted objects
         | R_BeginFrame -> ordered draw-list flush -> R_DrawIndexed -> R_EndFrame
         | WorldSubmission_End invalidates the view token
         v
@@ -110,22 +110,22 @@ position is shared with neighboring faces. Each vertex has this 32-byte layout:
 Six faces each use the index pattern `0, 1, 2, 0, 2, 3`, shifted to that face's
 four vertices. All 36 indices are unsigned 16-bit values, and every triangle is
 counterclockwise from outside the cube. The vertex and index buffers are
-immutable. A uniform batch uploads the visible transform records once each frame.
+immutable. The host uploads one view record and batches the visible objects'
+records each frame. The CPU structures match two GLSL std140 blocks:
 
-The CPU structure and the GLSL `Transforms` block contain three column-major
-matrices and a tint color, with std140-compatible offsets:
+| Block and slot | Field | Byte offset | Purpose |
+| --- | --- | --- | --- |
+| `ViewConstants`, 0 | `view` | 0 | Transform world positions into camera space. |
+| `ViewConstants`, 0 | `projection` | 64 | Project camera-space positions into clip space. |
+| `ObjectConstants`, 1 | `model` | 0 | Rotate and translate one cube from local space into world space. |
+| `ObjectConstants`, 1 | `tint` | 64 | Multiply the cube's face colors. |
 
-| Field | Byte offset | Purpose |
-| --- | --- | --- |
-| `model` | 0 | Rotate and translate one cube from local space into world space. |
-| `view` | 64 | Transform world positions into camera space. |
-| `projection` | 128 | Project camera-space positions into clip space. |
-| `tint` | 192 | Multiply the cube's face colors. |
-
-The complete block is 208 bytes. Compile-time checks protect the CPU offsets and
-size. Pipeline creation verifies the native uniform block's reflected size, and
-the renderer assigns that block to uniform binding zero. GLSL 4.10 does not use
-a `binding = 0` qualifier in the shader source.
+The view block is 128 bytes and each object block is 80 bytes. Compile-time
+checks protect the CPU offsets and sizes; pipeline creation checks the shader's
+reflected block sizes. OpenGL 4.1 assigns binding slots through the renderer
+pipeline, so GLSL 4.10 does not use a `binding` qualifier in source. The
+current two-slot limit is enough for this demonstration, not a final material
+binding convention.
 
 Common Math uses column vectors, so the vertex shader applies
 `projection * view * model * position`. World space follows the engine's Z-up
@@ -161,8 +161,12 @@ at the device's required uniform-buffer offset alignment. After one successful
 `R_CommitUniformBatch`, `R_ApplyUniformRecordToDraw` selects a committed record
 for a chosen uniform slot without changing the draw's geometry or material.
 The OpenGL 4.1 draw then uses the existing `glBindBufferRange` path. This
-replaces one upload per object with one upload for the batch, while keeping each
-object's transform or tint distinct.
+replaces one upload per object with one upload for the object batch, while keeping
+each object's model or tint distinct. The shared camera matrices use a separate
+128-byte mutable buffer and one update per view, rather than being copied into
+each object record. This increases the number of upload calls from one to two
+in the small sample, while establishing distinct per-view and per-object
+lifetimes; it is not a measured speedup.
 
 Capacity is fixed at creation; an append that does not fit leaves the previous
 records intact. Failed GPU upload leaves the batch staged for a retry, and
@@ -175,8 +179,9 @@ builds one frustum/layer/distance view submission, then stages only its copied
 objects' model matrices and tints. The submission storage is allocated once;
 each build uses the linear World query without allocating. A checked token
 permits copied record reads until the host ends the submission after the
-renderer frame. It uploads those transform records once and selects one per
-indexed draw. The host resolves the objects' logical mesh and material slots
+renderer frame. It uploads those object records once and selects one per
+indexed draw, alongside the shared view buffer. The host resolves the objects'
+logical mesh and material slots
 to its single shared mesh and sample tint table; World never owns GPU handles.
 The batch resets after the preceding frame ends. This exercises a bounded
 linear visibility query through the public OpenGL 4.1 path. The camera and
@@ -189,7 +194,7 @@ The sample now copies each completed `render_draw_indexed_desc_t` into a
 fixed-capacity renderer draw list before beginning the frame. A flush in the
 active frame calls the existing validated `R_DrawIndexed` path in append order.
 The list holds renderer handles by value but does not retain the underlying GPU
-resources, so the host keeps its mesh, pipeline, and uniform batch alive
+resources, so the host keeps its mesh, pipeline, view buffer, and uniform batch alive
 through flush. It allocates at initialization, then resets between frames
 without another allocation. This is the first CPU command-storage boundary,
 not pass classification, sorting, or asynchronous GPU submission.
