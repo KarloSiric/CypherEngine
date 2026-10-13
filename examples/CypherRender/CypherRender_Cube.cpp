@@ -119,9 +119,15 @@ constexpr common::u16 FLOOR_INDICES[] = { 0u, 1u, 2u, 0u, 2u, 3u };
 struct alignas( 16 ) cube_view_constants_t {
     math::mat4_t view;
     math::mat4_t projection;
+    alignas( 16 ) float ambientLight[4];
+    alignas( 16 ) float lightDirection[4];
+    alignas( 16 ) float lightColor[4];
 };
-static_assert( sizeof( cube_view_constants_t ) == 128u );
+static_assert( sizeof( cube_view_constants_t ) == 176u );
 static_assert( offsetof( cube_view_constants_t, projection ) == 64u );
+static_assert( offsetof( cube_view_constants_t, ambientLight ) == 128u );
+static_assert( offsetof( cube_view_constants_t, lightDirection ) == 144u );
+static_assert( offsetof( cube_view_constants_t, lightColor ) == 160u );
 
 struct alignas( 16 ) cube_object_constants_t {
     math::mat4_t model;
@@ -743,7 +749,12 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                  !CheckRender( render::R_ResetDrawQueue( state.pDrawQueue ),
                      "Reset draw queue" ) ) return false;
         }
-        const cube_view_constants_t viewConstants{ view, projection };
+        const cube_view_constants_t viewConstants{
+            view, projection,
+            { 0.30f, 0.30f, 0.30f, 0.0f },
+            { 0.40f, -0.70f, 1.00f, 0.0f },
+            { 0.70f, 0.70f, 0.70f, 0.0f }
+        };
         const render::render_buffer_data_t viewData{ &viewConstants,
             sizeof( viewConstants ) };
         if ( !CheckRender( render::R_UpdateBuffer( state.viewConstants, 0u,

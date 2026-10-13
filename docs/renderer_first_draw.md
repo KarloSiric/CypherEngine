@@ -149,15 +149,23 @@ two GLSL std140 blocks:
 | --- | --- | --- | --- |
 | `ViewConstants`, 0 | `view` | 0 | Transform world positions into camera space. |
 | `ViewConstants`, 0 | `projection` | 64 | Project camera-space positions into clip space. |
+| `ViewConstants`, 0 | `ambientLight` | 128 | Add per-view ambient RGB illumination. |
+| `ViewConstants`, 0 | `lightDirection` | 144 | Point from a surface toward one directional light. |
+| `ViewConstants`, 0 | `lightColor` | 160 | Scale the light's diffuse RGB contribution. |
 | `ObjectConstants`, 1 | `model` | 0 | Transform one cube or the floor from local to world space. |
 | `ObjectConstants`, 1 | `tint` | 64 | Multiply that object's face colors. |
 
-The view block is 128 bytes and each object block is 80 bytes. Compile-time
+The view block is 176 bytes and each object block is 80 bytes. Compile-time
 checks protect the CPU offsets and sizes; pipeline creation checks the shader's
 reflected block sizes. OpenGL 4.1 assigns binding slots through the renderer
 pipeline, so GLSL 4.10 does not use a `binding` qualifier in source. The
 current two-slot limit is enough for this demonstration, not a final material
 binding convention.
+
+The sample host writes one ambient color and one directional light into the
+view record. The fragment shader combines those with each sampled albedo and
+normal. Their initial values preserve the previous graybox shading; they are
+not authored World lights, shadow maps, or a general lighting pass.
 
 Common Math uses column vectors, so the vertex shader applies
 `projection * view * model * position`. World space follows the engine's Z-up
@@ -195,7 +203,7 @@ for a chosen uniform slot without changing the draw's geometry or material.
 The OpenGL 4.1 draw then uses the existing `glBindBufferRange` path. This
 replaces one upload per object with one upload for the object batch, while keeping
 each object's model or tint distinct. The shared camera matrices use a separate
-128-byte mutable buffer and one update per view, rather than being copied into
+176-byte mutable buffer and one update per view, rather than being copied into
 each object record. This increases the number of upload calls from one to two
 in the small sample, while establishing distinct per-view and per-object
 lifetimes; it is not a measured speedup.
@@ -402,3 +410,10 @@ offscreen color and sampleable depth targets, and a limited cooked-material
 bridge. Authored scene and mesh loading, broader material support, pass
 classification and sorting, full command scheduling, and shader hot reload
 remain separate work.
+
+Device capability queries describe what the OpenGL driver reports, not a promise
+that the public renderer already exposes every such feature. In particular,
+indirect draws, geometry/tessellation shaders, texture arrays, and floating-
+point render targets still need public contracts and tests before game or editor
+code may depend on them. Keep those interfaces backend-independent so another
+graphics API can implement the same engine behavior later.

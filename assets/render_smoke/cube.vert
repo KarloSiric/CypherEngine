@@ -8,6 +8,9 @@ layout(location = 2) in vec2 texcoord;
 layout(std140) uniform ViewConstants {
     mat4 view;
     mat4 projection;
+    vec4 ambientLight;
+    vec4 lightDirection;
+    vec4 lightColor;
 };
 
 layout(std140) uniform ObjectConstants {

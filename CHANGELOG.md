@@ -61,6 +61,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The graybox sample now supplies ambient RGB and one directional light through
+  its 176-byte per-view uniform block instead of embedding those values in the
+  fragment shader. The initial values preserve the prior shading. Its shader
+  validates without diagnostics, the compact target builds, and a hidden
+  120-frame OpenGL run completes 480 visible draws. This is sample-owned view
+  lighting, not authored World lights, shadows, or a general lighting pass.
 - The OpenGL 4.1 graybox sample now reads a cooked floor checker through the
   VFS and `CookedTexture_Read`, adopts its pixels with the renderer texture API,
   and resolves each visible World material to either that image or a 1×1 white

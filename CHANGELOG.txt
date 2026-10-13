@@ -53,6 +53,11 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The graybox sample supplies ambient RGB and one directional light through
+  its 176-byte per-view uniform block instead of hardcoding shader constants.
+  The initial values preserve the prior shading. Offline shader validation,
+  the compact build and a hidden 120-frame OpenGL run (480 draws) pass. This
+  does not add authored World lights, shadows or a general lighting pass.
 - The OpenGL 4.1 graybox sample VFS-reads and adopts a cooked floor checker,
   resolves visible World materials to it or a white cube texture, and samples
   the declared texture slot in its shader. The procedural grid is removed.
