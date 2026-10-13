@@ -19,6 +19,7 @@
 #include "CypherRender_OpenGL_Buffer.h"
 #include "CypherRender_OpenGL_Draw.h"
 #include "CypherRender_OpenGL_Local.h"
+#include "CypherRender_OpenGL_Sampler.h"
 #include "CypherRender_OpenGL_Shader.h"
 #include "CypherRender_OpenGL_Target.h"
 #include "CypherRender_OpenGL_Texture.h"
@@ -534,7 +535,9 @@ render_error_t GL_Init(
         (void)GLimp_DestroyContext( context );
         return render_error_t::ERR_CONTEXT_ACTIVATE_FAILED;
     }
-    if ( gladLoadGL( GL_LoadProc ) == 0 || GLAD_GL_VERSION_4_1 == 0 ) {
+    if ( gladLoadGL( GL_LoadProc ) == 0 || GLAD_GL_VERSION_4_1 == 0 ||
+         glGenSamplers == nullptr || glSamplerParameteri == nullptr ||
+         glDeleteSamplers == nullptr || glBindSampler == nullptr ) {
         (void)GLimp_DestroyContext( context );
         return render_error_t::ERR_ENTRYPOINT_LOAD_FAILED;
     }
@@ -670,7 +673,9 @@ render_error_t GL_InitHostSurface(
         glState = {};
         return render_error_t::ERR_CONTEXT_ACTIVATE_FAILED;
     }
-    if ( gladLoadGL( GL_LoadProc ) == 0 || GLAD_GL_VERSION_4_1 == 0 ) {
+    if ( gladLoadGL( GL_LoadProc ) == 0 || GLAD_GL_VERSION_4_1 == 0 ||
+         glGenSamplers == nullptr || glSamplerParameteri == nullptr ||
+         glDeleteSamplers == nullptr || glBindSampler == nullptr ) {
         glState = {};
         return render_error_t::ERR_ENTRYPOINT_LOAD_FAILED;
     }
@@ -1077,6 +1082,8 @@ const backend_api_t glBackend = {
     .DrawIndexed = GL_DrawIndexed,
     .CreateTexture2D = GL_CreateTexture2D,
     .DestroyTexture = GL_DestroyTexture,
+    .CreateSampler = GL_CreateSampler,
+    .DestroySampler = GL_DestroySampler,
     .CreateRenderTarget = GL_CreateRenderTarget,
     .DestroyRenderTarget = GL_DestroyRenderTarget,
     .BeginTargetPass = GL_BeginTargetPass,

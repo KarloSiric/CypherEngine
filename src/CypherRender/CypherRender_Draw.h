@@ -18,6 +18,7 @@
 #pragma once
 
 #include "CypherRender_Pipeline.h"
+#include "CypherRender_Sampler.h"
 #include "CypherRender_Texture.h"
 #include "CypherRender_VertexInput.h"
 
@@ -32,6 +33,7 @@ struct render_draw_indexed_desc_t {
     ::cypher::common::u32 indexCount{ 0u }; // Complete pairs or triples for pipeline topology.
     ::cypher::common::u32 vertexCount{ 0u }; // Addressable vertices beginning at vertex zero.
     render_texture_handle_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
+    render_sampler_handle_t samplers[R_MAX_SAMPLED_TEXTURE_BINDINGS]{}; // Optional per declared texture slot.
     ::cypher::common::u32 instanceCount{ 1u }; // Positive; one preserves ordinary indexed drawing.
 };
 
@@ -39,8 +41,10 @@ struct render_draw_indexed_desc_t {
 // layout must match the pipeline; no referenced buffer may be CPU-mapped.
 // Buffer ranges are checked without reading indices back from the GPU: the
 // caller guarantees every selected index is strictly less than vertexCount.
-// Per-instance attributes advance according to their layout divisor. No base
-// instance, base vertex, primitive restart, or deferred pointer borrowing.
+// Per-instance attributes advance according to their layout divisor. An
+// explicit sampler overrides texture-owned sampling for its paired image; a
+// null sampler retains the original policy. Mip samplers require generated
+// mips. No base instance, base vertex, primitive restart, or deferred pointers.
 CYPHER_NODISCARD render_error_t R_DrawIndexed(
     const render_draw_indexed_desc_t &description ) noexcept;
 

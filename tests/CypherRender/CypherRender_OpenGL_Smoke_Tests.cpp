@@ -15,6 +15,7 @@
 
 #include "CypherRender/CypherRender_Buffer.h"
 #include "CypherRender/CypherRender_Public.h"
+#include "CypherRender/CypherRender_Sampler.h"
 #include "CypherRender/CypherRender_Target.h"
 #include "CypherRender/CypherRender_VertexInput.h"
 #include "CypherRender/OpenGL/CypherRender_OpenGL_Local.h"
@@ -744,6 +745,126 @@ void CheckSampledDrawing( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
 }
 
+void CheckPerSlotSamplerPolicy( const render::render_extent_t extent )
+{
+    constexpr char vertex[] =
+        "#version 410 core\nlayout(location=0) in vec3 position;\n"
+        "void main() { gl_Position=vec4(position,1.0); }\n";
+    constexpr char fragment[] =
+        "#version 410 core\n"
+        "uniform sampler2D base_color; uniform sampler2D detail_color;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { color=vec4(texture(base_color,vec2(0.4,0.5)).r,"
+        "texture(detail_color,vec2(0.4,0.5)).b,0.0,1.0); }\n";
+    common::cooked_shader_view_t source{};
+    source.nLanguageVersion = 410u;
+    source.nStages = 2u;
+    source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+    source.stages[0].code = { reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+    source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+    source.stages[1].code = { reinterpret_cast<const common::byte *>( fragment ), sizeof( fragment ) };
+    render::render_shader_handle_t shader{};
+    REQUIRE( render::R_CreateShader( { &source, "Per-slot sampler pixel smoke" }, &shader ) ==
+        render::render_error_t::OK );
+
+    const float positions[]{ -1.0f,-1.0f,0.0f, 3.0f,-1.0f,0.0f, -1.0f,3.0f,0.0f };
+    const common::u16 indices[]{ 0u,1u,2u };
+    const auto buffer = []( const void *data, common::u64 size,
+                            render::render_buffer_usage_flags_t usage ) {
+        render::render_buffer_desc_t desc{};
+        desc.byteSize = size;
+        desc.usage = usage;
+        const render::render_buffer_data_t contents{ data, size };
+        render::render_buffer_handle_t out{};
+        REQUIRE( render::R_CreateBuffer( desc, &contents, &out ) ==
+            render::render_error_t::OK );
+        return out;
+    };
+    const auto vb = buffer( positions, sizeof( positions ), render::R_BUFFER_USAGE_VERTEX );
+    const auto ib = buffer( indices, sizeof( indices ), render::R_BUFFER_USAGE_INDEX );
+    render::render_vertex_input_desc_t inputDesc{};
+    inputDesc.layout.bindingCount = 1u;
+    inputDesc.layout.bindings[0].stride = sizeof( float ) * 3u;
+    inputDesc.layout.attributeCount = 1u;
+    inputDesc.layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    inputDesc.vertexBufferCount = 1u;
+    inputDesc.vertexBuffers[0] = { vb, 0u, 0u };
+    inputDesc.indexBuffer = { ib, 0u, render::render_index_type_t::UINT16 };
+    render::render_vertex_input_handle_t input{};
+    REQUIRE( render::R_CreateVertexInput( inputDesc, &input ) == render::render_error_t::OK );
+
+    render::render_pipeline_desc_t pipe{};
+    pipe.shader = shader;
+    pipe.vertexLayout = inputDesc.layout;
+    pipe.sampledTextureCount = 2u;
+    pipe.sampledTextures[0].name = "base_color";
+    pipe.sampledTextures[1].name = "detail_color";
+    pipe.depthTest = false;
+    pipe.depthWrite = false;
+    pipe.cullBackFaces = false;
+    render::render_pipeline_handle_t pipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipe, &pipeline ) == render::render_error_t::OK );
+
+    // Both slots sample the SAME 2x1 image. Only sampler policy can explain
+    // different colors after swapping nearest and linear between the slots.
+    const common::u8 pixels[]{ 255u,0u,0u,255u, 0u,0u,255u,255u };
+    render::render_texture_desc_t textureDesc{ 2u, 1u, false, false, false, "Sampler smoke image" };
+    render::render_texture_handle_t texture{};
+    REQUIRE( render::R_CreateTexture2D( textureDesc, { pixels, sizeof( pixels ) }, &texture ) ==
+        render::render_error_t::OK );
+    render::render_sampler_desc_t samplerDesc{};
+    samplerDesc.minFilter = samplerDesc.magFilter = render::render_sampler_filter_t::NEAREST;
+    samplerDesc.mipFilter = render::render_sampler_mip_filter_t::NONE;
+    samplerDesc.addressU = samplerDesc.addressV = render::render_sampler_address_t::CLAMP_TO_EDGE;
+    render::render_sampler_handle_t nearest{}, linear{};
+    REQUIRE( render::R_CreateSampler( samplerDesc, &nearest ) == render::render_error_t::OK );
+    samplerDesc.minFilter = samplerDesc.magFilter = render::render_sampler_filter_t::LINEAR;
+    REQUIRE( render::R_CreateSampler( samplerDesc, &linear ) == render::render_error_t::OK );
+
+    render::render_draw_indexed_desc_t draw{};
+    draw.pipeline = pipeline;
+    draw.vertexInput = input;
+    draw.indexCount = draw.vertexCount = 3u;
+    draw.sampledTextures[0] = texture;
+    draw.sampledTextures[1] = texture;
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    const auto sample = [&]( render::render_sampler_handle_t slot0,
+                             render::render_sampler_handle_t slot1 ) {
+        draw.samplers[0] = slot0;
+        draw.samplers[1] = slot1;
+        REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+        REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+        common::u8 pixel[4]{};
+        glReadBuffer( GL_BACK );
+        glReadPixels( static_cast<GLint>( extent.width / 2u ),
+            static_cast<GLint>( extent.height / 2u ), 1, 1,
+            GL_RGBA, GL_UNSIGNED_BYTE, pixel );
+        REQUIRE( glGetError() == GL_NO_ERROR );
+        REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+        return std::array<common::u8, 4u>{ pixel[0], pixel[1], pixel[2], pixel[3] };
+    };
+    const auto nearestRedLinearBlue = sample( nearest, linear );
+    CHECK( nearestRedLinearBlue[0] >= 245u );
+    CHECK( nearestRedLinearBlue[1] >= 60u );
+    CHECK( nearestRedLinearBlue[1] <= 95u );
+    const auto linearRedNearestBlue = sample( linear, nearest );
+    CHECK( linearRedNearestBlue[0] >= 160u );
+    CHECK( linearRedNearestBlue[0] <= 195u );
+    CHECK( linearRedNearestBlue[1] <= 10u );
+    CHECK( nearestRedLinearBlue[2] <= 5u );
+    CHECK( linearRedNearestBlue[2] <= 5u );
+
+    REQUIRE( render::R_DestroySampler( linear ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroySampler( nearest ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( texture ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( vb ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( ib ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
+}
+
 void CheckTwoTextureTwoBlockDrawing( const render::render_extent_t extent )
 {
     constexpr char vertex[] =
@@ -1079,6 +1200,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckLineDrawing( info->drawableExtent );
     CheckInstancedDrawing( info->drawableExtent );
     CheckSampledDrawing( info->drawableExtent );
+    CheckPerSlotSamplerPolicy( info->drawableExtent );
     CheckTwoTextureTwoBlockDrawing( info->drawableExtent );
     CheckOffscreenTarget( info->drawableExtent );
 

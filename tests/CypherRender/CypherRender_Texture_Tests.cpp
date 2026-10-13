@@ -4,6 +4,7 @@
 // This file is proprietary and confidential. See LICENSE for details.
 //////////////////////////////////////////////////////////////////////////
 #include "CypherRender/CypherRender_Texture.h"
+#include "CypherRender/CypherRender_Sampler.h"
 #include "CypherRender/CypherRender_Local.h"
 #include "CypherRender/CypherRender_Draw.h"
 #include <catch2/catch_test_macros.hpp>
@@ -18,10 +19,14 @@ struct texture_fixture_t {
     render::backend_api_t backend{};
     common::u64 next{ 1u };
     unsigned creates{ 0u }, destroys{ 0u }, draws{ 0u };
+    unsigned samplerCreates{ 0u }, samplerDestroys{ 0u };
     texture_error_t createResult{ texture_error_t::OK }, destroyResult{ texture_error_t::OK };
+    texture_error_t samplerCreateResult{ texture_error_t::OK }, samplerDestroyResult{ texture_error_t::OK };
     texture_error_t drawResult{ texture_error_t::OK };
     bool tokenOnCreateFailure{ false };
+    bool samplerTokenOnCreateFailure{ false };
     render::render_texture_desc_t captured{};
+    render::render_sampler_desc_t capturedSampler{};
     render::backend_draw_indexed_desc_t capturedDraw{};
     common::byte pixels[24]{};
     common::byte mappedBytes[256]{};
@@ -43,6 +48,23 @@ struct texture_fixture_t {
             auto &self = *static_cast<texture_fixture_t *>( state );
             ++self.destroys;
             return self.destroyResult;
+        };
+        backend.CreateSampler = []( const render::render_sampler_desc_t &desc,
+            render::backend_sampler_t &out, void *state ) noexcept {
+            auto &self = *static_cast<texture_fixture_t *>( state );
+            ++self.samplerCreates;
+            self.capturedSampler = desc;
+            out = {};
+            if ( self.samplerCreateResult == texture_error_t::OK ||
+                 self.samplerTokenOnCreateFailure ) {
+                out.value = self.next++;
+            }
+            return self.samplerCreateResult;
+        };
+        backend.DestroySampler = []( render::backend_sampler_t, void *state ) noexcept {
+            auto &self = *static_cast<texture_fixture_t *>( state );
+            ++self.samplerDestroys;
+            return self.samplerDestroyResult;
         };
         backend.CreateBuffer = []( const render::render_buffer_desc_t &,
             const render::render_buffer_data_t *, render::backend_buffer_t &out, void *state ) noexcept {
@@ -93,6 +115,7 @@ struct texture_fixture_t {
         render::tr.info.limits.maxUniformBlockBytes = 16384u;
         render::tr.info.limits.maxUniformBufferBindings = 16u;
         REQUIRE( render::R_TextureSystemInit() == texture_error_t::OK );
+        REQUIRE( render::R_SamplerSystemInit() == texture_error_t::OK );
         REQUIRE( render::R_BufferSystemInit() == texture_error_t::OK );
         REQUIRE( render::R_ShaderSystemInit() == texture_error_t::OK );
         REQUIRE( render::R_VertexInputSystemInit() == texture_error_t::OK );
@@ -105,6 +128,20 @@ struct texture_fixture_t {
         render::render_texture_handle_t texture{};
         REQUIRE( render::R_CreateTexture2D( Description(), Data(), &texture ) == texture_error_t::OK );
         return texture;
+    }
+    render::render_sampler_handle_t Sampler( render::render_sampler_mip_filter_t mip =
+                                                render::render_sampler_mip_filter_t::NONE )
+    {
+        render::render_sampler_desc_t desc{};
+        desc.minFilter = render::render_sampler_filter_t::NEAREST;
+        desc.magFilter = render::render_sampler_filter_t::LINEAR;
+        desc.mipFilter = mip;
+        desc.addressU = render::render_sampler_address_t::CLAMP_TO_EDGE;
+        desc.addressV = render::render_sampler_address_t::REPEAT;
+        desc.debugName = "Fixture sampler";
+        render::render_sampler_handle_t sampler{};
+        REQUIRE( render::R_CreateSampler( desc, &sampler ) == texture_error_t::OK );
+        return sampler;
     }
     render::render_buffer_handle_t Uniform( common::u64 bytes )
     {
@@ -175,6 +212,8 @@ struct texture_fixture_t {
         render::tr.frameActive = false;
         destroyResult = texture_error_t::OK;
         (void)render::R_PipelineSystemShutdown();
+        samplerDestroyResult = texture_error_t::OK;
+        (void)render::R_SamplerSystemShutdown();
         (void)render::R_TextureSystemShutdown();
         (void)render::R_VertexInputSystemShutdown();
         (void)render::R_ShaderSystemShutdown();
@@ -366,4 +405,155 @@ TEST_CASE( "one-slot pipelines reject a resource in an undeclared second slot",
     draw.sampledTextures[1] = fixture.Create();
     CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_BINDING_MISMATCH );
     CHECK( fixture.draws == 0u );
+}
+
+TEST_CASE( "immutable samplers validate policy and retain inspected metadata",
+           "[CypherRender][Sampler]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    render::render_sampler_desc_t desc{};
+    CHECK( desc.minFilter == render::render_sampler_filter_t::LINEAR );
+    CHECK( desc.magFilter == render::render_sampler_filter_t::LINEAR );
+    CHECK( desc.mipFilter == render::render_sampler_mip_filter_t::NONE );
+
+    render::render_sampler_handle_t out{ 99u };
+    for ( const auto invalidFilter : {
+              static_cast<render::render_sampler_filter_t>( 2u ),
+              static_cast<render::render_sampler_filter_t>( 255u ) } ) {
+        desc.minFilter = invalidFilter;
+        CHECK( render::R_CreateSampler( desc, &out ) == texture_error_t::ERR_INVALID_ARGUMENT );
+        CHECK( out.value == 0u );
+    }
+    desc.minFilter = render::render_sampler_filter_t::NEAREST;
+    desc.magFilter = static_cast<render::render_sampler_filter_t>( 255u );
+    CHECK( render::R_CreateSampler( desc, &out ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    desc.magFilter = render::render_sampler_filter_t::LINEAR;
+    desc.mipFilter = static_cast<render::render_sampler_mip_filter_t>( 255u );
+    CHECK( render::R_CreateSampler( desc, &out ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    desc.mipFilter = render::render_sampler_mip_filter_t::NEAREST;
+    desc.addressU = static_cast<render::render_sampler_address_t>( 255u );
+    CHECK( render::R_CreateSampler( desc, &out ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    desc.addressU = render::render_sampler_address_t::CLAMP_TO_EDGE;
+    desc.addressV = static_cast<render::render_sampler_address_t>( 255u );
+    CHECK( render::R_CreateSampler( desc, &out ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( fixture.samplerCreates == 0u );
+    CHECK( render::R_CreateSampler( desc, nullptr ) == texture_error_t::ERR_INVALID_ARGUMENT );
+
+    desc.addressV = render::render_sampler_address_t::REPEAT;
+    desc.debugName = "Immutable sampler";
+    REQUIRE( render::R_CreateSampler( desc, &out ) == texture_error_t::OK );
+    CHECK( render::R_IsSamplerValid( out ) );
+    CHECK( fixture.samplerCreates == 1u );
+    CHECK( fixture.capturedSampler.minFilter == desc.minFilter );
+    CHECK( fixture.capturedSampler.mipFilter == desc.mipFilter );
+    render::render_sampler_info_t info{};
+    REQUIRE( render::R_GetSamplerInfo( out, &info ) == texture_error_t::OK );
+    CHECK( info.minFilter == desc.minFilter );
+    CHECK( info.magFilter == desc.magFilter );
+    CHECK( info.mipFilter == desc.mipFilter );
+    CHECK( info.addressU == desc.addressU );
+    CHECK( info.addressV == desc.addressV );
+    CHECK( render::R_GetSamplerInfo( out, nullptr ) == texture_error_t::ERR_INVALID_ARGUMENT );
+
+    const auto wrongKind = common::Cy_Handle64Make( common::Cy_Handle64Index( out ),
+        common::Cy_Handle64Generation( out ), static_cast<common::u32>( render::render_object_type_t::TEXTURE ) );
+    CHECK( render::R_DestroySampler( wrongKind ) == texture_error_t::ERR_RESOURCE_TYPE_MISMATCH );
+    REQUIRE( render::R_DestroySampler( out ) == texture_error_t::OK );
+    CHECK_FALSE( render::R_IsSamplerValid( out ) );
+    CHECK( render::R_DestroySampler( out ) == texture_error_t::ERR_STALE_HANDLE );
+    render::render_sampler_handle_t replacement{};
+    REQUIRE( render::R_CreateSampler( desc, &replacement ) == texture_error_t::OK );
+    CHECK( replacement.value != out.value );
+    CHECK( render::R_GetSamplerInfo( out, &info ) == texture_error_t::ERR_STALE_HANDLE );
+}
+
+TEST_CASE( "sampler backend failure publishes no handle and failed destruction preserves ownership",
+           "[CypherRender][Sampler]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    render::render_sampler_desc_t desc{};
+    render::render_sampler_handle_t sampler{ 99u };
+    fixture.samplerCreateResult = texture_error_t::ERR_OUT_OF_MEMORY;
+    CHECK( render::R_CreateSampler( desc, &sampler ) == texture_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( sampler.value == 0u );
+    CHECK( fixture.samplerDestroys == 0u );
+    fixture.samplerTokenOnCreateFailure = true;
+    CHECK( render::R_CreateSampler( desc, &sampler ) == texture_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( sampler.value == 0u );
+    CHECK( fixture.samplerDestroys == 1u );
+    fixture.samplerTokenOnCreateFailure = false;
+    fixture.samplerCreateResult = texture_error_t::OK;
+    sampler = fixture.Sampler();
+    fixture.samplerDestroyResult = texture_error_t::ERR_DEVICE_LOST;
+    CHECK( render::R_DestroySampler( sampler ) == texture_error_t::ERR_DEVICE_LOST );
+    CHECK( render::R_IsSamplerValid( sampler ) );
+    fixture.samplerDestroyResult = texture_error_t::OK;
+    REQUIRE( render::R_DestroySampler( sampler ) == texture_error_t::OK );
+    CHECK_FALSE( render::R_IsSamplerValid( sampler ) );
+    CHECK( fixture.samplerDestroys == 3u );
+}
+
+TEST_CASE( "sampler-less backends report unsupported without affecting texture draws",
+           "[CypherRender][Sampler]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    fixture.backend.CreateSampler = nullptr;
+    fixture.backend.DestroySampler = nullptr;
+    render::render_sampler_handle_t sampler{ 99u };
+    CHECK( render::R_CreateSampler( {}, &sampler ) == texture_error_t::ERR_UNSUPPORTED );
+    CHECK( sampler.value == 0u );
+    auto draw = fixture.MakeDraw( true );
+    draw.sampledTextures[0] = fixture.Create();
+    CHECK( render::R_DrawIndexed( draw ) == texture_error_t::OK );
+}
+
+TEST_CASE( "draw samplers are optional but must match live textures and declared slots",
+           "[CypherRender][Sampler][Draw]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    auto draw = fixture.MakeDraw( true, true );
+    auto texture = fixture.Create();
+    auto mipSampler = fixture.Sampler( render::render_sampler_mip_filter_t::LINEAR );
+    auto nearestSampler = fixture.Sampler();
+    draw.sampledTextures[0] = texture;
+    draw.sampledTextures[1] = texture;
+    draw.uniformBuffers[0] = fixture.Uniform( 64u );
+    draw.uniformBuffers[1] = fixture.Uniform( 32u );
+    draw.samplers[0] = nearestSampler;
+    draw.samplers[1] = mipSampler;
+    REQUIRE( render::R_DrawIndexed( draw ) == texture_error_t::OK );
+    CHECK( fixture.capturedDraw.samplers[0].value != 0u );
+    CHECK( fixture.capturedDraw.samplers[1].value != 0u );
+    CHECK( fixture.capturedDraw.samplers[0].value != fixture.capturedDraw.samplers[1].value );
+
+    auto invalid = draw;
+    invalid.samplers[0] = draw.pipeline;
+    CHECK( render::R_DrawIndexed( invalid ) == texture_error_t::ERR_RESOURCE_TYPE_MISMATCH );
+    REQUIRE( render::R_DestroySampler( nearestSampler ) == texture_error_t::OK );
+    CHECK( render::R_DrawIndexed( draw ) == texture_error_t::ERR_STALE_HANDLE );
+    draw.samplers[0] = {}; // Legacy texture policy remains usable without a sampler.
+    REQUIRE( render::R_DrawIndexed( draw ) == texture_error_t::OK );
+
+    auto noMips = fixture.Description();
+    noMips.generateMips = false;
+    render::render_texture_handle_t singleLevel{};
+    REQUIRE( render::R_CreateTexture2D( noMips, fixture.Data(), &singleLevel ) == texture_error_t::OK );
+    invalid = draw;
+    invalid.sampledTextures[1] = singleLevel;
+    CHECK( render::R_DrawIndexed( invalid ) == texture_error_t::ERR_BINDING_MISMATCH );
+    invalid.samplers[1] = {};
+    REQUIRE( render::R_DrawIndexed( invalid ) == texture_error_t::OK );
+    CHECK( render::R_DestroySampler( mipSampler ) == texture_error_t::OK );
+
+    auto oneSlot = fixture.MakeDraw( true );
+    oneSlot.sampledTextures[0] = texture;
+    oneSlot.samplers[1] = fixture.Sampler();
+    CHECK( render::R_DrawIndexed( oneSlot ) == texture_error_t::ERR_BINDING_MISMATCH );
+    auto noTexture = fixture.MakeDraw( false );
+    noTexture.samplers[0] = oneSlot.samplers[1];
+    CHECK( render::R_DrawIndexed( noTexture ) == texture_error_t::ERR_BINDING_MISMATCH );
 }

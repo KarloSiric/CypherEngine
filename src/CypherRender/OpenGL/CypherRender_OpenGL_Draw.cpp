@@ -370,11 +370,15 @@ render_error_t GL_DrawIndexed(
         }
     }
     for ( common::u32 slot = 0u; slot < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++slot ) {
-        if ( description.sampledTextures[slot].value > std::numeric_limits<GLuint>::max() ) {
+        if ( description.sampledTextures[slot].value > std::numeric_limits<GLuint>::max() ||
+             description.samplers[slot].value > std::numeric_limits<GLuint>::max() ) {
             return render_error_t::ERR_INVALID_HANDLE;
         }
         if ( ( description.sampledTextures[slot].value != 0u ) !=
              ( slot < pipeline->sampledTextureCount ) ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+        if ( slot >= pipeline->sampledTextureCount && description.samplers[slot].value != 0u ) {
             return render_error_t::ERR_BINDING_MISMATCH;
         }
     }
@@ -426,7 +430,8 @@ render_error_t GL_DrawIndexed(
     glUseProgram( pipeline->program );
     for ( common::u32 slot = 0u; slot < pipeline->sampledTextureCount; ++slot ) {
         glActiveTexture( GL_TEXTURE0 + slot );
-        glBindSampler( slot, 0u ); // Host samplers must not override immutable texture policy.
+        // A null explicit sampler preserves the texture-owned legacy policy.
+        glBindSampler( slot, static_cast<GLuint>( description.samplers[slot].value ) );
         glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( description.sampledTextures[slot].value ) );
         glUniform1i( pipeline->sampledTextureLocations[slot], static_cast<GLint>( slot ) );
     }
@@ -450,6 +455,7 @@ render_error_t GL_DrawIndexed(
     // is re-established by every pipeline; BeginFrame resets the depth-write mask.
     for ( common::u32 slot = 0u; slot < pipeline->sampledTextureCount; ++slot ) {
         glActiveTexture( GL_TEXTURE0 + slot );
+        glBindSampler( slot, 0u );
         glBindTexture( GL_TEXTURE_2D, 0u );
     }
     glActiveTexture( GL_TEXTURE0 );

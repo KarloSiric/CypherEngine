@@ -56,6 +56,7 @@ bool R_IsBackendValid( const backend_api_t *backend ) noexcept
         backend->DestroyGraphicsPipeline != nullptr &&
         backend->DrawIndexed != nullptr &&
         ( ( backend->CreateTexture2D == nullptr ) == ( backend->DestroyTexture == nullptr ) ) &&
+        ( ( backend->CreateSampler == nullptr ) == ( backend->DestroySampler == nullptr ) ) &&
         ( ( backend->CreateRenderTarget == nullptr && backend->DestroyRenderTarget == nullptr &&
             backend->BeginTargetPass == nullptr && backend->EndTargetPass == nullptr ) ||
           ( backend->CreateRenderTarget != nullptr && backend->DestroyRenderTarget != nullptr &&

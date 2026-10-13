@@ -13,6 +13,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherRender/CypherRender_Public.h"
+#include "CypherRender/CypherRender_Sampler.h"
 #include "CypherRender/CypherRender_Target.h"
 #include "CypherRender/CypherRender_Buffer.h"
 #include "CypherRender/CypherRender_VertexInput.h"
@@ -346,6 +347,15 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     render::render_pipeline_handle_t depthOnlyPipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &depthOnlyPipeline ) ==
         render::render_error_t::OK );
+    render::render_sampler_desc_t rendererSamplerDesc{};
+    rendererSamplerDesc.minFilter = render::render_sampler_filter_t::NEAREST;
+    rendererSamplerDesc.magFilter = render::render_sampler_filter_t::NEAREST;
+    rendererSamplerDesc.mipFilter = render::render_sampler_mip_filter_t::NONE;
+    rendererSamplerDesc.addressU = render::render_sampler_address_t::CLAMP_TO_EDGE;
+    rendererSamplerDesc.addressV = render::render_sampler_address_t::CLAMP_TO_EDGE;
+    render::render_sampler_handle_t rendererSampler{};
+    REQUIRE( render::R_CreateSampler( rendererSamplerDesc, &rendererSampler ) ==
+        render::render_error_t::OK );
 
     // The host leaves a deliberate nondefault state at the paint boundary.
     // BeginFrame may override it, but EndFrame must return exactly to it.
@@ -486,6 +496,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     draw.vertexInput = input;
     draw.sampledTextures[0] = targetColor;
     draw.sampledTextures[1] = targetColor;
+    draw.samplers[1] = rendererSampler;
     draw.uniformBuffers[0] = offsetBuffer;
     draw.uniformBuffers[1] = weightsBuffer;
     draw.indexCount = draw.vertexCount = 3u;
@@ -620,6 +631,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
 
     REQUIRE( render::R_DestroyGraphicsPipeline( depthOnlyPipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroySampler( rendererSampler ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( vertexBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );

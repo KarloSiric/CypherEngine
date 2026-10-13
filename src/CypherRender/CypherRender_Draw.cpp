@@ -143,8 +143,12 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
 
     for ( common::u32 i = 0u; i < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++i ) {
         const auto handle = description.sampledTextures[i];
+        const auto sampler = description.samplers[i];
         const bool required = i < pipeline.sampledTextureCount;
         if ( ( handle.value != R_INVALID_TEXTURE.value ) != required ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+        if ( !required && sampler.value != R_INVALID_SAMPLER.value ) {
             return render_error_t::ERR_BINDING_MISMATCH;
         }
         if ( !required ) continue;
@@ -154,6 +158,15 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
         render_texture_info_t textureInfo{};
         result = R_TextureResolveForDraw( handle, &native.sampledTextures[i], &textureInfo );
         if ( result != render_error_t::OK ) return result;
+        if ( sampler.value != R_INVALID_SAMPLER.value ) {
+            render_sampler_info_t samplerInfo{};
+            result = R_SamplerResolveForDraw( sampler, &native.samplers[i], &samplerInfo );
+            if ( result != render_error_t::OK ) return result;
+            if ( samplerInfo.mipFilter != render_sampler_mip_filter_t::NONE &&
+                 !textureInfo.generateMips ) {
+                return render_error_t::ERR_BINDING_MISMATCH;
+            }
+        }
     }
 
     common::u32 acquiredUniforms = 0u;

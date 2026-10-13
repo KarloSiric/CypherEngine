@@ -95,6 +95,12 @@ CYPHER_NODISCARD render_error_t R_TextureResolveForDraw(
     render_texture_handle_t texture, CY_OUT backend_texture_t *nativeOut,
     CY_OUT render_texture_info_t *infoOut ) noexcept;
 
+CYPHER_NODISCARD render_error_t R_SamplerSystemInit() noexcept;
+CYPHER_NODISCARD render_error_t R_SamplerSystemShutdown() noexcept;
+CYPHER_NODISCARD render_error_t R_SamplerResolveForDraw(
+    render_sampler_handle_t sampler, CY_OUT backend_sampler_t *nativeOut,
+    CY_OUT render_sampler_info_t *infoOut ) noexcept;
+
 CYPHER_NODISCARD render_error_t R_TargetSystemInit() noexcept;
 CYPHER_NODISCARD render_error_t R_TargetSystemShutdown() noexcept;
 

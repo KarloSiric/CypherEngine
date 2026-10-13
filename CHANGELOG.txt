@@ -24,6 +24,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Reusable immutable OpenGL 4.1 samplers let two declared texture slots choose
+  nearest/linear minification and magnification, optional nearest/linear mip
+  filtering, and repeat/edge-clamp addressing independently. An absent sampler
+  keeps the texture's original sampling policy. Invalid, stale, wrong-kind or
+  undeclared samplers and mip filtering without generated mips are rejected.
+  Hosted frames restore the application's sampler bindings. The native pixel
+  test proves independent magnification on one image; minification and mip
+  choices have no separate pixel proof. Comparison samplers and materials
+  remain to be implemented.
 - Pipelines can disable RGBA color writes while still testing and writing
   depth; color writes default on. A depth-only pass can precede an EQUAL color
   pass. Every draw applies its mask, and hosted frames restore the host mask.
@@ -60,6 +69,8 @@ Added
   ordinary runtime still has no scene producer.
 
 Changed
+- Public renderer API version 7 and private backend version 14 add immutable
+  sampler resources and optional per-draw sampler binding.
 - Public renderer API version 6 and private backend version 13 add the
   immutable pipeline color-write field.
 - Public renderer API version 5 and private backend version 12 add the
@@ -85,6 +96,12 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Reconfigured and rebuilt eleven focused renderer, Host and cube targets in
+  the existing build-mason tree. Ten selected renderer/Host CTests passed;
+  native and hosted OpenGL smokes passed 482 and 164 assertions. Native pixels
+  show independent sampling of one image in two slots, and the hosted test
+  restores host sampler bindings. Cube rendered two hidden frames. Material
+  and world-scene submission paths are not yet exercised.
 - Affected renderer, Host and cube targets rebuilt in the existing build-mason
   tree; ten selected renderer/Host CTests passed. Direct native and hosted GL
   smokes passed 450 and 162 assertions, including depth-only occlusion, EQUAL

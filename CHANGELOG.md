@@ -25,6 +25,17 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Reusable immutable OpenGL 4.1 sampler handles let the two declared texture
+  slots independently choose nearest or linear minification and magnification,
+  optional nearest or linear mip filtering, and repeat or edge-clamp addressing
+  on each axis. A slot without an explicit sampler keeps its texture's original
+  sampling policy. Draw validation rejects stale, wrong-kind, or undeclared
+  sampler handles and mip filtering on a texture without generated mip levels.
+  Hosted frames restore the application's previous sampler bindings. The
+  native pixel test proves independent magnification filters on the same image;
+  minification and mip choices are covered by contract and implementation
+  checks, not a separate pixel test. Comparison samplers and material binding
+  are not yet implemented.
 - Graphics pipelines can disable RGBA color writes while continuing to test
   and write depth. Color writes default to enabled. A depth-only prepass can
   therefore populate depth before a later `EQUAL` color pass; each draw applies
@@ -77,6 +88,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Advanced the public renderer API to version 7 and private backend contract
+  to version 14 for sampler resource creation and optional per-draw binding.
 - Advanced the public renderer API to version 6 and private backend contract
   to version 13 for the immutable pipeline color-write field.
 - Advanced the public renderer API to version 5 and private backend contract
@@ -109,6 +122,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Reconfigured and rebuilt eleven focused renderer, Host, and cube targets in
+  the existing `build-mason` tree. All ten selected renderer/Host CTests passed;
+  direct native and hosted OpenGL smokes passed 482 and 164 assertions. The
+  native pixel case samples the same image through two independently filtered
+  slots, and the hosted case checks restoration of host sampler bindings. The
+  cube rendered two hidden frames. This does not yet exercise a material or
+  world-scene submission path.
 - Rebuilt the affected renderer, Host, and cube targets in the existing
   `build-mason` tree. All ten selected renderer/Host CTests passed; direct
   native and hosted OpenGL smokes passed 450 and 162 assertions respectively,

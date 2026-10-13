@@ -45,9 +45,27 @@ undersized resources before backend submission. It also rejects sampling the
 active render target's color attachment in either slot. A failed validation or
 backend draw releases any temporary uniform-buffer references.
 
+## Sampling policy
+
+A draw may optionally pair each declared texture slot with an immutable
+`render_sampler_handle_t`. Its description selects nearest or linear minification
+and magnification, no/nearest/linear mip filtering, and repeat or edge-clamp
+addressing independently for U and V. This lets one image be reused with
+different sampling policies in the two slots. An invalid sampler in a declared
+slot keeps that texture's existing creation-time filter and wrap settings;
+existing draws therefore need no sampler changes. A sampler in an undeclared
+texture slot is a binding mismatch. A mip-filtered sampler cannot be paired with
+a texture created without mip levels, including a render-target texture.
+
+Sampler handles are generational renderer objects, independent of texture
+handles. Draws resolve them immediately on the renderer thread; neither object
+retains the other. The OpenGL 4.1 backend binds an explicit sampler object on
+the corresponding texture unit, or binds sampler zero for the legacy policy.
+Hosted frames restore the host's sampler bindings for both used units.
+
 This is a binding contract, not yet a material system. Cooked material loading,
-texture sampler choices, arrays, cubemaps, storage buffers, ordinary uniforms,
-more than two slots, and reusable draw queues remain separate work. The
-hosted frame preserves both slots of borrowed OpenGL texture, sampler, and
+anisotropy and comparison samplers, arrays, cubemaps, storage buffers, ordinary
+uniforms, more than two slots, and reusable draw queues remain separate work.
+The hosted frame preserves both slots of borrowed OpenGL texture, sampler, and
 indexed uniform-buffer state. It currently queries this state each frame; its
 effect on editor frame time still needs measurement.

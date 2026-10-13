@@ -17,7 +17,7 @@ inline constexpr render_texture_handle_t R_INVALID_TEXTURE{};
 
 // First sampled-image contract: tightly packed RGBA8, one layer, one face.
 // Filtering is linear (trilinear with mips). Addressing is repeat or edge clamp.
-// These immutable sampling defaults can later be replaced by explicit samplers.
+// These immutable sampling defaults apply when a draw has no explicit sampler.
 struct render_texture_desc_t {
     ::cypher::common::u32 width{ 0u };
     ::cypher::common::u32 height{ 0u };

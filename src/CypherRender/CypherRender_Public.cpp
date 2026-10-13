@@ -133,8 +133,21 @@ render_error_t R_CommitBackendInitialization(
         return textureInitResult;
     }
 
+    const render_error_t samplerInitResult = R_SamplerSystemInit();
+    if ( samplerInitResult != render_error_t::OK ) {
+        (void)R_TextureSystemShutdown();
+        (void)R_PipelineSystemShutdown();
+        (void)R_ShaderSystemShutdown();
+        (void)R_VertexInputSystemShutdown();
+        (void)R_BufferSystemShutdown();
+        (void)backend.api->Shutdown( backend.state );
+        tr = {};
+        return samplerInitResult;
+    }
+
     const render_error_t targetInitResult = R_TargetSystemInit();
     if ( targetInitResult != render_error_t::OK ) {
+        (void)R_SamplerSystemShutdown();
         (void)R_TextureSystemShutdown();
         (void)R_PipelineSystemShutdown();
         (void)R_ShaderSystemShutdown();
@@ -341,6 +354,7 @@ render_error_t R_Shutdown() noexcept
     const render_error_t idleResult = tr.backend.api->WaitIdle( tr.backend.state );
     const render_error_t targetResult = R_TargetSystemShutdown();
     const render_error_t pipelineResult = R_PipelineSystemShutdown();
+    const render_error_t samplerResult = R_SamplerSystemShutdown();
     const render_error_t textureResult = R_TextureSystemShutdown();
     const render_error_t shaderResult = R_ShaderSystemShutdown();
     const render_error_t vertexInputResult = R_VertexInputSystemShutdown();
@@ -351,6 +365,7 @@ render_error_t R_Shutdown() noexcept
     if ( shutdownResult != render_error_t::OK ) return shutdownResult;
     if ( pipelineResult != render_error_t::OK ) return pipelineResult;
     if ( targetResult != render_error_t::OK ) return targetResult;
+    if ( samplerResult != render_error_t::OK ) return samplerResult;
     if ( textureResult != render_error_t::OK ) return textureResult;
     if ( shaderResult != render_error_t::OK ) return shaderResult;
     if ( vertexInputResult != render_error_t::OK ) return vertexInputResult;

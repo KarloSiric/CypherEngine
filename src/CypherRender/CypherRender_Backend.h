@@ -19,6 +19,7 @@
 
 #include "CypherRender_Buffer.h"
 #include "CypherRender_Texture.h"
+#include "CypherRender_Sampler.h"
 #include "CypherRender_HostSurface.h"
 #include "CypherRender_Shader.h"
 #include "CypherRender_Target.h"
@@ -39,13 +40,13 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version thirteen adds color-write policy to immutable pipelines. Offscreen targets,
+Version fourteen adds immutable samplers for sampled-texture draw slots. Offscreen targets,
 linked shaders, immediate draws, and all native object tokens remain behind
 this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 13u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 14u;
 
 /*
 ================
@@ -139,6 +140,11 @@ struct backend_texture_t {
 };
 inline constexpr backend_texture_t R_INVALID_BACKEND_TEXTURE{};
 
+struct backend_sampler_t {
+    ::cypher::common::u64 value{ 0u };
+};
+inline constexpr backend_sampler_t R_INVALID_BACKEND_SAMPLER{};
+
 struct backend_render_target_t {
     ::cypher::common::u64 value{ 0u };
 };
@@ -193,6 +199,7 @@ struct backend_draw_indexed_desc_t {
     backend_vertex_input_t vertexInput{};
     backend_buffer_t uniformBuffers[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
     backend_texture_t sampledTextures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
+    backend_sampler_t samplers[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_index_type_t indexType{ render_index_type_t::UINT16 };
     ::cypher::common::u64 indexByteOffset{ 0u };
     ::cypher::common::u32 indexCount{ 0u };
@@ -353,6 +360,11 @@ using backend_create_texture_2d_fn_t = render_error_t (*)(
 using backend_destroy_texture_fn_t = render_error_t (*)(
     backend_texture_t, void * ) noexcept;
 
+using backend_create_sampler_fn_t = render_error_t (*)(
+    const render_sampler_desc_t &, backend_sampler_t &, void * ) noexcept;
+using backend_destroy_sampler_fn_t = render_error_t (*)(
+    backend_sampler_t, void * ) noexcept;
+
 using backend_create_render_target_fn_t = render_error_t (*)(
     const backend_render_target_desc_t &, backend_render_target_t &, void * ) noexcept;
 using backend_destroy_render_target_fn_t = render_error_t (*)(
@@ -397,6 +409,10 @@ struct backend_api_t {
     // Both callbacks may be absent for a backend without sampled images.
     backend_create_texture_2d_fn_t CreateTexture2D{ nullptr };
     backend_destroy_texture_fn_t DestroyTexture{ nullptr };
+
+    // Both callbacks may be absent for a backend without sampler objects.
+    backend_create_sampler_fn_t CreateSampler{ nullptr };
+    backend_destroy_sampler_fn_t DestroySampler{ nullptr };
 
     // Target callbacks are present or absent as a group.
     backend_create_render_target_fn_t CreateRenderTarget{ nullptr };
