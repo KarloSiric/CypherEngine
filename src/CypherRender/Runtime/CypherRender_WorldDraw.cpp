@@ -604,6 +604,26 @@ bool CastsShadow( const render_material_bundle_t &material ) noexcept
         common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS ) != 0u;
 }
 
+common::u64 ShadowRecordBytes(
+    const render_material_bundle_t &material ) noexcept
+{
+    return material.alphaMode == common::render_material_alpha_mode_t::MASK
+        ? sizeof( world_model_cutout_record_t ) : sizeof( math::mat4_t );
+}
+
+render_pipeline_handle_t ShadowPipeline(
+    const render_world_shadow_prepare_desc_t &description,
+    const render_material_bundle_t &material,
+    const int orientation ) noexcept
+{
+    if ( material.alphaMode == common::render_material_alpha_mode_t::MASK ) {
+        return orientation < 0 ? description.mirroredMaskShadowPipeline
+                               : description.maskShadowPipeline;
+    }
+    return orientation < 0 ? description.mirroredShadowPipeline
+                           : description.shadowPipeline;
+}
+
 render_error_t PreflightShadowObject(
     const render_world_shadow_prepare_desc_t &description,
     const world::world_object_snapshot_t &snapshot ) noexcept
@@ -619,14 +639,22 @@ render_error_t PreflightShadowObject(
     if ( orientation == 0 ) return render_error_t::ERR_UNSUPPORTED;
     const render_material_bundle_t &material =
         description.materials[object.materialSlot];
+    const bool masked =
+        material.alphaMode == common::render_material_alpha_mode_t::MASK;
     if ( !CastsShadow( material ) ||
-         material.alphaMode != common::render_material_alpha_mode_t::OPAQUE ) {
+         ( !masked && material.alphaMode !=
+             common::render_material_alpha_mode_t::OPAQUE ) ) {
+        return render_error_t::ERR_UNSUPPORTED;
+    }
+    if ( masked && ( material.textureCount == 0u ||
+         material.textureCount > R_MAX_SAMPLED_TEXTURE_BINDINGS ||
+         !( material.alphaCutoff >= 0.0F &&
+            material.alphaCutoff <= 1.0F ) ) ) {
         return render_error_t::ERR_UNSUPPORTED;
     }
 
     render_draw_indexed_desc_t draw = description.drawTemplate;
-    draw.pipeline = orientation < 0
-        ? description.mirroredShadowPipeline : description.shadowPipeline;
+    draw.pipeline = ShadowPipeline( description, material, orientation );
     render_error_t error = R_ApplyStaticMeshBundleToDraw(
         description.meshes[object.meshSlot], &draw );
     if ( error != render_error_t::OK ) return error;
@@ -637,14 +665,27 @@ render_error_t PreflightShadowObject(
             return render_error_t::ERR_BINDING_MISMATCH;
         }
     }
+    if ( masked ) draw.sampledTextures[0] = material.textures[0];
 
     render_pipeline_info_t pipeline{};
     error = R_GetGraphicsPipelineInfo( draw.pipeline, &pipeline );
     if ( error != render_error_t::OK ) return error;
+    if ( masked ) {
+        render_texture_info_t alphaSource{};
+        error = R_GetTextureInfo( draw.sampledTextures[0], &alphaSource );
+        if ( error != render_error_t::OK ) return error;
+        if ( alphaSource.format != render_texture_format_t::RGBA8 &&
+             alphaSource.format != render_texture_format_t::RGBA16F &&
+             alphaSource.format != render_texture_format_t::RGBA32F ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+    }
     if ( pipeline.uniformBlockCount <= description.modelUniformSlot ||
          pipeline.uniformBlockBytes[description.modelUniformSlot] !=
-             sizeof( math::mat4_t ) ||
-         pipeline.sampledTextureCount != 0u ||
+             ShadowRecordBytes( material ) ||
+         pipeline.sampledTextureCount != ( masked ? 1u : 0u ) ||
+         ( masked && pipeline.sampledTextureKinds[0] !=
+             render_sampled_texture_kind_t::SCALAR_2D ) ||
          pipeline.blendMode != render_blend_mode_t::DISABLED ||
          !pipeline.depthTest || !pipeline.depthWrite ||
          pipeline.colorWrite ||
@@ -677,18 +718,22 @@ void PublishShadowDraw(
 {
     const render_static_mesh_bundle_t &mesh =
         description.meshes[snapshot.object.meshSlot];
+    const render_material_bundle_t &material =
+        description.materials[snapshot.object.materialSlot];
     render_draw_indexed_desc_t draw = description.drawTemplate;
     draw.vertexInput = mesh.vertexInput;
     draw.firstIndex = 0u;
     draw.indexCount = mesh.indexCount;
     draw.vertexCount = mesh.vertexCount;
-    draw.pipeline = Orientation(
-        math::Affine3_LinearPart( snapshot.object.localToWorld ) ) < 0
-        ? description.mirroredShadowPipeline : description.shadowPipeline;
+    draw.pipeline = ShadowPipeline( description, material, Orientation(
+        math::Affine3_LinearPart( snapshot.object.localToWorld ) ) );
+    if ( material.alphaMode == common::render_material_alpha_mode_t::MASK ) {
+        draw.sampledTextures[0] = material.textures[0];
+    }
     draw.uniformBuffers[description.modelUniformSlot] =
         description.modelUniforms->buffer;
     draw.uniformRanges[description.modelUniformSlot] = {
-        modelOffset, sizeof( math::mat4_t )
+        modelOffset, ShadowRecordBytes( material )
     };
     output->objectId = snapshot.id;
     output->draw = draw;
@@ -978,6 +1023,7 @@ render_error_t R_PrepareWorldShadowDraws(
     }
 
     common::u32 casterCount = 0u;
+    bool hasMaskedCaster = false;
     for ( common::u32 i = 0u; i < visibleCount; ++i ) {
         world::world_object_snapshot_t snapshot{};
         if ( world::WorldSubmission_Get(
@@ -991,9 +1037,12 @@ render_error_t R_PrepareWorldShadowDraws(
         const render_material_bundle_t &material =
             description.materials[snapshot.object.materialSlot];
         if ( !CastsShadow( material ) ) continue;
-        if ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE ) {
+        if ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE &&
+             material.alphaMode != common::render_material_alpha_mode_t::MASK ) {
             return render_error_t::ERR_UNSUPPORTED;
         }
+        hasMaskedCaster |= material.alphaMode ==
+            common::render_material_alpha_mode_t::MASK;
         ++casterCount;
     }
     if ( casterCount > outputCapacity ) {
@@ -1007,8 +1056,9 @@ render_error_t R_PrepareWorldShadowDraws(
          description.modelUniforms == nullptr ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
-    render_error_t result = ValidateBatch(
-        *description.modelUniforms, sizeof( math::mat4_t ) );
+    render_error_t result = ValidateBatch( *description.modelUniforms,
+        hasMaskedCaster ? sizeof( world_model_cutout_record_t )
+                        : sizeof( math::mat4_t ) );
     if ( result != render_error_t::OK ) return result;
     result = ShadowOutputIsDisjoint(
         description, output, casterCount, outCount );
@@ -1028,11 +1078,18 @@ render_error_t R_PrepareWorldShadowDraws(
     }
     const common::u64 firstCursor = description.modelUniforms->usedBytes;
     common::u64 cursor = firstCursor;
-    for ( common::u32 i = 0u; i < casterCount; ++i ) {
+    for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+        world::world_object_snapshot_t snapshot{};
+        // The active submission remains immutable across preflight and staging.
+        (void)world::WorldSubmission_Get(
+            description.submission, description.token, i, &snapshot );
+        const render_material_bundle_t &material =
+            description.materials[snapshot.object.materialSlot];
+        if ( !CastsShadow( material ) ) continue;
         common::u64 offset = 0u;
         if ( !NextModelOffset( cursor, description.modelUniforms->alignment,
                  description.modelUniforms->capacityBytes,
-                 sizeof( math::mat4_t ), &offset, &cursor ) ) {
+                 ShadowRecordBytes( material ), &offset, &cursor ) ) {
             return render_error_t::ERR_COMMAND_CAPACITY_EXCEEDED;
         }
     }
@@ -1044,11 +1101,21 @@ render_error_t R_PrepareWorldShadowDraws(
             description.submission, description.token, i, &snapshot );
         if ( !CastsShadow( description.materials[
                  snapshot.object.materialSlot] ) ) continue;
-        const math::mat4_t model =
-            math::Affine3_ToMat4( snapshot.object.localToWorld );
+        const render_material_bundle_t &material =
+            description.materials[snapshot.object.materialSlot];
         render_uniform_record_t ignored{};
-        result = R_AppendUniformRecord( description.modelUniforms,
-            &model, sizeof( model ), &ignored );
+        if ( material.alphaMode == common::render_material_alpha_mode_t::MASK ) {
+            world_model_cutout_record_t record{};
+            record.model = math::Affine3_ToMat4( snapshot.object.localToWorld );
+            record.cutout[0] = material.alphaCutoff;
+            result = R_AppendUniformRecord( description.modelUniforms,
+                &record, sizeof( record ), &ignored );
+        } else {
+            const math::mat4_t model =
+                math::Affine3_ToMat4( snapshot.object.localToWorld );
+            result = R_AppendUniformRecord( description.modelUniforms,
+                &model, sizeof( model ), &ignored );
+        }
         if ( result != render_error_t::OK ) return result;
     }
     result = R_CommitUniformBatch( description.modelUniforms );
@@ -1062,10 +1129,12 @@ render_error_t R_PrepareWorldShadowDraws(
             description.submission, description.token, i, &snapshot );
         if ( !CastsShadow( description.materials[
                  snapshot.object.materialSlot] ) ) continue;
+        const render_material_bundle_t &material =
+            description.materials[snapshot.object.materialSlot];
         common::u64 offset = 0u;
         (void)NextModelOffset( cursor, description.modelUniforms->alignment,
             description.modelUniforms->capacityBytes,
-            sizeof( math::mat4_t ), &offset, &cursor );
+            ShadowRecordBytes( material ), &offset, &cursor );
         PublishShadowDraw(
             description, snapshot, offset, &output[published++] );
     }

@@ -336,8 +336,8 @@ The adapter calculates the normal matrix once per object in binary64 and
 rejects a singular transform or any component that cannot fit a finite float
 before staging the batch. `MODEL_ONLY` remains the 64-byte default and keeps
 accepting nonsingular transforms that do not have a representable float normal
-inverse. The light-view shadow adapter still uses its separate 64-byte Model
-record. Cooked tint stays in its material-owned slot-2 buffer; the 144-byte
+inverse. The light-view shadow adapter uses a separate 64-byte opaque or
+80-byte masked Model record. Cooked tint stays in its material-owned slot-2 buffer; the 144-byte
 graybox `ObjectConstants` block remains sample-specific. A native OpenGL 4.1
 pixel test compiles a shader that reads all three normal columns and checks the
 inverse-transpose result under a sheared, nonuniform transform.
@@ -364,8 +364,8 @@ bundle must have a live scalar RGBA texture in sampled slot zero. The authored
 fragment shader must sample that slot's alpha and discard fragments below
 `cutout.x`; pipeline reflection verifies block size and texture kind, but
 cannot prove the shader performs that discard. A non-cutout Model layout
-rejects MASK before any upload. The separate light-view shadow adapter still
-rejects casting MASK until it has a matching alpha source and cutoff record.
+rejects MASK before any upload. The separate light-view shadow adapter uses
+its own 80-byte masked record and slot-zero alpha source.
 This path does not replace the graybox
 sample's shadow or normal-matrix policy, and it is not an authored map or mesh
 loader. CPU tests cover ordering, mirrored BLEND, camera-plane bounds, pipeline
@@ -374,17 +374,21 @@ front-face behavior and cooked opaque/BLEND ordering through framebuffer pixels.
 
 `R_PrepareWorldShadowDraws` takes a separate light-view World submission so
 an off-camera caster can still enter the shadow map. It filters objects by
-their cooked material's casts-shadows flag and prepares only OPAQUE casters,
-in light-submission order. The caller owns a pair of depth-only shadow
-pipelines with opposite front-face winding, the light uniform, the D24 target,
-and the pass/queue schedule. The adapter validates depth testing and writing,
-disabled color writes and blending, model-block size, geometry layout, and
-the selected winding before one aligned model batch upload. A casting MASK,
-BLEND, or ADDITIVE material is rejected instead of casting a solid silhouette.
-Shadow cutout textures and alpha thresholds need a separate shader and material
-contract. The existing graybox sample still owns its own shadow draws and
-larger object uniform block; this 64-byte model-only adapter does not silently
-replace it.
+their cooked material's casts-shadows flag and prepares OPAQUE and opt-in MASK
+casters in light-submission order. OPAQUE uses a 64-byte Model block without
+textures. MASK uses a separate depth-only shader/pipeline with an 80-byte
+`Model` block (`mat4 model; vec4 cutout;`) and a scalar `sampler2D` in slot zero.
+The record's `cutout.x` holds the cooked threshold, and the material's first
+RGBA texture supplies alpha. The caller owns ordinary and reversed-winding
+pipelines for each mode, the light uniform, D24 target, and pass/queue schedule.
+The adapter validates the selected pipeline's depth testing/writing, disabled
+color writes and blending, model-block size, geometry layout, texture kind,
+alpha source, and winding before one aligned model batch upload. The MASK
+fragment shader must discard sampled alpha below the cutoff; reflection cannot
+verify its body. A casting BLEND or ADDITIVE material remains unsupported
+instead of casting a solid silhouette. The existing graybox sample still owns
+its own shadow draws and larger object uniform block; this adapter does not
+silently replace it.
 
 ## Ordered draw list
 

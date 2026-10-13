@@ -26,8 +26,8 @@ namespace cypher::engine::render
 // while MODEL_NORMAL_CUTOUT appends it at byte 112. Its x component is the
 // authored MASK cutoff, or -1 for an unmasked material. A fragment shader
 // samples texture slot zero's alpha and discards values below that cutoff.
-// The inverse must fit finite f32 components; the shadow adapter keeps its
-// separate 64-byte Model contract.
+// The inverse must fit finite f32 components. Shadow draws use a separate
+// 64-byte opaque or 80-byte masked Model contract.
 enum class render_world_model_layout_t : ::cypher::common::u8 {
     MODEL_ONLY = 0u,
     MODEL_NORMAL,
@@ -136,12 +136,14 @@ CYPHER_NODISCARD render_error_t R_PrepareWorldCameraDraws(
 
 // The host builds a separate World submission using the light's view query,
 // including casters that are outside the camera view. It owns the light-view
-// uniform and two depth-only shadow pipelines, selected by model winding.
-// Each selected pipeline must have the matching front-face convention.
+// uniform and depth-only shadow pipelines, selected by alpha mode and model
+// winding. Each selected pipeline must have the matching front-face convention.
 // drawTemplate carries the light uniform and any viewport/scissor.
-// This first shadow slice uses a 64-byte Model block, no sampled textures,
-// and OPAQUE casters only. Noncasting materials are skipped; a casting MASK,
-// BLEND, or ADDITIVE material is rejected instead of casting a solid shadow.
+// OPAQUE uses a 64-byte Model block and no textures. MASK uses an 80-byte
+// Model block containing a vec4 cutoff at byte 64, and samples alpha from the
+// material's RGBA texture in slot zero. Its shader must discard fragments
+// below that cutoff; reflection cannot prove the discard is implemented.
+// Noncasting materials are skipped; casting BLEND/ADDITIVE are rejected.
 struct render_world_shadow_prepare_desc_t {
     const ::cypher::engine::world::world_submission_t *submission{ nullptr };
     ::cypher::engine::world::world_submission_token_t token{};
@@ -153,6 +155,8 @@ struct render_world_shadow_prepare_desc_t {
     ::cypher::common::u32 modelUniformSlot{ 0u };
     render_pipeline_handle_t shadowPipeline{}; // CCW front for ordinary models.
     render_pipeline_handle_t mirroredShadowPipeline{}; // CW front for mirrored models.
+    render_pipeline_handle_t maskShadowPipeline{}; // CCW, alpha-tested depth.
+    render_pipeline_handle_t mirroredMaskShadowPipeline{}; // CW, alpha-tested depth.
     render_draw_indexed_desc_t drawTemplate{};
 };
 

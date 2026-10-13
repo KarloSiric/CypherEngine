@@ -178,7 +178,7 @@ convention: native pipeline reflection verifies the block's size, not its
 member layout. Other value types and Model block sizes still fail preflight.
 All shader resource bindings must fit those texture slots or the caller's
 declared uniform blocks. A two-sided material disables back-face culling; its
-casts-shadows flag is consumed by the opaque World light-view adapter. The
+casts-shadows flag is consumed by the World light-view adapter. The
 bundle owns ordinary and winding-reversed graphics pipelines that share one
 shader. The second pipeline flips only the front-face sense; culling, depth, and blend
 policy stay the same. It is used for a negative-determinant model transform,
@@ -190,9 +190,10 @@ straight-alpha blending and no depth writes. Its shader must emit straight
 and sort translucent objects back-to-front; the bridge does not classify or
 sort scene draws. `MASK` uses opaque depth writes and no blending. The World
 camera adapter can place the copied cutoff in an opt-in 80- or 128-byte Model
-record and requires a scalar RGBA alpha source at sampled slot zero; its
-light-view shadow adapter still rejects casting MASK. Other callers pass the
-cutoff through their own uniform block. Matching color and shadow shaders
+record and requires a scalar RGBA alpha source at sampled slot zero. The
+light-view shadow adapter separately uses an 80-byte Model record, the same
+slot-zero alpha source, and a caller-owned depth-only cutout pipeline. Other
+callers pass the cutoff through their own uniform block. Matching color and shadow shaders
 must discard sampled alpha below it. The bridge cannot verify shader discard
 semantics. `ADDITIVE`
 creates a depth-tested pipeline without depth writes. It adds

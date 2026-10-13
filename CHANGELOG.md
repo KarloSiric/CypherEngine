@@ -25,6 +25,18 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- World light-view shadow preparation now accepts opt-in `MASK` casters with
+  dedicated depth-only pipelines. It packs a 64-byte Model record for opaque
+  casters or an 80-byte record with the alpha cutoff for masked casters, binds
+  the material's RGBA alpha texture at slot zero, and selects the mirrored
+  variant for reversed winding. Mixed batches are preflighted before one
+  aligned upload; invalid cutoffs, missing/stale alpha sources, wrong pipeline
+  contracts, and casting BLEND/ADDITIVE materials leave output and batch
+  unchanged. Focused World-draw and native OpenGL 4.1 tests pass locally; the
+  native test confirms transparent texels leave a D24 light target clear while
+  solid texels write depth. The shader still has to implement the documented
+  discard, and authored uniform-block cooking and Mason's live viewport
+  remain separate work.
 - World camera and depth-writing draw preparation now accept `MASK` materials
   when the caller selects an 80-byte `MODEL_CUTOUT` or 128-byte
   `MODEL_NORMAL_CUTOUT` std140 record. Each record carries the cooked alpha
@@ -34,8 +46,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   tests cover packing, ordering and failure atomicity, and a native OpenGL 4.1
   pixel test checks transparent and solid texels against a later depth-tested
   object. The fragment shader must still implement the documented discard;
-  masked light-view shadows, authored uniform-block cooking, and Mason's live
-  viewport remain separate work.
+  authored uniform-block cooking and Mason's live viewport remain separate
+  work.
 
 ## [Unreleased] - 2026-10-13
 

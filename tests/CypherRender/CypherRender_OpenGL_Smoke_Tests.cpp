@@ -4356,6 +4356,195 @@ void CheckCookedWorldCameraPassDrawing( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) == render::render_error_t::OK );
 }
 
+void CheckWorldMaskShadowDrawing( const render::render_extent_t extent )
+{
+    // A MASK caster must leave the transparent half of the light's depth
+    // target clear while writing depth for the surviving half. This exercises
+    // the World shadow adapter's texture binding and per-object cutoff, not
+    // just a manually assembled draw.
+    constexpr char vertexSource[] =
+        "#version 410 core\n"
+        "layout(location=0) in vec3 position;\n"
+        "layout(std140) uniform Model { mat4 model; vec4 cutout; };\n"
+        "out vec2 uv;\n"
+        "void main(){ gl_Position=model*vec4(position,1.0);"
+        " uv=position.xy*0.5+0.5; }\n";
+    constexpr char fragmentSource[] =
+        "#version 410 core\n"
+        "layout(std140) uniform Model { mat4 model; vec4 cutout; };\n"
+        "in vec2 uv; uniform sampler2D alphaMap;\n"
+        "void main(){ if(texture(alphaMap,uv).a<cutout.x) discard; }\n";
+    common::cooked_shader_view_t shaderSource{};
+    shaderSource.nLanguageVersion = 410u;
+    shaderSource.nStages = 2u;
+    shaderSource.stages[0].stage = common::render_shader_stage_t::VERTEX;
+    shaderSource.stages[0].code = {
+        reinterpret_cast<const common::byte *>( vertexSource ), sizeof( vertexSource )
+    };
+    shaderSource.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+    shaderSource.stages[1].code = {
+        reinterpret_cast<const common::byte *>( fragmentSource ), sizeof( fragmentSource )
+    };
+    render::render_shader_handle_t shader{};
+    REQUIRE( render::R_CreateShader( { &shaderSource, "World MASK shadow oracle" },
+        &shader ) == render::render_error_t::OK );
+
+    render::render_vertex_layout_t layout{};
+    layout.bindingCount = 1u;
+    layout.bindings[0].stride = 3u * sizeof( float );
+    layout.attributeCount = 1u;
+    layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    render::render_pipeline_desc_t pipelineDescription{};
+    pipelineDescription.shader = shader;
+    pipelineDescription.vertexLayout = layout;
+    pipelineDescription.colorWrite = false;
+    pipelineDescription.depthTest = pipelineDescription.depthWrite = true;
+    pipelineDescription.uniformBlockCount = 1u;
+    pipelineDescription.uniformBlocks[0] = { "Model", 80u };
+    pipelineDescription.sampledTextureCount = 1u;
+    pipelineDescription.sampledTextures[0] = { "alphaMap",
+        render::render_sampled_texture_kind_t::SCALAR_2D };
+    render::render_pipeline_handle_t maskPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDescription, &maskPipeline ) ==
+        render::render_error_t::OK );
+
+    constexpr float vertices[9]{
+        -1.0f, -1.0f, 0.0f,
+         3.0f, -1.0f, 0.0f,
+        -1.0f,  3.0f, 0.0f
+    };
+    constexpr common::u16 indices[3]{ 0u, 1u, 2u };
+    render::render_static_mesh_source_t meshSource{};
+    meshSource.vertexLayout = layout;
+    meshSource.vertexBytes = vertices;
+    meshSource.vertexByteSize = sizeof( vertices );
+    meshSource.vertexCount = 3u;
+    meshSource.indexBytes = indices;
+    meshSource.indexByteSize = sizeof( indices );
+    meshSource.indexCount = 3u;
+    render::render_static_mesh_bundle_t mesh{};
+    REQUIRE( render::R_CreateStaticMeshBundle( meshSource, &mesh ).status ==
+        render::render_static_mesh_bridge_status_t::OK );
+
+    constexpr common::u8 alphaPixels[]{
+        255u, 255u, 255u, 64u, 255u, 255u, 255u, 192u
+    };
+    render::render_texture_desc_t alphaDescription{ 2u, 1u, false,
+        false, false, "World MASK shadow alpha" };
+    render::render_texture_handle_t alphaTexture{};
+    REQUIRE( render::R_CreateTexture2D( alphaDescription,
+        { alphaPixels, sizeof( alphaPixels ) }, &alphaTexture ) ==
+        render::render_error_t::OK );
+    render::render_material_bundle_t material{};
+    material.shader = shader;
+    material.pipeline = maskPipeline;
+    material.textureCount = 1u;
+    material.textures[0] = alphaTexture;
+    material.alphaMode = common::render_material_alpha_mode_t::MASK;
+    material.alphaCutoff = 0.5f;
+    material.materialFlags = common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+
+    world::world_t *pWorld = nullptr;
+    world::world_submission_t *pSubmission = nullptr;
+    REQUIRE( world::World_Init( &pWorld, common::Allocator_GetSystem(), 1u ) ==
+        world::world_error_t::OK );
+    REQUIRE( world::WorldSubmission_Init(
+        &pSubmission, common::Allocator_GetSystem(), 1u ) ==
+        world::world_submission_error_t::OK );
+    world::world_object_t object{};
+    object.localToWorld = math::Affine3_FromTranslation( { 0.0f, 0.0f, -0.5f } );
+    object.worldBounds = math::Aabb_Make(
+        { -1.0f, -1.0f, -0.51f }, { 3.0f, 3.0f, -0.49f } );
+    object.layerMask = 1u;
+    object.meshSlot = object.materialSlot = 0u;
+    world::world_object_id_t objectId{};
+    REQUIRE( world::World_AddObject( pWorld, &object, &objectId ) ==
+        world::world_error_t::OK );
+    world::world_view_query_t view{};
+    constexpr float frustumExtent = 20.0f;
+    view.frustum.planes[0] = math::Plane_Make( { 1.0f, 0.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[1] = math::Plane_Make( { -1.0f, 0.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[2] = math::Plane_Make( { 0.0f, 1.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[3] = math::Plane_Make( { 0.0f, -1.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[4] = math::Plane_Make( { 0.0f, 0.0f, 1.0f }, frustumExtent );
+    view.frustum.planes[5] = math::Plane_Make( { 0.0f, 0.0f, -1.0f }, frustumExtent );
+    view.cameraPosition = { 0.0f, 0.0f, 0.0f };
+    view.maxDistance = 100.0f;
+    view.layerMask = 1u;
+    world::world_submission_token_t token{};
+    REQUIRE( world::WorldSubmission_Build(
+        pSubmission, pWorld, &view, &token ) ==
+        world::world_submission_error_t::OK );
+
+    render::render_uniform_batch_t modelUniforms{};
+    REQUIRE( render::R_CreateUniformBatch(
+        80u, nullptr, &modelUniforms ) == render::render_error_t::OK );
+    render::render_world_shadow_prepare_desc_t prepare{};
+    prepare.submission = pSubmission;
+    prepare.token = token;
+    prepare.meshes = &mesh;
+    prepare.meshCount = 1u;
+    prepare.materials = &material;
+    prepare.materialCount = 1u;
+    prepare.modelUniforms = &modelUniforms;
+    prepare.maskShadowPipeline = maskPipeline;
+    render::render_world_shadow_draw_t draws[1]{};
+    common::u32 count = 0u;
+    REQUIRE( render::R_PrepareWorldShadowDraws(
+        prepare, draws, 1u, &count ) == render::render_error_t::OK );
+    REQUIRE( count == 1u );
+    CHECK( draws[0].objectId.incarnation == objectId.incarnation );
+    CHECK( draws[0].draw.pipeline.value == maskPipeline.value );
+    CHECK( draws[0].draw.uniformRanges[0].byteSize == 80u );
+    CHECK( draws[0].draw.sampledTextures[0].value == alphaTexture.value );
+
+    render::render_texture_desc_t targetDescription{};
+    targetDescription.width = targetDescription.height = 8u;
+    targetDescription.sRGB = false;
+    targetDescription.generateMips = false;
+    targetDescription.repeat = false;
+    targetDescription.renderTarget = true;
+    targetDescription.format = render::render_texture_format_t::D24;
+    render::render_texture_handle_t depth{};
+    render::render_target_handle_t target{};
+    REQUIRE( render::R_CreateTexture2D( targetDescription, {}, &depth ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CreateRenderTarget( { {}, depth }, &target ) ==
+        render::render_error_t::OK );
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    render::render_target_pass_desc_t pass{};
+    pass.target = target;
+    pass.clearFlags = render::R_CLEAR_DEPTH;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    REQUIRE( render::R_DrawIndexed( draws[0].draw ) == render::render_error_t::OK );
+    GLfloat transparentDepth = 0.0f, solidDepth = 1.0f;
+    glReadPixels( 2, 4, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &transparentDepth );
+    glReadPixels( 6, 4, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &solidDepth );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    CAPTURE( transparentDepth, solidDepth );
+    CHECK( transparentDepth >= 0.99f );
+    CHECK( solidDepth >= 0.24f );
+    CHECK( solidDepth <= 0.26f );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
+    world::WorldSubmission_End( pSubmission );
+    world::WorldSubmission_Shutdown( &pSubmission );
+    world::World_Shutdown( &pWorld );
+    REQUIRE( render::R_DestroyUniformBatch( &modelUniforms ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( alphaTexture ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( maskPipeline ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( shader ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) ==
+        render::render_error_t::OK );
+}
+
 void CheckCookedWorldShadowDrawing( const render::render_extent_t extent )
 {
     // The caster sits outside a tight camera query but inside the light's
@@ -4767,6 +4956,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckWorldLitNormalModelDrawing( info->drawableExtent );
     CheckWorldCameraMaskCutoutDrawing( info->drawableExtent );
     CheckCookedWorldCameraPassDrawing( info->drawableExtent );
+    CheckWorldMaskShadowDrawing( info->drawableExtent );
     CheckCookedWorldShadowDrawing( info->drawableExtent );
 
     ::cypher::common::u32 vertexWords[16]{};

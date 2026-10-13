@@ -54,6 +54,8 @@ struct world_draw_fixture_t {
     render::render_pipeline_handle_t mirroredPipelines[4]{};
     render::render_pipeline_handle_t shadowPipeline{};
     render::render_pipeline_handle_t mirroredShadowPipeline{};
+    render::render_pipeline_handle_t maskShadowPipeline{};
+    render::render_pipeline_handle_t mirroredMaskShadowPipeline{};
     render::render_pipeline_handle_t litPipeline{};
     render::render_pipeline_handle_t mirroredLitPipeline{};
     render::render_pipeline_handle_t cutoutPipelines[2]{};
@@ -285,6 +287,28 @@ struct world_draw_fixture_t {
             pipeline, &mirroredShadowPipeline ) == render::render_error_t::OK );
     }
 
+    void InitMaskShadowPipelines()
+    {
+        render::render_vertex_input_info_t input{};
+        REQUIRE( render::R_GetVertexInputInfo( mesh.vertexInput, &input ) ==
+            render::render_error_t::OK );
+        render::render_pipeline_desc_t pipeline{};
+        pipeline.shader = shader;
+        pipeline.vertexLayout = input.layout;
+        pipeline.uniformBlockCount = 2u;
+        pipeline.uniformBlocks[0] = { "Light", 64u };
+        pipeline.uniformBlocks[1] = { "Model", 80u };
+        pipeline.sampledTextureCount = 1u;
+        pipeline.sampledTextures[0].name = "AlphaMap";
+        pipeline.colorWrite = false;
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &maskShadowPipeline ) == render::render_error_t::OK );
+        pipeline.frontCounterClockwise = false;
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &mirroredMaskShadowPipeline ) ==
+            render::render_error_t::OK );
+    }
+
     void EnableLitMaterial( common::u32 slot )
     {
         REQUIRE( slot < 2u );
@@ -360,6 +384,8 @@ struct world_draw_fixture_t {
         desc.modelUniformSlot = 1u;
         desc.shadowPipeline = shadowPipeline;
         desc.mirroredShadowPipeline = mirroredShadowPipeline;
+        desc.maskShadowPipeline = maskShadowPipeline;
+        desc.mirroredMaskShadowPipeline = mirroredMaskShadowPipeline;
         desc.drawTemplate.uniformBuffers[0] = viewBuffer;
         return desc;
     }
@@ -441,6 +467,10 @@ struct world_draw_fixture_t {
             (void)render::R_DestroyGraphicsPipeline( shadowPipeline );
         if ( mirroredShadowPipeline.value != 0u )
             (void)render::R_DestroyGraphicsPipeline( mirroredShadowPipeline );
+        if ( maskShadowPipeline.value != 0u )
+            (void)render::R_DestroyGraphicsPipeline( maskShadowPipeline );
+        if ( mirroredMaskShadowPipeline.value != 0u )
+            (void)render::R_DestroyGraphicsPipeline( mirroredMaskShadowPipeline );
         if ( litPipeline.value != 0u )
             (void)render::R_DestroyGraphicsPipeline( litPipeline );
         if ( mirroredLitPipeline.value != 0u )
@@ -1446,13 +1476,158 @@ TEST_CASE( "World light submission keeps off-camera opaque casters and mirrored 
     CHECK( fixture.uploadedSize == 320u );
 }
 
+TEST_CASE( "World shadow packs mixed opaque and MASK caster records",
+    "[CypherRender][WorldDraw][Shadow][Cutout]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.InitShadowPipelines();
+    fixture.InitMaskShadowPipelines();
+    fixture.EnableCutoutMaterial( 1u, false, true );
+    REQUIRE( render::R_DestroyUniformBatch( &fixture.batch ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CreateUniformBatch(
+        640u, common::Allocator_GetSystem(), &fixture.batch ) ==
+        render::render_error_t::OK );
+    fixture.materials[0].materialFlags =
+        common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    fixture.materials[1].materialFlags =
+        common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    fixture.materials[1].alphaCutoff = 0.375f;
+    const auto opaque = fixture.Add( 0u, 0u, 0.0f );
+    const auto masked = fixture.Add( 0u, 1u, 4.0f );
+    const auto mirroredMasked = fixture.Add( 0u, 1u, 8.0f );
+    world::world_object_t object{};
+    REQUIRE( world::World_GetObject(
+        fixture.pWorld, mirroredMasked, &object ) == world::world_error_t::OK );
+    object.localToWorld = math::Affine3_Multiply(
+        math::Affine3_FromTranslation( { 8.0f, 0.0f, 0.0f } ),
+        math::Affine3_FromScale( { -1.0f, 1.0f, 1.0f } ) );
+    REQUIRE( world::World_UpdateObject(
+        fixture.pWorld, mirroredMasked, &object ) == world::world_error_t::OK );
+    fixture.Build();
+
+    render::render_world_shadow_draw_t output[3]{};
+    common::u32 count = 77u;
+    REQUIRE( render::R_PrepareWorldShadowDraws(
+        fixture.ShadowDescription(), output, 3u, &count ) ==
+        render::render_error_t::OK );
+    CHECK( count == 3u );
+    CHECK( output[0].objectId.slot.value == opaque.slot.value );
+    CHECK( output[1].objectId.slot.value == masked.slot.value );
+    CHECK( output[2].objectId.slot.value == mirroredMasked.slot.value );
+    CHECK( output[0].draw.pipeline.value == fixture.shadowPipeline.value );
+    CHECK( output[1].draw.pipeline.value == fixture.maskShadowPipeline.value );
+    CHECK( output[2].draw.pipeline.value ==
+        fixture.mirroredMaskShadowPipeline.value );
+    CHECK( output[0].draw.uniformRanges[1].offset == 0u );
+    CHECK( output[1].draw.uniformRanges[1].offset == 256u );
+    CHECK( output[2].draw.uniformRanges[1].offset == 512u );
+    CHECK( output[0].draw.uniformRanges[1].byteSize == 64u );
+    CHECK( output[1].draw.uniformRanges[1].byteSize == 80u );
+    CHECK( output[2].draw.uniformRanges[1].byteSize == 80u );
+    CHECK( output[1].draw.sampledTextures[0].value ==
+        fixture.alphaTexture.value );
+    CHECK( output[2].draw.sampledTextures[0].value ==
+        fixture.alphaTexture.value );
+    CHECK( fixture.uploadCalls == 1u );
+    CHECK( fixture.uploadedSize == 592u );
+    const common::u32 maskedOffsets[2]{ 256u, 512u };
+    for ( const common::u32 offset : maskedOffsets ) {
+        common::f32 cutoff[4]{};
+        std::memcpy( cutoff, fixture.uploaded + offset + 64u,
+            sizeof( cutoff ) );
+        CHECK( cutoff[0] == 0.375f );
+        CHECK( cutoff[1] == 0.0f );
+        CHECK( cutoff[2] == 0.0f );
+        CHECK( cutoff[3] == 0.0f );
+    }
+}
+
+TEST_CASE( "World MASK shadow preflight rejects bad cutoff and alpha source atomically",
+    "[CypherRender][WorldDraw][Shadow][Cutout]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.InitShadowPipelines();
+    fixture.InitMaskShadowPipelines();
+    fixture.EnableCutoutMaterial( 1u, false, true );
+    fixture.materials[0].materialFlags =
+        common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    fixture.materials[1].materialFlags =
+        common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    (void)fixture.Add( 0u, 0u, 0.0f ); // Valid caster before invalid MASK.
+    (void)fixture.Add( 0u, 1u, 4.0f );
+    fixture.Build();
+    render::render_error_t expected = render::render_error_t::ERR_UNSUPPORTED;
+    SECTION( "cutoff below zero" ) {
+        fixture.materials[1].alphaCutoff = -0.01f;
+    }
+    SECTION( "cutoff above one" ) {
+        fixture.materials[1].alphaCutoff = 1.01f;
+    }
+    SECTION( "nonfinite cutoff" ) {
+        fixture.materials[1].alphaCutoff =
+            std::numeric_limits<common::f32>::quiet_NaN();
+    }
+    SECTION( "missing alpha source" ) {
+        fixture.materials[1].textureCount = 0u;
+    }
+    SECTION( "stale alpha source" ) {
+        fixture.materials[1].textures[0] = {};
+        expected = render::render_error_t::ERR_INVALID_HANDLE;
+    }
+    render::render_world_shadow_draw_t output[2]{};
+    output[0].draw.pipeline.value = 12345u;
+    common::u32 count = 77u;
+    CHECK( render::R_PrepareWorldShadowDraws(
+        fixture.ShadowDescription(), output, 2u, &count ) == expected );
+    CHECK( count == 77u );
+    CHECK( output[0].draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
+TEST_CASE( "World MASK shadow requires a depth-only textured 80-byte pipeline",
+    "[CypherRender][WorldDraw][Shadow][Cutout]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.InitShadowPipelines();
+    fixture.EnableCutoutMaterial( 1u, false, true );
+    fixture.materials[1].materialFlags =
+        common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    (void)fixture.Add( 0u, 1u, 0.0f );
+    fixture.Build();
+    auto description = fixture.ShadowDescription();
+    description.maskShadowPipeline = fixture.shadowPipeline;
+    render::render_world_shadow_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    common::u32 count = 77u;
+    CHECK( render::R_PrepareWorldShadowDraws(
+        description, &output, 1u, &count ) ==
+        render::render_error_t::ERR_BINDING_MISMATCH );
+    CHECK( count == 77u );
+    CHECK( output.draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
 TEST_CASE( "World shadow preflight refuses casting translucent geometry atomically",
     "[CypherRender][WorldDraw][Shadow]" )
 {
     world_draw_fixture_t fixture{};
     fixture.Init();
     fixture.InitShadowPipelines();
-    fixture.AddCameraMaterial( 2u, common::render_material_alpha_mode_t::BLEND );
+    common::render_material_alpha_mode_t alphaMode{};
+    SECTION( "BLEND" ) {
+        alphaMode = common::render_material_alpha_mode_t::BLEND;
+    }
+    SECTION( "ADDITIVE" ) {
+        alphaMode = common::render_material_alpha_mode_t::ADDITIVE;
+    }
+    fixture.AddCameraMaterial( 2u, alphaMode );
     fixture.materials[2].materialFlags =
         common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
     (void)fixture.Add( 0u, 2u, 0.0f );
