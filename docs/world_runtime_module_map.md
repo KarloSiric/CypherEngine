@@ -21,7 +21,9 @@
 
 ## Status
 
-Architecture approved; implementation not started.
+Architecture approved; the bounded in-memory object table is implemented.
+The remaining Gate 1 view query and immutable renderer handoff are not yet
+implemented.
 
 This is a source-ownership and sequencing map. A listed `.cpp` file is not
 created until it has executable behavior and focused tests. The final module is

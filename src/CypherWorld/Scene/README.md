@@ -20,5 +20,7 @@ One entity may own several render proxies, and static map geometry may have no
 entity at all. GPU buffers and materials are referenced by renderer/resource
 handles; CypherWorld does not own their native storage.
 
-First implementation: a bounded object table with add, remove, lookup, transform
-update, bounds update, and deterministic iteration.
+The first implemented slice is a bounded object table with add, remove, lookup,
+whole-record update, and deterministic snapshots. The caller supplies world-
+space bounds together with each transform and must keep them in sync. Hierarchy,
+loaded maps, render proxies, and a view query remain separate gates.

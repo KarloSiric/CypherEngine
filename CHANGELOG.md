@@ -37,6 +37,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- `CypherWorldRuntime` now has a fixed-capacity in-memory object table with
+  explicit allocation/cleanup, finite affine transforms and caller-maintained
+  world-space bounds, layers, and logical mesh/material slots. IDs include a
+  World serial and a 64-bit insertion incarnation, so removed or cross-World
+  objects stay stale even when the shared 16-bit slot generation wraps.
+  Deterministic snapshots copy live records without renderer handles. The
+  focused object-table CTest passes, including allocation failures and a full
+  generation-wrap regression. Capacity is currently at most 65,536 objects;
+  view queries, asset residency, and renderer submission are not yet present.
 - The `cypher_render_cube` example now draws three differently tinted objects
   from one validated static mesh and one pipeline. It stages three aligned
   model/view/projection records, uploads them once per frame, and selects a

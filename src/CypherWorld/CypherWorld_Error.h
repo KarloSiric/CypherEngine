@@ -4,9 +4,7 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherWorld/CypherWorld_Error.h
-//  Purpose: Reserves stable failure reporting for CypherWorld operations.
-//  Details: Error values will be introduced with the operations that can
-//           produce them rather than publishing speculative failure states.
+//  Purpose: Reports bounded world object-table failures.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-09-15
@@ -25,18 +23,13 @@
 namespace cypher::engine::world
 {
 
-/*
-===============================================================================
-
-    World errors
-
-The eventual error set must distinguish invalid arguments, invalid or stale
-handles, malformed cooked maps, capacity exhaustion, unavailable dependencies,
-streaming failures, and invalid lifecycle transitions. Diagnostic text remains
-separate from stable machine-readable values.
-
-===============================================================================
-*/
+enum class world_error_t {
+    OK = 0,
+    INVALID_ARGUMENT,
+    OUT_OF_MEMORY,
+    CAPACITY_EXCEEDED,
+    STALE_OBJECT_ID
+};
 
 } // namespace cypher::engine::world
 

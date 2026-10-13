@@ -733,6 +733,15 @@ target_include_directories(CypherMath
 )
 target_compile_definitions(CypherMath PUBLIC CYPHER_MATH_STATIC=1)
 target_link_libraries(CypherMath PUBLIC Cypher::CommonTier0)
+
+add_library(CypherWorldRuntime STATIC
+    "${CYPHERENGINE_SRC_DIR}/CypherWorld/CypherWorld_Public.cpp"
+)
+add_library(Cypher::WorldRuntime ALIAS CypherWorldRuntime)
+target_compile_features(CypherWorldRuntime PUBLIC cxx_std_20)
+target_include_directories(CypherWorldRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
+target_link_libraries(CypherWorldRuntime
+    PUBLIC Cypher::Math Cypher::CommonTier1)
 if (NOT MSVC)
     # Expansion/Predicates rely on TwoSum/TwoDiff/TwoProduct being exact under
     # plain IEEE-754 double arithmetic; GCC/Clang may otherwise silently fuse
@@ -980,6 +989,12 @@ if (CYPHERENGINE_BUILD_TESTS)
             )
             add_test(NAME ${target_name} COMMAND ${target_name})
         endfunction()
+
+        cypher_add_common_catch_test(
+            cypher_world_object_table_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherWorld/CypherWorld_ObjectTable_Tests.cpp"
+            Cypher::WorldRuntime
+        )
 
         cypher_add_common_catch_test(
             cypher_common_tier0_align_tests

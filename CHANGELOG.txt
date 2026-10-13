@@ -34,6 +34,14 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- CypherWorldRuntime now has a fixed-capacity in-memory object table with
+  explicit allocation and cleanup, finite transforms, caller-maintained world
+  bounds, layers, and logical mesh/material slots. World serial and 64-bit
+  insertion incarnation keep removed/cross-World IDs stale even after packed
+  slot-generation wrap. Deterministic snapshots copy live records. The focused
+  CTest passes, including allocation failures and a full wrap regression.
+  Capacity is at most 65,536 objects; view queries and renderer submission
+  remain separate work.
 - The cypher_render_cube example now draws three differently tinted objects
   from one validated static mesh and one pipeline. It stages three aligned
   model/view/projection records, uploads once per frame, and selects a record

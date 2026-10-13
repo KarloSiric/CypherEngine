@@ -4,9 +4,7 @@
 //  Copyright (c) 2026 Karlo Siric. All rights reserved.
 //
 //  File: src/CypherWorld/CypherWorld_Public.h
-//  Purpose: Reserves the stable engine-facing boundary of CypherWorld.
-//  Details: Runtime operations will be added here gate by gate after their
-//           ownership, lifetime, failure behavior, and tests are designed.
+//  Purpose: Declares the bounded, renderer-neutral world object table.
 //
 //  History:
 //  - Created by Karlo Siric on 2026-09-15
@@ -24,23 +22,54 @@
 
 #include "CypherWorld_Error.h"
 #include "CypherWorld_Types.h"
+#include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 
 namespace cypher::engine::world
 {
 
-/*
-===============================================================================
+// The borrowed allocator must outlive the world. Capacity is fixed at creation
+// and must be 1..65536. An initially null *ppWorld remains null on failure;
+// an existing world is never replaced.
+CYPHER_NODISCARD world_error_t World_Init(
+    world_t **ppWorld,
+    const common::allocator_t *pAllocator,
+    common::u32 capacity ) noexcept;
 
-    Public world contract staging
+// Safe for a null pointer or an already-empty *ppWorld.
+void World_Shutdown( world_t **ppWorld ) noexcept;
 
-This header intentionally exports no operations yet. The first contract will
-cover one loaded world, explicit object lifetime, bounds updates, a view query,
-and an immutable renderer-neutral submission. Terrain, portals, streaming, and
-editor bridges are not allowed to enter this API before their implementation
-gates are reached.
+// Objects own no meshes or materials. Slots refer to an external logical asset
+// table; CY_U32_MAX is reserved and rejected. The bounds are already in world
+// space. Callers must update them when the transform changes.
+CYPHER_NODISCARD world_error_t World_AddObject(
+    world_t *pWorld,
+    const world_object_t *pObject,
+    world_object_id_t *pOutId ) noexcept;
+CYPHER_NODISCARD world_error_t World_RemoveObject(
+    world_t *pWorld,
+    world_object_id_t id ) noexcept;
+CYPHER_NODISCARD world_error_t World_GetObject(
+    const world_t *pWorld,
+    world_object_id_t id,
+    world_object_t *pOutObject ) noexcept;
+// Validates the whole replacement before changing the stored record.
+CYPHER_NODISCARD world_error_t World_UpdateObject(
+    world_t *pWorld,
+    world_object_id_t id,
+    const world_object_t *pObject ) noexcept;
 
-===============================================================================
-*/
+CYPHER_NODISCARD common::u32 World_ObjectCount( const world_t *pWorld ) noexcept;
+CYPHER_NODISCARD common::u32 World_ObjectCapacity( const world_t *pWorld ) noexcept;
+
+// Copies live objects in ascending slot order. An insufficient output capacity
+// reports CAPACITY_EXCEEDED, sets *pOutCount to the required count, and writes
+// no records. A successful snapshot is independent of later table mutations;
+// its IDs still become stale when their live objects are removed.
+CYPHER_NODISCARD world_error_t World_SnapshotObjects(
+    const world_t *pWorld,
+    world_object_snapshot_t *pOutput,
+    common::u32 outputCapacity,
+    common::u32 *pOutCount ) noexcept;
 
 } // namespace cypher::engine::world
 
