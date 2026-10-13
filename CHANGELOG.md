@@ -37,6 +37,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- `CypherRenderUniformRuntime` now stages bounded per-object uniform records
+  at the device's required alignment and uploads the populated span once.
+  Draws can select committed records through the existing GL 4.1 uniform-range
+  path; borrowed record bytes are copied, failed uploads remain retryable, and
+  reset invalidates stale record tokens. Focused fake-backend tests and a native
+  two-object color smoke pass. Multi-buffer frame pacing, scene sorting, and
+  visibility scheduling remain separate work.
 - Triangle-list graphics pipelines now select filled or wireframe polygon
   rasterization through an immutable renderer setting. The frontend rejects
   invalid modes and line-list/wireframe combinations; each OpenGL 4.1 draw

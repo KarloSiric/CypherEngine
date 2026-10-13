@@ -691,6 +691,15 @@ target_compile_features(CypherRenderMeshRuntime PUBLIC cxx_std_20)
 target_include_directories(CypherRenderMeshRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
 target_link_libraries(CypherRenderMeshRuntime PUBLIC Cypher::Render)
 
+# Bounded per-object uniform staging over the existing renderer buffer API.
+add_library(CypherRenderUniformRuntime STATIC
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/Runtime/CypherRender_UniformBatch.cpp"
+)
+add_library(Cypher::RenderUniformRuntime ALIAS CypherRenderUniformRuntime)
+target_compile_features(CypherRenderUniformRuntime PUBLIC cxx_std_20)
+target_include_directories(CypherRenderUniformRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
+target_link_libraries(CypherRenderUniformRuntime PUBLIC Cypher::Render)
+
 add_library(CypherPak STATIC ${CYPHER_PAK_SOURCES})
 add_library(Cypher::Pak ALIAS CypherPak)
 target_compile_features(CypherPak PUBLIC cxx_std_20)
@@ -1810,6 +1819,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::RenderMeshRuntime
         )
         cypher_add_common_catch_test(
+            cypher_render_uniform_batch_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_UniformBatch_Tests.cpp"
+            Cypher::RenderUniformRuntime
+        )
+        cypher_add_common_catch_test(
             cypher_common_render_preview_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherCommon/RenderSystem/CypherCommon_RenderPreview_Tests.cpp"
             Cypher::RenderPreview
@@ -2121,6 +2135,7 @@ if (CYPHERENGINE_BUILD_TESTS)
             Cypher::RenderMaterialRuntime
         )
         target_link_libraries(cypher_render_opengl_smoke_tests PRIVATE Cypher::RenderMeshRuntime)
+        target_link_libraries(cypher_render_opengl_smoke_tests PRIVATE Cypher::RenderUniformRuntime)
         # Render links Glad privately; this test only needs its native headers
         # for pixel readback and should not link a second Glad archive.
         target_include_directories(cypher_render_opengl_smoke_tests PRIVATE

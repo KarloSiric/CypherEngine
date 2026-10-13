@@ -21,6 +21,7 @@
 #include "CypherRender/OpenGL/CypherRender_OpenGL_Local.h"
 #include "CypherRender/Runtime/CypherRender_MaterialBridge.h"
 #include "CypherRender/Runtime/CypherRender_MeshBridge.h"
+#include "CypherRender/Runtime/CypherRender_UniformBatch.h"
 #include "CypherCommon/Formats/CypherCommon_CookedTexture.h"
 #include "CypherResource/CypherResource_RenderAssets.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
@@ -498,21 +499,30 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     REQUIRE( alignment > 0u );
     const common::u64 recordStride =
         ( sizeof( redUniforms ) + alignment - 1u ) / alignment * alignment;
-    std::vector<common::byte> packedUniforms(
-        static_cast<std::size_t>( recordStride + sizeof( redUniforms ) ), 0u );
-    std::memcpy( packedUniforms.data(), redUniforms, sizeof( redUniforms ) );
-    std::memcpy( packedUniforms.data() + recordStride, uniforms, sizeof( uniforms ) );
-    const auto packedBuffer = createBuffer( packedUniforms.data(), packedUniforms.size(),
-        render::R_BUFFER_USAGE_UNIFORM, false );
+    render::render_uniform_batch_t uniformBatch{};
+    REQUIRE( render::R_CreateUniformBatch(
+        recordStride + sizeof( uniforms ), nullptr, &uniformBatch ) ==
+        render::render_error_t::OK );
+    render::render_uniform_record_t redRecord{};
+    render::render_uniform_record_t greenRecord{};
+    REQUIRE( render::R_AppendUniformRecord(
+        &uniformBatch, redUniforms, sizeof( redUniforms ), &redRecord ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_AppendUniformRecord(
+        &uniformBatch, uniforms, sizeof( uniforms ), &greenRecord ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CommitUniformBatch( &uniformBatch ) ==
+        render::render_error_t::OK );
     ++frame.frameIndex;
     frame.clearDepth = 1.0f;
     REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
     draw.pipeline = pipeline;
-    draw.uniformBuffers[0] = packedBuffer;
-    draw.uniformRanges[0] = { 0u, sizeof( redUniforms ) };
+    REQUIRE( render::R_ApplyUniformRecordToDraw(
+        uniformBatch, redRecord, 0u, &draw ) == render::render_error_t::OK );
     draw.viewport = { true, 0u, 0u, extent.width / 2u, extent.height };
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
-    draw.uniformRanges[0] = { recordStride, sizeof( uniforms ) };
+    REQUIRE( render::R_ApplyUniformRecordToDraw(
+        uniformBatch, greenRecord, 0u, &draw ) == render::render_error_t::OK );
     draw.viewport.x = extent.width / 2u;
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
     readPixel( static_cast<GLint>( extent.width / 4u ),
@@ -520,7 +530,8 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     readPixel( static_cast<GLint>( extent.width * 3u / 4u ),
                static_cast<GLint>( extent.height / 2u ), 1 );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
-    REQUIRE( render::R_DestroyBuffer( packedBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyUniformBatch( &uniformBatch ) ==
+        render::render_error_t::OK );
 
     REQUIRE( render::R_DestroyGraphicsPipeline( depthOnly ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( colorAtEqualDepth ) == render::render_error_t::OK );

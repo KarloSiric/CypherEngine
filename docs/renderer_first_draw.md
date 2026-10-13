@@ -145,6 +145,26 @@ driver's one-pixel behavior, and a wire overlay on filled geometry still needs
 an explicit depth policy to avoid z-fighting. The host's prior polygon state
 is restored when a hosted frame ends.
 
+## Many object transform records
+
+`CypherRenderUniformRuntime` stages a bounded set of per-object uniform records
+on the CPU and uploads the populated span to one mutable GPU uniform buffer.
+`R_AppendUniformRecord` copies each borrowed record immediately and places it
+at the device's required uniform-buffer offset alignment. After one successful
+`R_CommitUniformBatch`, `R_ApplyUniformRecordToDraw` selects a committed record
+for a chosen uniform slot without changing the draw's geometry or material.
+The OpenGL 4.1 draw then uses the existing `glBindBufferRange` path. This
+replaces one upload per object with one upload for the batch, while keeping each
+object's transform or tint distinct.
+
+Capacity is fixed at creation; an append that does not fit leaves the previous
+records intact. Failed GPU upload leaves the batch staged for a retry, and
+`R_ResetUniformBatch` invalidates old record tokens before reuse. The caller
+destroys the batch and owns the surrounding frame and draw order. Reusing the
+same GPU buffer in a later frame is correct but can stall while the GPU reads
+older draws; a measured multi-buffer strategy can be added when needed. This
+helper does not implement scene visibility, sort order, or command recording.
+
 ## Depth comparison policy
 
 Graphics pipelines default to `render_depth_compare_t::LESS` with depth testing

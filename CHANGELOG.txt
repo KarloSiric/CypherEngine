@@ -34,6 +34,12 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- CypherRenderUniformRuntime stages bounded per-object uniform records at the
+  device's offset alignment and uploads their populated span once. Draws select
+  committed records through OpenGL 4.1 uniform ranges; borrowed bytes are
+  copied, failed uploads are retryable, and reset invalidates stale tokens.
+  Focused fake-backend and native two-object color tests pass. Multi-buffer
+  frame pacing, scene sorting and visibility scheduling remain separate.
 - Triangle-list graphics pipelines select filled or wireframe polygon
   rasterization as immutable state. Invalid modes and line-list/wireframe
   combinations are rejected; each OpenGL 4.1 draw applies its own mode. A
