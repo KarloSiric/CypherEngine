@@ -21,10 +21,12 @@ The window displays three differently tinted, rotating cubes over a graybox
 floor with a cooked checker texture. A fourth cube sits behind the camera and
 is rejected by the World camera-view query, but still casts into a fixed
 directional shadow map. The cubes share one mesh; the floor is a second mesh.
-The depth pass and camera pass use separate pipelines and draw queues. Depth
-testing hides rear surfaces, and back-face culling removes
-triangles facing away from the camera. Resize the window to check the
-projection. Press Escape or close the window to exit.
+The shadow depth pass and HDR camera pass use separate pipelines and draw
+queues. A third fullscreen-triangle pass tone-maps the linear RGBA16F scene
+and encodes it for the presentation window. Depth testing hides rear surfaces,
+and back-face culling removes triangles facing away from the camera. Resize
+the window to check the projection and HDR target recreation. Press Escape or
+close the window to exit.
 
 In the interactive run, hold the right mouse button to capture the pointer and
 look around. WASD moves along the view, Space/C moves up/down in the Z-up
@@ -45,25 +47,28 @@ Run a finite smoke check through the same public API:
 completing cleanup. A timeout also prevents a minimized finite run from waiting
 forever. Finite runs advance animation at a fixed 1/60 second per rendered frame;
 interactive runs use elapsed time. `--hidden` defaults to 120 frames if no frame
-limit is supplied. The current five-object scene produces five depth-pass draws
-and four camera-visible draws per frame, or 600 shadow-caster and 480 visible
-draws in the default hidden run. A graphics context is still
-required for hidden runs. Finite runs keep the original fixed camera and do not
-consume fly controls, so the smoke check remains deterministic.
+limit is supplied. The current five-object scene produces five depth-pass
+draws, four camera-visible draws, and one presentation draw per frame: 600
+shadow, 480 scene, and 120 tone-map draws in the default hidden run. A graphics
+context is still required for hidden runs. Finite runs keep the original fixed
+camera and do not consume fly controls, so the smoke check remains
+deterministic.
 
-`--shader PATH`, `--shadow-shader PATH`, and `--texture PATH` select **already
-cooked** `.cyshader_c` and `.cytex_c` files. A replacement camera shader must
-declare the sample's reflected uniform blocks, `albedoTexture`, and `shadowMap`
-comparison sampler. A replacement depth shader must declare the light and
-object blocks. The runtime does not invoke a
-compiler or open raw source assets. These overrides also let a renderer-only
-debug build use assets produced by a separate tools build:
+`--shader PATH`, `--shadow-shader PATH`, `--tonemap-shader PATH`, and
+`--texture PATH` select **already cooked** `.cyshader_c` and `.cytex_c` files.
+A replacement camera shader must declare the sample's reflected uniform blocks,
+`albedoTexture`, and the `shadowMap` comparison sampler. A replacement depth
+shader must declare the light and object blocks; a replacement presentation
+shader must declare `sceneColor` as a scalar `sampler2D`. The runtime does not
+invoke a compiler or open raw source assets. These overrides also let a
+renderer-only debug build use assets produced by a separate tools build:
 
 ```sh
 cmake --build --preset debug --target cypher_render_cube --parallel 4
 ./out/build/debug/bin/cypher_render_cube \
   --shader out/build/shader-tools-debug/cooked/render_smoke/cube.cyshader_c \
   --shadow-shader out/build/shader-tools-debug/cooked/render_smoke/shadow.cyshader_c \
+  --tonemap-shader out/build/shader-tools-debug/cooked/render_smoke/tonemap.cyshader_c \
   --texture out/build/shader-tools-debug/cooked/textures/blockout/floor_checker.cytex_c
 ```
 
@@ -78,6 +83,10 @@ To run the offline step explicitly:
   --source-root assets \
   --output-root out/build/shader-tools-debug/cooked \
   --color never --progress none render_smoke/shadow.cyshader
+./out/build/shader-tools-debug/bin/CypherResourceCompiler compile \
+  --source-root assets \
+  --output-root out/build/shader-tools-debug/cooked \
+  --color never --progress none render_smoke/tonemap.cyshader
 ./out/build/shader-tools-debug/bin/CypherResourceCompiler compile \
   --source-root assets \
   --output-root out/build/shader-tools-debug/cooked \
@@ -97,6 +106,7 @@ use their own `tile_surface` shader.
 ```text
 assets/render_smoke/cube.cyshader + cube.vert + cube.frag
 assets/render_smoke/shadow.cyshader + shadow.vert + shadow.frag
+assets/render_smoke/tonemap.cyshader + tonemap.vert + tonemap.frag
 assets/textures/blockout/floor_checker.cytex + floor_checker.png
         |
         | CypherResourceCompiler, offline
@@ -113,7 +123,7 @@ public shader and texture handles -> native programs and images
         |
         | R_CreateGraphicsPipeline
         v
-camera and depth pipelines: program + vertex layout + depth/cull/blend policy
+camera, depth, and presentation pipelines: program + layout + state
         |
         | World objects -> all five shadow casters
         | World_QueryView -> copied camera-visible World submission
@@ -122,9 +132,11 @@ camera and depth pipelines: program + vertex layout + depth/cull/blend policy
         | WorldSubmission_End invalidates the view token after queue preparation
         | two ordered draw queues -> R_BeginFrame
         | D24 target pass -> five depth draws -> end target pass
-        | four camera draws sample shadow map -> R_EndFrame
+        | RGBA16F target pass -> four camera draws sample shadow map -> end pass
+        | indexed fullscreen triangle samples HDR, tone-maps and encodes
+        | R_EndFrame presents the window
         v
-36 cube indices or 6 floor indices -> distinct indexed draws in each pass
+36 cube indices, 6 floor indices, or 3 fullscreen indices -> indexed draws
 ```
 
 For each cooked file, the VFS directory provider is initialized with its parent
@@ -181,9 +193,9 @@ binding convention.
 The sample host writes ambient color, one directional light, and a matching
 fixed light view/projection into the camera record. The fragment shader
 combines albedo, normal, diffuse light, and one depth comparison from the
-shadow map. Their initial values preserve the previous graybox shading in lit
-areas. This is sample-owned lighting, not authored World lights or a general
-lighting pass.
+shadow map. The directional RGB is 1.75, so lit fragments can exceed 1.0
+before tone mapping. This is sample-owned lighting, not authored World lights
+or a general lighting pass.
 
 Common Math uses column vectors, so the vertex shader applies
 `projection * view * model * position`. World space follows the engine's Z-up
@@ -317,11 +329,34 @@ RGBA16F preserves linear values above 1.0 between passes. A later pass must
 explicitly map those values into the chosen output range and color space;
 merely sampling the texture does not tone-map it. The native smoke test draws
 different HDR values into this target and checks distinct tone-mapped RGBA8
-pixels in a second pass. The graybox cube sample still draws directly to the
-window and does not use this HDR path. Float uploads, cooked float textures,
-HDR CPU readback, exposure controls, and an automatic postprocess chain remain
+pixels in a second offscreen pass. Float uploads, cooked float textures, HDR
+CPU readback, configurable exposure, and an automatic postprocess chain remain
 separate work. `R_ReadTargetRGBA8` rejects an RGBA16F target without changing
 the caller's buffer; it does not silently clamp HDR pixels.
+
+### HDR presentation in the graybox sample
+
+The sample requires float render targets and creates a linear RGBA16F color
+texture matching the drawable's physical pixel size. Its target owns a private
+D24 renderbuffer. Each frame, the host finishes the shadow-map pass, draws the
+camera-visible objects into this HDR target, ends that pass, and draws one
+indexed fullscreen triangle to the window. The presentation shader samples
+the HDR texture, applies fixed unit-exposure Reinhard mapping
+(`linear / (1 + linear)`), then applies the piecewise linear-to-sRGB transfer.
+The sample sets `sRGBFramebuffer = false`, so shader encoding is the only
+presentation transfer. The OpenGL backend now follows that configuration even
+when the window happens to support automatic sRGB conversion. Enabling
+framebuffer sRGB conversion with this shader would encode twice.
+
+On a nonzero drawable resize, the host calls `R_Resize` and recreates the
+fixed-size HDR target between frames. It destroys the old target before its
+retained color texture; partial creation failure exits through the sample's
+normal cleanup path. The native pixel oracle checks float preservation and
+tonemapping, and a separate regression checks the disabled sRGB policy on a
+capable context. The 120-frame hidden sample checks all three pass submissions
+and cleanup. Its interactive appearance and resize are not covered by an
+automated pixel comparison. This is a sample-owned presentation path, not a
+general pass graph, exposure controller, or HDR editor viewport.
 
 ### Depth-only target
 
@@ -449,11 +484,12 @@ OpenGL or SDL calls appear in the host.
 
 Each frame pumps System events, handles Escape and window closure, and reads the
 physical drawable dimensions. Minimized or zero-size drawables suspend drawing.
-Dimension changes call `R_Resize` outside a frame and rebuild the projection with
-the new aspect ratio. Uniform data is uploaded before beginning the next frame.
+Dimension changes call `R_Resize` outside a frame, recreate the physical-size
+HDR target, and rebuild the projection with the new aspect ratio. Uniform data
+is uploaded before beginning the next frame.
 
 Shutdown waits for outstanding graphics work, then releases objects in dependency
-order: pipelines and target, samplers and textures, vertex inputs, buffers,
+order: pipelines and targets, samplers and textures, vertex inputs, buffers,
 shaders, renderer, window, System. The
 same cleanup runs after partial initialization and failed drawing. Destroying the
 pipeline releases its shader reference; destroying vertex input releases its
@@ -471,8 +507,11 @@ separate two-pass HDR pixel oracle checks RGBA16F storage and explicit
 tone-mapping into RGBA8. These tests exercise rendering paths; they do not
 inspect the graybox scene's visible appearance. The smoke suite also checks
 that disabling depth writes in one frame does not suppress the next frame's
-depth clear. The live check skips on machines without a usable OpenGL 4.1
-desktop session; hidden windows still require graphics support.
+depth clear. A separate native case verifies that a capable standalone
+framebuffer stays sRGB-disabled when the renderer configuration requests it,
+including after external GL code enables conversion between frames. The live
+check skips on machines without a usable OpenGL 4.1 desktop session; hidden
+windows still require graphics support.
 
 ```sh
 cmake --build --preset shader-tools-debug --parallel 4 --target \
@@ -507,6 +546,8 @@ not define a `.cymesh` format, importer, or scene draw queue.
   shader interface, sample lighting, and texture/shadow sampling.
 - `assets/render_smoke/shadow.cyshader`, `shadow.vert`, `shadow.frag`: the
   depth-only shadow-pass shader.
+- `assets/render_smoke/tonemap.cyshader`, `tonemap.vert`, `tonemap.frag`: the
+  fullscreen presentation shader and explicit output transfer.
 - `src/CypherRender/CypherRender_Shader.cpp`: public generational shader handles.
 - `src/CypherRender/OpenGL/CypherRender_OpenGL_Shader.cpp`: stage compilation,
   link diagnostics, and native program ownership.
@@ -515,9 +556,10 @@ not define a `.cymesh` format, importer, or scene draw queue.
 - `src/CypherRender/CypherRender_Draw.cpp`: frame, layout, buffer, and range
   validation before native draw submission.
 
-The graybox sample uses two triangle-list meshes, a fixed D24 light pass, two
-uniform blocks per pipeline, two sampled texture slots in the camera pass, a
-copied World submission, and two ordered draw lists for direct window drawing.
+The graybox sample uses two scene meshes and one fullscreen triangle, a fixed
+D24 light pass, a linear RGBA16F camera pass, and a tone-map presentation pass.
+The camera pipeline has two uniform blocks and two sampled texture slots; a
+copied World submission and two ordered scene draw lists feed those passes.
 The renderer also has samplers, two binding slots, offscreen RGBA8/RGBA16F
 color and sampleable depth targets, and a limited cooked-material bridge.
 Authored scene and mesh loading, broader material support, pass

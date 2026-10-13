@@ -24,6 +24,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Fixed
+- Standalone OpenGL 4.1 now follows the renderer's sRGB conversion setting,
+  even if the default framebuffer is capable. BeginFrame reasserts it after
+  external GL state changes. A native capable-but-disabled smoke case passed
+  12 assertions; hosted-frame state restoration is unchanged.
 - The tile-map preview fallback now cooks and stages a dedicated OpenGL 4.1
   shader matching its 208-byte Transforms block. Its default and both tile
   editor lookup paths no longer use the incompatible cube sample shader; the
@@ -53,6 +57,16 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The graybox sample now shades into a drawable-sized linear RGBA16F target
+  after its fixed D24 shadow pass, then presents through an indexed fullscreen
+  triangle with fixed Reinhard tone mapping and piecewise linear-to-sRGB
+  encoding. A brighter sample light demonstrates values above 1.0. Physical
+  resize recreates the target between frames, and partial creation is cleaned
+  up. The shader cooks without diagnostics; compact sample and native smoke
+  targets build, the smoke CTest passes, and 120 hidden frames complete with
+  600 shadow, 480 scene and 120 presentation draws. Interactive appearance
+  and resize lack automated pixel inspection; exposure controls and a general
+  pass scheduler remain future work.
 - Linear RGBA16F textures can serve as GPU-only offscreen color attachments
   when float render targets are supported. OpenGL 4.1 allocates GL_RGBA16F,
   and later passes may sample the completed target. R_ReadTargetRGBA8 rejects

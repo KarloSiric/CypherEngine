@@ -621,8 +621,10 @@ render_error_t GL_Init(
     }
 
     glViewport( 0, 0, static_cast<GLsizei>( window.width ), static_cast<GLsizei>( window.height ) );
-    if ( contextInfo.sRGBFramebuffer ) glEnable( GL_FRAMEBUFFER_SRGB );
-    else glDisable( GL_FRAMEBUFFER_SRGB );
+    // Capability and policy are separate: a capable default framebuffer must
+    // still store shader-authored sRGB values unchanged when conversion is off.
+    GL_SetEnabled( GL_FRAMEBUFFER_SRGB,
+        config.sRGBFramebuffer ? GL_TRUE : GL_FALSE );
     if ( contextInfo.sampleCount > 0u ) glEnable( GL_MULTISAMPLE );
     else glDisable( GL_MULTISAMPLE );
     const render_error_t nativeResult = GL_CheckErrors( config.validation );
@@ -868,6 +870,8 @@ render_error_t GL_BeginFrame(
         glViewport( 0, 0,
             static_cast<GLsizei>( frameInfo.drawableExtent.width ),
             static_cast<GLsizei>( frameInfo.drawableExtent.height ) );
+        GL_SetEnabled( GL_FRAMEBUFFER_SRGB,
+            glState.config.sRGBFramebuffer ? GL_TRUE : GL_FALSE );
     }
 
     GLbitfield clearMask = 0u;

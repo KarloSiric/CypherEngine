@@ -2393,3 +2393,84 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     std::error_code cleanupError{};
     std::filesystem::remove_all( userPath, cleanupError );
 }
+
+TEST_CASE( "Standalone OpenGL keeps sRGB conversion off when not requested",
+           "[CypherRender][OpenGL][Smoke]" )
+{
+    const std::filesystem::path userPath = std::filesystem::temp_directory_path() /
+        ( "cypher_render_opengl_srgb_" + std::to_string( sys::Sys_GetCurrentProcessId() ) );
+    const std::string userPathString = userPath.string();
+    const char *arguments[] = {
+        "cypher_render_opengl_srgb_smoke_tests", "-basedir", ".",
+        "-userpath", userPathString.c_str()
+    };
+    const sys::init_info_t initInfo{ 5, arguments,
+        "CypherRenderOpenGLSRGBSmokeTests", "CypherTests" };
+    if ( sys::Sys_Init( initInfo ) != sys::sys_error_t::OK ) {
+        SKIP( "CypherSystem could not initialize a desktop graphics session" );
+    }
+
+    render::render_config_t config = render::R_DefaultConfig();
+    config.backend = render::render_backend_t::OPENGL;
+    config.presentMode = render::render_present_mode_t::IMMEDIATE;
+    config.optionalCapabilities = render::R_CAPABILITY_NONE;
+    config.sRGBFramebuffer = false;
+    config.requireAcceleration = false;
+
+    sys::window_desc_t windowDescription{};
+    windowDescription.title = "CypherRender OpenGL sRGB Policy Smoke Test";
+    windowDescription.width = 64u;
+    windowDescription.height = 64u;
+    windowDescription.flags = sys::SYS_WINDOW_HIDDEN;
+    REQUIRE( render::R_ConfigureWindow( config, windowDescription ) ==
+        render::render_error_t::OK );
+    // Request a capable visual independently of the renderer policy. Some
+    // drivers provide one even when not requested, but this makes the original
+    // capability-versus-policy regression observable where supported.
+    windowDescription.openGL.sRGBFramebuffer = true;
+
+    sys::window_t window{};
+    if ( sys::Sys_CreateWindow( windowDescription, window ) != sys::sys_error_t::OK ) {
+        REQUIRE( sys::Sys_Shutdown() == sys::sys_error_t::OK );
+        std::error_code cleanupError{};
+        std::filesystem::remove_all( userPath, cleanupError );
+        SKIP( "The host has no sRGB-capable OpenGL window system" );
+    }
+    if ( render::R_Init( window, config ) != render::render_error_t::OK ) {
+        REQUIRE( sys::Sys_DestroyWindow( window ) == sys::sys_error_t::OK );
+        REQUIRE( sys::Sys_Shutdown() == sys::sys_error_t::OK );
+        std::error_code cleanupError{};
+        std::filesystem::remove_all( userPath, cleanupError );
+        SKIP( "The host cannot initialize an sRGB-capable OpenGL 4.1 context" );
+    }
+
+    const render::render_info_t *info = render::R_GetInfo();
+    REQUIRE( info != nullptr );
+    if ( ( info->capabilities & render::R_CAPABILITY_SRGB_FRAMEBUFFER ) == 0u ) {
+        REQUIRE( render::R_Shutdown() == render::render_error_t::OK );
+        REQUIRE( sys::Sys_DestroyWindow( window ) == sys::sys_error_t::OK );
+        REQUIRE( sys::Sys_Shutdown() == sys::sys_error_t::OK );
+        std::error_code cleanupError{};
+        std::filesystem::remove_all( userPath, cleanupError );
+        SKIP( "The host did not report an sRGB-capable default framebuffer" );
+    }
+
+    CHECK( glIsEnabled( GL_FRAMEBUFFER_SRGB ) == GL_FALSE );
+    glEnable( GL_FRAMEBUFFER_SRGB );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    REQUIRE( glIsEnabled( GL_FRAMEBUFFER_SRGB ) == GL_TRUE );
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = info->drawableExtent;
+    frame.clearFlags = render::R_CLEAR_COLOR;
+    frame.clearColor = { 0.25f, 0.25f, 0.25f, 1.0f };
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    CHECK( glIsEnabled( GL_FRAMEBUFFER_SRGB ) == GL_FALSE );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+    CHECK( glGetError() == GL_NO_ERROR );
+
+    REQUIRE( render::R_Shutdown() == render::render_error_t::OK );
+    REQUIRE( sys::Sys_DestroyWindow( window ) == sys::sys_error_t::OK );
+    REQUIRE( sys::Sys_Shutdown() == sys::sys_error_t::OK );
+    std::error_code cleanupError{};
+    std::filesystem::remove_all( userPath, cleanupError );
+}

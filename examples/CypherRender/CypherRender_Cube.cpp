@@ -55,6 +55,9 @@
 #ifndef CYPHER_RENDER_CUBE_SHADOW_SHADER_PATH
     #define CYPHER_RENDER_CUBE_SHADOW_SHADER_PATH "cooked/render_smoke/shadow.cyshader_c"
 #endif
+#ifndef CYPHER_RENDER_CUBE_TONEMAP_SHADER_PATH
+    #define CYPHER_RENDER_CUBE_TONEMAP_SHADER_PATH "cooked/render_smoke/tonemap.cyshader_c"
+#endif
 
 namespace common = ::cypher::common;
 namespace math = ::cypher::math;
@@ -120,6 +123,16 @@ constexpr cube_vertex_t FLOOR_VERTICES[] = {
 };
 constexpr common::u16 FLOOR_INDICES[] = { 0u, 1u, 2u, 0u, 2u, 3u };
 
+// One oversized triangle covers the presentation viewport without a diagonal
+// seam. Its vertex shader derives UVs from these clip-space positions.
+struct fullscreen_vertex_t {
+    float position[2];
+};
+constexpr fullscreen_vertex_t FULLSCREEN_VERTICES[] = {
+    { { -1.0f, -1.0f } }, { { 3.0f, -1.0f } }, { { -1.0f, 3.0f } }
+};
+constexpr common::u16 FULLSCREEN_INDICES[] = { 0u, 1u, 2u };
+
 // mat4_t is column-major. The two structures match separate GLSL std140 blocks.
 struct alignas( 16 ) cube_view_constants_t {
     math::mat4_t view;
@@ -156,6 +169,7 @@ static_assert( offsetof( cube_object_constants_t, tint ) == 64u );
 struct cube_options_t {
     const char *shaderPath{ CYPHER_RENDER_CUBE_SHADER_PATH };
     const char *shadowShaderPath{ CYPHER_RENDER_CUBE_SHADOW_SHADER_PATH };
+    const char *toneMapShaderPath{ CYPHER_RENDER_CUBE_TONEMAP_SHADER_PATH };
     const char *texturePath{ CYPHER_RENDER_CUBE_TEXTURE_PATH };
     common::u32 frameLimit{ 0u }; // Zero is an interactive run.
     bool hidden{ false };
@@ -205,13 +219,18 @@ struct cube_state_t {
     bool cameraCursorHidden{ false };
     render::render_shader_handle_t shader{};
     render::render_shader_handle_t shadowShader{};
+    render::render_shader_handle_t toneMapShader{};
     render::render_pipeline_handle_t pipeline{};
     render::render_pipeline_handle_t shadowPipeline{};
+    render::render_pipeline_handle_t toneMapPipeline{};
     render::render_texture_handle_t shadowDepth{};
     render::render_target_handle_t shadowTarget{};
+    render::render_texture_handle_t sceneColor{};
+    render::render_target_handle_t sceneTarget{};
     render::render_sampler_handle_t shadowSampler{};
     // The host owns this bounded slot table; World stores only slot numbers.
     render::render_static_mesh_bundle_t meshes[MESH_SLOT_COUNT]{};
+    render::render_static_mesh_bundle_t fullscreenMesh{};
     render::render_texture_handle_t textures[TEXTURE_SLOT_COUNT]{};
     render::render_buffer_handle_t viewConstants{};
     render::render_buffer_handle_t lightConstants{};
@@ -320,6 +339,8 @@ bool ParseOptions( int argc, char **argv, cube_options_t &options ) noexcept
             options.shaderPath = argv[++i];
         } else if ( std::strcmp( argv[i], "--shadow-shader" ) == 0 && i + 1 < argc ) {
             options.shadowShaderPath = argv[++i];
+        } else if ( std::strcmp( argv[i], "--tonemap-shader" ) == 0 && i + 1 < argc ) {
+            options.toneMapShaderPath = argv[++i];
         } else if ( std::strcmp( argv[i], "--texture" ) == 0 && i + 1 < argc ) {
             options.texturePath = argv[++i];
         } else if ( std::strcmp( argv[i], "--frames" ) == 0 && i + 1 < argc ) {
@@ -422,10 +443,44 @@ bool LoadTexture( const char *nativePath, render::render_texture_handle_t &textu
     return created;
 }
 
+// Resource creation and destruction happen between frames. On failure the
+// still-owned texture remains in state for Shutdown to release. Destroy the
+// target before its attachment so renderer retention is never violated.
+bool RecreateSceneTarget( cube_state_t &state,
+    const render::render_extent_t extent ) noexcept
+{
+    if ( extent.width == 0u || extent.height == 0u ) return false;
+    if ( state.sceneTarget.value != 0u ) {
+        if ( !CheckRender( render::R_DestroyRenderTarget( state.sceneTarget ),
+                 "Destroy old HDR scene target" ) ) return false;
+        state.sceneTarget = {};
+    }
+    if ( state.sceneColor.value != 0u ) {
+        if ( !CheckRender( render::R_DestroyTexture( state.sceneColor ),
+                 "Destroy old HDR scene color" ) ) return false;
+        state.sceneColor = {};
+    }
+
+    render::render_texture_desc_t color{};
+    color.width = extent.width;
+    color.height = extent.height;
+    color.sRGB = false;
+    color.generateMips = false;
+    color.repeat = false;
+    color.renderTarget = true;
+    color.format = render::render_texture_format_t::RGBA16F;
+    color.debugName = "Graybox linear HDR scene color";
+    return CheckRender( render::R_CreateTexture2D( color, {},
+               &state.sceneColor ), "Create HDR scene color" ) &&
+        CheckRender( render::R_CreateRenderTarget( { state.sceneColor, {} },
+            &state.sceneTarget ), "Create HDR scene target" );
+}
+
 bool CreateScene( cube_state_t &state, const cube_options_t &options )
 {
     if ( !LoadShader( options.shaderPath, state.shader ) ||
-         !LoadShader( options.shadowShaderPath, state.shadowShader ) ) return false;
+         !LoadShader( options.shadowShaderPath, state.shadowShader ) ||
+         !LoadShader( options.toneMapShaderPath, state.toneMapShader ) ) return false;
 
     constexpr common::u8 WHITE_PIXEL[4] = { 255u, 255u, 255u, 255u };
     render::render_texture_desc_t white{};
@@ -503,6 +558,28 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
         return false;
     }
 
+    source = {};
+    source.vertexLayout.bindingCount = 1u;
+    source.vertexLayout.bindings[0].stride = sizeof( fullscreen_vertex_t );
+    source.vertexLayout.attributeCount = 1u;
+    source.vertexLayout.attributes[0] = {
+        render::render_format_t::RG32_FLOAT, 0u, 0u, 0u };
+    source.vertexBytes = FULLSCREEN_VERTICES;
+    source.vertexByteSize = sizeof( FULLSCREEN_VERTICES );
+    source.vertexCount = 3u;
+    source.indexBytes = FULLSCREEN_INDICES;
+    source.indexByteSize = sizeof( FULLSCREEN_INDICES );
+    source.indexCount = 3u;
+    source.indexType = render::render_index_type_t::UINT16;
+    source.debugName = "Indexed fullscreen triangle";
+    meshResult = render::R_CreateStaticMeshBundle( source, &state.fullscreenMesh );
+    if ( meshResult.status != render::render_static_mesh_bridge_status_t::OK ) {
+        std::fprintf( stderr, "Create fullscreen triangle: %s (%u)\n",
+            render::R_ErrorName( meshResult.renderError ),
+            static_cast<unsigned>( meshResult.status ) );
+        return false;
+    }
+
     render::render_pipeline_desc_t pipeline{};
     pipeline.shader = state.shader;
     pipeline.vertexLayout = state.meshes[MESH_SLOT_CUBE].vertexLayout;
@@ -538,6 +615,19 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
     pipeline.debugName = "Graybox directional shadow depth pipeline";
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
              &state.shadowPipeline ), "Create shadow pipeline" ) ) return false;
+
+    pipeline = {};
+    pipeline.shader = state.toneMapShader;
+    pipeline.vertexLayout = state.fullscreenMesh.vertexLayout;
+    pipeline.depthTest = false;
+    pipeline.depthWrite = false;
+    pipeline.cullBackFaces = false;
+    pipeline.sampledTextureCount = 1u;
+    pipeline.sampledTextures[0] = { "sceneColor",
+        render::render_sampled_texture_kind_t::SCALAR_2D };
+    pipeline.debugName = "Linear HDR tone-map presentation pipeline";
+    if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
+             &state.toneMapPipeline ), "Create tone-map pipeline" ) ) return false;
 
     render::render_buffer_desc_t viewBuffer{};
     viewBuffer.byteSize = sizeof( cube_view_constants_t );
@@ -707,6 +797,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
     common::u32 renderedFrames = 0u;
     common::u64 visibleDraws = 0u;
     common::u64 shadowDraws = 0u;
+    common::u64 toneMapDraws = 0u;
     render::render_extent_t extent = render::R_GetInfo()->drawableExtent;
     const bool interactive = options.frameLimit == 0u && !options.hidden;
     cube_input_state_t input{};
@@ -754,7 +845,8 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         }
         if ( extent.width != state.window.width || extent.height != state.window.height ) {
             extent = { state.window.width, state.window.height };
-            if ( !CheckRender( render::R_Resize( extent ), "Resize drawable" ) ) return false;
+            if ( !CheckRender( render::R_Resize( extent ), "Resize drawable" ) ||
+                 !RecreateSceneTarget( state, extent ) ) return false;
         }
 
         // Finite runs have deterministic animation for smoke checks. Interactive
@@ -838,9 +930,13 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         if ( visibleCount > WORLD_OBJECT_COUNT ||
              !render::R_IsGraphicsPipelineValid( state.pipeline ) ||
              !render::R_IsGraphicsPipelineValid( state.shadowPipeline ) ||
+             !render::R_IsGraphicsPipelineValid( state.toneMapPipeline ) ||
              !render::R_IsBufferValid( state.viewConstants ) ||
              !render::R_IsBufferValid( state.lightConstants ) ||
              !render::R_IsRenderTargetValid( state.shadowTarget ) ||
+             !render::R_IsRenderTargetValid( state.sceneTarget ) ||
+             !render::R_IsTextureValid( state.sceneColor ) ||
+             !render::R_IsVertexInputValid( state.fullscreenMesh.vertexInput ) ||
              !render::R_IsTextureValid( state.shadowDepth ) ||
              !render::R_IsSamplerValid( state.shadowSampler ) ) {
             std::fprintf( stderr, "Graybox view capacity or shared render resource is invalid.\n" );
@@ -859,7 +955,9 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             view, projection,
             { 0.30f, 0.30f, 0.30f, 0.0f },
             { 0.40f, -0.70f, 1.00f, 0.0f },
-            { 0.70f, 0.70f, 0.70f, 0.0f },
+            // Bright directional values deliberately exceed linear 1.0 on
+            // illuminated faces, making the HDR intermediate meaningful.
+            { 1.75f, 1.75f, 1.75f, 0.0f },
             lightViewProjection
         };
         const render::render_buffer_data_t viewData{ &viewConstants,
@@ -976,17 +1074,43 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             passOK = shadowsOK && endPassOK;
         }
         common::u32 completedDraws = 0u;
-        const bool drawOK = passOK && CheckRender( render::R_FlushDrawQueue(
-            state.pDrawQueue, &completedDraws ), "Draw queued graybox objects" );
-        visibleDraws += completedDraws;
+        if ( passOK ) {
+            render::render_target_pass_desc_t scenePass{};
+            scenePass.target = state.sceneTarget;
+            scenePass.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
+            scenePass.clearColor = frame.clearColor;
+            passOK = CheckRender( render::R_BeginTargetPass( scenePass ),
+                "Begin HDR scene pass" );
+            if ( passOK ) {
+                const bool sceneDrawOK = CheckRender( render::R_FlushDrawQueue(
+                    state.pDrawQueue, &completedDraws ),
+                    "Draw queued graybox objects into HDR scene" );
+                visibleDraws += completedDraws;
+                const bool endPassOK = CheckRender( render::R_EndTargetPass(),
+                    "End HDR scene pass" );
+                passOK = sceneDrawOK && endPassOK;
+            }
+        }
+        if ( passOK ) {
+            render::render_draw_indexed_desc_t toneMapDraw{};
+            toneMapDraw.pipeline = state.toneMapPipeline;
+            toneMapDraw.sampledTextures[0] = state.sceneColor;
+            passOK = CheckRender( render::R_ApplyStaticMeshBundleToDraw(
+                state.fullscreenMesh, &toneMapDraw ),
+                "Resolve fullscreen triangle" ) &&
+                CheckRender( render::R_DrawIndexed( toneMapDraw ),
+                "Tone-map HDR scene to presentation" );
+            if ( passOK ) ++toneMapDraws;
+        }
         const bool endOK = CheckRender( render::R_EndFrame(), "End frame" );
-        if ( !drawOK || !endOK ) return false;
+        if ( !passOK || !endOK ) return false;
         ++renderedFrames;
         if ( options.frameLimit != 0u && renderedFrames >= options.frameLimit ) break;
     }
-    std::printf( "Rendered %u frames, %llu visible-object draws, and %llu shadow-caster draws.\n",
+    std::printf( "Rendered %u frames, %llu visible-object draws, %llu shadow-caster draws, and %llu tone-map draws.\n",
         renderedFrames, static_cast<unsigned long long>( visibleDraws ),
-        static_cast<unsigned long long>( shadowDraws ) );
+        static_cast<unsigned long long>( shadowDraws ),
+        static_cast<unsigned long long>( toneMapDraws ) );
     return options.frameLimit == 0u || renderedFrames == options.frameLimit;
 }
 
@@ -1015,6 +1139,14 @@ bool Shutdown( cube_state_t &state ) noexcept
             success = CheckRender( render::R_DestroyGraphicsPipeline( state.shadowPipeline ),
                 "Destroy shadow pipeline" ) && success;
         }
+        if ( state.toneMapPipeline.value != 0u ) {
+            success = CheckRender( render::R_DestroyGraphicsPipeline( state.toneMapPipeline ),
+                "Destroy tone-map pipeline" ) && success;
+        }
+        if ( state.sceneTarget.value != 0u ) {
+            success = CheckRender( render::R_DestroyRenderTarget( state.sceneTarget ),
+                "Destroy HDR scene target" ) && success;
+        }
         if ( state.shadowTarget.value != 0u ) {
             success = CheckRender( render::R_DestroyRenderTarget( state.shadowTarget ),
                 "Destroy shadow target" ) && success;
@@ -1026,6 +1158,10 @@ bool Shutdown( cube_state_t &state ) noexcept
         if ( state.shadowDepth.value != 0u ) {
             success = CheckRender( render::R_DestroyTexture( state.shadowDepth ),
                 "Destroy shadow depth texture" ) && success;
+        }
+        if ( state.sceneColor.value != 0u ) {
+            success = CheckRender( render::R_DestroyTexture( state.sceneColor ),
+                "Destroy HDR scene color" ) && success;
         }
         for ( common::u32 i = TEXTURE_SLOT_COUNT; i > 0u; --i ) {
             auto &texture = state.textures[i - 1u];
@@ -1048,12 +1184,18 @@ bool Shutdown( cube_state_t &state ) noexcept
             &state.meshes[MESH_SLOT_FLOOR] ), "Destroy floor mesh" ) && success;
         success = CheckRender( render::R_DestroyStaticMeshBundle(
             &state.meshes[MESH_SLOT_CUBE] ), "Destroy cube mesh" ) && success;
+        success = CheckRender( render::R_DestroyStaticMeshBundle(
+            &state.fullscreenMesh ), "Destroy fullscreen triangle" ) && success;
         if ( state.shader.value != 0u ) {
             success = CheckRender( render::R_DestroyShader( state.shader ), "Destroy shader" ) && success;
         }
         if ( state.shadowShader.value != 0u ) {
             success = CheckRender( render::R_DestroyShader( state.shadowShader ),
                 "Destroy shadow shader" ) && success;
+        }
+        if ( state.toneMapShader.value != 0u ) {
+            success = CheckRender( render::R_DestroyShader( state.toneMapShader ),
+                "Destroy tone-map shader" ) && success;
         }
         success = CheckRender( render::R_Shutdown(), "Shut down renderer" ) && success;
     }
@@ -1076,6 +1218,7 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
                                        : render::render_present_mode_t::FIFO;
     config.sRGBFramebuffer = false;
     config.requireAcceleration = false;
+    config.requiredCapabilities |= render::R_CAPABILITY_FLOAT_RENDER_TARGETS;
     config.optionalCapabilities = render::R_CAPABILITY_NONE;
     sys::window_desc_t window{};
     window.title = "Cypher Renderer | Graybox World View | Hold RMB to fly | Esc to exit";
@@ -1086,9 +1229,11 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
          !CheckSystem( sys::Sys_CreateWindow( window, state.window ), "Create window" ) ||
          !CheckRender( render::R_Init( state.window, config ), "Initialize renderer" ) ||
          !CreateScene( state, options ) ||
+         !RecreateSceneTarget( state, render::R_GetInfo()->drawableExtent ) ||
          !CreateWorld( state ) ) return false;
-    std::printf( "Cooked shader: %s\nCooked shadow shader: %s\nCooked floor texture: %s\nCube and floor meshes, %u world objects; one fixed depth pass and one visible view per frame.\n",
-        options.shaderPath, options.shadowShaderPath, options.texturePath,
+    std::printf( "Cooked shader: %s\nCooked shadow shader: %s\nCooked tone-map shader: %s\nCooked floor texture: %s\nCube and floor meshes, %u world objects; fixed shadow depth, linear HDR scene, and tone-map presentation passes per frame.\n",
+        options.shaderPath, options.shadowShaderPath, options.toneMapShaderPath,
+        options.texturePath,
         WORLD_OBJECT_COUNT );
     return RunFrames( state, options );
 }
@@ -1100,12 +1245,13 @@ int main( int argc, char **argv )
     cube_options_t options{};
     if ( !ParseOptions( argc, argv, options ) ) return 2;
     if ( options.help ) {
-        std::puts( "Usage: cypher_render_cube [--shader PATH] [--shadow-shader PATH] [--texture PATH] [--frames N] [--hidden]\n"
+        std::puts( "Usage: cypher_render_cube [--shader PATH] [--shadow-shader PATH] [--tonemap-shader PATH] [--texture PATH] [--frames N] [--hidden]\n"
                    "Hold right mouse to fly: mouse look, WASD move, Space/C up/down, Shift faster.\n"
                    "Release right mouse to free the cursor. Escape or close exits.\n"
-                   "Resize changes the projection.\n"
+                   "Resize changes the projection and recreates the HDR scene target.\n"
                    "--shader reads an existing .cyshader_c; cooking is an offline step.\n"
                    "--shadow-shader reads an existing .cyshader_c depth shader.\n"
+                   "--tonemap-shader reads an existing .cyshader_c presentation shader.\n"
                    "--texture reads an existing .cytex_c floor texture.\n"
                    "--frames keeps the fixed camera and deterministic animation, then exits.\n"
                    "--hidden defaults to 120 frames when --frames is omitted." );

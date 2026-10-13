@@ -1,0 +1,9 @@
+@cykv 1
+@schema "cypher.shader" 1
+
+// Presents the sample's linear RGBA16F scene target on an sRGB display.
+{
+    language = "glsl"
+    vertex = "render_smoke/tonemap.vert"
+    fragment = "render_smoke/tonemap.frag"
+}
