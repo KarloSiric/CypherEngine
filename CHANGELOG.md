@@ -41,6 +41,15 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- `WorldSubmission` now copies one bounded `World_QueryView` result into
+  allocator-owned storage with no per-frame allocation. A storage serial and
+  generation-checked token allow value reads through one frame and reject
+  reuse after `End`; oversize queries publish no partial view. The cube host
+  builds this submission before staging its three visible objects and ends it
+  after the OpenGL frame. Six focused World/renderer CTests and the compact
+  120-frame hidden cube run (360 draws) pass locally. The fixed-capacity,
+  single-threaded storage has no production renderer consumer, pass sorting,
+  or asset resolver yet.
 - `World_QueryView` now performs a bounded linear CPU query over live objects:
   any matching layer bit, a validated six-plane frustum, and inclusive
   distance to each object's world-space bounds. It returns copied objects in

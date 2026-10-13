@@ -736,6 +736,7 @@ target_link_libraries(CypherMath PUBLIC Cypher::CommonTier0)
 
 add_library(CypherWorldRuntime STATIC
     "${CYPHERENGINE_SRC_DIR}/CypherWorld/CypherWorld_Public.cpp"
+    "${CYPHERENGINE_SRC_DIR}/CypherWorld/Submission/CypherWorld_Submission.cpp"
 )
 add_library(Cypher::WorldRuntime ALIAS CypherWorldRuntime)
 target_compile_features(CypherWorldRuntime PUBLIC cxx_std_20)
@@ -993,6 +994,11 @@ if (CYPHERENGINE_BUILD_TESTS)
         cypher_add_common_catch_test(
             cypher_world_object_table_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherWorld/CypherWorld_ObjectTable_Tests.cpp"
+            Cypher::WorldRuntime
+        )
+        cypher_add_common_catch_test(
+            cypher_world_submission_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherWorld/CypherWorld_Submission_Tests.cpp"
             Cypher::WorldRuntime
         )
 

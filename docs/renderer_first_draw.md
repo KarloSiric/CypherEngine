@@ -1,7 +1,7 @@
 # First drawing milestone: shared indexed mesh and a visible World view
 
 This milestone connects cooked shader loading, runtime program creation,
-immutable graphics pipelines, vertex input, an in-memory World view query,
+immutable graphics pipelines, vertex input, an in-memory World view submission,
 aligned uniform records, and indexed drawing.
 The example is a small host for the renderer, with explicit startup and cleanup.
 It is not a new gameplay framework or a replacement for the engine Host.
@@ -81,9 +81,10 @@ public shader handle -> frontend record -> linked native program
         v
 pipeline: program + vertex layout + depth/cull/blend policy
         |
-        | World_QueryView -> copied visible objects
+        | World_QueryView -> copied, frame-scoped World submission
         | one aligned uniform upload for accepted objects
         | R_BeginFrame -> visible R_DrawIndexed calls -> R_EndFrame
+        | WorldSubmission_End invalidates the view token
         v
 36 shared indices -> 12 triangles per drawn object
 ```
@@ -170,14 +171,17 @@ destroys the batch and owns the surrounding frame and draw order. Reusing the
 same GPU buffer in a later frame is correct but can stall while the GPU reads
 older draws; a measured multi-buffer strategy can be added when needed. This
 cube example updates four World transforms and conservative world-space bounds,
-queries one frustum/layer/distance view, then stages only the accepted model
-matrices and tints. It uploads those records once and selects one per indexed
-draw. The host resolves the objects' logical mesh and material slots to its
-single shared mesh and sample tint table; World never owns GPU handles. The
-batch resets after the preceding frame ends. This exercises a bounded linear
-visibility query through the public OpenGL 4.1 path. The camera and objects
-remain hardcoded; there is no scene asset loading, spatial acceleration,
-material sorting, command recording, or renderer frame queue.
+builds one frustum/layer/distance view submission, then stages only its copied
+objects' model matrices and tints. The submission storage is allocated once;
+each build uses the linear World query without allocating. A checked token
+permits copied record reads until the host ends the submission after the
+renderer frame. It uploads those transform records once and selects one per
+indexed draw. The host resolves the objects' logical mesh and material slots
+to its single shared mesh and sample tint table; World never owns GPU handles.
+The batch resets after the preceding frame ends. This exercises a bounded
+linear visibility query through the public OpenGL 4.1 path. The camera and
+objects remain hardcoded; there is no scene asset loading, spatial
+acceleration, material sorting, command recording, or renderer frame queue.
 
 ## Depth comparison policy
 

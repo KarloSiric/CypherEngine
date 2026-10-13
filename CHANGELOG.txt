@@ -37,6 +37,15 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- WorldSubmission copies one bounded World_QueryView result into allocator-
+  owned storage without allocating per frame. A storage serial and generation-
+  checked token allow value reads for one frame and reject access after End;
+  oversize queries publish no partial view. The cube host builds this
+  submission before staging three visible objects and ends it after the OpenGL
+  frame. Six focused World/renderer CTests and the compact 120-frame hidden
+  run (360 draws) pass locally. Production render submission, pass sorting,
+  and asset resolution remain separate from this fixed-capacity,
+  single-threaded storage.
 - World_QueryView now scans live objects by matching layer bit, validated
   frustum and inclusive distance to their world-space bounds. It returns
   copied records in slot order; short output capacity reports the required

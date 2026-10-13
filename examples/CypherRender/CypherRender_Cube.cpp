@@ -28,6 +28,7 @@
 #include "CypherRender/Runtime/CypherRender_UniformBatch.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
 #include "CypherWorld/CypherWorld_Public.h"
+#include "CypherWorld/Submission/CypherWorld_Submission.h"
 
 #include <algorithm>
 #include <charconv>
@@ -136,6 +137,7 @@ struct cube_state_t {
     render::render_static_mesh_bundle_t mesh{};
     render::render_uniform_batch_t transforms{};
     world::world_t *pWorld{ nullptr };
+    world::world_submission_t *pSubmission{ nullptr };
     world::world_object_id_t objectIds[CUBE_INSTANCE_COUNT]{};
 };
 
@@ -147,6 +149,15 @@ bool CheckWorld( world::world_error_t result, const char *operation ) noexcept
 {
     if ( result == world::world_error_t::OK ) return true;
     std::fprintf( stderr, "%s: World error %u\n", operation,
+        static_cast<unsigned>( result ) );
+    return false;
+}
+
+bool CheckSubmission(
+    world::world_submission_error_t result, const char *operation ) noexcept
+{
+    if ( result == world::world_submission_error_t::OK ) return true;
+    std::fprintf( stderr, "%s: World submission error %u\n", operation,
         static_cast<unsigned>( result ) );
     return false;
 }
@@ -297,6 +308,9 @@ bool CreateWorld( cube_state_t &state ) noexcept
     if ( !CheckWorld( world::World_Init( &state.pWorld,
              common::Allocator_GetSystem(), CUBE_INSTANCE_COUNT ),
              "Create cube world" ) ) return false;
+    if ( !CheckSubmission( world::WorldSubmission_Init( &state.pSubmission,
+             common::Allocator_GetSystem(), CUBE_INSTANCE_COUNT ),
+             "Create cube view storage" ) ) return false;
 
     for ( common::u32 i = 0u; i < CUBE_INSTANCE_COUNT; ++i ) {
         world::world_object_t object{};
@@ -403,18 +417,25 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         query.maxDistance = 100.0f;
         query.layerMask = 1u;
         query.frustumTolerance = 0.00001f;
-        world::world_object_snapshot_t visible[CUBE_INSTANCE_COUNT]{};
+        world::world_submission_token_t submissionToken{};
+        if ( !CheckSubmission( world::WorldSubmission_Build(
+                 state.pSubmission, state.pWorld, &query, &submissionToken ),
+                 "Build cube view submission" ) ) return false;
         common::u32 visibleCount = 0u;
-        if ( !CheckWorld( world::World_QueryView( state.pWorld, &query,
-                 visible, CUBE_INSTANCE_COUNT, &visibleCount ),
-                 "Query visible cube objects" ) ) return false;
+        if ( !CheckSubmission( world::WorldSubmission_Count(
+                 state.pSubmission, submissionToken, &visibleCount ),
+                 "Count visible cube objects" ) ) return false;
 
         if ( renderedFrames != 0u && !CheckRender(
                  render::R_ResetUniformBatch( &state.transforms ),
                  "Reset transform batch" ) ) return false;
         render::render_uniform_record_t records[CUBE_INSTANCE_COUNT]{};
         for ( common::u32 i = 0u; i < visibleCount; ++i ) {
-            const world::world_object_t &object = visible[i].object;
+            world::world_object_snapshot_t visible{};
+            if ( !CheckSubmission( world::WorldSubmission_Get(
+                     state.pSubmission, submissionToken, i, &visible ),
+                     "Read visible cube object" ) ) return false;
+            const world::world_object_t &object = visible.object;
             if ( object.meshSlot != 0u || object.materialSlot >= CUBE_INSTANCE_COUNT ) {
                 std::fprintf( stderr, "Cube world returned an unresolved asset slot.\n" );
                 return false;
@@ -454,6 +475,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             }
         }
         const bool endOK = CheckRender( render::R_EndFrame(), "End frame" );
+        world::WorldSubmission_End( state.pSubmission );
         if ( !drawOK || !endOK ) return false;
         ++renderedFrames;
         if ( options.frameLimit != 0u && renderedFrames >= options.frameLimit ) break;
@@ -466,6 +488,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
 bool Shutdown( cube_state_t &state ) noexcept
 {
     bool success = true;
+    world::WorldSubmission_Shutdown( &state.pSubmission );
     world::World_Shutdown( &state.pWorld );
     if ( render::R_IsInitialized() ) {
         if ( render::R_IsFrameActive() ) {

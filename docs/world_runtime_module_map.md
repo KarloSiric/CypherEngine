@@ -21,9 +21,10 @@
 
 ## Status
 
-Architecture approved; the bounded in-memory object table and a linear
-frustum/layer/distance view query are implemented. The remaining Gate 1
-immutable renderer handoff is not yet implemented.
+Architecture approved; the bounded in-memory object table, linear
+frustum/layer/distance view query, and copied frame-scoped submission storage
+are implemented. A test double checks logical asset resolution before draws;
+a production renderer consumer and pass scheduling are still pending.
 
 This is a source-ownership and sequencing map. A listed `.cpp` file is not
 created until it has executable behavior and focused tests. The final module is
@@ -172,7 +173,7 @@ camera/view query ------------+
 | `Submission/CypherWorld_RenderList.h/.cpp` | Frame-arena storage and deterministic candidate append. |
 | `Submission/CypherWorld_LightList.h/.cpp` | Visible light candidates and influence metadata. |
 | `Submission/CypherWorld_EnvironmentView.h/.cpp` | Sky, fog, water, wind, and ambient values for one view. |
-| `Submission/CypherWorld_Submission.h/.cpp` | Complete immutable handoff and explicit lifetime rules. |
+| `Submission/CypherWorld_Submission.h/.cpp` | Implemented bounded copied-object storage and generation-checked frame token; later light/terrain/environment handoff remains planned. |
 
 ### Diagnostics
 

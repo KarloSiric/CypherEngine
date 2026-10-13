@@ -58,14 +58,16 @@ the world representation.
 
 ## Current Status
 
-The first executable slices are a fixed-capacity in-memory object table and a
-linear view query. The table owns plain transforms, caller-maintained
-world-space bounds, layers, and logical mesh/material slot IDs. IDs reject
-stale objects even after the underlying packed slot generation wraps. The
-query copies matching objects in deterministic slot order after layer,
-frustum, and distance filtering. `Cypher::WorldRuntime` has focused tests.
-The cube sample resolves the copied candidates to its own GPU resources.
-No loaded map, spatial acceleration, or renderer submission object exists yet.
+The first executable slices are a fixed-capacity in-memory object table, a
+linear view query, and bounded view-submission storage. The table owns plain
+transforms, caller-maintained world-space bounds, layers, and logical
+mesh/material slot IDs. IDs reject stale objects even after the underlying
+packed slot generation wraps. The query copies matching objects in
+deterministic slot order after layer, frustum, and distance filtering. The
+submission stores those copies until a generation-checked frame token is
+ended. `Cypher::WorldRuntime` has focused tests. The cube sample resolves
+submitted logical slots to its own GPU resources. No loaded map, spatial
+acceleration, or production renderer submission consumer exists yet.
 
 See `docs/world_runtime_module_map.md` and
 `docs/adr/0004-world-renderer-ownership.md` for the complete staged plan.
