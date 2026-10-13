@@ -3965,7 +3965,7 @@ void CheckCookedWorldShadowDrawing( const render::render_extent_t extent )
 {
     // The caster sits outside a tight camera query but inside the light's
     // query. A real World shadow draw must write its depth into the light map;
-    // a later comparison read distinguishes that pixel from the clear region.
+    // a D24 read distinguishes that pixel from the clear region.
     constexpr char materialVertex[] =
         "#version 410 core\nlayout(location=0) in vec3 position;\n"
         "layout(std140) uniform Model { mat4 model; };\n"
