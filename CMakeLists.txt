@@ -709,6 +709,15 @@ target_compile_features(CypherRenderDrawQueueRuntime PUBLIC cxx_std_20)
 target_include_directories(CypherRenderDrawQueueRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
 target_link_libraries(CypherRenderDrawQueueRuntime PUBLIC Cypher::Render)
 
+# Classifies caller-owned scene draws for shadow, opaque, and sorted blend passes.
+add_library(CypherRenderScenePassesRuntime STATIC
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/Runtime/CypherRender_ScenePasses.cpp"
+)
+add_library(Cypher::RenderScenePassesRuntime ALIAS CypherRenderScenePassesRuntime)
+target_compile_features(CypherRenderScenePassesRuntime PUBLIC cxx_std_20)
+target_include_directories(CypherRenderScenePassesRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
+target_link_libraries(CypherRenderScenePassesRuntime PUBLIC Cypher::Render)
+
 add_library(CypherPak STATIC ${CYPHER_PAK_SOURCES})
 add_library(Cypher::Pak ALIAS CypherPak)
 target_compile_features(CypherPak PUBLIC cxx_std_20)
@@ -1857,6 +1866,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             cypher_render_draw_queue_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_DrawQueue_Tests.cpp"
             Cypher::RenderDrawQueueRuntime
+        )
+        cypher_add_common_catch_test(
+            cypher_render_scene_passes_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_ScenePasses_Tests.cpp"
+            Cypher::RenderScenePassesRuntime
         )
         cypher_add_common_catch_test(
             cypher_render_cube_camera_tests
@@ -3016,6 +3030,7 @@ add_executable(cypher_render_cube EXCLUDE_FROM_ALL
 target_link_libraries(cypher_render_cube PRIVATE
     Cypher::Render Cypher::RenderMeshRuntime Cypher::RenderUniformRuntime
     Cypher::RenderDrawQueueRuntime
+    Cypher::RenderScenePassesRuntime
     Cypher::WorldRuntime
     Cypher::VfsDirectory Cypher::Math
 )

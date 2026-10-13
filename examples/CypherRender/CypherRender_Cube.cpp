@@ -31,6 +31,7 @@
 #include "CypherRender/CypherRender_Texture.h"
 #include "CypherRender/Runtime/CypherRender_MeshBridge.h"
 #include "CypherRender/Runtime/CypherRender_DrawQueue.h"
+#include "CypherRender/Runtime/CypherRender_ScenePasses.h"
 #include "CypherRender/Runtime/CypherRender_UniformBatch.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
 #include "CypherSystem/Platform/CypherSystem_Window.h"
@@ -210,17 +211,20 @@ constexpr common::u32 TEXTURE_SLOT_COUNT = 2u;
 struct sample_material_t {
     float tint[4];
     common::u32 textureSlot;
+    render::render_scene_alpha_t alpha;
+    bool castsShadow;
 };
 // Logical material slots contain appearance and another logical texture slot,
-// never a GPU resource name or a renderer handle.
+// never a GPU resource name or a renderer handle. Alpha class and shadow policy
+// are explicit; tint alpha alone cannot decide a material's render pass.
 constexpr sample_material_t MATERIALS[WORLD_OBJECT_COUNT] = {
-    { { 0.75f, 0.28f, 0.18f, 1.0f }, TEXTURE_SLOT_WHITE },
-    { { 0.10f, 0.55f, 0.76f, 1.0f }, TEXTURE_SLOT_WHITE },
-    { { 0.36f, 0.72f, 0.32f, 1.0f }, TEXTURE_SLOT_WHITE },
-    { { 0.72f, 0.28f, 0.68f, 1.0f }, TEXTURE_SLOT_WHITE },
-    { { 0.90f, 0.90f, 0.90f, 1.0f }, TEXTURE_SLOT_FLOOR },
-    { { 0.18f, 0.70f, 0.86f, 0.42f }, TEXTURE_SLOT_WHITE },
-    { { 0.95f, 0.42f, 0.32f, 0.38f }, TEXTURE_SLOT_WHITE }
+    { { 0.75f, 0.28f, 0.18f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true },
+    { { 0.10f, 0.55f, 0.76f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true },
+    { { 0.36f, 0.72f, 0.32f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true },
+    { { 0.72f, 0.28f, 0.68f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true },
+    { { 0.90f, 0.90f, 0.90f, 1.0f }, TEXTURE_SLOT_FLOOR, render::render_scene_alpha_t::OPAQUE, true },
+    { { 0.18f, 0.70f, 0.86f, 0.42f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::BLEND, false },
+    { { 0.95f, 0.42f, 0.32f, 0.38f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::BLEND, false }
 };
 constexpr common::u32 MATERIAL_COUNT =
     static_cast<common::u32>( sizeof( MATERIALS ) / sizeof( MATERIALS[0] ) );
@@ -1013,11 +1017,10 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         render::render_uniform_record_t shadowRecords[WORLD_OBJECT_COUNT]{};
         render::render_draw_indexed_desc_t mainDraws[WORLD_OBJECT_COUNT]{};
         render::render_draw_indexed_desc_t shadowDrawsByObject[WORLD_OBJECT_COUNT]{};
-        float cameraSpaceZ[WORLD_OBJECT_COUNT]{};
-        bool transparentByObject[WORLD_OBJECT_COUNT]{};
+        render::render_scene_item_t sceneItems[WORLD_OBJECT_COUNT]{};
         // Query every live object, including the opaque cube behind the camera.
         // The camera submission below still selects scene-pass draws; only
-        // opaque geometry is staged for the separate light pass.
+        // materials marked as casters are staged for the separate light pass.
         for ( common::u32 i = 0u; i < WORLD_OBJECT_COUNT; ++i ) {
             world::world_object_t object{};
             if ( !CheckWorld( world::World_GetObject( state.pWorld,
@@ -1028,9 +1031,13 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                 std::fprintf( stderr, "Graybox world returned an unresolved asset slot.\n" );
                 return false;
             }
-            const bool transparent = MATERIALS[object.materialSlot].tint[3] < 1.0f;
-            transparentByObject[i] = transparent;
-            cameraSpaceZ[i] = math::Mat4_TransformPointAffine(
+            const auto &material = MATERIALS[object.materialSlot];
+            const bool transparent = material.alpha == render::render_scene_alpha_t::BLEND;
+            sceneItems[i].alpha = material.alpha;
+            sceneItems[i].castsShadow = material.castsShadow;
+            // The right-handed view looks along -Z. The pass classifier takes
+            // positive view distance, with more distant BLEND objects first.
+            sceneItems[i].cameraDistance = -math::Mat4_TransformPointAffine(
                 view, math::Aabb_Center( object.worldBounds ) ).z;
             mainDraws[i].pipeline = transparent
                 ? state.transparentPipeline : state.pipeline;
@@ -1047,7 +1054,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             if ( !CheckRender( render::R_ApplyStaticMeshBundleToDraw(
                      state.meshes[object.meshSlot], &mainDraws[i] ),
                      "Resolve main-pass mesh" ) ) return false;
-            if ( !transparent ) {
+            if ( material.castsShadow ) {
                 shadowDrawsByObject[i].pipeline = state.shadowPipeline;
                 shadowDrawsByObject[i].uniformBuffers[0] = state.lightConstants;
                 if ( !CheckRender( render::R_ApplyStaticMeshBundleToDraw(
@@ -1059,7 +1066,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             constants.model = math::Affine3_ToMat4( object.localToWorld );
             std::memcpy( constants.tint, MATERIALS[object.materialSlot].tint,
                 sizeof( constants.tint ) );
-            if ( !transparent ) {
+            if ( material.castsShadow ) {
                 const shadow_object_constants_t shadowConstants{ constants.model };
                 if ( !CheckRender( render::R_AppendUniformRecord( &state.objectConstants,
                          &shadowConstants, sizeof( shadowConstants ), &shadowRecords[i] ),
@@ -1075,16 +1082,14 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             if ( !CheckRender( render::R_ApplyUniformRecordToDraw(
                      state.objectConstants, mainRecords[i], 1u, &mainDraws[i] ),
                      "Resolve main object constants" ) ) return false;
-            if ( transparentByObject[i] ) continue;
+            sceneItems[i].cameraDraw = mainDraws[i];
+            if ( !sceneItems[i].castsShadow ) continue;
             if ( !CheckRender( render::R_ApplyUniformRecordToDraw(
                      state.objectConstants, shadowRecords[i], 1u,
                      &shadowDrawsByObject[i] ),
-                     "Resolve shadow object constants" ) ||
-                 !CheckRender( render::R_AppendDrawQueue( state.pShadowQueue,
-                     shadowDrawsByObject[i] ), "Queue shadow caster" ) ) return false;
+                     "Resolve shadow object constants" ) ) return false;
+            sceneItems[i].shadowDraw = shadowDrawsByObject[i];
         }
-        common::u32 transparentIndices[PANEL_COUNT]{};
-        common::u32 transparentCount = 0u;
         for ( common::u32 i = 0u; i < visibleCount; ++i ) {
             world::world_object_snapshot_t visible{};
             if ( !CheckSubmission( world::WorldSubmission_Get(
@@ -1104,35 +1109,42 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                 std::fprintf( stderr, "Visible World object has no staged draw.\n" );
                 return false;
             }
-            if ( transparentByObject[objectIndex] ) {
-                if ( transparentCount == PANEL_COUNT ) {
-                    std::fprintf( stderr, "Translucent view capacity exceeded.\n" );
-                    return false;
-                }
-                // RH camera space looks along -Z. More negative centers draw
-                // first; the slot index breaks equal-depth ties predictably.
-                common::u32 at = transparentCount;
-                while ( at > 0u &&
-                    ( cameraSpaceZ[objectIndex] < cameraSpaceZ[transparentIndices[at - 1u]] ||
-                      ( cameraSpaceZ[objectIndex] == cameraSpaceZ[transparentIndices[at - 1u]] &&
-                        objectIndex < transparentIndices[at - 1u] ) ) ) {
-                    transparentIndices[at] = transparentIndices[at - 1u];
-                    --at;
-                }
-                transparentIndices[at] = objectIndex;
-                ++transparentCount;
-                continue;
+            if ( sceneItems[objectIndex].cameraVisible ) {
+                std::fprintf( stderr, "Visible World object appears twice in one view.\n" );
+                return false;
             }
-            if ( !CheckRender( render::R_AppendDrawQueue(
-                     state.pDrawQueue, mainDraws[objectIndex] ),
-                     "Queue graybox draw" ) ) return false;
-        }
-        for ( common::u32 i = 0u; i < transparentCount; ++i ) {
-            if ( !CheckRender( render::R_AppendDrawQueue( state.pTransparentQueue,
-                     mainDraws[transparentIndices[i]] ),
-                     "Queue sorted translucent panel" ) ) return false;
+            sceneItems[objectIndex].cameraVisible = true;
         }
         world::WorldSubmission_End( state.pSubmission );
+
+        common::u32 shadowIndices[WORLD_OBJECT_COUNT]{};
+        common::u32 opaqueIndices[WORLD_OBJECT_COUNT]{};
+        common::u32 blendIndices[WORLD_OBJECT_COUNT]{};
+        render::render_scene_pass_indices_t passes{};
+        passes.shadow = shadowIndices;
+        passes.shadowCapacity = WORLD_OBJECT_COUNT;
+        passes.opaque = opaqueIndices;
+        passes.opaqueCapacity = WORLD_OBJECT_COUNT;
+        passes.blend = blendIndices;
+        passes.blendCapacity = WORLD_OBJECT_COUNT;
+        if ( !CheckRender( render::R_ClassifySceneItems(
+                 sceneItems, WORLD_OBJECT_COUNT, &passes ),
+                 "Classify shadow, opaque, and blended scene draws" ) ) return false;
+        for ( common::u32 i = 0u; i < passes.shadowCount; ++i ) {
+            if ( !CheckRender( render::R_AppendDrawQueue( state.pShadowQueue,
+                     sceneItems[passes.shadow[i]].shadowDraw ),
+                     "Queue shadow caster" ) ) return false;
+        }
+        for ( common::u32 i = 0u; i < passes.opaqueCount; ++i ) {
+            if ( !CheckRender( render::R_AppendDrawQueue( state.pDrawQueue,
+                     sceneItems[passes.opaque[i]].cameraDraw ),
+                     "Queue opaque scene draw" ) ) return false;
+        }
+        for ( common::u32 i = 0u; i < passes.blendCount; ++i ) {
+            if ( !CheckRender( render::R_AppendDrawQueue( state.pTransparentQueue,
+                     sceneItems[passes.blend[i]].cameraDraw ),
+                     "Queue sorted translucent panel" ) ) return false;
+        }
 
         render::render_frame_info_t frame{};
         frame.frameIndex = renderedFrames;

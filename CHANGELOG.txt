@@ -62,6 +62,16 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- A CPU-only scene pass classifier prepares caller-owned shadow, opaque-camera
+  and blend-camera index lists. Alpha class and shadow policy are explicit;
+  hidden casters still enter the shadow pass. BLEND sorts far-to-near by
+  positive camera distance with input-order ties. Classes, distances,
+  capacities and used buffer overlap are checked before any output changes;
+  the helper makes no allocation or GPU call. The graybox sample uses it with
+  its existing queues. Classifier tests pass 368 assertions, draw-queue and
+  native OpenGL smoke CTests pass, and 120 hidden frames retain 600 shadow,
+  720 scene (240 translucent) and 120 presentation draws. This does not load
+  authored scenes or provide a general pass graph.
 - The cooked material bridge adopts CYMT V2 surface BLEND as well as OPAQUE.
   BLEND makes a depth-tested, straight-alpha pipeline with depth writes off and
   preserves the cooked mode for caller-side draw ordering. MASK and ADDITIVE

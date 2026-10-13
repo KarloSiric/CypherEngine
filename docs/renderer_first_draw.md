@@ -132,7 +132,8 @@ opaque, translucent, depth, and presentation pipelines: program + layout + state
         | World_QueryView -> copied camera-visible World submission
         | host resolves logical mesh/material/texture slots and validates live handles
         | camera and light uploads + one aligned object-record batch
-        | WorldSubmission_End invalidates the view token after queue preparation
+        | WorldSubmission_End invalidates the view token after visibility marking
+        | CPU scene classifier selects shadow/opaque/blend indices and sorts BLEND
         | opaque, translucent, and shadow draw queues -> R_BeginFrame
         | D24 target pass -> five depth draws -> end target pass
         | RGBA16F target pass -> four opaque camera draws -> two sorted translucent draws -> end pass
@@ -253,8 +254,8 @@ opaque objects contribute to the shadow depth pass, including the cube rejected
 by that camera query. The
 submission storage is allocated once; each build uses the linear World query
 without allocating. A checked token
-permits copied record reads until the host ends the submission after its
-camera draw list is prepared. The host selects a depth model record and a
+permits copied record reads until the host marks camera-visible scene items and
+ends the submission. The host selects a depth model record and a
 camera model/tint record for each object from one batch upload. The host
 resolves the objects'
 logical mesh and material slots through bounded tables containing two static
@@ -266,22 +267,26 @@ The batch and all three draw queues reset after the preceding frame ends. This
 exercises a bounded linear visibility query through the public OpenGL 4.1
 path. Interactive camera input can move the view; the object layout remains
 hardcoded. There is no scene asset loading, spatial acceleration, general
-material classification, or pass scheduler.
+material asset loading or a general pass scheduler.
 
 ## Ordered draw list
 
-The sample copies completed `render_draw_indexed_desc_t` values into separate
-fixed-capacity shadow, opaque-camera, and translucent-camera draw lists before
-beginning the frame. Each
+The sample resolves its material's explicit opaque or blend class and shadow
+policy into caller-owned scene items. `R_ClassifySceneItems` first validates
+the classes, finite blend distances, and all three output capacities. On
+failure it leaves the caller's counts and index arrays unchanged. It then
+returns shadow indices independent of camera visibility, opaque-camera indices
+in input order, and blend-camera indices far-to-near by positive view distance
+with input order breaking equal-distance ties. It performs no allocation or GPU
+work and retains no draw handles. The caller copies selected draw descriptors
+into separate fixed-capacity queues before beginning the frame. Each
 flush in the active frame calls the existing validated `R_DrawIndexed` path in
 append order. The lists hold renderer handles by value but do not retain the
 underlying GPU resources, so the host keeps the meshes, textures, pipelines,
 view buffers, and uniform batch alive through both flushes. They allocate at
 initialization, then reset between frames without another allocation. The
-queue itself preserves append order; sample code chooses each list and sorts
-the small translucent list by camera-space object center. This is a CPU
-command-storage boundary, not asynchronous GPU submission or a general scene
-pass scheduler.
+queue itself preserves append order. Classification and queues are a bounded CPU
+preparation boundary, not asynchronous GPU submission or a general render graph.
 
 If a draw fails, the list reports how many earlier draws returned success.
 The failing draw may already have reached the GPU before its error was
@@ -371,21 +376,21 @@ general pass graph, exposure controller, or HDR editor viewport.
 The graybox sample has two translucent panels whose tint alpha passes through
 the vertex and fragment shaders. Their graphics pipeline enables straight-alpha
 blending and depth testing while disabling depth writes. Opaque camera draws
-run first, then the sample sorts its visible translucent objects by their
-view-space bounds centers and appends them to a separate fixed-capacity queue.
-In this right-handed camera view, more-negative Z draws first. An object-slot
-tie-break makes equal-depth order deterministic. Neither panel enters the
-shadow-caster queue.
+run first, then the scene classifier sorts visible translucent objects by their
+view-space bounds-center distance and the sample appends them to a separate
+fixed-capacity queue. In this right-handed camera view, greater distance draws
+first. Input order breaks equal-distance ties. Neither panel enters the
+shadow-caster queue because its sample material explicitly disables casting.
 
 The native OpenGL smoke test paints an opaque near surface and two half-alpha
 far/near surfaces into an RGBA16F target, then tone-maps into RGBA8 and checks
 both an overlap pixel and an opaque-occluded pixel. This verifies the existing
 blend and depth-write states through actual rendered output. Sorting whole
 objects by center cannot correctly order intersecting transparent geometry or
-every transparent triangle within one mesh. The sample has no general
-transparency classifier. The cooked material bridge can now build an opaque
-or straight-alpha `BLEND` pipeline and expose its mode, but a real scene
-policy must classify and order those draws.
+every transparent triangle within one mesh. The cooked material bridge can
+build an opaque or straight-alpha `BLEND` pipeline and expose its mode; a scene
+owner maps that mode and its own shadow policy into classifier input. The
+sample still uses fixed material records instead of cooked material bundles.
 
 ### Depth-only target
 
@@ -601,8 +606,8 @@ copied World submission and separate shadow, opaque, and sorted translucent
 draw lists feed those passes.
 The renderer also has samplers, two binding slots, offscreen RGBA8/RGBA16F
 color and sampleable depth targets, and a limited cooked-material bridge.
-Authored scene and mesh loading, broader material support, general pass
-classification and sorting, full command scheduling, and shader hot reload
+Authored scene and mesh loading, broader material support, full command
+scheduling, and shader hot reload
 remain separate work.
 
 Device capability queries describe what the OpenGL driver reports, not a promise

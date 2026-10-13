@@ -72,6 +72,17 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- A CPU-only scene pass classifier now turns caller-resolved draws into
+  shadow, opaque-camera, and blended-camera index lists. Alpha class and shadow
+  policy are explicit rather than inferred from tint; off-camera casters still
+  enter the shadow pass. BLEND sorts far-to-near by positive camera distance,
+  with input order breaking ties. It preflights classes, distances, capacities,
+  and used buffer overlap before writing, and allocates no memory or GPU state.
+  The graybox sample now uses it with the existing draw queues. The focused
+  classifier tests pass 368 assertions; the draw-queue and native OpenGL smoke
+  CTests pass, and 120 hidden sample frames retain 600 shadow, 720 scene
+  (240 translucent), and 120 presentation draws. This is bounded draw
+  preparation, not an authored scene loader or a general pass graph.
 - The cooked material bridge now adopts CYMT V2 surface `BLEND` materials in
   addition to `OPAQUE`. It creates a depth-tested pipeline with straight-alpha
   blending and depth writes disabled, and exposes the cooked alpha mode so a
