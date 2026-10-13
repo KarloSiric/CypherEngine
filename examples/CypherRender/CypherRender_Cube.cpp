@@ -184,7 +184,8 @@ struct cube_instance_t {
 };
 
 constexpr cube_instance_t CUBE_INSTANCES[] = {
-    { { -2.4f, -1.6f, 0.0f }, { 1.0f, 1.0f, 1.0f }, false },
+    // One negative scale mirrors triangle winding; its draw uses CW pipelines.
+    { { -2.4f, -1.6f, 0.0f }, { -1.0f, 1.0f, 1.0f }, false },
     // The center cube exposes the difference between model and normal transforms.
     { { 0.0f, 0.0f, 0.0f }, { 0.8f, 1.15f, 0.72f }, true },
     { { 2.4f, 1.6f, 0.0f }, { 1.0f, 1.0f, 1.0f }, false },
@@ -256,9 +257,13 @@ struct cube_state_t {
     render::render_shader_handle_t shadowShader{};
     render::render_shader_handle_t toneMapShader{};
     render::render_pipeline_handle_t pipeline{};
+    render::render_pipeline_handle_t mirroredPipeline{};
     render::render_pipeline_handle_t transparentPipeline{};
+    render::render_pipeline_handle_t mirroredTransparentPipeline{};
     render::render_pipeline_handle_t additivePipeline{};
+    render::render_pipeline_handle_t mirroredAdditivePipeline{};
     render::render_pipeline_handle_t shadowPipeline{};
+    render::render_pipeline_handle_t mirroredShadowPipeline{};
     render::render_pipeline_handle_t toneMapPipeline{};
     render::render_texture_handle_t shadowDepth{};
     render::render_target_handle_t shadowTarget{};
@@ -665,6 +670,12 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline, &state.pipeline ),
             "Create cube pipeline" ) ) return false;
 
+    pipeline.frontCounterClockwise = false;
+    pipeline.debugName = "Depth-tested mirrored graybox pipeline";
+    if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
+             &state.mirroredPipeline ), "Create mirrored cube pipeline" ) ) return false;
+    pipeline.frontCounterClockwise = true;
+
     // Transparent surfaces test against the opaque scene depth but leave that
     // depth intact so later translucent surfaces can blend over one another.
     pipeline.depthWrite = false;
@@ -673,12 +684,26 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
              &state.transparentPipeline ), "Create translucent pipeline" ) ) return false;
 
+    pipeline.frontCounterClockwise = false;
+    pipeline.debugName = "Depth-tested mirrored translucent graybox pipeline";
+    if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
+             &state.mirroredTransparentPipeline ),
+             "Create mirrored translucent pipeline" ) ) return false;
+    pipeline.frontCounterClockwise = true;
+
     // Additive draws keep the same depth test but add weighted light/color
     // after the sorted straight-alpha surfaces. They never write scene depth.
     pipeline.blendMode = render::render_blend_mode_t::ADDITIVE;
     pipeline.debugName = "Depth-tested additive graybox pipeline";
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
              &state.additivePipeline ), "Create additive pipeline" ) ) return false;
+
+    pipeline.frontCounterClockwise = false;
+    pipeline.debugName = "Depth-tested mirrored additive graybox pipeline";
+    if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
+             &state.mirroredAdditivePipeline ),
+             "Create mirrored additive pipeline" ) ) return false;
+    pipeline.frontCounterClockwise = true;
 
     pipeline.shader = state.shadowShader;
     pipeline.depthWrite = true;
@@ -698,6 +723,11 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
     pipeline.debugName = "Graybox directional shadow depth pipeline";
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
              &state.shadowPipeline ), "Create shadow pipeline" ) ) return false;
+
+    pipeline.frontCounterClockwise = false;
+    pipeline.debugName = "Mirrored graybox shadow depth pipeline";
+    if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
+             &state.mirroredShadowPipeline ), "Create mirrored shadow pipeline" ) ) return false;
 
     pipeline = {};
     pipeline.shader = state.toneMapShader;
@@ -1045,9 +1075,13 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                  "Count visible cube objects" ) ) return false;
         if ( visibleCount > WORLD_OBJECT_COUNT ||
              !render::R_IsGraphicsPipelineValid( state.pipeline ) ||
+             !render::R_IsGraphicsPipelineValid( state.mirroredPipeline ) ||
              !render::R_IsGraphicsPipelineValid( state.transparentPipeline ) ||
+             !render::R_IsGraphicsPipelineValid( state.mirroredTransparentPipeline ) ||
              !render::R_IsGraphicsPipelineValid( state.additivePipeline ) ||
+             !render::R_IsGraphicsPipelineValid( state.mirroredAdditivePipeline ) ||
              !render::R_IsGraphicsPipelineValid( state.shadowPipeline ) ||
+             !render::R_IsGraphicsPipelineValid( state.mirroredShadowPipeline ) ||
              !render::R_IsGraphicsPipelineValid( state.toneMapPipeline ) ||
              !render::R_IsBufferValid( state.viewConstants ) ||
              !render::R_IsBufferValid( state.lightConstants ) ||
@@ -1106,15 +1140,30 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             }
             const auto &material = MATERIALS[object.materialSlot];
             const bool transparent = material.alpha == render::render_scene_alpha_t::BLEND;
+            cube_object_constants_t constants{};
+            constants.model = math::Affine3_ToMat4( object.localToWorld );
+            bool mirrored = false;
+            if ( !camera::CubeNormal_TryPack(
+                     object.localToWorld, &constants.normalMatrix, &mirrored ) ) {
+                std::fprintf( stderr, "World object has a singular or nonfinite normal transform.\n" );
+                return false;
+            }
             sceneItems[i].alpha = material.alpha;
             sceneItems[i].castsShadow = material.castsShadow;
             // The right-handed view looks along -Z. The pass classifier takes
             // positive view distance, with more distant BLEND objects first.
             sceneItems[i].cameraDistance = -math::Mat4_TransformPointAffine(
                 view, math::Aabb_Center( object.worldBounds ) ).z;
-            mainDraws[i].pipeline = material.alpha == render::render_scene_alpha_t::ADDITIVE
-                ? state.additivePipeline
-                : ( transparent ? state.transparentPipeline : state.pipeline );
+            if ( material.alpha == render::render_scene_alpha_t::ADDITIVE ) {
+                mainDraws[i].pipeline = mirrored
+                    ? state.mirroredAdditivePipeline : state.additivePipeline;
+            } else if ( transparent ) {
+                mainDraws[i].pipeline = mirrored
+                    ? state.mirroredTransparentPipeline : state.transparentPipeline;
+            } else {
+                mainDraws[i].pipeline = mirrored
+                    ? state.mirroredPipeline : state.pipeline;
+            }
             mainDraws[i].uniformBuffers[0] = state.viewConstants;
             const auto textureSlot = MATERIALS[object.materialSlot].textureSlot;
             if ( textureSlot >= TEXTURE_SLOT_COUNT ||
@@ -1129,7 +1178,8 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                      state.meshes[object.meshSlot], &mainDraws[i] ),
                      "Resolve main-pass mesh" ) ) return false;
             if ( material.castsShadow ) {
-                shadowDrawsByObject[i].pipeline = state.shadowPipeline;
+                shadowDrawsByObject[i].pipeline = mirrored
+                    ? state.mirroredShadowPipeline : state.shadowPipeline;
                 shadowDrawsByObject[i].uniformBuffers[0] = state.lightConstants;
                 shadowDrawsByObject[i].sampledTextures[0] =
                     state.textures[textureSlot];
@@ -1138,13 +1188,6 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                          "Resolve shadow-pass mesh" ) ) return false;
             }
 
-            cube_object_constants_t constants{};
-            constants.model = math::Affine3_ToMat4( object.localToWorld );
-            if ( !camera::CubeNormal_TryPack(
-                     object.localToWorld, &constants.normalMatrix ) ) {
-                std::fprintf( stderr, "World object has a singular or nonfinite normal transform.\n" );
-                return false;
-            }
             std::memcpy( constants.tint, MATERIALS[object.materialSlot].tint,
                 sizeof( constants.tint ) );
             constants.cutout[0] = material.alphaCutoff;
@@ -1336,13 +1379,32 @@ bool Shutdown( cube_state_t &state ) noexcept
             success = CheckRender( render::R_DestroyGraphicsPipeline(
                 state.transparentPipeline ), "Destroy translucent pipeline" ) && success;
         }
+        if ( state.mirroredTransparentPipeline.value != 0u ) {
+            success = CheckRender( render::R_DestroyGraphicsPipeline(
+                state.mirroredTransparentPipeline ),
+                "Destroy mirrored translucent pipeline" ) && success;
+        }
         if ( state.additivePipeline.value != 0u ) {
             success = CheckRender( render::R_DestroyGraphicsPipeline(
                 state.additivePipeline ), "Destroy additive pipeline" ) && success;
         }
+        if ( state.mirroredAdditivePipeline.value != 0u ) {
+            success = CheckRender( render::R_DestroyGraphicsPipeline(
+                state.mirroredAdditivePipeline ),
+                "Destroy mirrored additive pipeline" ) && success;
+        }
         if ( state.shadowPipeline.value != 0u ) {
             success = CheckRender( render::R_DestroyGraphicsPipeline( state.shadowPipeline ),
                 "Destroy shadow pipeline" ) && success;
+        }
+        if ( state.mirroredShadowPipeline.value != 0u ) {
+            success = CheckRender( render::R_DestroyGraphicsPipeline(
+                state.mirroredShadowPipeline ),
+                "Destroy mirrored shadow pipeline" ) && success;
+        }
+        if ( state.mirroredPipeline.value != 0u ) {
+            success = CheckRender( render::R_DestroyGraphicsPipeline(
+                state.mirroredPipeline ), "Destroy mirrored pipeline" ) && success;
         }
         if ( state.toneMapPipeline.value != 0u ) {
             success = CheckRender( render::R_DestroyGraphicsPipeline( state.toneMapPipeline ),

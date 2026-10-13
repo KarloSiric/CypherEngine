@@ -17,15 +17,17 @@ namespace cypher::samples::render
 
 bool CubeNormal_TryPack(
     math::affine3_t localToWorld,
-    cube_normal_columns_t *columnsOut ) noexcept
+    cube_normal_columns_t *columnsOut,
+    bool *mirroredOut ) noexcept
 {
     if ( columnsOut == nullptr || !math::Affine3_IsFinite( localToWorld ) ) {
         return false;
     }
 
+    const math::mat3_t linear = math::Affine3_LinearPart( localToWorld );
     math::mat3_t inverse{};
     if ( !math::Mat3_TryInverse(
-             math::Affine3_LinearPart( localToWorld ), 0.000001f, &inverse ) ) {
+             linear, 0.000001f, &inverse ) ) {
         return false;
     }
 
@@ -38,6 +40,9 @@ bool CubeNormal_TryPack(
         packed.columns[column][2] = value.z;
     }
     *columnsOut = packed;
+    if ( mirroredOut != nullptr ) {
+        *mirroredOut = math::Mat3_Determinant( linear ) < 0.0f;
+    }
     return true;
 }
 

@@ -25,6 +25,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Mirrored graybox objects now keep their outward faces under back-face
+  culling. Normal packing reports the sign of a validated transform
+  determinant without changing its 48-byte std140 layout; the sample selects
+  matching CW-front camera and shadow pipeline variants for a negative-X-scale
+  cube, with variants for its other camera material modes. Invalid transforms
+  leave both outputs unchanged. The focused normal test passes 23 assertions
+  in three cases; native OpenGL smoke passes 1,070 assertions including
+  reversed-winding color and depth pixels; the 120-frame hidden sample still
+  completes 840 scene, 600 shadow, and 120 presentation draws. Pipeline
+  selection remains sample-owned rather than a general mesh-instance policy.
 - Borrowed OpenGL 4.1 frames now snapshot and restore the host's
   alpha-to-coverage, alpha-to-one, sample-coverage, and sample-mask enable bits.
   Renderer draws disable these inherited controls so they cannot change

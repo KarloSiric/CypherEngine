@@ -136,6 +136,10 @@ then fills indexed draw descriptions with two uniform slots. Separate ordered
 fixed-capacity shadow, opaque, translucent, and additive lists flush through the
 validated immediate draw path; the sample sorts its visible translucent objects
 by camera-space center and preserves input order for additive objects.
+The first visible cube has negative X scale. Its validated transform determinant
+selects CW-front camera and shadow pipeline variants so back-face culling does
+not discard its mirrored geometry; the other objects keep CCW fronts. The
+sample also has winding variants for its translucent and additive materials.
 Final pipeline, uniform, and draw-range validation still occurs at draw time.
 The default 120-frame hidden run reports 840 camera-visible draws: three cubes,
 the floor, two translucent panels, and one additive panel each frame, with a

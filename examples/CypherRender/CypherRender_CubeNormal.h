@@ -25,11 +25,13 @@ struct alignas( 16 ) cube_normal_columns_t {
 static_assert( sizeof( cube_normal_columns_t ) == 48u );
 static_assert( alignof( cube_normal_columns_t ) == 16u );
 
-// Computes transpose(inverse(linear(localToWorld))) once per object. Rejects
-// singular or nonfinite transforms and leaves the caller's output unchanged.
+// Computes transpose(inverse(linear(localToWorld))) once per object. Reports
+// whether the transform reverses handedness when requested. Rejects singular
+// or nonfinite transforms and leaves both caller outputs unchanged.
 [[nodiscard]] bool CubeNormal_TryPack(
     math::affine3_t localToWorld,
-    cube_normal_columns_t *columnsOut ) noexcept;
+    cube_normal_columns_t *columnsOut,
+    bool *mirroredOut = nullptr ) noexcept;
 
 } // namespace cypher::samples::render
 

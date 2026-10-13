@@ -437,6 +437,77 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
                static_cast<GLint>( extent.height / 2u ), 0 );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
 
+    // Reversing only the indices mirrors the triangle's winding while leaving
+    // its covered pixels unchanged. Back-face culling must reject that draw
+    // with CCW fronts, then accept it when the pipeline declares CW fronts.
+    // A farther green draw also checks whether an accepted red face wrote depth.
+    const common::u16 reversedIndices[3]{ 0u, 2u, 1u };
+    const auto reversedIndexBuffer = createBuffer( reversedIndices, sizeof( reversedIndices ),
+        render::R_BUFFER_USAGE_INDEX, false );
+    auto reversedInputDesc = inputDesc;
+    reversedInputDesc.indexBuffer = { reversedIndexBuffer, 0u,
+                                      render::render_index_type_t::UINT16 };
+    render::render_vertex_input_handle_t reversedInput{};
+    REQUIRE( render::R_CreateVertexInput( reversedInputDesc, &reversedInput ) ==
+        render::render_error_t::OK );
+    pipelineDesc.depthCompare = render::render_depth_compare_t::LESS;
+    pipelineDesc.depthWrite = true;
+    pipelineDesc.cullBackFaces = true;
+    pipelineDesc.frontCounterClockwise = true;
+    render::render_pipeline_handle_t ccwFrontPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &ccwFrontPipeline ) ==
+        render::render_error_t::OK );
+    pipelineDesc.frontCounterClockwise = false;
+    render::render_pipeline_handle_t cwFrontPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &cwFrontPipeline ) ==
+        render::render_error_t::OK );
+    pipelineDesc.cullBackFaces = false;
+    pipelineDesc.frontCounterClockwise = true;
+
+    const auto centerX = static_cast<GLint>( extent.width / 2u );
+    const auto centerY = static_cast<GLint>( extent.height / 2u );
+    ++frame.frameIndex;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    draw.pipeline = ccwFrontPipeline;
+    draw.vertexInput = input;
+    draw.uniformBuffers[0] = redUniformBuffer;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( centerX, centerY, 0 );
+    draw.uniformBuffers[0] = farGreenBuffer;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( centerX, centerY, 0 ); // CCW front wrote depth in front of green.
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    ++frame.frameIndex;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    draw.vertexInput = reversedInput;
+    draw.uniformBuffers[0] = redUniformBuffer;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( centerX, centerY, 2 ); // Reversed winding was culled.
+    draw.vertexInput = input;
+    draw.uniformBuffers[0] = farGreenBuffer;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( centerX, centerY, 1 ); // Culled geometry left depth clear.
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    ++frame.frameIndex;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    draw.pipeline = cwFrontPipeline;
+    draw.vertexInput = reversedInput;
+    draw.uniformBuffers[0] = redUniformBuffer;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( centerX, centerY, 0 );
+    draw.uniformBuffers[0] = farGreenBuffer;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( centerX, centerY, 0 ); // CW front also wrote depth.
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    REQUIRE( render::R_DestroyGraphicsPipeline( cwFrontPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( ccwFrontPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyVertexInput( reversedInput ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( reversedIndexBuffer ) == render::render_error_t::OK );
+    draw.vertexInput = input;
+
     // The same triangle straddles the center line. Clip its red draw to the
     // right half, then draw green without a scissor in the same frame. The
     // left pixel changing only on the second draw proves the clip is per draw.

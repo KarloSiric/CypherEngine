@@ -219,11 +219,18 @@ uploads it in the shared object record. The vertex shader multiplies normals
 by this matrix; the fragment shader normalizes the result before lighting.
 Using `mat3(model)` would make a normal cease to be perpendicular to its
 surface under nonuniform scale or shear. The visible center cube applies both,
-and its World bounds are recomputed from the same transform. Singular or
-nonfinite transforms fail before the uniform record is staged. The focused
+and its World bounds are recomputed from the same transform. The first visible
+cube has negative X scale. This reverses triangle winding even though the
+inverse-transpose still transforms its normals correctly. The sample reads the
+sign of the validated linear determinant and selects an otherwise identical
+CW-front pipeline for that cube's camera and shadow draws; CCW-front pipelines
+serve the non-mirrored objects. Both winding variants also exist for the sample's
+translucent and additive camera materials. Singular or nonfinite transforms
+fail before staging a uniform record or choosing a pipeline. The focused
 normal-packing test checks transformed tangent orthogonality, std140 padding,
-and failure atomicity. Mirrored transforms still need matching front-face
-handling before they can be shown with back-face culling.
+handedness, and failure atomicity. A native OpenGL pixel test checks that
+reversed winding is culled under CCW fronts, drawn under CW fronts, and writes
+depth when accepted. This per-material variant choice is still sample-owned.
 
 ## Wireframe inspection
 
