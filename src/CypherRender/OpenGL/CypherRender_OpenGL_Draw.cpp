@@ -393,7 +393,34 @@ render_error_t GL_DrawIndexed(
          description.instanceCount > static_cast<common::u32>( std::numeric_limits<GLsizei>::max() ) ) {
         return render_error_t::ERR_DRAW_DESC_INVALID;
     }
+    if ( description.scissor.enabled ) {
+        const render_extent_t extent = glState.targetPassActive
+            ? glState.targetPassExtent : glState.drawableExtent;
+        const auto maximumScissor = static_cast<common::u32>(
+            std::numeric_limits<GLint>::max() );
+        if ( description.scissor.width == 0u || description.scissor.height == 0u ||
+             description.scissor.x > maximumScissor ||
+             description.scissor.y > maximumScissor ||
+             description.scissor.width > maximumScissor ||
+             description.scissor.height > maximumScissor ||
+             description.scissor.x >= extent.width || description.scissor.y >= extent.height ||
+             description.scissor.width > extent.width - description.scissor.x ||
+             description.scissor.height > extent.height - description.scissor.y ) {
+            return render_error_t::ERR_DRAW_DESC_INVALID;
+        }
+    }
     GL_ClearErrors();
+    // Set slot zero on every draw so a clipped draw never leaks into the next
+    // unclipped one. Hosted contexts may own other indexed viewport slots.
+    if ( description.scissor.enabled ) {
+        glScissorIndexed( 0u, static_cast<GLint>( description.scissor.x ),
+            static_cast<GLint>( description.scissor.y ),
+            static_cast<GLsizei>( description.scissor.width ),
+            static_cast<GLsizei>( description.scissor.height ) );
+        glEnablei( GL_SCISSOR_TEST, 0u );
+    } else {
+        glDisablei( GL_SCISSOR_TEST, 0u );
+    }
     GL_SetCapability( GL_DEPTH_TEST, pipeline->depthTest );
     glDepthMask( pipeline->depthWrite ? GL_TRUE : GL_FALSE );
     glDepthFunc( pipeline->depthCompare );

@@ -387,6 +387,30 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     readPixel( static_cast<GLint>( extent.width / 2u ),
                static_cast<GLint>( extent.height / 2u ), 0 );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    // The same triangle straddles the center line. Clip its red draw to the
+    // right half, then draw green without a scissor in the same frame. The
+    // left pixel changing only on the second draw proves the clip is per draw.
+    ++frame.frameIndex;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    draw.pipeline = readOnlyDepth;
+    draw.uniformBuffers[0] = redUniformBuffer;
+    draw.scissor = { true, extent.width / 2u, 0u,
+                     extent.width / 2u, extent.height };
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( static_cast<GLint>( extent.width / 2u ) - 8,
+               static_cast<GLint>( extent.height / 2u ), 2 );
+    readPixel( static_cast<GLint>( extent.width / 2u ) + 8,
+               static_cast<GLint>( extent.height / 2u ), 0 );
+    draw.uniformBuffers[0] = uniformBuffer;
+    draw.scissor = {};
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( static_cast<GLint>( extent.width / 2u ) - 8,
+               static_cast<GLint>( extent.height / 2u ), 1 );
+    readPixel( static_cast<GLint>( extent.width / 2u ) + 8,
+               static_cast<GLint>( extent.height / 2u ), 1 );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
     REQUIRE( render::R_DestroyGraphicsPipeline( depthOnly ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( colorAtEqualDepth ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( farGreenBuffer ) == render::render_error_t::OK );
@@ -1058,8 +1082,8 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &samplePipeline ) == render::render_error_t::OK );
 
     render::render_texture_desc_t textureDesc{};
-    textureDesc.width = extent.width;
-    textureDesc.height = extent.height;
+    textureDesc.width = extent.width / 2u;
+    textureDesc.height = extent.height / 2u;
     textureDesc.sRGB = false;
     textureDesc.generateMips = false;
     textureDesc.repeat = false;
@@ -1084,7 +1108,14 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     draw.vertexInput = input;
     draw.indexCount = 3u;
     draw.vertexCount = 6u;
+    // This rectangle fits the drawable but overruns the smaller active target.
+    draw.scissor = { true, 0u, 0u, textureDesc.width + 1u,
+                     textureDesc.height };
+    CHECK( render::R_DrawIndexed( draw ) == render::render_error_t::ERR_DRAW_DESC_INVALID );
+    draw.scissor = { true, textureDesc.width / 2u, 0u,
+                     textureDesc.width / 2u, textureDesc.height };
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    draw.scissor = {};
     draw.pipeline = samplePipeline;
     draw.sampledTextures[0] = color;
     CHECK( render::R_DrawIndexed( draw ) == render::render_error_t::ERR_COMMAND_STATE_INVALID );
@@ -1098,16 +1129,20 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
         REQUIRE( glGetError() == GL_NO_ERROR );
         return pixel;
     };
-    const GLint centerX = static_cast<GLint>( extent.width / 2u );
-    const GLint centerY = static_cast<GLint>( extent.height / 2u );
-    const auto beforeSampling = readPresentation( centerX, centerY );
+    const GLint sampleRightX = static_cast<GLint>( extent.width * 5u / 8u );
+    const GLint sampleLeftX = static_cast<GLint>( extent.width * 3u / 8u );
+    const GLint sampleY = static_cast<GLint>( extent.height / 2u );
+    const auto beforeSampling = readPresentation( sampleRightX, sampleY );
     CHECK( beforeSampling[2] >= 240u ); // Target draw did not touch presentation.
     draw.firstIndex = 3u;
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
-    const auto center = readPresentation( centerX, centerY );
+    const auto right = readPresentation( sampleRightX, sampleY );
+    const auto left = readPresentation( sampleLeftX, sampleY );
     const auto corner = readPresentation( 1, 1 );
-    CHECK( center[0] >= 240u );
-    CHECK( center[1] <= 15u );
+    CHECK( right[0] >= 240u );
+    CHECK( right[1] <= 15u );
+    CHECK( left[1] >= 240u ); // Same triangle, left half was clipped in target.
+    CHECK( left[0] <= 15u );
     CHECK( corner[1] >= 240u );
     CHECK( corner[0] <= 15u );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );

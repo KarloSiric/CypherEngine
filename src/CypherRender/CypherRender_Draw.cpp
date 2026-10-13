@@ -103,7 +103,28 @@ render_error_t R_DrawIndexed( const render_draw_indexed_desc_t &description ) no
          ( tr.info.capabilities & R_CAPABILITY_INSTANCING ) == 0u ) {
         return render_error_t::ERR_CAPABILITY_MISSING;
     }
+    if ( description.scissor.enabled ) {
+        render_extent_t extent = tr.info.drawableExtent;
+        if ( tr.activeTarget.value != R_INVALID_TARGET.value ) {
+            render_target_info_t target{};
+            const render_error_t targetResult = R_GetRenderTargetInfo( tr.activeTarget, &target );
+            if ( targetResult != render_error_t::OK ) return targetResult;
+            extent = target.extent;
+        }
+        // Subtract only after checking the origin so caller-supplied u32
+        // coordinates cannot wrap when computing the far edge.
+        if ( description.scissor.width == 0u || description.scissor.height == 0u ||
+             description.scissor.x > maximumCount || description.scissor.y > maximumCount ||
+             description.scissor.width > maximumCount ||
+             description.scissor.height > maximumCount ||
+             description.scissor.x >= extent.width || description.scissor.y >= extent.height ||
+             description.scissor.width > extent.width - description.scissor.x ||
+             description.scissor.height > extent.height - description.scissor.y ) {
+            return render_error_t::ERR_DRAW_DESC_INVALID;
+        }
+    }
     backend_draw_indexed_desc_t native{};
+    native.scissor = description.scissor;
     render_pipeline_info_t pipeline{};
     render_error_t result = R_PipelineResolveForDraw( description.pipeline, &native.pipeline, &pipeline );
     if ( result != render_error_t::OK ) return result;

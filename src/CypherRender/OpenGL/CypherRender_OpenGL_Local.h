@@ -88,6 +88,7 @@ struct gl_host_frame_state_t {
     GLdouble clearDepth{ 1.0 };
     GLboolean depthWriteMask{ GL_TRUE };
     GLboolean scissorTest{ GL_FALSE };
+    GLint scissorBox[4]{};
     GLboolean depthTest{ GL_FALSE };
     GLboolean cullFace{ GL_FALSE };
     GLboolean stencilTest{ GL_FALSE };
@@ -111,6 +112,7 @@ struct gl_state_t {
     bool initialized{ false };                          // Context and entry points are ready.
     bool frameActive{ false };                          // BeginFrame has no matching EndFrame.
     bool targetPassActive{ false };                     // One non-nested offscreen pass is open.
+    render_extent_t targetPassExtent{};                 // Valid only during an offscreen pass.
     bool usesHostSurface{ false };                      // Context/presentation are borrowed from a tool host.
 
     // PrepareFrame may bind a host-owned, nonzero presentation FBO. A target

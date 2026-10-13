@@ -500,7 +500,15 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     draw.uniformBuffers[0] = offsetBuffer;
     draw.uniformBuffers[1] = weightsBuffer;
     draw.indexCount = draw.vertexCount = 3u;
+    draw.scissor = { true, 24u, 0u, 24u, 32u };
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    CHECK( glIsEnabled( GL_SCISSOR_TEST ) == GL_TRUE );
+    GLint activeScissorBox[4]{};
+    glGetIntegerv( GL_SCISSOR_BOX, activeScissorBox );
+    CHECK( activeScissorBox[0] == 24 );
+    CHECK( activeScissorBox[1] == 0 );
+    CHECK( activeScissorBox[2] == 24 );
+    CHECK( activeScissorBox[3] == 32 );
     glBindFramebuffer( GL_READ_FRAMEBUFFER, host.presentationFramebuffer );
     glReadBuffer( GL_COLOR_ATTACHMENT0 );
     unsigned char hostPixel[4]{};
@@ -510,8 +518,13 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glReadPixels( 1, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, hostPixel );
     CHECK( hostPixel[1] >= 240u );
     CHECK( hostPixel[0] <= 15u );
+    glReadPixels( 17, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, hostPixel );
+    CHECK( hostPixel[1] >= 240u ); // Geometry inside viewport, outside scissor.
+    CHECK( hostPixel[0] <= 15u );
     draw.pipeline = depthOnlyPipeline;
+    draw.scissor = {};
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    CHECK( glIsEnabled( GL_SCISSOR_TEST ) == GL_FALSE );
     GLboolean disabledColorMask[4]{};
     glGetBooleanv( GL_COLOR_WRITEMASK, disabledColorMask );
     for ( const auto channel : disabledColorMask ) CHECK( channel == GL_FALSE );

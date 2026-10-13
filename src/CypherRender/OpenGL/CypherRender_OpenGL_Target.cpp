@@ -268,6 +268,7 @@ render_error_t GL_BeginTargetPass( const backend_target_pass_desc_t &description
         return result;
     }
 
+    glState.targetPassExtent = record->extent;
     glState.targetPassActive = true;
     return render_error_t::OK;
 }
@@ -296,6 +297,7 @@ render_error_t GL_EndTargetPass( void *backendState ) noexcept
     // The frontend ends this pass even when restoration reports an error.
     // Keep backend frame state aligned so the caller can still close the frame.
     glState.targetPassActive = false;
+    glState.targetPassExtent = {};
     return result;
 }
 

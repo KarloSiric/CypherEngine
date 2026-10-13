@@ -154,6 +154,29 @@ controls draw output only: the current render target has an internal D24 depth
 attachment that cannot be sampled as a shadow map, and no scene queue schedules
 the two passes yet.
 
+## Per-draw clipping
+
+An indexed draw can enable a scissor rectangle to limit its pixels to one
+region of the active framebuffer. Coordinates are physical pixels from the
+bottom-left corner; when drawing into an offscreen target, they are relative to
+that target rather than the presentation surface. For example:
+
+```cpp
+draw.scissor.enabled = true;
+draw.scissor.x = panelLeft;
+draw.scissor.y = panelBottom;
+draw.scissor.width = panelWidth;
+draw.scissor.height = panelHeight;
+```
+
+The rectangle must have a positive size and fit entirely inside the active
+extent. The renderer applies or disables scissoring on every draw, so a later
+draw with the default disabled rectangle covers the full framebuffer again.
+Frame and target-pass clears still cover the whole attachment. A host supplying
+its own OpenGL context gets its scissor box and enable state restored at frame
+end. This is a draw boundary for panels and overlays; the renderer does not yet
+schedule viewport draws or own editor panel layout.
+
 ## Lifecycle and cleanup
 
 The host creates the System window after renderer configuration has selected its
@@ -210,8 +233,10 @@ values during mesh loading. This example's fixed cube indices meet that contract
 - `src/CypherRender/CypherRender_Draw.cpp`: frame, layout, buffer, and range
   validation before native draw submission.
 
-This slice supports an indexed triangle list, a single optional uniform block,
-and direct submission to the window framebuffer. Mesh asset loading, materials,
-textures, render targets, command recording, and shader hot reload remain later
-milestones. The first visible cube establishes the renderer path those features
-can build on.
+The cube itself uses a triangle list, one uniform block, and direct window
+submission. The renderer has since gained textures, samplers, two binding slots,
+offscreen color targets, and additional draw state; those contracts are described
+in the resource-binding notes. Mesh asset loading, cooked material binding, a
+world draw queue, sampleable depth, command recording, and shader hot reload
+remain separate work. The visible cube continues to exercise the first complete
+draw path.

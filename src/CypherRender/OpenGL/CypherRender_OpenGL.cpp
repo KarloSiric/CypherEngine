@@ -153,6 +153,7 @@ render_error_t GL_CaptureHostFrameState( gl_host_frame_state_t &state ) noexcept
     glGetBooleanv( GL_DEPTH_WRITEMASK, &state.depthWriteMask );
 
     state.scissorTest = glIsEnabledi( GL_SCISSOR_TEST, 0u );
+    glGetIntegeri_v( GL_SCISSOR_BOX, 0u, state.scissorBox );
     state.depthTest = glIsEnabled( GL_DEPTH_TEST );
     state.cullFace = glIsEnabled( GL_CULL_FACE );
     state.stencilTest = glIsEnabled( GL_STENCIL_TEST );
@@ -189,6 +190,9 @@ render_error_t GL_RestoreHostFrameState( gl_host_frame_state_t &state ) noexcept
     glBindFramebuffer( GL_DRAW_FRAMEBUFFER, static_cast<GLuint>( state.drawFramebuffer ) );
     glBindFramebuffer( GL_READ_FRAMEBUFFER, static_cast<GLuint>( state.readFramebuffer ) );
     glViewportIndexedfv( 0u, state.viewport );
+    glScissorIndexed( 0u, state.scissorBox[0], state.scissorBox[1],
+        static_cast<GLsizei>( state.scissorBox[2] ),
+        static_cast<GLsizei>( state.scissorBox[3] ) );
     GL_SetIndexedEnabled( GL_SCISSOR_TEST, 0u, state.scissorTest );
     glColorMaski( 0u, state.drawBuffer0.colorMask[0], state.drawBuffer0.colorMask[1],
         state.drawBuffer0.colorMask[2], state.drawBuffer0.colorMask[3] );

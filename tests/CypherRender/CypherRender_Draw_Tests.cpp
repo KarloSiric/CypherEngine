@@ -379,6 +379,43 @@ TEST_CASE( "draw validates full offset ranges and dispatches only during an acti
     CHECK( fixture.drawCalls == 1u );
 }
 
+TEST_CASE( "draw scissor clips to the drawable and leaves ordinary draws unrestricted",
+           "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    fixture.Geometry();
+    render::tr.info.drawableExtent = { 64u, 48u };
+    render::tr.frameActive = true;
+
+    auto draw = fixture.Draw();
+    CHECK_FALSE( draw.scissor.enabled );
+    // Disabled rectangles are ignored, including dimensions that would be
+    // invalid for an enabled clip. Existing callers remain unrestricted.
+    draw.scissor = { false, std::numeric_limits<common::u32>::max(),
+                     std::numeric_limits<common::u32>::max(), 0u, 0u };
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+
+    draw.scissor = { true, 16u, 8u, 48u, 40u }; // Exact upper/right edge.
+    REQUIRE( render::R_DrawIndexed( draw ) == draw_error_t::OK );
+    CHECK( fixture.drawCalls == 2u );
+
+    for ( const render::render_scissor_rect_t invalid : {
+        render::render_scissor_rect_t{ true, 0u, 0u, 0u, 1u },
+        render::render_scissor_rect_t{ true, 0u, 0u, 1u, 0u },
+        render::render_scissor_rect_t{ true, 64u, 0u, 1u, 1u },
+        render::render_scissor_rect_t{ true, 0u, 48u, 1u, 1u },
+        render::render_scissor_rect_t{ true, 63u, 0u, 2u, 1u },
+        render::render_scissor_rect_t{ true, 0u, 47u, 1u, 2u },
+        render::render_scissor_rect_t{ true, 1u, 1u,
+            std::numeric_limits<common::u32>::max(), 1u }
+    } ) {
+        draw.scissor = invalid;
+        CHECK( render::R_DrawIndexed( draw ) == draw_error_t::ERR_DRAW_DESC_INVALID );
+    }
+    CHECK( fixture.drawCalls == 2u );
+}
+
 TEST_CASE( "triangle and line pipelines validate their own indexed primitive counts", "[CypherRender][Draw]" )
 {
     draw_fixture_t fixture;

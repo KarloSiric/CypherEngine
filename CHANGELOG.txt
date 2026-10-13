@@ -24,6 +24,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Indexed draws can use a physical-pixel scissor rectangle relative to the
+  active frame or offscreen target's bottom-left corner. Empty, out-of-bounds,
+  and OpenGL-range-exceeding rectangles are rejected. Every draw sets clipped
+  or unclipped state; frame and target clears remain full-size. Hosted frames
+  restore the host's index-zero scissor box and enable state. Editor viewport
+  scheduling and layout remain separate work.
 - Reusable immutable OpenGL 4.1 samplers let two declared texture slots choose
   nearest/linear minification and magnification, optional nearest/linear mip
   filtering, and repeat/edge-clamp addressing independently. An absent sampler
@@ -69,6 +75,8 @@ Added
   ordinary runtime still has no scene producer.
 
 Changed
+- Public renderer API version 8 and private backend version 15 add optional
+  per-draw scissor clipping.
 - Public renderer API version 7 and private backend version 14 add immutable
   sampler resources and optional per-draw sampler binding.
 - Public renderer API version 6 and private backend version 13 add the
@@ -96,6 +104,11 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Rebuilt eleven focused renderer, Host and cube targets in the existing
+  build-mason tree. Ten selected renderer/Host CTests passed; native and hosted
+  OpenGL smokes passed 506 and 172 assertions. Pixel checks cover presentation
+  and smaller offscreen target clipping and a following unclipped draw; hosted
+  tests restore a nondefault host scissor box. Cube rendered two hidden frames.
 - Reconfigured and rebuilt eleven focused renderer, Host and cube targets in
   the existing build-mason tree. Ten selected renderer/Host CTests passed;
   native and hosted OpenGL smokes passed 482 and 164 assertions. Native pixels
