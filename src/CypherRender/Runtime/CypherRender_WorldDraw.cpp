@@ -6,6 +6,7 @@
 
 #include "CypherRender_WorldDraw.h"
 
+#include "CypherCommon/Formats/CypherCommon_CookedMaterial.h"
 #include "CypherRender/CypherRender_Public.h"
 
 #include <cmath>
@@ -426,6 +427,141 @@ render_error_t BlendViewDepth(
     return render_error_t::OK;
 }
 
+bool CastsShadow( const render_material_bundle_t &material ) noexcept
+{
+    return ( material.materialFlags &
+        common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS ) != 0u;
+}
+
+render_error_t PreflightShadowObject(
+    const render_world_shadow_prepare_desc_t &description,
+    const world::world_object_snapshot_t &snapshot ) noexcept
+{
+    const world::world_object_t &object = snapshot.object;
+    if ( object.meshSlot >= description.meshCount ||
+         object.materialSlot >= description.materialCount ||
+         !math::Affine3_IsFinite( object.localToWorld ) ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    const int orientation = Orientation(
+        math::Affine3_LinearPart( object.localToWorld ) );
+    if ( orientation == 0 ) return render_error_t::ERR_UNSUPPORTED;
+    const render_material_bundle_t &material =
+        description.materials[object.materialSlot];
+    if ( !CastsShadow( material ) ||
+         material.alphaMode != common::render_material_alpha_mode_t::OPAQUE ) {
+        return render_error_t::ERR_UNSUPPORTED;
+    }
+
+    render_draw_indexed_desc_t draw = description.drawTemplate;
+    draw.pipeline = orientation < 0
+        ? description.mirroredShadowPipeline : description.shadowPipeline;
+    render_error_t error = R_ApplyStaticMeshBundleToDraw(
+        description.meshes[object.meshSlot], &draw );
+    if ( error != render_error_t::OK ) return error;
+    for ( common::u32 slot = 0u;
+          slot < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++slot ) {
+        if ( draw.sampledTextures[slot].value != R_INVALID_TEXTURE.value ||
+             draw.samplers[slot].value != R_INVALID_SAMPLER.value ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+    }
+
+    render_pipeline_info_t pipeline{};
+    error = R_GetGraphicsPipelineInfo( draw.pipeline, &pipeline );
+    if ( error != render_error_t::OK ) return error;
+    if ( pipeline.uniformBlockCount <= description.modelUniformSlot ||
+         pipeline.uniformBlockBytes[description.modelUniformSlot] !=
+             sizeof( math::mat4_t ) ||
+         pipeline.sampledTextureCount != 0u ||
+         pipeline.blendMode != render_blend_mode_t::DISABLED ||
+         !pipeline.depthTest || !pipeline.depthWrite ||
+         pipeline.colorWrite ||
+         pipeline.topology != render_primitive_topology_t::TRIANGLE_LIST ||
+         pipeline.polygonMode != render_polygon_mode_t::FILL ||
+         pipeline.frontCounterClockwise != ( orientation > 0 ) ||
+         draw.indexCount < 3u || draw.indexCount % 3u != 0u ||
+         draw.vertexCount > static_cast<common::u32>(
+             std::numeric_limits<common::i32>::max() ) ||
+         draw.indexCount > static_cast<common::u32>(
+             std::numeric_limits<common::i32>::max() ) ) {
+        return render_error_t::ERR_BINDING_MISMATCH;
+    }
+    render_vertex_input_info_t input{};
+    error = R_GetVertexInputInfo( draw.vertexInput, &input );
+    if ( error != render_error_t::OK ) return error;
+    if ( !LayoutsMatch( pipeline.vertexLayout, input.layout ) ) {
+        return render_error_t::ERR_BINDING_MISMATCH;
+    }
+    return ValidateOtherUniforms(
+        draw, pipeline, description.modelUniformSlot,
+        description.modelUniforms->alignment );
+}
+
+void PublishShadowDraw(
+    const render_world_shadow_prepare_desc_t &description,
+    const world::world_object_snapshot_t &snapshot,
+    const common::u64 modelOffset,
+    render_world_shadow_draw_t *output ) noexcept
+{
+    const render_static_mesh_bundle_t &mesh =
+        description.meshes[snapshot.object.meshSlot];
+    render_draw_indexed_desc_t draw = description.drawTemplate;
+    draw.vertexInput = mesh.vertexInput;
+    draw.firstIndex = 0u;
+    draw.indexCount = mesh.indexCount;
+    draw.vertexCount = mesh.vertexCount;
+    draw.pipeline = Orientation(
+        math::Affine3_LinearPart( snapshot.object.localToWorld ) ) < 0
+        ? description.mirroredShadowPipeline : description.shadowPipeline;
+    draw.uniformBuffers[description.modelUniformSlot] =
+        description.modelUniforms->buffer;
+    draw.uniformRanges[description.modelUniformSlot] = {
+        modelOffset, sizeof( math::mat4_t )
+    };
+    output->objectId = snapshot.id;
+    output->draw = draw;
+}
+
+render_error_t ShadowOutputIsDisjoint(
+    const render_world_shadow_prepare_desc_t &description,
+    const render_world_shadow_draw_t *output,
+    const common::u32 casterCount,
+    const common::u32 *outCount ) noexcept
+{
+    const common::u64 outputBytes =
+        static_cast<common::u64>( casterCount ) * sizeof( *output );
+    const common::u64 meshBytes =
+        static_cast<common::u64>( description.meshCount ) *
+        sizeof( render_static_mesh_bundle_t );
+    const common::u64 materialBytes =
+        static_cast<common::u64>( description.materialCount ) *
+        sizeof( render_material_bundle_t );
+    const common::u64 stagingBytes = description.modelUniforms->capacityBytes;
+    if ( StorageOverlaps( output, outputBytes, outCount, sizeof( *outCount ) ) ||
+         StorageOverlaps( output, outputBytes,
+             description.meshes, meshBytes ) ||
+         StorageOverlaps( output, outputBytes,
+             description.materials, materialBytes ) ||
+         StorageOverlaps( output, outputBytes,
+             description.modelUniforms->staging, stagingBytes ) ||
+         StorageOverlaps( output, outputBytes,
+             description.modelUniforms,
+             sizeof( *description.modelUniforms ) ) ||
+         StorageOverlaps( outCount, sizeof( *outCount ),
+             description.meshes, meshBytes ) ||
+         StorageOverlaps( outCount, sizeof( *outCount ),
+             description.materials, materialBytes ) ||
+         StorageOverlaps( outCount, sizeof( *outCount ),
+             description.modelUniforms->staging, stagingBytes ) ||
+         StorageOverlaps( outCount, sizeof( *outCount ),
+             description.modelUniforms,
+             sizeof( *description.modelUniforms ) ) ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    return render_error_t::OK;
+}
+
 } // namespace
 
 render_error_t R_PrepareOpaqueWorldDraws(
@@ -640,6 +776,124 @@ render_error_t R_PrepareWorldCameraDraws(
         PublishDraw( base, snapshot, offset, &output[i] );
     }
     *outCounts = counts;
+    return render_error_t::OK;
+}
+
+render_error_t R_PrepareWorldShadowDraws(
+    const render_world_shadow_prepare_desc_t &description,
+    render_world_shadow_draw_t *output,
+    const common::u32 outputCapacity,
+    common::u32 *outCount ) noexcept
+{
+    if ( description.submission == nullptr || outCount == nullptr ||
+         description.modelUniformSlot >= R_MAX_UNIFORM_BLOCK_BINDINGS ||
+         description.drawTemplate.instanceCount != 1u ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    common::u32 visibleCount = 0u;
+    if ( world::WorldSubmission_Count(
+             description.submission, description.token, &visibleCount ) !=
+         world::world_submission_error_t::OK ) {
+        return render_error_t::ERR_INVALID_STATE;
+    }
+    if ( visibleCount == 0u ) {
+        *outCount = 0u;
+        return render_error_t::OK;
+    }
+    if ( description.materials == nullptr ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+
+    common::u32 casterCount = 0u;
+    for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+        world::world_object_snapshot_t snapshot{};
+        if ( world::WorldSubmission_Get(
+                 description.submission, description.token, i, &snapshot ) !=
+             world::world_submission_error_t::OK ) {
+            return render_error_t::ERR_INVALID_STATE;
+        }
+        if ( snapshot.object.materialSlot >= description.materialCount ) {
+            return render_error_t::ERR_INVALID_ARGUMENT;
+        }
+        const render_material_bundle_t &material =
+            description.materials[snapshot.object.materialSlot];
+        if ( !CastsShadow( material ) ) continue;
+        if ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE ) {
+            return render_error_t::ERR_UNSUPPORTED;
+        }
+        ++casterCount;
+    }
+    if ( casterCount > outputCapacity ) {
+        return render_error_t::ERR_COMMAND_CAPACITY_EXCEEDED;
+    }
+    if ( casterCount == 0u ) {
+        *outCount = 0u;
+        return render_error_t::OK;
+    }
+    if ( output == nullptr || description.meshes == nullptr ||
+         description.modelUniforms == nullptr ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    render_error_t result = ValidateBatch( *description.modelUniforms );
+    if ( result != render_error_t::OK ) return result;
+    result = ShadowOutputIsDisjoint(
+        description, output, casterCount, outCount );
+    if ( result != render_error_t::OK ) return result;
+
+    for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+        world::world_object_snapshot_t snapshot{};
+        if ( world::WorldSubmission_Get(
+                 description.submission, description.token, i, &snapshot ) !=
+             world::world_submission_error_t::OK ) {
+            return render_error_t::ERR_INVALID_STATE;
+        }
+        if ( !CastsShadow( description.materials[
+                 snapshot.object.materialSlot] ) ) continue;
+        result = PreflightShadowObject( description, snapshot );
+        if ( result != render_error_t::OK ) return result;
+    }
+    const common::u64 firstCursor = description.modelUniforms->usedBytes;
+    common::u64 cursor = firstCursor;
+    for ( common::u32 i = 0u; i < casterCount; ++i ) {
+        common::u64 offset = 0u;
+        if ( !NextModelOffset( cursor, description.modelUniforms->alignment,
+                 description.modelUniforms->capacityBytes, &offset, &cursor ) ) {
+            return render_error_t::ERR_COMMAND_CAPACITY_EXCEEDED;
+        }
+    }
+
+    for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+        world::world_object_snapshot_t snapshot{};
+        // The active submission is immutable during this single-threaded call.
+        (void)world::WorldSubmission_Get(
+            description.submission, description.token, i, &snapshot );
+        if ( !CastsShadow( description.materials[
+                 snapshot.object.materialSlot] ) ) continue;
+        const math::mat4_t model =
+            math::Affine3_ToMat4( snapshot.object.localToWorld );
+        render_uniform_record_t ignored{};
+        result = R_AppendUniformRecord( description.modelUniforms,
+            &model, sizeof( model ), &ignored );
+        if ( result != render_error_t::OK ) return result;
+    }
+    result = R_CommitUniformBatch( description.modelUniforms );
+    if ( result != render_error_t::OK ) return result;
+
+    cursor = firstCursor;
+    common::u32 published = 0u;
+    for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+        world::world_object_snapshot_t snapshot{};
+        (void)world::WorldSubmission_Get(
+            description.submission, description.token, i, &snapshot );
+        if ( !CastsShadow( description.materials[
+                 snapshot.object.materialSlot] ) ) continue;
+        common::u64 offset = 0u;
+        (void)NextModelOffset( cursor, description.modelUniforms->alignment,
+            description.modelUniforms->capacityBytes, &offset, &cursor );
+        PublishShadowDraw(
+            description, snapshot, offset, &output[published++] );
+    }
+    *outCount = casterCount;
     return render_error_t::OK;
 }
 

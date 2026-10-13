@@ -50,6 +50,8 @@ struct world_draw_fixture_t {
     render::render_shader_handle_t shader{};
     render::render_pipeline_handle_t pipelines[4]{};
     render::render_pipeline_handle_t mirroredPipelines[4]{};
+    render::render_pipeline_handle_t shadowPipeline{};
+    render::render_pipeline_handle_t mirroredShadowPipeline{};
     render::render_buffer_handle_t viewBuffer{};
     render::render_buffer_handle_t materialBuffer{};
     render::render_uniform_batch_t batch{};
@@ -238,6 +240,49 @@ struct world_draw_fixture_t {
             world::world_submission_error_t::OK );
     }
 
+    void Build( const world::world_view_query_t &query )
+    {
+        REQUIRE( world::WorldSubmission_Build(
+            pSubmission, pWorld, &query, &token ) ==
+            world::world_submission_error_t::OK );
+    }
+
+    void InitShadowPipelines()
+    {
+        render::render_vertex_input_info_t input{};
+        REQUIRE( render::R_GetVertexInputInfo( mesh.vertexInput, &input ) ==
+            render::render_error_t::OK );
+        render::render_pipeline_desc_t pipeline{};
+        pipeline.shader = shader;
+        pipeline.vertexLayout = input.layout;
+        pipeline.uniformBlockCount = 2u;
+        pipeline.uniformBlocks[0] = { "Light", 64u };
+        pipeline.uniformBlocks[1] = { "Model", 64u };
+        pipeline.colorWrite = false;
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &shadowPipeline ) == render::render_error_t::OK );
+        pipeline.frontCounterClockwise = false;
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &mirroredShadowPipeline ) == render::render_error_t::OK );
+    }
+
+    render::render_world_shadow_prepare_desc_t ShadowDescription()
+    {
+        render::render_world_shadow_prepare_desc_t desc{};
+        desc.submission = pSubmission;
+        desc.token = token;
+        desc.meshes = &mesh;
+        desc.meshCount = 1u;
+        desc.materials = materials;
+        desc.materialCount = 4u;
+        desc.modelUniforms = &batch;
+        desc.modelUniformSlot = 1u;
+        desc.shadowPipeline = shadowPipeline;
+        desc.mirroredShadowPipeline = mirroredShadowPipeline;
+        desc.drawTemplate.uniformBuffers[0] = viewBuffer;
+        return desc;
+    }
+
     render::render_world_opaque_prepare_desc_t Description()
     {
         render::render_world_opaque_prepare_desc_t desc{};
@@ -311,6 +356,10 @@ struct world_draw_fixture_t {
         for ( auto pipeline : mirroredPipelines ) {
             if ( pipeline.value != 0u ) (void)render::R_DestroyGraphicsPipeline( pipeline );
         }
+        if ( shadowPipeline.value != 0u )
+            (void)render::R_DestroyGraphicsPipeline( shadowPipeline );
+        if ( mirroredShadowPipeline.value != 0u )
+            (void)render::R_DestroyGraphicsPipeline( mirroredShadowPipeline );
         if ( shader.value != 0u ) (void)render::R_DestroyShader( shader );
         (void)render::R_DestroyStaticMeshBundle( &mesh );
         (void)render::R_PipelineSystemShutdown();
@@ -802,6 +851,131 @@ TEST_CASE( "World camera upload failure leaves output unpublished and batch retr
     CHECK( fixture.batch.usedBytes == sizeof( math::mat4_t ) );
     CHECK( fixture.batch.sealed );
     CHECK( fixture.uploadCalls == 1u );
+    REQUIRE( render::R_CommitUniformBatch( &fixture.batch ) ==
+        render::render_error_t::OK );
+    CHECK( fixture.uploadCalls == 2u );
+}
+
+TEST_CASE( "World light submission keeps off-camera opaque casters and mirrored winding",
+    "[CypherRender][WorldDraw][Shadow]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.InitShadowPipelines();
+    fixture.materials[0].materialFlags =
+        common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    const auto offCameraCaster = fixture.Add( 0u, 0u, 30.0f );
+    (void)fixture.Add( 0u, 1u, 0.0f ); // Visible, but does not cast.
+    const auto mirroredCaster = fixture.Add( 0u, 0u, 4.0f );
+    world::world_object_t mirroredObject{};
+    REQUIRE( world::World_GetObject(
+        fixture.pWorld, mirroredCaster, &mirroredObject ) == world::world_error_t::OK );
+    mirroredObject.localToWorld = math::Affine3_Multiply(
+        math::Affine3_FromTranslation( { 4.0f, 0.0f, 0.0f } ),
+        math::Affine3_FromScale( { -1.0f, 1.0f, 1.0f } ) );
+    REQUIRE( world::World_UpdateObject(
+        fixture.pWorld, mirroredCaster, &mirroredObject ) == world::world_error_t::OK );
+
+    fixture.Build();
+    common::u32 cameraCount = 0u;
+    REQUIRE( world::WorldSubmission_Count(
+        fixture.pSubmission, fixture.token, &cameraCount ) ==
+        world::world_submission_error_t::OK );
+    CHECK( cameraCount == 2u );
+    world::WorldSubmission_End( fixture.pSubmission );
+    auto lightView = MakeView();
+    lightView.frustum.planes[0] = math::Plane_Make(
+        { 1.0f, 0.0f, 0.0f }, 40.0f );
+    lightView.frustum.planes[1] = math::Plane_Make(
+        { -1.0f, 0.0f, 0.0f }, 40.0f );
+    fixture.Build( lightView );
+
+    render::render_world_shadow_draw_t output[2]{};
+    common::u32 count = 99u;
+    REQUIRE( render::R_PrepareWorldShadowDraws(
+        fixture.ShadowDescription(), output, 2u, &count ) ==
+        render::render_error_t::OK );
+    REQUIRE( count == 2u );
+    CHECK( output[0].objectId.slot.value == offCameraCaster.slot.value );
+    CHECK( output[1].objectId.slot.value == mirroredCaster.slot.value );
+    CHECK( output[0].draw.pipeline.value == fixture.shadowPipeline.value );
+    CHECK( output[1].draw.pipeline.value ==
+        fixture.mirroredShadowPipeline.value );
+    CHECK( output[0].draw.uniformRanges[1].offset == 0u );
+    CHECK( output[1].draw.uniformRanges[1].offset == 256u );
+    CHECK( fixture.uploadCalls == 1u );
+    CHECK( fixture.uploadedSize == 320u );
+}
+
+TEST_CASE( "World shadow preflight refuses casting translucent geometry atomically",
+    "[CypherRender][WorldDraw][Shadow]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.InitShadowPipelines();
+    fixture.AddCameraMaterial( 2u, common::render_material_alpha_mode_t::BLEND );
+    fixture.materials[2].materialFlags =
+        common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    (void)fixture.Add( 0u, 2u, 0.0f );
+    fixture.Build();
+    render::render_world_shadow_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    common::u32 count = 77u;
+    CHECK( render::R_PrepareWorldShadowDraws(
+        fixture.ShadowDescription(), &output, 1u, &count ) ==
+        render::render_error_t::ERR_UNSUPPORTED );
+    CHECK( count == 77u );
+    CHECK( output.draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
+TEST_CASE( "World shadow preflight rejects a color-writing pipeline atomically",
+    "[CypherRender][WorldDraw][Shadow]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.InitShadowPipelines();
+    fixture.materials[0].materialFlags =
+        common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    (void)fixture.Add( 0u, 0u, 0.0f );
+    fixture.Build();
+    auto desc = fixture.ShadowDescription();
+    desc.shadowPipeline = fixture.pipelines[0]; // Color writes remain enabled.
+    render::render_world_shadow_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    common::u32 count = 77u;
+    CHECK( render::R_PrepareWorldShadowDraws(
+        desc, &output, 1u, &count ) ==
+        render::render_error_t::ERR_BINDING_MISMATCH );
+    CHECK( count == 77u );
+    CHECK( output.draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
+TEST_CASE( "World shadow upload failure keeps public draws unpublished",
+    "[CypherRender][WorldDraw][Shadow]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.InitShadowPipelines();
+    fixture.materials[0].materialFlags =
+        common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    (void)fixture.Add( 0u, 0u, 0.0f );
+    fixture.Build();
+    render::render_world_shadow_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    common::u32 count = 77u;
+    fixture.failNextUpload = true;
+    CHECK( render::R_PrepareWorldShadowDraws(
+        fixture.ShadowDescription(), &output, 1u, &count ) ==
+        render::render_error_t::ERR_RESOURCE_TRANSFER_FAILED );
+    CHECK( count == 77u );
+    CHECK( output.draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == sizeof( math::mat4_t ) );
+    CHECK( fixture.batch.sealed );
     REQUIRE( render::R_CommitUniformBatch( &fixture.batch ) ==
         render::render_error_t::OK );
     CHECK( fixture.uploadCalls == 2u );

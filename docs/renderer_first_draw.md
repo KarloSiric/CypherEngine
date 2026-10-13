@@ -348,6 +348,20 @@ loader. CPU tests cover ordering, mirrored BLEND, camera-plane bounds, pipeline
 mismatch, and upload retry behavior. Native OpenGL smoke verifies both mirrored
 front-face behavior and cooked opaque/BLEND ordering through framebuffer pixels.
 
+`R_PrepareWorldShadowDraws` takes a separate light-view World submission so
+an off-camera caster can still enter the shadow map. It filters objects by
+their cooked material's casts-shadows flag and prepares only OPAQUE casters,
+in light-submission order. The caller owns a pair of depth-only shadow
+pipelines with opposite front-face winding, the light uniform, the D24 target,
+and the pass/queue schedule. The adapter validates depth testing and writing,
+disabled color writes and blending, model-block size, geometry layout, and
+the selected winding before one aligned model batch upload. A casting MASK,
+BLEND, or ADDITIVE material is rejected instead of casting a solid silhouette.
+Shadow cutout textures and alpha thresholds need a separate shader and material
+contract. The existing graybox sample still owns its own shadow draws and
+larger object uniform block; this 64-byte model-only adapter does not silently
+replace it.
+
 ## Ordered draw list
 
 The sample resolves its material's explicit opaque, blend, or additive class and

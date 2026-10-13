@@ -25,6 +25,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- World light-view shadow preparation now filters a separate submission by
+  cooked casts-shadows flags and produces opaque depth draws, including a
+  reversed-winding pipeline for mirrored models. It preflights depth-only
+  pipeline state and model-uniform capacity, uploads one aligned batch, and
+  leaves public draws/count untouched on validation or upload failure.
+  Casting MASK, BLEND, and ADDITIVE materials are rejected until a cutout
+  shadow contract exists. Focused World-draw and native OpenGL 4.1 smoke tests
+  pass locally; the native test confirms an off-camera caster writes the D24
+  light target while an untouched pixel retains clear depth. The graybox
+  sample still uses its own larger shadow object block and pass schedule.
 - World camera draw preparation now resolves one visible submission into
   contiguous opaque, far-to-near BLEND, and ADDITIVE draw spans using cooked
   material bundles. It preflights each material's selected pipeline, including
