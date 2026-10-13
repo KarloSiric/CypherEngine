@@ -30,12 +30,12 @@ struct texture_fixture_t {
     bool tokenOnCreateFailure{ false };
     bool samplerTokenOnCreateFailure{ false };
     render::render_texture_desc_t captured{};
-    common::byte capturedPixels[24]{};
+    common::byte capturedPixels[128]{};
     common::u64 capturedPixelBytes{ 0u };
     common::u32 capturedMipCount{ 0u };
     common::u32 capturedMipWidths[3]{}, capturedMipHeights[3]{};
     common::u64 capturedMipBytes[3]{};
-    common::byte capturedMipPixels[3][32]{};
+    common::byte capturedMipPixels[3][128]{};
     render::render_sampler_desc_t capturedSampler{};
     render::backend_draw_indexed_desc_t capturedDraw{};
     common::byte pixels[24]{};
@@ -434,6 +434,49 @@ TEST_CASE( "cooked RGBA8 images upload their exact pixels and retain no borrowed
     REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
 }
 
+TEST_CASE( "cooked linear RGBA32F uploads all sixteen bytes per texel without borrowing the file",
+    "[CypherRender][Texture][Cooked][HDR]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    const float pixels[16]{ 4.0f, 0.25f, 0.5f, 1.0f,
+        0.0f, 2.0f, 0.0f, 1.0f, 0.125f, 0.25f, 8.0f, 1.0f,
+        1.0f, 0.0f, 0.0f, 0.5f };
+    common::cooked_texture_desc_t desc{};
+    desc.pixelFormat = common::render_texture_pixel_format_t::RGBA32_FLOAT;
+    desc.storageFormat = common::render_format_t::RGBA32_FLOAT;
+    desc.colorSpace = common::render_texture_color_space_t::LINEAR;
+    desc.nWidth = desc.nHeight = 2u;
+    desc.nMipLevels = 1u;
+    const common::cooked_texture_mip_source_t mip{ 2u, 2u, 1u, 32u,
+        { reinterpret_cast<const common::byte *>( pixels ), sizeof( pixels ) } };
+    std::vector<common::byte> file;
+    common::cooked_texture_view_t view{};
+    WriteCookedTexture( desc, &mip, 1u, file, view );
+    REQUIRE( view.mips[0].cbRowPitch == 32u );
+    REQUIRE( view.mips[0].pixels.cbSize == 64u );
+
+    render::render_texture_handle_t texture{};
+    REQUIRE( render::R_CreateTexture2DFromCooked( view, &texture ) == texture_error_t::OK );
+    CHECK( fixture.creates == 1u );
+    CHECK( fixture.captured.format == render::render_texture_format_t::RGBA32F );
+    CHECK_FALSE( fixture.captured.sRGB );
+    CHECK_FALSE( fixture.captured.generateMips );
+    CHECK_FALSE( fixture.captured.renderTarget );
+    REQUIRE( fixture.capturedPixelBytes == sizeof( pixels ) );
+    CHECK( std::memcmp( fixture.capturedPixels, pixels, sizeof( pixels ) ) == 0 );
+    render::render_texture_info_t info{};
+    REQUIRE( render::R_GetTextureInfo( texture, &info ) == texture_error_t::OK );
+    CHECK( info.format == render::render_texture_format_t::RGBA32F );
+    CHECK_FALSE( info.sRGB );
+    CHECK( info.mipLevels == 1u );
+
+    for ( auto &byte : file ) byte = 0u;
+    file.clear();
+    CHECK( std::memcmp( fixture.capturedPixels, pixels, sizeof( pixels ) ) == 0 );
+    REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
+}
+
 TEST_CASE( "cooked texture adoption refuses unsupported color-image layouts",
     "[CypherRender][Texture][Cooked]" )
 {
@@ -467,14 +510,6 @@ TEST_CASE( "cooked texture adoption refuses unsupported color-image layouts",
         desc.residency = common::cooked_texture_residency_t::MIP_STREAMED;
         desc.nResidentMipLevels = 1u;
         WriteCookedTexture( desc, mips, 2u, file, view );
-    }
-    SECTION( "floating-point storage" ) {
-        desc.nWidth = desc.nHeight = 1u;
-        desc.pixelFormat = common::render_texture_pixel_format_t::RGBA32_FLOAT;
-        desc.storageFormat = common::render_format_t::RGBA32_FLOAT;
-        desc.colorSpace = common::render_texture_color_space_t::LINEAR;
-        mips[0] = { 1u, 1u, 1u, 16u, { rgba, 16u } };
-        WriteCookedTexture( desc, mips, 1u, file, view );
     }
     SECTION( "block-compressed storage" ) {
         common::byte blocks[64]{};
@@ -562,6 +597,100 @@ TEST_CASE( "complete authored RGBA8 mips upload each level without regenerating 
     CHECK_FALSE( info.generateMips );
     CHECK( std::memcmp( fixture.capturedMipPixels[2], pixels + 40u, 4u ) == 0 );
     REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
+}
+
+TEST_CASE( "complete authored RGBA32F mips keep their row sizes, bytes, and failure ownership",
+    "[CypherRender][Texture][Cooked][Mips][HDR]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    float pixels[44]{};
+    for ( common::u32 i = 0u; i < 44u; ++i ) pixels[i] = static_cast<float>( i ) * 0.125f;
+    const auto *bytes = reinterpret_cast<const common::byte *>( pixels );
+    common::cooked_texture_desc_t desc{};
+    desc.pixelFormat = common::render_texture_pixel_format_t::RGBA32_FLOAT;
+    desc.storageFormat = common::render_format_t::RGBA32_FLOAT;
+    desc.colorSpace = common::render_texture_color_space_t::LINEAR;
+    desc.nWidth = 4u;
+    desc.nHeight = 2u;
+    desc.nMipLevels = 3u;
+    const common::cooked_texture_mip_source_t mips[3]{
+        { 4u, 2u, 1u, 64u, { bytes, 128u } },
+        { 2u, 1u, 1u, 32u, { bytes + 128u, 32u } },
+        { 1u, 1u, 1u, 16u, { bytes + 160u, 16u } }
+    };
+    std::vector<common::byte> file;
+    common::cooked_texture_view_t view{};
+    WriteCookedTexture( desc, mips, 3u, file, view );
+    REQUIRE( view.nMipLevels == 3u );
+    CHECK( view.mips[0].cbRowPitch == 64u );
+    CHECK( view.mips[1].cbRowPitch == 32u );
+    CHECK( view.mips[2].cbRowPitch == 16u );
+
+    render::render_texture_handle_t texture{ 99u };
+    auto changed = view;
+    changed.mips[1].cbRowPitch = 64u;
+    CHECK( render::R_CreateTexture2DFromCooked( changed, &texture ) ==
+        texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( texture.value == 0u );
+    CHECK( fixture.creates == 0u );
+
+    const auto createLevels = fixture.backend.CreateTexture2DLevels;
+    fixture.backend.CreateTexture2DLevels = nullptr;
+    texture = { 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( view, &texture ) ==
+        texture_error_t::ERR_UNSUPPORTED );
+    CHECK( texture.value == 0u );
+    fixture.backend.CreateTexture2DLevels = createLevels;
+
+    fixture.createResult = texture_error_t::ERR_OUT_OF_MEMORY;
+    fixture.tokenOnCreateFailure = true;
+    texture = { 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( view, &texture ) ==
+        texture_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( texture.value == 0u );
+    CHECK( fixture.creates == 1u );
+    CHECK( fixture.destroys == 1u );
+
+    fixture.createResult = texture_error_t::OK;
+    fixture.tokenOnCreateFailure = false;
+    REQUIRE( render::R_CreateTexture2DFromCooked( view, &texture ) == texture_error_t::OK );
+    CHECK( fixture.creates == 2u );
+    CHECK( fixture.captured.format == render::render_texture_format_t::RGBA32F );
+    CHECK_FALSE( fixture.captured.sRGB );
+    CHECK_FALSE( fixture.captured.generateMips );
+    CHECK( fixture.capturedMipCount == 3u );
+    CHECK( fixture.capturedMipWidths[0] == 4u );
+    CHECK( fixture.capturedMipHeights[0] == 2u );
+    CHECK( fixture.capturedMipWidths[1] == 2u );
+    CHECK( fixture.capturedMipHeights[1] == 1u );
+    CHECK( fixture.capturedMipWidths[2] == 1u );
+    CHECK( fixture.capturedMipHeights[2] == 1u );
+    CHECK( fixture.capturedMipBytes[0] == 128u );
+    CHECK( fixture.capturedMipBytes[1] == 32u );
+    CHECK( fixture.capturedMipBytes[2] == 16u );
+    CHECK( std::memcmp( fixture.capturedMipPixels[0], bytes, 128u ) == 0 );
+    CHECK( std::memcmp( fixture.capturedMipPixels[1], bytes + 128u, 32u ) == 0 );
+    CHECK( std::memcmp( fixture.capturedMipPixels[2], bytes + 160u, 16u ) == 0 );
+    render::render_texture_info_t info{};
+    REQUIRE( render::R_GetTextureInfo( texture, &info ) == texture_error_t::OK );
+    CHECK( info.format == render::render_texture_format_t::RGBA32F );
+    CHECK( info.mipLevels == 3u );
+    CHECK( info.completeMipChain );
+
+    auto *pixelInFile = const_cast<common::byte *>( view.mips[1].pixels.pData );
+    REQUIRE( pixelInFile != nullptr );
+    *pixelInFile ^= 0x80u;
+    render::render_texture_handle_t invalid{ 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( view, &invalid ) ==
+        texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( invalid.value == 0u );
+    CHECK( fixture.creates == 2u );
+    for ( auto &byte : file ) byte = 0u;
+    file.clear();
+    CHECK( std::memcmp( fixture.capturedMipPixels[2], bytes + 160u, 16u ) == 0 );
+    REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
+    CHECK( fixture.destroys == 2u );
 }
 
 TEST_CASE( "authored mip upload validates all levels and cleans backend failure",
@@ -830,6 +959,66 @@ TEST_CASE( "RGBA16F textures require a supported GPU-only linear target",
     CHECK( info.renderTarget );
     CHECK_FALSE( info.sRGB );
     CHECK( info.mipLevels == 1u );
+    REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
+}
+
+TEST_CASE( "raw RGBA32F textures are sampled-only, linear, and exactly sixteen bytes per texel",
+    "[CypherRender][Texture][HDR]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    bool generatedMips = false;
+    SECTION( "single level" ) {}
+    SECTION( "generated mip chain" ) { generatedMips = true; }
+
+    const float pixels[16]{ 4.0f, 0.25f, 0.5f, 1.0f,
+        0.0f, 2.0f, 0.0f, 1.0f, 0.125f, 0.25f, 8.0f, 1.0f,
+        1.0f, 0.0f, 0.0f, 0.5f };
+    render::render_texture_desc_t desc{};
+    desc.width = desc.height = 2u;
+    desc.sRGB = false;
+    desc.generateMips = generatedMips;
+    desc.repeat = false;
+    desc.renderTarget = false;
+    desc.format = render::render_texture_format_t::RGBA32F;
+    const render::render_texture_data_t data{ pixels, sizeof( pixels ) };
+    render::render_texture_handle_t texture{ 99u };
+
+    auto invalid = desc;
+    invalid.sRGB = true;
+    CHECK( render::R_CreateTexture2D( invalid, data, &texture ) ==
+        texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( texture.value == 0u );
+    invalid = desc;
+    invalid.renderTarget = true;
+    texture = { 99u };
+    CHECK( render::R_CreateTexture2D( invalid, {}, &texture ) ==
+        texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( texture.value == 0u );
+    CHECK( render::R_CreateTexture2D( desc, { pixels, sizeof( pixels ) - 1u },
+        &texture ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( render::R_CreateTexture2D( desc, { pixels, sizeof( pixels ) + 1u },
+        &texture ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( render::R_CreateTexture2D( desc, { nullptr, sizeof( pixels ) },
+        &texture ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( fixture.creates == 0u );
+
+    REQUIRE( render::R_CreateTexture2D( desc, data, &texture ) == texture_error_t::OK );
+    CHECK( fixture.creates == 1u );
+    CHECK( fixture.captured.format == render::render_texture_format_t::RGBA32F );
+    CHECK_FALSE( fixture.captured.sRGB );
+    CHECK_FALSE( fixture.captured.renderTarget );
+    CHECK( fixture.captured.generateMips == generatedMips );
+    REQUIRE( fixture.capturedPixelBytes == sizeof( pixels ) );
+    CHECK( std::memcmp( fixture.capturedPixels, pixels, sizeof( pixels ) ) == 0 );
+    render::render_texture_info_t info{};
+    REQUIRE( render::R_GetTextureInfo( texture, &info ) == texture_error_t::OK );
+    CHECK( info.format == render::render_texture_format_t::RGBA32F );
+    CHECK_FALSE( info.sRGB );
+    CHECK_FALSE( info.renderTarget );
+    CHECK( info.generateMips == generatedMips );
+    CHECK( info.mipLevels == ( generatedMips ? 2u : 1u ) );
+    CHECK( info.completeMipChain == generatedMips );
     REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
 }
 TEST_CASE( "textures retain immutable metadata and invalidate recycled generations", "[CypherRender][Texture]" )

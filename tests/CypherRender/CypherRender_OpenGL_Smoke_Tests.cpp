@@ -1892,6 +1892,252 @@ void CheckHDRTargetToneMap( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyShader( hdrShader ) == render::render_error_t::OK );
 }
 
+void CheckRGBA32FSampledTexturePixels( const render::render_extent_t extent )
+{
+    constexpr char vertex[] =
+        "#version 410 core\nlayout(location=0) in vec3 position;\n"
+        "void main() { gl_Position=vec4(position,1.0); }\n";
+    constexpr char baseFragment[] =
+        "#version 410 core\nuniform sampler2D base_color;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { color=texture(base_color,vec2(0.5)); }\n";
+    constexpr char mipFragment[] =
+        "#version 410 core\nuniform sampler2D base_color;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { color=textureLod(base_color,vec2(0.5),1.0); }\n";
+    const auto makeShader = [&]( const char *fragment, const common::u64 size ) {
+        common::cooked_shader_view_t source{};
+        source.nLanguageVersion = 410u;
+        source.nStages = 2u;
+        source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+        source.stages[0].code = {
+            reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+        source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+        source.stages[1].code = {
+            reinterpret_cast<const common::byte *>( fragment ), size };
+        render::render_shader_handle_t shader{};
+        REQUIRE( render::R_CreateShader( { &source, "RGBA32F sampled pixel oracle" },
+            &shader ) == render::render_error_t::OK );
+        return shader;
+    };
+    const auto baseShader = makeShader( baseFragment, sizeof( baseFragment ) );
+    const auto mipShader = makeShader( mipFragment, sizeof( mipFragment ) );
+
+    constexpr float vertices[]{ -1.0f,-1.0f,0.0f, 3.0f,-1.0f,0.0f,
+                                -1.0f,3.0f,0.0f };
+    constexpr common::u16 indices[]{ 0u,1u,2u };
+    const auto makeBuffer = []( const void *bytes, const common::u64 size,
+                                const render::render_buffer_usage_flags_t usage ) {
+        render::render_buffer_desc_t description{};
+        description.byteSize = size;
+        description.usage = usage;
+        const render::render_buffer_data_t data{ bytes, size };
+        render::render_buffer_handle_t buffer{};
+        REQUIRE( render::R_CreateBuffer( description, &data, &buffer ) ==
+            render::render_error_t::OK );
+        return buffer;
+    };
+    const auto vertexBuffer = makeBuffer( vertices, sizeof( vertices ),
+        render::R_BUFFER_USAGE_VERTEX );
+    const auto indexBuffer = makeBuffer( indices, sizeof( indices ),
+        render::R_BUFFER_USAGE_INDEX );
+    render::render_vertex_input_desc_t inputDescription{};
+    inputDescription.layout.bindingCount = 1u;
+    inputDescription.layout.bindings[0].stride = 3u * sizeof( float );
+    inputDescription.layout.attributeCount = 1u;
+    inputDescription.layout.attributes[0] = {
+        render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    inputDescription.vertexBufferCount = 1u;
+    inputDescription.vertexBuffers[0] = { vertexBuffer, 0u, 0u };
+    inputDescription.indexBuffer = {
+        indexBuffer, 0u, render::render_index_type_t::UINT16 };
+    render::render_vertex_input_handle_t input{};
+    REQUIRE( render::R_CreateVertexInput( inputDescription, &input ) ==
+        render::render_error_t::OK );
+
+    render::render_pipeline_desc_t pipelineDescription{};
+    pipelineDescription.vertexLayout = inputDescription.layout;
+    pipelineDescription.depthTest = false;
+    pipelineDescription.depthWrite = false;
+    pipelineDescription.cullBackFaces = false;
+    pipelineDescription.sampledTextureCount = 1u;
+    pipelineDescription.sampledTextures[0].name = "base_color";
+    pipelineDescription.shader = baseShader;
+    render::render_pipeline_handle_t basePipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDescription,
+        &basePipeline ) == render::render_error_t::OK );
+    pipelineDescription.shader = mipShader;
+    render::render_pipeline_handle_t mipPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDescription,
+        &mipPipeline ) == render::render_error_t::OK );
+
+    // A host-owned PBO and stale byte-swapping/row layout must not redirect or
+    // corrupt raw or authored float uploads. Restore the exact caller state.
+    GLint previousUnpackBuffer = 0, previousAlignment = 0, previousRowLength = 0;
+    GLint previousSkipRows = 0, previousSkipPixels = 0, previousSwapBytes = 0;
+    glGetIntegerv( GL_PIXEL_UNPACK_BUFFER_BINDING, &previousUnpackBuffer );
+    glGetIntegerv( GL_UNPACK_ALIGNMENT, &previousAlignment );
+    glGetIntegerv( GL_UNPACK_ROW_LENGTH, &previousRowLength );
+    glGetIntegerv( GL_UNPACK_SKIP_ROWS, &previousSkipRows );
+    glGetIntegerv( GL_UNPACK_SKIP_PIXELS, &previousSkipPixels );
+    glGetIntegerv( GL_UNPACK_SWAP_BYTES, &previousSwapBytes );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    GLuint hostUnpack = 0u;
+    glGenBuffers( 1, &hostUnpack );
+    glBindBuffer( GL_PIXEL_UNPACK_BUFFER, hostUnpack );
+    glBufferData( GL_PIXEL_UNPACK_BUFFER, 16, nullptr, GL_STATIC_DRAW );
+    glPixelStorei( GL_UNPACK_ALIGNMENT, 8 );
+    glPixelStorei( GL_UNPACK_ROW_LENGTH, 9 );
+    glPixelStorei( GL_UNPACK_SKIP_ROWS, 2 );
+    glPixelStorei( GL_UNPACK_SKIP_PIXELS, 3 );
+    glPixelStorei( GL_UNPACK_SWAP_BYTES, GL_TRUE );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+
+    const float rawPixel[]{ 4.0f, 0.5f, 0.25f, 1.0f };
+    render::render_texture_desc_t textureDescription{};
+    textureDescription.width = textureDescription.height = 1u;
+    textureDescription.sRGB = false;
+    textureDescription.generateMips = false;
+    textureDescription.repeat = false;
+    textureDescription.format = render::render_texture_format_t::RGBA32F;
+    render::render_texture_handle_t rawTexture{};
+    REQUIRE( render::R_CreateTexture2D( textureDescription,
+        { rawPixel, sizeof( rawPixel ) }, &rawTexture ) == render::render_error_t::OK );
+
+    // The authored 1x1 mip carries green HDR light while the 2x2 base level
+    // carries red. Explicit LOD 1 below proves that the float mip was uploaded.
+    const float authoredPixels[]{
+        1.0f,0.0f,0.0f,1.0f, 1.0f,0.0f,0.0f,1.0f,
+        1.0f,0.0f,0.0f,1.0f, 1.0f,0.0f,0.0f,1.0f,
+        0.0f,3.0f,0.0f,1.0f
+    };
+    const auto *authoredBytes = reinterpret_cast<const common::byte *>( authoredPixels );
+    common::cooked_texture_desc_t cookedDescription{};
+    cookedDescription.pixelFormat = common::render_texture_pixel_format_t::RGBA32_FLOAT;
+    cookedDescription.storageFormat = common::render_format_t::RGBA32_FLOAT;
+    cookedDescription.colorSpace = common::render_texture_color_space_t::LINEAR;
+    cookedDescription.nWidth = cookedDescription.nHeight = 2u;
+    cookedDescription.nMipLevels = 2u;
+    const common::cooked_texture_mip_source_t authoredMips[2]{
+        { 2u, 2u, 1u, 32u, { authoredBytes, 64u } },
+        { 1u, 1u, 1u, 16u, { authoredBytes + 64u, 16u } }
+    };
+    const auto cookedSource = common::span_t<const common::cooked_texture_mip_source_t>{
+        authoredMips, 2u };
+    const auto cookedSize = common::CookedTexture_RequiredSize(
+        cookedDescription, cookedSource );
+    REQUIRE( cookedSize > 0u );
+    std::vector<common::byte> cookedFile( cookedSize );
+    REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Write(
+        cookedDescription, cookedSource, {},
+        { cookedFile.data(), cookedFile.size() } ) ) );
+    common::cooked_texture_view_t cookedView{};
+    REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Read(
+        { cookedFile.data(), cookedFile.size() }, &cookedView ) ) );
+    render::render_texture_handle_t mipTexture{};
+    REQUIRE( render::R_CreateTexture2DFromCooked( cookedView, &mipTexture ) ==
+        render::render_error_t::OK );
+    render::render_texture_info_t mipInfo{};
+    REQUIRE( render::R_GetTextureInfo( mipTexture, &mipInfo ) == render::render_error_t::OK );
+    CHECK( mipInfo.format == render::render_texture_format_t::RGBA32F );
+    CHECK( mipInfo.mipLevels == 2u );
+    CHECK( mipInfo.completeMipChain );
+    CHECK_FALSE( mipInfo.generateMips );
+
+    GLint captured = 0;
+    glGetIntegerv( GL_PIXEL_UNPACK_BUFFER_BINDING, &captured );
+    CHECK( captured == static_cast<GLint>( hostUnpack ) );
+    glGetIntegerv( GL_UNPACK_ALIGNMENT, &captured ); CHECK( captured == 8 );
+    glGetIntegerv( GL_UNPACK_ROW_LENGTH, &captured ); CHECK( captured == 9 );
+    glGetIntegerv( GL_UNPACK_SKIP_ROWS, &captured ); CHECK( captured == 2 );
+    glGetIntegerv( GL_UNPACK_SKIP_PIXELS, &captured ); CHECK( captured == 3 );
+    glGetIntegerv( GL_UNPACK_SWAP_BYTES, &captured ); CHECK( captured == GL_TRUE );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+    glBindBuffer( GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>( previousUnpackBuffer ) );
+    glPixelStorei( GL_UNPACK_ALIGNMENT, previousAlignment );
+    glPixelStorei( GL_UNPACK_ROW_LENGTH, previousRowLength );
+    glPixelStorei( GL_UNPACK_SKIP_ROWS, previousSkipRows );
+    glPixelStorei( GL_UNPACK_SKIP_PIXELS, previousSkipPixels );
+    glPixelStorei( GL_UNPACK_SWAP_BYTES, previousSwapBytes );
+    glDeleteBuffers( 1, &hostUnpack );
+    REQUIRE( glGetError() == GL_NO_ERROR );
+
+    render::render_sampler_desc_t samplerDescription{};
+    samplerDescription.minFilter = samplerDescription.magFilter =
+        render::render_sampler_filter_t::NEAREST;
+    samplerDescription.mipFilter = render::render_sampler_mip_filter_t::NEAREST;
+    render::render_sampler_handle_t mipSampler{};
+    REQUIRE( render::R_CreateSampler( samplerDescription, &mipSampler ) ==
+        render::render_error_t::OK );
+
+    render::render_texture_desc_t hdrDescription{};
+    hdrDescription.width = hdrDescription.height = 4u;
+    hdrDescription.sRGB = false;
+    hdrDescription.generateMips = false;
+    hdrDescription.repeat = false;
+    hdrDescription.renderTarget = true;
+    hdrDescription.format = render::render_texture_format_t::RGBA16F;
+    render::render_texture_handle_t hdrColor{};
+    REQUIRE( render::R_CreateTexture2D( hdrDescription, {}, &hdrColor ) ==
+        render::render_error_t::OK );
+    render::render_target_handle_t hdrTarget{};
+    REQUIRE( render::R_CreateRenderTarget( { hdrColor, {} }, &hdrTarget ) ==
+        render::render_error_t::OK );
+
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    frame.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
+    render::render_draw_indexed_desc_t draw{};
+    draw.vertexInput = input;
+    draw.indexCount = draw.vertexCount = 3u;
+    const auto sample = [&]( const render::render_pipeline_handle_t pipeline,
+                             const render::render_texture_handle_t texture,
+                             const render::render_sampler_handle_t sampler ) {
+        REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+        render::render_target_pass_desc_t pass{};
+        pass.target = hdrTarget;
+        REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+        draw.pipeline = pipeline;
+        draw.sampledTextures[0] = texture;
+        draw.samplers[0] = sampler;
+        REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+        REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+        render::render_color_t pixel{};
+        REQUIRE( render::R_ReadTargetRGBA32F( hdrTarget, { 2u,2u,1u,1u },
+            &pixel, sizeof( pixel ), sizeof( pixel ) ) == render::render_error_t::OK );
+        REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+        ++frame.frameIndex;
+        return pixel;
+    };
+    const auto rawSample = sample( basePipeline, rawTexture, {} );
+    CHECK( rawSample.red >= 3.98f );
+    CHECK( rawSample.red <= 4.02f );
+    CHECK( rawSample.green >= 0.49f );
+    CHECK( rawSample.green <= 0.51f );
+    CHECK( rawSample.blue >= 0.24f );
+    CHECK( rawSample.blue <= 0.26f );
+    CHECK( rawSample.alpha >= 0.99f );
+    const auto authoredSample = sample( mipPipeline, mipTexture, mipSampler );
+    CHECK( authoredSample.red <= 0.02f );
+    CHECK( authoredSample.green >= 2.98f );
+    CHECK( authoredSample.green <= 3.02f );
+    CHECK( authoredSample.blue <= 0.02f );
+    CHECK( authoredSample.alpha >= 0.99f );
+
+    REQUIRE( render::R_DestroyRenderTarget( hdrTarget ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( hdrColor ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( mipTexture ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( rawTexture ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroySampler( mipSampler ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( mipPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( basePipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( vertexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( mipShader ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( baseShader ) == render::render_error_t::OK );
+}
+
 void CheckPointLightPixels( const render::render_extent_t extent )
 {
     // Match the sample's complete std140 ViewConstants block, including the
@@ -3191,6 +3437,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckTwoTextureTwoBlockDrawing( info->drawableExtent );
     CheckOffscreenTarget( info->drawableExtent );
     CheckHDRTargetToneMap( info->drawableExtent );
+    CheckRGBA32FSampledTexturePixels( info->drawableExtent );
     CheckPointLightPixels( info->drawableExtent );
     CheckHDRTranslucentCompositing( info->drawableExtent );
     CheckAlphaMaskCutout( info->drawableExtent );

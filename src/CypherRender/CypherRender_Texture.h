@@ -17,11 +17,13 @@ using render_texture_handle_t = render_handle_t;
 inline constexpr render_texture_handle_t R_INVALID_TEXTURE{};
 
 // One-layer, one-face sampled images. D24 and RGBA16F are GPU-only offscreen
-// target storage. Both may be sampled after their target pass ends.
+// target storage; RGBA32F is immutable uploaded linear color/data. Targets may
+// be sampled after their pass ends.
 enum class render_texture_format_t : ::cypher::common::u8 {
     RGBA8 = 0,
     D24,
     RGBA16F,
+    RGBA32F,
     COUNT
 };
 
@@ -38,7 +40,7 @@ struct render_texture_desc_t {
 };
 struct render_texture_data_t {
     const void *bytes{ nullptr };
-    ::cypher::common::u64 byteSize{ 0u }; // Uploaded RGBA8: width * height * four; targets: zero.
+    ::cypher::common::u64 byteSize{ 0u }; // RGBA8: 4; RGBA32F: 16 bytes/texel; targets: zero.
 };
 struct render_texture_info_t {
     ::cypher::common::u32 width{ 0u };
@@ -55,18 +57,18 @@ struct render_texture_info_t {
 // Calls run on the renderer thread. Creation consumes all supplied pixels before
 // returning. A renderTarget texture has no initial pixels (bytes=nullptr,
 // byteSize=0), is linear, single-level and clamp-to-edge; its contents become
-// defined by a target pass. D24 and RGBA16F can only be renderTarget textures. Draw
-// bindings are immediate.
+// defined by a target pass. D24 and RGBA16F can only be renderTarget textures;
+// RGBA32F is sampled-only and linear. Draw bindings are immediate.
 CYPHER_NODISCARD render_error_t R_CreateTexture2D(
     const render_texture_desc_t &description,
     const render_texture_data_t &data,
     CY_OUT render_texture_handle_t *textureOut ) noexcept;
 // Revalidates an owned CYTX view and synchronously uploads every authored mip.
-// This adoption path accepts only a fully resident, tightly packed RGBA8 2D
-// color texture with one frame/layer/face and either one level or a complete
-// authored mip chain. The caller must keep the cooked file bytes alive and
-// unchanged until the call returns; the renderer retains neither the view nor
-// its borrowed pixel storage.
+// This adoption path accepts only fully resident, tightly packed RGBA8 or
+// RGBA32F 2D color textures with one frame/layer/face and either one level or
+// a complete authored mip chain. Float CYTX payloads require a little-endian
+// host. The caller must keep the cooked file bytes alive and unchanged until
+// the call returns; the renderer retains neither view nor borrowed pixels.
 CYPHER_NODISCARD render_error_t R_CreateTexture2DFromCooked(
     const ::cypher::common::cooked_texture_view_t &cooked,
     CY_OUT render_texture_handle_t *textureOut ) noexcept;

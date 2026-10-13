@@ -50,7 +50,7 @@ native object tokens remain behind this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 27u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 28u;
 
 /*
 ================

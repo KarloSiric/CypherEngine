@@ -5,6 +5,7 @@
 //////////////////////////////////////////////////////////////////////////
 #include "CypherRender_Texture.h"
 #include "CypherRender_Local.h"
+#include "CypherCommon/Tier0/CypherCommon_Platform.h"
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 #include "CypherCommon/Tier1/CypherCommon_HandleTable.h"
 #include <limits>
@@ -105,7 +106,9 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
     if ( description.format >= render_texture_format_t::COUNT ||
          ( ( description.format == render_texture_format_t::D24 ||
              description.format == render_texture_format_t::RGBA16F ) &&
-           !description.renderTarget ) ) {
+           !description.renderTarget ) ||
+         ( description.format == render_texture_format_t::RGBA32F &&
+           ( description.renderTarget || description.sRGB ) ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     if ( description.format == render_texture_format_t::RGBA16F &&
@@ -127,7 +130,9 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
     const common::u64 pixels = static_cast<common::u64>( description.width ) * description.height;
-    const common::u64 bytesPerPixel = description.format == render_texture_format_t::RGBA16F ? 8u : 4u;
+    const common::u64 bytesPerPixel =
+        description.format == render_texture_format_t::RGBA32F ? 16u :
+        description.format == render_texture_format_t::RGBA16F ? 8u : 4u;
     if ( pixels > std::numeric_limits<common::u64>::max() / bytesPerPixel ) {
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
@@ -225,7 +230,17 @@ render_error_t R_CreateTexture2DFromCooked(
          verified.desc.nMipLevels != verified.nMipLevels ||
          verified.nSubresources != verified.nMipLevels ||
          ( verified.desc.pixelFormat != common::render_texture_pixel_format_t::RGBA8_UNORM &&
-           verified.desc.pixelFormat != common::render_texture_pixel_format_t::RGBA8_SRGB ) ) {
+           verified.desc.pixelFormat != common::render_texture_pixel_format_t::RGBA8_SRGB &&
+           verified.desc.pixelFormat != common::render_texture_pixel_format_t::RGBA32_FLOAT ) ||
+         ( verified.desc.pixelFormat == common::render_texture_pixel_format_t::RGBA32_FLOAT &&
+           verified.desc.colorSpace != common::render_texture_color_space_t::LINEAR ) ) {
+        return render_error_t::ERR_RESOURCE_FORMAT_UNSUPPORTED;
+    }
+    const common::u64 bytesPerPixel = verified.desc.pixelFormat ==
+        common::render_texture_pixel_format_t::RGBA32_FLOAT ? 16u : 4u;
+    // CYTX float payloads are little-endian. The GL upload path consumes
+    // native float words; do not silently reinterpret them on a big-endian host.
+    if ( bytesPerPixel == 16u && !common::Cy_PlatformIsLittleEndian() ) {
         return render_error_t::ERR_RESOURCE_FORMAT_UNSUPPORTED;
     }
 
@@ -261,7 +276,10 @@ render_error_t R_CreateTexture2DFromCooked(
              !common::ContentHash_Equals( supplied.contentHash, canonical.contentHash ) ) {
             return render_error_t::ERR_INVALID_ARGUMENT;
         }
-        const common::u64 rowBytes = static_cast<common::u64>( width ) * 4u;
+        const common::u64 rowBytes = static_cast<common::u64>( width ) * bytesPerPixel;
+        if ( rowBytes > std::numeric_limits<common::u64>::max() / height ) {
+            return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
+        }
         const common::u64 imageBytes = rowBytes * height;
         if ( canonical.pixels.pData == nullptr ||
              canonical.nMipLevel != level || canonical.nWidth != width ||
@@ -283,6 +301,9 @@ render_error_t R_CreateTexture2DFromCooked(
     description.height = verified.desc.nHeight;
     description.sRGB = verified.desc.pixelFormat ==
         common::render_texture_pixel_format_t::RGBA8_SRGB;
+    description.format = verified.desc.pixelFormat ==
+        common::render_texture_pixel_format_t::RGBA32_FLOAT
+            ? render_texture_format_t::RGBA32F : render_texture_format_t::RGBA8;
     description.generateMips = false;
     description.repeat = true;
     if ( verified.nMipLevels == 1u ) {

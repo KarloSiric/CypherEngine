@@ -26,6 +26,8 @@ static_assert( sizeof( render::render_validation_t ) == 1u );
 static_assert( sizeof( render::render_handle_t ) == 8u );
 static_assert( sizeof( render::backend_buffer_t ) == 8u );
 static_assert( sizeof( render::backend_vertex_input_t ) == 8u );
+static_assert( sizeof( render::render_texture_format_t ) == 1u );
+static_assert( static_cast<::cypher::common::u8>( render::render_texture_format_t::RGBA32F ) == 3u );
 static_assert( sizeof( render::render_clear_flags_t ) == 4u );
 
 // Capability positions are persistent contract values and may not be reordered.
@@ -112,8 +114,8 @@ static_assert( offsetof( render::render_color_t, red ) == 0u );
 static_assert( offsetof( render::render_color_t, green ) == 4u );
 static_assert( offsetof( render::render_color_t, blue ) == 8u );
 static_assert( offsetof( render::render_color_t, alpha ) == 12u );
-static_assert( render::R_BACKEND_API_VERSION == 27u );
-static_assert( render::RENDER_API_VERSION == 22u );
+static_assert( render::R_BACKEND_API_VERSION == 28u );
+static_assert( render::RENDER_API_VERSION == 23u );
 
 int main()
 {

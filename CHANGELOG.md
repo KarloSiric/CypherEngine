@@ -82,6 +82,18 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Immutable linear RGBA32F 2D textures now upload directly or from fully
+  resident cooked RGBA32_FLOAT color images, including complete authored mip
+  chains. OpenGL 4.1 uses `GL_RGBA32F`/`GL_FLOAT`, isolates the host's pixel-
+  unpack byte-swap and buffer state, and preserves values above 1.0 when
+  sampled into an HDR target. Raw images may generate mips; float images are
+  sampled-only, while RGBA16F remains the offscreen HDR target format. Public
+  and backend renderer contracts are versions 23 and 28. The texture suite
+  passes 781 assertions in 26 cases, native OpenGL smoke passes 1,282
+  assertions including raw and authored-mip pixels, and ten focused renderer
+  CTests pass. The 120-frame hidden sample still renders its existing scene.
+  Cooked-material adoption remains RGBA8-only; cubemaps and streaming are
+  still separate work.
 - The graybox sample's fixed directional shadow now averages a 3×3 neighborhood
   of nearest-filtered depth comparisons. Out-of-map taps count as lit, so its
   edge softens without darkening outside the light volume. A native pixel test

@@ -379,10 +379,21 @@ RGBA16F preserves linear values above 1.0 between passes. A later pass must
 explicitly map those values into the chosen output range and color space;
 merely sampling the texture does not tone-map it. The native smoke test draws
 HDR values into this target, reads an unclamped RGBA32F pixel, and checks
-tone-mapped RGBA8 pixels in a second offscreen pass. Float uploads, cooked float
-textures, configurable exposure, and an automatic postprocess chain remain
-separate work. `R_ReadTargetRGBA8` rejects an RGBA16F target without changing
-the caller's buffer; it does not silently clamp HDR pixels.
+tone-mapped RGBA8 pixels in a second offscreen pass. Configurable exposure and
+an automatic postprocess chain remain separate work. `R_ReadTargetRGBA8`
+rejects an RGBA16F target without changing the caller's buffer; it does not
+silently clamp HDR pixels.
+
+### Uploaded HDR input texture
+
+An immutable linear RGBA32F 2D image can now be uploaded through
+`R_CreateTexture2D` with 16 bytes per texel, or adopted from a fully resident
+cooked RGBA32_FLOAT color image. A complete authored mip chain is uploaded as
+written; direct pixels may request generated mips. This is sampled input, not
+a render-target format or automatic material binding. The native smoke test
+samples a 4.0 red texel into an RGBA16F target and reads it back as float,
+then samples an authored 3.0 green mip with explicit LOD. It also checks that
+uploads restore a host's pixel-unpack buffer and byte-swap settings.
 
 ### HDR presentation in the graybox sample
 

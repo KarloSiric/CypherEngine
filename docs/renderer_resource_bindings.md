@@ -123,16 +123,25 @@ boundary, including an upload failure and retry. No automatic GPU cache or
 material dependency tracking is implied by this handoff.
 
 For now the bridge accepts only a fully resident, tightly packed 2D color
-image with one frame, layer, and face, in linear or sRGB RGBA8. It accepts a
-single level or an authored mip chain reaching 1×1. The backend consumes the
-authored pixels without regenerating them; `render_texture_info_t` reports
-both the level count and whether the chain is complete. A valid CYTX file
-using compression, streaming, an incomplete multi-level chain, 3D storage,
-or another pixel format returns `ERR_RESOURCE_FORMAT_UNSUPPORTED`. Invalid
-or modified views and file bytes return `ERR_INVALID_ARGUMENT`. A backend
-without authored-level upload returns `ERR_UNSUPPORTED`. General cooked
-material binding and broader texture format support remain
-separate work.
+image with one frame, layer, and face, in linear/sRGB RGBA8 or linear
+RGBA32_FLOAT. It accepts a single level or an authored mip chain reaching
+1×1. The backend consumes the authored pixels without regenerating them;
+`render_texture_info_t` reports both the level count and whether the chain is
+complete. RGBA32_FLOAT uses 16 little-endian bytes per texel and requires a
+little-endian host for direct upload. The OpenGL 4.1 backend stores it as
+`GL_RGBA32F` and samples it without clipping values above 1.0. Direct
+`R_CreateTexture2D` uploads also accept native RGBA32F pixels and may generate
+mips, but RGBA32F is linear and sampled-only; RGBA16F remains the offscreen
+HDR target format. OpenGL neutralizes and restores the host's pixel-unpack
+buffer, row layout, and byte-swap state during either float upload.
+
+A valid CYTX file using compression, streaming, an incomplete multi-level
+chain, 3D storage, or another pixel format returns
+`ERR_RESOURCE_FORMAT_UNSUPPORTED`. Invalid or modified views and file bytes
+return `ERR_INVALID_ARGUMENT`. A backend without authored-level upload returns
+`ERR_UNSUPPORTED`. The current cooked-material bridge still accepts only
+RGBA8 textures; float images can be bound directly by a scene owner. Cubemaps,
+streaming, and wider material binding remain separate work.
 
 ## Adopting a cooked material subset
 

@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////////
 // CypherEngine Source Code — Copyright (c) 2026 Karlo Siric.
-// Purpose: Creates RGBA8, RGBA16F, and D24 images without depending on host pixel-store state.
+// Purpose: Creates RGBA8, RGBA32F, RGBA16F, and D24 images without depending on host pixel-store state.
 // This file is proprietary and confidential. See LICENSE for details.
 //////////////////////////////////////////////////////////////////////////
 #include "CypherRender_OpenGL_Texture.h"
@@ -19,7 +19,9 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
     if ( description.format >= render_texture_format_t::COUNT ||
          ( ( description.format == render_texture_format_t::D24 ||
              description.format == render_texture_format_t::RGBA16F ) &&
-           !description.renderTarget ) ) {
+           !description.renderTarget ) ||
+         ( description.format == render_texture_format_t::RGBA32F &&
+           ( description.renderTarget || description.sRGB ) ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     if ( description.renderTarget ) {
@@ -36,17 +38,21 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
     const auto pixels = static_cast<::cypher::common::u64>( description.width ) * description.height;
-    const auto bytesPerPixel = description.format == render_texture_format_t::RGBA16F ? 8u : 4u;
+    const auto bytesPerPixel = description.format == render_texture_format_t::RGBA32F ? 16u :
+        description.format == render_texture_format_t::RGBA16F ? 8u : 4u;
     if ( pixels > std::numeric_limits<::cypher::common::u64>::max() / bytesPerPixel ) {
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
     const auto required = pixels * bytesPerPixel;
+    if ( required > std::numeric_limits<::cypher::common::usize>::max() ) {
+        return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
+    }
     if ( !description.renderTarget && data.byteSize != required ) return render_error_t::ERR_INVALID_ARGUMENT;
     // Qt and other hosts may leave pixel unpack buffers or non-default row
     // strides bound. Save and neutralize every setting affecting this 2D upload.
     GL_ClearErrors();
     GLint previousActiveTexture = 0, previousTexture = 0, previousUnpackBuffer = 0;
-    GLint alignment = 0, rowLength = 0, skipRows = 0, skipPixels = 0;
+    GLint alignment = 0, rowLength = 0, skipRows = 0, skipPixels = 0, swapBytes = 0;
     glGetIntegerv( GL_ACTIVE_TEXTURE, &previousActiveTexture );
     glGetIntegerv( GL_TEXTURE_BINDING_2D, &previousTexture );
     glGetIntegerv( GL_PIXEL_UNPACK_BUFFER_BINDING, &previousUnpackBuffer );
@@ -54,6 +60,7 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
     glGetIntegerv( GL_UNPACK_ROW_LENGTH, &rowLength );
     glGetIntegerv( GL_UNPACK_SKIP_ROWS, &skipRows );
     glGetIntegerv( GL_UNPACK_SKIP_PIXELS, &skipPixels );
+    glGetIntegerv( GL_UNPACK_SWAP_BYTES, &swapBytes );
     auto result = GL_CheckErrors( glState.config.validation );
     if ( result != render_error_t::OK ) return result;
     GLuint texture = 0;
@@ -68,6 +75,7 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
     glPixelStorei( GL_UNPACK_ROW_LENGTH, 0 );
     glPixelStorei( GL_UNPACK_SKIP_ROWS, 0 );
     glPixelStorei( GL_UNPACK_SKIP_PIXELS, 0 );
+    glPixelStorei( GL_UNPACK_SWAP_BYTES, GL_FALSE );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, description.generateMips ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, description.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE );
@@ -85,6 +93,10 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
         glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA16F,
             static_cast<GLsizei>( description.width ), static_cast<GLsizei>( description.height ),
             0, GL_RGBA, GL_HALF_FLOAT, nullptr );
+    } else if ( description.format == render_texture_format_t::RGBA32F ) {
+        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA32F,
+            static_cast<GLsizei>( description.width ), static_cast<GLsizei>( description.height ),
+            0, GL_RGBA, GL_FLOAT, data.bytes );
     } else {
         glTexImage2D( GL_TEXTURE_2D, 0, description.sRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8,
             static_cast<GLsizei>( description.width ), static_cast<GLsizei>( description.height ),
@@ -99,6 +111,7 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
     glPixelStorei( GL_UNPACK_ROW_LENGTH, rowLength );
     glPixelStorei( GL_UNPACK_SKIP_ROWS, skipRows );
     glPixelStorei( GL_UNPACK_SKIP_PIXELS, skipPixels );
+    glPixelStorei( GL_UNPACK_SWAP_BYTES, swapBytes );
     glBindBuffer( GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>( previousUnpackBuffer ) );
     glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( previousTexture ) );
     glActiveTexture( static_cast<GLenum>( previousActiveTexture ) );
@@ -121,7 +134,9 @@ render_error_t GL_CreateTexture2DLevels( const render_texture_desc_t &descriptio
     if ( !glState.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
     if ( levels == nullptr || levelCount < 2u || levelCount > 32u ||
          description.width == 0u || description.height == 0u ||
-         description.format != render_texture_format_t::RGBA8 ||
+         ( description.format != render_texture_format_t::RGBA8 &&
+           description.format != render_texture_format_t::RGBA32F ) ||
+         ( description.format == render_texture_format_t::RGBA32F && description.sRGB ) ||
          description.renderTarget || description.generateMips ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
@@ -134,16 +149,21 @@ render_error_t GL_CreateTexture2DLevels( const render_texture_desc_t &descriptio
 
     ::cypher::common::u32 width = description.width;
     ::cypher::common::u32 height = description.height;
+    const ::cypher::common::u64 bytesPerPixel =
+        description.format == render_texture_format_t::RGBA32F ? 16u : 4u;
     for ( ::cypher::common::u32 level = 0u; level < levelCount; ++level ) {
-        const ::cypher::common::u64 required =
-            static_cast<::cypher::common::u64>( width ) * height * 4u;
+        const auto pixels = static_cast<::cypher::common::u64>( width ) * height;
+        if ( pixels > std::numeric_limits<::cypher::common::u64>::max() / bytesPerPixel ) {
+            return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
+        }
+        const auto required = pixels * bytesPerPixel;
+        if ( required > std::numeric_limits<::cypher::common::usize>::max() ) {
+            return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
+        }
         if ( levels[level].width != width || levels[level].height != height ||
              levels[level].data.bytes == nullptr ||
              levels[level].data.byteSize != required ) {
             return render_error_t::ERR_INVALID_ARGUMENT;
-        }
-        if ( required > std::numeric_limits<::cypher::common::usize>::max() ) {
-            return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
         }
         if ( width == 1u && height == 1u && level + 1u != levelCount ) {
             return render_error_t::ERR_INVALID_ARGUMENT;
@@ -160,7 +180,7 @@ render_error_t GL_CreateTexture2DLevels( const render_texture_desc_t &descriptio
     // bound. Upload all borrowed spans synchronously, then restore its state.
     GL_ClearErrors();
     GLint previousActiveTexture = 0, previousTexture = 0, previousUnpackBuffer = 0;
-    GLint alignment = 0, rowLength = 0, skipRows = 0, skipPixels = 0;
+    GLint alignment = 0, rowLength = 0, skipRows = 0, skipPixels = 0, swapBytes = 0;
     glGetIntegerv( GL_ACTIVE_TEXTURE, &previousActiveTexture );
     glGetIntegerv( GL_TEXTURE_BINDING_2D, &previousTexture );
     glGetIntegerv( GL_PIXEL_UNPACK_BUFFER_BINDING, &previousUnpackBuffer );
@@ -168,6 +188,7 @@ render_error_t GL_CreateTexture2DLevels( const render_texture_desc_t &descriptio
     glGetIntegerv( GL_UNPACK_ROW_LENGTH, &rowLength );
     glGetIntegerv( GL_UNPACK_SKIP_ROWS, &skipRows );
     glGetIntegerv( GL_UNPACK_SKIP_PIXELS, &skipPixels );
+    glGetIntegerv( GL_UNPACK_SWAP_BYTES, &swapBytes );
     auto result = GL_CheckErrors( glState.config.validation );
     if ( result != render_error_t::OK ) return result;
 
@@ -183,20 +204,24 @@ render_error_t GL_CreateTexture2DLevels( const render_texture_desc_t &descriptio
     glPixelStorei( GL_UNPACK_ROW_LENGTH, 0 );
     glPixelStorei( GL_UNPACK_SKIP_ROWS, 0 );
     glPixelStorei( GL_UNPACK_SKIP_PIXELS, 0 );
+    glPixelStorei( GL_UNPACK_SWAP_BYTES, GL_FALSE );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, description.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, description.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0 );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>( levelCount - 1u ) );
+    const GLenum internalFormat = description.format == render_texture_format_t::RGBA32F
+        ? GL_RGBA32F : description.sRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+    const GLenum inputType = description.format == render_texture_format_t::RGBA32F
+        ? GL_FLOAT : GL_UNSIGNED_BYTE;
     result = GL_CheckErrors( glState.config.validation );
     if ( result == render_error_t::OK ) {
         for ( ::cypher::common::u32 level = 0u; level < levelCount; ++level ) {
-            glTexImage2D( GL_TEXTURE_2D, static_cast<GLint>( level ),
-                description.sRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+            glTexImage2D( GL_TEXTURE_2D, static_cast<GLint>( level ), internalFormat,
                 static_cast<GLsizei>( levels[level].width ),
                 static_cast<GLsizei>( levels[level].height ), 0,
-                GL_RGBA, GL_UNSIGNED_BYTE, levels[level].data.bytes );
+                GL_RGBA, inputType, levels[level].data.bytes );
             result = GL_CheckErrors( glState.config.validation );
             if ( result != render_error_t::OK ) break;
         }
@@ -206,6 +231,7 @@ render_error_t GL_CreateTexture2DLevels( const render_texture_desc_t &descriptio
     glPixelStorei( GL_UNPACK_ROW_LENGTH, rowLength );
     glPixelStorei( GL_UNPACK_SKIP_ROWS, skipRows );
     glPixelStorei( GL_UNPACK_SKIP_PIXELS, skipPixels );
+    glPixelStorei( GL_UNPACK_SWAP_BYTES, swapBytes );
     glBindBuffer( GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>( previousUnpackBuffer ) );
     glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( previousTexture ) );
     glActiveTexture( static_cast<GLenum>( previousActiveTexture ) );
