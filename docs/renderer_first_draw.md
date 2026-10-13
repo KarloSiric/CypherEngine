@@ -342,9 +342,10 @@ graybox `ObjectConstants` block remains sample-specific. A native OpenGL 4.1
 pixel test compiles a shader that reads all three normal columns and checks the
 inverse-transpose result under a sheared, nonuniform transform.
 
-`R_PrepareOpaqueWorldDraws` remains the small opaque-only entry point.
-`R_PrepareWorldCameraDraws` accepts OPAQUE, BLEND, and ADDITIVE cooked material
-bundles and returns three contiguous draw spans: opaque in submission order,
+`R_PrepareOpaqueWorldDraws` remains the small depth-writing entry point.
+`R_PrepareWorldCameraDraws` accepts OPAQUE, opt-in MASK, BLEND, and ADDITIVE
+cooked material bundles and returns three contiguous draw spans: opaque and
+MASK in submission order,
 BLEND far-to-near, then ADDITIVE in submission order. It checks each selected
 pipeline's blend, depth-test, depth-write, and color-write state before
 staging; negative determinants use the material's reversed-winding pipeline
@@ -355,8 +356,17 @@ sorter; one upload carries the model matrices in final draw order. A visible
 BLEND box crossing the camera plane sorts nearest. A BLEND box wholly behind
 the camera is rejected. Sorting by one world AABB center is approximate for
 intersecting translucent objects and relies on caller-maintained bounds.
-MASK and shadows remain separate because their cutoff and light-view contracts
-are not established in this adapter. This path does not replace the graybox
+MASK camera draws require `MODEL_CUTOUT` (80 bytes) or
+`MODEL_NORMAL_CUTOUT` (128 bytes) for the whole submission. The extra std140
+`vec4 cutout` starts at byte 64 or 112; `cutout.x` receives the cooked MASK
+threshold, while non-MASK records receive -1 so they never discard. A MASK
+bundle must have a live scalar RGBA texture in sampled slot zero. The authored
+fragment shader must sample that slot's alpha and discard fragments below
+`cutout.x`; pipeline reflection verifies block size and texture kind, but
+cannot prove the shader performs that discard. A non-cutout Model layout
+rejects MASK before any upload. The separate light-view shadow adapter still
+rejects casting MASK until it has a matching alpha source and cutoff record.
+This path does not replace the graybox
 sample's shadow or normal-matrix policy, and it is not an authored map or mesh
 loader. CPU tests cover ordering, mirrored BLEND, camera-plane bounds, pipeline
 mismatch, and upload retry behavior. Native OpenGL smoke verifies both mirrored

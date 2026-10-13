@@ -188,10 +188,13 @@ cooked alpha mode and cutoff: `BLEND` creates a depth-tested pipeline with
 straight-alpha blending and no depth writes. Its shader must emit straight
 (unassociated) color and alpha. The caller must draw it after opaque surfaces
 and sort translucent objects back-to-front; the bridge does not classify or
-sort scene draws. `MASK` uses opaque depth writes and no blending; the caller
-passes the copied cutoff through its own uniform block and uses color and
-shadow shaders that discard sampled alpha below it. The bridge cannot verify
-shader discard semantics or select the alpha-source texture. `ADDITIVE`
+sort scene draws. `MASK` uses opaque depth writes and no blending. The World
+camera adapter can place the copied cutoff in an opt-in 80- or 128-byte Model
+record and requires a scalar RGBA alpha source at sampled slot zero; its
+light-view shadow adapter still rejects casting MASK. Other callers pass the
+cutoff through their own uniform block. Matching color and shadow shaders
+must discard sampled alpha below it. The bridge cannot verify shader discard
+semantics. `ADDITIVE`
 creates a depth-tested pipeline without depth writes. It adds
 `source.rgb * source.a` to destination RGB while preserving destination alpha.
 The caller draws it after opaque geometry; the bridge does not schedule it.

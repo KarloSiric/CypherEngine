@@ -12,6 +12,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace common = ::cypher::common;
 namespace math = ::cypher::math;
@@ -55,6 +56,9 @@ struct world_draw_fixture_t {
     render::render_pipeline_handle_t mirroredShadowPipeline{};
     render::render_pipeline_handle_t litPipeline{};
     render::render_pipeline_handle_t mirroredLitPipeline{};
+    render::render_pipeline_handle_t cutoutPipelines[2]{};
+    render::render_pipeline_handle_t mirroredCutoutPipelines[2]{};
+    render::render_texture_handle_t alphaTexture{};
     render::render_buffer_handle_t viewBuffer{};
     render::render_buffer_handle_t materialBuffer{};
     render::render_uniform_batch_t batch{};
@@ -118,6 +122,15 @@ struct world_draw_fixture_t {
             ++static_cast<world_draw_fixture_t *>( state )->drawCalls;
             return render::render_error_t::OK;
         };
+        backend.CreateTexture2D = []( const render::render_texture_desc_t &,
+            const render::render_texture_data_t &, render::backend_texture_t &out,
+            void *state ) noexcept {
+            out.value = static_cast<world_draw_fixture_t *>( state )->nextToken++;
+            return render::render_error_t::OK;
+        };
+        backend.DestroyTexture = []( render::backend_texture_t, void * ) noexcept {
+            return render::render_error_t::OK;
+        };
 
         render::tr = {};
         render::tr.backend = { &backend, this };
@@ -128,9 +141,12 @@ struct world_draw_fixture_t {
         render::tr.info.limits.maxUniformBlockBytes = 256u;
         render::tr.info.limits.maxUniformBufferBindings = 16u;
         render::tr.info.limits.uniformBufferOffsetAlignment = 256u;
+        render::tr.info.limits.maxTexture2DSize = 16u;
+        render::tr.info.limits.maxCombinedTextureUnits = 2u;
         REQUIRE( render::R_BufferSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_VertexInputSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_ShaderSystemInit() == render::render_error_t::OK );
+        REQUIRE( render::R_TextureSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_PipelineSystemInit() == render::render_error_t::OK );
 
         const common::f32 vertices[9]{
@@ -291,6 +307,46 @@ struct world_draw_fixture_t {
         materials[slot].mirroredPipeline = mirroredLitPipeline;
     }
 
+    void EnableCutoutMaterial( common::u32 slot, bool withNormals, bool masked )
+    {
+        REQUIRE( slot < 2u );
+        REQUIRE( cutoutPipelines[slot].value == 0u );
+        render::render_vertex_input_info_t input{};
+        REQUIRE( render::R_GetVertexInputInfo( mesh.vertexInput, &input ) ==
+            render::render_error_t::OK );
+        render::render_pipeline_desc_t pipeline{};
+        pipeline.shader = shader;
+        pipeline.vertexLayout = input.layout;
+        pipeline.uniformBlockCount = 2u;
+        pipeline.uniformBlocks[0] = { "View", 64u };
+        pipeline.uniformBlocks[1] = { "Model", withNormals ? 128u : 80u };
+        if ( masked ) {
+            if ( alphaTexture.value == 0u ) {
+                const common::byte pixel[4]{ 255u, 255u, 255u, 128u };
+                render::render_texture_desc_t textureDesc{};
+                textureDesc.width = 1u;
+                textureDesc.height = 1u;
+                textureDesc.generateMips = false;
+                REQUIRE( render::R_CreateTexture2D(
+                    textureDesc, { pixel, sizeof( pixel ) }, &alphaTexture ) ==
+                    render::render_error_t::OK );
+            }
+            pipeline.sampledTextureCount = 1u;
+            pipeline.sampledTextures[0].name = "AlphaMap";
+            materials[slot].alphaMode = common::render_material_alpha_mode_t::MASK;
+            materials[slot].textureCount = 1u;
+            materials[slot].textures[0] = alphaTexture;
+        }
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &cutoutPipelines[slot] ) == render::render_error_t::OK );
+        pipeline.frontCounterClockwise = false;
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &mirroredCutoutPipelines[slot] ) ==
+            render::render_error_t::OK );
+        materials[slot].pipeline = cutoutPipelines[slot];
+        materials[slot].mirroredPipeline = mirroredCutoutPipelines[slot];
+    }
+
     render::render_world_shadow_prepare_desc_t ShadowDescription()
     {
         render::render_world_shadow_prepare_desc_t desc{};
@@ -389,9 +445,17 @@ struct world_draw_fixture_t {
             (void)render::R_DestroyGraphicsPipeline( litPipeline );
         if ( mirroredLitPipeline.value != 0u )
             (void)render::R_DestroyGraphicsPipeline( mirroredLitPipeline );
+        for ( auto pipeline : cutoutPipelines ) {
+            if ( pipeline.value != 0u ) (void)render::R_DestroyGraphicsPipeline( pipeline );
+        }
+        for ( auto pipeline : mirroredCutoutPipelines ) {
+            if ( pipeline.value != 0u ) (void)render::R_DestroyGraphicsPipeline( pipeline );
+        }
+        if ( alphaTexture.value != 0u ) (void)render::R_DestroyTexture( alphaTexture );
         if ( shader.value != 0u ) (void)render::R_DestroyShader( shader );
         (void)render::R_DestroyStaticMeshBundle( &mesh );
         (void)render::R_PipelineSystemShutdown();
+        (void)render::R_TextureSystemShutdown();
         (void)render::R_ShaderSystemShutdown();
         (void)render::R_VertexInputSystemShutdown();
         (void)render::R_BufferSystemShutdown();
@@ -644,6 +708,197 @@ TEST_CASE( "World lit capacity and upload failures keep public draws unpublished
     }
     CHECK( count == 77u );
     CHECK( output[0].draw.pipeline.value == 12345u );
+}
+
+TEST_CASE( "World camera keeps MASK in the opaque span with per-object cutoffs",
+    "[CypherRender][WorldDraw][Cutout][CameraPasses]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.EnableCutoutMaterial( 0u, false, false );
+    fixture.EnableCutoutMaterial( 1u, false, true );
+    REQUIRE( render::R_DestroyUniformBatch( &fixture.batch ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CreateUniformBatch(
+        640u, common::Allocator_GetSystem(), &fixture.batch ) ==
+        render::render_error_t::OK );
+    fixture.materials[1].alphaCutoff = 0.375f;
+    const auto opaqueFirst = fixture.AddAtZ( 0u, 0.0f, -2.0f );
+    const auto masked = fixture.AddAtZ( 1u, 4.0f, -4.0f );
+    const auto opaqueLast = fixture.AddAtZ( 0u, 8.0f, -6.0f );
+    fixture.Build();
+
+    render::render_scene_item_t sceneItems[3]{};
+    common::u32 passIndices[3]{};
+    auto description = fixture.CameraDescription();
+    description.modelLayout = render::render_world_model_layout_t::MODEL_CUTOUT;
+    description.sceneItemsScratch = sceneItems;
+    description.sceneItemCapacity = 3u;
+    description.passIndicesScratch = passIndices;
+    description.passIndexCapacity = 3u;
+    render::render_world_camera_draw_t output[3]{};
+    render::render_world_camera_pass_counts_t counts{};
+    REQUIRE( render::R_PrepareWorldCameraDraws(
+        description, output, 3u, &counts ) == render::render_error_t::OK );
+    CHECK( counts.opaqueCount == 3u );
+    CHECK( counts.blendCount == 0u );
+    CHECK( counts.additiveCount == 0u );
+    CHECK( output[0].objectId.slot.value == opaqueFirst.slot.value );
+    CHECK( output[1].objectId.slot.value == masked.slot.value );
+    CHECK( output[2].objectId.slot.value == opaqueLast.slot.value );
+    CHECK( output[1].draw.sampledTextures[0].value == fixture.alphaTexture.value );
+    CHECK( fixture.uploadCalls == 1u );
+    CHECK( fixture.uploadedSize == 592u );
+    const common::f32 expectedCutoffs[3]{ -1.0f, 0.375f, -1.0f };
+    for ( common::u32 i = 0u; i < 3u; ++i ) {
+        CHECK( output[i].draw.uniformRanges[1].offset == i * 256u );
+        CHECK( output[i].draw.uniformRanges[1].byteSize == 80u );
+        common::f32 cutout[4]{};
+        std::memcpy( cutout, fixture.uploaded + i * 256u + 64u,
+            sizeof( cutout ) );
+        CHECK( cutout[0] == expectedCutoffs[i] );
+        CHECK( cutout[1] == 0.0f );
+        CHECK( cutout[2] == 0.0f );
+        CHECK( cutout[3] == 0.0f );
+    }
+}
+
+TEST_CASE( "World normal-and-cutout Model record packs normals before alpha cutoff",
+    "[CypherRender][WorldDraw][Cutout][LitModel]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.EnableCutoutMaterial( 0u, true, true );
+    fixture.materials[0].alphaCutoff = 0.625f;
+    const auto id = fixture.Add( 0u, 0u, 0.0f );
+    world::world_object_t object{};
+    REQUIRE( world::World_GetObject( fixture.pWorld, id, &object ) ==
+        world::world_error_t::OK );
+    object.localToWorld = math::Affine3_FromColumns(
+        { 2.0f, 0.0f, 0.0f }, { 1.0f, 3.0f, 0.0f },
+        { 0.0f, 0.0f, 4.0f }, { 0.0f, 0.0f, 0.0f } );
+    REQUIRE( world::World_UpdateObject( fixture.pWorld, id, &object ) ==
+        world::world_error_t::OK );
+    fixture.Build();
+
+    auto description = fixture.Description();
+    description.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL_CUTOUT;
+    render::render_world_opaque_draw_t output{};
+    common::u32 count = 0u;
+    REQUIRE( render::R_PrepareOpaqueWorldDraws(
+        description, &output, 1u, &count ) == render::render_error_t::OK );
+    CHECK( count == 1u );
+    CHECK( output.draw.uniformRanges[1].byteSize == 128u );
+    CHECK( output.draw.sampledTextures[0].value == fixture.alphaTexture.value );
+    CHECK( fixture.uploadedSize == 128u );
+    common::f32 normalColumns[12]{};
+    std::memcpy( normalColumns, fixture.uploaded + 64u,
+        sizeof( normalColumns ) );
+    CHECK( normalColumns[0] == 0.5f );
+    CHECK( std::abs( normalColumns[1] + 1.0f / 6.0f ) < 1.0e-6f );
+    CHECK( std::abs( normalColumns[5] - 1.0f / 3.0f ) < 1.0e-6f );
+    CHECK( normalColumns[10] == 0.25f );
+    CHECK( normalColumns[3] == 0.0f );
+    CHECK( normalColumns[7] == 0.0f );
+    CHECK( normalColumns[11] == 0.0f );
+    common::f32 cutout[4]{};
+    std::memcpy( cutout, fixture.uploaded + 112u, sizeof( cutout ) );
+    CHECK( cutout[0] == 0.625f );
+    CHECK( cutout[1] == 0.0f );
+    CHECK( cutout[2] == 0.0f );
+    CHECK( cutout[3] == 0.0f );
+}
+
+TEST_CASE( "World MASK requires an opt-in cutout Model layout before staging",
+    "[CypherRender][WorldDraw][Cutout]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.EnableCutoutMaterial( 1u, false, true );
+    (void)fixture.Add( 0u, 0u, 0.0f ); // Valid opaque object precedes MASK.
+    (void)fixture.Add( 0u, 1u, 4.0f );
+    fixture.Build();
+    auto description = fixture.Description();
+    SECTION( "MODEL_ONLY" ) {
+        description.modelLayout = render::render_world_model_layout_t::MODEL_ONLY;
+    }
+    SECTION( "MODEL_NORMAL" ) {
+        fixture.EnableLitMaterial( 0u );
+        description.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL;
+    }
+    render::render_world_opaque_draw_t output[2]{};
+    output[0].draw.pipeline.value = 12345u;
+    common::u32 count = 77u;
+    CHECK( render::R_PrepareOpaqueWorldDraws(
+        description, output, 2u, &count ) == render::render_error_t::ERR_UNSUPPORTED );
+    CHECK( count == 77u );
+    CHECK( output[0].draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
+TEST_CASE( "World MASK preflight rejects invalid cutoff or alpha source atomically",
+    "[CypherRender][WorldDraw][Cutout]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.EnableCutoutMaterial( 0u, false, true );
+    fixture.EnableCutoutMaterial( 1u, false, true );
+    (void)fixture.Add( 0u, 0u, 0.0f ); // Valid MASK object precedes bad one.
+    (void)fixture.Add( 0u, 1u, 4.0f );
+    fixture.Build();
+    auto description = fixture.Description();
+    description.modelLayout = render::render_world_model_layout_t::MODEL_CUTOUT;
+    render::render_error_t expected = render::render_error_t::ERR_UNSUPPORTED;
+    SECTION( "cutoff below zero" ) {
+        fixture.materials[1].alphaCutoff = -0.01f;
+    }
+    SECTION( "cutoff above one" ) {
+        fixture.materials[1].alphaCutoff = 1.01f;
+    }
+    SECTION( "nonfinite cutoff" ) {
+        fixture.materials[1].alphaCutoff =
+            std::numeric_limits<common::f32>::quiet_NaN();
+    }
+    SECTION( "missing alpha source" ) {
+        fixture.materials[1].textureCount = 0u;
+    }
+    SECTION( "stale alpha source" ) {
+        fixture.materials[1].textures[0] = {};
+        expected = render::render_error_t::ERR_INVALID_HANDLE;
+    }
+    render::render_world_opaque_draw_t output[2]{};
+    output[0].draw.pipeline.value = 12345u;
+    common::u32 count = 77u;
+    CHECK( render::R_PrepareOpaqueWorldDraws(
+        description, output, 2u, &count ) == expected );
+    CHECK( count == 77u );
+    CHECK( output[0].draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
+
+    render::render_scene_item_t sceneItems[2]{};
+    common::u32 passIndices[2]{};
+    auto cameraDescription = fixture.CameraDescription();
+    cameraDescription.modelLayout = render::render_world_model_layout_t::MODEL_CUTOUT;
+    cameraDescription.sceneItemsScratch = sceneItems;
+    cameraDescription.sceneItemCapacity = 2u;
+    cameraDescription.passIndicesScratch = passIndices;
+    cameraDescription.passIndexCapacity = 2u;
+    render::render_world_camera_draw_t cameraOutput[2]{};
+    cameraOutput[0].draw.pipeline.value = 54321u;
+    render::render_world_camera_pass_counts_t counts{ 77u, 88u, 99u };
+    CHECK( render::R_PrepareWorldCameraDraws(
+        cameraDescription, cameraOutput, 2u, &counts ) == expected );
+    CHECK( counts.opaqueCount == 77u );
+    CHECK( counts.blendCount == 88u );
+    CHECK( counts.additiveCount == 99u );
+    CHECK( cameraOutput[0].draw.pipeline.value == 54321u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
 }
 
 TEST_CASE( "World draw preparation carries an owned material uniform binding",

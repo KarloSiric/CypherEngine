@@ -31,6 +31,32 @@ struct alignas( 16 ) world_model_normal_record_t {
 static_assert( sizeof( world_model_normal_record_t ) == 112u );
 static_assert( offsetof( world_model_normal_record_t, normalColumns ) == 64u );
 
+struct alignas( 16 ) world_model_cutout_record_t {
+    math::mat4_t model{};
+    common::f32 cutout[4]{};
+};
+static_assert( sizeof( world_model_cutout_record_t ) == 80u );
+static_assert( offsetof( world_model_cutout_record_t, cutout ) == 64u );
+
+struct alignas( 16 ) world_model_normal_cutout_record_t {
+    world_model_normal_record_t lit{};
+    common::f32 cutout[4]{};
+};
+static_assert( sizeof( world_model_normal_cutout_record_t ) == 128u );
+static_assert( offsetof( world_model_normal_cutout_record_t, cutout ) == 112u );
+
+bool HasNormalMatrix( const render_world_model_layout_t layout ) noexcept
+{
+    return layout == render_world_model_layout_t::MODEL_NORMAL ||
+           layout == render_world_model_layout_t::MODEL_NORMAL_CUTOUT;
+}
+
+bool HasCutout( const render_world_model_layout_t layout ) noexcept
+{
+    return layout == render_world_model_layout_t::MODEL_CUTOUT ||
+           layout == render_world_model_layout_t::MODEL_NORMAL_CUTOUT;
+}
+
 common::u64 ModelRecordByteSize(
     const render_world_model_layout_t layout ) noexcept
 {
@@ -39,6 +65,10 @@ common::u64 ModelRecordByteSize(
         return sizeof( math::mat4_t );
     case render_world_model_layout_t::MODEL_NORMAL:
         return sizeof( world_model_normal_record_t );
+    case render_world_model_layout_t::MODEL_CUTOUT:
+        return sizeof( world_model_cutout_record_t );
+    case render_world_model_layout_t::MODEL_NORMAL_CUTOUT:
+        return sizeof( world_model_normal_cutout_record_t );
     }
     return 0u;
 }
@@ -197,12 +227,34 @@ render_error_t AppendModelRecord(
     const world::world_object_snapshot_t &snapshot ) noexcept
 {
     render_uniform_record_t ignored{};
+    const render_material_bundle_t &material =
+        description.materials[snapshot.object.materialSlot];
+    const common::f32 cutoff = material.alphaMode ==
+            common::render_material_alpha_mode_t::MASK
+        ? material.alphaCutoff : -1.0F;
+    if ( description.modelLayout ==
+         render_world_model_layout_t::MODEL_NORMAL_CUTOUT ) {
+        world_model_normal_cutout_record_t record{};
+        if ( !PackModelNormal( snapshot.object.localToWorld, &record.lit ) ) {
+            return render_error_t::ERR_UNSUPPORTED;
+        }
+        record.cutout[0] = cutoff;
+        return R_AppendUniformRecord( description.modelUniforms,
+            &record, sizeof( record ), &ignored );
+    }
     if ( description.modelLayout == render_world_model_layout_t::MODEL_NORMAL ) {
         world_model_normal_record_t record{};
         // Preflight already packed this same immutable World transform.
         if ( !PackModelNormal( snapshot.object.localToWorld, &record ) ) {
             return render_error_t::ERR_UNSUPPORTED;
         }
+        return R_AppendUniformRecord( description.modelUniforms,
+            &record, sizeof( record ), &ignored );
+    }
+    if ( description.modelLayout == render_world_model_layout_t::MODEL_CUTOUT ) {
+        world_model_cutout_record_t record{};
+        record.model = math::Affine3_ToMat4( snapshot.object.localToWorld );
+        record.cutout[0] = cutoff;
         return R_AppendUniformRecord( description.modelUniforms,
             &record, sizeof( record ), &ignored );
     }
@@ -274,7 +326,7 @@ render_error_t PreflightObject(
         // A zero determinant collapses triangles and has no front face.
         return render_error_t::ERR_UNSUPPORTED;
     }
-    if ( description.modelLayout == render_world_model_layout_t::MODEL_NORMAL ) {
+    if ( HasNormalMatrix( description.modelLayout ) ) {
         world_model_normal_record_t record{};
         if ( !PackModelNormal( object.localToWorld, &record ) ) {
             // Even a nonsingular transform can have a normal inverse outside
@@ -292,9 +344,13 @@ render_error_t PreflightObject(
     } else if ( material.alphaMode == common::render_material_alpha_mode_t::ADDITIVE &&
                 !opaqueOnly ) {
         expectedBlend = render_blend_mode_t::ADDITIVE;
+    } else if ( material.alphaMode == common::render_material_alpha_mode_t::MASK ) {
+        if ( !HasCutout( description.modelLayout ) ||
+             material.textureCount == 0u ||
+             !( material.alphaCutoff >= 0.0F && material.alphaCutoff <= 1.0F ) ) {
+            return render_error_t::ERR_UNSUPPORTED;
+        }
     } else if ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE ) {
-        // MASK needs a documented alpha-cutoff shader convention before World
-        // can prepare it. The legacy opaque entry point keeps its old policy.
         return render_error_t::ERR_UNSUPPORTED;
     }
     render_draw_indexed_desc_t draw = description.drawTemplate;
@@ -308,6 +364,21 @@ render_error_t PreflightObject(
     render_pipeline_info_t pipeline{};
     error = R_GetGraphicsPipelineInfo( draw.pipeline, &pipeline );
     if ( error != render_error_t::OK ) return error;
+    if ( material.alphaMode == common::render_material_alpha_mode_t::MASK ) {
+        if ( pipeline.sampledTextureCount == 0u ||
+             pipeline.sampledTextureKinds[0] !=
+                 render_sampled_texture_kind_t::SCALAR_2D ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+        render_texture_info_t alphaSource{};
+        error = R_GetTextureInfo( draw.sampledTextures[0], &alphaSource );
+        if ( error != render_error_t::OK ) return error;
+        if ( alphaSource.format != render_texture_format_t::RGBA8 &&
+             alphaSource.format != render_texture_format_t::RGBA16F &&
+             alphaSource.format != render_texture_format_t::RGBA32F ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+    }
     if ( pipeline.uniformBlockCount <= description.modelUniformSlot ||
          pipeline.uniformBlockBytes[description.modelUniformSlot] !=
              ModelRecordByteSize( description.modelLayout ) ||
@@ -468,6 +539,7 @@ render_error_t SceneAlpha(
 {
     switch ( mode ) {
     case common::render_material_alpha_mode_t::OPAQUE:
+    case common::render_material_alpha_mode_t::MASK:
         *out = render_scene_alpha_t::OPAQUE;
         return render_error_t::OK;
     case common::render_material_alpha_mode_t::BLEND:

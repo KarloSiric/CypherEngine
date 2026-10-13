@@ -22,18 +22,28 @@ namespace cypher::engine::render
 // std140-padded columns of the exact inverse-transpose linear transform at
 // byte offsets 64, 80, and 96 (112 bytes total). A vertex shader can then
 // transform normals under shear/nonuniform scale without recomputing the
-// inverse for every vertex. The inverse must fit finite f32 components; the
-// shadow adapter keeps its separate 64-byte Model contract.
+// inverse for every vertex. MODEL_CUTOUT appends a std140 vec4 at byte 64,
+// while MODEL_NORMAL_CUTOUT appends it at byte 112. Its x component is the
+// authored MASK cutoff, or -1 for an unmasked material. A fragment shader
+// samples texture slot zero's alpha and discards values below that cutoff.
+// The inverse must fit finite f32 components; the shadow adapter keeps its
+// separate 64-byte Model contract.
 enum class render_world_model_layout_t : ::cypher::common::u8 {
     MODEL_ONLY = 0u,
-    MODEL_NORMAL
+    MODEL_NORMAL,
+    MODEL_CUTOUT,
+    MODEL_NORMAL_CUTOUT
 };
 
 // Host owns every borrowed table, World submission, batch, and output. Logical
 // World asset slots index the two tables; no World object stores a GPU handle.
 // The shader's block at modelUniformSlot must match modelLayout exactly. Other
-// uniform slots in drawTemplate are caller-owned view/pass data. The first
-// slice accepts only OPAQUE materials,
+// uniform slots in drawTemplate are caller-owned view/pass data. MASK is
+// accepted only with a CUTOUT layout and a sampled alpha texture in slot zero.
+// The fragment shader's discard behavior is an authoring contract: reflection
+// can verify block size, but cannot prove it reads the cutoff or samples alpha.
+// Other accepted materials use a -1 cutoff so they never discard. This slice
+// accepts OPAQUE and opt-in MASK materials,
 // nonsingular transforms, and one instance per World object. A negative
 // determinant reverses authored mesh winding, so the material's mirrored
 // pipeline is selected; a collapsed transform remains unsupported.
@@ -79,8 +89,8 @@ CYPHER_NODISCARD render_error_t R_PrepareOpaqueWorldDraws(
 // matching the World submission. BLEND order uses each world-space AABB center's
 // positive view depth; a visible box crossing the eye sorts at the near end.
 // Intersecting translucent surfaces cannot be ordered exactly by one object
-// depth. MASK is not yet accepted because the alpha-cutoff shader convention is
-// not established for World submissions.
+// depth. MASK enters the opaque span only with a CUTOUT Model layout; its
+// sampled alpha source and discard shader must obey the contract above.
 struct render_world_camera_prepare_desc_t {
     const ::cypher::engine::world::world_submission_t *submission{ nullptr };
     ::cypher::engine::world::world_submission_token_t token{};

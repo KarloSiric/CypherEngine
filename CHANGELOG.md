@@ -21,6 +21,22 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
+## [Unreleased] - 2026-10-14
+
+### Added
+
+- World camera and depth-writing draw preparation now accept `MASK` materials
+  when the caller selects an 80-byte `MODEL_CUTOUT` or 128-byte
+  `MODEL_NORMAL_CUTOUT` std140 record. Each record carries the cooked alpha
+  cutoff; unmasked objects receive -1. Preflight requires a live scalar RGBA
+  texture in slot zero and rejects invalid thresholds or a non-cutout layout
+  before uploading. MASK stays in the opaque camera span. Focused World-draw
+  tests cover packing, ordering and failure atomicity, and a native OpenGL 4.1
+  pixel test checks transparent and solid texels against a later depth-tested
+  object. The fragment shader must still implement the documented discard;
+  masked light-view shadows, authored uniform-block cooking, and Mason's live
+  viewport remain separate work.
+
 ## [Unreleased] - 2026-10-13
 
 ### Added
