@@ -20,7 +20,7 @@ layout(std140) uniform ObjectConstants {
 };
 
 out vec3 worldNormal;
-out vec3 faceColor;
+out vec4 faceColor;
 out vec2 faceUV;
 out vec3 worldPosition;
 
@@ -31,7 +31,7 @@ void main()
     // The demo uses rotation only, so an inverse-transpose is unnecessary.
     worldNormal = mat3(model) * normal;
     float faceTone = mix(0.72, 1.12, 0.5 + 0.5 * normal.z);
-    faceColor = tint.rgb * faceTone;
+    faceColor = vec4(tint.rgb * faceTone, tint.a);
     faceUV = texcoord;
     worldPosition = worldPoint.xyz;
 }

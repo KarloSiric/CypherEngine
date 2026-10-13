@@ -66,6 +66,20 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The OpenGL 4.1 graybox sample now draws two overlapping translucent panels
+  after opaque geometry and before HDR tone mapping. Their tint alpha reaches
+  the fragment output, and a separate depth-tested, blend-enabled pipeline
+  keeps depth writes off. A fixed-capacity queue sorts visible panels by
+  camera-space center with a deterministic tie-break; panels are excluded from
+  the shadow pass. The cooked shader validates with zero diagnostics, the
+  compact sample builds and completes 120 hidden frames with 720 scene draws
+  (240 translucent), 600 shadow draws, and 120 presentation draws. A native
+  RGBA16F-to-RGBA8 pixel test confirms far-to-near compositing and opaque-depth
+  occlusion and confirms that transparent draws leave depth unwritten; the
+  focused OpenGL smoke case passes 915 assertions. This remains
+  sample-owned object sorting: intersecting transparent geometry, general
+  material classification, and cooked transparent materials are not yet
+  supported.
 - The graybox renderer sample now submits a third pass: after the fixed D24
   shadow pass, it shades visible objects into a drawable-sized linear RGBA16F
   target, then draws an indexed fullscreen triangle that applies fixed

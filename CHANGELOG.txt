@@ -57,6 +57,17 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The OpenGL 4.1 graybox sample draws two translucent panels after opaque
+  geometry and before HDR tone mapping, with tint alpha, depth-tested blending,
+  disabled depth writes, and a fixed-capacity camera-space sorted queue. They
+  do not cast in the shadow pass. The updated shader cooks with no diagnostics;
+  the compact sample builds and completes 120 hidden frames with 720 scene
+  draws (240 translucent), 600 shadow draws and 120 presentation draws. A
+  native RGBA16F-to-RGBA8 pixel oracle verifies compositing order and opaque
+  depth occlusion and unchanged depth after translucent draws; the focused
+  smoke case passes 915 assertions. Sorting is
+  sample-owned per object; intersecting translucent geometry and cooked
+  transparent materials remain unsupported.
 - The graybox sample now shades into a drawable-sized linear RGBA16F target
   after its fixed D24 shadow pass, then presents through an indexed fullscreen
   triangle with fixed Reinhard tone mapping and piecewise linear-to-sRGB
