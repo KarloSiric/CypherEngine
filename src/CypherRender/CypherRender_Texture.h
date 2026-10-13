@@ -16,12 +16,12 @@ namespace cypher::engine::render
 using render_texture_handle_t = render_handle_t;
 inline constexpr render_texture_handle_t R_INVALID_TEXTURE{};
 
-// One-layer, one-face sampled images. D24 is GPU-only depth storage for an
-// offscreen target; shaders may sample scalar depth or compare a reference
-// against it after the pass ends.
+// One-layer, one-face sampled images. D24 and RGBA16F are GPU-only offscreen
+// target storage. Both may be sampled after their target pass ends.
 enum class render_texture_format_t : ::cypher::common::u8 {
     RGBA8 = 0,
     D24,
+    RGBA16F,
     COUNT
 };
 
@@ -55,7 +55,7 @@ struct render_texture_info_t {
 // Calls run on the renderer thread. Creation consumes all supplied pixels before
 // returning. A renderTarget texture has no initial pixels (bytes=nullptr,
 // byteSize=0), is linear, single-level and clamp-to-edge; its contents become
-// defined by a target pass. D24 can only be a renderTarget texture. Draw
+// defined by a target pass. D24 and RGBA16F can only be renderTarget textures. Draw
 // bindings are immediate.
 CYPHER_NODISCARD render_error_t R_CreateTexture2D(
     const render_texture_desc_t &description,

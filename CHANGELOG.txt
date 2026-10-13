@@ -53,6 +53,15 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- Linear RGBA16F textures can serve as GPU-only offscreen color attachments
+  when float render targets are supported. OpenGL 4.1 allocates GL_RGBA16F,
+  and later passes may sample the completed target. R_ReadTargetRGBA8 rejects
+  HDR targets without changing caller bytes instead of silently clipping;
+  public/backend versions are 20/25. Four focused renderer CTests pass,
+  including a native two-pass pixel check that preserves 4.0 until an explicit
+  tone-map shader writes offscreen RGBA8. The cube sample rebuilds and renders
+  120 hidden frames but does not use HDR yet. Float uploads/readback, cooked
+  HDR assets, exposure and presentation tone mapping remain future work.
 - Graphics pipelines have disabled-by-default slope and constant depth bias
   for filled triangles. OpenGL 4.1 applies offset per draw, clears it for
   ordinary draws and restores hosted offset factors and enable bits. The

@@ -26,6 +26,7 @@ struct gl_target_record_t {
     GLuint depthRenderbuffer{ 0u };
     render_extent_t extent{};
     bool hasColor{ false };
+    render_texture_format_t colorFormat{ render_texture_format_t::RGBA8 };
 };
 
 // Compare tokens before dereferencing. The frontend owns generation checks;
@@ -84,6 +85,10 @@ render_error_t GL_CreateRenderTarget( const backend_render_target_desc_t &descri
     if ( ( !hasColor && !hasDepth ) ||
          description.color.value > std::numeric_limits<GLuint>::max() ) {
         return render_error_t::ERR_INVALID_HANDLE;
+    }
+    if ( hasColor && description.colorFormat != render_texture_format_t::RGBA8 &&
+         description.colorFormat != render_texture_format_t::RGBA16F ) {
+        return render_error_t::ERR_RENDER_TARGET_INVALID;
     }
     if ( description.depth.value > std::numeric_limits<GLuint>::max() ) {
         return render_error_t::ERR_INVALID_HANDLE;
@@ -175,6 +180,7 @@ render_error_t GL_CreateRenderTarget( const backend_render_target_desc_t &descri
 
     record->extent = description.extent;
     record->hasColor = hasColor;
+    record->colorFormat = description.colorFormat;
     record->next = glTargets;
     glTargets = record;
     targetOut.value = GL_TargetToken( record );
@@ -333,7 +339,9 @@ render_error_t GL_ReadTargetRGBA8( const backend_target_readback_desc_t &descrip
     if ( glState.targetPassActive ) return render_error_t::ERR_COMMAND_STATE_INVALID;
     const gl_target_record_t *record = GL_FindTarget( description.target );
     if ( record == nullptr ) return render_error_t::ERR_INVALID_HANDLE;
-    if ( !record->hasColor ) return render_error_t::ERR_CAPTURE_UNSUPPORTED;
+    if ( !record->hasColor || record->colorFormat != render_texture_format_t::RGBA8 ) {
+        return render_error_t::ERR_CAPTURE_UNSUPPORTED;
+    }
 
     const render_readback_rect_t &rect = description.rect;
     if ( description.pixelsOut == nullptr || rect.width == 0u || rect.height == 0u ||

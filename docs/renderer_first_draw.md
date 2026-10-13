@@ -293,14 +293,37 @@ writes enabled, `depthWrite = false`, and `EQUAL`. The color mask is set by each
 draw, so a later ordinary pipeline does not inherit the prepass mask. This
 controls draw output only; no scene queue schedules these passes yet.
 
-## Sampleable target depth
+## Offscreen color and sampleable depth
 
-An offscreen target accepts a linear RGBA8 color texture, a GPU-only D24 depth
-texture, or both. A color-only target keeps the existing private D24
-renderbuffer. When both textures are supplied, their extents must match. D24
-textures have no initial pixel data, generated mip chain, sRGB conversion, or
-repeat addressing. The target retains each supplied caller-owned texture until
-it is destroyed.
+An offscreen target accepts a linear RGBA8 or RGBA16F color texture, a GPU-only
+D24 depth texture, or both color and depth. A color-only target keeps the
+existing private D24 renderbuffer. When both textures are supplied, their
+extents must match. Target textures have no initial pixel data, generated mip
+chain, sRGB conversion, or repeat addressing. The target retains each supplied
+caller-owned texture until it is destroyed.
+
+### GPU-only HDR color
+
+Create an RGBA16F texture with `renderTarget = true`, `sRGB = false`, and no
+initial bytes, then pass its handle as the color attachment to
+`R_CreateRenderTarget`. Creation requires
+`R_CAPABILITY_FLOAT_RENDER_TARGETS`; the OpenGL 4.1 backend allocates
+`GL_RGBA16F` storage and checks framebuffer completeness. End the target pass
+before binding that texture as an ordinary sampled color image in a later
+draw. The same feedback rule that protects depth attachments also applies to
+this color attachment.
+
+RGBA16F preserves linear values above 1.0 between passes. A later pass must
+explicitly map those values into the chosen output range and color space;
+merely sampling the texture does not tone-map it. The native smoke test draws
+different HDR values into this target and checks distinct tone-mapped RGBA8
+pixels in a second pass. The graybox cube sample still draws directly to the
+window and does not use this HDR path. Float uploads, cooked float textures,
+HDR CPU readback, exposure controls, and an automatic postprocess chain remain
+separate work. `R_ReadTargetRGBA8` rejects an RGBA16F target without changing
+the caller's buffer; it does not silently clamp HDR pixels.
+
+### Depth-only target
 
 For a depth-only target, leave `color` invalid and supply the D24 `depth`
 handle. Set the pass's `clearFlags` to `R_CLEAR_DEPTH`: the default includes
@@ -370,8 +393,8 @@ sections 3.8.9 and 3.8.16 of the [OpenGL 4.1 Core Specification](https://registr
 `R_ReadTargetRGBA8` copies a rectangle from an explicit offscreen target's
 linear RGBA8 color attachment into caller-owned bytes. Call it inside an active
 frame after `R_EndTargetPass` and before `R_EndFrame`; it rejects an open target
-pass, depth-only target, stale handle, or out-of-bounds rectangle. Coordinates
-start at the target's bottom-left pixel. Rows are bottom-up RGBA8, with the
+pass, depth-only or RGBA16F target, stale handle, or out-of-bounds rectangle.
+Coordinates start at the target's bottom-left pixel. Rows are bottom-up RGBA8, with the
 caller choosing a four-byte-aligned row pitch of at least `width * 4` bytes.
 Capacity must cover the last row's pixels but need not include padding after
 them. Validation errors do not modify the destination; a native transfer
@@ -443,12 +466,13 @@ native compile/link rollback, pipeline dependencies, and draw validation. The
 live OpenGL smoke test reads framebuffer pixels: the triangle must first be red
 and then green after a uniform update. A second pixel oracle renders an
 occluding triangle into a D24 target, shades a receiver using the target's
-comparison sampler, and checks a shadowed pixel against a lit neighbor. This
-tests the two-pass shadow mechanism; it does not inspect the graybox scene's
-visible appearance. The smoke suite also checks that disabling depth writes
-in one frame does not suppress the next frame's depth clear. The live check skips
-on machines without a usable OpenGL 4.1 desktop session; hidden windows still
-require graphics support.
+comparison sampler, and checks a shadowed pixel against a lit neighbor. A
+separate two-pass HDR pixel oracle checks RGBA16F storage and explicit
+tone-mapping into RGBA8. These tests exercise rendering paths; they do not
+inspect the graybox scene's visible appearance. The smoke suite also checks
+that disabling depth writes in one frame does not suppress the next frame's
+depth clear. The live check skips on machines without a usable OpenGL 4.1
+desktop session; hidden windows still require graphics support.
 
 ```sh
 cmake --build --preset shader-tools-debug --parallel 4 --target \
@@ -494,15 +518,15 @@ not define a `.cymesh` format, importer, or scene draw queue.
 The graybox sample uses two triangle-list meshes, a fixed D24 light pass, two
 uniform blocks per pipeline, two sampled texture slots in the camera pass, a
 copied World submission, and two ordered draw lists for direct window drawing.
-The renderer also has samplers, two binding slots,
-offscreen color and sampleable depth targets, and a limited cooked-material
-bridge. Authored scene and mesh loading, broader material support, pass
+The renderer also has samplers, two binding slots, offscreen RGBA8/RGBA16F
+color and sampleable depth targets, and a limited cooked-material bridge.
+Authored scene and mesh loading, broader material support, pass
 classification and sorting, full command scheduling, and shader hot reload
 remain separate work.
 
 Device capability queries describe what the OpenGL driver reports, not a promise
 that the public renderer already exposes every such feature. In particular,
-indirect draws, geometry/tessellation shaders, texture arrays, and floating-
-point render targets still need public contracts and tests before game or editor
-code may depend on them. Keep those interfaces backend-independent so another
+indirect draws, geometry/tessellation shaders, and texture arrays still need
+public contracts and tests before game or editor code may depend on them. Keep
+those interfaces backend-independent so another
 graphics API can implement the same engine behavior later.

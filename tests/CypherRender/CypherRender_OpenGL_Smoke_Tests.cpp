@@ -1589,6 +1589,162 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyShader( inactiveShadowShader ) == render::render_error_t::OK );
 }
 
+void CheckHDRTargetToneMap( const render::render_extent_t extent )
+{
+    // The first pass writes values that an RGBA8 attachment would clamp. The
+    // second pass must sample those original values before mapping to RGBA8.
+    constexpr char vertex[] =
+        "#version 410 core\nlayout(location=0) in vec3 position;\n"
+        "void main() { gl_Position=vec4(position,1.0); }\n";
+    constexpr char hdrFragment[] =
+        "#version 410 core\nlayout(location=0) out vec4 color;\n"
+        "void main() { color=vec4(4.0,1.0,0.0,1.0); }\n";
+    constexpr char toneMapFragment[] =
+        "#version 410 core\nuniform sampler2D scene_color;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { vec3 hdr=texture(scene_color,vec2(0.5)).rgb;"
+        " color=vec4(hdr/(vec3(1.0)+hdr),1.0); }\n";
+    const auto makeShader = [&]( const char *fragment, const common::u64 size ) {
+        common::cooked_shader_view_t source{};
+        source.nLanguageVersion = 410u;
+        source.nStages = 2u;
+        source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+        source.stages[0].code = {
+            reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+        source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+        source.stages[1].code = {
+            reinterpret_cast<const common::byte *>( fragment ), size };
+        render::render_shader_handle_t shader{};
+        REQUIRE( render::R_CreateShader( { &source, "HDR target pixel oracle" },
+            &shader ) == render::render_error_t::OK );
+        return shader;
+    };
+    const auto hdrShader = makeShader( hdrFragment, sizeof( hdrFragment ) );
+    const auto toneMapShader = makeShader( toneMapFragment, sizeof( toneMapFragment ) );
+
+    constexpr float vertices[]{ -1.0f,-1.0f,0.0f, 3.0f,-1.0f,0.0f,
+                                -1.0f,3.0f,0.0f };
+    constexpr common::u16 indices[]{ 0u,1u,2u };
+    const auto makeBuffer = []( const void *bytes, const common::u64 size,
+                                const render::render_buffer_usage_flags_t usage ) {
+        render::render_buffer_desc_t description{};
+        description.byteSize = size;
+        description.usage = usage;
+        const render::render_buffer_data_t data{ bytes, size };
+        render::render_buffer_handle_t buffer{};
+        REQUIRE( render::R_CreateBuffer( description, &data, &buffer ) ==
+            render::render_error_t::OK );
+        return buffer;
+    };
+    const auto vertexBuffer = makeBuffer( vertices, sizeof( vertices ),
+        render::R_BUFFER_USAGE_VERTEX );
+    const auto indexBuffer = makeBuffer( indices, sizeof( indices ),
+        render::R_BUFFER_USAGE_INDEX );
+    render::render_vertex_input_desc_t inputDescription{};
+    inputDescription.layout.bindingCount = 1u;
+    inputDescription.layout.bindings[0].stride = 3u * sizeof( float );
+    inputDescription.layout.attributeCount = 1u;
+    inputDescription.layout.attributes[0] = {
+        render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    inputDescription.vertexBufferCount = 1u;
+    inputDescription.vertexBuffers[0] = { vertexBuffer, 0u, 0u };
+    inputDescription.indexBuffer = {
+        indexBuffer, 0u, render::render_index_type_t::UINT16 };
+    render::render_vertex_input_handle_t input{};
+    REQUIRE( render::R_CreateVertexInput( inputDescription, &input ) ==
+        render::render_error_t::OK );
+
+    render::render_pipeline_desc_t pipelineDescription{};
+    pipelineDescription.vertexLayout = inputDescription.layout;
+    pipelineDescription.shader = hdrShader;
+    pipelineDescription.depthTest = false;
+    pipelineDescription.depthWrite = false;
+    pipelineDescription.cullBackFaces = false;
+    render::render_pipeline_handle_t hdrPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDescription,
+        &hdrPipeline ) == render::render_error_t::OK );
+    pipelineDescription.shader = toneMapShader;
+    pipelineDescription.sampledTextureCount = 1u;
+    pipelineDescription.sampledTextures[0].name = "scene_color";
+    render::render_pipeline_handle_t toneMapPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDescription,
+        &toneMapPipeline ) == render::render_error_t::OK );
+
+    render::render_texture_desc_t textureDescription{};
+    textureDescription.width = extent.width / 2u;
+    textureDescription.height = extent.height / 2u;
+    textureDescription.sRGB = false;
+    textureDescription.generateMips = false;
+    textureDescription.repeat = false;
+    textureDescription.renderTarget = true;
+    textureDescription.format = render::render_texture_format_t::RGBA16F;
+    render::render_texture_handle_t hdrColor{};
+    REQUIRE( render::R_CreateTexture2D( textureDescription, {}, &hdrColor ) ==
+        render::render_error_t::OK );
+    textureDescription.format = render::render_texture_format_t::RGBA8;
+    render::render_texture_handle_t ldrColor{};
+    REQUIRE( render::R_CreateTexture2D( textureDescription, {}, &ldrColor ) ==
+        render::render_error_t::OK );
+    render::render_target_handle_t hdrTarget{}, ldrTarget{};
+    REQUIRE( render::R_CreateRenderTarget( { hdrColor, {} }, &hdrTarget ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CreateRenderTarget( { ldrColor, {} }, &ldrTarget ) ==
+        render::render_error_t::OK );
+
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    frame.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
+    render::render_draw_indexed_desc_t draw{};
+    draw.vertexInput = input;
+    draw.indexCount = draw.vertexCount = 3u;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    render::render_target_pass_desc_t pass{};
+    pass.target = hdrTarget;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    draw.pipeline = hdrPipeline;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    const render::render_readback_rect_t center{
+        textureDescription.width / 2u, textureDescription.height / 2u, 1u, 1u };
+    std::array<common::u8, 4u> rejectedReadback{ 0xcdu, 0xcdu, 0xcdu, 0xcdu };
+    CHECK( render::R_ReadTargetRGBA8( hdrTarget, center, rejectedReadback.data(),
+        rejectedReadback.size(), 4u ) == render::render_error_t::ERR_CAPTURE_UNSUPPORTED );
+    for ( const auto channel : rejectedReadback ) CHECK( channel == 0xcdu );
+
+    pass.target = ldrTarget;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    draw.pipeline = toneMapPipeline;
+    draw.sampledTextures[0] = hdrColor;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    std::array<common::u8, 4u> pixel{};
+    REQUIRE( render::R_ReadTargetRGBA8( ldrTarget, center, pixel.data(),
+        pixel.size(), 4u ) == render::render_error_t::OK );
+    INFO( "Tonemapped RGBA8 center: " << static_cast<int>( pixel[0] ) << ", "
+        << static_cast<int>( pixel[1] ) << ", "
+        << static_cast<int>( pixel[2] ) << ", "
+        << static_cast<int>( pixel[3] ) );
+    CHECK( pixel[0] >= 200u ); // 4 / (1 + 4) = 0.8, not clipped 1 / 2.
+    CHECK( pixel[0] <= 208u );
+    CHECK( pixel[1] >= 124u ); // 1 / (1 + 1) = 0.5.
+    CHECK( pixel[1] <= 132u );
+    CHECK( pixel[2] <= 4u );
+    CHECK( pixel[3] >= 250u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    REQUIRE( render::R_DestroyRenderTarget( ldrTarget ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyRenderTarget( hdrTarget ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( ldrColor ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( hdrColor ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( toneMapPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( hdrPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( indexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( vertexBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( toneMapShader ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( hdrShader ) == render::render_error_t::OK );
+}
+
 void CheckShadowPassLighting( const render::render_extent_t extent )
 {
     // In light clip space the left triangle writes depth 0.5. A fullscreen
@@ -2047,6 +2203,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckPerSlotSamplerPolicy( info->drawableExtent );
     CheckTwoTextureTwoBlockDrawing( info->drawableExtent );
     CheckOffscreenTarget( info->drawableExtent );
+    CheckHDRTargetToneMap( info->drawableExtent );
     CheckShadowPassLighting( info->drawableExtent );
     CheckCookedMaterialBundleDrawing( info->drawableExtent );
 

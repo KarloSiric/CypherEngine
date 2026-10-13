@@ -19,6 +19,7 @@ namespace
 struct target_record_t {
     backend_render_target_t native{};
     render_target_info_t info{};
+    render_texture_format_t colorFormat{ render_texture_format_t::RGBA8 };
 };
 struct target_system_t {
     common::handle_table_t<target_record_t> records{};
@@ -115,13 +116,15 @@ render_error_t R_CreateRenderTarget( const render_target_desc_t &description,
         const render_error_t acquireResult = R_TextureAcquireReference(
             description.color, &nativeDescription.color, &colorInfo );
         if ( acquireResult != render_error_t::OK ) return acquireResult;
-        if ( colorInfo.format != render_texture_format_t::RGBA8 ||
+        if ( ( colorInfo.format != render_texture_format_t::RGBA8 &&
+               colorInfo.format != render_texture_format_t::RGBA16F ) ||
              !colorInfo.renderTarget || colorInfo.sRGB || colorInfo.generateMips ||
              colorInfo.repeat || colorInfo.width == 0u || colorInfo.height == 0u ) {
             (void)R_TextureReleaseReference( description.color );
             return render_error_t::ERR_RENDER_TARGET_INVALID;
         }
         nativeDescription.extent = { colorInfo.width, colorInfo.height };
+        nativeDescription.colorFormat = colorInfo.format;
     }
     if ( hasDepth ) {
         render_texture_info_t depthInfo{};
@@ -162,6 +165,7 @@ render_error_t R_CreateRenderTarget( const render_target_desc_t &description,
         return nativeResult != render_error_t::OK ? nativeResult : render_error_t::ERR_INTERNAL_ERROR;
     }
     record.info = { description.color, nativeDescription.extent, description.depth };
+    record.colorFormat = nativeDescription.colorFormat;
     const common::handle32_t slot = common::HandleTable_Insert( &targetSystem.records, record );
     if ( !common::Cy_Handle32IsValid( slot ) ) {
         (void)tr.backend.api->DestroyRenderTarget( record.native, tr.backend.state );
@@ -291,7 +295,8 @@ render_error_t R_ReadTargetRGBA8( const render_target_handle_t target,
     target_record_t *record = nullptr;
     const render_error_t resolved = ResolveTarget( target, slot, record );
     if ( resolved != render_error_t::OK ) return resolved;
-    if ( record->info.color.value == R_INVALID_TEXTURE.value ) {
+    if ( record->info.color.value == R_INVALID_TEXTURE.value ||
+         record->colorFormat != render_texture_format_t::RGBA8 ) {
         return render_error_t::ERR_CAPTURE_UNSUPPORTED;
     }
 

@@ -103,8 +103,14 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     if ( description.format >= render_texture_format_t::COUNT ||
-         ( description.format == render_texture_format_t::D24 && !description.renderTarget ) ) {
+         ( ( description.format == render_texture_format_t::D24 ||
+             description.format == render_texture_format_t::RGBA16F ) &&
+           !description.renderTarget ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    if ( description.format == render_texture_format_t::RGBA16F &&
+         ( tr.info.capabilities & R_CAPABILITY_FLOAT_RENDER_TARGETS ) == 0u ) {
+        return render_error_t::ERR_CAPABILITY_MISSING;
     }
     if ( description.renderTarget ) {
         if ( description.sRGB || description.generateMips || description.repeat ||
@@ -120,7 +126,12 @@ render_error_t R_CreateTexture2D( const render_texture_desc_t &description,
          description.height > static_cast<common::u32>( std::numeric_limits<common::i32>::max() ) ) {
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
-    const common::u64 required = static_cast<common::u64>( description.width ) * description.height * 4u;
+    const common::u64 pixels = static_cast<common::u64>( description.width ) * description.height;
+    const common::u64 bytesPerPixel = description.format == render_texture_format_t::RGBA16F ? 8u : 4u;
+    if ( pixels > std::numeric_limits<common::u64>::max() / bytesPerPixel ) {
+        return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
+    }
+    const common::u64 required = pixels * bytesPerPixel;
     if ( required > std::numeric_limits<common::usize>::max() ) return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     if ( !description.renderTarget && data.byteSize != required ) return render_error_t::ERR_INVALID_ARGUMENT;
     backend_texture_t native{};

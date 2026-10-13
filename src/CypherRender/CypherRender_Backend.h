@@ -41,13 +41,14 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version twenty-four adds filled-triangle depth bias to immutable pipelines.
+Version twenty-five adds an explicit target color format for RGBA16F readback
+validation. Version twenty-four added filled-triangle depth bias.
 Offscreen targets, linked shaders, immediate draws, and all
 native object tokens remain behind this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 24u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 25u;
 
 /*
 ================
@@ -155,6 +156,7 @@ struct backend_render_target_desc_t {
     backend_texture_t color{};
     render_extent_t extent{};
     backend_texture_t depth{};
+    render_texture_format_t colorFormat{ render_texture_format_t::RGBA8 };
 };
 
 struct backend_target_pass_desc_t {

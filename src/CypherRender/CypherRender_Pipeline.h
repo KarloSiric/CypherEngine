@@ -53,7 +53,7 @@ inline constexpr ::cypher::common::u32 R_MAX_UNIFORM_BLOCK_BINDINGS = 2u;
 inline constexpr ::cypher::common::u32 R_MAX_SAMPLED_TEXTURE_BINDINGS = 2u;
 
 enum class render_sampled_texture_kind_t : ::cypher::common::u8 {
-    SCALAR_2D = 0,       // Active scalar sampler2D; RGBA8 or raw D24 depth.
+    SCALAR_2D = 0,       // Active scalar sampler2D; RGBA8, RGBA16F, or raw D24 depth.
     DEPTH_COMPARE_2D,    // Active sampler2DShadow; D24 and an explicit compare sampler.
     COUNT
 };

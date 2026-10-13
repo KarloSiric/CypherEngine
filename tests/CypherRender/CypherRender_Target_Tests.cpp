@@ -104,10 +104,11 @@ struct target_fixture_t {
         REQUIRE( render::R_TargetSystemInit() == target_error_t::OK );
     }
 
-    render::render_texture_handle_t Color()
+    render::render_texture_handle_t Color(
+        render::render_texture_format_t format = render::render_texture_format_t::RGBA8 )
     {
         const render::render_texture_desc_t desc{
-            32u, 16u, false, false, false, "Target color", true };
+            32u, 16u, false, false, false, "Target color", true, format };
         render::render_texture_handle_t color{};
         REQUIRE( render::R_CreateTexture2D( desc, {}, &color ) == target_error_t::OK );
         return color;
@@ -396,6 +397,38 @@ TEST_CASE( "offscreen passes require a frame, valid clears, and an explicit end"
     REQUIRE( render::R_EndFrame() == target_error_t::OK );
     CHECK( fixture.frameEnds == 1u );
     REQUIRE( render::R_DestroyRenderTarget( target ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( color ) == target_error_t::OK );
+}
+
+TEST_CASE( "RGBA16F targets retain color and reject RGBA8 readback without writing",
+           "[CypherRender][Target][HDR]" )
+{
+    target_fixture_t fixture;
+    fixture.Init();
+    render::tr.info.capabilities |= render::R_CAPABILITY_FLOAT_RENDER_TARGETS;
+    const auto color = fixture.Color( render::render_texture_format_t::RGBA16F );
+    const auto depth = fixture.Depth();
+    render::render_target_handle_t target{};
+    REQUIRE( render::R_CreateRenderTarget( { color, depth }, &target ) == target_error_t::OK );
+    CHECK( fixture.lastTarget.colorFormat == render::render_texture_format_t::RGBA16F );
+    CHECK( fixture.lastTarget.extent.width == 32u );
+    render::render_target_info_t info{};
+    REQUIRE( render::R_GetRenderTargetInfo( target, &info ) == target_error_t::OK );
+    CHECK( info.color.value == color.value );
+    CHECK( info.depth.value == depth.value );
+    CHECK( render::R_DestroyTexture( color ) == target_error_t::ERR_RESOURCE_BUSY );
+
+    render::tr.frameActive = true;
+    std::array<common::byte, 8u> pixels{};
+    pixels.fill( 0xccu );
+    CHECK( render::R_ReadTargetRGBA8( target, { 0u, 0u, 1u, 1u },
+        pixels.data(), pixels.size(), 4u ) == target_error_t::ERR_CAPTURE_UNSUPPORTED );
+    CHECK( fixture.readCalls == 0u );
+    for ( const common::byte pixel : pixels ) CHECK( pixel == 0xccu );
+    render::tr.frameActive = false;
+
+    REQUIRE( render::R_DestroyRenderTarget( target ) == target_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == target_error_t::OK );
     REQUIRE( render::R_DestroyTexture( color ) == target_error_t::OK );
 }
 

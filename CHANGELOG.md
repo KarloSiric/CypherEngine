@@ -61,6 +61,17 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Linear RGBA16F textures can now be created as GPU-only offscreen color
+  attachments when the device reports float render-target support. The
+  OpenGL 4.1 backend allocates `GL_RGBA16F`, and a completed target can be
+  sampled by a later pass. `R_ReadTargetRGBA8` rejects an HDR target without
+  changing caller storage rather than silently clipping it; public/backend
+  contract versions advance to 20/25. Four focused renderer CTests pass,
+  including a native two-pass pixel test that preserves a 4.0 value until an
+  explicit tone-map shader converts it to an offscreen RGBA8 target. The
+  graybox sample also rebuilds and completes 120 hidden frames. It does not
+  use the HDR target yet; float uploads/readback, cooked HDR assets, exposure,
+  and presentation tone mapping remain future work.
 - Graphics pipelines now expose disabled-by-default slope and constant depth
   bias for filled triangles. The OpenGL 4.1 backend applies polygon offset per
   draw, clears it for ordinary draws, and restores a hosted context's offset

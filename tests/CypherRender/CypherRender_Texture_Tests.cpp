@@ -777,6 +777,61 @@ TEST_CASE( "D24 textures require GPU-only depth attachment storage", "[CypherRen
     REQUIRE( render::R_DestroyTexture( depth ) == texture_error_t::OK );
     CHECK_FALSE( render::R_IsTextureValid( depth ) );
 }
+TEST_CASE( "RGBA16F textures require a supported GPU-only linear target",
+           "[CypherRender][Texture][HDR]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    render::render_texture_desc_t desc{};
+    desc.width = 8u;
+    desc.height = 4u;
+    desc.sRGB = false;
+    desc.generateMips = false;
+    desc.repeat = false;
+    desc.renderTarget = true;
+    desc.format = render::render_texture_format_t::RGBA16F;
+    render::render_texture_handle_t texture{ 99u };
+
+    CHECK( render::R_CreateTexture2D( desc, {}, &texture ) ==
+        texture_error_t::ERR_CAPABILITY_MISSING );
+    CHECK( texture.value == 0u );
+    CHECK( fixture.creates == 0u );
+    render::tr.info.capabilities |= render::R_CAPABILITY_FLOAT_RENDER_TARGETS;
+
+    auto invalid = desc;
+    invalid.renderTarget = false;
+    CHECK( render::R_CreateTexture2D( invalid, {}, &texture ) ==
+        texture_error_t::ERR_INVALID_ARGUMENT );
+    invalid = desc;
+    invalid.sRGB = true;
+    CHECK( render::R_CreateTexture2D( invalid, {}, &texture ) ==
+        texture_error_t::ERR_INVALID_ARGUMENT );
+    invalid = desc;
+    invalid.generateMips = true;
+    CHECK( render::R_CreateTexture2D( invalid, {}, &texture ) ==
+        texture_error_t::ERR_INVALID_ARGUMENT );
+    invalid = desc;
+    invalid.repeat = true;
+    CHECK( render::R_CreateTexture2D( invalid, {}, &texture ) ==
+        texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( render::R_CreateTexture2D( desc, { fixture.pixels, sizeof( fixture.pixels ) },
+        &texture ) == texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( render::R_CreateTexture2D( desc, { nullptr, 1u }, &texture ) ==
+        texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( fixture.creates == 0u );
+
+    REQUIRE( render::R_CreateTexture2D( desc, {}, &texture ) == texture_error_t::OK );
+    CHECK( fixture.creates == 1u );
+    CHECK( fixture.captured.format == render::render_texture_format_t::RGBA16F );
+    CHECK( fixture.capturedPixelBytes == 0u );
+    render::render_texture_info_t info{};
+    REQUIRE( render::R_GetTextureInfo( texture, &info ) == texture_error_t::OK );
+    CHECK( info.format == render::render_texture_format_t::RGBA16F );
+    CHECK( info.renderTarget );
+    CHECK_FALSE( info.sRGB );
+    CHECK( info.mipLevels == 1u );
+    REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
+}
 TEST_CASE( "textures retain immutable metadata and invalidate recycled generations", "[CypherRender][Texture]" )
 {
     texture_fixture_t fixture;

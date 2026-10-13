@@ -15,8 +15,8 @@ using render_target_handle_t = render_handle_t;
 inline constexpr render_target_handle_t R_INVALID_TARGET{};
 
 // The caller owns both attachments; the target retains them until destruction.
-// A target needs at least one attachment: linear RGBA8 color, sampleable D24
-// depth, or both. With color alone, it owns a private D24 renderbuffer. Targets
+// A target needs at least one attachment: linear RGBA8/RGBA16F color, sampleable
+// D24 depth, or both. With color alone, it owns a private D24 renderbuffer. Targets
 // are single-sample and fixed-size; recreate attachments to resize.
 struct render_target_desc_t {
     render_texture_handle_t color{};
@@ -61,8 +61,9 @@ CYPHER_NODISCARD render_error_t R_BeginTargetPass(
     const render_target_pass_desc_t &description ) noexcept;
 CYPHER_NODISCARD render_error_t R_EndTargetPass() noexcept;
 
-// Synchronously copies the RGBA8 color attachment to caller-owned storage
-// while a frame is active and no target pass is open. Rows start at the
+// Synchronously copies an RGBA8 color attachment to caller-owned storage
+// while a frame is active and no target pass is open. RGBA16F color targets
+// return ERR_CAPTURE_UNSUPPORTED without touching output. Rows start at the
 // rectangle's bottom edge and advance by rowPitchBytes. Each row contains
 // width * 4 RGBA bytes; padding is left untouched. byteCapacity need only
 // cover the last row's pixels, not the final row's padding. The pitch must be

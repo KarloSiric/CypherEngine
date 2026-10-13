@@ -100,8 +100,8 @@ static_assert( std::is_same_v<
     decltype( &render::R_CreateVertexInput ),
     create_vertex_input_fn_t> );
 static_assert( std::is_same_v<decltype( &render::R_ReadTargetRGBA8 ), read_target_rgba8_fn_t> );
-static_assert( render::R_BACKEND_API_VERSION == 24u );
-static_assert( render::RENDER_API_VERSION == 19u );
+static_assert( render::R_BACKEND_API_VERSION == 25u );
+static_assert( render::RENDER_API_VERSION == 20u );
 
 int main()
 {

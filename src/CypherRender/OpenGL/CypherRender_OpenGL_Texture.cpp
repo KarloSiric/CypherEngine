@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////////
 // CypherEngine Source Code — Copyright (c) 2026 Karlo Siric.
-// Purpose: Creates RGBA8 and D24 images without depending on host pixel-store state.
+// Purpose: Creates RGBA8, RGBA16F, and D24 images without depending on host pixel-store state.
 // This file is proprietary and confidential. See LICENSE for details.
 //////////////////////////////////////////////////////////////////////////
 #include "CypherRender_OpenGL_Texture.h"
@@ -17,7 +17,9 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
     if ( !glState.initialized ) return render_error_t::ERR_NOT_INITIALIZED;
     if ( description.width == 0u || description.height == 0u ) return render_error_t::ERR_INVALID_ARGUMENT;
     if ( description.format >= render_texture_format_t::COUNT ||
-         ( description.format == render_texture_format_t::D24 && !description.renderTarget ) ) {
+         ( ( description.format == render_texture_format_t::D24 ||
+             description.format == render_texture_format_t::RGBA16F ) &&
+           !description.renderTarget ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     if ( description.renderTarget ) {
@@ -33,7 +35,12 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
          description.height > static_cast<::cypher::common::u32>( std::numeric_limits<GLsizei>::max() ) ) {
         return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
     }
-    const auto required = static_cast<::cypher::common::u64>( description.width ) * description.height * 4u;
+    const auto pixels = static_cast<::cypher::common::u64>( description.width ) * description.height;
+    const auto bytesPerPixel = description.format == render_texture_format_t::RGBA16F ? 8u : 4u;
+    if ( pixels > std::numeric_limits<::cypher::common::u64>::max() / bytesPerPixel ) {
+        return render_error_t::ERR_RESOURCE_SIZE_UNSUPPORTED;
+    }
+    const auto required = pixels * bytesPerPixel;
     if ( !description.renderTarget && data.byteSize != required ) return render_error_t::ERR_INVALID_ARGUMENT;
     // Qt and other hosts may leave pixel unpack buffers or non-default row
     // strides bound. Save and neutralize every setting affecting this 2D upload.
@@ -74,6 +81,10 @@ render_error_t GL_CreateTexture2D( const render_texture_desc_t &description,
         glTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24,
             static_cast<GLsizei>( description.width ), static_cast<GLsizei>( description.height ),
             0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr );
+    } else if ( description.format == render_texture_format_t::RGBA16F ) {
+        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA16F,
+            static_cast<GLsizei>( description.width ), static_cast<GLsizei>( description.height ),
+            0, GL_RGBA, GL_HALF_FLOAT, nullptr );
     } else {
         glTexImage2D( GL_TEXTURE_2D, 0, description.sRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8,
             static_cast<GLsizei>( description.width ), static_cast<GLsizei>( description.height ),
