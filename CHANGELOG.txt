@@ -24,6 +24,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- The tile-map preview packs up to 128 device-aligned transform records into a
+  bounded upload and selects each box's record with a uniform-buffer range.
+  Its source passes a C++20 syntax check. Runtime preview validation is pending:
+  the compact build excludes optional tools, and enabling them currently fails
+  at configuration because the local glslang package is absent.
 - Cooked RGBA8 texture adoption uploads fully resident authored mip chains
   level by level without regenerating the offline-filtered pixels. Texture
   info reports a complete chain, and explicit mip samplers can use it. Every

@@ -127,6 +127,9 @@ static_assert( offsetof( preview_transforms_t, projection ) == 128u );
 static_assert( offsetof( preview_transforms_t, tint ) == 192u );
 static_assert( offsetof( preview_transforms_t, uvScale ) == 208u );
 
+constexpr common::usize PREVIEW_TRANSFORM_BATCH_RECORDS = 128u;
+constexpr common::u64 PREVIEW_TRANSFORM_BATCH_MAX_BYTES = 1u * common::CY_MIB;
+
 struct preview_options_t {
     const char *pMapPath{ CYPHER_RENDER_TILE_MAP_PATH };
     const char *pShaderPath{ CYPHER_RENDER_TILE_MAP_SHADER_PATH };
@@ -178,6 +181,9 @@ struct preview_state_t {
     render::render_buffer_handle_t vertices{};
     render::render_buffer_handle_t indices{};
     render::render_buffer_handle_t transforms{};
+    std::vector<common::byte> transformStaging{};
+    common::usize transformStride{ 0u };
+    common::usize transformBatchCapacity{ 0u };
 
     std::unique_ptr<map_snapshot_t> pMap{};
     std::filesystem::file_time_type observedMapWriteTime{};
@@ -646,12 +652,33 @@ bool CreatePreviewResources( preview_state_t &state,
     const char *pShaderPath )
 {
     if ( !LoadShader( pShaderPath, state.shader ) ) return false;
-    const preview_transforms_t initial{
-        math::CY_MAT4_IDENTITY,
-        math::CY_MAT4_IDENTITY,
-        math::CY_MAT4_IDENTITY,
-        { 1.0f, 1.0f, 1.0f, 1.0f }
-    };
+    // One bounded upload contains several per-box records. Each record starts
+    // at the device's uniform-buffer offset alignment so draws can select it
+    // without updating the buffer between boxes.
+    const auto *pInfo = render::R_GetInfo();
+    const common::u64 alignment = pInfo != nullptr
+        ? pInfo->limits.uniformBufferOffsetAlignment : 0u;
+    if ( alignment == 0u ) {
+        std::fprintf( stderr, "Renderer did not report uniform-buffer alignment.\n" );
+        return false;
+    }
+    const common::u64 stride =
+        ( ( sizeof( preview_transforms_t ) + alignment - 1u ) / alignment ) * alignment;
+    if ( stride > PREVIEW_TRANSFORM_BATCH_MAX_BYTES ) {
+        std::fprintf( stderr, "Uniform-buffer alignment exceeds the tile preview batch limit.\n" );
+        return false;
+    }
+    const common::u64 capacity = std::min(
+        static_cast<common::u64>( PREVIEW_TRANSFORM_BATCH_RECORDS ),
+        PREVIEW_TRANSFORM_BATCH_MAX_BYTES / stride );
+    state.transformStride = static_cast<common::usize>( stride );
+    state.transformBatchCapacity = static_cast<common::usize>( capacity );
+    try {
+        state.transformStaging.resize( state.transformStride * state.transformBatchCapacity );
+    } catch ( const std::bad_alloc & ) {
+        std::fprintf( stderr, "Could not allocate tile preview transform staging.\n" );
+        return false;
+    }
     if ( !CreateBuffer( state.vertices,
             PREVIEW_CUBE_VERTICES, sizeof( PREVIEW_CUBE_VERTICES ),
             render::R_BUFFER_USAGE_VERTEX, false,
@@ -661,7 +688,7 @@ bool CreatePreviewResources( preview_state_t &state,
             render::R_BUFFER_USAGE_INDEX, false,
             "Tile preview shared cube indices" ) ||
          !CreateBuffer( state.transforms,
-            &initial, sizeof( initial ),
+            state.transformStaging.data(), state.transformStaging.size(),
             render::R_BUFFER_USAGE_UNIFORM |
                 render::R_BUFFER_USAGE_TRANSFER_DESTINATION,
             true, "Tile preview transform stream" ) ) {
@@ -1001,48 +1028,64 @@ bool DrawMap( preview_state_t &state,
 
     const common::usize nBoxes =
         common::Vector_Count( &state.pMap->geometry.boxes );
-    for ( common::usize iBox = 0u; iBox < nBoxes; ++iBox ) {
-        const tile::tile_map_geometry_box_t &box =
-            state.pMap->geometry.boxes.pData[iBox];
-        preview_transforms_t transforms{};
-        transforms.model = math::Mat4_Multiply(
-            math::Mat4_FromTranslation(
-                { box.centerX, box.centerY, box.centerZ } ),
-            math::Mat4_FromScale(
-                { box.halfExtentX, box.halfExtentY, box.halfExtentZ } ) );
-        transforms.view = view;
-        transforms.projection = projection;
-        const tile::tile_map_material_definition_t material =
-            tile::CypherTileMapMaterial_Resolve( box.nMaterialSlot );
-        const bool bDoor = box.kind ==
-            tile::tile_map_geometry_box_kind_t::DOOR;
-        const float kindScale = box.kind ==
-            tile::tile_map_geometry_box_kind_t::WALL ? 0.82f : 1.0f;
-        transforms.tint[0] = bDoor ? 0.92f : material.colorR * kindScale;
-        transforms.tint[1] = bDoor ? 0.39f : material.colorG * kindScale;
-        transforms.tint[2] = bDoor ? 0.10f : material.colorB * kindScale;
-        transforms.tint[3] = 1.0f;
-        const auto *boundMaterial = bDoor ? nullptr :
-            tile::CypherTileMaterialPreview_Find( state.materials, box.nMaterialSlot );
-        draw.pipeline = boundMaterial != nullptr ? state.materialPipeline : state.pipeline;
-        draw.sampledTextures[0] = boundMaterial != nullptr ? boundMaterial->texture :
-            render::R_INVALID_TEXTURE;
-        if ( boundMaterial != nullptr ) {
-            for ( unsigned int component = 0u; component < 3u; ++component ) {
-                transforms.tint[component] = boundMaterial->tint[component] * kindScale;
+    std::array<const tile::tile_material_preview_record_t *,
+        PREVIEW_TRANSFORM_BATCH_RECORDS> boundMaterials{};
+    for ( common::usize iBatch = 0u; iBatch < nBoxes; ) {
+        const common::usize nBatch = std::min(
+            state.transformBatchCapacity, nBoxes - iBatch );
+        for ( common::usize iRecord = 0u; iRecord < nBatch; ++iRecord ) {
+            const tile::tile_map_geometry_box_t &box =
+                state.pMap->geometry.boxes.pData[iBatch + iRecord];
+            preview_transforms_t transforms{};
+            transforms.model = math::Mat4_Multiply(
+                math::Mat4_FromTranslation(
+                    { box.centerX, box.centerY, box.centerZ } ),
+                math::Mat4_FromScale(
+                    { box.halfExtentX, box.halfExtentY, box.halfExtentZ } ) );
+            transforms.view = view;
+            transforms.projection = projection;
+            const tile::tile_map_material_definition_t material =
+                tile::CypherTileMapMaterial_Resolve( box.nMaterialSlot );
+            const bool bDoor = box.kind ==
+                tile::tile_map_geometry_box_kind_t::DOOR;
+            const float kindScale = box.kind ==
+                tile::tile_map_geometry_box_kind_t::WALL ? 0.82f : 1.0f;
+            transforms.tint[0] = bDoor ? 0.92f : material.colorR * kindScale;
+            transforms.tint[1] = bDoor ? 0.39f : material.colorG * kindScale;
+            transforms.tint[2] = bDoor ? 0.10f : material.colorB * kindScale;
+            transforms.tint[3] = 1.0f;
+            const auto *boundMaterial = bDoor ? nullptr :
+                tile::CypherTileMaterialPreview_Find( state.materials, box.nMaterialSlot );
+            boundMaterials[iRecord] = boundMaterial;
+            if ( boundMaterial != nullptr ) {
+                for ( unsigned int component = 0u; component < 3u; ++component ) {
+                    transforms.tint[component] = boundMaterial->tint[component] * kindScale;
+                }
+                transforms.tint[3] = boundMaterial->tint[3];
+                transforms.uvScale[0] = boundMaterial->uvScale[0];
+                transforms.uvScale[1] = boundMaterial->uvScale[1];
             }
-            transforms.tint[3] = boundMaterial->tint[3];
-            transforms.uvScale[0] = boundMaterial->uvScale[0];
-            transforms.uvScale[1] = boundMaterial->uvScale[1];
+            std::memcpy( state.transformStaging.data() + iRecord * state.transformStride,
+                &transforms, sizeof( transforms ) );
         }
         if ( !CheckRender( render::R_UpdateBuffer(
                  state.transforms, 0u,
-                 { &transforms, sizeof( transforms ) } ),
-                 "Upload tile-map box transform" ) ||
-             !CheckRender( render::R_DrawIndexed( draw ),
-                 "Draw tile-map box" ) ) {
+                 { state.transformStaging.data(), nBatch * state.transformStride } ),
+                 "Upload tile-map transform batch" ) ) {
             return false;
         }
+        for ( common::usize iRecord = 0u; iRecord < nBatch; ++iRecord ) {
+            const auto *boundMaterial = boundMaterials[iRecord];
+            draw.pipeline = boundMaterial != nullptr ? state.materialPipeline : state.pipeline;
+            draw.sampledTextures[0] = boundMaterial != nullptr ? boundMaterial->texture :
+                render::R_INVALID_TEXTURE;
+            draw.uniformRanges[0] = {
+                iRecord * state.transformStride, sizeof( preview_transforms_t ) };
+            if ( !CheckRender( render::R_DrawIndexed( draw ), "Draw tile-map box" ) ) {
+                return false;
+            }
+        }
+        iBatch += nBatch;
     }
     return true;
 }
