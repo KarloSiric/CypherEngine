@@ -3424,13 +3424,13 @@ void CypherTileEditorMainWindow::previewMap()
         QStringLiteral( "--camera-slow-multiplier" ), QString::number( m_preferences.cameraSlowMultiplier ) } );
     if ( m_preferences.cameraInvertWheel ) arguments.append( QStringLiteral( "--camera-invert-wheel" ) );
     const QString relativeShader =
-        QStringLiteral( "resources/render_smoke/cube.cyshader_c" );
+        QStringLiteral( "resources/render_smoke/tile_blockout.cyshader_c" );
     const QStringList shaderCandidates{
         applicationDirectory.filePath( relativeShader ),
         applicationDirectory.absoluteFilePath(
             QStringLiteral( "../../../" ) + relativeShader ),
         applicationDirectory.absoluteFilePath(
-            QStringLiteral( "../Resources/render_smoke/cube.cyshader_c" ) )
+            QStringLiteral( "../Resources/render_smoke/tile_blockout.cyshader_c" ) )
     };
     QString shaderPath;
     for ( const QString &candidate : shaderCandidates ) {

@@ -25,6 +25,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- The tile-map preview's untextured fallback now cooks and stages its own
+  OpenGL 4.1 shader with the existing 208-byte `Transforms` block. It no longer
+  points at the cube sample shader, whose split view/object blocks and sampled
+  texture do not match the preview. The preview default and both tile editor
+  lookup paths use the dedicated shader; the separate textured material reload
+  path is unchanged. The installed resource compiler cooks and validates the
+  shader without diagnostics. Runtime preview was not exercised because the
+  compact `build-mason` tree has tile editor support disabled.
 - Uniform-batch append now snapshots overlapping source bytes from its exposed
   staging storage before clearing alignment padding. A focused regression
   covers source overlap with both the gap and destination, uploaded bytes,

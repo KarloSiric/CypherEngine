@@ -51,7 +51,7 @@
 #include <vector>
 
 #ifndef CYPHER_RENDER_TILE_MAP_SHADER_PATH
-    #define CYPHER_RENDER_TILE_MAP_SHADER_PATH "cooked/render_smoke/cube.cyshader_c"
+    #define CYPHER_RENDER_TILE_MAP_SHADER_PATH "cooked/render_smoke/tile_blockout.cyshader_c"
 #endif
 
 #ifndef CYPHER_RENDER_TILE_MAP_PATH
@@ -112,8 +112,9 @@ constexpr common::u16 PREVIEW_CUBE_INDICES[] = {
     16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23
 };
 
-// The first 208 bytes match cube.cyshader_c. tile_surface.cyshader_c extends
-// that std140 Transforms block with uvScale; both pipelines share this buffer.
+// The first 208 bytes match tile_blockout.cyshader_c. The textured
+// tile_surface.cyshader_c extends this std140 block with uvScale, so both
+// pipelines can share the same per-box buffer.
 struct alignas( 16 ) preview_transforms_t {
     math::mat4_t model;
     math::mat4_t view;

@@ -3064,6 +3064,8 @@ endif()
 # transforms and a shared cube mesh. This target therefore proves the bridge
 # without teaching CypherRender how to parse editor documents.
 if (CYPHERENGINE_BUILD_TILE_EDITOR AND TARGET CypherTileMapCore)
+    set(CYPHER_TILE_MAP_PREVIEW_SHADER
+        "${CMAKE_BINARY_DIR}/cooked/render_smoke/tile_blockout.cyshader_c")
     add_executable(cypher_tile_map_preview
         "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_TileMap.cpp"
     )
@@ -3075,21 +3077,36 @@ if (CYPHERENGINE_BUILD_TILE_EDITOR AND TARGET CypherTileMapCore)
         Cypher::TileMapCore
     )
     target_compile_definitions(cypher_tile_map_preview PRIVATE
-        CYPHER_RENDER_TILE_MAP_SHADER_PATH="${CYPHER_RENDER_CUBE_SHADER}"
+        CYPHER_RENDER_TILE_MAP_SHADER_PATH="${CYPHER_TILE_MAP_PREVIEW_SHADER}"
         CYPHER_RENDER_TILE_MAP_PATH="${CYPHERENGINE_ROOT_DIR}/assets/tilemaps/tile_editor_demo.cytilemap"
     )
-    if (TARGET cypher_render_cube_shader)
-        add_dependencies(cypher_tile_map_preview cypher_render_cube_shader)
+    if (TARGET CypherResourceCompiler)
+        add_custom_command(
+            OUTPUT "${CYPHER_TILE_MAP_PREVIEW_SHADER}"
+            COMMAND $<TARGET_FILE:CypherResourceCompiler> compile
+                --source-root "${CYPHERENGINE_ROOT_DIR}/assets"
+                --output-root "${CMAKE_BINARY_DIR}/cooked"
+                --color never --progress none render_smoke/tile_blockout.cyshader
+            DEPENDS CypherResourceCompiler
+                "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/tile_blockout.cyshader"
+                "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/tile_blockout.vert"
+                "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/tile_blockout.frag"
+            COMMENT "Cooking the tile-map blockout shader"
+            VERBATIM
+        )
+        add_custom_target(cypher_tile_map_preview_shader
+            DEPENDS "${CYPHER_TILE_MAP_PREVIEW_SHADER}")
+        add_dependencies(cypher_tile_map_preview cypher_tile_map_preview_shader)
         set(CYPHER_TILE_MAP_PREVIEW_STAGED_SHADER
-            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/render_smoke/cube.cyshader_c")
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/render_smoke/tile_blockout.cyshader_c")
         add_custom_command(
             OUTPUT "${CYPHER_TILE_MAP_PREVIEW_STAGED_SHADER}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory
                 "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/render_smoke"
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                "${CYPHER_RENDER_CUBE_SHADER}"
+                "${CYPHER_TILE_MAP_PREVIEW_SHADER}"
                 "${CYPHER_TILE_MAP_PREVIEW_STAGED_SHADER}"
-            DEPENDS "${CYPHER_RENDER_CUBE_SHADER}"
+            DEPENDS "${CYPHER_TILE_MAP_PREVIEW_SHADER}"
             COMMENT "Staging the tile-map preview shader"
             VERBATIM
         )

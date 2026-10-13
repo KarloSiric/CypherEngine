@@ -77,6 +77,11 @@ To run the offline step explicitly:
 
 The example's default cooked path is supplied by CMake. Cooked output lives in
 the build directory; source control owns the authored recipe and stage files.
+The separate tile-map preview uses `render_smoke/tile_blockout.cyshader` for its
+untextured fallback. That shader preserves the preview's single 208-byte
+`Transforms` block. It cannot use this cube shader, which declares separate
+view/object blocks and a texture sampler. Textured tile materials continue to
+use their own `tile_surface` shader.
 
 ## Follow the data
 

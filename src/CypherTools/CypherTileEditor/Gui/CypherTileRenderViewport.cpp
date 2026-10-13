@@ -1757,13 +1757,13 @@ QString CypherTileRenderViewport::findCookedShaderPath() const
 {
     const QDir applicationDirectory( QCoreApplication::applicationDirPath() );
     const QString relative =
-        QStringLiteral( "resources/render_smoke/cube.cyshader_c" );
+        QStringLiteral( "resources/render_smoke/tile_blockout.cyshader_c" );
     const QStringList candidates{
         applicationDirectory.filePath( relative ),
         applicationDirectory.absoluteFilePath(
             QStringLiteral( "../../../" ) + relative ),
         applicationDirectory.absoluteFilePath(
-            QStringLiteral( "../Resources/render_smoke/cube.cyshader_c" ) )
+            QStringLiteral( "../Resources/render_smoke/tile_blockout.cyshader_c" ) )
     };
     for ( const QString &candidate : candidates ) {
         const QFileInfo file( candidate );
