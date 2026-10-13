@@ -233,6 +233,67 @@ TEST_CASE( "uniform batch checks device-aligned capacity and record extent befor
     CHECK( fixture.uploadedSize == 320u );
 }
 
+TEST_CASE( "uniform batch snapshots overlapping staging bytes before zeroing padding",
+    "[CypherRender][UniformBatch]" )
+{
+    uniform_batch_fixture_t fixture{};
+    fixture.Init();
+    REQUIRE( render::R_CreateUniformBatch( 512u, &fixture.allocator,
+                 &fixture.batch ) == render::render_error_t::OK );
+    common::byte first[64]{};
+    for ( common::u32 i = 0u; i < sizeof( first ); ++i ) {
+        first[i] = static_cast<common::byte>( i + 1u );
+    }
+    render::render_uniform_record_t firstRecord{};
+    REQUIRE( render::R_AppendUniformRecord( &fixture.batch, first,
+                 sizeof( first ), &firstRecord ) == render::render_error_t::OK );
+
+    // The source straddles the alignment gap and its own destination. Copying
+    // after clearing the gap loses eight source bytes; memcpy also overlaps.
+    constexpr common::usize sourceOffset = 248u;
+    constexpr common::usize copySize = 32u;
+    for ( common::usize i = 0u; i < copySize; ++i ) {
+        fixture.batch.staging[sourceOffset + i] =
+            static_cast<common::byte>( 0x80u + i );
+    }
+    common::byte expected[copySize]{};
+    std::memcpy( expected, fixture.batch.staging + sourceOffset, copySize );
+
+    render::render_uniform_record_t secondRecord{};
+    REQUIRE( render::R_AppendUniformRecord( &fixture.batch,
+                 fixture.batch.staging + sourceOffset, copySize,
+                 &secondRecord ) == render::render_error_t::OK );
+    CHECK( firstRecord.offset == 0u );
+    CHECK( secondRecord.offset == 256u );
+    CHECK( fixture.batch.usedBytes == 288u );
+    CHECK( std::memcmp( fixture.batch.staging + secondRecord.offset,
+        expected, copySize ) == 0 );
+    CHECK( std::memcmp( fixture.batch.staging, first,
+        sizeof( first ) ) == 0 );
+    for ( common::usize i = sizeof( first ); i < secondRecord.offset; ++i ) {
+        CHECK( fixture.batch.staging[i] == 0u );
+    }
+
+    // An append that cannot fit must not clear padding or rewrite source data.
+    common::byte stagingBeforeFailure[512]{};
+    std::memcpy( stagingBeforeFailure, fixture.batch.staging,
+        sizeof( stagingBeforeFailure ) );
+    render::render_uniform_record_t rejected{ secondRecord };
+    CHECK( render::R_AppendUniformRecord( &fixture.batch,
+               fixture.batch.staging + sourceOffset, copySize,
+               &rejected ) == render::render_error_t::ERR_COMMAND_CAPACITY_EXCEEDED );
+    CHECK( rejected.buffer.value == 0u );
+    CHECK( fixture.batch.usedBytes == 288u );
+    CHECK( std::memcmp( fixture.batch.staging, stagingBeforeFailure,
+        sizeof( stagingBeforeFailure ) ) == 0 );
+
+    REQUIRE( render::R_CommitUniformBatch( &fixture.batch ) ==
+        render::render_error_t::OK );
+    CHECK( fixture.uploadedSize == 288u );
+    CHECK( std::memcmp( fixture.uploaded + secondRecord.offset,
+        expected, copySize ) == 0 );
+}
+
 TEST_CASE( "reset invalidates committed uniform record tokens even when offsets are reused",
     "[CypherRender][UniformBatch]" )
 {

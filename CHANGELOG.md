@@ -25,6 +25,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Uniform-batch append now snapshots overlapping source bytes from its exposed
+  staging storage before clearing alignment padding. A focused regression
+  covers source overlap with both the gap and destination, uploaded bytes,
+  zeroed padding, and unchanged state on capacity failure; its test passes.
 - OpenGL draws now disable inherited polygon line offset and line smoothing;
   hosted frames restore both flags when they end. The hosted OpenGL smoke test
   seeds those states, checks filled and wireframe draws, and verifies restoration.

@@ -24,6 +24,9 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Fixed
+- Uniform-batch append snapshots overlapping staging-source bytes before it
+  clears alignment padding. A focused regression checks overlap, uploaded
+  bytes, zeroed padding and unchanged state on capacity failure; the test passes.
 - OpenGL draws disable inherited polygon line offset and line smoothing;
   hosted frames restore both. The hosted smoke seeds those states and checks
   both filled and wireframe draws plus restoration. Focused tests pass locally.

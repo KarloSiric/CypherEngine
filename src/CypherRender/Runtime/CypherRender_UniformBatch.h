@@ -46,9 +46,10 @@ CYPHER_NODISCARD render_error_t R_CreateUniformBatch(
     const ::cypher::common::allocator_t *allocator,
     CY_OUT render_uniform_batch_t *batchOut ) noexcept;
 
-// Copies borrowed bytes immediately. Each record begins at the device's
-// uniform-buffer offset alignment, and must fit one uniform block. Failure
-// leaves the batch cursor unchanged and clears recordOut.
+// Copies borrowed bytes immediately, including when the source overlaps this
+// batch's staging buffer. Each record begins at the device's uniform-buffer
+// offset alignment, and must fit one uniform block. Failure leaves the batch
+// cursor unchanged and clears recordOut.
 CYPHER_NODISCARD render_error_t R_AppendUniformRecord(
     render_uniform_batch_t *batch,
     const void *bytes,

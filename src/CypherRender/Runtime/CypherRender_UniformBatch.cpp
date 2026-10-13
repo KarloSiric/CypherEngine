@@ -117,14 +117,16 @@ render_error_t R_AppendUniformRecord(
     if ( byteSize > batch->capacityBytes - offset ) {
         return render_error_t::ERR_COMMAND_CAPACITY_EXCEEDED;
     }
+    // The source may point into staging, including the gap about to be cleared
+    // or the destination itself. Move its original bytes before zeroing the gap.
+    std::memmove( batch->staging + static_cast<common::usize>( offset ),
+        bytes, static_cast<common::usize>( byteSize ) );
     // Commit uploads the entire populated span, including the alignment gap.
     // Initialize that gap rather than copying old allocator contents to the GPU.
     if ( padding != 0u ) {
         std::memset( batch->staging + static_cast<common::usize>( batch->usedBytes ),
             0, static_cast<common::usize>( padding ) );
     }
-    std::memcpy( batch->staging + static_cast<common::usize>( offset ),
-        bytes, static_cast<common::usize>( byteSize ) );
     batch->usedBytes = offset + byteSize;
     *recordOut = { batch->buffer, offset, byteSize, batch->generation };
     return render_error_t::OK;
