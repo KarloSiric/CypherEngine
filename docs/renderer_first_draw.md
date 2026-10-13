@@ -306,7 +306,7 @@ path. Interactive camera input can move the view; the object layout remains
 hardcoded. There is no scene asset loading, spatial acceleration, general
 material asset loading or a general pass scheduler.
 
-## Opaque World draw preparation
+## World camera draw preparation
 
 `CypherRenderWorldRuntime` is a separate integration library above both
 CypherWorld and the renderer. It reads an active, copied World submission and
@@ -326,14 +326,27 @@ inverse matrix. A negative determinant reverses triangle winding, so opaque
 World draws select a second material pipeline with the opposite front-face
 sense. Both pipelines retain the same shader and all other raster, depth, and
 blend settings. The reversed sense also preserves `gl_FrontFacing` for
-two-sided shaders. A zero determinant remains unsupported. This path handles
-opaque camera draws with a model-only object uniform record. It does not
-replace the graybox sample's separate shadow, translucent, additive, or
-normal-matrix policy, and it is not an authored map or mesh loader. The focused
-CPU test covers visible objects sharing a mesh, different material slots,
-mirrored and small transforms, a culled object, and rejection paths. The native
-OpenGL smoke checks a submitted cooked-material object's model transform and
-mirrored front-face behavior through framebuffer pixels.
+two-sided shaders. A zero determinant remains unsupported.
+
+`R_PrepareOpaqueWorldDraws` remains the small opaque-only entry point.
+`R_PrepareWorldCameraDraws` accepts OPAQUE, BLEND, and ADDITIVE cooked material
+bundles and returns three contiguous draw spans: opaque in submission order,
+BLEND far-to-near, then ADDITIVE in submission order. It checks each selected
+pipeline's blend, depth-test, and depth-write state before staging; negative
+determinants use the material's reversed-winding pipeline in every accepted
+pass. The caller supplies a finite affine camera-view matrix matching the
+World query, one scratch scene item and one scratch index per visible object,
+and a model-uniform batch. Classification uses the existing CPU scene-pass
+sorter; one upload carries the model matrices in final draw order. A visible
+BLEND box crossing the camera plane sorts nearest. A BLEND box wholly behind
+the camera is rejected. Sorting by one world AABB center is approximate for
+intersecting translucent objects and relies on caller-maintained bounds.
+MASK and shadows remain separate because their cutoff and light-view contracts
+are not established in this adapter. This path does not replace the graybox
+sample's shadow or normal-matrix policy, and it is not an authored map or mesh
+loader. CPU tests cover ordering, mirrored BLEND, camera-plane bounds, pipeline
+mismatch, and upload retry behavior. Native OpenGL smoke verifies both mirrored
+front-face behavior and cooked opaque/BLEND ordering through framebuffer pixels.
 
 ## Ordered draw list
 

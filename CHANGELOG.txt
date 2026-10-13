@@ -23,6 +23,18 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 [Unreleased] - 2026-10-13
 -------------------------
 
+Added
+- World camera draw preparation now resolves a visible submission into
+  opaque, far-to-near BLEND and ADDITIVE spans from cooked material bundles.
+  It validates selected pipeline state and mirrored winding before one aligned
+  model-uniform upload in final draw order. Invalid inputs leave public draws
+  and counts unchanged; upload failure leaves a sealed batch for retry.
+  Focused World-draw, scene-pass, material-bridge and native OpenGL 4.1 smoke
+  tests pass locally, including transparent-order and depth-write pixels.
+  Sort depth uses caller-maintained world AABBs and a matching camera view;
+  intersecting translucent objects remain approximate. MASK, shadows and
+  editor integration remain separate work.
+
 Fixed
 - Opaque World draw preparation accepts finite, nonsingular mirrored
   transforms. Cooked material adoption owns a second, winding-reversed

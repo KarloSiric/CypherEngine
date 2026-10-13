@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////////
 // CypherEngine Source Code — Copyright (c) 2026 Karlo Siric.
-// Purpose: Prepares visible World objects as backend-neutral opaque draws.
+// Purpose: Prepares visible World objects as backend-neutral camera draws.
 // This file is proprietary and confidential. See LICENSE for details.
 //////////////////////////////////////////////////////////////////////////
 
@@ -10,6 +10,7 @@
 
 #include "CypherRender_MaterialBridge.h"
 #include "CypherRender_MeshBridge.h"
+#include "CypherRender_ScenePasses.h"
 #include "CypherRender_UniformBatch.h"
 #include "CypherWorld/Submission/CypherWorld_Submission.h"
 
@@ -58,6 +59,56 @@ CYPHER_NODISCARD render_error_t R_PrepareOpaqueWorldDraws(
     CY_OUT render_world_opaque_draw_t *output,
     ::cypher::common::u32 outputCapacity,
     CY_OUT ::cypher::common::u32 *outCount ) noexcept;
+
+// Prepares one visible World submission in camera draw order. Callers own the
+// view matrix, borrowed resource tables, uniform batch, and disposable scratch.
+// The viewFromWorld matrix must be a finite affine right-handed camera view
+// matching the World submission. BLEND order uses each world-space AABB center's
+// positive view depth; a visible box crossing the eye sorts at the near end.
+// Intersecting translucent surfaces cannot be ordered exactly by one object
+// depth. MASK is not yet accepted because the alpha-cutoff shader convention is
+// not established for World submissions.
+struct render_world_camera_prepare_desc_t {
+    const ::cypher::engine::world::world_submission_t *submission{ nullptr };
+    ::cypher::engine::world::world_submission_token_t token{};
+    const render_static_mesh_bundle_t *meshes{ nullptr };
+    ::cypher::common::u32 meshCount{ 0u };
+    const render_material_bundle_t *materials{ nullptr };
+    ::cypher::common::u32 materialCount{ 0u };
+    render_uniform_batch_t *modelUniforms{ nullptr };
+    ::cypher::common::u32 modelUniformSlot{ 0u };
+    render_draw_indexed_desc_t drawTemplate{};
+    ::cypher::math::mat4_t viewFromWorld{ ::cypher::math::CY_MAT4_IDENTITY };
+    render_scene_item_t *sceneItemsScratch{ nullptr };
+    ::cypher::common::u32 sceneItemCapacity{ 0u };
+    ::cypher::common::u32 *passIndicesScratch{ nullptr };
+    ::cypher::common::u32 passIndexCapacity{ 0u };
+};
+
+using render_world_camera_draw_t = render_world_opaque_draw_t;
+
+struct render_world_camera_pass_counts_t {
+    ::cypher::common::u32 opaqueCount{ 0u };
+    ::cypher::common::u32 blendCount{ 0u };
+    ::cypher::common::u32 additiveCount{ 0u };
+};
+
+// Allocation-free and single-threaded on the renderer thread. Scratch needs
+// capacity for every visible object in both arrays and must not overlap the
+// public output, resource tables, or uniform staging storage. On success,
+// output has opaque draws in input order, BLEND far-to-near with stable ties,
+// then ADDITIVE in input order. The three counts partition that output. All
+// visible records, resource handles, pipeline state, scratch/output capacity,
+// and model storage are preflighted before staging. Validation failure leaves
+// public output/counts and the batch unchanged; scratch may be modified. A
+// failed upload leaves output/counts unchanged while the staged batch is sealed
+// for retry or reset, matching R_PrepareOpaqueWorldDraws. Keep all referenced
+// bundles and the batch alive until the resulting draws have executed.
+CYPHER_NODISCARD render_error_t R_PrepareWorldCameraDraws(
+    const render_world_camera_prepare_desc_t &description,
+    CY_OUT render_world_camera_draw_t *output,
+    ::cypher::common::u32 outputCapacity,
+    CY_OUT render_world_camera_pass_counts_t *outCounts ) noexcept;
 
 } // namespace cypher::engine::render
 

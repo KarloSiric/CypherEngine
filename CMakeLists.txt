@@ -762,7 +762,7 @@ target_include_directories(CypherWorldRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
 target_link_libraries(CypherWorldRuntime
     PUBLIC Cypher::Math Cypher::CommonTier1)
 
-# Host-side bridge from a copied World view to opaque indexed draw records.
+# Host-side bridge from a copied World view to ordered camera draw records.
 # CypherRender and CypherWorld remain independent of one another.
 add_library(CypherRenderWorldRuntime STATIC
     "${CYPHERENGINE_SRC_DIR}/CypherRender/Runtime/CypherRender_WorldDraw.cpp"
@@ -776,6 +776,7 @@ target_link_libraries(CypherRenderWorldRuntime
         Cypher::RenderMeshRuntime
         Cypher::RenderMaterialRuntime
         Cypher::RenderUniformRuntime
+        Cypher::RenderScenePassesRuntime
 )
 if (NOT MSVC)
     # Expansion/Predicates rely on TwoSum/TwoDiff/TwoProduct being exact under

@@ -46,10 +46,10 @@ struct world_draw_fixture_t {
     common::byte uploaded[1024]{};
     common::u64 uploadedSize{ 0u };
     render::render_static_mesh_bundle_t mesh{};
-    render::render_material_bundle_t materials[2]{};
+    render::render_material_bundle_t materials[4]{};
     render::render_shader_handle_t shader{};
-    render::render_pipeline_handle_t pipelines[2]{};
-    render::render_pipeline_handle_t mirroredPipelines[2]{};
+    render::render_pipeline_handle_t pipelines[4]{};
+    render::render_pipeline_handle_t mirroredPipelines[4]{};
     render::render_buffer_handle_t viewBuffer{};
     render::render_buffer_handle_t materialBuffer{};
     render::render_uniform_batch_t batch{};
@@ -214,6 +214,22 @@ struct world_draw_fixture_t {
         return id;
     }
 
+    world::world_object_id_t AddAtZ(
+        common::u32 materialSlot, common::f32 x, common::f32 z )
+    {
+        const auto id = Add( 0u, materialSlot, x );
+        world::world_object_t object{};
+        REQUIRE( world::World_GetObject( pWorld, id, &object ) ==
+            world::world_error_t::OK );
+        object.localToWorld = math::Affine3_FromTranslation( { x, 0.0f, z } );
+        object.worldBounds = math::Aabb_Make(
+            { x - 1.0f, -1.0f, z - 1.0f },
+            { x + 1.0f, 1.0f, z + 1.0f } );
+        REQUIRE( world::World_UpdateObject( pWorld, id, &object ) ==
+            world::world_error_t::OK );
+        return id;
+    }
+
     void Build()
     {
         const auto query = MakeView();
@@ -234,6 +250,51 @@ struct world_draw_fixture_t {
         desc.modelUniforms = &batch;
         desc.modelUniformSlot = 1u;
         desc.drawTemplate.uniformBuffers[0] = viewBuffer;
+        return desc;
+    }
+
+    void AddCameraMaterial( common::u32 slot,
+        common::render_material_alpha_mode_t alphaMode )
+    {
+        REQUIRE( slot >= 2u );
+        REQUIRE( slot < 4u );
+        render::render_vertex_input_info_t input{};
+        REQUIRE( render::R_GetVertexInputInfo( mesh.vertexInput, &input ) ==
+            render::render_error_t::OK );
+        render::render_pipeline_desc_t pipeline{};
+        pipeline.shader = shader;
+        pipeline.vertexLayout = input.layout;
+        pipeline.uniformBlockCount = 2u;
+        pipeline.uniformBlocks[0] = { "View", 64u };
+        pipeline.uniformBlocks[1] = { "Model", 64u };
+        pipeline.depthWrite = false;
+        pipeline.blendMode = alphaMode == common::render_material_alpha_mode_t::BLEND
+            ? render::render_blend_mode_t::STRAIGHT_ALPHA
+            : render::render_blend_mode_t::ADDITIVE;
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &pipelines[slot] ) == render::render_error_t::OK );
+        pipeline.frontCounterClockwise = false;
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &mirroredPipelines[slot] ) == render::render_error_t::OK );
+        materials[slot].shader = shader;
+        materials[slot].pipeline = pipelines[slot];
+        materials[slot].mirroredPipeline = mirroredPipelines[slot];
+        materials[slot].alphaMode = alphaMode;
+    }
+
+    render::render_world_camera_prepare_desc_t CameraDescription()
+    {
+        const auto base = Description();
+        render::render_world_camera_prepare_desc_t desc{};
+        desc.submission = base.submission;
+        desc.token = base.token;
+        desc.meshes = base.meshes;
+        desc.meshCount = base.meshCount;
+        desc.materials = base.materials;
+        desc.materialCount = 4u;
+        desc.modelUniforms = base.modelUniforms;
+        desc.modelUniformSlot = base.modelUniformSlot;
+        desc.drawTemplate = base.drawTemplate;
         return desc;
     }
 
@@ -566,6 +627,184 @@ TEST_CASE( "World draw preflight rejects a missing mirrored pipeline without sta
     CHECK( fixture.batch.usedBytes == 0u );
     CHECK_FALSE( fixture.batch.sealed );
     CHECK( fixture.uploadCalls == 0u );
+}
+
+TEST_CASE( "World camera draws place opaque, far-to-near blend, then additive",
+    "[CypherRender][WorldDraw][CameraPasses]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.AddCameraMaterial( 2u, common::render_material_alpha_mode_t::BLEND );
+    fixture.AddCameraMaterial( 3u, common::render_material_alpha_mode_t::ADDITIVE );
+    REQUIRE( render::R_DestroyUniformBatch( &fixture.batch ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CreateUniformBatch(
+        1024u, common::Allocator_GetSystem(), &fixture.batch ) ==
+        render::render_error_t::OK );
+
+    const auto opaque = fixture.AddAtZ( 0u, 0.0f, -4.0f );
+    const auto nearBlend = fixture.AddAtZ( 2u, 4.0f, -3.0f );
+    const auto farBlend = fixture.AddAtZ( 2u, 8.0f, -9.0f );
+    const auto additive = fixture.AddAtZ( 3u, 12.0f, -5.0f );
+    world::world_object_t mirroredObject{};
+    REQUIRE( world::World_GetObject(
+        fixture.pWorld, farBlend, &mirroredObject ) == world::world_error_t::OK );
+    mirroredObject.localToWorld = math::Affine3_Multiply(
+        math::Affine3_FromTranslation( { 8.0f, 0.0f, -9.0f } ),
+        math::Affine3_FromScale( { -1.0f, 1.0f, 1.0f } ) );
+    REQUIRE( world::World_UpdateObject(
+        fixture.pWorld, farBlend, &mirroredObject ) == world::world_error_t::OK );
+    fixture.Build();
+
+    render::render_scene_item_t sceneItems[4]{};
+    common::u32 passIndices[4]{};
+    auto desc = fixture.CameraDescription();
+    desc.sceneItemsScratch = sceneItems;
+    desc.sceneItemCapacity = 4u;
+    desc.passIndicesScratch = passIndices;
+    desc.passIndexCapacity = 4u;
+    render::render_world_camera_draw_t output[4]{};
+    render::render_world_camera_pass_counts_t counts{};
+    REQUIRE( render::R_PrepareWorldCameraDraws(
+        desc, output, 4u, &counts ) == render::render_error_t::OK );
+    CHECK( counts.opaqueCount == 1u );
+    CHECK( counts.blendCount == 2u );
+    CHECK( counts.additiveCount == 1u );
+    CHECK( output[0].objectId.slot.value == opaque.slot.value );
+    CHECK( output[1].objectId.slot.value == farBlend.slot.value );
+    CHECK( output[2].objectId.slot.value == nearBlend.slot.value );
+    CHECK( output[3].objectId.slot.value == additive.slot.value );
+    CHECK( output[0].draw.pipeline.value == fixture.pipelines[0].value );
+    CHECK( output[1].draw.pipeline.value == fixture.mirroredPipelines[2].value );
+    CHECK( output[2].draw.pipeline.value == fixture.pipelines[2].value );
+    CHECK( output[3].draw.pipeline.value == fixture.pipelines[3].value );
+    CHECK( fixture.uploadCalls == 1u );
+    CHECK( fixture.uploadedSize == 832u );
+    const common::f32 expectedZ[4]{ -4.0f, -9.0f, -3.0f, -5.0f };
+    for ( common::u32 i = 0u; i < 4u; ++i ) {
+        CHECK( output[i].draw.uniformRanges[1].offset == i * 256u );
+        math::mat4_t model{};
+        std::memcpy( &model, fixture.uploaded + i * 256u, sizeof( model ) );
+        CHECK( model.m[14] == expectedZ[i] );
+    }
+}
+
+TEST_CASE( "World camera pass preflight rejects mismatched alpha pipelines atomically",
+    "[CypherRender][WorldDraw][CameraPasses]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.AddCameraMaterial( 2u, common::render_material_alpha_mode_t::BLEND );
+    (void)fixture.AddAtZ( 2u, 0.0f, -4.0f );
+    fixture.Build();
+    // A BLEND material must not borrow an opaque depth-writing pipeline.
+    fixture.materials[2].pipeline = fixture.pipelines[0];
+    render::render_scene_item_t sceneItems[1]{};
+    common::u32 passIndices[1]{};
+    auto desc = fixture.CameraDescription();
+    desc.sceneItemsScratch = sceneItems;
+    desc.sceneItemCapacity = 1u;
+    desc.passIndicesScratch = passIndices;
+    desc.passIndexCapacity = 1u;
+    render::render_world_camera_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    render::render_world_camera_pass_counts_t counts{ 77u, 88u, 99u };
+    CHECK( render::R_PrepareWorldCameraDraws(
+        desc, &output, 1u, &counts ) == render::render_error_t::ERR_BINDING_MISMATCH );
+    CHECK( counts.opaqueCount == 77u );
+    CHECK( counts.blendCount == 88u );
+    CHECK( counts.additiveCount == 99u );
+    CHECK( output.draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
+TEST_CASE( "World camera draws retain visible blend boxes crossing the eye",
+    "[CypherRender][WorldDraw][CameraPasses]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.AddCameraMaterial( 2u, common::render_material_alpha_mode_t::BLEND );
+    const auto crossing = fixture.AddAtZ( 2u, 0.0f, 0.2f );
+    const auto far = fixture.AddAtZ( 2u, 4.0f, -4.0f );
+    fixture.Build();
+    render::render_scene_item_t sceneItems[2]{};
+    common::u32 passIndices[2]{};
+    auto desc = fixture.CameraDescription();
+    desc.sceneItemsScratch = sceneItems;
+    desc.sceneItemCapacity = 2u;
+    desc.passIndicesScratch = passIndices;
+    desc.passIndexCapacity = 2u;
+    render::render_world_camera_draw_t output[2]{};
+    render::render_world_camera_pass_counts_t counts{};
+    REQUIRE( render::R_PrepareWorldCameraDraws(
+        desc, output, 2u, &counts ) == render::render_error_t::OK );
+    CHECK( counts.opaqueCount == 0u );
+    CHECK( counts.blendCount == 2u );
+    CHECK( counts.additiveCount == 0u );
+    CHECK( output[0].objectId.slot.value == far.slot.value );
+    CHECK( output[1].objectId.slot.value == crossing.slot.value );
+    CHECK( sceneItems[0].cameraDistance > 0.0f );
+    CHECK( sceneItems[0].cameraDistance < sceneItems[1].cameraDistance );
+}
+
+TEST_CASE( "World camera pass rejects behind-eye blend and preserves public state",
+    "[CypherRender][WorldDraw][CameraPasses]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.AddCameraMaterial( 2u, common::render_material_alpha_mode_t::BLEND );
+    (void)fixture.AddAtZ( 2u, 0.0f, 4.0f );
+    fixture.Build();
+    render::render_scene_item_t sceneItem{};
+    common::u32 passIndex{};
+    auto desc = fixture.CameraDescription();
+    desc.sceneItemsScratch = &sceneItem;
+    desc.sceneItemCapacity = 1u;
+    desc.passIndicesScratch = &passIndex;
+    desc.passIndexCapacity = 1u;
+    render::render_world_camera_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    render::render_world_camera_pass_counts_t counts{ 77u, 88u, 99u };
+    CHECK( render::R_PrepareWorldCameraDraws(
+        desc, &output, 1u, &counts ) == render::render_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( counts.blendCount == 88u );
+    CHECK( output.draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
+TEST_CASE( "World camera upload failure leaves output unpublished and batch retryable",
+    "[CypherRender][WorldDraw][CameraPasses]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.AddCameraMaterial( 2u, common::render_material_alpha_mode_t::BLEND );
+    (void)fixture.AddAtZ( 2u, 0.0f, -4.0f );
+    fixture.Build();
+    render::render_scene_item_t sceneItem{};
+    common::u32 passIndex{};
+    auto desc = fixture.CameraDescription();
+    desc.sceneItemsScratch = &sceneItem;
+    desc.sceneItemCapacity = 1u;
+    desc.passIndicesScratch = &passIndex;
+    desc.passIndexCapacity = 1u;
+    render::render_world_camera_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    render::render_world_camera_pass_counts_t counts{ 77u, 88u, 99u };
+    fixture.failNextUpload = true;
+    CHECK( render::R_PrepareWorldCameraDraws(
+        desc, &output, 1u, &counts ) ==
+        render::render_error_t::ERR_RESOURCE_TRANSFER_FAILED );
+    CHECK( counts.blendCount == 88u );
+    CHECK( output.draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == sizeof( math::mat4_t ) );
+    CHECK( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 1u );
+    REQUIRE( render::R_CommitUniformBatch( &fixture.batch ) ==
+        render::render_error_t::OK );
+    CHECK( fixture.uploadCalls == 2u );
 }
 
 TEST_CASE( "World draw preparation rejects nonopaque materials before staging",

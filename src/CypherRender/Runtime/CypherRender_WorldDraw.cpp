@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////////
 // CypherEngine Source Code — Copyright (c) 2026 Karlo Siric.
-// Purpose: Resolves one visible World submission into opaque indexed draws.
+// Purpose: Resolves one visible World submission into ordered indexed draws.
 // This file is proprietary and confidential. See LICENSE for details.
 //////////////////////////////////////////////////////////////////////////
 
@@ -8,6 +8,8 @@
 
 #include "CypherRender/CypherRender_Public.h"
 
+#include <cmath>
+#include <cstdint>
 #include <limits>
 
 namespace cypher::engine::render
@@ -165,7 +167,8 @@ render_error_t ValidateOtherUniforms(
 
 render_error_t PreflightObject(
     const render_world_opaque_prepare_desc_t &description,
-    const world::world_object_snapshot_t &snapshot ) noexcept
+    const world::world_object_snapshot_t &snapshot,
+    const bool opaqueOnly ) noexcept
 {
     const world::world_object_t &object = snapshot.object;
     if ( object.meshSlot >= description.meshCount ||
@@ -184,7 +187,16 @@ render_error_t PreflightObject(
 
     const render_material_bundle_t &material =
         description.materials[object.materialSlot];
-    if ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE ) {
+    render_blend_mode_t expectedBlend = render_blend_mode_t::DISABLED;
+    if ( material.alphaMode == common::render_material_alpha_mode_t::BLEND &&
+         !opaqueOnly ) {
+        expectedBlend = render_blend_mode_t::STRAIGHT_ALPHA;
+    } else if ( material.alphaMode == common::render_material_alpha_mode_t::ADDITIVE &&
+                !opaqueOnly ) {
+        expectedBlend = render_blend_mode_t::ADDITIVE;
+    } else if ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE ) {
+        // MASK needs a documented alpha-cutoff shader convention before World
+        // can prepare it. The legacy opaque entry point keeps its old policy.
         return render_error_t::ERR_UNSUPPORTED;
     }
     render_draw_indexed_desc_t draw = description.drawTemplate;
@@ -201,8 +213,9 @@ render_error_t PreflightObject(
     if ( pipeline.uniformBlockCount <= description.modelUniformSlot ||
          pipeline.uniformBlockBytes[description.modelUniformSlot] !=
              sizeof( math::mat4_t ) ||
-         pipeline.blendMode != render_blend_mode_t::DISABLED ||
-         !pipeline.depthWrite ||
+         pipeline.blendMode != expectedBlend ||
+         pipeline.depthWrite != ( expectedBlend == render_blend_mode_t::DISABLED ) ||
+         ( !opaqueOnly && !pipeline.depthTest ) ||
          pipeline.topology != render_primitive_topology_t::TRIANGLE_LIST ||
          draw.indexCount < 3u || draw.indexCount % 3u != 0u ||
          draw.vertexCount > static_cast<common::u32>(
@@ -260,6 +273,159 @@ void PublishDraw(
     output->draw = draw;
 }
 
+render_world_opaque_prepare_desc_t CameraDrawBase(
+    const render_world_camera_prepare_desc_t &camera ) noexcept
+{
+    render_world_opaque_prepare_desc_t base{};
+    base.submission = camera.submission;
+    base.token = camera.token;
+    base.meshes = camera.meshes;
+    base.meshCount = camera.meshCount;
+    base.materials = camera.materials;
+    base.materialCount = camera.materialCount;
+    base.modelUniforms = camera.modelUniforms;
+    base.modelUniformSlot = camera.modelUniformSlot;
+    base.drawTemplate = camera.drawTemplate;
+    return base;
+}
+
+bool StorageOverlaps( const void *first, common::u64 firstBytes,
+    const void *second, common::u64 secondBytes ) noexcept
+{
+    if ( firstBytes == 0u || secondBytes == 0u ) return false;
+    const auto firstBegin = reinterpret_cast<std::uintptr_t>( first );
+    const auto secondBegin = reinterpret_cast<std::uintptr_t>( second );
+    constexpr auto maxAddress = std::numeric_limits<std::uintptr_t>::max();
+    if ( firstBytes > maxAddress - firstBegin ||
+         secondBytes > maxAddress - secondBegin ) return true;
+    const auto firstEnd = firstBegin + static_cast<std::uintptr_t>( firstBytes );
+    const auto secondEnd = secondBegin + static_cast<std::uintptr_t>( secondBytes );
+    return firstBegin < secondEnd && secondBegin < firstEnd;
+}
+
+render_error_t CameraScratchIsDisjoint(
+    const render_world_camera_prepare_desc_t &description,
+    const render_world_camera_draw_t *output,
+    const render_world_camera_pass_counts_t *outCounts,
+    common::u32 visibleCount ) noexcept
+{
+    const common::u64 sceneBytes = static_cast<common::u64>( visibleCount ) *
+        sizeof( render_scene_item_t );
+    const common::u64 indexBytes = static_cast<common::u64>( visibleCount ) *
+        sizeof( common::u32 );
+    const common::u64 outputBytes = static_cast<common::u64>( visibleCount ) *
+        sizeof( render_world_camera_draw_t );
+    const common::u64 meshBytes = static_cast<common::u64>( description.meshCount ) *
+        sizeof( render_static_mesh_bundle_t );
+    const common::u64 materialBytes = static_cast<common::u64>( description.materialCount ) *
+        sizeof( render_material_bundle_t );
+    const auto *batch = description.modelUniforms;
+    const common::u64 stagingBytes = batch->capacityBytes;
+    constexpr common::u64 countsBytes = sizeof( render_world_camera_pass_counts_t );
+    if ( StorageOverlaps( description.sceneItemsScratch, sceneBytes,
+             description.passIndicesScratch, indexBytes ) ||
+         StorageOverlaps( description.sceneItemsScratch, sceneBytes,
+             output, outputBytes ) ||
+         StorageOverlaps( description.passIndicesScratch, indexBytes,
+             output, outputBytes ) ||
+         StorageOverlaps( description.sceneItemsScratch, sceneBytes,
+             outCounts, countsBytes ) ||
+         StorageOverlaps( description.passIndicesScratch, indexBytes,
+             outCounts, countsBytes ) ||
+         StorageOverlaps( output, outputBytes, outCounts, countsBytes ) ||
+         StorageOverlaps( output, outputBytes,
+             description.meshes, meshBytes ) ||
+         StorageOverlaps( output, outputBytes,
+             description.materials, materialBytes ) ||
+         StorageOverlaps( outCounts, countsBytes,
+             description.meshes, meshBytes ) ||
+         StorageOverlaps( outCounts, countsBytes,
+             description.materials, materialBytes ) ||
+         StorageOverlaps( description.sceneItemsScratch, sceneBytes,
+             description.meshes, meshBytes ) ||
+         StorageOverlaps( description.sceneItemsScratch, sceneBytes,
+             description.materials, materialBytes ) ||
+         StorageOverlaps( description.passIndicesScratch, indexBytes,
+             description.meshes, meshBytes ) ||
+         StorageOverlaps( description.passIndicesScratch, indexBytes,
+             description.materials, materialBytes ) ||
+         StorageOverlaps( description.sceneItemsScratch, sceneBytes,
+             batch->staging, stagingBytes ) ||
+         StorageOverlaps( description.passIndicesScratch, indexBytes,
+             batch->staging, stagingBytes ) ||
+         StorageOverlaps( output, outputBytes,
+             batch->staging, stagingBytes ) ||
+         StorageOverlaps( outCounts, countsBytes,
+             batch->staging, stagingBytes ) ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    return render_error_t::OK;
+}
+
+render_error_t SceneAlpha(
+    const common::render_material_alpha_mode_t mode,
+    render_scene_alpha_t *out ) noexcept
+{
+    switch ( mode ) {
+    case common::render_material_alpha_mode_t::OPAQUE:
+        *out = render_scene_alpha_t::OPAQUE;
+        return render_error_t::OK;
+    case common::render_material_alpha_mode_t::BLEND:
+        *out = render_scene_alpha_t::BLEND;
+        return render_error_t::OK;
+    case common::render_material_alpha_mode_t::ADDITIVE:
+        *out = render_scene_alpha_t::ADDITIVE;
+        return render_error_t::OK;
+    default:
+        return render_error_t::ERR_UNSUPPORTED;
+    }
+}
+
+render_error_t BlendViewDepth(
+    const math::mat4_t &viewFromWorld,
+    const math::aabb_t &bounds,
+    common::f32 *outDepth ) noexcept
+{
+    // The World validates finite AABBs. Promote before taking midpoints and
+    // applying the view matrix, because finite f32 endpoints can overflow a
+    // float addition even though the eventual center/depth is representable.
+    const common::f64 cx = ( static_cast<common::f64>( bounds.minimum.x ) +
+        static_cast<common::f64>( bounds.maximum.x ) ) * 0.5;
+    const common::f64 cy = ( static_cast<common::f64>( bounds.minimum.y ) +
+        static_cast<common::f64>( bounds.maximum.y ) ) * 0.5;
+    const common::f64 cz = ( static_cast<common::f64>( bounds.minimum.z ) +
+        static_cast<common::f64>( bounds.maximum.z ) ) * 0.5;
+    const common::f64 ex = ( static_cast<common::f64>( bounds.maximum.x ) -
+        static_cast<common::f64>( bounds.minimum.x ) ) * 0.5;
+    const common::f64 ey = ( static_cast<common::f64>( bounds.maximum.y ) -
+        static_cast<common::f64>( bounds.minimum.y ) ) * 0.5;
+    const common::f64 ez = ( static_cast<common::f64>( bounds.maximum.z ) -
+        static_cast<common::f64>( bounds.minimum.z ) ) * 0.5;
+    const auto *m = viewFromWorld.m;
+    const common::f64 centerDepth = -(
+        static_cast<common::f64>( m[2] ) * cx +
+        static_cast<common::f64>( m[6] ) * cy +
+        static_cast<common::f64>( m[10] ) * cz +
+        static_cast<common::f64>( m[14] ) );
+    const common::f64 frontExtent =
+        std::fabs( static_cast<common::f64>( m[2] ) ) * ex +
+        std::fabs( static_cast<common::f64>( m[6] ) ) * ey +
+        std::fabs( static_cast<common::f64>( m[10] ) ) * ez;
+    if ( !std::isfinite( centerDepth ) ||
+         !std::isfinite( frontExtent ) ||
+         centerDepth + frontExtent <= 0.0 ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    // A crossing-eye box has no positive center depth. Treat it as nearest
+    // rather than rejecting visible geometry or inventing a camera distance.
+    const common::f64 minimum = std::numeric_limits<common::f32>::min();
+    const common::f64 maximum = std::numeric_limits<common::f32>::max();
+    *outDepth = static_cast<common::f32>(
+        centerDepth < minimum ? minimum :
+        centerDepth > maximum ? maximum : centerDepth );
+    return render_error_t::OK;
+}
+
 } // namespace
 
 render_error_t R_PrepareOpaqueWorldDraws(
@@ -301,7 +467,7 @@ render_error_t R_PrepareOpaqueWorldDraws(
              world::world_submission_error_t::OK ) {
             return render_error_t::ERR_INVALID_STATE;
         }
-        result = PreflightObject( description, snapshot );
+        result = PreflightObject( description, snapshot, true );
         if ( result != render_error_t::OK ) return result;
     }
     const common::u64 firstCursor = description.modelUniforms->usedBytes;
@@ -343,6 +509,137 @@ render_error_t R_PrepareOpaqueWorldDraws(
         PublishDraw( description, snapshot, offset, &output[i] );
     }
     *outCount = visibleCount;
+    return render_error_t::OK;
+}
+
+render_error_t R_PrepareWorldCameraDraws(
+    const render_world_camera_prepare_desc_t &description,
+    render_world_camera_draw_t *output,
+    const common::u32 outputCapacity,
+    render_world_camera_pass_counts_t *outCounts ) noexcept
+{
+    if ( description.submission == nullptr || outCounts == nullptr ||
+         description.modelUniformSlot >= R_MAX_UNIFORM_BLOCK_BINDINGS ||
+         description.drawTemplate.instanceCount != 1u ||
+         !math::Mat4_IsAffine( description.viewFromWorld, 0.0f ) ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    common::u32 visibleCount = 0u;
+    if ( world::WorldSubmission_Count(
+             description.submission, description.token, &visibleCount ) !=
+         world::world_submission_error_t::OK ) {
+        return render_error_t::ERR_INVALID_STATE;
+    }
+    if ( visibleCount > outputCapacity ||
+         visibleCount > description.sceneItemCapacity ||
+         visibleCount > description.passIndexCapacity ) {
+        return render_error_t::ERR_COMMAND_CAPACITY_EXCEEDED;
+    }
+    if ( visibleCount == 0u ) {
+        *outCounts = {};
+        return render_error_t::OK;
+    }
+    if ( output == nullptr || description.meshes == nullptr ||
+         description.materials == nullptr ||
+         description.modelUniforms == nullptr ||
+         description.sceneItemsScratch == nullptr ||
+         description.passIndicesScratch == nullptr ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    const render_world_opaque_prepare_desc_t base = CameraDrawBase( description );
+    render_error_t result = ValidateBatch( *description.modelUniforms );
+    if ( result != render_error_t::OK ) return result;
+    result = CameraScratchIsDisjoint(
+        description, output, outCounts, visibleCount );
+    if ( result != render_error_t::OK ) return result;
+
+    render_world_camera_pass_counts_t counts{};
+    for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+        world::world_object_snapshot_t snapshot{};
+        if ( world::WorldSubmission_Get(
+                 description.submission, description.token, i, &snapshot ) !=
+             world::world_submission_error_t::OK ) {
+            return render_error_t::ERR_INVALID_STATE;
+        }
+        result = PreflightObject( base, snapshot, false );
+        if ( result != render_error_t::OK ) return result;
+        const render_material_bundle_t &material =
+            description.materials[snapshot.object.materialSlot];
+        render_scene_item_t sceneItem{};
+        result = SceneAlpha( material.alphaMode, &sceneItem.alpha );
+        if ( result != render_error_t::OK ) return result;
+        sceneItem.cameraVisible = true;
+        if ( sceneItem.alpha == render_scene_alpha_t::OPAQUE ) {
+            ++counts.opaqueCount;
+        } else if ( sceneItem.alpha == render_scene_alpha_t::BLEND ) {
+            result = BlendViewDepth( description.viewFromWorld,
+                snapshot.object.worldBounds, &sceneItem.cameraDistance );
+            if ( result != render_error_t::OK ) return result;
+            ++counts.blendCount;
+        } else {
+            ++counts.additiveCount;
+        }
+        description.sceneItemsScratch[i] = sceneItem;
+    }
+
+    render_scene_pass_indices_t passes{};
+    passes.opaque = description.passIndicesScratch;
+    passes.opaqueCapacity = counts.opaqueCount;
+    passes.blend = description.passIndicesScratch + counts.opaqueCount;
+    passes.blendCapacity = counts.blendCount;
+    passes.additive = passes.blend + counts.blendCount;
+    passes.additiveCapacity = counts.additiveCount;
+    result = R_ClassifySceneItems(
+        description.sceneItemsScratch, visibleCount, &passes );
+    if ( result != render_error_t::OK ) return result;
+    if ( passes.shadowCount != 0u ||
+         passes.opaqueCount != counts.opaqueCount ||
+         passes.blendCount != counts.blendCount ||
+         passes.additiveCount != counts.additiveCount ) {
+        return render_error_t::ERR_INTERNAL_ERROR;
+    }
+
+    const common::u64 firstCursor = description.modelUniforms->usedBytes;
+    common::u64 cursor = firstCursor;
+    for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+        common::u64 offset = 0u;
+        if ( !NextModelOffset( cursor, description.modelUniforms->alignment,
+                 description.modelUniforms->capacityBytes, &offset, &cursor ) ) {
+            return render_error_t::ERR_COMMAND_CAPACITY_EXCEEDED;
+        }
+    }
+
+    // Stage in the final draw order. No per-object offset map is needed: the
+    // same ordered indices are used again after the one batch upload.
+    for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+        world::world_object_snapshot_t snapshot{};
+        if ( world::WorldSubmission_Get( description.submission,
+                 description.token, description.passIndicesScratch[i],
+                 &snapshot ) != world::world_submission_error_t::OK ) {
+            return render_error_t::ERR_INVALID_STATE;
+        }
+        const math::mat4_t model = math::Affine3_ToMat4( snapshot.object.localToWorld );
+        render_uniform_record_t ignored{};
+        result = R_AppendUniformRecord( description.modelUniforms,
+            &model, sizeof( model ), &ignored );
+        if ( result != render_error_t::OK ) return result;
+    }
+    result = R_CommitUniformBatch( description.modelUniforms );
+    if ( result != render_error_t::OK ) return result;
+
+    cursor = firstCursor;
+    for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+        world::world_object_snapshot_t snapshot{};
+        // The active submission and resource tables are immutable for this
+        // single-threaded call, and every index was obtained by classification.
+        (void)world::WorldSubmission_Get( description.submission,
+            description.token, description.passIndicesScratch[i], &snapshot );
+        common::u64 offset = 0u;
+        (void)NextModelOffset( cursor, description.modelUniforms->alignment,
+            description.modelUniforms->capacityBytes, &offset, &cursor );
+        PublishDraw( base, snapshot, offset, &output[i] );
+    }
+    *outCounts = counts;
     return render_error_t::OK;
 }
 
