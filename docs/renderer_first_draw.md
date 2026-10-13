@@ -145,6 +145,15 @@ clear and projection convention; changing the comparison alone does not create
 a reversed-Z camera. Disabling depth testing also disables the OpenGL depth
 test stage's writes, even if the pipeline's `depthWrite` flag is true.
 
+Pipelines can also disable color writes while leaving depth testing and depth
+writes active. For a depth prepass, draw opaque geometry with `colorWrite =
+false`, `depthWrite = true`, and `LESS`; then shade that geometry with color
+writes enabled, `depthWrite = false`, and `EQUAL`. The color mask is set by each
+draw, so a later ordinary pipeline does not inherit the prepass mask. This
+controls draw output only: the current render target has an internal D24 depth
+attachment that cannot be sampled as a shadow map, and no scene queue schedules
+the two passes yet.
+
 ## Lifecycle and cleanup
 
 The host creates the System window after renderer configuration has selected its

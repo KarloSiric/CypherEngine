@@ -29,6 +29,7 @@ struct draw_fixture_t {
     draw_error_t drawResult{ draw_error_t::OK };
     render::render_primitive_topology_t lastPipelineTopology{ render::render_primitive_topology_t::TRIANGLE_LIST };
     render::render_depth_compare_t lastPipelineDepthCompare{ render::render_depth_compare_t::LESS };
+    bool lastPipelineColorWrite{ true };
     render::backend_draw_indexed_desc_t lastDraw{};
     common::byte mappedBytes[256]{};
     render::render_shader_handle_t shader{};
@@ -74,6 +75,7 @@ struct draw_fixture_t {
             ++fixture.pipelineCreates;
             fixture.lastPipelineTopology = description.topology;
             fixture.lastPipelineDepthCompare = description.depthCompare;
+            fixture.lastPipelineColorWrite = description.colorWrite;
             out = {};
             if ( fixture.pipelineResult == draw_error_t::OK ) out.value = fixture.nextToken++;
             return fixture.pipelineResult;
@@ -316,6 +318,32 @@ TEST_CASE( "depth comparison validates before backend creation and survives pipe
     CHECK( fixture.lastPipelineDepthCompare == render::render_depth_compare_t::LESS );
     REQUIRE( render::R_GetGraphicsPipelineInfo( pipeline, &info ) == draw_error_t::OK );
     CHECK( info.depthCompare == render::render_depth_compare_t::LESS );
+}
+
+TEST_CASE( "color write state defaults on and survives backend creation and inspection",
+           "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    auto description = fixture.PipelineDescription();
+    CHECK( description.colorWrite );
+
+    description.colorWrite = false;
+    render::render_pipeline_handle_t depthOnly{};
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &depthOnly ) == draw_error_t::OK );
+    CHECK_FALSE( fixture.lastPipelineColorWrite );
+    render::render_pipeline_info_t info{};
+    REQUIRE( render::R_GetGraphicsPipelineInfo( depthOnly, &info ) == draw_error_t::OK );
+    CHECK_FALSE( info.colorWrite );
+    REQUIRE( render::R_DestroyGraphicsPipeline( depthOnly ) == draw_error_t::OK );
+
+    description = fixture.PipelineDescription();
+    render::render_pipeline_handle_t visible{};
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &visible ) == draw_error_t::OK );
+    CHECK( fixture.lastPipelineColorWrite );
+    REQUIRE( render::R_GetGraphicsPipelineInfo( visible, &info ) == draw_error_t::OK );
+    CHECK( info.colorWrite );
+    REQUIRE( render::R_DestroyGraphicsPipeline( visible ) == draw_error_t::OK );
 }
 
 TEST_CASE( "draw validates full offset ranges and dispatches only during an active frame", "[CypherRender][Draw]" )

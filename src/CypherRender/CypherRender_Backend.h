@@ -39,13 +39,13 @@ objects and receives its opaque state pointer on every call. Keeping that state
 outside the frontend lets OpenGL, software, and Vulkan use unrelated internal
 layouts without exposing them to Host.
 
-Version ten adds line-list topology to immutable pipelines. Offscreen targets,
+Version thirteen adds color-write policy to immutable pipelines. Offscreen targets,
 linked shaders, immediate draws, and all native object tokens remain behind
 this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 12u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 13u;
 
 /*
 ================
@@ -176,6 +176,7 @@ struct backend_pipeline_desc_t {
     bool depthTest{ true };
     bool depthWrite{ true };
     render_depth_compare_t depthCompare{ render_depth_compare_t::LESS };
+    bool colorWrite{ true };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };

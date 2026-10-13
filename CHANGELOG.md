@@ -25,6 +25,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Graphics pipelines can disable RGBA color writes while continuing to test
+  and write depth. Color writes default to enabled. A depth-only prepass can
+  therefore populate depth before a later `EQUAL` color pass; each draw applies
+  its own mask, and hosted frames restore the application's previous color
+  mask. The current depth attachment is not sampleable and no scene queue
+  schedules these passes automatically.
 - Graphics pipelines now select any of the eight OpenGL 4.1 depth comparison
   modes. `LESS` remains the default; the requested mode is validated at
   pipeline creation, recorded for inspection, and applied on every indexed
@@ -71,6 +77,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- Advanced the public renderer API to version 6 and private backend contract
+  to version 13 for the immutable pipeline color-write field.
 - Advanced the public renderer API to version 5 and private backend contract
   to version 12 for the pipeline depth comparison field.
 - Advanced the public renderer API to version 4 and private backend contract
@@ -101,6 +109,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Validation
 
+- Rebuilt the affected renderer, Host, and cube targets in the existing
+  `build-mason` tree. All ten selected renderer/Host CTests passed; direct
+  native and hosted OpenGL smokes passed 450 and 162 assertions respectively,
+  including depth-only occlusion, an `EQUAL` color pass, and host color-mask
+  restoration. The cube example rendered two hidden frames.
 - Rebuilt the renderer and cube example in the existing `build-mason` tree;
   all ten selected renderer/Host CTests passed and the cube rendered two hidden
   frames. Native OpenGL pixel cases cover every depth comparison mode with

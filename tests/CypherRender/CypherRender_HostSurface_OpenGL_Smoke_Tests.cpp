@@ -342,6 +342,10 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     render::render_pipeline_handle_t pipeline{};
     REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &pipeline ) ==
         render::render_error_t::OK );
+    pipelineDesc.colorWrite = false;
+    render::render_pipeline_handle_t depthOnlyPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &depthOnlyPipeline ) ==
+        render::render_error_t::OK );
 
     // The host leaves a deliberate nondefault state at the paint boundary.
     // BeginFrame may override it, but EndFrame must return exactly to it.
@@ -495,6 +499,14 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glReadPixels( 1, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, hostPixel );
     CHECK( hostPixel[1] >= 240u );
     CHECK( hostPixel[0] <= 15u );
+    draw.pipeline = depthOnlyPipeline;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    GLboolean disabledColorMask[4]{};
+    glGetBooleanv( GL_COLOR_WRITEMASK, disabledColorMask );
+    for ( const auto channel : disabledColorMask ) CHECK( channel == GL_FALSE );
+    glReadPixels( 24, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, hostPixel );
+    CHECK( hostPixel[0] >= 240u );
+    CHECK( hostPixel[1] <= 15u );
     glBindFramebuffer( GL_READ_FRAMEBUFFER, host.presentationReadFramebuffer );
     REQUIRE( glGetError() == GL_NO_ERROR );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
@@ -606,6 +618,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     }
     REQUIRE( glGetError() == GL_NO_ERROR );
 
+    REQUIRE( render::R_DestroyGraphicsPipeline( depthOnlyPipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( vertexBuffer ) == render::render_error_t::OK );

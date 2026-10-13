@@ -6,7 +6,7 @@
 //  File: src/CypherRender/CypherRender_Pipeline.h
 //  Purpose: Declares immutable indexed graphics-pipeline state.
 //  Details: Pipelines retain a live shader and describe vertex interpretation,
-//           depth, rasterization, blending, and one optional uniform block.
+//           depth, color writes, rasterization, blending, and resource slots.
 //
 //  This file is proprietary and confidential. See LICENSE for details.
 //
@@ -66,6 +66,7 @@ struct render_pipeline_desc_t {
     bool depthTest{ true };
     bool depthWrite{ true };
     render_depth_compare_t depthCompare{ render_depth_compare_t::LESS };
+    bool colorWrite{ true };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };
@@ -84,6 +85,7 @@ struct render_pipeline_info_t {
     bool depthTest{ true };
     bool depthWrite{ true };
     render_depth_compare_t depthCompare{ render_depth_compare_t::LESS };
+    bool colorWrite{ true };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };

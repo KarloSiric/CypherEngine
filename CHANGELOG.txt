@@ -24,6 +24,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Pipelines can disable RGBA color writes while still testing and writing
+  depth; color writes default on. A depth-only pass can precede an EQUAL color
+  pass. Every draw applies its mask, and hosted frames restore the host mask.
+  Depth remains internal to targets and no scene queue schedules the passes.
 - Graphics pipelines select any of the eight OpenGL 4.1 depth comparison
   modes. LESS remains the default. Creation validates the mode, each indexed
   draw applies it, and hosted frames restore the application's depth function.
@@ -56,6 +60,8 @@ Added
   ordinary runtime still has no scene producer.
 
 Changed
+- Public renderer API version 6 and private backend version 13 add the
+  immutable pipeline color-write field.
 - Public renderer API version 5 and private backend version 12 add the
   pipeline depth comparison field.
 - Public renderer API version 4 and private backend version 11 describe the
@@ -79,6 +85,10 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Affected renderer, Host and cube targets rebuilt in the existing build-mason
+  tree; ten selected renderer/Host CTests passed. Direct native and hosted GL
+  smokes passed 450 and 162 assertions, including depth-only occlusion, EQUAL
+  color shading and host color-mask restoration. Cube rendered two hidden frames.
 - Rebuilt renderer tests and cube example in the existing build-mason tree;
   ten selected renderer/Host CTests passed and the cube rendered two hidden
   frames. Native pixel cases cover all depth modes and pass/fail values;

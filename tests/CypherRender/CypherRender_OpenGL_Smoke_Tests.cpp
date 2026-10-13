@@ -346,6 +346,49 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
         REQUIRE( render::R_DestroyGraphicsPipeline( comparePipeline ) ==
             render::render_error_t::OK );
     }
+
+    // A depth-only pass must leave the clear color intact while still writing
+    // depth. Farther LESS geometry then fails, and a same-depth EQUAL color
+    // pass proves pipeline switching restores color writes.
+    pipelineDesc.depthCompare = render::render_depth_compare_t::LESS;
+    pipelineDesc.depthWrite = true;
+    pipelineDesc.colorWrite = false;
+    render::render_pipeline_handle_t depthOnly{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &depthOnly ) ==
+        render::render_error_t::OK );
+    pipelineDesc.depthCompare = render::render_depth_compare_t::EQUAL;
+    pipelineDesc.depthWrite = false;
+    pipelineDesc.colorWrite = true;
+    render::render_pipeline_handle_t colorAtEqualDepth{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &colorAtEqualDepth ) ==
+        render::render_error_t::OK );
+    const float farGreenUniforms[20]{
+        1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0.5f,1, 0,1,0,1
+    };
+    const auto farGreenBuffer = createBuffer( farGreenUniforms, sizeof( farGreenUniforms ),
+        render::R_BUFFER_USAGE_UNIFORM, true );
+    ++frame.frameIndex;
+    frame.clearDepth = 1.0f;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    draw.pipeline = depthOnly;
+    draw.uniformBuffers[0] = redUniformBuffer;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( static_cast<GLint>( extent.width / 2u ),
+               static_cast<GLint>( extent.height / 2u ), 2 );
+    draw.pipeline = pipeline;
+    draw.uniformBuffers[0] = farGreenBuffer;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( static_cast<GLint>( extent.width / 2u ),
+               static_cast<GLint>( extent.height / 2u ), 2 );
+    draw.pipeline = colorAtEqualDepth;
+    draw.uniformBuffers[0] = redUniformBuffer;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    readPixel( static_cast<GLint>( extent.width / 2u ),
+               static_cast<GLint>( extent.height / 2u ), 0 );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( depthOnly ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( colorAtEqualDepth ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( farGreenBuffer ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( redUniformBuffer ) == render::render_error_t::OK );
 
     REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );

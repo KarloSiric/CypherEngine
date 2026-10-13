@@ -158,6 +158,7 @@ render_error_t R_CreateGraphicsPipeline(
     nativeDescription.depthTest = description.depthTest;
     nativeDescription.depthWrite = description.depthWrite;
     nativeDescription.depthCompare = description.depthCompare;
+    nativeDescription.colorWrite = description.colorWrite;
     nativeDescription.cullBackFaces = description.cullBackFaces;
     nativeDescription.frontCounterClockwise = description.frontCounterClockwise;
     nativeDescription.alphaBlend = description.alphaBlend;
@@ -183,6 +184,7 @@ render_error_t R_CreateGraphicsPipeline(
     record.info.depthTest = description.depthTest;
     record.info.depthWrite = description.depthWrite;
     record.info.depthCompare = description.depthCompare;
+    record.info.colorWrite = description.colorWrite;
     record.info.cullBackFaces = description.cullBackFaces;
     record.info.frontCounterClockwise = description.frontCounterClockwise;
     record.info.alphaBlend = description.alphaBlend;

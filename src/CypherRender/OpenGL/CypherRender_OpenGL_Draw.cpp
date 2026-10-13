@@ -30,6 +30,7 @@ struct gl_pipeline_record_t {
     bool depthTest{ true };
     bool depthWrite{ true };
     GLenum depthCompare{ GL_LESS };
+    bool colorWrite{ true };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };
@@ -321,6 +322,7 @@ render_error_t GL_CreateGraphicsPipeline(
     record->depthTest = description.depthTest;
     record->depthWrite = description.depthWrite;
     record->depthCompare = depthCompare;
+    record->colorWrite = description.colorWrite;
     record->cullBackFaces = description.cullBackFaces;
     record->frontCounterClockwise = description.frontCounterClockwise;
     record->alphaBlend = description.alphaBlend;
@@ -418,8 +420,9 @@ render_error_t GL_DrawIndexed(
     glDisable( GL_RASTERIZER_DISCARD );
     glDisable( GL_POLYGON_OFFSET_FILL );
     glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
-    if ( glState.usesHostSurface ) glColorMaski( 0u, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
-    else glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+    const GLboolean colorMask = pipeline->colorWrite ? GL_TRUE : GL_FALSE;
+    if ( glState.usesHostSurface ) glColorMaski( 0u, colorMask, colorMask, colorMask, colorMask );
+    else glColorMask( colorMask, colorMask, colorMask, colorMask );
     glUseProgram( pipeline->program );
     for ( common::u32 slot = 0u; slot < pipeline->sampledTextureCount; ++slot ) {
         glActiveTexture( GL_TEXTURE0 + slot );
