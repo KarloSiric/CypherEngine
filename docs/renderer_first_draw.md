@@ -320,15 +320,20 @@ Missing slots, stale renderer handles, unsupported material modes, invalid
 transforms, and insufficient draw or uniform capacity leave the caller's draw
 array and count unpublished. A failed GPU upload can leave the uniform batch
 sealed with staged data; the host must retry the upload or reset the batch after
-the frame. This model-only path accepts any finite, positive-orientation,
-nonsingular transform, including small scales; it does not require a usable
-inverse matrix. The first bridge slice handles opaque camera draws with a model-only
-object uniform record. It does not replace the graybox sample's separate shadow,
-translucent, additive, normal-matrix, or mirrored-winding policy, and it is not
-an authored map or mesh loader. The focused CPU test covers two visible objects
-sharing a mesh, different material slots, a culled object, and rejection paths.
-The native OpenGL smoke draws one submitted object with a cooked material and
-checks that its model transform moves local geometry over the center pixel.
+the frame. This model-only path accepts finite, nonsingular transforms,
+including small positive or negative scales; it does not require a usable
+inverse matrix. A negative determinant reverses triangle winding, so opaque
+World draws select a second material pipeline with the opposite front-face
+sense. Both pipelines retain the same shader and all other raster, depth, and
+blend settings. The reversed sense also preserves `gl_FrontFacing` for
+two-sided shaders. A zero determinant remains unsupported. This path handles
+opaque camera draws with a model-only object uniform record. It does not
+replace the graybox sample's separate shadow, translucent, additive, or
+normal-matrix policy, and it is not an authored map or mesh loader. The focused
+CPU test covers visible objects sharing a mesh, different material slots,
+mirrored and small transforms, a culled object, and rejection paths. The native
+OpenGL smoke checks a submitted cooked-material object's model transform and
+mirrored front-face behavior through framebuffer pixels.
 
 ## Ordered draw list
 

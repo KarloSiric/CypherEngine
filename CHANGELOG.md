@@ -25,10 +25,24 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Opaque World draw preparation now accepts finite, nonsingular mirrored
+  transforms. Cooked material adoption owns a second pipeline with reversed
+  front-face winding for every supported alpha mode, while preserving culling,
+  depth, blend, and two-sided `gl_FrontFacing` behavior. World draw preflight
+  selects the mirrored variant before staging; a missing variant leaves output
+  and model uniforms untouched. Rollback and destruction retain retryable
+  ownership of successfully created pipeline handles. A backend creation
+  error followed by failure to destroy its returned native token remains a
+  frontend cleanup limitation. The material-bridge,
+  World-draw, and native OpenGL 4.1 smoke tests pass locally, including a
+  framebuffer check that distinguishes culled, back-facing, and front-facing
+  mirrored geometry. This adds opaque World camera draws only; shadow and
+  transparent World pass scheduling remain separate work.
 - Opaque World draw preparation now accepts valid small positive scales such
   as 0.001 on each axis. It computes orientation in binary64 without an
-  unused inverse-matrix tolerance; singular and mirrored transforms still
-  fail before staging. The World-draw test passes 207 assertions in nine cases.
+  unused inverse-matrix tolerance; singular transforms still fail before
+  staging. At this milestone, the World-draw test passed 207 assertions in
+  nine cases.
 - Cooked-material preflight now rejects incomplete authored mip chains before
   creating shader or texture GPU objects, for RGBA8 and RGBA32_FLOAT. The
   material-bridge test passes 807 assertions in seven cases.

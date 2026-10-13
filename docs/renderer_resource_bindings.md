@@ -178,7 +178,12 @@ member layout. Other value types and layouts still fail preflight.
 All shader resource bindings must fit those texture slots or the caller's
 declared uniform blocks. A two-sided material disables back-face culling; its
 shadow flags remain metadata for a later scene/pass scheduler. The bundle
-preserves the cooked alpha mode and cutoff: `BLEND` creates a depth-tested pipeline with
+owns ordinary and winding-reversed graphics pipelines that share one shader.
+The second pipeline flips only the front-face sense; culling, depth, and blend
+policy stay the same. It is used for a negative-determinant model transform,
+including when a two-sided shader uses `gl_FrontFacing`. Both pipelines must
+be destroyed before the shader can be released. The bundle preserves the
+cooked alpha mode and cutoff: `BLEND` creates a depth-tested pipeline with
 straight-alpha blending and no depth writes. Its shader must emit straight
 (unassociated) color and alpha. The caller must draw it after opaque surfaces
 and sort translucent objects back-to-front; the bridge does not classify or
@@ -196,7 +201,12 @@ GPU object is created.
 If GPU creation fails, the bridge unwinds the objects it created and normally
 leaves the output empty. If a backend destruction call itself fails, it returns
 `CLEANUP_FAILED` with the still-live handles in the bundle so the caller can
-retry destruction before renderer shutdown. This is synchronous adoption, not
+retry destruction before renderer shutdown. This retry applies to successfully
+created renderer handles. A failed backend Create that returns a native token
+still relies on immediate native-token cleanup; if that destroy also fails,
+the renderer frontend cannot publish the token for retry. The OpenGL backend
+cleans its own partial pipeline creation before returning an error. This is
+synchronous adoption, not
 a cache, material hot reload, asset dependency residency manager, or complete
 CYMT feature implementation.
 

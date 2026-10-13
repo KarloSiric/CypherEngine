@@ -49,6 +49,7 @@ struct world_draw_fixture_t {
     render::render_material_bundle_t materials[2]{};
     render::render_shader_handle_t shader{};
     render::render_pipeline_handle_t pipelines[2]{};
+    render::render_pipeline_handle_t mirroredPipelines[2]{};
     render::render_buffer_handle_t viewBuffer{};
     render::render_buffer_handle_t materialBuffer{};
     render::render_uniform_batch_t batch{};
@@ -171,8 +172,12 @@ struct world_draw_fixture_t {
             pipeline.uniformBlocks[1] = { "Model", 64u };
             REQUIRE( render::R_CreateGraphicsPipeline(
                 pipeline, &pipelines[i] ) == render::render_error_t::OK );
+            pipeline.frontCounterClockwise = false;
+            REQUIRE( render::R_CreateGraphicsPipeline(
+                pipeline, &mirroredPipelines[i] ) == render::render_error_t::OK );
             materials[i].shader = shader;
             materials[i].pipeline = pipelines[i];
+            materials[i].mirroredPipeline = mirroredPipelines[i];
         }
         render::render_buffer_desc_t viewDesc{};
         viewDesc.byteSize = 64u;
@@ -240,6 +245,9 @@ struct world_draw_fixture_t {
         if ( materialBuffer.value != 0u ) (void)render::R_DestroyBuffer( materialBuffer );
         if ( viewBuffer.value != 0u ) (void)render::R_DestroyBuffer( viewBuffer );
         for ( auto pipeline : pipelines ) {
+            if ( pipeline.value != 0u ) (void)render::R_DestroyGraphicsPipeline( pipeline );
+        }
+        for ( auto pipeline : mirroredPipelines ) {
             if ( pipeline.value != 0u ) (void)render::R_DestroyGraphicsPipeline( pipeline );
         }
         if ( shader.value != 0u ) (void)render::R_DestroyShader( shader );
@@ -494,6 +502,70 @@ TEST_CASE( "World draw preparation preserves small positive object scales",
     CHECK( model.m[0] == 0.001f );
     CHECK( model.m[5] == 0.001f );
     CHECK( model.m[10] == 0.001f );
+}
+
+TEST_CASE( "World draw preparation selects mirrored winding for negative scales",
+    "[CypherRender][WorldDraw]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    const auto mirrored = fixture.Add( 0u, 0u, 0.0f );
+    const auto ordinary = fixture.Add( 0u, 1u, 4.0f );
+    world::world_object_t object{};
+    REQUIRE( world::World_GetObject(
+        fixture.pWorld, mirrored, &object ) == world::world_error_t::OK );
+    object.localToWorld = math::Affine3_FromScale(
+        { -0.001f, 0.001f, 0.001f } );
+    REQUIRE( world::World_UpdateObject(
+        fixture.pWorld, mirrored, &object ) == world::world_error_t::OK );
+    fixture.Build();
+
+    render::render_world_opaque_draw_t output[2]{};
+    common::u32 count = 0u;
+    REQUIRE( render::R_PrepareOpaqueWorldDraws(
+        fixture.Description(), output, 2u, &count ) == render::render_error_t::OK );
+    REQUIRE( count == 2u );
+    CHECK( output[0].objectId.slot.value == mirrored.slot.value );
+    CHECK( output[1].objectId.slot.value == ordinary.slot.value );
+    CHECK( output[0].draw.pipeline.value == fixture.mirroredPipelines[0].value );
+    CHECK( output[1].draw.pipeline.value == fixture.pipelines[1].value );
+    render::render_pipeline_info_t mirroredInfo{};
+    REQUIRE( render::R_GetGraphicsPipelineInfo(
+        output[0].draw.pipeline, &mirroredInfo ) == render::render_error_t::OK );
+    CHECK_FALSE( mirroredInfo.frontCounterClockwise );
+    CHECK( mirroredInfo.cullBackFaces );
+    math::mat4_t model{};
+    std::memcpy( &model, fixture.uploaded, sizeof( model ) );
+    CHECK( model.m[0] == -0.001f );
+    CHECK( model.m[5] == 0.001f );
+    CHECK( model.m[10] == 0.001f );
+}
+
+TEST_CASE( "World draw preflight rejects a missing mirrored pipeline without staging",
+    "[CypherRender][WorldDraw]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    const auto id = fixture.Add( 0u, 0u, 0.0f );
+    world::world_object_t object{};
+    REQUIRE( world::World_GetObject(
+        fixture.pWorld, id, &object ) == world::world_error_t::OK );
+    object.localToWorld = math::Affine3_FromScale( { -1.0f, 1.0f, 1.0f } );
+    REQUIRE( world::World_UpdateObject(
+        fixture.pWorld, id, &object ) == world::world_error_t::OK );
+    fixture.Build();
+    fixture.materials[0].mirroredPipeline = {};
+
+    render::render_world_opaque_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    common::u32 count = 77u;
+    CHECK( render::R_PrepareOpaqueWorldDraws(
+        fixture.Description(), &output, 1u, &count ) != render::render_error_t::OK );
+    CHECK( count == 77u );
+    CHECK( output.draw.pipeline.value == 12345u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
 }
 
 TEST_CASE( "World draw preparation rejects nonopaque materials before staging",

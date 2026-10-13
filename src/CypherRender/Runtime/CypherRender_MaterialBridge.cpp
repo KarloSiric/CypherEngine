@@ -149,13 +149,19 @@ render_error_t R_DestroyCookedMaterialBundle(
 {
     if ( bundle == nullptr ) return render_error_t::ERR_INVALID_ARGUMENT;
     render_error_t firstError = render_error_t::OK;
+    if ( bundle->mirroredPipeline.value != 0u ) {
+        const render_error_t error = R_DestroyGraphicsPipeline( bundle->mirroredPipeline );
+        if ( error != render_error_t::OK ) firstError = error;
+        if ( error == render_error_t::OK ) bundle->mirroredPipeline = {};
+    }
     if ( bundle->pipeline.value != 0u ) {
         const render_error_t error = R_DestroyGraphicsPipeline( bundle->pipeline );
-        if ( error != render_error_t::OK ) firstError = error;
+        if ( firstError == render_error_t::OK ) firstError = error;
         if ( error == render_error_t::OK ) bundle->pipeline = {};
     }
-    // The pipeline retains its shader until destruction succeeds.
-    if ( bundle->pipeline.value == 0u && bundle->shader.value != 0u ) {
+    // Both pipelines retain the shader until their destruction succeeds.
+    if ( bundle->pipeline.value == 0u && bundle->mirroredPipeline.value == 0u &&
+         bundle->shader.value != 0u ) {
         const render_error_t error = R_DestroyShader( bundle->shader );
         if ( firstError == render_error_t::OK ) firstError = error;
         if ( error == render_error_t::OK ) bundle->shader = {};
@@ -172,7 +178,8 @@ render_error_t R_DestroyCookedMaterialBundle(
         if ( firstError == render_error_t::OK ) firstError = error;
         if ( error == render_error_t::OK ) bundle->materialUniformBuffer = {};
     }
-    if ( bundle->pipeline.value == 0u && bundle->shader.value == 0u &&
+    if ( bundle->pipeline.value == 0u && bundle->mirroredPipeline.value == 0u &&
+         bundle->shader.value == 0u &&
          bundle->textures[0].value == 0u && bundle->textures[1].value == 0u &&
          bundle->materialUniformBuffer.value == 0u ) {
         *bundle = {};
@@ -306,6 +313,7 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
         pipeline.depthWrite = pipeline.blendMode == render_blend_mode_t::DISABLED;
         pipeline.cullBackFaces =
             ( pMaterial->flags & common::COOKED_MATERIAL_FLAG_TWO_SIDED ) == 0u;
+        pipeline.frontCounterClockwise = true;
         pipeline.debugName = description.debugName;
         for ( common::u32 i = 0u; i < description.uniformBlockCount; ++i ) {
             pipeline.uniformBlocks[i] = description.uniformBlocks[i];
@@ -470,6 +478,12 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
             result = RenderFailure( renderError );
             break;
         }
+        pipeline.frontCounterClockwise = false;
+        renderError = R_CreateGraphicsPipeline( pipeline, &pending.mirroredPipeline );
+        if ( renderError != render_error_t::OK ) {
+            result = RenderFailure( renderError );
+            break;
+        }
     } while ( false );
 
     const auto releaseError = ReleaseAcquired( description.pResources, acquired );
@@ -492,18 +506,25 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
 
 render_error_t R_ApplyCookedMaterialBundleToDraw(
     const render_material_bundle_t &bundle,
+    const bool mirrored,
     render_draw_indexed_desc_t *draw ) noexcept
 {
     if ( draw == nullptr || bundle.textureCount > R_MAX_SAMPLED_TEXTURE_BINDINGS ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     if ( !R_IsShaderValid( bundle.shader ) ) return render_error_t::ERR_INVALID_HANDLE;
+    const render_pipeline_handle_t selectedPipeline =
+        mirrored ? bundle.mirroredPipeline : bundle.pipeline;
+    if ( mirrored && selectedPipeline.value == R_INVALID_PIPELINE.value ) {
+        return render_error_t::ERR_UNSUPPORTED;
+    }
     render_pipeline_info_t pipelineInfo{};
     const render_error_t infoError = R_GetGraphicsPipelineInfo(
-        bundle.pipeline, &pipelineInfo );
+        selectedPipeline, &pipelineInfo );
     if ( infoError != render_error_t::OK ) return infoError;
     if ( pipelineInfo.shader.value != bundle.shader.value ||
-         pipelineInfo.sampledTextureCount != bundle.textureCount ) {
+         pipelineInfo.sampledTextureCount != bundle.textureCount ||
+         pipelineInfo.frontCounterClockwise != !mirrored ) {
         return render_error_t::ERR_BINDING_MISMATCH;
     }
     for ( common::u32 i = 0u; i < bundle.textureCount; ++i ) {
@@ -536,7 +557,7 @@ render_error_t R_ApplyCookedMaterialBundleToDraw(
     } else if ( bundle.materialUniformSlot != R_MAX_UNIFORM_BLOCK_BINDINGS ) {
         return render_error_t::ERR_BINDING_MISMATCH;
     }
-    draw->pipeline = bundle.pipeline;
+    draw->pipeline = selectedPipeline;
     for ( common::u32 i = 0u; i < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++i ) {
         draw->sampledTextures[i] = i < bundle.textureCount
             ? bundle.textures[i] : R_INVALID_TEXTURE;
@@ -547,6 +568,13 @@ render_error_t R_ApplyCookedMaterialBundleToDraw(
         draw->uniformRanges[kMaterialUniformSlot] = {};
     }
     return render_error_t::OK;
+}
+
+render_error_t R_ApplyCookedMaterialBundleToDraw(
+    const render_material_bundle_t &bundle,
+    render_draw_indexed_desc_t *draw ) noexcept
+{
+    return R_ApplyCookedMaterialBundleToDraw( bundle, false, draw );
 }
 
 } // namespace cypher::engine::render

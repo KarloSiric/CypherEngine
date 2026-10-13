@@ -29,6 +29,7 @@ struct render_material_bundle_desc_t {
 struct render_material_bundle_t {
     render_shader_handle_t shader{};
     render_pipeline_handle_t pipeline{};
+    render_pipeline_handle_t mirroredPipeline{};
     render_texture_handle_t textures[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     render_buffer_handle_t materialUniformBuffer{};
     ::cypher::common::u32 materialUniformSlot{ R_MAX_UNIFORM_BLOCK_BINDINGS };
@@ -73,6 +74,9 @@ struct render_material_bridge_result_t {
 // Resource views are borrowed until synchronous GPU creation finishes. All
 // acquired CPU references are then released; successful output owns no CPU
 // resource handle or borrowed view.
+// Both pipelines share the shader and every state except front-face winding:
+// pipeline treats CCW as front, mirroredPipeline treats CW as front. The
+// mirrored variant also preserves gl_FrontFacing on two-sided materials.
 // BLEND uses straight-alpha blending with depth testing and no depth writes.
 // Its shader must emit unassociated RGB and a separate alpha. The caller
 // submits BLEND draws after opaque draws, back-to-front; this bridge does not
@@ -85,23 +89,33 @@ struct render_material_bridge_result_t {
 // to both color and shadow shaders; each shader must sample alpha and discard
 // fragments below that cutoff. The bridge cannot verify shader discard behavior
 // or choose an alpha-source texture for the caller.
-// Ordinary failure leaves bundleOut empty. If GPU rollback itself fails,
-// CLEANUP_FAILED reports that error and publishes remaining live handles in
-// bundleOut; the caller must retry R_DestroyCookedMaterialBundle before shutdown.
+// Ordinary failure leaves bundleOut empty. If rollback of a successfully
+// created renderer handle fails, CLEANUP_FAILED reports that error and
+// publishes remaining live handles in bundleOut; the caller must retry
+// R_DestroyCookedMaterialBundle before shutdown. A backend that returns an
+// error plus a native token must be able to retire that token immediately;
+// the renderer frontend cannot publish it if that native cleanup also fails.
 CYPHER_NODISCARD render_material_bridge_result_t R_CreateCookedMaterialBundle(
     const render_material_bundle_desc_t &description,
     CY_OUT render_material_bundle_t *bundleOut ) noexcept;
 
-// Destroys pipeline before shader, independent textures, and the optional
-// material uniform buffer. On a backend
-// destroy failure, keeps the still-live handles in bundle for a later retry.
+// Destroys both pipelines before shader, independent textures, and the
+// optional material uniform buffer. On a backend destroy failure, keeps the
+// still-live handles in bundle for a later retry.
 CYPHER_NODISCARD render_error_t R_DestroyCookedMaterialBundle(
     render_material_bundle_t *bundle ) noexcept;
 
-// Copies pipeline and sampled-texture slots into an existing draw record,
+// Copies the selected pipeline and sampled-texture slots into an existing draw record,
 // clears both sampler slots to use the textures' default sampling policy, and
 // binds the bundle-owned Material uniform in slot 2 when present. The caller
 // supplies vertex input, View/Model uniform buffers, geometry and frame state.
+// mirrored=true selects the CW-front variant for a negative-determinant model.
+// Failure leaves draw unchanged. The two-argument form selects the CCW-front
+// pipeline for ordinary models.
+CYPHER_NODISCARD render_error_t R_ApplyCookedMaterialBundleToDraw(
+    const render_material_bundle_t &bundle,
+    bool mirrored,
+    render_draw_indexed_desc_t *draw ) noexcept;
 CYPHER_NODISCARD render_error_t R_ApplyCookedMaterialBundleToDraw(
     const render_material_bundle_t &bundle,
     render_draw_indexed_desc_t *draw ) noexcept;

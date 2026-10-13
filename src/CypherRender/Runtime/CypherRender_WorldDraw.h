@@ -21,9 +21,9 @@ namespace cypher::engine::render
 // The shader's block at modelUniformSlot must contain exactly one column-major
 // mat4 model transform (64 bytes). Other uniform slots in drawTemplate are
 // caller-owned view/pass data. The first slice accepts only OPAQUE materials,
-// positive nonsingular transforms, and one instance per World object. A
-// positive determinant preserves the authored mesh winding: the material's
-// pipeline still chooses whether its front face is clockwise or counterclockwise.
+// nonsingular transforms, and one instance per World object. A negative
+// determinant reverses authored mesh winding, so the material's mirrored
+// pipeline is selected; a collapsed transform remains unsupported.
 struct render_world_opaque_prepare_desc_t {
     const ::cypher::engine::world::world_submission_t *submission{ nullptr };
     ::cypher::engine::world::world_submission_token_t token{};

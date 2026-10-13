@@ -20,7 +20,7 @@ namespace
 
 static_assert( sizeof( math::mat4_t ) == 64u );
 
-bool HasPositiveOrientation( const math::mat3_t &linear ) noexcept
+int Orientation( const math::mat3_t &linear ) noexcept
 {
     // Only the model matrix is uploaded here. Compute the determinant in
     // binary64 so valid small float scales do not underflow or hit an
@@ -34,8 +34,9 @@ bool HasPositiveOrientation( const math::mat3_t &linear ) noexcept
     const auto g = static_cast<common::f64>( linear.m[6] );
     const auto h = static_cast<common::f64>( linear.m[7] );
     const auto i = static_cast<common::f64>( linear.m[8] );
-    return a * ( e * i - h * f ) - d * ( b * i - h * c ) +
-           g * ( b * f - e * c ) > 0.0;
+    const common::f64 determinant = a * ( e * i - h * f ) -
+        d * ( b * i - h * c ) + g * ( b * f - e * c );
+    return ( determinant > 0.0 ) - ( determinant < 0.0 );
 }
 
 bool LayoutsMatch(
@@ -175,8 +176,9 @@ render_error_t PreflightObject(
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     const math::mat3_t linear = math::Affine3_LinearPart( object.localToWorld );
-    if ( !HasPositiveOrientation( linear ) ) {
-        // A mirrored object needs a different front-face pipeline policy.
+    const int orientation = Orientation( linear );
+    if ( orientation == 0 ) {
+        // A zero determinant collapses triangles and has no front face.
         return render_error_t::ERR_UNSUPPORTED;
     }
 
@@ -189,7 +191,8 @@ render_error_t PreflightObject(
     render_error_t error = R_ApplyStaticMeshBundleToDraw(
         description.meshes[object.meshSlot], &draw );
     if ( error != render_error_t::OK ) return error;
-    error = R_ApplyCookedMaterialBundleToDraw( material, &draw );
+    error = R_ApplyCookedMaterialBundleToDraw(
+        material, orientation < 0, &draw );
     if ( error != render_error_t::OK ) return error;
 
     render_pipeline_info_t pipeline{};
@@ -234,7 +237,9 @@ void PublishDraw(
     draw.firstIndex = 0u;
     draw.indexCount = mesh.indexCount;
     draw.vertexCount = mesh.vertexCount;
-    draw.pipeline = material.pipeline;
+    const auto linear = math::Affine3_LinearPart( snapshot.object.localToWorld );
+    draw.pipeline = Orientation( linear ) < 0
+        ? material.mirroredPipeline : material.pipeline;
     for ( common::u32 i = 0u; i < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++i ) {
         draw.sampledTextures[i] = i < material.textureCount
             ? material.textures[i] : R_INVALID_TEXTURE;

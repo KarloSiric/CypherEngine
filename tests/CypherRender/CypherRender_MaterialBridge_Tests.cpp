@@ -77,7 +77,8 @@ struct cooked_files_t {
         bool withFeature = false, bool withSampler = false,
         common::render_material_alpha_mode_t alphaMode =
             common::render_material_alpha_mode_t::OPAQUE,
-        common::f64 maskCutoff = 0.375 )
+        common::f64 maskCutoff = 0.375,
+        common::flags32_t materialFlags = common::COOKED_MATERIAL_FLAG_NONE )
     {
         REQUIRE( textureCount <= 2u );
 
@@ -149,7 +150,7 @@ struct cooked_files_t {
         if ( alphaMode == common::render_material_alpha_mode_t::MASK ) {
             description.alphaCutoff = maskCutoff;
         }
-        description.flags = common::COOKED_MATERIAL_FLAG_NONE;
+        description.flags = materialFlags;
         material.resize( common::CookedMaterial_RequiredSizeV2( description ) );
         REQUIRE( !material.empty() );
         REQUIRE( common::CookedMaterial_Succeeded( common::CookedMaterial_WriteV2(
@@ -358,6 +359,14 @@ struct bridge_fixture_t {
     bool tokenOnTextureFailure{ false };
     bool failNextTextureDestroy{ false };
     render::render_error_t pipelineResult{ render::render_error_t::OK };
+    common::u32 failPipelineAt{ 0u };
+    bool tokenOnPipelineFailure{ false };
+    bool failNextPipelineDestroy{ false };
+    common::u32 pipelineDestroyAttempts{ 0u };
+    bool pipelineFrontCounterClockwise[2]{};
+    bool pipelineCullBackFaces[2]{};
+    bool pipelineDepthWrite[2]{};
+    render::render_blend_mode_t pipelineBlendModes[2]{};
     common::u32 lastPipelineTextureCount{ 0u };
     render::render_blend_mode_t lastPipelineBlendMode{
         render::render_blend_mode_t::DISABLED };
@@ -416,10 +425,11 @@ struct bridge_fixture_t {
         bool withFeature = false, bool withSampler = false,
         common::render_material_alpha_mode_t alphaMode =
             common::render_material_alpha_mode_t::OPAQUE,
-        common::f64 maskCutoff = 0.375 )
+        common::f64 maskCutoff = 0.375,
+        common::flags32_t materialFlags = common::COOKED_MATERIAL_FLAG_NONE )
     {
         cooked.Build( textureCount, mismatch, withFeature, withSampler,
-            alphaMode, maskCutoff );
+            alphaMode, maskCutoff, materialFlags );
         storage.files[0] = { kMaterialPath, { cooked.material.data(), cooked.material.size() } };
         storage.files[1] = { kShaderPath, { cooked.shader.data(), cooked.shader.size() } };
         storage.files[2] = { kAlbedoPath, { cooked.albedo.data(), cooked.albedo.size() } };
@@ -450,7 +460,13 @@ struct bridge_fixture_t {
         backend.CreateGraphicsPipeline = []( const render::backend_pipeline_desc_t &description,
             render::backend_pipeline_t &out, void *state ) noexcept {
             auto &fixture = *static_cast<bridge_fixture_t *>( state );
-            ++fixture.pipelineCreates;
+            const common::u32 index = fixture.pipelineCreates++;
+            if ( index < 2u ) {
+                fixture.pipelineFrontCounterClockwise[index] = description.frontCounterClockwise;
+                fixture.pipelineCullBackFaces[index] = description.cullBackFaces;
+                fixture.pipelineDepthWrite[index] = description.depthWrite;
+                fixture.pipelineBlendModes[index] = description.blendMode;
+            }
             fixture.lastPipelineTextureCount = description.sampledTextureCount;
             fixture.lastPipelineBlendMode = description.blendMode;
             fixture.lastPipelineDepthWrite = description.depthWrite;
@@ -461,13 +477,25 @@ struct bridge_fixture_t {
                     ( description.sampledTextures[1].name != nullptr &&
                       std::strcmp( description.sampledTextures[1].name, "DetailMap" ) == 0 ) ) );
             out = {};
-            if ( fixture.pipelineResult == render::render_error_t::OK ) {
-                out.value = fixture.nextToken++;
+            const render::render_error_t result =
+                fixture.failPipelineAt == fixture.pipelineCreates
+                    ? render::render_error_t::ERR_OUT_OF_MEMORY
+                    : fixture.pipelineResult;
+            if ( result != render::render_error_t::OK ) {
+                if ( fixture.tokenOnPipelineFailure ) out.value = fixture.nextToken++;
+                return result;
             }
-            return fixture.pipelineResult;
+            out.value = fixture.nextToken++;
+            return render::render_error_t::OK;
         };
         backend.DestroyGraphicsPipeline = []( render::backend_pipeline_t, void *state ) noexcept {
-            ++static_cast<bridge_fixture_t *>( state )->pipelineDestroys;
+            auto &fixture = *static_cast<bridge_fixture_t *>( state );
+            ++fixture.pipelineDestroyAttempts;
+            if ( fixture.failNextPipelineDestroy ) {
+                fixture.failNextPipelineDestroy = false;
+                return render::render_error_t::ERR_DEVICE_LOST;
+            }
+            ++fixture.pipelineDestroys;
             return render::render_error_t::OK;
         };
         backend.CreateTexture2D = []( const render::render_texture_desc_t &description,
@@ -615,7 +643,7 @@ TEST_CASE( "cooked material bridge owns zero to two textures after VFS views exp
         CHECK( result.status == render::render_material_bridge_status_t::OK );
         CHECK( fixture.storage.reads == textureCount + 2u );
         CHECK( fixture.shaderCreates == 1u );
-        CHECK( fixture.pipelineCreates == 1u );
+        CHECK( fixture.pipelineCreates == 2u );
         CHECK( fixture.textureCreates == textureCount );
         CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
         CHECK( fixture.lastPipelineTextureCount == textureCount );
@@ -627,6 +655,11 @@ TEST_CASE( "cooked material bridge owns zero to two textures after VFS views exp
         CHECK( fixture.bundle.alphaCutoff == 0.5F );
         CHECK( render::R_IsShaderValid( fixture.bundle.shader ) );
         CHECK( render::R_IsGraphicsPipelineValid( fixture.bundle.pipeline ) );
+        CHECK( render::R_IsGraphicsPipelineValid( fixture.bundle.mirroredPipeline ) );
+        CHECK( fixture.pipelineFrontCounterClockwise[0] );
+        CHECK_FALSE( fixture.pipelineFrontCounterClockwise[1] );
+        CHECK( fixture.pipelineCullBackFaces[0] );
+        CHECK( fixture.pipelineCullBackFaces[1] );
         for ( common::u32 index = 0u; index < textureCount; ++index ) {
             CHECK( render::R_IsTextureValid( fixture.bundle.textures[index] ) );
         }
@@ -648,14 +681,77 @@ TEST_CASE( "cooked material bridge owns zero to two textures after VFS views exp
         REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
             fixture.bundle, &draw ) == render::render_error_t::OK );
         CHECK( draw.pipeline.value == fixture.bundle.pipeline.value );
+        REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
+            fixture.bundle, true, &draw ) == render::render_error_t::OK );
+        CHECK( draw.pipeline.value == fixture.bundle.mirroredPipeline.value );
         for ( common::u32 index = 0u; index < textureCount; ++index ) {
             CHECK( draw.sampledTextures[index].value == fixture.bundle.textures[index].value );
         }
         REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
             render::render_error_t::OK );
-        CHECK( fixture.pipelineDestroys == 1u );
+        CHECK( fixture.pipelineDestroys == 2u );
         CHECK( fixture.shaderDestroys == 1u );
         CHECK( fixture.textureDestroys == textureCount );
+        CHECK( fixture.bundle.mirroredPipeline.value == 0u );
+    }
+}
+
+TEST_CASE( "cooked material mirror keeps alpha state and two-sided front-facing policy",
+    "[CypherRender][MaterialBridge][Mirror]" )
+{
+    for ( const auto mode : {
+             common::render_material_alpha_mode_t::OPAQUE,
+             common::render_material_alpha_mode_t::MASK,
+             common::render_material_alpha_mode_t::BLEND,
+             common::render_material_alpha_mode_t::ADDITIVE } ) {
+        CAPTURE( static_cast<common::u32>( mode ) );
+        bridge_fixture_t fixture{};
+        fixture.Init( 1u, false, false, false, mode, 0.375,
+            common::COOKED_MATERIAL_FLAG_TWO_SIDED );
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.Description(), &fixture.bundle );
+        REQUIRE( result.status == render::render_material_bridge_status_t::OK );
+        REQUIRE( fixture.pipelineCreates == 2u );
+        CHECK( fixture.pipelineFrontCounterClockwise[0] );
+        CHECK_FALSE( fixture.pipelineFrontCounterClockwise[1] );
+        CHECK_FALSE( fixture.pipelineCullBackFaces[0] );
+        CHECK_FALSE( fixture.pipelineCullBackFaces[1] );
+        CHECK( fixture.pipelineDepthWrite[0] == fixture.pipelineDepthWrite[1] );
+        CHECK( fixture.pipelineBlendModes[0] == fixture.pipelineBlendModes[1] );
+
+        render::render_pipeline_info_t ordinary{}, mirrored{};
+        REQUIRE( render::R_GetGraphicsPipelineInfo( fixture.bundle.pipeline,
+            &ordinary ) == render::render_error_t::OK );
+        REQUIRE( render::R_GetGraphicsPipelineInfo( fixture.bundle.mirroredPipeline,
+            &mirrored ) == render::render_error_t::OK );
+        CHECK( ordinary.shader.value == mirrored.shader.value );
+        CHECK( ordinary.frontCounterClockwise );
+        CHECK_FALSE( mirrored.frontCounterClockwise );
+        CHECK_FALSE( ordinary.cullBackFaces );
+        CHECK_FALSE( mirrored.cullBackFaces );
+        CHECK( ordinary.depthTest == mirrored.depthTest );
+        CHECK( ordinary.depthWrite == mirrored.depthWrite );
+        CHECK( ordinary.blendMode == mirrored.blendMode );
+        CHECK( ordinary.sampledTextureCount == mirrored.sampledTextureCount );
+
+        render::render_draw_indexed_desc_t draw{};
+        REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
+            fixture.bundle, true, &draw ) == render::render_error_t::OK );
+        CHECK( draw.pipeline.value == fixture.bundle.mirroredPipeline.value );
+        CHECK( draw.sampledTextures[0].value == fixture.bundle.textures[0].value );
+        REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
+            fixture.bundle, &draw ) == render::render_error_t::OK );
+        CHECK( draw.pipeline.value == fixture.bundle.pipeline.value );
+        const auto mirroredPipeline = fixture.bundle.mirroredPipeline;
+        fixture.bundle.mirroredPipeline = {};
+        CHECK( render::R_ApplyCookedMaterialBundleToDraw(
+            fixture.bundle, true, &draw ) == render::render_error_t::ERR_UNSUPPORTED );
+        CHECK( draw.pipeline.value == fixture.bundle.pipeline.value );
+        fixture.bundle.mirroredPipeline = fixture.bundle.pipeline;
+        CHECK( render::R_ApplyCookedMaterialBundleToDraw(
+            fixture.bundle, true, &draw ) == render::render_error_t::ERR_BINDING_MISMATCH );
+        CHECK( draw.pipeline.value == fixture.bundle.pipeline.value );
+        fixture.bundle.mirroredPipeline = mirroredPipeline;
     }
 }
 
@@ -670,7 +766,7 @@ TEST_CASE( "cooked tint creates a native float material uniform and owns its lif
     REQUIRE( result.status == render::render_material_bridge_status_t::OK );
     CHECK( fixture.shaderCreates == 1u );
     CHECK( fixture.bufferCreates == 1u );
-    CHECK( fixture.pipelineCreates == 1u );
+    CHECK( fixture.pipelineCreates == 2u );
     CHECK( fixture.uploadedBufferBytes == 4u * sizeof( common::f32 ) );
     CHECK( fixture.uploadedBufferUsage == render::R_BUFFER_USAGE_UNIFORM );
     CHECK( fixture.uploadedTint[0] == 0.25F );
@@ -699,10 +795,14 @@ TEST_CASE( "cooked tint creates a native float material uniform and owns its lif
     CHECK( draw.uniformBuffers[2].value == fixture.bundle.materialUniformBuffer.value );
     CHECK( draw.uniformRanges[2].offset == 0u );
     CHECK( draw.uniformRanges[2].byteSize == 0u );
+    REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
+        fixture.bundle, true, &draw ) == render::render_error_t::OK );
+    CHECK( draw.pipeline.value == fixture.bundle.mirroredPipeline.value );
+    CHECK( draw.uniformBuffers[2].value == fixture.bundle.materialUniformBuffer.value );
 
     REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
         render::render_error_t::OK );
-    CHECK( fixture.pipelineDestroys == 1u );
+    CHECK( fixture.pipelineDestroys == 2u );
     CHECK( fixture.shaderDestroys == 1u );
     CHECK( fixture.bufferDestroys == 1u );
     CHECK( fixture.bundle.materialUniformBuffer.value == 0u );
@@ -860,7 +960,7 @@ TEST_CASE( "cooked material bridge adopts linear float albedo with a single leve
         REQUIRE( result.status == render::render_material_bridge_status_t::OK );
         CHECK( fixture.shaderCreates == 1u );
         CHECK( fixture.textureCreates == 2u );
-        CHECK( fixture.pipelineCreates == 1u );
+        CHECK( fixture.pipelineCreates == 2u );
         CHECK( fixture.bundle.textureCount == 2u );
         CHECK( fixture.uploadedFormats[0] == render::render_texture_format_t::RGBA32F );
         CHECK_FALSE( fixture.uploadedSrgb[0] );
@@ -891,7 +991,7 @@ TEST_CASE( "cooked material bridge adopts linear float albedo with a single leve
             render::render_error_t::OK );
         CHECK( fixture.shaderDestroys == 1u );
         CHECK( fixture.textureDestroys == 2u );
-        CHECK( fixture.pipelineDestroys == 1u );
+        CHECK( fixture.pipelineDestroys == 2u );
     }
 }
 
@@ -921,7 +1021,7 @@ TEST_CASE( "cooked blend material adopts depth-tested straight-alpha pipeline st
     REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
         render::render_error_t::OK );
     CHECK( fixture.shaderDestroys == 1u );
-    CHECK( fixture.pipelineDestroys == 1u );
+    CHECK( fixture.pipelineDestroys == 2u );
     CHECK( fixture.textureDestroys == 1u );
     CHECK( fixture.bundle.alphaMode == common::render_material_alpha_mode_t::OPAQUE );
     CHECK( fixture.bundle.alphaCutoff == 0.5F );
@@ -942,7 +1042,7 @@ TEST_CASE( "cooked mask material retains cutoff and opaque depth state",
         CHECK( fixture.bundle.textureCount == 1u );
         CHECK( fixture.shaderCreates == 1u );
         CHECK( fixture.textureCreates == 1u );
-        CHECK( fixture.pipelineCreates == 1u );
+        CHECK( fixture.pipelineCreates == 2u );
         CHECK( fixture.lastPipelineBlendMode == render::render_blend_mode_t::DISABLED );
         CHECK( fixture.lastPipelineDepthWrite );
         render::render_pipeline_info_t pipelineInfo{};
@@ -963,7 +1063,7 @@ TEST_CASE( "cooked mask material retains cutoff and opaque depth state",
 
         REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
             render::render_error_t::OK );
-        CHECK( fixture.pipelineDestroys == 1u );
+        CHECK( fixture.pipelineDestroys == 2u );
         CHECK( fixture.shaderDestroys == 1u );
         CHECK( fixture.textureDestroys == 1u );
         CHECK( fixture.bundle.alphaMode == common::render_material_alpha_mode_t::OPAQUE );
@@ -1002,7 +1102,7 @@ TEST_CASE( "cooked additive material adopts weighted RGB addition without depth 
     REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
         render::render_error_t::OK );
     CHECK( fixture.shaderDestroys == 1u );
-    CHECK( fixture.pipelineDestroys == 1u );
+    CHECK( fixture.pipelineDestroys == 2u );
     CHECK( fixture.textureDestroys == 1u );
 }
 
@@ -1134,6 +1234,69 @@ TEST_CASE( "cooked material bridge rejects mismatched and unsupported interfaces
             CHECK( fixture.pipelineCreates == 0u );
             CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
         }
+    }
+}
+
+TEST_CASE( "mirrored pipeline creation and destruction preserve retryable ownership",
+    "[CypherRender][MaterialBridge][Mirror]" )
+{
+    SECTION( "second pipeline failure retires its returned token and the first pipeline" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 1u );
+        fixture.failPipelineAt = 2u;
+        fixture.tokenOnPipelineFailure = true;
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.Description(), &fixture.bundle );
+        CHECK( result.status == render::render_material_bridge_status_t::RENDER_ERROR );
+        CHECK( result.renderError == render::render_error_t::ERR_OUT_OF_MEMORY );
+        CHECK( fixture.pipelineCreates == 2u );
+        CHECK( fixture.pipelineDestroys == 2u );
+        CHECK( fixture.shaderDestroys == 1u );
+        CHECK( fixture.textureDestroys == 1u );
+        CHECK( fixture.bundle.pipeline.value == 0u );
+        CHECK( fixture.bundle.mirroredPipeline.value == 0u );
+        CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+    }
+    SECTION( "failed cleanup after second create publishes first pipeline for retry" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 1u );
+        fixture.failPipelineAt = 2u;
+        fixture.failNextPipelineDestroy = true;
+        const auto result = render::R_CreateCookedMaterialBundle(
+            fixture.Description(), &fixture.bundle );
+        CHECK( result.status == render::render_material_bridge_status_t::CLEANUP_FAILED );
+        CHECK( result.renderError == render::render_error_t::ERR_OUT_OF_MEMORY );
+        CHECK( result.cleanupRenderError == render::render_error_t::ERR_DEVICE_LOST );
+        CHECK( fixture.pipelineCreates == 2u );
+        CHECK( fixture.pipelineDestroys == 0u );
+        CHECK( fixture.shaderDestroys == 0u );
+        CHECK( render::R_IsGraphicsPipelineValid( fixture.bundle.pipeline ) );
+        CHECK( fixture.bundle.mirroredPipeline.value == 0u );
+        CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+        REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+            render::render_error_t::OK );
+        CHECK( fixture.pipelineDestroys == 1u );
+        CHECK( fixture.shaderDestroys == 1u );
+        CHECK( fixture.bundle.pipeline.value == 0u );
+    }
+    SECTION( "failed mirror destruction retains shader until retry" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 1u );
+        REQUIRE( render::R_CreateCookedMaterialBundle(
+            fixture.Description(), &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::OK );
+        fixture.failNextPipelineDestroy = true;
+        CHECK( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+            render::render_error_t::ERR_DEVICE_LOST );
+        CHECK( fixture.pipelineDestroys == 1u );
+        CHECK( fixture.shaderDestroys == 0u );
+        CHECK( fixture.bundle.pipeline.value == 0u );
+        CHECK( render::R_IsGraphicsPipelineValid( fixture.bundle.mirroredPipeline ) );
+        REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+            render::render_error_t::OK );
+        CHECK( fixture.pipelineDestroys == 2u );
+        CHECK( fixture.shaderDestroys == 1u );
+        CHECK( fixture.bundle.mirroredPipeline.value == 0u );
     }
 }
 

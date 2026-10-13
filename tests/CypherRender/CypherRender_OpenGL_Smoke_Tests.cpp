@@ -3176,11 +3176,16 @@ void CheckShadowPassLighting( const render::render_extent_t extent )
 }
 
 void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
-    const bool floatAlbedo, const bool withTint )
+    const bool floatAlbedo, const bool withTint, const bool mirrored = false,
+    const bool twoSided = false )
 {
     CAPTURE( floatAlbedo );
     CAPTURE( withTint );
+    CAPTURE( mirrored );
+    CAPTURE( twoSided );
     REQUIRE( ( !withTint || floatAlbedo ) );
+    REQUIRE( ( !mirrored || ( !floatAlbedo && !withTint ) ) );
+    REQUIRE( ( !twoSided || mirrored ) );
     const auto materialPath = common::StringView_FromCString( "materials/native.cymat_c" );
     const auto shaderPath = common::StringView_FromCString( "shaders/native.cyshader_c" );
     const auto texturePath = common::StringView_FromCString( "textures/native.cytex_c" );
@@ -3202,6 +3207,12 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
         "uniform sampler2D AlbedoMap;\n"
         "layout(location=0) out vec4 color;\n"
         "void main(){ color=texture(AlbedoMap,vec2(0.5)); }\n";
+    constexpr char mirroredFragmentSource[] =
+        "#version 410 core\n"
+        "uniform sampler2D AlbedoMap;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main(){ color=gl_FrontFacing ? texture(AlbedoMap,vec2(0.5)) : "
+        "vec4(0.0,1.0,0.0,1.0); }\n";
     constexpr char tintedFragmentSource[] =
         "#version 410 core\n"
         "uniform sampler2D AlbedoMap;\n"
@@ -3276,6 +3287,11 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
             reinterpret_cast<const common::byte *>( tintedFragmentSource ),
             sizeof( tintedFragmentSource )
         };
+    } else if ( mirrored ) {
+        stages[1].code = {
+            reinterpret_cast<const common::byte *>( mirroredFragmentSource ),
+            sizeof( mirroredFragmentSource )
+        };
     }
     std::vector<common::byte> shaderBytes( common::CookedShader_RequiredSizeV3(
         {}, { stages, 2u }, shaderInterface ) );
@@ -3322,6 +3338,9 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
     materialDescription.shader = common::StringView_FromCString( "shaders/native.cyshader" );
     materialDescription.shaderInterfaceHash = interfaceHash;
     materialDescription.textures = { &materialTexture, 1u };
+    materialDescription.flags = twoSided
+        ? common::COOKED_MATERIAL_FLAG_TWO_SIDED
+        : common::COOKED_MATERIAL_FLAG_NONE;
     common::cooked_material_parameter_source_v2_t tint{};
     if ( withTint ) {
         tint.name = common::StringView_FromCString( "tint" );
@@ -3438,9 +3457,14 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
         &pSubmission, common::Allocator_GetSystem(), 1u ) ==
         world::world_submission_error_t::OK );
     world::world_object_t object{};
-    object.localToWorld = math::Affine3_FromTranslation( { -3.0f, 0.0f, 0.0f } );
-    object.worldBounds = math::Aabb_Make(
-        { -1.0f, -1.0f, -0.1f }, { 3.0f, 3.0f, 0.1f } );
+    object.localToWorld = mirrored
+        ? math::Affine3_Multiply(
+            math::Affine3_FromTranslation( { 3.0f, 0.0f, 0.0f } ),
+            math::Affine3_FromScale( { -1.0f, 1.0f, 1.0f } ) )
+        : math::Affine3_FromTranslation( { -3.0f, 0.0f, 0.0f } );
+    object.worldBounds = mirrored
+        ? math::Aabb_Make( { -3.0f, -1.0f, -0.1f }, { 1.0f, 3.0f, 0.1f } )
+        : math::Aabb_Make( { -1.0f, -1.0f, -0.1f }, { 3.0f, 3.0f, 0.1f } );
     object.layerMask = 1u;
     object.meshSlot = 0u;
     object.materialSlot = 0u;
@@ -3499,6 +3523,8 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
     REQUIRE( drawCount == 1u );
     CHECK( draws[0].objectId.worldSerial == objectId.worldSerial );
     CHECK( draws[0].objectId.incarnation == objectId.incarnation );
+    CHECK( draws[0].draw.pipeline.value == ( mirrored
+        ? bundle.mirroredPipeline.value : bundle.pipeline.value ) );
 
     render::render_frame_info_t frame{};
     frame.drawableExtent = extent;
@@ -3518,6 +3544,27 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
             render::render_error_t::OK );
         REQUIRE( render::R_CreateRenderTarget( { hdrColor, {} }, &hdrTarget ) ==
             render::render_error_t::OK );
+    }
+    if ( mirrored ) {
+        // The same transformed triangle has CW window-space winding. The
+        // ordinary CCW pipeline culls it, or labels it back-facing for a
+        // two-sided material. Use a separate frame so its depth cannot hide
+        // the subsequent front-facing draw.
+        REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+        auto wrongWinding = draws[0].draw;
+        wrongWinding.pipeline = bundle.pipeline;
+        REQUIRE( render::R_DrawIndexed( wrongWinding ) == render::render_error_t::OK );
+        common::byte culled[4]{};
+        glReadBuffer( GL_BACK );
+        glReadPixels( static_cast<GLint>( extent.width / 2u ),
+            static_cast<GLint>( extent.height / 2u ), 1, 1,
+            GL_RGBA, GL_UNSIGNED_BYTE, culled );
+        REQUIRE( glGetError() == GL_NO_ERROR );
+        CHECK( culled[0] < 16u );
+        CHECK( ( twoSided ? culled[1] > 240u : culled[1] < 16u ) );
+        CHECK( ( twoSided ? culled[2] < 16u : culled[2] > 240u ) );
+        REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+        ++frame.frameIndex;
     }
     REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
     if ( floatAlbedo ) {
@@ -3572,10 +3619,12 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent,
 
     const auto shader = bundle.shader;
     const auto pipeline = bundle.pipeline;
+    const auto mirroredPipeline = bundle.mirroredPipeline;
     const auto texture = bundle.textures[0];
     REQUIRE( render::R_DestroyCookedMaterialBundle( &bundle ) == render::render_error_t::OK );
     CHECK_FALSE( render::R_IsShaderValid( shader ) );
     CHECK_FALSE( render::R_IsGraphicsPipelineValid( pipeline ) );
+    CHECK_FALSE( render::R_IsGraphicsPipelineValid( mirroredPipeline ) );
     CHECK_FALSE( render::R_IsTextureValid( texture ) );
     REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) == render::render_error_t::OK );
 }
@@ -3668,6 +3717,8 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckCookedMaterialBundleDrawing( info->drawableExtent, false, false );
     CheckCookedMaterialBundleDrawing( info->drawableExtent, true, false );
     CheckCookedMaterialBundleDrawing( info->drawableExtent, true, true );
+    CheckCookedMaterialBundleDrawing( info->drawableExtent, false, false, true );
+    CheckCookedMaterialBundleDrawing( info->drawableExtent, false, false, true, true );
 
     ::cypher::common::u32 vertexWords[16]{};
     render::render_buffer_desc_t bufferDescription{};
