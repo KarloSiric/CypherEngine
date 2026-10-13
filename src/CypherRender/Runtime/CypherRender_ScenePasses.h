@@ -16,12 +16,14 @@ namespace cypher::engine::render
 enum class render_scene_alpha_t : ::cypher::common::u8 {
     OPAQUE = 0u,
     BLEND,
+    ADDITIVE,
     COUNT
 };
 
 // Descriptors are already resolved by the caller. The classifier never reads
 // renderer state or validates their GPU handles. cameraDistance is a positive
 // view-space distance for a camera-visible BLEND item; farther items draw first.
+// ADDITIVE items retain input order and do not require cameraDistance.
 // A shadow caster need not be visible to the camera. Shadow policy is explicit,
 // independent of alpha class, and requires a prepared shadowDraw when consumed.
 struct render_scene_item_t {
@@ -47,9 +49,13 @@ struct render_scene_pass_indices_t {
     ::cypher::common::u32 *blend{ nullptr };
     ::cypher::common::u32 blendCapacity{ 0u };
     ::cypher::common::u32 blendCount{ 0u };
+    ::cypher::common::u32 *additive{ nullptr };
+    ::cypher::common::u32 additiveCapacity{ 0u };
+    ::cypher::common::u32 additiveCount{ 0u };
 };
 
-// CPU-only and allocation-free. Opaque and shadow indices retain input order.
+// CPU-only and allocation-free. Opaque, additive, and shadow indices retain
+// input order. The caller submits additive draws after opaque and BLEND draws.
 // BLEND indices sort by descending distance with input index as the tie-break.
 // Output indices borrow the input span: consume/copy its draw records into
 // owned draw queues before the input items go out of scope. An empty span with

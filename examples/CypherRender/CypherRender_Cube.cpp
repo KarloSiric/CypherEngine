@@ -215,7 +215,9 @@ constexpr math::vec3_t PANEL_SCALE{ 0.16f, 0.16f, 1.0f };
 constexpr common::u32 PANEL_OBJECT_BEGIN = FLOOR_OBJECT_INDEX + 1u;
 constexpr common::u32 PANEL_COUNT =
     static_cast<common::u32>( sizeof( PANEL_POSITIONS ) / sizeof( PANEL_POSITIONS[0] ) );
-constexpr common::u32 WORLD_OBJECT_COUNT = PANEL_OBJECT_BEGIN + PANEL_COUNT;
+constexpr common::u32 ADDITIVE_OBJECT_INDEX = PANEL_OBJECT_BEGIN + PANEL_COUNT;
+constexpr math::vec3_t ADDITIVE_PANEL_POSITION{ 0.42f, 0.34f, 1.42f };
+constexpr common::u32 WORLD_OBJECT_COUNT = ADDITIVE_OBJECT_INDEX + 1u;
 constexpr common::u32 MESH_SLOT_CUBE = 0u;
 constexpr common::u32 MESH_SLOT_FLOOR = 1u;
 constexpr common::u32 MESH_SLOT_COUNT = 2u;
@@ -241,7 +243,8 @@ constexpr sample_material_t MATERIALS[WORLD_OBJECT_COUNT] = {
     { { 0.72f, 0.28f, 0.68f, 1.0f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::OPAQUE, true, -1.0f },
     { { 0.90f, 0.90f, 0.90f, 1.0f }, TEXTURE_SLOT_FLOOR, render::render_scene_alpha_t::OPAQUE, true, -1.0f },
     { { 0.18f, 0.70f, 0.86f, 0.42f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::BLEND, false, -1.0f },
-    { { 0.95f, 0.42f, 0.32f, 0.38f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::BLEND, false, -1.0f }
+    { { 0.95f, 0.42f, 0.32f, 0.38f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::BLEND, false, -1.0f },
+    { { 0.34f, 0.66f, 1.00f, 0.48f }, TEXTURE_SLOT_WHITE, render::render_scene_alpha_t::ADDITIVE, false, -1.0f }
 };
 constexpr common::u32 MATERIAL_COUNT =
     static_cast<common::u32>( sizeof( MATERIALS ) / sizeof( MATERIALS[0] ) );
@@ -254,6 +257,7 @@ struct cube_state_t {
     render::render_shader_handle_t toneMapShader{};
     render::render_pipeline_handle_t pipeline{};
     render::render_pipeline_handle_t transparentPipeline{};
+    render::render_pipeline_handle_t additivePipeline{};
     render::render_pipeline_handle_t shadowPipeline{};
     render::render_pipeline_handle_t toneMapPipeline{};
     render::render_texture_handle_t shadowDepth{};
@@ -270,6 +274,7 @@ struct cube_state_t {
     render::render_uniform_batch_t objectConstants{};
     render::render_draw_queue_t *pDrawQueue{ nullptr };
     render::render_draw_queue_t *pTransparentQueue{ nullptr };
+    render::render_draw_queue_t *pAdditiveQueue{ nullptr };
     render::render_draw_queue_t *pShadowQueue{ nullptr };
     world::world_t *pWorld{ nullptr };
     world::world_submission_t *pSubmission{ nullptr };
@@ -668,6 +673,13 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
              &state.transparentPipeline ), "Create translucent pipeline" ) ) return false;
 
+    // Additive draws keep the same depth test but add weighted light/color
+    // after the sorted straight-alpha surfaces. They never write scene depth.
+    pipeline.blendMode = render::render_blend_mode_t::ADDITIVE;
+    pipeline.debugName = "Depth-tested additive graybox pipeline";
+    if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
+             &state.additivePipeline ), "Create additive pipeline" ) ) return false;
+
     pipeline.shader = state.shadowShader;
     pipeline.depthWrite = true;
     pipeline.blendMode = render::render_blend_mode_t::DISABLED;
@@ -729,6 +741,9 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
         CheckRender( render::R_InitDrawQueue( &state.pTransparentQueue,
             common::Allocator_GetSystem(), PANEL_COUNT ),
             "Create translucent draw queue" ) &&
+        CheckRender( render::R_InitDrawQueue( &state.pAdditiveQueue,
+            common::Allocator_GetSystem(), 1u ),
+            "Create additive draw queue" ) &&
         CheckRender( render::R_InitDrawQueue( &state.pShadowQueue,
             common::Allocator_GetSystem(), WORLD_OBJECT_COUNT ),
             "Create shadow draw queue" );
@@ -781,6 +796,18 @@ bool CreateWorld( cube_state_t &state ) noexcept
                  &panel, &state.objectIds[PANEL_OBJECT_BEGIN + i] ),
                  "Add translucent world panel" ) ) return false;
     }
+    world::world_object_t additivePanel{};
+    additivePanel.localToWorld = math::Affine3_Multiply(
+        math::Affine3_FromTranslation( ADDITIVE_PANEL_POSITION ),
+        math::Affine3_FromScale( PANEL_SCALE ) );
+    additivePanel.worldBounds = math::Aabb_TransformAffine(
+        FLOOR_LOCAL_BOUNDS, additivePanel.localToWorld );
+    additivePanel.layerMask = 1u;
+    additivePanel.meshSlot = MESH_SLOT_FLOOR;
+    additivePanel.materialSlot = ADDITIVE_OBJECT_INDEX;
+    if ( !CheckWorld( world::World_AddObject( state.pWorld,
+             &additivePanel, &state.objectIds[ADDITIVE_OBJECT_INDEX] ),
+             "Add additive world panel" ) ) return false;
     return true;
 }
 
@@ -885,6 +912,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
     common::u32 renderedFrames = 0u;
     common::u64 visibleDraws = 0u;
     common::u64 transparentDraws = 0u;
+    common::u64 additiveDraws = 0u;
     common::u64 shadowDraws = 0u;
     common::u64 toneMapDraws = 0u;
     render::render_extent_t extent = render::R_GetInfo()->drawableExtent;
@@ -1018,6 +1046,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         if ( visibleCount > WORLD_OBJECT_COUNT ||
              !render::R_IsGraphicsPipelineValid( state.pipeline ) ||
              !render::R_IsGraphicsPipelineValid( state.transparentPipeline ) ||
+             !render::R_IsGraphicsPipelineValid( state.additivePipeline ) ||
              !render::R_IsGraphicsPipelineValid( state.shadowPipeline ) ||
              !render::R_IsGraphicsPipelineValid( state.toneMapPipeline ) ||
              !render::R_IsBufferValid( state.viewConstants ) ||
@@ -1039,6 +1068,8 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                      "Reset draw queue" ) ||
                  !CheckRender( render::R_ResetDrawQueue( state.pTransparentQueue ),
                      "Reset translucent draw queue" ) ||
+                 !CheckRender( render::R_ResetDrawQueue( state.pAdditiveQueue ),
+                     "Reset additive draw queue" ) ||
                  !CheckRender( render::R_ResetDrawQueue( state.pShadowQueue ),
                      "Reset shadow draw queue" ) ) return false;
         }
@@ -1081,8 +1112,9 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             // positive view distance, with more distant BLEND objects first.
             sceneItems[i].cameraDistance = -math::Mat4_TransformPointAffine(
                 view, math::Aabb_Center( object.worldBounds ) ).z;
-            mainDraws[i].pipeline = transparent
-                ? state.transparentPipeline : state.pipeline;
+            mainDraws[i].pipeline = material.alpha == render::render_scene_alpha_t::ADDITIVE
+                ? state.additivePipeline
+                : ( transparent ? state.transparentPipeline : state.pipeline );
             mainDraws[i].uniformBuffers[0] = state.viewConstants;
             const auto textureSlot = MATERIALS[object.materialSlot].textureSlot;
             if ( textureSlot >= TEXTURE_SLOT_COUNT ||
@@ -1164,6 +1196,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         common::u32 shadowIndices[WORLD_OBJECT_COUNT]{};
         common::u32 opaqueIndices[WORLD_OBJECT_COUNT]{};
         common::u32 blendIndices[WORLD_OBJECT_COUNT]{};
+        common::u32 additiveIndices[WORLD_OBJECT_COUNT]{};
         render::render_scene_pass_indices_t passes{};
         passes.shadow = shadowIndices;
         passes.shadowCapacity = WORLD_OBJECT_COUNT;
@@ -1171,9 +1204,11 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         passes.opaqueCapacity = WORLD_OBJECT_COUNT;
         passes.blend = blendIndices;
         passes.blendCapacity = WORLD_OBJECT_COUNT;
+        passes.additive = additiveIndices;
+        passes.additiveCapacity = WORLD_OBJECT_COUNT;
         if ( !CheckRender( render::R_ClassifySceneItems(
                  sceneItems, WORLD_OBJECT_COUNT, &passes ),
-                 "Classify shadow, opaque, and blended scene draws" ) ) return false;
+                 "Classify shadow, opaque, blended, and additive scene draws" ) ) return false;
         for ( common::u32 i = 0u; i < passes.shadowCount; ++i ) {
             if ( !CheckRender( render::R_AppendDrawQueue( state.pShadowQueue,
                      sceneItems[passes.shadow[i]].shadowDraw ),
@@ -1188,6 +1223,11 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             if ( !CheckRender( render::R_AppendDrawQueue( state.pTransparentQueue,
                      sceneItems[passes.blend[i]].cameraDraw ),
                      "Queue sorted translucent panel" ) ) return false;
+        }
+        for ( common::u32 i = 0u; i < passes.additiveCount; ++i ) {
+            if ( !CheckRender( render::R_AppendDrawQueue( state.pAdditiveQueue,
+                     sceneItems[passes.additive[i]].cameraDraw ),
+                     "Queue additive panel" ) ) return false;
         }
 
         render::render_frame_info_t frame{};
@@ -1232,9 +1272,16 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                     "Blend sorted translucent panels into HDR scene" );
                 transparentDraws += completedTransparentDraws;
                 visibleDraws += completedTransparentDraws;
+                common::u32 completedAdditiveDraws = 0u;
+                const bool additiveOK = transparentOK && CheckRender(
+                    render::R_FlushDrawQueue( state.pAdditiveQueue,
+                        &completedAdditiveDraws ),
+                    "Add light from additive panel to HDR scene" );
+                additiveDraws += completedAdditiveDraws;
+                visibleDraws += completedAdditiveDraws;
                 const bool endPassOK = CheckRender( render::R_EndTargetPass(),
                     "End HDR scene pass" );
-                passOK = opaqueOK && transparentOK && endPassOK;
+                passOK = opaqueOK && transparentOK && additiveOK && endPassOK;
             }
         }
         if ( passOK ) {
@@ -1253,9 +1300,10 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         ++renderedFrames;
         if ( options.frameLimit != 0u && renderedFrames >= options.frameLimit ) break;
     }
-    std::printf( "Rendered %u frames, %llu visible-object draws (%llu translucent), %llu shadow-caster draws, and %llu tone-map draws.\n",
+    std::printf( "Rendered %u frames, %llu visible-object draws (%llu translucent, %llu additive), %llu shadow-caster draws, and %llu tone-map draws.\n",
         renderedFrames, static_cast<unsigned long long>( visibleDraws ),
         static_cast<unsigned long long>( transparentDraws ),
+        static_cast<unsigned long long>( additiveDraws ),
         static_cast<unsigned long long>( shadowDraws ),
         static_cast<unsigned long long>( toneMapDraws ) );
     return options.frameLimit == 0u || renderedFrames == options.frameLimit;
@@ -1268,6 +1316,7 @@ bool Shutdown( cube_state_t &state ) noexcept
         success = SetCameraCapture( state, false ) && success;
     }
     render::R_ShutdownDrawQueue( &state.pShadowQueue );
+    render::R_ShutdownDrawQueue( &state.pAdditiveQueue );
     render::R_ShutdownDrawQueue( &state.pTransparentQueue );
     render::R_ShutdownDrawQueue( &state.pDrawQueue );
     world::WorldSubmission_Shutdown( &state.pSubmission );
@@ -1286,6 +1335,10 @@ bool Shutdown( cube_state_t &state ) noexcept
         if ( state.transparentPipeline.value != 0u ) {
             success = CheckRender( render::R_DestroyGraphicsPipeline(
                 state.transparentPipeline ), "Destroy translucent pipeline" ) && success;
+        }
+        if ( state.additivePipeline.value != 0u ) {
+            success = CheckRender( render::R_DestroyGraphicsPipeline(
+                state.additivePipeline ), "Destroy additive pipeline" ) && success;
         }
         if ( state.shadowPipeline.value != 0u ) {
             success = CheckRender( render::R_DestroyGraphicsPipeline( state.shadowPipeline ),
@@ -1383,7 +1436,7 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
          !CreateScene( state, options ) ||
          !RecreateSceneTarget( state, render::R_GetInfo()->drawableExtent ) ||
          !CreateWorld( state ) ) return false;
-    std::printf( "Cooked shader: %s\nCooked shadow shader: %s\nCooked tone-map shader: %s\nCooked floor texture: %s\nCube and floor meshes, %u world objects; fixed shadow depth, opaque then sorted translucent HDR scene, and tone-map presentation passes per frame.\n",
+    std::printf( "Cooked shader: %s\nCooked shadow shader: %s\nCooked tone-map shader: %s\nCooked floor texture: %s\nCube and floor meshes, %u world objects; fixed shadow depth, opaque then sorted translucent then additive HDR scene, and tone-map presentation passes per frame.\n",
         options.shaderPath, options.shadowShaderPath, options.toneMapShaderPath,
         options.texturePath,
         WORLD_OBJECT_COUNT );

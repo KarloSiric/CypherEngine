@@ -20,10 +20,11 @@ cmake --build --preset shader-tools-debug --target cypher_render_cube --parallel
 The window displays three differently tinted, rotating cubes over a graybox
 floor with a cooked checker texture. A fourth cube sits behind the camera and
 is rejected by the World camera-view query, but still casts into a fixed
-directional shadow map. Two overlapping translucent panels sit above the
-floor. The cubes share one mesh; the floor and panels share a second mesh.
-The fixed shadow pass draws opaque casters, then the HDR camera pass draws
-opaque surfaces before depth-tested translucent panels sorted back-to-front.
+directional shadow map. Two overlapping translucent panels and one additive
+panel sit above the floor. The cubes share one mesh; the floor and panels share
+a second mesh. The fixed shadow pass draws opaque casters, then the HDR camera
+pass draws opaque surfaces, depth-tested translucent panels sorted back-to-front,
+and the additive panel.
 A fullscreen-triangle pass tone-maps the linear RGBA16F scene and encodes it
 for the presentation window. Depth testing hides rear surfaces, and back-face
 culling removes triangles facing away from the camera. Resize
@@ -49,10 +50,11 @@ Run a finite smoke check through the same public API:
 completing cleanup. A timeout also prevents a minimized finite run from waiting
 forever. Finite runs advance animation at a fixed 1/60 second per rendered frame;
 interactive runs use elapsed time. `--hidden` defaults to 120 frames if no frame
-limit is supplied. The current seven-object scene produces five opaque shadow
-draws, four camera-visible opaque draws, two translucent draws, and one
-presentation draw per frame: 600 shadow, 720 scene (240 translucent), and 120
-tone-map draws in the default hidden run. A graphics
+limit is supplied. The eight-object scene produces five opaque shadow draws,
+four camera-visible opaque draws, two translucent draws, one
+additive draw, and one presentation draw per frame: 600 shadow, 840 scene
+(240 translucent and 120 additive), and 120 tone-map draws in the default
+hidden run. A graphics
 context is still required for hidden runs. Finite runs keep the original fixed
 camera and do not consume fly controls, so the smoke check remains
 deterministic.
@@ -127,17 +129,18 @@ public shader and texture handles -> native programs and images
         |
         | R_CreateGraphicsPipeline
         v
-opaque, translucent, depth, and presentation pipelines: program + layout + state
+opaque, translucent, additive, depth, and presentation pipelines: program + layout + state
         |
         | World objects -> five opaque shadow casters
         | World_QueryView -> copied camera-visible World submission
         | host resolves logical mesh/material/texture slots and validates live handles
         | camera and light uploads + one aligned object-record batch
         | WorldSubmission_End invalidates the view token after visibility marking
-        | CPU scene classifier selects shadow/opaque/blend indices and sorts BLEND
-        | opaque, translucent, and shadow draw queues -> R_BeginFrame
+        | CPU scene classifier selects shadow/opaque/blend/additive indices and sorts BLEND
+        | opaque, translucent, additive, and shadow draw queues -> R_BeginFrame
         | D24 target pass -> five depth draws -> end target pass
-        | RGBA16F target pass -> four opaque camera draws -> two sorted translucent draws -> end pass
+        | RGBA16F target pass -> four opaque camera draws -> two sorted translucent draws
+        |                       -> one additive draw -> end pass
         | indexed fullscreen triangle samples HDR, tone-maps and encodes
         | R_EndFrame presents the window
         v
@@ -259,8 +262,8 @@ destroys the batch and owns the surrounding frame and draw order. Reusing the
 same GPU buffer in a later frame is correct but can stall while the GPU reads
 older draws; a measured multi-buffer strategy can be added when needed. This
 graybox example updates four cube transforms and conservative world-space bounds,
-while the floor and two translucent panels stay static. It holds seven World
-objects and builds one frustum/layer/distance camera-view submission. Five
+while the floor, two translucent panels, and additive panel stay static. It holds
+eight World objects and builds one frustum/layer/distance camera-view submission. Five
 opaque objects contribute to the shadow depth pass, including the cube rejected
 by that camera query. The
 submission storage is allocated once; each build uses the linear World query
@@ -270,11 +273,11 @@ ends the submission. The host selects one model/tint/normal/cutout record for ea
 object from one batch upload and binds it in both passes. The host
 resolves the objects'
 logical mesh and material slots through bounded tables containing two static
-mesh bundles and seven sample tint/texture-slot records. It checks every visible
+mesh bundles and eight sample tint/texture-slot records. It checks every visible
 slot and live mesh/texture handle before appending any draw. The final
 pipeline, texture, uniform, and draw-range validation still happens inside
 `R_DrawIndexed` during flush. World never owns GPU handles.
-The batch and all three draw queues reset after the preceding frame ends. This
+The batch and all four draw queues reset after the preceding frame ends. This
 exercises a bounded linear visibility query through the public OpenGL 4.1
 path. Interactive camera input can move the view; the object layout remains
 hardcoded. There is no scene asset loading, spatial acceleration, general
@@ -282,19 +285,20 @@ material asset loading or a general pass scheduler.
 
 ## Ordered draw list
 
-The sample resolves its material's explicit opaque or blend class and shadow
-policy into caller-owned scene items. `R_ClassifySceneItems` first validates
-the classes, finite blend distances, and all three output capacities. On
-failure it leaves the caller's counts and index arrays unchanged. It then
-returns shadow indices independent of camera visibility, opaque-camera indices
-in input order, and blend-camera indices far-to-near by positive view distance
-with input order breaking equal-distance ties. It performs no allocation or GPU
-work and retains no draw handles. The caller copies selected draw descriptors
-into separate fixed-capacity queues before beginning the frame. Each
+The sample resolves its material's explicit opaque, blend, or additive class and
+shadow policy into caller-owned scene items. `R_ClassifySceneItems` first
+validates the classes, finite blend distances, and all four output capacities.
+On failure it leaves the caller's counts and index arrays unchanged. It then
+returns shadow indices independent of camera visibility, opaque-camera and
+additive-camera indices in input order, and blend-camera indices far-to-near by
+positive view distance with input order breaking equal-distance ties. It performs
+no allocation or GPU work and retains no draw handles. The caller copies selected
+draw descriptors into separate fixed-capacity queues before beginning the frame. Each
 flush in the active frame calls the existing validated `R_DrawIndexed` path in
-append order. The lists hold renderer handles by value but do not retain the
-underlying GPU resources, so the host keeps the meshes, textures, pipelines,
-view buffers, and uniform batch alive through both flushes. They allocate at
+append order. The sample flushes opaque, sorted blend, then additive camera
+draws into the same HDR target. The lists hold renderer handles by value but do
+not retain the underlying GPU resources, so the host keeps the meshes, textures,
+pipelines, view buffers, and uniform batch alive through the flushes. They allocate at
 initialization, then reset between frames without another allocation. The
 queue itself preserves append order. Classification and queues are a bounded CPU
 preparation boundary, not asynchronous GPU submission or a general render graph.
@@ -384,14 +388,17 @@ general pass graph, exposure controller, or HDR editor viewport.
 
 ### Bounded translucent surfaces
 
-The graybox sample has two translucent panels whose tint alpha passes through
-the vertex and fragment shaders. Their graphics pipeline enables straight-alpha
-blending and depth testing while disabling depth writes. Opaque camera draws
-run first, then the scene classifier sorts visible translucent objects by their
-view-space bounds-center distance and the sample appends them to a separate
-fixed-capacity queue. In this right-handed camera view, greater distance draws
-first. Input order breaks equal-distance ties. Neither panel enters the
-shadow-caster queue because its sample material explicitly disables casting.
+The graybox sample has two translucent panels and one additive panel whose tint
+alpha passes through the vertex and fragment shaders. Their graphics pipelines
+test depth without writing it. The translucent pipeline uses straight-alpha
+blending; the additive pipeline weights source RGB by source alpha before adding
+it to destination RGB. Opaque camera draws run first. The scene classifier sorts
+visible translucent objects by their view-space bounds-center distance and
+retains additive objects in input order; the sample queues each class separately.
+In this right-handed camera view, greater blend distance draws first. Input
+order breaks equal-distance ties. The additive queue runs after the blend queue,
+so later straight-alpha draws do not attenuate its contribution. These panels do
+not enter the shadow-caster queue because their sample materials disable casting.
 
 The native OpenGL smoke test paints an opaque near surface and two half-alpha
 far/near surfaces into an RGBA16F target, then tone-maps into RGBA8 and checks
@@ -400,10 +407,9 @@ blend and depth-write states through actual rendered output. Sorting whole
 objects by center cannot correctly order intersecting transparent geometry or
 every transparent triangle within one mesh. The cooked material bridge can
 build opaque, straight-alpha `BLEND`, or `ADDITIVE` pipelines and expose their
-authored modes. A scene owner maps opaque and straight-alpha materials, plus
-its own shadow policy, into classifier input. The classifier has no dedicated
-additive list yet, so an owner schedules additive draws after opaque geometry.
-The sample still uses fixed material records instead of cooked material bundles.
+authored modes. A scene owner maps those modes, plus its own shadow policy, into
+classifier input. The classifier provides a dedicated additive list, but the
+sample still uses fixed material records instead of cooked material bundles.
 
 The pipeline blend mode is explicit: disabled, straight alpha, or additive.
 Additive color uses `source.rgb * source.a + destination.rgb`; its separate
@@ -411,8 +417,8 @@ alpha factors preserve destination alpha. An additive material tests depth but
 does not write it, so the scene owner submits it after opaque geometry. A
 native RGBA8 pixel check verifies the RGB sum, preserved alpha, and that an
 opaque depth probe behind the additive surface can still draw. The graybox
-sample does not yet place an additive object or schedule a distinct additive
-pass; the bridge exposes the state for a caller to use.
+sample places one additive panel in its HDR camera pass. This is a fixed sample
+queue, not an authored effect system or a general pass graph.
 
 ### Alpha cutout and matching shadows
 
@@ -463,12 +469,12 @@ shadow-pass scheduling and authored light-space setup remain separate work.
 The sample creates a 1024×1024 D24 depth texture, a depth-only target, and a
 pipeline that writes depth without color. A fixed orthographic light view
 covers its five opaque-pass World objects, including the masked cube. The host
-stages one aligned uniform batch and three draw queues before beginning the
+stages one aligned uniform batch and four draw queues before beginning the
 frame, because queues seal on flush and cannot reset inside a frame. Every
 sample object marked as a caster enters the light pass,
 including the cube outside the camera frustum. After ending the target pass,
-the four opaque camera-visible draws and two translucent panel draws bind the
-depth texture with a nearest-filtered
+the four opaque camera-visible draws, two translucent panel draws, and additive
+panel draw bind the depth texture with a nearest-filtered
 `LESS_EQUAL` comparison sampler in texture slot 1; slot 0 still carries the
 cube white image, cutout image, or cooked floor checker. The shadow pass also
 samples slot 0 and discards the same masked texels before writing depth.
@@ -648,9 +654,9 @@ not define a `.cymesh` format, importer, or scene draw queue.
 The graybox sample uses two scene meshes and one fullscreen triangle, a fixed
 D24 light pass, a linear RGBA16F camera pass, and a tone-map presentation pass.
 The camera pipelines have two uniform blocks and two sampled texture slots; a
-copied World submission and separate shadow, opaque, and sorted translucent
-draw lists feed those passes. The depth pipeline also samples albedo so its
-masked silhouette matches the camera pass.
+copied World submission and separate shadow, opaque, sorted translucent, and
+additive draw lists feed those passes. The depth pipeline also samples albedo so
+its masked silhouette matches the camera pass.
 The renderer also has samplers, two binding slots, offscreen RGBA8/RGBA16F
 color and sampleable depth targets, and a limited cooked-material bridge.
 Authored scene and mesh loading, broader material support, full command

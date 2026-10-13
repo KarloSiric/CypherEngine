@@ -72,6 +72,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Scene classification now returns a separate, input-ordered `ADDITIVE` pass
+  after opaque and far-to-near `BLEND` draws. It preflights the added output
+  capacity and overlaps before writing any pass indices. The graybox sample
+  renders one depth-tested, non-depth-writing additive panel after its two
+  translucent panels; it owns a bounded queue and cleans up the new pipeline.
+  Scene-pass tests pass 719 assertions in six cases, and the OpenGL sample
+  completes 120 hidden frames with 840 visible-object draws (240 translucent,
+  120 additive), 600 shadow draws, and 120 presentation draws. The sample still
+  uses fixed material records and a fixed pass order rather than authored
+  material bundles or a general render graph.
 - Graphics pipelines now choose `DISABLED`, `STRAIGHT_ALPHA`, or `ADDITIVE`
   blending explicitly instead of using a boolean. Additive draws contribute
   source RGB weighted by source alpha, retain destination alpha, and leave

@@ -62,6 +62,15 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- Scene classification has a separate, input-ordered ADDITIVE pass after
+  opaque and far-to-near BLEND draws. It preflights the new output capacity
+  and overlaps before writing indices. The graybox sample renders one
+  depth-tested, non-depth-writing additive panel after its two translucent
+  panels, using a bounded queue and cleaned-up pipeline. Scene-pass tests
+  pass 719 assertions in six cases. A 120-frame hidden OpenGL run completes
+  840 visible-object draws (240 translucent, 120 additive), 600 shadow draws
+  and 120 presentation draws. Material records and pass order remain fixed;
+  this is not yet authored material adoption or a general render graph.
 - Graphics pipelines choose DISABLED, STRAIGHT_ALPHA or ADDITIVE blending
   explicitly instead of a boolean. Additive draws contribute source RGB
   weighted by source alpha, preserve destination alpha, and do not write
