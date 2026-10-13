@@ -25,7 +25,9 @@
 #include "CypherRender/CypherRender_Draw.h"
 #include "CypherRender/CypherRender_Pipeline.h"
 #include "CypherRender/CypherRender_Public.h"
+#include "CypherRender/CypherRender_Sampler.h"
 #include "CypherRender/CypherRender_Shader.h"
+#include "CypherRender/CypherRender_Target.h"
 #include "CypherRender/CypherRender_Texture.h"
 #include "CypherRender/Runtime/CypherRender_MeshBridge.h"
 #include "CypherRender/Runtime/CypherRender_DrawQueue.h"
@@ -49,6 +51,9 @@
 #endif
 #ifndef CYPHER_RENDER_CUBE_TEXTURE_PATH
     #define CYPHER_RENDER_CUBE_TEXTURE_PATH "cooked/textures/blockout/floor_checker.cytex_c"
+#endif
+#ifndef CYPHER_RENDER_CUBE_SHADOW_SHADER_PATH
+    #define CYPHER_RENDER_CUBE_SHADOW_SHADER_PATH "cooked/render_smoke/shadow.cyshader_c"
 #endif
 
 namespace common = ::cypher::common;
@@ -122,12 +127,24 @@ struct alignas( 16 ) cube_view_constants_t {
     alignas( 16 ) float ambientLight[4];
     alignas( 16 ) float lightDirection[4];
     alignas( 16 ) float lightColor[4];
+    math::mat4_t lightViewProjection;
 };
-static_assert( sizeof( cube_view_constants_t ) == 176u );
+static_assert( sizeof( cube_view_constants_t ) == 240u );
 static_assert( offsetof( cube_view_constants_t, projection ) == 64u );
 static_assert( offsetof( cube_view_constants_t, ambientLight ) == 128u );
 static_assert( offsetof( cube_view_constants_t, lightDirection ) == 144u );
 static_assert( offsetof( cube_view_constants_t, lightColor ) == 160u );
+static_assert( offsetof( cube_view_constants_t, lightViewProjection ) == 176u );
+
+struct alignas( 16 ) shadow_light_constants_t {
+    math::mat4_t lightViewProjection;
+};
+static_assert( sizeof( shadow_light_constants_t ) == 64u );
+
+struct alignas( 16 ) shadow_object_constants_t {
+    math::mat4_t model;
+};
+static_assert( sizeof( shadow_object_constants_t ) == 64u );
 
 struct alignas( 16 ) cube_object_constants_t {
     math::mat4_t model;
@@ -138,6 +155,7 @@ static_assert( offsetof( cube_object_constants_t, tint ) == 64u );
 
 struct cube_options_t {
     const char *shaderPath{ CYPHER_RENDER_CUBE_SHADER_PATH };
+    const char *shadowShaderPath{ CYPHER_RENDER_CUBE_SHADOW_SHADER_PATH };
     const char *texturePath{ CYPHER_RENDER_CUBE_TEXTURE_PATH };
     common::u32 frameLimit{ 0u }; // Zero is an interactive run.
     bool hidden{ false };
@@ -186,13 +204,20 @@ struct cube_state_t {
     sys::window_t window{};
     bool cameraCursorHidden{ false };
     render::render_shader_handle_t shader{};
+    render::render_shader_handle_t shadowShader{};
     render::render_pipeline_handle_t pipeline{};
+    render::render_pipeline_handle_t shadowPipeline{};
+    render::render_texture_handle_t shadowDepth{};
+    render::render_target_handle_t shadowTarget{};
+    render::render_sampler_handle_t shadowSampler{};
     // The host owns this bounded slot table; World stores only slot numbers.
     render::render_static_mesh_bundle_t meshes[MESH_SLOT_COUNT]{};
     render::render_texture_handle_t textures[TEXTURE_SLOT_COUNT]{};
     render::render_buffer_handle_t viewConstants{};
+    render::render_buffer_handle_t lightConstants{};
     render::render_uniform_batch_t objectConstants{};
     render::render_draw_queue_t *pDrawQueue{ nullptr };
+    render::render_draw_queue_t *pShadowQueue{ nullptr };
     world::world_t *pWorld{ nullptr };
     world::world_submission_t *pSubmission{ nullptr };
     world::world_object_id_t objectIds[WORLD_OBJECT_COUNT]{};
@@ -202,6 +227,8 @@ constexpr math::vec3_t CUBE_CAMERA_POSITION{ 4.0f, -6.0f, 3.2f };
 constexpr math::aabb_t CUBE_LOCAL_BOUNDS{
     { -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f } };
 constexpr math::vec3_t FLOOR_POSITION{ 0.0f, 0.0f, -1.8f };
+constexpr math::vec3_t SHADOW_LIGHT_POSITION{ 12.0f, -21.0f, 30.0f };
+constexpr common::u32 SHADOW_MAP_SIZE = 1024u;
 constexpr math::aabb_t FLOOR_LOCAL_BOUNDS{
     { -6.0f, -5.0f, 0.0f }, { 6.0f, 5.0f, 0.0f } };
 
@@ -291,6 +318,8 @@ bool ParseOptions( int argc, char **argv, cube_options_t &options ) noexcept
         else if ( std::strcmp( argv[i], "--help" ) == 0 ) options.help = true;
         else if ( std::strcmp( argv[i], "--shader" ) == 0 && i + 1 < argc ) {
             options.shaderPath = argv[++i];
+        } else if ( std::strcmp( argv[i], "--shadow-shader" ) == 0 && i + 1 < argc ) {
+            options.shadowShaderPath = argv[++i];
         } else if ( std::strcmp( argv[i], "--texture" ) == 0 && i + 1 < argc ) {
             options.texturePath = argv[++i];
         } else if ( std::strcmp( argv[i], "--frames" ) == 0 && i + 1 < argc ) {
@@ -395,7 +424,8 @@ bool LoadTexture( const char *nativePath, render::render_texture_handle_t &textu
 
 bool CreateScene( cube_state_t &state, const cube_options_t &options )
 {
-    if ( !LoadShader( options.shaderPath, state.shader ) ) return false;
+    if ( !LoadShader( options.shaderPath, state.shader ) ||
+         !LoadShader( options.shadowShaderPath, state.shadowShader ) ) return false;
 
     constexpr common::u8 WHITE_PIXEL[4] = { 255u, 255u, 255u, 255u };
     render::render_texture_desc_t white{};
@@ -408,6 +438,29 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
             &state.textures[TEXTURE_SLOT_WHITE] ), "Create white texture" ) ||
          !LoadTexture( options.texturePath,
              state.textures[TEXTURE_SLOT_FLOOR] ) ) return false;
+
+    render::render_texture_desc_t shadowDepth{};
+    shadowDepth.width = SHADOW_MAP_SIZE;
+    shadowDepth.height = SHADOW_MAP_SIZE;
+    shadowDepth.sRGB = false;
+    shadowDepth.generateMips = false;
+    shadowDepth.repeat = false;
+    shadowDepth.renderTarget = true;
+    shadowDepth.format = render::render_texture_format_t::D24;
+    shadowDepth.debugName = "Graybox directional shadow depth";
+    if ( !CheckRender( render::R_CreateTexture2D( shadowDepth, {},
+             &state.shadowDepth ), "Create shadow depth texture" ) ||
+         !CheckRender( render::R_CreateRenderTarget( { {}, state.shadowDepth },
+             &state.shadowTarget ), "Create shadow target" ) ) return false;
+    render::render_sampler_desc_t shadowSampler{};
+    shadowSampler.minFilter = render::render_sampler_filter_t::NEAREST;
+    shadowSampler.magFilter = render::render_sampler_filter_t::NEAREST;
+    shadowSampler.addressU = render::render_sampler_address_t::CLAMP_TO_EDGE;
+    shadowSampler.addressV = render::render_sampler_address_t::CLAMP_TO_EDGE;
+    shadowSampler.compare = render::render_sampler_compare_t::LESS_EQUAL;
+    shadowSampler.debugName = "Graybox shadow comparison";
+    if ( !CheckRender( render::R_CreateSampler( shadowSampler,
+             &state.shadowSampler ), "Create shadow sampler" ) ) return false;
     render::render_static_mesh_source_t source{};
     source.vertexLayout.bindingCount = 1u;
     source.vertexLayout.bindings[0].stride = sizeof( cube_vertex_t );
@@ -461,12 +514,25 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
     pipeline.uniformBlockCount = 2u;
     pipeline.uniformBlocks[0] = { "ViewConstants", sizeof( cube_view_constants_t ) };
     pipeline.uniformBlocks[1] = { "ObjectConstants", sizeof( cube_object_constants_t ) };
-    pipeline.sampledTextureCount = 1u;
+    pipeline.sampledTextureCount = 2u;
     pipeline.sampledTextures[0] = { "albedoTexture",
         render::render_sampled_texture_kind_t::SCALAR_2D };
+    pipeline.sampledTextures[1] = { "shadowMap",
+        render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D };
     pipeline.debugName = "Depth-tested graybox pipeline";
     if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline, &state.pipeline ),
             "Create cube pipeline" ) ) return false;
+
+    pipeline.shader = state.shadowShader;
+    pipeline.colorWrite = false;
+    pipeline.uniformBlocks[0] = { "LightConstants", sizeof( shadow_light_constants_t ) };
+    pipeline.uniformBlocks[1] = { "ObjectConstants", sizeof( shadow_object_constants_t ) };
+    pipeline.sampledTextureCount = 0u;
+    pipeline.sampledTextures[0] = {};
+    pipeline.sampledTextures[1] = {};
+    pipeline.debugName = "Graybox directional shadow depth pipeline";
+    if ( !CheckRender( render::R_CreateGraphicsPipeline( pipeline,
+             &state.shadowPipeline ), "Create shadow pipeline" ) ) return false;
 
     render::render_buffer_desc_t viewBuffer{};
     viewBuffer.byteSize = sizeof( cube_view_constants_t );
@@ -477,18 +543,26 @@ bool CreateScene( cube_state_t &state, const cube_options_t &options )
     if ( !CheckRender( render::R_CreateBuffer( viewBuffer, nullptr,
             &state.viewConstants ), "Create view constants" ) ) return false;
 
+    viewBuffer.byteSize = sizeof( shadow_light_constants_t );
+    viewBuffer.debugName = "Graybox light constants";
+    if ( !CheckRender( render::R_CreateBuffer( viewBuffer, nullptr,
+             &state.lightConstants ), "Create light constants" ) ) return false;
+
     const render::render_info_t *info = render::R_GetInfo();
     if ( info == nullptr || info->limits.uniformBufferOffsetAlignment == 0u ) return false;
     const common::u64 alignment = info->limits.uniformBufferOffsetAlignment;
     const common::u64 recordStride =
         ( sizeof( cube_object_constants_t ) + alignment - 1u ) / alignment * alignment;
     const common::u64 capacity =
-        ( WORLD_OBJECT_COUNT - 1u ) * recordStride + sizeof( cube_object_constants_t );
+        ( WORLD_OBJECT_COUNT * 2u - 1u ) * recordStride + sizeof( cube_object_constants_t );
     if ( !CheckRender( render::R_CreateUniformBatch( capacity, nullptr,
             &state.objectConstants ), "Create object constants batch" ) ) return false;
     return CheckRender( render::R_InitDrawQueue( &state.pDrawQueue,
-        common::Allocator_GetSystem(), WORLD_OBJECT_COUNT ),
-        "Create graybox draw queue" );
+               common::Allocator_GetSystem(), WORLD_OBJECT_COUNT ),
+               "Create graybox draw queue" ) &&
+        CheckRender( render::R_InitDrawQueue( &state.pShadowQueue,
+            common::Allocator_GetSystem(), WORLD_OBJECT_COUNT ),
+            "Create shadow draw queue" );
 }
 
 bool CreateWorld( cube_state_t &state ) noexcept
@@ -627,6 +701,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
     float rotationTime = 0.0f;
     common::u32 renderedFrames = 0u;
     common::u64 visibleDraws = 0u;
+    common::u64 shadowDraws = 0u;
     render::render_extent_t extent = render::R_GetInfo()->drawableExtent;
     const bool interactive = options.frameLimit == 0u && !options.hidden;
     cube_input_state_t input{};
@@ -637,6 +712,25 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         std::fprintf( stderr, "Could not initialize the sample fly camera.\n" );
         return false;
     }
+
+    // One fixed orthographic light keeps this a small pass example. The light
+    // looks toward the scene from the same direction used by the diffuse term.
+    math::mat4_t lightView{};
+    math::mat4_t lightProjection{};
+    if ( !math::Mat4_TryLookAtRH( SHADOW_LIGHT_POSITION, math::CY_VEC3_ZERO,
+             math::CY_VEC3_UP, 0.0001f, &lightView ) ||
+         !math::Mat4_TryOrthographicRH( -24.0f, 24.0f, -24.0f, 24.0f,
+             1.0f, 80.0f, math::clip_depth_range_t::NEGATIVE_ONE_TO_ONE,
+             &lightProjection ) ) {
+        std::fprintf( stderr, "Could not construct the graybox light matrices.\n" );
+        return false;
+    }
+    const math::mat4_t lightViewProjection =
+        math::Mat4_Multiply( lightProjection, lightView );
+    const shadow_light_constants_t lightConstants{ lightViewProjection };
+    if ( !CheckRender( render::R_UpdateBuffer( state.lightConstants, 0u,
+             { &lightConstants, sizeof( lightConstants ) } ),
+             "Upload light constants" ) ) return false;
 
     while ( !sys::Sys_IsQuitRequested() && !sys::Sys_WindowShouldClose( state.window ) ) {
         if ( !PollSampleInput( state, input, interactive ) ) return false;
@@ -738,7 +832,12 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                  "Count visible cube objects" ) ) return false;
         if ( visibleCount > WORLD_OBJECT_COUNT ||
              !render::R_IsGraphicsPipelineValid( state.pipeline ) ||
-             !render::R_IsBufferValid( state.viewConstants ) ) {
+             !render::R_IsGraphicsPipelineValid( state.shadowPipeline ) ||
+             !render::R_IsBufferValid( state.viewConstants ) ||
+             !render::R_IsBufferValid( state.lightConstants ) ||
+             !render::R_IsRenderTargetValid( state.shadowTarget ) ||
+             !render::R_IsTextureValid( state.shadowDepth ) ||
+             !render::R_IsSamplerValid( state.shadowSampler ) ) {
             std::fprintf( stderr, "Graybox view capacity or shared render resource is invalid.\n" );
             return false;
         }
@@ -747,68 +846,107 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
             if ( !CheckRender( render::R_ResetUniformBatch( &state.objectConstants ),
                      "Reset object constants batch" ) ||
                  !CheckRender( render::R_ResetDrawQueue( state.pDrawQueue ),
-                     "Reset draw queue" ) ) return false;
+                     "Reset draw queue" ) ||
+                 !CheckRender( render::R_ResetDrawQueue( state.pShadowQueue ),
+                     "Reset shadow draw queue" ) ) return false;
         }
         const cube_view_constants_t viewConstants{
             view, projection,
             { 0.30f, 0.30f, 0.30f, 0.0f },
             { 0.40f, -0.70f, 1.00f, 0.0f },
-            { 0.70f, 0.70f, 0.70f, 0.0f }
+            { 0.70f, 0.70f, 0.70f, 0.0f },
+            lightViewProjection
         };
         const render::render_buffer_data_t viewData{ &viewConstants,
             sizeof( viewConstants ) };
         if ( !CheckRender( render::R_UpdateBuffer( state.viewConstants, 0u,
                 viewData ), "Upload view constants" ) ) return false;
 
-        render::render_uniform_record_t records[WORLD_OBJECT_COUNT]{};
-        render::render_draw_indexed_desc_t draws[WORLD_OBJECT_COUNT]{};
-        for ( common::u32 i = 0u; i < visibleCount; ++i ) {
-            world::world_object_snapshot_t visible{};
-            if ( !CheckSubmission( world::WorldSubmission_Get(
-                     state.pSubmission, submissionToken, i, &visible ),
-                     "Read visible cube object" ) ) return false;
-            const world::world_object_t &object = visible.object;
+        render::render_uniform_record_t mainRecords[WORLD_OBJECT_COUNT]{};
+        render::render_uniform_record_t shadowRecords[WORLD_OBJECT_COUNT]{};
+        render::render_draw_indexed_desc_t mainDraws[WORLD_OBJECT_COUNT]{};
+        render::render_draw_indexed_desc_t shadowDrawsByObject[WORLD_OBJECT_COUNT]{};
+        // Query every live object for the light pass, including the cube behind
+        // the camera. The camera submission below still selects main-pass draws.
+        for ( common::u32 i = 0u; i < WORLD_OBJECT_COUNT; ++i ) {
+            world::world_object_t object{};
+            if ( !CheckWorld( world::World_GetObject( state.pWorld,
+                     state.objectIds[i], &object ),
+                     "Read shadow-casting world object" ) ) return false;
             if ( object.meshSlot >= MESH_SLOT_COUNT ||
                  object.materialSlot >= MATERIAL_COUNT ) {
                 std::fprintf( stderr, "Graybox world returned an unresolved asset slot.\n" );
                 return false;
             }
-            // Resolve every visible mesh and material before recording any draw.
-            // The World snapshot contains logical slots, never renderer handles.
-            draws[i].pipeline = state.pipeline;
-            draws[i].uniformBuffers[0] = state.viewConstants;
+            mainDraws[i].pipeline = state.pipeline;
+            mainDraws[i].uniformBuffers[0] = state.viewConstants;
             const auto textureSlot = MATERIALS[object.materialSlot].textureSlot;
             if ( textureSlot >= TEXTURE_SLOT_COUNT ||
                  !render::R_IsTextureValid( state.textures[textureSlot] ) ) {
                 std::fprintf( stderr, "Graybox material has an invalid texture slot.\n" );
                 return false;
             }
-            draws[i].sampledTextures[0] = state.textures[textureSlot];
+            mainDraws[i].sampledTextures[0] = state.textures[textureSlot];
+            mainDraws[i].sampledTextures[1] = state.shadowDepth;
+            mainDraws[i].samplers[1] = state.shadowSampler;
             if ( !CheckRender( render::R_ApplyStaticMeshBundleToDraw(
-                     state.meshes[object.meshSlot], &draws[i] ),
-                     "Resolve visible mesh" ) ) return false;
+                     state.meshes[object.meshSlot], &mainDraws[i] ),
+                     "Resolve main-pass mesh" ) ) return false;
+            shadowDrawsByObject[i].pipeline = state.shadowPipeline;
+            shadowDrawsByObject[i].uniformBuffers[0] = state.lightConstants;
+            if ( !CheckRender( render::R_ApplyStaticMeshBundleToDraw(
+                     state.meshes[object.meshSlot], &shadowDrawsByObject[i] ),
+                     "Resolve shadow-pass mesh" ) ) return false;
+
             cube_object_constants_t constants{};
             constants.model = math::Affine3_ToMat4( object.localToWorld );
             std::memcpy( constants.tint, MATERIALS[object.materialSlot].tint,
                 sizeof( constants.tint ) );
+            const shadow_object_constants_t shadowConstants{ constants.model };
             if ( !CheckRender( render::R_AppendUniformRecord( &state.objectConstants,
-                     &constants, sizeof( constants ), &records[i] ),
-                     "Stage object constants" ) ) return false;
+                     &shadowConstants, sizeof( shadowConstants ), &shadowRecords[i] ),
+                     "Stage shadow object constants" ) ) return false;
+            if ( !CheckRender( render::R_AppendUniformRecord( &state.objectConstants,
+                     &constants, sizeof( constants ), &mainRecords[i] ),
+                     "Stage main object constants" ) ) return false;
         }
-        if ( visibleCount != 0u && !CheckRender(
-                 render::R_CommitUniformBatch( &state.objectConstants ),
-                 "Upload visible object constants" ) ) return false;
-
-        for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+        if ( !CheckRender( render::R_CommitUniformBatch( &state.objectConstants ),
+                 "Upload graybox object constants" ) ) return false;
+        for ( common::u32 i = 0u; i < WORLD_OBJECT_COUNT; ++i ) {
             if ( !CheckRender( render::R_ApplyUniformRecordToDraw(
-                     state.objectConstants, records[i], 1u, &draws[i] ),
-                     "Resolve object constants" ) ) return false;
+                     state.objectConstants, mainRecords[i], 1u, &mainDraws[i] ),
+                     "Resolve main object constants" ) ||
+                 !CheckRender( render::R_ApplyUniformRecordToDraw(
+                     state.objectConstants, shadowRecords[i], 1u,
+                     &shadowDrawsByObject[i] ),
+                     "Resolve shadow object constants" ) ||
+                 !CheckRender( render::R_AppendDrawQueue( state.pShadowQueue,
+                     shadowDrawsByObject[i] ), "Queue shadow caster" ) ) return false;
         }
         for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+            world::world_object_snapshot_t visible{};
+            if ( !CheckSubmission( world::WorldSubmission_Get(
+                     state.pSubmission, submissionToken, i, &visible ),
+                     "Read visible cube object" ) ) return false;
+            common::u32 objectIndex = WORLD_OBJECT_COUNT;
+            for ( common::u32 j = 0u; j < WORLD_OBJECT_COUNT; ++j ) {
+                const world::world_object_id_t &candidate = state.objectIds[j];
+                if ( visible.id.slot.value == candidate.slot.value &&
+                     visible.id.worldSerial == candidate.worldSerial &&
+                     visible.id.incarnation == candidate.incarnation ) {
+                    objectIndex = j;
+                    break;
+                }
+            }
+            if ( objectIndex == WORLD_OBJECT_COUNT ) {
+                std::fprintf( stderr, "Visible World object has no staged draw.\n" );
+                return false;
+            }
             if ( !CheckRender( render::R_AppendDrawQueue(
-                     state.pDrawQueue, draws[i] ),
+                     state.pDrawQueue, mainDraws[objectIndex] ),
                      "Queue graybox draw" ) ) return false;
         }
+        world::WorldSubmission_End( state.pSubmission );
 
         render::render_frame_info_t frame{};
         frame.frameIndex = renderedFrames;
@@ -817,18 +955,33 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         frame.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
         frame.clearColor = { 0.035f, 0.045f, 0.065f, 1.0f };
         if ( !CheckRender( render::R_BeginFrame( frame ), "Begin frame" ) ) return false;
+        render::render_target_pass_desc_t shadowPass{};
+        shadowPass.target = state.shadowTarget;
+        shadowPass.clearFlags = render::R_CLEAR_DEPTH;
+        bool passOK = CheckRender( render::R_BeginTargetPass( shadowPass ),
+            "Begin shadow depth pass" );
+        common::u32 completedShadowDraws = 0u;
+        if ( passOK ) {
+            const bool shadowsOK = CheckRender( render::R_FlushDrawQueue(
+                state.pShadowQueue, &completedShadowDraws ),
+                "Draw shadow casters" );
+            shadowDraws += completedShadowDraws;
+            const bool endPassOK = CheckRender( render::R_EndTargetPass(),
+                "End shadow depth pass" );
+            passOK = shadowsOK && endPassOK;
+        }
         common::u32 completedDraws = 0u;
-        const bool drawOK = CheckRender( render::R_FlushDrawQueue(
+        const bool drawOK = passOK && CheckRender( render::R_FlushDrawQueue(
             state.pDrawQueue, &completedDraws ), "Draw queued graybox objects" );
         visibleDraws += completedDraws;
         const bool endOK = CheckRender( render::R_EndFrame(), "End frame" );
-        world::WorldSubmission_End( state.pSubmission );
         if ( !drawOK || !endOK ) return false;
         ++renderedFrames;
         if ( options.frameLimit != 0u && renderedFrames >= options.frameLimit ) break;
     }
-    std::printf( "Rendered %u frames and %llu visible-object draws.\n",
-        renderedFrames, static_cast<unsigned long long>( visibleDraws ) );
+    std::printf( "Rendered %u frames, %llu visible-object draws, and %llu shadow-caster draws.\n",
+        renderedFrames, static_cast<unsigned long long>( visibleDraws ),
+        static_cast<unsigned long long>( shadowDraws ) );
     return options.frameLimit == 0u || renderedFrames == options.frameLimit;
 }
 
@@ -838,6 +991,7 @@ bool Shutdown( cube_state_t &state ) noexcept
     if ( state.window.valid ) {
         success = SetCameraCapture( state, false ) && success;
     }
+    render::R_ShutdownDrawQueue( &state.pShadowQueue );
     render::R_ShutdownDrawQueue( &state.pDrawQueue );
     world::WorldSubmission_Shutdown( &state.pSubmission );
     world::World_Shutdown( &state.pWorld );
@@ -852,6 +1006,22 @@ bool Shutdown( cube_state_t &state ) noexcept
             success = CheckRender( render::R_DestroyGraphicsPipeline( state.pipeline ),
                 "Destroy pipeline" ) && success;
         }
+        if ( state.shadowPipeline.value != 0u ) {
+            success = CheckRender( render::R_DestroyGraphicsPipeline( state.shadowPipeline ),
+                "Destroy shadow pipeline" ) && success;
+        }
+        if ( state.shadowTarget.value != 0u ) {
+            success = CheckRender( render::R_DestroyRenderTarget( state.shadowTarget ),
+                "Destroy shadow target" ) && success;
+        }
+        if ( state.shadowSampler.value != 0u ) {
+            success = CheckRender( render::R_DestroySampler( state.shadowSampler ),
+                "Destroy shadow sampler" ) && success;
+        }
+        if ( state.shadowDepth.value != 0u ) {
+            success = CheckRender( render::R_DestroyTexture( state.shadowDepth ),
+                "Destroy shadow depth texture" ) && success;
+        }
         for ( common::u32 i = TEXTURE_SLOT_COUNT; i > 0u; --i ) {
             auto &texture = state.textures[i - 1u];
             if ( texture.value != 0u ) {
@@ -865,12 +1035,20 @@ bool Shutdown( cube_state_t &state ) noexcept
             success = CheckRender( render::R_DestroyBuffer( state.viewConstants ),
                 "Destroy view constants" ) && success;
         }
+        if ( state.lightConstants.value != 0u ) {
+            success = CheckRender( render::R_DestroyBuffer( state.lightConstants ),
+                "Destroy light constants" ) && success;
+        }
         success = CheckRender( render::R_DestroyStaticMeshBundle(
             &state.meshes[MESH_SLOT_FLOOR] ), "Destroy floor mesh" ) && success;
         success = CheckRender( render::R_DestroyStaticMeshBundle(
             &state.meshes[MESH_SLOT_CUBE] ), "Destroy cube mesh" ) && success;
         if ( state.shader.value != 0u ) {
             success = CheckRender( render::R_DestroyShader( state.shader ), "Destroy shader" ) && success;
+        }
+        if ( state.shadowShader.value != 0u ) {
+            success = CheckRender( render::R_DestroyShader( state.shadowShader ),
+                "Destroy shadow shader" ) && success;
         }
         success = CheckRender( render::R_Shutdown(), "Shut down renderer" ) && success;
     }
@@ -904,8 +1082,9 @@ bool Run( int argc, char **argv, const cube_options_t &options, cube_state_t &st
          !CheckRender( render::R_Init( state.window, config ), "Initialize renderer" ) ||
          !CreateScene( state, options ) ||
          !CreateWorld( state ) ) return false;
-    std::printf( "Cooked shader: %s\nCooked floor texture: %s\nCube and floor meshes, %u world objects; one view upload and one visible-object batch per frame.\n",
-        options.shaderPath, options.texturePath, WORLD_OBJECT_COUNT );
+    std::printf( "Cooked shader: %s\nCooked shadow shader: %s\nCooked floor texture: %s\nCube and floor meshes, %u world objects; one fixed depth pass and one visible view per frame.\n",
+        options.shaderPath, options.shadowShaderPath, options.texturePath,
+        WORLD_OBJECT_COUNT );
     return RunFrames( state, options );
 }
 
@@ -916,11 +1095,12 @@ int main( int argc, char **argv )
     cube_options_t options{};
     if ( !ParseOptions( argc, argv, options ) ) return 2;
     if ( options.help ) {
-        std::puts( "Usage: cypher_render_cube [--shader PATH] [--texture PATH] [--frames N] [--hidden]\n"
+        std::puts( "Usage: cypher_render_cube [--shader PATH] [--shadow-shader PATH] [--texture PATH] [--frames N] [--hidden]\n"
                    "Hold right mouse to fly: mouse look, WASD move, Space/C up/down, Shift faster.\n"
                    "Release right mouse to free the cursor. Escape or close exits.\n"
                    "Resize changes the projection.\n"
                    "--shader reads an existing .cyshader_c; cooking is an offline step.\n"
+                   "--shadow-shader reads an existing .cyshader_c depth shader.\n"
                    "--texture reads an existing .cytex_c floor texture.\n"
                    "--frames keeps the fixed camera and deterministic animation, then exits.\n"
                    "--hidden defaults to 120 frames when --frames is omitted." );

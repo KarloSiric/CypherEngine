@@ -1589,6 +1589,199 @@ void CheckOffscreenTarget( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyShader( inactiveShadowShader ) == render::render_error_t::OK );
 }
 
+void CheckShadowPassLighting( const render::render_extent_t extent )
+{
+    // In light clip space the left triangle writes depth 0.5. A fullscreen
+    // receiver at depth 0.75 then samples that texel through slot 1, while
+    // the right side samples a clear-depth texel and remains lit.
+    constexpr char vertex[] =
+        "#version 410 core\nlayout(location=0) in vec3 position;\n"
+        "layout(std140) uniform LightConstants { mat4 lightVP; };\n"
+        "layout(std140) uniform ObjectConstants { mat4 model; };\n"
+        "out vec3 worldPosition;\n"
+        "void main() { vec4 world=model*vec4(position,1.0);"
+        " worldPosition=world.xyz; gl_Position=lightVP*world; }\n";
+    constexpr char depthFragment[] = "#version 410 core\nvoid main() {}\n";
+    constexpr char litFragment[] =
+        "#version 410 core\nin vec3 worldPosition;\n"
+        "layout(std140) uniform LightConstants { mat4 lightVP; };\n"
+        "uniform sampler2D albedo; uniform sampler2DShadow shadowMap;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main() { vec4 clip=lightVP*vec4(worldPosition,1.0);"
+        " vec3 ndc=clip.xyz/clip.w; vec2 uv=ndc.xy*0.5+0.5;"
+        " float reference=ndc.z*0.5+0.5-0.0025;"
+        " float visible=texture(shadowMap,vec3(uv,reference));"
+        " float base=texture(albedo,vec2(0.5)).r;"
+        " color=vec4(vec3(base*(0.2+0.7*visible)),1.0); }\n";
+    const auto makeShader = [&]( const char *fragment, const common::u64 bytes ) {
+        common::cooked_shader_view_t source{};
+        source.nLanguageVersion = 410u;
+        source.nStages = 2u;
+        source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+        source.stages[0].code = { reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+        source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+        source.stages[1].code = { reinterpret_cast<const common::byte *>( fragment ), bytes };
+        render::render_shader_handle_t result{};
+        REQUIRE( render::R_CreateShader( { &source, "Shadow pixel oracle" }, &result ) ==
+            render::render_error_t::OK );
+        return result;
+    };
+    const auto depthShader = makeShader( depthFragment, sizeof( depthFragment ) );
+    const auto litShader = makeShader( litFragment, sizeof( litFragment ) );
+
+    const float vertices[]{
+        -1.0f,-1.0f,0.0f, 0.0f,-1.0f,0.0f, -1.0f,1.0f,0.0f,
+        -1.0f,-1.0f,0.5f, 3.0f,-1.0f,0.5f, -1.0f,3.0f,0.5f
+    };
+    const common::u16 indices[]{ 0u, 1u, 2u, 3u, 4u, 5u };
+    const float identity[]{
+        1.0f,0.0f,0.0f,0.0f, 0.0f,1.0f,0.0f,0.0f,
+        0.0f,0.0f,1.0f,0.0f, 0.0f,0.0f,0.0f,1.0f
+    };
+    const auto makeBuffer = []( const void *bytes, const common::u64 size,
+                                const render::render_buffer_usage_flags_t usage ) {
+        render::render_buffer_desc_t desc{};
+        desc.byteSize = size;
+        desc.usage = usage;
+        const render::render_buffer_data_t data{ bytes, size };
+        render::render_buffer_handle_t result{};
+        REQUIRE( render::R_CreateBuffer( desc, &data,
+            &result ) == render::render_error_t::OK );
+        return result;
+    };
+    const auto vb = makeBuffer( vertices, sizeof( vertices ), render::R_BUFFER_USAGE_VERTEX );
+    const auto ib = makeBuffer( indices, sizeof( indices ), render::R_BUFFER_USAGE_INDEX );
+    const auto lightBuffer = makeBuffer( identity, sizeof( identity ), render::R_BUFFER_USAGE_UNIFORM );
+    const auto objectBuffer = makeBuffer( identity, sizeof( identity ), render::R_BUFFER_USAGE_UNIFORM );
+
+    render::render_vertex_input_desc_t inputDesc{};
+    inputDesc.layout.bindingCount = 1u;
+    inputDesc.layout.bindings[0].stride = 3u * sizeof( float );
+    inputDesc.layout.attributeCount = 1u;
+    inputDesc.layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    inputDesc.vertexBufferCount = 1u;
+    inputDesc.vertexBuffers[0] = { vb, 0u, 0u };
+    inputDesc.indexBuffer = { ib, 0u, render::render_index_type_t::UINT16 };
+    render::render_vertex_input_handle_t input{};
+    REQUIRE( render::R_CreateVertexInput( inputDesc, &input ) == render::render_error_t::OK );
+
+    render::render_pipeline_desc_t pipelineDesc{};
+    pipelineDesc.shader = depthShader;
+    pipelineDesc.vertexLayout = inputDesc.layout;
+    pipelineDesc.colorWrite = false;
+    pipelineDesc.uniformBlockCount = 2u;
+    pipelineDesc.uniformBlocks[0] = { "LightConstants", sizeof( identity ) };
+    pipelineDesc.uniformBlocks[1] = { "ObjectConstants", sizeof( identity ) };
+    render::render_pipeline_handle_t depthPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &depthPipeline ) ==
+        render::render_error_t::OK );
+    pipelineDesc.shader = litShader;
+    pipelineDesc.colorWrite = true;
+    pipelineDesc.depthTest = false;
+    pipelineDesc.depthWrite = false;
+    pipelineDesc.sampledTextureCount = 2u;
+    pipelineDesc.sampledTextures[0] = { "albedo",
+        render::render_sampled_texture_kind_t::SCALAR_2D };
+    pipelineDesc.sampledTextures[1] = { "shadowMap",
+        render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D };
+    render::render_pipeline_handle_t litPipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &litPipeline ) ==
+        render::render_error_t::OK );
+
+    render::render_texture_desc_t targetDesc{};
+    targetDesc.width = extent.width;
+    targetDesc.height = extent.height;
+    targetDesc.sRGB = false;
+    targetDesc.generateMips = false;
+    targetDesc.repeat = false;
+    targetDesc.renderTarget = true;
+    targetDesc.format = render::render_texture_format_t::D24;
+    render::render_texture_handle_t depth{};
+    REQUIRE( render::R_CreateTexture2D( targetDesc, {}, &depth ) == render::render_error_t::OK );
+    targetDesc.format = render::render_texture_format_t::RGBA8;
+    render::render_texture_handle_t color{};
+    REQUIRE( render::R_CreateTexture2D( targetDesc, {}, &color ) == render::render_error_t::OK );
+    render::render_target_handle_t depthTarget{}, colorTarget{};
+    REQUIRE( render::R_CreateRenderTarget( { {}, depth }, &depthTarget ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CreateRenderTarget( { color, {} }, &colorTarget ) ==
+        render::render_error_t::OK );
+
+    constexpr common::u8 whitePixel[4]{ 255u, 255u, 255u, 255u };
+    render::render_texture_desc_t whiteDesc{};
+    whiteDesc.width = 1u;
+    whiteDesc.height = 1u;
+    whiteDesc.sRGB = false;
+    whiteDesc.generateMips = false;
+    whiteDesc.repeat = false;
+    render::render_texture_handle_t white{};
+    REQUIRE( render::R_CreateTexture2D( whiteDesc, { whitePixel, sizeof( whitePixel ) },
+        &white ) == render::render_error_t::OK );
+    render::render_sampler_desc_t compareDesc{};
+    compareDesc.minFilter = compareDesc.magFilter = render::render_sampler_filter_t::NEAREST;
+    compareDesc.addressU = compareDesc.addressV = render::render_sampler_address_t::CLAMP_TO_EDGE;
+    compareDesc.compare = render::render_sampler_compare_t::LESS_EQUAL;
+    render::render_sampler_handle_t compare{};
+    REQUIRE( render::R_CreateSampler( compareDesc, &compare ) == render::render_error_t::OK );
+
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    render::render_target_pass_desc_t pass{};
+    pass.target = depthTarget;
+    pass.clearFlags = render::R_CLEAR_DEPTH;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    render::render_draw_indexed_desc_t draw{};
+    draw.pipeline = depthPipeline;
+    draw.vertexInput = input;
+    draw.uniformBuffers[0] = lightBuffer;
+    draw.uniformBuffers[1] = objectBuffer;
+    draw.indexCount = 3u;
+    draw.vertexCount = 6u;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+
+    pass = {};
+    pass.target = colorTarget;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    draw.pipeline = litPipeline;
+    draw.firstIndex = 3u;
+    draw.sampledTextures[0] = white;
+    draw.sampledTextures[1] = depth;
+    draw.samplers[1] = compare;
+    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+
+    common::byte shadowed[4]{};
+    common::byte lit[4]{};
+    REQUIRE( render::R_ReadTargetRGBA8( colorTarget,
+        { extent.width / 4u, extent.height / 4u, 1u, 1u },
+        shadowed, sizeof( shadowed ), 4u ) == render::render_error_t::OK );
+    REQUIRE( render::R_ReadTargetRGBA8( colorTarget,
+        { extent.width * 3u / 4u, extent.height / 4u, 1u, 1u },
+        lit, sizeof( lit ), 4u ) == render::render_error_t::OK );
+    CHECK( shadowed[0] <= 80u );
+    CHECK( lit[0] >= 180u );
+    CHECK( lit[0] > shadowed[0] + 100u );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    REQUIRE( render::R_DestroyRenderTarget( colorTarget ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyRenderTarget( depthTarget ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroySampler( compare ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( white ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( litPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyGraphicsPipeline( depthPipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( objectBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( lightBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( ib ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( vb ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( litShader ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyShader( depthShader ) == render::render_error_t::OK );
+}
+
 void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
 {
     const auto materialPath = common::StringView_FromCString( "materials/native.cymat_c" );
@@ -1854,6 +2047,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckPerSlotSamplerPolicy( info->drawableExtent );
     CheckTwoTextureTwoBlockDrawing( info->drawableExtent );
     CheckOffscreenTarget( info->drawableExtent );
+    CheckShadowPassLighting( info->drawableExtent );
     CheckCookedMaterialBundleDrawing( info->drawableExtent );
 
     ::cypher::common::u32 vertexWords[16]{};

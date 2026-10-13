@@ -61,6 +61,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- The OpenGL 4.1 graybox sample now renders a fixed directional shadow: all
+  five World objects draw into a 1024×1024 D24 depth target before the four
+  camera-visible draws sample it with a `LESS_EQUAL` comparison sampler. The
+  two passes use separate pipelines and queues and share a pre-frame object
+  uniform batch. Both authored shaders validate and cook without diagnostics;
+  the compact sample builds and completes 120 hidden frames with 600 caster
+  and 480 visible draws. A focused native pixel test checks that an occluder
+  darkens a receiver while a neighboring pixel stays lit. This demonstrates
+  the pass and sampling path; authored lights, robust bias/filtering, cascades,
+  and general scene pass scheduling remain future work.
 - `R_ReadTargetRGBA8` now synchronously reads a validated rectangle from an
   offscreen linear RGBA8 color target into caller-owned, pitched storage after
   its target pass ends. The OpenGL 4.1 path restores the host's read framebuffer

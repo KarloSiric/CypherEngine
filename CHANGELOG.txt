@@ -53,6 +53,14 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- The OpenGL 4.1 graybox sample renders a fixed directional shadow: all five
+  World objects draw into a 1024x1024 D24 depth target before the four camera-
+  visible draws sample it with a LESS_EQUAL comparison sampler. Two pipelines
+  and queues share one pre-frame object batch. Both shaders validate and cook;
+  the compact build and hidden 120-frame run pass with 600 caster and 480
+  visible draws. A focused native pixel test checks a darkened receiver and
+  a lit neighbor. Authored lights, robust bias/filtering, cascades, and a
+  general pass scheduler remain future work.
 - R_ReadTargetRGBA8 synchronously copies a validated offscreen RGBA8 rectangle
   into caller-owned pitched bytes after its target pass. The OpenGL 4.1 path
   restores read-framebuffer and pixel-pack state. Four focused renderer CTests

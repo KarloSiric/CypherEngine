@@ -18,10 +18,11 @@ cmake --build --preset shader-tools-debug --target cypher_render_cube --parallel
 ```
 
 The window displays three differently tinted, rotating cubes over a graybox
-floor with a cooked checker texture. A fourth cube sits behind the camera and is rejected by
-the World view query. The cubes share one mesh; the floor is a second mesh.
-Both use one pipeline and a distinct transform/tint record for each visible
-object. Depth testing hides rear surfaces, and back-face culling removes
+floor with a cooked checker texture. A fourth cube sits behind the camera and
+is rejected by the World camera-view query, but still casts into a fixed
+directional shadow map. The cubes share one mesh; the floor is a second mesh.
+The depth pass and camera pass use separate pipelines and draw queues. Depth
+testing hides rear surfaces, and back-face culling removes
 triangles facing away from the camera. Resize the window to check the
 projection. Press Escape or close the window to exit.
 
@@ -44,14 +45,17 @@ Run a finite smoke check through the same public API:
 completing cleanup. A timeout also prevents a minimized finite run from waiting
 forever. Finite runs advance animation at a fixed 1/60 second per rendered frame;
 interactive runs use elapsed time. `--hidden` defaults to 120 frames if no frame
-limit is supplied. The current five-object scene produces four visible draws
-per frame, or 480 draws in the default hidden run. A graphics context is still
+limit is supplied. The current five-object scene produces five depth-pass draws
+and four camera-visible draws per frame, or 600 shadow-caster and 480 visible
+draws in the default hidden run. A graphics context is still
 required for hidden runs. Finite runs keep the original fixed camera and do not
 consume fly controls, so the smoke check remains deterministic.
 
-`--shader PATH` and `--texture PATH` select **already cooked** `.cyshader_c`
-and `.cytex_c` files. A replacement shader must declare the sample's reflected
-uniform blocks and `albedoTexture` sampler. The runtime does not invoke a
+`--shader PATH`, `--shadow-shader PATH`, and `--texture PATH` select **already
+cooked** `.cyshader_c` and `.cytex_c` files. A replacement camera shader must
+declare the sample's reflected uniform blocks, `albedoTexture`, and `shadowMap`
+comparison sampler. A replacement depth shader must declare the light and
+object blocks. The runtime does not invoke a
 compiler or open raw source assets. These overrides also let a renderer-only
 debug build use assets produced by a separate tools build:
 
@@ -59,6 +63,7 @@ debug build use assets produced by a separate tools build:
 cmake --build --preset debug --target cypher_render_cube --parallel 4
 ./out/build/debug/bin/cypher_render_cube \
   --shader out/build/shader-tools-debug/cooked/render_smoke/cube.cyshader_c \
+  --shadow-shader out/build/shader-tools-debug/cooked/render_smoke/shadow.cyshader_c \
   --texture out/build/shader-tools-debug/cooked/textures/blockout/floor_checker.cytex_c
 ```
 
@@ -69,6 +74,10 @@ To run the offline step explicitly:
   --source-root assets \
   --output-root out/build/shader-tools-debug/cooked \
   --color never --progress none render_smoke/cube.cyshader
+./out/build/shader-tools-debug/bin/CypherResourceCompiler compile \
+  --source-root assets \
+  --output-root out/build/shader-tools-debug/cooked \
+  --color never --progress none render_smoke/shadow.cyshader
 ./out/build/shader-tools-debug/bin/CypherResourceCompiler compile \
   --source-root assets \
   --output-root out/build/shader-tools-debug/cooked \
@@ -87,6 +96,7 @@ use their own `tile_surface` shader.
 
 ```text
 assets/render_smoke/cube.cyshader + cube.vert + cube.frag
+assets/render_smoke/shadow.cyshader + shadow.vert + shadow.frag
 assets/textures/blockout/floor_checker.cytex + floor_checker.png
         |
         | CypherResourceCompiler, offline
@@ -99,19 +109,22 @@ CookedShader_Read / CookedTexture_Read -> borrowed validated views
         |
         | R_CreateShader / R_CreateTexture2DFromCooked, synchronous
         v
-public shader and texture handles -> native program and image
+public shader and texture handles -> native programs and images
         |
         | R_CreateGraphicsPipeline
         v
-pipeline: program + vertex layout + depth/cull/blend policy
+camera and depth pipelines: program + vertex layout + depth/cull/blend policy
         |
-        | World_QueryView -> copied, frame-scoped World submission
+        | World objects -> all five shadow casters
+        | World_QueryView -> copied camera-visible World submission
         | host resolves logical mesh/material/texture slots and validates live handles
-        | one view upload + one aligned object-record batch for accepted objects
-        | ordered draw-list record -> R_BeginFrame -> flush -> R_DrawIndexed -> R_EndFrame
-        | WorldSubmission_End invalidates the view token
+        | camera and light uploads + one aligned object-record batch
+        | WorldSubmission_End invalidates the view token after queue preparation
+        | two ordered draw queues -> R_BeginFrame
+        | D24 target pass -> five depth draws -> end target pass
+        | four camera draws sample shadow map -> R_EndFrame
         v
-36 cube indices or 6 floor indices -> distinct indexed draws
+36 cube indices or 6 floor indices -> distinct indexed draws in each pass
 ```
 
 For each cooked file, the VFS directory provider is initialized with its parent
@@ -119,9 +132,9 @@ directory. The filename is a canonical virtual path within that provider.
 `Vfs_ReadAll` owns the bytes while the cooked shader or texture view is validated
 and adopted synchronously. The blob is then released; the renderer retains no
 borrowed source pointers. Cube material slots bind a 1×1 white image, while the
-floor slot binds the cooked checker. Both draws satisfy the pipeline's one
-declared sampled texture slot, and the renderer validates live handles again
-when the queued draw is flushed.
+floor slot binds the cooked checker. Camera draws bind albedo in slot 0 and the
+comparison-sampled D24 shadow map in slot 1; depth draws sample no textures.
+The renderer validates live handles again when the queued draw is flushed.
 
 ## Geometry and transforms
 
@@ -141,9 +154,9 @@ counterclockwise from outside the cube. The floor uses four vertices and six
 unsigned 16-bit indices with a +Z normal and counterclockwise winding from
 above. Its zero-thickness local bounds match the XY quad, and its translated
 world bounds are submitted to the World visibility query. Both meshes use the
-same vertex layout and immutable GPU buffers. The host uploads one view record
-and batches the visible objects' records each frame. The CPU structures match
-two GLSL std140 blocks:
+same vertex layout and immutable GPU buffers. The host uploads camera and light
+view records and batches the objects' records before both passes. The camera
+pipeline's CPU structures match two GLSL std140 blocks:
 
 | Block and slot | Field | Byte offset | Purpose |
 | --- | --- | --- | --- |
@@ -152,20 +165,25 @@ two GLSL std140 blocks:
 | `ViewConstants`, 0 | `ambientLight` | 128 | Add per-view ambient RGB illumination. |
 | `ViewConstants`, 0 | `lightDirection` | 144 | Point from a surface toward one directional light. |
 | `ViewConstants`, 0 | `lightColor` | 160 | Scale the light's diffuse RGB contribution. |
+| `ViewConstants`, 0 | `lightViewProjection` | 176 | Project world positions into the shadow map. |
 | `ObjectConstants`, 1 | `model` | 0 | Transform one cube or the floor from local to world space. |
 | `ObjectConstants`, 1 | `tint` | 64 | Multiply that object's face colors. |
 
-The view block is 176 bytes and each object block is 80 bytes. Compile-time
-checks protect the CPU offsets and sizes; pipeline creation checks the shader's
+The camera view block is 240 bytes and each camera object block is 80 bytes.
+The depth pipeline instead reads a 64-byte `LightConstants` matrix at slot 0
+and a 64-byte model matrix at slot 1. Compile-time checks protect the CPU
+offsets and sizes; pipeline creation checks the shader's
 reflected block sizes. OpenGL 4.1 assigns binding slots through the renderer
 pipeline, so GLSL 4.10 does not use a `binding` qualifier in source. The
 current two-slot limit is enough for this demonstration, not a final material
 binding convention.
 
-The sample host writes one ambient color and one directional light into the
-view record. The fragment shader combines those with each sampled albedo and
-normal. Their initial values preserve the previous graybox shading; they are
-not authored World lights, shadow maps, or a general lighting pass.
+The sample host writes ambient color, one directional light, and a matching
+fixed light view/projection into the camera record. The fragment shader
+combines albedo, normal, diffuse light, and one depth comparison from the
+shadow map. Their initial values preserve the previous graybox shading in lit
+areas. This is sample-owned lighting, not authored World lights or a general
+lighting pass.
 
 Common Math uses column vectors, so the vertex shader applies
 `projection * view * model * position`. World space follows the engine's Z-up
@@ -202,11 +220,10 @@ at the device's required uniform-buffer offset alignment. After one successful
 for a chosen uniform slot without changing the draw's geometry or material.
 The OpenGL 4.1 draw then uses the existing `glBindBufferRange` path. This
 replaces one upload per object with one upload for the object batch, while keeping
-each object's model or tint distinct. The shared camera matrices use a separate
-176-byte mutable buffer and one update per view, rather than being copied into
-each object record. This increases the number of upload calls from one to two
-in the small sample, while establishing distinct per-view and per-object
-lifetimes; it is not a measured speedup.
+each object's model or tint distinct. The shared 240-byte camera record and
+64-byte light record use separate mutable buffers. The depth and camera passes
+share one aligned object-record batch, staged and uploaded before the frame.
+These are distinct lifetimes rather than a measured speedup.
 
 Capacity is fixed at creation; an append that does not fit leaves the previous
 records intact. Failed GPU upload leaves the batch staged for a retry, and
@@ -216,32 +233,35 @@ same GPU buffer in a later frame is correct but can stall while the GPU reads
 older draws; a measured multi-buffer strategy can be added when needed. This
 graybox example updates four cube transforms and conservative world-space bounds,
 while the floor stays static. It holds five World objects and builds one
-frustum/layer/distance view submission, then stages only its copied
-objects' model matrices and tints. The submission storage is allocated once;
-each build uses the linear World query without allocating. A checked token
-permits copied record reads until the host ends the submission after the
-renderer frame. It uploads those object records once and selects one per
-indexed draw, alongside the shared view buffer. The host resolves the objects'
+frustum/layer/distance camera-view submission. All five objects contribute to
+the depth pass, including the cube rejected by that camera query. The
+submission storage is allocated once; each build uses the linear World query
+without allocating. A checked token
+permits copied record reads until the host ends the submission after its
+camera draw list is prepared. The host selects a depth model record and a
+camera model/tint record for each object from one batch upload. The host
+resolves the objects'
 logical mesh and material slots through bounded tables containing two static
 mesh bundles and five sample tint/texture-slot records. It checks every visible
-slot and live mesh/texture handle before appending any draw. The final pipeline,
-texture, uniform, and draw-range
-validation still happens inside `R_DrawIndexed` during flush. World never owns
-GPU handles.
-The batch resets after the preceding frame ends. This exercises a bounded
-linear visibility query through the public OpenGL 4.1 path. Interactive camera
-input can move the view; the object layout remains hardcoded. There is no scene asset loading, spatial
-acceleration, material sorting, or pass scheduling.
+slot and live mesh/texture handle before appending any draw. The final
+pipeline, texture, uniform, and draw-range validation still happens inside
+`R_DrawIndexed` during flush. World never owns GPU handles.
+The batch and both draw queues reset after the preceding frame ends. This
+exercises a bounded linear visibility query through the public OpenGL 4.1
+path. Interactive camera input can move the view; the object layout remains
+hardcoded. There is no scene asset loading, spatial acceleration, material
+sorting, or general pass scheduler.
 
 ## Ordered draw list
 
-The sample now copies each completed `render_draw_indexed_desc_t` into a
-fixed-capacity renderer draw list before beginning the frame. A flush in the
-active frame calls the existing validated `R_DrawIndexed` path in append order.
-The list holds renderer handles by value but does not retain the underlying GPU
-resources, so the host keeps both meshes, textures, pipeline, view buffer, and uniform batch alive
-through flush. It allocates at initialization, then resets between frames
-without another allocation. This is the first CPU command-storage boundary,
+The sample copies completed `render_draw_indexed_desc_t` values into separate
+fixed-capacity depth and camera draw lists before beginning the frame. Each
+flush in the active frame calls the existing validated `R_DrawIndexed` path in
+append order. The lists hold renderer handles by value but do not retain the
+underlying GPU resources, so the host keeps the meshes, textures, pipelines,
+view buffers, and uniform batch alive through both flushes. They allocate at
+initialization, then reset between frames without another allocation. This is
+the first CPU command-storage boundary,
 not pass classification, sorting, or asynchronous GPU submission.
 
 If a draw fails, the list reports how many earlier draws returned success.
@@ -298,8 +318,29 @@ manual shadow experiments. For an OpenGL 4.1 shadow comparison, declare the
 pipeline slot as `DEPTH_COMPARE_2D` for an active `sampler2DShadow` uniform,
 then pair the D24 texture with an explicit sampler whose `compare` is not
 `NONE`. A scalar slot rejects a comparison sampler; a shadow slot rejects a
-color texture or missing comparison sampler. Automatic shadow-pass scheduling
-and light-space view setup remain separate work.
+color texture or missing comparison sampler. The graybox sample now manually
+schedules a fixed-light depth pass followed by a camera pass; general
+shadow-pass scheduling and authored light-space setup remain separate work.
+
+### Fixed directional shadow in the graybox sample
+
+The sample creates a 1024×1024 D24 depth texture, a depth-only target, and a
+pipeline that writes depth without color. A fixed orthographic light view
+covers its five World objects. The host stages one aligned uniform batch and
+two draw queues before beginning the frame, because queues seal on flush and
+cannot reset inside a frame. Every object casts in the light pass, including
+the cube outside the camera frustum. After ending the target pass, the four
+camera-visible draws bind the depth texture with a nearest-filtered
+`LESS_EQUAL` comparison sampler in texture slot 1; slot 0 still carries the
+cube white image or cooked floor checker.
+
+The camera fragment shader transforms world position by the same light matrix,
+maps its clip coordinates to depth-texture coordinates, and treats fragments
+outside the fixed light volume as lit. It applies a constant reference-depth
+bias and attenuates directional diffuse light on a failed comparison; ambient
+light remains. The light position and volume, map size, bias, and single sample
+are demonstration choices. There is no slope-scale bias, filtering, cascades,
+dynamic light selection, or authored World light component here.
 
 OpenGL 4.1 treats depth textures as red textures for ordinary sampling; see
 sections 3.8.9 and 3.8.16 of the [OpenGL 4.1 Core Specification](https://registry.khronos.org/OpenGL/specs/gl/glspec41.core.pdf).
@@ -369,7 +410,8 @@ Dimension changes call `R_Resize` outside a frame and rebuild the projection wit
 the new aspect ratio. Uniform data is uploaded before beginning the next frame.
 
 Shutdown waits for outstanding graphics work, then releases objects in dependency
-order: pipeline, vertex input, buffers, shader, renderer, window, System. The
+order: pipelines and target, samplers and textures, vertex inputs, buffers,
+shaders, renderer, window, System. The
 same cleanup runs after partial initialization and failed drawing. Destroying the
 pipeline releases its shader reference; destroying vertex input releases its
 buffer references. The context remains alive until native objects are gone.
@@ -379,7 +421,11 @@ buffer references. The context remains alive until native objects are gone.
 The renderer test targets cover public contracts, lifecycle, shader ownership,
 native compile/link rollback, pipeline dependencies, and draw validation. The
 live OpenGL smoke test reads framebuffer pixels: the triangle must first be red
-and then green after a uniform update. It also checks that disabling depth writes
+and then green after a uniform update. A second pixel oracle renders an
+occluding triangle into a D24 target, shades a receiver using the target's
+comparison sampler, and checks a shadowed pixel against a lit neighbor. This
+tests the two-pass shadow mechanism; it does not inspect the graybox scene's
+visible appearance. The smoke suite also checks that disabling depth writes
 in one frame does not suppress the next frame's depth clear. The live check skips
 on machines without a usable OpenGL 4.1 desktop session; hidden windows still
 require graphics support.
@@ -413,8 +459,10 @@ not define a `.cymesh` format, importer, or scene draw queue.
 
 - `examples/CypherRender/CypherRender_Cube.cpp`: host ownership, geometry, file
   loading, per-frame transforms, events, and ordered cleanup.
-- `assets/render_smoke/cube.cyshader`, `cube.vert`, `cube.frag`: authoring input,
-  shader interface, sample lighting, and texture sampling.
+- `assets/render_smoke/cube.cyshader`, `cube.vert`, `cube.frag`: camera-pass
+  shader interface, sample lighting, and texture/shadow sampling.
+- `assets/render_smoke/shadow.cyshader`, `shadow.vert`, `shadow.frag`: the
+  depth-only shadow-pass shader.
 - `src/CypherRender/CypherRender_Shader.cpp`: public generational shader handles.
 - `src/CypherRender/OpenGL/CypherRender_OpenGL_Shader.cpp`: stage compilation,
   link diagnostics, and native program ownership.
@@ -423,9 +471,10 @@ not define a `.cymesh` format, importer, or scene draw queue.
 - `src/CypherRender/CypherRender_Draw.cpp`: frame, layout, buffer, and range
   validation before native draw submission.
 
-The graybox sample uses two triangle-list meshes, two uniform blocks, two sampled
-textures, a copied World submission, and an ordered draw list for direct window
-drawing. The renderer also has samplers, two binding slots,
+The graybox sample uses two triangle-list meshes, a fixed D24 light pass, two
+uniform blocks per pipeline, two sampled texture slots in the camera pass, a
+copied World submission, and two ordered draw lists for direct window drawing.
+The renderer also has samplers, two binding slots,
 offscreen color and sampleable depth targets, and a limited cooked-material
 bridge. Authored scene and mesh loading, broader material support, pass
 classification and sorting, full command scheduling, and shader hot reload
