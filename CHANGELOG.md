@@ -41,6 +41,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- `CypherRenderDrawQueueRuntime` now stores a bounded, ordered copy of indexed
+  draw descriptions and flushes them through the existing renderer draw API
+  inside an active frame. It allocates once, rejects overflow without changing
+  the queue, reports the confirmed successful prefix, and seals after one
+  flush attempt because a reported GPU failure may follow a submitted draw.
+  The cube host resolves
+  its World submission into this list before beginning the frame. Four focused
+  World/renderer CTests and the compact 120-frame hidden cube run (360 draws)
+  pass locally. Handles must remain live through flush; pass sorting,
+  transparent ordering, and a production asset resolver remain future work.
 - `WorldSubmission` now copies one bounded `World_QueryView` result into
   allocator-owned storage with no per-frame allocation. A storage serial and
   generation-checked token allow value reads through one frame and reject

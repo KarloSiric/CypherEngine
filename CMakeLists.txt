@@ -700,6 +700,15 @@ target_compile_features(CypherRenderUniformRuntime PUBLIC cxx_std_20)
 target_include_directories(CypherRenderUniformRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
 target_link_libraries(CypherRenderUniformRuntime PUBLIC Cypher::Render)
 
+# Ordered CPU draw descriptions, flushed through the existing renderer API.
+add_library(CypherRenderDrawQueueRuntime STATIC
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/Runtime/CypherRender_DrawQueue.cpp"
+)
+add_library(Cypher::RenderDrawQueueRuntime ALIAS CypherRenderDrawQueueRuntime)
+target_compile_features(CypherRenderDrawQueueRuntime PUBLIC cxx_std_20)
+target_include_directories(CypherRenderDrawQueueRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
+target_link_libraries(CypherRenderDrawQueueRuntime PUBLIC Cypher::Render)
+
 add_library(CypherPak STATIC ${CYPHER_PAK_SOURCES})
 add_library(Cypher::Pak ALIAS CypherPak)
 target_compile_features(CypherPak PUBLIC cxx_std_20)
@@ -1843,6 +1852,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             cypher_render_uniform_batch_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_UniformBatch_Tests.cpp"
             Cypher::RenderUniformRuntime
+        )
+        cypher_add_common_catch_test(
+            cypher_render_draw_queue_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_DrawQueue_Tests.cpp"
+            Cypher::RenderDrawQueueRuntime
         )
         cypher_add_common_catch_test(
             cypher_common_render_preview_tests
@@ -2991,6 +3005,7 @@ add_executable(cypher_render_cube EXCLUDE_FROM_ALL
 )
 target_link_libraries(cypher_render_cube PRIVATE
     Cypher::Render Cypher::RenderMeshRuntime Cypher::RenderUniformRuntime
+    Cypher::RenderDrawQueueRuntime
     Cypher::WorldRuntime
     Cypher::VfsDirectory Cypher::Math
 )

@@ -37,6 +37,16 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- CypherRenderDrawQueueRuntime stores bounded, ordered copies of indexed draw
+  descriptions and flushes them through the renderer's existing draw API in
+  an active frame. It allocates once, rejects overflow without mutation,
+  reports the confirmed successful prefix, and seals after one flush attempt:
+  a GPU error can be reported after the failing draw was submitted. The cube
+  host resolves its
+  World submission into this list before beginning the frame. Four focused
+  World/renderer CTests and the compact 120-frame hidden run (360 draws) pass
+  locally. Handles must stay live through flush; sorting, transparency policy,
+  and a production asset resolver remain later work.
 - WorldSubmission copies one bounded World_QueryView result into allocator-
   owned storage without allocating per frame. A storage serial and generation-
   checked token allow value reads for one frame and reject access after End;

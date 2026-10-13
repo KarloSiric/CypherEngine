@@ -83,7 +83,7 @@ pipeline: program + vertex layout + depth/cull/blend policy
         |
         | World_QueryView -> copied, frame-scoped World submission
         | one aligned uniform upload for accepted objects
-        | R_BeginFrame -> visible R_DrawIndexed calls -> R_EndFrame
+        | R_BeginFrame -> ordered draw-list flush -> R_DrawIndexed -> R_EndFrame
         | WorldSubmission_End invalidates the view token
         v
 36 shared indices -> 12 triangles per drawn object
@@ -181,7 +181,25 @@ to its single shared mesh and sample tint table; World never owns GPU handles.
 The batch resets after the preceding frame ends. This exercises a bounded
 linear visibility query through the public OpenGL 4.1 path. The camera and
 objects remain hardcoded; there is no scene asset loading, spatial
-acceleration, material sorting, command recording, or renderer frame queue.
+acceleration, material sorting, pass scheduling, or renderer frame queue.
+
+## Ordered draw list
+
+The sample now copies each completed `render_draw_indexed_desc_t` into a
+fixed-capacity renderer draw list before beginning the frame. A flush in the
+active frame calls the existing validated `R_DrawIndexed` path in append order.
+The list holds renderer handles by value but does not retain the underlying GPU
+resources, so the host keeps its mesh, pipeline, and uniform batch alive
+through flush. It allocates at initialization, then resets between frames
+without another allocation. This is the first CPU command-storage boundary,
+not pass classification, sorting, or asynchronous GPU submission.
+
+If a draw fails, the list reports how many earlier draws returned success.
+The failing draw may already have reached the GPU before its error was
+reported, so the list never retries or replays it. Every flush attempt seals
+the list, even an empty or failed one. Reset outside the frame discards the
+records and permits reuse. This explicit partial-progress contract matters
+before adding larger scene queues.
 
 ## Depth comparison policy
 

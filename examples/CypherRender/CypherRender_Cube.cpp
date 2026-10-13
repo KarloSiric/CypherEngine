@@ -25,6 +25,7 @@
 #include "CypherRender/CypherRender_Public.h"
 #include "CypherRender/CypherRender_Shader.h"
 #include "CypherRender/Runtime/CypherRender_MeshBridge.h"
+#include "CypherRender/Runtime/CypherRender_DrawQueue.h"
 #include "CypherRender/Runtime/CypherRender_UniformBatch.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
 #include "CypherWorld/CypherWorld_Public.h"
@@ -136,6 +137,7 @@ struct cube_state_t {
     render::render_pipeline_handle_t pipeline{};
     render::render_static_mesh_bundle_t mesh{};
     render::render_uniform_batch_t transforms{};
+    render::render_draw_queue_t *pDrawQueue{ nullptr };
     world::world_t *pWorld{ nullptr };
     world::world_submission_t *pSubmission{ nullptr };
     world::world_object_id_t objectIds[CUBE_INSTANCE_COUNT]{};
@@ -299,8 +301,11 @@ bool CreateCube( cube_state_t &state, const char *shaderPath )
         ( sizeof( cube_transforms_t ) + alignment - 1u ) / alignment * alignment;
     const common::u64 capacity =
         ( CUBE_INSTANCE_COUNT - 1u ) * recordStride + sizeof( cube_transforms_t );
-    return CheckRender( render::R_CreateUniformBatch( capacity, nullptr,
-        &state.transforms ), "Create transform batch" );
+    if ( !CheckRender( render::R_CreateUniformBatch( capacity, nullptr,
+            &state.transforms ), "Create transform batch" ) ) return false;
+    return CheckRender( render::R_InitDrawQueue( &state.pDrawQueue,
+        common::Allocator_GetSystem(), CUBE_INSTANCE_COUNT ),
+        "Create cube draw queue" );
 }
 
 bool CreateWorld( cube_state_t &state ) noexcept
@@ -426,9 +431,12 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                  state.pSubmission, submissionToken, &visibleCount ),
                  "Count visible cube objects" ) ) return false;
 
-        if ( renderedFrames != 0u && !CheckRender(
-                 render::R_ResetUniformBatch( &state.transforms ),
-                 "Reset transform batch" ) ) return false;
+        if ( renderedFrames != 0u ) {
+            if ( !CheckRender( render::R_ResetUniformBatch( &state.transforms ),
+                     "Reset transform batch" ) ||
+                 !CheckRender( render::R_ResetDrawQueue( state.pDrawQueue ),
+                     "Reset draw queue" ) ) return false;
+        }
         render::render_uniform_record_t records[CUBE_INSTANCE_COUNT]{};
         for ( common::u32 i = 0u; i < visibleCount; ++i ) {
             world::world_object_snapshot_t visible{};
@@ -454,6 +462,19 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
                  render::R_CommitUniformBatch( &state.transforms ),
                  "Upload visible object transforms" ) ) return false;
 
+        render::render_draw_indexed_desc_t draw{};
+        draw.pipeline = state.pipeline;
+        if ( visibleCount != 0u && !CheckRender(
+            render::R_ApplyStaticMeshBundleToDraw( state.mesh, &draw ),
+            "Bind cube mesh" ) ) return false;
+        for ( common::u32 i = 0u; i < visibleCount; ++i ) {
+            if ( !CheckRender( render::R_ApplyUniformRecordToDraw(
+                     state.transforms, records[i], 0u, &draw ),
+                     "Bind object transforms" ) ||
+                 !CheckRender( render::R_AppendDrawQueue( state.pDrawQueue, draw ),
+                     "Queue cube draw" ) ) return false;
+        }
+
         render::render_frame_info_t frame{};
         frame.frameIndex = renderedFrames;
         frame.deltaSeconds = delta;
@@ -461,19 +482,10 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
         frame.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
         frame.clearColor = { 0.035f, 0.045f, 0.065f, 1.0f };
         if ( !CheckRender( render::R_BeginFrame( frame ), "Begin frame" ) ) return false;
-        render::render_draw_indexed_desc_t draw{};
-        draw.pipeline = state.pipeline;
-        bool drawOK = visibleCount == 0u || CheckRender(
-            render::R_ApplyStaticMeshBundleToDraw( state.mesh, &draw ),
-            "Bind cube mesh" );
-        for ( common::u32 i = 0u; drawOK && i < visibleCount; ++i ) {
-            drawOK = CheckRender( render::R_ApplyUniformRecordToDraw(
-                state.transforms, records[i], 0u, &draw ), "Bind object transforms" );
-            if ( drawOK ) {
-                drawOK = CheckRender( render::R_DrawIndexed( draw ), "Draw cube" );
-                if ( drawOK ) ++visibleDraws;
-            }
-        }
+        common::u32 completedDraws = 0u;
+        const bool drawOK = CheckRender( render::R_FlushDrawQueue(
+            state.pDrawQueue, &completedDraws ), "Draw queued cubes" );
+        visibleDraws += completedDraws;
         const bool endOK = CheckRender( render::R_EndFrame(), "End frame" );
         world::WorldSubmission_End( state.pSubmission );
         if ( !drawOK || !endOK ) return false;
@@ -488,6 +500,7 @@ bool RunFrames( cube_state_t &state, const cube_options_t &options ) noexcept
 bool Shutdown( cube_state_t &state ) noexcept
 {
     bool success = true;
+    render::R_ShutdownDrawQueue( &state.pDrawQueue );
     world::WorldSubmission_Shutdown( &state.pSubmission );
     world::World_Shutdown( &state.pWorld );
     if ( render::R_IsInitialized() ) {

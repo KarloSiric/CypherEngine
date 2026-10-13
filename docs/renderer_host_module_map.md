@@ -104,6 +104,7 @@ need them:
 | `CypherRender_Pass.h/.cpp` | Load/store, clear, viewport, and attachment policy. |
 | `CypherRender_View.h/.cpp` | Camera matrices, viewport, scissor, and view constants. |
 | `CypherRender_RenderQueue.h/.cpp` | Accepts visible candidates, classifies passes, sorts, and batches work. |
+| `Runtime/CypherRender_DrawQueue.h/.cpp` | Active first slice: fixed-capacity ordered indexed-draw copies and same-frame flush, without sorting or passes. |
 | `CypherRender_Occlusion.h/.cpp` | Optional renderer-side fine or GPU occlusion after coarse world visibility. |
 | `CypherRender_Light.h/.cpp` | Backend-neutral light submission and GPU records. |
 | `CypherRender_Shadow.h/.cpp` | Shadow views, atlases, filtering, and update policy. |
@@ -117,12 +118,19 @@ belong to CypherWorld.
 
 ## CypherWorld Handoff
 
-CypherWorld produces one immutable submission per requested view. The initial
-submission contains visible mesh/surface candidates, transform values, material
-and renderer handles, visible light candidates, terrain chunks, and environment
-values. It contains no OpenGL names and no backend commands.
+The current CypherWorld slice copies a bounded set of visible object records
+for one view. These records contain transforms, bounds, layers, and logical
+mesh/material slots, with a token valid until the host ends the submission.
+They contain no OpenGL names or backend commands. Lights, terrain chunks, and
+environment values remain planned additions.
 
-CypherRender consumes the submission by:
+The cube host currently resolves each logical slot, constructs a renderer draw
+description, appends it to an ordered fixed-capacity draw list, and flushes it
+through the validated immediate draw path. CypherRender remains independent of
+CypherWorld. Pass classification, sorting, batching, and a production asset
+resolver are later gates.
+
+The intended full consumer will eventually:
 
 1. validating all live renderer handles
 2. classifying items into render passes
