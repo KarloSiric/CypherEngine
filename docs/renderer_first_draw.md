@@ -306,6 +306,28 @@ path. Interactive camera input can move the view; the object layout remains
 hardcoded. There is no scene asset loading, spatial acceleration, general
 material asset loading or a general pass scheduler.
 
+## Opaque World draw preparation
+
+`CypherRenderWorldRuntime` is a separate integration library above both
+CypherWorld and the renderer. It reads an active, copied World submission and
+resolves each visible object's logical mesh and material slots through borrowed,
+caller-owned bundle tables. It prepares indexed draws and stages one model
+matrix per object in a caller-owned uniform batch. No native OpenGL object name
+enters World data, and the renderer frontend does not query World itself.
+
+The bridge preflights the complete visible set before it appends uniform bytes.
+Missing slots, stale renderer handles, unsupported material modes, invalid
+transforms, and insufficient draw or uniform capacity leave the caller's draw
+array and count unpublished. A failed GPU upload can leave the uniform batch
+sealed with staged data; the host must retry the upload or reset the batch after
+the frame. The first bridge slice handles opaque camera draws with a model-only
+object uniform record. It does not replace the graybox sample's separate shadow,
+translucent, additive, normal-matrix, or mirrored-winding policy, and it is not
+an authored map or mesh loader. The focused CPU test covers two visible objects
+sharing a mesh, different material slots, a culled object, and rejection paths.
+The native OpenGL smoke draws one submitted object with a cooked material and
+checks that its model transform moves local geometry over the center pixel.
+
 ## Ordered draw list
 
 The sample resolves its material's explicit opaque, blend, or additive class and

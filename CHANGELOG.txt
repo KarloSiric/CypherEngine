@@ -71,6 +71,19 @@ Fixed
   and the focused draw test target pass; OpenGL already clears partial objects.
 
 Added
+- A separate CypherRenderWorldRuntime bridge prepares bounded opaque camera
+  draws from an active, copied World submission. It resolves logical
+  mesh/material slots through borrowed bundles, validates the visible set and
+  uniform capacity before staging, uploads aligned model matrices once, and
+  publishes ordered draws only after the upload succeeds. Stale tokens, bad
+  slots, unsupported modes/transforms and capacity failure leave output
+  unchanged; upload failure seals the caller's batch for retry or reset.
+  The focused test passes 184 assertions in eight cases; a native OpenGL 4.1
+  pixel oracle verifies a World model transform brings otherwise offscreen
+  geometry into view through cooked material and static mesh bundles (1291
+  smoke assertions in two cases). Six focused World/render CTests pass.
+  Mirrored, shadow and transparent paths, authored meshes and general scene
+  scheduling remain separate work.
 - Immutable linear RGBA32F 2D textures upload directly or from fully
   resident cooked RGBA32_FLOAT color images, including complete authored
   mip chains. OpenGL 4.1 uses GL_RGBA32F/GL_FLOAT, isolates host pixel-unpack

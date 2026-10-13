@@ -22,7 +22,9 @@
 #include "CypherRender/Runtime/CypherRender_MaterialBridge.h"
 #include "CypherRender/Runtime/CypherRender_MeshBridge.h"
 #include "CypherRender/Runtime/CypherRender_UniformBatch.h"
+#include "CypherRender/Runtime/CypherRender_WorldDraw.h"
 #include "CypherCommon/Formats/CypherCommon_CookedTexture.h"
+#include "CypherCommon/Mathlib/CypherMath_Intersection.h"
 #include "CypherResource/CypherResource_RenderAssets.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
 #include "CypherSystem/Platform/CypherSystem_Window.h"
@@ -42,6 +44,8 @@ namespace render = ::cypher::engine::render;
 namespace resource = ::cypher::engine::resource;
 namespace sys = ::cypher::engine::sys;
 namespace common = ::cypher::common;
+namespace math = ::cypher::math;
+namespace world = ::cypher::engine::world;
 
 namespace
 {
@@ -3181,7 +3185,8 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
     constexpr char vertexSource[] =
         "#version 410 core\n"
         "layout(location=0) in vec3 position;\n"
-        "void main(){ gl_Position=vec4(position,1.0); }\n";
+        "layout(std140) uniform Model { mat4 model; };\n"
+        "void main(){ gl_Position=model*vec4(position,1.0); }\n";
     constexpr char fragmentSource[] =
         "#version 410 core\n"
         "uniform sampler2D AlbedoMap;\n"
@@ -3196,8 +3201,19 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
         common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
     REQUIRE( common::CookedShader_MakeLogicalBindingId(
         bindingName, &sampledImage.nLogicalBinding ) );
+    common::cooked_shader_binding_source_t modelBlock{};
+    modelBlock.name = common::StringView_FromCString( "Model" );
+    modelBlock.kind = common::render_shader_binding_kind_t::UNIFORM_BUFFER;
+    modelBlock.resourceType = common::render_shader_resource_type_t::UNIFORM_BUFFER;
+    modelBlock.stageMask = common::RENDER_SHADER_STAGE_MASK_VERTEX;
+    modelBlock.flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
+        common::COOKED_SHADER_BINDING_FLAG_INSTANCE;
+    modelBlock.cbByteSize = 64u;
+    REQUIRE( common::CookedShader_MakeLogicalBindingId(
+        modelBlock.name, &modelBlock.nLogicalBinding ) );
+    const common::cooked_shader_binding_source_t bindings[]{ sampledImage, modelBlock };
     const common::cooked_shader_interface_source_t shaderInterface{
-        { &sampledImage, 1u }
+        { bindings, 2u }
     };
     common::content_hash_t interfaceHash{};
     REQUIRE( common::CookedShader_ComputeInterfaceHash(
@@ -3300,6 +3316,8 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
     bundleDescription.pResources = &resources;
     bundleDescription.cookedMaterialPath = materialPath;
     bundleDescription.vertexLayout = layout;
+    bundleDescription.uniformBlockCount = 1u;
+    bundleDescription.uniformBlocks[0] = { "Model", 64u };
     bundleDescription.debugName = "Native cooked material smoke";
     render::render_material_bundle_t bundle{};
     const auto adopted = render::R_CreateCookedMaterialBundle(
@@ -3311,8 +3329,10 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
     std::memset( shaderBytes.data(), 0, shaderBytes.size() );
     std::memset( textureBytes.data(), 0, textureBytes.size() );
 
-    constexpr float vertices[9]{ -1.0f, -1.0f, 0.0f, 3.0f, -1.0f, 0.0f,
-                                 -1.0f, 3.0f, 0.0f };
+    // Local geometry is offscreen. Only the submitted World model matrix can
+    // bring it over the center pixel tested below.
+    constexpr float vertices[9]{ 2.0f, -1.0f, 0.0f, 6.0f, -1.0f, 0.0f,
+                                  2.0f, 3.0f, 0.0f };
     constexpr common::u16 indices[3]{ 0u, 1u, 2u };
     render::render_static_mesh_source_t meshSource{};
     meshSource.vertexLayout = layout;
@@ -3326,17 +3346,63 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
     REQUIRE( render::R_CreateStaticMeshBundle( meshSource, &mesh ).status ==
         render::render_static_mesh_bridge_status_t::OK );
 
-    render::render_draw_indexed_desc_t draw{};
-    REQUIRE( render::R_ApplyCookedMaterialBundleToDraw( bundle, &draw ) ==
-        render::render_error_t::OK );
-    REQUIRE( render::R_ApplyStaticMeshBundleToDraw( mesh, &draw ) ==
-        render::render_error_t::OK );
+    world::world_t *pWorld = nullptr;
+    world::world_submission_t *pSubmission = nullptr;
+    REQUIRE( world::World_Init( &pWorld, common::Allocator_GetSystem(), 1u ) ==
+        world::world_error_t::OK );
+    REQUIRE( world::WorldSubmission_Init(
+        &pSubmission, common::Allocator_GetSystem(), 1u ) ==
+        world::world_submission_error_t::OK );
+    world::world_object_t object{};
+    object.localToWorld = math::Affine3_FromTranslation( { -3.0f, 0.0f, 0.0f } );
+    object.worldBounds = math::Aabb_Make(
+        { -1.0f, -1.0f, -0.1f }, { 3.0f, 3.0f, 0.1f } );
+    object.layerMask = 1u;
+    object.meshSlot = 0u;
+    object.materialSlot = 0u;
+    world::world_object_id_t objectId{};
+    REQUIRE( world::World_AddObject( pWorld, &object, &objectId ) ==
+        world::world_error_t::OK );
+    world::world_view_query_t view{};
+    constexpr common::f32 frustumExtent = 20.0f;
+    view.frustum.planes[0] = math::Plane_Make( { 1.0f, 0.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[1] = math::Plane_Make( { -1.0f, 0.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[2] = math::Plane_Make( { 0.0f, 1.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[3] = math::Plane_Make( { 0.0f, -1.0f, 0.0f }, frustumExtent );
+    view.frustum.planes[4] = math::Plane_Make( { 0.0f, 0.0f, 1.0f }, frustumExtent );
+    view.frustum.planes[5] = math::Plane_Make( { 0.0f, 0.0f, -1.0f }, frustumExtent );
+    view.cameraPosition = { 0.0f, 0.0f, 0.0f };
+    view.maxDistance = 100.0f;
+    view.layerMask = 1u;
+    world::world_submission_token_t token{};
+    REQUIRE( world::WorldSubmission_Build(
+        pSubmission, pWorld, &view, &token ) ==
+        world::world_submission_error_t::OK );
+    render::render_uniform_batch_t modelUniforms{};
+    REQUIRE( render::R_CreateUniformBatch(
+        64u, nullptr, &modelUniforms ) == render::render_error_t::OK );
+    render::render_world_opaque_prepare_desc_t prepare{};
+    prepare.submission = pSubmission;
+    prepare.token = token;
+    prepare.meshes = &mesh;
+    prepare.meshCount = 1u;
+    prepare.materials = &bundle;
+    prepare.materialCount = 1u;
+    prepare.modelUniforms = &modelUniforms;
+    render::render_world_opaque_draw_t draws[1]{};
+    common::u32 drawCount = 0u;
+    REQUIRE( render::R_PrepareOpaqueWorldDraws(
+        prepare, draws, 1u, &drawCount ) == render::render_error_t::OK );
+    REQUIRE( drawCount == 1u );
+    CHECK( draws[0].objectId.worldSerial == objectId.worldSerial );
+    CHECK( draws[0].objectId.incarnation == objectId.incarnation );
+
     render::render_frame_info_t frame{};
     frame.drawableExtent = extent;
     frame.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
     frame.clearColor = { 0.0f, 0.0f, 1.0f, 1.0f };
     REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
-    REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_DrawIndexed( draws[0].draw ) == render::render_error_t::OK );
     common::byte center[4]{};
     glReadPixels( static_cast<GLint>( extent.width / 2u ),
         static_cast<GLint>( extent.height / 2u ), 1, 1,
@@ -3346,6 +3412,12 @@ void CheckCookedMaterialBundleDrawing( const render::render_extent_t extent )
     CHECK( center[1] < 16u );
     CHECK( center[2] < 16u );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+    world::WorldSubmission_End( pSubmission );
+    world::WorldSubmission_Shutdown( &pSubmission );
+    world::World_Shutdown( &pWorld );
+    REQUIRE( render::R_DestroyUniformBatch( &modelUniforms ) ==
+        render::render_error_t::OK );
 
     const auto shader = bundle.shader;
     const auto pipeline = bundle.pipeline;

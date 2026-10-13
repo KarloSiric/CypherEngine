@@ -127,6 +127,12 @@ environment values remain planned additions.
 The graybox sample host has two GPU scene mesh bundles: one shared by four cube
 World objects and one floor quad shared by the floor, two translucent panels,
 and one additive panel.
+The separate `CypherRenderWorldRuntime` integration target now prepares bounded
+opaque camera draws from an active World submission, borrowed mesh/material
+bundle tables, and a caller-owned model-matrix uniform batch. It preflights the
+entire visible set before publishing draw records, while CypherRender itself
+remains independent of World. The sample still owns its additional shadow,
+mirrored, translucent, and additive policy.
 Bounded host-owned slot tables resolve
 each visible object's logical mesh and tint/texture material slots. The cube
 materials bind a white texture; the floor binds a cooked checker texture.

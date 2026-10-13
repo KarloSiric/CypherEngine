@@ -82,6 +82,20 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- A separate `CypherRenderWorldRuntime` bridge now prepares bounded opaque
+  camera draws from an active, copied World submission. It resolves logical
+  mesh/material slots through borrowed bundle tables, checks every visible
+  object and uniform capacity before staging, uploads aligned model matrices
+  once, and publishes ordered draws only after a successful upload. Stale
+  tokens, unresolved slots, unsupported modes/transforms, and insufficient
+  capacity leave output unchanged; an upload failure keeps the caller's batch
+  sealed for retry or reset. The focused test passes 184 assertions across
+  eight cases; a native OpenGL 4.1 pixel oracle verifies that a World model
+  transform moves otherwise offscreen geometry into view through the cooked
+  material and static mesh path (1,291 smoke assertions in two cases). Six
+  focused World/render CTests pass. This does not yet cover mirrored
+  transforms, shadow or transparent passes, authored mesh loading, or general
+  scene scheduling.
 - Immutable linear RGBA32F 2D textures now upload directly or from fully
   resident cooked RGBA32_FLOAT color images, including complete authored mip
   chains. OpenGL 4.1 uses `GL_RGBA32F`/`GL_FLOAT`, isolates the host's pixel-

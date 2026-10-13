@@ -761,6 +761,22 @@ target_compile_features(CypherWorldRuntime PUBLIC cxx_std_20)
 target_include_directories(CypherWorldRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
 target_link_libraries(CypherWorldRuntime
     PUBLIC Cypher::Math Cypher::CommonTier1)
+
+# Host-side bridge from a copied World view to opaque indexed draw records.
+# CypherRender and CypherWorld remain independent of one another.
+add_library(CypherRenderWorldRuntime STATIC
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/Runtime/CypherRender_WorldDraw.cpp"
+)
+add_library(Cypher::RenderWorldRuntime ALIAS CypherRenderWorldRuntime)
+target_compile_features(CypherRenderWorldRuntime PUBLIC cxx_std_20)
+target_include_directories(CypherRenderWorldRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
+target_link_libraries(CypherRenderWorldRuntime
+    PUBLIC
+        Cypher::WorldRuntime
+        Cypher::RenderMeshRuntime
+        Cypher::RenderMaterialRuntime
+        Cypher::RenderUniformRuntime
+)
 if (NOT MSVC)
     # Expansion/Predicates rely on TwoSum/TwoDiff/TwoProduct being exact under
     # plain IEEE-754 double arithmetic; GCC/Clang may otherwise silently fuse
@@ -1018,6 +1034,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             cypher_world_submission_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherWorld/CypherWorld_Submission_Tests.cpp"
             Cypher::WorldRuntime
+        )
+        cypher_add_common_catch_test(
+            cypher_render_world_draw_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_WorldDraw_Tests.cpp"
+            Cypher::RenderWorldRuntime
         )
 
         cypher_add_common_catch_test(
@@ -2199,10 +2220,8 @@ if (CYPHERENGINE_BUILD_TESTS)
         cypher_add_common_catch_test(
             cypher_render_opengl_smoke_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_OpenGL_Smoke_Tests.cpp"
-            Cypher::RenderMaterialRuntime
+            Cypher::RenderWorldRuntime
         )
-        target_link_libraries(cypher_render_opengl_smoke_tests PRIVATE Cypher::RenderMeshRuntime)
-        target_link_libraries(cypher_render_opengl_smoke_tests PRIVATE Cypher::RenderUniformRuntime)
         # Render links Glad privately; this test only needs its native headers
         # for pixel readback and should not link a second Glad archive.
         target_include_directories(cypher_render_opengl_smoke_tests PRIVATE
