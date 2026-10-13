@@ -29,6 +29,7 @@ struct gl_pipeline_record_t {
     GLint sampledTextureLocations[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     bool depthTest{ true };
     bool depthWrite{ true };
+    GLenum depthCompare{ GL_LESS };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };
@@ -71,6 +72,21 @@ bool GL_AttributeType(
         case GL_UNSIGNED_INT_VEC3: valueOut = render_vertex_value_t::UINT; componentsOut = 3u; return true;
         case GL_UNSIGNED_INT_VEC4: valueOut = render_vertex_value_t::UINT; componentsOut = 4u; return true;
         default: return false; // Matrices, arrays, and double attributes are outside this contract.
+    }
+}
+
+GLenum GL_DepthCompare( const render_depth_compare_t compare ) noexcept
+{
+    switch ( compare ) {
+        case render_depth_compare_t::NEVER: return GL_NEVER;
+        case render_depth_compare_t::LESS: return GL_LESS;
+        case render_depth_compare_t::EQUAL: return GL_EQUAL;
+        case render_depth_compare_t::LESS_EQUAL: return GL_LEQUAL;
+        case render_depth_compare_t::GREATER: return GL_GREATER;
+        case render_depth_compare_t::NOT_EQUAL: return GL_NOTEQUAL;
+        case render_depth_compare_t::GREATER_EQUAL: return GL_GEQUAL;
+        case render_depth_compare_t::ALWAYS: return GL_ALWAYS;
+        default: return 0u;
     }
 }
 
@@ -228,6 +244,8 @@ render_error_t GL_CreateGraphicsPipeline(
          description.topology != render_primitive_topology_t::LINE_LIST ) {
         return render_error_t::ERR_PIPELINE_DESC_INVALID;
     }
+    const GLenum depthCompare = GL_DepthCompare( description.depthCompare );
+    if ( depthCompare == 0u ) return render_error_t::ERR_PIPELINE_DESC_INVALID;
     if ( description.uniformBlockCount > R_MAX_UNIFORM_BLOCK_BINDINGS ||
          description.sampledTextureCount > R_MAX_SAMPLED_TEXTURE_BINDINGS ) {
         return render_error_t::ERR_PIPELINE_DESC_INVALID;
@@ -302,6 +320,7 @@ render_error_t GL_CreateGraphicsPipeline(
     }
     record->depthTest = description.depthTest;
     record->depthWrite = description.depthWrite;
+    record->depthCompare = depthCompare;
     record->cullBackFaces = description.cullBackFaces;
     record->frontCounterClockwise = description.frontCounterClockwise;
     record->alphaBlend = description.alphaBlend;
@@ -371,7 +390,7 @@ render_error_t GL_DrawIndexed(
     GL_ClearErrors();
     GL_SetCapability( GL_DEPTH_TEST, pipeline->depthTest );
     glDepthMask( pipeline->depthWrite ? GL_TRUE : GL_FALSE );
-    glDepthFunc( GL_LESS );
+    glDepthFunc( pipeline->depthCompare );
     GL_SetCapability( GL_CULL_FACE, pipeline->cullBackFaces );
     glCullFace( GL_BACK );
     glFrontFace( pipeline->frontCounterClockwise ? GL_CCW : GL_CW );

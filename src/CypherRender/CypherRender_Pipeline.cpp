@@ -89,7 +89,8 @@ render_error_t R_CreateGraphicsPipeline(
     if ( !tr.initialized || !pipelineSystem.initialized || tr.backend.api == nullptr ) {
         return render_error_t::ERR_NOT_INITIALIZED;
     }
-    if ( description.topology >= render_primitive_topology_t::COUNT ) {
+    if ( description.topology >= render_primitive_topology_t::COUNT ||
+         description.depthCompare >= render_depth_compare_t::COUNT ) {
         return render_error_t::ERR_PIPELINE_DESC_INVALID;
     }
     if ( R_ValidateVertexLayout( description.vertexLayout ) != render_error_t::OK ) {
@@ -156,6 +157,7 @@ render_error_t R_CreateGraphicsPipeline(
     nativeDescription.vertexLayout = description.vertexLayout;
     nativeDescription.depthTest = description.depthTest;
     nativeDescription.depthWrite = description.depthWrite;
+    nativeDescription.depthCompare = description.depthCompare;
     nativeDescription.cullBackFaces = description.cullBackFaces;
     nativeDescription.frontCounterClockwise = description.frontCounterClockwise;
     nativeDescription.alphaBlend = description.alphaBlend;
@@ -180,6 +182,7 @@ render_error_t R_CreateGraphicsPipeline(
     record.info.vertexLayout = description.vertexLayout;
     record.info.depthTest = description.depthTest;
     record.info.depthWrite = description.depthWrite;
+    record.info.depthCompare = description.depthCompare;
     record.info.cullBackFaces = description.cullBackFaces;
     record.info.frontCounterClockwise = description.frontCounterClockwise;
     record.info.alphaBlend = description.alphaBlend;

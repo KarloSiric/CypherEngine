@@ -267,6 +267,87 @@ void CheckIndexedDrawing( const render::render_extent_t extent )
     readPixel( static_cast<GLint>( extent.width / 2u ), static_cast<GLint>( extent.height / 2u ), 1 );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
 
+    // The compare mode is pipeline state, not a global toggle. Reuse the same
+    // indexed triangle and depth attachment while changing only that mode.
+    // A red prepass provides the exact same rasterized depth for equality
+    // cases; strict cases compare against clears safely away from 0.5.
+    const float redUniforms[20]{ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1, 1,0,0,1 };
+    const auto redUniformBuffer = createBuffer( redUniforms, sizeof( redUniforms ),
+        render::R_BUFFER_USAGE_UNIFORM, true );
+    constexpr auto compareCount = static_cast<std::size_t>( render::render_depth_compare_t::COUNT );
+    std::array<render::render_pipeline_handle_t, compareCount> comparePipelines{};
+    pipelineDesc.depthTest = true;
+    pipelineDesc.depthWrite = false;
+    for ( std::size_t mode = 0u; mode < comparePipelines.size(); ++mode ) {
+        pipelineDesc.depthCompare = static_cast<render::render_depth_compare_t>( mode );
+        REQUIRE( render::R_CreateGraphicsPipeline( pipelineDesc, &comparePipelines[mode] ) ==
+            render::render_error_t::OK );
+    }
+    struct depth_case_t {
+        render::render_depth_compare_t compare;
+        float clearDepth;
+        bool redPrepass;
+        bool expectGreen;
+    };
+    constexpr depth_case_t cases[]{
+        { render::render_depth_compare_t::NEVER,         1.00f, true,  false },
+        { render::render_depth_compare_t::LESS,          0.75f, false, true  },
+        { render::render_depth_compare_t::LESS,          0.25f, false, false },
+        { render::render_depth_compare_t::LESS,          1.00f, true,  false },
+        { render::render_depth_compare_t::EQUAL,         1.00f, true,  true  },
+        { render::render_depth_compare_t::EQUAL,         0.75f, false, false },
+        { render::render_depth_compare_t::LESS_EQUAL,    1.00f, true,  true  },
+        { render::render_depth_compare_t::LESS_EQUAL,    0.25f, false, false },
+        { render::render_depth_compare_t::GREATER,       0.25f, false, true  },
+        { render::render_depth_compare_t::GREATER,       0.75f, false, false },
+        { render::render_depth_compare_t::GREATER,       1.00f, true,  false },
+        { render::render_depth_compare_t::NOT_EQUAL,     1.00f, true,  false },
+        { render::render_depth_compare_t::NOT_EQUAL,     0.75f, false, true  },
+        { render::render_depth_compare_t::GREATER_EQUAL, 1.00f, true,  true  },
+        { render::render_depth_compare_t::GREATER_EQUAL, 0.75f, false, false },
+        { render::render_depth_compare_t::ALWAYS,        0.25f, false, true  }
+    };
+    for ( const auto &depthCase : cases ) {
+        CAPTURE( static_cast<int>( depthCase.compare ), depthCase.clearDepth,
+                 depthCase.redPrepass, depthCase.expectGreen );
+        ++frame.frameIndex;
+        frame.clearDepth = depthCase.clearDepth;
+        REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+        if ( depthCase.redPrepass ) {
+            draw.pipeline = pipeline; // Default LESS writes the red triangle at depth 0.5.
+            draw.uniformBuffers[0] = redUniformBuffer;
+            REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+        }
+        draw.pipeline = comparePipelines[static_cast<std::size_t>( depthCase.compare )];
+        draw.uniformBuffers[0] = uniformBuffer; // Green triangle at the same depth.
+        REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
+        common::u8 pixel[4]{};
+        glReadBuffer( GL_BACK );
+        glReadPixels( static_cast<GLint>( extent.width / 2u ),
+                      static_cast<GLint>( extent.height / 2u ),
+                      1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel );
+        REQUIRE( glGetError() == GL_NO_ERROR );
+        if ( depthCase.expectGreen ) {
+            CHECK( pixel[0] <= 15u );
+            CHECK( pixel[1] >= 240u );
+            CHECK( pixel[2] <= 15u );
+        } else if ( depthCase.redPrepass ) {
+            CHECK( pixel[0] >= 240u );
+            CHECK( pixel[1] <= 15u );
+            CHECK( pixel[2] <= 15u );
+        } else {
+            CHECK( pixel[0] <= 15u );
+            CHECK( pixel[1] <= 15u );
+            CHECK( pixel[2] >= 240u );
+        }
+        REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+    }
+    for ( const auto comparePipeline : comparePipelines ) {
+        REQUIRE( render::R_DestroyGraphicsPipeline( comparePipeline ) ==
+            render::render_error_t::OK );
+    }
+    REQUIRE( render::R_DestroyBuffer( redUniformBuffer ) == render::render_error_t::OK );
+
     REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
     CHECK_FALSE( render::R_IsGraphicsPipelineValid( pipeline ) );
     render::render_pipeline_info_t staleInfo{};

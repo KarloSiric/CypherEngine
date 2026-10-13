@@ -24,6 +24,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Graphics pipelines select any of the eight OpenGL 4.1 depth comparison
+  modes. LESS remains the default. Creation validates the mode, each indexed
+  draw applies it, and hosted frames restore the application's depth function.
+  Clear depth is separate; no reversed-Z camera convention is supplied yet.
 - Graphics pipelines declare up to two contiguous named uniform blocks and
   two scalar sampler2D inputs. Indexed draws supply matching buffer/texture
   handles by slot. The frontend rejects missing/extra handles, mapped or short
@@ -52,6 +56,8 @@ Added
   ordinary runtime still has no scene producer.
 
 Changed
+- Public renderer API version 5 and private backend version 12 add the
+  pipeline depth comparison field.
 - Public renderer API version 4 and private backend version 11 describe the
   two-slot layouts. Existing cube, tile-map and Tile Editor callers use slot 0.
 - The private backend contract is version 10 and public API version 3 for
@@ -73,6 +79,11 @@ Changed
   unexpected initialization errors still fail.
 
 Validation
+- Rebuilt renderer tests and cube example in the existing build-mason tree;
+  ten selected renderer/Host CTests passed and the cube rendered two hidden
+  frames. Native pixel cases cover all depth modes and pass/fail values;
+  frontend and hosted tests verify validation, default, propagation and
+  GL_DEPTH_FUNC restoration.
 - Renderer, Host OpenGL smoke, and cube example rebuilt in the existing
   build-mason tree; ten selected renderer/Host CTests passed, and the cube
   example rendered two hidden frames. Focused tests

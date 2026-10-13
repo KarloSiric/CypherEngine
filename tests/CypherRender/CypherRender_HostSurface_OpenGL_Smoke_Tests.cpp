@@ -382,6 +382,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glViewport( 2, 3, 40, 25 );
     glEnable( GL_BLEND );
     glEnable( GL_DEPTH_TEST );
+    glDepthFunc( GL_GREATER );
     glEnable( GL_CULL_FACE );
     glCullFace( GL_FRONT );
     glFrontFace( GL_CW );
@@ -563,6 +564,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     checkInteger( GL_STENCIL_CLEAR_VALUE, 7 );
     CHECK( glIsEnabled( GL_BLEND ) == GL_TRUE );
     CHECK( glIsEnabled( GL_DEPTH_TEST ) == GL_TRUE );
+    checkInteger( GL_DEPTH_FUNC, GL_GREATER );
     CHECK( glIsEnabled( GL_CULL_FACE ) == GL_TRUE );
     checkInteger( GL_CULL_FACE_MODE, GL_FRONT );
     checkInteger( GL_FRONT_FACE, GL_CW );

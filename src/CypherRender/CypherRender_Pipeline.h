@@ -31,6 +31,18 @@ enum class render_primitive_topology_t : ::cypher::common::u8 {
     COUNT
 };
 
+enum class render_depth_compare_t : ::cypher::common::u8 {
+    NEVER = 0,
+    LESS,
+    EQUAL,
+    LESS_EQUAL,
+    GREATER,
+    NOT_EQUAL,
+    GREATER_EQUAL,
+    ALWAYS,
+    COUNT
+};
+
 inline constexpr ::cypher::common::u32 R_MAX_UNIFORM_BLOCK_BINDINGS = 2u;
 inline constexpr ::cypher::common::u32 R_MAX_SAMPLED_TEXTURE_BINDINGS = 2u;
 
@@ -43,7 +55,7 @@ struct render_sampled_texture_binding_t {
     const char *name{ nullptr }; // Active scalar sampler2D.
 };
 
-// First-draw scope: triangle or line lists, solid fill, LESS depth,
+// First-draw scope: triangle or line lists, solid fill, selectable depth test,
 // no stencil, and optional source-alpha blending into the presentation target.
 // Lines use the driver's one-pixel rasterization; culling and front-face state
 // have no effect on them. All calls execute on the renderer thread.
@@ -53,6 +65,7 @@ struct render_pipeline_desc_t {
     render_vertex_layout_t vertexLayout{};
     bool depthTest{ true };
     bool depthWrite{ true };
+    render_depth_compare_t depthCompare{ render_depth_compare_t::LESS };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };
@@ -70,6 +83,7 @@ struct render_pipeline_info_t {
     render_vertex_layout_t vertexLayout{};
     bool depthTest{ true };
     bool depthWrite{ true };
+    render_depth_compare_t depthCompare{ render_depth_compare_t::LESS };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };

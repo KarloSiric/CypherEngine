@@ -130,6 +130,21 @@ rotation only. A future mesh instance with nonuniform scale needs the
 inverse-transpose normal matrix. That is a separate transform requirement;
 silently extending this example's expression to arbitrary scale would be wrong.
 
+## Depth comparison policy
+
+Graphics pipelines default to `render_depth_compare_t::LESS` with depth testing
+and writing enabled. A pipeline may instead select any of the eight standard
+comparisons, such as `LESS_EQUAL` for geometry intentionally placed on the far
+plane or `ALWAYS` for a deliberate overlay. The compare operation is immutable
+pipeline state and is applied before each draw, so pipeline order does not
+inherit an accidental depth function from an earlier pass or editor host.
+
+`render_frame_info_t::clearDepth` and target-pass clear depth remain separate
+values, both defaulting to 1.0. A pass using `GREATER` needs a compatible depth
+clear and projection convention; changing the comparison alone does not create
+a reversed-Z camera. Disabling depth testing also disables the OpenGL depth
+test stage's writes, even if the pipeline's `depthWrite` flag is true.
+
 ## Lifecycle and cleanup
 
 The host creates the System window after renderer configuration has selected its

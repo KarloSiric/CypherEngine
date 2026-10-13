@@ -28,6 +28,7 @@ struct draw_fixture_t {
     draw_error_t pipelineDestroyResult{ draw_error_t::OK };
     draw_error_t drawResult{ draw_error_t::OK };
     render::render_primitive_topology_t lastPipelineTopology{ render::render_primitive_topology_t::TRIANGLE_LIST };
+    render::render_depth_compare_t lastPipelineDepthCompare{ render::render_depth_compare_t::LESS };
     render::backend_draw_indexed_desc_t lastDraw{};
     common::byte mappedBytes[256]{};
     render::render_shader_handle_t shader{};
@@ -72,6 +73,7 @@ struct draw_fixture_t {
             auto &fixture = *static_cast<draw_fixture_t *>( state );
             ++fixture.pipelineCreates;
             fixture.lastPipelineTopology = description.topology;
+            fixture.lastPipelineDepthCompare = description.depthCompare;
             out = {};
             if ( fixture.pipelineResult == draw_error_t::OK ) out.value = fixture.nextToken++;
             return fixture.pipelineResult;
@@ -282,6 +284,38 @@ TEST_CASE( "pipeline info preserves two declared uniform block byte sizes",
     CHECK( info.uniformBlockBytes[0] == 64u );
     CHECK( info.uniformBlockBytes[1] == 32u );
     CHECK( info.sampledTextureCount == 0u );
+}
+
+TEST_CASE( "depth comparison validates before backend creation and survives pipeline inspection",
+           "[CypherRender][Draw]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    auto description = fixture.PipelineDescription();
+    CHECK( description.depthCompare == render::render_depth_compare_t::LESS );
+
+    description.depthCompare = static_cast<render::render_depth_compare_t>( 255u );
+    render::render_pipeline_handle_t invalid{ 99u };
+    CHECK( render::R_CreateGraphicsPipeline( description, &invalid ) ==
+           draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    CHECK( invalid.value == 0u );
+    CHECK( fixture.pipelineCreates == 0u );
+
+    description.depthCompare = render::render_depth_compare_t::GREATER_EQUAL;
+    render::render_pipeline_handle_t pipeline{};
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::OK );
+    CHECK( fixture.pipelineCreates == 1u );
+    CHECK( fixture.lastPipelineDepthCompare == render::render_depth_compare_t::GREATER_EQUAL );
+    render::render_pipeline_info_t info{};
+    REQUIRE( render::R_GetGraphicsPipelineInfo( pipeline, &info ) == draw_error_t::OK );
+    CHECK( info.depthCompare == render::render_depth_compare_t::GREATER_EQUAL );
+    REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == draw_error_t::OK );
+
+    description = fixture.PipelineDescription();
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &pipeline ) == draw_error_t::OK );
+    CHECK( fixture.lastPipelineDepthCompare == render::render_depth_compare_t::LESS );
+    REQUIRE( render::R_GetGraphicsPipelineInfo( pipeline, &info ) == draw_error_t::OK );
+    CHECK( info.depthCompare == render::render_depth_compare_t::LESS );
 }
 
 TEST_CASE( "draw validates full offset ranges and dispatches only during an active frame", "[CypherRender][Draw]" )

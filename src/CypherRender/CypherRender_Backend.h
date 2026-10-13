@@ -45,7 +45,7 @@ this private boundary.
 
 ===============================================================================
 */
-inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 11u;
+inline constexpr ::cypher::common::u32 R_BACKEND_API_VERSION = 12u;
 
 /*
 ================
@@ -175,6 +175,7 @@ struct backend_pipeline_desc_t {
     render_vertex_layout_t vertexLayout{};
     bool depthTest{ true };
     bool depthWrite{ true };
+    render_depth_compare_t depthCompare{ render_depth_compare_t::LESS };
     bool cullBackFaces{ true };
     bool frontCounterClockwise{ true };
     bool alphaBlend{ false };
