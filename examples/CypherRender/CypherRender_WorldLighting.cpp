@@ -56,7 +56,7 @@ static_assert( sizeof( vertex_t ) == 32u );
 
 struct options_t {
     common::u32 frames{ 0u };
-    bool hidden{ false }, help{ false }, resizeTest{ false };
+    bool hidden{ false }, help{ false }, resizeTest{ false }, noFog{ false };
 };
 struct scene_target_t {
     render::render_texture_handle_t color{};
@@ -268,7 +268,7 @@ bool CreateResources( state_t &state )
     pipeline.depthWrite = true;
     pipeline.cullBackFaces = true;
     pipeline.uniformBlockCount = 3u;
-    pipeline.uniformBlocks[0] = { "View", 320u };
+    pipeline.uniformBlocks[0] = { "View", sizeof( render::render_world_fogged_view_lighting_record_t ) };
     pipeline.uniformBlocks[1] = { "Model", 112u };
     pipeline.uniformBlocks[2] = { "Material", 16u };
     pipeline.sampledTextureCount = 2u;
@@ -324,7 +324,7 @@ bool CreateResources( state_t &state )
     sampler.addressU = sampler.addressV = render::render_sampler_address_t::CLAMP_TO_EDGE;
     sampler.compare = render::render_sampler_compare_t::LESS_EQUAL;
     if ( !Check( render::R_CreateSampler( sampler, &state.shadowSampler ), "Create comparison sampler" ) ||
-         !CreateUniform( 320u, nullptr, state.view ) ||
+         !CreateUniform( sizeof( render::render_world_fogged_view_lighting_record_t ), nullptr, state.view ) ||
          !CreateUniform( 64u, nullptr, state.light ) ) return false;
     constexpr float TINTS[OBJECT_COUNT][4] = {
         { 0.38f, 0.42f, 0.46f, 1.0f }, { 0.65f, 0.22f, 0.08f, 1.0f },
@@ -531,9 +531,12 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
         lighting.directionalRadiance = { 2.2f, 2.05f, 1.8f };
         lighting.pointLightCount = 1u;
         lighting.pointLights[0] = { { 0, -2, 2 }, 6, { 0.15f, 0.4f, 1 }, 2 };
-        render::render_world_shadowed_view_lighting_record_t viewRecord{};
-        if ( !Check( render::R_PackWorldShadowedViewLighting( lighting, lightClip,
-                 &viewRecord ), "Pack World lighting" ) ||
+        const render::render_world_depth_fog_desc_t fog{
+            { 0.11f, 0.14f, 0.18f }, 8.0f, 32.0f, !options.noFog
+        };
+        render::render_world_fogged_view_lighting_record_t viewRecord{};
+        if ( !Check( render::R_PackWorldFoggedViewLighting( lighting, lightClip,
+                 fog, &viewRecord ), "Pack World lighting and depth fog" ) ||
              !Check( render::R_UpdateBuffer( state.view, 0u, { &viewRecord, sizeof( viewRecord ) } ), "Upload camera lighting" ) ||
              !Check( render::R_ResetUniformBatch( &state.cameraModels ), "Reset camera models" ) ||
              !Check( render::R_ResetUniformBatch( &state.shadowModels ), "Reset light models" ) ) return false;
@@ -602,7 +605,9 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
         sceneView.shadowPass.target = state.shadowTarget;
         sceneView.shadowDraws = { shadowDrawRecords, casterCount };
         sceneView.cameraPass.target = state.scene.target;
-        sceneView.cameraPass.clearColor = { 0.025f, 0.035f, 0.05f, 1.0f };
+        sceneView.cameraPass.clearColor = fog.enabled
+            ? render::render_color_t{ fog.color.x, fog.color.y, fog.color.z, 1.0f }
+            : render::render_color_t{ 0.025f, 0.035f, 0.05f, 1.0f };
         sceneView.opaqueDraws = { cameraDrawRecords, counts.opaqueCount };
         sceneView.blendDraws = { cameraDrawRecords + counts.opaqueCount, counts.blendCount };
         sceneView.additiveDraws = { cameraDrawRecords + counts.opaqueCount + counts.blendCount, counts.additiveCount };
@@ -706,6 +711,7 @@ int main( int argc, char **argv )
     options_t options{};
     for ( int i = 1; i < argc; ++i ) {
         if ( std::strcmp( argv[i], "--hidden" ) == 0 ) options.hidden = true;
+        else if ( std::strcmp( argv[i], "--no-fog" ) == 0 ) options.noFog = true;
         else if ( std::strcmp( argv[i], "--resize-test" ) == 0 ) options.resizeTest = true;
         else if ( std::strcmp( argv[i], "--help" ) == 0 ) options.help = true;
         else if ( std::strcmp( argv[i], "--frames" ) == 0 && i + 1 < argc ) {
@@ -717,11 +723,12 @@ int main( int argc, char **argv )
         } else { std::fprintf( stderr, "Unknown option or missing value: %s\n", argv[i] ); return 2; }
     }
     if ( options.help ) {
-        std::puts( "Usage: cypher_render_world_lighting [--hidden] [--frames N] [--resize-test]\n"
+        std::puts( "Usage: cypher_render_world_lighting [--hidden] [--frames N] [--resize-test] [--no-fog]\n"
             "Hold RMB: mouse look, WASD, Space/C up/down, Shift faster. Esc exits.\n"
             "--frames uses a fixed camera and deterministic animation.\n"
             "--hidden defaults to 120 frames; a working graphics session is required.\n"
             "--resize-test requests two native window resizes during a finite run.\n"
+            "--no-fog disables linear camera-depth fog for comparison.\n"
             "The host owns a procedural scene, light descriptions and pass order.\n"
             "This is a World-adapter example, not a map loader or game runtime." );
         return 0;

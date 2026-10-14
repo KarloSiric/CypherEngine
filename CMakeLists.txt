@@ -1055,6 +1055,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_WorldDraw_Tests.cpp"
             Cypher::RenderWorldRuntime
         )
+        cypher_add_common_catch_test(
+            cypher_render_world_fog_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_WorldFog_Tests.cpp"
+            Cypher::RenderWorldRuntime
+        )
 
         cypher_add_common_catch_test(
             cypher_common_tier0_align_tests

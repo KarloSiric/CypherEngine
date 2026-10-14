@@ -113,7 +113,9 @@ use their own `tile_surface` shader.
 Its procedural scene has a floor slab and two rotating boxes, one with mirrored
 nonuniform scale. It supplies one shadowed directional light and one unshadowed
 point light, then draws a D24 light pass, an RGBA16F camera pass, and the existing
-Reinhard/linear-to-sRGB presentation shader. Camera and light queries are
+Reinhard/linear-to-sRGB presentation shader. Its opaque surfaces also blend
+toward a supplied linear fog color between camera depths 8 and 32, before tone
+mapping. `--no-fog` disables that ramp for comparison. Camera and light queries are
 independent; neither World objects nor asset slots contain native GPU names.
 
 With an existing shader-tools configuration, build this explicit target to cook
@@ -147,7 +149,7 @@ The important handoff is:
 ```text
 World transforms + bounds + logical mesh/material slots
     -> camera frustum query -> R_PrepareWorldCameraDraws
-                              View320 / Model112 / Material16
+                              View352 / Model112 / Material16
     -> light frustum query  -> R_PrepareWorldShadowDraws
                               Light64 / Model64
     -> shadow depth target -> HDR camera target -> presentation
@@ -167,6 +169,52 @@ loader, authored light system, lightmap baker, specular/PBR model, general frame
 scheduler, or Mason integration. The separate native pixel suite remains the
 oracle for camera/shadow/HDR output; example draw counts alone do not verify
 pixel appearance.
+
+## Opt-in camera-depth fog
+
+`R_PackWorldFoggedViewLighting` extends the complete shadowed View320 record
+with two std140 vec4 lanes: linear RGB fog color at byte 320 and start/end/enable
+at byte 336. View352 is an explicit shader contract; the existing View256 and
+View320 records and packers remain unchanged. Disabled fog ignores inactive
+authoring fields and zero-fills both lanes. Enabled fog validates finite,
+nonnegative color, a finite nonnegative start, and a finite end greater than
+start. Packing allocates no memory and leaves output unchanged on failure.
+
+The opaque example's shader performs:
+
+```text
+depth = max(-cameraSpacePosition.z, 0)
+factor = 0 when disabled or depth <= start
+factor = 1 when depth >= end
+otherwise factor = (depth - start) / (end - start)
+linearHDRRGB = mix(litRGB, fogRGB, factor)
+alpha = original surface alpha
+```
+
+This is axial camera-depth fog, so lateral points at the same camera depth have
+the same fog amount. It is not radial distance fog. Depth is interpolated with
+the normal perspective-correct varying; world-unit distances assume a rigid
+camera view. Start/end are packed directly, avoiding a reciprocal that could
+overflow for a narrow valid interval. The shader checks the clear/full-fog
+boundaries before dividing.
+
+Fog follows ambient, directional, point-light and shadow evaluation in linear
+HDR. The later output pass applies tone mapping and output transfer. The shadow
+depth shader is unchanged. The example clears its background to fog RGB while
+enabled, which is a simple backdrop rather than a sky system. This slice covers
+opaque surface fog; additive materials require attenuation toward black and
+are not implemented by this shader. Fog volumes, height/volumetric scattering,
+sky rendering and authored map atmosphere remain separate work.
+
+The native fog oracle loads the exact checked-in World and output shader files,
+packages them through the existing cooked writer, and renders one World surface
+through the camera adapter and shared scene executor. A translated camera and
+depths 1/2/4/6/8 distinguish camera depth from world Z, radial distance, and
+post-projection depth. HDR reads verify clear/half/full fog, both boundaries,
+disabled fog and preserved alpha; RGBA8 reads verify the later Reinhard/sRGB
+transfer. Corner and center pixels at equal depth must match. CPU tests verify
+the complete legacy prefix, padding, disabled data, failure atomicity and narrow
+intervals without reciprocal overflow.
 
 ## Executing a prepared view
 

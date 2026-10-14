@@ -9,6 +9,8 @@ layout(std140) uniform View {
     vec4 pointLightColorIntensity[2];
     ivec4 pointLightControl;
     mat4 lightClipFromWorld;
+    vec4 fogColor;
+    vec4 fogDepths;
 };
 layout(std140) uniform Material { vec4 tint; };
 uniform sampler2D albedoMap;
@@ -17,7 +19,16 @@ in vec3 worldPosition;
 in vec3 worldNormal;
 in vec2 surfaceUV;
 in vec4 lightClipPosition;
+in float cameraDepth;
 out vec4 color;
+
+float FogAmount() {
+    if (fogDepths.z == 0.0) return 0.0;
+    float depth = max(cameraDepth, 0.0);
+    if (depth <= fogDepths.x) return 0.0;
+    if (depth >= fogDepths.y) return 1.0;
+    return (depth - fogDepths.x) / (fogDepths.y - fogDepths.x);
+}
 
 float DirectionalVisibility() {
     if (lightClipPosition.w <= 0.0) return 1.0;
@@ -44,5 +55,6 @@ void main() {
             max(dot(n, direction), 0.0);
     }
     vec4 albedo = texture(albedoMap, surfaceUV) * tint;
-    color = vec4(albedo.rgb * irradiance, albedo.a);
+    // Fog mixes opaque radiance in linear HDR before the presentation transfer.
+    color = vec4(mix(albedo.rgb * irradiance, fogColor.rgb, FogAmount()), albedo.a);
 }

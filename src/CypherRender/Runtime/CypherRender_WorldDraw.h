@@ -96,6 +96,42 @@ CYPHER_NODISCARD render_error_t R_PackWorldShadowedViewLighting(
     const ::cypher::math::mat4_t &lightClipFromWorld,
     CY_OUT render_world_shadowed_view_lighting_record_t *output ) noexcept;
 
+// Linear camera-depth fog for a right-handed view: depth = max(-viewZ, 0).
+// Distances use camera-space units (world units with a rigid camera transform).
+// RGB is linear nonnegative HDR radiance. Disabled descriptions are ignored.
+struct render_world_depth_fog_desc_t {
+    ::cypher::math::vec3_t color{};
+    ::cypher::common::f32 startDepth{ 0.0f };
+    ::cypher::common::f32 endDepth{ 0.0f };
+    bool enabled{ false };
+};
+
+// Opt-in View352: the entire View320 prefix stays byte-for-byte compatible.
+// GLSL appends vec4 fogColor and vec4 fogDepths (start, end, enabled, zero).
+// Shader authors mix final linear opaque RGB toward fogColor using a clamped
+// linear ramp before tone mapping, preserving alpha. Shadow depth is unfogged.
+// Additive materials need a different transmission equation; this record does
+// not choose that equation or enable fog in shaders that do not read it.
+struct alignas( 16 ) render_world_fogged_view_lighting_record_t {
+    render_world_shadowed_view_lighting_record_t shadowed{};
+    ::cypher::common::f32 fogColor[4]{};
+    ::cypher::common::f32 fogDepths[4]{};
+};
+static_assert( sizeof( render_world_fogged_view_lighting_record_t ) == 352u );
+static_assert( offsetof( render_world_fogged_view_lighting_record_t, shadowed ) == 0u );
+static_assert( offsetof( render_world_fogged_view_lighting_record_t, fogColor ) == 320u );
+static_assert( offsetof( render_world_fogged_view_lighting_record_t, fogDepths ) == 336u );
+
+// Allocation-free, with the same lighting/shadow validation as View320. Enabled
+// fog requires finite color/depths, nonnegative RGB/start and end > start. No
+// reciprocal width is packed. Disabled fog lanes are zero-filled. On failure
+// output is unchanged; existing View256/320 records and packers are unaffected.
+CYPHER_NODISCARD render_error_t R_PackWorldFoggedViewLighting(
+    const render_world_view_lighting_desc_t &description,
+    const ::cypher::math::mat4_t &lightClipFromWorld,
+    const render_world_depth_fog_desc_t &fog,
+    CY_OUT render_world_fogged_view_lighting_record_t *output ) noexcept;
+
 // Selects the shader-visible Model uniform record for camera color draws.
 // MODEL_ONLY is one column-major mat4 (64 bytes). MODEL_NORMAL adds three
 // std140-padded columns of the exact inverse-transpose linear transform at

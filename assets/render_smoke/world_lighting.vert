@@ -1,5 +1,5 @@
 #version 410 core
-// Matches the public World View320, Model112 and Material16 contracts.
+// Matches the opt-in World View352, Model112 and Material16 contracts.
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 uv;
@@ -13,17 +13,22 @@ layout(std140) uniform View {
     vec4 pointLightColorIntensity[2];
     ivec4 pointLightControl;
     mat4 lightClipFromWorld;
+    vec4 fogColor;
+    vec4 fogDepths;
 };
 layout(std140) uniform Model { mat4 model; mat3 normalFromLocal; };
 out vec3 worldPosition;
 out vec3 worldNormal;
 out vec2 surfaceUV;
 out vec4 lightClipPosition;
+out float cameraDepth;
 void main() {
     vec4 world = model * vec4(position, 1.0);
     worldPosition = world.xyz;
     worldNormal = normalFromLocal * normal;
     surfaceUV = uv;
     lightClipPosition = lightClipFromWorld * world;
-    gl_Position = projection * view * world;
+    vec4 camera = view * world;
+    cameraDepth = -camera.z;
+    gl_Position = projection * camera;
 }

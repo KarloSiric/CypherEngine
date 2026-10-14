@@ -862,6 +862,32 @@ render_error_t R_PackWorldShadowedViewLighting(
     return render_error_t::OK;
 }
 
+render_error_t R_PackWorldFoggedViewLighting(
+    const render_world_view_lighting_desc_t &description,
+    const math::mat4_t &lightClipFromWorld,
+    const render_world_depth_fog_desc_t &fog,
+    render_world_fogged_view_lighting_record_t *output ) noexcept
+{
+    if ( output == nullptr || ( fog.enabled &&
+         ( !NonnegativeFinite( fog.color ) || !std::isfinite( fog.startDepth ) ||
+           !std::isfinite( fog.endDepth ) || fog.startDepth < 0.0f ||
+           fog.endDepth <= fog.startDepth ) ) ) return render_error_t::ERR_INVALID_ARGUMENT;
+    render_world_fogged_view_lighting_record_t packed{};
+    const auto error = R_PackWorldShadowedViewLighting(
+        description, lightClipFromWorld, &packed.shadowed );
+    if ( error != render_error_t::OK ) return error;
+    if ( fog.enabled ) {
+        packed.fogColor[0] = fog.color.x;
+        packed.fogColor[1] = fog.color.y;
+        packed.fogColor[2] = fog.color.z;
+        packed.fogDepths[0] = fog.startDepth;
+        packed.fogDepths[1] = fog.endDepth;
+        packed.fogDepths[2] = 1.0f;
+    }
+    *output = packed;
+    return render_error_t::OK;
+}
+
 render_error_t R_PrepareOpaqueWorldDraws(
     const render_world_opaque_prepare_desc_t &description,
     render_world_opaque_draw_t *output,

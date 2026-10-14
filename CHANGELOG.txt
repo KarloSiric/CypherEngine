@@ -20,6 +20,24 @@ CypherEngine Changelog
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
+[Unreleased] - 2026-10-15
+-------------------------
+
+Added
+- An opt-in World View352 adds linear camera-depth fog to opaque HDR lighting
+  before tone mapping; View256/320 and their packers remain unchanged. Packing
+  allocates no memory, validates finite nonnegative color and ordered depth
+  bounds, ignores disabled fields, zeroes inactive lanes and preserves output
+  on failure. The World example has an 8-to-32 depth ramp and --no-fog comparison,
+  with a matching fog-color backdrop. CPU packing and legacy World-draw suites
+  pass. Native pixels from the checked-in shaders verify depths 1/2/4/6/8 with
+  a translated camera: boundaries, midpoint HDR mixing, tone-mapped output,
+  preserved alpha, equal-depth lateral pixels and disabled fog. Both example
+  modes render 120 frames; the enabled resize run replaces the target twice.
+  This is opaque axial-depth fog; radial/height/volumetric fog, additive fog,
+  skies and authored map atmosphere remain separate work. Local packaging uses
+  the existing cooked writer without restoring removed shader-tool dependencies.
+
 [Unreleased] - 2026-10-14
 -------------------------
 
