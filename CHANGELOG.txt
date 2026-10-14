@@ -41,6 +41,16 @@ Changed
   reserved feature paths remain unimplemented.
 
 Added
+- An opaque cooked World material combines UV0 albedo, a supplied UV1
+  lightmap and a UV0 normal map with a caller-owned D24 comparison shadow map
+  in sampled slot 3. Creation validates all four shader bindings and owns
+  only the three material textures. Draw preparation validates and preserves
+  the live depth texture and comparison sampler; invalid bindings leave the
+  draw unchanged. Material-bridge, World-draw and native OpenGL 4.1 smoke
+  suites pass locally; the new pixel test includes a shadowed camera draw
+  that retains baked light.
+  The host still owns the shadow pass and lighting equation; the fixture
+  uses hand-built cooked shader data, not an authored shader or lightmap baker.
 - Opaque cooked World materials can bind COLOR albedo on UV0, a supplied
   linear lightmap on UV1, and a linear RGBA8 tangent-space normal map on UV0
   in one three-texture draw. The bridge checks both vertex attributes, UV
@@ -48,8 +58,8 @@ Added
   ownership if the third upload fails. Focused CPU tests and a native OpenGL
   4.1 World camera pixel test vary normal and lightmap independently with
   constant albedo. The shader fixture is hand-built cooked data; authored
-  shader recipes, lightmap baking, directional lightmaps and simultaneous
-  pass shadows remain separate work.
+  shader recipes, lightmap baking and directional lightmaps remain separate
+  work.
 - Graphics pipelines and indexed draws support up to four sampled textures,
   subject to the device texture-unit limit. Hosted OpenGL 4.1 rendering
   preserves host texture and sampler bindings on units 0-3. Focused CPU

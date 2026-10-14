@@ -316,7 +316,8 @@ matrix per object in a caller-owned uniform batch. No native OpenGL object name
 enters World data, and the renderer frontend does not query World itself.
 
 A camera draw may use a cooked bundle with a pass-owned shadow binding in
-sampled slot 1. The host seeds `drawTemplate` with a live D24 render-target
+sampled slot 1 for albedo alone, or slot 3 for opaque albedo/lightmap/normal.
+The host seeds `drawTemplate` with a live D24 render-target
 texture and an explicit depth-comparison sampler; the World adapter validates
 the pair during preflight and preserves it when publishing each draw. The
 bundle owns its slot-0 albedo only. The opt-in 320-byte World lighting View
@@ -377,7 +378,7 @@ one finite `lightClipFromWorld` matrix at byte 256 in an opt-in 320-byte std140
 `View` record. Invalid lighting or a nonfinite light matrix leaves the output
 unchanged. The host owns and uploads the 320-byte buffer; the matching camera
 shader projects world positions with the appended matrix and samples the
-caller-owned comparison shadow map in slot 1. World light authoring, shadow
+caller-owned comparison shadow map in the bundle's pass slot. World light authoring, shadow
 view selection, and pass scheduling remain host responsibilities.
 
 An opaque World camera material can now instead own albedo in sampled slot 0
@@ -389,8 +390,8 @@ native pixel oracle holds UV0 fixed across a face while UV1 crosses bright
 and dim baked-lighting texels, then verifies the World-prepared draw changes
 brightness across the face. The shader is hand-built cooked data in this test:
 the authored shader workflow does not yet provide the needed complete
-material binding recipe. Lightmap generation, directional lightmaps, and
-combining this lightmap with pass shadows remain separate work.
+material binding recipe. Lightmap generation and directional lightmaps remain
+separate work; this two-texture variant does not accept a pass shadow.
 
 Another opaque World camera material may bind a linear RGBA8 cooked NORMAL
 image in slot 1 with albedo in slot 0, both using UV0. Its vertex layout
@@ -412,8 +413,10 @@ before creating GPU objects and rolls back a failed third texture upload. A
 native World camera pixel test holds albedo fixed while UV0 normals vary
 across one axis and UV1 baked illumination varies across another. The shader
 is still hand-built cooked data; the material bridge cannot establish shader
-sampling semantics, bake a directional lightmap, or add a pass shadow to this
-recipe yet.
+sampling semantics or bake a directional lightmap. A compatible shader can
+borrow the pass-owned comparison shadow map in slot 3 alongside all three
+material textures. The bridge validates the live pair and preserves it in the
+World camera draw; the host still owns the shadow pass and lighting equation.
 
 `R_PrepareOpaqueWorldDraws` remains the small depth-writing entry point.
 `R_PrepareWorldCameraDraws` accepts OPAQUE, opt-in MASK, BLEND, and ADDITIVE

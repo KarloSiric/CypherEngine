@@ -23,8 +23,9 @@ struct render_material_bundle_desc_t {
     render_vertex_layout_t vertexLayout{};
     ::cypher::common::u32 uniformBlockCount{ 0u };
     render_uniform_block_binding_t uniformBlocks[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
-    // Optional caller-owned D24 comparison map used by this shader at sampled
-    // slot 1. Requires exactly one material-owned albedo texture at slot 0.
+    // Optional caller-owned D24 comparison map used by this shader after its
+    // material textures: slot 1 for albedo alone, or slot 3 for the opaque
+    // albedo/UV1-lightmap/UV0-normal recipe. The pass resource is borrowed.
     // The name is borrowed only during creation; no pass resource is acquired.
     const char *passShadowMapBinding{ nullptr };
     const char *debugName{ nullptr };
@@ -38,8 +39,8 @@ struct render_material_bundle_t {
     render_buffer_handle_t materialUniformBuffer{};
     ::cypher::common::u32 materialUniformSlot{ R_MAX_UNIFORM_BLOCK_BINDINGS };
     ::cypher::common::u32 textureCount{ 0u };
-    // R_MAX_SAMPLED_TEXTURE_BINDINGS means no pass binding. Otherwise slot 1
-    // is declared by the pipeline but borrowed from each draw, not owned here.
+    // R_MAX_SAMPLED_TEXTURE_BINDINGS means no pass binding. Otherwise this is
+    // slot 1 or 3, declared by the pipeline but borrowed from each draw.
     ::cypher::common::u32 passShadowSlot{ R_MAX_SAMPLED_TEXTURE_BINDINGS };
     ::cypher::common::render_material_alpha_mode_t alphaMode{
         ::cypher::common::render_material_alpha_mode_t::OPAQUE
@@ -85,9 +86,10 @@ struct render_material_bridge_result_t {
 // linear COLOR lightmap on UV1 at slot 1, and linear RGBA8_UNORM NORMAL on
 // UV0 at slot 2. It requires both the UV1 and tangent attributes above.
 // Other normal slots, UV1 normals, and nonopaque combinations are rejected.
-// A passShadowMapBinding remains limited to one cooked albedo texture plus
-// one caller-owned shadow map; it cannot accompany these lightmap or normal
-// variants. The only supported material value is one F32X4
+// A passShadowMapBinding can accompany one cooked albedo texture or the opaque
+// three-texture albedo/lightmap/normal variant. It occupies the next sampled
+// slot after those owned textures. Other combinations remain unsupported.
+// The only supported material value is one F32X4
 // `tint` at byte offset zero. Its shader must declare a matching MATERIAL VALUE
 // and a 16-byte MATERIAL uniform block named `Material` with GLSL std140
 // member `vec4 tint`. The caller declares View at slot 0, Model at slot 1
@@ -100,9 +102,8 @@ struct render_material_bridge_result_t {
 // resource bindings must be represented by those textures or caller-declared
 // uniform blocks, except for the optional non-material passShadowMapBinding.
 // That binding must be a separate active GLSL sampler2DShadow; pipeline
-// reflection verifies its kind. Only one material texture plus this pass
-// binding fits this bridge's current pass-shadow convention. The renderer
-// must support the selected shader and textures.
+// reflection verifies its kind. The renderer must support the selected shader
+// and textures.
 // Resource views are borrowed until synchronous GPU creation finishes. All
 // acquired CPU references are then released; successful output owns no CPU
 // resource handle or borrowed view.
@@ -140,8 +141,9 @@ CYPHER_NODISCARD render_error_t R_DestroyCookedMaterialBundle(
     render_material_bundle_t *bundle ) noexcept;
 
 // Copies the selected pipeline and material-owned sampled textures into an
-// existing draw record. For a pass-shadow bundle, the caller must preseed slot
-// 1 with a live D24 render-target texture and an explicit comparison sampler;
+// existing draw record. For a pass-shadow bundle, the caller must preseed the
+// bundle's passShadowSlot with a live D24 render-target texture and an explicit
+// comparison sampler;
 // this function validates and preserves them. Other sampler slots are cleared
 // to use the textures' default sampling policy. The bundle never owns the pass
 // texture or sampler, which must remain live until drawing finishes. It also

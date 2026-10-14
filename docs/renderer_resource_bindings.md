@@ -163,8 +163,9 @@ followed by independent textures and its optional material uniform buffer.
 
 For a hand-built cooked shader that actively declares a separate
 `sampler2DShadow`, the optional `passShadowMapBinding` names a caller-owned
-shadow-map binding. This bounded path requires exactly one material-owned
-albedo texture in slot 0; it reserves slot 1 for a D24 render-target texture
+shadow-map binding. This bounded path accepts either one material-owned
+albedo texture in slot 0 or the opaque albedo/lightmap/normal recipe in slots
+0-2. It reserves the next slot (1 or 3) for a D24 render-target texture
 and an explicit comparison sampler supplied in each draw. Creation checks the
 cooked binding and OpenGL pipeline reflection, but neither acquires nor owns
 the pass texture or sampler. Apply validates the live pair and preserves it;
@@ -191,8 +192,9 @@ and linear lightmap format before creating GPU objects, but cannot infer
 which UV a shader actually samples. A native World camera pixel test checks
 one compatible hand-built cooked shader: fixed UV0 albedo and independent
 UV1 lighting give visibly different pixels. This is a supplied lightmap,
-not a lightmap baker or a directional-normal lightmap. The optional pass
-shadow binding remains fixed at slot 1, so it cannot accompany this lightmap.
+not a lightmap baker or a directional-normal lightmap. This two-texture
+lightmap variant does not accept a pass shadow; the complete three-texture
+recipe below can borrow one in slot 3.
 Another opaque two-texture variant keeps COLOR albedo in slot 0 and binds a
 linear RGBA8_UNORM `NORMAL` texture in slot 1, both using UV0. The layout must
 also expose an RGBA32_FLOAT tangent with handedness at location 4 on binding
@@ -202,7 +204,7 @@ construct its tangent basis, including mirrored-model handedness. A native
 World camera pixel test checks that opposite +Y/-Y normal texels change
 directional diffuse with constant albedo, including after mirroring the
 World object. The bridge cannot prove shader semantics. This slot-1 normal
-variant cannot accompany the slot-1 pass shadow binding.
+variant cannot accompany a pass shadow binding.
 
 An opaque three-texture World material can instead own COLOR albedo on UV0 in
 slot 0, a linear COLOR lightmap on UV1 in slot 1, and linear RGBA8_UNORM
@@ -214,7 +216,11 @@ partial GPU objects. A native World camera pixel test varies UV0 normals and
 UV1 baked illumination independently while keeping albedo fixed. The test
 uses a hand-built cooked shader; the authored shader cooker cannot yet emit
 this full recipe. The bridge does not bake lightmaps or infer what the shader
-samples, and pass shadows cannot join this three-texture recipe yet.
+samples. A compatible shader may additionally declare a caller-owned
+`sampler2DShadow` in slot 3. The host must seed that slot with a live D24
+target texture and a comparison sampler, then keep both alive through the
+camera draw. The bridge checks ownership and binding kinds, but cannot prove
+how the shader combines baked and dynamic light or that the shadow pass ran.
 The first supported material value is one F32X4 `tint` at byte offset zero.
 The cooked shader must declare a matching MATERIAL VALUE and a 16-byte
 MATERIAL uniform block named `Material`, whose GLSL std140 member is

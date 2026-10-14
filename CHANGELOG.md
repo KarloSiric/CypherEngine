@@ -43,6 +43,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- An opaque cooked World material can now combine UV0 albedo, a supplied UV1
+  lightmap, and a UV0 normal map with a caller-owned D24 comparison shadow map
+  in sampled slot 3. Material creation validates the four shader bindings and
+  retains ownership of only its three color/normal textures. Draw preparation
+  validates and preserves the live depth texture and comparison sampler; bad
+  bindings leave the draw unchanged. Material-bridge, World-draw, and native
+  OpenGL 4.1 smoke suites pass locally; the new pixel test includes a shadowed
+  camera draw that retains baked illumination. The host still owns the shadow
+  pass and light composition; this fixture uses hand-built cooked shader data,
+  not an authored shader or lightmap baker.
 - Opaque cooked World materials can now bind COLOR albedo on UV0, a supplied
   linear lightmap on UV1, and a linear RGBA8 tangent-space normal map on UV0
   in one three-texture draw. The bridge checks both required vertex attributes,
@@ -50,8 +60,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   ownership if the third upload fails. Focused CPU tests and a native OpenGL
   4.1 World camera pixel test vary the normal and lightmap independently with
   constant albedo. The shader fixture is hand-built cooked data; authored
-  shader recipes, lightmap baking, directional lightmaps, and simultaneous
-  pass shadows remain separate work.
+  shader recipes, lightmap baking, and directional lightmaps remain separate
+  work.
 - Graphics pipelines and indexed draws now support up to four sampled texture
   slots, subject to the device's reported texture-unit limit. The OpenGL 4.1
   backend preserves host-owned texture and sampler bindings on units 0-3 when

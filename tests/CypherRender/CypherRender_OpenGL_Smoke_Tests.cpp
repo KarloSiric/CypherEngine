@@ -5697,11 +5697,12 @@ void CheckCookedWorldLightmapDrawing( const render::render_extent_t extent )
 }
 
 void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
-    const bool withLightmap = false )
+    const bool withLightmap = false, const bool withPassShadow = false )
 {
     // A constant albedo and one tangent basis cover opposite bitangent-space
     // normals. The optional UV1 lightmap varies independently of those
     // normals; the normal-only case also verifies mirrored-model handedness.
+    REQUIRE_FALSE( ( withPassShadow && !withLightmap ) );
     constexpr char viewBlock[] =
         "layout(std140) uniform View { mat4 view; mat4 projection;"
         " vec4 ambientLight; vec4 lightDirection; vec4 lightColor;"
@@ -5733,6 +5734,7 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         viewBlock +
         "uniform sampler2D AlbedoMap; uniform sampler2D NormalMap;\n" +
         ( withLightmap ? "uniform sampler2D LightmapMap;\n" : "" ) +
+        ( withPassShadow ? "uniform sampler2DShadow ShadowMap;\n" : "" ) +
         "in vec2 surfaceUv;" +
         ( withLightmap ? " in vec2 bakedUv;" : "" ) +
         " in vec3 worldNormal;"
@@ -5744,10 +5746,16 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         " vec3 sampled=normalize(texture(NormalMap,surfaceUv).xyz*2.0-1.0);"
         " vec3 perturbed=normalize(mat3(t,b,n)*sampled);"
         " float diffuse=max(dot(perturbed,normalize(lightDirection.xyz)),0.0);"
-        " vec3 illumination=ambientLight.rgb+lightColor.rgb*diffuse;"
+        " float visibility=" +
+        ( withPassShadow ? "texture(ShadowMap,vec3(0.5,0.5,0.5));" : "1.0;" ) +
+        ( withPassShadow
+            ? " vec3 illumination=ambientLight.rgb*texture(LightmapMap,bakedUv).rgb"
+              "+lightColor.rgb*diffuse*visibility;"
+            : " vec3 illumination=ambientLight.rgb+lightColor.rgb*diffuse;" ) +
         " illumination+=vec3(float(pointLightControl.x))*0.001;"
         " color=vec4(texture(AlbedoMap,surfaceUv).rgb*" +
-        ( withLightmap ? "texture(LightmapMap,bakedUv).rgb*" : "" ) +
+        ( withLightmap && !withPassShadow
+            ? "texture(LightmapMap,bakedUv).rgb*" : "" ) +
         "illumination,1.0); }\n";
     constexpr char materialPath[] = "materials/world_normal.cymat";
     constexpr char shaderPath[] = "shaders/world_normal.cyshader";
@@ -5760,8 +5768,8 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     constexpr char cookedLightmapPath[] = "textures/world_normal_baked.cytex_c";
     constexpr char cookedNormalPath[] = "textures/world_normal_map.cytex_c";
 
-    common::cooked_shader_binding_source_t bindings[5]{};
-    const common::u32 bindingCount = withLightmap ? 5u : 4u;
+    common::cooked_shader_binding_source_t bindings[6]{};
+    const common::u32 bindingCount = withLightmap ? ( withPassShadow ? 6u : 5u ) : 4u;
     const common::u32 normalBinding = withLightmap ? 4u : 3u;
     bindings[0].name = common::StringView_FromCString( "View" );
     bindings[0].kind = common::render_shader_binding_kind_t::UNIFORM_BUFFER;
@@ -5781,12 +5789,17 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         bindings[3].name = common::StringView_FromCString( "LightmapMap" );
     }
     bindings[normalBinding].name = common::StringView_FromCString( "NormalMap" );
+    if ( withPassShadow ) {
+        bindings[5].name = common::StringView_FromCString( "ShadowMap" );
+    }
     for ( common::u32 i = 2u; i < bindingCount; ++i ) {
         bindings[i].kind = common::render_shader_binding_kind_t::SAMPLED_TEXTURE;
         bindings[i].resourceType = common::render_shader_resource_type_t::TEXTURE_2D;
         bindings[i].stageMask = common::RENDER_SHADER_STAGE_MASK_FRAGMENT;
-        bindings[i].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
-            common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
+        bindings[i].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED;
+        if ( !withPassShadow || i != 5u ) {
+            bindings[i].flags |= common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
+        }
     }
     for ( common::u32 i = 0u; i < bindingCount; ++i ) {
         REQUIRE( common::CookedShader_MakeLogicalBindingId(
@@ -5957,6 +5970,7 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     bundleDescription.uniformBlockCount = 2u;
     bundleDescription.uniformBlocks[0] = { "View", 256u };
     bundleDescription.uniformBlocks[1] = { "Model", 112u };
+    if ( withPassShadow ) bundleDescription.passShadowMapBinding = "ShadowMap";
     bundleDescription.debugName = withLightmap
         ? "Native cooked World normal/lightmap" : "Native cooked World normal map";
     render::render_material_bundle_t bundle{};
@@ -5964,7 +5978,8 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         bundleDescription, &bundle ).status ==
         render::render_material_bridge_status_t::OK );
     CHECK( bundle.textureCount == ( withLightmap ? 3u : 2u ) );
-    CHECK( bundle.passShadowSlot == render::R_MAX_SAMPLED_TEXTURE_BINDINGS );
+    CHECK( bundle.passShadowSlot == ( withPassShadow ? 3u :
+        render::R_MAX_SAMPLED_TEXTURE_BINDINGS ) );
     render::render_texture_info_t normalInfo{};
     REQUIRE( render::R_GetTextureInfo(
         bundle.textures[normalTextureSlot], &normalInfo ) ==
@@ -6064,6 +6079,30 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     render::render_uniform_batch_t modelUniforms{};
     REQUIRE( render::R_CreateUniformBatch( 112u, nullptr, &modelUniforms ) ==
         render::render_error_t::OK );
+    render::render_texture_handle_t shadowDepth{};
+    render::render_target_handle_t shadowTarget{};
+    render::render_sampler_handle_t shadowSampler{};
+    if ( withPassShadow ) {
+        render::render_texture_desc_t shadowDescription{};
+        shadowDescription.width = shadowDescription.height = 8u;
+        shadowDescription.format = render::render_texture_format_t::D24;
+        shadowDescription.renderTarget = true;
+        shadowDescription.sRGB = false;
+        shadowDescription.generateMips = false;
+        shadowDescription.repeat = false;
+        REQUIRE( render::R_CreateTexture2D( shadowDescription, {}, &shadowDepth ) ==
+            render::render_error_t::OK );
+        REQUIRE( render::R_CreateRenderTarget( { {}, shadowDepth }, &shadowTarget ) ==
+            render::render_error_t::OK );
+        render::render_sampler_desc_t comparison{};
+        comparison.minFilter = comparison.magFilter =
+            render::render_sampler_filter_t::NEAREST;
+        comparison.addressU = comparison.addressV =
+            render::render_sampler_address_t::CLAMP_TO_EDGE;
+        comparison.compare = render::render_sampler_compare_t::LESS_EQUAL;
+        REQUIRE( render::R_CreateSampler( comparison, &shadowSampler ) ==
+            render::render_error_t::OK );
+    }
     render::render_scene_item_t sceneScratch[1]{};
     common::u32 indexScratch[1]{};
     render::render_world_camera_prepare_desc_t prepare{};
@@ -6077,6 +6116,10 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     prepare.modelUniformSlot = 1u;
     prepare.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL;
     prepare.drawTemplate.uniformBuffers[0] = viewBuffer;
+    if ( withPassShadow ) {
+        prepare.drawTemplate.sampledTextures[3] = shadowDepth;
+        prepare.drawTemplate.samplers[3] = shadowSampler;
+    }
     prepare.sceneItemsScratch = sceneScratch;
     prepare.sceneItemCapacity = 1u;
     prepare.passIndicesScratch = indexScratch;
@@ -6093,6 +6136,10 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     CHECK( draws[0].draw.sampledTextures[1].value == bundle.textures[1].value );
     if ( withLightmap ) {
         CHECK( draws[0].draw.sampledTextures[2].value == bundle.textures[2].value );
+    }
+    if ( withPassShadow ) {
+        CHECK( draws[0].draw.sampledTextures[3].value == shadowDepth.value );
+        CHECK( draws[0].draw.samplers[3].value == shadowSampler.value );
     }
     CHECK( draws[0].draw.uniformRanges[1].byteSize == 112u );
 
@@ -6115,6 +6162,15 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     render::render_frame_info_t frame{};
     frame.drawableExtent = extent;
     REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    render::render_target_pass_desc_t shadowPass{};
+    if ( withPassShadow ) {
+        shadowPass.target = shadowTarget;
+        shadowPass.clearFlags = render::R_CLEAR_DEPTH;
+        shadowPass.clearDepth = 1.0f;
+        REQUIRE( render::R_BeginTargetPass( shadowPass ) ==
+            render::render_error_t::OK );
+        REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    }
     render::render_target_pass_desc_t pass{};
     pass.target = target;
     REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
@@ -6133,6 +6189,39 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
             litDim.data(), litDim.size(), 4u ) == render::render_error_t::OK );
         REQUIRE( render::R_ReadTargetRGBA8( target, { 6u, 6u, 1u, 1u },
             unlitDim.data(), unlitDim.size(), 4u ) == render::render_error_t::OK );
+        if ( withPassShadow ) {
+            // With identical World draw and material data, only the caller's
+            // depth pass changes. Reference depth 0.5 passes against a clear
+            // of 1, then fails against 0, proving slot-3 comparison sampling.
+            shadowPass.clearDepth = 0.0f;
+            REQUIRE( render::R_BeginTargetPass( shadowPass ) ==
+                render::render_error_t::OK );
+            REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+            REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+            REQUIRE( render::R_DrawIndexed( draws[0].draw ) ==
+                render::render_error_t::OK );
+            REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+            std::array<common::u8, 4u> shadowed{}, shadowedDim{};
+            REQUIRE( render::R_ReadTargetRGBA8( target, { 1u, 1u, 1u, 1u },
+                shadowed.data(), shadowed.size(), 4u ) == render::render_error_t::OK );
+            REQUIRE( render::R_ReadTargetRGBA8( target, { 1u, 6u, 1u, 1u },
+                shadowedDim.data(), shadowedDim.size(), 4u ) ==
+                render::render_error_t::OK );
+            INFO( "combined World material lit red " << int( litBright[0] )
+                << ", shadowed red " << int( shadowed[0] )
+                << ", shadowed dim-lightmap red " << int( shadowedDim[0] ) );
+            CHECK( litBright[0] >= shadowed[0] + 110u );
+            CHECK( shadowed[0] >= 15u );
+            CHECK( shadowed[0] <= 35u );
+            // The shadow suppresses only direct light. Different UV1 baked
+            // values remain visible even when visibility is zero.
+            CHECK( shadowed[0] >= shadowedDim[0] + 10u );
+            CHECK( shadowedDim[0] >= 5u );
+            CHECK( shadowedDim[0] <= 18u );
+            CHECK( shadowed[1] <= 8u );
+            CHECK( shadowed[2] <= 8u );
+            CHECK( shadowed[3] == 255u );
+        }
         REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
         INFO( "normal+lightmap red: lit/bright " << int( litBright[0] )
             << ", unlit/bright " << int( unlitBright[0] )
@@ -6142,14 +6231,21 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         CHECK( litBright[0] <= 190u );
         CHECK( unlitBright[0] >= 15u );
         CHECK( unlitBright[0] <= 45u );
-        CHECK( litDim[0] >= 55u );
-        CHECK( litDim[0] <= 90u );
         CHECK( unlitDim[0] >= 5u );
         CHECK( unlitDim[0] <= 20u );
         CHECK( litBright[0] >= unlitBright[0] + 110u );
-        CHECK( litDim[0] >= unlitDim[0] + 40u );
-        CHECK( litBright[0] >= litDim[0] + 75u );
-        CHECK( unlitBright[0] >= unlitDim[0] + 8u );
+        if ( withPassShadow ) {
+            CHECK( litDim[0] >= 145u );
+            CHECK( litDim[0] <= 180u );
+            CHECK( litDim[0] >= unlitDim[0] + 130u );
+            CHECK( litBright[0] >= litDim[0] + 10u );
+        } else {
+            CHECK( litDim[0] >= 55u );
+            CHECK( litDim[0] <= 90u );
+            CHECK( litDim[0] >= unlitDim[0] + 40u );
+            CHECK( litBright[0] >= litDim[0] + 75u );
+            CHECK( unlitBright[0] >= unlitDim[0] + 8u );
+        }
         for ( const auto *pixel : { &litBright, &unlitBright, &litDim, &unlitDim } ) {
             CHECK( ( *pixel )[1] <= 8u );
             CHECK( ( *pixel )[2] <= 8u );
@@ -6166,6 +6262,17 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         REQUIRE( render::R_DestroyBuffer( viewBuffer ) == render::render_error_t::OK );
         REQUIRE( render::R_DestroyCookedMaterialBundle( &bundle ) ==
             render::render_error_t::OK );
+        if ( withPassShadow ) {
+            // The bundle borrowed this completed depth pass; it never owns it.
+            CHECK( render::R_IsTextureValid( shadowDepth ) );
+            CHECK( render::R_IsSamplerValid( shadowSampler ) );
+            REQUIRE( render::R_DestroyRenderTarget( shadowTarget ) ==
+                render::render_error_t::OK );
+            REQUIRE( render::R_DestroySampler( shadowSampler ) ==
+                render::render_error_t::OK );
+            REQUIRE( render::R_DestroyTexture( shadowDepth ) ==
+                render::render_error_t::OK );
+        }
         REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) ==
             render::render_error_t::OK );
         return;
@@ -6870,6 +6977,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckCookedWorldLightmapDrawing( info->drawableExtent );
     CheckCookedWorldNormalMapDrawing( info->drawableExtent );
     CheckCookedWorldNormalMapDrawing( info->drawableExtent, true );
+    CheckCookedWorldNormalMapDrawing( info->drawableExtent, true, true );
     CheckWorldMaskShadowDrawing( info->drawableExtent );
     CheckCookedWorldShadowDrawing( info->drawableExtent );
 
