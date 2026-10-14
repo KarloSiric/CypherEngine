@@ -60,6 +60,8 @@ CYPHER_NODISCARD render_error_t R_GetRenderTargetInfo(
 CYPHER_NODISCARD render_error_t R_BeginTargetPass(
     const render_target_pass_desc_t &description ) noexcept;
 CYPHER_NODISCARD render_error_t R_EndTargetPass() noexcept;
+// False when the renderer/frame is inactive. Does not expose a native target.
+CYPHER_NODISCARD bool R_IsTargetPassActive() noexcept;
 
 // Synchronously copies an RGBA8 color attachment to caller-owned storage
 // while a frame is active and no target pass is open. RGBA16F color targets

@@ -718,6 +718,15 @@ target_compile_features(CypherRenderScenePassesRuntime PUBLIC cxx_std_20)
 target_include_directories(CypherRenderScenePassesRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
 target_link_libraries(CypherRenderScenePassesRuntime PUBLIC Cypher::Render)
 
+# Fixed prepared-view execution; hosts retain frame and resource ownership.
+add_library(CypherRenderSceneViewRuntime STATIC
+    "${CYPHERENGINE_SRC_DIR}/CypherRender/Runtime/CypherRender_SceneView.cpp"
+)
+add_library(Cypher::RenderSceneViewRuntime ALIAS CypherRenderSceneViewRuntime)
+target_compile_features(CypherRenderSceneViewRuntime PUBLIC cxx_std_20)
+target_include_directories(CypherRenderSceneViewRuntime PUBLIC "${CYPHERENGINE_SRC_DIR}")
+target_link_libraries(CypherRenderSceneViewRuntime PUBLIC Cypher::Render)
+
 add_library(CypherPak STATIC ${CYPHER_PAK_SOURCES})
 add_library(Cypher::Pak ALIAS CypherPak)
 target_compile_features(CypherPak PUBLIC cxx_std_20)
@@ -1035,6 +1044,11 @@ if (CYPHERENGINE_BUILD_TESTS)
             cypher_world_submission_tests
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherWorld/CypherWorld_Submission_Tests.cpp"
             Cypher::WorldRuntime
+        )
+        cypher_add_common_catch_test(
+            cypher_render_scene_view_tests
+            "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_SceneView_Tests.cpp"
+            Cypher::RenderSceneViewRuntime
         )
         cypher_add_common_catch_test(
             cypher_render_world_draw_tests
@@ -2223,6 +2237,7 @@ if (CYPHERENGINE_BUILD_TESTS)
             "${CYPHERENGINE_ROOT_DIR}/tests/CypherRender/CypherRender_OpenGL_Smoke_Tests.cpp"
             Cypher::RenderWorldRuntime
         )
+        target_link_libraries(cypher_render_opengl_smoke_tests PRIVATE Cypher::RenderSceneViewRuntime)
         # Render links Glad privately; this test only needs its native headers
         # for pixel readback and should not link a second Glad archive.
         target_include_directories(cypher_render_opengl_smoke_tests PRIVATE
@@ -3151,7 +3166,7 @@ add_executable(cypher_render_world_lighting EXCLUDE_FROM_ALL
     "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_CubeCamera.cpp"
 )
 target_link_libraries(cypher_render_world_lighting PRIVATE
-    Cypher::RenderWorldRuntime Cypher::VfsDirectory Cypher::Math
+    Cypher::RenderWorldRuntime Cypher::RenderSceneViewRuntime Cypher::VfsDirectory Cypher::Math
 )
 target_compile_definitions(cypher_render_world_lighting PRIVATE
     CYPHER_RENDER_WORLD_SHADER_PATH="${CMAKE_BINARY_DIR}/cooked/render_smoke/world_lighting.cyshader_c"

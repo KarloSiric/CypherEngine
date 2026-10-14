@@ -23,6 +23,7 @@
 #include "CypherRender/Runtime/CypherRender_MeshBridge.h"
 #include "CypherRender/Runtime/CypherRender_UniformBatch.h"
 #include "CypherRender/Runtime/CypherRender_WorldDraw.h"
+#include "CypherRender/Runtime/CypherRender_SceneView.h"
 #include "CypherCommon/Formats/CypherCommon_CookedTexture.h"
 #include "CypherCommon/Mathlib/CypherMath_Intersection.h"
 #include "CypherResource/CypherResource_RenderAssets.h"
@@ -6367,18 +6368,25 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         render::render_target_pass_desc_t tonePass{};
         tonePass.target = toneTarget;
         const auto drawFrame = [&]() {
+            render::render_draw_indexed_desc_t shadowRecords[2]{};
+            for ( common::u32 i = 0u; i < shadowCount; ++i ) shadowRecords[i] = shadowDraws[i].draw;
+            render::render_scene_view_desc_t sceneView{};
+            sceneView.shadowPass = shadowPass;
+            sceneView.shadowDraws = { shadowRecords, shadowCount };
+            sceneView.cameraPass = cameraPass;
+            sceneView.opaqueDraws = { &draws[0].draw, 1u };
+            sceneView.outputDraw = toneDraw;
+            sceneView.outputPass = tonePass;
             REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
-            REQUIRE( render::R_BeginTargetPass( shadowPass ) == render::render_error_t::OK );
-            for ( common::u32 i = 0u; i < shadowCount; ++i ) {
-                REQUIRE( render::R_DrawIndexed( shadowDraws[i].draw ) == render::render_error_t::OK );
-            }
-            REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
-            REQUIRE( render::R_BeginTargetPass( cameraPass ) == render::render_error_t::OK );
-            REQUIRE( render::R_DrawIndexed( draws[0].draw ) == render::render_error_t::OK );
-            REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
-            REQUIRE( render::R_BeginTargetPass( tonePass ) == render::render_error_t::OK );
-            REQUIRE( render::R_DrawIndexed( toneDraw ) == render::render_error_t::OK );
-            REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+            const auto result = render::R_ExecuteSceneView( sceneView );
+            REQUIRE( result.error == render::render_error_t::OK );
+            CHECK( result.cleanupError == render::render_error_t::OK );
+            CHECK( result.stage == render::render_scene_view_stage_t::COMPLETE );
+            CHECK( result.shadowDraws == 2u );
+            CHECK( result.opaqueDraws == 1u );
+            CHECK( result.outputDrawn );
+            CHECK( render::R_IsFrameActive() );
+            CHECK_FALSE( render::R_IsTargetPassActive() );
         };
         const auto readHDR = [&]( common::u32 x, common::u32 y ) {
             render::render_color_t pixel{};

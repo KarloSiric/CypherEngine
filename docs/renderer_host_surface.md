@@ -193,6 +193,16 @@ zero-by-zero extent is legal while minimized. Before the widget context is
 destroyed, make it current, destroy editor-owned renderer handles, call
 `R_Shutdown`, and then call `doneCurrent`.
 
+For a prepared lit preview, `Cypher::RenderSceneViewRuntime` provides
+`R_ExecuteSceneView` inside that caller-owned frame. It runs an optional depth
+shadow pass, camera color with ordered opaque/BLEND/additive draws, and one
+output draw. Zero `outputPass.target` uses the frame's prepared presentation
+surface, including a host-owned nonzero framebuffer; an explicit color target
+allows offscreen output before composition. It never opens or closes the host
+frame and rejects an already open caller target pass without changing it. The
+map bridge must still prepare the draw spans, resource tables, uniforms and
+targets. This contract does not by itself connect Mason's map viewport.
+
 The GUI target will need `Qt6::OpenGLWidgets` and `Cypher::Render` when the
 viewport class is added. No SDL window should be created for the embedded path,
 and the existing detached preview can remain as a temporary fallback while the

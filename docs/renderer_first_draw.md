@@ -168,6 +168,55 @@ scheduler, or Mason integration. The separate native pixel suite remains the
 oracle for camera/shadow/HDR output; example draw counts alone do not verify
 pixel appearance.
 
+## Executing a prepared view
+
+`CypherRender/Runtime/CypherRender_SceneView.h` supplies
+`R_ExecuteSceneView` for the fixed sequence used by the World lighting example:
+optional shadow depth, camera color with opaque/BLEND/additive spans, then one
+output draw. The descriptors contain renderer handles and borrowed plain draw
+arrays. World queries, material adoption, uniform uploads, target creation and
+resize stay with the host. The executor allocates no storage and owns none of
+those resources. Camera color may be RGBA8 or RGBA16F; its shader defines the
+lighting model, and the output shader defines tone mapping and output transfer.
+
+The host retains the frame boundary:
+
+```text
+prepare World views and aligned uniforms outside the frame
+BeginFrame
+    ExecuteSceneView(prepared description)
+    inspect result; optionally read an offscreen output or draw host overlays
+EndFrame, including after failed scene execution
+```
+
+A zero `outputPass.target` writes into the frame's prepared presentation
+framebuffer. An explicit output target writes into a caller-owned color image;
+its dimensions may differ from the camera target. This supports resampling and
+offscreen composition without tying execution to a window or editor framework.
+The executor does not select a framebuffer-zero convention: target-pass end
+restores the actual host presentation surface through the existing backend.
+
+Preflight rejects missing draw arrays, invalid pass clears, stale targets,
+missing attachments, shared attachments across passes, and output feedback
+before beginning any pass. A supplied shadow target is depth-only and is still
+cleared when its draw span is empty. A skipped shadow pass cannot silently hide
+nonempty shadow work. The output draw must sample camera color in slot zero.
+Individual draws still validate their pipelines, resources and ranges when
+executed; this function does not promise atomic GPU submission.
+
+The result reports the stage and counts of draws whose calls returned `OK`.
+A failed submission may already have reached the GPU. If drawing fails and
+closing the same target pass also fails, `error` retains the drawing error while
+`cleanupError` records the independent close failure. Execution stops and closes
+every pass it opened. The host's frame stays active. Calling while a caller's
+target pass is already open is rejected without closing that caller's pass;
+the caller must close it before ending its frame.
+
+This is one explicit prepared-view sequence. It does not create a general render
+graph, discover lighting/scene dependencies, schedule threads, manage in-flight
+resources, or implement editor composition. It is reusable pass execution for
+the existing renderer contracts.
+
 ## Follow the data
 
 ```text

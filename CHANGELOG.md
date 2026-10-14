@@ -57,6 +57,20 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- `Cypher::RenderSceneViewRuntime` executes prepared shadow, camera color, and
+  output passes inside a caller-owned frame. It preserves opaque/BLEND/additive
+  span order, supports direct presentation or an explicit offscreen output,
+  and allocates no execution storage. Preflight rejects invalid clears, stale
+  targets, overlapping attachments, missing draw arrays, and output feedback
+  before submitting work. Partial execution reports completed draws and the
+  failing stage; drawing and pass-close errors remain distinct. The host keeps
+  frame/resource ownership, and an existing caller pass is rejected untouched.
+  Twelve mocked cases cover sequencing and begin/draw/end failures, including
+  successful caller frame completion after a failed view. Target and native
+  OpenGL pixel suites pass; the World example completes 120 frames with two
+  native resizes through the shared executor. The HDR/shadow pixel fixture
+  now uses its offscreen output path. This is a fixed prepared-view sequence,
+  not a render graph, light authoring, or Mason integration.
 - `cypher_render_world_lighting` runs the public World camera and shadow
   adapters with a procedural floor, two rotating boxes (including mirrored
   nonuniform scale), a shadowed directional light, an unshadowed point light,

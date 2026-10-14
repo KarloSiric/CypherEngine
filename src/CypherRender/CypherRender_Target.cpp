@@ -279,6 +279,12 @@ render_error_t R_EndTargetPass() noexcept
     return result;
 }
 
+bool R_IsTargetPassActive() noexcept
+{
+    return tr.initialized && tr.frameActive &&
+        tr.activeTarget.value != R_INVALID_TARGET.value;
+}
+
 render_error_t R_ReadTargetRGBA8( const render_target_handle_t target,
     const render_readback_rect_t &rect, common::byte *pixelsOut,
     const common::u64 byteCapacity, const common::u32 rowPitchBytes ) noexcept

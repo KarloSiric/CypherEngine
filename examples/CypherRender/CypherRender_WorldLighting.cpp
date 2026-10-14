@@ -16,6 +16,7 @@
 #include "CypherRender/CypherRender_Target.h"
 #include "CypherRender/CypherRender_Texture.h"
 #include "CypherRender/Runtime/CypherRender_WorldDraw.h"
+#include "CypherRender/Runtime/CypherRender_SceneView.h"
 #include "CypherSystem/Platform/CypherSystem_Public.h"
 #include "CypherSystem/Platform/CypherSystem_Window.h"
 
@@ -465,22 +466,6 @@ bool Query( world::world_submission_t *submission, const state_t &state,
         &query, &token ), "Build World view" );
 }
 
-bool DrawPass( render::render_target_handle_t target, common::flags32_t clears,
-    const render::render_world_camera_draw_t *draws, common::u32 count ) noexcept
-{
-    render::render_target_pass_desc_t pass{};
-    pass.target = target;
-    pass.clearFlags = clears;
-    pass.clearColor = { 0.025f, 0.035f, 0.05f, 1.0f };
-    if ( !Check( render::R_BeginTargetPass( pass ), "Begin target pass" ) ) return false;
-    bool success = true;
-    for ( common::u32 i = 0u; i < count && success; ++i ) {
-        success = Check( render::R_DrawIndexed( draws[i].draw ), "Draw World object" );
-    }
-    const bool ended = Check( render::R_EndTargetPass(), "End target pass" );
-    return success && ended;
-}
-
 bool RunFrames( state_t &state, const options_t &options ) noexcept
 {
     math::mat4_t lightView{}, lightProjection{};
@@ -606,18 +591,36 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
         present.sampledTextures[0] = state.scene.color;
         if ( !Check( render::R_ApplyStaticMeshBundleToDraw( state.fullscreen,
                  &present ), "Prepare presentation" ) ) return false;
+        // Extract plain draw values so pass execution stays independent of
+        // World IDs/queries. This bounded copy needs no per-frame allocation.
+        render::render_draw_indexed_desc_t cameraDrawRecords[OBJECT_COUNT]{};
+        render::render_draw_indexed_desc_t shadowDrawRecords[OBJECT_COUNT]{};
+        const common::u32 cameraCount = counts.opaqueCount + counts.blendCount + counts.additiveCount;
+        for ( common::u32 i = 0u; i < cameraCount; ++i ) cameraDrawRecords[i] = cameraOutput[i].draw;
+        for ( common::u32 i = 0u; i < casterCount; ++i ) shadowDrawRecords[i] = lightOutput[i].draw;
+        render::render_scene_view_desc_t sceneView{};
+        sceneView.shadowPass.target = state.shadowTarget;
+        sceneView.shadowDraws = { shadowDrawRecords, casterCount };
+        sceneView.cameraPass.target = state.scene.target;
+        sceneView.cameraPass.clearColor = { 0.025f, 0.035f, 0.05f, 1.0f };
+        sceneView.opaqueDraws = { cameraDrawRecords, counts.opaqueCount };
+        sceneView.blendDraws = { cameraDrawRecords + counts.opaqueCount, counts.blendCount };
+        sceneView.additiveDraws = { cameraDrawRecords + counts.opaqueCount + counts.blendCount, counts.additiveCount };
+        sceneView.outputDraw = present;
         render::render_frame_info_t frame{};
         frame.frameIndex = frames;
         frame.deltaSeconds = dt;
         frame.drawableExtent = extent;
         if ( !Check( render::R_BeginFrame( frame ), "Begin frame" ) ) return false;
-        const bool drawn = DrawPass( state.shadowTarget, render::R_CLEAR_DEPTH, lightOutput, casterCount ) &&
-            DrawPass( state.scene.target, render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH, cameraOutput, counts.opaqueCount ) &&
-            Check( render::R_DrawIndexed( present ), "Present HDR scene" );
+        const auto result = render::R_ExecuteSceneView( sceneView );
+        const bool drawn = Check( result.error, "Execute World scene view" );
+        if ( result.cleanupError != render::render_error_t::OK ) {
+            (void)Check( result.cleanupError, "Close failed World scene pass" );
+        }
         const bool ended = Check( render::R_EndFrame(), "End frame" );
         if ( !drawn || !ended ) return false;
-        cameraDraws += counts.opaqueCount;
-        shadowDraws += casterCount;
+        cameraDraws += result.opaqueDraws + result.blendDraws + result.additiveDraws;
+        shadowDraws += result.shadowDraws;
         if ( options.frames && ( counts.opaqueCount != OBJECT_COUNT || casterCount != OBJECT_COUNT ) ) {
             std::fputs( "Fixed view did not draw the complete example scene.\n", stderr ); return false;
         }

@@ -55,6 +55,19 @@ Changed
   reserved feature paths remain unimplemented.
 
 Added
+- Cypher::RenderSceneViewRuntime executes prepared shadow, camera color and
+  output passes inside the host's frame without allocating execution storage.
+  It preserves opaque/BLEND/additive order and supports presentation or an
+  explicit offscreen output. Preflight rejects bad clears, stale targets,
+  attachment overlap, missing arrays and output feedback before submission.
+  Completed draw counts and stage report partial work; draw and pass-close
+  errors stay separate. Existing caller passes remain untouched, and frame
+  and resource ownership stays with the host. Twelve mocked cases cover order
+  and begin/draw/end failures, including caller frame completion after failure.
+  Target and native OpenGL pixel suites pass; the World example renders 120
+  frames and two native resizes through the executor. The combined HDR/shadow
+  pixel fixture now uses its offscreen output path. General render graphs,
+  authored lights and Mason integration remain separate work.
 - cypher_render_world_lighting runs the public camera/shadow World adapters
   with a procedural floor, two rotating boxes (one mirrored/nonuniform),
   a shadowed directional light, an unshadowed point light and HDR tone-map
