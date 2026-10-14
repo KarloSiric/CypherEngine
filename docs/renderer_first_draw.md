@@ -390,8 +390,7 @@ and dim baked-lighting texels, then verifies the World-prepared draw changes
 brightness across the face. The shader is hand-built cooked data in this test:
 the authored shader workflow does not yet provide the needed complete
 material binding recipe. Lightmap generation, directional lightmaps, and
-combining lightmaps with normals or pass shadows in a cooked material remain
-separate work.
+combining this lightmap with pass shadows remain separate work.
 
 Another opaque World camera material may bind a linear RGBA8 cooked NORMAL
 image in slot 1 with albedo in slot 0, both using UV0. Its vertex layout
@@ -403,9 +402,18 @@ decodes the sampled normal into that basis. The native pixel oracle uses one
 constant red albedo and opposite +Y/-Y tangent-space normals. It checks that
 the World directional light keeps the +Y side bright and the -Y side dim
 before and after mirroring the object. The fixture uses hand-built cooked
-shader data, so
-authored shader recipes and a combined albedo/normal/lightmap material
-remain future work.
+shader data, so authored shader recipes remain future work.
+
+An opaque three-texture variant combines both paths: COLOR albedo at slot 0
+on UV0, linear COLOR lightmap at slot 1 on UV1, and linear RGBA8_UNORM NORMAL
+data at slot 2 on UV0. Its layout needs UV1 at location 3 and tangent at
+location 4. Material adoption rejects unsupported roles, UV sets, and layout
+before creating GPU objects and rolls back a failed third texture upload. A
+native World camera pixel test holds albedo fixed while UV0 normals vary
+across one axis and UV1 baked illumination varies across another. The shader
+is still hand-built cooked data; the material bridge cannot establish shader
+sampling semantics, bake a directional lightmap, or add a pass shadow to this
+recipe yet.
 
 `R_PrepareOpaqueWorldDraws` remains the small depth-writing entry point.
 `R_PrepareWorldCameraDraws` accepts OPAQUE, opt-in MASK, BLEND, and ADDITIVE

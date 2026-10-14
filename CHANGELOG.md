@@ -43,14 +43,21 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Opaque cooked World materials can now bind COLOR albedo on UV0, a supplied
+  linear lightmap on UV1, and a linear RGBA8 tangent-space normal map on UV0
+  in one three-texture draw. The bridge checks both required vertex attributes,
+  UV sets, texture roles, and formats before GPU creation, and retires partial
+  ownership if the third upload fails. Focused CPU tests and a native OpenGL
+  4.1 World camera pixel test vary the normal and lightmap independently with
+  constant albedo. The shader fixture is hand-built cooked data; authored
+  shader recipes, lightmap baking, directional lightmaps, and simultaneous
+  pass shadows remain separate work.
 - Graphics pipelines and indexed draws now support up to four sampled texture
   slots, subject to the device's reported texture-unit limit. The OpenGL 4.1
   backend preserves host-owned texture and sampler bindings on units 0-3 when
   rendering in a borrowed context. Focused CPU draw/texture tests and a native
-  hosted-context four-sampler pixel/state test pass locally. Cooked material
-  recipes still accept at most two owned textures, and their optional pass
-  shadow binding remains fixed at slot 1; combined surface shading follows
-  separately.
+  hosted-context four-sampler pixel/state test pass locally. The optional
+  cooked-material pass shadow binding remains fixed at slot 1.
 - Cooked linear RGBA8 normal textures can now upload, and opaque cooked World
   materials may bind one beside COLOR albedo on UV0. The material bridge
   requires a tangent `vec4` at vertex location 4 and rejects wrong usage,
@@ -59,8 +66,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   and a native OpenGL 4.1 World camera pixel test pass locally. The pixel
   test holds albedo fixed while opposite tangent-space normal texels change
   directional diffuse and retain their lighting after a mirrored World
-  transform. This remains a hand-built cooked shader path; current cooked
-  material recipes cannot combine normal maps with lightmaps or pass shadows.
+  transform. This remains a hand-built cooked shader path; a normal map in
+  slot 1 cannot accompany the optional pass shadow in that slot.
 - Opaque cooked World materials can now adopt a second, linear RGB lightmap
   texture on UV1 while keeping albedo on UV0. The material bridge requires
   RG32_FLOAT UV1 at vertex location 3, rejects unsupported UV layouts,
@@ -80,8 +87,7 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   and native tests pass locally. The host still supplies lights, shadow target,
   View upload, and pass order; authored shader recipes cannot yet emit the
   needed uniform-block or depth-sampler bindings. The supplied static-lightmap
-  path above does not yet bake lighting; a combined normal-mapped and
-  lightmapped world material remains separate work.
+  path above does not yet bake lighting.
 - Cooked material bundles can reserve sampled slot 1 for a caller-owned D24
   shadow map and explicit comparison sampler while owning one albedo texture
   in slot 0. The bridge validates the cooked binding, draw-time resource pair,

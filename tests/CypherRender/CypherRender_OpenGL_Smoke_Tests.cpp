@@ -5696,10 +5696,12 @@ void CheckCookedWorldLightmapDrawing( const render::render_extent_t extent )
         render::render_error_t::OK );
 }
 
-void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
+void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
+    const bool withLightmap = false )
 {
     // A constant albedo and one tangent basis cover opposite bitangent-space
-    // normals. Mirroring the World model must preserve their lighting order.
+    // normals. The optional UV1 lightmap varies independently of those
+    // normals; the normal-only case also verifies mirrored-model handedness.
     constexpr char viewBlock[] =
         "layout(std140) uniform View { mat4 view; mat4 projection;"
         " vec4 ambientLight; vec4 lightDirection; vec4 lightColor;"
@@ -5709,24 +5711,31 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
         std::string( "#version 410 core\n" ) +
         "layout(location=0) in vec3 position;\n"
         "layout(location=1) in vec3 normal;\n"
-        "layout(location=2) in vec2 uv0;\n"
+        "layout(location=2) in vec2 uv0;\n" +
+        ( withLightmap ? "layout(location=3) in vec2 uv1;\n" : "" ) +
         "layout(location=4) in vec4 tangent;\n" +
         viewBlock +
         "layout(std140) uniform Model { mat4 model; mat3 normalMatrix; };\n"
-        "out vec2 surfaceUv; out vec3 worldNormal;"
+        "out vec2 surfaceUv;" +
+        ( withLightmap ? " out vec2 bakedUv;" : "" ) +
+        " out vec3 worldNormal;"
         " out vec3 worldTangent; out float tangentSign;\n"
         "void main(){ vec4 world=model*vec4(position,1.0);"
         " worldNormal=normalize(normalMatrix*normal);"
         " worldTangent=normalize(mat3(model)*tangent.xyz);"
         // Reversing model orientation flips the reconstructed bitangent, even
         // though the World draw already switches to a mirrored winding pipeline.
-        " tangentSign=tangent.w*sign(determinant(mat3(model))); surfaceUv=uv0;"
+        " tangentSign=tangent.w*sign(determinant(mat3(model))); surfaceUv=uv0;" +
+        ( withLightmap ? " bakedUv=uv1;" : "" ) +
         " gl_Position=projection*view*world; }\n";
     const std::string fragmentSource =
         std::string( "#version 410 core\n" ) +
         viewBlock +
-        "uniform sampler2D AlbedoMap; uniform sampler2D NormalMap;\n"
-        "in vec2 surfaceUv; in vec3 worldNormal;"
+        "uniform sampler2D AlbedoMap; uniform sampler2D NormalMap;\n" +
+        ( withLightmap ? "uniform sampler2D LightmapMap;\n" : "" ) +
+        "in vec2 surfaceUv;" +
+        ( withLightmap ? " in vec2 bakedUv;" : "" ) +
+        " in vec3 worldNormal;"
         " in vec3 worldTangent; in float tangentSign;\n"
         "layout(location=0) out vec4 color;\n"
         "void main(){ vec3 n=normalize(worldNormal);"
@@ -5737,17 +5746,23 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
         " float diffuse=max(dot(perturbed,normalize(lightDirection.xyz)),0.0);"
         " vec3 illumination=ambientLight.rgb+lightColor.rgb*diffuse;"
         " illumination+=vec3(float(pointLightControl.x))*0.001;"
-        " color=vec4(texture(AlbedoMap,surfaceUv).rgb*illumination,1.0); }\n";
+        " color=vec4(texture(AlbedoMap,surfaceUv).rgb*" +
+        ( withLightmap ? "texture(LightmapMap,bakedUv).rgb*" : "" ) +
+        "illumination,1.0); }\n";
     constexpr char materialPath[] = "materials/world_normal.cymat";
     constexpr char shaderPath[] = "shaders/world_normal.cyshader";
     constexpr char albedoPath[] = "textures/world_normal_albedo.cytex";
+    constexpr char lightmapPath[] = "textures/world_normal_baked.cytex";
     constexpr char normalPath[] = "textures/world_normal_map.cytex";
     constexpr char cookedMaterialPath[] = "materials/world_normal.cymat_c";
     constexpr char cookedShaderPath[] = "shaders/world_normal.cyshader_c";
     constexpr char cookedAlbedoPath[] = "textures/world_normal_albedo.cytex_c";
+    constexpr char cookedLightmapPath[] = "textures/world_normal_baked.cytex_c";
     constexpr char cookedNormalPath[] = "textures/world_normal_map.cytex_c";
 
-    common::cooked_shader_binding_source_t bindings[4]{};
+    common::cooked_shader_binding_source_t bindings[5]{};
+    const common::u32 bindingCount = withLightmap ? 5u : 4u;
+    const common::u32 normalBinding = withLightmap ? 4u : 3u;
     bindings[0].name = common::StringView_FromCString( "View" );
     bindings[0].kind = common::render_shader_binding_kind_t::UNIFORM_BUFFER;
     bindings[0].resourceType = common::render_shader_resource_type_t::UNIFORM_BUFFER;
@@ -5762,20 +5777,23 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
         common::COOKED_SHADER_BINDING_FLAG_INSTANCE;
     bindings[1].cbByteSize = 112u;
     bindings[2].name = common::StringView_FromCString( "AlbedoMap" );
-    bindings[3].name = common::StringView_FromCString( "NormalMap" );
-    for ( common::u32 i = 2u; i < 4u; ++i ) {
+    if ( withLightmap ) {
+        bindings[3].name = common::StringView_FromCString( "LightmapMap" );
+    }
+    bindings[normalBinding].name = common::StringView_FromCString( "NormalMap" );
+    for ( common::u32 i = 2u; i < bindingCount; ++i ) {
         bindings[i].kind = common::render_shader_binding_kind_t::SAMPLED_TEXTURE;
         bindings[i].resourceType = common::render_shader_resource_type_t::TEXTURE_2D;
         bindings[i].stageMask = common::RENDER_SHADER_STAGE_MASK_FRAGMENT;
         bindings[i].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
             common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
     }
-    for ( auto &binding : bindings ) {
+    for ( common::u32 i = 0u; i < bindingCount; ++i ) {
         REQUIRE( common::CookedShader_MakeLogicalBindingId(
-            binding.name, &binding.nLogicalBinding ) );
+            bindings[i].name, &bindings[i].nLogicalBinding ) );
     }
     const common::cooked_shader_interface_source_t shaderInterface{
-        { bindings, 4u }
+        { bindings, bindingCount }
     };
     common::content_hash_t interfaceHash{};
     REQUIRE( common::CookedShader_ComputeInterfaceHash(
@@ -5827,21 +5845,38 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
     constexpr common::byte normals[8]{
         128u, 255u, 128u, 255u, 128u, 0u, 128u, 255u
     };
+    constexpr common::byte bakedLightmap[8]{
+        255u, 255u, 255u, 255u, 102u, 102u, 102u, 255u
+    };
     std::vector<common::byte> albedoBytes = cookTexture(
         albedoPath, common::render_texture_usage_t::COLOR, 1u, redAlbedo );
+    std::vector<common::byte> lightmapBytes;
+    if ( withLightmap ) {
+        lightmapBytes = cookTexture(
+            lightmapPath, common::render_texture_usage_t::COLOR, 2u, bakedLightmap );
+    }
     std::vector<common::byte> normalBytes = cookTexture(
         normalPath, common::render_texture_usage_t::NORMAL, 2u, normals );
-    common::cooked_material_texture_source_v2_t materialTextures[2]{};
+    common::cooked_material_texture_source_v2_t materialTextures[3]{};
     materialTextures[0].binding = bindings[2].name;
     materialTextures[0].texture = common::StringView_FromCString( albedoPath );
     materialTextures[0].nLogicalBinding = bindings[2].nLogicalBinding;
-    materialTextures[1].binding = bindings[3].name;
-    materialTextures[1].texture = common::StringView_FromCString( normalPath );
-    materialTextures[1].nLogicalBinding = bindings[3].nLogicalBinding;
+    if ( withLightmap ) {
+        materialTextures[1].binding = bindings[3].name;
+        materialTextures[1].texture = common::StringView_FromCString( lightmapPath );
+        materialTextures[1].nLogicalBinding = bindings[3].nLogicalBinding;
+        materialTextures[1].nUvSet = 1u;
+    }
+    const common::u32 normalTextureSlot = withLightmap ? 2u : 1u;
+    materialTextures[normalTextureSlot].binding = bindings[normalBinding].name;
+    materialTextures[normalTextureSlot].texture =
+        common::StringView_FromCString( normalPath );
+    materialTextures[normalTextureSlot].nLogicalBinding =
+        bindings[normalBinding].nLogicalBinding;
     common::cooked_material_source_v2_t materialDescription{};
     materialDescription.shader = common::StringView_FromCString( shaderPath );
     materialDescription.shaderInterfaceHash = interfaceHash;
-    materialDescription.textures = { materialTextures, 2u };
+    materialDescription.textures = { materialTextures, withLightmap ? 3u : 2u };
     std::vector<common::byte> materialBytes( common::CookedMaterial_RequiredSizeV2(
         materialDescription ) );
     REQUIRE_FALSE( materialBytes.empty() );
@@ -5855,7 +5890,7 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
         common::binary_block_t contents{};
     };
     struct memory_vfs_t {
-        memory_file_t files[4]{};
+        memory_file_t files[5]{};
     } memory{};
     memory.files[0] = { common::StringView_FromCString( cookedMaterialPath ),
         { materialBytes.data(), materialBytes.size() } };
@@ -5865,6 +5900,12 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
         { albedoBytes.data(), albedoBytes.size() } };
     memory.files[3] = { common::StringView_FromCString( cookedNormalPath ),
         { normalBytes.data(), normalBytes.size() } };
+    if ( withLightmap ) {
+        memory.files[3] = { common::StringView_FromCString( cookedLightmapPath ),
+            { lightmapBytes.data(), lightmapBytes.size() } };
+        memory.files[4] = { common::StringView_FromCString( cookedNormalPath ),
+            { normalBytes.data(), normalBytes.size() } };
+    }
     static const common::vfs_ops_t operations{
         []( void *userData, common::string_view_t path, common::usize maximum,
             common::blob_t *destination ) noexcept -> common::vfs_status_t {
@@ -5893,15 +5934,21 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
 
     render::render_vertex_layout_t layout{};
     layout.bindingCount = 1u;
-    layout.bindings[0].stride = 12u * sizeof( float );
-    layout.attributeCount = 4u;
+    layout.bindings[0].stride = ( withLightmap ? 14u : 12u ) * sizeof( float );
+    layout.attributeCount = withLightmap ? 5u : 4u;
     layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
     layout.attributes[1] = { render::render_format_t::RGB32_FLOAT,
         3u * sizeof( float ), 1u, 0u };
     layout.attributes[2] = { render::render_format_t::RG32_FLOAT,
         6u * sizeof( float ), 2u, 0u };
-    layout.attributes[3] = { render::render_format_t::RGBA32_FLOAT,
-        8u * sizeof( float ), 4u, 0u };
+    if ( withLightmap ) {
+        layout.attributes[3] = { render::render_format_t::RG32_FLOAT,
+            8u * sizeof( float ), 3u, 0u };
+    }
+    layout.attributes[withLightmap ? 4u : 3u] = {
+        render::render_format_t::RGBA32_FLOAT,
+        static_cast<common::u32>( ( withLightmap ? 10u : 8u ) * sizeof( float ) ),
+        4u, 0u };
     render::render_material_bundle_desc_t bundleDescription{};
     bundleDescription.pResources = &resources;
     bundleDescription.cookedMaterialPath =
@@ -5910,36 +5957,58 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
     bundleDescription.uniformBlockCount = 2u;
     bundleDescription.uniformBlocks[0] = { "View", 256u };
     bundleDescription.uniformBlocks[1] = { "Model", 112u };
-    bundleDescription.debugName = "Native cooked World normal map";
+    bundleDescription.debugName = withLightmap
+        ? "Native cooked World normal/lightmap" : "Native cooked World normal map";
     render::render_material_bundle_t bundle{};
     REQUIRE( render::R_CreateCookedMaterialBundle(
         bundleDescription, &bundle ).status ==
         render::render_material_bridge_status_t::OK );
-    CHECK( bundle.textureCount == 2u );
+    CHECK( bundle.textureCount == ( withLightmap ? 3u : 2u ) );
     CHECK( bundle.passShadowSlot == render::R_MAX_SAMPLED_TEXTURE_BINDINGS );
     render::render_texture_info_t normalInfo{};
-    REQUIRE( render::R_GetTextureInfo( bundle.textures[1], &normalInfo ) ==
+    REQUIRE( render::R_GetTextureInfo(
+        bundle.textures[normalTextureSlot], &normalInfo ) ==
         render::render_error_t::OK );
     CHECK_FALSE( normalInfo.sRGB );
+    if ( withLightmap ) {
+        render::render_texture_info_t bakedInfo{};
+        REQUIRE( render::R_GetTextureInfo( bundle.textures[1], &bakedInfo ) ==
+            render::render_error_t::OK );
+        CHECK_FALSE( bakedInfo.sRGB );
+    }
     CHECK( resource::Res_GetStats( &resources ).cLiveResources == 0u );
     REQUIRE( resource::Res_Shutdown( &resources ) == resource::resource_error_t::OK );
     std::memset( materialBytes.data(), 0, materialBytes.size() );
     std::memset( shaderBytes.data(), 0, shaderBytes.size() );
     std::memset( albedoBytes.data(), 0, albedoBytes.size() );
+    if ( withLightmap ) {
+        std::memset( lightmapBytes.data(), 0, lightmapBytes.size() );
+    }
     std::memset( normalBytes.data(), 0, normalBytes.size() );
 
     // A large triangle covers the target. UV0 reaches normal-map texel
-    // centers near the two readback pixels; albedo remains one uniform texel.
+    // centers across X. In the combined case, UV1 reaches lightmap texel
+    // centers across Y; albedo remains one uniform texel.
     constexpr float vertices[36]{
         -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.1f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f,
          3.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.7f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f,
         -1.0f,  3.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.1f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f
     };
+    constexpr float combinedVertices[42]{
+        -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.1f, 0.5f, 0.1f, 0.5f,
+         1.0f,  0.0f, 0.0f, 1.0f,
+         3.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.7f, 0.5f, 0.1f, 0.5f,
+         1.0f,  0.0f, 0.0f, 1.0f,
+        -1.0f,  3.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.1f, 0.5f, 1.7f, 0.5f,
+         1.0f,  0.0f, 0.0f, 1.0f
+    };
     constexpr common::u16 indices[3]{ 0u, 1u, 2u };
     render::render_static_mesh_source_t meshSource{};
     meshSource.vertexLayout = layout;
-    meshSource.vertexBytes = vertices;
-    meshSource.vertexByteSize = sizeof( vertices );
+    meshSource.vertexBytes = withLightmap ? static_cast<const void *>( combinedVertices )
+        : static_cast<const void *>( vertices );
+    meshSource.vertexByteSize = withLightmap
+        ? sizeof( combinedVertices ) : sizeof( vertices );
     meshSource.vertexCount = 3u;
     meshSource.indexBytes = indices;
     meshSource.indexByteSize = sizeof( indices );
@@ -6022,6 +6091,9 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
     CHECK( draws[0].objectId.incarnation == objectId.incarnation );
     CHECK( draws[0].draw.sampledTextures[0].value == bundle.textures[0].value );
     CHECK( draws[0].draw.sampledTextures[1].value == bundle.textures[1].value );
+    if ( withLightmap ) {
+        CHECK( draws[0].draw.sampledTextures[2].value == bundle.textures[2].value );
+    }
     CHECK( draws[0].draw.uniformRanges[1].byteSize == 112u );
 
     render::render_texture_desc_t targetDescription{};
@@ -6048,6 +6120,56 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
     REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
     REQUIRE( render::R_DrawIndexed( draws[0].draw ) == render::render_error_t::OK );
     REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    if ( withLightmap ) {
+        // One draw yields a 2x2 matrix: X changes only the normal texel,
+        // Y changes only the baked-light texel. A swapped slot or UV set
+        // cannot satisfy both independent contrast checks.
+        std::array<common::u8, 4u> litBright{}, unlitBright{}, litDim{}, unlitDim{};
+        REQUIRE( render::R_ReadTargetRGBA8( target, { 1u, 1u, 1u, 1u },
+            litBright.data(), litBright.size(), 4u ) == render::render_error_t::OK );
+        REQUIRE( render::R_ReadTargetRGBA8( target, { 6u, 1u, 1u, 1u },
+            unlitBright.data(), unlitBright.size(), 4u ) == render::render_error_t::OK );
+        REQUIRE( render::R_ReadTargetRGBA8( target, { 1u, 6u, 1u, 1u },
+            litDim.data(), litDim.size(), 4u ) == render::render_error_t::OK );
+        REQUIRE( render::R_ReadTargetRGBA8( target, { 6u, 6u, 1u, 1u },
+            unlitDim.data(), unlitDim.size(), 4u ) == render::render_error_t::OK );
+        REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+        INFO( "normal+lightmap red: lit/bright " << int( litBright[0] )
+            << ", unlit/bright " << int( unlitBright[0] )
+            << ", lit/dim " << int( litDim[0] )
+            << ", unlit/dim " << int( unlitDim[0] ) );
+        CHECK( litBright[0] >= 160u );
+        CHECK( litBright[0] <= 190u );
+        CHECK( unlitBright[0] >= 15u );
+        CHECK( unlitBright[0] <= 45u );
+        CHECK( litDim[0] >= 55u );
+        CHECK( litDim[0] <= 90u );
+        CHECK( unlitDim[0] >= 5u );
+        CHECK( unlitDim[0] <= 20u );
+        CHECK( litBright[0] >= unlitBright[0] + 110u );
+        CHECK( litDim[0] >= unlitDim[0] + 40u );
+        CHECK( litBright[0] >= litDim[0] + 75u );
+        CHECK( unlitBright[0] >= unlitDim[0] + 8u );
+        for ( const auto *pixel : { &litBright, &unlitBright, &litDim, &unlitDim } ) {
+            CHECK( ( *pixel )[1] <= 8u );
+            CHECK( ( *pixel )[2] <= 8u );
+            CHECK( ( *pixel )[3] == 255u );
+        }
+        REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
+        world::WorldSubmission_End( pSubmission );
+        world::WorldSubmission_Shutdown( &pSubmission );
+        world::World_Shutdown( &pWorld );
+        REQUIRE( render::R_DestroyUniformBatch( &modelUniforms ) ==
+            render::render_error_t::OK );
+        REQUIRE( render::R_DestroyBuffer( viewBuffer ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyCookedMaterialBundle( &bundle ) ==
+            render::render_error_t::OK );
+        REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) ==
+            render::render_error_t::OK );
+        return;
+    }
     std::array<common::u8, 4u> positive{}, negative{};
     REQUIRE( render::R_ReadTargetRGBA8( target, { 1u, 4u, 1u, 1u },
         positive.data(), positive.size(), 4u ) == render::render_error_t::OK );
@@ -6747,6 +6869,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckCookedWorldViewLightingDrawing( info->drawableExtent );
     CheckCookedWorldLightmapDrawing( info->drawableExtent );
     CheckCookedWorldNormalMapDrawing( info->drawableExtent );
+    CheckCookedWorldNormalMapDrawing( info->drawableExtent, true );
     CheckWorldMaskShadowDrawing( info->drawableExtent );
     CheckCookedWorldShadowDrawing( info->drawableExtent );
 

@@ -73,7 +73,7 @@ A draw may optionally pair each declared texture slot with an immutable
 `render_sampler_handle_t`. Its description selects nearest or linear minification
 and magnification, no/nearest/linear mip filtering, and repeat or edge-clamp
 addressing independently for U and V. This lets one image be reused with
-different sampling policies in the two slots. An invalid sampler in a declared
+different sampling policies in separate slots. An invalid sampler in a declared
 slot keeps that texture's existing creation-time filter and wrap settings;
 existing draws therefore need no sampler changes. A sampler in an undeclared
 texture slot is a binding mismatch. A mip-filtered sampler needs a complete
@@ -100,9 +100,9 @@ Hosted frames restore the host's sampler bindings for both used units.
 
 This is a binding contract, not a general material system. A narrow cooked
 material adoption layer is described below. Anisotropy, arrays, cubemaps,
-storage buffers, ordinary uniforms, more than two slots, and reusable draw
+storage buffers, ordinary uniforms, more than four slots, and reusable draw
 queues remain separate work.
-The hosted frame preserves both slots of borrowed OpenGL texture, sampler, and
+The hosted frame preserves all four slots of borrowed OpenGL texture and sampler state, and
 indexed uniform-buffer state. It currently queries this state each frame; its
 effect on editor frame time still needs measurement.
 
@@ -179,7 +179,8 @@ materials with the default empty feature variant, no named
 surface, identity UV transforms, and no authored sampler preset. It supports zero to
 two fully resident 2D color textures in linear/sRGB RGBA8 or linear
 RGBA32_FLOAT, with one or a complete authored mip chain. The normal-map
-variant below uses one color and one NORMAL texture. Float DATA textures and
+variant below uses one color and one NORMAL texture. A narrow three-texture
+opaque recipe combines albedo, lightmap, and normal data. Float DATA textures and
 streamed mip tails remain unsupported and are rejected before GPU creation.
 Both textures normally use UV0. An opaque static surface may instead put a
 linear RGBA8_UNORM or RGBA32_FLOAT lightmap in material slot 1 with UV set 1,
@@ -190,10 +191,8 @@ and linear lightmap format before creating GPU objects, but cannot infer
 which UV a shader actually samples. A native World camera pixel test checks
 one compatible hand-built cooked shader: fixed UV0 albedo and independent
 UV1 lighting give visibly different pixels. This is a supplied lightmap,
-not a lightmap baker or a directional-normal lightmap. The cooked-material
-subset still declares at most two owned textures, and its optional pass
-shadow binding is fixed at slot 1; this lightmap recipe cannot combine with
-that shadow binding yet.
+not a lightmap baker or a directional-normal lightmap. The optional pass
+shadow binding remains fixed at slot 1, so it cannot accompany this lightmap.
 Another opaque two-texture variant keeps COLOR albedo in slot 0 and binds a
 linear RGBA8_UNORM `NORMAL` texture in slot 1, both using UV0. The layout must
 also expose an RGBA32_FLOAT tangent with handedness at location 4 on binding
@@ -202,8 +201,20 @@ the hand-built shader must decode the sampled tangent-space vector and
 construct its tangent basis, including mirrored-model handedness. A native
 World camera pixel test checks that opposite +Y/-Y normal texels change
 directional diffuse with constant albedo, including after mirroring the
-World object. The bridge cannot prove shader semantics, and its current
-recipes cannot combine this slot-1 normal map with a lightmap or pass shadow.
+World object. The bridge cannot prove shader semantics. This slot-1 normal
+variant cannot accompany the slot-1 pass shadow binding.
+
+An opaque three-texture World material can instead own COLOR albedo on UV0 in
+slot 0, a linear COLOR lightmap on UV1 in slot 1, and linear RGBA8_UNORM
+NORMAL data on UV0 in slot 2. The vertex layout must declare both RG32_FLOAT
+UV1 at location 3 and RGBA32_FLOAT tangent with handedness at location 4, on
+binding 0. The bridge checks those declarations, texture roles, UV choices,
+and formats before GPU creation. If the third upload fails, it retires all
+partial GPU objects. A native World camera pixel test varies UV0 normals and
+UV1 baked illumination independently while keeping albedo fixed. The test
+uses a hand-built cooked shader; the authored shader cooker cannot yet emit
+this full recipe. The bridge does not bake lightmaps or infer what the shader
+samples, and pass shadows cannot join this three-texture recipe yet.
 The first supported material value is one F32X4 `tint` at byte offset zero.
 The cooked shader must declare a matching MATERIAL VALUE and a 16-byte
 MATERIAL uniform block named `Material`, whose GLSL std140 member is

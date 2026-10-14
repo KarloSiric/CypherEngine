@@ -24,9 +24,9 @@ constexpr common::string_view_t kMaterialBlockName{ "Material", 8u };
 constexpr common::u32 kMaterialUniformSlot = 2u;
 constexpr common::u32 kTintByteSize = 4u * sizeof( common::f32 );
 constexpr common::u32 kAcquiredCapacity = 2u + R_MAX_SAMPLED_TEXTURE_BINDINGS;
-// Native draws have room for more samplers, but this cooked-material subset
-// still supports at most albedo plus one detail, normal, or lightmap texture.
-constexpr common::u32 kCookedMaterialTextureLimit = 2u;
+// Three owned textures are limited to albedo, UV1 lightmap, and UV0 normal.
+// This cooked subset cannot yet combine them with a pass shadow map.
+constexpr common::u32 kCookedMaterialTextureLimit = 3u;
 
 bool HasSuffix( const common::string_view_t path,
     const common::string_view_t suffix ) noexcept
@@ -91,8 +91,14 @@ bool MaterialSubsetSupported( const common::cooked_material_view_t &material ) n
              tint.data.cbSize != kTintByteSize ||
              material.constantData.cbSize != kTintByteSize ) return false;
     }
-    const bool lightmapUv1 = material.nTextures == 2u &&
+    const bool combinedSurface = material.nTextures == 3u;
+    const bool lightmapUv1 = material.nTextures >= 2u &&
         material.textures[1].nUvSet == 1u;
+    if ( combinedSurface &&
+         ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE ||
+           material.textures[0].nUvSet != 0u ||
+           material.textures[1].nUvSet != 1u ||
+           material.textures[2].nUvSet != 0u ) ) return false;
     if ( lightmapUv1 &&
          ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE ||
            material.textures[0].nUvSet != 0u ) ) return false;
@@ -283,10 +289,16 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
             result.status = render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
             break;
         }
-        const bool lightmapUv1 = pMaterial->nTextures == 2u &&
+        const bool combinedSurface = pMaterial->nTextures == 3u;
+        const bool lightmapUv1 = pMaterial->nTextures >= 2u &&
             pMaterial->textures[1].nUvSet == 1u;
         if ( lightmapUv1 &&
              !HasLightmapUv1VertexLayout( description.vertexLayout ) ) {
+            result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
+            break;
+        }
+        if ( combinedSurface &&
+             !HasNormalTangentVertexLayout( description.vertexLayout ) ) {
             result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
             break;
         }
@@ -420,7 +432,7 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
                  binding->kind != common::render_shader_binding_kind_t::SAMPLED_TEXTURE ||
                  binding->resourceType != common::render_shader_resource_type_t::TEXTURE_2D ||
                  binding->nArrayElements != 1u ||
-                 ( hasPassShadow &&
+                 ( ( hasPassShadow || combinedSurface ) &&
                    ( ( binding->flags & common::COOKED_SHADER_BINDING_FLAG_MATERIAL ) == 0u ||
                      ( binding->flags & common::COOKED_SHADER_BINDING_FLAG_INSTANCE ) != 0u ) ) ||
                  !CopyBindingName( texture.binding, textureBindingNames[i] ) ) {
@@ -531,11 +543,22 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
                 result.status = render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
                 break;
             }
+            if ( combinedSurface && i == 0u &&
+                 textures[i]->desc.usage != common::render_texture_usage_t::COLOR ) {
+                result.status = render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
+                break;
+            }
+            if ( combinedSurface && i == 2u &&
+                 textures[i]->desc.usage != common::render_texture_usage_t::NORMAL ) {
+                result.status = render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
+                break;
+            }
             if ( textures[i]->desc.usage ==
                      common::render_texture_usage_t::NORMAL ) {
-                // One opaque albedo plus one tangent-space normal is the only
-                // currently supported normal-map binding arrangement.
-                if ( i != 1u || pMaterial->nTextures != 2u ||
+                // Tangent-space normal data is accepted only after opaque
+                // COLOR albedo, with or without a UV1 lightmap between them.
+                if ( i != ( combinedSurface ? 2u : 1u ) ||
+                     ( !combinedSurface && pMaterial->nTextures != 2u ) ||
                      pMaterial->alphaMode !=
                          common::render_material_alpha_mode_t::OPAQUE ||
                      pMaterial->textures[i].nUvSet != 0u ) {
@@ -550,7 +573,8 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
             }
             if ( lightmapUv1 && i == 1u ) {
                 const auto &lightmap = textures[i]->desc;
-                if ( lightmap.colorSpace !=
+                if ( lightmap.usage != common::render_texture_usage_t::COLOR ||
+                     lightmap.colorSpace !=
                          common::render_texture_color_space_t::LINEAR ||
                      ( lightmap.pixelFormat !=
                            common::render_texture_pixel_format_t::RGBA8_UNORM &&
