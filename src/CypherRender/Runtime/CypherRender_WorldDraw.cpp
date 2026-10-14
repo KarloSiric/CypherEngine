@@ -24,6 +24,12 @@ namespace
 
 static_assert( sizeof( math::mat4_t ) == 64u );
 
+bool NonnegativeFinite( const math::vec3_t value ) noexcept
+{
+    return math::Vec3_IsFinite( value ) &&
+           value.x >= 0.0f && value.y >= 0.0f && value.z >= 0.0f;
+}
+
 struct alignas( 16 ) world_model_normal_record_t {
     math::mat4_t model{};
     common::f32 normalColumns[3][4]{};
@@ -779,6 +785,58 @@ render_error_t ShadowOutputIsDisjoint(
 }
 
 } // namespace
+
+render_error_t R_PackWorldViewLighting(
+    const render_world_view_lighting_desc_t &description,
+    render_world_view_lighting_record_t *output ) noexcept
+{
+    if ( output == nullptr || description.pointLightCount > 2u ||
+         !math::Mat4_IsAffine( description.viewFromWorld, 0.0f ) ||
+         !math::Mat4_IsFinite( description.clipFromView ) ||
+         !NonnegativeFinite( description.ambientLight ) ||
+         !NonnegativeFinite( description.directionalRadiance ) ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    math::vec3_t direction{};
+    if ( !math::Vec3_TryNormalize(
+             description.directionToLight, 0.0f, &direction, nullptr ) ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+
+    render_world_view_lighting_record_t packed{};
+    packed.view = description.viewFromWorld;
+    packed.projection = description.clipFromView;
+    packed.ambientLight[0] = description.ambientLight.x;
+    packed.ambientLight[1] = description.ambientLight.y;
+    packed.ambientLight[2] = description.ambientLight.z;
+    packed.lightDirection[0] = direction.x;
+    packed.lightDirection[1] = direction.y;
+    packed.lightDirection[2] = direction.z;
+    packed.lightColor[0] = description.directionalRadiance.x;
+    packed.lightColor[1] = description.directionalRadiance.y;
+    packed.lightColor[2] = description.directionalRadiance.z;
+    for ( common::u32 i = 0u; i < description.pointLightCount; ++i ) {
+        const render_world_point_light_desc_t &light = description.pointLights[i];
+        if ( !math::Vec3_IsFinite( light.position ) ||
+             !std::isfinite( light.range ) || light.range <= 0.0f ||
+             !NonnegativeFinite( light.color ) ||
+             !std::isfinite( light.intensity ) || light.intensity < 0.0f ) {
+            return render_error_t::ERR_INVALID_ARGUMENT;
+        }
+        packed.pointLightPositionRange[i][0] = light.position.x;
+        packed.pointLightPositionRange[i][1] = light.position.y;
+        packed.pointLightPositionRange[i][2] = light.position.z;
+        packed.pointLightPositionRange[i][3] = light.range;
+        packed.pointLightColorIntensity[i][0] = light.color.x;
+        packed.pointLightColorIntensity[i][1] = light.color.y;
+        packed.pointLightColorIntensity[i][2] = light.color.z;
+        packed.pointLightColorIntensity[i][3] = light.intensity;
+    }
+    packed.pointLightControl[0] =
+        static_cast<common::i32>( description.pointLightCount );
+    *output = packed;
+    return render_error_t::OK;
+}
 
 render_error_t R_PrepareOpaqueWorldDraws(
     const render_world_opaque_prepare_desc_t &description,

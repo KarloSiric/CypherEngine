@@ -14,8 +14,64 @@
 #include "CypherRender_UniformBatch.h"
 #include "CypherWorld/Submission/CypherWorld_Submission.h"
 
+#include <cstddef>
+
 namespace cypher::engine::render
 {
+
+// One host-supplied point light. Position is in world space, range is a
+// positive distance, and RGB color/intensity are linear nonnegative values.
+struct render_world_point_light_desc_t {
+    ::cypher::math::vec3_t position{};
+    ::cypher::common::f32 range{ 0.0f };
+    ::cypher::math::vec3_t color{};
+    ::cypher::common::f32 intensity{ 0.0f };
+};
+
+// World currently owns geometry, not authored lights. The host supplies these
+// view-wide values for a small ambient + directional + two-point-light shader.
+// directionToLight points from a surface toward the directional light. The
+// camera matrix must also be used as WorldCameraDraws.viewFromWorld when
+// translucent World objects are sorted for this view.
+struct render_world_view_lighting_desc_t {
+    ::cypher::math::mat4_t viewFromWorld{ ::cypher::math::CY_MAT4_IDENTITY };
+    ::cypher::math::mat4_t clipFromView{ ::cypher::math::CY_MAT4_IDENTITY };
+    ::cypher::math::vec3_t ambientLight{};
+    ::cypher::math::vec3_t directionToLight{ ::cypher::math::CY_VEC3_UP };
+    ::cypher::math::vec3_t directionalRadiance{};
+    render_world_point_light_desc_t pointLights[2]{};
+    ::cypher::common::u32 pointLightCount{ 0u };
+};
+
+// GLSL std140 `View` block. All matrices are column-major, vec4 lanes and
+// inactive point-light entries are zero-filled, and pointLightControl.x is
+// the number of active lights. There is no shadow matrix in this record.
+struct alignas( 16 ) render_world_view_lighting_record_t {
+    ::cypher::math::mat4_t view{};
+    ::cypher::math::mat4_t projection{};
+    ::cypher::common::f32 ambientLight[4]{};
+    ::cypher::common::f32 lightDirection[4]{};
+    ::cypher::common::f32 lightColor[4]{};
+    ::cypher::common::f32 pointLightPositionRange[2][4]{};
+    ::cypher::common::f32 pointLightColorIntensity[2][4]{};
+    ::cypher::common::i32 pointLightControl[4]{};
+};
+static_assert( sizeof( render_world_view_lighting_record_t ) == 256u );
+static_assert( offsetof( render_world_view_lighting_record_t, ambientLight ) == 128u );
+static_assert( offsetof( render_world_view_lighting_record_t, lightDirection ) == 144u );
+static_assert( offsetof( render_world_view_lighting_record_t, lightColor ) == 160u );
+static_assert( offsetof( render_world_view_lighting_record_t, pointLightPositionRange ) == 176u );
+static_assert( offsetof( render_world_view_lighting_record_t, pointLightColorIntensity ) == 208u );
+static_assert( offsetof( render_world_view_lighting_record_t, pointLightControl ) == 240u );
+
+// Pure, allocation-free packer. Validates finite matrices (affine camera),
+// nonnegative finite light values, a normalizable direction, at most two
+// points, and positive ranges for active points. Inactive descriptions are
+// ignored. On failure output is unchanged. The caller owns GPU upload and
+// must declare an exact 256-byte View block in its lighting pipeline.
+CYPHER_NODISCARD render_error_t R_PackWorldViewLighting(
+    const render_world_view_lighting_desc_t &description,
+    CY_OUT render_world_view_lighting_record_t *output ) noexcept;
 
 // Selects the shader-visible Model uniform record for camera color draws.
 // MODEL_ONLY is one column-major mat4 (64 bytes). MODEL_NORMAL adds three

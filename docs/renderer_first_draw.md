@@ -342,6 +342,25 @@ graybox `ObjectConstants` block remains sample-specific. A native OpenGL 4.1
 pixel test compiles a shader that reads all three normal columns and checks the
 inverse-transpose result under a sheared, nonuniform transform.
 
+For a lit World camera draw, `R_PackWorldViewLighting` produces a caller-owned,
+256-byte std140 `View` record. The host supplies the camera matrices, ambient
+RGB radiance, one direction toward a directional light and its RGB radiance,
+and up to two point lights with world positions, positive ranges, linear RGB,
+and nonnegative intensities. The record places `view` and `projection` at
+bytes 0 and 64, the three ambient/directional `vec4` values at 128/144/160,
+two point position/range `vec4`s at 176, two point color/intensity `vec4`s at
+208, and an `ivec4` active count at 240. The packer normalizes the direction,
+zeroes inactive lights and padding, and leaves the output unchanged on invalid
+input. It allocates and uploads nothing: the host owns the slot-0 uniform
+buffer and must handle its creation or update failure. The packed camera view
+must match `R_PrepareWorldCameraDraws.viewFromWorld`, which independently sorts
+translucent objects. A compatible lit shader uses this View block with the
+112-byte `MODEL_NORMAL` record at slot 1 and, for cooked tint materials, the
+16-byte `Material` block at slot 2. Lights are host supplied; CypherWorld does
+not yet store light objects. This no-shadow View block is deliberately separate
+from the graybox sample's 320-byte shadow-capable `ViewConstants` block, and
+the current shader source cooker cannot yet author these uniform-block bindings.
+
 `R_PrepareOpaqueWorldDraws` remains the small depth-writing entry point.
 `R_PrepareWorldCameraDraws` accepts OPAQUE, opt-in MASK, BLEND, and ADDITIVE
 cooked material bundles and returns three contiguous draw spans: opaque and

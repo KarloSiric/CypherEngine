@@ -25,6 +25,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- A caller can now pack a 256-byte std140 `View` lighting record for World
+  camera draws, with camera matrices, ambient and directional radiance, and up
+  to two point lights. `R_PackWorldViewLighting` validates inputs, normalizes the light
+  direction, zeroes inactive slots, and leaves output unchanged on failure.
+  Focused CPU tests verify layout and failure atomicity; a native OpenGL 4.1
+  pixel test combines the View with a 112-byte normal-aware Model record and a
+  cooked tint material, checking ambient, directional, in-range, out-of-range,
+  and two-point results. The host still supplies lights and uploads the View;
+  authored shader recipes cannot yet emit these uniform-block bindings, and
+  this does not connect live lighting to Mason or add shadow sampling.
 - Cooked tint materials now accept the World camera adapter's 80-byte
   `MODEL_CUTOUT` and 128-byte `MODEL_NORMAL_CUTOUT` std140 blocks as well as
   the existing 64/112-byte layouts. A mismatched cooked shader binding or

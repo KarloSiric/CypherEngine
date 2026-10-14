@@ -495,6 +495,156 @@ struct world_draw_fixture_t {
 
 } // namespace
 
+TEST_CASE( "World lighting View record packs camera and caller-supplied lights",
+    "[CypherRender][WorldDraw][Lighting]" )
+{
+    using record_t = render::render_world_view_lighting_record_t;
+    CHECK( sizeof( record_t ) == 256u );
+    CHECK( alignof( record_t ) == 16u );
+    CHECK( offsetof( record_t, view ) == 0u );
+    CHECK( offsetof( record_t, projection ) == 64u );
+    CHECK( offsetof( record_t, ambientLight ) == 128u );
+    CHECK( offsetof( record_t, lightDirection ) == 144u );
+    CHECK( offsetof( record_t, lightColor ) == 160u );
+    CHECK( offsetof( record_t, pointLightPositionRange ) == 176u );
+    CHECK( offsetof( record_t, pointLightColorIntensity ) == 208u );
+    CHECK( offsetof( record_t, pointLightControl ) == 240u );
+
+    render::render_world_view_lighting_desc_t description{};
+    description.viewFromWorld.m[12] = -3.0f;
+    description.clipFromView.m[0] = 2.0f;
+    description.ambientLight = { 2.5f, 0.25f, 0.0f }; // HDR is allowed.
+    description.directionToLight = { 0.0f, 0.0f, 2.0f };
+    description.directionalRadiance = { 4.0f, 1.5f, 0.0f };
+    // The inactive slot is ignored, even if an authoring tool left bad data.
+    description.pointLights[1].range =
+        std::numeric_limits<common::f32>::quiet_NaN();
+
+    record_t record{};
+    REQUIRE( render::R_PackWorldViewLighting( description, &record ) ==
+        render::render_error_t::OK );
+    CHECK( record.view.m[12] == -3.0f );
+    CHECK( record.projection.m[0] == 2.0f );
+    CHECK( record.ambientLight[0] == 2.5f );
+    CHECK( record.ambientLight[1] == 0.25f );
+    CHECK( record.ambientLight[3] == 0.0f );
+    CHECK( record.lightDirection[2] == 1.0f );
+    CHECK( record.lightDirection[3] == 0.0f );
+    CHECK( record.lightColor[0] == 4.0f );
+    CHECK( record.lightColor[1] == 1.5f );
+    CHECK( record.lightColor[3] == 0.0f );
+    for ( common::u32 i = 0u; i < 2u; ++i ) {
+        for ( common::u32 lane = 0u; lane < 4u; ++lane ) {
+            CHECK( record.pointLightPositionRange[i][lane] == 0.0f );
+            CHECK( record.pointLightColorIntensity[i][lane] == 0.0f );
+        }
+    }
+    for ( const auto lane : record.pointLightControl ) CHECK( lane == 0 );
+
+    description.pointLightCount = 1u;
+    description.pointLights[0] = {
+        { 1.0f, -2.0f, 3.0f }, 5.0f,
+        { 2.0f, 0.5f, 0.0f }, 1.25f
+    };
+    REQUIRE( render::R_PackWorldViewLighting( description, &record ) ==
+        render::render_error_t::OK );
+    CHECK( record.pointLightControl[0] == 1 );
+    CHECK( record.pointLightPositionRange[0][0] == 1.0f );
+    CHECK( record.pointLightPositionRange[0][1] == -2.0f );
+    CHECK( record.pointLightPositionRange[0][2] == 3.0f );
+    CHECK( record.pointLightPositionRange[0][3] == 5.0f );
+    CHECK( record.pointLightColorIntensity[0][0] == 2.0f );
+    CHECK( record.pointLightColorIntensity[0][1] == 0.5f );
+    CHECK( record.pointLightColorIntensity[0][3] == 1.25f );
+    for ( common::u32 lane = 0u; lane < 4u; ++lane ) {
+        CHECK( record.pointLightPositionRange[1][lane] == 0.0f );
+        CHECK( record.pointLightColorIntensity[1][lane] == 0.0f );
+    }
+
+    description.pointLightCount = 2u;
+    description.pointLights[1] = {
+        { -4.0f, 0.0f, 8.0f }, 16.0f,
+        { 0.0f, 0.0f, 3.0f }, 2.0f
+    };
+    REQUIRE( render::R_PackWorldViewLighting( description, &record ) ==
+        render::render_error_t::OK );
+    CHECK( record.pointLightControl[0] == 2 );
+    CHECK( record.pointLightControl[1] == 0 );
+    CHECK( record.pointLightPositionRange[1][0] == -4.0f );
+    CHECK( record.pointLightPositionRange[1][2] == 8.0f );
+    CHECK( record.pointLightPositionRange[1][3] == 16.0f );
+    CHECK( record.pointLightColorIntensity[1][2] == 3.0f );
+    CHECK( record.pointLightColorIntensity[1][3] == 2.0f );
+}
+
+TEST_CASE( "World lighting View validation leaves output unchanged",
+    "[CypherRender][WorldDraw][Lighting]" )
+{
+    render::render_world_view_lighting_desc_t valid{};
+    valid.pointLightCount = 1u;
+    valid.pointLights[0] = {
+        { 0.0f, 0.0f, 2.0f }, 4.0f,
+        { 1.0f, 0.5f, 0.0f }, 2.0f
+    };
+    render::render_world_view_lighting_record_t record{};
+    std::memset( &record, 0x5a, sizeof( record ) );
+    const auto original = record;
+    const auto reject = [&]( const render::render_world_view_lighting_desc_t &input ) {
+        CHECK( render::R_PackWorldViewLighting( input, &record ) ==
+            render::render_error_t::ERR_INVALID_ARGUMENT );
+        CHECK( std::memcmp( &record, &original, sizeof( record ) ) == 0 );
+    };
+    const auto nan = std::numeric_limits<common::f32>::quiet_NaN();
+    const auto inf = std::numeric_limits<common::f32>::infinity();
+    auto invalid = valid;
+    invalid.pointLightCount = 3u;
+    reject( invalid );
+    invalid = valid;
+    invalid.viewFromWorld.m[0] = nan;
+    reject( invalid );
+    invalid = valid;
+    invalid.viewFromWorld.m[3] = 1.0f; // Not affine.
+    reject( invalid );
+    invalid = valid;
+    invalid.clipFromView.m[5] = inf;
+    reject( invalid );
+    invalid = valid;
+    invalid.ambientLight.y = -1.0f;
+    reject( invalid );
+    invalid = valid;
+    invalid.directionToLight = math::CY_VEC3_ZERO;
+    reject( invalid );
+    invalid = valid;
+    invalid.directionToLight.x = nan;
+    reject( invalid );
+    invalid = valid;
+    invalid.directionalRadiance.z = -0.1f;
+    reject( invalid );
+    invalid = valid;
+    invalid.pointLights[0].position.x = inf;
+    reject( invalid );
+    invalid = valid;
+    invalid.pointLights[0].range = 0.0f;
+    reject( invalid );
+    invalid = valid;
+    invalid.pointLights[0].range = inf;
+    reject( invalid );
+    invalid = valid;
+    invalid.pointLights[0].color.y = nan;
+    reject( invalid );
+    invalid = valid;
+    invalid.pointLights[0].color.y = -0.1f;
+    reject( invalid );
+    invalid = valid;
+    invalid.pointLights[0].intensity = -1.0f;
+    reject( invalid );
+    invalid = valid;
+    invalid.pointLights[0].intensity = nan;
+    reject( invalid );
+    CHECK( render::R_PackWorldViewLighting( valid, nullptr ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+}
+
 TEST_CASE( "visible opaque World objects resolve ordered draws and aligned models",
     "[CypherRender][WorldDraw]" )
 {
