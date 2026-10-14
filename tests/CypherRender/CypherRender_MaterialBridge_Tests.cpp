@@ -72,6 +72,9 @@ struct cooked_files_t {
     std::vector<common::byte> albedo{};
     std::vector<common::byte> detail{};
     common::content_hash_t interfaceHash{};
+    common::u32 textureUvSets[2]{};
+    common::f64 secondUvScale{ 1.0 };
+    bool linearSecondTexture{ false };
 
     void Build( common::u32 textureCount, bool mismatch = false,
         bool withFeature = false, bool withSampler = false,
@@ -123,15 +126,19 @@ struct cooked_files_t {
         constexpr common::byte albedoPixels[4]{ 0xDAu, 0x10u, 0x20u, 0xFFu };
         constexpr common::byte detailPixels[4]{ 0x13u, 0x42u, 0x71u, 0xFFu };
         MakeTexture( albedo, Text( "textures/albedo.cytex" ), albedoPixels );
-        MakeTexture( detail, Text( "textures/detail.cytex" ), detailPixels );
+        MakeTexture( detail, Text( "textures/detail.cytex" ), detailPixels,
+            linearSecondTexture );
 
         common::cooked_material_texture_source_v2_t textures[2]{};
         textures[0].binding = bindings[0].name;
         textures[0].texture = Text( "textures/albedo.cytex" );
         textures[0].nLogicalBinding = bindings[0].nLogicalBinding;
+        textures[0].nUvSet = textureUvSets[0];
         textures[1].binding = bindings[1].name;
         textures[1].texture = Text( "textures/detail.cytex" );
         textures[1].nLogicalBinding = BindingId( bindings[1].name );
+        textures[1].nUvSet = textureUvSets[1];
+        textures[1].uvScale[0] = secondUvScale;
         if ( withSampler ) {
             textures[0].sampler = Text( "linear_wrap" );
             textures[0].bHasSampler = common::CY_TRUE;
@@ -339,9 +346,16 @@ struct cooked_files_t {
     }
 
     static void MakeTexture( std::vector<common::byte> &file,
-        common::string_view_t name, const common::byte ( &pixels )[4] )
+        common::string_view_t name, const common::byte ( &pixels )[4],
+        bool linear = false )
     {
         common::cooked_texture_desc_t description{};
+        if ( linear ) {
+            description.pixelFormat =
+                common::render_texture_pixel_format_t::RGBA8_UNORM;
+            description.colorSpace =
+                common::render_texture_color_space_t::LINEAR;
+        }
         description.nWidth = 1u;
         description.nHeight = 1u;
         description.nMipLevels = 1u;
@@ -715,6 +729,17 @@ struct bridge_fixture_t {
         return description;
     }
 
+    render::render_material_bundle_desc_t LightmapDescription()
+    {
+        auto description = Description();
+        description.vertexLayout.bindings[0].stride = 20u;
+        description.vertexLayout.attributeCount = 2u;
+        description.vertexLayout.attributes[1] = {
+            render::render_format_t::RG32_FLOAT, 12u, 3u, 0u
+        };
+        return description;
+    }
+
     void UseTint( common::string_view_t shaderValueName = Text( "tint" ),
         common::render_shader_value_type_t shaderValueType =
             common::render_shader_value_type_t::F32X4,
@@ -834,6 +859,170 @@ TEST_CASE( "cooked material bridge owns zero to two textures after VFS views exp
         CHECK( fixture.textureDestroys == textureCount );
         CHECK( fixture.bundle.mirroredPipeline.value == 0u );
     }
+}
+
+TEST_CASE( "opaque cooked material adopts a linear lightmap on UV1",
+    "[CypherRender][MaterialBridge][Lightmap]" )
+{
+    bridge_fixture_t fixture{};
+    fixture.cooked.textureUvSets[1] = 1u;
+    fixture.cooked.linearSecondTexture = true;
+    fixture.Init( 2u );
+
+    const auto result = render::R_CreateCookedMaterialBundle(
+        fixture.LightmapDescription(), &fixture.bundle );
+    REQUIRE( result.status == render::render_material_bridge_status_t::OK );
+    CHECK( fixture.bundle.textureCount == 2u );
+    CHECK( fixture.lastPipelineTextureCount == 2u );
+    CHECK( fixture.lastPipelineSecondTextureKind ==
+        render::render_sampled_texture_kind_t::SCALAR_2D );
+    CHECK( fixture.uploadedSrgb[0] );
+    CHECK_FALSE( fixture.uploadedSrgb[1] );
+    CHECK( fixture.uploadedFormats[1] == render::render_texture_format_t::RGBA8 );
+    CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+
+    std::memset( fixture.cooked.detail.data(), 0, fixture.cooked.detail.size() );
+    render::render_draw_indexed_desc_t draw{};
+    REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
+                 fixture.bundle, &draw ) == render::render_error_t::OK );
+    CHECK( draw.sampledTextures[0].value == fixture.bundle.textures[0].value );
+    CHECK( draw.sampledTextures[1].value == fixture.bundle.textures[1].value );
+    CHECK( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+        render::render_error_t::OK );
+    CHECK( fixture.textureDestroys == 2u );
+    CHECK( fixture.shaderDestroys == 1u );
+}
+
+TEST_CASE( "lightmap UV1 contract rejects mismatches before GPU allocation",
+    "[CypherRender][MaterialBridge][Lightmap]" )
+{
+    SECTION( "UV1 on the albedo slot" ) {
+        bridge_fixture_t fixture{};
+        fixture.cooked.textureUvSets[0] = 1u;
+        fixture.Init( 2u );
+        CHECK( render::R_CreateCookedMaterialBundle(
+                   fixture.LightmapDescription(), &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::MATERIAL_UNSUPPORTED );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.textureCreates == 0u );
+    }
+    SECTION( "UV1 without a second texture" ) {
+        bridge_fixture_t fixture{};
+        fixture.cooked.textureUvSets[0] = 1u;
+        fixture.Init( 1u );
+        CHECK( render::R_CreateCookedMaterialBundle(
+                   fixture.LightmapDescription(), &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::MATERIAL_UNSUPPORTED );
+        CHECK( fixture.shaderCreates == 0u );
+    }
+    SECTION( "UV2 on the second texture" ) {
+        bridge_fixture_t fixture{};
+        fixture.cooked.textureUvSets[1] = 2u;
+        fixture.cooked.linearSecondTexture = true;
+        fixture.Init( 2u );
+        CHECK( render::R_CreateCookedMaterialBundle(
+                   fixture.LightmapDescription(), &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::MATERIAL_UNSUPPORTED );
+        CHECK( fixture.shaderCreates == 0u );
+    }
+    SECTION( "nonopaque UV1 material" ) {
+        bridge_fixture_t fixture{};
+        fixture.cooked.textureUvSets[1] = 1u;
+        fixture.cooked.linearSecondTexture = true;
+        fixture.Init( 2u, false, false, false,
+            common::render_material_alpha_mode_t::BLEND );
+        CHECK( render::R_CreateCookedMaterialBundle(
+                   fixture.LightmapDescription(), &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::MATERIAL_UNSUPPORTED );
+        CHECK( fixture.shaderCreates == 0u );
+    }
+    SECTION( "nonidentity lightmap UV transform" ) {
+        bridge_fixture_t fixture{};
+        fixture.cooked.textureUvSets[1] = 1u;
+        fixture.cooked.secondUvScale = 2.0;
+        fixture.cooked.linearSecondTexture = true;
+        fixture.Init( 2u );
+        CHECK( render::R_CreateCookedMaterialBundle(
+                   fixture.LightmapDescription(), &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::MATERIAL_UNSUPPORTED );
+        CHECK( fixture.shaderCreates == 0u );
+    }
+    SECTION( "missing UV1 vertex attribute" ) {
+        bridge_fixture_t fixture{};
+        fixture.cooked.textureUvSets[1] = 1u;
+        fixture.cooked.linearSecondTexture = true;
+        fixture.Init( 2u );
+        CHECK( render::R_CreateCookedMaterialBundle(
+                   fixture.Description(), &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.textureCreates == 0u );
+    }
+    SECTION( "wrong UV1 vertex format" ) {
+        bridge_fixture_t fixture{};
+        fixture.cooked.textureUvSets[1] = 1u;
+        fixture.cooked.linearSecondTexture = true;
+        fixture.Init( 2u );
+        auto description = fixture.LightmapDescription();
+        description.vertexLayout.bindings[0].stride = 24u;
+        description.vertexLayout.attributes[1].format =
+            render::render_format_t::RGB32_FLOAT;
+        CHECK( render::R_CreateCookedMaterialBundle(
+                   description, &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+        CHECK( fixture.shaderCreates == 0u );
+    }
+    SECTION( "UV1 comes from a different vertex binding" ) {
+        bridge_fixture_t fixture{};
+        fixture.cooked.textureUvSets[1] = 1u;
+        fixture.cooked.linearSecondTexture = true;
+        fixture.Init( 2u );
+        auto description = fixture.LightmapDescription();
+        description.vertexLayout.bindingCount = 2u;
+        description.vertexLayout.bindings[1].binding = 1u;
+        description.vertexLayout.bindings[1].stride = 8u;
+        description.vertexLayout.attributes[1].binding = 1u;
+        description.vertexLayout.attributes[1].offset = 0u;
+        CHECK( render::R_CreateCookedMaterialBundle(
+                   description, &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+        CHECK( fixture.shaderCreates == 0u );
+    }
+    SECTION( "sRGB lightmap texture" ) {
+        bridge_fixture_t fixture{};
+        fixture.cooked.textureUvSets[1] = 1u;
+        fixture.Init( 2u );
+        CHECK( render::R_CreateCookedMaterialBundle(
+                   fixture.LightmapDescription(), &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::MATERIAL_UNSUPPORTED );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.pipelineCreates == 0u );
+        CHECK( fixture.textureCreates == 0u );
+        CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+    }
+}
+
+TEST_CASE( "lightmap texture upload failure retires partial GPU ownership",
+    "[CypherRender][MaterialBridge][Lightmap]" )
+{
+    bridge_fixture_t fixture{};
+    fixture.cooked.textureUvSets[1] = 1u;
+    fixture.cooked.linearSecondTexture = true;
+    fixture.Init( 2u );
+    fixture.failTextureAt = 2u;
+    const auto result = render::R_CreateCookedMaterialBundle(
+        fixture.LightmapDescription(), &fixture.bundle );
+    CHECK( result.status == render::render_material_bridge_status_t::RENDER_ERROR );
+    CHECK( result.renderError == render::render_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( fixture.shaderCreates == 1u );
+    CHECK( fixture.shaderDestroys == 1u );
+    CHECK( fixture.textureCreates == 2u );
+    CHECK( fixture.textureDestroys == 1u );
+    CHECK( fixture.pipelineCreates == 0u );
+    CHECK( fixture.bundle.shader.value == 0u );
+    CHECK( fixture.bundle.textures[0].value == 0u );
+    CHECK( fixture.bundle.textures[1].value == 0u );
+    CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
 }
 
 TEST_CASE( "one cooked albedo and a borrowed pass shadow map occupy separate draw slots",

@@ -380,6 +380,19 @@ shader projects world positions with the appended matrix and samples the
 caller-owned comparison shadow map in slot 1. World light authoring, shadow
 view selection, and pass scheduling remain host responsibilities.
 
+An opaque World camera material can now instead own albedo in sampled slot 0
+using UV0 and a linear, supplied RGB lightmap in slot 1 using UV1. The cooked
+material carries the UV-set choice; the bridge requires RG32_FLOAT UV1 at
+vertex location 3 on binding 0 and rejects an sRGB lightmap before GPU
+creation. A compatible shader multiplies the two sampled linear colors. The
+native pixel oracle holds UV0 fixed across a face while UV1 crosses bright
+and dim baked-lighting texels, then verifies the World-prepared draw changes
+brightness across the face. The shader is hand-built cooked data in this test:
+the authored shader workflow does not yet provide the needed complete
+material binding recipe. Lightmap generation, directional lightmaps, normal
+mapping, and combining this two-slot material with a pass shadow map remain
+separate work.
+
 `R_PrepareOpaqueWorldDraws` remains the small depth-writing entry point.
 `R_PrepareWorldCameraDraws` accepts OPAQUE, opt-in MASK, BLEND, and ADDITIVE
 cooked material bundles and returns three contiguous draw spans: opaque and

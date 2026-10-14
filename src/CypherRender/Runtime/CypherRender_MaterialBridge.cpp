@@ -88,14 +88,33 @@ bool MaterialSubsetSupported( const common::cooked_material_view_t &material ) n
              tint.data.cbSize != kTintByteSize ||
              material.constantData.cbSize != kTintByteSize ) return false;
     }
+    const bool lightmapUv1 = material.nTextures == 2u &&
+        material.textures[1].nUvSet == 1u;
+    if ( lightmapUv1 &&
+         ( material.alphaMode != common::render_material_alpha_mode_t::OPAQUE ||
+           material.textures[0].nUvSet != 0u ) ) return false;
     for ( common::u32 i = 0u; i < material.nTextures; ++i ) {
         const auto &texture = material.textures[i];
         if ( texture.bHasSampler || texture.sampler.cchLength != 0u ||
-             texture.nUvSet != 0u || texture.uvScale[0] != 1.0F ||
+             ( texture.nUvSet != 0u && !( lightmapUv1 && i == 1u ) ) ||
+             texture.uvScale[0] != 1.0F ||
              texture.uvScale[1] != 1.0F || texture.uvOffset[0] != 0.0F ||
              texture.uvOffset[1] != 0.0F || texture.uvRotation != 0.0F ) return false;
     }
     return true;
+}
+
+bool HasLightmapUv1VertexLayout( const render_vertex_layout_t &layout ) noexcept
+{
+    if ( R_ValidateVertexLayout( layout ) != render_error_t::OK ) return false;
+    for ( common::u32 i = 0u; i < layout.attributeCount; ++i ) {
+        const auto &attribute = layout.attributes[i];
+        if ( attribute.location == 3u ) {
+            return attribute.binding == 0u &&
+                attribute.format == render_format_t::RG32_FLOAT;
+        }
+    }
+    return false;
 }
 
 bool TextureSubsetSupported( const common::cooked_texture_view_t &texture ) noexcept
@@ -239,6 +258,13 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
         }
         if ( pMaterial == nullptr || !MaterialSubsetSupported( *pMaterial ) ) {
             result.status = render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
+            break;
+        }
+        const bool lightmapUv1 = pMaterial->nTextures == 2u &&
+            pMaterial->textures[1].nUvSet == 1u;
+        if ( lightmapUv1 &&
+             !HasLightmapUv1VertexLayout( description.vertexLayout ) ) {
+            result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
             break;
         }
         const bool hasPassShadow = description.passShadowMapBinding != nullptr;
@@ -481,6 +507,18 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
             if ( textures[i] == nullptr || !TextureSubsetSupported( *textures[i] ) ) {
                 result.status = render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
                 break;
+            }
+            if ( lightmapUv1 && i == 1u ) {
+                const auto &lightmap = textures[i]->desc;
+                if ( lightmap.colorSpace !=
+                         common::render_texture_color_space_t::LINEAR ||
+                     ( lightmap.pixelFormat !=
+                           common::render_texture_pixel_format_t::RGBA8_UNORM &&
+                       lightmap.pixelFormat !=
+                           common::render_texture_pixel_format_t::RGBA32_FLOAT ) ) {
+                    result.status = render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
+                    break;
+                }
             }
         }
         if ( result.status != render_material_bridge_status_t::OK ) break;

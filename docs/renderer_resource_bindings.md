@@ -174,11 +174,22 @@ authored shader cooker cannot yet produce this depth-sampler binding.
 
 This first bridge accepts CYMT V2 opaque, mask, blend, or additive surface
 materials with the default empty feature variant, no named
-surface, identity UV0, and no authored sampler preset. It supports zero to
+surface, identity UV transforms, and no authored sampler preset. It supports zero to
 two fully resident 2D color textures in linear/sRGB RGBA8 or linear
 RGBA32_FLOAT, with one or a complete authored mip chain, that the existing
 texture-adoption path can upload. Float DATA textures and streamed mip tails
 remain unsupported and are rejected before GPU creation.
+Both textures normally use UV0. An opaque static surface may instead put a
+linear RGBA8_UNORM or RGBA32_FLOAT lightmap in material slot 1 with UV set 1,
+while slot 0 remains UV0 albedo. Its vertex layout must declare RG32_FLOAT at
+location 3 on binding 0, and its shader must read that attribute and use it
+for the slot-1 sampler. The bridge checks the cooked UV declaration, layout,
+and linear lightmap format before creating GPU objects, but cannot infer
+which UV a shader actually samples. A native World camera pixel test checks
+one compatible hand-built cooked shader: fixed UV0 albedo and independent
+UV1 lighting give visibly different pixels. This is a supplied lightmap,
+not a lightmap baker or a directional-normal lightmap. The two-slot limit also
+means this material cannot reserve slot 1 for a pass-owned shadow map.
 The first supported material value is one F32X4 `tint` at byte offset zero.
 The cooked shader must declare a matching MATERIAL VALUE and a 16-byte
 MATERIAL uniform block named `Material`, whose GLSL std140 member is
