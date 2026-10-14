@@ -91,8 +91,10 @@ struct render_material_bridge_result_t {
 // to both color and shadow shaders; each shader must sample alpha and discard
 // fragments below that cutoff. The bridge cannot verify shader discard behavior
 // or choose an alpha-source texture for the caller.
-// Ordinary failure leaves bundleOut empty. If rollback of a successfully
-// created renderer handle fails, CLEANUP_FAILED reports that error and
+// bundleOut must own no renderer handles. Creating into a live bundle returns
+// INVALID_ARGUMENT without changing that bundle; destroy it before reuse.
+// Ordinary failure from an empty bundleOut leaves it empty. If rollback of a
+// successfully created renderer handle fails, CLEANUP_FAILED reports that error and
 // publishes remaining live handles in bundleOut; the caller must retry
 // R_DestroyCookedMaterialBundle before shutdown. A backend that returns an
 // error plus a native token must be able to retire that token immediately;

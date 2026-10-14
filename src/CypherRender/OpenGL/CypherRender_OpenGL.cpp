@@ -31,7 +31,7 @@
 
 #include <algorithm> // std::min for bounded diagnostic-string copies.
 #include <cmath>     // std::isfinite for defensive API value checks.
-#include <cstring>   // std::strcmp and std::memcpy for extension/string handling.
+#include <cstring>   // std::strlen and std::memcpy for driver strings.
 #include <limits>    // Safe conversion from renderer extents to GLsizei.
 
 namespace cypher::engine::render

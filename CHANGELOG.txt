@@ -24,6 +24,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Changed
+- Cooked material bundle creation rejects an output that still owns shader,
+  pipeline, texture or material-uniform handles. Repeated creation returns
+  INVALID_ARGUMENT before resource reads or output changes, keeping the
+  original draw bindings usable and destructible once. Focused material-
+  bridge tests cover textured and tint-uniform bundles.
 - OpenGL capability queries report only public renderer features:
   rasterization, indexed instancing, float render targets, supported sRGB
   presentation and default-framebuffer multisampling. Indirect draws,

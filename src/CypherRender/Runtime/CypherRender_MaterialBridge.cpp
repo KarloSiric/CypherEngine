@@ -194,6 +194,17 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
     if ( bundleOut == nullptr ) {
         return { render_material_bridge_status_t::INVALID_ARGUMENT };
     }
+    // Replacing a live bundle here would discard its only owned GPU handles.
+    if ( bundleOut->shader.value != 0u || bundleOut->pipeline.value != 0u ||
+         bundleOut->mirroredPipeline.value != 0u ||
+         bundleOut->materialUniformBuffer.value != 0u ) {
+        return { render_material_bridge_status_t::INVALID_ARGUMENT };
+    }
+    for ( const auto texture : bundleOut->textures ) {
+        if ( texture.value != 0u ) {
+            return { render_material_bridge_status_t::INVALID_ARGUMENT };
+        }
+    }
     *bundleOut = {};
     if ( description.pResources == nullptr ||
          !HasSuffix( description.cookedMaterialPath, kMaterialSuffix ) ||

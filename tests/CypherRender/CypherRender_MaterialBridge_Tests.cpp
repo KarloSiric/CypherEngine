@@ -736,6 +736,56 @@ TEST_CASE( "cooked material bridge owns zero to two textures after VFS views exp
     }
 }
 
+TEST_CASE( "cooked material bridge rejects replacing a live bundle without losing its handles",
+    "[CypherRender][MaterialBridge]" )
+{
+    for ( const bool withTint : { false, true } ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( withTint ? 0u : 1u );
+        if ( withTint ) fixture.UseTint();
+        const auto description = withTint
+            ? fixture.TintDescription() : fixture.Description();
+        REQUIRE( render::R_CreateCookedMaterialBundle(
+            description, &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::OK );
+
+        const auto original = fixture.bundle;
+        const auto reads = fixture.storage.reads;
+        const auto second = render::R_CreateCookedMaterialBundle(
+            description, &fixture.bundle );
+        CHECK( second.status == render::render_material_bridge_status_t::INVALID_ARGUMENT );
+        CHECK( fixture.storage.reads == reads );
+        CHECK( fixture.shaderCreates == 1u );
+        CHECK( fixture.pipelineCreates == 2u );
+        CHECK( fixture.textureCreates == ( withTint ? 0u : 1u ) );
+        CHECK( fixture.bufferCreates == ( withTint ? 1u : 0u ) );
+        CHECK( fixture.bundle.shader.value == original.shader.value );
+        CHECK( fixture.bundle.pipeline.value == original.pipeline.value );
+        CHECK( fixture.bundle.mirroredPipeline.value == original.mirroredPipeline.value );
+        CHECK( fixture.bundle.textures[0].value == original.textures[0].value );
+        CHECK( fixture.bundle.materialUniformBuffer.value ==
+            original.materialUniformBuffer.value );
+        CHECK( render::R_IsShaderValid( original.shader ) );
+        CHECK( render::R_IsGraphicsPipelineValid( original.pipeline ) );
+        CHECK( render::R_IsGraphicsPipelineValid( original.mirroredPipeline ) );
+        if ( withTint ) {
+            CHECK( render::R_IsBufferValid( original.materialUniformBuffer ) );
+        } else {
+            CHECK( render::R_IsTextureValid( original.textures[0] ) );
+        }
+
+        render::render_draw_indexed_desc_t draw{};
+        CHECK( render::R_ApplyCookedMaterialBundleToDraw(
+            fixture.bundle, &draw ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+            render::render_error_t::OK );
+        CHECK( fixture.pipelineDestroys == 2u );
+        CHECK( fixture.shaderDestroys == 1u );
+        CHECK( fixture.textureDestroys == ( withTint ? 0u : 1u ) );
+        CHECK( fixture.bufferDestroys == ( withTint ? 1u : 0u ) );
+    }
+}
+
 TEST_CASE( "cooked material mirror keeps alpha state and two-sided front-facing policy",
     "[CypherRender][MaterialBridge][Mirror]" )
 {
