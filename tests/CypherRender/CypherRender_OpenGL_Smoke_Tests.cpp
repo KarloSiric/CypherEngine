@@ -5696,6 +5696,435 @@ void CheckCookedWorldLightmapDrawing( const render::render_extent_t extent )
         render::render_error_t::OK );
 }
 
+void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent )
+{
+    // A constant albedo and one tangent basis cover opposite bitangent-space
+    // normals. Mirroring the World model must preserve their lighting order.
+    constexpr char viewBlock[] =
+        "layout(std140) uniform View { mat4 view; mat4 projection;"
+        " vec4 ambientLight; vec4 lightDirection; vec4 lightColor;"
+        " vec4 pointLightPositionRange[2];"
+        " vec4 pointLightColorIntensity[2]; ivec4 pointLightControl; };\n";
+    const std::string vertexSource =
+        std::string( "#version 410 core\n" ) +
+        "layout(location=0) in vec3 position;\n"
+        "layout(location=1) in vec3 normal;\n"
+        "layout(location=2) in vec2 uv0;\n"
+        "layout(location=4) in vec4 tangent;\n" +
+        viewBlock +
+        "layout(std140) uniform Model { mat4 model; mat3 normalMatrix; };\n"
+        "out vec2 surfaceUv; out vec3 worldNormal;"
+        " out vec3 worldTangent; out float tangentSign;\n"
+        "void main(){ vec4 world=model*vec4(position,1.0);"
+        " worldNormal=normalize(normalMatrix*normal);"
+        " worldTangent=normalize(mat3(model)*tangent.xyz);"
+        // Reversing model orientation flips the reconstructed bitangent, even
+        // though the World draw already switches to a mirrored winding pipeline.
+        " tangentSign=tangent.w*sign(determinant(mat3(model))); surfaceUv=uv0;"
+        " gl_Position=projection*view*world; }\n";
+    const std::string fragmentSource =
+        std::string( "#version 410 core\n" ) +
+        viewBlock +
+        "uniform sampler2D AlbedoMap; uniform sampler2D NormalMap;\n"
+        "in vec2 surfaceUv; in vec3 worldNormal;"
+        " in vec3 worldTangent; in float tangentSign;\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main(){ vec3 n=normalize(worldNormal);"
+        " vec3 t=normalize(worldTangent-n*dot(worldTangent,n));"
+        " vec3 b=normalize(cross(n,t))*tangentSign;"
+        " vec3 sampled=normalize(texture(NormalMap,surfaceUv).xyz*2.0-1.0);"
+        " vec3 perturbed=normalize(mat3(t,b,n)*sampled);"
+        " float diffuse=max(dot(perturbed,normalize(lightDirection.xyz)),0.0);"
+        " vec3 illumination=ambientLight.rgb+lightColor.rgb*diffuse;"
+        " illumination+=vec3(float(pointLightControl.x))*0.001;"
+        " color=vec4(texture(AlbedoMap,surfaceUv).rgb*illumination,1.0); }\n";
+    constexpr char materialPath[] = "materials/world_normal.cymat";
+    constexpr char shaderPath[] = "shaders/world_normal.cyshader";
+    constexpr char albedoPath[] = "textures/world_normal_albedo.cytex";
+    constexpr char normalPath[] = "textures/world_normal_map.cytex";
+    constexpr char cookedMaterialPath[] = "materials/world_normal.cymat_c";
+    constexpr char cookedShaderPath[] = "shaders/world_normal.cyshader_c";
+    constexpr char cookedAlbedoPath[] = "textures/world_normal_albedo.cytex_c";
+    constexpr char cookedNormalPath[] = "textures/world_normal_map.cytex_c";
+
+    common::cooked_shader_binding_source_t bindings[4]{};
+    bindings[0].name = common::StringView_FromCString( "View" );
+    bindings[0].kind = common::render_shader_binding_kind_t::UNIFORM_BUFFER;
+    bindings[0].resourceType = common::render_shader_resource_type_t::UNIFORM_BUFFER;
+    bindings[0].stageMask = common::RENDER_SHADER_STAGE_MASK_ALL_GRAPHICS;
+    bindings[0].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED;
+    bindings[0].cbByteSize = 256u;
+    bindings[1].name = common::StringView_FromCString( "Model" );
+    bindings[1].kind = common::render_shader_binding_kind_t::UNIFORM_BUFFER;
+    bindings[1].resourceType = common::render_shader_resource_type_t::UNIFORM_BUFFER;
+    bindings[1].stageMask = common::RENDER_SHADER_STAGE_MASK_VERTEX;
+    bindings[1].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
+        common::COOKED_SHADER_BINDING_FLAG_INSTANCE;
+    bindings[1].cbByteSize = 112u;
+    bindings[2].name = common::StringView_FromCString( "AlbedoMap" );
+    bindings[3].name = common::StringView_FromCString( "NormalMap" );
+    for ( common::u32 i = 2u; i < 4u; ++i ) {
+        bindings[i].kind = common::render_shader_binding_kind_t::SAMPLED_TEXTURE;
+        bindings[i].resourceType = common::render_shader_resource_type_t::TEXTURE_2D;
+        bindings[i].stageMask = common::RENDER_SHADER_STAGE_MASK_FRAGMENT;
+        bindings[i].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED |
+            common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
+    }
+    for ( auto &binding : bindings ) {
+        REQUIRE( common::CookedShader_MakeLogicalBindingId(
+            binding.name, &binding.nLogicalBinding ) );
+    }
+    const common::cooked_shader_interface_source_t shaderInterface{
+        { bindings, 4u }
+    };
+    common::content_hash_t interfaceHash{};
+    REQUIRE( common::CookedShader_ComputeInterfaceHash(
+        shaderInterface, &interfaceHash ) );
+    common::cooked_shader_stage_source_t stages[2]{};
+    stages[0].stage = common::render_shader_stage_t::VERTEX;
+    stages[0].code = {
+        reinterpret_cast<const common::byte *>( vertexSource.c_str() ),
+        vertexSource.size() + 1u
+    };
+    stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+    stages[1].code = {
+        reinterpret_cast<const common::byte *>( fragmentSource.c_str() ),
+        fragmentSource.size() + 1u
+    };
+    std::vector<common::byte> shaderBytes( common::CookedShader_RequiredSizeV3(
+        {}, { stages, 2u }, shaderInterface ) );
+    REQUIRE_FALSE( shaderBytes.empty() );
+    REQUIRE( common::CookedShader_Succeeded( common::CookedShader_WriteV3(
+        {}, { stages, 2u }, shaderInterface,
+        common::ContentHash_String( common::StringView_FromCString( shaderPath ) ),
+        { shaderBytes.data(), shaderBytes.size() } ) ) );
+
+    const auto cookTexture = []( const char *path,
+        common::render_texture_usage_t usage, const common::u32 width,
+        const common::byte *pixels ) {
+        common::cooked_texture_desc_t description{};
+        description.pixelFormat = common::render_texture_pixel_format_t::RGBA8_UNORM;
+        description.usage = usage;
+        description.colorSpace = common::render_texture_color_space_t::LINEAR;
+        description.nWidth = width;
+        description.nHeight = description.nMipLevels = 1u;
+        const common::u32 byteSize = width * 4u;
+        const common::cooked_texture_mip_source_t mip{
+            width, 1u, 1u, byteSize, { pixels, byteSize }
+        };
+        std::vector<common::byte> bytes( common::CookedTexture_RequiredSize(
+            description, { &mip, 1u } ) );
+        REQUIRE_FALSE( bytes.empty() );
+        REQUIRE( common::CookedTexture_Succeeded( common::CookedTexture_Write(
+            description, { &mip, 1u },
+            common::ContentHash_String( common::StringView_FromCString( path ) ),
+            { bytes.data(), bytes.size() } ) ) );
+        return bytes;
+    };
+    constexpr common::byte redAlbedo[4]{ 255u, 0u, 0u, 255u };
+    // Opposite +Y/-Y tangent-space normals make a missing mirror correction
+    // reverse the bright and dim pixels in the second World draw.
+    constexpr common::byte normals[8]{
+        128u, 255u, 128u, 255u, 128u, 0u, 128u, 255u
+    };
+    std::vector<common::byte> albedoBytes = cookTexture(
+        albedoPath, common::render_texture_usage_t::COLOR, 1u, redAlbedo );
+    std::vector<common::byte> normalBytes = cookTexture(
+        normalPath, common::render_texture_usage_t::NORMAL, 2u, normals );
+    common::cooked_material_texture_source_v2_t materialTextures[2]{};
+    materialTextures[0].binding = bindings[2].name;
+    materialTextures[0].texture = common::StringView_FromCString( albedoPath );
+    materialTextures[0].nLogicalBinding = bindings[2].nLogicalBinding;
+    materialTextures[1].binding = bindings[3].name;
+    materialTextures[1].texture = common::StringView_FromCString( normalPath );
+    materialTextures[1].nLogicalBinding = bindings[3].nLogicalBinding;
+    common::cooked_material_source_v2_t materialDescription{};
+    materialDescription.shader = common::StringView_FromCString( shaderPath );
+    materialDescription.shaderInterfaceHash = interfaceHash;
+    materialDescription.textures = { materialTextures, 2u };
+    std::vector<common::byte> materialBytes( common::CookedMaterial_RequiredSizeV2(
+        materialDescription ) );
+    REQUIRE_FALSE( materialBytes.empty() );
+    REQUIRE( common::CookedMaterial_Succeeded( common::CookedMaterial_WriteV2(
+        materialDescription,
+        common::ContentHash_String( common::StringView_FromCString( materialPath ) ),
+        { materialBytes.data(), materialBytes.size() } ) ) );
+
+    struct memory_file_t {
+        common::string_view_t path{};
+        common::binary_block_t contents{};
+    };
+    struct memory_vfs_t {
+        memory_file_t files[4]{};
+    } memory{};
+    memory.files[0] = { common::StringView_FromCString( cookedMaterialPath ),
+        { materialBytes.data(), materialBytes.size() } };
+    memory.files[1] = { common::StringView_FromCString( cookedShaderPath ),
+        { shaderBytes.data(), shaderBytes.size() } };
+    memory.files[2] = { common::StringView_FromCString( cookedAlbedoPath ),
+        { albedoBytes.data(), albedoBytes.size() } };
+    memory.files[3] = { common::StringView_FromCString( cookedNormalPath ),
+        { normalBytes.data(), normalBytes.size() } };
+    static const common::vfs_ops_t operations{
+        []( void *userData, common::string_view_t path, common::usize maximum,
+            common::blob_t *destination ) noexcept -> common::vfs_status_t {
+            const auto &files = *static_cast<const memory_vfs_t *>( userData );
+            for ( const auto &file : files.files ) {
+                if ( !common::StringView_Equals( path, file.path ) ) continue;
+                if ( file.contents.cbSize > maximum ) return common::vfs_status_t::SIZE_LIMIT;
+                return common::Blob_Assign( destination, file.contents )
+                    ? common::vfs_status_t::OK : common::vfs_status_t::OUT_OF_MEMORY;
+            }
+            return common::vfs_status_t::NOT_FOUND;
+        }, nullptr, nullptr, nullptr
+    };
+    const common::vfs_t vfs{ &operations, &memory, common::VFS_CAPABILITY_READ_ALL };
+    resource::render_asset_loader_context_t loader{};
+    REQUIRE( resource::Res_InitRenderAssetLoader(
+        &loader, resource::Res_DefaultRenderAssetLoaderConfig( &vfs ) ) );
+    resource::resource_manager_t resources{};
+    auto resourceConfig = resource::Res_DefaultConfig();
+    resourceConfig.cResourceCapacity = 8u;
+    resourceConfig.cTypeCapacity = 3u;
+    REQUIRE( resource::Res_Init( &resources, resourceConfig ) ==
+        resource::resource_error_t::OK );
+    REQUIRE( resource::Res_RegisterRenderAssetLoaders( &resources, &loader ) ==
+        resource::resource_error_t::OK );
+
+    render::render_vertex_layout_t layout{};
+    layout.bindingCount = 1u;
+    layout.bindings[0].stride = 12u * sizeof( float );
+    layout.attributeCount = 4u;
+    layout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    layout.attributes[1] = { render::render_format_t::RGB32_FLOAT,
+        3u * sizeof( float ), 1u, 0u };
+    layout.attributes[2] = { render::render_format_t::RG32_FLOAT,
+        6u * sizeof( float ), 2u, 0u };
+    layout.attributes[3] = { render::render_format_t::RGBA32_FLOAT,
+        8u * sizeof( float ), 4u, 0u };
+    render::render_material_bundle_desc_t bundleDescription{};
+    bundleDescription.pResources = &resources;
+    bundleDescription.cookedMaterialPath =
+        common::StringView_FromCString( cookedMaterialPath );
+    bundleDescription.vertexLayout = layout;
+    bundleDescription.uniformBlockCount = 2u;
+    bundleDescription.uniformBlocks[0] = { "View", 256u };
+    bundleDescription.uniformBlocks[1] = { "Model", 112u };
+    bundleDescription.debugName = "Native cooked World normal map";
+    render::render_material_bundle_t bundle{};
+    REQUIRE( render::R_CreateCookedMaterialBundle(
+        bundleDescription, &bundle ).status ==
+        render::render_material_bridge_status_t::OK );
+    CHECK( bundle.textureCount == 2u );
+    CHECK( bundle.passShadowSlot == render::R_MAX_SAMPLED_TEXTURE_BINDINGS );
+    render::render_texture_info_t normalInfo{};
+    REQUIRE( render::R_GetTextureInfo( bundle.textures[1], &normalInfo ) ==
+        render::render_error_t::OK );
+    CHECK_FALSE( normalInfo.sRGB );
+    CHECK( resource::Res_GetStats( &resources ).cLiveResources == 0u );
+    REQUIRE( resource::Res_Shutdown( &resources ) == resource::resource_error_t::OK );
+    std::memset( materialBytes.data(), 0, materialBytes.size() );
+    std::memset( shaderBytes.data(), 0, shaderBytes.size() );
+    std::memset( albedoBytes.data(), 0, albedoBytes.size() );
+    std::memset( normalBytes.data(), 0, normalBytes.size() );
+
+    // A large triangle covers the target. UV0 reaches normal-map texel
+    // centers near the two readback pixels; albedo remains one uniform texel.
+    constexpr float vertices[36]{
+        -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.1f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f,
+         3.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.7f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f,
+        -1.0f,  3.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.1f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f
+    };
+    constexpr common::u16 indices[3]{ 0u, 1u, 2u };
+    render::render_static_mesh_source_t meshSource{};
+    meshSource.vertexLayout = layout;
+    meshSource.vertexBytes = vertices;
+    meshSource.vertexByteSize = sizeof( vertices );
+    meshSource.vertexCount = 3u;
+    meshSource.indexBytes = indices;
+    meshSource.indexByteSize = sizeof( indices );
+    meshSource.indexCount = 3u;
+    render::render_static_mesh_bundle_t mesh{};
+    REQUIRE( render::R_CreateStaticMeshBundle( meshSource, &mesh ).status ==
+        render::render_static_mesh_bridge_status_t::OK );
+    world::world_t *pWorld = nullptr;
+    world::world_submission_t *pSubmission = nullptr;
+    REQUIRE( world::World_Init( &pWorld, common::Allocator_GetSystem(), 1u ) ==
+        world::world_error_t::OK );
+    REQUIRE( world::WorldSubmission_Init(
+        &pSubmission, common::Allocator_GetSystem(), 1u ) ==
+        world::world_submission_error_t::OK );
+    world::world_object_t object{};
+    object.localToWorld = math::Affine3_FromTranslation( { 0.0f, 0.0f, 0.0f } );
+    object.worldBounds = math::Aabb_Make(
+        { -1.0f, -1.0f, -0.01f }, { 3.0f, 3.0f, 0.01f } );
+    object.layerMask = 1u;
+    object.meshSlot = object.materialSlot = 0u;
+    world::world_object_id_t objectId{};
+    REQUIRE( world::World_AddObject( pWorld, &object, &objectId ) ==
+        world::world_error_t::OK );
+    world::world_view_query_t query{};
+    constexpr common::f32 frustumExtent = 20.0f;
+    query.frustum.planes[0] = math::Plane_Make( { 1.0f, 0.0f, 0.0f }, frustumExtent );
+    query.frustum.planes[1] = math::Plane_Make( { -1.0f, 0.0f, 0.0f }, frustumExtent );
+    query.frustum.planes[2] = math::Plane_Make( { 0.0f, 1.0f, 0.0f }, frustumExtent );
+    query.frustum.planes[3] = math::Plane_Make( { 0.0f, -1.0f, 0.0f }, frustumExtent );
+    query.frustum.planes[4] = math::Plane_Make( { 0.0f, 0.0f, 1.0f }, frustumExtent );
+    query.frustum.planes[5] = math::Plane_Make( { 0.0f, 0.0f, -1.0f }, frustumExtent );
+    query.cameraPosition = { 0.0f, 0.0f, 0.0f };
+    query.maxDistance = 100.0f;
+    query.layerMask = 1u;
+    world::world_submission_token_t token{};
+    REQUIRE( world::WorldSubmission_Build(
+        pSubmission, pWorld, &query, &token ) ==
+        world::world_submission_error_t::OK );
+    render::render_world_view_lighting_desc_t lighting{};
+    lighting.ambientLight = { 0.1f, 0.1f, 0.1f };
+    lighting.directionToLight = { 0.0f, 1.0f, 0.0f };
+    lighting.directionalRadiance = { 0.6f, 0.6f, 0.6f };
+    render::render_world_view_lighting_record_t viewRecord{};
+    REQUIRE( render::R_PackWorldViewLighting( lighting, &viewRecord ) ==
+        render::render_error_t::OK );
+    render::render_buffer_desc_t viewDescription{};
+    viewDescription.byteSize = sizeof( viewRecord );
+    viewDescription.usage = render::R_BUFFER_USAGE_UNIFORM;
+    const render::render_buffer_data_t viewData{ &viewRecord, sizeof( viewRecord ) };
+    render::render_buffer_handle_t viewBuffer{};
+    REQUIRE( render::R_CreateBuffer( viewDescription, &viewData, &viewBuffer ) ==
+        render::render_error_t::OK );
+    render::render_uniform_batch_t modelUniforms{};
+    REQUIRE( render::R_CreateUniformBatch( 112u, nullptr, &modelUniforms ) ==
+        render::render_error_t::OK );
+    render::render_scene_item_t sceneScratch[1]{};
+    common::u32 indexScratch[1]{};
+    render::render_world_camera_prepare_desc_t prepare{};
+    prepare.submission = pSubmission;
+    prepare.token = token;
+    prepare.meshes = &mesh;
+    prepare.meshCount = 1u;
+    prepare.materials = &bundle;
+    prepare.materialCount = 1u;
+    prepare.modelUniforms = &modelUniforms;
+    prepare.modelUniformSlot = 1u;
+    prepare.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL;
+    prepare.drawTemplate.uniformBuffers[0] = viewBuffer;
+    prepare.sceneItemsScratch = sceneScratch;
+    prepare.sceneItemCapacity = 1u;
+    prepare.passIndicesScratch = indexScratch;
+    prepare.passIndexCapacity = 1u;
+    render::render_world_camera_draw_t draws[1]{};
+    render::render_world_camera_pass_counts_t counts{};
+    REQUIRE( render::R_PrepareWorldCameraDraws(
+        prepare, draws, 1u, &counts ) == render::render_error_t::OK );
+    REQUIRE( counts.opaqueCount == 1u );
+    CHECK( counts.blendCount == 0u );
+    CHECK( counts.additiveCount == 0u );
+    CHECK( draws[0].objectId.incarnation == objectId.incarnation );
+    CHECK( draws[0].draw.sampledTextures[0].value == bundle.textures[0].value );
+    CHECK( draws[0].draw.sampledTextures[1].value == bundle.textures[1].value );
+    CHECK( draws[0].draw.uniformRanges[1].byteSize == 112u );
+
+    render::render_texture_desc_t targetDescription{};
+    targetDescription.width = targetDescription.height = 8u;
+    targetDescription.sRGB = false;
+    targetDescription.generateMips = false;
+    targetDescription.repeat = false;
+    targetDescription.renderTarget = true;
+    targetDescription.format = render::render_texture_format_t::RGBA8;
+    render::render_texture_handle_t color{}, depth{};
+    REQUIRE( render::R_CreateTexture2D( targetDescription, {}, &color ) ==
+        render::render_error_t::OK );
+    targetDescription.format = render::render_texture_format_t::D24;
+    REQUIRE( render::R_CreateTexture2D( targetDescription, {}, &depth ) ==
+        render::render_error_t::OK );
+    render::render_target_handle_t target{};
+    REQUIRE( render::R_CreateRenderTarget( { color, depth }, &target ) ==
+        render::render_error_t::OK );
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    render::render_target_pass_desc_t pass{};
+    pass.target = target;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    REQUIRE( render::R_DrawIndexed( draws[0].draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    std::array<common::u8, 4u> positive{}, negative{};
+    REQUIRE( render::R_ReadTargetRGBA8( target, { 1u, 4u, 1u, 1u },
+        positive.data(), positive.size(), 4u ) == render::render_error_t::OK );
+    REQUIRE( render::R_ReadTargetRGBA8( target, { 6u, 4u, 1u, 1u },
+        negative.data(), negative.size(), 4u ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+    INFO( "normal-map +Y RGB (" << int( positive[0] ) << "," << int( positive[1] )
+        << "," << int( positive[2] ) << ") -Y RGB (" << int( negative[0] )
+        << "," << int( negative[1] ) << "," << int( negative[2] ) << ")" );
+    CHECK( positive[0] >= 160u );
+    CHECK( positive[0] <= 190u );
+    CHECK( negative[0] >= 15u );
+    CHECK( negative[0] <= 45u );
+    CHECK( positive[0] >= negative[0] + 110u );
+    CHECK( positive[1] <= 8u );
+    CHECK( positive[2] <= 8u );
+    CHECK( negative[1] <= 8u );
+    CHECK( negative[2] <= 8u );
+    CHECK( positive[3] == 255u );
+    CHECK( negative[3] == 255u );
+
+    // The reflected triangle swaps its UV0 texels on screen. The World
+    // adapter selects CW-front culling, while the shader must flip the
+    // bitangent sign separately so +Y stays bright and -Y stays dim.
+    world::WorldSubmission_End( pSubmission );
+    object.localToWorld = math::Affine3_FromScale( { -1.0f, 1.0f, 1.0f } );
+    object.worldBounds = math::Aabb_Make(
+        { -3.0f, -1.0f, -0.01f }, { 1.0f, 3.0f, 0.01f } );
+    REQUIRE( world::World_UpdateObject( pWorld, objectId, &object ) ==
+        world::world_error_t::OK );
+    REQUIRE( world::WorldSubmission_Build(
+        pSubmission, pWorld, &query, &token ) ==
+        world::world_submission_error_t::OK );
+    prepare.token = token;
+    REQUIRE( render::R_ResetUniformBatch( &modelUniforms ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_PrepareWorldCameraDraws(
+        prepare, draws, 1u, &counts ) == render::render_error_t::OK );
+    REQUIRE( counts.opaqueCount == 1u );
+    CHECK( draws[0].draw.pipeline.value == bundle.mirroredPipeline.value );
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    REQUIRE( render::R_DrawIndexed( draws[0].draw ) == render::render_error_t::OK );
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    std::array<common::u8, 4u> mirroredNegative{}, mirroredPositive{};
+    REQUIRE( render::R_ReadTargetRGBA8( target, { 1u, 4u, 1u, 1u },
+        mirroredNegative.data(), mirroredNegative.size(), 4u ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_ReadTargetRGBA8( target, { 6u, 4u, 1u, 1u },
+        mirroredPositive.data(), mirroredPositive.size(), 4u ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+    INFO( "mirrored normal-map -Y red " << int( mirroredNegative[0] )
+        << " +Y red " << int( mirroredPositive[0] ) );
+    CHECK( mirroredNegative[0] >= 15u );
+    CHECK( mirroredNegative[0] <= 45u );
+    CHECK( mirroredPositive[0] >= 160u );
+    CHECK( mirroredPositive[0] <= 190u );
+    CHECK( mirroredPositive[0] >= mirroredNegative[0] + 110u );
+    CHECK( mirroredNegative[3] == 255u );
+    CHECK( mirroredPositive[3] == 255u );
+
+    REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
+    world::WorldSubmission_End( pSubmission );
+    world::WorldSubmission_Shutdown( &pSubmission );
+    world::World_Shutdown( &pWorld );
+    REQUIRE( render::R_DestroyUniformBatch( &modelUniforms ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_DestroyBuffer( viewBuffer ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyCookedMaterialBundle( &bundle ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) ==
+        render::render_error_t::OK );
+}
+
 void CheckWorldMaskShadowDrawing( const render::render_extent_t extent )
 {
     // A MASK caster must leave the transparent half of the light's depth
@@ -6317,6 +6746,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckCookedWorldCameraPassDrawing( info->drawableExtent );
     CheckCookedWorldViewLightingDrawing( info->drawableExtent );
     CheckCookedWorldLightmapDrawing( info->drawableExtent );
+    CheckCookedWorldNormalMapDrawing( info->drawableExtent );
     CheckWorldMaskShadowDrawing( info->drawableExtent );
     CheckCookedWorldShadowDrawing( info->drawableExtent );
 

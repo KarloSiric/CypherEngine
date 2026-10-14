@@ -389,9 +389,23 @@ native pixel oracle holds UV0 fixed across a face while UV1 crosses bright
 and dim baked-lighting texels, then verifies the World-prepared draw changes
 brightness across the face. The shader is hand-built cooked data in this test:
 the authored shader workflow does not yet provide the needed complete
-material binding recipe. Lightmap generation, directional lightmaps, normal
-mapping, and combining this two-slot material with a pass shadow map remain
+material binding recipe. Lightmap generation, directional lightmaps, and
+combining this two-slot material with a normal or pass shadow map remain
 separate work.
+
+Another opaque World camera material may bind a linear RGBA8 cooked NORMAL
+image in slot 1 with albedo in slot 0, both using UV0. Its vertex layout
+exposes a tangent `vec4` at location 4; xyz supplies the tangent and w its
+handedness. A compatible shader transforms the normal with the Model
+inverse-transpose, transforms and re-orthogonalizes the tangent with the
+model's linear part, adjusts tangent handedness for a reflected model, then
+decodes the sampled normal into that basis. The native pixel oracle uses one
+constant red albedo and opposite +Y/-Y tangent-space normals. It checks that
+the World directional light keeps the +Y side bright and the -Y side dim
+before and after mirroring the object. The fixture uses hand-built cooked
+shader data, so
+authored shader recipes and a combined albedo/normal/lightmap material
+remain future work.
 
 `R_PrepareOpaqueWorldDraws` remains the small depth-writing entry point.
 `R_PrepareWorldCameraDraws` accepts OPAQUE, opt-in MASK, BLEND, and ADDITIVE

@@ -222,8 +222,17 @@ render_error_t R_CreateTexture2DFromCooked(
         }
     }
 
+    // A tangent-space normal is sampled as linear RGBA8 data. Keep the
+    // existing color subset unchanged and reject every other non-color use.
+    const bool normalMap = verified.desc.usage ==
+        common::render_texture_usage_t::NORMAL;
     if ( verified.desc.dimension != common::render_texture_dimension_t::TEXTURE_2D ||
-         verified.desc.usage != common::render_texture_usage_t::COLOR ||
+         ( verified.desc.usage != common::render_texture_usage_t::COLOR &&
+           !normalMap ) ||
+         ( normalMap &&
+           ( verified.desc.colorSpace != common::render_texture_color_space_t::LINEAR ||
+             verified.desc.pixelFormat !=
+                 common::render_texture_pixel_format_t::RGBA8_UNORM ) ) ||
          verified.desc.residency != common::cooked_texture_residency_t::FULLY_RESIDENT ||
          verified.desc.nDepth != 1u || verified.desc.nFrames != 1u ||
          verified.desc.nLayers != 1u || verified.desc.nFaces != 1u ||

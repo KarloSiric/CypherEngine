@@ -75,6 +75,8 @@ struct cooked_files_t {
     common::u32 textureUvSets[2]{};
     common::f64 secondUvScale{ 1.0 };
     bool linearSecondTexture{ false };
+    bool normalFirstTexture{ false };
+    bool normalSecondTexture{ false };
 
     void Build( common::u32 textureCount, bool mismatch = false,
         bool withFeature = false, bool withSampler = false,
@@ -125,9 +127,14 @@ struct cooked_files_t {
 
         constexpr common::byte albedoPixels[4]{ 0xDAu, 0x10u, 0x20u, 0xFFu };
         constexpr common::byte detailPixels[4]{ 0x13u, 0x42u, 0x71u, 0xFFu };
-        MakeTexture( albedo, Text( "textures/albedo.cytex" ), albedoPixels );
+        MakeTexture( albedo, Text( "textures/albedo.cytex" ), albedoPixels,
+            normalFirstTexture,
+            normalFirstTexture ? common::render_texture_usage_t::NORMAL
+                               : common::render_texture_usage_t::COLOR );
         MakeTexture( detail, Text( "textures/detail.cytex" ), detailPixels,
-            linearSecondTexture );
+            linearSecondTexture || normalSecondTexture,
+            normalSecondTexture ? common::render_texture_usage_t::NORMAL
+                                : common::render_texture_usage_t::COLOR );
 
         common::cooked_material_texture_source_v2_t textures[2]{};
         textures[0].binding = bindings[0].name;
@@ -347,9 +354,11 @@ struct cooked_files_t {
 
     static void MakeTexture( std::vector<common::byte> &file,
         common::string_view_t name, const common::byte ( &pixels )[4],
-        bool linear = false )
+        bool linear = false,
+        common::render_texture_usage_t usage = common::render_texture_usage_t::COLOR )
     {
         common::cooked_texture_desc_t description{};
+        description.usage = usage;
         if ( linear ) {
             description.pixelFormat =
                 common::render_texture_pixel_format_t::RGBA8_UNORM;
@@ -740,6 +749,17 @@ struct bridge_fixture_t {
         return description;
     }
 
+    render::render_material_bundle_desc_t NormalDescription()
+    {
+        auto description = Description();
+        description.vertexLayout.bindings[0].stride = 28u;
+        description.vertexLayout.attributeCount = 2u;
+        description.vertexLayout.attributes[1] = {
+            render::render_format_t::RGBA32_FLOAT, 12u, 4u, 0u
+        };
+        return description;
+    }
+
     void UseTint( common::string_view_t shaderValueName = Text( "tint" ),
         common::render_shader_value_type_t shaderValueType =
             common::render_shader_value_type_t::F32X4,
@@ -1012,6 +1032,108 @@ TEST_CASE( "lightmap texture upload failure retires partial GPU ownership",
     fixture.failTextureAt = 2u;
     const auto result = render::R_CreateCookedMaterialBundle(
         fixture.LightmapDescription(), &fixture.bundle );
+    CHECK( result.status == render::render_material_bridge_status_t::RENDER_ERROR );
+    CHECK( result.renderError == render::render_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( fixture.shaderCreates == 1u );
+    CHECK( fixture.shaderDestroys == 1u );
+    CHECK( fixture.textureCreates == 2u );
+    CHECK( fixture.textureDestroys == 1u );
+    CHECK( fixture.pipelineCreates == 0u );
+    CHECK( fixture.bundle.shader.value == 0u );
+    CHECK( fixture.bundle.textures[0].value == 0u );
+    CHECK( fixture.bundle.textures[1].value == 0u );
+    CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+}
+
+TEST_CASE( "opaque cooked material adopts a linear UV0 tangent-space normal texture",
+    "[CypherRender][MaterialBridge][Normal]" )
+{
+    bridge_fixture_t fixture{};
+    fixture.cooked.normalSecondTexture = true;
+    fixture.Init( 2u );
+
+    const auto result = render::R_CreateCookedMaterialBundle(
+        fixture.NormalDescription(), &fixture.bundle );
+    REQUIRE( result.status == render::render_material_bridge_status_t::OK );
+    CHECK( fixture.bundle.textureCount == 2u );
+    CHECK( fixture.lastPipelineTextureCount == 2u );
+    CHECK( fixture.uploadedSrgb[0] );
+    CHECK_FALSE( fixture.uploadedSrgb[1] );
+    CHECK( fixture.uploadedFormats[1] == render::render_texture_format_t::RGBA8 );
+    CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+
+    // GPU handles remain valid after the VFS's borrowed cooked bytes are gone.
+    std::memset( fixture.cooked.detail.data(), 0, fixture.cooked.detail.size() );
+    render::render_draw_indexed_desc_t draw{};
+    REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
+                 fixture.bundle, &draw ) == render::render_error_t::OK );
+    CHECK( draw.sampledTextures[0].value == fixture.bundle.textures[0].value );
+    CHECK( draw.sampledTextures[1].value == fixture.bundle.textures[1].value );
+    CHECK( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+        render::render_error_t::OK );
+    CHECK( fixture.textureDestroys == 2u );
+    CHECK( fixture.shaderDestroys == 1u );
+}
+
+TEST_CASE( "normal-map material rejects unsupported roles before GPU allocation",
+    "[CypherRender][MaterialBridge][Normal]" )
+{
+    bridge_fixture_t fixture{};
+    fixture.cooked.normalSecondTexture = true;
+    auto expected = render::render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
+    auto description = fixture.NormalDescription();
+
+    SECTION( "normal in albedo slot" ) {
+        fixture.cooked.normalFirstTexture = true;
+        fixture.cooked.normalSecondTexture = false;
+    }
+    SECTION( "normal in slot 1 but UV1" ) {
+        fixture.cooked.textureUvSets[1] = 1u;
+        description = fixture.LightmapDescription();
+    }
+    SECTION( "nonopaque normal-map material" ) {
+        fixture.Init( 2u, false, false, false,
+            common::render_material_alpha_mode_t::BLEND );
+    }
+    SECTION( "normal-map UV transform" ) {
+        fixture.cooked.secondUvScale = 2.0;
+    }
+    SECTION( "missing tangent attribute" ) {
+        description = fixture.Description();
+        expected = render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
+    }
+    SECTION( "wrong tangent attribute format" ) {
+        description.vertexLayout.attributes[1].format =
+            render::render_format_t::RGB32_FLOAT;
+        expected = render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
+    }
+    SECTION( "normal texture uses float storage" ) {
+        fixture.Init( 2u );
+        fixture.cooked.MakeFloatTexture( fixture.cooked.detail, false,
+            common::render_texture_usage_t::NORMAL );
+        fixture.storage.files[3].contents = {
+            fixture.cooked.detail.data(), fixture.cooked.detail.size() };
+    }
+
+    if ( !resource::Res_IsInitialized( &fixture.resources ) ) fixture.Init( 2u );
+    const auto result = render::R_CreateCookedMaterialBundle(
+        description, &fixture.bundle );
+    CHECK( result.status == expected );
+    CHECK( fixture.shaderCreates == 0u );
+    CHECK( fixture.pipelineCreates == 0u );
+    CHECK( fixture.textureCreates == 0u );
+    CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+}
+
+TEST_CASE( "normal-map upload failure retires partial GPU ownership",
+    "[CypherRender][MaterialBridge][Normal]" )
+{
+    bridge_fixture_t fixture{};
+    fixture.cooked.normalSecondTexture = true;
+    fixture.Init( 2u );
+    fixture.failTextureAt = 2u;
+    const auto result = render::R_CreateCookedMaterialBundle(
+        fixture.NormalDescription(), &fixture.bundle );
     CHECK( result.status == render::render_material_bridge_status_t::RENDER_ERROR );
     CHECK( result.renderError == render::render_error_t::ERR_OUT_OF_MEMORY );
     CHECK( fixture.shaderCreates == 1u );

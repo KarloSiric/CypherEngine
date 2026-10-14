@@ -64,11 +64,12 @@ CYPHER_NODISCARD render_error_t R_CreateTexture2D(
     const render_texture_data_t &data,
     CY_OUT render_texture_handle_t *textureOut ) noexcept;
 // Revalidates an owned CYTX view and synchronously uploads every authored mip.
-// This adoption path accepts only fully resident, tightly packed RGBA8 or
-// RGBA32F 2D color textures with one frame/layer/face and either one level or
-// a complete authored mip chain. Float CYTX payloads require a little-endian
-// host. The caller must keep the cooked file bytes alive and unchanged until
-// the call returns; the renderer retains neither view nor borrowed pixels.
+// This adoption path accepts fully resident, tightly packed RGBA8 or RGBA32F
+// 2D color textures, plus linear RGBA8_UNORM NORMAL textures. Each has one
+// frame/layer/face and either one level or a complete authored mip chain.
+// Float CYTX payloads require a little-endian host. The caller keeps cooked
+// bytes alive and unchanged until the call returns; the renderer retains
+// neither view nor borrowed pixels.
 CYPHER_NODISCARD render_error_t R_CreateTexture2DFromCooked(
     const ::cypher::common::cooked_texture_view_t &cooked,
     CY_OUT render_texture_handle_t *textureOut ) noexcept;

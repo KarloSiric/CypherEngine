@@ -122,10 +122,12 @@ before returning. A focused resource-to-renderer test exercises that ownership
 boundary, including an upload failure and retry. No automatic GPU cache or
 material dependency tracking is implied by this handoff.
 
-For now the bridge accepts only a fully resident, tightly packed 2D color
-image with one frame, layer, and face, in linear/sRGB RGBA8 or linear
-RGBA32_FLOAT. It accepts a single level or an authored mip chain reaching
-1×1. The backend consumes the authored pixels without regenerating them;
+For now the texture adoption path accepts fully resident, tightly packed 2D color images
+with one frame, layer, and face, in linear/sRGB RGBA8 or linear RGBA32_FLOAT.
+It also accepts a cooked `NORMAL` image only when it is linear RGBA8_UNORM;
+OpenGL uploads its encoded tangent-space channels without sRGB conversion.
+It accepts a single level or an authored mip chain reaching 1×1. The backend
+consumes the authored pixels without regenerating them;
 `render_texture_info_t` reports both the level count and whether the chain is
 complete. RGBA32_FLOAT uses 16 little-endian bytes per texel and requires a
 little-endian host for direct upload. The OpenGL 4.1 backend stores it as
@@ -176,9 +178,9 @@ This first bridge accepts CYMT V2 opaque, mask, blend, or additive surface
 materials with the default empty feature variant, no named
 surface, identity UV transforms, and no authored sampler preset. It supports zero to
 two fully resident 2D color textures in linear/sRGB RGBA8 or linear
-RGBA32_FLOAT, with one or a complete authored mip chain, that the existing
-texture-adoption path can upload. Float DATA textures and streamed mip tails
-remain unsupported and are rejected before GPU creation.
+RGBA32_FLOAT, with one or a complete authored mip chain. The normal-map
+variant below uses one color and one NORMAL texture. Float DATA textures and
+streamed mip tails remain unsupported and are rejected before GPU creation.
 Both textures normally use UV0. An opaque static surface may instead put a
 linear RGBA8_UNORM or RGBA32_FLOAT lightmap in material slot 1 with UV set 1,
 while slot 0 remains UV0 albedo. Its vertex layout must declare RG32_FLOAT at
@@ -190,6 +192,16 @@ one compatible hand-built cooked shader: fixed UV0 albedo and independent
 UV1 lighting give visibly different pixels. This is a supplied lightmap,
 not a lightmap baker or a directional-normal lightmap. The two-slot limit also
 means this material cannot reserve slot 1 for a pass-owned shadow map.
+Another opaque two-texture variant keeps COLOR albedo in slot 0 and binds a
+linear RGBA8_UNORM `NORMAL` texture in slot 1, both using UV0. The layout must
+also expose an RGBA32_FLOAT tangent with handedness at location 4 on binding
+0. The bridge validates usage, format, UV, and layout before GPU creation;
+the hand-built shader must decode the sampled tangent-space vector and
+construct its tangent basis, including mirrored-model handedness. A native
+World camera pixel test checks that opposite +Y/-Y normal texels change
+directional diffuse with constant albedo, including after mirroring the
+World object. The bridge cannot prove shader semantics, and this slot-1 normal
+map cannot coexist with the slot-1 lightmap or pass shadow map yet.
 The first supported material value is one F32X4 `tint` at byte offset zero.
 The cooked shader must declare a matching MATERIAL VALUE and a 16-byte
 MATERIAL uniform block named `Material`, whose GLSL std140 member is

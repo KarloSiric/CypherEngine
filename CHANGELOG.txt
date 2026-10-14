@@ -41,6 +41,15 @@ Changed
   reserved feature paths remain unimplemented.
 
 Added
+- Cooked linear RGBA8 normal textures can upload, and opaque cooked World
+  materials may bind one beside COLOR albedo on UV0. The bridge requires a
+  tangent vec4 at vertex location 4; wrong usage, format, UV, alpha state or
+  layout fails before GPU creation, and upload failure rolls back. Focused
+  texture/material CPU tests and a native OpenGL 4.1 World camera pixel test
+  pass locally. Fixed albedo with opposite tangent-space normal texels changes
+  directional diffuse, including after a mirrored World transform. This uses
+  a hand-built cooked shader; the two-slot contract cannot combine normal
+  maps with lightmaps or pass shadows.
 - Opaque cooked World materials can adopt a second linear RGB lightmap on
   UV1 while albedo stays on UV0. The bridge requires RG32_FLOAT UV1 at vertex
   location 3; unsupported UV layouts, transforms and sRGB lightmaps fail
@@ -59,7 +68,8 @@ Added
   locally. The host still supplies lights, shadow target, View upload and
   pass order; authored shader recipes cannot emit the needed uniform-block
   or depth-sampler bindings. The supplied static-lightmap path above does
-  not bake lighting; normal-mapped world materials remain separate work.
+  not bake lighting; a combined normal-mapped and lightmapped world
+  material remains separate work.
 - Cooked material bundles can reserve sampled slot 1 for a caller-owned D24
   shadow map and explicit comparison sampler while owning one albedo texture
   in slot 0. The bridge validates the cooked binding, draw-time resource pair

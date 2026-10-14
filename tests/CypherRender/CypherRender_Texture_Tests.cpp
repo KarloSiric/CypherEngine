@@ -434,6 +434,55 @@ TEST_CASE( "cooked RGBA8 images upload their exact pixels and retain no borrowed
     REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
 }
 
+TEST_CASE( "cooked linear RGBA8 normal map uploads without sRGB conversion or borrowed bytes",
+    "[CypherRender][Texture][Cooked][Normal]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    const common::byte pixels[4]{ 0x80u, 0x80u, 0xFFu, 0xFFu };
+    common::cooked_texture_desc_t desc{};
+    desc.usage = common::render_texture_usage_t::NORMAL;
+    desc.pixelFormat = common::render_texture_pixel_format_t::RGBA8_UNORM;
+    desc.storageFormat = common::render_format_t::RGBA8_UNORM;
+    desc.colorSpace = common::render_texture_color_space_t::LINEAR;
+    desc.nWidth = desc.nHeight = desc.nMipLevels = 1u;
+    const common::cooked_texture_mip_source_t mip{
+        1u, 1u, 1u, 4u, { pixels, sizeof( pixels ) }
+    };
+    std::vector<common::byte> file;
+    common::cooked_texture_view_t view{};
+    WriteCookedTexture( desc, &mip, 1u, file, view );
+
+    // NORMAL with sRGB is not even a valid cooked-texture recipe; a modified
+    // borrowed view is separately refused before reaching the backend.
+    auto invalidDesc = desc;
+    invalidDesc.colorSpace = common::render_texture_color_space_t::SRGB;
+    CHECK( common::CookedTexture_RequiredSize( invalidDesc, { &mip, 1u } ) == 0u );
+    auto changedView = view;
+    changedView.desc.colorSpace = common::render_texture_color_space_t::SRGB;
+    render::render_texture_handle_t rejected{ 99u };
+    CHECK( render::R_CreateTexture2DFromCooked( changedView, &rejected ) ==
+        texture_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( rejected.value == 0u );
+    CHECK( fixture.creates == 0u );
+
+    render::render_texture_handle_t texture{};
+    REQUIRE( render::R_CreateTexture2DFromCooked( view, &texture ) == texture_error_t::OK );
+    CHECK( fixture.creates == 1u );
+    CHECK_FALSE( fixture.captured.sRGB );
+    CHECK( fixture.captured.format == render::render_texture_format_t::RGBA8 );
+    REQUIRE( fixture.capturedPixelBytes == sizeof( pixels ) );
+    CHECK( std::memcmp( fixture.capturedPixels, pixels, sizeof( pixels ) ) == 0 );
+    for ( auto &byte : file ) byte = 0u;
+    file.clear();
+    render::render_texture_info_t info{};
+    REQUIRE( render::R_GetTextureInfo( texture, &info ) == texture_error_t::OK );
+    CHECK_FALSE( info.sRGB );
+    CHECK( std::memcmp( fixture.capturedPixels, pixels, sizeof( pixels ) ) == 0 );
+    REQUIRE( render::R_DestroyTexture( texture ) == texture_error_t::OK );
+    CHECK( fixture.destroys == 1u );
+}
+
 TEST_CASE( "cooked linear RGBA32F uploads all sixteen bytes per texel without borrowing the file",
     "[CypherRender][Texture][Cooked][HDR]" )
 {

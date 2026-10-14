@@ -67,14 +67,20 @@ struct render_material_bridge_result_t {
 
 // Accepts CYMT V2 / CYSH V3 with no features or named
 // surface; SURFACE + OPAQUE, MASK, BLEND, or ADDITIVE state; zero to two
-// 2D color textures (linear/sRGB RGBA8 or linear RGBA32_FLOAT) with identity
-// UV transforms and no sampler preset. Ordinarily both textures use UV0.
+// 2D sampled textures (normally color: linear/sRGB RGBA8 or linear RGBA32_FLOAT)
+// with identity UV transforms and no sampler preset. Ordinarily both use UV0.
 // An opaque two-texture material may instead use UV1 for slot 1 as a static
 // linear-color lightmap; slot 0 must still use UV0. That lightmap must be
 // RGBA8_UNORM or RGBA32_FLOAT and the supplied vertex layout must expose
 // RG32_FLOAT UV1 at location 3 on binding 0. The shader must explicitly read
 // location 3 and sample slot 1 with those coordinates: the bridge checks the
 // declared UV set and layout, but cannot inspect shader sampling logic.
+// Alternatively, an opaque two-texture material may bind a linear RGBA8_UNORM
+// NORMAL texture at slot 1 with UV0, alongside COLOR albedo at slot 0. Its
+// layout must expose a RGBA32_FLOAT tangent (xyz plus handedness) at location 4
+// on binding 0. The shader owns tangent-space reconstruction and must sample
+// the NORMAL texture; the bridge cannot prove shader semantics. A NORMAL
+// texture is rejected in any other slot, with UV1, or for nonopaque state.
 // A lightmap occupies slot 1, so it cannot share this two-slot pipeline with
 // passShadowMapBinding. The only supported material value is one F32X4
 // `tint` at byte offset zero. Its shader must declare a matching MATERIAL VALUE

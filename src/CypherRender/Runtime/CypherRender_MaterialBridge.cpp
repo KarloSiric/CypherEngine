@@ -117,11 +117,28 @@ bool HasLightmapUv1VertexLayout( const render_vertex_layout_t &layout ) noexcept
     return false;
 }
 
+bool HasNormalTangentVertexLayout( const render_vertex_layout_t &layout ) noexcept
+{
+    if ( R_ValidateVertexLayout( layout ) != render_error_t::OK ) return false;
+    for ( common::u32 i = 0u; i < layout.attributeCount; ++i ) {
+        const auto &attribute = layout.attributes[i];
+        if ( attribute.location == 4u ) {
+            return attribute.binding == 0u &&
+                attribute.format == render_format_t::RGBA32_FLOAT;
+        }
+    }
+    return false;
+}
+
 bool TextureSubsetSupported( const common::cooked_texture_view_t &texture ) noexcept
 {
     const auto &desc = texture.desc;
+    const bool color = desc.usage == common::render_texture_usage_t::COLOR;
+    const bool normal = desc.usage == common::render_texture_usage_t::NORMAL &&
+        desc.colorSpace == common::render_texture_color_space_t::LINEAR &&
+        desc.pixelFormat == common::render_texture_pixel_format_t::RGBA8_UNORM;
     return desc.dimension == common::render_texture_dimension_t::TEXTURE_2D &&
-        desc.usage == common::render_texture_usage_t::COLOR &&
+        ( color || normal ) &&
         desc.residency == common::cooked_texture_residency_t::FULLY_RESIDENT &&
         ( desc.pixelFormat == common::render_texture_pixel_format_t::RGBA8_UNORM ||
           desc.pixelFormat == common::render_texture_pixel_format_t::RGBA8_SRGB ||
@@ -507,6 +524,23 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
             if ( textures[i] == nullptr || !TextureSubsetSupported( *textures[i] ) ) {
                 result.status = render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
                 break;
+            }
+            if ( textures[i]->desc.usage ==
+                     common::render_texture_usage_t::NORMAL ) {
+                // One opaque albedo plus one tangent-space normal is the only
+                // currently supported normal-map binding arrangement.
+                if ( i != 1u || pMaterial->nTextures != 2u ||
+                     pMaterial->alphaMode !=
+                         common::render_material_alpha_mode_t::OPAQUE ||
+                     pMaterial->textures[i].nUvSet != 0u ) {
+                    result.status = render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
+                    break;
+                }
+                if ( !HasNormalTangentVertexLayout(
+                         description.vertexLayout ) ) {
+                    result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
+                    break;
+                }
             }
             if ( lightmapUv1 && i == 1u ) {
                 const auto &lightmap = textures[i]->desc;
