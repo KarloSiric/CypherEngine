@@ -5732,6 +5732,23 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CHECK( info->backend == render::render_backend_t::OPENGL );
     CHECK( info->apiMajorVersion >= 4u );
     CHECK( ( info->capabilities & render::R_CAPABILITY_RASTERIZATION ) != 0u );
+    CHECK( ( info->capabilities & render::R_CAPABILITY_INSTANCING ) != 0u );
+    CHECK( ( info->capabilities & render::R_CAPABILITY_FLOAT_RENDER_TARGETS ) != 0u );
+    // These driver features have no public CypherRender path yet. Requiring
+    // one must not make an otherwise valid renderer appear usable.
+    constexpr render::render_capability_flags_t unavailable =
+        render::R_CAPABILITY_DRAW_INDIRECT |
+        render::R_CAPABILITY_MULTI_DRAW_INDIRECT |
+        render::R_CAPABILITY_GEOMETRY_SHADER |
+        render::R_CAPABILITY_TESSELLATION_SHADER |
+        render::R_CAPABILITY_TEXTURE_ARRAYS |
+        render::R_CAPABILITY_CUBE_MAP_ARRAYS |
+        render::R_CAPABILITY_GPU_TIMESTAMPS |
+        render::R_CAPABILITY_ANISOTROPIC_FILTERING |
+        render::R_CAPABILITY_TEXTURE_COMPRESSION_BC |
+        render::R_CAPABILITY_TEXTURE_COMPRESSION_ETC |
+        render::R_CAPABILITY_TEXTURE_COMPRESSION_ASTC;
+    CHECK( ( info->capabilities & unavailable ) == 0u );
     CHECK( info->drawableExtent.width > 0u );
     CHECK( info->drawableExtent.height > 0u );
 
@@ -5946,6 +5963,62 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     REQUIRE( sys::Sys_DestroyWindow( window ) == sys::sys_error_t::OK );
     REQUIRE( sys::Sys_Shutdown() == sys::sys_error_t::OK );
 
+    std::error_code cleanupError{};
+    std::filesystem::remove_all( userPath, cleanupError );
+}
+
+TEST_CASE( "OpenGL rejects a required feature without a public draw path",
+           "[CypherRender][OpenGL][Smoke]" )
+{
+    const std::filesystem::path userPath = std::filesystem::temp_directory_path() /
+        ( "cypher_render_opengl_capability_" +
+            std::to_string( sys::Sys_GetCurrentProcessId() ) );
+    const std::string userPathString = userPath.string();
+    const char *arguments[]{
+        "cypher_render_opengl_capability_smoke_tests", "-basedir", ".",
+        "-userpath", userPathString.c_str()
+    };
+    const sys::init_info_t initInfo{ 5, arguments,
+        "CypherRenderOpenGLCapabilitySmokeTests", "CypherTests" };
+    if ( sys::Sys_Init( initInfo ) != sys::sys_error_t::OK ) {
+        SKIP( "CypherSystem could not initialize a desktop graphics session" );
+    }
+
+    render::render_config_t config = render::R_DefaultConfig();
+    config.backend = render::render_backend_t::OPENGL;
+    config.presentMode = render::render_present_mode_t::IMMEDIATE;
+    config.sRGBFramebuffer = false;
+    config.requireAcceleration = false;
+    config.requiredCapabilities |= render::R_CAPABILITY_DRAW_INDIRECT;
+    sys::window_desc_t windowDescription{};
+    windowDescription.title = "CypherRender capability smoke test";
+    windowDescription.width = 64u;
+    windowDescription.height = 64u;
+    windowDescription.flags = sys::SYS_WINDOW_HIDDEN;
+    REQUIRE( render::R_ConfigureWindow( config, windowDescription ) ==
+        render::render_error_t::OK );
+
+    sys::window_t window{};
+    if ( sys::Sys_CreateWindow( windowDescription, window ) != sys::sys_error_t::OK ) {
+        REQUIRE( sys::Sys_Shutdown() == sys::sys_error_t::OK );
+        std::error_code cleanupError{};
+        std::filesystem::remove_all( userPath, cleanupError );
+        SKIP( "The host has no OpenGL 4.1-capable window system" );
+    }
+
+    const auto result = render::R_Init( window, config );
+    if ( result == render::render_error_t::ERR_BACKEND_VERSION_UNSUPPORTED ||
+         result == render::render_error_t::ERR_ENTRYPOINT_LOAD_FAILED ) {
+        REQUIRE( sys::Sys_DestroyWindow( window ) == sys::sys_error_t::OK );
+        REQUIRE( sys::Sys_Shutdown() == sys::sys_error_t::OK );
+        std::error_code cleanupError{};
+        std::filesystem::remove_all( userPath, cleanupError );
+        SKIP( "The host cannot initialize an OpenGL 4.1 context" );
+    }
+    CHECK( result == render::render_error_t::ERR_CAPABILITY_MISSING );
+    CHECK_FALSE( render::R_IsInitialized() );
+    REQUIRE( sys::Sys_DestroyWindow( window ) == sys::sys_error_t::OK );
+    REQUIRE( sys::Sys_Shutdown() == sys::sys_error_t::OK );
     std::error_code cleanupError{};
     std::filesystem::remove_all( userPath, cleanupError );
 }

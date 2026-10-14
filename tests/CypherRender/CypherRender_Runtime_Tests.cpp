@@ -91,6 +91,7 @@ TEST_CASE( "default renderer configuration describes the OpenGL bootstrap path" 
     CHECK( config.presentMode == render::render_present_mode_t::FIFO );
     CHECK( config.validation == render::render_validation_t::ERRORS );
     CHECK( config.requiredCapabilities == render::R_CAPABILITY_RASTERIZATION );
+    CHECK( config.optionalCapabilities == render::R_CAPABILITY_NONE );
     CHECK( config.sampleCount == 0u );
     CHECK( config.allowBackendFallback );
     CHECK( config.sRGBFramebuffer );

@@ -818,9 +818,15 @@ Authored scene and mesh loading, broader material support, full command
 scheduling, and shader hot reload
 remain separate work.
 
-Device capability queries describe what the OpenGL driver reports, not a promise
-that the public renderer already exposes every such feature. In particular,
-indirect draws, geometry/tessellation shaders, and texture arrays still need
-public contracts and tests before game or editor code may depend on them. Keep
-those interfaces backend-independent so another
-graphics API can implement the same engine behavior later.
+`render_info_t::capabilities` reports features usable through the current public
+renderer path, not every feature exposed by the OpenGL driver. Rasterization,
+instanced indexed draws, float render targets, and supported sRGB presentation
+are reported; multisampling currently applies only to the default framebuffer.
+Indirect draws, geometry/tessellation shaders, texture arrays, timestamp
+queries, anisotropic sampling, and compressed texture uploads keep their
+reserved capability bits clear until backend-independent contracts and tests
+exist. Requiring one of those bits makes renderer initialization fail with
+`ERR_CAPABILITY_MISSING`, even on a driver that exposes the native feature.
+`optionalCapabilities` is reserved policy in the OpenGL backend: it does not
+enable a feature or filter the reported set. The separate `sampleCount` and
+`sRGBFramebuffer` fields control the currently supported presentation choices.

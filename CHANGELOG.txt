@@ -23,6 +23,18 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 [Unreleased] - 2026-10-14
 -------------------------
 
+Changed
+- OpenGL capability queries report only public renderer features:
+  rasterization, indexed instancing, float render targets, supported sRGB
+  presentation and default-framebuffer multisampling. Indirect draws,
+  geometry/tessellation stages, texture arrays, GPU timestamps, anisotropy and
+  compressed uploads keep reserved bits clear even when the driver supports
+  them. Requiring one of those bits fails initialization with
+  ERR_CAPABILITY_MISSING. The default optional-capability mask is empty;
+  OpenGL does not use it to enable features. Focused runtime and native
+  OpenGL 4.1 smoke tests pass locally. Offscreen multisampling and the
+  reserved feature paths remain unimplemented.
+
 Added
 - A caller can pack a 256-byte std140 View lighting record for World camera
   draws, with camera matrices, ambient and directional radiance, and up to two

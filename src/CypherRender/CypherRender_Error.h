@@ -49,7 +49,7 @@ enum class render_error_t : ::cypher::common::u16 {
     ERR_BACKEND_UNAVAILABLE,              // Backend cannot run on the current machine.
     ERR_API_VERSION_MISMATCH,             // Host and renderer contracts are incompatible.
     ERR_BACKEND_VERSION_UNSUPPORTED,      // Required OpenGL/Vulkan version is unavailable.
-    ERR_CAPABILITY_MISSING,               // Required hardware or driver feature is absent.
+    ERR_CAPABILITY_MISSING,               // Required public renderer capability is unavailable.
     ERR_WINDOW_INCOMPATIBLE,              // Native window attributes reject this backend.
     ERR_CONTEXT_CREATE_FAILED,            // Graphics context or device creation failed.
     ERR_CONTEXT_ACTIVATE_FAILED,          // Context could not be made current.

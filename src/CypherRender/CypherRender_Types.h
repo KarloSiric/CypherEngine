@@ -204,11 +204,10 @@ struct render_config_t {
 
     render_capability_flags_t requiredCapabilities{
         R_CAPABILITY_RASTERIZATION }; // Missing any bit makes initialization fail.
-    render_capability_flags_t optionalCapabilities{
-        R_CAPABILITY_SRGB_FRAMEBUFFER |
-        R_CAPABILITY_DEBUG_OUTPUT |
-        R_CAPABILITY_DEBUG_MARKERS |
-        R_CAPABILITY_GPU_TIMESTAMPS }; // Enabled and reported when supported.
+    // Reserved preference for later backends. OpenGL 4.1 validates this mask
+    // but does not use it to enable features; capabilities reports all usable
+    // public features independently of this field.
+    render_capability_flags_t optionalCapabilities{ R_CAPABILITY_NONE };
 
     ::cypher::common::u8 sampleCount{ 0u }; // Zero disables MSAA; otherwise requests a supported power of two.
     bool allowBackendFallback{ true };      // Reserved policy; no alternate backend exists in the OpenGL-only build.
@@ -220,7 +219,7 @@ struct render_info_t {
     render_backend_t backend{ render_backend_t::AUTO }; // Backend that successfully initialized.
     render_mode_t mode{ render_mode_t::RASTER };        // Rendering mode actually selected.
     render_present_mode_t presentMode{ render_present_mode_t::FIFO }; // Presentation mode actually selected.
-    render_capability_flags_t capabilities{ R_CAPABILITY_NONE };      // Complete supported feature set.
+    render_capability_flags_t capabilities{ R_CAPABILITY_NONE };      // Features usable through this renderer backend's public API.
     render_extent_t drawableExtent{};                                 // Current drawable size in physical pixels.
     render_limits_t limits{};                                         // Numeric limits reported by the active device.
 

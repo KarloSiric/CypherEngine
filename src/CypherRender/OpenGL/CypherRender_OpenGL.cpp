@@ -305,34 +305,6 @@ bool GL_VersionAtLeast(
         ( actualMajor == major && actualMinor >= minor );
 }
 
-// Core-profile extension lookup avoids the deprecated GL_EXTENSIONS string.
-bool GL_HasExtension( const char *extensionName ) noexcept
-{
-    if ( extensionName == nullptr || extensionName[0] == '\0' ||
-         glGetStringi == nullptr ) {
-        return false;
-    }
-
-    GLint extensionCount = 0;
-    glGetIntegerv( GL_NUM_EXTENSIONS, &extensionCount );
-    if ( extensionCount <= 0 ) {
-        return false;
-    }
-
-    for ( GLint extensionIndex = 0; extensionIndex < extensionCount; ++extensionIndex ) {
-        const GLubyte *extension = glGetStringi(
-            GL_EXTENSIONS,
-            static_cast<GLuint>( extensionIndex ) );
-        if ( extension != nullptr && std::strcmp(
-                reinterpret_cast<const char *>( extension ),
-                extensionName ) == 0 ) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 // Converts a nonnegative GLint device limit into Cypher's unsigned contract.
 bool GL_QueryUnsignedLimit(
     const GLenum query,
@@ -385,7 +357,9 @@ bool GL_QueryLimits( render_limits_t &limitsOut ) noexcept
     return glGetError() == GL_NO_ERROR;
 }
 
-// Advertises only features callable through the GLAD profile compiled here.
+// A capability means the public renderer can use the feature, not merely that
+// this driver exposes its OpenGL entry point. Keep reserved bits clear until
+// their backend-neutral resource and command paths exist.
 render_capability_flags_t GL_QueryCapabilities(
     const ::cypher::common::u16 apiMajorVersion,
     const ::cypher::common::u16 apiMinorVersion,
@@ -395,37 +369,11 @@ render_capability_flags_t GL_QueryCapabilities(
     render_capability_flags_t capabilities = R_CAPABILITY_RASTERIZATION;
 
     if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 3u, 1u ) ) capabilities |= R_CAPABILITY_INSTANCING;
-    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 4u, 0u ) ) capabilities |= R_CAPABILITY_DRAW_INDIRECT;
-    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 3u, 2u ) ) capabilities |= R_CAPABILITY_GEOMETRY_SHADER;
-    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 4u, 0u ) ) capabilities |= R_CAPABILITY_TESSELLATION_SHADER;
-    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 3u, 0u ) ) capabilities |= R_CAPABILITY_TEXTURE_ARRAYS;
-    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 4u, 0u ) ) capabilities |= R_CAPABILITY_CUBE_MAP_ARRAYS;
     if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 3u, 0u ) ) capabilities |= R_CAPABILITY_FLOAT_RENDER_TARGETS;
-    if ( GL_VersionAtLeast( apiMajorVersion, apiMinorVersion, 3u, 3u ) ) capabilities |= R_CAPABILITY_GPU_TIMESTAMPS;
     if ( sRGBFramebuffer ) capabilities |= R_CAPABILITY_SRGB_FRAMEBUFFER;
+    // The window's default framebuffer can be multisampled. Offscreen targets
+    // remain single-sample until an explicit resolve path is implemented.
     if ( limits.maxSamples >= 2u ) capabilities |= R_CAPABILITY_MULTISAMPLING;
-
-    if ( GL_HasExtension( "GL_EXT_texture_filter_anisotropic" ) ||
-         GL_HasExtension( "GL_ARB_texture_filter_anisotropic" ) ) {
-        capabilities |= R_CAPABILITY_ANISOTROPIC_FILTERING;
-    }
-    if ( GL_HasExtension( "GL_ARB_texture_compression_bptc" ) ||
-         GL_HasExtension( "GL_EXT_texture_compression_s3tc" ) ||
-         GL_HasExtension( "GL_EXT_texture_compression_dxt1" ) ) {
-        capabilities |= R_CAPABILITY_TEXTURE_COMPRESSION_BC;
-    }
-    if ( GL_HasExtension( "GL_ARB_ES3_compatibility" ) ||
-         GL_HasExtension( "GL_OES_compressed_ETC2_RGB8_texture" ) ) {
-        capabilities |= R_CAPABILITY_TEXTURE_COMPRESSION_ETC;
-    }
-    if ( GL_HasExtension( "GL_KHR_texture_compression_astc_ldr" ) ||
-         GL_HasExtension( "GL_KHR_texture_compression_astc_hdr" ) ) {
-        capabilities |= R_CAPABILITY_TEXTURE_COMPRESSION_ASTC;
-    }
-
-    // GLAD is currently generated for core OpenGL 4.1 without extension
-    // entry points. Do not advertise debug callbacks, compute, SSBOs, or MDI
-    // merely because a newer driver string mentions them.
     return capabilities;
 }
 
