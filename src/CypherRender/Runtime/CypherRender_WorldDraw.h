@@ -73,6 +73,29 @@ CYPHER_NODISCARD render_error_t R_PackWorldViewLighting(
     const render_world_view_lighting_desc_t &description,
     CY_OUT render_world_view_lighting_record_t *output ) noexcept;
 
+// Opt-in shadow-receiving View block. Its first 256 bytes are exactly the
+// unshadowed View above; GLSL declares the same members followed by
+// `mat4 lightClipFromWorld`. The host must use that same light matrix when
+// preparing and drawing the separate shadow pass. This record does not own a
+// shadow texture or schedule either pass.
+struct alignas( 16 ) render_world_shadowed_view_lighting_record_t {
+    render_world_view_lighting_record_t lighting{};
+    ::cypher::math::mat4_t lightClipFromWorld{};
+};
+static_assert( sizeof( render_world_shadowed_view_lighting_record_t ) == 320u );
+static_assert( offsetof( render_world_shadowed_view_lighting_record_t,
+    lighting ) == 0u );
+static_assert( offsetof( render_world_shadowed_view_lighting_record_t,
+    lightClipFromWorld ) == 256u );
+
+// Pure, allocation-free packer for the 320-byte View. The light matrix may be
+// a perspective projection but every component must be finite. On failure
+// output is unchanged. The caller owns its GPU buffer and upload.
+CYPHER_NODISCARD render_error_t R_PackWorldShadowedViewLighting(
+    const render_world_view_lighting_desc_t &description,
+    const ::cypher::math::mat4_t &lightClipFromWorld,
+    CY_OUT render_world_shadowed_view_lighting_record_t *output ) noexcept;
+
 // Selects the shader-visible Model uniform record for camera color draws.
 // MODEL_ONLY is one column-major mat4 (64 bytes). MODEL_NORMAL adds three
 // std140-padded columns of the exact inverse-transpose linear transform at

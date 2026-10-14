@@ -168,9 +168,9 @@ cooked binding and OpenGL pipeline reflection, but neither acquires nor owns
 the pass texture or sampler. Apply validates the live pair and preserves it;
 the host keeps both alive through drawing and avoids sampling a target while
 that target is being written. An ordinary bundle still clears unused draw
-sampler slots. The authored shader cooker cannot yet produce this depth-sampler
-binding, and this binding contract alone does not provide a light-space matrix
-or schedule shadow and camera passes.
+sampler slots. An opt-in 320-byte World lighting View record now carries the
+light-space matrix, but the host still owns its upload and pass order. The
+authored shader cooker cannot yet produce this depth-sampler binding.
 
 This first bridge accepts CYMT V2 opaque, mask, blend, or additive surface
 materials with the default empty feature variant, no named

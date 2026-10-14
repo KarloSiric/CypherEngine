@@ -845,6 +845,23 @@ render_error_t R_PackWorldViewLighting(
     return render_error_t::OK;
 }
 
+render_error_t R_PackWorldShadowedViewLighting(
+    const render_world_view_lighting_desc_t &description,
+    const math::mat4_t &lightClipFromWorld,
+    render_world_shadowed_view_lighting_record_t *output ) noexcept
+{
+    if ( output == nullptr || !math::Mat4_IsFinite( lightClipFromWorld ) ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    render_world_shadowed_view_lighting_record_t packed{};
+    const render_error_t error = R_PackWorldViewLighting(
+        description, &packed.lighting );
+    if ( error != render_error_t::OK ) return error;
+    packed.lightClipFromWorld = lightClipFromWorld;
+    *output = packed;
+    return render_error_t::OK;
+}
+
 render_error_t R_PrepareOpaqueWorldDraws(
     const render_world_opaque_prepare_desc_t &description,
     render_world_opaque_draw_t *output,

@@ -709,6 +709,77 @@ TEST_CASE( "World lighting View validation leaves output unchanged",
         render::render_error_t::ERR_INVALID_ARGUMENT );
 }
 
+TEST_CASE( "shadowed World View extends the existing lighting record",
+    "[CypherRender][WorldDraw][Lighting]" )
+{
+    using record_t = render::render_world_shadowed_view_lighting_record_t;
+    CHECK( sizeof( record_t ) == 320u );
+    CHECK( alignof( record_t ) == 16u );
+    CHECK( offsetof( record_t, lighting ) == 0u );
+    CHECK( offsetof( record_t, lightClipFromWorld ) == 256u );
+
+    render::render_world_view_lighting_desc_t description{};
+    description.viewFromWorld.m[12] = -4.0f;
+    description.clipFromView.m[0] = 1.75f;
+    description.ambientLight = { 0.25f, 0.5f, 1.0f };
+    description.directionToLight = { 0.0f, 2.0f, 0.0f };
+    description.directionalRadiance = { 3.0f, 2.0f, 1.0f };
+    description.pointLightCount = 1u;
+    description.pointLights[0] = {
+        { 3.0f, -2.0f, 6.0f }, 8.0f,
+        { 1.0f, 0.75f, 0.25f }, 2.0f
+    };
+    math::mat4_t lightClipFromWorld = math::CY_MAT4_IDENTITY;
+    lightClipFromWorld.m[3] = 0.125f; // A finite projective matrix is valid.
+    lightClipFromWorld.m[11] = -0.5f;
+    lightClipFromWorld.m[12] = 7.0f;
+
+    render::render_world_view_lighting_record_t existing{};
+    REQUIRE( render::R_PackWorldViewLighting( description, &existing ) ==
+        render::render_error_t::OK );
+    record_t extended{};
+    REQUIRE( render::R_PackWorldShadowedViewLighting(
+                 description, lightClipFromWorld, &extended ) ==
+        render::render_error_t::OK );
+    CHECK( std::memcmp( &extended.lighting, &existing, sizeof( existing ) ) == 0 );
+    CHECK( std::memcmp( &extended.lightClipFromWorld, &lightClipFromWorld,
+               sizeof( lightClipFromWorld ) ) == 0 );
+}
+
+TEST_CASE( "shadowed World View rejects invalid inputs without changing output",
+    "[CypherRender][WorldDraw][Lighting]" )
+{
+    render::render_world_view_lighting_desc_t valid{};
+    math::mat4_t lightClipFromWorld = math::CY_MAT4_IDENTITY;
+    render::render_world_shadowed_view_lighting_record_t output{};
+    std::memset( &output, 0x5a, sizeof( output ) );
+    const auto original = output;
+    const auto reject = [&]( const render::render_world_view_lighting_desc_t &lighting,
+                            const math::mat4_t &lightMatrix ) {
+        CHECK( render::R_PackWorldShadowedViewLighting(
+                   lighting, lightMatrix, &output ) ==
+            render::render_error_t::ERR_INVALID_ARGUMENT );
+        CHECK( std::memcmp( &output, &original, sizeof( output ) ) == 0 );
+    };
+
+    lightClipFromWorld.m[5] = std::numeric_limits<common::f32>::quiet_NaN();
+    reject( valid, lightClipFromWorld );
+    lightClipFromWorld = math::CY_MAT4_IDENTITY;
+    lightClipFromWorld.m[15] = std::numeric_limits<common::f32>::infinity();
+    reject( valid, lightClipFromWorld );
+    lightClipFromWorld = math::CY_MAT4_IDENTITY;
+    valid.directionalRadiance.x = -0.25f;
+    reject( valid, lightClipFromWorld );
+    valid.directionalRadiance.x = 0.0f;
+    valid.pointLightCount = 1u;
+    valid.pointLights[0].range = 0.0f;
+    reject( valid, lightClipFromWorld );
+    CHECK( render::R_PackWorldShadowedViewLighting(
+               valid, lightClipFromWorld, nullptr ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( std::memcmp( &output, &original, sizeof( output ) ) == 0 );
+}
+
 TEST_CASE( "visible opaque World objects resolve ordered draws and aligned models",
     "[CypherRender][WorldDraw]" )
 {

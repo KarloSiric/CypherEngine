@@ -319,10 +319,12 @@ A camera draw may use a cooked bundle with a pass-owned shadow binding in
 sampled slot 1. The host seeds `drawTemplate` with a live D24 render-target
 texture and an explicit depth-comparison sampler; the World adapter validates
 the pair during preflight and preserves it when publishing each draw. The
-bundle owns its slot-0 albedo only. This is a draw-binding path, not a complete
-shadowed World lighting pass: the current 256-byte World `View` record has no
-light-space matrix, and authored shader recipes cannot yet emit the depth
-sampler binding.
+bundle owns its slot-0 albedo only. The opt-in 320-byte World lighting View
+record appends the light clip-from-world matrix after the original 256 bytes;
+the caller must use that same matrix for the light-view shadow pass. This is a
+draw-binding and data path rather than a general pass scheduler: the host still
+owns the light, shadow target, pass order, and GPU View upload, and authored
+shader recipes cannot yet emit the required depth-sampler binding.
 
 The bridge preflights the complete visible set before it appends uniform bytes.
 Missing slots, stale renderer handles, unsupported material modes, invalid
@@ -369,6 +371,14 @@ translucent objects. A compatible lit shader uses this View block with the
 not yet store light objects. This no-shadow View block is deliberately separate
 from the graybox sample's 320-byte shadow-capable `ViewConstants` block, and
 the current shader source cooker cannot yet author these uniform-block bindings.
+
+`R_PackWorldShadowedViewLighting` keeps that 256-byte layout intact and appends
+one finite `lightClipFromWorld` matrix at byte 256 in an opt-in 320-byte std140
+`View` record. Invalid lighting or a nonfinite light matrix leaves the output
+unchanged. The host owns and uploads the 320-byte buffer; the matching camera
+shader projects world positions with the appended matrix and samples the
+caller-owned comparison shadow map in slot 1. World light authoring, shadow
+view selection, and pass scheduling remain host responsibilities.
 
 `R_PrepareOpaqueWorldDraws` remains the small depth-writing entry point.
 `R_PrepareWorldCameraDraws` accepts OPAQUE, opt-in MASK, BLEND, and ADDITIVE
