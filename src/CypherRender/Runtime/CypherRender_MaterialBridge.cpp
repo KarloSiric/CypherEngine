@@ -241,6 +241,12 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
             result.status = render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
             break;
         }
+        const bool hasPassShadow = description.passShadowMapBinding != nullptr;
+        if ( hasPassShadow && ( description.passShadowMapBinding[0] == '\0' ||
+             pMaterial->nTextures != 1u ) ) {
+            result.status = render_material_bridge_status_t::MATERIAL_UNSUPPORTED;
+            break;
+        }
         common::string_view_t path{};
         if ( !CookedPath( pMaterial->shader, kShaderSuffix,
                 cookedPath, path ) ) {
@@ -268,6 +274,28 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
                 pShader->interfaceHash ) ) {
             result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
             break;
+        }
+        const common::cooked_shader_binding_view_t *passShadowBinding = nullptr;
+        if ( hasPassShadow ) {
+            const auto passName = common::StringView_FromCString(
+                description.passShadowMapBinding );
+            passShadowBinding = common::CookedShader_FindBinding(
+                *pShader, passName );
+            if ( passShadowBinding == nullptr ||
+                 passShadowBinding->kind !=
+                     common::render_shader_binding_kind_t::SAMPLED_TEXTURE ||
+                 passShadowBinding->resourceType !=
+                     common::render_shader_resource_type_t::TEXTURE_2D ||
+                 passShadowBinding->nArrayElements != 1u ||
+                 ( passShadowBinding->flags &
+                   ( common::COOKED_SHADER_BINDING_FLAG_MATERIAL |
+                     common::COOKED_SHADER_BINDING_FLAG_INSTANCE ) ) != 0u ||
+                 common::CookedMaterial_FindTextureById(
+                     *pMaterial, passShadowBinding->nLogicalBinding ) != nullptr ||
+                 !CopyBindingName( passName, textureBindingNames[1] ) ) {
+                result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
+                break;
+            }
         }
 
         const bool hasTint = pMaterial->nParameters == 1u;
@@ -317,7 +345,8 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
 
         pipeline.vertexLayout = description.vertexLayout;
         pipeline.uniformBlockCount = description.uniformBlockCount;
-        pipeline.sampledTextureCount = pMaterial->nTextures;
+        pipeline.sampledTextureCount = pMaterial->nTextures +
+            ( hasPassShadow ? 1u : 0u );
         pipeline.blendMode = render_blend_mode_t::DISABLED;
         if ( pMaterial->alphaMode == common::render_material_alpha_mode_t::BLEND ) {
             pipeline.blendMode = render_blend_mode_t::STRAIGHT_ALPHA;
@@ -342,6 +371,9 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
                  binding->kind != common::render_shader_binding_kind_t::SAMPLED_TEXTURE ||
                  binding->resourceType != common::render_shader_resource_type_t::TEXTURE_2D ||
                  binding->nArrayElements != 1u ||
+                 ( hasPassShadow &&
+                   ( ( binding->flags & common::COOKED_SHADER_BINDING_FLAG_MATERIAL ) == 0u ||
+                     ( binding->flags & common::COOKED_SHADER_BINDING_FLAG_INSTANCE ) != 0u ) ) ||
                  !CopyBindingName( texture.binding, textureBindingNames[i] ) ) {
                 result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
                 break;
@@ -349,6 +381,12 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
             pipeline.sampledTextures[i].name = textureBindingNames[i];
         }
         if ( result.status != render_material_bridge_status_t::OK ) break;
+        if ( hasPassShadow ) {
+            pipeline.sampledTextures[1] = {
+                textureBindingNames[1],
+                render_sampled_texture_kind_t::DEPTH_COMPARE_2D
+            };
+        }
 
         // Reject resources the bounded draw contract cannot represent. Every
         // declared shader texture and uniform block must have exactly one owner.
@@ -356,7 +394,10 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
             const auto &binding = pShader->bindings[i];
             if ( binding.kind == common::render_shader_binding_kind_t::SAMPLED_TEXTURE ) {
                 if ( common::CookedMaterial_FindTextureById(
-                         *pMaterial, binding.nLogicalBinding ) == nullptr ) {
+                         *pMaterial, binding.nLogicalBinding ) == nullptr &&
+                     ( passShadowBinding == nullptr ||
+                       binding.nLogicalBinding !=
+                           passShadowBinding->nLogicalBinding ) ) {
                     result.status = render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH;
                     break;
                 }
@@ -451,6 +492,7 @@ render_material_bridge_result_t R_CreateCookedMaterialBundle(
             break;
         }
         pending.textureCount = pMaterial->nTextures;
+        if ( hasPassShadow ) pending.passShadowSlot = 1u;
         pending.alphaMode = pMaterial->alphaMode;
         pending.alphaCutoff = pMaterial->alphaCutoff;
         pending.materialFlags = pMaterial->flags;
@@ -523,7 +565,11 @@ render_error_t R_ApplyCookedMaterialBundleToDraw(
     const bool mirrored,
     render_draw_indexed_desc_t *draw ) noexcept
 {
-    if ( draw == nullptr || bundle.textureCount > R_MAX_SAMPLED_TEXTURE_BINDINGS ) {
+    const bool hasPassShadow = bundle.passShadowSlot == 1u;
+    if ( draw == nullptr || bundle.textureCount > R_MAX_SAMPLED_TEXTURE_BINDINGS ||
+         ( !hasPassShadow &&
+           bundle.passShadowSlot != R_MAX_SAMPLED_TEXTURE_BINDINGS ) ||
+         ( hasPassShadow && bundle.textureCount != 1u ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     if ( !R_IsShaderValid( bundle.shader ) ) return render_error_t::ERR_INVALID_HANDLE;
@@ -537,9 +583,32 @@ render_error_t R_ApplyCookedMaterialBundleToDraw(
         selectedPipeline, &pipelineInfo );
     if ( infoError != render_error_t::OK ) return infoError;
     if ( pipelineInfo.shader.value != bundle.shader.value ||
-         pipelineInfo.sampledTextureCount != bundle.textureCount ||
+         pipelineInfo.sampledTextureCount != bundle.textureCount +
+             ( hasPassShadow ? 1u : 0u ) ||
          pipelineInfo.frontCounterClockwise != !mirrored ) {
         return render_error_t::ERR_BINDING_MISMATCH;
+    }
+    if ( hasPassShadow ) {
+        if ( pipelineInfo.sampledTextureKinds[1] !=
+                 render_sampled_texture_kind_t::DEPTH_COMPARE_2D ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+        render_texture_info_t depth{};
+        const render_error_t depthError = R_GetTextureInfo(
+            draw->sampledTextures[1], &depth );
+        if ( depthError != render_error_t::OK ) return depthError;
+        if ( depth.format != render_texture_format_t::D24 ||
+             !depth.renderTarget ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
+        render_sampler_info_t comparison{};
+        const render_error_t samplerError = R_GetSamplerInfo(
+            draw->samplers[1], &comparison );
+        if ( samplerError != render_error_t::OK ) return samplerError;
+        if ( comparison.compare == render_sampler_compare_t::NONE ||
+             comparison.mipFilter != render_sampler_mip_filter_t::NONE ) {
+            return render_error_t::ERR_BINDING_MISMATCH;
+        }
     }
     for ( common::u32 i = 0u; i < bundle.textureCount; ++i ) {
         if ( !R_IsTextureValid( bundle.textures[i] ) ) {
@@ -573,6 +642,7 @@ render_error_t R_ApplyCookedMaterialBundleToDraw(
     }
     draw->pipeline = selectedPipeline;
     for ( common::u32 i = 0u; i < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++i ) {
+        if ( hasPassShadow && i == bundle.passShadowSlot ) continue;
         draw->sampledTextures[i] = i < bundle.textureCount
             ? bundle.textures[i] : R_INVALID_TEXTURE;
         draw->samplers[i] = R_INVALID_SAMPLER;

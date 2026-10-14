@@ -159,6 +159,66 @@ struct cooked_files_t {
             { material.data(), material.size() } ) ) );
     }
 
+    void BuildPassShadow( bool passMarkedMaterial = false,
+        bool albedoMarkedMaterial = true )
+    {
+        common::cooked_shader_binding_source_t bindings[2]{};
+        bindings[0].name = Text( "AlbedoMap" );
+        bindings[1].name = Text( "ShadowMap" );
+        for ( auto &binding : bindings ) {
+            binding.kind = common::render_shader_binding_kind_t::SAMPLED_TEXTURE;
+            binding.resourceType = common::render_shader_resource_type_t::TEXTURE_2D;
+            binding.stageMask = common::RENDER_SHADER_STAGE_MASK_FRAGMENT;
+            binding.flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED;
+            binding.nLogicalBinding = BindingId( binding.name );
+        }
+        if ( albedoMarkedMaterial ) {
+            bindings[0].flags |= common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
+        }
+        if ( passMarkedMaterial ) {
+            bindings[1].flags |= common::COOKED_SHADER_BINDING_FLAG_MATERIAL;
+        }
+        const common::cooked_shader_interface_source_t shaderInterface{
+            { bindings, 2u }
+        };
+        REQUIRE( common::CookedShader_ComputeInterfaceHash(
+            shaderInterface, &interfaceHash ) );
+        constexpr char vertex[] =
+            "#version 410 core\nvoid main(){gl_Position=vec4(0.0);}\n";
+        constexpr char fragment[] =
+            "#version 410 core\n"
+            "uniform sampler2D AlbedoMap; uniform sampler2DShadow ShadowMap;\n"
+            "out vec4 c;void main(){c=texture(AlbedoMap,vec2(0.5))"
+            "*texture(ShadowMap,vec3(0.5));}\n";
+        common::cooked_shader_stage_source_t stages[2]{};
+        stages[0].stage = common::render_shader_stage_t::VERTEX;
+        stages[0].code = { reinterpret_cast<const common::byte *>( vertex ), sizeof( vertex ) };
+        stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+        stages[1].code = { reinterpret_cast<const common::byte *>( fragment ), sizeof( fragment ) };
+        shader.resize( common::CookedShader_RequiredSizeV3(
+            {}, { stages, 2u }, shaderInterface ) );
+        REQUIRE_FALSE( shader.empty() );
+        REQUIRE( common::CookedShader_Succeeded( common::CookedShader_WriteV3(
+            {}, { stages, 2u }, shaderInterface,
+            common::ContentHash_String( Text( "shaders/bridge.cyshader" ) ),
+            { shader.data(), shader.size() } ) ) );
+
+        common::cooked_material_texture_source_v2_t albedoBinding{};
+        albedoBinding.binding = bindings[0].name;
+        albedoBinding.texture = Text( "textures/albedo.cytex" );
+        albedoBinding.nLogicalBinding = bindings[0].nLogicalBinding;
+        common::cooked_material_source_v2_t description{};
+        description.shader = Text( "shaders/bridge.cyshader" );
+        description.shaderInterfaceHash = interfaceHash;
+        description.textures = { &albedoBinding, 1u };
+        material.resize( common::CookedMaterial_RequiredSizeV2( description ) );
+        REQUIRE_FALSE( material.empty() );
+        REQUIRE( common::CookedMaterial_Succeeded( common::CookedMaterial_WriteV2(
+            description,
+            common::ContentHash_String( Text( "materials/bridge.cymat" ) ),
+            { material.data(), material.size() } ) ) );
+    }
+
     void BuildTint( common::string_view_t shaderValueName = Text( "tint" ),
         common::render_shader_value_type_t shaderValueType =
             common::render_shader_value_type_t::F32X4,
@@ -386,6 +446,7 @@ struct bridge_fixture_t {
     common::u32 shaderCreates{ 0u }, shaderDestroys{ 0u };
     common::u32 pipelineCreates{ 0u }, pipelineDestroys{ 0u };
     common::u32 textureCreates{ 0u }, textureDestroys{ 0u };
+    common::u32 depthTextureCreates{ 0u }, samplerCreates{ 0u }, samplerDestroys{ 0u };
     common::u32 bufferCreates{ 0u }, bufferDestroys{ 0u };
     bool failBufferCreate{ false };
     bool tokenOnBufferFailure{ false };
@@ -406,10 +467,13 @@ struct bridge_fixture_t {
     bool pipelineDepthWrite[2]{};
     render::render_blend_mode_t pipelineBlendModes[2]{};
     common::u32 lastPipelineTextureCount{ 0u };
+    render::render_sampled_texture_kind_t lastPipelineSecondTextureKind{
+        render::render_sampled_texture_kind_t::SCALAR_2D };
     render::render_blend_mode_t lastPipelineBlendMode{
         render::render_blend_mode_t::DISABLED };
     bool lastPipelineDepthWrite{ true };
     bool pipelineTextureNamesMatch{ false };
+    bool lastPipelineSecondIsShadowMap{ false };
     common::byte uploadedPixels[2][4]{};
     common::byte uploadedLevelPixels[2][2][64]{};
     common::u32 uploadedLevelSizes[2][2]{};
@@ -422,6 +486,14 @@ struct bridge_fixture_t {
         const render::render_texture_mip_data_t *levels,
         common::u32 levelCount, render::backend_texture_t &out ) noexcept
     {
+        if ( description.renderTarget &&
+             description.format == render::render_texture_format_t::D24 &&
+             levels != nullptr && levelCount == 1u &&
+             levels[0].data.bytes == nullptr && levels[0].data.byteSize == 0u ) {
+            ++depthTextureCreates;
+            out.value = nextToken++;
+            return render::render_error_t::OK;
+        }
         const common::u32 index = textureCreates++;
         out = {};
         if ( index >= 2u || levels == nullptr || levelCount == 0u ||
@@ -506,6 +578,13 @@ struct bridge_fixture_t {
                 fixture.pipelineBlendModes[index] = description.blendMode;
             }
             fixture.lastPipelineTextureCount = description.sampledTextureCount;
+            if ( description.sampledTextureCount == 2u ) {
+                fixture.lastPipelineSecondTextureKind =
+                    description.sampledTextures[1].kind;
+                fixture.lastPipelineSecondIsShadowMap =
+                    description.sampledTextures[1].name != nullptr &&
+                    std::strcmp( description.sampledTextures[1].name, "ShadowMap" ) == 0;
+            }
             fixture.lastPipelineBlendMode = description.blendMode;
             fixture.lastPipelineDepthWrite = description.depthWrite;
             fixture.pipelineTextureNamesMatch = description.sampledTextureCount == 0u ||
@@ -562,6 +641,17 @@ struct bridge_fixture_t {
             }
             return render::render_error_t::OK;
         };
+        backend.CreateSampler = []( const render::render_sampler_desc_t &,
+            render::backend_sampler_t &out, void *state ) noexcept {
+            auto &fixture = *static_cast<bridge_fixture_t *>( state );
+            ++fixture.samplerCreates;
+            out.value = fixture.nextToken++;
+            return render::render_error_t::OK;
+        };
+        backend.DestroySampler = []( render::backend_sampler_t, void *state ) noexcept {
+            ++static_cast<bridge_fixture_t *>( state )->samplerDestroys;
+            return render::render_error_t::OK;
+        };
         backend.CreateBuffer = []( const render::render_buffer_desc_t &description,
             const render::render_buffer_data_t *data,
             render::backend_buffer_t &out, void *state ) noexcept {
@@ -607,6 +697,7 @@ struct bridge_fixture_t {
         REQUIRE( render::R_BufferSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_ShaderSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_TextureSystemInit() == render::render_error_t::OK );
+        REQUIRE( render::R_SamplerSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_PipelineSystemInit() == render::render_error_t::OK );
     }
 
@@ -636,6 +727,14 @@ struct bridge_fixture_t {
         storage.files[1].contents = { cooked.shader.data(), cooked.shader.size() };
     }
 
+    void UsePassShadow( bool passMarkedMaterial = false,
+        bool albedoMarkedMaterial = true )
+    {
+        cooked.BuildPassShadow( passMarkedMaterial, albedoMarkedMaterial );
+        storage.files[0].contents = { cooked.material.data(), cooked.material.size() };
+        storage.files[1].contents = { cooked.shader.data(), cooked.shader.size() };
+    }
+
     render::render_material_bundle_desc_t TintDescription()
     {
         auto description = Description();
@@ -659,6 +758,7 @@ struct bridge_fixture_t {
     {
         (void)render::R_DestroyCookedMaterialBundle( &bundle );
         (void)render::R_PipelineSystemShutdown();
+        (void)render::R_SamplerSystemShutdown();
         (void)render::R_TextureSystemShutdown();
         (void)render::R_ShaderSystemShutdown();
         (void)render::R_BufferSystemShutdown();
@@ -734,6 +834,226 @@ TEST_CASE( "cooked material bridge owns zero to two textures after VFS views exp
         CHECK( fixture.textureDestroys == textureCount );
         CHECK( fixture.bundle.mirroredPipeline.value == 0u );
     }
+}
+
+TEST_CASE( "one cooked albedo and a borrowed pass shadow map occupy separate draw slots",
+    "[CypherRender][MaterialBridge][Shadow]" )
+{
+    bridge_fixture_t fixture{};
+    fixture.Init( 1u );
+    fixture.UsePassShadow();
+    auto description = fixture.Description();
+    description.passShadowMapBinding = "ShadowMap";
+    REQUIRE( render::R_CreateCookedMaterialBundle(
+        description, &fixture.bundle ).status ==
+        render::render_material_bridge_status_t::OK );
+    CHECK( fixture.bundle.textureCount == 1u );
+    CHECK( fixture.bundle.passShadowSlot == 1u );
+    CHECK( fixture.textureCreates == 1u );
+    CHECK( fixture.lastPipelineTextureCount == 2u );
+    CHECK( fixture.lastPipelineSecondIsShadowMap );
+    CHECK( fixture.lastPipelineSecondTextureKind ==
+        render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D );
+    CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+
+    render::render_texture_desc_t depthDesc{};
+    depthDesc.width = depthDesc.height = 2u;
+    depthDesc.sRGB = depthDesc.generateMips = depthDesc.repeat = false;
+    depthDesc.renderTarget = true;
+    depthDesc.format = render::render_texture_format_t::D24;
+    render::render_texture_handle_t depth{};
+    REQUIRE( render::R_CreateTexture2D( depthDesc, {}, &depth ) ==
+        render::render_error_t::OK );
+    render::render_sampler_desc_t compareDesc{};
+    compareDesc.addressU = compareDesc.addressV =
+        render::render_sampler_address_t::CLAMP_TO_EDGE;
+    compareDesc.compare = render::render_sampler_compare_t::LESS_EQUAL;
+    render::render_sampler_handle_t compare{};
+    REQUIRE( render::R_CreateSampler( compareDesc, &compare ) ==
+        render::render_error_t::OK );
+
+    render::render_draw_indexed_desc_t draw{};
+    draw.sampledTextures[1] = depth;
+    draw.samplers[1] = compare;
+    REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
+        fixture.bundle, &draw ) == render::render_error_t::OK );
+    CHECK( draw.pipeline.value == fixture.bundle.pipeline.value );
+    CHECK( draw.sampledTextures[0].value == fixture.bundle.textures[0].value );
+    CHECK( draw.sampledTextures[1].value == depth.value );
+    CHECK( draw.samplers[1].value == compare.value );
+    REQUIRE( render::R_ApplyCookedMaterialBundleToDraw(
+        fixture.bundle, true, &draw ) == render::render_error_t::OK );
+    CHECK( draw.pipeline.value == fixture.bundle.mirroredPipeline.value );
+    CHECK( draw.sampledTextures[1].value == depth.value );
+    CHECK( draw.samplers[1].value == compare.value );
+
+    REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+        render::render_error_t::OK );
+    CHECK( fixture.textureDestroys == 1u );
+    CHECK( render::R_IsTextureValid( depth ) );
+    CHECK( render::R_IsSamplerValid( compare ) );
+    REQUIRE( render::R_DestroySampler( compare ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
+    CHECK( fixture.textureDestroys == 2u );
+    CHECK( fixture.samplerDestroys == 1u );
+}
+
+TEST_CASE( "pass shadow binding preflight leaves a draw unchanged on bad inputs",
+    "[CypherRender][MaterialBridge][Shadow]" )
+{
+    bridge_fixture_t fixture{};
+    fixture.Init( 1u );
+    fixture.UsePassShadow();
+    auto description = fixture.Description();
+    description.passShadowMapBinding = "ShadowMap";
+    REQUIRE( render::R_CreateCookedMaterialBundle(
+        description, &fixture.bundle ).status ==
+        render::render_material_bridge_status_t::OK );
+
+    render::render_texture_desc_t depthDesc{};
+    depthDesc.width = depthDesc.height = 2u;
+    depthDesc.sRGB = depthDesc.generateMips = depthDesc.repeat = false;
+    depthDesc.renderTarget = true;
+    depthDesc.format = render::render_texture_format_t::D24;
+    render::render_texture_handle_t depth{};
+    REQUIRE( render::R_CreateTexture2D( depthDesc, {}, &depth ) ==
+        render::render_error_t::OK );
+    render::render_sampler_desc_t compareDesc{};
+    compareDesc.compare = render::render_sampler_compare_t::LESS_EQUAL;
+    render::render_sampler_handle_t compare{};
+    REQUIRE( render::R_CreateSampler( compareDesc, &compare ) ==
+        render::render_error_t::OK );
+    render::render_sampler_desc_t scalarDesc{};
+    render::render_sampler_handle_t scalar{};
+    REQUIRE( render::R_CreateSampler( scalarDesc, &scalar ) ==
+        render::render_error_t::OK );
+    render::render_sampler_desc_t mipDesc = compareDesc;
+    mipDesc.mipFilter = render::render_sampler_mip_filter_t::LINEAR;
+    render::render_sampler_handle_t mipCompare{};
+    REQUIRE( render::R_CreateSampler( mipDesc, &mipCompare ) ==
+        render::render_error_t::OK );
+
+    render::render_draw_indexed_desc_t draw{};
+    draw.pipeline = fixture.bundle.mirroredPipeline;
+    auto checkRejected = [&]( render::render_error_t expected ) {
+        const auto pipelineBefore = draw.pipeline;
+        const auto albedoBefore = draw.sampledTextures[0];
+        const auto depthBefore = draw.sampledTextures[1];
+        const auto samplerBefore = draw.samplers[1];
+        CHECK( render::R_ApplyCookedMaterialBundleToDraw(
+            fixture.bundle, &draw ) == expected );
+        CHECK( draw.pipeline.value == pipelineBefore.value );
+        CHECK( draw.sampledTextures[0].value == albedoBefore.value );
+        CHECK( draw.sampledTextures[1].value == depthBefore.value );
+        CHECK( draw.samplers[1].value == samplerBefore.value );
+    };
+    draw.samplers[1] = compare;
+    checkRejected( render::render_error_t::ERR_INVALID_HANDLE );
+    draw.sampledTextures[1] = fixture.bundle.textures[0];
+    checkRejected( render::render_error_t::ERR_BINDING_MISMATCH );
+    draw.sampledTextures[1] = depth;
+    draw.samplers[1] = {};
+    checkRejected( render::render_error_t::ERR_INVALID_HANDLE );
+    draw.samplers[1] = scalar;
+    checkRejected( render::render_error_t::ERR_BINDING_MISMATCH );
+    draw.samplers[1] = mipCompare;
+    checkRejected( render::render_error_t::ERR_BINDING_MISMATCH );
+
+    REQUIRE( render::R_DestroySampler( scalar ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroySampler( mipCompare ) == render::render_error_t::OK );
+    draw.samplers[1] = scalar;
+    checkRejected( render::render_error_t::ERR_STALE_HANDLE );
+    draw.samplers[1] = compare;
+    REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
+    checkRejected( render::render_error_t::ERR_STALE_HANDLE );
+
+    REQUIRE( render::R_DestroySampler( compare ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyCookedMaterialBundle( &fixture.bundle ) ==
+        render::render_error_t::OK );
+}
+
+TEST_CASE( "pass shadow bundle rejects mismatched ownership before GPU creation",
+    "[CypherRender][MaterialBridge][Shadow]" )
+{
+    SECTION( "unknown or aliased pass binding" ) {
+        for ( const char *name : { "MissingShadow", "AlbedoMap" } ) {
+            bridge_fixture_t fixture{};
+            fixture.Init( 1u );
+            fixture.UsePassShadow();
+            auto description = fixture.Description();
+            description.passShadowMapBinding = name;
+            CHECK( render::R_CreateCookedMaterialBundle(
+                description, &fixture.bundle ).status ==
+                render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+            CHECK( fixture.shaderCreates == 0u );
+            CHECK( fixture.textureCreates == 0u );
+            CHECK( fixture.pipelineCreates == 0u );
+            CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+        }
+    }
+    SECTION( "pass resource is marked material-owned" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 1u );
+        fixture.UsePassShadow( true );
+        auto description = fixture.Description();
+        description.passShadowMapBinding = "ShadowMap";
+        CHECK( render::R_CreateCookedMaterialBundle(
+            description, &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.textureCreates == 0u );
+    }
+    SECTION( "albedo resource is not marked material-owned" ) {
+        bridge_fixture_t fixture{};
+        fixture.Init( 1u );
+        fixture.UsePassShadow( false, false );
+        auto description = fixture.Description();
+        description.passShadowMapBinding = "ShadowMap";
+        CHECK( render::R_CreateCookedMaterialBundle(
+            description, &fixture.bundle ).status ==
+            render::render_material_bridge_status_t::SHADER_INTERFACE_MISMATCH );
+        CHECK( fixture.shaderCreates == 0u );
+        CHECK( fixture.textureCreates == 0u );
+    }
+    SECTION( "zero or two material textures exceed this pass contract" ) {
+        for ( common::u32 textureCount : { 0u, 2u } ) {
+            bridge_fixture_t fixture{};
+            fixture.Init( textureCount );
+            auto description = fixture.Description();
+            description.passShadowMapBinding = "ShadowMap";
+            CHECK( render::R_CreateCookedMaterialBundle(
+                description, &fixture.bundle ).status ==
+                render::render_material_bridge_status_t::MATERIAL_UNSUPPORTED );
+            CHECK( fixture.shaderCreates == 0u );
+            CHECK( fixture.textureCreates == 0u );
+            CHECK( fixture.pipelineCreates == 0u );
+            CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
+        }
+    }
+}
+
+TEST_CASE( "pass shadow bridge rollback owns only the cooked albedo",
+    "[CypherRender][MaterialBridge][Shadow]" )
+{
+    bridge_fixture_t fixture{};
+    fixture.Init( 1u );
+    fixture.UsePassShadow();
+    fixture.failPipelineAt = 2u;
+    auto description = fixture.Description();
+    description.passShadowMapBinding = "ShadowMap";
+    const auto result = render::R_CreateCookedMaterialBundle(
+        description, &fixture.bundle );
+    CHECK( result.status == render::render_material_bridge_status_t::RENDER_ERROR );
+    CHECK( result.renderError == render::render_error_t::ERR_OUT_OF_MEMORY );
+    CHECK( fixture.textureCreates == 1u );
+    CHECK( fixture.textureDestroys == 1u );
+    CHECK( fixture.depthTextureCreates == 0u );
+    CHECK( fixture.samplerCreates == 0u );
+    CHECK( fixture.bundle.shader.value == 0u );
+    CHECK( fixture.bundle.pipeline.value == 0u );
+    CHECK( fixture.bundle.textures[0].value == 0u );
+    CHECK( fixture.bundle.passShadowSlot == render::R_MAX_SAMPLED_TEXTURE_BINDINGS );
+    CHECK( resource::Res_GetStats( &fixture.resources ).cLiveResources == 0u );
 }
 
 TEST_CASE( "cooked material bridge rejects replacing a live bundle without losing its handles",

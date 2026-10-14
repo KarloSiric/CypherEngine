@@ -3117,6 +3117,17 @@ void CheckShadowPassLighting( const render::render_extent_t extent )
     render::render_sampler_handle_t compare{};
     REQUIRE( render::R_CreateSampler( compareDesc, &compare ) == render::render_error_t::OK );
 
+    // Exercise the material bridge's caller-owned pass slot with a real D24
+    // comparison texture. The bridge owns only the albedo; this standalone
+    // oracle supplies its shader/pipeline directly, while the cooked bridge
+    // creation path is covered by the focused CPU tests.
+    render::render_material_bundle_t litBundle{};
+    litBundle.shader = litShader;
+    litBundle.pipeline = litPipeline;
+    litBundle.textures[0] = white;
+    litBundle.textureCount = 1u;
+    litBundle.passShadowSlot = 1u;
+
     render::render_frame_info_t frame{};
     frame.drawableExtent = extent;
     REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
@@ -3137,11 +3148,14 @@ void CheckShadowPassLighting( const render::render_extent_t extent )
     pass = {};
     pass.target = colorTarget;
     REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
-    draw.pipeline = litPipeline;
     draw.firstIndex = 3u;
-    draw.sampledTextures[0] = white;
     draw.sampledTextures[1] = depth;
     draw.samplers[1] = compare;
+    REQUIRE( render::R_ApplyCookedMaterialBundleToDraw( litBundle, &draw ) ==
+        render::render_error_t::OK );
+    CHECK( draw.sampledTextures[0].value == white.value );
+    CHECK( draw.sampledTextures[1].value == depth.value );
+    CHECK( draw.samplers[1].value == compare.value );
     REQUIRE( render::R_DrawIndexed( draw ) == render::render_error_t::OK );
     REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
 

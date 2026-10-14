@@ -159,6 +159,19 @@ when present; the caller supplies geometry, view/model uniforms, and frame
 state. `R_DestroyCookedMaterialBundle` releases the pipeline before its shader,
 followed by independent textures and its optional material uniform buffer.
 
+For a hand-built cooked shader that actively declares a separate
+`sampler2DShadow`, the optional `passShadowMapBinding` names a caller-owned
+shadow-map binding. This bounded path requires exactly one material-owned
+albedo texture in slot 0; it reserves slot 1 for a D24 render-target texture
+and an explicit comparison sampler supplied in each draw. Creation checks the
+cooked binding and OpenGL pipeline reflection, but neither acquires nor owns
+the pass texture or sampler. Apply validates the live pair and preserves it;
+the host keeps both alive through drawing and avoids sampling a target while
+that target is being written. An ordinary bundle still clears unused draw
+sampler slots. The authored shader cooker cannot yet produce this depth-sampler
+binding, and this binding contract alone does not provide a light-space matrix
+or schedule shadow and camera passes.
+
 This first bridge accepts CYMT V2 opaque, mask, blend, or additive surface
 materials with the default empty feature variant, no named
 surface, identity UV0, and no authored sampler preset. It supports zero to

@@ -23,6 +23,10 @@ struct render_material_bundle_desc_t {
     render_vertex_layout_t vertexLayout{};
     ::cypher::common::u32 uniformBlockCount{ 0u };
     render_uniform_block_binding_t uniformBlocks[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
+    // Optional caller-owned D24 comparison map used by this shader at sampled
+    // slot 1. Requires exactly one material-owned albedo texture at slot 0.
+    // The name is borrowed only during creation; no pass resource is acquired.
+    const char *passShadowMapBinding{ nullptr };
     const char *debugName{ nullptr };
 };
 
@@ -34,6 +38,9 @@ struct render_material_bundle_t {
     render_buffer_handle_t materialUniformBuffer{};
     ::cypher::common::u32 materialUniformSlot{ R_MAX_UNIFORM_BLOCK_BINDINGS };
     ::cypher::common::u32 textureCount{ 0u };
+    // R_MAX_SAMPLED_TEXTURE_BINDINGS means no pass binding. Otherwise slot 1
+    // is declared by the pipeline but borrowed from each draw, not owned here.
+    ::cypher::common::u32 passShadowSlot{ R_MAX_SAMPLED_TEXTURE_BINDINGS };
     ::cypher::common::render_material_alpha_mode_t alphaMode{
         ::cypher::common::render_material_alpha_mode_t::OPAQUE
     }; // Caller uses this to place BLEND draws after opaque draws.
@@ -72,7 +79,11 @@ struct render_material_bridge_result_t {
 // native pipeline reflection currently verifies the block size, not members.
 // All shader
 // resource bindings must be represented by those textures or caller-declared
-// uniform blocks. The renderer must support the selected shader and textures.
+// uniform blocks, except for the optional non-material passShadowMapBinding.
+// That binding must be a separate active GLSL sampler2DShadow; pipeline
+// reflection verifies its kind. Only one material texture plus this pass
+// binding fits the current two-slot draw contract. The renderer must support
+// the selected shader and textures.
 // Resource views are borrowed until synchronous GPU creation finishes. All
 // acquired CPU references are then released; successful output owns no CPU
 // resource handle or borrowed view.
@@ -109,8 +120,12 @@ CYPHER_NODISCARD render_material_bridge_result_t R_CreateCookedMaterialBundle(
 CYPHER_NODISCARD render_error_t R_DestroyCookedMaterialBundle(
     render_material_bundle_t *bundle ) noexcept;
 
-// Copies the selected pipeline and sampled-texture slots into an existing draw record,
-// clears both sampler slots to use the textures' default sampling policy, and
+// Copies the selected pipeline and material-owned sampled textures into an
+// existing draw record. For a pass-shadow bundle, the caller must preseed slot
+// 1 with a live D24 render-target texture and an explicit comparison sampler;
+// this function validates and preserves them. Other sampler slots are cleared
+// to use the textures' default sampling policy. The bundle never owns the pass
+// texture or sampler, which must remain live until drawing finishes. It also
 // binds the bundle-owned Material uniform in slot 2 when present. The caller
 // supplies vertex input, View/Model uniform buffers, geometry and frame state.
 // mirrored=true selects the CW-front variant for a negative-determinant model.

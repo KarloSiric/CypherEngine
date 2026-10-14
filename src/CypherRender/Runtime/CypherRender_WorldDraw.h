@@ -94,7 +94,11 @@ enum class render_world_model_layout_t : ::cypher::common::u8 {
 // Host owns every borrowed table, World submission, batch, and output. Logical
 // World asset slots index the two tables; no World object stores a GPU handle.
 // The shader's block at modelUniformSlot must match modelLayout exactly. Other
-// uniform slots in drawTemplate are caller-owned view/pass data. MASK is
+// uniform slots in drawTemplate are caller-owned view/pass data. A material
+// declaring passShadowSlot preserves the matching caller-owned D24 texture and
+// explicit comparison sampler from drawTemplate through camera publication;
+// both are validated for every visible object before staging model uniforms.
+// Other unused sampled slots are cleared. MASK is
 // accepted only with a CUTOUT layout and a sampled alpha texture in slot zero.
 // The fragment shader's discard behavior is an authoring contract: reflection
 // can verify block size, but cannot prove it reads the cutoff or samples alpha.

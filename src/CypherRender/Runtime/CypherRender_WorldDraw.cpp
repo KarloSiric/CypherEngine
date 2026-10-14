@@ -430,9 +430,16 @@ void PublishDraw(
     draw.pipeline = Orientation( linear ) < 0
         ? material.mirroredPipeline : material.pipeline;
     for ( common::u32 i = 0u; i < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++i ) {
-        draw.sampledTextures[i] = i < material.textureCount
-            ? material.textures[i] : R_INVALID_TEXTURE;
-        draw.samplers[i] = R_INVALID_SAMPLER;
+        if ( i < material.textureCount ) {
+            draw.sampledTextures[i] = material.textures[i];
+            draw.samplers[i] = R_INVALID_SAMPLER;
+        } else if ( i != material.passShadowSlot ) {
+            // Material Apply preflight checked the caller-owned shadow pair.
+            // Leave that slot from drawTemplate intact only for a bundle that
+            // explicitly declares it; ordinary unused slots remain empty.
+            draw.sampledTextures[i] = R_INVALID_TEXTURE;
+            draw.samplers[i] = R_INVALID_SAMPLER;
+        }
     }
     if ( material.materialUniformBuffer.value != R_INVALID_BUFFER.value ) {
         // Material bridge preflight already verified this owned binding.

@@ -61,6 +61,9 @@ struct world_draw_fixture_t {
     render::render_pipeline_handle_t cutoutPipelines[2]{};
     render::render_pipeline_handle_t mirroredCutoutPipelines[2]{};
     render::render_texture_handle_t alphaTexture{};
+    render::render_texture_handle_t passDepthTexture{};
+    render::render_sampler_handle_t passCompareSampler{};
+    render::render_sampler_handle_t passRawSampler{};
     render::render_buffer_handle_t viewBuffer{};
     render::render_buffer_handle_t materialBuffer{};
     render::render_uniform_batch_t batch{};
@@ -133,6 +136,14 @@ struct world_draw_fixture_t {
         backend.DestroyTexture = []( render::backend_texture_t, void * ) noexcept {
             return render::render_error_t::OK;
         };
+        backend.CreateSampler = []( const render::render_sampler_desc_t &,
+            render::backend_sampler_t &out, void *state ) noexcept {
+            out.value = static_cast<world_draw_fixture_t *>( state )->nextToken++;
+            return render::render_error_t::OK;
+        };
+        backend.DestroySampler = []( render::backend_sampler_t, void * ) noexcept {
+            return render::render_error_t::OK;
+        };
 
         render::tr = {};
         render::tr.backend = { &backend, this };
@@ -149,6 +160,7 @@ struct world_draw_fixture_t {
         REQUIRE( render::R_VertexInputSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_ShaderSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_TextureSystemInit() == render::render_error_t::OK );
+        REQUIRE( render::R_SamplerSystemInit() == render::render_error_t::OK );
         REQUIRE( render::R_PipelineSystemInit() == render::render_error_t::OK );
 
         const common::f32 vertices[9]{
@@ -371,6 +383,54 @@ struct world_draw_fixture_t {
         materials[slot].mirroredPipeline = mirroredCutoutPipelines[slot];
     }
 
+    void EnablePassShadowMaterial( const common::u32 slot )
+    {
+        REQUIRE( slot < 2u );
+        REQUIRE( litPipeline.value == 0u );
+        EnableCutoutMaterial( slot, false, true );
+        render::render_vertex_input_info_t input{};
+        REQUIRE( render::R_GetVertexInputInfo( mesh.vertexInput, &input ) ==
+            render::render_error_t::OK );
+        render::render_pipeline_desc_t pipeline{};
+        pipeline.shader = shader;
+        pipeline.vertexLayout = input.layout;
+        pipeline.uniformBlockCount = 2u;
+        pipeline.uniformBlocks[0] = { "View", 64u };
+        pipeline.uniformBlocks[1] = { "Model", 80u };
+        pipeline.sampledTextureCount = 2u;
+        pipeline.sampledTextures[0].name = "AlphaMap";
+        pipeline.sampledTextures[1] = {
+            "ShadowMap", render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D };
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &litPipeline ) == render::render_error_t::OK );
+        pipeline.frontCounterClockwise = false;
+        REQUIRE( render::R_CreateGraphicsPipeline(
+            pipeline, &mirroredLitPipeline ) == render::render_error_t::OK );
+        materials[slot].pipeline = litPipeline;
+        materials[slot].mirroredPipeline = mirroredLitPipeline;
+        materials[slot].passShadowSlot = 1u;
+        materials[slot].alphaCutoff = 0.375f;
+    }
+
+    void CreatePassShadowBindings()
+    {
+        render::render_texture_desc_t depth{};
+        depth.width = depth.height = 4u;
+        depth.sRGB = false;
+        depth.generateMips = false;
+        depth.repeat = false;
+        depth.renderTarget = true;
+        depth.format = render::render_texture_format_t::D24;
+        REQUIRE( render::R_CreateTexture2D(
+            depth, {}, &passDepthTexture ) == render::render_error_t::OK );
+        render::render_sampler_desc_t compare{};
+        compare.addressU = compare.addressV =
+            render::render_sampler_address_t::CLAMP_TO_EDGE;
+        compare.compare = render::render_sampler_compare_t::LESS_EQUAL;
+        REQUIRE( render::R_CreateSampler(
+            compare, &passCompareSampler ) == render::render_error_t::OK );
+    }
+
     render::render_world_shadow_prepare_desc_t ShadowDescription()
     {
         render::render_world_shadow_prepare_desc_t desc{};
@@ -455,6 +515,9 @@ struct world_draw_fixture_t {
         world::WorldSubmission_Shutdown( &pSubmission );
         world::World_Shutdown( &pWorld );
         (void)render::R_DestroyUniformBatch( &batch );
+        if ( passRawSampler.value != 0u ) (void)render::R_DestroySampler( passRawSampler );
+        if ( passCompareSampler.value != 0u ) (void)render::R_DestroySampler( passCompareSampler );
+        if ( passDepthTexture.value != 0u ) (void)render::R_DestroyTexture( passDepthTexture );
         if ( materialBuffer.value != 0u ) (void)render::R_DestroyBuffer( materialBuffer );
         if ( viewBuffer.value != 0u ) (void)render::R_DestroyBuffer( viewBuffer );
         for ( auto pipeline : pipelines ) {
@@ -485,6 +548,7 @@ struct world_draw_fixture_t {
         if ( shader.value != 0u ) (void)render::R_DestroyShader( shader );
         (void)render::R_DestroyStaticMeshBundle( &mesh );
         (void)render::R_PipelineSystemShutdown();
+        (void)render::R_SamplerSystemShutdown();
         (void)render::R_TextureSystemShutdown();
         (void)render::R_ShaderSystemShutdown();
         (void)render::R_VertexInputSystemShutdown();
@@ -941,6 +1005,118 @@ TEST_CASE( "World camera keeps MASK in the opaque span with per-object cutoffs",
         CHECK( cutout[2] == 0.0f );
         CHECK( cutout[3] == 0.0f );
     }
+}
+
+TEST_CASE( "World camera preserves a pass-owned shadow pair only for its material",
+    "[CypherRender][WorldDraw][CameraPasses][ShadowSampler]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.EnablePassShadowMaterial( 0u );
+    fixture.EnableCutoutMaterial( 1u, false, false );
+    fixture.CreatePassShadowBindings();
+    const auto ordinary = fixture.Add( 0u, 1u, 0.0f );
+    const auto shadowed = fixture.Add( 0u, 0u, 4.0f );
+    fixture.Build();
+
+    render::render_scene_item_t sceneItems[2]{};
+    common::u32 passIndices[2]{};
+    auto description = fixture.CameraDescription();
+    description.modelLayout = render::render_world_model_layout_t::MODEL_CUTOUT;
+    description.sceneItemsScratch = sceneItems;
+    description.sceneItemCapacity = 2u;
+    description.passIndicesScratch = passIndices;
+    description.passIndexCapacity = 2u;
+    description.drawTemplate.sampledTextures[1] = fixture.passDepthTexture;
+    description.drawTemplate.samplers[1] = fixture.passCompareSampler;
+
+    render::render_world_camera_draw_t output[2]{};
+    render::render_world_camera_pass_counts_t counts{};
+    REQUIRE( render::R_PrepareWorldCameraDraws(
+        description, output, 2u, &counts ) == render::render_error_t::OK );
+    CHECK( counts.opaqueCount == 2u );
+    CHECK( output[0].objectId.slot.value == ordinary.slot.value );
+    CHECK( output[1].objectId.slot.value == shadowed.slot.value );
+    CHECK( output[0].draw.sampledTextures[1].value == 0u );
+    CHECK( output[0].draw.samplers[1].value == 0u );
+    CHECK( output[1].draw.sampledTextures[0].value == fixture.alphaTexture.value );
+    CHECK( output[1].draw.sampledTextures[1].value == fixture.passDepthTexture.value );
+    CHECK( output[1].draw.samplers[1].value == fixture.passCompareSampler.value );
+    CHECK( fixture.uploadCalls == 1u );
+}
+
+TEST_CASE( "World shadow sampler preflight rejects invalid pass bindings atomically",
+    "[CypherRender][WorldDraw][CameraPasses][ShadowSampler]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init();
+    fixture.EnablePassShadowMaterial( 0u );
+    fixture.EnableCutoutMaterial( 1u, false, false );
+    fixture.CreatePassShadowBindings();
+    (void)fixture.Add( 0u, 1u, 0.0f ); // Valid object before invalid binding.
+    (void)fixture.Add( 0u, 0u, 4.0f );
+    fixture.Build();
+
+    render::render_scene_item_t sceneItems[2]{};
+    common::u32 passIndices[2]{};
+    auto description = fixture.CameraDescription();
+    description.modelLayout = render::render_world_model_layout_t::MODEL_CUTOUT;
+    description.sceneItemsScratch = sceneItems;
+    description.sceneItemCapacity = 2u;
+    description.passIndicesScratch = passIndices;
+    description.passIndexCapacity = 2u;
+    description.drawTemplate.sampledTextures[1] = fixture.passDepthTexture;
+    description.drawTemplate.samplers[1] = fixture.passCompareSampler;
+
+    auto expected = render::render_error_t::ERR_INVALID_HANDLE;
+    SECTION( "missing depth texture" ) {
+        description.drawTemplate.sampledTextures[1] = {};
+    }
+    SECTION( "stale depth texture" ) {
+        const auto stale = fixture.passDepthTexture;
+        REQUIRE( render::R_DestroyTexture( fixture.passDepthTexture ) ==
+            render::render_error_t::OK );
+        fixture.passDepthTexture = {};
+        description.drawTemplate.sampledTextures[1] = stale;
+        expected = render::render_error_t::ERR_STALE_HANDLE;
+    }
+    SECTION( "color texture in shadow slot" ) {
+        description.drawTemplate.sampledTextures[1] = fixture.alphaTexture;
+        expected = render::render_error_t::ERR_BINDING_MISMATCH;
+    }
+    SECTION( "missing comparison sampler" ) {
+        description.drawTemplate.samplers[1] = {};
+    }
+    SECTION( "stale comparison sampler" ) {
+        const auto stale = fixture.passCompareSampler;
+        REQUIRE( render::R_DestroySampler( fixture.passCompareSampler ) ==
+            render::render_error_t::OK );
+        fixture.passCompareSampler = {};
+        description.drawTemplate.samplers[1] = stale;
+        expected = render::render_error_t::ERR_STALE_HANDLE;
+    }
+    SECTION( "sampler without depth comparison" ) {
+        REQUIRE( render::R_CreateSampler( {}, &fixture.passRawSampler ) ==
+            render::render_error_t::OK );
+        description.drawTemplate.samplers[1] = fixture.passRawSampler;
+        expected = render::render_error_t::ERR_BINDING_MISMATCH;
+    }
+
+    render::render_world_camera_draw_t output[2]{};
+    output[0].draw.pipeline.value = 12345u;
+    output[1].draw.pipeline.value = 54321u;
+    render::render_world_camera_pass_counts_t counts{ 77u, 88u, 99u };
+    const auto result = render::R_PrepareWorldCameraDraws(
+        description, output, 2u, &counts );
+    CHECK( result == expected );
+    CHECK( counts.opaqueCount == 77u );
+    CHECK( counts.blendCount == 88u );
+    CHECK( counts.additiveCount == 99u );
+    CHECK( output[0].draw.pipeline.value == 12345u );
+    CHECK( output[1].draw.pipeline.value == 54321u );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
 }
 
 TEST_CASE( "World normal-and-cutout Model record packs normals before alpha cutoff",

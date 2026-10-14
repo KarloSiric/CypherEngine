@@ -315,6 +315,15 @@ caller-owned bundle tables. It prepares indexed draws and stages one model
 matrix per object in a caller-owned uniform batch. No native OpenGL object name
 enters World data, and the renderer frontend does not query World itself.
 
+A camera draw may use a cooked bundle with a pass-owned shadow binding in
+sampled slot 1. The host seeds `drawTemplate` with a live D24 render-target
+texture and an explicit depth-comparison sampler; the World adapter validates
+the pair during preflight and preserves it when publishing each draw. The
+bundle owns its slot-0 albedo only. This is a draw-binding path, not a complete
+shadowed World lighting pass: the current 256-byte World `View` record has no
+light-space matrix, and authored shader recipes cannot yet emit the depth
+sampler binding.
+
 The bridge preflights the complete visible set before it appends uniform bytes.
 Missing slots, stale renderer handles, unsupported material modes, invalid
 transforms, and insufficient draw or uniform capacity leave the caller's draw

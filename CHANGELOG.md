@@ -43,6 +43,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Cooked material bundles can reserve sampled slot 1 for a caller-owned D24
+  shadow map and explicit comparison sampler while owning one albedo texture
+  in slot 0. The bridge validates the cooked binding, draw-time resource pair,
+  and pipeline kind; World camera preparation preserves that pair after
+  preflight, including mixed submissions with ordinary materials. Focused CPU
+  tests cover ownership, rollback, and failure atomicity, and the native
+  OpenGL smoke test exercises the binding with a shadowed pixel. This bounded
+  path currently needs a hand-built cooked shader; the authored shader cooker
+  cannot emit depth samplers, and World lighting still lacks the light-space
+  matrix and pass schedule needed for a complete shadowed scene.
 - A caller can now pack a 256-byte std140 `View` lighting record for World
   camera draws, with camera matrices, ambient and directional radiance, and up
   to two point lights. `R_PackWorldViewLighting` validates inputs, normalizes the light
