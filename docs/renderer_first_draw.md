@@ -118,6 +118,14 @@ toward a supplied linear fog color between camera depths 8 and 32, before tone
 mapping. `--no-fog` disables that ramp for comparison. Camera and light queries are
 independent; neither World objects nor asset slots contain native GPU names.
 
+`--material-ranges` gives each rotating box six material draws, one per face,
+while keeping one shared cube upload. It uses 13 World records: the complete
+floor and six ranges for each box. The mesh table contains borrowed aliases
+with matching camera/shadow ranges; only the original cube bundle is destroyed.
+Each face retains its box's transform, mirrored winding, and conservative full
+bounds. Three existing material tints alternate across the faces. This is a
+bounded material-range example, not automatic map loading or scene batching.
+
 With an existing shader-tools configuration, build this explicit target to cook
 `world_lighting.cyshader`, `world_shadow.cyshader`, and `tonemap.cyshader`:
 
@@ -472,6 +480,33 @@ resolves each visible object's logical mesh and material slots through borrowed,
 caller-owned bundle tables. It prepares indexed draws and stages one model
 matrix per object in a caller-owned uniform batch. No native OpenGL object name
 enters World data, and the renderer frontend does not query World itself.
+
+The opaque, camera, and shadow adapters can also accept a parallel
+`meshRanges` table indexed by `object.meshSlot`. A null table with zero count
+keeps the original whole-mesh behavior. Otherwise its count must equal
+`meshCount`, and each selected `{firstIndex, indexCount}` names complete
+triangles inside that mesh's uploaded index stream. Counts and offsets are
+index elements, not bytes; both must be multiples of three, and counts must be
+positive. Extents are checked by subtraction to avoid unsigned overflow.
+
+This connects the geometry cook's material batches (`iFirstIndex`, `cIndices`)
+to World draws without uploading a separate vertex buffer for every material.
+An importer resolves each batch's authored material reference to a logical
+material slot and adds one World record per batch with the source transform
+and conservative transformed bounds. Multiple logical mesh entries can borrow
+one uploaded mesh bundle and select different ranges. The original bundle
+owns the GPU resources and is destroyed once; the aliases are never owners.
+All indices still address its full vertex stream, so `vertexCount` is unchanged.
+World and uniform capacities count these batch records, not authored objects.
+
+The host supplies the same ranges for camera and light views. Selected ranges
+are validated before staging model records; invalid extents, triangle alignment,
+table cardinality, or overlapping writable storage leave public draws, counts,
+and model storage unchanged. Camera sorting carries each range with its World
+record, and noncasting shadow records remain skipped. This adds no allocation
+or automatic batching, does not resolve material assets, and does not load a
+`.cymap`. Tighter batch bounds and more efficient scene grouping remain later
+work.
 
 A camera draw may use a cooked bundle with a pass-owned shadow binding in
 sampled slot 1 for albedo alone, or slot 3 for opaque albedo/lightmap/normal.

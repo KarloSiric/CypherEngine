@@ -4766,6 +4766,295 @@ void CheckCookedWorldCameraPassDrawing( const render::render_extent_t extent )
     REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) == render::render_error_t::OK );
 }
 
+void CheckWorldMaterialMeshRangeDrawing( const render::render_extent_t extent )
+{
+    // The mesh has left, right, and upper triangles, but only the first two
+    // are referenced by World material ranges. Both adapters must preserve
+    // those ranges: drawing the complete mesh would color/shadow the unused
+    // upper triangle and make both selected regions use the same material.
+    struct range_scope_t {
+        world::world_t *pWorld{ nullptr };
+        world::world_submission_t *submissions[2]{};
+        render::render_uniform_batch_t models[2]{};
+        render::render_static_mesh_bundle_t mesh{};
+        render::render_shader_handle_t shaders[2]{};
+        render::render_pipeline_handle_t pipelines[2]{};
+        render::render_buffer_handle_t buffers[3]{};
+        render::render_texture_handle_t textures[3]{};
+        render::render_target_handle_t targets[2]{};
+
+        bool Close() noexcept
+        {
+            bool succeeded = true;
+            if ( render::R_IsTargetPassActive() ) {
+                succeeded &= render::R_EndTargetPass() == render::render_error_t::OK;
+            }
+            if ( render::R_IsFrameActive() ) {
+                succeeded &= render::R_EndFrame() == render::render_error_t::OK;
+            }
+            for ( auto &submission : submissions ) {
+                if ( !submission ) continue;
+                world::WorldSubmission_End( submission );
+                world::WorldSubmission_Shutdown( &submission );
+            }
+            if ( pWorld ) world::World_Shutdown( &pWorld );
+            const auto retire = [&succeeded]( auto &handles, auto destroy ) {
+                for ( auto &handle : handles ) {
+                    if ( handle.value == 0u ) continue;
+                    if ( destroy( handle ) == render::render_error_t::OK ) handle = {};
+                    else succeeded = false;
+                }
+            };
+            retire( targets, render::R_DestroyRenderTarget );
+            retire( pipelines, render::R_DestroyGraphicsPipeline );
+            retire( shaders, render::R_DestroyShader );
+            // Logical mesh/material table entries below are borrowed aliases.
+            // Only this original mesh and the handles above own GPU resources.
+            succeeded &= render::R_DestroyStaticMeshBundle( &mesh ) == render::render_error_t::OK;
+            for ( auto &batch : models ) {
+                succeeded &= render::R_DestroyUniformBatch( &batch ) == render::render_error_t::OK;
+            }
+            retire( buffers, render::R_DestroyBuffer );
+            retire( textures, render::R_DestroyTexture );
+            return succeeded;
+        }
+
+        ~range_scope_t() { (void)Close(); }
+    } scope;
+
+    constexpr char vertexSource[] =
+        "#version 410 core\n"
+        "layout(location=0) in vec3 position;\n"
+        "layout(std140) uniform View { mat4 view; };\n"
+        "layout(std140) uniform Model { mat4 model; };\n"
+        "void main(){ gl_Position=view*model*vec4(position,1.0); }\n";
+    constexpr char cameraFragment[] =
+        "#version 410 core\n"
+        "layout(std140) uniform Material { vec4 tint; };\n"
+        "layout(location=0) out vec4 color;\n"
+        "void main(){ color=tint; }\n";
+    constexpr char shadowFragment[] = "#version 410 core\nvoid main(){}\n";
+    const auto createShader = [&]( const char *fragment, common::u64 fragmentSize,
+        render::render_shader_handle_t *shader ) {
+        common::cooked_shader_view_t source{};
+        source.nLanguageVersion = 410u;
+        source.nStages = 2u;
+        source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+        source.stages[0].code = {
+            reinterpret_cast<const common::byte *>( vertexSource ), sizeof( vertexSource ) };
+        source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+        source.stages[1].code = {
+            reinterpret_cast<const common::byte *>( fragment ), fragmentSize };
+        REQUIRE( render::R_CreateShader( { &source, "World material mesh range oracle" }, shader ) ==
+            render::render_error_t::OK );
+    };
+    createShader( cameraFragment, sizeof( cameraFragment ), &scope.shaders[0] );
+    createShader( shadowFragment, sizeof( shadowFragment ), &scope.shaders[1] );
+
+    constexpr float vertices[9][3]{
+        { -0.95f,-0.9f,-0.4f }, { -0.15f,-0.9f,-0.4f }, { -0.55f,0.1f,-0.4f },
+        {  0.15f,-0.9f, 0.2f }, {  0.95f,-0.9f, 0.2f }, {  0.55f,0.1f, 0.2f },
+        { -0.4f,  0.3f,-0.8f }, {  0.4f,  0.3f,-0.8f }, {  0.0f,0.95f,-0.8f }
+    };
+    constexpr common::u16 indices[9]{ 0u,1u,2u, 3u,4u,5u, 6u,7u,8u };
+    render::render_static_mesh_source_t source{};
+    source.vertexLayout.bindingCount = 1u;
+    source.vertexLayout.bindings[0].stride = sizeof( vertices[0] );
+    source.vertexLayout.attributeCount = 1u;
+    source.vertexLayout.attributes[0] = { render::render_format_t::RGB32_FLOAT, 0u, 0u, 0u };
+    source.vertexBytes = vertices;
+    source.vertexByteSize = sizeof( vertices );
+    source.vertexCount = 9u;
+    source.indexBytes = indices;
+    source.indexByteSize = sizeof( indices );
+    source.indexCount = 9u;
+    REQUIRE( render::R_CreateStaticMeshBundle( source, &scope.mesh ).status ==
+        render::render_static_mesh_bridge_status_t::OK );
+    const render::render_static_mesh_bundle_t meshAliases[2]{ scope.mesh,scope.mesh };
+    const render::render_world_mesh_range_t ranges[2]{ { 0u,3u },{ 3u,3u } };
+
+    render::render_pipeline_desc_t pipeline{};
+    pipeline.shader = scope.shaders[0];
+    pipeline.vertexLayout = source.vertexLayout;
+    pipeline.depthTest = pipeline.depthWrite = true;
+    pipeline.uniformBlockCount = 3u;
+    pipeline.uniformBlocks[0] = { "View",64u };
+    pipeline.uniformBlocks[1] = { "Model",64u };
+    pipeline.uniformBlocks[2] = { "Material",16u };
+    REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &scope.pipelines[0] ) == render::render_error_t::OK );
+    pipeline.shader = scope.shaders[1];
+    pipeline.colorWrite = false;
+    pipeline.uniformBlockCount = 2u;
+    pipeline.uniformBlocks[2] = {};
+    REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &scope.pipelines[1] ) == render::render_error_t::OK );
+
+    constexpr float identity[16]{
+        1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+    };
+    constexpr float tints[2][4]{ { 1,0,0,1 },{ 0,1,0,1 } };
+    render::render_material_bundle_t materials[2]{};
+    render::render_buffer_desc_t buffer{};
+    buffer.usage = render::R_BUFFER_USAGE_UNIFORM;
+    buffer.byteSize = sizeof( identity );
+    const render::render_buffer_data_t viewData{ identity,sizeof( identity ) };
+    REQUIRE( render::R_CreateBuffer( buffer, &viewData, &scope.buffers[0] ) == render::render_error_t::OK );
+    buffer.byteSize = sizeof( tints[0] );
+    for ( common::u32 i = 0u; i < 2u; ++i ) {
+        const render::render_buffer_data_t tintData{ tints[i],sizeof( tints[i] ) };
+        REQUIRE( render::R_CreateBuffer( buffer, &tintData, &scope.buffers[i + 1u] ) == render::render_error_t::OK );
+        materials[i].shader = scope.shaders[0];
+        materials[i].pipeline = scope.pipelines[0];
+        materials[i].materialUniformBuffer = scope.buffers[i + 1u];
+        materials[i].materialUniformSlot = 2u;
+        materials[i].materialFlags = common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    }
+    const auto *info = render::R_GetInfo();
+    REQUIRE( info != nullptr );
+    const common::u64 batchCapacity = 2u * ( 64u + info->limits.uniformBufferOffsetAlignment );
+    for ( auto &batch : scope.models ) {
+        REQUIRE( render::R_CreateUniformBatch( batchCapacity, nullptr, &batch ) == render::render_error_t::OK );
+    }
+
+    REQUIRE( world::World_Init( &scope.pWorld, common::Allocator_GetSystem(), 2u ) == world::world_error_t::OK );
+    world::world_object_id_t objectIds[2]{};
+    for ( common::u32 i = 0u; i < 2u; ++i ) {
+        world::world_object_t object{};
+        object.localToWorld = math::Affine3_FromTranslation( { 0.0f,0.0f,0.0f } );
+        object.worldBounds = i == 0u
+            ? math::Aabb_Make( { -0.95f,-0.9f,-0.41f },{ -0.15f,0.1f,-0.39f } )
+            : math::Aabb_Make( { 0.15f,-0.9f,0.19f },{ 0.95f,0.1f,0.21f } );
+        object.layerMask = 1u;
+        object.meshSlot = object.materialSlot = i;
+        REQUIRE( world::World_AddObject( scope.pWorld, &object, &objectIds[i] ) == world::world_error_t::OK );
+    }
+    world::world_view_query_t query{};
+    query.frustum.planes[0] = math::Plane_Make( { 1,0,0 },2.0f );
+    query.frustum.planes[1] = math::Plane_Make( { -1,0,0 },2.0f );
+    query.frustum.planes[2] = math::Plane_Make( { 0,1,0 },2.0f );
+    query.frustum.planes[3] = math::Plane_Make( { 0,-1,0 },2.0f );
+    query.frustum.planes[4] = math::Plane_Make( { 0,0,1 },2.0f );
+    query.frustum.planes[5] = math::Plane_Make( { 0,0,-1 },2.0f );
+    query.maxDistance = 10.0f;
+    query.layerMask = 1u;
+    world::world_submission_token_t tokens[2]{};
+    for ( common::u32 i = 0u; i < 2u; ++i ) {
+        REQUIRE( world::WorldSubmission_Init( &scope.submissions[i], common::Allocator_GetSystem(), 2u ) ==
+            world::world_submission_error_t::OK );
+        REQUIRE( world::WorldSubmission_Build( scope.submissions[i], scope.pWorld, &query, &tokens[i] ) ==
+            world::world_submission_error_t::OK );
+    }
+    render::render_scene_item_t sceneScratch[2]{};
+    common::u32 indexScratch[2]{};
+    render::render_world_camera_prepare_desc_t camera{};
+    camera.submission = scope.submissions[0];
+    camera.token = tokens[0];
+    camera.meshes = meshAliases;
+    camera.meshCount = 2u;
+    camera.materials = materials;
+    camera.materialCount = 2u;
+    camera.modelUniforms = &scope.models[0];
+    camera.modelUniformSlot = 1u;
+    camera.drawTemplate.uniformBuffers[0] = scope.buffers[0];
+    camera.sceneItemsScratch = sceneScratch;
+    camera.sceneItemCapacity = 2u;
+    camera.passIndicesScratch = indexScratch;
+    camera.passIndexCapacity = 2u;
+    camera.meshRanges = ranges;
+    camera.meshRangeCount = 2u;
+    render::render_world_camera_draw_t cameraDraws[2]{};
+    render::render_world_camera_pass_counts_t counts{};
+    REQUIRE( render::R_PrepareWorldCameraDraws( camera, cameraDraws, 2u, &counts ) == render::render_error_t::OK );
+    CHECK( counts.opaqueCount == 2u );
+    CHECK( counts.blendCount == 0u );
+    CHECK( counts.additiveCount == 0u );
+
+    render::render_world_shadow_prepare_desc_t shadow{};
+    shadow.submission = scope.submissions[1];
+    shadow.token = tokens[1];
+    shadow.meshes = meshAliases;
+    shadow.meshCount = 2u;
+    shadow.materials = materials;
+    shadow.materialCount = 2u;
+    shadow.modelUniforms = &scope.models[1];
+    shadow.modelUniformSlot = 1u;
+    shadow.shadowPipeline = scope.pipelines[1];
+    shadow.drawTemplate.uniformBuffers[0] = scope.buffers[0];
+    shadow.meshRanges = ranges;
+    shadow.meshRangeCount = 2u;
+    render::render_world_shadow_draw_t shadowDraws[2]{};
+    common::u32 shadowCount = 0u;
+    REQUIRE( render::R_PrepareWorldShadowDraws( shadow, shadowDraws, 2u, &shadowCount ) == render::render_error_t::OK );
+    REQUIRE( shadowCount == 2u );
+    for ( common::u32 i = 0u; i < 2u; ++i ) {
+        CHECK( cameraDraws[i].objectId.incarnation == objectIds[i].incarnation );
+        CHECK( shadowDraws[i].objectId.incarnation == objectIds[i].incarnation );
+        CHECK( cameraDraws[i].draw.vertexInput.value == scope.mesh.vertexInput.value );
+        CHECK( shadowDraws[i].draw.vertexInput.value == scope.mesh.vertexInput.value );
+        CHECK( cameraDraws[i].draw.firstIndex == ranges[i].firstIndex );
+        CHECK( shadowDraws[i].draw.firstIndex == ranges[i].firstIndex );
+        CHECK( cameraDraws[i].draw.indexCount == 3u );
+        CHECK( shadowDraws[i].draw.indexCount == 3u );
+    }
+
+    render::render_texture_desc_t texture{};
+    texture.width = texture.height = 16u;
+    texture.sRGB = texture.generateMips = texture.repeat = false;
+    texture.renderTarget = true;
+    texture.format = render::render_texture_format_t::RGBA8;
+    REQUIRE( render::R_CreateTexture2D( texture, {}, &scope.textures[0] ) == render::render_error_t::OK );
+    texture.format = render::render_texture_format_t::D24;
+    REQUIRE( render::R_CreateTexture2D( texture, {}, &scope.textures[1] ) == render::render_error_t::OK );
+    REQUIRE( render::R_CreateTexture2D( texture, {}, &scope.textures[2] ) == render::render_error_t::OK );
+    REQUIRE( render::R_CreateRenderTarget( { scope.textures[0],scope.textures[1] }, &scope.targets[0] ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CreateRenderTarget( { {},scope.textures[2] }, &scope.targets[1] ) == render::render_error_t::OK );
+    render::render_frame_info_t frame{};
+    frame.drawableExtent = extent;
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+    render::render_target_pass_desc_t pass{};
+    pass.target = scope.targets[0];
+    pass.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
+    pass.clearColor = { 0.0f,0.0f,1.0f,1.0f };
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    for ( const auto &draw : cameraDraws ) {
+        REQUIRE( render::R_DrawIndexed( draw.draw ) == render::render_error_t::OK );
+    }
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    constexpr common::u32 pixelLocations[3][2]{ { 3u,3u },{ 12u,3u },{ 8u,11u } };
+    constexpr common::u32 expectedChannels[3]{ 0u,1u,2u };
+    for ( common::u32 i = 0u; i < 3u; ++i ) {
+        std::array<common::u8,4u> pixel{};
+        REQUIRE( render::R_ReadTargetRGBA8( scope.targets[0],
+            { pixelLocations[i][0],pixelLocations[i][1],1u,1u }, pixel.data(),pixel.size(),4u ) ==
+            render::render_error_t::OK );
+        CAPTURE( i,pixel[0],pixel[1],pixel[2],pixel[3] );
+        for ( common::u32 channel = 0u; channel < 3u; ++channel ) {
+            if ( channel == expectedChannels[i] ) CHECK( pixel[channel] >= 250u );
+            else CHECK( pixel[channel] <= 5u );
+        }
+        CHECK( pixel[3] >= 250u );
+    }
+
+    pass.target = scope.targets[1];
+    pass.clearFlags = render::R_CLEAR_DEPTH;
+    REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+    for ( const auto &draw : shadowDraws ) {
+        REQUIRE( render::R_DrawIndexed( draw.draw ) == render::render_error_t::OK );
+    }
+    constexpr float expectedDepths[3]{ 0.3f,0.6f,1.0f };
+    for ( common::u32 i = 0u; i < 3u; ++i ) {
+        GLfloat depth = 0.0f;
+        glReadPixels( static_cast<GLint>( pixelLocations[i][0] ),
+            static_cast<GLint>( pixelLocations[i][1] ),1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&depth );
+        REQUIRE( glGetError() == GL_NO_ERROR );
+        CAPTURE( i,depth );
+        CHECK( std::fabs( depth - expectedDepths[i] ) < 0.01f );
+    }
+    REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+    REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+    CHECK( scope.Close() );
+}
+
 void CheckCookedWorldViewLightingDrawing( const render::render_extent_t extent )
 {
     // This pixel oracle crosses the CPU lighting packer, caller-owned View
@@ -7599,6 +7888,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckCookedTintWorldMaskDrawing( info->drawableExtent, false );
     CheckCookedTintWorldMaskDrawing( info->drawableExtent, true );
     CheckCookedWorldCameraPassDrawing( info->drawableExtent );
+    CheckWorldMaterialMeshRangeDrawing( info->drawableExtent );
     CheckCookedWorldViewLightingDrawing( info->drawableExtent );
     CheckCookedWorldLightmapDrawing( info->drawableExtent );
     CheckCookedWorldNormalMapDrawing( info->drawableExtent );

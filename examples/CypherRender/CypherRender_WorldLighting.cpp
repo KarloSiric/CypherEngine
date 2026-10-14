@@ -47,7 +47,9 @@ namespace camera = cypher::samples::render;
 
 namespace
 {
-constexpr common::u32 OBJECT_COUNT = 3u;
+constexpr common::u32 MATERIAL_COUNT = 3u;
+constexpr common::u32 MAX_OBJECT_COUNT = 13u; // Floor plus six material faces per box.
+constexpr common::u32 MESH_COUNT = 7u; // Whole cube, then its six face ranges.
 constexpr common::u32 SHADOW_SIZE = 1024u;
 constexpr math::vec3_t LIGHT_POSITION{ 6.0f, -8.0f, 12.0f };
 constexpr math::aabb_t LOCAL_BOUNDS{ { -1, -1, -1 }, { 1, 1, 1 } };
@@ -56,7 +58,7 @@ static_assert( sizeof( vertex_t ) == 32u );
 
 struct options_t {
     common::u32 frames{ 0u };
-    bool hidden{ false }, help{ false }, resizeTest{ false }, noFog{ false };
+    bool hidden{ false }, help{ false }, resizeTest{ false }, noFog{ false }, materialRanges{ false };
 };
 struct scene_target_t {
     render::render_texture_handle_t color{};
@@ -71,17 +73,20 @@ struct state_t {
     render::render_pipeline_handle_t shadowPipelines[2]{};
     render::render_pipeline_handle_t presentationPipeline{};
     render::render_static_mesh_bundle_t cube{}, fullscreen{};
-    render::render_buffer_handle_t view{}, light{}, tints[OBJECT_COUNT]{};
+    render::render_buffer_handle_t view{}, light{}, tints[MATERIAL_COUNT]{};
     render::render_texture_handle_t white{}, shadowDepth{};
     render::render_target_handle_t shadowTarget{};
     render::render_sampler_handle_t shadowSampler{};
     render::render_uniform_batch_t cameraModels{}, shadowModels{};
     // These are borrowed views of the shared resources above, not owners.
-    render::render_material_bundle_t materials[OBJECT_COUNT]{};
+    render::render_material_bundle_t materials[MATERIAL_COUNT]{};
+    render::render_static_mesh_bundle_t meshes[MESH_COUNT]{};
+    render::render_world_mesh_range_t meshRanges[MESH_COUNT]{};
     scene_target_t scene{}, pending{};
     world::world_t *pWorld{ nullptr };
     world::world_submission_t *cameraSubmission{ nullptr }, *lightSubmission{ nullptr };
-    world::world_object_id_t objects[OBJECT_COUNT]{};
+    world::world_object_id_t objects[MAX_OBJECT_COUNT]{};
+    common::u32 objectCount{ 0u };
 };
 
 bool Check( render::render_error_t error, const char *operation ) noexcept
@@ -225,6 +230,12 @@ bool CreateMeshes( state_t &state ) noexcept
     source.indexType = render::render_index_type_t::UINT16;
     source.debugName = "World shared box";
     if ( !CreateMesh( source, state.cube ) ) return false;
+    for ( common::u32 i = 0u; i < MESH_COUNT; ++i ) {
+        state.meshes[i] = state.cube; // Borrowed aliases; only state.cube owns handles.
+        state.meshRanges[i] = i == 0u
+            ? render::render_world_mesh_range_t{ 0u,36u }
+            : render::render_world_mesh_range_t{ ( i - 1u ) * 6u,6u };
+    }
     constexpr float SCREEN[3][2] = { { -1, -1 }, { 3, -1 }, { -1, 3 } };
     constexpr common::u16 SCREEN_INDICES[3] = { 0, 1, 2 };
     source = render::render_static_mesh_source_t{};
@@ -326,11 +337,11 @@ bool CreateResources( state_t &state )
     if ( !Check( render::R_CreateSampler( sampler, &state.shadowSampler ), "Create comparison sampler" ) ||
          !CreateUniform( sizeof( render::render_world_fogged_view_lighting_record_t ), nullptr, state.view ) ||
          !CreateUniform( 64u, nullptr, state.light ) ) return false;
-    constexpr float TINTS[OBJECT_COUNT][4] = {
+    constexpr float TINTS[MATERIAL_COUNT][4] = {
         { 0.38f, 0.42f, 0.46f, 1.0f }, { 0.65f, 0.22f, 0.08f, 1.0f },
         { 0.10f, 0.28f, 0.55f, 1.0f }
     };
-    for ( common::u32 i = 0u; i < OBJECT_COUNT; ++i ) {
+    for ( common::u32 i = 0u; i < MATERIAL_COUNT; ++i ) {
         if ( !CreateUniform( 16u, TINTS[i], state.tints[i] ) ) return false;
         auto &material = state.materials[i];
         material.shader = state.shaders[0];
@@ -348,7 +359,7 @@ bool CreateResources( state_t &state )
     const common::u64 alignment = info->limits.uniformBufferOffsetAlignment;
     // Reserve aligned records separately: camera Model112, light Model64.
     const auto capacity = [alignment]( common::u64 bytes ) {
-        return ( OBJECT_COUNT - 1u ) * ( ( bytes + alignment - 1u ) / alignment * alignment ) + bytes;
+        return ( MAX_OBJECT_COUNT - 1u ) * ( ( bytes + alignment - 1u ) / alignment * alignment ) + bytes;
     };
     return Check( render::R_CreateUniformBatch( capacity( 112u ), nullptr,
                &state.cameraModels ), "Create camera model storage" ) &&
@@ -356,35 +367,43 @@ bool CreateResources( state_t &state )
             &state.shadowModels ), "Create shadow model storage" );
 }
 
-world::world_object_t Object( common::u32 index, float seconds ) noexcept
+world::world_object_t Object( common::u32 index, float seconds, bool materialRanges ) noexcept
 {
     world::world_object_t object{};
+    const common::u32 body = materialRanges && index > 0u ? 1u + ( index - 1u ) / 6u : index;
     const auto rotation = math::Quat_FromUnitAxisAngle( math::CY_VEC3_UP,
         math::Angle_FromRadians( seconds * 0.45f ) );
-    if ( index == 0u ) {
+    if ( body == 0u ) {
         object.localToWorld = math::Affine3_FromTRS(
             { 0, 0, -0.2f }, math::CY_QUAT_IDENTITY, { 7, 6, 0.2f } );
     } else {
         // One mirrored, nonuniform box exercises both normal packing and CW selection.
         object.localToWorld = math::Affine3_FromTRS(
-            index == 1u ? math::vec3_t{ -2, 0, 1.2f } : math::vec3_t{ 2, 1, 1 },
-            rotation, index == 1u ? math::vec3_t{ 0.8f, 1, 1.2f } : math::vec3_t{ -1, 0.7f, 1 } );
+            body == 1u ? math::vec3_t{ -2, 0, 1.2f } : math::vec3_t{ 2, 1, 1 },
+            rotation, body == 1u ? math::vec3_t{ 0.8f, 1, 1.2f } : math::vec3_t{ -1, 0.7f, 1 } );
     }
     object.worldBounds = math::Aabb_TransformAffine( LOCAL_BOUNDS, object.localToWorld );
     object.meshSlot = 0u;
-    object.materialSlot = index;
+    object.materialSlot = body;
+    if ( materialRanges && index > 0u ) {
+        const common::u32 face = ( index - 1u ) % 6u;
+        object.meshSlot = face + 1u;
+        object.materialSlot = ( body + face ) % MATERIAL_COUNT;
+        // Each face keeps the box's conservative full bounds and transform.
+    }
     object.layerMask = 1u;
     return object;
 }
 
-bool CreateWorld( state_t &state ) noexcept
+bool CreateWorld( state_t &state, bool materialRanges ) noexcept
 {
     const auto *allocator = common::Allocator_GetSystem();
-    if ( !Check( world::World_Init( &state.pWorld, allocator, OBJECT_COUNT ), "Create World" ) ||
-         !Check( world::WorldSubmission_Init( &state.cameraSubmission, allocator, OBJECT_COUNT ), "Create camera submission" ) ||
-         !Check( world::WorldSubmission_Init( &state.lightSubmission, allocator, OBJECT_COUNT ), "Create light submission" ) ) return false;
-    for ( common::u32 i = 0u; i < OBJECT_COUNT; ++i ) {
-        const auto object = Object( i, 0.0f );
+    state.objectCount = materialRanges ? MAX_OBJECT_COUNT : 3u;
+    if ( !Check( world::World_Init( &state.pWorld, allocator, MAX_OBJECT_COUNT ), "Create World" ) ||
+         !Check( world::WorldSubmission_Init( &state.cameraSubmission, allocator, MAX_OBJECT_COUNT ), "Create camera submission" ) ||
+         !Check( world::WorldSubmission_Init( &state.lightSubmission, allocator, MAX_OBJECT_COUNT ), "Create light submission" ) ) return false;
+    for ( common::u32 i = 0u; i < state.objectCount; ++i ) {
+        const auto object = Object( i, 0.0f, materialRanges );
         if ( !Check( world::World_AddObject( state.pWorld, &object,
                  &state.objects[i] ), "Add World object" ) ) return false;
     }
@@ -517,8 +536,8 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
             if ( !camera::CubeCamera_Advance( &viewpoint, movement, dt ) ) return false;
         }
         elapsed += interactive ? dt : 1.0f / 60.0f;
-        for ( common::u32 i = 1u; i < OBJECT_COUNT; ++i ) {
-            const auto object = Object( i, elapsed );
+        for ( common::u32 i = 1u; i < state.objectCount; ++i ) {
+            const auto object = Object( i, elapsed, options.materialRanges );
             if ( !Check( world::World_UpdateObject( state.pWorld, state.objects[i], &object ), "Move World object" ) ) return false;
         }
         render::render_world_view_lighting_desc_t lighting{};
@@ -544,39 +563,43 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
         if ( !Query( state.cameraSubmission, state, math::Mat4_Multiply(
                  lighting.clipFromView, lighting.viewFromWorld ), viewpoint.position, cameraToken ) ||
              !Query( state.lightSubmission, state, lightClip, LIGHT_POSITION, lightToken ) ) return false;
-        render::render_world_camera_draw_t cameraOutput[OBJECT_COUNT]{};
-        render::render_world_shadow_draw_t lightOutput[OBJECT_COUNT]{};
-        render::render_scene_item_t sceneScratch[OBJECT_COUNT]{};
-        common::u32 indexScratch[OBJECT_COUNT]{};
+        render::render_world_camera_draw_t cameraOutput[MAX_OBJECT_COUNT]{};
+        render::render_world_shadow_draw_t lightOutput[MAX_OBJECT_COUNT]{};
+        render::render_scene_item_t sceneScratch[MAX_OBJECT_COUNT]{};
+        common::u32 indexScratch[MAX_OBJECT_COUNT]{};
         render::render_world_camera_prepare_desc_t cameraPrepare{};
         cameraPrepare.submission = state.cameraSubmission;
         cameraPrepare.token = cameraToken;
-        cameraPrepare.meshes = &state.cube;
-        cameraPrepare.meshCount = 1u;
+        cameraPrepare.meshes = state.meshes;
+        cameraPrepare.meshCount = options.materialRanges ? MESH_COUNT : 1u;
+        cameraPrepare.meshRanges = options.materialRanges ? state.meshRanges : nullptr;
+        cameraPrepare.meshRangeCount = options.materialRanges ? MESH_COUNT : 0u;
         cameraPrepare.materials = state.materials;
-        cameraPrepare.materialCount = OBJECT_COUNT;
+        cameraPrepare.materialCount = MATERIAL_COUNT;
         cameraPrepare.modelUniforms = &state.cameraModels;
         cameraPrepare.modelUniformSlot = 1u;
         cameraPrepare.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL;
         cameraPrepare.viewFromWorld = lighting.viewFromWorld;
         cameraPrepare.sceneItemsScratch = sceneScratch;
-        cameraPrepare.sceneItemCapacity = OBJECT_COUNT;
+        cameraPrepare.sceneItemCapacity = MAX_OBJECT_COUNT;
         cameraPrepare.passIndicesScratch = indexScratch;
-        cameraPrepare.passIndexCapacity = OBJECT_COUNT;
+        cameraPrepare.passIndexCapacity = MAX_OBJECT_COUNT;
         cameraPrepare.drawTemplate.uniformBuffers[0] = state.view;
         cameraPrepare.drawTemplate.uniformRanges[0] = { 0u, sizeof( viewRecord ) };
         cameraPrepare.drawTemplate.sampledTextures[1] = state.shadowDepth;
         cameraPrepare.drawTemplate.samplers[1] = state.shadowSampler;
         render::render_world_camera_pass_counts_t counts{};
         if ( !Check( render::R_PrepareWorldCameraDraws( cameraPrepare,
-                 cameraOutput, OBJECT_COUNT, &counts ), "Prepare World camera" ) ) return false;
+                 cameraOutput, MAX_OBJECT_COUNT, &counts ), "Prepare World camera" ) ) return false;
         render::render_world_shadow_prepare_desc_t shadowPrepare{};
         shadowPrepare.submission = state.lightSubmission;
         shadowPrepare.token = lightToken;
-        shadowPrepare.meshes = &state.cube;
-        shadowPrepare.meshCount = 1u;
+        shadowPrepare.meshes = state.meshes;
+        shadowPrepare.meshCount = cameraPrepare.meshCount;
+        shadowPrepare.meshRanges = cameraPrepare.meshRanges;
+        shadowPrepare.meshRangeCount = cameraPrepare.meshRangeCount;
         shadowPrepare.materials = state.materials;
-        shadowPrepare.materialCount = OBJECT_COUNT;
+        shadowPrepare.materialCount = MATERIAL_COUNT;
         shadowPrepare.modelUniforms = &state.shadowModels;
         shadowPrepare.modelUniformSlot = 1u;
         shadowPrepare.shadowPipeline = state.shadowPipelines[0];
@@ -585,7 +608,7 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
         shadowPrepare.drawTemplate.uniformRanges[0] = { 0u, sizeof( lightClip ) };
         common::u32 casterCount = 0u;
         if ( !Check( render::R_PrepareWorldShadowDraws( shadowPrepare,
-                 lightOutput, OBJECT_COUNT, &casterCount ), "Prepare World shadows" ) ) return false;
+                 lightOutput, MAX_OBJECT_COUNT, &casterCount ), "Prepare World shadows" ) ) return false;
         // Submissions are value snapshots. Draws now borrow only renderer resources.
         world::WorldSubmission_End( state.cameraSubmission );
         world::WorldSubmission_End( state.lightSubmission );
@@ -596,8 +619,8 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
                  &present ), "Prepare presentation" ) ) return false;
         // Extract plain draw values so pass execution stays independent of
         // World IDs/queries. This bounded copy needs no per-frame allocation.
-        render::render_draw_indexed_desc_t cameraDrawRecords[OBJECT_COUNT]{};
-        render::render_draw_indexed_desc_t shadowDrawRecords[OBJECT_COUNT]{};
+        render::render_draw_indexed_desc_t cameraDrawRecords[MAX_OBJECT_COUNT]{};
+        render::render_draw_indexed_desc_t shadowDrawRecords[MAX_OBJECT_COUNT]{};
         const common::u32 cameraCount = counts.opaqueCount + counts.blendCount + counts.additiveCount;
         for ( common::u32 i = 0u; i < cameraCount; ++i ) cameraDrawRecords[i] = cameraOutput[i].draw;
         for ( common::u32 i = 0u; i < casterCount; ++i ) shadowDrawRecords[i] = lightOutput[i].draw;
@@ -626,13 +649,14 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
         if ( !drawn || !ended ) return false;
         cameraDraws += result.opaqueDraws + result.blendDraws + result.additiveDraws;
         shadowDraws += result.shadowDraws;
-        if ( options.frames && ( counts.opaqueCount != OBJECT_COUNT || casterCount != OBJECT_COUNT ) ) {
+        if ( options.frames && ( counts.opaqueCount != state.objectCount || casterCount != state.objectCount ) ) {
             std::fputs( "Fixed view did not draw the complete example scene.\n", stderr ); return false;
         }
         ++frames;
         if ( options.frames && frames >= options.frames ) break;
     }
-    std::printf( "World lighting: %u frames, %llu camera draws, %llu shadow draws, %u tone-map draws, %u resizes.\n",
+    std::printf( "World lighting (%s, %u records): %u frames, %llu camera draws, %llu shadow draws, %u tone-map draws, %u resizes.\n",
+        options.materialRanges ? "material ranges" : "whole meshes", state.objectCount,
         frames, static_cast<unsigned long long>( cameraDraws ),
         static_cast<unsigned long long>( shadowDraws ), frames, resizeCount );
     return ( options.frames == 0u || frames == options.frames ) &&
@@ -700,7 +724,7 @@ bool Run( int argc, char **argv, const options_t &options, state_t &state )
     if ( !Check( render::R_ConfigureWindow( config, window ), "Configure window" ) ||
          !Check( sys::Sys_CreateWindow( window, state.window ), "Create window" ) ||
          !Check( render::R_Init( state.window, config ), "Initialize renderer" ) ||
-         !CreateResources( state ) || !CreateWorld( state ) ||
+         !CreateResources( state ) || !CreateWorld( state, options.materialRanges ) ||
          !ResizeScene( state, render::R_GetInfo()->drawableExtent ) ) return false;
     return RunFrames( state, options );
 }
@@ -712,6 +736,7 @@ int main( int argc, char **argv )
     for ( int i = 1; i < argc; ++i ) {
         if ( std::strcmp( argv[i], "--hidden" ) == 0 ) options.hidden = true;
         else if ( std::strcmp( argv[i], "--no-fog" ) == 0 ) options.noFog = true;
+        else if ( std::strcmp( argv[i], "--material-ranges" ) == 0 ) options.materialRanges = true;
         else if ( std::strcmp( argv[i], "--resize-test" ) == 0 ) options.resizeTest = true;
         else if ( std::strcmp( argv[i], "--help" ) == 0 ) options.help = true;
         else if ( std::strcmp( argv[i], "--frames" ) == 0 && i + 1 < argc ) {
@@ -723,12 +748,13 @@ int main( int argc, char **argv )
         } else { std::fprintf( stderr, "Unknown option or missing value: %s\n", argv[i] ); return 2; }
     }
     if ( options.help ) {
-        std::puts( "Usage: cypher_render_world_lighting [--hidden] [--frames N] [--resize-test] [--no-fog]\n"
+        std::puts( "Usage: cypher_render_world_lighting [--hidden] [--frames N] [--resize-test] [--no-fog] [--material-ranges]\n"
             "Hold RMB: mouse look, WASD, Space/C up/down, Shift faster. Esc exits.\n"
             "--frames uses a fixed camera and deterministic animation.\n"
             "--hidden defaults to 120 frames; a working graphics session is required.\n"
             "--resize-test requests two native window resizes during a finite run.\n"
             "--no-fog disables linear camera-depth fog for comparison.\n"
+            "--material-ranges gives each box face its own material draw using the shared cube mesh.\n"
             "The host owns a procedural scene, light descriptions and pass order.\n"
             "This is a World-adapter example, not a map loader or game runtime." );
         return 0;

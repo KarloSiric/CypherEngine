@@ -150,6 +150,15 @@ enum class render_world_model_layout_t : ::cypher::common::u8 {
     MODEL_NORMAL_CUTOUT
 };
 
+// One triangle-aligned material range inside an uploaded static mesh. Indices
+// still address that mesh's complete vertex stream; no base-vertex adjustment.
+// Logical mesh-table entries may borrow the same bundle with different ranges.
+// Destroy shared GPU ownership once through its original owner, not per alias.
+struct render_world_mesh_range_t {
+    ::cypher::common::u32 firstIndex{ 0u };
+    ::cypher::common::u32 indexCount{ 0u };
+};
+
 // Host owns every borrowed table, World submission, batch, and output. Logical
 // World asset slots index the two tables; no World object stores a GPU handle.
 // The shader's block at modelUniformSlot must match modelLayout exactly. Other
@@ -177,6 +186,15 @@ struct render_world_opaque_prepare_desc_t {
     ::cypher::common::u32 modelUniformSlot{ 0u };
     render_world_model_layout_t modelLayout{ render_world_model_layout_t::MODEL_ONLY };
     render_draw_indexed_desc_t drawTemplate{};
+    // Optional parallel table indexed by object.meshSlot. Null + count zero
+    // draws each whole mesh as before. Otherwise count must equal meshCount;
+    // every selected range must be nonempty, triangle-aligned, and contained
+    // in its bundle's indexCount. Keep this table immutable through preparation.
+    // Malformed table/triangle ranges return ERR_INVALID_ARGUMENT; ranges
+    // outside the bundle or its actual index storage return ERR_INDEX_DATA_INVALID
+    // before model upload.
+    const render_world_mesh_range_t *meshRanges{ nullptr };
+    ::cypher::common::u32 meshRangeCount{ 0u };
 };
 
 struct render_world_opaque_draw_t {
@@ -226,6 +244,8 @@ struct render_world_camera_prepare_desc_t {
     ::cypher::common::u32 sceneItemCapacity{ 0u };
     ::cypher::common::u32 *passIndicesScratch{ nullptr };
     ::cypher::common::u32 passIndexCapacity{ 0u };
+    const render_world_mesh_range_t *meshRanges{ nullptr }; // Same contract as opaque.
+    ::cypher::common::u32 meshRangeCount{ 0u };
 };
 
 using render_world_camera_draw_t = render_world_opaque_draw_t;
@@ -277,6 +297,10 @@ struct render_world_shadow_prepare_desc_t {
     render_pipeline_handle_t maskShadowPipeline{}; // CCW, alpha-tested depth.
     render_pipeline_handle_t mirroredMaskShadowPipeline{}; // CW, alpha-tested depth.
     render_draw_indexed_desc_t drawTemplate{};
+    // Supply the same logical mesh ranges as the camera to keep caster geometry
+    // consistent. Only selected casters' ranges are inspected.
+    const render_world_mesh_range_t *meshRanges{ nullptr };
+    ::cypher::common::u32 meshRangeCount{ 0u };
 };
 
 using render_world_shadow_draw_t = render_world_opaque_draw_t;

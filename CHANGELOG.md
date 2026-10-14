@@ -25,6 +25,23 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- World opaque, camera, and shadow preparation can select triangle-aligned
+  material ranges from a shared uploaded mesh through an optional parallel
+  mesh-range table. Omitted ranges preserve whole-mesh draws. Preflight checks
+  table cardinality, index alignment, overflow-safe extents and actual buffer
+  storage before model upload; ranges remain attached to their records through
+  camera sorting and shadow publication. Borrowed mesh/material/range tables
+  cannot overlap writable uniform staging or the batch descriptor. Focused
+  World-draw CPU tests pass (4,833 assertions in 46 cases), including invalid
+  later ranges, forged counts, MASK, sorting and failure atomicity. The native
+  OpenGL suite passes (3,035 assertions in three cases); selected red/green
+  triangles have matching shadow depths while an unused third triangle remains
+  clear. The World example's `--material-ranges` mode uses one cube upload for
+  13 records with separate face materials; 120 frames complete 1,560 camera and
+  1,560 shadow draws, 120 presentations and two target replacements. Its default
+  three-object run also passes. This is a draw-range bridge for geometry cook
+  batches, not automatic batching, material asset resolution, native map loading
+  or Mason viewport integration.
 - An opt-in 352-byte World lighting View adds linear camera-depth fog after
   opaque lighting/shadow evaluation and before HDR tone mapping. The existing
   View256/320 layouts and packers are unchanged. The allocation-free packer

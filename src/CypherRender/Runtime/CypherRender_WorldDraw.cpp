@@ -313,6 +313,44 @@ render_error_t ValidateOtherUniforms(
     return render_error_t::OK;
 }
 
+bool MeshRangeTableValid( const render_world_mesh_range_t *ranges,
+    const common::u32 rangeCount, const common::u32 meshCount ) noexcept
+{
+    return ranges == nullptr ? rangeCount == 0u
+                             : rangeCount != 0u && rangeCount == meshCount;
+}
+
+render_error_t ApplyWorldMeshToDraw(
+    const render_static_mesh_bundle_t &mesh,
+    const render_world_mesh_range_t *range,
+    render_draw_indexed_desc_t *draw ) noexcept
+{
+    const render_error_t error = R_ApplyStaticMeshBundleToDraw( mesh, draw );
+    if ( error != render_error_t::OK || range == nullptr ) return error;
+    if ( range->indexCount < 3u || range->indexCount % 3u != 0u ||
+         range->firstIndex % 3u != 0u ) {
+        return render_error_t::ERR_INVALID_ARGUMENT;
+    }
+    // Subtract before comparing so a hostile first + count cannot wrap u32.
+    if ( range->firstIndex > mesh.indexCount ||
+         range->indexCount > mesh.indexCount - range->firstIndex ) {
+        return render_error_t::ERR_INDEX_DATA_INVALID;
+    }
+    // Borrowed bundle metadata is caller-owned. Verify its claimed stream
+    // against frontend buffer storage, not just against another caller count.
+    render_buffer_info_t indices{};
+    const render_error_t bufferError = R_GetBufferInfo( mesh.indexBuffer, &indices );
+    if ( bufferError != render_error_t::OK ) return bufferError;
+    const common::u32 indexBytes = R_IndexTypeSize( mesh.indexType );
+    if ( indexBytes == 0u ||
+         static_cast<common::u64>( mesh.indexCount ) * indexBytes > indices.byteSize ) {
+        return render_error_t::ERR_INDEX_DATA_INVALID;
+    }
+    draw->firstIndex = range->firstIndex;
+    draw->indexCount = range->indexCount;
+    return render_error_t::OK;
+}
+
 render_error_t PreflightObject(
     const render_world_opaque_prepare_desc_t &description,
     const world::world_object_snapshot_t &snapshot,
@@ -360,8 +398,9 @@ render_error_t PreflightObject(
         return render_error_t::ERR_UNSUPPORTED;
     }
     render_draw_indexed_desc_t draw = description.drawTemplate;
-    render_error_t error = R_ApplyStaticMeshBundleToDraw(
-        description.meshes[object.meshSlot], &draw );
+    render_error_t error = ApplyWorldMeshToDraw(
+        description.meshes[object.meshSlot], description.meshRanges == nullptr
+            ? nullptr : &description.meshRanges[object.meshSlot], &draw );
     if ( error != render_error_t::OK ) return error;
     error = R_ApplyCookedMaterialBundleToDraw(
         material, orientation < 0, &draw );
@@ -423,8 +462,10 @@ void PublishDraw(
     // All handles and bundle invariants were checked before the upload. Copy
     // the same fields as the two Apply* helpers without a fallible late lookup.
     draw.vertexInput = mesh.vertexInput;
-    draw.firstIndex = 0u;
-    draw.indexCount = mesh.indexCount;
+    draw.firstIndex = description.meshRanges == nullptr ? 0u
+        : description.meshRanges[snapshot.object.meshSlot].firstIndex;
+    draw.indexCount = description.meshRanges == nullptr ? mesh.indexCount
+        : description.meshRanges[snapshot.object.meshSlot].indexCount;
     draw.vertexCount = mesh.vertexCount;
     const auto linear = math::Affine3_LinearPart( snapshot.object.localToWorld );
     draw.pipeline = Orientation( linear ) < 0
@@ -464,6 +505,8 @@ render_world_opaque_prepare_desc_t CameraDrawBase(
     base.token = camera.token;
     base.meshes = camera.meshes;
     base.meshCount = camera.meshCount;
+    base.meshRanges = camera.meshRanges;
+    base.meshRangeCount = camera.meshRangeCount;
     base.materials = camera.materials;
     base.materialCount = camera.materialCount;
     base.modelUniforms = camera.modelUniforms;
@@ -501,6 +544,8 @@ render_error_t CameraScratchIsDisjoint(
         sizeof( render_world_camera_draw_t );
     const common::u64 meshBytes = static_cast<common::u64>( description.meshCount ) *
         sizeof( render_static_mesh_bundle_t );
+    const common::u64 rangeBytes = static_cast<common::u64>( description.meshRangeCount ) *
+        sizeof( render_world_mesh_range_t );
     const common::u64 materialBytes = static_cast<common::u64>( description.materialCount ) *
         sizeof( render_material_bundle_t );
     const auto *batch = description.modelUniforms;
@@ -540,7 +585,27 @@ render_error_t CameraScratchIsDisjoint(
          StorageOverlaps( output, outputBytes,
              batch->staging, stagingBytes ) ||
          StorageOverlaps( outCounts, countsBytes,
-             batch->staging, stagingBytes ) ) {
+             batch->staging, stagingBytes ) ||
+         StorageOverlaps( description.meshRanges, rangeBytes,
+             description.sceneItemsScratch, sceneBytes ) ||
+         StorageOverlaps( description.meshRanges, rangeBytes,
+             description.passIndicesScratch, indexBytes ) ||
+         StorageOverlaps( description.meshRanges, rangeBytes,
+             output, outputBytes ) ||
+         StorageOverlaps( description.meshRanges, rangeBytes,
+             outCounts, countsBytes ) ||
+         StorageOverlaps( description.meshRanges, rangeBytes,
+             batch->staging, stagingBytes ) ||
+         StorageOverlaps( description.meshRanges, rangeBytes,
+             batch, sizeof( *batch ) ) ||
+         StorageOverlaps( description.meshes, meshBytes,
+             batch->staging, stagingBytes ) ||
+         StorageOverlaps( description.materials, materialBytes,
+             batch->staging, stagingBytes ) ||
+         StorageOverlaps( description.meshes, meshBytes,
+             batch, sizeof( *batch ) ) ||
+         StorageOverlaps( description.materials, materialBytes,
+             batch, sizeof( *batch ) ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     return render_error_t::OK;
@@ -668,8 +733,9 @@ render_error_t PreflightShadowObject(
 
     render_draw_indexed_desc_t draw = description.drawTemplate;
     draw.pipeline = ShadowPipeline( description, material, orientation );
-    render_error_t error = R_ApplyStaticMeshBundleToDraw(
-        description.meshes[object.meshSlot], &draw );
+    render_error_t error = ApplyWorldMeshToDraw(
+        description.meshes[object.meshSlot], description.meshRanges == nullptr
+            ? nullptr : &description.meshRanges[object.meshSlot], &draw );
     if ( error != render_error_t::OK ) return error;
     for ( common::u32 slot = 0u;
           slot < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++slot ) {
@@ -735,8 +801,10 @@ void PublishShadowDraw(
         description.materials[snapshot.object.materialSlot];
     render_draw_indexed_desc_t draw = description.drawTemplate;
     draw.vertexInput = mesh.vertexInput;
-    draw.firstIndex = 0u;
-    draw.indexCount = mesh.indexCount;
+    draw.firstIndex = description.meshRanges == nullptr ? 0u
+        : description.meshRanges[snapshot.object.meshSlot].firstIndex;
+    draw.indexCount = description.meshRanges == nullptr ? mesh.indexCount
+        : description.meshRanges[snapshot.object.meshSlot].indexCount;
     draw.vertexCount = mesh.vertexCount;
     draw.pipeline = ShadowPipeline( description, material, Orientation(
         math::Affine3_LinearPart( snapshot.object.localToWorld ) ) );
@@ -752,20 +820,24 @@ void PublishShadowDraw(
     output->draw = draw;
 }
 
-render_error_t ShadowOutputIsDisjoint(
-    const render_world_shadow_prepare_desc_t &description,
-    const render_world_shadow_draw_t *output,
-    const common::u32 casterCount,
+template <typename PrepareDesc>
+render_error_t WorldOutputIsDisjoint(
+    const PrepareDesc &description,
+    const render_world_opaque_draw_t *output,
+    const common::u32 drawCount,
     const common::u32 *outCount ) noexcept
 {
     const common::u64 outputBytes =
-        static_cast<common::u64>( casterCount ) * sizeof( *output );
+        static_cast<common::u64>( drawCount ) * sizeof( *output );
     const common::u64 meshBytes =
         static_cast<common::u64>( description.meshCount ) *
         sizeof( render_static_mesh_bundle_t );
     const common::u64 materialBytes =
         static_cast<common::u64>( description.materialCount ) *
         sizeof( render_material_bundle_t );
+    const common::u64 rangeBytes =
+        static_cast<common::u64>( description.meshRangeCount ) *
+        sizeof( render_world_mesh_range_t );
     const common::u64 stagingBytes = description.modelUniforms->capacityBytes;
     if ( StorageOverlaps( output, outputBytes, outCount, sizeof( *outCount ) ) ||
          StorageOverlaps( output, outputBytes,
@@ -785,7 +857,23 @@ render_error_t ShadowOutputIsDisjoint(
              description.modelUniforms->staging, stagingBytes ) ||
          StorageOverlaps( outCount, sizeof( *outCount ),
              description.modelUniforms,
-             sizeof( *description.modelUniforms ) ) ) {
+             sizeof( *description.modelUniforms ) ) ||
+         StorageOverlaps( description.meshRanges, rangeBytes,
+             output, outputBytes ) ||
+         StorageOverlaps( description.meshRanges, rangeBytes,
+             outCount, sizeof( *outCount ) ) ||
+         StorageOverlaps( description.meshRanges, rangeBytes,
+             description.modelUniforms->staging, stagingBytes ) ||
+         StorageOverlaps( description.meshRanges, rangeBytes,
+             description.modelUniforms, sizeof( *description.modelUniforms ) ) ||
+         StorageOverlaps( description.meshes, meshBytes,
+             description.modelUniforms->staging, stagingBytes ) ||
+         StorageOverlaps( description.materials, materialBytes,
+             description.modelUniforms->staging, stagingBytes ) ||
+         StorageOverlaps( description.meshes, meshBytes,
+             description.modelUniforms, sizeof( *description.modelUniforms ) ) ||
+         StorageOverlaps( description.materials, materialBytes,
+             description.modelUniforms, sizeof( *description.modelUniforms ) ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     return render_error_t::OK;
@@ -897,7 +985,12 @@ render_error_t R_PrepareOpaqueWorldDraws(
     if ( description.submission == nullptr || outCount == nullptr ||
          description.modelUniformSlot >= R_MAX_UNIFORM_BLOCK_BINDINGS ||
          ModelRecordByteSize( description.modelLayout ) == 0u ||
-         description.drawTemplate.instanceCount != 1u ) {
+         description.drawTemplate.instanceCount != 1u ||
+         !MeshRangeTableValid( description.meshRanges,
+             description.meshRangeCount, description.meshCount ) ||
+         StorageOverlaps( description.meshRanges,
+             static_cast<common::u64>( description.meshRangeCount ) * sizeof( render_world_mesh_range_t ),
+             outCount, sizeof( *outCount ) ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     common::u32 visibleCount = 0u;
@@ -920,6 +1013,8 @@ render_error_t R_PrepareOpaqueWorldDraws(
     }
     const common::u64 recordBytes = ModelRecordByteSize( description.modelLayout );
     render_error_t result = ValidateBatch( *description.modelUniforms, recordBytes );
+    if ( result != render_error_t::OK ) return result;
+    result = WorldOutputIsDisjoint( description, output, visibleCount, outCount );
     if ( result != render_error_t::OK ) return result;
 
     for ( common::u32 i = 0u; i < visibleCount; ++i ) {
@@ -983,7 +1078,12 @@ render_error_t R_PrepareWorldCameraDraws(
          description.modelUniformSlot >= R_MAX_UNIFORM_BLOCK_BINDINGS ||
          ModelRecordByteSize( description.modelLayout ) == 0u ||
          description.drawTemplate.instanceCount != 1u ||
-         !math::Mat4_IsAffine( description.viewFromWorld, 0.0f ) ) {
+         !math::Mat4_IsAffine( description.viewFromWorld, 0.0f ) ||
+         !MeshRangeTableValid( description.meshRanges,
+             description.meshRangeCount, description.meshCount ) ||
+         StorageOverlaps( description.meshRanges,
+             static_cast<common::u64>( description.meshRangeCount ) * sizeof( render_world_mesh_range_t ),
+             outCounts, sizeof( *outCounts ) ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     common::u32 visibleCount = 0u;
@@ -1113,7 +1213,12 @@ render_error_t R_PrepareWorldShadowDraws(
 {
     if ( description.submission == nullptr || outCount == nullptr ||
          description.modelUniformSlot >= R_MAX_UNIFORM_BLOCK_BINDINGS ||
-         description.drawTemplate.instanceCount != 1u ) {
+         description.drawTemplate.instanceCount != 1u ||
+         !MeshRangeTableValid( description.meshRanges,
+             description.meshRangeCount, description.meshCount ) ||
+         StorageOverlaps( description.meshRanges,
+             static_cast<common::u64>( description.meshRangeCount ) * sizeof( render_world_mesh_range_t ),
+             outCount, sizeof( *outCount ) ) ) {
         return render_error_t::ERR_INVALID_ARGUMENT;
     }
     common::u32 visibleCount = 0u;
@@ -1168,7 +1273,7 @@ render_error_t R_PrepareWorldShadowDraws(
         hasMaskedCaster ? sizeof( world_model_cutout_record_t )
                         : sizeof( math::mat4_t ) );
     if ( result != render_error_t::OK ) return result;
-    result = ShadowOutputIsDisjoint(
+    result = WorldOutputIsDisjoint(
         description, output, casterCount, outCount );
     if ( result != render_error_t::OK ) return result;
 

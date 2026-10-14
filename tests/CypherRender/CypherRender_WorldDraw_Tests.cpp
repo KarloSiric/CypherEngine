@@ -9,6 +9,7 @@
 #include "CypherCommon/Mathlib/CypherMath_Intersection.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <cmath>
 #include <cstring>
@@ -71,7 +72,7 @@ struct world_draw_fixture_t {
     world::world_submission_t *pSubmission{ nullptr };
     world::world_submission_token_t token{};
 
-    void Init()
+    void Init( const bool withTwoTriangles = false )
     {
         backend.CreateBuffer = []( const render::render_buffer_desc_t &,
             const render::render_buffer_data_t *, render::backend_buffer_t &out,
@@ -168,7 +169,7 @@ struct world_draw_fixture_t {
             1.0f, 0.0f, 0.0f,
             0.0f, 1.0f, 0.0f
         };
-        const common::u16 indices[3]{ 0u, 1u, 2u };
+        const common::u16 indices[6]{ 0u, 1u, 2u, 2u, 1u, 0u };
         render::render_static_mesh_source_t source{};
         source.vertexLayout.bindingCount = 1u;
         source.vertexLayout.bindings[0].stride = 3u * sizeof( common::f32 );
@@ -180,8 +181,8 @@ struct world_draw_fixture_t {
         source.vertexByteSize = sizeof( vertices );
         source.vertexCount = 3u;
         source.indexBytes = indices;
-        source.indexByteSize = sizeof( indices );
-        source.indexCount = 3u;
+        source.indexCount = withTwoTriangles ? 6u : 3u;
+        source.indexByteSize = source.indexCount * sizeof( common::u16 );
         REQUIRE( render::R_CreateStaticMeshBundle(
             source, &mesh ).status == render::render_static_mesh_bridge_status_t::OK );
 
@@ -556,6 +557,66 @@ struct world_draw_fixture_t {
         render::tr = savedRenderer;
     }
 };
+
+enum class range_adapter_t { OPAQUE, CAMERA, SHADOW };
+
+render::render_error_t PrepareMeshRanges( world_draw_fixture_t &fixture,
+    const range_adapter_t adapter,
+    const render::render_static_mesh_bundle_t *meshes,
+    const common::u32 meshCount,
+    const render::render_world_mesh_range_t *ranges,
+    const common::u32 rangeCount,
+    render::render_world_opaque_draw_t *output, const common::u32 capacity,
+    common::u32 *outCount,
+    render::render_world_camera_pass_counts_t *outCameraCounts,
+    const render::render_material_bundle_t *materialOverride = nullptr )
+{
+    if ( adapter == range_adapter_t::CAMERA ) {
+        auto desc = fixture.CameraDescription();
+        render::render_scene_item_t items[8]{};
+        common::u32 indices[8]{};
+        desc.meshes = meshes;
+        desc.meshCount = meshCount;
+        desc.meshRanges = ranges;
+        desc.meshRangeCount = rangeCount;
+        if ( materialOverride != nullptr ) {
+            desc.materials = materialOverride;
+            desc.materialCount = 1u;
+        }
+        desc.modelLayout = render::render_world_model_layout_t::MODEL_CUTOUT;
+        desc.sceneItemsScratch = items;
+        desc.sceneItemCapacity = 8u;
+        desc.passIndicesScratch = indices;
+        desc.passIndexCapacity = 8u;
+        return render::R_PrepareWorldCameraDraws(
+            desc, output, capacity, outCameraCounts );
+    }
+    if ( adapter == range_adapter_t::SHADOW ) {
+        auto desc = fixture.ShadowDescription();
+        desc.meshes = meshes;
+        desc.meshCount = meshCount;
+        desc.meshRanges = ranges;
+        desc.meshRangeCount = rangeCount;
+        if ( materialOverride != nullptr ) {
+            desc.materials = materialOverride;
+            desc.materialCount = 1u;
+        }
+        return render::R_PrepareWorldShadowDraws(
+            desc, output, capacity, outCount );
+    }
+    auto desc = fixture.Description();
+    desc.meshes = meshes;
+    desc.meshCount = meshCount;
+    desc.meshRanges = ranges;
+    desc.meshRangeCount = rangeCount;
+    if ( materialOverride != nullptr ) {
+        desc.materials = materialOverride;
+        desc.materialCount = 1u;
+    }
+    desc.modelLayout = render::render_world_model_layout_t::MODEL_CUTOUT;
+    return render::R_PrepareOpaqueWorldDraws(
+        desc, output, capacity, outCount );
+}
 
 } // namespace
 
@@ -2136,4 +2197,406 @@ TEST_CASE( "World draw upload failure publishes nothing and keeps batch retryabl
         &fixture.batch ) == render::render_error_t::OK );
     CHECK( fixture.batch.committed );
     CHECK( fixture.uploadCalls == 2u );
+}
+
+TEST_CASE( "World mesh slots select shared-buffer ranges in camera and shadow draws",
+    "[CypherRender][WorldDraw][MeshRange]" )
+{
+    const auto adapter = GENERATE( range_adapter_t::OPAQUE,
+        range_adapter_t::CAMERA, range_adapter_t::SHADOW );
+    INFO( "adapter " << static_cast<int>( adapter ) );
+    world_draw_fixture_t fixture{};
+    fixture.Init( true );
+    fixture.EnableCutoutMaterial( 0u, false, false );
+    fixture.EnableCutoutMaterial( 1u, false, true );
+    fixture.InitShadowPipelines();
+    fixture.InitMaskShadowPipelines();
+    fixture.materials[0].materialFlags = common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    fixture.materials[1].materialFlags = common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    const auto first = fixture.Add( 0u, 0u, 0.0f );
+    const auto second = fixture.Add( 1u, 1u, 4.0f );
+    fixture.Build();
+    const render::render_static_mesh_bundle_t meshes[2]{ fixture.mesh, fixture.mesh };
+    const render::render_world_mesh_range_t ranges[2]{ { 0u, 3u }, { 3u, 3u } };
+    const render::render_world_mesh_range_t *selectedRanges = nullptr;
+    common::u32 rangeCount = 0u;
+    SECTION( "omitted ranges preserve the complete mesh" ) {}
+    SECTION( "each borrowed mesh alias selects one triangle" ) {
+        selectedRanges = ranges;
+        rangeCount = 2u;
+    }
+    render::render_world_opaque_draw_t output[2]{};
+    common::u32 count = 99u;
+    render::render_world_camera_pass_counts_t cameraCounts{ 77u, 88u, 99u };
+    REQUIRE( PrepareMeshRanges( fixture, adapter, meshes, 2u, selectedRanges,
+        rangeCount, output, 2u, &count, &cameraCounts ) == render::render_error_t::OK );
+    if ( adapter == range_adapter_t::CAMERA ) {
+        CHECK( cameraCounts.opaqueCount == 2u );
+        CHECK( cameraCounts.blendCount == 0u );
+        CHECK( cameraCounts.additiveCount == 0u );
+    } else {
+        CHECK( count == 2u );
+    }
+    CHECK( output[0].objectId.slot.value == first.slot.value );
+    CHECK( output[1].objectId.slot.value == second.slot.value );
+    CHECK( output[0].draw.vertexInput.value == fixture.mesh.vertexInput.value );
+    CHECK( output[1].draw.vertexInput.value == fixture.mesh.vertexInput.value );
+    CHECK( output[0].draw.vertexCount == fixture.mesh.vertexCount );
+    CHECK( output[1].draw.vertexCount == fixture.mesh.vertexCount );
+    CHECK( output[0].draw.firstIndex == 0u );
+    CHECK( output[1].draw.firstIndex == ( selectedRanges == nullptr ? 0u : 3u ) );
+    CHECK( output[0].draw.indexCount == ( selectedRanges == nullptr ? 6u : 3u ) );
+    CHECK( output[1].draw.indexCount == output[0].draw.indexCount );
+    CHECK( output[1].draw.sampledTextures[0].value == fixture.alphaTexture.value );
+    CHECK( fixture.uploadCalls == 1u );
+    CHECK( fixture.drawCalls == 0u );
+}
+
+TEST_CASE( "World range validation rejects a later selected slot before staging",
+    "[CypherRender][WorldDraw][MeshRange]" )
+{
+    const auto adapter = GENERATE( range_adapter_t::OPAQUE,
+        range_adapter_t::CAMERA, range_adapter_t::SHADOW );
+    INFO( "adapter " << static_cast<int>( adapter ) );
+    world_draw_fixture_t fixture{};
+    fixture.Init( true );
+    fixture.EnableCutoutMaterial( 0u, false, false );
+    fixture.EnableCutoutMaterial( 1u, false, true );
+    fixture.InitShadowPipelines();
+    fixture.InitMaskShadowPipelines();
+    fixture.materials[0].materialFlags = common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    fixture.materials[1].materialFlags = common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    (void)fixture.Add( 0u, 0u, 0.0f );
+    (void)fixture.Add( 1u, 1u, 4.0f );
+    fixture.Build();
+    const common::byte priorRecord[16]{ 1u, 2u, 3u, 4u };
+    render::render_uniform_record_t record{};
+    REQUIRE( render::R_AppendUniformRecord( &fixture.batch, priorRecord,
+        sizeof( priorRecord ), &record ) == render::render_error_t::OK );
+    const render::render_static_mesh_bundle_t meshes[2]{ fixture.mesh, fixture.mesh };
+    render::render_world_mesh_range_t ranges[2]{ { 0u, 3u }, { 3u, 3u } };
+    const render::render_world_mesh_range_t *selectedRanges = ranges;
+    common::u32 rangeCount = 2u;
+    auto expected = render::render_error_t::ERR_INVALID_ARGUMENT;
+    SECTION( "zero-length range" ) { ranges[1].indexCount = 0u; }
+    SECTION( "range starts inside a triangle" ) { ranges[1].firstIndex = 1u; }
+    SECTION( "range ends inside a triangle" ) { ranges[1].indexCount = 4u; }
+    SECTION( "range starts at the end of the mesh" ) {
+        ranges[1].firstIndex = 6u;
+        expected = render::render_error_t::ERR_INDEX_DATA_INVALID;
+    }
+    SECTION( "range extends beyond the end" ) {
+        ranges[1].indexCount = 6u;
+        expected = render::render_error_t::ERR_INDEX_DATA_INVALID;
+    }
+    SECTION( "first plus count would wrap u32" ) {
+        ranges[1].firstIndex = std::numeric_limits<common::u32>::max();
+        expected = render::render_error_t::ERR_INDEX_DATA_INVALID;
+    }
+    SECTION( "count plus first would wrap u32" ) {
+        ranges[1].indexCount = std::numeric_limits<common::u32>::max();
+        expected = render::render_error_t::ERR_INDEX_DATA_INVALID;
+    }
+    SECTION( "short range table" ) { rangeCount = 1u; }
+    SECTION( "nonnull table with zero count" ) { rangeCount = 0u; }
+    SECTION( "null table with nonzero count" ) { selectedRanges = nullptr; }
+    render::render_world_opaque_draw_t output[2]{};
+    output[0].draw.pipeline.value = 12345u;
+    output[1].draw.firstIndex = 54321u;
+    common::byte beforeOutput[sizeof( output )]{};
+    std::memcpy( beforeOutput, output, sizeof( output ) );
+    common::u32 count = 42u;
+    render::render_world_camera_pass_counts_t cameraCounts{ 77u, 88u, 99u };
+    CHECK( PrepareMeshRanges( fixture, adapter, meshes, 2u, selectedRanges,
+        rangeCount, output, 2u, &count, &cameraCounts ) == expected );
+    CHECK( std::memcmp( beforeOutput, output, sizeof( output ) ) == 0 );
+    CHECK( count == 42u );
+    CHECK( cameraCounts.opaqueCount == 77u );
+    CHECK( cameraCounts.blendCount == 88u );
+    CHECK( cameraCounts.additiveCount == 99u );
+    CHECK( fixture.batch.usedBytes == sizeof( priorRecord ) );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK_FALSE( fixture.batch.committed );
+    CHECK( std::memcmp( fixture.batch.staging, priorRecord, sizeof( priorRecord ) ) == 0 );
+    CHECK( fixture.uploadCalls == 0u );
+    CHECK( fixture.drawCalls == 0u );
+}
+
+TEST_CASE( "World camera sorting retains the range belonging to each mesh slot",
+    "[CypherRender][WorldDraw][MeshRange]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init( true );
+    fixture.AddCameraMaterial( 2u, common::render_material_alpha_mode_t::BLEND );
+    const auto opaque = fixture.AddAtZ( 0u, 0.0f, -4.0f );
+    const auto near = fixture.AddAtZ( 2u, 4.0f, -3.0f );
+    const auto far = fixture.AddAtZ( 2u, 8.0f, -9.0f );
+    world::world_object_t object{};
+    REQUIRE( world::World_GetObject( fixture.pWorld, near, &object ) ==
+        world::world_error_t::OK );
+    object.meshSlot = 1u;
+    REQUIRE( world::World_UpdateObject( fixture.pWorld, near, &object ) ==
+        world::world_error_t::OK );
+    REQUIRE( world::World_GetObject( fixture.pWorld, far, &object ) ==
+        world::world_error_t::OK );
+    object.meshSlot = 2u;
+    REQUIRE( world::World_UpdateObject( fixture.pWorld, far, &object ) ==
+        world::world_error_t::OK );
+    fixture.Build();
+    const render::render_static_mesh_bundle_t meshes[3]{
+        fixture.mesh, fixture.mesh, fixture.mesh };
+    const render::render_world_mesh_range_t ranges[3]{
+        { 0u, 3u }, { 3u, 3u }, { 0u, 6u } };
+    render::render_scene_item_t items[3]{};
+    common::u32 indices[3]{};
+    auto desc = fixture.CameraDescription();
+    desc.meshes = meshes;
+    desc.meshCount = 3u;
+    desc.meshRanges = ranges;
+    desc.meshRangeCount = 3u;
+    desc.sceneItemsScratch = items;
+    desc.sceneItemCapacity = 3u;
+    desc.passIndicesScratch = indices;
+    desc.passIndexCapacity = 3u;
+    render::render_world_camera_draw_t output[3]{};
+    render::render_world_camera_pass_counts_t counts{};
+    REQUIRE( render::R_PrepareWorldCameraDraws( desc, output, 3u, &counts ) ==
+        render::render_error_t::OK );
+    CHECK( counts.opaqueCount == 1u );
+    CHECK( counts.blendCount == 2u );
+    CHECK( counts.additiveCount == 0u );
+    CHECK( output[0].objectId.slot.value == opaque.slot.value );
+    CHECK( output[1].objectId.slot.value == far.slot.value );
+    CHECK( output[2].objectId.slot.value == near.slot.value );
+    CHECK( output[0].draw.firstIndex == 0u );
+    CHECK( output[0].draw.indexCount == 3u );
+    CHECK( output[1].draw.firstIndex == 0u );
+    CHECK( output[1].draw.indexCount == 6u );
+    CHECK( output[2].draw.firstIndex == 3u );
+    CHECK( output[2].draw.indexCount == 3u );
+    CHECK( fixture.uploadCalls == 1u );
+}
+
+TEST_CASE( "World camera range tables must be disjoint from writable storage",
+    "[CypherRender][WorldDraw][MeshRange]" )
+{
+    world_draw_fixture_t fixture{};
+    fixture.Init( true );
+    (void)fixture.Add( 0u, 0u, 0.0f );
+    fixture.Build();
+    render::render_world_camera_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    render::render_world_camera_pass_counts_t counts{ 77u, 88u, 99u };
+    render::render_scene_item_t items[1]{};
+    common::u32 indices[2]{};
+    const render::render_world_mesh_range_t range{ 0u, 3u };
+    auto desc = fixture.CameraDescription();
+    desc.meshRanges = &range;
+    desc.meshRangeCount = 1u;
+    desc.sceneItemsScratch = items;
+    desc.sceneItemCapacity = 1u;
+    desc.passIndicesScratch = indices;
+    desc.passIndexCapacity = 2u;
+    SECTION( "range table overlaps output" ) {
+        std::memcpy( &output, &range, sizeof( range ) );
+        desc.meshRanges = reinterpret_cast<const render::render_world_mesh_range_t *>( &output );
+    }
+    SECTION( "range table overlaps public counts" ) {
+        std::memcpy( &counts, &range, sizeof( range ) );
+        desc.meshRanges = reinterpret_cast<const render::render_world_mesh_range_t *>( &counts );
+    }
+    SECTION( "range table overlaps scene scratch" ) {
+        std::memcpy( items, &range, sizeof( range ) );
+        desc.meshRanges = reinterpret_cast<const render::render_world_mesh_range_t *>( items );
+    }
+    SECTION( "range table overlaps sort scratch" ) {
+        std::memcpy( indices, &range, sizeof( range ) );
+        desc.meshRanges = reinterpret_cast<const render::render_world_mesh_range_t *>( indices );
+    }
+    SECTION( "range table overlaps uniform staging" ) {
+        std::memcpy( fixture.batch.staging, &range, sizeof( range ) );
+        desc.meshRanges = reinterpret_cast<const render::render_world_mesh_range_t *>( fixture.batch.staging );
+    }
+    SECTION( "range table overlaps batch metadata" ) {
+        // The generation field provides eight allocated, aligned bytes without
+        // disturbing buffer ownership, the staging pointer, or capacity.
+        std::memcpy( &fixture.batch.generation, &range, sizeof( range ) );
+        desc.meshRanges = reinterpret_cast<const render::render_world_mesh_range_t *>( &fixture.batch.generation );
+    }
+    common::byte beforeOutput[sizeof( output )]{};
+    common::byte beforeCounts[sizeof( counts )]{};
+    common::byte beforeRange[sizeof( range )]{};
+    std::memcpy( beforeOutput, &output, sizeof( output ) );
+    std::memcpy( beforeCounts, &counts, sizeof( counts ) );
+    std::memcpy( beforeRange, desc.meshRanges, sizeof( range ) );
+    CHECK( render::R_PrepareWorldCameraDraws( desc, &output, 1u, &counts ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( std::memcmp( beforeOutput, &output, sizeof( output ) ) == 0 );
+    CHECK( std::memcmp( beforeCounts, &counts, sizeof( counts ) ) == 0 );
+    CHECK( std::memcmp( beforeRange, desc.meshRanges, sizeof( range ) ) == 0 );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
+TEST_CASE( "World opaque and shadow ranges cannot alias output count or staging",
+    "[CypherRender][WorldDraw][MeshRange]" )
+{
+    const auto adapter = GENERATE( range_adapter_t::OPAQUE, range_adapter_t::SHADOW );
+    INFO( "adapter " << static_cast<int>( adapter ) );
+    world_draw_fixture_t fixture{};
+    fixture.Init( true );
+    fixture.EnableCutoutMaterial( 0u, false, false );
+    fixture.InitShadowPipelines();
+    fixture.materials[0].materialFlags = common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    (void)fixture.Add( 0u, 0u, 0.0f );
+    fixture.Build();
+    render::render_world_opaque_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    common::u32 countStorage[2]{ 77u, 88u };
+    render::render_world_camera_pass_counts_t unusedCounts{};
+    const render::render_world_mesh_range_t range{ 0u, 3u };
+    const render::render_world_mesh_range_t *selectedRanges = &range;
+    SECTION( "range table overlaps output" ) {
+        std::memcpy( &output, &range, sizeof( range ) );
+        selectedRanges = reinterpret_cast<const render::render_world_mesh_range_t *>( &output );
+    }
+    SECTION( "range table overlaps public count" ) {
+        std::memcpy( countStorage, &range, sizeof( range ) );
+        selectedRanges = reinterpret_cast<const render::render_world_mesh_range_t *>( countStorage );
+    }
+    SECTION( "range table overlaps uniform staging" ) {
+        std::memcpy( fixture.batch.staging, &range, sizeof( range ) );
+        selectedRanges = reinterpret_cast<const render::render_world_mesh_range_t *>( fixture.batch.staging );
+    }
+    SECTION( "range table overlaps batch metadata" ) {
+        std::memcpy( &fixture.batch.generation, &range, sizeof( range ) );
+        selectedRanges = reinterpret_cast<const render::render_world_mesh_range_t *>( &fixture.batch.generation );
+    }
+    common::byte beforeOutput[sizeof( output )]{};
+    common::byte beforeCounts[sizeof( countStorage )]{};
+    common::byte beforeRange[sizeof( range )]{};
+    std::memcpy( beforeOutput, &output, sizeof( output ) );
+    std::memcpy( beforeCounts, countStorage, sizeof( countStorage ) );
+    std::memcpy( beforeRange, selectedRanges, sizeof( range ) );
+    CHECK( PrepareMeshRanges( fixture, adapter, &fixture.mesh, 1u,
+        selectedRanges, 1u, &output, 1u, countStorage, &unusedCounts ) ==
+        render::render_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( std::memcmp( beforeOutput, &output, sizeof( output ) ) == 0 );
+    CHECK( std::memcmp( beforeCounts, countStorage, sizeof( countStorage ) ) == 0 );
+    CHECK( std::memcmp( beforeRange, selectedRanges, sizeof( range ) ) == 0 );
+    CHECK( fixture.batch.usedBytes == 0u );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
+TEST_CASE( "World ranges validate the live index buffer rather than forged mesh extents",
+    "[CypherRender][WorldDraw][MeshRange]" )
+{
+    const auto adapter = GENERATE( range_adapter_t::OPAQUE,
+        range_adapter_t::CAMERA, range_adapter_t::SHADOW );
+    INFO( "adapter " << static_cast<int>( adapter ) );
+    world_draw_fixture_t fixture{};
+    fixture.Init( true );
+    fixture.EnableCutoutMaterial( 0u, false, false );
+    fixture.InitShadowPipelines();
+    fixture.materials[0].materialFlags = common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    (void)fixture.Add( 0u, 0u, 0.0f );
+    fixture.Build();
+    auto mesh = fixture.mesh;
+    render::render_world_mesh_range_t range{ 6u, 3u };
+    SECTION( "modest forged metadata cannot expose absent indices" ) {
+        mesh.indexCount = 12u;
+    }
+    SECTION( "large first index is checked without u32 byte multiplication" ) {
+        mesh.indexCount = std::numeric_limits<common::u32>::max();
+        range.firstIndex = 4294967292u;
+    }
+    std::memset( fixture.batch.staging, 0xA5,
+        static_cast<common::usize>( fixture.batch.capacityBytes ) );
+    const common::byte existing[16]{ 1u, 2u, 3u, 4u };
+    render::render_uniform_record_t record{};
+    REQUIRE( render::R_AppendUniformRecord( &fixture.batch, existing,
+        sizeof( existing ), &record ) == render::render_error_t::OK );
+    common::byte beforeStaging[1024]{};
+    REQUIRE( fixture.batch.capacityBytes <= sizeof( beforeStaging ) );
+    const auto stagingSize = static_cast<common::usize>( fixture.batch.capacityBytes );
+    std::memcpy( beforeStaging, fixture.batch.staging, stagingSize );
+    render::render_world_opaque_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    common::byte beforeOutput[sizeof( output )]{};
+    std::memcpy( beforeOutput, &output, sizeof( output ) );
+    common::u32 count = 42u;
+    render::render_world_camera_pass_counts_t cameraCounts{ 77u, 88u, 99u };
+    CHECK( PrepareMeshRanges( fixture, adapter, &mesh, 1u, &range, 1u,
+        &output, 1u, &count, &cameraCounts ) == render::render_error_t::ERR_INDEX_DATA_INVALID );
+    CHECK( std::memcmp( beforeOutput, &output, sizeof( output ) ) == 0 );
+    CHECK( count == 42u );
+    CHECK( cameraCounts.opaqueCount == 77u );
+    CHECK( cameraCounts.blendCount == 88u );
+    CHECK( cameraCounts.additiveCount == 99u );
+    CHECK( std::memcmp( beforeStaging, fixture.batch.staging, stagingSize ) == 0 );
+    CHECK( fixture.batch.usedBytes == sizeof( existing ) );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
+}
+
+TEST_CASE( "World borrowed resource tables cannot reside in uniform staging",
+    "[CypherRender][WorldDraw][MeshRange]" )
+{
+    const auto adapter = GENERATE( range_adapter_t::OPAQUE,
+        range_adapter_t::CAMERA, range_adapter_t::SHADOW );
+    INFO( "adapter " << static_cast<int>( adapter ) );
+    world_draw_fixture_t fixture{};
+    fixture.Init( true );
+    fixture.EnableCutoutMaterial( 0u, false, false );
+    fixture.InitShadowPipelines();
+    fixture.materials[0].materialFlags = common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    (void)fixture.Add( 0u, 0u, 0.0f );
+    fixture.Build();
+    REQUIRE( render::R_DestroyUniformBatch( &fixture.batch ) == render::render_error_t::OK );
+    REQUIRE( render::R_CreateUniformBatch( 1024u, common::Allocator_GetSystem(),
+        &fixture.batch ) == render::render_error_t::OK );
+    std::memset( fixture.batch.staging, 0xA5, 1024u );
+    const common::byte existing[16]{ 1u, 2u, 3u, 4u };
+    render::render_uniform_record_t record{};
+    REQUIRE( render::R_AppendUniformRecord( &fixture.batch, existing,
+        sizeof( existing ), &record ) == render::render_error_t::OK );
+    const render::render_static_mesh_bundle_t *mesh = &fixture.mesh;
+    const render::render_material_bundle_t *material = nullptr;
+    const render::render_world_mesh_range_t range{ 0u, 3u };
+    constexpr common::usize tableOffset = 128u;
+    SECTION( "valid borrowed mesh table overlaps future model records" ) {
+        REQUIRE( tableOffset + sizeof( fixture.mesh ) <= fixture.batch.capacityBytes );
+        std::memcpy( fixture.batch.staging + tableOffset,
+            &fixture.mesh, sizeof( fixture.mesh ) );
+        mesh = reinterpret_cast<const render::render_static_mesh_bundle_t *>(
+            fixture.batch.staging + tableOffset );
+    }
+    SECTION( "valid borrowed material table overlaps future model records" ) {
+        REQUIRE( tableOffset + sizeof( fixture.materials[0] ) <= fixture.batch.capacityBytes );
+        std::memcpy( fixture.batch.staging + tableOffset,
+            &fixture.materials[0], sizeof( fixture.materials[0] ) );
+        material = reinterpret_cast<const render::render_material_bundle_t *>(
+            fixture.batch.staging + tableOffset );
+    }
+    common::byte beforeStaging[1024]{};
+    std::memcpy( beforeStaging, fixture.batch.staging, sizeof( beforeStaging ) );
+    render::render_world_opaque_draw_t output{};
+    output.draw.pipeline.value = 12345u;
+    common::byte beforeOutput[sizeof( output )]{};
+    std::memcpy( beforeOutput, &output, sizeof( output ) );
+    common::u32 count = 42u;
+    render::render_world_camera_pass_counts_t cameraCounts{ 77u, 88u, 99u };
+    CHECK( PrepareMeshRanges( fixture, adapter, mesh, 1u, &range, 1u,
+        &output, 1u, &count, &cameraCounts, material ) == render::render_error_t::ERR_INVALID_ARGUMENT );
+    CHECK( std::memcmp( beforeOutput, &output, sizeof( output ) ) == 0 );
+    CHECK( count == 42u );
+    CHECK( cameraCounts.opaqueCount == 77u );
+    CHECK( cameraCounts.blendCount == 88u );
+    CHECK( cameraCounts.additiveCount == 99u );
+    CHECK( std::memcmp( beforeStaging, fixture.batch.staging, sizeof( beforeStaging ) ) == 0 );
+    CHECK( fixture.batch.usedBytes == sizeof( existing ) );
+    CHECK_FALSE( fixture.batch.sealed );
+    CHECK( fixture.uploadCalls == 0u );
 }
