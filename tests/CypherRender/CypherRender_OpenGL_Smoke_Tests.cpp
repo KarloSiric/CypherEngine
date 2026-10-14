@@ -5703,11 +5703,12 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     // normals. The optional UV1 lightmap varies independently of those
     // normals; the normal-only case also verifies mirrored-model handedness.
     REQUIRE_FALSE( ( withPassShadow && !withLightmap ) );
-    constexpr char viewBlock[] =
+    const std::string viewBlock =
         "layout(std140) uniform View { mat4 view; mat4 projection;"
         " vec4 ambientLight; vec4 lightDirection; vec4 lightColor;"
         " vec4 pointLightPositionRange[2];"
-        " vec4 pointLightColorIntensity[2]; ivec4 pointLightControl; };\n";
+        " vec4 pointLightColorIntensity[2]; ivec4 pointLightControl;" +
+        std::string( withPassShadow ? " mat4 lightClipFromWorld; };\n" : " };\n" );
     const std::string vertexSource =
         std::string( "#version 410 core\n" ) +
         "layout(location=0) in vec3 position;\n"
@@ -5720,8 +5721,10 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         "out vec2 surfaceUv;" +
         ( withLightmap ? " out vec2 bakedUv;" : "" ) +
         " out vec3 worldNormal;"
-        " out vec3 worldTangent; out float tangentSign;\n"
-        "void main(){ vec4 world=model*vec4(position,1.0);"
+        " out vec3 worldTangent; out float tangentSign;\n" +
+        ( withPassShadow ? "out vec3 worldPosition;\n" : "" ) +
+        "void main(){ vec4 world=model*vec4(position,1.0);" +
+        ( withPassShadow ? " worldPosition=world.xyz;" : "" ) +
         " worldNormal=normalize(normalMatrix*normal);"
         " worldTangent=normalize(mat3(model)*tangent.xyz);"
         // Reversing model orientation flips the reconstructed bitangent, even
@@ -5738,7 +5741,8 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         "in vec2 surfaceUv;" +
         ( withLightmap ? " in vec2 bakedUv;" : "" ) +
         " in vec3 worldNormal;"
-        " in vec3 worldTangent; in float tangentSign;\n"
+        " in vec3 worldTangent; in float tangentSign;\n" +
+        ( withPassShadow ? "in vec3 worldPosition;\n" : "" ) +
         "layout(location=0) out vec4 color;\n"
         "void main(){ vec3 n=normalize(worldNormal);"
         " vec3 t=normalize(worldTangent-n*dot(worldTangent,n));"
@@ -5746,8 +5750,14 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         " vec3 sampled=normalize(texture(NormalMap,surfaceUv).xyz*2.0-1.0);"
         " vec3 perturbed=normalize(mat3(t,b,n)*sampled);"
         " float diffuse=max(dot(perturbed,normalize(lightDirection.xyz)),0.0);"
-        " float visibility=" +
-        ( withPassShadow ? "texture(ShadowMap,vec3(0.5,0.5,0.5));" : "1.0;" ) +
+        " float visibility=1.0;" +
+        ( withPassShadow
+            ? " vec4 lightClip=lightClipFromWorld*vec4(worldPosition,1.0);"
+              " if(lightClip.w>0.0){ vec3 shadow=lightClip.xyz/lightClip.w*0.5+0.5;"
+              " if(all(greaterThanEqual(shadow,vec3(0.0)))&&"
+              " all(lessThanEqual(shadow,vec3(1.0))))"
+              " visibility=texture(ShadowMap,vec3(shadow.xy,shadow.z-0.001)); }"
+            : "" ) +
         ( withPassShadow
             ? " vec3 illumination=ambientLight.rgb*texture(LightmapMap,bakedUv).rgb"
               "+lightColor.rgb*diffuse*visibility;"
@@ -5776,7 +5786,7 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     bindings[0].resourceType = common::render_shader_resource_type_t::UNIFORM_BUFFER;
     bindings[0].stageMask = common::RENDER_SHADER_STAGE_MASK_ALL_GRAPHICS;
     bindings[0].flags = common::COOKED_SHADER_BINDING_FLAG_REQUIRED;
-    bindings[0].cbByteSize = 256u;
+    bindings[0].cbByteSize = withPassShadow ? 320u : 256u;
     bindings[1].name = common::StringView_FromCString( "Model" );
     bindings[1].kind = common::render_shader_binding_kind_t::UNIFORM_BUFFER;
     bindings[1].resourceType = common::render_shader_resource_type_t::UNIFORM_BUFFER;
@@ -5855,8 +5865,11 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     constexpr common::byte redAlbedo[4]{ 255u, 0u, 0u, 255u };
     // Opposite +Y/-Y tangent-space normals make a missing mirror correction
     // reverse the bright and dim pixels in the second World draw.
-    constexpr common::byte normals[8]{
+    constexpr common::byte bitangentNormals[8]{
         128u, 255u, 128u, 255u, 128u, 0u, 128u, 255u
+    };
+    constexpr common::byte forwardNormals[8]{
+        128u, 128u, 255u, 255u, 128u, 128u, 0u, 255u
     };
     constexpr common::byte bakedLightmap[8]{
         255u, 255u, 255u, 255u, 102u, 102u, 102u, 255u
@@ -5869,7 +5882,8 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
             lightmapPath, common::render_texture_usage_t::COLOR, 2u, bakedLightmap );
     }
     std::vector<common::byte> normalBytes = cookTexture(
-        normalPath, common::render_texture_usage_t::NORMAL, 2u, normals );
+        normalPath, common::render_texture_usage_t::NORMAL, 2u,
+        withPassShadow ? forwardNormals : bitangentNormals );
     common::cooked_material_texture_source_v2_t materialTextures[3]{};
     materialTextures[0].binding = bindings[2].name;
     materialTextures[0].texture = common::StringView_FromCString( albedoPath );
@@ -5889,6 +5903,9 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     common::cooked_material_source_v2_t materialDescription{};
     materialDescription.shader = common::StringView_FromCString( shaderPath );
     materialDescription.shaderInterfaceHash = interfaceHash;
+    if ( withPassShadow ) {
+        materialDescription.flags = common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+    }
     materialDescription.textures = { materialTextures, withLightmap ? 3u : 2u };
     std::vector<common::byte> materialBytes( common::CookedMaterial_RequiredSizeV2(
         materialDescription ) );
@@ -5968,7 +5985,7 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         common::StringView_FromCString( cookedMaterialPath );
     bundleDescription.vertexLayout = layout;
     bundleDescription.uniformBlockCount = 2u;
-    bundleDescription.uniformBlocks[0] = { "View", 256u };
+    bundleDescription.uniformBlocks[0] = { "View", withPassShadow ? 320u : 256u };
     bundleDescription.uniformBlocks[1] = { "Model", 112u };
     if ( withPassShadow ) bundleDescription.passShadowMapBinding = "ShadowMap";
     bundleDescription.debugName = withLightmap
@@ -6031,9 +6048,32 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     render::render_static_mesh_bundle_t mesh{};
     REQUIRE( render::R_CreateStaticMeshBundle( meshSource, &mesh ).status ==
         render::render_static_mesh_bridge_status_t::OK );
+    render::render_static_mesh_bundle_t casterMesh{};
+    if ( withPassShadow ) {
+        // The camera's Z clip rejects this quad, while the independent light
+        // query retains it. Projection shifts/scales its shadow coordinates.
+        constexpr float casterVertices[56]{
+            -1.0f,-1.0f,0.0f, 0.0f,0.0f,1.0f, 0.1f,0.5f, 0.1f,0.5f, 1.0f,0.0f,0.0f,1.0f,
+            -0.25f,-1.0f,0.0f, 0.0f,0.0f,1.0f, 0.1f,0.5f, 0.1f,0.5f, 1.0f,0.0f,0.0f,1.0f,
+            -0.25f,1.0f,0.0f, 0.0f,0.0f,1.0f, 0.1f,0.5f, 0.1f,0.5f, 1.0f,0.0f,0.0f,1.0f,
+            -1.0f,1.0f,0.0f, 0.0f,0.0f,1.0f, 0.1f,0.5f, 0.1f,0.5f, 1.0f,0.0f,0.0f,1.0f
+        };
+        constexpr common::u16 casterIndices[6]{ 0u,1u,2u, 0u,2u,3u };
+        meshSource.vertexBytes = casterVertices;
+        meshSource.vertexByteSize = sizeof( casterVertices );
+        meshSource.vertexCount = 4u;
+        meshSource.indexBytes = casterIndices;
+        meshSource.indexByteSize = sizeof( casterIndices );
+        meshSource.indexCount = 6u;
+        REQUIRE( render::R_CreateStaticMeshBundle( meshSource, &casterMesh ).status ==
+            render::render_static_mesh_bridge_status_t::OK );
+    }
+    const render::render_static_mesh_bundle_t meshes[2]{ mesh, casterMesh };
     world::world_t *pWorld = nullptr;
     world::world_submission_t *pSubmission = nullptr;
-    REQUIRE( world::World_Init( &pWorld, common::Allocator_GetSystem(), 1u ) ==
+    world::world_submission_t *pLightSubmission = nullptr;
+    REQUIRE( world::World_Init( &pWorld, common::Allocator_GetSystem(),
+        withPassShadow ? 2u : 1u ) ==
         world::world_error_t::OK );
     REQUIRE( world::WorldSubmission_Init(
         &pSubmission, common::Allocator_GetSystem(), 1u ) ==
@@ -6047,14 +6087,29 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     world::world_object_id_t objectId{};
     REQUIRE( world::World_AddObject( pWorld, &object, &objectId ) ==
         world::world_error_t::OK );
+    world::world_object_t caster{};
+    world::world_object_id_t casterId{};
+    if ( withPassShadow ) {
+        REQUIRE( world::WorldSubmission_Init(
+            &pLightSubmission, common::Allocator_GetSystem(), 2u ) ==
+            world::world_submission_error_t::OK );
+        caster = object;
+        caster.localToWorld = math::Affine3_FromTranslation( { 0.0f, 0.0f, 0.5f } );
+        caster.worldBounds = math::Aabb_Make(
+            { -1.0f, -1.0f, 0.49f }, { -0.25f, 1.0f, 0.51f } );
+        caster.meshSlot = 1u;
+        REQUIRE( world::World_AddObject( pWorld, &caster, &casterId ) ==
+            world::world_error_t::OK );
+    }
     world::world_view_query_t query{};
-    constexpr common::f32 frustumExtent = 20.0f;
+    const common::f32 frustumExtent = withPassShadow ? 1.0f : 20.0f;
     query.frustum.planes[0] = math::Plane_Make( { 1.0f, 0.0f, 0.0f }, frustumExtent );
     query.frustum.planes[1] = math::Plane_Make( { -1.0f, 0.0f, 0.0f }, frustumExtent );
     query.frustum.planes[2] = math::Plane_Make( { 0.0f, 1.0f, 0.0f }, frustumExtent );
     query.frustum.planes[3] = math::Plane_Make( { 0.0f, -1.0f, 0.0f }, frustumExtent );
-    query.frustum.planes[4] = math::Plane_Make( { 0.0f, 0.0f, 1.0f }, frustumExtent );
-    query.frustum.planes[5] = math::Plane_Make( { 0.0f, 0.0f, -1.0f }, frustumExtent );
+    const common::f32 depthExtent = withPassShadow ? 0.25f : frustumExtent;
+    query.frustum.planes[4] = math::Plane_Make( { 0.0f, 0.0f, 1.0f }, depthExtent );
+    query.frustum.planes[5] = math::Plane_Make( { 0.0f, 0.0f, -1.0f }, depthExtent );
     query.cameraPosition = { 0.0f, 0.0f, 0.0f };
     query.maxDistance = 100.0f;
     query.layerMask = 1u;
@@ -6062,17 +6117,54 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     REQUIRE( world::WorldSubmission_Build(
         pSubmission, pWorld, &query, &token ) ==
         world::world_submission_error_t::OK );
+    world::world_view_query_t lightQuery = query;
+    world::world_submission_token_t lightToken{};
+    if ( withPassShadow ) {
+        // Matches x'=.5x+.25, y'=.5y, z'=-z: the light sees x[-2.5,1.5],
+        // y[-2,2], z[-1,1], including the caster the camera cannot see.
+        lightQuery.frustum.planes[0] = math::Plane_Make( { 1.0f,0.0f,0.0f }, 2.5f );
+        lightQuery.frustum.planes[1] = math::Plane_Make( { -1.0f,0.0f,0.0f }, 1.5f );
+        lightQuery.frustum.planes[2] = math::Plane_Make( { 0.0f,1.0f,0.0f }, 2.0f );
+        lightQuery.frustum.planes[3] = math::Plane_Make( { 0.0f,-1.0f,0.0f }, 2.0f );
+        lightQuery.frustum.planes[4] = math::Plane_Make( { 0.0f,0.0f,1.0f }, 1.0f );
+        lightQuery.frustum.planes[5] = math::Plane_Make( { 0.0f,0.0f,-1.0f }, 1.0f );
+        REQUIRE( world::WorldSubmission_Build(
+            pLightSubmission, pWorld, &lightQuery, &lightToken ) ==
+            world::world_submission_error_t::OK );
+        common::u32 cameraCount = 0u, lightCount = 0u;
+        REQUIRE( world::WorldSubmission_Count( pSubmission, token, &cameraCount ) ==
+            world::world_submission_error_t::OK );
+        REQUIRE( world::WorldSubmission_Count(
+            pLightSubmission, lightToken, &lightCount ) ==
+            world::world_submission_error_t::OK );
+        REQUIRE( cameraCount == 1u );
+        REQUIRE( lightCount == 2u );
+    }
     render::render_world_view_lighting_desc_t lighting{};
     lighting.ambientLight = { 0.1f, 0.1f, 0.1f };
-    lighting.directionToLight = { 0.0f, 1.0f, 0.0f };
-    lighting.directionalRadiance = { 0.6f, 0.6f, 0.6f };
+    lighting.directionToLight = withPassShadow ? math::vec3_t{ 0.0f,0.0f,1.0f }
+        : math::vec3_t{ 0.0f,1.0f,0.0f };
+    const float radiance = withPassShadow ? 2.0f : 0.6f;
+    lighting.directionalRadiance = { radiance, radiance, radiance };
+    if ( withPassShadow ) lighting.clipFromView = math::Mat4_FromScale( { 1.0f,1.0f,4.0f } );
+    const math::mat4_t lightClipFromWorld = math::Mat4_FromColumns(
+        { 0.5f,0.0f,0.0f,0.0f }, { 0.0f,0.5f,0.0f,0.0f },
+        { 0.0f,0.0f,-1.0f,0.0f }, { 0.25f,0.0f,0.0f,1.0f } );
     render::render_world_view_lighting_record_t viewRecord{};
-    REQUIRE( render::R_PackWorldViewLighting( lighting, &viewRecord ) ==
-        render::render_error_t::OK );
+    render::render_world_shadowed_view_lighting_record_t shadowedViewRecord{};
+    if ( withPassShadow ) {
+        REQUIRE( render::R_PackWorldShadowedViewLighting(
+            lighting, lightClipFromWorld, &shadowedViewRecord ) == render::render_error_t::OK );
+    } else {
+        REQUIRE( render::R_PackWorldViewLighting( lighting, &viewRecord ) ==
+            render::render_error_t::OK );
+    }
     render::render_buffer_desc_t viewDescription{};
-    viewDescription.byteSize = sizeof( viewRecord );
+    viewDescription.byteSize = withPassShadow ? sizeof( shadowedViewRecord ) : sizeof( viewRecord );
     viewDescription.usage = render::R_BUFFER_USAGE_UNIFORM;
-    const render::render_buffer_data_t viewData{ &viewRecord, sizeof( viewRecord ) };
+    const render::render_buffer_data_t viewData{
+        withPassShadow ? static_cast<const void *>( &shadowedViewRecord )
+            : static_cast<const void *>( &viewRecord ), viewDescription.byteSize };
     render::render_buffer_handle_t viewBuffer{};
     REQUIRE( render::R_CreateBuffer( viewDescription, &viewData, &viewBuffer ) ==
         render::render_error_t::OK );
@@ -6084,7 +6176,7 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     render::render_sampler_handle_t shadowSampler{};
     if ( withPassShadow ) {
         render::render_texture_desc_t shadowDescription{};
-        shadowDescription.width = shadowDescription.height = 8u;
+        shadowDescription.width = shadowDescription.height = 32u;
         shadowDescription.format = render::render_texture_format_t::D24;
         shadowDescription.renderTarget = true;
         shadowDescription.sRGB = false;
@@ -6108,8 +6200,8 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     render::render_world_camera_prepare_desc_t prepare{};
     prepare.submission = pSubmission;
     prepare.token = token;
-    prepare.meshes = &mesh;
-    prepare.meshCount = 1u;
+    prepare.meshes = meshes;
+    prepare.meshCount = withPassShadow ? 2u : 1u;
     prepare.materials = &bundle;
     prepare.materialCount = 1u;
     prepare.modelUniforms = &modelUniforms;
@@ -6149,7 +6241,8 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
     targetDescription.generateMips = false;
     targetDescription.repeat = false;
     targetDescription.renderTarget = true;
-    targetDescription.format = render::render_texture_format_t::RGBA8;
+    targetDescription.format = withPassShadow ? render::render_texture_format_t::RGBA16F
+        : render::render_texture_format_t::RGBA8;
     render::render_texture_handle_t color{}, depth{};
     REQUIRE( render::R_CreateTexture2D( targetDescription, {}, &color ) ==
         render::render_error_t::OK );
@@ -6161,16 +6254,251 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         render::render_error_t::OK );
     render::render_frame_info_t frame{};
     frame.drawableExtent = extent;
-    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
-    render::render_target_pass_desc_t shadowPass{};
     if ( withPassShadow ) {
+        constexpr char shadowVertex[] =
+            "#version 410 core\nlayout(location=0) in vec3 position;\n"
+            "layout(std140) uniform Light { mat4 lightClipFromWorld; };\n"
+            "layout(std140) uniform Model { mat4 model; };\n"
+            "void main(){ gl_Position=lightClipFromWorld*model*vec4(position,1.0); }\n";
+        constexpr char shadowFragment[] = "#version 410 core\nvoid main(){}\n";
+        constexpr char toneVertex[] =
+            "#version 410 core\nlayout(location=0) in vec3 position; out vec2 uv;\n"
+            "void main(){ uv=position.xy*0.5+0.5; gl_Position=vec4(position,1.0); }\n";
+        constexpr char toneFragment[] =
+            "#version 410 core\nin vec2 uv; uniform sampler2D SceneColor;\n"
+            "layout(location=0) out vec4 color;\n"
+            "void main(){ vec3 hdr=texture(SceneColor,uv).rgb;"
+            " color=vec4(hdr/(vec3(1.0)+hdr),1.0); }\n";
+        const auto makeShader = []( const char *vertex, common::u64 vertexSize,
+            const char *fragment, common::u64 fragmentSize ) {
+            common::cooked_shader_view_t source{};
+            source.nLanguageVersion = 410u;
+            source.nStages = 2u;
+            source.stages[0].stage = common::render_shader_stage_t::VERTEX;
+            source.stages[0].code = {
+                reinterpret_cast<const common::byte *>( vertex ), vertexSize };
+            source.stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+            source.stages[1].code = {
+                reinterpret_cast<const common::byte *>( fragment ), fragmentSize };
+            render::render_shader_handle_t shader{};
+            REQUIRE( render::R_CreateShader( { &source, "Combined World frame oracle" },
+                &shader ) == render::render_error_t::OK );
+            return shader;
+        };
+        const auto shadowShader = makeShader( shadowVertex, sizeof( shadowVertex ),
+            shadowFragment, sizeof( shadowFragment ) );
+        const auto toneShader = makeShader( toneVertex, sizeof( toneVertex ),
+            toneFragment, sizeof( toneFragment ) );
+        render::render_pipeline_desc_t pipeline{};
+        pipeline.shader = shadowShader;
+        pipeline.vertexLayout = layout;
+        pipeline.colorWrite = false;
+        pipeline.depthTest = pipeline.depthWrite = true;
+        pipeline.uniformBlockCount = 2u;
+        pipeline.uniformBlocks[0] = { "Light", 64u };
+        pipeline.uniformBlocks[1] = { "Model", 64u };
+        render::render_pipeline_handle_t shadowPipeline{};
+        REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &shadowPipeline ) ==
+            render::render_error_t::OK );
+        pipeline = {};
+        pipeline.shader = toneShader;
+        pipeline.vertexLayout = layout;
+        pipeline.depthTest = pipeline.depthWrite = false;
+        pipeline.cullBackFaces = false;
+        pipeline.sampledTextureCount = 1u;
+        pipeline.sampledTextures[0] = { "SceneColor" };
+        render::render_pipeline_handle_t tonePipeline{};
+        REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &tonePipeline ) ==
+            render::render_error_t::OK );
+        render::render_buffer_desc_t lightDescription{};
+        lightDescription.byteSize = sizeof( lightClipFromWorld );
+        lightDescription.usage = render::R_BUFFER_USAGE_UNIFORM;
+        const render::render_buffer_data_t lightData{
+            &lightClipFromWorld, sizeof( lightClipFromWorld ) };
+        render::render_buffer_handle_t lightBuffer{};
+        REQUIRE( render::R_CreateBuffer( lightDescription, &lightData, &lightBuffer ) ==
+            render::render_error_t::OK );
+        render::render_uniform_batch_t shadowModels{};
+        REQUIRE( modelUniforms.alignment != 0u );
+        const common::u64 shadowStride =
+            ( ( 64u + modelUniforms.alignment - 1u ) / modelUniforms.alignment ) *
+            modelUniforms.alignment;
+        REQUIRE( render::R_CreateUniformBatch( shadowStride + 64u, nullptr,
+            &shadowModels ) == render::render_error_t::OK );
+        render::render_world_shadow_prepare_desc_t shadowPrepare{};
+        shadowPrepare.submission = pLightSubmission;
+        shadowPrepare.token = lightToken;
+        shadowPrepare.meshes = meshes;
+        shadowPrepare.meshCount = 2u;
+        shadowPrepare.materials = &bundle;
+        shadowPrepare.materialCount = 1u;
+        shadowPrepare.modelUniforms = &shadowModels;
+        shadowPrepare.modelUniformSlot = 1u;
+        shadowPrepare.shadowPipeline = shadowPipeline;
+        shadowPrepare.drawTemplate.uniformBuffers[0] = lightBuffer;
+        render::render_world_shadow_draw_t shadowDraws[2]{};
+        common::u32 shadowCount = 0u;
+        REQUIRE( render::R_PrepareWorldShadowDraws(
+            shadowPrepare, shadowDraws, 2u, &shadowCount ) == render::render_error_t::OK );
+        REQUIRE( shadowCount == 2u );
+        CHECK( shadowDraws[0].objectId.incarnation == objectId.incarnation );
+        CHECK( shadowDraws[1].objectId.incarnation == casterId.incarnation );
+        CHECK( shadowDraws[0].draw.uniformRanges[1].byteSize == 64u );
+        CHECK( shadowDraws[1].draw.uniformRanges[1].byteSize == 64u );
+
+        targetDescription.format = render::render_texture_format_t::RGBA8;
+        render::render_texture_handle_t toneColor{};
+        REQUIRE( render::R_CreateTexture2D( targetDescription, {}, &toneColor ) ==
+            render::render_error_t::OK );
+        render::render_target_handle_t toneTarget{};
+        REQUIRE( render::R_CreateRenderTarget( { toneColor, {} }, &toneTarget ) ==
+            render::render_error_t::OK );
+        render::render_draw_indexed_desc_t toneDraw{};
+        toneDraw.pipeline = tonePipeline;
+        toneDraw.vertexInput = mesh.vertexInput;
+        toneDraw.vertexCount = toneDraw.indexCount = 3u;
+        toneDraw.sampledTextures[0] = color;
+        render::render_target_pass_desc_t shadowPass{};
         shadowPass.target = shadowTarget;
         shadowPass.clearFlags = render::R_CLEAR_DEPTH;
         shadowPass.clearDepth = 1.0f;
-        REQUIRE( render::R_BeginTargetPass( shadowPass ) ==
-            render::render_error_t::OK );
-        REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+        render::render_target_pass_desc_t cameraPass{};
+        cameraPass.target = target;
+        render::render_target_pass_desc_t tonePass{};
+        tonePass.target = toneTarget;
+        const auto drawFrame = [&]() {
+            REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+            REQUIRE( render::R_BeginTargetPass( shadowPass ) == render::render_error_t::OK );
+            for ( common::u32 i = 0u; i < shadowCount; ++i ) {
+                REQUIRE( render::R_DrawIndexed( shadowDraws[i].draw ) == render::render_error_t::OK );
+            }
+            REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+            REQUIRE( render::R_BeginTargetPass( cameraPass ) == render::render_error_t::OK );
+            REQUIRE( render::R_DrawIndexed( draws[0].draw ) == render::render_error_t::OK );
+            REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+            REQUIRE( render::R_BeginTargetPass( tonePass ) == render::render_error_t::OK );
+            REQUIRE( render::R_DrawIndexed( toneDraw ) == render::render_error_t::OK );
+            REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+        };
+        const auto readHDR = [&]( common::u32 x, common::u32 y ) {
+            render::render_color_t pixel{};
+            REQUIRE( render::R_ReadTargetRGBA32F( target, { x,y,1u,1u }, &pixel,
+                sizeof( pixel ), sizeof( pixel ) ) == render::render_error_t::OK );
+            return pixel;
+        };
+        const auto readTone = [&]( common::u32 x, common::u32 y ) {
+            std::array<common::u8,4u> pixel{};
+            REQUIRE( render::R_ReadTargetRGBA8( toneTarget, { x,y,1u,1u },
+                pixel.data(), pixel.size(), 4u ) == render::render_error_t::OK );
+            return pixel;
+        };
+        drawFrame();
+        const auto shadowedBright = readHDR( 1u,1u );
+        const auto litBright = readHDR( 3u,1u );
+        const auto shadowedDim = readHDR( 1u,6u );
+        const auto litDim = readHDR( 3u,6u );
+        const auto unlitBright = readHDR( 6u,1u );
+        const auto shadowedTone = readTone( 1u,1u );
+        const auto litTone = readTone( 3u,1u );
+        const auto shadowedDimTone = readTone( 1u,6u );
+        REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+        INFO( "projected World HDR shadow " << shadowedBright.red
+            << ", lit " << litBright.red << ", dim baked shadow " << shadowedDim.red );
+        CHECK( shadowedBright.red >= 0.095f );
+        CHECK( shadowedBright.red <= 0.105f );
+        CHECK( shadowedDim.red >= 0.037f );
+        CHECK( shadowedDim.red <= 0.043f );
+        CHECK( litBright.red >= 2.08f );
+        CHECK( litBright.red <= 2.12f );
+        CHECK( litDim.red >= 2.02f );
+        CHECK( litDim.red <= 2.06f );
+        CHECK( unlitBright.red >= 0.095f );
+        CHECK( unlitBright.red <= 0.105f );
+        CHECK( litBright.red >= shadowedBright.red + 1.9f );
+        CHECK( shadowedBright.red >= shadowedDim.red + 0.05f );
+        for ( const auto *pixel : { &shadowedBright,&litBright,&shadowedDim,&litDim,&unlitBright } ) {
+            CHECK( pixel->green <= 0.005f );
+            CHECK( pixel->blue <= 0.005f );
+            CHECK( pixel->alpha >= 0.99f );
+            CHECK( pixel->alpha <= 1.01f );
+        }
+        CHECK( shadowedTone[0] >= 20u );
+        CHECK( shadowedTone[0] <= 26u );
+        CHECK( shadowedDimTone[0] >= 7u );
+        CHECK( shadowedDimTone[0] <= 13u );
+        CHECK( litTone[0] >= 169u );
+        CHECK( litTone[0] <= 177u );
+        // If the camera pass clamped HDR to 1 first, Reinhard yields 128,
+        // so the high-light assertion covers the entire pass chain.
+        CHECK( litTone[0] >= shadowedTone[0] + 140u );
+        for ( const auto *pixel : { &shadowedTone,&litTone,&shadowedDimTone } ) {
+            CHECK( ( *pixel )[1] <= 4u );
+            CHECK( ( *pixel )[2] <= 4u );
+            CHECK( ( *pixel )[3] == 255u );
+        }
+
+        // Move only the off-camera caster. The original receiver draw and its
+        // Model batch remain live; rebuild/upload only the light submission.
+        world::WorldSubmission_End( pLightSubmission );
+        caster.localToWorld = math::Affine3_FromTranslation( { 0.75f,0.0f,0.5f } );
+        caster.worldBounds = math::Aabb_Make(
+            { -0.25f,-1.0f,0.49f }, { 0.5f,1.0f,0.51f } );
+        REQUIRE( world::World_UpdateObject( pWorld, casterId, &caster ) ==
+            world::world_error_t::OK );
+        REQUIRE( world::WorldSubmission_Build(
+            pLightSubmission, pWorld, &lightQuery, &lightToken ) ==
+            world::world_submission_error_t::OK );
+        shadowPrepare.token = lightToken;
+        REQUIRE( render::R_ResetUniformBatch( &shadowModels ) == render::render_error_t::OK );
+        REQUIRE( render::R_PrepareWorldShadowDraws(
+            shadowPrepare, shadowDraws, 2u, &shadowCount ) == render::render_error_t::OK );
+        REQUIRE( shadowCount == 2u );
+        frame.frameIndex = 1u;
+        drawFrame();
+        const auto movedLit = readHDR( 1u,1u );
+        const auto movedShadow = readHDR( 3u,1u );
+        const auto movedLitTone = readTone( 1u,1u );
+        const auto movedShadowTone = readTone( 3u,1u );
+        REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+        CHECK( movedLit.red >= 2.08f );
+        CHECK( movedLit.red <= 2.12f );
+        CHECK( movedShadow.red >= 0.095f );
+        CHECK( movedShadow.red <= 0.105f );
+        CHECK( movedLitTone[0] >= 169u );
+        CHECK( movedLitTone[0] <= 177u );
+        CHECK( movedShadowTone[0] >= 20u );
+        CHECK( movedShadowTone[0] <= 26u );
+
+        REQUIRE( render::R_DestroyRenderTarget( toneTarget ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyTexture( toneColor ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyGraphicsPipeline( tonePipeline ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyGraphicsPipeline( shadowPipeline ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyShader( toneShader ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyShader( shadowShader ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyUniformBatch( &shadowModels ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyBuffer( lightBuffer ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyRenderTarget( target ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyTexture( depth ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyTexture( color ) == render::render_error_t::OK );
+        world::WorldSubmission_End( pSubmission );
+        world::WorldSubmission_End( pLightSubmission );
+        world::WorldSubmission_Shutdown( &pSubmission );
+        world::WorldSubmission_Shutdown( &pLightSubmission );
+        world::World_Shutdown( &pWorld );
+        REQUIRE( render::R_DestroyUniformBatch( &modelUniforms ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyBuffer( viewBuffer ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyCookedMaterialBundle( &bundle ) == render::render_error_t::OK );
+        // Slot three is borrowed pass state. Destroying the material retains it.
+        CHECK( render::R_IsTextureValid( shadowDepth ) );
+        CHECK( render::R_IsSamplerValid( shadowSampler ) );
+        REQUIRE( render::R_DestroyRenderTarget( shadowTarget ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroySampler( shadowSampler ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyTexture( shadowDepth ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyStaticMeshBundle( &casterMesh ) == render::render_error_t::OK );
+        REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) == render::render_error_t::OK );
+        return;
     }
+    REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
     render::render_target_pass_desc_t pass{};
     pass.target = target;
     REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
@@ -6189,39 +6517,6 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
             litDim.data(), litDim.size(), 4u ) == render::render_error_t::OK );
         REQUIRE( render::R_ReadTargetRGBA8( target, { 6u, 6u, 1u, 1u },
             unlitDim.data(), unlitDim.size(), 4u ) == render::render_error_t::OK );
-        if ( withPassShadow ) {
-            // With identical World draw and material data, only the caller's
-            // depth pass changes. Reference depth 0.5 passes against a clear
-            // of 1, then fails against 0, proving slot-3 comparison sampling.
-            shadowPass.clearDepth = 0.0f;
-            REQUIRE( render::R_BeginTargetPass( shadowPass ) ==
-                render::render_error_t::OK );
-            REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
-            REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
-            REQUIRE( render::R_DrawIndexed( draws[0].draw ) ==
-                render::render_error_t::OK );
-            REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
-            std::array<common::u8, 4u> shadowed{}, shadowedDim{};
-            REQUIRE( render::R_ReadTargetRGBA8( target, { 1u, 1u, 1u, 1u },
-                shadowed.data(), shadowed.size(), 4u ) == render::render_error_t::OK );
-            REQUIRE( render::R_ReadTargetRGBA8( target, { 1u, 6u, 1u, 1u },
-                shadowedDim.data(), shadowedDim.size(), 4u ) ==
-                render::render_error_t::OK );
-            INFO( "combined World material lit red " << int( litBright[0] )
-                << ", shadowed red " << int( shadowed[0] )
-                << ", shadowed dim-lightmap red " << int( shadowedDim[0] ) );
-            CHECK( litBright[0] >= shadowed[0] + 110u );
-            CHECK( shadowed[0] >= 15u );
-            CHECK( shadowed[0] <= 35u );
-            // The shadow suppresses only direct light. Different UV1 baked
-            // values remain visible even when visibility is zero.
-            CHECK( shadowed[0] >= shadowedDim[0] + 10u );
-            CHECK( shadowedDim[0] >= 5u );
-            CHECK( shadowedDim[0] <= 18u );
-            CHECK( shadowed[1] <= 8u );
-            CHECK( shadowed[2] <= 8u );
-            CHECK( shadowed[3] == 255u );
-        }
         REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
         INFO( "normal+lightmap red: lit/bright " << int( litBright[0] )
             << ", unlit/bright " << int( unlitBright[0] )
@@ -6234,18 +6529,11 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         CHECK( unlitDim[0] >= 5u );
         CHECK( unlitDim[0] <= 20u );
         CHECK( litBright[0] >= unlitBright[0] + 110u );
-        if ( withPassShadow ) {
-            CHECK( litDim[0] >= 145u );
-            CHECK( litDim[0] <= 180u );
-            CHECK( litDim[0] >= unlitDim[0] + 130u );
-            CHECK( litBright[0] >= litDim[0] + 10u );
-        } else {
-            CHECK( litDim[0] >= 55u );
-            CHECK( litDim[0] <= 90u );
-            CHECK( litDim[0] >= unlitDim[0] + 40u );
-            CHECK( litBright[0] >= litDim[0] + 75u );
-            CHECK( unlitBright[0] >= unlitDim[0] + 8u );
-        }
+        CHECK( litDim[0] >= 55u );
+        CHECK( litDim[0] <= 90u );
+        CHECK( litDim[0] >= unlitDim[0] + 40u );
+        CHECK( litBright[0] >= litDim[0] + 75u );
+        CHECK( unlitBright[0] >= unlitDim[0] + 8u );
         for ( const auto *pixel : { &litBright, &unlitBright, &litDim, &unlitDim } ) {
             CHECK( ( *pixel )[1] <= 8u );
             CHECK( ( *pixel )[2] <= 8u );
@@ -6262,17 +6550,6 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         REQUIRE( render::R_DestroyBuffer( viewBuffer ) == render::render_error_t::OK );
         REQUIRE( render::R_DestroyCookedMaterialBundle( &bundle ) ==
             render::render_error_t::OK );
-        if ( withPassShadow ) {
-            // The bundle borrowed this completed depth pass; it never owns it.
-            CHECK( render::R_IsTextureValid( shadowDepth ) );
-            CHECK( render::R_IsSamplerValid( shadowSampler ) );
-            REQUIRE( render::R_DestroyRenderTarget( shadowTarget ) ==
-                render::render_error_t::OK );
-            REQUIRE( render::R_DestroySampler( shadowSampler ) ==
-                render::render_error_t::OK );
-            REQUIRE( render::R_DestroyTexture( shadowDepth ) ==
-                render::render_error_t::OK );
-        }
         REQUIRE( render::R_DestroyStaticMeshBundle( &mesh ) ==
             render::render_error_t::OK );
         return;

@@ -221,6 +221,15 @@ samples. A compatible shader may additionally declare a caller-owned
 target texture and a comparison sampler, then keep both alive through the
 camera draw. The bridge checks ownership and binding kinds, but cannot prove
 how the shader combines baked and dynamic light or that the shadow pass ran.
+The combined native regression now checks a real generated D24 pass rather
+than substituting depth clear values: a light-view World submission contains
+an off-camera caster, and the receiver projects world positions with the same
+light matrix. Float camera pixels preserve HDR radiance above 1.0 and UV1
+baked light inside the shadow, followed by a fixed Reinhard RGBA8 pass.
+Moving the caster between frames changes the shadow through a rebuilt light
+submission and separate aligned shadow Model batch. The camera draw and its
+112-byte Model record remain live. This does not provide authored light data
+or an automatic frame scheduler.
 The first supported material value is one F32X4 `tint` at byte offset zero.
 The cooked shader must declare a matching MATERIAL VALUE and a 16-byte
 MATERIAL uniform block named `Material`, whose GLSL std140 member is

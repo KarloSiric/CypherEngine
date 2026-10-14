@@ -418,6 +418,18 @@ borrow the pass-owned comparison shadow map in slot 3 alongside all three
 material textures. The bridge validates the live pair and preserves it in the
 World camera draw; the host still owns the shadow pass and lighting equation.
 
+The combined native fixture also connects both World adapters in one frame.
+A separate light-view submission includes a caster excluded by the camera's
+depth frustum. Its actual D24 draw uses the same nonidentity light matrix as
+the receiver's 320-byte View record. The receiver projects its world position
+into sampled slot 3 and preserves supplied UV1 baked illumination while
+shadowing direct light. Its RGBA16F camera pixels exceed 1.0 before a fixed
+unit-exposure Reinhard pass writes an RGBA8 target. A second frame moves only
+the caster, rebuilds the light submission and shadow Model batch, and verifies
+the shadow changes position without replacing the camera draw. This is a
+hand-built cooked shader integration test; authored light objects, general
+pass scheduling, and a map-loaded runtime scene remain separate work.
+
 `R_PrepareOpaqueWorldDraws` remains the small depth-writing entry point.
 `R_PrepareWorldCameraDraws` accepts OPAQUE, opt-in MASK, BLEND, and ADDITIVE
 cooked material bundles and returns three contiguous draw spans: opaque and

@@ -25,6 +25,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- The combined cooked World rendering regression now runs a generated D24
+  shadow pass, an RGBA16F camera pass, and fixed Reinhard tone mapping to an
+  RGBA8 target. A separate light submission retains an off-camera caster;
+  caster and receiver share a nonidentity light matrix. Native pixels verify
+  direct-light shadowing, retained UV1 baked illumination, radiance above 1.0,
+  and a moving shadow after updating only the caster's light submission and
+  aligned Model batch. Material-bridge, World-draw, and native OpenGL 4.1 smoke
+  suites pass locally. This is an integration fixture using hand-built cooked
+  shader data; authored lights, general pass scheduling, and a map-loaded
+  runtime scene remain separate work.
 - Cooked material bundle creation now rejects reuse of an output that still
   owns shader, pipeline, texture, or material-uniform handles. A second create
   returns `INVALID_ARGUMENT` before reading resources or changing the first
@@ -67,7 +77,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   backend preserves host-owned texture and sampler bindings on units 0-3 when
   rendering in a borrowed context. Focused CPU draw/texture tests and a native
   hosted-context four-sampler pixel/state test pass locally. The optional
-  cooked-material pass shadow binding remains fixed at slot 1.
+  cooked-material pass shadow binding uses slot 1 for albedo alone or slot 3
+  for the combined albedo/lightmap/normal recipe.
 - Cooked linear RGBA8 normal textures can now upload, and opaque cooked World
   materials may bind one beside COLOR albedo on UV0. The material bridge
   requires a tangent `vec4` at vertex location 4 and rejects wrong usage,
