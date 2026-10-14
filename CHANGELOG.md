@@ -25,6 +25,19 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Boundary-edge extrusion accepts an affine transform, allowing a connected
+  strip to be translated, rotated or scaled about a caller-selected pivot.
+  Original vertices stay fixed, shared endpoints get one copy, and returned
+  outer edges support another extension. The source wrapper retains material
+  and UV transfer through the existing private-transaction contract. Nonfinite,
+  out-of-domain, collapsed and crossing side quads are rejected; raw-operation
+  allocation failures preserve mesh content and output. Geometry boundary
+  contracts pass (4,368 assertions / 29 cases), including repeated rotated
+  pulls and allocation-failure sweeps; the complete local Geometry suite passes
+  (374,675 / 1,271). This publication covers the geometry library. Mason's
+  component-gizmo and clipping integration remains local with existing
+  unpublished Map adapters. Closed edges, collapsed endpoint-pivot triangles
+  and intersection tests against unrelated faces are outside this operation.
 - World opaque, camera, and shadow preparation can select triangle-aligned
   material ranges from a shared uploaded mesh through an optional parallel
   mesh-range table. Omitted ranges preserve whole-mesh draws. Preflight checks

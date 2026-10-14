@@ -53,6 +53,7 @@
 #include "CypherGeometry_EditableMesh.h"
 #include "CypherCommon_Span.h"
 #include "CypherCommon_Vector.h"
+#include "CypherMath_Affine3.h"
 
 namespace cypher::editor::geometry
 {
@@ -134,6 +135,17 @@ CYPHER_NODISCARD mesh_boundary_extrude_result_t MeshBoundary_ExtrudeEdges(
     editable_mesh_t *pMesh,
     common::span_t<const geometry_mesh_edge_handle_t> edges,
     math::vec3d_t offset,
+    common::vector_t<geometry_mesh_edge_handle_t> *pOuterEdgesOut ) noexcept;
+
+// Copies each boundary endpoint through `transform` and joins the old edge
+// to the transformed edge. The originals stay fixed; shared endpoints get
+// one shared copy. This supports rotating/scaling the new strip about an
+// external pivot as well as translating it. Collapsed or crossing side
+// quads are rejected before mutation. Output and failure rules match above.
+CYPHER_NODISCARD mesh_boundary_extrude_result_t MeshBoundary_ExtrudeEdgesTransformed(
+    editable_mesh_t *pMesh,
+    common::span_t<const geometry_mesh_edge_handle_t> edges,
+    const math::affine3d_t &transform,
     common::vector_t<geometry_mesh_edge_handle_t> *pOuterEdgesOut ) noexcept;
 
 // ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@
 
 #include "CypherGeometry_MeshBoundaryOps.h"
 #include "CypherGeometry_MeshRecordAccess.h"
+#include "CypherGeometry_MeshPlanar.h"
 
 #include <algorithm>
 #include <cmath>
@@ -377,6 +378,15 @@ mesh_boundary_extrude_result_t MeshBoundary_ExtrudeEdges(
     math::vec3d_t offset,
     vector_t<geometry_mesh_edge_handle_t> *pOuterEdgesOut ) noexcept
 {
+    return MeshBoundary_ExtrudeEdgesTransformed( pMesh, edges, math::Affine3d_FromTranslation( offset ), pOuterEdgesOut );
+}
+
+mesh_boundary_extrude_result_t MeshBoundary_ExtrudeEdgesTransformed(
+    editable_mesh_t *pMesh,
+    span_t<const geometry_mesh_edge_handle_t> edges,
+    const math::affine3d_t &transform,
+    vector_t<geometry_mesh_edge_handle_t> *pOuterEdgesOut ) noexcept
+{
     mesh_boundary_extrude_result_t r{};
     if ( !EditableMesh_IsInitialized( pMesh ) ) {
         r.status = geometry_status_t::NOT_INITIALIZED;
@@ -387,17 +397,8 @@ mesh_boundary_extrude_result_t MeshBoundary_ExtrudeEdges(
         r.status = geometry_status_t::INVALID_ARGUMENT;
         return r;
     }
-    if ( !math::Vec3d_IsFinite( offset ) ) {
+    if ( !math::Affine3d_IsFinite( transform ) ) {
         r.status = geometry_status_t::NUMERIC_FAILURE;
-        return r;
-    }
-    const f64 offsetLengthSquared = math::Vec3d_LengthSquared( offset );
-    if ( !std::isfinite( offsetLengthSquared ) ) {
-        r.status = geometry_status_t::NUMERIC_FAILURE;
-        return r;
-    }
-    if ( !( offsetLengthSquared > 0.0 ) ) {
-        r.status = geometry_status_t::DEGENERATE;
         return r;
     }
 
@@ -450,13 +451,16 @@ mesh_boundary_extrude_result_t MeshBoundary_ExtrudeEdges(
         const mesh_vertex_record_t *pOrigin = GenerationPool_Get( &pMesh->vertices, pH->hOrigin );
         const mesh_vertex_record_t *pDest = GenerationPool_Get( &pMesh->vertices, hDest );
         if ( pOrigin == nullptr || pDest == nullptr ) { return fail( geometry_status_t::CORRUPT_STATE ); }
-        const math::vec3d_t areaVector = math::Vec3d_Cross(
-            math::Vec3d_Subtract( pDest->position, pOrigin->position ), offset );
-        const f64 areaSquared = math::Vec3d_LengthSquared( areaVector );
-        if ( !std::isfinite( areaSquared ) ) { return fail( geometry_status_t::NUMERIC_FAILURE ); }
-        // The side quad must also clear the source's minimum face area; the
-        // Newell vector of a parallelogram is twice this cross product.
-        if ( !FaceAreaDescribable( math::Vec3d_Scale( areaVector, 2.0 ) ) ) { return fail( geometry_status_t::DEGENERATE ); }
+        const math::vec3d_t quad[4]{ pDest->position, pOrigin->position,
+            math::Affine3d_TransformPoint( transform, pOrigin->position ), math::Affine3d_TransformPoint( transform, pDest->position ) };
+        if ( !math::Vec3d_IsFinite( quad[2] ) || !math::Vec3d_IsFinite( quad[3] ) ) { return fail( geometry_status_t::NUMERIC_FAILURE ); }
+        const math::vec3d_t normal = NewellOf( quad, 4u );
+        if ( !math::Vec3d_IsFinite( normal ) ) { return fail( geometry_status_t::NUMERIC_FAILURE ); }
+        if ( !FaceAreaDescribable( normal ) ) { return fail( geometry_status_t::DEGENERATE ); }
+        math::vec2d_t flat[4];
+        const u32 axis = DominantAxis( normal );
+        for ( u32 k = 0u; k < 4u; ++k ) { flat[k] = Project( quad[k], axis ); }
+        if ( !IsSimple( flat, 4u ) ) { return fail( geometry_status_t::SELF_INTERSECTING ); }
         (void)Vector_PushBack( &edgeKeys, Key( edges.pData[i] ) );
         (void)Vector_PushBack( &sel, sel_t{ pE->hHalfEdge, pH->hOrigin, hDest } );
         (void)Vector_PushBack( &verts, vert_t{ Key( pH->hOrigin ), pH->hOrigin, kUnlabelled, kUnlabelled, {}, {} } );
@@ -489,7 +493,7 @@ mesh_boundary_extrude_result_t MeshBoundary_ExtrudeEdges(
     }
     for ( usize i = 0u; i < verts.nCount; ++i ) {
         const math::vec3d_t p =
-            math::Vec3d_Add( GenerationPool_Get( &pMesh->vertices, verts.pData[i].v )->position, offset );
+            math::Affine3d_TransformPoint( transform, GenerationPool_Get( &pMesh->vertices, verts.pData[i].v )->position );
         if ( !math::Vec3d_IsFinite( p ) ) { return fail( geometry_status_t::NUMERIC_FAILURE ); }
     }
 
@@ -516,7 +520,7 @@ mesh_boundary_extrude_result_t MeshBoundary_ExtrudeEdges(
     for ( usize i = 0u; i < touched.nCount; ++i ) { touched.pData[i] = 0u; }
     for ( usize i = 0u; i < V; ++i ) {
         mesh_vertex_record_t rec{};
-        rec.position = math::Vec3d_Add( GenerationPool_Get( &pMesh->vertices, verts.pData[i].v )->position, offset );
+        rec.position = math::Affine3d_TransformPoint( transform, GenerationPool_Get( &pMesh->vertices, verts.pData[i].v )->position );
         verts.pData[i].copy = GenerationPool_Insert( &pMesh->vertices, rec ).handle;
         verts.pData[i].side = GenerationPool_Insert( &pMesh->edges, mesh_edge_record_t{} ).handle;
         touched.pData[verts.pData[i].v.nSlot] = 1u;

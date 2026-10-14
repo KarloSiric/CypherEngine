@@ -420,11 +420,21 @@ geometry_status_t MeshSourceEdit_TryExtrudeEdges(
     vector_t<geometry_mesh_edge_handle_t> *pOuterEdgesOut,
     mesh_edit_report_t *pReportOut ) noexcept
 {
+    return MeshSourceEdit_TryExtrudeEdgesTransformed( pSource, edgeVertexIds, math::Affine3d_FromTranslation( offset ), pOuterEdgesOut, pReportOut );
+}
+
+geometry_status_t MeshSourceEdit_TryExtrudeEdgesTransformed(
+    mesh_source_t *pSource,
+    span_t<const geometry_source_id_t> edgeVertexIds,
+    const math::affine3d_t &transform,
+    vector_t<geometry_mesh_edge_handle_t> *pOuterEdgesOut,
+    mesh_edit_report_t *pReportOut ) noexcept
+{
     if ( !MeshSource_IsInitialized( pSource ) ) { return geometry_status_t::NOT_INITIALIZED; }
     if ( edgeVertexIds.nCount == 0u || edgeVertexIds.pData == nullptr || edgeVertexIds.nCount % 2u != 0u ) {
         return geometry_status_t::INVALID_ARGUMENT;
     }
-    if ( !math::Vec3d_IsFinite( offset ) ) { return geometry_status_t::NUMERIC_FAILURE; }
+    if ( !math::Affine3d_IsFinite( transform ) ) { return geometry_status_t::NUMERIC_FAILURE; }
     vector_t<geometry_mesh_edge_handle_t> handles{};
     if ( !Vector_Init( &handles, pSource->attributes.faces.pAllocator ) ||
          !Vector_Resize( &handles, edgeVertexIds.nCount / 2u ) ) {
@@ -446,8 +456,8 @@ geometry_status_t MeshSourceEdit_TryExtrudeEdges(
             Vector_Shutdown( &handles );
             return geometry_status_t::CORRUPT_STATE;
         }
-        if ( !PositionInSourceDomain( math::Vec3d_Add( pA->position, offset ) ) ||
-             !PositionInSourceDomain( math::Vec3d_Add( pB->position, offset ) ) ) {
+        if ( !PositionInSourceDomain( math::Affine3d_TransformPoint( transform, pA->position ) ) ||
+             !PositionInSourceDomain( math::Affine3d_TransformPoint( transform, pB->position ) ) ) {
             Vector_Shutdown( &handles );
             return geometry_status_t::NUMERIC_FAILURE;
         }
@@ -458,9 +468,9 @@ geometry_status_t MeshSourceEdit_TryExtrudeEdges(
     const geometry_status_t st = MeshEdit_Bracket(
         pSource,
         [&]( vector_t<mesh_edit_face_parent_t> * ) noexcept {
-            return MeshBoundary_ExtrudeEdges( &pSource->mesh,
+            return MeshBoundary_ExtrudeEdgesTransformed( &pSource->mesh,
                                               span_t<const geometry_mesh_edge_handle_t>{ handles.pData, handles.nCount },
-                                              offset, pOuterEdgesOut )
+                                              transform, pOuterEdgesOut )
                 .status;
         },
         pReportOut );

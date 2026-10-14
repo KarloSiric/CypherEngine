@@ -901,3 +901,98 @@ TEST_CASE( "Bridge rejects mismatched or identical loops", "[geometry][meshbound
 }
 
 } // namespace cypher::editor::geometry
+
+namespace cypher::editor::geometry {
+
+TEST_CASE( "Affine boundary extrusion leaves the old edge fixed and selects a repeatable rotated outer edge", "[geometry][meshboundary][affine-edge-pull]" ) {
+    Src m;
+    m.Quad();
+    // Rotate the copied edge by 90 degrees about a pivot outside the sheet.
+    const auto turn = math::Affine3d_FromColumns( { 0, 1, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 3, 1, 0 } );
+    common::vector_t<geometry_mesh_edge_handle_t> outer{};
+    REQUIRE( common::Vector_Init( &outer, &m.allocator ) );
+    const geometry_source_id_t edge[]{ Id( 11 ), Id( 12 ) };
+    REQUIRE( MeshSourceEdit_TryExtrudeEdgesTransformed( &m.s, { edge, 2u }, turn, &outer, nullptr ) == geometry_status_t::OK );
+    REQUIRE( outer.nCount == 1u );
+    REQUIRE( MeshSource_TryAssignMissingIds( &m.s, &m.ids, nullptr ) == geometry_status_t::OK );
+    const auto *edgeRecord = common::GenerationPool_Get( &m.s.mesh.edges, outer.pData[0] ); REQUIRE( edgeRecord );
+    const auto *half = common::GenerationPool_Get( &m.s.mesh.halfEdges, edgeRecord->hHalfEdge ); REQUIRE( half );
+    const auto *next = common::GenerationPool_Get( &m.s.mesh.halfEdges, half->hNext ); REQUIRE( next );
+    const geometry_source_id_t tip[]{ MeshSource_VertexId( &m.s, half->hOrigin ), MeshSource_VertexId( &m.s, next->hOrigin ) };
+    CHECK( tip[0].value >= 900u ); CHECK( tip[1].value >= 900u );
+    Desc after;
+    m.Snapshot( &after.d );
+    for ( common::usize i = 0u; i < m.d.vertices.nCount; ++i ) {
+        const auto &old = m.d.vertices.pData[i];
+        bool found = false;
+        for ( common::usize j = 0u; j < after.d.vertices.nCount; ++j ) {
+            const auto &v = after.d.vertices.pData[j];
+            if ( v.sourceId.value == old.sourceId.value ) {
+                found = true; CHECK( v.position.x == old.position.x ); CHECK( v.position.y == old.position.y ); CHECK( v.position.z == old.position.z );
+            }
+        }
+        REQUIRE( found );
+    }
+    // Pull the returned edge upwards: the newly attached face supplies its
+    // material/UV lineage, while both earlier faces remain present.
+    common::Vector_Clear( &outer );
+    REQUIRE( MeshSourceEdit_TryExtrudeEdges( &m.s, { tip, 2u }, { 0, 0, 1 }, &outer, nullptr ) == geometry_status_t::OK );
+    CHECK( common::GenerationPool_Count( &m.s.mesh.faces ) == 3u );
+    CHECK( common::GenerationPool_Count( &m.s.mesh.vertices ) == 8u );
+    REQUIRE( outer.nCount == 1u );
+    m.Valid();
+    common::Vector_Shutdown( &outer );
+}
+
+TEST_CASE( "Affine boundary extrusion rejects collapsed crossing and nonfinite strips without changing source", "[geometry][meshboundary][affine-edge-pull]" ) {
+    Src m; m.Quad();
+    Desc before, after; m.Snapshot( &before.d );
+    const geometry_source_id_t edge[]{ Id( 11 ), Id( 12 ) };
+    auto transform = math::CY_AFFINE3D_IDENTITY;
+    geometry_status_t expected = geometry_status_t::DEGENERATE;
+    SECTION( "identity has no side area" ) {}
+    SECTION( "a copied edge crossing its source is a bow tie" ) {
+        transform = math::Affine3d_FromColumns( { 1, 0, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 1, 1, 0 } );
+    }
+    SECTION( "nonfinite matrix" ) { transform.m[9] = std::nan( "" ); expected = geometry_status_t::NUMERIC_FAILURE; }
+    SECTION( "outside source domain" ) { transform.m[9] = kMeshSourceCoordinateMax; expected = geometry_status_t::NUMERIC_FAILURE; }
+    const auto result = MeshSourceEdit_TryExtrudeEdgesTransformed( &m.s, { edge, 2u }, transform, nullptr, nullptr );
+    CHECK( result == expected );
+    m.Snapshot( &after.d ); CHECK( MeshSourceDescription_Equal( &before.d, &after.d ) );
+    m.Valid();
+}
+
+TEST_CASE( "Every affine boundary extrusion allocation failure preserves mesh and outer-edge output", "[geometry][meshboundary][affine-edge-pull][allocation]" ) {
+    const auto transform = math::Affine3d_FromColumns( { 0, 1, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 3, 1, 0 } );
+    common::usize count = 0u;
+    boundary_failure_allocator_state_t probeState{};
+    auto probeAllocator = MakeBoundaryFailureAllocator( &probeState );
+    {
+        Src m( &probeAllocator ); m.Quad();
+        common::vector_t<geometry_mesh_edge_handle_t> outer{}; REQUIRE( common::Vector_Init( &outer, &m.allocator ) );
+        const auto edge = m.Edge( 11, 12 );
+        const auto calls = probeState.cAllocationCalls;
+        REQUIRE( MeshBoundary_ExtrudeEdgesTransformed( &m.s.mesh, { &edge, 1u }, transform, &outer ).status == geometry_status_t::OK );
+        count = probeState.cAllocationCalls - calls;
+        common::Vector_Shutdown( &outer );
+    }
+    REQUIRE( count > 0u ); CHECK( OutstandingAllocations( probeState ) == 0u );
+    for ( common::usize fail = 1u; fail <= count; ++fail ) {
+        CAPTURE( fail, count );
+        boundary_failure_allocator_state_t state{}; auto allocator = MakeBoundaryFailureAllocator( &state );
+        {
+            Src m( &allocator ); m.Quad(); Desc before, after; m.Snapshot( &before.d );
+            common::vector_t<geometry_mesh_edge_handle_t> outer{}; REQUIRE( common::Vector_Init( &outer, &m.allocator ) );
+            const auto edge = m.Edge( 11, 12 );
+            state.iFailOnCall = state.cAllocationCalls + fail;
+            CHECK( MeshBoundary_ExtrudeEdgesTransformed( &m.s.mesh, { &edge, 1u }, transform, &outer ).status == geometry_status_t::ALLOCATION_FAILED );
+            state.iFailOnCall = common::CY_INVALID_SIZE;
+            CHECK( outer.nCount == 0u );
+            m.Snapshot( &after.d ); CHECK( MeshSourceDescription_Equal( &before.d, &after.d ) );
+            common::Vector_Shutdown( &outer ); m.Valid();
+        }
+        CHECK( OutstandingAllocations( state ) == 0u );
+    }
+}
+
+} // namespace cypher::editor::geometry

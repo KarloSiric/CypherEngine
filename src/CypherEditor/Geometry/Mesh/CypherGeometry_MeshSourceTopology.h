@@ -137,6 +137,17 @@ CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryExtrudeEdges(
     common::vector_t<geometry_mesh_edge_handle_t> *pOuterEdgesOut,
     mesh_edit_report_t *pReportOut ) noexcept;
 
+// Affine edge pull: leaves the source edge fixed and connects it to a new
+// transformed boundary. IDs/attribute transfer and output lifetime match
+// TryExtrudeEdges; newly created endpoint positions must stay in the source
+// coordinate domain.
+CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryExtrudeEdgesTransformed(
+    mesh_source_t *pSource,
+    common::span_t<const geometry_source_id_t> edgeVertexIds,
+    const math::affine3d_t &transform,
+    common::vector_t<geometry_mesh_edge_handle_t> *pOuterEdgesOut,
+    mesh_edit_report_t *pReportOut ) noexcept;
+
 // One corner for MeshSourceEdit_TryAddFace: an existing vertex (valid
 // vertexId) or a new vertex at `position` (invalid vertexId).
 struct mesh_edit_corner_t {
