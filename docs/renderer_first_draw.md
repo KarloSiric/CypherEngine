@@ -390,7 +390,7 @@ and dim baked-lighting texels, then verifies the World-prepared draw changes
 brightness across the face. The shader is hand-built cooked data in this test:
 the authored shader workflow does not yet provide the needed complete
 material binding recipe. Lightmap generation, directional lightmaps, and
-combining this two-slot material with a normal or pass shadow map remain
+combining lightmaps with normals or pass shadows in a cooked material remain
 separate work.
 
 Another opaque World camera material may bind a linear RGBA8 cooked NORMAL
@@ -857,7 +857,7 @@ The camera pipelines have two uniform blocks and two sampled texture slots; a
 copied World submission and separate shadow, opaque, sorted translucent, and
 additive draw lists feed those passes. The depth pipeline also samples albedo so
 its masked silhouette matches the camera pass.
-The renderer also has samplers, three uniform and two sampled-texture binding
+The renderer also has samplers, three uniform and four sampled-texture binding
 slots, offscreen RGBA8/RGBA16F color and sampleable depth targets, and a
 limited cooked-material bridge.
 Authored scene and mesh loading, broader material support, full command

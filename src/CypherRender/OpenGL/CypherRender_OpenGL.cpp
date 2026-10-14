@@ -125,12 +125,11 @@ render_error_t GL_CaptureHostFrameState( gl_host_frame_state_t &state ) noexcept
     glGetIntegerv( GL_CURRENT_PROGRAM, &state.program );
     glGetIntegerv( GL_VERTEX_ARRAY_BINDING, &state.vertexArray );
     glGetIntegerv( GL_ACTIVE_TEXTURE, &state.activeTexture );
-    glActiveTexture( GL_TEXTURE0 );
-    glGetIntegerv( GL_TEXTURE_BINDING_2D, &state.texture2DUnit0 );
-    glGetIntegerv( GL_SAMPLER_BINDING, &state.samplerUnit0 );
-    glActiveTexture( GL_TEXTURE1 );
-    glGetIntegerv( GL_TEXTURE_BINDING_2D, &state.texture2DUnit1 );
-    glGetIntegerv( GL_SAMPLER_BINDING, &state.samplerUnit1 );
+    for ( common::u32 slot = 0u; slot < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++slot ) {
+        glActiveTexture( GL_TEXTURE0 + slot );
+        glGetIntegerv( GL_TEXTURE_BINDING_2D, &state.texture2DUnits[slot] );
+        glGetIntegerv( GL_SAMPLER_BINDING, &state.samplerUnits[slot] );
+    }
     glActiveTexture( static_cast<GLenum>( state.activeTexture ) );
     glGetIntegerv( GL_UNIFORM_BUFFER_BINDING, &state.uniformBuffer );
     for ( common::u32 slot = 0u; slot < R_MAX_UNIFORM_BLOCK_BINDINGS; ++slot ) {
@@ -249,12 +248,11 @@ render_error_t GL_RestoreHostFrameState( gl_host_frame_state_t &state ) noexcept
 
     glUseProgram( static_cast<GLuint>( state.program ) );
     glBindVertexArray( static_cast<GLuint>( state.vertexArray ) );
-    glActiveTexture( GL_TEXTURE0 );
-    glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( state.texture2DUnit0 ) );
-    glBindSampler( 0u, static_cast<GLuint>( state.samplerUnit0 ) );
-    glActiveTexture( GL_TEXTURE1 );
-    glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( state.texture2DUnit1 ) );
-    glBindSampler( 1u, static_cast<GLuint>( state.samplerUnit1 ) );
+    for ( common::u32 slot = 0u; slot < R_MAX_SAMPLED_TEXTURE_BINDINGS; ++slot ) {
+        glActiveTexture( GL_TEXTURE0 + slot );
+        glBindTexture( GL_TEXTURE_2D, static_cast<GLuint>( state.texture2DUnits[slot] ) );
+        glBindSampler( slot, static_cast<GLuint>( state.samplerUnits[slot] ) );
+    }
     glActiveTexture( static_cast<GLenum>( state.activeTexture ) );
     for ( common::u32 slot = 0u; slot < R_MAX_UNIFORM_BLOCK_BINDINGS; ++slot ) {
         if ( state.uniformBufferIndices[slot] != 0 &&

@@ -43,6 +43,14 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- Graphics pipelines and indexed draws now support up to four sampled texture
+  slots, subject to the device's reported texture-unit limit. The OpenGL 4.1
+  backend preserves host-owned texture and sampler bindings on units 0-3 when
+  rendering in a borrowed context. Focused CPU draw/texture tests and a native
+  hosted-context four-sampler pixel/state test pass locally. Cooked material
+  recipes still accept at most two owned textures, and their optional pass
+  shadow binding remains fixed at slot 1; combined surface shading follows
+  separately.
 - Cooked linear RGBA8 normal textures can now upload, and opaque cooked World
   materials may bind one beside COLOR albedo on UV0. The material bridge
   requires a tangent `vec4` at vertex location 4 and rejects wrong usage,
@@ -51,8 +59,8 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   and a native OpenGL 4.1 World camera pixel test pass locally. The pixel
   test holds albedo fixed while opposite tangent-space normal texels change
   directional diffuse and retain their lighting after a mirrored World
-  transform. This remains a hand-built cooked shader path; the
-  two-slot contract cannot combine normal maps with lightmaps or pass shadows.
+  transform. This remains a hand-built cooked shader path; current cooked
+  material recipes cannot combine normal maps with lightmaps or pass shadows.
 - Opaque cooked World materials can now adopt a second, linear RGB lightmap
   texture on UV1 while keeping albedo on UV0. The material bridge requires
   RG32_FLOAT UV1 at vertex location 3, rejects unsupported UV layouts,
@@ -61,7 +69,7 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
   camera pixel test pass locally; the pixel test keeps UV0 fixed and checks
   bright and dim lighting from UV1. This path accepts supplied lightmaps only.
   Baking, directional lightmaps, authored shader recipes for this material,
-  and simultaneous pass shadows exceed the current two-texture contract.
+  and simultaneous pass shadows exceed the current cooked-material subset.
 - World lighting now has an opt-in 320-byte std140 `View` record: the existing
   256-byte ambient/directional/two-point layout remains intact, followed by a
   caller-supplied light clip-from-world matrix. The packer rejects nonfinite

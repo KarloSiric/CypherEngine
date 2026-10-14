@@ -392,6 +392,50 @@ TEST_CASE( "pipeline validation checks block shape and instancing capability", "
     CHECK( render::R_DestroyShader( fixture.shader ) == draw_error_t::OK );
 }
 
+TEST_CASE( "four sampled pipeline slots respect the advertised texture-unit limit",
+    "[CypherRender][Draw][Texture]" )
+{
+    draw_fixture_t fixture;
+    fixture.Init();
+    fixture.backend.CreateTexture2D = []( const render::render_texture_desc_t &,
+        const render::render_texture_data_t &, render::backend_texture_t &,
+        void * ) noexcept { return draw_error_t::OK; };
+    fixture.backend.DestroyTexture = []( render::backend_texture_t,
+        void * ) noexcept { return draw_error_t::OK; };
+
+    auto description = fixture.PipelineDescription();
+    description.sampledTextureCount = 4u;
+    description.sampledTextures[0].name = "AlbedoMap";
+    description.sampledTextures[1].name = "NormalMap";
+    description.sampledTextures[2].name = "LightmapMap";
+    description.sampledTextures[3].name = "ShadowMap";
+    render::render_pipeline_handle_t pipeline{};
+
+    render::tr.info.limits.maxCombinedTextureUnits = 3u;
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) ==
+        draw_error_t::ERR_CAPABILITY_MISSING );
+    CHECK( pipeline.value == 0u );
+    CHECK( fixture.pipelineCreates == 0u );
+
+    render::tr.info.limits.maxCombinedTextureUnits = 4u;
+    description.sampledTextures[3].name = "AlbedoMap";
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) ==
+        draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    description.sampledTextures[3].name = "ShadowMap";
+    REQUIRE( render::R_CreateGraphicsPipeline( description, &pipeline ) ==
+        draw_error_t::OK );
+    CHECK( fixture.pipelineCreates == 1u );
+    render::render_pipeline_info_t info{};
+    REQUIRE( render::R_GetGraphicsPipelineInfo( pipeline, &info ) == draw_error_t::OK );
+    CHECK( info.sampledTextureCount == 4u );
+    REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == draw_error_t::OK );
+
+    description.sampledTextureCount = 3u;
+    CHECK( render::R_CreateGraphicsPipeline( description, &pipeline ) ==
+        draw_error_t::ERR_PIPELINE_DESC_INVALID );
+    CHECK( fixture.pipelineCreates == 1u );
+}
+
 TEST_CASE( "comparison pipelines need backend sampler support", "[CypherRender][Draw][Depth]" )
 {
     draw_fixture_t fixture;

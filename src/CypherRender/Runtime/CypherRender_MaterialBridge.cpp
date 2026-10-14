@@ -24,6 +24,9 @@ constexpr common::string_view_t kMaterialBlockName{ "Material", 8u };
 constexpr common::u32 kMaterialUniformSlot = 2u;
 constexpr common::u32 kTintByteSize = 4u * sizeof( common::f32 );
 constexpr common::u32 kAcquiredCapacity = 2u + R_MAX_SAMPLED_TEXTURE_BINDINGS;
+// Native draws have room for more samplers, but this cooked-material subset
+// still supports at most albedo plus one detail, normal, or lightmap texture.
+constexpr common::u32 kCookedMaterialTextureLimit = 2u;
 
 bool HasSuffix( const common::string_view_t path,
     const common::string_view_t suffix ) noexcept
@@ -74,7 +77,7 @@ bool MaterialSubsetSupported( const common::cooked_material_view_t &material ) n
          ( material.alphaMode != common::render_material_alpha_mode_t::MASK &&
            material.alphaCutoff != 0.5F ) || material.nFeatures != 0u ||
          material.nParameters > 1u ||
-         material.nTextures > R_MAX_SAMPLED_TEXTURE_BINDINGS ||
+         material.nTextures > kCookedMaterialTextureLimit ||
          material.bHasSurface || material.surface.cchLength != 0u ||
          !common::ContentHash_Equals( material.variantHash, emptyVariantHash ) ) return false;
     if ( material.nParameters == 0u ) {
@@ -214,9 +217,12 @@ render_error_t R_DestroyCookedMaterialBundle(
         if ( firstError == render_error_t::OK ) firstError = error;
         if ( error == render_error_t::OK ) bundle->materialUniformBuffer = {};
     }
+    bool allTexturesDestroyed = true;
+    for ( const auto texture : bundle->textures ) {
+        if ( texture.value != 0u ) allTexturesDestroyed = false;
+    }
     if ( bundle->pipeline.value == 0u && bundle->mirroredPipeline.value == 0u &&
-         bundle->shader.value == 0u &&
-         bundle->textures[0].value == 0u && bundle->textures[1].value == 0u &&
+         bundle->shader.value == 0u && allTexturesDestroyed &&
          bundle->materialUniformBuffer.value == 0u ) {
         *bundle = {};
     }

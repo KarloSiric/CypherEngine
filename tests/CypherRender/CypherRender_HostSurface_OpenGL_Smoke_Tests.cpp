@@ -213,6 +213,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     CHECK( pInfo->apiMajorVersion == contextInfo.majorVersion );
     CHECK( pInfo->apiMinorVersion == contextInfo.minorVersion );
     CHECK( pInfo->sampleCount == contextInfo.sampleCount );
+    REQUIRE( pInfo->limits.maxCombinedTextureUnits >= 4u );
 
     const int nActivationsAfterInit = host.nActivations;
     const render::render_extent_t resizedExtent{ 48u, 32u };
@@ -274,7 +275,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
         render::render_error_t::OK );
 
     // Render the offscreen color back into the host FBO. Three uniform blocks
-    // and two sampled bindings exercise the renderer slots before EndFrame
+    // and four sampled bindings exercise the renderer slots before EndFrame
     // restores all host state.
     constexpr char vertexSource[] =
         "#version 410 core\nlayout(location=0) in vec3 position;\n"
@@ -283,11 +284,16 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     constexpr char fragmentSource[] =
         "#version 410 core\nuniform sampler2D base_color;\n"
         "uniform sampler2D detail_color;\n"
+        "uniform sampler2D lightmap_color;\n"
+        "uniform sampler2D shadow_color;\n"
         "layout(std140) uniform MixWeights { vec4 weights; };\n"
         "layout(std140) uniform MaterialTint { vec4 tint; };\n"
         "layout(location=0) out vec4 color;\n"
-        "void main() { color = texture(base_color, vec2(0.5)) * weights.x"
-        " + texture(detail_color, vec2(0.5)) * weights.y; color *= tint; }\n";
+        "void main() { color = ("
+        " texture(base_color,vec2(0.5))*weights.x"
+        " + texture(detail_color,vec2(0.5))*weights.y"
+        " + texture(lightmap_color,vec2(0.5))*weights.z"
+        " + texture(shadow_color,vec2(0.5))*weights.w) * tint; }\n";
     common::cooked_shader_view_t source{};
     source.nLanguageVersion = 410u;
     source.nStages = 2u;
@@ -320,7 +326,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     const auto indexBuffer = createBuffer(
         indices, sizeof( indices ), render::R_BUFFER_USAGE_INDEX );
     const float rendererOffset[4]{ 0.0f, 0.0f, 0.0f, 0.0f };
-    const float rendererWeights[4]{ 0.5f, 0.5f, 0.0f, 0.0f };
+    const float rendererWeights[4]{ 0.1f, 0.2f, 0.3f, 0.4f };
     const float rendererTint[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
     const auto offsetBuffer = createBuffer(
         rendererOffset, sizeof( rendererOffset ), render::R_BUFFER_USAGE_UNIFORM );
@@ -348,9 +354,11 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     pipelineDesc.uniformBlocks[0] = { "Offset", sizeof( rendererOffset ) };
     pipelineDesc.uniformBlocks[1] = { "MixWeights", sizeof( rendererWeights ) };
     pipelineDesc.uniformBlocks[2] = { "MaterialTint", sizeof( rendererTint ) };
-    pipelineDesc.sampledTextureCount = 2u;
+    pipelineDesc.sampledTextureCount = 4u;
     pipelineDesc.sampledTextures[0].name = "base_color";
     pipelineDesc.sampledTextures[1].name = "detail_color";
+    pipelineDesc.sampledTextures[2].name = "lightmap_color";
+    pipelineDesc.sampledTextures[3].name = "shadow_color";
     pipelineDesc.depthTest = false;
     pipelineDesc.depthWrite = false;
     pipelineDesc.cullBackFaces = false;
@@ -384,6 +392,21 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     render::render_sampler_handle_t rendererSampler{};
     REQUIRE( render::R_CreateSampler( rendererSamplerDesc, &rendererSampler ) ==
         render::render_error_t::OK );
+    const render::render_texture_desc_t slotTextureDesc{
+        1u, 1u, false, false, false, "Hosted four-slot smoke" };
+    const common::u8 greenPixel[4]{ 0u, 255u, 0u, 255u };
+    const common::u8 bluePixel[4]{ 0u, 0u, 255u, 255u };
+    const common::u8 halfAlphaPixel[4]{ 255u, 255u, 255u, 128u };
+    render::render_texture_handle_t greenTexture{}, blueTexture{}, halfAlphaTexture{};
+    REQUIRE( render::R_CreateTexture2D(
+        slotTextureDesc, { greenPixel, sizeof( greenPixel ) }, &greenTexture ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CreateTexture2D(
+        slotTextureDesc, { bluePixel, sizeof( bluePixel ) }, &blueTexture ) ==
+        render::render_error_t::OK );
+    REQUIRE( render::R_CreateTexture2D(
+        slotTextureDesc, { halfAlphaPixel, sizeof( halfAlphaPixel ) }, &halfAlphaTexture ) ==
+        render::render_error_t::OK );
 
     // The host leaves a deliberate nondefault state at the paint boundary.
     // BeginFrame may override it, but EndFrame must return exactly to it.
@@ -411,8 +434,8 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
         sizeof( hostTint ), hostTint );
     glBindBufferRange( GL_UNIFORM_BUFFER, 2u, hostUniform2, hostUniformStart, 16 );
     glBindBuffer( GL_UNIFORM_BUFFER, hostUniform );
-    GLuint hostSamplers[3]{};
-    glGenSamplers( 3, hostSamplers );
+    GLuint hostSamplers[4]{};
+    glGenSamplers( 4, hostSamplers );
     glActiveTexture( GL_TEXTURE0 );
     glBindTexture( GL_TEXTURE_2D, hostColor );
     glBindSampler( 0u, hostSamplers[0] );
@@ -422,6 +445,9 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glActiveTexture( GL_TEXTURE2 );
     glBindTexture( GL_TEXTURE_2D, hostReadColor );
     glBindSampler( 2u, hostSamplers[2] );
+    glActiveTexture( GL_TEXTURE3 );
+    glBindTexture( GL_TEXTURE_2D, hostColor );
+    glBindSampler( 3u, hostSamplers[3] );
     glUseProgram( hostProgram );
     glEnable( GL_SCISSOR_TEST );
     glScissor( 3, 4, 11, 13 );
@@ -493,6 +519,9 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glBindTexture( GL_TEXTURE_2D, hostReadColor );
     glFramebufferTexture2D( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT1,
         GL_TEXTURE_2D, hostMrtColor, 0 );
+    // The MRT setup uses the active texture unit. Restore unit three's
+    // deliberate host binding before the frame-state snapshot.
+    glBindTexture( GL_TEXTURE_2D, hostColor );
     const GLenum twoDrawBuffers[]{ GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
     glDrawBuffers( 2, twoDrawBuffers );
     REQUIRE( glCheckFramebufferStatus( GL_DRAW_FRAMEBUFFER ) == GL_FRAMEBUFFER_COMPLETE );
@@ -563,7 +592,9 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     draw.pipeline = pipeline;
     draw.vertexInput = input;
     draw.sampledTextures[0] = targetColor;
-    draw.sampledTextures[1] = targetColor;
+    draw.sampledTextures[1] = greenTexture;
+    draw.sampledTextures[2] = blueTexture;
+    draw.sampledTextures[3] = halfAlphaTexture;
     draw.samplers[1] = rendererSampler;
     draw.uniformBuffers[0] = offsetBuffer;
     draw.uniformBuffers[1] = weightsBuffer;
@@ -608,8 +639,16 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glReadBuffer( GL_COLOR_ATTACHMENT0 );
     unsigned char hostPixel[4]{};
     glReadPixels( 24, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, hostPixel );
-    CHECK( hostPixel[0] >= 240u );
-    CHECK( hostPixel[1] <= 15u );
+    // Four distinct colors with unequal weights encode all sampler units in
+    // one pixel: red + green + blue + half-alpha white => (128,153,179,204).
+    CHECK( hostPixel[0] >= 124u );
+    CHECK( hostPixel[0] <= 132u );
+    CHECK( hostPixel[1] >= 149u );
+    CHECK( hostPixel[1] <= 157u );
+    CHECK( hostPixel[2] >= 175u );
+    CHECK( hostPixel[2] <= 183u );
+    CHECK( hostPixel[3] >= 200u );
+    CHECK( hostPixel[3] <= 208u );
     glReadPixels( 1, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, hostPixel );
     CHECK( hostPixel[1] >= 240u );
     CHECK( hostPixel[0] <= 15u );
@@ -655,8 +694,10 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glGetBooleanv( GL_COLOR_WRITEMASK, disabledColorMask );
     for ( const auto channel : disabledColorMask ) CHECK( channel == GL_FALSE );
     glReadPixels( 24, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, hostPixel );
-    CHECK( hostPixel[0] >= 240u );
-    CHECK( hostPixel[1] <= 15u );
+    CHECK( hostPixel[0] >= 124u );
+    CHECK( hostPixel[0] <= 132u );
+    CHECK( hostPixel[1] >= 149u );
+    CHECK( hostPixel[1] <= 157u );
     glBindFramebuffer( GL_READ_FRAMEBUFFER, host.presentationReadFramebuffer );
     REQUIRE( glGetError() == GL_NO_ERROR );
     REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
@@ -692,7 +733,7 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glGetInteger64i_v( GL_UNIFORM_BUFFER_SIZE, 2u, &indexedSize );
     CHECK( indexedStart == hostUniformStart );
     CHECK( indexedSize == 16 );
-    checkInteger( GL_ACTIVE_TEXTURE, GL_TEXTURE2 );
+    checkInteger( GL_ACTIVE_TEXTURE, GL_TEXTURE3 );
     glActiveTexture( GL_TEXTURE0 );
     checkInteger( GL_TEXTURE_BINDING_2D, static_cast<GLint>( hostColor ) );
     checkInteger( GL_SAMPLER_BINDING, static_cast<GLint>( hostSamplers[0] ) );
@@ -702,6 +743,9 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glActiveTexture( GL_TEXTURE2 );
     checkInteger( GL_TEXTURE_BINDING_2D, static_cast<GLint>( hostReadColor ) );
     checkInteger( GL_SAMPLER_BINDING, static_cast<GLint>( hostSamplers[2] ) );
+    glActiveTexture( GL_TEXTURE3 );
+    checkInteger( GL_TEXTURE_BINDING_2D, static_cast<GLint>( hostColor ) );
+    checkInteger( GL_SAMPLER_BINDING, static_cast<GLint>( hostSamplers[3] ) );
     GLint restoredViewport[4]{};
     glGetIntegerv( GL_VIEWPORT, restoredViewport );
     CHECK( restoredViewport[0] == 2 );
@@ -808,6 +852,9 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     REQUIRE( render::R_DestroyGraphicsPipeline( wireframePipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( biasedPipeline ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyGraphicsPipeline( pipeline ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( halfAlphaTexture ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( blueTexture ) == render::render_error_t::OK );
+    REQUIRE( render::R_DestroyTexture( greenTexture ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroySampler( rendererSampler ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyVertexInput( input ) == render::render_error_t::OK );
     REQUIRE( render::R_DestroyBuffer( vertexBuffer ) == render::render_error_t::OK );
@@ -843,13 +890,16 @@ TEST_CASE( "renderer borrows and preserves a host-owned OpenGL context",
     glActiveTexture( GL_TEXTURE2 );
     glBindTexture( GL_TEXTURE_2D, 0u );
     glBindSampler( 2u, 0u );
+    glActiveTexture( GL_TEXTURE3 );
+    glBindTexture( GL_TEXTURE_2D, 0u );
+    glBindSampler( 3u, 0u );
     glActiveTexture( GL_TEXTURE0 );
     glDeleteProgram( hostProgram );
     glDeleteVertexArrays( 1, &hostVertexArray );
     glDeleteBuffers( 1, &hostUniform );
     glDeleteBuffers( 1, &hostUniform1 );
     glDeleteBuffers( 1, &hostUniform2 );
-    glDeleteSamplers( 3, hostSamplers );
+    glDeleteSamplers( 4, hostSamplers );
     glDeleteFramebuffers( 1, &host.presentationFramebuffer );
     glDeleteFramebuffers( 1, &host.presentationReadFramebuffer );
     glDeleteTextures( 1, &hostColor );

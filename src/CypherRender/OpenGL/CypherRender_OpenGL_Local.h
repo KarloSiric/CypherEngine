@@ -66,10 +66,8 @@ struct gl_host_frame_state_t {
     GLint program{ 0 };
     GLint vertexArray{ 0 };
     GLint activeTexture{ GL_TEXTURE0 };
-    GLint texture2DUnit0{ 0 };
-    GLint samplerUnit0{ 0 };
-    GLint texture2DUnit1{ 0 };
-    GLint samplerUnit1{ 0 };
+    GLint texture2DUnits[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
+    GLint samplerUnits[R_MAX_SAMPLED_TEXTURE_BINDINGS]{};
     GLint uniformBuffer{ 0 }; // Generic target, changed by BindBufferBase.
     GLint uniformBufferIndices[R_MAX_UNIFORM_BLOCK_BINDINGS]{};
     GLint64 uniformBufferStarts[R_MAX_UNIFORM_BLOCK_BINDINGS]{};

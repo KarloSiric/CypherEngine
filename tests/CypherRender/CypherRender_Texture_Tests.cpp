@@ -194,7 +194,8 @@ struct texture_fixture_t {
         return result;
     }
     render::render_draw_indexed_desc_t MakeDraw( bool textured, bool twoBindings = false,
-        render::render_sampled_texture_kind_t kind = render::render_sampled_texture_kind_t::SCALAR_2D )
+        render::render_sampled_texture_kind_t kind = render::render_sampled_texture_kind_t::SCALAR_2D,
+        common::u32 explicitTextureCount = 0u )
     {
         constexpr char source[] = "#version 410 core\nvoid main() {}\n";
         common::cooked_shader_view_t cooked{};
@@ -213,13 +214,22 @@ struct texture_fixture_t {
         render::render_pipeline_desc_t pipeline{};
         pipeline.shader = shader;
         pipeline.vertexLayout = layout;
-        pipeline.sampledTextureCount = textured ? ( twoBindings ? 2u : 1u ) : 0u;
+        pipeline.sampledTextureCount = explicitTextureCount != 0u ? explicitTextureCount :
+            ( textured ? ( twoBindings ? 2u : 1u ) : 0u );
         if ( textured ) {
             pipeline.sampledTextures[0].name = "base_color";
             pipeline.sampledTextures[0].kind = kind;
         }
-        if ( twoBindings ) {
+        if ( pipeline.sampledTextureCount >= 2u ) {
             pipeline.sampledTextures[1].name = "detail";
+        }
+        if ( pipeline.sampledTextureCount >= 3u ) {
+            pipeline.sampledTextures[2].name = "lightmap";
+        }
+        if ( pipeline.sampledTextureCount >= 4u ) {
+            pipeline.sampledTextures[3].name = "shadow";
+        }
+        if ( twoBindings ) {
             pipeline.uniformBlockCount = 2u;
             pipeline.uniformBlocks[0] = { "Transform", 64u };
             pipeline.uniformBlocks[1] = { "Material", 32u };
@@ -1279,6 +1289,61 @@ TEST_CASE( "two sampled textures and two uniform blocks bind in stable slots",
     CHECK( render::R_DestroyBuffer( material ) == texture_error_t::OK );
     CHECK( render::R_DestroyTexture( baseColor ) == texture_error_t::OK );
     CHECK( render::R_DestroyTexture( detail ) == texture_error_t::OK );
+}
+
+TEST_CASE( "four sampled slots reach the backend and undeclared fourth bindings fail",
+           "[CypherRender][Texture][Draw]" )
+{
+    texture_fixture_t fixture;
+    fixture.Init();
+    auto fourSlotDraw = fixture.MakeDraw( true, false,
+        render::render_sampled_texture_kind_t::SCALAR_2D, 4u );
+    render::render_texture_handle_t textures[4]{};
+    render::render_sampler_handle_t samplers[4]{};
+    common::u64 nativeTextures[4]{};
+    common::u64 nativeSamplers[4]{};
+    for ( common::u32 slot = 0u; slot < 4u; ++slot ) {
+        nativeTextures[slot] = fixture.next;
+        textures[slot] = fixture.Create();
+        nativeSamplers[slot] = fixture.next;
+        samplers[slot] = fixture.Sampler();
+        fourSlotDraw.sampledTextures[slot] = textures[slot];
+        fourSlotDraw.samplers[slot] = samplers[slot];
+    }
+
+    REQUIRE( render::R_DrawIndexed( fourSlotDraw ) == texture_error_t::OK );
+    CHECK( fixture.draws == 1u );
+    for ( common::u32 slot = 0u; slot < 4u; ++slot ) {
+        CHECK( fixture.capturedDraw.sampledTextures[slot].value == nativeTextures[slot] );
+        CHECK( fixture.capturedDraw.samplers[slot].value == nativeSamplers[slot] );
+        for ( common::u32 earlier = 0u; earlier < slot; ++earlier ) {
+            CHECK( fixture.capturedDraw.sampledTextures[slot].value !=
+                   fixture.capturedDraw.sampledTextures[earlier].value );
+            CHECK( fixture.capturedDraw.samplers[slot].value !=
+                   fixture.capturedDraw.samplers[earlier].value );
+        }
+    }
+
+    auto missing = fourSlotDraw;
+    missing.sampledTextures[3] = {};
+    CHECK( render::R_DrawIndexed( missing ) == texture_error_t::ERR_BINDING_MISMATCH );
+    auto threeSlotDraw = fixture.MakeDraw( true, false,
+        render::render_sampled_texture_kind_t::SCALAR_2D, 3u );
+    for ( common::u32 slot = 0u; slot < 4u; ++slot ) {
+        threeSlotDraw.sampledTextures[slot] = textures[slot];
+        threeSlotDraw.samplers[slot] = samplers[slot];
+    }
+    CHECK( render::R_DrawIndexed( threeSlotDraw ) == texture_error_t::ERR_BINDING_MISMATCH );
+    threeSlotDraw.sampledTextures[3] = {};
+    CHECK( render::R_DrawIndexed( threeSlotDraw ) == texture_error_t::ERR_BINDING_MISMATCH );
+    threeSlotDraw.samplers[3] = {};
+    REQUIRE( render::R_DrawIndexed( threeSlotDraw ) == texture_error_t::OK );
+    CHECK( fixture.draws == 2u );
+
+    for ( common::u32 slot = 0u; slot < 4u; ++slot ) {
+        CHECK( render::R_DestroySampler( samplers[slot] ) == texture_error_t::OK );
+        CHECK( render::R_DestroyTexture( textures[slot] ) == texture_error_t::OK );
+    }
 }
 
 TEST_CASE( "one-slot pipelines reject a resource in an undeclared second slot",

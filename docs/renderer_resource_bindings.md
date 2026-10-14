@@ -1,7 +1,7 @@
 # Renderer resource bindings: bounded OpenGL 4.1 contract
 
 An immutable graphics pipeline declares up to three named GLSL uniform
-blocks and up to two named sampled-image uniforms. Each sampled slot
+blocks and up to four named sampled-image uniforms. Each sampled slot
 declares either ordinary `sampler2D` (the default) or `sampler2DShadow`.
 Bindings occupy consecutive logical slots beginning at zero. The matching
 indexed draw supplies one live uniform buffer or texture handle for every
@@ -190,8 +190,10 @@ and linear lightmap format before creating GPU objects, but cannot infer
 which UV a shader actually samples. A native World camera pixel test checks
 one compatible hand-built cooked shader: fixed UV0 albedo and independent
 UV1 lighting give visibly different pixels. This is a supplied lightmap,
-not a lightmap baker or a directional-normal lightmap. The two-slot limit also
-means this material cannot reserve slot 1 for a pass-owned shadow map.
+not a lightmap baker or a directional-normal lightmap. The cooked-material
+subset still declares at most two owned textures, and its optional pass
+shadow binding is fixed at slot 1; this lightmap recipe cannot combine with
+that shadow binding yet.
 Another opaque two-texture variant keeps COLOR albedo in slot 0 and binds a
 linear RGBA8_UNORM `NORMAL` texture in slot 1, both using UV0. The layout must
 also expose an RGBA32_FLOAT tangent with handedness at location 4 on binding
@@ -200,8 +202,8 @@ the hand-built shader must decode the sampled tangent-space vector and
 construct its tangent basis, including mirrored-model handedness. A native
 World camera pixel test checks that opposite +Y/-Y normal texels change
 directional diffuse with constant albedo, including after mirroring the
-World object. The bridge cannot prove shader semantics, and this slot-1 normal
-map cannot coexist with the slot-1 lightmap or pass shadow map yet.
+World object. The bridge cannot prove shader semantics, and its current
+recipes cannot combine this slot-1 normal map with a lightmap or pass shadow.
 The first supported material value is one F32X4 `tint` at byte offset zero.
 The cooked shader must declare a matching MATERIAL VALUE and a 16-byte
 MATERIAL uniform block named `Material`, whose GLSL std140 member is
