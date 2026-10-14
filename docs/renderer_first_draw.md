@@ -107,6 +107,67 @@ untextured fallback. That shader preserves the preview's single 208-byte
 view/object blocks and a texture sampler. Textured tile materials continue to
 use their own `tile_surface` shader.
 
+## World adapter lighting example
+
+`cypher_render_world_lighting` exercises the reusable World adapters directly.
+Its procedural scene has a floor slab and two rotating boxes, one with mirrored
+nonuniform scale. It supplies one shadowed directional light and one unshadowed
+point light, then draws a D24 light pass, an RGBA16F camera pass, and the existing
+Reinhard/linear-to-sRGB presentation shader. Camera and light queries are
+independent; neither World objects nor asset slots contain native GPU names.
+
+With an existing shader-tools configuration, build this explicit target to cook
+`world_lighting.cyshader`, `world_shadow.cyshader`, and `tonemap.cyshader`:
+
+```sh
+cmake --build --preset shader-tools-debug --target cypher_render_world_lighting --parallel 4
+./out/build/shader-tools-debug/bin/cypher_render_world_lighting
+./out/build/shader-tools-debug/bin/cypher_render_world_lighting --hidden --frames 120 --resize-test
+```
+
+Use the existing build directory on disk-constrained machines. A tools-disabled
+build still builds the executable but needs those three cooked files in its
+`cooked/render_smoke` directory; it does not download a compiler or cook shaders
+at runtime. Local validation used the existing cooked-format writer to package
+the stage sources, and the native OpenGL driver compiled/linked them and checked
+the pipeline interfaces. CI's render-asset-tools build uses the normal offline
+shader cooker. This local packaging check does not exercise the source cooker.
+
+Interactive controls match the graybox example: hold RMB for mouse look, WASD,
+Space/C, and faster Shift movement; Escape exits. Finite runs keep a fixed
+camera, use deterministic animation, require all three camera and shadow draws
+per frame, and fail on early closure or timeout. The 120-frame resize check
+requests two native window sizes through the normal resize path; it completed
+360 camera draws, 360 shadow draws, 120 presentations, and two HDR target
+replacements locally. New attachments are created before the old target is
+retired. Failed creation or destruction retains ownership for shutdown.
+
+The important handoff is:
+
+```text
+World transforms + bounds + logical mesh/material slots
+    -> camera frustum query -> R_PrepareWorldCameraDraws
+                              View320 / Model112 / Material16
+    -> light frustum query  -> R_PrepareWorldShadowDraws
+                              Light64 / Model64
+    -> shadow depth target -> HDR camera target -> presentation
+```
+
+Each view has its own aligned Model batch because its shader record differs.
+The camera's inverse-transpose normal matrix preserves lighting under the
+mirrored nonuniform box transform. The material table contains borrowed views
+of host-owned shared pipelines/white texture and per-material tint buffers;
+it is not populated by `.cymat_c` adoption in this example. Shared resources
+are destroyed once through their explicit owners, never once per table alias.
+Uniform staging retained after a failed GPU destroy is released after renderer
+shutdown. Draw failures still end the begun pass and frame.
+
+This example makes the existing contracts runnable; it does not add a map
+loader, authored light system, lightmap baker, specular/PBR model, general frame
+scheduler, or Mason integration. The separate native pixel suite remains the
+oracle for camera/shadow/HDR output; example draw counts alone do not verify
+pixel appearance.
+
 ## Follow the data
 
 ```text

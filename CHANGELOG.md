@@ -25,6 +25,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Changed
 
+- The projected World shadow regression now uses an explicit value-initialized
+  pipeline descriptor when switching to its HDR tone-map pass. This fixes the
+  GCC build error shared by Ubuntu Debug, Release, and ASan/UBSan CI jobs;
+  the native OpenGL smoke suite passes locally after the change.
 - The combined cooked World rendering regression now runs a generated D24
   shadow pass, an RGBA16F camera pass, and fixed Reinhard tone mapping to an
   RGBA8 target. A separate light submission retains an off-camera caster;
@@ -53,6 +57,21 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- `cypher_render_world_lighting` runs the public World camera and shadow
+  adapters with a procedural floor, two rotating boxes (including mirrored
+  nonuniform scale), a shadowed directional light, an unshadowed point light,
+  and HDR tone-map presentation. Separate view submissions and aligned
+  Model112/Model64 batches feed its passes. Native hidden/visible finite runs
+  pass; a 120-frame resize check completes 360 camera and 360 shadow draws,
+  120 presentations, and two HDR target replacements. Shared material-table
+  resources have explicit owners; pending resize allocations and failed
+  uniform-buffer cleanup retain ownership for shutdown. The World-draw,
+  material-bridge, and native pixel suites pass locally. CI builds the example
+  and cooks its GLSL through the offline tool. Local shader packaging used
+  the cooked-format writer because the removed tool SDK was not restored.
+  The sample has a host-owned material table and lights; map/material asset
+  loading, lightmap baking, a general frame scheduler, and Mason wiring remain
+  separate work.
 - An opaque cooked World material can now combine UV0 albedo, a supplied UV1
   lightmap, and a UV0 normal map with a caller-owned D24 comparison shadow map
   in sampled slot 3. Material creation validates the four shader bindings and

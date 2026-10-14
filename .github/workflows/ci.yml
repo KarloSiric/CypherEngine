@@ -316,6 +316,7 @@ jobs:
         run: |
           cmake --build build-render-asset-tools --config Debug --parallel "$CYPHER_CI_BUILD_JOBS" --target \
             CypherResourceCompiler \
+            cypher_render_world_lighting \
             cypher_common_tier1_fileio_tests \
             cypher_common_vfs_tests \
             cypher_common_render_asset_format_tests \

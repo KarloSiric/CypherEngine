@@ -3144,6 +3144,42 @@ if (TARGET CypherResourceCompiler)
     add_dependencies(cypher_render_cube cypher_render_cube_texture)
 endif()
 
+# Explicit adapter example: World owns logical objects; this host owns lights,
+# renderer resources and shadow -> HDR camera -> tone-map pass order.
+add_executable(cypher_render_world_lighting EXCLUDE_FROM_ALL
+    "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_WorldLighting.cpp"
+    "${CYPHERENGINE_ROOT_DIR}/examples/CypherRender/CypherRender_CubeCamera.cpp"
+)
+target_link_libraries(cypher_render_world_lighting PRIVATE
+    Cypher::RenderWorldRuntime Cypher::VfsDirectory Cypher::Math
+)
+target_compile_definitions(cypher_render_world_lighting PRIVATE
+    CYPHER_RENDER_WORLD_SHADER_PATH="${CMAKE_BINARY_DIR}/cooked/render_smoke/world_lighting.cyshader_c"
+    CYPHER_RENDER_WORLD_SHADOW_SHADER_PATH="${CMAKE_BINARY_DIR}/cooked/render_smoke/world_shadow.cyshader_c"
+    CYPHER_RENDER_WORLD_TONEMAP_SHADER_PATH="${CYPHER_RENDER_CUBE_TONEMAP_SHADER}"
+)
+if (TARGET CypherResourceCompiler)
+    foreach (world_shader IN ITEMS world_lighting world_shadow)
+        set(world_shader_output "${CMAKE_BINARY_DIR}/cooked/render_smoke/${world_shader}.cyshader_c")
+        add_custom_command(
+            OUTPUT "${world_shader_output}"
+            COMMAND $<TARGET_FILE:CypherResourceCompiler> compile
+                --source-root "${CYPHERENGINE_ROOT_DIR}/assets"
+                --output-root "${CMAKE_BINARY_DIR}/cooked"
+                --color never --progress none "render_smoke/${world_shader}.cyshader"
+            DEPENDS CypherResourceCompiler
+                "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/${world_shader}.cyshader"
+                "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/${world_shader}.vert"
+                "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/${world_shader}.frag"
+            COMMENT "Cooking the World adapter ${world_shader} shader"
+            VERBATIM
+        )
+        add_custom_target(cypher_render_${world_shader}_shader DEPENDS "${world_shader_output}")
+        add_dependencies(cypher_render_world_lighting cypher_render_${world_shader}_shader)
+    endforeach()
+    add_dependencies(cypher_render_world_lighting cypher_render_cube_tonemap_shader)
+endif()
+
 # CypherTileEditor development preview. The editor/core owns authored map
 # semantics and box generation; the renderer sees only ordinary model
 # transforms and a shared cube mesh. This target therefore proves the bridge

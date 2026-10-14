@@ -24,6 +24,10 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Changed
+- The projected World shadow regression uses an explicit value-initialized
+  pipeline descriptor for its HDR tone-map pass. This fixes the shared GCC
+  build error in Ubuntu Debug, Release and ASan/UBSan CI; the native OpenGL
+  smoke suite passes locally after the change.
 - The combined cooked World regression runs a generated D24 shadow pass,
   an RGBA16F camera pass and fixed Reinhard tone mapping to an RGBA8 target.
   A separate light submission retains an off-camera caster, with the same
@@ -51,6 +55,20 @@ Changed
   reserved feature paths remain unimplemented.
 
 Added
+- cypher_render_world_lighting runs the public camera/shadow World adapters
+  with a procedural floor, two rotating boxes (one mirrored/nonuniform),
+  a shadowed directional light, an unshadowed point light and HDR tone-map
+  presentation. Independent view submissions and aligned Model112/Model64
+  batches feed its passes. Native hidden/visible finite runs pass; a 120-frame
+  resize check completes 360 camera and 360 shadow draws, 120 presentations
+  and two HDR target replacements. Explicit owners release shared material
+  resources once; pending target allocations and retained uniform staging
+  are cleaned up on shutdown. World-draw, material-bridge and native pixel
+  suites pass locally. CI builds the example and uses the offline shader
+  cooker. Local packaging used the existing cooked-format writer; removed
+  shader-tool SDK dependencies were not restored. Host-defined materials and
+  lights are limited to this sample; map/material loading, lightmap baking,
+  general frame scheduling and Mason wiring remain separate work.
 - An opaque cooked World material combines UV0 albedo, a supplied UV1
   lightmap and a UV0 normal map with a caller-owned D24 comparison shadow map
   in sampled slot 3. Creation validates all four shader bindings and owns

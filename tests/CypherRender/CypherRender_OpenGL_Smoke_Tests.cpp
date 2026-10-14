@@ -6300,7 +6300,7 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         render::render_pipeline_handle_t shadowPipeline{};
         REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &shadowPipeline ) ==
             render::render_error_t::OK );
-        pipeline = {};
+    pipeline = render::render_pipeline_desc_t{};
         pipeline.shader = toneShader;
         pipeline.vertexLayout = layout;
         pipeline.depthTest = pipeline.depthWrite = false;
