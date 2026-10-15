@@ -191,6 +191,76 @@ scheduler, or Mason integration. The separate native pixel suite remains the
 oracle for camera/shadow/HDR output; example draw counts alone do not verify
 pixel appearance.
 
+## Lit cutout surfaces and matching shadows
+
+`--cutout` makes the two existing box materials use MASK alpha coverage. A
+shared procedural RGBA checker texture contains holes; the second box retains
+its mirrored transform. The floor stays opaque. The option combines with
+material ranges, transparency, fog disabling and resize checks without adding
+World objects or changing the expected draw counts. With material ranges,
+only faces assigned those two material slots become MASK; faces using the
+floor material remain opaque.
+
+For example, in an existing compact build:
+
+```sh
+./build-mason/bin/cypher_render_world_lighting --cutout --transparency
+```
+
+The camera and shadow use the same rule, before lighting, tint or fog:
+
+```text
+sample = albedo(UV0)
+if sample.alpha < authoredCutoff: discard
+```
+
+Equality survives. Material tint alpha does not change coverage: the shadow
+adapter borrows the alpha texture and cutoff, but no Material tint block.
+Discarding before depth writes lets geometry behind a hole show through and
+prevents that hole from becoming a solid shadow. Surviving camera fragments
+still receive directional/point lighting, shadow comparison and camera-depth
+fog, followed by the existing HDR presentation pass. This is binary coverage,
+not alpha blending or alpha-to-coverage.
+
+`CY_WORLD_CUTOUT` specializes the shared checked-in lighting/shadow stages.
+The opt-in camera block is `MODEL_NORMAL_CUTOUT`, with a cutoff vec4 at byte
+112 and 128 bytes total. All materials in that camera submission use the same
+layout; the adapter writes -1 for non-MASK materials, which never discard.
+The masked shadow block has its cutoff at byte 64 and totals 80 bytes; opaque
+casters retain their separate 64-byte Model pipeline. Vertex stages pass the
+cutoff as a flat varying, keeping Model uniform access in the vertex stage.
+Both ordinary and mirrored pipeline windings are provided.
+
+The recipes are `world_lighting_cutout.cyshader`,
+`world_lighting_cutout_additive.cyshader` and `world_shadow_cutout.cyshader`.
+The additive variant also defines `CY_WORLD_ADDITIVE_FOG`, preserving the
+extinction-only contribution of additive draws. CMake cooks every recipe from
+its shared source stages when shader tools are enabled. A tools-disabled
+local build needs these additional cooked files for `--cutout`. The default
+Model112 lighting and Model64 shadow shaders retain their existing interfaces.
+
+This sample supplies its own texture and material table. It does not add
+material authoring, foliage placement, alpha-tested antialiasing or automatic
+selection of shader variants for arbitrary loaded scenes.
+
+The native pixel oracle loads these exact stage files through the existing
+cooked writer/reader and executes both World adapters. It checks camera color
+and depth through holes, depth-map holes, the resulting comparison shadow on
+a lit/fogged receiver, ordinary and mirrored windings, cutoff 0/1/equality,
+zero tint alpha and the OPAQUE sentinel. Disabling the discard rule separately
+in either shader causes 24 failed assertions; restoring both passes all
+3,869 assertions across the three native tests. The first run exposed stale
+unused bindings in the new test's shadow pipeline descriptor; clearing those
+fixture fields resolved the rejection without changing production validation.
+
+Four existing CPU suites (World draws/fog, scene passes/view) also pass. The
+120-frame cutout/transparency/material-range/resize run completes 1,560 opaque
+(including MASK), 120 blend, 120 additive and 1,560 shadow draws, 120 HDR
+presentations and two resizes. Cutout without fog and the unchanged default
+also complete 120 frames. Local packaging uses installed libraries and does
+not exercise the offline source cooker; CI builds the recipes with that cooker.
+The example retains the existing duplicate-Math-library linker warning.
+
 ## Opt-in camera-depth fog
 
 `R_PackWorldFoggedViewLighting` extends the complete shadowed View320 record

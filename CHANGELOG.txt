@@ -24,6 +24,22 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- World lighting now has an opt-in --cutout mode with matching lit MASK
+  camera and shadow shaders. Both compare raw UV0 alpha with the same authored
+  cutoff before tint, lighting or fog; equality survives and tint alpha does
+  not alter coverage. The existing normal/mirrored box materials use a shared
+  perforated texture. Camera draws opt into Model128 (including non-MASK
+  sentinel records), while opaque/MASK shadows use Model64/80 respectively.
+  Default Model112/64 interfaces remain unchanged. The three shader recipes
+  reuse shared OpenGL 4.1 stages and combine with transparency/material ranges.
+  Four CPU suites pass. Native pixels pass 3,869 assertions in three cases,
+  including discarded camera depth, shadow-map holes and lit/fogged receivers;
+  disabling either discard rule fails 24 assertions. An initial fixture-only
+  stale-binding rejection was corrected. Three 120-frame sample runs pass,
+  including cutout, blend/additive, material ranges and two HDR target resizes.
+  The existing duplicate-Math-library linker warning remains. This uses host
+  supplied materials; material authoring, alpha-to-coverage, automatic variant
+  selection for loaded scenes and Mason runtime integration remain unfinished.
 - World lighting now includes a separate additive shader recipe over the
   shared OpenGL 4.1 stages. Additive surfaces attenuate their contribution toward
   zero with camera-depth fog instead of repeatedly adding fog color; opaque

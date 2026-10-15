@@ -7436,6 +7436,283 @@ void CheckCookedWorldNormalMapDrawing( const render::render_extent_t extent,
         render::render_error_t::OK );
 }
 
+void CheckCheckedInWorldCutoutDrawing( const render::render_extent_t extent )
+{
+    // Borrowed material aliases below share ownership in this scope. Any fatal
+    // REQUIRE still retires the frame, World snapshots and every GPU resource.
+    struct cutout_scope_t {
+        world::world_t *pWorld{};
+        world::world_submission_t *pSubmission{};
+        render::render_static_mesh_bundle_t mesh{};
+        render::render_uniform_batch_t models[2]{};
+        render::render_shader_handle_t shaders[2]{};
+        render::render_pipeline_handle_t pipelines[4]{};
+        render::render_buffer_handle_t buffers[5]{};
+        render::render_texture_handle_t textures[4]{};
+        render::render_target_handle_t targets[2]{};
+        render::render_sampler_handle_t samplers[2]{};
+        bool Close() noexcept
+        {
+            bool okay = true;
+            if ( render::R_IsTargetPassActive() ) okay &= render::R_EndTargetPass() == render::render_error_t::OK;
+            if ( render::R_IsFrameActive() ) okay &= render::R_EndFrame() == render::render_error_t::OK;
+            if ( pSubmission ) { world::WorldSubmission_End( pSubmission ); world::WorldSubmission_Shutdown( &pSubmission ); }
+            if ( pWorld ) world::World_Shutdown( &pWorld );
+            const auto retire = [&okay]( auto &handles, auto destroy ) {
+                for ( auto &handle : handles ) {
+                    if ( handle.value == 0u ) continue;
+                    if ( destroy( handle ) == render::render_error_t::OK ) handle = {};
+                    else okay = false;
+                }
+            };
+            retire( targets, render::R_DestroyRenderTarget );
+            retire( pipelines, render::R_DestroyGraphicsPipeline );
+            retire( shaders, render::R_DestroyShader );
+            retire( samplers, render::R_DestroySampler );
+            retire( textures, render::R_DestroyTexture );
+            okay &= render::R_DestroyStaticMeshBundle( &mesh ) == render::render_error_t::OK;
+            for ( auto &batch : models ) okay &= render::R_DestroyUniformBatch( &batch ) == render::render_error_t::OK;
+            retire( buffers, render::R_DestroyBuffer );
+            return okay;
+        }
+        ~cutout_scope_t() { (void)Close(); }
+    } scope;
+    const auto shader = []( const char *vertexName, const char *fragmentName, render::render_shader_handle_t *out ) {
+        const auto read = []( const char *name ) {
+            const auto path = std::filesystem::path( CYPHER_RENDER_SMOKE_SHADER_DIR ) / name;
+            INFO( "Reading checked-in World cutout shader " << path.string() );
+            std::ifstream file( path, std::ios::binary ); REQUIRE( file.is_open() );
+            std::string source( std::istreambuf_iterator<char>{ file }, std::istreambuf_iterator<char>{} );
+            REQUIRE_FALSE( file.bad() );
+            const auto versionEnd = source.find( '\n' ); REQUIRE( versionEnd != std::string::npos );
+            source.insert( versionEnd + 1u, "#define CY_WORLD_CUTOUT 1\n" ); source.push_back( '\0' );
+            return source;
+        };
+        const std::string vertex = read( vertexName ), fragment = read( fragmentName );
+        common::cooked_shader_stage_source_t stages[2]{};
+        stages[0].stage = common::render_shader_stage_t::VERTEX;
+        stages[0].code = { reinterpret_cast<const common::byte *>( vertex.data() ), vertex.size() };
+        stages[1].stage = common::render_shader_stage_t::FRAGMENT;
+        stages[1].code = { reinterpret_cast<const common::byte *>( fragment.data() ), fragment.size() };
+        std::vector<common::byte> bytes( common::CookedShader_RequiredSize( {}, { stages,2u } ) ); REQUIRE_FALSE( bytes.empty() );
+        REQUIRE( common::CookedShader_Succeeded( common::CookedShader_Write( {}, { stages,2u }, {}, { bytes.data(),bytes.size() } ) ) );
+        common::cooked_shader_view_t cooked{};
+        REQUIRE( common::CookedShader_Succeeded( common::CookedShader_Read( { bytes.data(),bytes.size() }, &cooked ) ) );
+        REQUIRE( render::R_CreateShader( { &cooked,"Checked-in World cutout" }, out ) == render::render_error_t::OK );
+    };
+    shader( "world_lighting.vert", "world_lighting.frag", &scope.shaders[0] );
+    shader( "world_shadow.vert", "world_shadow.frag", &scope.shaders[1] );
+
+    // One UV0 quad, including normal and mirrored models. Samples lie at the
+    // centers of three texels, away from triangle and coverage boundaries.
+    constexpr float vertices[4][8]{
+        { -1,-1,0, 0,0,1, 0,0 }, { 1,-1,0, 0,0,1, 1,0 },
+        { 1,1,0, 0,0,1, 1,1 }, { -1,1,0, 0,0,1, 0,1 }
+    };
+    constexpr common::u16 indices[]{ 0,1,2, 0,2,3 };
+    render::render_static_mesh_source_t mesh{};
+    mesh.vertexLayout.bindingCount = 1u; mesh.vertexLayout.bindings[0].stride = sizeof( vertices[0] );
+    mesh.vertexLayout.attributeCount = 3u;
+    mesh.vertexLayout.attributes[0] = { render::render_format_t::RGB32_FLOAT,0u,0u,0u };
+    mesh.vertexLayout.attributes[1] = { render::render_format_t::RGB32_FLOAT,12u,1u,0u };
+    mesh.vertexLayout.attributes[2] = { render::render_format_t::RG32_FLOAT,24u,2u,0u };
+    mesh.vertexBytes = vertices; mesh.vertexByteSize = sizeof( vertices ); mesh.vertexCount = 4u;
+    mesh.indexBytes = indices; mesh.indexByteSize = sizeof( indices ); mesh.indexCount = 6u;
+    REQUIRE( render::R_CreateStaticMeshBundle( mesh, &scope.mesh ).status == render::render_static_mesh_bridge_status_t::OK );
+    render::render_pipeline_desc_t pipeline{};
+    pipeline.shader = scope.shaders[0]; pipeline.vertexLayout = mesh.vertexLayout;
+    pipeline.depthTest = pipeline.depthWrite = pipeline.cullBackFaces = true;
+    pipeline.uniformBlockCount = 3u;
+    pipeline.uniformBlocks[0] = { "View",352u }; pipeline.uniformBlocks[1] = { "Model",128u }; pipeline.uniformBlocks[2] = { "Material",16u };
+    pipeline.sampledTextureCount = 2u;
+    pipeline.sampledTextures[0] = { "albedoMap",render::render_sampled_texture_kind_t::SCALAR_2D };
+    pipeline.sampledTextures[1] = { "shadowMap",render::render_sampled_texture_kind_t::DEPTH_COMPARE_2D };
+    for ( common::u32 winding = 0; winding < 2; ++winding ) {
+        pipeline.frontCounterClockwise = winding == 0;
+        REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &scope.pipelines[winding] ) == render::render_error_t::OK );
+        render::render_pipeline_info_t reflected{};
+        REQUIRE( render::R_GetGraphicsPipelineInfo( scope.pipelines[winding], &reflected ) == render::render_error_t::OK );
+        CHECK( reflected.uniformBlockBytes[0] == 352u ); CHECK( reflected.uniformBlockBytes[1] == 128u ); CHECK( reflected.uniformBlockBytes[2] == 16u );
+    }
+    pipeline.shader = scope.shaders[1]; pipeline.colorWrite = false; pipeline.uniformBlockCount = 2u;
+    pipeline.uniformBlocks[0] = { "Light",64u }; pipeline.uniformBlocks[1] = { "Model",80u }; pipeline.uniformBlocks[2] = {};
+    pipeline.sampledTextureCount = 1u; pipeline.sampledTextures[1] = {};
+    for ( common::u32 winding = 0; winding < 2; ++winding ) {
+        pipeline.frontCounterClockwise = winding == 0;
+        REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &scope.pipelines[2u+winding] ) == render::render_error_t::OK );
+        render::render_pipeline_info_t reflected{};
+        REQUIRE( render::R_GetGraphicsPipelineInfo( scope.pipelines[2u+winding], &reflected ) == render::render_error_t::OK );
+        CHECK( reflected.uniformBlockBytes[0] == 64u ); CHECK( reflected.uniformBlockBytes[1] == 80u );
+    }
+    constexpr common::byte pixels[]{ 255,255,255,0, 255,255,255,128, 255,255,255,255 };
+    render::render_texture_desc_t texture{};
+    texture.width = 3u; texture.height = 1u; texture.sRGB = texture.generateMips = texture.repeat = false;
+    REQUIRE( render::R_CreateTexture2D( texture, { pixels,sizeof( pixels ) }, &scope.textures[0] ) == render::render_error_t::OK );
+    texture.width = 9u; texture.height = 4u; texture.renderTarget = true; texture.format = render::render_texture_format_t::D24;
+    REQUIRE( render::R_CreateTexture2D( texture, {}, &scope.textures[1] ) == render::render_error_t::OK );
+    REQUIRE( render::R_CreateTexture2D( texture, {}, &scope.textures[2] ) == render::render_error_t::OK );
+    texture.format = render::render_texture_format_t::RGBA16F;
+    REQUIRE( render::R_CreateTexture2D( texture, {}, &scope.textures[3] ) == render::render_error_t::OK );
+    REQUIRE( render::R_CreateRenderTarget( { {},scope.textures[1] }, &scope.targets[0] ) == render::render_error_t::OK );
+    REQUIRE( render::R_CreateRenderTarget( { scope.textures[3],scope.textures[2] }, &scope.targets[1] ) == render::render_error_t::OK );
+    render::render_sampler_desc_t sampler{};
+    sampler.minFilter = sampler.magFilter = render::render_sampler_filter_t::NEAREST;
+    sampler.addressU = sampler.addressV = render::render_sampler_address_t::CLAMP_TO_EDGE;
+    REQUIRE( render::R_CreateSampler( sampler, &scope.samplers[0] ) == render::render_error_t::OK );
+    sampler.compare = render::render_sampler_compare_t::LESS_EQUAL;
+    REQUIRE( render::R_CreateSampler( sampler, &scope.samplers[1] ) == render::render_error_t::OK );
+
+    render::render_world_view_lighting_desc_t lighting{};
+    lighting.viewFromWorld = math::Mat4_FromTranslation( { 0,0,-2 } );
+    lighting.clipFromView = math::Mat4_FromScale( { 1,1,-0.25f } );
+    lighting.ambientLight = { 0.2f,0.2f,0.2f }; lighting.directionalRadiance = { 0.6f,0.6f,0.6f }; lighting.directionToLight = { 0,0,1 };
+    render::render_world_fogged_view_lighting_record_t viewRecord{};
+    REQUIRE( render::R_PackWorldFoggedViewLighting( lighting, math::CY_MAT4_IDENTITY,
+        { { 0,0,0.4f },0,4,true }, &viewRecord ) == render::render_error_t::OK );
+    const auto buffer = [&]( common::u32 index, const void *data, common::u64 size ) {
+        render::render_buffer_desc_t desc{}; desc.byteSize = size; desc.usage = render::R_BUFFER_USAGE_UNIFORM;
+        const render::render_buffer_data_t contents{ data,size };
+        REQUIRE( render::R_CreateBuffer( desc, &contents, &scope.buffers[index] ) == render::render_error_t::OK );
+    };
+    buffer( 0,&viewRecord,sizeof( viewRecord ) ); buffer( 1,&math::CY_MAT4_IDENTITY,sizeof( math::mat4_t ) );
+    // Zero tint alpha must never erase MASK coverage. Colors are deliberately
+    // distinct from both the late background and the blue fog radiance.
+    constexpr float tints[3][4]{ { 1,0,0,0 }, { 0,1,0,1 }, { 1,1,1,1 } };
+    for ( common::u32 i = 0; i < 3; ++i ) buffer( 2+i,tints[i],sizeof( tints[i] ) );
+    const auto *info = render::R_GetInfo(); REQUIRE( info );
+    const common::u64 alignment = info->limits.uniformBufferOffsetAlignment; REQUIRE( alignment > 0u );
+    REQUIRE( render::R_CreateUniformBatch( alignment + 256u,nullptr,&scope.models[0] ) == render::render_error_t::OK );
+    REQUIRE( render::R_CreateUniformBatch( 80u,nullptr,&scope.models[1] ) == render::render_error_t::OK );
+    render::render_material_bundle_t materials[2]{};
+    for ( common::u32 i = 0; i < 2; ++i ) {
+        auto &material = materials[i]; material.shader = scope.shaders[0];
+        material.pipeline = scope.pipelines[0]; material.mirroredPipeline = scope.pipelines[1];
+        material.textureCount = 1u; material.textures[0] = scope.textures[0]; material.passShadowSlot = 1u;
+        material.materialUniformSlot = 2u; material.materialUniformBuffer = scope.buffers[2+i];
+    }
+    REQUIRE( world::World_Init( &scope.pWorld,common::Allocator_GetSystem(),2u ) == world::world_error_t::OK );
+    REQUIRE( world::WorldSubmission_Init( &scope.pSubmission,common::Allocator_GetSystem(),2u ) == world::world_submission_error_t::OK );
+    world::world_object_t objects[2]{}; world::world_object_id_t ids[2]{};
+    for ( common::u32 i = 0; i < 2; ++i ) {
+        objects[i].layerMask = 1u; objects[i].meshSlot = 0u; objects[i].materialSlot = i;
+        objects[i].worldBounds = math::Aabb_Make( { -1,-1,-1 },{ 1,1,1 } );
+        REQUIRE( world::World_AddObject( scope.pWorld,&objects[i],&ids[i] ) == world::world_error_t::OK );
+    }
+    world::world_view_query_t query{}; query.cameraPosition = { 0,0,2 }; query.maxDistance = 100; query.layerMask = 1u;
+    REQUIRE( math::Frustum_TryFromViewProjection( math::Mat4_Multiply( lighting.clipFromView,lighting.viewFromWorld ),
+        math::clip_depth_range_t::NEGATIVE_ONE_TO_ONE,0.000001f,&query.frustum ) );
+    render::render_scene_item_t scratch[2]{}; common::u32 order[2]{};
+    render::render_world_camera_prepare_desc_t camera{};
+    camera.submission = scope.pSubmission; camera.meshes = &scope.mesh; camera.meshCount = 1u;
+    camera.materials = materials; camera.materialCount = 2u; camera.modelUniforms = &scope.models[0]; camera.modelUniformSlot = 1u;
+    camera.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL_CUTOUT; camera.viewFromWorld = lighting.viewFromWorld;
+    camera.drawTemplate.uniformBuffers[0] = scope.buffers[0];
+    camera.drawTemplate.sampledTextures[1] = scope.textures[1]; camera.drawTemplate.samplers[1] = scope.samplers[1];
+    camera.sceneItemsScratch = scratch; camera.sceneItemCapacity = 2u; camera.passIndicesScratch = order; camera.passIndexCapacity = 2u;
+    render::render_world_shadow_prepare_desc_t shadow{};
+    shadow.submission = scope.pSubmission; shadow.meshes = &scope.mesh; shadow.meshCount = 1u;
+    shadow.materials = materials; shadow.materialCount = 2u; shadow.modelUniforms = &scope.models[1]; shadow.modelUniformSlot = 1u;
+    shadow.maskShadowPipeline = scope.pipelines[2]; shadow.mirroredMaskShadowPipeline = scope.pipelines[3];
+    shadow.drawTemplate.uniformBuffers[0] = scope.buffers[1];
+    const auto near = []( float actual, float expected ) { CAPTURE( actual,expected ); CHECK( std::fabs( actual-expected ) <= 0.002f ); };
+    constexpr common::u32 sampleX[]{ 1u,4u,7u }; constexpr float alpha[]{ 0,128.0f/255.0f,1 };
+    common::u32 frameNumber = 0;
+    for ( bool mirrored : { false,true } ) {
+        for ( common::u32 test = 0; test < 4u; ++test ) {
+            // Equality is retained, including alpha 0 at cutoff 0 and alpha 1
+            // at cutoff 1. Case 3 proves OPAQUE's -1 sentinel ignores alpha.
+            const bool masked = test != 3u; const float cutoff = test == 0 ? 0 : test == 1 ? 128.0f/255.0f : 1;
+            CAPTURE( mirrored,masked,cutoff );
+            materials[0].alphaMode = masked ? common::render_material_alpha_mode_t::MASK : common::render_material_alpha_mode_t::OPAQUE;
+            materials[0].alphaCutoff = cutoff; materials[0].materialFlags = masked ? common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS : 0u;
+            materials[0].materialUniformBuffer = scope.buffers[2];
+            for ( common::u32 i = 0; i < 2; ++i ) {
+                objects[i].layerMask = 1u;
+                objects[i].localToWorld = math::Affine3_Multiply( math::Affine3_FromTranslation( { 0,0,i == 0 ? 0.0f : -0.5f } ),
+                    math::Affine3_FromScale( { mirrored ? -1.0f : 1.0f,1,1 } ) );
+                REQUIRE( world::World_UpdateObject( scope.pWorld,ids[i],&objects[i] ) == world::world_error_t::OK );
+            }
+            REQUIRE( render::R_ResetUniformBatch( &scope.models[0] ) == render::render_error_t::OK );
+            REQUIRE( render::R_ResetUniformBatch( &scope.models[1] ) == render::render_error_t::OK );
+            REQUIRE( world::WorldSubmission_Build( scope.pSubmission,scope.pWorld,&query,&camera.token ) == world::world_submission_error_t::OK );
+            shadow.token = camera.token;
+            render::render_world_camera_draw_t draws[2]{}; render::render_world_camera_pass_counts_t counts{};
+            REQUIRE( render::R_PrepareWorldCameraDraws( camera,draws,2u,&counts ) == render::render_error_t::OK );
+            REQUIRE( counts.opaqueCount == 2u ); CHECK( counts.blendCount == 0u ); CHECK( counts.additiveCount == 0u );
+            render::render_world_shadow_draw_t caster{}; common::u32 casterCount = 0;
+            REQUIRE( render::R_PrepareWorldShadowDraws( shadow,&caster,1u,&casterCount ) == render::render_error_t::OK );
+            REQUIRE( casterCount == ( masked ? 1u : 0u ) );
+            world::WorldSubmission_End( scope.pSubmission );
+            for ( auto &draw : draws ) {
+                CHECK( draw.draw.uniformRanges[1].byteSize == 128u );
+                CHECK( draw.draw.pipeline.value == scope.pipelines[mirrored ? 1 : 0].value );
+                CHECK( draw.draw.sampledTextures[0].value == scope.textures[0].value );
+                draw.draw.samplers[0] = scope.samplers[0]; // Host-selected nearest coverage oracle.
+            }
+            if ( masked ) {
+                CHECK( caster.draw.uniformRanges[1].byteSize == 80u );
+                CHECK( caster.draw.pipeline.value == scope.pipelines[mirrored ? 3 : 2].value );
+                CHECK( caster.draw.sampledTextures[0].value == scope.textures[0].value ); caster.draw.samplers[0] = scope.samplers[0];
+            }
+            render::render_frame_info_t frame{}; frame.drawableExtent = extent; frame.frameIndex = frameNumber++;
+            REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+            render::render_target_pass_desc_t pass{}; pass.target = scope.targets[0]; pass.clearFlags = render::R_CLEAR_DEPTH;
+            REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+            if ( masked ) REQUIRE( render::R_DrawIndexed( caster.draw ) == render::render_error_t::OK );
+            for ( common::u32 i = 0; i < 3; ++i ) {
+                const bool covered = masked && alpha[mirrored ? 2-i : i] >= cutoff;
+                float depth = -1; glReadPixels( sampleX[i],2,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&depth ); near( depth,covered ? 0.5f : 1.0f );
+            }
+            REQUIRE( glGetError() == GL_NO_ERROR ); REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+            pass.target = scope.targets[1]; pass.clearFlags = render::R_CLEAR_COLOR | render::R_CLEAR_DEPTH;
+            REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+            const common::u32 foreground = draws[0].objectId.incarnation == ids[0].incarnation ? 0u : 1u;
+            // Draw the background LAST: discarded fragments must not obstruct
+            // either its color or its depth, even when tint alpha is zero.
+            REQUIRE( render::R_DrawIndexed( draws[foreground].draw ) == render::render_error_t::OK );
+            REQUIRE( render::R_DrawIndexed( draws[1-foreground].draw ) == render::render_error_t::OK );
+            for ( common::u32 i = 0; i < 3; ++i ) {
+                const bool covered = !masked || alpha[mirrored ? 2-i : i] >= cutoff;
+                float depth = -1; glReadPixels( sampleX[i],2,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&depth ); near( depth,covered ? 0.75f : 0.8125f );
+            }
+            REQUIRE( glGetError() == GL_NO_ERROR ); REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+            for ( common::u32 i = 0; i < 3; ++i ) {
+                const bool covered = !masked || alpha[mirrored ? 2-i : i] >= cutoff;
+                render::render_color_t pixel{};
+                REQUIRE( render::R_ReadTargetRGBA32F( scope.targets[1],{ sampleX[i],2u,1u,1u },&pixel,sizeof( pixel ),sizeof( pixel ) ) == render::render_error_t::OK );
+                near( pixel.red,covered ? 0.4f : 0 ); near( pixel.green,covered ? 0 : 0.3f ); near( pixel.blue,covered ? 0.2f : 0.25f );
+                if ( covered ) near( pixel.alpha,0 );
+            }
+            REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+
+            // A white opaque receiver behind the light's caster samples the
+            // actual shadow comparison map. Camera and light holes must agree.
+            materials[0].alphaMode = common::render_material_alpha_mode_t::OPAQUE;
+            materials[0].materialUniformBuffer = scope.buffers[4];
+            objects[0].localToWorld = math::Affine3_FromTranslation( { 0,0,0.5f } ); objects[1].layerMask = 2u;
+            REQUIRE( world::World_UpdateObject( scope.pWorld,ids[0],&objects[0] ) == world::world_error_t::OK );
+            REQUIRE( world::World_UpdateObject( scope.pWorld,ids[1],&objects[1] ) == world::world_error_t::OK );
+            REQUIRE( render::R_ResetUniformBatch( &scope.models[0] ) == render::render_error_t::OK );
+            REQUIRE( world::WorldSubmission_Build( scope.pSubmission,scope.pWorld,&query,&camera.token ) == world::world_submission_error_t::OK );
+            REQUIRE( render::R_PrepareWorldCameraDraws( camera,draws,2u,&counts ) == render::render_error_t::OK );
+            REQUIRE( counts.opaqueCount == 1u ); world::WorldSubmission_End( scope.pSubmission );
+            draws[0].draw.samplers[0] = scope.samplers[0]; frame.frameIndex = frameNumber++;
+            REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+            REQUIRE( render::R_BeginTargetPass( pass ) == render::render_error_t::OK );
+            REQUIRE( render::R_DrawIndexed( draws[0].draw ) == render::render_error_t::OK );
+            REQUIRE( render::R_EndTargetPass() == render::render_error_t::OK );
+            for ( common::u32 i = 0; i < 3; ++i ) {
+                const bool shadowed = masked && alpha[mirrored ? 2-i : i] >= cutoff;
+                render::render_color_t pixel{};
+                REQUIRE( render::R_ReadTargetRGBA32F( scope.targets[1],{ sampleX[i],2u,1u,1u },&pixel,sizeof( pixel ),sizeof( pixel ) ) == render::render_error_t::OK );
+                near( pixel.red,shadowed ? 0.125f : 0.5f ); near( pixel.green,shadowed ? 0.125f : 0.5f ); near( pixel.blue,shadowed ? 0.275f : 0.65f );
+            }
+            REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+        }
+    }
+    CHECK( frameNumber == 16u ); REQUIRE( scope.Close() ); CHECK( glGetError() == GL_NO_ERROR );
+}
+
 void CheckWorldMaskShadowDrawing( const render::render_extent_t extent )
 {
     // A MASK caster must leave the transparent half of the light's depth
@@ -8062,6 +8339,7 @@ TEST_CASE( "OpenGL renderer links cooked shaders and verifies indexed pixels",
     CheckCookedWorldNormalMapDrawing( info->drawableExtent, true );
     CheckCookedWorldNormalMapDrawing( info->drawableExtent, true, true );
     CheckWorldCameraDepthFogDrawing( info->drawableExtent );
+    CheckCheckedInWorldCutoutDrawing( info->drawableExtent );
     CheckWorldMaskShadowDrawing( info->drawableExtent );
     CheckCookedWorldShadowDrawing( info->drawableExtent );
 

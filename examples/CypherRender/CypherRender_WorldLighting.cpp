@@ -34,8 +34,17 @@
 #ifndef CYPHER_RENDER_WORLD_ADDITIVE_SHADER_PATH
 #define CYPHER_RENDER_WORLD_ADDITIVE_SHADER_PATH "cooked/render_smoke/world_lighting_additive.cyshader_c"
 #endif
+#ifndef CYPHER_RENDER_WORLD_CUTOUT_SHADER_PATH
+#define CYPHER_RENDER_WORLD_CUTOUT_SHADER_PATH "cooked/render_smoke/world_lighting_cutout.cyshader_c"
+#endif
+#ifndef CYPHER_RENDER_WORLD_CUTOUT_ADDITIVE_SHADER_PATH
+#define CYPHER_RENDER_WORLD_CUTOUT_ADDITIVE_SHADER_PATH "cooked/render_smoke/world_lighting_cutout_additive.cyshader_c"
+#endif
 #ifndef CYPHER_RENDER_WORLD_SHADOW_SHADER_PATH
 #define CYPHER_RENDER_WORLD_SHADOW_SHADER_PATH "cooked/render_smoke/world_shadow.cyshader_c"
+#endif
+#ifndef CYPHER_RENDER_WORLD_CUTOUT_SHADOW_SHADER_PATH
+#define CYPHER_RENDER_WORLD_CUTOUT_SHADOW_SHADER_PATH "cooked/render_smoke/world_shadow_cutout.cyshader_c"
 #endif
 #ifndef CYPHER_RENDER_WORLD_TONEMAP_SHADER_PATH
 #define CYPHER_RENDER_WORLD_TONEMAP_SHADER_PATH "cooked/render_smoke/tonemap.cyshader_c"
@@ -64,7 +73,7 @@ static_assert( sizeof( vertex_t ) == 32u );
 struct options_t {
     common::u32 frames{ 0u };
     bool hidden{ false }, help{ false }, resizeTest{ false }, noFog{ false },
-        materialRanges{ false }, transparency{ false };
+        materialRanges{ false }, transparency{ false }, cutout{ false };
 };
 struct scene_target_t {
     render::render_texture_handle_t color{};
@@ -74,14 +83,16 @@ struct scene_target_t {
 struct state_t {
     sys::window_t window{};
     bool cursorHidden{ false };
-    render::render_shader_handle_t shaders[4]{}; // camera, shadow, presentation, additive camera
+    // Default camera/shadow/presentation/additive, then opt-in cutout camera/additive/shadow.
+    render::render_shader_handle_t shaders[7]{};
     render::render_pipeline_handle_t cameraPipelines[2]{}; // CCW, mirrored CW
     render::render_pipeline_handle_t blendPipelines[2]{}, additivePipelines[2]{};
     render::render_pipeline_handle_t shadowPipelines[2]{};
+    render::render_pipeline_handle_t maskShadowPipelines[2]{};
     render::render_pipeline_handle_t presentationPipeline{};
     render::render_static_mesh_bundle_t cube{}, fullscreen{};
     render::render_buffer_handle_t view{}, light{}, tints[MATERIAL_COUNT]{};
-    render::render_texture_handle_t white{}, shadowDepth{};
+    render::render_texture_handle_t white{}, checker{}, shadowDepth{};
     render::render_target_handle_t shadowTarget{};
     render::render_sampler_handle_t shadowSampler{};
     render::render_uniform_batch_t cameraModels{}, shadowModels{};
@@ -273,22 +284,27 @@ bool CreateUniform( common::u64 bytes, const void *initial,
         &buffer ), "Create uniform buffer" );
 }
 
-bool CreateResources( state_t &state, bool transparency )
+bool CreateResources( state_t &state, bool transparency, bool cutout )
 {
-    if ( !LoadShader( CYPHER_RENDER_WORLD_SHADER_PATH, state.shaders[0] ) ||
+    if ( !( cutout
+             ? LoadShader( CYPHER_RENDER_WORLD_CUTOUT_SHADER_PATH, state.shaders[4] )
+             : LoadShader( CYPHER_RENDER_WORLD_SHADER_PATH, state.shaders[0] ) ) ||
          !LoadShader( CYPHER_RENDER_WORLD_SHADOW_SHADER_PATH, state.shaders[1] ) ||
          !LoadShader( CYPHER_RENDER_WORLD_TONEMAP_SHADER_PATH, state.shaders[2] ) ||
-         ( transparency && !LoadShader( CYPHER_RENDER_WORLD_ADDITIVE_SHADER_PATH, state.shaders[3] ) ) ||
+         ( transparency && !( cutout
+             ? LoadShader( CYPHER_RENDER_WORLD_CUTOUT_ADDITIVE_SHADER_PATH, state.shaders[5] )
+             : LoadShader( CYPHER_RENDER_WORLD_ADDITIVE_SHADER_PATH, state.shaders[3] ) ) ) ||
+         ( cutout && !LoadShader( CYPHER_RENDER_WORLD_CUTOUT_SHADOW_SHADER_PATH, state.shaders[6] ) ) ||
          !CreateMeshes( state ) ) return false;
     render::render_pipeline_desc_t pipeline{};
-    pipeline.shader = state.shaders[0];
+    pipeline.shader = state.shaders[cutout ? 4u : 0u];
     pipeline.vertexLayout = state.cube.vertexLayout;
     pipeline.depthTest = true;
     pipeline.depthWrite = true;
     pipeline.cullBackFaces = true;
     pipeline.uniformBlockCount = 3u;
     pipeline.uniformBlocks[0] = { "View", sizeof( render::render_world_fogged_view_lighting_record_t ) };
-    pipeline.uniformBlocks[1] = { "Model", 112u };
+    pipeline.uniformBlocks[1] = { "Model", cutout ? 128u : 112u };
     pipeline.uniformBlocks[2] = { "Material", 16u };
     pipeline.sampledTextureCount = 2u;
     pipeline.sampledTextures[0] = { "albedoMap", render::render_sampled_texture_kind_t::SCALAR_2D };
@@ -307,7 +323,7 @@ bool CreateResources( state_t &state, bool transparency )
             if ( !Check( render::R_CreateGraphicsPipeline( translucent,
                      &state.blendPipelines[winding] ), "Create World alpha pipeline" ) ) return false;
         }
-        translucent.shader = state.shaders[3];
+        translucent.shader = state.shaders[cutout ? 5u : 3u];
         translucent.blendMode = render::render_blend_mode_t::ADDITIVE;
         for ( common::u32 winding = 0u; winding < 2u; ++winding ) {
             translucent.frontCounterClockwise = winding == 0u;
@@ -331,6 +347,20 @@ bool CreateResources( state_t &state, bool transparency )
         if ( !Check( render::R_CreateGraphicsPipeline( pipeline,
                  &state.shadowPipelines[winding] ), "Create World shadow pipeline" ) ) return false;
     }
+    if ( cutout ) {
+        auto maskedShadow = pipeline;
+        maskedShadow.shader = state.shaders[6];
+        maskedShadow.uniformBlocks[1] = { "Model", 80u };
+        maskedShadow.sampledTextureCount = 1u;
+        maskedShadow.sampledTextures[0] = {
+            "albedoMap", render::render_sampled_texture_kind_t::SCALAR_2D
+        };
+        for ( common::u32 winding = 0u; winding < 2u; ++winding ) {
+            maskedShadow.frontCounterClockwise = winding == 0u;
+            if ( !Check( render::R_CreateGraphicsPipeline( maskedShadow,
+                     &state.maskShadowPipelines[winding] ), "Create World MASK shadow pipeline" ) ) return false;
+        }
+    }
     pipeline = render::render_pipeline_desc_t{};
     pipeline.shader = state.shaders[2];
     pipeline.vertexLayout = state.fullscreen.vertexLayout;
@@ -347,6 +377,24 @@ bool CreateResources( state_t &state, bool transparency )
     constexpr common::u8 WHITE[4] = { 255, 255, 255, 255 };
     if ( !Check( render::R_CreateTexture2D( texture, { WHITE, sizeof( WHITE ) },
              &state.white ), "Create white albedo" ) ) return false;
+    if ( cutout ) {
+        // Four-by-four opaque/empty tiles on each cube face. The same raw
+        // alpha texture is borrowed by camera and shadow MASK draws.
+        common::u8 texels[8u * 8u * 4u]{};
+        for ( common::u32 y = 0u; y < 8u; ++y ) {
+            for ( common::u32 x = 0u; x < 8u; ++x ) {
+                const common::u32 offset = ( y * 8u + x ) * 4u;
+                texels[offset] = 226u;
+                texels[offset + 1u] = 211u;
+                texels[offset + 2u] = 157u;
+                texels[offset + 3u] = ( ( x / 2u + y / 2u ) & 1u ) == 0u ? 255u : 0u;
+            }
+        }
+        texture.width = texture.height = 8u;
+        if ( !Check( render::R_CreateTexture2D( texture,
+                 { texels, sizeof( texels ) }, &state.checker ),
+                 "Create MASK checker albedo" ) ) return false;
+    }
     texture.width = texture.height = SHADOW_SIZE;
     texture.format = render::render_texture_format_t::D24;
     texture.sRGB = false;
@@ -373,30 +421,38 @@ bool CreateResources( state_t &state, bool transparency )
         const bool additive = i == OPAQUE_MATERIAL_COUNT + 1u;
         const auto *pipelines = additive ? state.additivePipelines
             : ( i == OPAQUE_MATERIAL_COUNT ? state.blendPipelines : state.cameraPipelines );
-        material.shader = additive ? state.shaders[3] : state.shaders[0];
+        material.shader = additive ? state.shaders[cutout ? 5u : 3u]
+            : state.shaders[cutout ? 4u : 0u];
         material.pipeline = pipelines[0];
         material.mirroredPipeline = pipelines[1];
         material.textureCount = 1u;
-        material.textures[0] = state.white;
+        material.textures[0] = cutout && ( i == 1u || i == 2u )
+            ? state.checker : state.white;
         material.passShadowSlot = 1u;
         material.materialUniformBuffer = state.tints[i];
         material.materialUniformSlot = 2u;
-        material.alphaMode = additive ? common::render_material_alpha_mode_t::ADDITIVE
+        material.alphaMode = cutout && ( i == 1u || i == 2u )
+            ? common::render_material_alpha_mode_t::MASK
+            : additive ? common::render_material_alpha_mode_t::ADDITIVE
             : ( i == OPAQUE_MATERIAL_COUNT ? common::render_material_alpha_mode_t::BLEND
                 : common::render_material_alpha_mode_t::OPAQUE );
+        if ( material.alphaMode == common::render_material_alpha_mode_t::MASK ) {
+            material.alphaCutoff = 0.5f;
+        }
         material.materialFlags = i < OPAQUE_MATERIAL_COUNT
             ? common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS : 0u;
     }
     const auto *info = render::R_GetInfo();
     if ( !info || info->limits.uniformBufferOffsetAlignment == 0u ) return false;
     const common::u64 alignment = info->limits.uniformBufferOffsetAlignment;
-    // Reserve aligned records separately: camera Model112, light Model64.
+    // All camera records opt into Model128 when MASK exists; mixed shadow
+    // submissions retain Model64 for opaque casters and Model80 for MASK.
     const auto capacity = [alignment]( common::u64 bytes ) {
         return ( MAX_OBJECT_COUNT - 1u ) * ( ( bytes + alignment - 1u ) / alignment * alignment ) + bytes;
     };
-    return Check( render::R_CreateUniformBatch( capacity( 112u ), nullptr,
+    return Check( render::R_CreateUniformBatch( capacity( cutout ? 128u : 112u ), nullptr,
                &state.cameraModels ), "Create camera model storage" ) &&
-        Check( render::R_CreateUniformBatch( capacity( 64u ), nullptr,
+        Check( render::R_CreateUniformBatch( capacity( cutout ? 80u : 64u ), nullptr,
             &state.shadowModels ), "Create shadow model storage" );
 }
 
@@ -630,7 +686,9 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
         cameraPrepare.materialCount = options.transparency ? MATERIAL_COUNT : OPAQUE_MATERIAL_COUNT;
         cameraPrepare.modelUniforms = &state.cameraModels;
         cameraPrepare.modelUniformSlot = 1u;
-        cameraPrepare.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL;
+        cameraPrepare.modelLayout = options.cutout
+            ? render::render_world_model_layout_t::MODEL_NORMAL_CUTOUT
+            : render::render_world_model_layout_t::MODEL_NORMAL;
         cameraPrepare.viewFromWorld = lighting.viewFromWorld;
         cameraPrepare.sceneItemsScratch = sceneScratch;
         cameraPrepare.sceneItemCapacity = MAX_OBJECT_COUNT;
@@ -656,6 +714,8 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
         shadowPrepare.modelUniformSlot = 1u;
         shadowPrepare.shadowPipeline = state.shadowPipelines[0];
         shadowPrepare.mirroredShadowPipeline = state.shadowPipelines[1];
+        shadowPrepare.maskShadowPipeline = state.maskShadowPipelines[0];
+        shadowPrepare.mirroredMaskShadowPipeline = state.maskShadowPipelines[1];
         shadowPrepare.drawTemplate.uniformBuffers[0] = state.light;
         shadowPrepare.drawTemplate.uniformRanges[0] = { 0u, sizeof( lightClip ) };
         common::u32 casterCount = 0u;
@@ -742,6 +802,7 @@ bool Shutdown( state_t &state ) noexcept
         for ( auto &pipeline : state.blendPipelines ) success = Release( pipeline, render::R_DestroyGraphicsPipeline, "Destroy alpha pipeline" ) && success;
         for ( auto &pipeline : state.additivePipelines ) success = Release( pipeline, render::R_DestroyGraphicsPipeline, "Destroy additive pipeline" ) && success;
         for ( auto &pipeline : state.shadowPipelines ) success = Release( pipeline, render::R_DestroyGraphicsPipeline, "Destroy shadow pipeline" ) && success;
+        for ( auto &pipeline : state.maskShadowPipelines ) success = Release( pipeline, render::R_DestroyGraphicsPipeline, "Destroy MASK shadow pipeline" ) && success;
         success = Release( state.presentationPipeline, render::R_DestroyGraphicsPipeline, "Destroy presentation pipeline" ) && success;
         success = DestroySceneTarget( state.pending ) && success;
         success = DestroySceneTarget( state.scene ) && success;
@@ -749,6 +810,7 @@ bool Shutdown( state_t &state ) noexcept
         success = Release( state.shadowDepth, render::R_DestroyTexture, "Destroy shadow depth" ) && success;
         success = Release( state.shadowSampler, render::R_DestroySampler, "Destroy comparison sampler" ) && success;
         success = Release( state.white, render::R_DestroyTexture, "Destroy albedo" ) && success;
+        success = Release( state.checker, render::R_DestroyTexture, "Destroy MASK albedo" ) && success;
         for ( auto &buffer : state.tints ) success = Release( buffer, render::R_DestroyBuffer, "Destroy material buffer" ) && success;
         success = Release( state.view, render::R_DestroyBuffer, "Destroy View buffer" ) && success;
         success = Release( state.light, render::R_DestroyBuffer, "Destroy Light buffer" ) && success;
@@ -791,7 +853,7 @@ bool Run( int argc, char **argv, const options_t &options, state_t &state )
     if ( !Check( render::R_ConfigureWindow( config, window ), "Configure window" ) ||
          !Check( sys::Sys_CreateWindow( window, state.window ), "Create window" ) ||
          !Check( render::R_Init( state.window, config ), "Initialize renderer" ) ||
-         !CreateResources( state, options.transparency ) ||
+         !CreateResources( state, options.transparency, options.cutout ) ||
          !CreateWorld( state, options.materialRanges, options.transparency ) ||
          !ResizeScene( state, render::R_GetInfo()->drawableExtent ) ) return false;
     return RunFrames( state, options );
@@ -806,6 +868,7 @@ int main( int argc, char **argv )
         else if ( std::strcmp( argv[i], "--no-fog" ) == 0 ) options.noFog = true;
         else if ( std::strcmp( argv[i], "--material-ranges" ) == 0 ) options.materialRanges = true;
         else if ( std::strcmp( argv[i], "--transparency" ) == 0 ) options.transparency = true;
+        else if ( std::strcmp( argv[i], "--cutout" ) == 0 ) options.cutout = true;
         else if ( std::strcmp( argv[i], "--resize-test" ) == 0 ) options.resizeTest = true;
         else if ( std::strcmp( argv[i], "--help" ) == 0 ) options.help = true;
         else if ( std::strcmp( argv[i], "--frames" ) == 0 && i + 1 < argc ) {
@@ -817,7 +880,7 @@ int main( int argc, char **argv )
         } else { std::fprintf( stderr, "Unknown option or missing value: %s\n", argv[i] ); return 2; }
     }
     if ( options.help ) {
-        std::puts( "Usage: cypher_render_world_lighting [--hidden] [--frames N] [--resize-test] [--no-fog] [--material-ranges] [--transparency]\n"
+        std::puts( "Usage: cypher_render_world_lighting [--hidden] [--frames N] [--resize-test] [--no-fog] [--material-ranges] [--transparency] [--cutout]\n"
             "Hold RMB: mouse look, WASD, Space/C up/down, Shift faster. Esc exits.\n"
             "--frames uses a fixed camera and deterministic animation.\n"
             "--hidden defaults to 120 frames; a working graphics session is required.\n"
@@ -825,6 +888,7 @@ int main( int argc, char **argv )
             "--no-fog disables linear camera-depth fog for comparison.\n"
             "--material-ranges gives each box face its own material draw using the shared cube mesh.\n"
             "--transparency adds one alpha-blended box and one additive box, neither casting shadows.\n"
+            "--cutout gives the two boxes a perforated albedo and matching alpha-tested shadows.\n"
             "The host owns a procedural scene, light descriptions and pass order.\n"
             "This is a World-adapter example, not a map loader or game runtime." );
         return 0;

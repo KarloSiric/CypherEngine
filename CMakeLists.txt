@@ -3177,10 +3177,19 @@ target_compile_definitions(cypher_render_world_lighting PRIVATE
     CYPHER_RENDER_WORLD_SHADER_PATH="${CMAKE_BINARY_DIR}/cooked/render_smoke/world_lighting.cyshader_c"
     CYPHER_RENDER_WORLD_ADDITIVE_SHADER_PATH="${CMAKE_BINARY_DIR}/cooked/render_smoke/world_lighting_additive.cyshader_c"
     CYPHER_RENDER_WORLD_SHADOW_SHADER_PATH="${CMAKE_BINARY_DIR}/cooked/render_smoke/world_shadow.cyshader_c"
+    CYPHER_RENDER_WORLD_CUTOUT_SHADER_PATH="${CMAKE_BINARY_DIR}/cooked/render_smoke/world_lighting_cutout.cyshader_c"
+    CYPHER_RENDER_WORLD_CUTOUT_ADDITIVE_SHADER_PATH="${CMAKE_BINARY_DIR}/cooked/render_smoke/world_lighting_cutout_additive.cyshader_c"
+    CYPHER_RENDER_WORLD_CUTOUT_SHADOW_SHADER_PATH="${CMAKE_BINARY_DIR}/cooked/render_smoke/world_shadow_cutout.cyshader_c"
     CYPHER_RENDER_WORLD_TONEMAP_SHADER_PATH="${CYPHER_RENDER_CUBE_TONEMAP_SHADER}"
 )
 if (TARGET CypherResourceCompiler)
-    foreach (world_shader IN ITEMS world_lighting world_shadow)
+    foreach (world_shader IN ITEMS world_lighting world_shadow world_lighting_additive
+            world_lighting_cutout world_lighting_cutout_additive world_shadow_cutout)
+        if (world_shader MATCHES "^world_shadow")
+            set(world_shader_stages world_shadow)
+        else()
+            set(world_shader_stages world_lighting)
+        endif()
         set(world_shader_output "${CMAKE_BINARY_DIR}/cooked/render_smoke/${world_shader}.cyshader_c")
         add_custom_command(
             OUTPUT "${world_shader_output}"
@@ -3190,30 +3199,14 @@ if (TARGET CypherResourceCompiler)
                 --color never --progress none "render_smoke/${world_shader}.cyshader"
             DEPENDS CypherResourceCompiler
                 "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/${world_shader}.cyshader"
-                "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/${world_shader}.vert"
-                "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/${world_shader}.frag"
+                "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/${world_shader_stages}.vert"
+                "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/${world_shader_stages}.frag"
             COMMENT "Cooking the World adapter ${world_shader} shader"
             VERBATIM
         )
         add_custom_target(cypher_render_${world_shader}_shader DEPENDS "${world_shader_output}")
         add_dependencies(cypher_render_world_lighting cypher_render_${world_shader}_shader)
     endforeach()
-    set(world_additive_shader_output "${CMAKE_BINARY_DIR}/cooked/render_smoke/world_lighting_additive.cyshader_c")
-    add_custom_command(
-        OUTPUT "${world_additive_shader_output}"
-        COMMAND $<TARGET_FILE:CypherResourceCompiler> compile
-            --source-root "${CYPHERENGINE_ROOT_DIR}/assets"
-            --output-root "${CMAKE_BINARY_DIR}/cooked"
-            --color never --progress none "render_smoke/world_lighting_additive.cyshader"
-        DEPENDS CypherResourceCompiler
-            "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/world_lighting_additive.cyshader"
-            "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/world_lighting.vert"
-            "${CYPHERENGINE_ROOT_DIR}/assets/render_smoke/world_lighting.frag"
-        COMMENT "Cooking the World adapter additive lighting shader"
-        VERBATIM
-    )
-    add_custom_target(cypher_render_world_lighting_additive_shader DEPENDS "${world_additive_shader_output}")
-    add_dependencies(cypher_render_world_lighting cypher_render_world_lighting_additive_shader)
     add_dependencies(cypher_render_world_lighting cypher_render_cube_tonemap_shader)
 endif()
 

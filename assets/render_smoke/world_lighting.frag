@@ -20,6 +20,9 @@ in vec3 worldNormal;
 in vec2 surfaceUV;
 in vec4 lightClipPosition;
 in float cameraDepth;
+#ifdef CY_WORLD_CUTOUT
+flat in float cutoutThreshold;
+#endif
 out vec4 color;
 
 float FogAmount() {
@@ -41,6 +44,11 @@ float DirectionalVisibility() {
 }
 
 void main() {
+    vec4 rawAlbedo = texture(albedoMap, surfaceUV);
+#ifdef CY_WORLD_CUTOUT
+    // MASK uses the sampled alpha before tint; unmasked records carry -1.
+    if (rawAlbedo.a < cutoutThreshold) discard;
+#endif
     vec3 n = normalize(worldNormal);
     vec3 irradiance = ambientLight.rgb + lightColor.rgb *
         max(dot(n, lightDirection.xyz), 0.0) * DirectionalVisibility();
@@ -54,7 +62,7 @@ void main() {
             pointLightColorIntensity[i].w * attenuation * attenuation *
             max(dot(n, direction), 0.0);
     }
-    vec4 albedo = texture(albedoMap, surfaceUV) * tint;
+    vec4 albedo = rawAlbedo * tint;
     // Standard alpha surfaces blend this fogged source over the HDR scene.
     // Additive surfaces contribute only extinguished radiance: mixing in the
     // fog color would add that color once per overlapping additive draw.
