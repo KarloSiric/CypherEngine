@@ -31,6 +31,9 @@
 #ifndef CYPHER_RENDER_WORLD_SHADER_PATH
 #define CYPHER_RENDER_WORLD_SHADER_PATH "cooked/render_smoke/world_lighting.cyshader_c"
 #endif
+#ifndef CYPHER_RENDER_WORLD_ADDITIVE_SHADER_PATH
+#define CYPHER_RENDER_WORLD_ADDITIVE_SHADER_PATH "cooked/render_smoke/world_lighting_additive.cyshader_c"
+#endif
 #ifndef CYPHER_RENDER_WORLD_SHADOW_SHADER_PATH
 #define CYPHER_RENDER_WORLD_SHADOW_SHADER_PATH "cooked/render_smoke/world_shadow.cyshader_c"
 #endif
@@ -47,8 +50,10 @@ namespace camera = cypher::samples::render;
 
 namespace
 {
-constexpr common::u32 MATERIAL_COUNT = 3u;
-constexpr common::u32 MAX_OBJECT_COUNT = 13u; // Floor plus six material faces per box.
+constexpr common::u32 OPAQUE_MATERIAL_COUNT = 3u;
+constexpr common::u32 MATERIAL_COUNT = OPAQUE_MATERIAL_COUNT + 2u; // Optional BLEND and ADDITIVE.
+constexpr common::u32 MAX_OPAQUE_OBJECT_COUNT = 13u; // Floor plus six material faces per box.
+constexpr common::u32 MAX_OBJECT_COUNT = MAX_OPAQUE_OBJECT_COUNT + 2u;
 constexpr common::u32 MESH_COUNT = 7u; // Whole cube, then its six face ranges.
 constexpr common::u32 SHADOW_SIZE = 1024u;
 constexpr math::vec3_t LIGHT_POSITION{ 6.0f, -8.0f, 12.0f };
@@ -58,7 +63,8 @@ static_assert( sizeof( vertex_t ) == 32u );
 
 struct options_t {
     common::u32 frames{ 0u };
-    bool hidden{ false }, help{ false }, resizeTest{ false }, noFog{ false }, materialRanges{ false };
+    bool hidden{ false }, help{ false }, resizeTest{ false }, noFog{ false },
+        materialRanges{ false }, transparency{ false };
 };
 struct scene_target_t {
     render::render_texture_handle_t color{};
@@ -68,8 +74,9 @@ struct scene_target_t {
 struct state_t {
     sys::window_t window{};
     bool cursorHidden{ false };
-    render::render_shader_handle_t shaders[3]{}; // camera, shadow, presentation
+    render::render_shader_handle_t shaders[4]{}; // camera, shadow, presentation, additive camera
     render::render_pipeline_handle_t cameraPipelines[2]{}; // CCW, mirrored CW
+    render::render_pipeline_handle_t blendPipelines[2]{}, additivePipelines[2]{};
     render::render_pipeline_handle_t shadowPipelines[2]{};
     render::render_pipeline_handle_t presentationPipeline{};
     render::render_static_mesh_bundle_t cube{}, fullscreen{};
@@ -266,11 +273,12 @@ bool CreateUniform( common::u64 bytes, const void *initial,
         &buffer ), "Create uniform buffer" );
 }
 
-bool CreateResources( state_t &state )
+bool CreateResources( state_t &state, bool transparency )
 {
     if ( !LoadShader( CYPHER_RENDER_WORLD_SHADER_PATH, state.shaders[0] ) ||
          !LoadShader( CYPHER_RENDER_WORLD_SHADOW_SHADER_PATH, state.shaders[1] ) ||
          !LoadShader( CYPHER_RENDER_WORLD_TONEMAP_SHADER_PATH, state.shaders[2] ) ||
+         ( transparency && !LoadShader( CYPHER_RENDER_WORLD_ADDITIVE_SHADER_PATH, state.shaders[3] ) ) ||
          !CreateMeshes( state ) ) return false;
     render::render_pipeline_desc_t pipeline{};
     pipeline.shader = state.shaders[0];
@@ -289,6 +297,23 @@ bool CreateResources( state_t &state )
         pipeline.frontCounterClockwise = winding == 0u;
         if ( !Check( render::R_CreateGraphicsPipeline( pipeline,
                  &state.cameraPipelines[winding] ), "Create World camera pipeline" ) ) return false;
+    }
+    if ( transparency ) {
+        auto translucent = pipeline;
+        translucent.depthWrite = false;
+        translucent.blendMode = render::render_blend_mode_t::STRAIGHT_ALPHA;
+        for ( common::u32 winding = 0u; winding < 2u; ++winding ) {
+            translucent.frontCounterClockwise = winding == 0u;
+            if ( !Check( render::R_CreateGraphicsPipeline( translucent,
+                     &state.blendPipelines[winding] ), "Create World alpha pipeline" ) ) return false;
+        }
+        translucent.shader = state.shaders[3];
+        translucent.blendMode = render::render_blend_mode_t::ADDITIVE;
+        for ( common::u32 winding = 0u; winding < 2u; ++winding ) {
+            translucent.frontCounterClockwise = winding == 0u;
+            if ( !Check( render::R_CreateGraphicsPipeline( translucent,
+                     &state.additivePipelines[winding] ), "Create World additive pipeline" ) ) return false;
+        }
     }
     pipeline.shader = state.shaders[1];
     pipeline.colorWrite = false;
@@ -339,20 +364,28 @@ bool CreateResources( state_t &state )
          !CreateUniform( 64u, nullptr, state.light ) ) return false;
     constexpr float TINTS[MATERIAL_COUNT][4] = {
         { 0.38f, 0.42f, 0.46f, 1.0f }, { 0.65f, 0.22f, 0.08f, 1.0f },
-        { 0.10f, 0.28f, 0.55f, 1.0f }
+        { 0.10f, 0.28f, 0.55f, 1.0f }, { 0.09f, 0.65f, 0.75f, 0.42f },
+        { 0.9f, 0.56f, 0.12f, 0.78f }
     };
-    for ( common::u32 i = 0u; i < MATERIAL_COUNT; ++i ) {
+    for ( common::u32 i = 0u; i < ( transparency ? MATERIAL_COUNT : OPAQUE_MATERIAL_COUNT ); ++i ) {
         if ( !CreateUniform( 16u, TINTS[i], state.tints[i] ) ) return false;
         auto &material = state.materials[i];
-        material.shader = state.shaders[0];
-        material.pipeline = state.cameraPipelines[0];
-        material.mirroredPipeline = state.cameraPipelines[1];
+        const bool additive = i == OPAQUE_MATERIAL_COUNT + 1u;
+        const auto *pipelines = additive ? state.additivePipelines
+            : ( i == OPAQUE_MATERIAL_COUNT ? state.blendPipelines : state.cameraPipelines );
+        material.shader = additive ? state.shaders[3] : state.shaders[0];
+        material.pipeline = pipelines[0];
+        material.mirroredPipeline = pipelines[1];
         material.textureCount = 1u;
         material.textures[0] = state.white;
         material.passShadowSlot = 1u;
         material.materialUniformBuffer = state.tints[i];
         material.materialUniformSlot = 2u;
-        material.materialFlags = common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS;
+        material.alphaMode = additive ? common::render_material_alpha_mode_t::ADDITIVE
+            : ( i == OPAQUE_MATERIAL_COUNT ? common::render_material_alpha_mode_t::BLEND
+                : common::render_material_alpha_mode_t::OPAQUE );
+        material.materialFlags = i < OPAQUE_MATERIAL_COUNT
+            ? common::COOKED_MATERIAL_FLAG_CASTS_SHADOWS : 0u;
     }
     const auto *info = render::R_GetInfo();
     if ( !info || info->limits.uniformBufferOffsetAlignment == 0u ) return false;
@@ -370,6 +403,23 @@ bool CreateResources( state_t &state )
 world::world_object_t Object( common::u32 index, float seconds, bool materialRanges ) noexcept
 {
     world::world_object_t object{};
+    const common::u32 opaqueCount = materialRanges ? MAX_OPAQUE_OBJECT_COUNT : 3u;
+    if ( index >= opaqueCount ) {
+        // Two floating thin boxes make blending and additive fog visible over
+        // the opaque scene. They use the full cube range even in face mode.
+        const bool additive = index == opaqueCount + 1u;
+        object.localToWorld = math::Affine3_FromTRS(
+            additive ? math::vec3_t{ 0.65f, -2.4f, 1.7f }
+                     : math::vec3_t{ -0.8f, -2.3f, 1.55f },
+            math::CY_QUAT_IDENTITY,
+            additive ? math::vec3_t{ -0.52f, 0.12f, 0.52f }
+                     : math::vec3_t{ 0.9f, 0.12f, 0.8f } );
+        object.worldBounds = math::Aabb_TransformAffine( LOCAL_BOUNDS, object.localToWorld );
+        object.meshSlot = 0u;
+        object.materialSlot = additive ? OPAQUE_MATERIAL_COUNT + 1u : OPAQUE_MATERIAL_COUNT;
+        object.layerMask = 1u;
+        return object;
+    }
     const common::u32 body = materialRanges && index > 0u ? 1u + ( index - 1u ) / 6u : index;
     const auto rotation = math::Quat_FromUnitAxisAngle( math::CY_VEC3_UP,
         math::Angle_FromRadians( seconds * 0.45f ) );
@@ -388,17 +438,18 @@ world::world_object_t Object( common::u32 index, float seconds, bool materialRan
     if ( materialRanges && index > 0u ) {
         const common::u32 face = ( index - 1u ) % 6u;
         object.meshSlot = face + 1u;
-        object.materialSlot = ( body + face ) % MATERIAL_COUNT;
+        object.materialSlot = ( body + face ) % OPAQUE_MATERIAL_COUNT;
         // Each face keeps the box's conservative full bounds and transform.
     }
     object.layerMask = 1u;
     return object;
 }
 
-bool CreateWorld( state_t &state, bool materialRanges ) noexcept
+bool CreateWorld( state_t &state, bool materialRanges, bool transparency ) noexcept
 {
     const auto *allocator = common::Allocator_GetSystem();
-    state.objectCount = materialRanges ? MAX_OBJECT_COUNT : 3u;
+    state.objectCount = ( materialRanges ? MAX_OPAQUE_OBJECT_COUNT : 3u ) +
+        ( transparency ? 2u : 0u );
     if ( !Check( world::World_Init( &state.pWorld, allocator, MAX_OBJECT_COUNT ), "Create World" ) ||
          !Check( world::WorldSubmission_Init( &state.cameraSubmission, allocator, MAX_OBJECT_COUNT ), "Create camera submission" ) ||
          !Check( world::WorldSubmission_Init( &state.lightSubmission, allocator, MAX_OBJECT_COUNT ), "Create light submission" ) ) return false;
@@ -502,7 +553,8 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
     float elapsed = 0;
     common::u32 frames = 0u;
     common::u32 resizeCount = 0u;
-    common::u64 cameraDraws = 0u, shadowDraws = 0u;
+    common::u64 opaqueDraws = 0u, blendDraws = 0u,
+        additiveDraws = 0u, shadowDraws = 0u;
     while ( !sys::Sys_IsQuitRequested() && !sys::Sys_WindowShouldClose( state.window ) ) {
         if ( options.resizeTest && ( frames == options.frames / 3u || frames == options.frames - options.frames / 3u ) ) {
             const bool smaller = frames == options.frames / 3u;
@@ -575,7 +627,7 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
         cameraPrepare.meshRanges = options.materialRanges ? state.meshRanges : nullptr;
         cameraPrepare.meshRangeCount = options.materialRanges ? MESH_COUNT : 0u;
         cameraPrepare.materials = state.materials;
-        cameraPrepare.materialCount = MATERIAL_COUNT;
+        cameraPrepare.materialCount = options.transparency ? MATERIAL_COUNT : OPAQUE_MATERIAL_COUNT;
         cameraPrepare.modelUniforms = &state.cameraModels;
         cameraPrepare.modelUniformSlot = 1u;
         cameraPrepare.modelLayout = render::render_world_model_layout_t::MODEL_NORMAL;
@@ -599,7 +651,7 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
         shadowPrepare.meshRanges = cameraPrepare.meshRanges;
         shadowPrepare.meshRangeCount = cameraPrepare.meshRangeCount;
         shadowPrepare.materials = state.materials;
-        shadowPrepare.materialCount = MATERIAL_COUNT;
+        shadowPrepare.materialCount = cameraPrepare.materialCount;
         shadowPrepare.modelUniforms = &state.shadowModels;
         shadowPrepare.modelUniformSlot = 1u;
         shadowPrepare.shadowPipeline = state.shadowPipelines[0];
@@ -647,17 +699,30 @@ bool RunFrames( state_t &state, const options_t &options ) noexcept
         }
         const bool ended = Check( render::R_EndFrame(), "End frame" );
         if ( !drawn || !ended ) return false;
-        cameraDraws += result.opaqueDraws + result.blendDraws + result.additiveDraws;
+        opaqueDraws += result.opaqueDraws;
+        blendDraws += result.blendDraws;
+        additiveDraws += result.additiveDraws;
         shadowDraws += result.shadowDraws;
-        if ( options.frames && ( counts.opaqueCount != state.objectCount || casterCount != state.objectCount ) ) {
-            std::fputs( "Fixed view did not draw the complete example scene.\n", stderr ); return false;
+        if ( options.frames ) {
+            const common::u32 expectedOpaque = options.materialRanges ? MAX_OPAQUE_OBJECT_COUNT : 3u;
+            const common::u32 expectedTranslucent = options.transparency ? 1u : 0u;
+            if ( cameraCount != state.objectCount || counts.opaqueCount != expectedOpaque ||
+                 counts.blendCount != expectedTranslucent || counts.additiveCount != expectedTranslucent ||
+                 casterCount != expectedOpaque || result.opaqueDraws != expectedOpaque ||
+                 result.blendDraws != expectedTranslucent ||
+                 result.additiveDraws != expectedTranslucent || result.shadowDraws != expectedOpaque ) {
+                std::fputs( "Fixed view did not draw the expected opaque, blend, additive and shadow passes.\n", stderr );
+                return false;
+            }
         }
         ++frames;
         if ( options.frames && frames >= options.frames ) break;
     }
-    std::printf( "World lighting (%s, %u records): %u frames, %llu camera draws, %llu shadow draws, %u tone-map draws, %u resizes.\n",
+    std::printf( "World lighting (%s, %u records): %u frames, %llu opaque + %llu blend + %llu additive camera draws, %llu shadow draws, %u tone-map draws, %u resizes.\n",
         options.materialRanges ? "material ranges" : "whole meshes", state.objectCount,
-        frames, static_cast<unsigned long long>( cameraDraws ),
+        frames, static_cast<unsigned long long>( opaqueDraws ),
+        static_cast<unsigned long long>( blendDraws ),
+        static_cast<unsigned long long>( additiveDraws ),
         static_cast<unsigned long long>( shadowDraws ), frames, resizeCount );
     return ( options.frames == 0u || frames == options.frames ) &&
         ( !options.resizeTest || resizeCount >= 2u );
@@ -674,6 +739,8 @@ bool Shutdown( state_t &state ) noexcept
         if ( render::R_IsFrameActive() ) success = Check( render::R_EndFrame(), "Finish frame" ) && success;
         success = Check( render::R_WaitIdle(), "Wait for renderer" ) && success;
         for ( auto &pipeline : state.cameraPipelines ) success = Release( pipeline, render::R_DestroyGraphicsPipeline, "Destroy camera pipeline" ) && success;
+        for ( auto &pipeline : state.blendPipelines ) success = Release( pipeline, render::R_DestroyGraphicsPipeline, "Destroy alpha pipeline" ) && success;
+        for ( auto &pipeline : state.additivePipelines ) success = Release( pipeline, render::R_DestroyGraphicsPipeline, "Destroy additive pipeline" ) && success;
         for ( auto &pipeline : state.shadowPipelines ) success = Release( pipeline, render::R_DestroyGraphicsPipeline, "Destroy shadow pipeline" ) && success;
         success = Release( state.presentationPipeline, render::R_DestroyGraphicsPipeline, "Destroy presentation pipeline" ) && success;
         success = DestroySceneTarget( state.pending ) && success;
@@ -724,7 +791,8 @@ bool Run( int argc, char **argv, const options_t &options, state_t &state )
     if ( !Check( render::R_ConfigureWindow( config, window ), "Configure window" ) ||
          !Check( sys::Sys_CreateWindow( window, state.window ), "Create window" ) ||
          !Check( render::R_Init( state.window, config ), "Initialize renderer" ) ||
-         !CreateResources( state ) || !CreateWorld( state, options.materialRanges ) ||
+         !CreateResources( state, options.transparency ) ||
+         !CreateWorld( state, options.materialRanges, options.transparency ) ||
          !ResizeScene( state, render::R_GetInfo()->drawableExtent ) ) return false;
     return RunFrames( state, options );
 }
@@ -737,6 +805,7 @@ int main( int argc, char **argv )
         if ( std::strcmp( argv[i], "--hidden" ) == 0 ) options.hidden = true;
         else if ( std::strcmp( argv[i], "--no-fog" ) == 0 ) options.noFog = true;
         else if ( std::strcmp( argv[i], "--material-ranges" ) == 0 ) options.materialRanges = true;
+        else if ( std::strcmp( argv[i], "--transparency" ) == 0 ) options.transparency = true;
         else if ( std::strcmp( argv[i], "--resize-test" ) == 0 ) options.resizeTest = true;
         else if ( std::strcmp( argv[i], "--help" ) == 0 ) options.help = true;
         else if ( std::strcmp( argv[i], "--frames" ) == 0 && i + 1 < argc ) {
@@ -748,13 +817,14 @@ int main( int argc, char **argv )
         } else { std::fprintf( stderr, "Unknown option or missing value: %s\n", argv[i] ); return 2; }
     }
     if ( options.help ) {
-        std::puts( "Usage: cypher_render_world_lighting [--hidden] [--frames N] [--resize-test] [--no-fog] [--material-ranges]\n"
+        std::puts( "Usage: cypher_render_world_lighting [--hidden] [--frames N] [--resize-test] [--no-fog] [--material-ranges] [--transparency]\n"
             "Hold RMB: mouse look, WASD, Space/C up/down, Shift faster. Esc exits.\n"
             "--frames uses a fixed camera and deterministic animation.\n"
             "--hidden defaults to 120 frames; a working graphics session is required.\n"
             "--resize-test requests two native window resizes during a finite run.\n"
             "--no-fog disables linear camera-depth fog for comparison.\n"
             "--material-ranges gives each box face its own material draw using the shared cube mesh.\n"
+            "--transparency adds one alpha-blended box and one additive box, neither casting shadows.\n"
             "The host owns a procedural scene, light descriptions and pass order.\n"
             "This is a World-adapter example, not a map loader or game runtime." );
         return 0;

@@ -126,27 +126,40 @@ Each face retains its box's transform, mirrored winding, and conservative full
 bounds. Three existing material tints alternate across the faces. This is a
 bounded material-range example, not automatic map loading or scene batching.
 
+`--transparency` adds one straight-alpha box and one additive box. Both use the
+same World lighting, shadow sampling and View352 data as the opaque scene,
+but disable depth writes and do not cast shadows. Camera preparation places
+them in its existing BLEND and ADDITIVE spans after the opaque draws. The
+additive material selects `world_lighting_additive.cyshader`, a recipe that
+reuses the main stages with `CY_WORLD_ADDITIVE_FOG` defined. The original recipe
+serves both opaque and straight-alpha pipelines. This mode can be combined
+with `--material-ranges`, `--no-fog`, and `--resize-test`.
+
 With an existing shader-tools configuration, build this explicit target to cook
-`world_lighting.cyshader`, `world_shadow.cyshader`, and `tonemap.cyshader`:
+`world_lighting.cyshader`, `world_lighting_additive.cyshader`,
+`world_shadow.cyshader`, and `tonemap.cyshader`:
 
 ```sh
 cmake --build --preset shader-tools-debug --target cypher_render_world_lighting --parallel 4
 ./out/build/shader-tools-debug/bin/cypher_render_world_lighting
 ./out/build/shader-tools-debug/bin/cypher_render_world_lighting --hidden --frames 120 --resize-test
+./out/build/shader-tools-debug/bin/cypher_render_world_lighting --transparency --material-ranges
 ```
 
 Use the existing build directory on disk-constrained machines. A tools-disabled
-build still builds the executable but needs those three cooked files in its
-`cooked/render_smoke` directory; it does not download a compiler or cook shaders
-at runtime. Local validation used the existing cooked-format writer to package
+build still builds the executable but needs the three original cooked files in
+its `cooked/render_smoke` directory, plus the additive recipe for
+`--transparency`; it does not download a compiler or cook shaders at runtime.
+Local validation used the existing cooked-format writer to package
 the stage sources, and the native OpenGL driver compiled/linked them and checked
 the pipeline interfaces. CI's render-asset-tools build uses the normal offline
 shader cooker. This local packaging check does not exercise the source cooker.
 
 Interactive controls match the graybox example: hold RMB for mouse look, WASD,
 Space/C, and faster Shift movement; Escape exits. Finite runs keep a fixed
-camera, use deterministic animation, require all three camera and shadow draws
-per frame, and fail on early closure or timeout. The 120-frame resize check
+camera, use deterministic animation, require the expected opaque, blend, additive
+and shadow draw counts for the selected modes, and fail on early closure or
+timeout. The default 120-frame resize check
 requests two native window sizes through the normal resize path; it completed
 360 camera draws, 360 shadow draws, 120 presentations, and two HDR target
 replacements locally. New attachments are created before the old target is
@@ -188,7 +201,7 @@ authoring fields and zero-fills both lanes. Enabled fog validates finite,
 nonnegative color, a finite nonnegative start, and a finite end greater than
 start. Packing allocates no memory and leaves output unchanged on failure.
 
-The opaque example's shader performs:
+The opaque and straight-alpha shader performs:
 
 ```text
 depth = max(-cameraSpacePosition.z, 0)
@@ -209,10 +222,28 @@ boundaries before dividing.
 Fog follows ambient, directional, point-light and shadow evaluation in linear
 HDR. The later output pass applies tone mapping and output transfer. The shadow
 depth shader is unchanged. The example clears its background to fog RGB while
-enabled, which is a simple backdrop rather than a sky system. This slice covers
-opaque surface fog; additive materials require attenuation toward black and
-are not implemented by this shader. Fog volumes, height/volumetric scattering,
-sky rendering and authored map atmosphere remain separate work.
+enabled, which is a simple backdrop rather than a sky system.
+
+Additive fog uses a separate recipe over the same shader source:
+
+```text
+sourceRGB = litRGB * (1 - factor)
+destinationRGB += originalSurfaceAlpha * sourceRGB
+```
+
+Fog reduces the light contributed by an additive surface; it must not add fog
+color again for every overlapping glow. At full fog its contribution is zero.
+The additive blend state preserves destination alpha. Straight-alpha surfaces
+keep their original alpha and composite their fogged source RGB through the
+existing source-over equation. Both translucent pipelines test scene depth but
+leave it unwritten. Their View352, Model112 and Material16 records are unchanged;
+the material's selected recipe and pipeline determine the blend behavior.
+
+This is surface fog, not participating-media transmission through glass.
+The example's boxes demonstrate the pass contract; sorting objects by their
+bounds does not solve intersecting translucent surfaces or per-triangle order.
+Fog volumes, height/volumetric scattering, sky rendering and authored map
+atmosphere remain separate work.
 
 The native fog oracle loads the exact checked-in World and output shader files,
 packages them through the existing cooked writer, and renders one World surface
@@ -223,6 +254,14 @@ disabled fog and preserved alpha; RGBA8 reads verify the later Reinhard/sRGB
 transfer. Corner and center pixels at equal depth must match. CPU tests verify
 the complete legacy prefix, padding, disabled data, failure atomicity and narrow
 intervals without reciprocal overflow.
+
+Five additional native cases prepare overlapping opaque, BLEND and ADDITIVE
+World records and execute all three camera spans. Near, partial, full, disabled
+fog and zero-alpha sources are checked against independent CPU compositing
+equations in HDR and after tone mapping. A nonopaque background alpha checks
+that source-over updates alpha and the additive draw preserves that result.
+The full-fog case uses bright fog RGB: adding that color again is a failure.
+Temporarily restoring the old additive mixing equation makes this oracle fail.
 
 ## Executing a prepared view
 

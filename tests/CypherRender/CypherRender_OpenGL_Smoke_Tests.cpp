@@ -5998,9 +5998,9 @@ void CheckWorldCameraDepthFogDrawing( const render::render_extent_t extent )
         world::world_submission_t *pSubmission{ nullptr };
         render::render_uniform_batch_t models{};
         render::render_static_mesh_bundle_t meshes[2]{};
-        render::render_shader_handle_t shaders[2]{};
-        render::render_pipeline_handle_t pipelines[3]{};
-        render::render_buffer_handle_t buffers[2]{};
+        render::render_shader_handle_t shaders[3]{};
+        render::render_pipeline_handle_t pipelines[5]{};
+        render::render_buffer_handle_t buffers[7]{};
         render::render_texture_handle_t textures[4]{};
         render::render_target_handle_t targets[3]{};
         render::render_sampler_handle_t comparison{};
@@ -6046,7 +6046,7 @@ void CheckWorldCameraDepthFogDrawing( const render::render_extent_t extent )
     } scope;
 
     const auto loadShader = []( const char *vertexName, const char *fragmentName,
-        render::render_shader_handle_t *shader ) {
+        const char *fragmentDefine, render::render_shader_handle_t *shader ) {
         const auto read = []( const char *name ) {
             const auto path = std::filesystem::path( CYPHER_RENDER_SMOKE_SHADER_DIR ) / name;
             INFO( "Reading World fog oracle shader " << path.string() );
@@ -6060,7 +6060,13 @@ void CheckWorldCameraDepthFogDrawing( const render::render_extent_t extent )
             return text;
         };
         const std::string vertex = read( vertexName );
-        const std::string fragment = read( fragmentName );
+        std::string fragment = read( fragmentName );
+        if ( fragmentDefine != nullptr ) {
+            const std::size_t versionEnd = fragment.find( '\n' );
+            REQUIRE( versionEnd != std::string::npos );
+            fragment.insert( versionEnd + 1u,
+                std::string( "#define " ) + fragmentDefine + " 1\n" );
+        }
         common::cooked_shader_stage_source_t stages[2]{};
         stages[0].stage = common::render_shader_stage_t::VERTEX;
         stages[0].code = { reinterpret_cast<const common::byte *>( vertex.data() ), vertex.size() };
@@ -6078,8 +6084,10 @@ void CheckWorldCameraDepthFogDrawing( const render::render_extent_t extent )
             render::render_error_t::OK );
     };
     // Test the executable sample's exact source, not a duplicate fog equation.
-    loadShader( "world_lighting.vert", "world_lighting.frag", &scope.shaders[0] );
-    loadShader( "tonemap.vert", "tonemap.frag", &scope.shaders[1] );
+    loadShader( "world_lighting.vert", "world_lighting.frag", nullptr, &scope.shaders[0] );
+    loadShader( "world_lighting.vert", "world_lighting.frag", "CY_WORLD_ADDITIVE_FOG",
+        &scope.shaders[1] );
+    loadShader( "tonemap.vert", "tonemap.frag", nullptr, &scope.shaders[2] );
 
     constexpr float vertices[3][8]{
         { -1.0f,-1.0f,0.0f, 0.0f,0.0f,1.0f, 0.5f,0.5f },
@@ -6128,14 +6136,23 @@ void CheckWorldCameraDepthFogDrawing( const render::render_extent_t extent )
         REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &scope.pipelines[winding] ) ==
             render::render_error_t::OK );
     }
-    pipeline = render::render_pipeline_desc_t{};
+    pipeline.frontCounterClockwise = true;
+    pipeline.depthWrite = false;
+    pipeline.blendMode = render::render_blend_mode_t::STRAIGHT_ALPHA;
+    REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &scope.pipelines[2] ) ==
+        render::render_error_t::OK );
     pipeline.shader = scope.shaders[1];
+    pipeline.blendMode = render::render_blend_mode_t::ADDITIVE;
+    REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &scope.pipelines[3] ) ==
+        render::render_error_t::OK );
+    pipeline = render::render_pipeline_desc_t{};
+    pipeline.shader = scope.shaders[2];
     pipeline.vertexLayout = scope.meshes[1].vertexLayout;
     pipeline.depthTest = pipeline.depthWrite = false;
     pipeline.cullBackFaces = false;
     pipeline.sampledTextureCount = 1u;
     pipeline.sampledTextures[0] = { "sceneColor", render::render_sampled_texture_kind_t::SCALAR_2D };
-    REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &scope.pipelines[2] ) ==
+    REQUIRE( render::R_CreateGraphicsPipeline( pipeline, &scope.pipelines[4] ) ==
         render::render_error_t::OK );
 
     auto &white = scope.textures[0];
@@ -6168,18 +6185,36 @@ void CheckWorldCameraDepthFogDrawing( const render::render_extent_t extent )
     comparison.compare = render::render_sampler_compare_t::LESS_EQUAL;
     REQUIRE( render::R_CreateSampler( comparison, &scope.comparison ) == render::render_error_t::OK );
 
-    constexpr float tint[4]{ 1.0f,1.0f,1.0f,0.375f };
+    constexpr float tints[6][4]{
+        { 1.0f,1.0f,1.0f,0.375f },
+        { 0.2f,0.4f,0.8f,0.375f },
+        { 0.5f,2.0f,0.25f,0.5f },
+        { 1.0f,0.5f,4.0f,0.25f },
+        { 0.5f,2.0f,0.25f,0.0f },
+        { 1.0f,0.5f,4.0f,0.0f }
+    };
     render::render_buffer_desc_t buffer{};
-    buffer.byteSize = sizeof( tint );
+    buffer.byteSize = sizeof( tints[0] );
     buffer.usage = render::R_BUFFER_USAGE_UNIFORM;
-    const render::render_buffer_data_t tintData{ tint,sizeof( tint ) };
-    REQUIRE( render::R_CreateBuffer( buffer, &tintData, &scope.buffers[1] ) == render::render_error_t::OK );
+    for ( common::u32 i = 0u; i < 6u; ++i ) {
+        const render::render_buffer_data_t tintData{ tints[i],sizeof( tints[i] ) };
+        REQUIRE( render::R_CreateBuffer( buffer, &tintData, &scope.buffers[i + 1u] ) ==
+            render::render_error_t::OK );
+    }
     buffer.byteSize = sizeof( render::render_world_fogged_view_lighting_record_t );
     buffer.usage |= render::R_BUFFER_USAGE_TRANSFER_DESTINATION;
     buffer.updatePolicy = render::render_buffer_update_t::STREAM;
     buffer.memory = render::render_buffer_memory_t::UPLOAD;
     REQUIRE( render::R_CreateBuffer( buffer, nullptr, &scope.buffers[0] ) == render::render_error_t::OK );
-    REQUIRE( render::R_CreateUniformBatch( 112u, nullptr, &scope.models ) == render::render_error_t::OK );
+    const render::render_info_t *renderInfo = render::R_GetInfo();
+    REQUIRE( renderInfo != nullptr );
+    REQUIRE( renderInfo->limits.uniformBufferOffsetAlignment != 0u );
+    constexpr common::u64 modelBytes = 112u;
+    const common::u64 modelAlignment = renderInfo->limits.uniformBufferOffsetAlignment;
+    const common::u64 modelStride = modelBytes +
+        ( modelAlignment - modelBytes % modelAlignment ) % modelAlignment;
+    REQUIRE( render::R_CreateUniformBatch( 2u * modelStride + modelBytes,
+        nullptr, &scope.models ) == render::render_error_t::OK );
     render::render_material_bundle_t material{};
     material.shader = scope.shaders[0];
     material.pipeline = scope.pipelines[0];
@@ -6189,15 +6224,15 @@ void CheckWorldCameraDepthFogDrawing( const render::render_extent_t extent )
     material.passShadowSlot = 1u;
     material.materialUniformBuffer = scope.buffers[1];
     material.materialUniformSlot = 2u;
-    REQUIRE( world::World_Init( &scope.pWorld, common::Allocator_GetSystem(), 1u ) == world::world_error_t::OK );
-    REQUIRE( world::WorldSubmission_Init( &scope.pSubmission, common::Allocator_GetSystem(), 1u ) ==
+    REQUIRE( world::World_Init( &scope.pWorld, common::Allocator_GetSystem(), 3u ) == world::world_error_t::OK );
+    REQUIRE( world::WorldSubmission_Init( &scope.pSubmission, common::Allocator_GetSystem(), 3u ) ==
         world::world_submission_error_t::OK );
 
     // The camera sits at Z=2, looking down -Z. Using world Z, unsigned Z,
     // radial eye distance or post-projection depth produces different pixels.
     render::render_world_view_lighting_desc_t lighting{};
     lighting.viewFromWorld = math::Mat4_FromTranslation( { 0.0f,0.0f,-2.0f } );
-    lighting.clipFromView = math::Mat4_FromScale( { 1.0f,1.0f,0.1f } );
+    lighting.clipFromView = math::Mat4_FromScale( { 1.0f,1.0f,-0.1f } );
     lighting.ambientLight = { 4.0f,0.5f,0.25f };
     lighting.directionToLight = math::CY_VEC3_UP;
     const math::mat4_t lightClip = math::CY_MAT4_IDENTITY;
@@ -6221,8 +6256,8 @@ void CheckWorldCameraDepthFogDrawing( const render::render_extent_t extent )
     world::world_object_id_t objectId{};
     REQUIRE( world::World_AddObject( scope.pWorld, &object, &objectId ) == world::world_error_t::OK );
 
-    render::render_scene_item_t sceneScratch[1]{};
-    common::u32 indexScratch[1]{};
+    render::render_scene_item_t sceneScratch[3]{};
+    common::u32 indexScratch[3]{};
     render::render_world_camera_prepare_desc_t prepare{};
     prepare.submission = scope.pSubmission;
     prepare.meshes = &scope.meshes[0];
@@ -6238,11 +6273,11 @@ void CheckWorldCameraDepthFogDrawing( const render::render_extent_t extent )
     prepare.drawTemplate.sampledTextures[1] = shadowDepth;
     prepare.drawTemplate.samplers[1] = scope.comparison;
     prepare.sceneItemsScratch = sceneScratch;
-    prepare.sceneItemCapacity = 1u;
+    prepare.sceneItemCapacity = 3u;
     prepare.passIndicesScratch = indexScratch;
-    prepare.passIndexCapacity = 1u;
+    prepare.passIndexCapacity = 3u;
     render::render_draw_indexed_desc_t toneDraw{};
-    toneDraw.pipeline = scope.pipelines[2];
+    toneDraw.pipeline = scope.pipelines[4];
     toneDraw.sampledTextures[0] = hdrColor;
     REQUIRE( render::R_ApplyStaticMeshBundleToDraw( scope.meshes[1], &toneDraw ) == render::render_error_t::OK );
     const auto toneByte = []( const float radiance ) {
@@ -6324,6 +6359,138 @@ void CheckWorldCameraDepthFogDrawing( const render::render_extent_t extent )
         }
     }
     CHECK( frameIndex == 10u );
+
+    // Exercise the World adapter's actual pass partition and the HDR blend
+    // state using the same checked-in shader as the executable example.
+    render::render_material_bundle_t mixedMaterials[3]{ material, material, material };
+    mixedMaterials[0].materialUniformBuffer = scope.buffers[2];
+    mixedMaterials[1].pipeline = scope.pipelines[2];
+    mixedMaterials[1].mirroredPipeline = {};
+    mixedMaterials[1].materialUniformBuffer = scope.buffers[3];
+    mixedMaterials[1].alphaMode = common::render_material_alpha_mode_t::BLEND;
+    mixedMaterials[2].shader = scope.shaders[1];
+    mixedMaterials[2].pipeline = scope.pipelines[3];
+    mixedMaterials[2].mirroredPipeline = {};
+    mixedMaterials[2].materialUniformBuffer = scope.buffers[4];
+    mixedMaterials[2].alphaMode = common::render_material_alpha_mode_t::ADDITIVE;
+    world::world_object_id_t mixedIds[3]{ objectId,{},{} };
+    for ( common::u32 i = 1u; i < 3u; ++i ) {
+        place( 4.0f - static_cast<float>( i ) );
+        object.materialSlot = i;
+        REQUIRE( world::World_AddObject( scope.pWorld, &object, &mixedIds[i] ) ==
+            world::world_error_t::OK );
+    }
+    prepare.materials = mixedMaterials;
+    prepare.materialCount = 3u;
+    struct mixed_case_t {
+        const char *name;
+        float depth[3]; // Opaque behind BLEND, then ADDITIVE nearest.
+        bool fogEnabled, zeroAlpha;
+    };
+    constexpr mixed_case_t mixedCases[]{
+        { "near", { 1.75f,1.5f,1.25f }, true,false },
+        { "mid", { 4.0f,3.5f,3.0f }, true,false },
+        { "full fog", { 9.0f,8.0f,7.0f }, true,false },
+        { "disabled", { 4.0f,3.5f,3.0f }, false,false },
+        { "zero alpha", { 4.0f,3.5f,3.0f }, true,true }
+    };
+    constexpr float fogColor[3]{ 0.25f,1.5f,2.5f };
+    constexpr float source[3][3]{
+        { 0.8f,0.2f,0.2f },
+        { 2.0f,1.0f,0.0625f },
+        { 4.0f,0.25f,1.0f }
+    };
+    const auto fogAmount = []( const float depth, const bool enabled ) {
+        return enabled ? std::clamp( ( depth - 2.0f ) / 4.0f, 0.0f, 1.0f ) : 0.0f;
+    };
+    for ( const auto &scenario : mixedCases ) {
+        CAPTURE( scenario.name );
+        const render::render_world_depth_fog_desc_t fog{
+            { fogColor[0],fogColor[1],fogColor[2] },2.0f,6.0f,scenario.fogEnabled
+        };
+        render::render_world_fogged_view_lighting_record_t record{};
+        REQUIRE( render::R_PackWorldFoggedViewLighting( lighting, lightClip,
+            fog, &record ) == render::render_error_t::OK );
+        REQUIRE( render::R_UpdateBuffer( scope.buffers[0], 0u,
+            { &record,sizeof( record ) } ) == render::render_error_t::OK );
+        mixedMaterials[1].materialUniformBuffer =
+            scope.buffers[scenario.zeroAlpha ? 5u : 3u];
+        mixedMaterials[2].materialUniformBuffer =
+            scope.buffers[scenario.zeroAlpha ? 6u : 4u];
+        for ( common::u32 i = 0u; i < 3u; ++i ) {
+            place( scenario.depth[i] );
+            object.materialSlot = i;
+            REQUIRE( world::World_UpdateObject( scope.pWorld, mixedIds[i], &object ) ==
+                world::world_error_t::OK );
+        }
+        REQUIRE( render::R_ResetUniformBatch( &scope.models ) == render::render_error_t::OK );
+        REQUIRE( world::WorldSubmission_Build( scope.pSubmission, scope.pWorld,
+            &query, &prepare.token ) == world::world_submission_error_t::OK );
+        render::render_world_camera_draw_t draws[3]{};
+        render::render_world_camera_pass_counts_t counts{};
+        REQUIRE( render::R_PrepareWorldCameraDraws( prepare, draws, 3u,
+            &counts ) == render::render_error_t::OK );
+        REQUIRE( counts.opaqueCount == 1u );
+        REQUIRE( counts.blendCount == 1u );
+        REQUIRE( counts.additiveCount == 1u );
+        REQUIRE( draws[0].draw.pipeline.value == scope.pipelines[0].value );
+        REQUIRE( draws[1].draw.pipeline.value == scope.pipelines[2].value );
+        REQUIRE( draws[2].draw.pipeline.value == scope.pipelines[3].value );
+        world::WorldSubmission_End( scope.pSubmission );
+        render::render_draw_indexed_desc_t cameraDraws[3]{
+            draws[0].draw, draws[1].draw, draws[2].draw
+        };
+        render::render_scene_view_desc_t sceneView{};
+        sceneView.shadowPass.target = shadowTarget;
+        sceneView.cameraPass.target = cameraTarget;
+        sceneView.opaqueDraws = { cameraDraws,1u };
+        sceneView.blendDraws = { cameraDraws + 1u,1u };
+        sceneView.additiveDraws = { cameraDraws + 2u,1u };
+        sceneView.outputDraw = toneDraw;
+        sceneView.outputPass.target = outputTarget;
+        render::render_frame_info_t frame{};
+        frame.frameIndex = frameIndex++;
+        frame.drawableExtent = extent;
+        REQUIRE( render::R_BeginFrame( frame ) == render::render_error_t::OK );
+        const auto result = render::R_ExecuteSceneView( sceneView );
+        REQUIRE( result.error == render::render_error_t::OK );
+        CHECK( result.cleanupError == render::render_error_t::OK );
+        CHECK( result.opaqueDraws == 1u );
+        CHECK( result.blendDraws == 1u );
+        CHECK( result.additiveDraws == 1u );
+        CHECK( result.outputDrawn );
+        render::render_color_t hdr{};
+        std::array<common::byte,4u> display{};
+        const render::render_readback_rect_t pixel{ 4u,4u,1u,1u };
+        REQUIRE( render::R_ReadTargetRGBA32F( cameraTarget, pixel, &hdr,
+            sizeof( hdr ),sizeof( hdr ) ) == render::render_error_t::OK );
+        REQUIRE( render::R_ReadTargetRGBA8( outputTarget, pixel,
+            display.data(),display.size(),4u ) == render::render_error_t::OK );
+        REQUIRE( render::R_EndFrame() == render::render_error_t::OK );
+        const float opaqueFog = fogAmount( scenario.depth[0],scenario.fogEnabled );
+        const float blendFog = fogAmount( scenario.depth[1],scenario.fogEnabled );
+        const float additiveFog = fogAmount( scenario.depth[2],scenario.fogEnabled );
+        const float blendAlpha = scenario.zeroAlpha ? 0.0f : 0.5f;
+        const float additiveAlpha = scenario.zeroAlpha ? 0.0f : 0.25f;
+        const float actual[3]{ hdr.red,hdr.green,hdr.blue };
+        for ( common::u32 channel = 0u; channel < 3u; ++channel ) {
+            const float opaque = std::lerp( source[0][channel],fogColor[channel],opaqueFog );
+            const float blend = std::lerp( source[1][channel],fogColor[channel],blendFog );
+            const float additive = source[2][channel] * ( 1.0f - additiveFog );
+            const float expected = opaque * ( 1.0f - blendAlpha ) +
+                blend * blendAlpha + additive * additiveAlpha;
+            CAPTURE( channel, actual[channel], expected );
+            CHECK( std::abs( actual[channel] - expected ) <= 0.01f );
+            CHECK( std::abs( static_cast<int>( display[channel] ) -
+                toneByte( expected ) ) <= 2 );
+        }
+        // An opaque pipeline writes its source alpha unchanged. Source-over
+        // then updates that alpha; the additive pass must preserve it.
+        const float expectedAlpha = 0.375f * ( 1.0f - blendAlpha ) + blendAlpha;
+        CHECK( std::abs( hdr.alpha - expectedAlpha ) <= 0.001f );
+        CHECK( display[3] == 255u );
+    }
+    CHECK( frameIndex == 15u );
     REQUIRE( scope.Close() );
 }
 

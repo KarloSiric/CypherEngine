@@ -25,6 +25,22 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Added
 
+- World lighting now includes a separate additive shader recipe over the
+  shared OpenGL 4.1 stages. Additive surfaces attenuate their contribution toward
+  zero with camera-depth fog instead of repeatedly adding fog color; opaque
+  and straight-alpha surfaces retain their fog-color mixing. View352, Model112
+  and Material16 layouts stay unchanged. The optional --transparency example
+  adds BLEND and mirrored ADDITIVE objects with depth testing, no depth writes
+  and no shadow casting, and combines with material ranges and resize testing.
+  Four focused CPU suites pass; native OpenGL passes 3,218 assertions in three
+  cases, including mixed-pass HDR/output pixels, full/partial/disabled fog,
+  zero-alpha sources and destination-alpha preservation. Restoring the old
+  additive equation fails the new pixel oracle. The combined 120-frame sample
+  completes 1,560 opaque, 120 blend, 120 additive and 1,560 shadow draws, with
+  two target replacements; default and no-fog runs also pass. Local shaders use
+  the existing cooked writer without restoring removed compiler dependencies.
+  This is bounded surface-fog rendering; intersecting transparency, volumetric
+  transmission, authored atmosphere and Mason viewport integration remain open.
 - Boundary-edge extrusion accepts an affine transform, allowing a connected
   strip to be translated, rotated or scaled about a caller-selected pivot.
   Original vertices stay fixed, shared endpoints get one copy, and returned

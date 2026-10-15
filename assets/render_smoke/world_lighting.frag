@@ -55,6 +55,12 @@ void main() {
             max(dot(n, direction), 0.0);
     }
     vec4 albedo = texture(albedoMap, surfaceUV) * tint;
-    // Fog mixes opaque radiance in linear HDR before the presentation transfer.
+    // Standard alpha surfaces blend this fogged source over the HDR scene.
+    // Additive surfaces contribute only extinguished radiance: mixing in the
+    // fog color would add that color once per overlapping additive draw.
+#ifdef CY_WORLD_ADDITIVE_FOG
+    color = vec4(albedo.rgb * irradiance * (1.0 - FogAmount()), albedo.a);
+#else
     color = vec4(mix(albedo.rgb * irradiance, fogColor.rgb, FogAmount()), albedo.a);
+#endif
 }
