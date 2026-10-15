@@ -291,6 +291,60 @@ geometry_status_t MeshSelection_TrySelectBoundaryEdges( mesh_selection_t *pSelec
     return st;
 }
 
+geometry_status_t MeshSelection_TrySelectBoundaryLoop(
+    mesh_selection_t *pSelection, const mesh_source_t *pMesh, mesh_edge_ref_t seed ) noexcept
+{
+    if ( !Ready( pSelection, pMesh ) ) { return geometry_status_t::NOT_INITIALIZED; }
+    if ( pSelection->meshId.value != pMesh->sourceId.value ) { return geometry_status_t::INVALID_ARGUMENT; }
+    seed = MeshEdgeRef_Make( seed.a, seed.b );
+    mesh_selection_t boundary{};
+    auto status = MeshSelection_Init( &boundary, AllocatorOf( pSelection ), pMesh->sourceId );
+    if ( status != geometry_status_t::OK ) { return status; }
+    status = MeshSelection_TrySelectBoundaryEdges( &boundary, pMesh );
+    if ( status != geometry_status_t::OK ) { return status; }
+    if ( !MeshSelection_HasEdge( &boundary, seed ) ) { return geometry_status_t::INVALID_ARGUMENT; }
+
+    // Sorted incidences give O(log E) access to the two boundary edges at
+    // each vertex; degree checks apply to this cycle, not unrelated holes.
+    struct incidence_t { u64 vertex; usize edge; };
+    vector_t<incidence_t> incidence{};
+    vector_t<mesh_edge_ref_t> found{};
+    if ( !Vector_Init( &incidence, AllocatorOf( pSelection ) ) || !Vector_Init( &found, AllocatorOf( pSelection ) ) ) {
+        return geometry_status_t::ALLOCATION_FAILED;
+    }
+    for ( usize i = 0; i < boundary.edges.nCount; ++i ) {
+        const auto edge = boundary.edges.pData[i];
+        if ( !Vector_PushBack( &incidence, incidence_t{ edge.a.value, i } ) ||
+             !Vector_PushBack( &incidence, incidence_t{ edge.b.value, i } ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+    }
+    std::sort( incidence.pData, incidence.pData + incidence.nCount, []( const auto &a, const auto &b ) { return a.vertex < b.vertex; } );
+    const auto nextEdge = [&]( u64 vertex, usize previous, usize &next ) {
+        const incidence_t *begin = incidence.pData, *end = begin + incidence.nCount;
+        const auto *first = std::lower_bound( begin, end, vertex, []( const auto &a, u64 b ) { return a.vertex < b; } );
+        const auto *last = std::upper_bound( first, end, vertex, []( u64 a, const auto &b ) { return a < b.vertex; } );
+        if ( last - first != 2 || ( first[0].edge != previous && first[1].edge != previous ) ) { return false; }
+        next = first[0].edge == previous ? first[1].edge : first[0].edge;
+        return next != previous;
+    };
+    usize current = static_cast<usize>( std::lower_bound( boundary.edges.pData, boundary.edges.pData + boundary.edges.nCount, seed, EdgeLess ) - boundary.edges.pData );
+    usize ignored = 0;
+    if ( !nextEdge( seed.a.value, current, ignored ) ) { return geometry_status_t::NON_MANIFOLD; }
+    u64 vertex = seed.a.value;
+    for ( usize step = 0; step < boundary.edges.nCount; ++step ) {
+        const auto edge = boundary.edges.pData[current];
+        if ( !Vector_PushBack( &found, edge ) ) { return geometry_status_t::ALLOCATION_FAILED; }
+        vertex = edge.a.value == vertex ? edge.b.value : edge.a.value;
+        if ( vertex == seed.a.value ) {
+            if ( found.nCount < 3 ) { return geometry_status_t::NON_MANIFOLD; }
+            return MergeSorted( &pSelection->edges, &found, EdgeLess, EdgeEq );
+        }
+        usize next = 0;
+        if ( !nextEdge( vertex, current, next ) ) { return geometry_status_t::NON_MANIFOLD; }
+        current = next;
+    }
+    return geometry_status_t::NON_MANIFOLD;
+}
+
 geometry_status_t MeshSelection_TrySelectFacesBySize(
     mesh_selection_t *pSelection,
     const mesh_source_t *pMesh,

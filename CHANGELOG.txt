@@ -24,6 +24,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 -------------------------
 
 Added
+- Geometry selection now provides MeshSelection_TrySelectBoundaryLoop: a
+  seeded query that adds only the connected closed boundary cycle, leaving
+  other openings and existing selection intact. Invalid or interior seeds,
+  incompatible mesh scope and ambiguous boundary incidence are rejected;
+  output stays unchanged on failure. The query does not edit mesh geometry.
+  All nine selection-query contract cases pass (495 assertions), including
+  three new cases for separate rims, retained mixed selection, input rejection
+  and a bounded allocation-failure sweep. This publishes the library query
+  only; Mason double-click integration is a separate local checkpoint.
+
 - World lighting now has an opt-in --cutout mode with matching lit MASK
   camera and shadow shaders. Both compare raw UV0 alpha with the same authored
   cutoff before tint, lighting or fog; equality survives and tint alpha does

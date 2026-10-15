@@ -112,6 +112,33 @@ struct Desc {
     ~Desc() { MeshSourceDescription_Shutdown( &d ); }
 };
 
+void OpenCubeEnds( Cube &c ) {
+    geometry_mesh_face_handle_t ends[2]{};
+    REQUIRE( MeshSource_TryFindFace( &c.s, Id( 20 ), &ends[0] ) );
+    REQUIRE( MeshSource_TryFindFace( &c.s, Id( 21 ), &ends[1] ) );
+    REQUIRE( MeshBoundary_DeleteFaces( &c.s.mesh, { ends, 2 } ).status == geometry_status_t::OK );
+}
+
+struct selection_failure_state_t {
+    common::usize cCalls{ 0u };
+    common::usize iFailOnCall{ common::CY_INVALID_SIZE };
+    common::usize cLive{ 0u };
+};
+
+void *SelectionFailureAllocate( void *pUser, common::usize cb, common::usize alignment ) noexcept {
+    auto *p = static_cast<selection_failure_state_t *>( pUser );
+    if ( ++p->cCalls == p->iFailOnCall ) { return nullptr; }
+    void *pMemory = common::Allocator_Allocate( common::Allocator_GetSystem(), cb, alignment );
+    p->cLive += pMemory != nullptr ? 1u : 0u;
+    return pMemory;
+}
+
+void SelectionFailureFree( void *pUser, void *pMemory, common::usize cb, common::usize alignment ) noexcept {
+    auto *p = static_cast<selection_failure_state_t *>( pUser );
+    p->cLive -= pMemory != nullptr ? 1u : 0u;
+    common::Allocator_Free( common::Allocator_GetSystem(), pMemory, cb, alignment );
+}
+
 math::affine3d_t Affine( vec3d_t c0, vec3d_t c1, vec3d_t c2, vec3d_t t ) {
     return math::affine3d_t{ { c0.x, c0.y, c0.z, c1.x, c1.y, c1.z, c2.x, c2.y, c2.z, t.x, t.y, t.z } };
 }
@@ -203,6 +230,122 @@ TEST_CASE( "Sharp and boundary edge selection", "[geometry][selection][selection
     REQUIRE( MeshSelection_TrySelectBoundaryEdges( &open.sel, &open.s ) == geometry_status_t::OK );
     CHECK( open.sel.edges.nCount == 4u );
     CHECK( MeshSelection_HasEdge( &open.sel, MeshEdgeRef_Make( Id( 15 ), Id( 14 ) ) ) );
+}
+
+TEST_CASE( "Seeded boundary selection adds one rim without crossing to the other hole",
+           "[geometry][selection][selectionquery][boundary-doubleclick]" ) {
+    Cube c;
+    OpenCubeEnds( c ); // One connected shell, but separate top and bottom rims.
+    REQUIRE( MeshSelection_TryAddEdge( &c.sel, MeshEdgeRef_Make( Id( 10 ), Id( 11 ) ) ) == geometry_status_t::OK );
+    REQUIRE( MeshSelection_TryAddVertex( &c.sel, Id( 10 ) ) == geometry_status_t::OK );
+    REQUIRE( MeshSelection_TryAddFace( &c.sel, Id( 22 ) ) == geometry_status_t::OK );
+    Desc before, after;
+    c.Snapshot( &before.d );
+
+    // Reversed input is normalized. An existing selection is retained, not replaced.
+    REQUIRE( MeshSelection_TrySelectBoundaryLoop( &c.sel, &c.s, { Id( 15 ), Id( 14 ) } ) == geometry_status_t::OK );
+    CHECK( c.sel.edges.nCount == 5u );
+    const common::u64 top[4][2] = { { 14, 15 }, { 15, 17 }, { 17, 16 }, { 16, 14 } };
+    for ( const auto &edge : top ) {
+        CHECK( MeshSelection_HasEdge( &c.sel, MeshEdgeRef_Make( Id( edge[0] ), Id( edge[1] ) ) ) );
+    }
+    CHECK( MeshSelection_HasEdge( &c.sel, MeshEdgeRef_Make( Id( 10 ), Id( 11 ) ) ) );
+    CHECK_FALSE( MeshSelection_HasEdge( &c.sel, MeshEdgeRef_Make( Id( 11 ), Id( 13 ) ) ) );
+    CHECK_FALSE( MeshSelection_HasEdge( &c.sel, MeshEdgeRef_Make( Id( 10 ), Id( 14 ) ) ) );
+    CHECK( c.Vertices() == std::vector<common::u64>{ 10 } );
+    CHECK( c.Faces() == std::vector<common::u64>{ 22 } );
+
+    REQUIRE( MeshSelection_TrySelectBoundaryLoop( &c.sel, &c.s, MeshEdgeRef_Make( Id( 16 ), Id( 17 ) ) ) == geometry_status_t::OK );
+    CHECK( c.sel.edges.nCount == 5u ); // Re-selecting the same rim is idempotent.
+    c.Snapshot( &after.d );
+    CHECK( MeshSourceDescription_Equal( &before.d, &after.d ) );
+}
+
+TEST_CASE( "Seeded boundary selection rejects invalid scope and non-boundary seeds without changing selection",
+           "[geometry][selection][selectionquery][boundary-doubleclick]" ) {
+    Cube c;
+    OpenCubeEnds( c );
+    const auto retained = MeshEdgeRef_Make( Id( 10 ), Id( 11 ) );
+    REQUIRE( MeshSelection_TryAddEdge( &c.sel, retained ) == geometry_status_t::OK );
+    REQUIRE( MeshSelection_TryAddVertex( &c.sel, Id( 10 ) ) == geometry_status_t::OK );
+    REQUIRE( MeshSelection_TryAddFace( &c.sel, Id( 22 ) ) == geometry_status_t::OK );
+    for ( const auto seed : { MeshEdgeRef_Make( Id( 10 ), Id( 14 ) ), // Existing interior edge.
+                             MeshEdgeRef_Make( Id( 10 ), Id( 999999 ) ),
+                             MeshEdgeRef_Make( Id( 14 ), Id( 14 ) ) } ) {
+        CHECK( MeshSelection_TrySelectBoundaryLoop( &c.sel, &c.s, seed ) == geometry_status_t::INVALID_ARGUMENT );
+        CHECK( c.sel.edges.nCount == 1u );
+        CHECK( MeshSelection_HasEdge( &c.sel, retained ) );
+        CHECK( c.Vertices() == std::vector<common::u64>{ 10 } );
+        CHECK( c.Faces() == std::vector<common::u64>{ 22 } );
+    }
+    c.sel.meshId = Id( 999 );
+    CHECK( MeshSelection_TrySelectBoundaryLoop( &c.sel, &c.s, MeshEdgeRef_Make( Id( 14 ), Id( 15 ) ) ) ==
+           geometry_status_t::INVALID_ARGUMENT );
+    CHECK( c.sel.meshId.value == 999u );
+    CHECK( c.sel.edges.nCount == 1u );
+    CHECK( MeshSelection_HasEdge( &c.sel, retained ) );
+    mesh_selection_t uninitialized{};
+    CHECK( MeshSelection_TrySelectBoundaryLoop( &uninitialized, &c.s, retained ) == geometry_status_t::NOT_INITIALIZED );
+    CHECK( uninitialized.edges.nCount == 0u );
+}
+
+TEST_CASE( "Seeded boundary selection allocation failures preserve input and release scratch memory",
+           "[geometry][selection][selectionquery][boundary-doubleclick][allocation]" ) {
+    Cube c;
+    OpenCubeEnds( c );
+    Desc before, after;
+    c.Snapshot( &before.d );
+    const auto retained = MeshEdgeRef_Make( Id( 10 ), Id( 11 ) );
+    const auto seed = MeshEdgeRef_Make( Id( 14 ), Id( 15 ) );
+    const auto prepare = [&]( mesh_selection_t *selection, const common::allocator_t *allocator ) {
+        REQUIRE( MeshSelection_Init( selection, allocator, Id( 1 ) ) == geometry_status_t::OK );
+        REQUIRE( MeshSelection_TryAddEdge( selection, retained ) == geometry_status_t::OK );
+        REQUIRE( MeshSelection_TryAddVertex( selection, Id( 10 ) ) == geometry_status_t::OK );
+        REQUIRE( MeshSelection_TryAddFace( selection, Id( 22 ) ) == geometry_status_t::OK );
+    };
+    common::usize cOperationAllocations = 0u;
+    {
+        selection_failure_state_t probe{};
+        common::allocator_t allocator{ SelectionFailureAllocate, nullptr, SelectionFailureFree, &probe };
+        mesh_selection_t selection{};
+        prepare( &selection, &allocator );
+        const auto cStart = probe.cCalls;
+        const auto cLiveBefore = probe.cLive;
+        REQUIRE( MeshSelection_TrySelectBoundaryLoop( &selection, &c.s, seed ) == geometry_status_t::OK );
+        cOperationAllocations = probe.cCalls - cStart;
+        CHECK( selection.edges.nCount == 5u );
+        CHECK( probe.cLive == cLiveBefore ); // Only the destination's three buffers remain.
+        MeshSelection_Shutdown( &selection );
+        CHECK( probe.cLive == 0u );
+    }
+    REQUIRE( cOperationAllocations > 0u );
+    REQUIRE( cOperationAllocations <= 64u ); // Keep the fault sweep bounded to this small fixture.
+    for ( common::usize i = 1u; i <= cOperationAllocations; ++i ) {
+        CAPTURE( i );
+        selection_failure_state_t failure{};
+        common::allocator_t allocator{ SelectionFailureAllocate, nullptr, SelectionFailureFree, &failure };
+        mesh_selection_t selection{};
+        prepare( &selection, &allocator );
+        const auto *pEdgesBefore = selection.edges.pData;
+        const auto cCapacityBefore = selection.edges.nCapacity;
+        const auto cLiveBefore = failure.cLive;
+        failure.iFailOnCall = failure.cCalls + i;
+        CHECK( MeshSelection_TrySelectBoundaryLoop( &selection, &c.s, seed ) == geometry_status_t::ALLOCATION_FAILED );
+        CHECK( selection.meshId.value == 1u );
+        CHECK( selection.edges.pData == pEdgesBefore );
+        CHECK( selection.edges.nCapacity == cCapacityBefore );
+        CHECK( selection.edges.nCount == 1u );
+        CHECK( MeshSelection_HasEdge( &selection, retained ) );
+        CHECK( selection.vertices.nCount == 1u );
+        CHECK( MeshSelection_HasVertex( &selection, Id( 10 ) ) );
+        CHECK( selection.faces.nCount == 1u );
+        CHECK( MeshSelection_HasFace( &selection, Id( 22 ) ) );
+        CHECK( failure.cLive == cLiveBefore );
+        MeshSelection_Shutdown( &selection );
+        CHECK( failure.cLive == 0u );
+    }
+    c.Snapshot( &after.d );
+    CHECK( MeshSourceDescription_Equal( &before.d, &after.d ) );
 }
 
 TEST_CASE( "Volume selection judges vertices, edges and faces", "[geometry][selection][selectionquery]" ) {

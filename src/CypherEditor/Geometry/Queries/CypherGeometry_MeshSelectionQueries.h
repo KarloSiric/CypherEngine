@@ -77,6 +77,15 @@ CYPHER_NODISCARD geometry_status_t MeshSelection_TrySelectBoundaryEdges(
     mesh_selection_t *pSelection,
     const mesh_source_t *pMesh ) noexcept;
 
+// Only the closed boundary cycle containing seed. Other holes and shells
+// are untouched. Each visited vertex must have exactly two boundary edges;
+// ambiguous/open chains return NON_MANIFOLD, interior/missing seeds return
+// INVALID_ARGUMENT. Selection is unchanged on every failure.
+CYPHER_NODISCARD geometry_status_t MeshSelection_TrySelectBoundaryLoop(
+    mesh_selection_t *pSelection,
+    const mesh_source_t *pMesh,
+    mesh_edge_ref_t seed ) noexcept;
+
 // Faces with between minCorners and maxCorners corners (triangles: 3, 3;
 // n-gons: 5, UINT32_MAX).
 CYPHER_NODISCARD geometry_status_t MeshSelection_TrySelectFacesBySize(
