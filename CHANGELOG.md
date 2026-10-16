@@ -323,6 +323,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Command History no longer treats map tool or component-mode activation as
+  repeatable edits. An additive query reports explicitly selected successful
+  entries so callers can preserve command-list precedence. Validation: all four
+  Command History cases / 39 assertions, and the complete editor GUI framework
+  suite, 151 cases / 20,916 assertions. This framework change alone does not
+  publish Mason's separate local modelling-repeat integration.
 - Geometry face replacement now counts planned connected shells before
   reserving capacity. Dense connected grids no longer fail the shell limit
   merely because they contain many faces. Actual disconnected output still

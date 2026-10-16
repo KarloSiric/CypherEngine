@@ -49,6 +49,9 @@ void EditorCommandHistory_Record( QWidget *pPanel, const command_desc_t &command
 // around, files, dialogs, or undo itself.
 CYPHER_NODISCARD bool EditorCommandHistory_IsRepeatable( common::string_view_t commandId ) noexcept;
 
+// True only for an explicit selection containing at least one successful edit.
+CYPHER_NODISCARD bool EditorCommandHistory_HasSelectedRepeatable( QWidget *pPanel );
+
 // Runs the selected entries again in order, or the newest repeatable entry
 // when none is selected. DISABLED when there is nothing to repeat.
 CYPHER_NODISCARD command_result_t EditorCommandHistory_Repeat( QWidget *pPanel );

@@ -98,6 +98,8 @@ TEST_CASE( "Commands that edit are repeatable; looking around, files, and undo a
 {
     CHECK( EditorCommandHistory_IsRepeatable( StringView_FromCString( "map.grid.larger" ) ) );
     CHECK( EditorCommandHistory_IsRepeatable( StringView_FromCString( "edit.delete" ) ) );
+    CHECK_FALSE( EditorCommandHistory_IsRepeatable( StringView_FromCString( "map.tool.rotate" ) ) );
+    CHECK_FALSE( EditorCommandHistory_IsRepeatable( StringView_FromCString( "map.select_mode.edges" ) ) );
     CHECK_FALSE( EditorCommandHistory_IsRepeatable( StringView_FromCString( "view.console" ) ) );
     CHECK_FALSE( EditorCommandHistory_IsRepeatable( StringView_FromCString( "file.save" ) ) );
     CHECK_FALSE( EditorCommandHistory_IsRepeatable( StringView_FromCString( "edit.undo" ) ) );
@@ -128,6 +130,7 @@ TEST_CASE( "Repeat runs the last repeatable command, or the selection in order w
     f.calls.log.clear();
 
     // Nothing selected: the newest repeatable entry.
+    CHECK_FALSE( EditorCommandHistory_HasSelectedRepeatable( f.panel.get() ) );
     CHECK( EditorCommandHistory_Repeat( f.panel.get() ) == command_result_t::OK );
     CHECK( f.calls.log == std::vector<std::string>{ "turn" } );
 
@@ -135,8 +138,21 @@ TEST_CASE( "Repeat runs the last repeatable command, or the selection in order w
     // stair's step-and-turn.
     f.calls.log.clear();
     EditorCommandHistory_SelectRows( f.panel.get(), { 1, 0 } );
+    CHECK( EditorCommandHistory_HasSelectedRepeatable( f.panel.get() ) );
     CHECK( EditorCommandHistory_Repeat( f.panel.get() ) == command_result_t::OK );
     CHECK( f.calls.log == std::vector<std::string>{ "step 16", "turn" } );
     // Repeated commands are recorded again, as in Hammer.
     CHECK( EditorCommandHistory_Rows( f.panel.get() ).size() == 5 );
+}
+
+TEST_CASE( "A selected inspection row does not override modelling repeat", "[editor][gui][command_history][modelling-repeat]" )
+{
+    fixture_t f;
+    REQUIRE( f.Line( "map.test.step 16" ) == command_result_t::OK );
+    REQUIRE( f.Line( "view.test.look" ) == command_result_t::OK );
+    EditorCommandHistory_SetShowAll( f.panel.get(), true );
+    EditorCommandHistory_SelectRows( f.panel.get(), { 1 } );
+    CHECK_FALSE( EditorCommandHistory_HasSelectedRepeatable( f.panel.get() ) );
+    EditorCommandHistory_SelectRows( f.panel.get(), { 0, 1 } );
+    CHECK( EditorCommandHistory_HasSelectedRepeatable( f.panel.get() ) );
 }

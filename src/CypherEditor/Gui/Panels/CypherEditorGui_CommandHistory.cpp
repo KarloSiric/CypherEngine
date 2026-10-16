@@ -45,7 +45,7 @@ namespace
 constexpr int kEntryRole = Qt::UserRole;
 
 // Modules whose commands look, open, or configure rather than edit.
-constexpr const char *kNotRepeatable[]{ "view.", "file.", "tools.", "help.", "console.", "assets.", "edit.undo", "edit.redo", "edit.repeat" };
+constexpr const char *kNotRepeatable[]{ "view.", "file.", "map.tool.", "map.select_mode.", "tools.", "help.", "console.", "assets.", "edit.undo", "edit.redo", "edit.repeat" };
 
 struct entry_t {
     QString id;
@@ -152,6 +152,15 @@ public:
             m_pTree->scrollToBottom();
         }
         UpdateStatus();
+    }
+
+    bool HasSelectedRepeatable() const
+    {
+        for ( const auto *item : m_pTree->selectedItems() ) {
+            const usize index = static_cast<usize>( item->data( 0, kEntryRole ).toULongLong() );
+            if ( index < m_entries.size() && m_entries[index].bRepeatable ) { return true; }
+        }
+        return false;
     }
 
     command_result_t Repeat()
@@ -293,6 +302,12 @@ bool EditorCommandHistory_IsRepeatable( string_view_t commandId ) noexcept
         if ( commandId.cchLength >= prefix.cchLength && StringView_Equals( string_view_t{ commandId.pData, prefix.cchLength }, prefix ) ) { return false; }
     }
     return commandId.cchLength != 0u;
+}
+
+bool EditorCommandHistory_HasSelectedRepeatable( QWidget *pPanel )
+{
+    const auto *impl = AsHistory( pPanel );
+    return impl != nullptr && impl->HasSelectedRepeatable();
 }
 
 command_result_t EditorCommandHistory_Repeat( QWidget *pPanel )
