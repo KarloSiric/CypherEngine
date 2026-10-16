@@ -827,6 +827,11 @@ struct directed_t {
     geometry_mesh_half_edge_handle_t h; // existing half-edge (invalid for new)
 };
 
+struct replacement_component_t {
+    u32 parent;
+    u32 rank;
+};
+
 bool DirectedLess( const directed_t &a, const directed_t &b ) noexcept
 {
     return a.from != b.from ? a.from < b.from : a.to < b.to;
@@ -834,6 +839,7 @@ bool DirectedLess( const directed_t &a, const directed_t &b ) noexcept
 
 const directed_t *FindDirected( const vector_t<directed_t> &v, u64 from, u64 to ) noexcept
 {
+    if ( v.nCount == 0u ) { return nullptr; }
     const directed_t key{ from, to, 0u, {} };
     const directed_t *pBegin = v.pData, *pEnd = pBegin + v.nCount;
     const directed_t *p = std::lower_bound( pBegin, pEnd, key, DirectedLess );
@@ -1121,9 +1127,11 @@ mesh_boundary_replace_result_t MeshBoundary_ReplaceFaces(
          ( pNewFacesOut != nullptr && pNewFacesOut->pAllocator == nullptr ) || ( removeFaces.nCount == 0u && F == 0u ) ) {
         return r;
     }
+    if ( F > CY_U32_MAX ) { r.status = geometry_status_t::LIMIT_EXCEEDED; return r; }
     usize cTotal = 0u;
     for ( usize f = 0u; f < F; ++f ) {
         if ( faceSizes.pData[f] < 3u || faceSizes.pData[f] > kMeshBoundaryLoopMax ) { return r; }
+        if ( faceSizes.pData[f] > CY_U32_MAX - cTotal ) { r.status = geometry_status_t::LIMIT_EXCEEDED; return r; }
         cTotal += faceSizes.pData[f];
     }
     if ( cTotal != faceCorners.nCount ) { return r; }
@@ -1136,6 +1144,8 @@ mesh_boundary_replace_result_t MeshBoundary_ReplaceFaces(
 
     const allocator_t *pA = pMesh->pAllocator;
     vector_t<u8> dead{}, heDead{}, vTouched{}, fixMask{}, newUsed{};
+    vector_t<u32> cornerFaces{};
+    vector_t<replacement_component_t> components{};
     vector_t<directed_t> existing{}, fresh{};
     vector_t<fan_corner_t> corners{};
     vector_t<geometry_mesh_half_edge_handle_t> doomedHe{}, created{};
@@ -1149,6 +1159,8 @@ mesh_boundary_replace_result_t MeshBoundary_ReplaceFaces(
         Vector_Shutdown( &vTouched );
         Vector_Shutdown( &fixMask );
         Vector_Shutdown( &newUsed );
+        Vector_Shutdown( &cornerFaces );
+        Vector_Shutdown( &components );
         Vector_Shutdown( &existing );
         Vector_Shutdown( &fresh );
         Vector_Shutdown( &corners );
@@ -1168,10 +1180,12 @@ mesh_boundary_replace_result_t MeshBoundary_ReplaceFaces(
     };
     if ( !Vector_Init( &dead, pA ) || !Vector_Init( &heDead, pA ) || !Vector_Init( &vTouched, pA ) ||
          !Vector_Init( &fixMask, pA ) || !Vector_Init( &newUsed, pA ) || !Vector_Init( &existing, pA ) ||
+         !Vector_Init( &cornerFaces, pA ) || !Vector_Init( &components, pA ) ||
          !Vector_Init( &fresh, pA ) || !Vector_Init( &corners, pA ) || !Vector_Init( &doomedHe, pA ) ||
          !Vector_Init( &created, pA ) || !Vector_Init( &doomedEdges, pA ) || !Vector_Init( &doomedVertices, pA ) ||
          !Vector_Init( &newHandles, pA ) || !Vector_Init( &ring, pA ) || !Vector_Reserve( &fresh, cTotal ) ||
          !Vector_Resize( &newUsed, newPositions.nCount ) || !Vector_Resize( &newHandles, newPositions.nCount ) ||
+         !Vector_Resize( &cornerFaces, cTotal ) ||
          !Vector_Resize( &created, cTotal ) || !Vector_Reserve( &ring, kMeshBoundaryLoopMax ) ||
          !Vector_Resize( &heDead, pMesh->halfEdges.cSlots ) || !Vector_Resize( &vTouched, pMesh->vertices.cSlots ) ) {
         return fail( geometry_status_t::ALLOCATION_FAILED );
@@ -1229,6 +1243,7 @@ mesh_boundary_replace_result_t MeshBoundary_ReplaceFaces(
                 if ( keyOf( faceCorners.pData[iBase + m] ) == keyOf( c ) ) { return fail( geometry_status_t::INVALID_ARGUMENT ); }
             }
             (void)Vector_PushBack( &ring, posOf( c ) );
+            cornerFaces.pData[iBase + k] = static_cast<u32>( f );
             const mesh_boundary_corner_t &next = faceCorners.pData[iBase + ( k + 1u ) % n];
             (void)Vector_PushBack( &fresh, directed_t{ keyOf( c ), keyOf( next ), static_cast<u32>( iBase + k ), {} } );
         }
@@ -1332,14 +1347,49 @@ mesh_boundary_replace_result_t MeshBoundary_ReplaceFaces(
     if ( st == geometry_status_t::OK && !PrepareScratch( &scratch, pMesh, pMesh->faces.cSlots, cFacesAfter + 1u ) ) {
         st = geometry_status_t::ALLOCATION_FAILED;
     }
-    // Shells after: the surviving faces' components, plus at most one per
-    // new face (a new face either joins a component or starts one).
+    // Count the planned face graph, not its worst-case node count. A dense
+    // quad grid can add hundreds of connected faces while still needing
+    // only one shell. Surviving components are nodes, as is each new face;
+    // the validated reverse-edge pairs give their exact connections.
     u32 cShellsAfter = 0u;
     if ( st == geometry_status_t::OK ) {
-        cShellsAfter = LabelComponents(
-                           pMesh, &scratch, [&]( geometry_mesh_face_handle_t f ) noexcept { return dead.pData[f.nSlot] != 0u; },
-                           []( geometry_mesh_half_edge_handle_t ) noexcept { return false; } ) +
-                       static_cast<u32>( F );
+        const u32 cSurvivors = LabelComponents(
+            pMesh, &scratch, [&]( geometry_mesh_face_handle_t f ) noexcept { return dead.pData[f.nSlot] != 0u; },
+            []( geometry_mesh_half_edge_handle_t ) noexcept { return false; } );
+        if ( F > CY_U32_MAX - cSurvivors ) { return fail( geometry_status_t::LIMIT_EXCEEDED ); }
+        const u32 cNodes = cSurvivors + static_cast<u32>( F );
+        if ( !Vector_Resize( &components, cNodes ) ) { return fail( geometry_status_t::ALLOCATION_FAILED ); }
+        for ( u32 i = 0u; i < cNodes; ++i ) { components.pData[i] = { i, 0u }; }
+        cShellsAfter = cNodes;
+        const auto root = [&]( u32 node ) noexcept {
+            while ( components.pData[node].parent != node ) {
+                components.pData[node].parent = components.pData[components.pData[node].parent].parent;
+                node = components.pData[node].parent;
+            }
+            return node;
+        };
+        const auto join = [&]( u32 a, u32 b ) noexcept {
+            a = root( a ); b = root( b );
+            if ( a == b ) { return; }
+            if ( components.pData[a].rank < components.pData[b].rank ) { std::swap( a, b ); }
+            components.pData[b].parent = a;
+            if ( components.pData[a].rank == components.pData[b].rank ) { ++components.pData[a].rank; }
+            --cShellsAfter;
+        };
+        for ( usize i = 0u; i < fresh.nCount; ++i ) {
+            const auto &edge = fresh.pData[i];
+            const u32 node = cSurvivors + cornerFaces.pData[edge.index];
+            if ( const auto *reverse = FindDirected( existing, edge.to, edge.from ) ) {
+                const auto face = FaceOf( pMesh, reverse->h );
+                if ( !GenerationPool_Contains( &pMesh->faces, face ) || face.nSlot >= dead.nCount ||
+                     dead.pData[face.nSlot] != 0u || scratch.labels.pData[face.nSlot] >= cSurvivors ) {
+                    return fail( geometry_status_t::CORRUPT_STATE );
+                }
+                join( node, scratch.labels.pData[face.nSlot] );
+            } else if ( const auto *reverse = FindDirected( fresh, edge.to, edge.from ) ) {
+                join( node, cSurvivors + cornerFaces.pData[reverse->index] );
+            }
+        }
         st = ReserveForRebuild( &pMesh->shells, cShellsAfter );
     }
     if ( st == geometry_status_t::OK &&

@@ -129,6 +129,29 @@ void FailFree( void *pUserData, void *pMemory, common::usize cbSize, common::usi
     common::Allocator_Free( common::Allocator_GetSystem(), pMemory, cbSize, nAlignment );
 }
 
+void SetSingleShellLimit( Src &source, common::usize limit ) {
+    auto &mesh = source.s.mesh;
+    REQUIRE( EditableMesh_ShellCount( &mesh ) == 1u );
+    mesh_shell_record_t record{};
+    (void)common::GenerationPool_ForEach( &mesh.shells,
+        [&]( geometry_mesh_shell_handle_t, const mesh_shell_record_t &shell ) noexcept -> common::bool_t {
+            record = shell; return true;
+        } );
+    // A grown pool cannot simply have its limit lowered below cSlots.
+    // Rebuild the one-shell fixture with a valid tight pool instead.
+    common::GenerationPool_Shutdown( &mesh.shells );
+    REQUIRE( common::GenerationPool_Init( &mesh.shells, &source.allocator, limit, 1u ) == common::generation_pool_status_t::OK );
+    const auto shell = common::GenerationPool_Insert( &mesh.shells, record );
+    REQUIRE( shell.status == common::generation_pool_status_t::OK );
+    (void)common::GenerationPool_ForEach( &mesh.faces,
+        [&]( geometry_mesh_face_handle_t, mesh_face_record_t &face ) noexcept -> common::bool_t {
+            face.hShell = shell.handle; return true;
+        } );
+    mesh.limits.cShellMax = limit;
+    REQUIRE( common::GenerationPool_IsValid( &mesh.shells ) );
+    REQUIRE( MeshSource_Validate( &source.s, &source.allocator ).fault == mesh_source_fault_t::NONE );
+}
+
 } // namespace
 
 TEST_CASE( "Quad slice cuts a quad into an even grid", "[geometry][quadslice]" ) {
@@ -312,6 +335,49 @@ TEST_CASE( "Every quad slice allocation failure is atomic", "[geometry][quadslic
         }
         CHECK( state.cSuccessfulAllocations == state.cFrees );
     }
+}
+
+TEST_CASE( "A dense connected quad slice reserves its actual shell count", "[geometry][quadslice][replacement-shell-count]" ) {
+    for ( const common::usize limit : { 1u, 256u } ) {
+        DYNAMIC_SECTION( "shell limit=" << limit ) {
+            Src m; m.Box(); m.Build(); SetSingleShellLimit( m, limit );
+            const auto top = m.Face( 1001u );
+            const auto result = MeshQuadSlice_Faces( &m.s.mesh, { &top, 1u }, 16u, 16u, nullptr );
+            REQUIRE( result.status == geometry_status_t::OK );
+            CHECK( result.cNeighborsRebuilt == 4u );
+            CHECK( EditableMesh_FaceCount( &m.s.mesh ) == 261u );
+            CHECK( EditableMesh_VertexCount( &m.s.mesh ) == 293u );
+            CHECK( EditableMesh_ShellCount( &m.s.mesh ) == 1u );
+            CHECK( MeshBoundary_CountBoundaryEdges( &m.s.mesh ) == 0u );
+            CHECK( EditableMesh_SignedVolume( &m.s.mesh ) == Approx( 1.0 ) );
+            m.Valid();
+        }
+    }
+}
+
+TEST_CASE( "Face replacement still refuses genuinely disconnected output above the shell limit", "[geometry][quadslice][replacement-shell-count]" ) {
+    Src m;
+    const common::u32 a = m.V( 0, 0, 0 ), b = m.V( 1, 0, 0 ), c = m.V( 1, 1, 0 ), d = m.V( 0, 1, 0 );
+    m.F( { a, b, c, d } ); m.Build(); SetSingleShellLimit( m, 1u );
+    const auto original = m.Face( 1000u );
+    const math::vec3d_t positions[]{ { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 3, 0, 0 }, { 4, 0, 0 }, { 3, 1, 0 } };
+    const common::u32 sizes[]{ 3u, 3u };
+    mesh_boundary_corner_t corners[6]{};
+    for ( common::u32 i = 0u; i < 6u; ++i ) { corners[i].iNew = i; }
+    common::vector_t<geometry_mesh_face_handle_t> output{};
+    REQUIRE( common::Vector_Init( &output, &m.allocator ) ); REQUIRE( common::Vector_PushBack( &output, original ) );
+    Desc before, after; m.Snapshot( &before.d );
+    const auto rejected = MeshBoundary_ReplaceFaces( &m.s.mesh, { &original, 1u }, { corners, 6u }, { sizes, 2u }, { positions, 6u }, &output );
+    CHECK( rejected.status == geometry_status_t::LIMIT_EXCEEDED );
+    m.Snapshot( &after.d ); CHECK( MeshSourceDescription_Equal( &before.d, &after.d ) );
+    REQUIRE( output.nCount == 1u ); CHECK( output.pData[0].nSlot == original.nSlot ); CHECK( output.pData[0].nGeneration == original.nGeneration );
+    CHECK( EditableMesh_ShellCount( &m.s.mesh ) == 1u ); m.Valid();
+
+    SetSingleShellLimit( m, 2u );
+    const auto accepted = MeshBoundary_ReplaceFaces( &m.s.mesh, { &original, 1u }, { corners, 6u }, { sizes, 2u }, { positions, 6u }, &output );
+    REQUIRE( accepted.status == geometry_status_t::OK );
+    CHECK( output.nCount == 3u ); CHECK( EditableMesh_ShellCount( &m.s.mesh ) == 2u );
+    CHECK( EditableMesh_FaceCount( &m.s.mesh ) == 2u ); CHECK( MeshBoundary_CountBoundaryEdges( &m.s.mesh ) == 6u ); m.Valid();
 }
 
 } // namespace cypher::editor::geometry

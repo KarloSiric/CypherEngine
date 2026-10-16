@@ -323,6 +323,13 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Geometry face replacement now counts planned connected shells before
+  reserving capacity. Dense connected grids no longer fail the shell limit
+  merely because they contain many faces. Actual disconnected output still
+  rejects before mutation when over the limit; allocation failure preserves
+  the mesh and output. Validation: complete local Geometry suite, 1,282 cases /
+  379,177 assertions; focused boundary/slice/raycast checks, 73 cases /
+  19,391 assertions, including tight shell limits and allocation sweeps.
 - Geometry raycasts expose opt-in projected-triangle authoring queries for
   warped simple polygons while retaining strict planar defaults. Mesh slicing
   exposes opt-in capping of originally closed shells while preserving open
