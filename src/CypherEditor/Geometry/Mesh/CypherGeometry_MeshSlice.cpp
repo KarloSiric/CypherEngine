@@ -413,24 +413,64 @@ geometry_status_t PlanCaps(
     i8 keptSide,
     const math::planed_t &unitPlane,
     const allocator_t *pA,
+    bool closedShellsOnly,
     vector_t<u64> *pCapKeys,
     vector_t<u32> *pCapSizes ) noexcept
 {
+    // Shell records already identify the original connected components.
+    // Classify before replacement: a cut creates new boundary edges, which
+    // must not make a formerly closed solid ineligible for its own cap.
+    vector_t<u8> closedShells{};
+    if ( closedShellsOnly ) {
+        if ( !Vector_Init( &closedShells, pA ) || !Vector_Resize( &closedShells, pMesh->shells.cSlots ) ) {
+            return geometry_status_t::ALLOCATION_FAILED;
+        }
+        for ( usize i = 0u; i < closedShells.nCount; ++i ) { closedShells.pData[i] = 1u; }
+        bool valid = true;
+        (void)GenerationPool_ForEach( &pMesh->faces,
+            [&]( geometry_mesh_face_handle_t, const mesh_face_record_t &face ) noexcept -> bool_t {
+                valid = GenerationPool_Contains( &pMesh->shells, face.hShell ) && face.hShell.nSlot < closedShells.nCount;
+                return valid;
+            } );
+        if ( !valid ) { return geometry_status_t::CORRUPT_STATE; }
+        (void)GenerationPool_ForEach( &pMesh->halfEdges,
+            [&]( geometry_mesh_half_edge_handle_t h, const mesh_half_edge_record_t &edge ) noexcept -> bool_t {
+                const auto *face = GenerationPool_Get( &pMesh->faces, FaceOf( pMesh, h ) );
+                if ( face == nullptr || !GenerationPool_Contains( &pMesh->shells, face->hShell ) || face->hShell.nSlot >= closedShells.nCount ) {
+                    valid = false; return false;
+                }
+                if ( !GeometryHandle_IsValid( edge.hTwin ) ) { closedShells.pData[face->hShell.nSlot] = 0u; return true; }
+                const auto *twin = He( pMesh, edge.hTwin );
+                const auto *neighbor = twin != nullptr ? GenerationPool_Get( &pMesh->faces, FaceOf( pMesh, edge.hTwin ) ) : nullptr;
+                valid = twin != nullptr && Same( twin->hTwin, h ) && neighbor != nullptr && Same( neighbor->hShell, face->hShell );
+                return valid;
+            } );
+        if ( !valid ) { return geometry_status_t::CORRUPT_STATE; }
+    }
+    const auto eligible = [&]( geometry_mesh_face_handle_t hFace ) noexcept {
+        return !closedShellsOnly || closedShells.pData[GenerationPool_Get( &pMesh->faces, hFace )->hShell.nSlot] != 0u;
+    };
     vector_t<dart_t> kept{}, gone{}, cap{};
     if ( !Vector_Init( &kept, pA ) || !Vector_Init( &gone, pA ) || !Vector_Init( &cap, pA ) ) {
         return geometry_status_t::ALLOCATION_FAILED;
     }
     for ( usize i = 0u; i < p.keptWhole.nCount; ++i ) {
+        if ( !eligible( p.keptWhole.pData[i] ) ) { continue; }
         if ( !AppendPlaneDarts( pMesh, p, p.keptWhole.pData[i], &kept ) ) { return geometry_status_t::ALLOCATION_FAILED; }
     }
     for ( usize i = 0u; i < p.discarded.nCount; ++i ) {
+        if ( !eligible( p.discarded.pData[i] ) ) { continue; }
         if ( !AppendPlaneDarts( pMesh, p, p.discarded.pData[i], &gone ) ) { return geometry_status_t::ALLOCATION_FAILED; }
     }
     for ( usize i = 0u; i < p.pieces.nCount; ++i ) {
+        if ( !eligible( p.pieces.pData[i].hSource ) ) { continue; }
         if ( !AppendPieceDarts( p, p.pieces.pData[i], p.pieces.pData[i].side == keptSide ? &kept : &gone ) ) {
             return geometry_status_t::ALLOCATION_FAILED;
         }
     }
+    // With only open shells eligible inputs can be empty. No matching
+    // kept/discarded dart pair means no cap, and needs no null range sort.
+    if ( kept.nCount == 0u || gone.nCount == 0u ) { return geometry_status_t::OK; }
     std::sort( kept.pData, kept.pData + kept.nCount, DartLess );
     for ( usize i = 0u; i < gone.nCount; ++i ) {
         const dart_t reverse{ gone.pData[i].to, gone.pData[i].from };
@@ -702,7 +742,7 @@ mesh_slice_result_t MeshSlice_ByPlane(
     }
     if ( cPieces == 0u && plan.keptWhole.nCount == 0u ) { return fail( geometry_status_t::DEGENERATE ); } // clips everything
     if ( params.bCap ) {
-        const geometry_status_t s = PlanCaps( pMesh, plan, keptSide, unitPlane, pA, &capKeys, &capSizes );
+        const geometry_status_t s = PlanCaps( pMesh, plan, keptSide, unitPlane, pA, params.bCapClosedShellsOnly, &capKeys, &capSizes );
         if ( s != geometry_status_t::OK ) { return fail( s ); }
         for ( usize i = 0u; i < capKeys.nCount; ++i ) {
             if ( !Vector_PushBack( &corners, CornerOfKey( capKeys.pData[i] ) ) ) { return fail( geometry_status_t::ALLOCATION_FAILED ); }

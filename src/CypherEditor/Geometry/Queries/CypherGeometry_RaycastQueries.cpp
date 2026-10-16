@@ -78,7 +78,9 @@ geometry_status_t ValidateQuery(
          !std::isfinite( options.fMaximumDistance ) ||
          options.fMinimumDistance < 0.0 ||
          options.fMaximumDistance < options.fMinimumDistance ||
-         !IsCullModeValid( options.cullMode ) ) {
+         !IsCullModeValid( options.cullMode ) ||
+         static_cast<common::u8>( options.meshSurfaceMode ) >=
+             static_cast<common::u8>( geometry_mesh_raycast_surface_t::COUNT ) ) {
         return geometry_status_t::INVALID_ARGUMENT;
     }
     return geometry_status_t::OK;
@@ -1004,7 +1006,8 @@ geometry_status_t MeshQueries_TryRaycast(
                 status = geometry_status_t::DEGENERATE;
                 return false;
             }
-            if ( !math::Polygon3d_IsPlanar(
+            if ( options.meshSurfaceMode == geometry_mesh_raycast_surface_t::PLANAR_ONLY &&
+                 !math::Polygon3d_IsPlanar(
                      pPositions, cFaceVertices, basis,
                      policy.numerical.fPlanarityTolerance ) ) {
                 status = geometry_status_t::NON_PLANAR;
@@ -1072,11 +1075,22 @@ geometry_status_t MeshQueries_TryRaycast(
                     return false;
                 }
 
+                math::vec3d_t normal = basis.normal;
+                if ( options.meshSurfaceMode == geometry_mesh_raycast_surface_t::PROJECTED_TRIANGLES &&
+                     !math::Vec3d_TryNormalize(
+                         math::Vec3d_Cross(
+                             math::Vec3d_Subtract( pPositions[iB], pPositions[iA] ),
+                             math::Vec3d_Subtract( pPositions[iC], pPositions[iA] ) ),
+                         fMinimumNormalLength, &normal, nullptr ) ) {
+                    status = geometry_status_t::NUMERIC_FAILURE;
+                    return false;
+                }
+
                 best = {};
                 best.bHit = true;
                 best.fDistance = triangleHit.fDistance;
                 best.position = position;
-                best.normal = basis.normal;
+                best.normal = normal;
                 best.barycentric = triangleHit.barycentric;
                 best.meshSourceId = meshSourceId;
                 best.hShell = face.hShell;

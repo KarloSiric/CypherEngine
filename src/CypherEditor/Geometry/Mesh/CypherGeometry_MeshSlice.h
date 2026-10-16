@@ -35,6 +35,11 @@
 //           single loop. Outline vertices where the cap boundary branches
 //           (kept parts touching at a point in the plane) are
 //           NON_MANIFOLD.
+//           The optional closed-shell policy caps only shells that were
+//           closed before the cut. Open modelling sheets are still clipped,
+//           but their boundaries do not participate in cap construction.
+//           Closed outer and cavity shells are considered together, retaining
+//           holes in the cap instead of filling a cavity independently.
 //
 //           The whole result is planned first and applied with one
 //           MeshBoundary_ReplaceFaces call, so the cut is failure-atomic.
@@ -69,6 +74,7 @@ struct mesh_slice_params_t {
     mesh_slice_keep_t keep{ mesh_slice_keep_t::BOTH };
     bool bCap{ false };                // clip only: close the opening
     common::f64 onPlaneTolerance{ 1e-9 };
+    bool bCapClosedShellsOnly{ false }; // opt-in: leave originally open shells uncapped
 };
 
 enum class mesh_slice_face_role_t : common::u8 {
@@ -102,7 +108,7 @@ struct mesh_slice_result_t {
 // INVALID_ARGUMENT / DEGENERATE; a clip that would remove every face, a
 // face that cannot be cut consistently, or a piece or cap too small to
 // describe, or an opening that does not close (a capped clip of an open
-// mesh) -> DEGENERATE; branching cap outlines or a result with a pinched
+// mesh under the default strict cap policy) -> DEGENERATE; branching cap outlines or a result with a pinched
 // vertex -> NON_MANIFOLD; a piece over the source's corner limit ->
 // LIMIT_EXCEEDED (a cap outline over it is triangulated instead).
 // pFacesOut (optional, initialized) receives every new face.

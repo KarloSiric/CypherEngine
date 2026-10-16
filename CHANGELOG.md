@@ -21,7 +21,7 @@
 
 All notable changes to CypherEngine and the REAP game/runtime direction are tracked here.
 
-## [Unreleased] - 2026-10-15
+## [Unreleased] - 2026-10-17
 
 ### Added
 
@@ -323,6 +323,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Geometry raycasts expose opt-in projected-triangle authoring queries for
+  warped simple polygons while retaining strict planar defaults. Mesh slicing
+  exposes opt-in capping of originally closed shells while preserving open
+  sheets and nested cavity holes. Validation: 36 local slice/raycast contract
+  cases / 13,328 assertions, including allocation-failure checks. These are
+  library policies; Mason call-site integration is a separate local checkpoint.
 - World camera and opaque draw preflight now rejects a color-write-disabled
   material pipeline before staging uniforms or publishing draws. The cooked
   material apply helper already rejects winding mismatches; that contract has

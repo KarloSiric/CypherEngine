@@ -449,6 +449,56 @@ TEST_CASE( "Slice rejects bad parameters and leaves the mesh unchanged", "[geome
     CHECK( MeshSourceDescription_Equal( &before.d, &after.d ) );
 }
 
+TEST_CASE( "Closed-shell cap policy preserves open sheets and nested cavity openings", "[geometry][meshslice][clip-shell-caps]" ) {
+    for ( const bool cavity : { false, true } ) {
+        DYNAMIC_SECTION( "cavity=" << cavity ) {
+            Src m;
+            m.Box( Vec3d_Make( 0, 0, 0 ), Vec3d_Make( 4, 4, 4 ) );
+            if ( cavity ) { m.Box( Vec3d_Make( 1, 1, 1 ), Vec3d_Make( 3, 3, 3 ), true ); }
+            const common::u32 sheet[]{ m.V( 8, 0, 0 ), m.V( 8, 2, 0 ), m.V( 8, 2, 4 ), m.V( 8, 0, 4 ) };
+            m.F( { sheet[0], sheet[1], sheet[2], sheet[3] } ); m.Build();
+            Desc before, rejected; m.Snapshot( &before.d );
+            auto params = Params( Vec3d_Make( 0, 0, 1 ), -2, mesh_slice_keep_t::BACK, true );
+            // The existing low-level strict contract remains explicit: an
+            // open crossing sheet cannot form a closed cap outline.
+            CHECK( MeshSlice_ByPlane( &m.s.mesh, params, nullptr ).status == geometry_status_t::DEGENERATE );
+            m.Snapshot( &rejected.d ); CHECK( MeshSourceDescription_Equal( &before.d, &rejected.d ) );
+            params.bCapClosedShellsOnly = true;
+            common::vector_t<mesh_slice_face_t> faces{}; REQUIRE( common::Vector_Init( &faces, &m.allocator ) );
+            const auto result = MeshSlice_ByPlane( &m.s.mesh, params, &faces );
+            REQUIRE( result.status == geometry_status_t::OK );
+            CHECK( result.cCapFaces == ( cavity ? 8u : 1u ) );
+            CHECK( MeshBoundary_CountBoundaryEdges( &m.s.mesh ) == 4u );
+            CHECK( EditableMesh_ShellCount( &m.s.mesh ) == 2u );
+            double capArea = 0;
+            for ( common::usize i = 0; i < faces.nCount; ++i ) {
+                if ( faces.pData[i].role != mesh_slice_face_role_t::CAP ) { continue; }
+                CHECK( common::GenerationPool_Get( &m.s.mesh.faces, faces.pData[i].hFace )->normal.z == Approx( 1 ) );
+                capArea += Area( &m.s.mesh, faces.pData[i].hFace );
+            }
+            CHECK( capArea == Approx( cavity ? 12.0 : 16.0 ) );
+            m.Valid();
+        }
+    }
+}
+
+TEST_CASE( "An originally open shell stays uncapped even when its cut ring closes", "[geometry][meshslice][clip-shell-caps]" ) {
+    Src m; m.Box( Vec3d_Make( 0, 0, 0 ), Vec3d_Make( 4, 4, 4 ) ); m.Build();
+    geometry_mesh_face_handle_t top{};
+    (void)common::GenerationPool_ForEach( &m.s.mesh.faces,
+        [&]( geometry_mesh_face_handle_t h, const mesh_face_record_t &face ) noexcept -> common::bool_t {
+            if ( face.normal.z > 0.5 ) { top = h; }
+            return true;
+        } );
+    REQUIRE( GeometryHandle_IsValid( top ) );
+    REQUIRE( MeshBoundary_DeleteFaces( &m.s.mesh, { &top, 1u } ).status == geometry_status_t::OK );
+    REQUIRE( MeshBoundary_CountBoundaryEdges( &m.s.mesh ) == 4u );
+    auto params = Params( Vec3d_Make( 0, 0, 1 ), -2, mesh_slice_keep_t::BACK, true ); params.bCapClosedShellsOnly = true;
+    const auto result = MeshSlice_ByPlane( &m.s.mesh, params, nullptr );
+    REQUIRE( result.status == geometry_status_t::OK ); CHECK( result.cCapFaces == 0u );
+    CHECK( EditableMesh_FaceCount( &m.s.mesh ) == 5u ); CHECK( MeshBoundary_CountBoundaryEdges( &m.s.mesh ) == 4u ); m.Valid();
+}
+
 TEST_CASE( "Source slice: pieces keep material and UVs, the largest keeps the ID", "[geometry][meshslice][meshedit]" ) {
     Src m;
     m.Box( Vec3d_Make( 0, 0, 0 ), Vec3d_Make( 1, 1, 1 ) );
@@ -537,13 +587,16 @@ TEST_CASE( "Source slice: pieces keep material and UVs, the largest keeps the ID
     common::Vector_Shutdown( &faces );
 }
 
-TEST_CASE( "Every slice allocation failure is atomic", "[geometry][meshslice][allocation]" ) {
+TEST_CASE( "Every closed-shell slice allocation failure is atomic", "[geometry][meshslice][allocation][clip-shell-caps]" ) {
     auto run = []( Src &m ) {
-        return MeshSlice_ByPlane( &m.s.mesh, Params( Vec3d_Make( 0, 0, 1 ), -2.0, mesh_slice_keep_t::BACK, true ), nullptr );
+        auto params = Params( Vec3d_Make( 0, 0, 1 ), -2.0, mesh_slice_keep_t::BACK, true ); params.bCapClosedShellsOnly = true;
+        return MeshSlice_ByPlane( &m.s.mesh, params, nullptr );
     };
     auto build = []( Src &m ) {
         m.Box( Vec3d_Make( 0, 0, 0 ), Vec3d_Make( 4, 4, 4 ) );
         m.Box( Vec3d_Make( 1, 1, 1 ), Vec3d_Make( 3, 3, 3 ), true );
+        const common::u32 sheet[]{ m.V( 8, 0, 0 ), m.V( 8, 2, 0 ), m.V( 8, 2, 4 ), m.V( 8, 0, 4 ) };
+        m.F( { sheet[0], sheet[1], sheet[2], sheet[3] } );
         m.Build();
     };
     common::usize cOperationAllocations = 0u;

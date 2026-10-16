@@ -45,6 +45,15 @@ enum class geometry_raycast_cull_mode_t : common::u8 {
     COUNT
 };
 
+enum class geometry_mesh_raycast_surface_t : common::u8 {
+    PLANAR_ONLY = 0u,
+    // Authoring mode: triangulate the simple polygon projected into its
+    // Newell basis, then intersect those triangles at their original 3D
+    // positions. This does not repair or modify the authored polygon.
+    PROJECTED_TRIANGLES,
+    COUNT
+};
+
 struct geometry_raycast_options_t {
     // The lower bound is inclusive after the query raises it to the policy's
     // absolute distance tolerance. Consequently every reported hit is strictly
@@ -53,6 +62,9 @@ struct geometry_raycast_options_t {
     common::f64 fMaximumDistance{ 1.0e6 };
     geometry_raycast_cull_mode_t cullMode{
         geometry_raycast_cull_mode_t::NONE };
+    // Mesh queries only. Brush boundaries keep their planar-solid contract.
+    geometry_mesh_raycast_surface_t meshSurfaceMode{
+        geometry_mesh_raycast_surface_t::PLANAR_ONLY };
 };
 
 // OK plus bHit=false is the ordinary no-intersection result. Every error also
@@ -82,7 +94,7 @@ struct mesh_raycast_hit_t {
     common::bool_t bHit{ false };
     common::f64 fDistance{ 0.0 };
     math::vec3d_t position{};
-    math::vec3d_t normal{};       // Winding-derived outward unit normal.
+    math::vec3d_t normal{};       // Unit polygon normal; triangle normal in PROJECTED_TRIANGLES mode.
     math::vec3d_t barycentric{};  // Weights for hVertex0/1/2.
 
     geometry_source_id_t meshSourceId{};
@@ -126,8 +138,13 @@ MeshQueries_TryGetRaycastScratchSize(
     const geometry_policy_t &policy,
     common::usize *pBytesOut ) noexcept;
 
-// Triangulates every simple planar mesh face with the shared binary64 polygon
-// ear clipper, then tests all emitted triangles. Open surfaces are accepted;
+// Triangulates every simple mesh face with the shared binary64 polygon ear
+// clipper, then tests all emitted triangles. PLANAR_ONLY remains the default
+// and rejects an entire query if any face is nonplanar. PROJECTED_TRIANGLES
+// explicitly allows warped authoring faces whose Newell-basis projection is
+// simple and nondegenerate; it reports the hit triangle's winding normal.
+// Self-intersections, invalid topology, numeric and scratch failures still
+// reject the complete query and leave pHitOut neutral. Open surfaces are accepted;
 // all present twins, face loops and vertex/edge/shell links must remain valid.
 // Queries do not require genus zero or positive enclosed volume. The query performs no heap
 // allocation: non-empty meshes require initialized Geometry scratch. All scratch

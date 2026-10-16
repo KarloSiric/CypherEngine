@@ -79,11 +79,11 @@ struct OpenQuadFixture {
     geometry_policy_t policy{};
     mesh_source_t source{};
 
-    OpenQuadFixture()
+    explicit OpenQuadFixture( bool warped = false )
     {
         mesh_source_description_t desc{};
         REQUIRE( MeshSourceDescription_Init( &desc, &allocator, { 1200u } ) == geometry_status_t::OK );
-        const math::vec3d_t positions[]{ { 256, 256, 0 }, { 384, 256, 0 }, { 384, 384, 48 }, { 256, 384, 48 } };
+        const math::vec3d_t positions[]{ { 256, 256, 0 }, { 384, 256, 0 }, { 384, 384, 48 }, { 256, 384, warped ? 80.0 : 48.0 } };
         for ( common::u32 i = 0; i < 4; ++i ) {
             REQUIRE( MeshSourceDescription_TryAddVertex( &desc, positions[i], { 1201u + i }, nullptr ) == geometry_status_t::OK );
         }
@@ -591,11 +591,103 @@ TEST_CASE( "RaycastQueries: allowing boundary twins preserves malformed topology
     common::usize bytes = 99;
     CHECK( MeshQueries_TryGetRaycastScratchSize( &mesh, f.policy, &bytes ) == geometry_status_t::INVALID_TOPOLOGY );
     CHECK( bytes == 0u );
+    for ( const auto mode : { geometry_mesh_raycast_surface_t::PLANAR_ONLY, geometry_mesh_raycast_surface_t::PROJECTED_TRIANGLES } ) {
+        auto options = DefaultOptions(); options.meshSurfaceMode = mode;
+        mesh_raycast_hit_t hit{};
+        hit.bHit = true;
+        CHECK( MeshQueries_TryRaycast( &mesh, f.source.sourceId, { { 320, 320, 88 }, { 0, 0, -1 } },
+            options, f.policy, nullptr, &hit ) == geometry_status_t::INVALID_TOPOLOGY );
+        CHECK_FALSE( hit.bHit );
+    }
+}
+
+TEST_CASE( "RaycastQueries: warped authoring faces require an explicit triangle surface policy",
+           "[RaycastQueries][Queries][warped-authoring-pick]" )
+{
+    OpenQuadFixture f( true );
+    common::usize bytes = 0u;
+    REQUIRE( MeshQueries_TryGetRaycastScratchSize( &f.source.mesh, f.policy, &bytes ) == geometry_status_t::OK );
+    geometry_scratch_t scratch{};
+    std::vector<common::byte> storage;
+    REQUIRE( AcquireScratch( &scratch, &storage, bytes, &f.allocator ) == geometry_status_t::OK );
+
+    // The convex projected ring clips the first ear (3,0,1), leaving (1,2,3).
+    // Their actual 3D slopes differ. A polygon-average normal or planar hit
+    // approximation must not replace the point and normal of either triangle.
+    const math::vec3d_t positions[]{ { 256, 256, 0 }, { 384, 256, 0 }, { 384, 384, 48 }, { 256, 384, 80 } };
+    const common::u32 triangles[][3]{ { 3u, 0u, 1u }, { 1u, 2u, 3u } };
+    for ( common::u32 triangle = 0; triangle < 2u; ++triangle ) {
+        CAPTURE( triangle );
+        const auto a = positions[triangles[triangle][0]], b = positions[triangles[triangle][1]], c = positions[triangles[triangle][2]];
+        const math::vec3d_t point{ ( a.x + b.x + c.x ) / 3.0, ( a.y + b.y + c.y ) / 3.0, ( a.z + b.z + c.z ) / 3.0 };
+        math::vec3d_t normal{};
+        REQUIRE( math::Vec3d_TryNormalize( math::Vec3d_Cross( math::Vec3d_Subtract( b, a ), math::Vec3d_Subtract( c, a ) ), 0.0, &normal, nullptr ) );
+        for ( const common::f64 side : { -1.0, 1.0 } ) {
+            CAPTURE( side );
+            const geometry_raycast_ray_t ray{ { point.x, point.y, point.z + side * 64.0 }, { 0, 0, -side } };
+            mesh_raycast_hit_t hit{}; hit.bHit = true; hit.fDistance = 1.0;
+            REQUIRE( MeshQueries_TryRaycast( &f.source.mesh, f.source.sourceId, ray, DefaultOptions(), f.policy, &scratch, &hit ) == geometry_status_t::NON_PLANAR );
+            CHECK_FALSE( hit.bHit ); CHECK( hit.fDistance == 0.0 ); CHECK_FALSE( GeometryHandle_IsValid( hit.hFace ) );
+            RequireScratchEmpty( scratch );
+
+            auto options = DefaultOptions();
+            options.meshSurfaceMode = geometry_mesh_raycast_surface_t::PROJECTED_TRIANGLES;
+            for ( const auto cull : { geometry_raycast_cull_mode_t::NONE, geometry_raycast_cull_mode_t::BACK_FACE, geometry_raycast_cull_mode_t::FRONT_FACE } ) {
+                CAPTURE( cull ); options.cullMode = cull;
+                REQUIRE( MeshQueries_TryRaycast( &f.source.mesh, f.source.sourceId, ray, options, f.policy, &scratch, &hit ) == geometry_status_t::OK );
+                const bool visible = cull == geometry_raycast_cull_mode_t::NONE ||
+                    ( side > 0 ? cull == geometry_raycast_cull_mode_t::BACK_FACE : cull == geometry_raycast_cull_mode_t::FRONT_FACE );
+                REQUIRE( static_cast<bool>( hit.bHit ) == visible );
+                RequireScratchEmpty( scratch );
+                if ( !visible ) { CHECK( hit.fDistance == 0.0 ); CHECK_FALSE( GeometryHandle_IsValid( hit.hFace ) ); continue; }
+                CHECK( hit.fDistance == Approx( 64.0 ) );
+                CHECK( hit.position.x == Approx( point.x ) ); CHECK( hit.position.y == Approx( point.y ) ); CHECK( hit.position.z == Approx( point.z ) );
+                CHECK( hit.normal.x == Approx( normal.x ).margin( 1e-12 ) ); CHECK( hit.normal.y == Approx( normal.y ).margin( 1e-12 ) ); CHECK( hit.normal.z == Approx( normal.z ).margin( 1e-12 ) );
+                CHECK( hit.barycentric.x == Approx( 1.0 / 3.0 ) ); CHECK( hit.barycentric.y == Approx( 1.0 / 3.0 ) ); CHECK( hit.barycentric.z == Approx( 1.0 / 3.0 ) );
+                CHECK( hit.iTriangleInFace == triangle ); CHECK( hit.meshSourceId.value == f.source.sourceId.value );
+                const geometry_mesh_vertex_handle_t corners[]{ hit.hVertex0, hit.hVertex1, hit.hVertex2 };
+                for ( common::u32 i = 0u; i < 3u; ++i ) {
+                    const auto *vertex = common::GenerationPool_Get( &f.source.mesh.vertices, corners[i] ); REQUIRE( vertex != nullptr );
+                    const auto expected = positions[triangles[triangle][i]];
+                    CHECK( vertex->position.x == expected.x ); CHECK( vertex->position.y == expected.y ); CHECK( vertex->position.z == expected.z );
+                }
+            }
+        }
+    }
+    for ( const auto mode : { geometry_mesh_raycast_surface_t::COUNT, static_cast<geometry_mesh_raycast_surface_t>( 255u ) } ) {
+        auto options = DefaultOptions(); options.meshSurfaceMode = mode;
+        mesh_raycast_hit_t hit{}; hit.bHit = true;
+        CHECK( MeshQueries_TryRaycast( &f.source.mesh, f.source.sourceId, { { 320, 320, 100 }, { 0, 0, -1 } }, options, f.policy, &scratch, &hit ) == geometry_status_t::INVALID_ARGUMENT );
+        CHECK_FALSE( hit.bHit ); RequireScratchEmpty( scratch );
+    }
+    REQUIRE( GeometryScratch_Release( &scratch ) == geometry_status_t::OK );
+}
+
+TEST_CASE( "RaycastQueries: a warped face does not hide another face in authoring triangle mode",
+           "[RaycastQueries][Queries][warped-authoring-pick]" )
+{
+    RaycastFixture f;
+    bool warped = false;
+    (void)common::GenerationPool_ForEach( &f.mesh.vertices,
+        [&]( geometry_mesh_vertex_handle_t, mesh_vertex_record_t &vertex ) noexcept -> common::bool_t {
+            if ( vertex.position.x == -1.0 && vertex.position.y == -1.0 && vertex.position.z == -1.0 ) { vertex.position.z = -0.75; warped = true; }
+            return true;
+        } );
+    REQUIRE( warped );
+    common::usize bytes = 0u;
+    REQUIRE( MeshQueries_TryGetRaycastScratchSize( &f.mesh, f.policy, &bytes ) == geometry_status_t::OK );
+    geometry_scratch_t scratch{};
+    std::vector<common::byte> storage;
+    REQUIRE( AcquireScratch( &scratch, &storage, bytes, &f.allocator ) == geometry_status_t::OK );
     mesh_raycast_hit_t hit{};
-    hit.bHit = true;
-    CHECK( MeshQueries_TryRaycast( &mesh, f.source.sourceId, { { 320, 320, 88 }, { 0, 0, -1 } },
-        DefaultOptions(), f.policy, nullptr, &hit ) == geometry_status_t::INVALID_TOPOLOGY );
-    CHECK_FALSE( hit.bHit );
+    REQUIRE( MeshQueries_TryRaycast( &f.mesh, { 92u }, DownwardRay(), DefaultOptions(), f.policy, &scratch, &hit ) == geometry_status_t::NON_PLANAR );
+    CHECK_FALSE( hit.bHit ); RequireScratchEmpty( scratch );
+    auto options = DefaultOptions(); options.meshSurfaceMode = geometry_mesh_raycast_surface_t::PROJECTED_TRIANGLES;
+    REQUIRE( MeshQueries_TryRaycast( &f.mesh, { 92u }, DownwardRay(), options, f.policy, &scratch, &hit ) == geometry_status_t::OK );
+    REQUIRE( hit.bHit ); CHECK( hit.fDistance == Approx( 4.0 ) ); CHECK( hit.position.z == Approx( 1.0 ) );
+    CHECK( hit.normal.x == Approx( 0.0 ).margin( 1e-12 ) ); CHECK( hit.normal.y == Approx( 0.0 ).margin( 1e-12 ) ); CHECK( hit.normal.z == Approx( 1.0 ) );
+    CHECK( hit.iSourceSide == 4u ); RequireScratchEmpty( scratch );
+    REQUIRE( GeometryScratch_Release( &scratch ) == geometry_status_t::OK );
 }
 
 TEST_CASE( "RaycastQueries: a missing interior twin is not mistaken for a valid boundary",
@@ -625,15 +717,17 @@ TEST_CASE( "RaycastQueries: mesh scratch failure is explicit and rewound",
                  &scratch, &storage, cbRequired - 1u, &f.allocator ) ==
              geometry_status_t::OK );
 
-    mesh_raycast_hit_t hit{};
-    hit.bHit = true;
-    REQUIRE( MeshQueries_TryRaycast(
-                 &f.mesh, { 17u }, DownwardRay(), DefaultOptions(),
-                 f.policy, &scratch, &hit ) ==
-             geometry_status_t::INSUFFICIENT_CAPACITY );
-    REQUIRE_FALSE( hit.bHit );
-    REQUIRE_FALSE( GeometryHandle_IsValid( hit.hFace ) );
-    RequireScratchEmpty( scratch );
+    for ( const auto mode : { geometry_mesh_raycast_surface_t::PLANAR_ONLY, geometry_mesh_raycast_surface_t::PROJECTED_TRIANGLES } ) {
+        auto options = DefaultOptions(); options.meshSurfaceMode = mode;
+        mesh_raycast_hit_t hit{}; hit.bHit = true;
+        REQUIRE( MeshQueries_TryRaycast(
+                     &f.mesh, { 17u }, DownwardRay(), options,
+                     f.policy, &scratch, &hit ) ==
+                 geometry_status_t::INSUFFICIENT_CAPACITY );
+        REQUIRE_FALSE( hit.bHit );
+        REQUIRE_FALSE( GeometryHandle_IsValid( hit.hFace ) );
+        RequireScratchEmpty( scratch );
+    }
     REQUIRE( GeometryScratch_Release( &scratch ) == geometry_status_t::OK );
 }
 
