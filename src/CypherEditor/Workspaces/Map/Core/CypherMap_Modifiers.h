@@ -41,6 +41,12 @@ namespace cypher::editor::map
 // wrote with an unknown type are skipped.
 CYPHER_NODISCARD map_status_t MapModifiers_Read( const map_document_t *pMap, common::u64 mesh, std::vector<geometry::modifier_t> &stagesOut );
 
+// Conservative, allocation-free inspection of the retained member. Missing or
+// empty arrays have no stack; any nonempty array or malformed member (including
+// explicit null) does. Unlike Read, this includes disabled and unknown stages.
+// It neither evaluates the stack nor decides whether its contents are supported.
+CYPHER_NODISCARD bool MapModifiers_HasRetainedStack( const map_document_t *pMap, common::u64 mesh ) noexcept;
+
 // Replaces the mesh's stack (each stage must validate). An empty list
 // removes the member. *pChangedOut is false when the stack was already
 // exactly this.

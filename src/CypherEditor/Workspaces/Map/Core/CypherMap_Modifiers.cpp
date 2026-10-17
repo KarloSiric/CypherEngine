@@ -181,6 +181,13 @@ const char *MapModifiers_TypeName( geo::modifier_kind_t kind ) noexcept
     return index < std::size( kTypes ) ? kTypes[index] : "unknown";
 }
 
+bool MapModifiers_HasRetainedStack( const map_document_t *map, u64 mesh ) noexcept
+{
+    if ( map == nullptr || mesh == 0u ) { return false; }
+    const auto *member = KeyValue_Find( Record( map, mesh, nullptr ), SV( "modifiers" ) );
+    return member != nullptr && ( KeyValue_Type( member ) != key_value_type_t::ARRAY || KeyValue_ChildCount( member ) != 0u );
+}
+
 map_status_t MapModifiers_Read( const map_document_t *map, u64 mesh, std::vector<geo::modifier_t> &stagesOut )
 {
     stagesOut.clear();

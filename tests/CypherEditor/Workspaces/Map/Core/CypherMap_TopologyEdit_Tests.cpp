@@ -20,6 +20,7 @@
 #include "CypherMap_Edit.h"
 #include "CypherMap_MeshEdit.h"
 #include "CypherMap_Groups.h"
+#include "CypherMap_Modifiers.h"
 #include "CypherGeometry_DocumentBrushAttributes.h"
 #include "CypherGeometry_DocumentMeshes.h"
 #include "CypherGeometry_MeshBoundaryOps.h"
@@ -2577,6 +2578,98 @@ TEST_CASE( "Region measured inset releases failed private candidates and permits
             description_t after( *retry, mesh ); CHECK( after.Vertices() == 12u ); CHECK( after.Faces() == 8u ); InsetCheckBorder( before, after, selected, 8.0 );
         }
         CHECK( audit.bytes == liveBytes );
+    }
+    CHECK( audit.bytes == 0u );
+}
+
+namespace {
+enum class join_stack_t { MISSING, EMPTY, ENABLED, DISABLED, UNKNOWN, UNSUPPORTED, NULL_FIELD, MALFORMED_FIELD, MALFORMED_ENTRY };
+void JoinStack( map_document_t &map, u64 mesh, join_stack_t kind, f64 offset = 256.0 )
+{
+    if ( kind == join_stack_t::MISSING ) { return; }
+    if ( kind == join_stack_t::ENABLED || kind == join_stack_t::DISABLED ) {
+        geo::modifier_t stage{}; stage.kind = geo::modifier_kind_t::MIRROR; stage.axis = 0u; stage.offset = offset;
+        stage.bEnabled = kind == join_stack_t::ENABLED; stage.bWeld = false; bool changed = false;
+        REQUIRE( MapModifiers_Write( &map, mesh, { stage }, &changed ) == map_status_t::OK ); REQUIRE( changed ); return;
+    }
+    map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( &map, mesh, &store ); REQUIRE( record ); REQUIRE( store );
+    auto *document = store->store.pDocument;
+    if ( kind == join_stack_t::NULL_FIELD ) { REQUIRE( KeyValue_ObjectInsert( document, record, SV( "modifiers" ), key_value_type_t::NULL_VALUE ) ); return; }
+    auto *stages = KeyValue_ObjectInsert( document, record, SV( "modifiers" ), kind == join_stack_t::MALFORMED_FIELD ? key_value_type_t::STRING : key_value_type_t::ARRAY ); REQUIRE( stages );
+    if ( kind == join_stack_t::MALFORMED_FIELD ) { REQUIRE( KeyValue_SetString( document, stages, SV( "retained legacy payload" ) ) ); return; }
+    if ( kind == join_stack_t::EMPTY ) { return; }
+    auto *stage = KeyValue_ArrayAppend( document, stages, kind == join_stack_t::MALFORMED_ENTRY ? key_value_type_t::U64 : key_value_type_t::OBJECT ); REQUIRE( stage );
+    if ( kind == join_stack_t::MALFORMED_ENTRY ) { REQUIRE( KeyValue_SetU64( document, stage, 941u ) ); return; }
+    auto *type = KeyValue_ObjectInsert( document, stage, SV( "type" ), key_value_type_t::STRING ); REQUIRE( type );
+    REQUIRE( KeyValue_SetString( document, type, SV( kind == join_stack_t::UNKNOWN ? "future_lattice" : "subdivide" ) ) );
+    auto *payload = KeyValue_ObjectInsert( document, stage, SV( kind == join_stack_t::UNKNOWN ? "future_payload" : "scheme" ), key_value_type_t::STRING ); REQUIRE( payload );
+    REQUIRE( KeyValue_SetString( document, payload, SV( kind == join_stack_t::UNKNOWN ? "retain this record exactly" : "loop" ) ) );
+}
+}
+
+TEST_CASE( "Join refuses every retained modifier stack on survivor or donor before changing either source", "[map][topology-edit][join-modifier-preservation]" )
+{
+    fixture_t f; const u64 a = f.Quad(), b = f.Primitive( map_primitive_kind_t::QUAD, { { 192, 0, 0 }, { 320, 64, 0 } } );
+    saved_t materialized; REQUIRE( materialized.Save( &f.map ) == map_status_t::OK );
+    SECTION( "Enabled survivor" ) { JoinStack( f.map, a, join_stack_t::ENABLED ); }
+    SECTION( "Enabled donor" ) { JoinStack( f.map, b, join_stack_t::ENABLED ); }
+    SECTION( "Identical stacks must not be applied to the combined cage" ) { JoinStack( f.map, a, join_stack_t::ENABLED ); JoinStack( f.map, b, join_stack_t::ENABLED ); }
+    SECTION( "Different stacks cannot be merged implicitly" ) { JoinStack( f.map, a, join_stack_t::ENABLED ); JoinStack( f.map, b, join_stack_t::ENABLED, 512 ); }
+    SECTION( "A disabled donor stage still has authored meaning" ) { JoinStack( f.map, b, join_stack_t::DISABLED ); }
+    SECTION( "Unknown stage" ) { JoinStack( f.map, b, join_stack_t::UNKNOWN ); }
+    SECTION( "Known type with unsupported subdivision scheme" ) { JoinStack( f.map, a, join_stack_t::UNSUPPORTED ); }
+    SECTION( "Explicit null is retained data rather than an absent field" ) { JoinStack( f.map, b, join_stack_t::NULL_FIELD ); }
+    SECTION( "Malformed modifiers field" ) { JoinStack( f.map, b, join_stack_t::MALFORMED_FIELD ); }
+    SECTION( "Malformed retained stage" ) { JoinStack( f.map, a, join_stack_t::MALFORMED_ENTRY ); }
+    description_t oldA( f.map, a ), oldB( f.map, b ); saved_t before; REQUIRE( before.Save( &f.map ) == map_status_t::OK );
+    const auto revision = f.map.geometry.revision, next = f.map.nextId, sourceNext = f.map.geometry.sourceIds.allocator.next.value;
+    const u64 roots[]{ b, a }; u64 retained = CY_U64_MAX;
+    CHECK( MapTopologyEdit_JoinMeshes( &f.map, { roots, 2u }, &retained ) == map_status_t::INVALID_ARGUMENT );
+    CHECK( retained == CY_U64_MAX ); CHECK( f.map.geometry.meshes.nCount == 2u ); CHECK( f.map.geometry.revision == revision );
+    CHECK( f.map.nextId == next ); CHECK( f.map.geometry.sourceIds.allocator.next.value == sourceNext );
+    description_t afterA( f.map, a ), afterB( f.map, b );
+    CHECK( geo::MeshSourceDescription_Equal( &oldA.value, &afterA.value ) ); CHECK( geo::MeshSourceDescription_Equal( &oldB.value, &afterB.value ) );
+    saved_t after; REQUIRE( after.Save( &f.map ) == map_status_t::OK ); CHECK( after.root == before.root );
+    CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &f.map.geometry.sourceIds ) );
+}
+
+TEST_CASE( "Join allows missing and empty modifier records and preserves all component identities", "[map][topology-edit][join-modifier-preservation]" )
+{
+    fixture_t f; const u64 a = f.Quad(), b = f.Primitive( map_primitive_kind_t::QUAD, { { 192, 0, 0 }, { 320, 64, 0 } } );
+    saved_t materialized; REQUIRE( materialized.Save( &f.map ) == map_status_t::OK );
+    SECTION( "Both modifier members missing" ) {}
+    SECTION( "Empty survivor and donor arrays" ) { JoinStack( f.map, a, join_stack_t::EMPTY ); JoinStack( f.map, b, join_stack_t::EMPTY ); }
+    SECTION( "Only donor has an empty array" ) { JoinStack( f.map, b, join_stack_t::EMPTY ); }
+    description_t oldA( f.map, a ), oldB( f.map, b ); const u64 next = f.map.nextId;
+    const u64 roots[]{ b, a }; u64 retained = CY_U64_MAX;
+    REQUIRE( MapTopologyEdit_JoinMeshes( &f.map, { roots, 2u }, &retained ) == map_status_t::OK );
+    CHECK( retained == a ); CHECK( f.map.geometry.meshes.nCount == 1u ); CHECK( f.map.nextId == next );
+    description_t joined( f.map, retained ); CHECK( joined.Vertices() == 8u ); CHECK( joined.Faces() == 2u );
+    for ( const auto *old : { &oldA, &oldB } ) {
+        for ( usize i = 0; i < old->Vertices(); ++i ) { const auto &v = old->value.vertices.pData[i]; InsetCheckPoint( joined.Position( v.sourceId ), v.position ); }
+        for ( usize i = 0; i < old->Faces(); ++i ) { CHECK( RegionFindFace( joined, old->value.faces.pData[i].sourceId.value ) != nullptr ); }
+    }
+    saved_t saved; REQUIRE( saved.Save( &f.map ) == map_status_t::OK ); map_document_t loaded; saved.Load( loaded );
+    description_t reopened( loaded, retained ); CHECK( geo::MeshSourceDescription_Equal( &joined.value, &reopened.value ) );
+    CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &loaded.geometry.sourceIds ) );
+}
+
+TEST_CASE( "Join input preparation allocation refusal preserves both roots and permits retry", "[map][topology-edit][join-modifier-preservation][oom]" )
+{
+    edge_pull_audit_t audit;
+    {
+        map_document_t map; REQUIRE( MapDocument_Create( &map, &audit.allocator, { SV( "Join failures" ), SV( "reap" ), {} } ) == map_status_t::OK );
+        const u64 a = RegionGrid( map ), b = RegionGrid( map ); saved_t before; REQUIRE( before.Save( &map ) == map_status_t::OK );
+        description_t oldA( map, a ), oldB( map, b ); const usize bytes = audit.bytes;
+        const auto next = map.nextId, sourceNext = map.geometry.sourceIds.allocator.next.value, revision = map.geometry.revision;
+        const u64 roots[]{ b, a }; u64 retained = CY_U64_MAX; audit.calls = 0; audit.failAt = 0;
+        const auto status = MapTopologyEdit_JoinMeshes( &map, { roots, 2u }, &retained ); audit.failAt = CY_USIZE_MAX;
+        CHECK( status == map_status_t::OUT_OF_MEMORY ); CHECK( retained == CY_U64_MAX ); CHECK( audit.bytes == bytes );
+        CHECK( map.nextId == next ); CHECK( map.geometry.sourceIds.allocator.next.value == sourceNext ); CHECK( map.geometry.revision == revision );
+        { description_t afterA( map, a ), afterB( map, b ); CHECK( geo::MeshSourceDescription_Equal( &oldA.value, &afterA.value ) ); CHECK( geo::MeshSourceDescription_Equal( &oldB.value, &afterB.value ) ); }
+        saved_t after; REQUIRE( after.Save( &map ) == map_status_t::OK ); CHECK( after.root == before.root );
+        REQUIRE( MapTopologyEdit_JoinMeshes( &map, { roots, 2u }, &retained ) == map_status_t::OK ); CHECK( retained == a );
+        description_t joined( map, retained ); CHECK( joined.Vertices() == 12u ); CHECK( joined.Faces() == 4u );
     }
     CHECK( audit.bytes == 0u );
 }

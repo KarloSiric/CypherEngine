@@ -2595,3 +2595,40 @@ retained asset/compiler working-tree changes. The preceding published
 G4 remains open for live width preview and the complete bevel-trim workflow.
 This increment does not claim arbitrary region support, all-tool completion
 or renderer integration. Renderer work remains deferred.
+
+
+## Join preserves retained modifier intent — 2026-10-17
+
+Whole-object Merge/Join now refuses any selected source retaining a nonempty
+or malformed modifiers member. This includes enabled, disabled, identical,
+unknown and unsupported stages, and explicit null. Missing/empty arrays remain
+joinable. Inspection reads the raw retained member without allocation or known-
+stage decoding, so future data cannot disappear behind a decoder's skip policy.
+No automatic evaluation or baking occurs. The existing survivor layer, same-owner
+requirement and separate donor-root/group metadata policies are unchanged.
+
+Core admission happens before joining/removing roots and leaves the output ID
+untouched on refusal. Its formerly throwing std::vector input-pointer scratch
+now uses a fallible Common vector. GUI whole-mesh Merge reports the reason;
+the mixed brush adapter checks every retained brush/mesh root before publishing
+conversion. This prevents failed Join rollback from consuming an existing Redo
+tail. Component vertex/edge Merge keeps its existing cage-edit meaning. Successful
+mixed brush conversion still uses the older separate history steps; this narrow
+refusal fix does not claim to redesign every legacy adapter.
+
+Three new Core and two new GUI cases cover survivor/donor/both stacks, disabled,
+unknown, unsupported, malformed and explicit-null members, a stack retained on a
+brush root, exact source/cursor/selection/storage/history/Redo refusal, ordinary
+missing/empty joins, one-step all-mesh Undo/Redo, save/reopen and a failed fallible
+input allocation followed by retry with balanced ownership. Independent review
+found no blocker. Focused Core including the existing Join case passes 4 cases /
+559 assertions; full Core passes 274 / 218,809. Combined Join/I-O/region-Inset GUI
+checks pass 11 / 2,643, and the native Cocoa combination with camera selection
+passes 21 / 3,918. Complete Map GUI passes 868 / 190,954; the app checkpoint
+passes 71 / 4,394. These local app checks precede the separate AssetWindow
+follow-up. Commands, baselines and hashes are under build-mason/artifacts.
+
+The preceding region-Inset commit bcdfb0ea passed all 15 CI jobs in run
+39007893169. This Join checkpoint requires its own published CI verification.
+D5 is still open for other replacement/root-metadata/group policies; renderer
+work remains deferred.

@@ -323,6 +323,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Whole-object Merge/Join refuses nonempty or malformed retained modifier
+  stacks before geometry or brush conversion can publish. Disabled, unknown
+  and future stages remain authored instead of disappearing or changing scope.
+  Missing/empty stacks still join; component Merge remains available. Core
+  input preparation is fallible. Refusal, Redo preservation, normal Undo/Redo,
+  persistence and retry tests pass; other Join metadata/group policies remain.
 - Inset Face (Width) supports a connected coplanar region with one convex
   perimeter, retaining cap partitions and adding only outer border quads.
   Tool Properties, complete cap selection, Undo/Redo, Save/Open and subsequent

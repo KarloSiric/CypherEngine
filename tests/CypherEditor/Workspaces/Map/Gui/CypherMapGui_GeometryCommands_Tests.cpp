@@ -3257,3 +3257,102 @@ TEST_CASE( "Carve state is allocation-free and preparation refusal leaves the ma
         CHECK( audit.live == 0 );
     }
 }
+
+namespace
+{
+void JoinCommandStack( map_document_t &map, u64 mesh, bool enabled, bool unknown = false, f64 offset = 256.0 )
+{
+    if ( !unknown ) {
+        geo::modifier_t stage{}; stage.kind = geo::modifier_kind_t::MIRROR; stage.axis = 0; stage.offset = offset; stage.bWeld = false; stage.bEnabled = enabled;
+        bool changed = false; REQUIRE( MapModifiers_Write( &map, mesh, { stage }, &changed ) == map_status_t::OK ); REQUIRE( changed ); return;
+    }
+    map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( &map, mesh, &store ); REQUIRE( record ); REQUIRE( store );
+    auto *stages = KeyValue_ObjectInsert( store->store.pDocument, record, StringView_FromCString( "modifiers" ), key_value_type_t::ARRAY ); REQUIRE( stages );
+    auto *stage = KeyValue_ArrayAppend( store->store.pDocument, stages, key_value_type_t::OBJECT ); REQUIRE( stage );
+    auto *type = KeyValue_ObjectInsert( store->store.pDocument, stage, StringView_FromCString( "type" ), key_value_type_t::STRING ); REQUIRE( type );
+    REQUIRE( KeyValue_SetString( store->store.pDocument, type, StringView_FromCString( "future_lattice" ) ) );
+    auto *payload = KeyValue_ObjectInsert( store->store.pDocument, stage, StringView_FromCString( "future_payload" ), key_value_type_t::U64 ); REQUIRE( payload );
+    REQUIRE( KeyValue_SetU64( store->store.pDocument, payload, 782u ) );
+}
+void JoinCommandEmptyStack( map_document_t &map, u64 mesh )
+{
+    map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( &map, mesh, &store ); REQUIRE( record ); REQUIRE( store );
+    REQUIRE( KeyValue_ObjectInsert( store->store.pDocument, record, StringView_FromCString( "modifiers" ), key_value_type_t::ARRAY ) );
+}
+std::string JoinCommandPrepareRedo( map_workspace_t &ws, u64 a, u64 b )
+{
+    MapWorkspace_DocumentChanged( &ws ); MapWorkspace_SetTool( &ws, map_tool_t::SELECT ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS );
+    Select( ws, { a, b } ); REQUIRE( ws.selection.ids.nCount == 2u );
+    // Creating an unrelated object establishes a real Redo without requiring
+    // the retained stack to support a whole-object transform.
+    ( void )AddBox( ws, { 1024, 0, 0 }, { 1088, 64, 64 } ); const auto redo = ExportMapSnapshot( ws.pDocument );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); Select( ws, { a, b } );
+    REQUIRE( EditorHistory_CanRedo( &ws.history ) ); return redo;
+}
+}
+
+TEST_CASE( "Registered Join preserves retained modifiers and Redo before any brush conversion", "[map][gui][geometry-commands][join-modifier-preservation]" )
+{
+    bool mixed = false, donor = false, both = false, different = false, enabled = true, unknown = false;
+    SECTION( "Modifier on survivor" ) {}
+    SECTION( "Disabled donor modifier" ) { donor = true; enabled = false; }
+    SECTION( "Identical stacks on both meshes" ) { both = true; }
+    SECTION( "Different stacks on both meshes" ) { both = true; different = true; }
+    SECTION( "A mixed brush and mesh with an enabled mesh stage" ) { mixed = true; donor = true; }
+    SECTION( "A mixed brush and mesh with a future stage" ) { mixed = true; donor = true; unknown = true; }
+    SECTION( "The brush itself retains a future modifier record" ) { mixed = true; unknown = true; }
+    session_t s; auto &ws = s.workspace;
+    const u64 a = mixed ? AddBox( ws, { 192, -64, 0 }, { 320, 64, 128 } ) : AddBoxMesh( s );
+    const u64 b = AddBoxMesh( s ); ( void )ExportMapSnapshot( ws.pDocument );
+    JoinCommandStack( *ws.pDocument, donor ? b : a, enabled, unknown );
+    if ( both ) { JoinCommandStack( *ws.pDocument, b, true, false, different ? 512.0 : 256.0 ); }
+    const auto redo = JoinCommandPrepareRedo( ws, a, b ); const brush_face_unchanged_t before( ws ); description_t oldB( ws, b );
+    std::unique_ptr<description_t> oldA; std::unique_ptr<carve_brush_snapshot_t> brush;
+    if ( mixed ) { brush = std::make_unique<carve_brush_snapshot_t>( ws.pDocument, a ); }
+    else { oldA = std::make_unique<description_t>( ws, a ); }
+    REQUIRE( s.Enabled( "map.mesh.merge" ) ); CHECK( s.Run( "map.mesh.merge" ) == command_result_t::FAILED ); before.Check( ws );
+    REQUIRE( ws.selection.ids.nCount == 2u ); CHECK( ws.selection.ids.pData[0] == a ); CHECK( ws.selection.ids.pData[1] == b );
+    { description_t after( ws, b ); CHECK( geo::MeshSourceDescription_Equal( &oldB.value, &after.value ) ); }
+    if ( mixed ) { brush->Check( ws.pDocument, a ); CHECK( geo::GeometryDocument_FindMesh( &ws.pDocument->geometry, { a } ) == nullptr ); }
+    else { description_t after( ws, a ); CHECK( geo::MeshSourceDescription_Equal( &oldA->value, &after.value ) ); }
+    map_notice_t kind{}; const auto notice = MapNotice_Last( &ws, &kind ); CHECK( kind == map_notice_t::WARNING ); CHECK( notice.contains( QStringLiteral( "modifier" ), Qt::CaseInsensitive ) );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == redo );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == before.saved );
+    Select( ws, { a, b } ); const brush_face_unchanged_t again( ws ); CHECK( s.Run( "map.mesh.merge" ) == command_result_t::FAILED ); again.Check( ws );
+}
+
+TEST_CASE( "Registered Join with missing or empty stacks remains one undoable edit and survives reopen", "[map][gui][geometry-commands][join-modifier-preservation]" )
+{
+    bool empty = false;
+    SECTION( "Missing modifier members" ) {}
+    SECTION( "Explicitly empty modifier arrays" ) { empty = true; }
+    session_t s; auto &ws = s.workspace; const u64 a = AddBoxMesh( s ), b = AddBoxMesh( s );
+    ( void )ExportMapSnapshot( ws.pDocument );
+    if ( empty ) { JoinCommandEmptyStack( *ws.pDocument, a ); JoinCommandEmptyStack( *ws.pDocument, b ); }
+    MapWorkspace_DocumentChanged( &ws ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS ); Select( ws, { a, b } );
+    description_t oldA( ws, a ), oldB( ws, b ); const auto before = ExportMapSnapshot( ws.pDocument ); const usize steps = s.Steps();
+    REQUIRE( s.Enabled( "map.mesh.merge" ) ); REQUIRE( s.Run( "map.mesh.merge" ) == command_result_t::OK );
+    CHECK( s.Steps() == steps + 1u ); REQUIRE( ws.selection.ids.nCount == 1u ); CHECK( ws.selection.ids.pData[0] == a );
+    description_t joined( ws, a ); CHECK( joined.value.vertices.nCount == 16u ); CHECK( joined.value.faces.nCount == 12u );
+    for ( const auto *old : { &oldA, &oldB } ) {
+        for ( usize i = 0; i < old->value.vertices.nCount; ++i ) {
+            const auto &expected = old->value.vertices.pData[i];
+            const auto *actual = std::find_if( joined.value.vertices.pData, joined.value.vertices.pData + joined.value.vertices.nCount,
+                [&]( const auto &candidate ) { return candidate.sourceId.value == expected.sourceId.value; } );
+            REQUIRE( actual != joined.value.vertices.pData + joined.value.vertices.nCount );
+            CHECK( actual->position.x == expected.position.x ); CHECK( actual->position.y == expected.position.y ); CHECK( actual->position.z == expected.position.z );
+        }
+        for ( usize i = 0; i < old->value.faces.nCount; ++i ) { const auto id = old->value.faces.pData[i].sourceId.value;
+            CHECK( std::any_of( joined.value.faces.pData, joined.value.faces.pData + joined.value.faces.nCount, [&]( const auto &candidate ) { return candidate.sourceId.value == id; } ) ); }
+    }
+    const auto committed = ExportMapSnapshot( ws.pDocument ); REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+    CHECK( ExportMapSnapshot( ws.pDocument ) == before ); REQUIRE( ws.selection.ids.nCount == 2u );
+    CHECK( ws.selection.ids.pData[0] == a ); CHECK( ws.selection.ids.pData[1] == b );
+    { description_t restoredA( ws, a ), restoredB( ws, b ); CHECK( geo::MeshSourceDescription_Equal( &oldA.value, &restoredA.value ) ); CHECK( geo::MeshSourceDescription_Equal( &oldB.value, &restoredB.value ) ); }
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == committed );
+    QTemporaryDir directory; REQUIRE( directory.isValid() ); const auto path = directory.filePath( QStringLiteral( "joined.cymap" ) );
+    REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK ); session_t reopened;
+    REQUIRE( MapWorkspace_Open( &reopened.workspace, path ).status == map_files_status_t::OK );
+    description_t loaded( reopened.workspace, a ); CHECK( geo::MeshSourceDescription_Equal( &joined.value, &loaded.value ) );
+    CHECK( reopened.workspace.pDocument->geometry.meshes.nCount == 1u ); CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &reopened.workspace.pDocument->geometry.sourceIds ) );
+}

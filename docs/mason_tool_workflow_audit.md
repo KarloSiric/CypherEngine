@@ -633,9 +633,13 @@ Evidence: `Core/CypherMap_Edit.cpp:269–284`; `Gui/CypherMapGui_Edit.cpp:347–
 **D5 checkpoint — 2026-10-17:** Hollow adopts each brush's own replacement
 fragments into the original nested group, preserving owner/layer, group identity
 and root/face surfacing. The two-brush/distinct-group batch, private publication,
-retry, Undo/Redo and Save/Open checks pass. Per-member entry comments and the
-separate Join/other replacement policies still need follow-up; D5 is not closed
-universally. The original finding below records the pre-fix behavior.
+retry, Undo/Redo and Save/Open checks pass; individual group-member comments
+also survive sorted saving. Whole-object Join now refuses all nonempty or
+malformed retained modifier stacks before source mutation or brush conversion,
+including disabled/unknown stages. Exact source/history/Redo and missing/empty
+positive controls pass. Other replacement/root-metadata/group policies remain
+open; D5 is not universally closed. The original finding below records the
+pre-fix behavior.
 
 **D5 — Geometry replacement can discard object meaning.**
 

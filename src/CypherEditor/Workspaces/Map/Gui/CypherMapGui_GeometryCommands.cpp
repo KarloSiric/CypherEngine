@@ -395,6 +395,19 @@ bool CanJoinMeshes( const map_workspace_t *ws ) noexcept
     return true;
 }
 
+bool RefuseJoinWithRetainedStack( map_workspace_t *ws ) noexcept
+{
+    if ( ws == nullptr || ws->pDocument == nullptr ) { return false; }
+    for ( usize i = 0u; i < ws->selection.ids.nCount; ++i ) {
+        const u64 id = ws->selection.ids.pData[i];
+        if ( !MapModifiers_HasRetainedStack( ws->pDocument, id ) ) { continue; }
+        MapNotice_Post( ws, map_notice_t::WARNING,
+            QStringLiteral( "Merge Meshes: object #%1 contains a retained modifier stack. Joining would change or discard it. Review or remove the stack first. Nothing changed." ).arg( id ) );
+        return true;
+    }
+    return false;
+}
+
 // Selected meshes made of more than one disconnected shell.
 std::vector<u64> SeparableMeshes( const map_workspace_t *ws )
 {
@@ -424,6 +437,7 @@ command_result_t Merge( void *pContext, const command_args_t & ) noexcept
 {
     auto *ws = Ws( pContext ); components_t c;
     if ( CanJoinMeshes( ws ) ) {
+        if ( RefuseJoinWithRetainedStack( ws ) ) { return command_result_t::FAILED; }
         return Result( Apply( ws, "Merge Meshes", [&]( map_document_t *copy, vector_t<u64> *out ) noexcept {
             u64 retained = 0;
             const auto status = MapTopologyEdit_JoinMeshes( copy, Selected( ws ), &retained );
@@ -3950,6 +3964,10 @@ command_result_t AdaptedExecute( void *pContext, const command_args_t &args ) no
         kept.assign( ws->selection.ids.pData, ws->selection.ids.pData + ws->selection.ids.nCount );
     } catch ( ... ) { return command_result_t::FAILED; }
     if ( brushes.empty() ) { return a.pfnExecute( a.pContext, args ); } // It says why itself.
+    // Merge must refuse retained stacks before the legacy object adapter
+    // publishes conversion: rolling that back would discard an existing Redo
+    // tail. Check brush records too, since conversion retains root metadata.
+    if ( a.pfnExecute == Merge && RefuseJoinWithRetainedStack( ws ) ) { return command_result_t::FAILED; }
     const bool faces = ws->elementMode == map_element_mode_t::FACES;
     const u64 faceObject = ws->selectedBrushFaceObject, faceSide = ws->selectedBrushFaceSide;
     const bool converted = Apply( ws, "Convert Brush to Mesh", [&]( map_document_t *copy, vector_t<u64> *out ) noexcept {

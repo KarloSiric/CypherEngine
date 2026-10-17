@@ -359,7 +359,10 @@ CYPHER_NODISCARD map_status_t MapTopologyEdit_Solidify( map_document_t *pMap, co
 // ID: its root, layer, owner and metadata stay, the others' roots go. Every
 // vertex and face identity and attribute survives exactly; nothing is
 // welded. Donor face records move into the survivor's record. All meshes
-// must share one owner. *pRetainedOut receives the survivor.
+// must share one owner. A retained nonempty or malformed modifier member on any
+// input refuses with INVALID_ARGUMENT before mutation, including disabled and
+// unknown stages; joining does not bake stacks. Missing/empty stacks are allowed.
+// *pRetainedOut receives the survivor only on success.
 CYPHER_NODISCARD map_status_t MapTopologyEdit_JoinMeshes( map_document_t *pMap, common::span_t<const common::u64> meshes,
     common::u64 *pRetainedOut ) noexcept;
 

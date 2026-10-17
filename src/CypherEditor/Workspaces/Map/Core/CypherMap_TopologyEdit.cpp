@@ -20,6 +20,7 @@
 #include "CypherMap_TopologyEdit.h"
 #include "CypherMap_Wireframe.h"
 #include "CypherMap_MeshEdit.h"
+#include "CypherMap_Modifiers.h"
 #include "CypherMap_BrushEdit.h"
 #include "CypherMap_Edit.h"
 #include "CypherMap_ObjectCreate.h"
@@ -2161,17 +2162,22 @@ map_status_t MapTopologyEdit_JoinMeshes( map_document_t *map, span_t<const u64> 
     for ( usize i = 0; i < meshes.nCount; ++i ) {
         const u64 id = meshes.pData[i];
         const auto *placement = Placement( map, id );
+        // A donor stack would disappear with its root, and the survivor's
+        // stack would start affecting every joined cage. Preserve both by
+        // refusing even disabled/unknown retained stages before preparation.
+        if ( MapModifiers_HasRetainedStack( map, id ) ) { return map_status_t::INVALID_ARGUMENT; }
         // Tied geometry belongs to its entity; joining across owners would
         // silently move geometry between entities.
         if ( ( placement == nullptr ) != ( first == nullptr ) || ( placement != nullptr && placement->owner != first->owner ) ) { return map_status_t::INVALID_ARGUMENT; }
         const bool hasRecord = MapDocument_FindObject( map, id, nullptr ) != nullptr;
         if ( retained == 0 || ( hasRecord && !recorded ) || ( hasRecord == recorded && id < retained ) ) { retained = id; recorded = hasRecord; }
     }
-    std::vector<const geo::mesh_source_t *> inputs;
-    for ( usize i = 0; i < meshes.nCount; ++i ) { inputs.push_back( geo::GeometryDocument_FindMesh( &map->geometry, { meshes.pData[i] } ) ); }
+    vector_t<const geo::mesh_source_t *> inputs{};
+    if ( !Vector_Init( &inputs, map->pAllocator ) || !Vector_Resize( &inputs, meshes.nCount ) ) { return map_status_t::OUT_OF_MEMORY; }
+    for ( usize i = 0; i < meshes.nCount; ++i ) { inputs.pData[i] = geo::GeometryDocument_FindMesh( &map->geometry, { meshes.pData[i] } ); }
     geo::mesh_source_t joined{};
     face_records_t donors{};
-    auto status = geo::MeshSource_TryJoinExact( { inputs.data(), inputs.size() }, { retained }, map->pAllocator, &joined );
+    auto status = geo::MeshSource_TryJoinExact( { inputs.pData, inputs.nCount }, { retained }, map->pAllocator, &joined );
     if ( status == OK && !donors.Init( map->pAllocator ) ) { status = geo::geometry_status_t::ALLOCATION_FAILED; }
     for ( usize i = 0; status == OK && i < meshes.nCount; ++i ) {
         if ( meshes.pData[i] == retained ) { continue; }
