@@ -6064,3 +6064,280 @@ TEST_CASE( "Failed repeated transforms preserve geometry selection history and t
     }
     CHECK( audit.live == 0 );
 }
+
+namespace
+{
+math::vec3d_t ScaleAxisOffset( math::vec3d_t p, u32 axis, f64 amount )
+{
+    if ( axis == 0 ) { p.x += amount; }
+    else if ( axis == 1 ) { p.y += amount; }
+    else { p.z += amount; }
+    return p;
+}
+f64 ScaleAxisCoordinate( math::vec3d_t p, u32 axis ) { return axis == 0 ? p.x : axis == 1 ? p.y : p.z; }
+void ScaleMouse( QWidget *view, QEvent::Type type, QPointF where, Qt::KeyboardModifiers modifiers = Qt::NoModifier )
+{
+    QMouseEvent event( type, where, view->mapToGlobal( where ), type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton,
+        type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton, modifiers );
+    QCoreApplication::sendEvent( view, &event );
+}
+struct axis_scale_fixture_t {
+    session_t s;
+    const math::vec3d_t pivot{ -32, -16, 32 };
+    u64 mesh{}, face{};
+    geo::mesh_edge_ref_t edge{};
+    std::vector<geo::geometry_source_id_t> moving;
+    map_element_mode_t mode;
+    explicit axis_scale_fixture_t( map_element_mode_t selectedMode ) : mode( selectedMode )
+    {
+        auto &ws = s.workspace;
+        if ( mode == map_element_mode_t::FACES ) {
+            mesh = AddBox( ws, { 0, -64, 0 }, { 128, 64, 128 } );
+            REQUIRE( MapWorkspace_ConvertBrushSelection( &ws ) );
+            face = FaceFacing( ws, mesh, { 0, 0, 1 } );
+            MapWorkspace_SetElementMode( &ws, mode ); MapWorkspace_SelectMeshFace( &ws, mesh, face );
+            for ( const math::vec3d_t p : { math::vec3d_t{ 0, -64, 128 }, { 128, -64, 128 }, { 128, 64, 128 }, { 0, 64, 128 } } ) {
+                moving.push_back( VertexAt( ws, mesh, p ) );
+            }
+        } else {
+            mesh = EdgeWorkflowQuad( s ); MapWorkspace_SetElementMode( &ws, mode );
+            moving.push_back( VertexAt( ws, mesh, { 128, -64, 0 } ) );
+            if ( mode == map_element_mode_t::VERTICES ) { REQUIRE( MapWorkspace_SelectMeshVertex( &ws, mesh, moving[0] ) ); }
+            else {
+                moving.push_back( VertexAt( ws, mesh, { 128, 64, 0 } ) );
+                edge = geo::MeshEdgeRef_Make( moving[0], moving[1] );
+                REQUIRE( MapWorkspace_SelectMeshEdge( &ws, mesh, edge ) );
+                const auto *setting = EditorSettings_Find( &s.gui.settings, StringView_FromCString( "editor.map.edge_drag_action" ) ); REQUIRE( setting );
+                setting_value_t value{}; value.type = setting_type_t::ENUM; value.text = StringView_FromCString( "move" );
+                REQUIRE( EditorSettings_Write( &s.gui.settings, settings_scope_t::USER, *setting, value ) == settings_registry_status_t::OK );
+            }
+        }
+        MapToolGestures_SetPivot( &ws, pivot ); MapWorkspace_SetScaleSnap( &ws, 0.25 ); s.Tool( "map.tool.scale" );
+        Selection();
+    }
+    void Selection() const
+    {
+        const auto &ws = s.workspace;
+        REQUIRE( ws.selection.ids.nCount == 1 ); CHECK( ws.selection.ids.pData[0] == mesh ); CHECK( ws.elementMode == mode );
+        if ( mode == map_element_mode_t::VERTICES ) { REQUIRE( ws.meshSelection.vertices.nCount == 1 ); CHECK( VertexSelectedIn( ws, moving[0] ) ); }
+        else if ( mode == map_element_mode_t::EDGES ) { REQUIRE( ws.meshSelection.edges.nCount == 1 ); CHECK( geo::MeshSelection_HasEdge( &ws.meshSelection, edge ) ); }
+        else { CHECK( ws.selectedMeshFaceObject == mesh ); CHECK( ws.selectedMeshFaceId == face ); REQUIRE( MapWorkspace_MeshFaces( &ws ).nCount == 1 ); }
+    }
+    void Scaled( const edge_workflow_mesh_t &before, u32 axis, f64 factor, bool uniform = false ) const
+    {
+        edge_workflow_mesh_t after( *s.workspace.pDocument, mesh );
+        REQUIRE( after.value.vertices.nCount == before.value.vertices.nCount );
+        CHECK( after.value.faces.nCount == before.value.faces.nCount ); CHECK( after.value.corners.nCount == before.value.corners.nCount );
+        for ( usize i = 0; i < before.value.vertices.nCount; ++i ) {
+            const auto &vertex = before.value.vertices.pData[i]; auto expected = vertex.position;
+            if ( std::find_if( moving.begin(), moving.end(), [&]( auto id ) { return id.value == vertex.sourceId.value; } ) != moving.end() ) {
+                for ( u32 component = 0; component < 3; ++component ) {
+                    if ( component == axis || ( uniform && component < 2 ) ) {
+                        expected = ScaleAxisOffset( expected, component, ( ScaleAxisCoordinate( vertex.position, component ) - ScaleAxisCoordinate( pivot, component ) ) * ( factor - 1.0 ) );
+                    }
+                }
+            }
+            CheckPosition( Position( s.workspace, mesh, vertex.sourceId ), expected );
+        }
+        Selection();
+        math::vec3d_t actualPivot{}; REQUIRE( MapToolGestures_Pivot( &s.workspace, &actualPivot ) ); CheckPosition( actualPivot, pivot );
+    }
+};
+struct axis_scale_drag_t { QPointF begin, end; };
+axis_scale_drag_t OrthoAxisScaleDrag( const axis_scale_fixture_t &f, u32 axis, f64 factor )
+{
+    REQUIRE( axis < 2 );
+    QWidget *view = f.s.top.get();
+    const QPointF centre = MapOrthoView_WorldToView( view, { f.pivot.x, f.pivot.y } );
+    const auto reference = ScaleAxisOffset( f.pivot, axis, 1.0 );
+    QPointF direction = MapOrthoView_WorldToView( view, { reference.x, reference.y } ) - centre;
+    direction /= std::hypot( direction.x(), direction.y() );
+    const QPointF begin = centre + direction * 96.0;
+    return { begin, begin + direction * ( 72.0 * ( factor - 1.0 ) ) };
+}
+axis_scale_drag_t CameraAxisScaleDrag( const axis_scale_fixture_t &f, camera_t &camera, u32 axis, f64 factor )
+{
+    const auto eye = MapCameraView_Position( camera.view.get() );
+    const f64 reference = 0.15 * std::sqrt( ( eye.x - f.pivot.x ) * ( eye.x - f.pivot.x ) +
+        ( eye.y - f.pivot.y ) * ( eye.y - f.pivot.y ) + ( eye.z - f.pivot.z ) * ( eye.z - f.pivot.z ) );
+    const QPointF centre = camera.At( f.pivot );
+    QPointF direction = camera.At( ScaleAxisOffset( f.pivot, axis, reference ) ) - centre;
+    REQUIRE( std::hypot( direction.x(), direction.y() ) > 14.0 );
+    direction /= std::hypot( direction.x(), direction.y() );
+    // Recover the world point under the painted 96px tip using only the
+    // public camera projection. This does not duplicate the gesture's ray plane.
+    const auto distance = [&]( f64 t ) {
+        const QPointF delta = camera.At( ScaleAxisOffset( f.pivot, axis, t ) ) - centre;
+        return delta.x() * direction.x() + delta.y() * direction.y();
+    };
+    f64 low = 0.0, high = reference;
+    for ( u32 attempt = 0; attempt < 8 && distance( high ) < 96.0; ++attempt ) { high *= 2.0; }
+    REQUIRE( distance( high ) >= 96.0 );
+    for ( u32 iteration = 0; iteration < 64; ++iteration ) {
+        const f64 middle = ( low + high ) * 0.5;
+        if ( distance( middle ) < 96.0 ) { low = middle; } else { high = middle; }
+    }
+    const auto grabbed = ScaleAxisOffset( f.pivot, axis, ( low + high ) * 0.5 );
+    const QPointF begin = centre + direction * 96.0;
+    REQUIRE( begin.x() > 8 ); REQUIRE( begin.x() < camera.view->width() - 8 );
+    REQUIRE( begin.y() > 8 ); REQUIRE( begin.y() < camera.view->height() - 8 );
+    return { begin, camera.At( ScaleAxisOffset( grabbed, axis, reference * ( factor - 1.0 ) ) ) };
+}
+void RunAxisScaleDrag( QWidget *view, axis_scale_drag_t drag, Qt::KeyboardModifiers modifiers = Qt::NoModifier )
+{
+    ScaleMouse( view, QEvent::MouseButtonPress, drag.begin );
+    ScaleMouse( view, QEvent::MouseMove, drag.end, modifiers );
+    ScaleMouse( view, QEvent::MouseButtonRelease, drag.end, modifiers );
+}
+}
+
+TEST_CASE( "Native component scale tips change only their selected vertices along the chosen world axis", "[map][gui][tool-gestures][component-axis-scale][persistence]" )
+{
+    struct scenario_t { map_element_mode_t mode; u32 axis; bool camera; };
+    for ( const scenario_t scenario : { scenario_t{ map_element_mode_t::VERTICES, 0, false },
+            { map_element_mode_t::EDGES, 0, false }, { map_element_mode_t::EDGES, 1, true }, { map_element_mode_t::FACES, 2, true } } ) {
+        DYNAMIC_SECTION( "mode=" << static_cast<int>( scenario.mode ) << " axis=" << scenario.axis << " camera=" << scenario.camera ) {
+            axis_scale_fixture_t f( scenario.mode ); auto &ws = f.s.workspace;
+            std::unique_ptr<camera_t> camera;
+            if ( scenario.camera ) { camera = std::make_unique<camera_t>( f.s ); MapCameraView_LookAt( camera->view.get(), { 420, -620, 420 }, { 32, 0, 64 } ); }
+            edge_workflow_mesh_t before( *ws.pDocument, f.mesh ); const usize steps = f.s.Steps();
+            const auto drag = camera ? CameraAxisScaleDrag( f, *camera, scenario.axis, 1.5 ) : OrthoAxisScaleDrag( f, scenario.axis, 1.5 );
+            RunAxisScaleDrag( camera ? camera->view.get() : f.s.top.get(), drag );
+            REQUIRE( f.s.Steps() == steps + 1 ); f.Scaled( before, scenario.axis, 1.5 );
+            edge_workflow_mesh_t complete( *ws.pDocument, f.mesh );
+            REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); f.Selection();
+            { edge_workflow_mesh_t undone( *ws.pDocument, f.mesh ); CHECK( geo::MeshSourceDescription_Equal( &before.value, &undone.value ) ); }
+            REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); f.Selection();
+            { edge_workflow_mesh_t redone( *ws.pDocument, f.mesh ); CHECK( geo::MeshSourceDescription_Equal( &complete.value, &redone.value ) ); }
+            if ( scenario.mode == map_element_mode_t::FACES ) {
+                QTemporaryDir folder; REQUIRE( folder.isValid() ); const QString path = folder.filePath( QStringLiteral( "axis-scaled-face.cymap" ) );
+                REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK ); session_t loaded;
+                REQUIRE( MapWorkspace_Open( &loaded.workspace, path ).status == map_files_status_t::OK );
+                edge_workflow_mesh_t reopened( *loaded.workspace.pDocument, f.mesh ); CHECK( geo::MeshSourceDescription_Equal( &complete.value, &reopened.value ) );
+            }
+        }
+    }
+}
+
+TEST_CASE( "Axis scale snaps factors with modifier bypass and keeps the existing uniform ring", "[map][gui][tool-gestures][component-axis-scale][snap]" )
+{
+    for ( const Qt::KeyboardModifiers modifiers : { Qt::KeyboardModifiers{ Qt::NoModifier }, Qt::KeyboardModifiers{ Qt::ControlModifier }, Qt::KeyboardModifiers{ Qt::MetaModifier } } ) {
+        DYNAMIC_SECTION( "modifiers=" << modifiers.toInt() ) {
+            axis_scale_fixture_t f( map_element_mode_t::EDGES ); edge_workflow_mesh_t before( *f.s.workspace.pDocument, f.mesh );
+            const usize steps = f.s.Steps(); RunAxisScaleDrag( f.s.top.get(), OrthoAxisScaleDrag( f, 0, 1.37 ), modifiers );
+            REQUIRE( f.s.Steps() == steps + 1 ); f.Scaled( before, 0, modifiers == Qt::NoModifier ? 1.25 : 1.37 );
+        }
+    }
+    SECTION( "A visible drag whose factor snaps to one does not start a private edit" ) {
+        axis_scale_fixture_t f( map_element_mode_t::EDGES ); paint_snapshot_t before( f.s.workspace, f.mesh );
+        const auto serial = f.s.workspace.lastEdit.serial;
+        RunAxisScaleDrag( f.s.top.get(), OrthoAxisScaleDrag( f, 0, 1.08 ) );
+        before.Check( f.s.workspace ); f.Selection(); CHECK( f.s.workspace.lastEdit.serial == serial );
+    }
+    SECTION( "Uniform ring still scales both visible coordinates about the custom pivot" ) {
+        axis_scale_fixture_t f( map_element_mode_t::EDGES ); edge_workflow_mesh_t before( *f.s.workspace.pDocument, f.mesh );
+        const QPointF centre = f.s.At( f.pivot.x, f.pivot.y ); const usize steps = f.s.Steps();
+        RunAxisScaleDrag( f.s.top.get(), { centre + QPointF( -60, 0 ), centre + QPointF( -90, 0 ) } );
+        REQUIRE( f.s.Steps() == steps + 1 ); f.Scaled( before, 0, 1.5, true );
+    }
+    SECTION( "Axis shafts and empty space are not scale handles" ) {
+        axis_scale_fixture_t f( map_element_mode_t::EDGES ); edge_workflow_mesh_t before( *f.s.workspace.pDocument, f.mesh );
+        const QPointF centre = f.s.At( f.pivot.x, f.pivot.y ); const usize steps = f.s.Steps();
+        RunAxisScaleDrag( f.s.top.get(), { centre + QPointF( 30, 0 ), centre + QPointF( 45, 0 ) } );
+        CHECK( f.s.Steps() == steps );
+        edge_workflow_mesh_t after( *f.s.workspace.pDocument, f.mesh ); CHECK( geo::MeshSourceDescription_Equal( &before.value, &after.value ) );
+    }
+}
+
+TEST_CASE( "Interrupted native axis scaling discards its preview and accepts a fresh gesture", "[map][gui][tool-gestures][component-axis-scale][cancel]" )
+{
+    for ( const bool locked : { false, true } ) {
+        DYNAMIC_SECTION( "lock epoch=" << locked ) {
+            axis_scale_fixture_t f( map_element_mode_t::EDGES ); auto &ws = f.s.workspace;
+            camera_t camera( f.s ); MapCameraView_LookAt( camera.view.get(), { 420, -620, 420 }, { 32, 0, 64 } );
+            const auto drag = CameraAxisScaleDrag( f, camera, 1, 1.5 ); edge_workflow_mesh_t original( *ws.pDocument, f.mesh );
+            const usize steps = f.s.Steps();
+            ScaleMouse( camera.view.get(), QEvent::MouseButtonPress, drag.begin ); ScaleMouse( camera.view.get(), QEvent::MouseMove, drag.end );
+            if ( locked ) {
+                const QString layer = QString::fromUtf8( ws.pDocument->layers.pData[0].id );
+                REQUIRE( MapLayers_SetLocked( &ws, layer, true ) ); REQUIRE( MapLayers_SetLocked( &ws, layer, false ) );
+            } else { QFocusEvent lost( QEvent::FocusOut, Qt::OtherFocusReason ); QCoreApplication::sendEvent( camera.view.get(), &lost ); }
+            paint_snapshot_t interrupted( ws, f.mesh );
+            ScaleMouse( camera.view.get(), QEvent::MouseMove, drag.end ); ScaleMouse( camera.view.get(), QEvent::MouseButtonRelease, drag.end );
+            interrupted.Check( ws ); CHECK( f.s.Steps() == steps );
+            { edge_workflow_mesh_t current( *ws.pDocument, f.mesh ); CHECK( geo::MeshSourceDescription_Equal( &original.value, &current.value ) ); }
+            REQUIRE( MapWorkspace_SelectMeshEdge( &ws, f.mesh, f.edge ) );
+            RunAxisScaleDrag( camera.view.get(), drag ); REQUIRE( f.s.Steps() == steps + 1 ); f.Scaled( original, 1, 1.5 );
+        }
+    }
+}
+
+TEST_CASE( "Axis scale publication allocation refusal preserves the selected source and retries", "[map][gui][tool-gestures][component-axis-scale][allocation]" )
+{
+    edge_gui_allocation_t audit{}; const allocator_t allocator{ &EdgeGuiAllocate, nullptr, &EdgeGuiFree, &audit };
+    axis_scale_fixture_t f( map_element_mode_t::EDGES ); auto &ws = f.s.workspace;
+    REQUIRE( MapToolGestures_TransformComponents( &ws, map_component_transform_t::TRANSLATE, { 16, 0, 0 }, map_component_pivot_t::CENTER ) );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); REQUIRE( EditorHistory_CanRedo( &ws.history ) );
+    edge_workflow_mesh_t original( *ws.pDocument, f.mesh ); paint_snapshot_t before( ws, f.mesh );
+    const auto *edges = ws.meshSelection.edges.pData; const auto seed = ws.selectedMeshEdgeSeed;
+    const auto drag = OrthoAxisScaleDrag( f, 0, 1.5 ); const usize applied = EditorHistory_AppliedStepCount( &ws.history );
+    ScaleMouse( f.s.top.get(), QEvent::MouseButtonPress, drag.begin ); ScaleMouse( f.s.top.get(), QEvent::MouseMove, drag.end ); before.Check( ws );
+    {
+        edge_gui_allocator_scope_t fail( f.s.gui, &allocator ); audit.failOn = 1;
+        ScaleMouse( f.s.top.get(), QEvent::MouseButtonRelease, drag.end );
+    }
+    REQUIRE( audit.calls >= 1 ); CHECK( audit.live == 0 ); before.Check( ws ); f.Selection();
+    map_notice_t noticeKind{}; const QString notice = MapNotice_Last( &ws, &noticeKind );
+    CHECK( noticeKind == map_notice_t::ERROR ); CHECK( notice.contains( QStringLiteral( "memory" ), Qt::CaseInsensitive ) );
+    CHECK( ws.meshSelection.edges.pData == edges ); CHECK( ws.selectedMeshEdgeSeed.a.value == seed.a.value ); CHECK( ws.selectedMeshEdgeSeed.b.value == seed.b.value );
+    REQUIRE( EditorHistory_CanRedo( &ws.history ) );
+    ScaleMouse( f.s.top.get(), QEvent::MouseButtonRelease, drag.end ); before.Check( ws );
+    // The refused publication must retain a working Redo branch, not only its count.
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( Position( ws, f.mesh, f.edge.a ).x == Catch::Approx( 144 ) );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); f.Selection();
+    RunAxisScaleDrag( f.s.top.get(), drag ); REQUIRE( EditorHistory_AppliedStepCount( &ws.history ) == applied + 1 ); f.Scaled( original, 0, 1.5 );
+    CHECK_FALSE( EditorHistory_CanRedo( &ws.history ) );
+}
+
+TEST_CASE( "Axis scale rejects no-motion and invalid final rays while leaving component picking available", "[map][gui][tool-gestures][component-axis-scale][input]" )
+{
+    SECTION( "Subthreshold motion is identity even when the factor would snap away from one" ) {
+        axis_scale_fixture_t f( map_element_mode_t::EDGES ); MapWorkspace_SetScaleSnap( &f.s.workspace, 0.3 );
+        paint_snapshot_t before( f.s.workspace, f.mesh ); const auto drag = OrthoAxisScaleDrag( f, 0, 1.0 );
+        const auto serial = f.s.workspace.lastEdit.serial;
+        RunAxisScaleDrag( f.s.top.get(), { drag.begin, drag.begin + QPointF( 2, 0 ) } ); before.Check( f.s.workspace ); f.Selection();
+        CHECK( f.s.workspace.lastEdit.serial == serial );
+    }
+    SECTION( "Uniform ring subthreshold motion also preserves geometry and the existing Redo branch" ) {
+        axis_scale_fixture_t f( map_element_mode_t::EDGES ); auto &ws = f.s.workspace;
+        REQUIRE( MapToolGestures_TransformComponents( &ws, map_component_transform_t::TRANSLATE, { 16, 0, 0 }, map_component_pivot_t::CENTER ) );
+        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); REQUIRE( EditorHistory_CanRedo( &ws.history ) );
+        MapWorkspace_SetScaleSnap( &ws, 0.3 ); paint_snapshot_t before( ws, f.mesh ); const auto serial = ws.lastEdit.serial;
+        const QPointF centre = f.s.At( f.pivot.x, f.pivot.y );
+        RunAxisScaleDrag( f.s.top.get(), { centre + QPointF( -60, 0 ), centre + QPointF( -62, 0 ) } );
+        before.Check( ws ); f.Selection(); CHECK( ws.lastEdit.serial == serial ); REQUIRE( EditorHistory_CanRedo( &ws.history ) );
+        REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( Position( ws, f.mesh, f.edge.a ).x == Catch::Approx( 144 ) );
+    }
+    SECTION( "A final ray parallel to the captured axis plane cannot commit an earlier valid preview" ) {
+        axis_scale_fixture_t f( map_element_mode_t::EDGES ); camera_t camera( f.s );
+        MapCameraView_LookAt( camera.view.get(), { 420, -620, 420 }, { 32, 0, 64 } );
+        const auto drag = CameraAxisScaleDrag( f, camera, 1, 1.5 ); paint_snapshot_t before( f.s.workspace, f.mesh );
+        const auto serial = f.s.workspace.lastEdit.serial;
+        edge_workflow_mesh_t original( *f.s.workspace.pDocument, f.mesh );
+        const auto eye = MapCameraView_Position( camera.view.get() );
+        const QPointF parallel = camera.At( { eye.x, eye.y + 1e6, eye.z } );
+        ScaleMouse( camera.view.get(), QEvent::MouseButtonPress, drag.begin ); ScaleMouse( camera.view.get(), QEvent::MouseMove, drag.end );
+        ScaleMouse( camera.view.get(), QEvent::MouseButtonRelease, parallel ); before.Check( f.s.workspace ); f.Selection();
+        CHECK( f.s.workspace.lastEdit.serial == serial );
+        RunAxisScaleDrag( camera.view.get(), drag ); REQUIRE( f.s.Steps() == before.steps + 1 ); f.Scaled( original, 1, 1.5 );
+    }
+    SECTION( "An empty portion of the ring interior still permits a vertex selection click" ) {
+        axis_scale_fixture_t f( map_element_mode_t::VERTICES ); auto &ws = f.s.workspace;
+        const auto next = VertexAt( ws, f.mesh, { 128, 64, 0 } );
+        MapToolGestures_SetPivot( &ws, { 96, 64, 32 } ); const usize steps = f.s.Steps();
+        const QPointF at = f.s.At( 128, 64 ), centre = f.s.At( 96, 64 );
+        REQUIRE( std::hypot( at.x() - centre.x(), at.y() - centre.y() ) > 8.0 );
+        REQUIRE( std::hypot( at.x() - centre.x(), at.y() - centre.y() ) < 50.0 );
+        f.s.Click( 128, 64 ); REQUIRE( ws.meshSelection.vertices.nCount == 1 ); CHECK( VertexSelectedIn( ws, next ) ); CHECK( f.s.Steps() == steps );
+    }
+}

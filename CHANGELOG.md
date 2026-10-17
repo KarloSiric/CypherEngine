@@ -323,6 +323,24 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Component Scale now has separate RGB world-axis tips for selected vertices,
+  edges and faces on one mesh, with the existing uniform ring retained. Shared
+  paint/pick projection, custom pivots, factor snapping and Ctrl/Meta bypass
+  work for flat edges and single vertices. Tiny Scale pointer jitter no longer
+  rounds identity to .9 with a .3 snap step; stale captures and invalid final
+  rays cannot publish an earlier preview. Confirmed publication failures report
+  actionable feedback while retaining geometry, selection, history and Redo.
+- macOS viewport movement uses Qt's directly mapped native cursor, avoiding
+  the confirmed Qt 6.11.1 SizeAll image colour-space lifetime defect exposed by
+  native face-resize testing. Other platforms retain SizeAll; directional
+  resize controls retain their meaning. No dependency download or patch.
+  Validation: five new Scale cases / 1,538 assertions; combined native Cocoa
+  gizmo/cancellation/selection checks 46 / 20,996; full Map GUI 873 / 192,506;
+  full Mason application 72 / 4,468 and three affected native app cases / 310.
+  Rebuilt app and standalone signatures verified. Positive world-axis Scale
+  is supported; local/workplane orientations, cross-mesh components, general
+  editor completion and renderer integration remain open.
+
 - Mason declares material-only activation across its asset panel and
   standalone/embedded browsers. Unsupported kinds open read-only inspectors;
   unavailable Use actions disappear and window footers say Inspect. Missing

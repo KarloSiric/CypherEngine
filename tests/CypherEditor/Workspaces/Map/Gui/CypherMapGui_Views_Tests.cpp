@@ -40,6 +40,7 @@
 #include <QAction>
 #include <QComboBox>
 #include <QContextMenuEvent>
+#include <QCursor>
 #include <QDialog>
 #include <QDir>
 #include <QEnterEvent>
@@ -89,6 +90,12 @@ QApplication *App()
 {
     return qobject_cast<QApplication *>( QCoreApplication::instance() );
 }
+
+#if defined( Q_OS_MACOS )
+constexpr Qt::CursorShape kViewportMovementCursor = Qt::DragMoveCursor;
+#else
+constexpr Qt::CursorShape kViewportMovementCursor = Qt::SizeAllCursor;
+#endif
 
 // A session with the documented example map open.
 struct session_t {
@@ -3497,7 +3504,9 @@ TEST_CASE( "Select camera face handles resize each signed axis while its opposit
         REQUIRE( MapCameraView_WorldToView( camera.get(), point, &start ) ); REQUIRE( MapCameraView_WorldToView( camera.get(), endPoint, &end ) );
         REQUIRE( camera->rect().adjusted( 8, 8, -8, -8 ).contains( start.toPoint() ) );
         const auto *document = ws.pDocument; const auto revision = document->geometry.revision, selectionRevision = ws.selection.revision;
-        DragMouse( camera.get(), QEvent::MouseButtonPress, start, modifiers ); DragMouse( camera.get(), QEvent::MouseMove, end, modifiers );
+        DragMouse( camera.get(), QEvent::MouseButtonPress, start, modifiers );
+        CHECK( camera->cursor().shape() == kViewportMovementCursor );
+        DragMouse( camera.get(), QEvent::MouseMove, end, modifiers );
         REQUIRE( ws.editPreview.bActive ); CHECK( ws.editPreview.transform.kind == map_transform_preview_kind_t::SCALE ); CHECK( ws.editPreview.transform.bResize );
         CheckPointClose( ws.editPreview.transform.pivot, pivot ); CheckPointClose( ws.editPreview.transform.factors, factors );
         CheckPointClose( ws.editPreview.bounds.box.minimum, expected.box.minimum ); CheckPointClose( ws.editPreview.bounds.box.maximum, expected.box.maximum );
@@ -6681,6 +6690,7 @@ TEST_CASE( "Handle hover follows the pointer when object highlighting is disable
             CAPTURE( point.x(), point.y() );
             move( { 20, 20 } ); const QImage plain = view->grab().toImage();
             move( point ); const QImage highlighted = view->grab().toImage();
+            if ( point == center ) { CHECK( view->cursor().shape() == kViewportMovementCursor ); }
             CHECK( ChangedPixelsNear( plain, highlighted, point, 8 ) > 0 );
             CHECK( greenNear( highlighted, point ) > greenNear( plain, point ) );
             CHECK( MapView_HoveredObject( view.get() ) == 0u );
@@ -6855,7 +6865,7 @@ TEST_CASE( "Orthographic real boundary caps and move arrows have separate revers
                 CHECK( HandleColorPixelsNear( idle, move, axisColor, 3 ) > 0 );
                 CHECK( HandleColorPixelsNear( idle, side, axisColor, 5 ) > 0 ); // Hammer 5: side caps in their axis colour too.
                 HoverMouse( view.get(), pointer ); const QImage highlighted = view->grab().toImage();
-                CHECK( view->cursor().shape() == ( resize ? vertical ? Qt::SizeVerCursor : Qt::SizeHorCursor : Qt::SizeAllCursor ) );
+                CHECK( view->cursor().shape() == ( resize ? vertical ? Qt::SizeVerCursor : Qt::SizeHorCursor : kViewportMovementCursor ) );
                 CHECK( HandleColorPixelsNear( highlighted, pointer, hover, 5 ) > HandleColorPixelsNear( idle, pointer, hover, 5 ) );
                 const QPointF other = resize ? move : side;
                 // An antialiased Y-axis pixel can resemble the green hover
@@ -8028,7 +8038,7 @@ TEST_CASE( "Scaled gizmos draw and pick the same endpoints and cancel changed ca
         HoverMouse( view.get(), endpoint ); const QImage hovered = view->grab().toImage();
         const QColor hover = gui::EditorStyle_TokenColor( session.gui.style, "viewport.hover" );
         CHECK( HandleColorPixelsNear( hovered, endpoint, hover, 3 ) > HandleColorPixelsNear( idle, endpoint, hover, 3 ) );
-        CHECK( view->cursor().shape() == Qt::SizeAllCursor );
+        CHECK( view->cursor().shape() == kViewportMovementCursor );
         const QPointF direction = ( endpoint - center ) / QLineF( center, endpoint ).length();
         const QPointF end = endpoint + direction * 20;
         const usize history = EditorHistory_StepCount( &ws.history );
@@ -8144,7 +8154,7 @@ TEST_CASE( "Camera resize spheres remain outside move controls and preserve sign
             REQUIRE( camera->rect().adjusted( 12, 12, -12, -12 ).contains( move.toPoint() ) );
             HoverMouse( camera.get(), { 20, 20 } ); const QImage idle = camera->grab().toImage();
             HoverMouse( camera.get(), move ); const QImage highlighted = camera->grab().toImage();
-            CHECK( ChangedPixelsNear( idle, highlighted, move, 7 ) > 0 ); CHECK( camera->cursor().shape() == Qt::SizeAllCursor );
+            CHECK( ChangedPixelsNear( idle, highlighted, move, 7 ) > 0 ); CHECK( camera->cursor().shape() == kViewportMovementCursor );
             auto movedTip = tip; SetTestCoordinate( movedTip, axis, TestCoordinate( movedTip, axis ) + 64.0 );
             const QPointF end = project( movedTip );
             const auto *moveDocument = ws.pDocument; const auto moveRevision = moveDocument->geometry.revision;
@@ -8172,7 +8182,7 @@ TEST_CASE( "Camera resize spheres remain outside move controls and preserve sign
                 HoverMouse( camera.get(), sphere ); const QImage sphereHovered = camera->grab().toImage();
                 CHECK( ChangedPixelsNear( sphereIdle, sphereHovered, sphere, 7 ) > 0 );
                 CHECK( HandleColorPixelsNear( sphereHovered, sphere, hover, 7 ) > HandleColorPixelsNear( sphereIdle, sphere, hover, 7 ) );
-                CHECK( camera->cursor().shape() == Qt::SizeAllCursor );
+                CHECK( camera->cursor().shape() == kViewportMovementCursor );
                 // The whole pickup offset belongs to the gesture. A three
                 // pixel off-center press must neither move the boundary nor
                 // be interpreted as movement of the central arrow.

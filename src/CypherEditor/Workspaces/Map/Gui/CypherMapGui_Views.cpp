@@ -2740,9 +2740,22 @@ edit_handle_hit_t EditHandleAt( const map_workspace_t &ws, Project project, QRec
     return {};
 }
 
+constexpr Qt::CursorShape ViewportMovementCursor() noexcept {
+#if defined( Q_OS_MACOS )
+    // Qt 6.11.1 releases the CGColorSpace returned by
+    // qt_mac_cgImageFormatForImage before its SizeAll cursor image uses it:
+    // https://github.com/qt/qtbase/blob/v6.11.1/src/gui/painting/qcoregraphics.mm
+    // Cocoa maps DragMove directly to the native NSCursor crosshair, avoiding
+    // that image conversion without depending on private Qt APIs.
+    return Qt::DragMoveCursor;
+#else
+    return Qt::SizeAllCursor;
+#endif
+}
+
 Qt::CursorShape GizmoCursor( const map_workspace_t &ws ) {
     return TransformTool( ws ) == map_tool_t::ROTATE ? Qt::CrossCursor :
-           TransformTool( ws ) == map_tool_t::SCALE ? Qt::SizeFDiagCursor : Qt::SizeAllCursor;
+           TransformTool( ws ) == map_tool_t::SCALE ? Qt::SizeFDiagCursor : ViewportMovementCursor();
 }
 
 class map_ortho_view_t final : public QWidget {
@@ -3356,7 +3369,7 @@ protected:
             ortho_face_handle_t faceHandle{};
             const auto project = [this]( math::vec3d_t p, QPointF &screen ) { screen = WorldToView( { Axis( p, m_axisU ), Axis( p, m_axisV ) } ); return true; };
             const auto hit = EditHandleAt( *m_pWorkspace, project, rect(), pEvent->position(), MoveLength(), m_axisU, m_axisV, 3 - m_axisU - m_axisV );
-            if ( PickPushPullHandle( pEvent->position(), faceHandle ) ) { setCursor( Qt::SizeAllCursor ); }
+            if ( PickPushPullHandle( pEvent->position(), faceHandle ) ) { setCursor( ViewportMovementCursor() ); }
             else if ( hit.resize >= 0 ) { setCursor( ResizeCursor( hit.resize ) ); }
             else if ( hit.gizmo >= 0 ) { setCursor( GizmoCursor( *m_pWorkspace ) ); } else { unsetCursor(); }
         }
@@ -3623,7 +3636,7 @@ private:
         m_drag.original = object != nullptr ? object->bounds : map_bounds_t{};
         m_drag.pivot = handle.origin; m_drag.faceNormal = handle.normal;
         m_drag.planeStart = EditPoint( m_drag.start );
-        CaptureDragContext( m_drag, *m_pWorkspace ); setCursor( Qt::SizeAllCursor );
+        CaptureDragContext( m_drag, *m_pWorkspace ); setCursor( ViewportMovementCursor() );
     }
     void DrawPushPullHandle( QPainter &painter ) const {
         ortho_face_handle_t handle{}; if ( !FaceHandle( handle ) ) { return; }
@@ -4943,7 +4956,7 @@ protected:
         if ( m_drag.kind == edit_drag_t::NONE && !NavigationActive() ) {
             const auto project = [this]( math::vec3d_t p, QPointF &screen ) { QLineF line; if ( !Project( p, p, &line ) ) { return false; } screen = line.p1(); return true; };
             const auto hit = EditHandleAt( *m_pWorkspace, project, rect(), pEvent->position(), GizmoLength(), -1, -1, -1, ResizeHandleMask() );
-            if ( hit.resize >= 0 ) { setCursor( Qt::SizeAllCursor ); }
+            if ( hit.resize >= 0 ) { setCursor( ViewportMovementCursor() ); }
             else if ( hit.gizmo >= 0 ) { setCursor( GizmoCursor( *m_pWorkspace ) ); } else { unsetCursor(); }
         }
         if ( m_drag.kind == edit_drag_t::PENDING_HANDLE && !pEvent->buttons().testFlag( Qt::LeftButton ) ) {
@@ -5494,7 +5507,7 @@ private:
             // press intersection behind the camera's near plane. Capture the
             // whole pickup offset, including the hit tolerance around the dot.
             if ( !PlanePoint( screen - m_drag.resizeScreenOffset, point, m_drag.faceNormal, m_drag.planeStart ) ) { m_drag = {}; return; }
-            setCursor( Qt::SizeAllCursor );
+            setCursor( ViewportMovementCursor() );
             return;
         }
         if ( stagedBlock ) { return; }

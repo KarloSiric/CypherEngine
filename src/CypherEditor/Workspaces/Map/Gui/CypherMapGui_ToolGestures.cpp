@@ -209,10 +209,14 @@ struct state_t {
     const void *gizmoView{ nullptr };
     const map_document_t *gizmoDocument{ nullptr };
     u64 gizmoSelectionRevision{ 0 }, gizmoGeometryRevision{ 0 };
+    u64 gizmoObject{ 0 };
+    map_element_mode_t gizmoMode{ map_element_mode_t::OBJECTS };
     int gizmoAxis{ -1 };          // -1: free (plane) drag, else world axis.
     QPointF gizmoPress{};
     vec3 gizmoPressRayOrigin{}, gizmoPressRayDirection{}, gizmoPressHit{};
     f64 gizmoT0{ 0.0 };
+    math::planed_t gizmoScalePlane{};
+    f64 gizmoScaleReference{ 0.0 };
     math::affine3d_t gizmoAffine{ math::CY_AFFINE3D_IDENTITY };
     vec3 gizmoDelta{};
     int gizmoHover{ -2 };         // -2: none, -1: centre, 0..2: axis.
@@ -4136,6 +4140,9 @@ Component gizmo: move, rotate and scale selected vertices, edges and faces
 
 enum class gizmo_kind_t : u8 { TRANSLATE, ROTATE, SCALE };
 constexpr f64 kScaleGizmoRadiusPixels = 60.0;
+constexpr f64 kScaleAxisRadiusPixels = 96.0;
+constexpr f64 kScaleAxisHalfPixels = 4.0;
+constexpr f64 kScaleAxisPickPixels = 7.0;
 
 struct gizmo_target_t {
     u64 mesh{ 0 };
@@ -4247,6 +4254,107 @@ bool AxisInView( const map_tool_view_t &view, int axis ) noexcept
     return !view.bOrtho || static_cast<u32>( axis ) == view.axisU || static_cast<u32>( axis ) == view.axisV;
 }
 
+struct scale_axis_layout_t {
+    bool visible{ false };
+    QPointF tip{};
+    f64 projectedLength{ 0.0 };
+};
+struct scale_layout_t {
+    QPointF centre{};
+    f64 reference{ 0.0 };
+    scale_axis_layout_t axes[3]{};
+};
+
+// Square tips are screen-space controls outside the unchanged uniform ring.
+// Their shafts are only guides, so a ring pickup cannot become an axis pickup.
+// This one layout supplies painting, hover and press; indistinguishable axes
+// expose only the less foreshortened control instead of two conflicting tips.
+bool ScaleLayout( const map_tool_view_t &view, vec3 pivot, scale_layout_t &out ) noexcept
+{
+    if ( !Project( view, pivot, out.centre ) ) { return false; }
+    out.reference = GizmoLength( view, pivot );
+    if ( !std::isfinite( out.reference ) || out.reference <= 0.0 ) { return false; }
+    for ( int axis = 0; axis < 3; ++axis ) {
+        if ( !AxisInView( view, axis ) ) { continue; }
+        QPointF endpoint;
+        if ( !Project( view, Add( pivot, AxisVector( axis, out.reference ) ), endpoint ) ) { continue; }
+        const QPointF projected = endpoint - out.centre;
+        const f64 length = std::hypot( projected.x(), projected.y() );
+        if ( !std::isfinite( length ) || length < 14.0 ) { continue; }
+        const QPointF direction = projected / length;
+        const QPointF tip = out.centre + direction * kScaleAxisRadiusPixels;
+        if ( !view.bOrtho ) {
+            // Along one world line, perspective is q(t)=a*t/(1+b*t),
+            // with t measured in reference lengths. The half/full samples
+            // recover that mapping without another view API. A normalized
+            // screen tip beyond the vanishing point has no positive t.
+            QPointF halfway;
+            if ( !Project( view, Add( pivot, AxisVector( axis, out.reference * 0.5 ) ), halfway ) ) { continue; }
+            const QPointF halfDelta = halfway - out.centre;
+            const f64 half = halfDelta.x() * direction.x() + halfDelta.y() * direction.y();
+            if ( !std::isfinite( half ) || half <= 0.0 || length - half <= length * 1e-10 ) { continue; }
+            const f64 b = ( 2.0 * half - length ) / ( length - half );
+            const f64 a = length * ( 1.0 + b );
+            const f64 denominator = a - b * kScaleAxisRadiusPixels;
+            if ( !std::isfinite( denominator ) || denominator <= 1e-8 ) { continue; }
+            const f64 parameter = kScaleAxisRadiusPixels / denominator;
+            const vec3 worldTip = Add( pivot, AxisVector( axis, out.reference * parameter ) );
+            QPointF check;
+            if ( !std::isfinite( parameter ) || parameter <= 0.0 || !Project( view, worldTip, check ) ||
+                 QLineF( check, tip ).length() > 0.01 ) { continue; }
+            const vec3 ray = Unit( Sub( worldTip, view.eye ) );
+            const f64 axial = Comp( ray, axis );
+            if ( 1.0 - axial * axial < 1e-8 ) { continue; }
+        }
+        auto &control = out.axes[axis];
+        control.visible = true; control.projectedLength = length;
+        control.tip = tip;
+    }
+    for ( int axis = 0; axis < 3; ++axis ) {
+        if ( !out.axes[axis].visible ) { continue; }
+        for ( int other = axis + 1; other < 3; ++other ) {
+            if ( !out.axes[other].visible ||
+                 std::abs( out.axes[axis].tip.x() - out.axes[other].tip.x() ) > 2.0 * kScaleAxisPickPixels ||
+                 std::abs( out.axes[axis].tip.y() - out.axes[other].tip.y() ) > 2.0 * kScaleAxisPickPixels ) { continue; }
+            if ( out.axes[other].projectedLength > out.axes[axis].projectedLength ) { out.axes[axis].visible = false; break; }
+            out.axes[other].visible = false;
+        }
+    }
+    return true;
+}
+
+void ResetGizmo( state_t &s ) noexcept
+{
+    s.bGizmo = s.bGizmoExtrude = false;
+    s.gizmoView = nullptr; s.gizmoDocument = nullptr; s.gizmoObject = 0;
+    s.gizmoSelectionRevision = s.gizmoGeometryRevision = 0;
+    s.gizmoScalePlane = {}; s.gizmoScaleReference = 0.0;
+    s.gizmoAffine = math::CY_AFFINE3D_IDENTITY; s.gizmoDelta = {};
+    s.gizmoHover = -2;
+}
+
+// Notification-time check: no selection reconstruction or allocation. A
+// temporary lock, mode change or invalid target cannot revive on late release.
+bool GizmoContextMatches( const map_workspace_t *ws, const state_t &s ) noexcept
+{
+    if ( !s.bGizmo || !Writable( ws ) || ws->tool != s.tool || ws->elementMode != s.gizmoMode ||
+         ws->pDocument != s.gizmoDocument || ws->pDocument->geometry.revision != s.gizmoGeometryRevision ||
+         ws->selection.revision != s.gizmoSelectionRevision || ws->selection.ids.nCount != 1 ||
+         ws->selection.ids.pData[0] != s.gizmoObject || MapLayers_IsObjectLocked( ws, s.gizmoObject ) ) { return false; }
+    const auto *object = MapWireframe_FindObject( ws->wire, s.gizmoObject );
+    return object != nullptr && MapWorkspace_IsVisible( ws, *object );
+}
+
+bool ScaleAxisPoint( const map_tool_event_t &e, const math::planed_t &plane, vec3 &point ) noexcept
+{
+    const f64 denominator = Dot( plane.normal, e.rayDirection );
+    QPointF projected;
+    return std::isfinite( denominator ) && std::fabs( denominator ) > 1e-8 &&
+        RayPlane( e.rayOrigin, e.rayDirection, plane, point ) &&
+        std::isfinite( point.x ) && std::isfinite( point.y ) && std::isfinite( point.z ) &&
+        Project( e.view, point, projected ); // Includes the native camera's near plane.
+}
+
 // The same world-space circles are painted and picked. Orthographic panes
 // expose the ring facing the pane; perspective exposes all usable axes.
 f64 GizmoRingRadius( const map_tool_view_t &view, vec3 pivot ) noexcept
@@ -4274,8 +4382,14 @@ int GizmoHandleAt( const map_workspace_t *ws, const map_tool_view_t &view, vec3 
     if ( !Project( view, pivot, centre ) ) { return -2; }
     const f64 toCentre = std::hypot( screen.x() - centre.x(), screen.y() - centre.y() );
     if ( GizmoKind( ws ) == gizmo_kind_t::SCALE ) {
-        // Only the painted ring and pivot are handles. The empty interior
-        // remains available for picking nearby components.
+        scale_layout_t layout{};
+        if ( !ScaleLayout( view, pivot, layout ) ) { return -2; }
+        for ( int axis = 0; axis < 3; ++axis ) {
+            if ( layout.axes[axis].visible && std::abs( screen.x() - layout.axes[axis].tip.x() ) <= kScaleAxisPickPixels &&
+                 std::abs( screen.y() - layout.axes[axis].tip.y() ) <= kScaleAxisPickPixels ) { return axis; }
+        }
+        // Apart from the outer tips, only the painted ring and pivot are
+        // handles. The empty interior stays available for component picking.
         const bool hitsPivot = std::abs( screen.x() - centre.x() ) <= 7.0 && std::abs( screen.y() - centre.y() ) <= 7.0;
         return hitsPivot || std::abs( toCentre - kScaleGizmoRadiusPixels ) <= 7.0 ? -1 : -2;
     }
@@ -4379,6 +4493,24 @@ void GizmoUpdate( const map_workspace_t *ws, state_t &s, const map_tool_event_t 
         s.gizmoAffine = About( t.pivot, RotationAbout( axis, degrees * 3.14159265358979323846 / 180.0 ) );
         return;
     }
+    // A click (or tiny pointer jitter) must remain identity even when the
+    // scale increment does not divide 1, for example a 0.3 snap step.
+    if ( QLineF( s.gizmoPress, e.screen ).length() < 3.0 ) { return; }
+    if ( s.gizmoAxis >= 0 ) {
+        // The reference is fixed at pickup, independent of selection extent
+        // and distance from a custom pivot. Flat edges and one vertex remain
+        // usable; no division by a cursor radius or near-zero component span.
+        vec3 point{};
+        if ( !ScaleAxisPoint( e, s.gizmoScalePlane, point ) || s.gizmoScaleReference <= 0.0 ) { return; }
+        const u32 axis = static_cast<u32>( s.gizmoAxis );
+        f64 factor = 1.0 + Comp( Sub( point, s.gizmoPressHit ), axis ) / s.gizmoScaleReference;
+        if ( !std::isfinite( factor ) ) { return; }
+        if ( !bypass && ws->scaleSnap > 0.0 ) { factor = std::round( factor / ws->scaleSnap ) * ws->scaleSnap; }
+        if ( !std::isfinite( factor ) ) { return; }
+        vec3 scale{ 1.0, 1.0, 1.0 }; SetComp( scale, axis, std::max( factor, 0.01 ) );
+        s.gizmoAffine = About( t.pivot, math::Affine3d_FromScale( scale ) );
+        return;
+    }
     const f64 r0 = std::hypot( s.gizmoPress.x() - centre.x(), s.gizmoPress.y() - centre.y() );
     const f64 r1 = std::hypot( e.screen.x() - centre.x(), e.screen.y() - centre.y() );
     f64 factor = r0 > 1.0 ? r1 / r0 : 1.0;
@@ -4406,6 +4538,7 @@ bool CommitComponents( map_workspace_t *ws, gizmo_kind_t kind, const gizmo_targe
     const map_prepared_component_selection_t prepared{ restore ? &next : nullptr, extrude ? geo::mesh_edge_ref_t{} : ws->selectedMeshEdgeSeed,
         restore && t.edges.empty() && ws->meshVertexColumnRevision == ws->selection.revision ? ws->meshVertexColumnAxis : -1 };
     const auto keep = [&]( vector_t<u64> *out ) { return Vector_PushBack( out, t.mesh != 0 ? t.mesh : t.brush ) != CY_FALSE; };
+    const u64 editSerial = ws->lastEdit.serial;
     const bool done = Apply( ws, label, [&]( map_document_t *copy, vector_t<u64> *out ) noexcept {
         if ( !keep( out ) ) { return map_status_t::OUT_OF_MEMORY; }
         if ( t.brush != 0 ) { return MapTopologyEdit_MoveBrushFace( copy, t.brush, t.brushSide, delta ); }
@@ -4435,6 +4568,14 @@ bool CommitComponents( map_workspace_t *ws, gizmo_kind_t kind, const gizmo_targe
         MapNotice_Post( ws, map_notice_t::WARNING, ws->lastEdit.status == map_status_t::OUT_OF_MEMORY ?
             QStringLiteral( "Not enough memory to extend this edge. The map has not changed." ) :
             QStringLiteral( "Extend needs an open boundary edge and a non-collapsed new face. Use a Quad or remove a face to open a closed mesh." ) );
+    } else if ( !done && kind == gizmo_kind_t::SCALE && !extrude && ws->lastEdit.serial != editSerial &&
+                ws->lastEdit.outcome == map_edit_outcome_t::FAILED &&
+                ws->lastEdit.status != map_status_t::MODIFIER_TRANSFORM_UNSUPPORTED &&
+                ws->lastEdit.status != map_status_t::PREFAB_TRANSFORM_UNSUPPORTED ) {
+        const bool memory = ws->lastEdit.status == map_status_t::OUT_OF_MEMORY;
+        MapNotice_Post( ws, memory ? map_notice_t::ERROR : map_notice_t::WARNING, memory ?
+            QStringLiteral( "Not enough memory to scale the selected components. No edit was published." ) :
+            QStringLiteral( "The selected components could not be scaled. No edit was published." ) );
     }
 
     return done;
@@ -4448,9 +4589,8 @@ bool GizmoCommit( map_workspace_t *ws, const state_t &s, const map_tool_event_t 
 
 bool GizmoEvent( map_workspace_t *ws, state_t &s, const map_tool_event_t &e ) noexcept
 {
-    if ( s.bGizmo && ( s.gizmoDocument != ws->pDocument || s.gizmoSelectionRevision != ws->selection.revision ||
-                      s.gizmoGeometryRevision != ws->pDocument->geometry.revision ) ) {
-        s.bGizmo = false; s.gizmoAffine = math::CY_AFFINE3D_IDENTITY; s.gizmoDelta = {};
+    if ( s.bGizmo && !GizmoContextMatches( ws, s ) ) {
+        ResetGizmo( s );
         return false;
     }
     if ( s.bGizmo && e.kind != map_tool_event_kind_t::CANCEL && e.view.pView != s.gizmoView ) { return false; }
@@ -4481,18 +4621,33 @@ bool GizmoEvent( map_workspace_t *ws, state_t &s, const map_tool_event_t &e ) no
                  ( e.modifiers & ( Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier ) ) != 0 ) { return false; }
             const int handle = GizmoHandleAt( ws, e.view, t.pivot, e.screen );
             if ( handle == -2 ) { return false; } // Elsewhere: picking as usual.
+            const bool axisScale = GizmoKind( ws ) == gizmo_kind_t::SCALE && handle >= 0;
+            math::planed_t scalePlane{}; vec3 scalePress{}; f64 scaleReference = 0.0;
+            if ( axisScale ) {
+                scale_layout_t layout{};
+                if ( !ScaleLayout( e.view, t.pivot, layout ) || !layout.axes[handle].visible ) { return true; }
+                const vec3 axis = AxisVector( handle );
+                const vec3 normal = Sub( e.rayDirection, Mul( axis, Dot( e.rayDirection, axis ) ) );
+                const f64 length = Length( normal );
+                if ( !std::isfinite( length ) || length < 1e-8 ) { return true; }
+                scalePlane.normal = Mul( normal, 1.0 / length ); scalePlane.d = -Dot( scalePlane.normal, t.pivot );
+                if ( !ScaleAxisPoint( e, scalePlane, scalePress ) ) { return true; }
+                scaleReference = layout.reference;
+            }
             s.bGizmo = true; s.gizmoAxis = handle; s.gizmoPress = e.screen;
             s.gizmoView = e.view.pView; s.gizmoDocument = ws->pDocument;
+            s.gizmoObject = t.mesh != 0 ? t.mesh : t.brush; s.gizmoMode = ws->elementMode;
             s.gizmoSelectionRevision = ws->selection.revision; s.gizmoGeometryRevision = ws->pDocument->geometry.revision;
             s.bGizmoExtrude = ( ( e.modifiers & Qt::ShiftModifier ) != 0 &&
                 ( !t.edges.empty() || ( GizmoKind( ws ) == gizmo_kind_t::TRANSLATE && t.face != 0 ) ) ) ||
                 ( !t.edges.empty() && EdgeDragExtends( ws ) );
             s.gizmoPressRayOrigin = e.rayOrigin; s.gizmoPressRayDirection = e.rayDirection;
             s.gizmoAffine = math::CY_AFFINE3D_IDENTITY; s.gizmoDelta = {};
-            if ( !e.view.bOrtho && handle >= 0 ) {
+            if ( !axisScale && !e.view.bOrtho && handle >= 0 ) {
                 s.gizmoT0 = AxisParameter( t.pivot, AxisVector( static_cast<u32>( handle ) ), e.rayOrigin, e.rayDirection );
             }
-            if ( e.view.bOrtho || !FreeGizmoPoint( e, t.pivot, false, s.gizmoPressHit ) ) { s.gizmoPressHit = t.pivot; }
+            if ( axisScale ) { s.gizmoScalePlane = scalePlane; s.gizmoScaleReference = scaleReference; s.gizmoPressHit = scalePress; }
+            else if ( e.view.bOrtho || !FreeGizmoPoint( e, t.pivot, false, s.gizmoPressHit ) ) { s.gizmoPressHit = t.pivot; }
             return true;
         }
         case map_tool_event_kind_t::RELEASE: {
@@ -4595,7 +4750,25 @@ void GizmoPaint( const map_workspace_t *ws, const state_t &s, QPainter &painter,
         }
         painter.fillRect( QRectF( centre.x() - 2, centre.y() - 2, 4, 4 ), QColor( 220, 220, 220 ) );
     } else {
-        const QColor color = s.bGizmo || s.gizmoHover == -1 ? Accent() : QColor( 230, 230, 230 );
+        scale_layout_t layout{};
+        if ( !ScaleLayout( view, t.pivot, layout ) ) { return; }
+        const int active = s.bGizmo ? s.gizmoAxis : s.gizmoHover;
+        for ( int axis = 0; axis < 3; ++axis ) {
+            if ( !layout.axes[axis].visible ) { continue; }
+            const QPointF tip = layout.axes[axis].tip;
+            const QPointF direction = ( tip - centre ) / kScaleAxisRadiusPixels;
+            const QColor ink = active == axis ? Accent() : axisColors[axis];
+            painter.setPen( QPen( ink, active == axis ? 1.75 : 1.25 ) ); painter.setBrush( Qt::NoBrush );
+            // Leave the uniform ring unobscured at each guide crossing.
+            painter.drawLine( centre + direction * 12.0, centre + direction * ( kScaleGizmoRadiusPixels - 8.0 ) );
+            painter.drawLine( centre + direction * ( kScaleGizmoRadiusPixels + 8.0 ), tip );
+            painter.setBrush( ink );
+            painter.drawRect( QRectF( tip.x() - kScaleAxisHalfPixels, tip.y() - kScaleAxisHalfPixels,
+                                     kScaleAxisHalfPixels * 2.0, kScaleAxisHalfPixels * 2.0 ) );
+            painter.setBrush( Qt::NoBrush );
+            painter.drawText( tip + QPointF( 7, -7 ), QString( QChar( "XYZ"[axis] ) ) );
+        }
+        const QColor color = active == -1 ? Accent() : QColor( 230, 230, 230 );
         painter.setPen( QPen( color, 1.5, Qt::DashLine ) ); painter.setBrush( Qt::NoBrush );
         painter.drawEllipse( centre, kScaleGizmoRadiusPixels, kScaleGizmoRadiusPixels );
         painter.fillRect( QRectF( centre.x() - 3, centre.y() - 3, 6, 6 ), color );
@@ -5260,6 +5433,7 @@ bool MapToolGestures_ValidateCaptures( map_workspace_t *ws ) noexcept
     if ( s.sculptWork && !SculptContextMatches( ws, *s.sculptWork ) ) { ResetSculpt( s ); changed = true; }
     if ( s.bArc && !ArcContextMatches( ws, s ) ) { ResetArc( s ); changed = true; }
     if ( s.bShear && !ShearContextMatches( ws, s ) ) { ResetShear( s ); changed = true; }
+    if ( s.bGizmo && !GizmoContextMatches( ws, s ) ) { ResetGizmo( s ); changed = true; }
     if ( s.repeat.present && ( s.repeat.document != ws->pDocument || ws->pDocument == nullptr ||
          s.repeat.geometryRevision != ws->pDocument->geometry.revision ) ) { s.repeat.current = false; }
     return changed;
@@ -5292,11 +5466,7 @@ bool MapToolGestures_CancelViewDrag( map_workspace_t *ws, const void *view ) noe
     }
     if ( s.gizmoView == view ) {
         cancelled = cancelled || s.bGizmo;
-        s.bGizmo = s.bGizmoExtrude = false;
-        s.gizmoView = nullptr; s.gizmoDocument = nullptr;
-        s.gizmoSelectionRevision = s.gizmoGeometryRevision = 0;
-        s.gizmoAffine = math::CY_AFFINE3D_IDENTITY; s.gizmoDelta = {};
-        s.gizmoHover = -2;
+        ResetGizmo( s );
     }
     if ( s.grabView == view ) {
         cancelled = cancelled || s.bComponentDrag || s.bGrabPending;

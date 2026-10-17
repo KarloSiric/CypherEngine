@@ -132,6 +132,12 @@ QApplication *App()
     return qobject_cast<QApplication *>( QCoreApplication::instance() );
 }
 
+#if defined( Q_OS_MACOS )
+constexpr Qt::CursorShape kViewportMovementCursor = Qt::DragMoveCursor;
+#else
+constexpr Qt::CursorShape kViewportMovementCursor = Qt::SizeAllCursor;
+#endif
+
 void ActivateStartupTestWindow( QWidget *window )
 {
     window->activateWindow();
@@ -4006,7 +4012,7 @@ TEST_CASE( "Mason overview omits displaced resize controls and framing reveals r
     const QPointF move = MasonOrthoMovePickup( top, *ws ), oldResize = move + QPointF( 24, 0 );
     REQUIRE( top->rect().contains( move.toPoint() ) ); REQUIRE( top->rect().contains( oldResize.toPoint() ) );
     MasonWorkflowMouse( top, QEvent::MouseMove, oldResize, Qt::NoButton ); CHECK( top->cursor().shape() == Qt::ArrowCursor );
-    for ( const auto &target : { std::pair{ move, Qt::SizeAllCursor } } ) {
+    for ( const auto &target : { std::pair{ move, kViewportMovementCursor } } ) {
         MasonWorkflowMouse( top, QEvent::MouseMove, target.first, Qt::NoButton ); CHECK( top->cursor().shape() == target.second );
         MasonWorkflowMouse( top, QEvent::MouseButtonPress, target.first, Qt::LeftButton, Qt::LeftButton );
         CHECK_FALSE( ws->editPreview.bActive );
@@ -4072,7 +4078,7 @@ TEST_CASE( "Capture Mason separated 2D move and resize controls", "[mason][smoke
     const auto capture = [&]( const QString &prefix, bool realResize ) {
         for ( const auto &target : { std::pair{ move, "move" }, std::pair{ resize, "resize" } } ) {
             MasonWorkflowMouse( top, QEvent::MouseMove, target.first, Qt::NoButton ); QCoreApplication::processEvents();
-            CHECK( top->cursor().shape() == ( target.first == move ? Qt::SizeAllCursor : realResize ? Qt::SizeHorCursor : Qt::ArrowCursor ) );
+            CHECK( top->cursor().shape() == ( target.first == move ? kViewportMovementCursor : realResize ? Qt::SizeHorCursor : Qt::ArrowCursor ) );
             REQUIRE( window->grab().save( QStringLiteral( "artifacts/%1_%2_hover_workspace.png" ).arg( prefix, target.second ) ) );
             REQUIRE( window->grab( crop ).save( QStringLiteral( "artifacts/%1_%2_hover_controls.png" ).arg( prefix, target.second ) ) );
         }
@@ -4132,7 +4138,7 @@ TEST_CASE( "Mason geometry snap checkbox aligns different authoring grids throug
     REQUIRE( top->rect().contains( start.toPoint() ) ); REQUIRE( top->rect().contains( end.toPoint() ) );
     top->setAttribute( Qt::WA_UnderMouse, true );
     MasonWorkflowMouse( top, QEvent::MouseMove, start, Qt::NoButton );
-    CHECK( top->cursor().shape() == Qt::SizeAllCursor );
+    CHECK( top->cursor().shape() == kViewportMovementCursor );
     MasonWorkflowMouse( top, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton );
     CHECK_FALSE( ws->editPreview.bActive );
     MasonWorkflowMouse( top, QEvent::MouseMove, end, Qt::NoButton, Qt::LeftButton );
@@ -4204,7 +4210,7 @@ TEST_CASE( "Mason resizes a brush through a selected face in its Top viewport", 
     const auto *document = ws->pDocument; const auto revision = document->geometry.revision, selection = ws->selection.revision;
     const usize steps = EditorHistory_StepCount( &ws->history ); const auto token = UndoRedo_StateToken( ws->history.pUndo );
     top->setAttribute( Qt::WA_UnderMouse, true );
-    MasonWorkflowMouse( top, QEvent::MouseMove, start, Qt::NoButton ); CHECK( top->cursor().shape() == Qt::SizeAllCursor );
+    MasonWorkflowMouse( top, QEvent::MouseMove, start, Qt::NoButton ); CHECK( top->cursor().shape() == kViewportMovementCursor );
     MasonWorkflowMouse( top, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton );
     MasonWorkflowMouse( top, QEvent::MouseMove, start, Qt::NoButton, Qt::LeftButton ); CHECK_FALSE( ws->editPreview.bActive );
     MasonWorkflowMouse( top, QEvent::MouseMove, end, Qt::NoButton, Qt::LeftButton );

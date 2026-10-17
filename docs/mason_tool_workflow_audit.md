@@ -28,7 +28,7 @@ TrenchBroom provides useful complementary references for command repetition, cam
 | Vertex editing | Selection, transform, connect, merge/collapse/dissolve; drag-to-weld | Real operations, but Merge target semantics, projected depth columns and one-mesh selection are not obvious to the user. |
 | Edge editing | Boundary Move/Extend, transformed extension and semantic repeat; loop/ring selection, split/connect, bridge, bevel, dissolve | Native G2 reference now covers the curved profile, straight extension, floor Bridge, exit cap, Save/Open and entrance continuation. Local axes and broader supported topology remain. |
 | Face editing | Component transforms; connected coplanar dedicated/numeric Extrude and measured-width Inset, single-face Corner Inset, offset, extraction, thickening and deletion | Region operations preserve cap partitions and add only perimeter walls/borders. Width Inset requires one convex perimeter without holes. Transform-gizmo extrusion remains single-face; live Inset preview and general individual/noncoplanar semantics remain. |
-| Translate/Rotate/Scale/Pivot | Root and component transformations, offset pivot and preview; recent rotated edge extension | World-axis basis only. The component Scale gizmo is uniform/radial, or uniform in the visible 2D plane. Numeric component scaling accepts independent X/Y/Z factors; per-axis interactive handles are missing. |
+| Translate/Rotate/Scale/Pivot | Root and component transformations, offset pivot and preview; recent rotated edge extension | World-axis basis only. Component Scale now exposes separate RGB axis tips and the existing uniform ring, with custom-pivot, cancellation, snapping and history coverage. Local/selection/workplane orientations remain missing. |
 | Clip | Brush and mesh slicing, keep front/back/both, matching preview/commit and closed-shell caps | Mixed open/closed-shell cap policy repaired locally, including cavity holes; broader room-blockout gate remains open. |
 | Knife / Edge Cut | Multi-point cuts across reachable faces; private brush candidate and one-step convert/cut | Atomic conversion/cut repaired locally; initial brush surface admission and failure diagnostics retain documented limits. |
 | Loop Cut | Quad traversal/insertion, direction-correct off-centre fractions and atomic brush conversion/cut validated locally | Native candidate edges share viewport visibility/depth rules. Brush admission still depends on the surface hit; brush hover has no loop preview. The initial brush surface hit and missing brush hover preview remain limits. |
@@ -369,7 +369,7 @@ Acceptance: Extend, Undo, Redo, immediately Extend again without repicking. Pres
 
 **C4. Component scope, scale and snapping remain narrower than root transforms.** Implemented limits, not all accidental bugs.
 
-One `meshId` owns a component selection. Cross-mesh vertex/edge/face manipulation is not the same as already-supported multi-object movement. The component Scale gizmo is radial/uniform; numeric component scaling already accepts independent X/Y/Z factors (`CypherMapGui_ToolPanels.cpp:939`, `CypherMapGui_ToolGestures.cpp:3898`). Per-axis interactive handles remain missing. Component gizmo translation snaps deltas; direct dragging and whole-root movement have different modifier/absolute/geometry-alignment rules. Brush faces intentionally have a narrower transform path than editable mesh faces.
+One `meshId` owns a component selection. Cross-mesh vertex/edge/face manipulation is not the same as already-supported multi-object movement. The component Scale gizmo now exposes independent positive world-axis factors through RGB square tips, in addition to its uniform ring; numeric scaling already accepted independent X/Y/Z factors. Local/workplane axes and cross-mesh component manipulation remain outside this checkpoint. Component gizmo translation snaps deltas; direct dragging and whole-root movement have different modifier/absolute/geometry-alignment rules. Brush faces intentionally have a narrower transform path than editable mesh faces.
 
 Evidence: `CypherMapGui_GeometryCommands.cpp:145–150`; `CypherMapGui_ToolGestures.cpp:2777–2810,3255–3300,3423–3475`; `CypherMapGui_Views.cpp:1419`.
 
@@ -385,7 +385,7 @@ negative dedicated drag moves each shared vertex once. Disconnected or
 noncoplanar regions are explicitly refused; numeric Corner Inset requires one
 face. Region cap attributes and generated wall charts have dedicated coverage.
 Transform-gizmo face extrusion remains a separate one-face path; this change
-does not add per-axis Scale or local/selection/workplane gizmo orientations.
+did not add per-axis Scale; that separate interactive checkpoint is now delivered below. Local/selection/workplane gizmo orientations remain open.
 
 **The sphere and vertex complaints require precise distinctions**
 
@@ -456,7 +456,7 @@ Existing transaction machinery should be reused. The refactor is about shared co
 1. **Interaction correctness:** repair shared picking, stale component gestures, UV lifecycle, lasso modifiers and face repicking. Run ordinary clicks, small drags, overlapping handles, depth-skewed/near-clipped geometry, all viewport types, modifier remaps and late releases. Keep geometry and history invariant on cancelled/invalid input.
 2. **Geometry safety:** Connect mixed selections, Clip mixed shells, conversion cancellation and prefab partial saves. Add failure injection where publication spans allocations or files. Preserve source identities, face attributes and untouched topology.
 3. **Complete the small modelling project:** Quad → select boundary → Extend wall → select rim → offset pivot → Rotate-Extend 15° → Repeat twice → straight Extend → Undo/Redo → continue → save/reopen. Then do the cylinder-derived arch/trim project. This should work through normal mouse/keyboard controls without fixture-injected selections.
-4. **Precision and productivity:** local/workplane orientation, per-axis component scale handles, explicit merge target, selection-aware operation explanations, editable UV numbers, and component alignment to existing geometry. Validate grid16/32 geometry against current grid64 without moving unrelated vertices.
+4. **Precision and productivity:** local/workplane orientation, explicit merge target, selection-aware operation explanations, editable UV numbers, and component alignment to existing geometry. Validate grid16/32 geometry against current grid64 without moving unrelated vertices.
 5. **Capability honesty and workspace continuity:** asset activation by type, routed-keybinding status, full settings/theme/profile packaging, attribute-preserving repair and coherent content-browser actions.
 6. **Renderer/editor integration:** wire the renderer into Mason's scene viewport with matching camera/picking/overlays and resource invalidation, then measure representative maps. This is separate from fixing topology and input. GPU rendering will not repair a wrong edge parameter or stale drag state.
 
@@ -485,7 +485,7 @@ The historical “Already at parity” section in `docs/mason_toolset_gap_analys
 | Edges | Split, dissolve, collapse, connect, normals, loop/ring/ribs/path selection; boundary extension by translation or affine transform | Repeat the actual geometry operation; preserve active rim through undo; shared visibility-aware picking; local/workplane gizmo orientation; consistent mixed-boundary selection eligibility. |
 | Edge bevel | Real joined multi-edge bevel with width, segments, attribute transfer and validation | Interactive preview; explicit overlap policy; profile/miter controls if needed. Current kernel does not accept arbitrary open borders, reflex cases or every valence. |
 | Vertex bevel | Interior-fan truncation and replacement cap | Boundary vertices are excluded; no rounded-segment control. Per-edge clamping can produce unequal actual cut distances and needs visible feedback. |
-| Face Move / Rotate / Scale | Real component transforms; numeric independent XYZ scaling | Repick faces while a transform tool stays active; per-axis interactive scaling. Numeric scaling is already independent, so it must not be described as uniformly limited. |
+| Face Move / Rotate / Scale | Real component transforms; numeric independent XYZ scaling and interactive RGB world-axis Scale tips | Transform-mode face repicking and positive axis scaling now have native coverage. Local/workplane orientations and broader component scope remain. |
 | Face extrusion | Dedicated/numeric connected coplanar region operation with perimeter-only walls; single-face transform-gizmo route | Region cap IDs/attributes and unique inward motion verified. Noncoplanar/individual modes, broader preview and full G4 construction remain. |
 | Face inset | Separate Corner Inset and measured-width Inset; the latter supports a connected coplanar region with one simple convex perimeter | Region cap partition/selection and perimeter-only borders are verified. Concave outlines, holes, folded/collapsed cap cells and live width preview remain outside the supported route. Corner Inset retains its distinct radial meaning. |
 | Face bevel | Button listed in face properties | No face branch in the command: only vertices and edges are accepted. This is a visible capability mismatch. |
@@ -734,3 +734,17 @@ Refusal preserves the original brush and any existing Redo branch. Other
 legacy conversion adapters still need independent follow-up. The new width
 command requires an authored mesh and does not enter those adapters. The
 source publication does not mean every gate is complete.
+
+
+**Interactive Scale checkpoint — 2026-10-17:** selected vertices, edges and
+faces on one mesh now have separate RGB positive world-axis Scale tips in
+Top/Camera and the retained uniform ring. Custom pivots, snap/modifier bypass,
+zero-axis-extent edges, cancellation, one-step history, Save/Open and allocator
+refusal/retry have widget-event coverage. Tiny uniform-ring motion no longer
+rounds identity to .9 with a .3 snap increment. A native run also exposed Qt
+6.11.1's move-cursor image colour-space lifetime defect; macOS viewport movement
+now uses Qt's directly mapped native cursor. All 46 combined native Scale,
+gizmo, cancellation and camera-selection cases pass. See the
+[checkpoint](mason_geometry_workflow_research.md#interactive-component-axis-scale-and-cocoa-movement-cursors--2026-10-17)
+for the projection/capture design, dependency evidence and limits. Local,
+selection and workplane orientations and cross-mesh components remain open.

@@ -2745,3 +2745,81 @@ The preceding Join/I-O commit c5908f89 passed all 15 CI jobs in run39012253300.
 This asset commit requires its own CI. Placement/playback for unsupported asset
 kinds, general editor completion and renderer integration are not claimed.
 Renderer work remains deferred.
+
+
+## Interactive component axis Scale and Cocoa movement cursors — 2026-10-17
+
+Component Scale now exposes independent positive world X/Y/Z square tips for
+vertices, edges and faces on one editable mesh. Tips are 96 logical pixels from
+the pivot, outside the retained 60-pixel uniform ring. Painting, hover and press
+use the same projected layout; shafts are decorative and leave the uniform
+ring crossing and blank selection space available. Orthographic depth axes and
+near-clipped, almost edge-on or projectively unreachable controls are hidden;
+overlapping tips expose the less foreshortened axis. Perspective normalization
+uses the actual projective line rather than treating world distance as linear
+in screen pixels.
+
+At press, a plane containing the selected world axis and a fixed world reference
+length are captured. The factor is 1 + axis travel / reference length; the other
+two factors remain one. This works for a single vertex or an edge whose extent
+on that axis is zero, including a displaced custom pivot. Existing factor snap,
+Ctrl/Meta bypass, affine publication and edge-extension/repeat routes remain.
+Factors are positive (minimum .01); this does not add mirroring, local/workplane
+axes, planar pads, cross-mesh components or brush-face Scale. The old uniform
+ring scales all three axes in Camera and the two visible axes in orthographic
+views. Numeric independent XYZ scaling already existed.
+
+Scale now ignores pointer travel below three logical pixels before snapping.
+Without this guard, a tiny uniform-ring drag with a .3 factor step rounded the
+identity factor to .9. Invalid final camera rays reset the current sample to
+identity and cannot publish an older preview. The existing identity fast path
+in CommitComponents already avoids private publication for identity samples;
+no additional changed flag or new no-op optimization was introduced. Captured
+gizmos also retire immediately when source identity/revisions, mode, visibility,
+lock or edit availability changes. A confirmed failed ordinary Scale publication
+posts memory-specific or generic failure feedback; cancellation/no-op samples
+do not report a stale failure.
+
+Five new widget-event cases cover Top vertices/edges and Camera edges/faces,
+independently checked selected/untouched coordinates and topology, custom pivots,
+snap bypass, uniform-ring compatibility, non-handle picking, focus loss,
+lock/unlock, invalid final rays, first owned publication-allocation refusal,
+a working retained Redo branch, retry and Save/Open. No-motion, snapped-unit
+and invalid-final samples also retain lastEdit.serial. These final focused
+checks pass 5 cases / 1,538 assertions offscreen. These are native widget-event
+checks, not manual OS-pointer or performance measurements.
+
+A wider Cocoa run crashed in the pre-existing signed-face resize test when
+QWidget requested Qt::SizeAllCursor. The crash stack passed through
+QImage::toCGImage/CGImageCreate. Both the installed Qt 6.11.1 machine code and
+its [upstream image conversion source](https://raw.githubusercontent.com/qt/qtbase/v6.11.1/src/gui/painting/qcoregraphics.mm)
+release the returned colour-space pointer before the caller uses it. The
+[current owning result type](https://raw.githubusercontent.com/qt/qtbase/6.11/src/gui/painting/qcoregraphics_p.h)
+also corroborates this lifetime defect. The isolated case passed, which does
+not disprove a use-after-release. One QApplication spans the suite; application
+recreation was not the cause.
+
+Mason viewport movement requests now use Qt::DragMoveCursor on macOS. Qt maps
+that shape [directly to the native crosshair](https://raw.githubusercontent.com/qt/qtbase/v6.11.1/src/plugins/platforms/cocoa/qcocoacursor.mm),
+avoiding image conversion. Other platforms retain SizeAll. Directional resize
+cursors retain their prior meaning. No dependency was patched or downloaded.
+Existing cursor assertions were updated to the platform expectation while
+retaining geometry, hover-image and history checks. The final combined native
+Cocoa run passes 46 cases / 20,996 assertions, including gizmos, context
+cancellation, axis Scale and camera selection. The prior failed run is retained
+as evidence, not reported as a pass.
+
+The final production checkpoint passes full Map GUI 873 cases / 192,506
+assertions and full Mason application 72 / 4,468. Its first app run caught three
+old SizeAll expectations, now updated to the same platform-specific cursor
+contract; all original gesture assertions remain. The final three affected app
+cases also pass natively on Cocoa (310 assertions). The earlier asset checkpoint
+96dbd4cf passed all 15 CI jobs in run39018338307. The signed rebuilt app and
+standalone executable pass strict ad-hoc signature verification; the app arm64
+UUID is 21AA9A09-79DA-4726-8598-446E1E065D3D. Local binaries include unrelated
+retained asset/compiler edits; that is not a clean-HEAD equivalence claim.
+The following prefab-clipboard work was not compiled into this checkpoint.
+Logs, source hashes and the failed native cursor run remain under
+build-mason/artifacts/mason_component_axis_scale* and
+mason_cocoa_movement_cursor_baseline. This closes the independent Scale
+interaction gap, not every modelling completion gate. Renderer work is deferred.
