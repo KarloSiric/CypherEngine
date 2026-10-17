@@ -2679,3 +2679,69 @@ validation precedes the separate AssetWindow activation follow-up. This repairs
 Entity I/O's explicit target; generic metadata callbacks still do not declare
 all write sets, so D2 and the complete editor are not universally closed.
 Renderer work remains deferred.
+
+
+## Asset actions declare supported kinds; native keyboard activation — 2026-10-17
+
+Both asset activation APIs accept an explicit supported-kind mask, sanitized to
+the known catalogue kinds. Existing three-argument clients retain their ALL
+callback policy. Mason advertises only material activation in its panel,
+standalone browser and embedded asset pane. Unsupported ordinary browsing opens
+the existing shared read-only inspector; the panel omits unavailable Use actions,
+and window footers say Inspect. Catalogues, tabs, roots and search remain
+independent of eligibility. File existence is checked against current content
+mounts before callback dispatch; stale missing entries cannot activate. Explicit
+asset picking keeps its requested kind and separate callback, including texture
+picks, rather than inheriting the ordinary browsing mask. Generic AssetWindow
+clients intentionally retain ALL-kind callbacks; the panel retains its existing
+texture/map/shader inspector-only policy.
+
+The first real-key tests failed in both Cocoa and offscreen macOS: result-list
+Return never reached activated(). An independent minimal probe using the
+installed Qt 6.11.1 confirmed valid focus/index with zero activation. Qt's
+[macOS item-view branch](https://raw.githubusercontent.com/qt/qtbase/v6.8.3/src/widgets/itemviews/qabstractitemview.cpp)
+treats Return/Enter as an edit request. A browser-owned result-list event filter
+now dispatches the same action once and consumes that press on every platform;
+autorepeat is consumed without another action. Search widgets and mouse
+activation retain their routes. The external callback may destroy the browser,
+so no browser member is accessed after dispatch.
+
+Six new framework cases drive actual Return/keypad Enter, context-menu and
+footer mouse events: unsupported recipe/source kinds, no callback/empty or
+invalid masks, supported materials, missing-file refusal/retry, both window
+forms and explicit picker compatibility. A new Mason case uses its actual
+registrations, command-created window and title-action-created embedded pane;
+model/sound inspection leaves Active Material and map/history untouched, while
+each surface still assigns a distinct material. Model fixtures establish
+inspection/routing, not runtime mesh import or rendering.
+
+Final framework results pass 6 cases / 745 assertions in both offscreen and
+native Cocoa, and full framework GUI passes 157 / 21,661. The real Mason case
+passes 1 / 74; the complete app production checkpoint passes 72 / 4,468. A
+broader native run exposed two pre-existing startup tests' unmet background
+window-activation precondition, also reproduced in isolation before asset use.
+The test helper now requests activation, waits up to 250ms on Cocoa, and only if
+still inactive models the platform event using QApplication::setActiveWindow.
+It never chooses a child or weakens the original pane/search assertions; the
+modal test is unchanged. This follows Qt's [activation contract](https://raw.githubusercontent.com/qt/qtbase/v6.8.3/src/widgets/kernel/qapplication.cpp).
+After this test-only change, all 5 affected asset/startup/repeat application
+cases pass 367 assertions in both Cocoa and offscreen runs. The full 72-case
+run preceded that helper; these focused final runs cover every changed test.
+These are widget-event and modelled-activation checks, not manual OS-pointer,
+OS foreground-activation or performance benchmarks.
+
+The build caught one Catch INFO ternary-precedence error in the new test; adding
+parentheses fixed compilation without changing assertions. Source review found
+no activation/lifetime blocker. Existing build-mason libraries were reused to
+recompile only the final smoke test while the next ToolGestures source milestone
+was being prepared; the ToolGestures object remained unchanged. The rebuilt
+Mason app and standalone binary have verified strict ad-hoc signatures, app
+arm64 UUID DEBCDFBF-0727-4FD9-B1BC-905DED101B51. It includes this asset checkpoint
+but no following in-progress axis-scale source. As before, local app builds also
+retain unrelated asset/compiler working-tree changes. Baselines, probes, hashes
+and logs are under build-mason/artifacts/mason_asset_activation*.
+
+The preceding Join/I-O commit c5908f89 passed all 15 CI jobs in run39012253300.
+This asset commit requires its own CI. Placement/playback for unsupported asset
+kinds, general editor completion and renderer integration are not claimed.
+Renderer work remains deferred.

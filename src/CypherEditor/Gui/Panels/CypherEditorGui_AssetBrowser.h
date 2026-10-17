@@ -57,8 +57,9 @@ constexpr editor_asset_tab_t EditorAssetBrowser_KindTab( editor_asset_kind_t kin
     return static_cast<editor_asset_tab_t>( ASSET_TAB_FIRST_KIND + static_cast<int>( kind ) );
 }
 
-// Called on double-click or Enter with the asset's virtual path, except for
-// texture, map and shader assets, which open their read-only inspector.
+// Called on double-click or Enter with a supported asset's virtual path.
+// Unsupported assets, and texture/map/shader assets, open the read-only
+// inspector instead. Files missing from the content roots never activate.
 using editor_asset_activate_fn = void ( * )( void *pContext, const QString &path, editor_asset_kind_t kind );
 // The shared catalogue owner can refresh dependent browsers after each
 // completed scan, including root changes and a browser's Rescan button.
@@ -78,7 +79,11 @@ void EditorAssetBrowser_SetRescanCallback( QWidget *pBrowser, editor_asset_resca
 // Map"). Paths no root has are listed as missing.
 void EditorAssetBrowser_SetUsed( QWidget *pBrowser, const QString &title, const QStringList &paths );
 
-void EditorAssetBrowser_SetActivate( QWidget *pBrowser, editor_asset_activate_fn pfnActivate, void *pContext );
+// supportedKinds combines EditorAssets_KindBit values; unknown bits are ignored.
+// It only controls activation, not the catalogue, filters or content roots.
+// With no callback, all assets remain inspectable and no Use action is offered.
+void EditorAssetBrowser_SetActivate( QWidget *pBrowser, editor_asset_activate_fn pfnActivate, void *pContext,
+                                     common::u32 supportedKinds = EDITOR_ASSET_KIND_ALL );
 
 void EditorAssetBrowser_SetTab( QWidget *pBrowser, editor_asset_tab_t tab );
 void EditorAssetBrowser_SetSearch( QWidget *pBrowser, const QString &text );

@@ -2040,7 +2040,7 @@ QDialog *AssetWindow( mason_t &mason )
     mason.pAssetWindow = EditorAssetWindow_Create( mason.pWindow, &mason.gui, mason.pAssets );
     // Browsing: Accept does what double-clicking in the panel does (a
     // material becomes the Active Material).
-    EditorAssetWindow_SetAccept( mason.pAssetWindow, &OnAssetActivated, &mason );
+    EditorAssetWindow_SetAccept( mason.pAssetWindow, &OnAssetActivated, &mason, EditorAssets_KindBit( editor_asset_kind_t::MATERIAL ) );
     EditorAssetWindow_SetSelectionSource( mason.pAssetWindow, &SelectionAssets, &mason );
     EditorAssetWindow_SetUsed( mason.pAssetWindow, mason.usedAssets );
     return mason.pAssetWindow;
@@ -2090,7 +2090,7 @@ QWidget *CreatePaneContent( QWidget *parent, map_view_type_t type, void *context
     if ( type == map_view_type_t::ASSETS ) {
         pane = EditorAssetWindow_CreateEmbedded( parent, &mason.gui, mason.pAssets );
         if ( pane != nullptr ) {
-            EditorAssetWindow_SetAccept( pane, &OnAssetActivated, &mason );
+            EditorAssetWindow_SetAccept( pane, &OnAssetActivated, &mason, EditorAssets_KindBit( editor_asset_kind_t::MATERIAL ) );
             EditorAssetWindow_SetSelectionSource( pane, &SelectionAssets, &mason );
             EditorAssetWindow_SetUsed( pane, mason.usedAssets );
         }
@@ -2129,7 +2129,7 @@ QWidget *CreateAssets( void *pContext, QWidget *pParent )
             if ( fastSearch->text() != text ) { fastSearch->setText( text ); }
         } );
     }
-    EditorAssetBrowser_SetActivate( mason.pAssets, &OnAssetActivated, &mason );
+    EditorAssetBrowser_SetActivate( mason.pAssets, &OnAssetActivated, &mason, EditorAssets_KindBit( editor_asset_kind_t::MATERIAL ) );
     EditorAssetBrowser_SetRescanCallback( mason.pAssets, &OnAssetCatalogRescanned, &mason );
     UpdateAssetRoots( mason );
     UpdateUsedAssets( mason );

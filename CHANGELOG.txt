@@ -302,6 +302,13 @@ Added
   integration remain separate work.
 
 Fixed
+- Mason declares material-only activation across its asset panel and
+  standalone/embedded browsers. Unsupported kinds open read-only inspectors;
+  unavailable Use actions disappear and window footers say Inspect. Missing
+  files cannot activate; explicit texture/material pickers retain their own
+  callbacks. Return and keypad Enter now work in the panel on macOS and
+  dispatch once. Six native framework cases and the real Mason integration
+  pass, with full framework 157 and app 72 suites passing at the checkpoint.
 - Entity I/O binds queued output edits to the originating document,
   selection, table generation and resolved owner. Owner locks, read-only maps,
   previews and open transactions refuse writes, including disabled-control

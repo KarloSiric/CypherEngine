@@ -48,6 +48,7 @@
 #include <QHash>
 #include <QHeaderView>
 #include <QImageReader>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
@@ -668,6 +669,7 @@ public:
         m_pView->setDragEnabled( true );
         m_pView->setDragDropMode( QAbstractItemView::DragOnly );
         m_pView->setContextMenuPolicy( Qt::CustomContextMenu );
+        m_pView->installEventFilter( this );
         m_pView->setUniformItemSizes( true );
         pSplitter->addWidget( m_pTree );
         pSplitter->addWidget( m_pView );
@@ -770,10 +772,11 @@ public:
         if ( m_tab == ASSET_TAB_USED ) { Refilter(); }
     }
 
-    void SetActivate( editor_asset_activate_fn pfnActivate, void *pContext )
+    void SetActivate( editor_asset_activate_fn pfnActivate, void *pContext, u32 supportedKinds )
     {
         m_pfnActivate = pfnActivate;
         m_pActivateContext = pContext;
+        m_activateKinds = supportedKinds & EDITOR_ASSET_KIND_ALL;
     }
 
     void SetTab( editor_asset_tab_t tab )
@@ -896,6 +899,23 @@ public:
     }
 
     QString PathAt( int iRow ) const { return iRow >= 0 && iRow < RowCount() ? m_rows[static_cast<usize>( iRow )].path : QString(); }
+
+protected:
+    bool eventFilter( QObject *watched, QEvent *event ) override
+    {
+        if ( watched == m_pView && event->type() == QEvent::KeyPress ) {
+            auto *key = static_cast<QKeyEvent *>( event );
+            if ( key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter ) {
+                // Qt's macOS item view treats Return as an edit request, not
+                // activated(). Own this browser action on every platform and
+                // consume it so Windows/Linux cannot dispatch it a second time.
+                event->accept();
+                if ( !key->isAutoRepeat() ) { ActivateRow( m_pView->currentIndex().row() ); }
+                return true; // The external callback may have destroyed this browser.
+            }
+        }
+        return QWidget::eventFilter( watched, event );
+    }
 
 private:
     // ---- Building --------------------------------------------------------
@@ -1363,16 +1383,20 @@ private:
 
     // ---- Interaction -----------------------------------------------------
 
-    void Fire( const QString &path, editor_asset_kind_t kind )
+    bool CanActivateKind( editor_asset_kind_t kind ) const
     {
-        if ( m_pfnActivate != nullptr ) { m_pfnActivate( m_pActivateContext, path, kind ); }
+        return m_pfnActivate != nullptr && kind < editor_asset_kind_t::COUNT &&
+               kind != editor_asset_kind_t::TEXTURE && kind != editor_asset_kind_t::MAP && kind != editor_asset_kind_t::SHADER &&
+               ( m_activateKinds & EditorAssets_KindBit( kind ) ) != 0u;
     }
 
     void ActivateAsset( const QString &path, editor_asset_kind_t kind )
     {
-        if ( kind == editor_asset_kind_t::TEXTURE || kind == editor_asset_kind_t::MAP || kind == editor_asset_kind_t::SHADER ) {
+        // The catalogue may still contain a file removed after its last scan.
+        // Resolve immediately before dispatch; a stale entry remains inspectable.
+        if ( !CanActivateKind( kind ) || Resolve( path ).isEmpty() ) {
             ( void )Preview( path );
-        } else { Fire( path, kind ); }
+        } else { m_pfnActivate( m_pActivateContext, path, kind ); }
     }
 
     void ActivateRow( int iRow )
@@ -1400,11 +1424,10 @@ private:
         pPreview->setIcon( EditorStyle_Icon( m_pGui->style, "search" ) );
         pPreview->setEnabled( m_rows[static_cast<usize>( index.row() )].iAsset >= 0 );
         QAction *pUse = nullptr;
-        if ( kind != editor_asset_kind_t::TEXTURE && kind != editor_asset_kind_t::MAP && kind != editor_asset_kind_t::SHADER ) {
+        if ( CanActivateKind( kind ) && !file.isEmpty() && m_rows[static_cast<usize>( index.row() )].iAsset >= 0 ) {
             pUse = menu.addAction( kind == editor_asset_kind_t::MATERIAL ? QStringLiteral( "Use Material" ) : QStringLiteral( "Use" ) );
-            pUse->setEnabled( m_pfnActivate != nullptr && !file.isEmpty() );
         }
-        QAction *pDefault = kind == editor_asset_kind_t::MATERIAL ? pUse : pPreview;
+        QAction *pDefault = kind == editor_asset_kind_t::MATERIAL && pUse != nullptr ? pUse : pPreview;
         QFont bold = pDefault->font();
         bold.setBold( true );
         pDefault->setFont( bold );
@@ -1507,6 +1530,7 @@ private:
     QPointer<asset_preview_t> m_pPreview{};
     editor_asset_activate_fn m_pfnActivate{ nullptr };
     void *m_pActivateContext{ nullptr };
+    u32 m_activateKinds{ EDITOR_ASSET_KIND_ALL };
     editor_asset_rescan_fn m_pfnRescan{ nullptr };
     void *m_pRescanContext{ nullptr };
     QString m_folder{};
@@ -1585,9 +1609,9 @@ void EditorAssetBrowser_SetUsed( QWidget *pBrowser, const QString &title, const 
     if ( asset_browser_t *pImpl = AsBrowser( pBrowser ) ) { pImpl->SetUsed( title, paths ); }
 }
 
-void EditorAssetBrowser_SetActivate( QWidget *pBrowser, editor_asset_activate_fn pfnActivate, void *pContext )
+void EditorAssetBrowser_SetActivate( QWidget *pBrowser, editor_asset_activate_fn pfnActivate, void *pContext, u32 supportedKinds )
 {
-    if ( asset_browser_t *pImpl = AsBrowser( pBrowser ) ) { pImpl->SetActivate( pfnActivate, pContext ); }
+    if ( asset_browser_t *pImpl = AsBrowser( pBrowser ) ) { pImpl->SetActivate( pfnActivate, pContext, supportedKinds ); }
 }
 
 void EditorAssetBrowser_SetTab( QWidget *pBrowser, editor_asset_tab_t tab )

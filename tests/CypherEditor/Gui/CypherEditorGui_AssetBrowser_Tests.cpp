@@ -26,12 +26,15 @@
 #include <QAction>
 #include <QDir>
 #include <QComboBox>
+#include <QContextMenuEvent>
 #include <QDialog>
 #include <QFile>
 #include <QImage>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QListView>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPixmap>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -39,6 +42,7 @@
 #include <QSlider>
 #include <QSplitter>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QTextCursor>
@@ -94,13 +98,74 @@ struct project_t {
 struct activation_t {
     QString path;
     editor_asset_kind_t kind{ editor_asset_kind_t::COUNT };
+    usize count{ 0u };
     static void Record( void *pContext, const QString &path, editor_asset_kind_t kind )
     {
         auto *pSelf = static_cast<activation_t *>( pContext );
         pSelf->path = path;
         pSelf->kind = kind;
+        ++pSelf->count;
     }
 };
+
+QListView *SelectAsset( QWidget *browser, const QString &path )
+{
+    EditorAssetBrowser_Search( browser, path, true );
+    QCoreApplication::processEvents();
+    auto *view = browser->findChild<QListView *>( QStringLiteral( "AssetBrowserView" ) );
+    REQUIRE( view != nullptr );
+    REQUIRE( EditorAssetBrowser_Visible( browser ) == QStringList{ path } );
+    REQUIRE( view->currentIndex().isValid() );
+    return view;
+}
+
+void EnterAsset( QWidget *browser, const QString &path, int key = Qt::Key_Return )
+{
+    auto *view = SelectAsset( browser, path );
+    const auto modifiers = key == Qt::Key_Enter ? Qt::KeypadModifier : Qt::NoModifier;
+    QKeyEvent press( QEvent::KeyPress, key, modifiers );
+    QKeyEvent release( QEvent::KeyRelease, key, modifiers );
+    QApplication::sendEvent( view, &press );
+    QApplication::sendEvent( view, &release );
+    QCoreApplication::processEvents();
+}
+
+struct asset_menu_t {
+    bool opened{ false };
+    QStringList actions;
+    QString defaultAction;
+};
+
+asset_menu_t InspectAssetMenu( QWidget *browser, const QString &path, bool use = false )
+{
+    auto *view = SelectAsset( browser, path );
+    const QPoint point = view->visualRect( view->currentIndex() ).center();
+    REQUIRE( view->viewport()->rect().contains( point ) );
+    asset_menu_t result;
+    QObject timerContext;
+    QTimer::singleShot( 0, &timerContext, [&]() {
+        // No throwing assertions inside Qt's nested event loop. Inspect the
+        // actual context menu, then return through its normal key handling.
+        auto *menu = browser->findChild<QMenu *>( QStringLiteral( "AssetBrowserContextMenu" ) );
+        if ( menu == nullptr ) { return; }
+        result.opened = true;
+        QAction *useAction = nullptr;
+        for ( auto *action : menu->actions() ) {
+            result.actions.append( action->text() );
+            if ( action->text() == QStringLiteral( "Use Material" ) || action->text() == QStringLiteral( "Use" ) ) { useAction = action; }
+        }
+        if ( menu->defaultAction() != nullptr ) { result.defaultAction = menu->defaultAction()->text(); }
+        if ( use && useAction != nullptr ) {
+            menu->setActiveAction( useAction );
+            QKeyEvent press( QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier );
+            QApplication::sendEvent( menu, &press );
+        } else { menu->close(); }
+    } );
+    QContextMenuEvent context( QContextMenuEvent::Mouse, point, view->viewport()->mapToGlobal( point ) );
+    QApplication::sendEvent( view->viewport(), &context );
+    QCoreApplication::processEvents();
+    return result;
+}
 
 struct user_settings_t {
     explicit user_settings_t( settings_registry_t *pRegistry ) : pRegistry( pRegistry )
@@ -597,4 +662,164 @@ TEST_CASE( "A deleted map preview reports the file missing, whatever the working
     CHECK( files->currentData().toString() == path );
     CHECK( preview->findChild<QPlainTextEdit *>( QStringLiteral( "AssetPreviewSource" ) )->toPlainText().isEmpty() );
     CHECK( preview->findChild<QLabel *>( QStringLiteral( "AssetPreviewStatus" ) )->text().contains( QStringLiteral( "missing" ) ) );
+}
+
+TEST_CASE( "A material-only asset browser inspects every unsupported kind without offering Use", "[editor][gui][assets][activation-kinds]" )
+{
+    project_t p;
+    const QStringList recipes{
+        QStringLiteral( "models/chair.cymesh" ), QStringLiteral( "particles/smoke.cyparticle" ),
+        QStringLiteral( "prefabs/door.cyprefab" ), QStringLiteral( "sounds/impact.cysnd" ),
+        QStringLiteral( "shaders/surface.cyshader" ), QStringLiteral( "maps/room.cymap" ),
+        QStringLiteral( "fonts/menu.cyfont" ), QStringLiteral( "animations/walk.cyanim" )
+    };
+    for ( const QString &path : recipes ) {
+        WriteFile( p.main + QLatin1Char( '/' ) + path, "@cykv 1\n@schema \"cypher.fixture\" 1\n{ label = \"inspectable\" }" );
+    }
+    WriteFile( p.main + QStringLiteral( "/models/chair.obj" ), "v 0 0 0\n" );
+    std::unique_ptr<QWidget> browser( EditorAssetBrowser_Create( nullptr, &p.gui ) );
+    EditorAssetBrowser_SetRoots( browser.get(), { p.main } );
+    EditorAssetBrowser_SetSources( browser.get(), true );
+    browser->resize( 800, 500 );
+    browser->show();
+    QCoreApplication::processEvents();
+    const auto *catalog = EditorAssetBrowser_Catalog( browser.get() );
+    const usize count = EditorAssets_Count( catalog );
+    const QStringList visible = EditorAssetBrowser_Visible( browser.get() );
+    const QStringList roots = EditorAssetBrowser_Roots( browser.get() );
+    activation_t activation;
+    // Reserved bits cannot grant additional kinds; roots and catalogue remain independent.
+    EditorAssetBrowser_SetActivate( browser.get(), &activation_t::Record, &activation,
+                                   EditorAssets_KindBit( editor_asset_kind_t::MATERIAL ) | ~EDITOR_ASSET_KIND_ALL );
+    CHECK( EditorAssetBrowser_Catalog( browser.get() ) == catalog );
+    CHECK( EditorAssets_Count( catalog ) == count );
+    CHECK( EditorAssetBrowser_Visible( browser.get() ) == visible );
+    CHECK( EditorAssetBrowser_Roots( browser.get() ) == roots );
+
+    QStringList unsupported = recipes;
+    unsupported.append( { QStringLiteral( "textures/test/brick.cytex" ), QStringLiteral( "models/chair.obj" ), QStringLiteral( "sounds/door.wav" ) } );
+    for ( const QString &path : unsupported ) {
+        INFO( path.toStdString() );
+        EnterAsset( browser.get(), path );
+        auto *preview = browser->findChild<QDialog *>( QStringLiteral( "AssetPreviewDialog" ) );
+        REQUIRE( preview != nullptr );
+        CHECK( preview->isVisible() );
+        auto *source = preview->findChild<QPlainTextEdit *>( QStringLiteral( "AssetPreviewSource" ) );
+        REQUIRE( source != nullptr );
+        CHECK( source->isReadOnly() );
+        auto *files = preview->findChild<QComboBox *>( QStringLiteral( "AssetPreviewFiles" ) );
+        REQUIRE( files != nullptr );
+        CHECK( files->findData( path ) >= 0 );
+        CHECK( activation.count == 0u );
+        preview->hide();
+        const asset_menu_t menu = InspectAssetMenu( browser.get(), path );
+        CHECK( menu.opened );
+        CHECK( menu.actions.contains( QStringLiteral( "Preview / Inspect…" ) ) );
+        CHECK_FALSE( menu.actions.contains( QStringLiteral( "Use" ) ) );
+        CHECK_FALSE( menu.actions.contains( QStringLiteral( "Use Material" ) ) );
+        CHECK( menu.defaultAction == QStringLiteral( "Preview / Inspect…" ) );
+        CHECK( activation.count == 0u );
+    }
+    CHECK( EditorAssets_Count( catalog ) == count );
+    CHECK( EditorAssetBrowser_Roots( browser.get() ) == roots );
+
+    const QString material = QStringLiteral( "materials/test/brick.cymat" );
+    EnterAsset( browser.get(), material );
+    CHECK( activation.count == 1u );
+    CHECK( activation.path == material );
+    CHECK( activation.kind == editor_asset_kind_t::MATERIAL );
+    const asset_menu_t menu = InspectAssetMenu( browser.get(), material, true );
+    CHECK( menu.opened );
+    CHECK( menu.actions.contains( QStringLiteral( "Use Material" ) ) );
+    CHECK( menu.defaultAction == QStringLiteral( "Use Material" ) );
+    CHECK( activation.count == 2u ); // Actual menu selection dispatches once.
+    CHECK( activation.path == material );
+    EnterAsset( browser.get(), material, Qt::Key_Enter );
+    CHECK( activation.count == 3u ); // Keypad Enter uses exactly the same action.
+    auto *view = SelectAsset( browser.get(), material );
+    QKeyEvent repeat( QEvent::KeyPress, Qt::Key_Enter, Qt::KeypadModifier, QString(), true );
+    QKeyEvent release( QEvent::KeyRelease, Qt::Key_Enter, Qt::KeypadModifier );
+    QApplication::sendEvent( view, &repeat );
+    QApplication::sendEvent( view, &release );
+    CHECK( activation.count == 3u ); // Holding Enter does not repeatedly apply the asset.
+    auto *search = browser->findChild<QLineEdit *>( QStringLiteral( "AssetBrowserSearch" ) );
+    REQUIRE( search != nullptr );
+    QKeyEvent searchEnter( QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier );
+    QApplication::sendEvent( search, &searchEnter );
+    CHECK( activation.count == 3u ); // Only the result list owns activation keys.
+}
+
+TEST_CASE( "No callback or no supported kind keeps material activation inspectable", "[editor][gui][assets][activation-kinds]" )
+{
+    project_t p;
+    std::unique_ptr<QWidget> browser( EditorAssetBrowser_Create( nullptr, &p.gui ) );
+    EditorAssetBrowser_SetRoots( browser.get(), { p.main } );
+    browser->resize( 800, 500 );
+    browser->show();
+    QCoreApplication::processEvents();
+    activation_t activation;
+    SECTION( "No callback" ) {
+        EditorAssetBrowser_SetActivate( browser.get(), nullptr, nullptr );
+    }
+    SECTION( "Only invalid mask bits" ) {
+        EditorAssetBrowser_SetActivate( browser.get(), &activation_t::Record, &activation, ~EDITOR_ASSET_KIND_ALL );
+    }
+    SECTION( "Explicit empty mask" ) {
+        EditorAssetBrowser_SetActivate( browser.get(), &activation_t::Record, &activation, 0u );
+    }
+    const QString path = QStringLiteral( "materials/test/brick.cymat" );
+    EnterAsset( browser.get(), path );
+    auto *preview = browser->findChild<QDialog *>( QStringLiteral( "AssetPreviewDialog" ) );
+    REQUIRE( preview != nullptr );
+    CHECK( preview->isVisible() );
+    CHECK( preview->findChild<QPlainTextEdit *>( QStringLiteral( "AssetPreviewSource" ) )->isReadOnly() );
+    CHECK( activation.count == 0u );
+    preview->hide();
+    const asset_menu_t menu = InspectAssetMenu( browser.get(), path );
+    CHECK( menu.opened );
+    CHECK_FALSE( menu.actions.contains( QStringLiteral( "Use Material" ) ) );
+    CHECK_FALSE( menu.actions.contains( QStringLiteral( "Use" ) ) );
+    CHECK( menu.defaultAction == QStringLiteral( "Preview / Inspect…" ) );
+}
+
+TEST_CASE( "Default activation kinds retain generic clients but never dispatch missing files", "[editor][gui][assets][activation-kinds]" )
+{
+    project_t p;
+    const QString model = QStringLiteral( "models/chair.cymesh" );
+    const QString material = QStringLiteral( "materials/test/brick.cymat" );
+    WriteFile( p.main + QLatin1Char( '/' ) + model, "@cykv 1\n@schema \"cypher.fixture\" 1\n{}" );
+    std::unique_ptr<QWidget> browser( EditorAssetBrowser_Create( nullptr, &p.gui ) );
+    EditorAssetBrowser_SetRoots( browser.get(), { p.main } );
+    browser->resize( 800, 500 );
+    browser->show();
+    QCoreApplication::processEvents();
+    activation_t activation;
+    EditorAssetBrowser_SetActivate( browser.get(), &activation_t::Record, &activation ); // Existing three-argument client.
+    EnterAsset( browser.get(), model );
+    CHECK( activation.count == 1u );
+    CHECK( activation.path == model );
+    CHECK( activation.kind == editor_asset_kind_t::MODEL );
+    CHECK( browser->findChild<QDialog *>( QStringLiteral( "AssetPreviewDialog" ) ) == nullptr );
+    const asset_menu_t modelMenu = InspectAssetMenu( browser.get(), model, true );
+    CHECK( modelMenu.opened );
+    CHECK( modelMenu.actions.contains( QStringLiteral( "Use" ) ) );
+    CHECK( activation.count == 2u );
+
+    for ( const QString &path : { model, material } ) {
+        INFO( path.toStdString() );
+        REQUIRE( QFile::remove( p.main + QLatin1Char( '/' ) + path ) ); // Keep the stale catalogue entry.
+        EnterAsset( browser.get(), path );
+        CHECK( activation.count == 2u );
+        auto *preview = browser->findChild<QDialog *>( QStringLiteral( "AssetPreviewDialog" ) );
+        REQUIRE( preview != nullptr );
+        CHECK( preview->findChild<QLabel *>( QStringLiteral( "AssetPreviewStatus" ) )->text().contains( QStringLiteral( "missing" ) ) );
+        preview->hide();
+        const asset_menu_t menu = InspectAssetMenu( browser.get(), path );
+        CHECK( menu.opened );
+        CHECK_FALSE( menu.actions.contains( QStringLiteral( "Use Material" ) ) );
+        CHECK_FALSE( menu.actions.contains( QStringLiteral( "Use" ) ) );
+        CHECK( menu.defaultAction == QStringLiteral( "Preview / Inspect…" ) );
+    }
+    EditorAssetBrowser_Activate( browser.get(), QStringLiteral( "materials/not-in-catalog.cymat" ) );
+    CHECK( activation.count == 2u );
 }

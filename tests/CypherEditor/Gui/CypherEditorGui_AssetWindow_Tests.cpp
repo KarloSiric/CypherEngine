@@ -32,6 +32,8 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMouseEvent>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTabBar>
 #include <QTemporaryDir>
@@ -107,6 +109,20 @@ struct accepted_t {
         ++pSelf->nCalls;
     }
 };
+
+void ClickAssetButton( QPushButton *button )
+{
+    REQUIRE( button != nullptr );
+    REQUIRE( button->isVisible() );
+    REQUIRE( button->isEnabled() );
+    const QPointF position = button->rect().center();
+    const QPointF global = button->mapToGlobal( position.toPoint() );
+    QMouseEvent press( QEvent::MouseButtonPress, position, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+    QMouseEvent release( QEvent::MouseButtonRelease, position, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+    QApplication::sendEvent( button, &press );
+    QApplication::sendEvent( button, &release );
+    QCoreApplication::processEvents();
+}
 
 struct user_settings_t {
     explicit user_settings_t( settings_registry_t *pRegistry ) : pRegistry( pRegistry )
@@ -357,4 +373,158 @@ TEST_CASE( "An embedded asset browser tolerates its shared source being destroye
     CHECK_FALSE( EditorAssetWindow_Accept( pPane.get() ) );
     pPane.reset();
     QCoreApplication::processEvents();
+}
+
+TEST_CASE( "Standalone and embedded asset windows inspect unsupported browsing kinds", "[editor][gui][assets][asset-window][activation-kinds]" )
+{
+    for ( const bool embedded : { false, true } ) {
+        INFO( ( embedded ? "embedded" : "standalone" ) );
+        project_t p;
+        QWidget host;
+        host.resize( 1200, 800 );
+        std::unique_ptr<QWidget> pane;
+        if ( embedded ) { pane.reset( EditorAssetWindow_CreateEmbedded( &host, &p.gui, p.pBrowser.get() ) ); }
+        QWidget *window = embedded ? pane.get() : p.pWindow.get();
+        REQUIRE( window != nullptr );
+        if ( embedded ) { host.show(); }
+        window->show();
+        QCoreApplication::processEvents();
+        auto *button = window->findChild<QPushButton *>( QStringLiteral( "AssetWindowAccept" ) );
+        REQUIRE( button != nullptr );
+        const QStringList visible = EditorAssetWindow_Visible( window );
+        accepted_t browsed;
+        EditorAssetWindow_SetAccept( window, &accepted_t::Record, &browsed,
+                                     EditorAssets_KindBit( editor_asset_kind_t::MATERIAL ) | ~EDITOR_ASSET_KIND_ALL );
+        CHECK( EditorAssetWindow_Visible( window ) == visible );
+        CHECK( button->isDefault() == !embedded );
+        for ( const QString &path : { QStringLiteral( "sounds/door.cysnd" ), QStringLiteral( "textures/walls/brick.cytex" ) } ) {
+            REQUIRE( EditorAssetWindow_Select( window, path ) );
+            CHECK( button->text() == QStringLiteral( "Inspect" ) );
+            CHECK( button->isEnabled() );
+            // Return uses the same ordinary-browsing policy as the footer.
+            QKeyEvent enter( QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier );
+            QApplication::sendEvent( window, &enter );
+            QCoreApplication::processEvents();
+            auto *preview = p.pBrowser->findChild<QDialog *>( QStringLiteral( "AssetPreviewDialog" ) );
+            REQUIRE( preview != nullptr );
+            CHECK( preview->isVisible() );
+            CHECK( preview->findChild<QPlainTextEdit *>( QStringLiteral( "AssetPreviewSource" ) )->isReadOnly() );
+            CHECK( browsed.nCalls == 0 );
+            preview->hide();
+            ClickAssetButton( button );
+            CHECK( preview->isVisible() );
+            CHECK( browsed.nCalls == 0 );
+            CHECK( window->isVisible() );
+            preview->hide();
+        }
+        const QString material = QStringLiteral( "materials/walls/brick.cymat" );
+        REQUIRE( EditorAssetWindow_Select( window, material ) );
+        CHECK( button->text() == QStringLiteral( "Accept" ) );
+        ClickAssetButton( button );
+        CHECK( browsed.nCalls == 1 );
+        CHECK( browsed.path == material );
+        CHECK( browsed.kind == editor_asset_kind_t::MATERIAL );
+        CHECK( window->isVisible() );
+
+        // Changing the callback policy immediately updates the current selection.
+        EditorAssetWindow_SetAccept( window, nullptr, nullptr );
+        CHECK( button->text() == QStringLiteral( "Inspect" ) );
+        ClickAssetButton( button );
+        auto *preview = p.pBrowser->findChild<QDialog *>( QStringLiteral( "AssetPreviewDialog" ) );
+        REQUIRE( preview != nullptr );
+        CHECK( preview->isVisible() );
+        CHECK( browsed.nCalls == 1 );
+        preview->hide();
+        EditorAssetWindow_SetAccept( window, &accepted_t::Record, &browsed, ~EDITOR_ASSET_KIND_ALL );
+        CHECK( button->text() == QStringLiteral( "Inspect" ) );
+        ClickAssetButton( button );
+        CHECK( browsed.nCalls == 1 );
+        CHECK( EditorAssetWindow_Visible( window ) == visible );
+    }
+}
+
+TEST_CASE( "Explicit asset picking remains independent of browsing activation kinds", "[editor][gui][assets][asset-window][activation-kinds]" )
+{
+    project_t p;
+    QDialog *window = p.pWindow.get();
+    const QString texture = QStringLiteral( "textures/walls/brick.cytex" );
+    accepted_t browsed, picked;
+    EditorAssetWindow_SetAccept( window, &accepted_t::Record, &browsed ); // Legacy generic ALL client.
+    window->show();
+    QCoreApplication::processEvents();
+    REQUIRE( EditorAssetWindow_Select( window, texture ) );
+    auto *button = window->findChild<QPushButton *>( QStringLiteral( "AssetWindowAccept" ) );
+    REQUIRE( button != nullptr );
+    CHECK( button->text() == QStringLiteral( "Accept" ) );
+    ClickAssetButton( button );
+    CHECK( browsed.nCalls == 1 );
+    CHECK( browsed.kind == editor_asset_kind_t::TEXTURE );
+
+    EditorAssetWindow_SetAccept( window, &accepted_t::Record, &browsed, 0u );
+    EditorAssetWindow_Pick( window, editor_asset_kind_t::TEXTURE, texture, &accepted_t::Record, &picked );
+    CHECK( EditorAssetWindow_IsPicking( window ) );
+    CHECK( button->text() == QStringLiteral( "Accept" ) );
+    EditorAssetWindow_SetTab( window, ASSET_WINDOW_TAB_ALL );
+    REQUIRE( EditorAssetWindow_Select( window, QStringLiteral( "sounds/door.cysnd" ) ) );
+    CHECK_FALSE( button->isEnabled() );
+    CHECK_FALSE( EditorAssetWindow_Accept( window ) );
+    REQUIRE( EditorAssetWindow_Select( window, texture ) );
+    ClickAssetButton( button );
+    CHECK( picked.nCalls == 1 );
+    CHECK( picked.kind == editor_asset_kind_t::TEXTURE );
+    CHECK( picked.path == texture );
+    CHECK( browsed.nCalls == 1 );
+    CHECK_FALSE( EditorAssetWindow_IsPicking( window ) );
+    CHECK_FALSE( window->isVisible() );
+    CHECK( p.pBrowser->findChild<QDialog *>( QStringLiteral( "AssetPreviewDialog" ) ) == nullptr );
+
+    window->show();
+    QCoreApplication::processEvents();
+    REQUIRE( EditorAssetWindow_Select( window, texture ) );
+    CHECK( button->text() == QStringLiteral( "Inspect" ) );
+    ClickAssetButton( button );
+    CHECK( p.pBrowser->findChild<QDialog *>( QStringLiteral( "AssetPreviewDialog" ) ) != nullptr );
+    CHECK( picked.nCalls == 1 );
+    CHECK( browsed.nCalls == 1 );
+}
+
+TEST_CASE( "Asset window browsing and explicit picking refuse stale missing files and can retry", "[editor][gui][assets][asset-window][activation-kinds]" )
+{
+    project_t p;
+    QDialog *window = p.pWindow.get();
+    accepted_t browsed, picked;
+    EditorAssetWindow_SetAccept( window, &accepted_t::Record, &browsed );
+    window->show();
+    QCoreApplication::processEvents();
+    auto *button = window->findChild<QPushButton *>( QStringLiteral( "AssetWindowAccept" ) );
+    REQUIRE( button != nullptr );
+    const QString material = QStringLiteral( "materials/walls/brick.cymat" );
+    REQUIRE( EditorAssetWindow_Select( window, material ) );
+    REQUIRE( QFile::remove( p.folder.filePath( QStringLiteral( "main/" ) + material ) ) );
+    ClickAssetButton( button ); // File vanished after the footer was enabled.
+    CHECK( browsed.nCalls == 0 );
+    CHECK_FALSE( button->isEnabled() );
+    CHECK_FALSE( EditorAssetWindow_Accept( window ) );
+    CHECK( window->findChild<QLabel *>( QStringLiteral( "AssetWindowPath" ) )->text().contains( QStringLiteral( "missing" ) ) );
+
+    const QString texture = QStringLiteral( "textures/walls/brick.cytex" );
+    const QString textureFile = p.folder.filePath( QStringLiteral( "main/" ) + texture );
+    EditorAssetWindow_Pick( window, editor_asset_kind_t::TEXTURE, texture, &accepted_t::Record, &picked );
+    REQUIRE( QFile::remove( textureFile ) );
+    ClickAssetButton( button );
+    CHECK( picked.nCalls == 0 );
+    CHECK( browsed.nCalls == 0 );
+    CHECK( EditorAssetWindow_IsPicking( window ) );
+    CHECK( window->isVisible() );
+    CHECK_FALSE( button->isEnabled() );
+    CHECK_FALSE( EditorAssetWindow_Accept( window ) );
+    WriteFile( textureFile, "@cykv 1\n@schema \"cypher.texture\" 1\n{ source = \"textures/walls/brick.png\" }" );
+    EditorAssetWindow_Refresh( window );
+    REQUIRE( EditorAssetWindow_Select( window, texture ) );
+    ClickAssetButton( button );
+    CHECK( picked.nCalls == 1 );
+    CHECK( picked.path == texture );
+    CHECK( browsed.nCalls == 0 );
+    CHECK_FALSE( EditorAssetWindow_IsPicking( window ) );
+    CHECK_FALSE( window->isVisible() );
 }

@@ -30,6 +30,7 @@
 #include <QComboBox>
 #include <QDateTime>
 #include <QDialog>
+#include <QDir>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHash>
@@ -223,7 +224,13 @@ public:
 
     // ---- Public operations ---------------------------------------------
 
-    void SetAccept( editor_asset_accept_fn pfnAccept, void *pContext ) { m_pfnAccept = pfnAccept; m_pAcceptContext = pContext; }
+    void SetAccept( editor_asset_accept_fn pfnAccept, void *pContext, u32 supportedKinds )
+    {
+        m_pfnAccept = pfnAccept;
+        m_pAcceptContext = pContext;
+        m_acceptKinds = supportedKinds & EDITOR_ASSET_KIND_ALL;
+        UpdateFooter();
+    }
     void SetSelectionSource( editor_asset_selection_fn pfn, void *pContext ) { m_pfnSelection = pfn; m_pSelectionContext = pContext; }
 
     void SetUsed( const QStringList &paths )
@@ -348,7 +355,10 @@ public:
     bool Accept()
     {
         const row_t *pRow = SelectedRow();
-        if ( pRow == nullptr || !CanAccept( *pRow ) ) { return false; }
+        if ( pRow == nullptr || !CanAccept( *pRow ) ) {
+            UpdateFooter(); // Also retires a stale enabled button after a file was removed.
+            return false;
+        }
         const QString path = pRow->path;
         const editor_asset_kind_t kind = pRow->kind;
         if ( m_bPicking ) {
@@ -359,8 +369,11 @@ public:
             if ( pfn != nullptr ) { pfn( pContext, path, kind ); }
             return true;
         }
-        if ( m_pfnAccept != nullptr ) { m_pfnAccept( m_pAcceptContext, path, kind ); }
-        return true;
+        if ( CanBrowseActivate( kind ) ) {
+            m_pfnAccept( m_pAcceptContext, path, kind );
+            return true;
+        }
+        return EditorAssetBrowser_Preview( m_pBrowser, path ) != nullptr;
     }
 
     void FocusResults()
@@ -810,9 +823,29 @@ private:
         return nullptr;
     }
 
+    bool FileExists( const row_t &row ) const
+    {
+        const auto *catalog = Catalog();
+        if ( catalog == nullptr || row.iAsset < 0 ) { return false; }
+        const QByteArray path = row.path.toUtf8();
+        if ( EditorAssets_Find( catalog, string_view_t{ path.constData(), static_cast<usize>( path.size() ) } ) == nullptr ) { return false; }
+        // Re-resolve against the current mounts: a catalogue entry can outlive
+        // its file, and its old root index is not an existence guarantee.
+        for ( const QString &root : EditorAssetBrowser_Roots( m_pBrowser ) ) {
+            if ( QFileInfo( QDir( root ).filePath( row.path ) ).isFile() ) { return true; }
+        }
+        return false;
+    }
+
+    bool CanBrowseActivate( editor_asset_kind_t kind ) const
+    {
+        return m_pfnAccept != nullptr && kind < editor_asset_kind_t::COUNT &&
+               ( m_acceptKinds & EditorAssets_KindBit( kind ) ) != 0u;
+    }
+
     bool CanAccept( const row_t &row ) const
     {
-        if ( row.iAsset < 0 ) { return false; } // Missing: nothing to hand over.
+        if ( !FileExists( row ) ) { return false; } // Missing: nothing to hand over.
         return !m_bPicking || row.kind == m_pickKind;
     }
 
@@ -820,6 +853,8 @@ private:
     {
         m_pCount->setText( QStringLiteral( "%1 Asset%2 Visible" ).arg( m_rows.size() ).arg( m_rows.size() == 1u ? QString() : QStringLiteral( "s" ) ) );
         const row_t *pRow = SelectedRow();
+        const bool activates = m_bPicking || ( pRow != nullptr ? CanBrowseActivate( pRow->kind ) : m_pfnAccept != nullptr && m_acceptKinds != 0u );
+        m_pAccept->setText( activates ? QStringLiteral( "Accept" ) : QStringLiteral( "Inspect" ) );
         if ( pRow == nullptr ) {
             m_pPath->setText( m_bPicking ? QStringLiteral( "Choose a %1, then Accept" ).arg( QString::fromLatin1( EditorAssets_KindLabel( m_pickKind ) ).toLower() ) : QString() );
             m_pAccept->setEnabled( false );
@@ -827,7 +862,7 @@ private:
         }
         const editor_asset_t *pAsset = AssetOf( *pRow );
         QString detail = pRow->path;
-        if ( pAsset != nullptr ) {
+        if ( pAsset != nullptr && FileExists( *pRow ) ) {
             detail += QStringLiteral( "    %1 · %2" ).arg( QString::fromLatin1( EditorAssets_KindLabel( pAsset->kind ) ), SizeText( pAsset->cbSize ) );
             if ( IsUsed( pRow->path ) ) { detail += QStringLiteral( " · in the map" ); }
         } else {
@@ -1018,6 +1053,7 @@ private:
     editor_asset_kind_t m_pickKind{ editor_asset_kind_t::MATERIAL };
     editor_asset_accept_fn m_pfnAccept{ nullptr };
     void *m_pAcceptContext{ nullptr };
+    u32 m_acceptKinds{ EDITOR_ASSET_KIND_ALL };
     editor_asset_accept_fn m_pfnPick{ nullptr };
     void *m_pPickContext{ nullptr };
     editor_asset_selection_fn m_pfnSelection{ nullptr };
@@ -1191,9 +1227,9 @@ QWidget *EditorAssetWindow_CreateEmbedded( QWidget *pParent, editor_gui_t *pGui,
     return pWindow;
 }
 
-void EditorAssetWindow_SetAccept( QWidget *pWindow, editor_asset_accept_fn pfnAccept, void *pContext )
+void EditorAssetWindow_SetAccept( QWidget *pWindow, editor_asset_accept_fn pfnAccept, void *pContext, u32 supportedKinds )
 {
-    if ( auto *p = AsWindow( pWindow ) ) { p->SetAccept( pfnAccept, pContext ); }
+    if ( auto *p = AsWindow( pWindow ) ) { p->SetAccept( pfnAccept, pContext, supportedKinds ); }
 }
 
 void EditorAssetWindow_SetSelectionSource( QWidget *pWindow, editor_asset_selection_fn pfnSelection, void *pContext )

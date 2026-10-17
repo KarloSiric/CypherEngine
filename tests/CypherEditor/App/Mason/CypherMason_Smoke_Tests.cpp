@@ -90,6 +90,7 @@
 #include <QDialog>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QDialogButtonBox>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
@@ -131,6 +132,30 @@ QApplication *App()
     return qobject_cast<QApplication *>( QCoreApplication::instance() );
 }
 
+void ActivateStartupTestWindow( QWidget *window )
+{
+    window->activateWindow();
+    QCoreApplication::processEvents();
+    if ( QApplication::platformName() != QStringLiteral( "cocoa" ) || window->isActiveWindow() ) { return; }
+    // A background Cocoa test process may never receive OS activation. Give
+    // native delivery a bounded opportunity, then model only that platform
+    // event. Qt restores the window's remembered child; this helper must not
+    // choose or focus a pane/search field. These are focus-routing tests, not
+    // a benchmark of whether an unattended process can take OS foreground.
+    QElapsedTimer wait;
+    wait.start();
+    while ( !window->isActiveWindow() && wait.elapsed() < 250 ) {
+        QCoreApplication::processEvents( QEventLoop::AllEvents, 5 );
+    }
+    if ( !window->isActiveWindow() ) {
+        QT_WARNING_PUSH
+        QT_WARNING_DISABLE_DEPRECATED
+        QApplication::setActiveWindow( window ); // Deliberate test-only platform-event simulation.
+        QT_WARNING_POP
+    }
+    QCoreApplication::processEvents();
+}
+
 QString ExampleRoot()
 {
     return QString::fromStdString( ( std::filesystem::path( CYPHER_MAP_EXAMPLE_DIR ) / "facility.cymap" ).string() );
@@ -168,7 +193,7 @@ TEST_CASE( "Mason startup directs unprimed keyboard and toolbar input to its act
         auto *window = Mason_Window( session.pMason ); auto *ws = Mason_MapWorkspace( session.pMason );
         // Model activating the launched window without selecting a control.
         // Native Cocoa may not activate a background test application itself.
-        window->activateWindow(); QCoreApplication::processEvents();
+        ActivateStartupTestWindow( window );
         auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) ); REQUIRE( views != nullptr );
         auto *search = window->findChild<QLineEdit *>( QStringLiteral( "MasonFastAssetSearch" ) ); REQUIRE( search != nullptr );
         auto *pane = MapViews_PaneView( views, MapViews_ActivePane( views ) ); REQUIRE( pane != nullptr );
@@ -223,7 +248,7 @@ TEST_CASE( "Mason startup focuses its restored maximized pane and later shows re
     REQUIRE( session.Run( QStringLiteral( "view.layout.save" ) ) == command_result_t::OK );
     MapViews_SetMaximized( views, -1 ); MapViews_SetActivePane( views, 0 ); MapViews_SetPaneType( views, 3, map_view_type_t::SIDE );
     window->show(); QCoreApplication::processEvents();
-    window->activateWindow(); QCoreApplication::processEvents();
+    ActivateStartupTestWindow( window );
     CHECK( MapViews_ActivePane( views ) == 3 ); CHECK( MapViews_MaximizedPane( views ) == 3 );
     CHECK( MapViews_PaneType( views, 3 ) == map_view_type_t::FRONT );
     auto *restored = MapViews_PaneView( views, 3 ); REQUIRE( restored != nullptr );
@@ -239,7 +264,7 @@ TEST_CASE( "Mason startup focuses its restored maximized pane and later shows re
     CHECK( assetWindow->isVisible() ); CHECK( search->hasFocus() ); CHECK( search->text() == QStringLiteral( "metal" ) );
     CHECK( EditorAssetWindow_Visible( assetWindow ).contains( QStringLiteral( "materials/blockout/metal_panel.cymat" ) ) );
     window->hide(); QCoreApplication::processEvents();
-    window->show(); window->activateWindow(); QCoreApplication::processEvents();
+    window->show(); ActivateStartupTestWindow( window );
     // A headless platform need not reactivate a re-shown native window. Its
     // remembered focus must still be the explicitly chosen field, not a pane.
     CHECK( window->focusWidget() == search ); CHECK( search->text() == QStringLiteral( "metal" ) );
@@ -1875,6 +1900,112 @@ TEST_CASE( "The asset browser finds the project's assets and sets the active mat
     CHECK( map::MapActiveMaterial_HasImage( pActive ) );
     CHECK( session.Run( QStringLiteral( "assets.browse_materials" ) ) == command_result_t::OK );
     CHECK( session.Run( QStringLiteral( "assets.refresh" ) ) == command_result_t::OK );
+}
+
+TEST_CASE( "Mason's panel and asset windows inspect unsupported assets and still assign materials", "[mason][smoke][asset-activation-contract]" )
+{
+    QTemporaryDir content;
+    REQUIRE( content.isValid() );
+    const QString model = QStringLiteral( "models/activation/chair.cymesh" );
+    const QString sound = QStringLiteral( "sounds/activation/door.cysnd" );
+    const QString panelMaterial = QStringLiteral( "materials/activation/panel.cymat" );
+    const QString windowMaterial = QStringLiteral( "materials/activation/window.cymat" );
+    const QString paneMaterial = QStringLiteral( "materials/activation/pane.cymat" );
+    for ( const QString &path : { model, sound, panelMaterial, windowMaterial, paneMaterial } ) {
+        REQUIRE( QDir().mkpath( QFileInfo( content.filePath( path ) ).absolutePath() ) );
+        QFile file( content.filePath( path ) );
+        REQUIRE( file.open( QIODevice::WriteOnly ) );
+        const QByteArray text = path.endsWith( QStringLiteral( ".cymat" ) )
+            ? "@cykv 1\n@schema \"cypher.material\" 1\n{ shader = \"shaders/activation/surface.cyshader\" }"
+            : path == sound ? "@cykv 1\n@schema \"cypher.sound\" 1\n{ source = \"sounds/activation/door.wav\" }"
+                            : "@cykv 1\n@schema \"cypher.fixture\" 1\n{ label = \"model inspection fixture\" }";
+        REQUIRE( file.write( text ) == text.size() );
+    }
+    mason_session_t session;
+    auto *window = Mason_Window( session.pMason );
+    auto *gui = Mason_Gui( session.pMason );
+    auto *ws = Mason_MapWorkspace( session.pMason );
+    auto *browser = window->findChild<QWidget *>( QStringLiteral( "EditorAssetBrowser" ) );
+    REQUIRE( browser != nullptr );
+    const auto *document = ws->pDocument;
+    const usize steps = EditorHistory_StepCount( &ws->history );
+    QStringList roots = EditorAssetBrowser_Roots( browser );
+    roots.prepend( content.path() );
+    const auto *rootsSetting = EditorSettings_Find( &gui->settings, StringView_FromCString( "editor.assets.roots" ) );
+    REQUIRE( rootsSetting != nullptr );
+    const QByteArray rootsText = roots.join( QLatin1Char( ';' ) ).toUtf8();
+    setting_value_t rootsValue{};
+    rootsValue.type = setting_type_t::STRING;
+    rootsValue.text = { rootsText.constData(), static_cast<usize>( rootsText.size() ) };
+    REQUIRE( EditorSettings_Write( &gui->settings, settings_scope_t::USER, *rootsSetting, rootsValue ) == settings_registry_status_t::OK );
+    const auto activeMaterial = [&]() {
+        const auto value = EditorSettings_Text( &gui->settings, "editor.map.default_material", {} );
+        return QString::fromUtf8( value.pData != nullptr ? value.pData : "", static_cast<qsizetype>( value.cchLength ) );
+    };
+    const auto inspect = [&]( const QString &path ) {
+        auto *preview = browser->findChild<QDialog *>( QStringLiteral( "AssetPreviewDialog" ) );
+        REQUIRE( preview != nullptr );
+        CHECK( preview->isVisible() );
+        auto *source = preview->findChild<QPlainTextEdit *>( QStringLiteral( "AssetPreviewSource" ) );
+        auto *files = preview->findChild<QComboBox *>( QStringLiteral( "AssetPreviewFiles" ) );
+        REQUIRE( source != nullptr );
+        REQUIRE( files != nullptr );
+        CHECK( source->isReadOnly() );
+        CHECK( files->findData( path ) >= 0 );
+        preview->hide();
+    };
+    const auto accept = [&]( QWidget *assets, const QString &path, const QString &label ) {
+        REQUIRE( EditorAssetWindow_Select( assets, path ) );
+        auto *button = assets->findChild<QPushButton *>( QStringLiteral( "AssetWindowAccept" ) );
+        REQUIRE( button != nullptr );
+        CHECK( button->text() == label );
+        REQUIRE( button->isVisible() );
+        REQUIRE( button->isEnabled() );
+        const QPointF point = button->rect().center();
+        QMouseEvent press( QEvent::MouseButtonPress, point, button->mapToGlobal( point ), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+        QMouseEvent release( QEvent::MouseButtonRelease, point, button->mapToGlobal( point ), Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+        QApplication::sendEvent( button, &press );
+        QApplication::sendEvent( button, &release );
+        QCoreApplication::processEvents();
+    };
+
+    // Exercise the real registered panel callback without replacing it with a test callback.
+    const QString initialMaterial = activeMaterial();
+    EditorAssetBrowser_Activate( browser, model );
+    inspect( model );
+    CHECK( activeMaterial() == initialMaterial );
+    EditorAssetBrowser_Activate( browser, panelMaterial );
+    CHECK( activeMaterial() == panelMaterial );
+
+    REQUIRE( session.Run( QStringLiteral( "assets.browser" ) ) == command_result_t::OK );
+    auto *assetWindow = window->findChild<QDialog *>( QStringLiteral( "EditorAssetWindow" ) );
+    REQUIRE( assetWindow != nullptr );
+    CHECK_FALSE( EditorAssetWindow_IsPicking( assetWindow ) );
+    accept( assetWindow, model, QStringLiteral( "Inspect" ) );
+    inspect( model );
+    CHECK( activeMaterial() == panelMaterial );
+    accept( assetWindow, windowMaterial, QStringLiteral( "Accept" ) );
+    CHECK( activeMaterial() == windowMaterial );
+    assetWindow->hide();
+
+    auto *views = window->findChild<QWidget *>( QStringLiteral( "EditorViewGrid" ) );
+    REQUIRE( views != nullptr );
+    MapViews_SetArrangement( views, map_view_arrangement_t::FOUR );
+    auto *choice = views->findChild<QAction *>( QStringLiteral( "EditorViewContent0_4" ) );
+    REQUIRE( choice != nullptr );
+    REQUIRE( choice->isEnabled() );
+    choice->trigger();
+    QCoreApplication::processEvents();
+    auto *pane = MapViews_PaneView( views, 0 );
+    REQUIRE( pane != nullptr );
+    CHECK_FALSE( pane->isWindow() );
+    accept( pane, sound, QStringLiteral( "Inspect" ) );
+    inspect( sound );
+    CHECK( activeMaterial() == windowMaterial );
+    accept( pane, paneMaterial, QStringLiteral( "Accept" ) );
+    CHECK( activeMaterial() == paneMaterial );
+    CHECK( ws->pDocument == document );
+    CHECK( EditorHistory_StepCount( &ws->history ) == steps );
 }
 
 TEST_CASE( "Capture viewport interaction and real asset inspectors", "[.interaction-screenshot]" )

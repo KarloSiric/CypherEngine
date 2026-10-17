@@ -65,8 +65,8 @@ constexpr editor_asset_window_tab_t EditorAssetWindow_KindTab( editor_asset_kind
 
 enum class editor_asset_window_view_t : common::u8 { LIST = 0u, GRID, TREE };
 
-// The asset the user accepted: its virtual path and kind (COUNT when the
-// path is not in the catalogue, such as a missing asset from Used in Map).
+// The asset the user accepted: its virtual path and kind. A missing file
+// or a path outside the shared catalogue is never passed to the callback.
 using editor_asset_accept_fn = void ( * )( void *pContext, const QString &path, editor_asset_kind_t kind );
 // Asset paths the current selection uses, for the Selection tab.
 using editor_asset_selection_fn = QStringList ( * )( void *pContext );
@@ -81,7 +81,12 @@ CYPHER_NODISCARD QDialog *EditorAssetWindow_Create( QWidget *pParent, editor_gui
 // the standalone dialog or this embedded widget.
 CYPHER_NODISCARD QWidget *EditorAssetWindow_CreateEmbedded( QWidget *pParent, editor_gui_t *pGui, QWidget *pBrowser );
 
-void EditorAssetWindow_SetAccept( QWidget *pWindow, editor_asset_accept_fn pfnAccept, void *pContext );
+// Ordinary browsing dispatches only supported kinds; other kinds, or a
+// missing callback, use the shared read-only inspector and show Inspect.
+// Unknown mask bits are ignored. This does not filter the catalogue or
+// change explicit Pick's requested kind and separate callback.
+void EditorAssetWindow_SetAccept( QWidget *pWindow, editor_asset_accept_fn pfnAccept, void *pContext,
+                                  common::u32 supportedKinds = EDITOR_ASSET_KIND_ALL );
 void EditorAssetWindow_SetSelectionSource( QWidget *pWindow, editor_asset_selection_fn pfnSelection, void *pContext );
 void EditorAssetWindow_SetUsed( QWidget *pWindow, const QStringList &paths );
 
@@ -109,7 +114,9 @@ void EditorAssetWindow_SetRootVisible( QWidget *pWindow, int iRoot, bool bVisibl
 CYPHER_NODISCARD QStringList EditorAssetWindow_Visible( QWidget *pWindow ); // Virtual paths, in view order.
 CYPHER_NODISCARD bool EditorAssetWindow_Select( QWidget *pWindow, const QString &path );
 CYPHER_NODISCARD QString EditorAssetWindow_Selected( QWidget *pWindow );
-CYPHER_NODISCARD bool EditorAssetWindow_Accept( QWidget *pWindow ); // False with nothing acceptable selected.
+// Runs the selected browse action (Accept or Inspect), or the explicit pick.
+// False for missing files, unavailable catalogues, and a wrong-kind pick.
+CYPHER_NODISCARD bool EditorAssetWindow_Accept( QWidget *pWindow );
 // Keyboard focus to the results, selecting the first when none is (Enter
 // in a search field that feeds the window).
 void EditorAssetWindow_FocusResults( QWidget *pWindow );
