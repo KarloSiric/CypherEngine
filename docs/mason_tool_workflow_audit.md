@@ -717,7 +717,9 @@ workflow. D5 Hollow now also preserves individual group-member comments through
 sorted saving; other replacement/Join policies remain independent. Native Select
 reliability and prefab-scale checks are included in the 28-case Cocoa run; the
 full local Map GUI 838 and Mason 71 suites pass. The inherited brush command
-adapter remains a concrete transaction defect: it publishes conversion and the
-operation separately, and refusal rollback may discard Redo or fail. The new
-width command requires an authored mesh and does not enter that adapter. The
+adapter has been repaired for Extrude, Corner Inset and Quad Slice: conversion,
+operation and retained face selection now publish together in one history step.
+Refusal preserves the original brush and any existing Redo branch. Other
+legacy conversion adapters still need independent follow-up. The new width
+command requires an authored mesh and does not enter those adapters. The
 source publication does not mean every gate is complete.

@@ -2184,3 +2184,49 @@ TEST_CASE( "Numeric region face snapshot allocation refusal preserves all select
     }
     CHECK( audit.live == 0 );
 }
+
+TEST_CASE( "Prepared face selection is validated before history and publishes its non-first active face", "[map][gui][component-history][atomic-brush-face-adapter][prepared-face-selection]" )
+{
+    session_t session; auto &ws = session.workspace; std::vector<u64> faces; const u64 mesh = RegionTwoQuads( ws, faces );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS );
+    REQUIRE( MapWorkspace_TranslateSelection( &ws, { 32, 0, 0 } ) );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::FACES );
+    REQUIRE( MapWorkspace_SetMeshFaces( &ws, mesh, { faces.data(), faces.size() }, faces[1] ) );
+    history_geo::mesh_selection_t next{};
+    REQUIRE( history_geo::MeshSelection_Init( &next, Allocator_GetSystem(), { mesh } ) == history_geo::geometry_status_t::OK );
+    for ( const u64 face : faces ) { REQUIRE( Vector_PushBack( &next.faces, history_geo::geometry_source_id_t{ face } ) ); }
+    map_prepared_component_selection_t result{ &next, {}, -1, faces[1] };
+    SECTION( "Missing active face" ) { result.activeMeshFaceId = 0; }
+    SECTION( "Active face outside the prepared set" ) { result.activeMeshFaceId = mesh; }
+    SECTION( "Duplicate face IDs" ) { next.faces.pData[1] = next.faces.pData[0]; }
+    SECTION( "Unsorted face IDs" ) { std::swap( next.faces.pData[0], next.faces.pData[1] ); }
+    SECTION( "A vertex cannot be mixed into a face result" ) { REQUIRE( Vector_PushBack( &next.vertices, HistoryVertices( ws, mesh )[0] ) ); }
+    SECTION( "Wrong result root" ) { next.meshId.value = faces[0]; }
+    SECTION( "Face result in Objects mode" ) { MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS ); }
+    const history_published_t before( ws ); region_description_t original( ws, mesh );
+    const auto *oldSet = ws.meshFaceSet.pData; const u64 oldObject = ws.selectedMeshFaceObject, oldActive = ws.selectedMeshFaceId;
+    const auto apply = []( void *context, map_document_t *copy, vector_t<u64> *roots ) -> map_status_t {
+        const u64 id = *static_cast<u64 *>( context );
+        if ( !Vector_PushBack( roots, id ) ) { return map_status_t::OUT_OF_MEMORY; }
+        return MapEdit_Translate( copy, { &id, 1 }, { 0, 0, 16 } );
+    };
+    u64 target = mesh;
+    CHECK_FALSE( MapWorkspace_ApplyEdit( &ws, "Reject invalid prepared faces", apply, &target, &result ) );
+    CHECK( ws.lastEdit.status == map_status_t::INVALID_ARGUMENT ); before.Check( ws );
+    CHECK( ws.meshFaceSet.pData == oldSet ); CHECK( ws.selectedMeshFaceObject == oldObject ); CHECK( ws.selectedMeshFaceId == oldActive );
+    { region_description_t unchanged( ws, mesh ); CHECK( history_geo::MeshSourceDescription_Equal( &original.value, &unchanged.value ) ); }
+    REQUIRE( EditorHistory_CanRedo( &ws.history ) );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+    // The valid retry explicitly chooses the second face as active. History
+    // must retain that choice as well as the full set, rather than repairing
+    // selection after a separately published geometry step.
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::FACES );
+    REQUIRE( MapWorkspace_SetMeshFaces( &ws, mesh, { faces.data(), faces.size() }, faces[1] ) );
+    next.meshId.value = mesh; next.faces.pData[0].value = faces[0]; next.faces.pData[1].value = faces[1]; next.vertices.nCount = 0;
+    result.activeMeshFaceId = faces[1];
+    REQUIRE( MapWorkspace_ApplyEdit( &ws, "Publish prepared faces", apply, &target, &result ) ); RegionCheckSelection( ws, mesh, faces );
+    CHECK( EditorHistory_AppliedStepCount( &ws.history ) == before.applied + 1 ); CHECK_FALSE( EditorHistory_CanRedo( &ws.history ) );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); RegionCheckSelection( ws, mesh, faces );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); RegionCheckSelection( ws, mesh, faces );
+}

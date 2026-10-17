@@ -582,16 +582,19 @@ CYPHER_NODISCARD QImage MapWorkspace_MaterialImage( const map_workspace_t *pWork
 // unchanged, discards the copy and returns false. Valid current components
 // survive publication and are owned by the before/after history snapshots.
 using map_document_edit_fn = map_status_t ( * )( void *pContext, map_document_t *pCopy, common::vector_t<common::u64> *pSelectionOut );
-// Optional resulting vertex/edge selection, borrowed until ApplyEdit returns.
+// Optional resulting vertex/edge/face selection, borrowed until ApplyEdit returns.
 // The callback may populate this set from newly created persistent IDs. It is
 // validated against the completed candidate and copied before history or live
 // state changes; invalid input or allocation failure refuses the entire edit.
 // The set must be canonical, match the current component mode and name the
 // sole selected root. A zero mesh ID with empty sets explicitly clears it.
+// Faces use only pMeshSelection->faces and require activeMeshFaceId to name
+// one of those faces. Their set and active face publish with the document.
 struct map_prepared_component_selection_t {
     const geometry::mesh_selection_t *pMeshSelection{ nullptr };
     geometry::mesh_edge_ref_t edgeSeed{};
     int vertexColumnAxis{ -1 };
+    common::u64 activeMeshFaceId{ 0 };
 };
 CYPHER_NODISCARD bool MapWorkspace_ApplyEdit( map_workspace_t *pWorkspace, const char *pLabel, map_document_edit_fn pfnApply,
     void *pContext, const map_prepared_component_selection_t *pPreparedSelection = nullptr ) noexcept;

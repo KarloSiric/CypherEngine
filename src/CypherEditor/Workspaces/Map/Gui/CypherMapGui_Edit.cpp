@@ -96,6 +96,35 @@ bool SoleRoot( const map_edit_snapshot_t &snapshot, u64 id ) noexcept
 map_status_t PrepareContext( map_edit_snapshot_t &out, const selection_context_t &source,
     map_element_mode_t mode, const allocator_t *allocator, bool strict = false ) noexcept
 {
+    if ( mode == map_element_mode_t::FACES && strict ) {
+        const auto *set = source.components;
+        if ( set == nullptr || set->vertices.nCount != 0 || set->edges.nCount != 0 ||
+             source.edgeSeed.a.value != 0 || source.edgeSeed.b.value != 0 || source.vertexColumnAxis != -1 ||
+             !Span_IsValid( span_t<const geometry::geometry_source_id_t>{ set->faces.pData, set->faces.nCount } ) ) {
+            return map_status_t::INVALID_ARGUMENT;
+        }
+        if ( set->meshId.value == 0 && set->faces.nCount == 0 && source.meshFaceId == 0 ) { return map_status_t::OK; }
+        const auto *mesh = geometry::GeometryDocument_FindMesh( &out.document->geometry, set->meshId );
+        if ( mesh == nullptr || !SoleRoot( out, set->meshId.value ) || set->faces.nCount == 0 || source.meshFaceId == 0 ) {
+            return map_status_t::INVALID_ARGUMENT;
+        }
+        bool active = false;
+        for ( usize i = 0; i < set->faces.nCount; ++i ) {
+            geometry::geometry_mesh_face_handle_t handle{};
+            const auto id = set->faces.pData[i];
+            if ( !geometry::MeshSource_TryFindFace( mesh, id, &handle ) ||
+                 ( i != 0 && set->faces.pData[i - 1].value >= id.value ) ) { return map_status_t::INVALID_ARGUMENT; }
+            active = active || id.value == source.meshFaceId;
+        }
+        if ( !active ) { return map_status_t::INVALID_ARGUMENT; }
+        if ( !Vector_Init( &out.meshFaces, allocator, set->faces.nCount ) ) { return map_status_t::OUT_OF_MEMORY; }
+        for ( usize i = 0; i < set->faces.nCount; ++i ) {
+            if ( !Vector_PushBack( &out.meshFaces, set->faces.pData[i].value ) ) { return map_status_t::OUT_OF_MEMORY; }
+        }
+        out.meshFaceObject = set->meshId.value; out.meshFaceId = source.meshFaceId;
+        return map_status_t::OK;
+    }
+    if ( strict && source.meshFaceId != 0 ) { return map_status_t::INVALID_ARGUMENT; }
     if ( mode == map_element_mode_t::FACES && !strict ) {
         const auto *brush = geometry::GeometryDocument_FindBrush( &out.document->geometry, { source.faceObject } );
         if ( brush != nullptr && SoleRoot( out, source.faceObject ) ) {
@@ -335,6 +364,7 @@ bool Edit( map_workspace_t *ws, const char *label, Apply apply, const bool *meta
         afterContext.components = preparedSelection->pMeshSelection;
         afterContext.edgeSeed = preparedSelection->edgeSeed;
         afterContext.vertexColumnAxis = preparedSelection->vertexColumnAxis;
+        afterContext.meshFaceId = preparedSelection->activeMeshFaceId;
     }
     status = PrepareContext( prepared.live, afterContext, ws->elementMode, ws->pGui->pAllocator, preparedSelection != nullptr );
     if ( status != map_status_t::OK ) { report.status = status; return false; }
@@ -364,6 +394,13 @@ bool Edit( map_workspace_t *ws, const char *label, Apply apply, const bool *meta
              !AddCharge( charge, snapshot->components.faces.nCapacity * sizeof( geometry::geometry_source_id_t ) ) ) { return false; }
     }
     op.cbOwnedBytes = charge;
+    // A prepared face result names its actual write target, including a brush
+    // converted privately under the same root ID. Session layer locks must
+    // still admit that target before history can consume an existing Redo.
+    if ( preparedSelection != nullptr && prepared.live.meshFaceObject != 0 &&
+         MapLayers_IsObjectLocked( ws, prepared.live.meshFaceObject ) ) {
+        report.status = map_status_t::INVALID_ARGUMENT; return false;
+    }
     // Register without notifying first: observers must never see a committed
     // history entry whose document has not yet been published. Failed Push
     // leaves both the live map and snapshot ownership with this scope.

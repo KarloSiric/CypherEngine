@@ -3656,11 +3656,11 @@ namespace
 /*
 ================
 Brushes for mesh operations. Hammer 5's blocks are meshes, so a mesh
-operation run on a brush (its face picked in Faces mode, or the brush
-selected) turns that brush into a mesh first - its ID and its faces' IDs
-stay - and then runs. When the operation still does not apply or fails, the
-conversion is undone. editor.map.components_convert_brushes turns this off
-(TrenchBroom-style brush maps).
+operation run on a brush retains its root and face IDs. Extrude, Corner
+Inset and Quad Slice convert and operate in one private transaction. Other
+legacy adapters below still publish conversion separately and undo it if
+the following operation fails. editor.map.components_convert_brushes turns
+these adapters off (TrenchBroom-style brush maps).
 ================
 */
 
@@ -3679,6 +3679,7 @@ constexpr const char *kBrushObjectOperations[]{
     "map.mesh.smoothing_clear", "map.mesh.auto_hard_edges", "map.mesh.project", "map.mesh.flip_normals", "map.mesh.triangulate",
     "map.mesh.weld", "map.mesh.merge_by_distance", "map.mesh.merge", "map.texture.unwrap" };
 
+enum class atomic_brush_face_t { NONE, EXTRUDE, INSET, QUAD_SLICE };
 struct brush_adapter_t {
     map_workspace_t *ws{ nullptr };
     command_execute_fn pfnExecute{ nullptr };
@@ -3687,6 +3688,7 @@ struct brush_adapter_t {
     const char *pLabel{ nullptr };
     bool bFaces{ false }, bObjects{ false };
     usize nMinObjects{ 1u }; // Joining needs two.
+    atomic_brush_face_t atomicFace{ atomic_brush_face_t::NONE };
 };
 std::unordered_map<const map_workspace_t *, std::deque<brush_adapter_t>> &BrushAdapters()
 {
@@ -3695,6 +3697,87 @@ std::unordered_map<const map_workspace_t *, std::deque<brush_adapter_t>> &BrushA
 }
 
 u32 OriginalState( const brush_adapter_t &a ) noexcept { return a.pfnState != nullptr ? a.pfnState( a.pContext ) : COMMAND_STATE_ENABLED; }
+
+struct brush_face_operation_t {
+    u64 root{}, side{};
+    f64 amount{};
+    u32 cellsU{}, cellsV{};
+};
+bool PrepareBrushFaceOperation( const brush_adapter_t &a, brush_face_operation_t &operation ) noexcept
+{
+    const auto *ws = a.ws;
+    if ( a.atomicFace == atomic_brush_face_t::NONE || !Ready( ws ) || ws->elementMode != map_element_mode_t::FACES ||
+         !EditorSettings_Bool( &ws->pGui->settings, "editor.map.components_convert_brushes", CY_TRUE ) ||
+         !MapWorkspace_HasBrushFace( ws ) || MapWorkspace_HasMeshFace( ws ) ) { return false; }
+    // HasBrushFace verifies the sole root, live side, visibility and layer lock.
+    operation.root = ws->selectedBrushFaceObject; operation.side = ws->selectedBrushFaceSide;
+    if ( a.atomicFace != atomic_brush_face_t::QUAD_SLICE ) {
+        operation.amount = a.atomicFace == atomic_brush_face_t::EXTRUDE ?
+            Real( ws, "editor.map.mesh_extrude_distance", 16.0 ) : Real( ws, "editor.map.mesh_inset_distance", 8.0 );
+        return std::isfinite( operation.amount ) && operation.amount > 0;
+    }
+    const auto u = EditorSettings_Integer( &ws->pGui->settings, "editor.map.mesh_slice_u", 2 );
+    const auto v = EditorSettings_Integer( &ws->pGui->settings, "editor.map.mesh_slice_v", 2 );
+    if ( u < 1 || u > 64 || v < 1 || v > 64 || ( u == 1 && v == 1 ) ) { return false; }
+    operation.cellsU = static_cast<u32>( u ); operation.cellsV = static_cast<u32>( v );
+    for ( usize i = 0; i < ws->wire.faces.nCount; ++i ) {
+        const auto &face = ws->wire.faces.pData[i];
+        if ( face.id == operation.root && face.sideId == operation.side ) { return face.nIndices == 4; }
+    }
+    return false;
+}
+
+command_result_t AtomicBrushFaceExecute( const brush_adapter_t &a ) noexcept
+{
+    brush_face_operation_t operation{};
+    if ( !PrepareBrushFaceOperation( a, operation ) ) { return command_result_t::DISABLED; }
+    auto *ws = a.ws;
+    const auto *document = ws->pDocument;
+    const auto geometryRevision = document->geometry.revision, selectionRevision = ws->selection.revision;
+    const auto tool = ws->tool;
+    const auto current = [&]() noexcept {
+        return Ready( ws ) && ws->pDocument == document && document->geometry.revision == geometryRevision &&
+            ws->selection.revision == selectionRevision && ws->tool == tool && ws->elementMode == map_element_mode_t::FACES &&
+            ws->selectedBrushFaceObject == operation.root && ws->selectedBrushFaceSide == operation.side &&
+            EditorSettings_Bool( &ws->pGui->settings, "editor.map.components_convert_brushes", CY_TRUE ) && MapWorkspace_HasBrushFace( ws );
+    };
+    geo::mesh_selection_t next{};
+    const map_prepared_component_selection_t continuation{ &next, {}, -1, operation.side };
+    const bool applied = Apply( ws, a.pLabel, [&]( map_document_t *copy, vector_t<u64> *out ) noexcept {
+        if ( !current() ) { return map_status_t::INVALID_ARGUMENT; }
+        vector_t<u64> roots{};
+        if ( !Vector_Init( &roots, copy->pAllocator ) ) { return map_status_t::OUT_OF_MEMORY; }
+        const auto converted = MapMeshEdit_ConvertBrushes( copy, { &operation.root, 1 }, &roots );
+        Vector_Shutdown( &roots );
+        if ( converted != map_status_t::OK ) { return converted; }
+        const auto convertedRevision = copy->geometry.revision;
+        const auto status = a.atomicFace == atomic_brush_face_t::EXTRUDE ?
+            MapMeshEdit_ExtrudeFace( copy, operation.root, operation.side, operation.amount ) :
+            a.atomicFace == atomic_brush_face_t::INSET ? MapMeshEdit_InsetFace( copy, operation.root, operation.side, operation.amount ) :
+            MapMeshEdit_QuadSliceFace( copy, operation.root, operation.side, operation.cellsU, operation.cellsV );
+        if ( status != map_status_t::OK ) { return status; }
+        if ( !current() ) { return map_status_t::INVALID_ARGUMENT; }
+        if ( copy->geometry.revision == convertedRevision ) {
+            // Conversion alone is not the requested edit. Mark this private
+            // candidate unchanged so Apply discards it before history/wire work.
+            copy->geometry.revision = geometryRevision; return map_status_t::OK;
+        }
+        if ( geo::MeshSelection_Init( &next, ws->pGui->pAllocator, { operation.root } ) != geo::geometry_status_t::OK ||
+             !Vector_PushBack( &next.faces, id_t{ operation.side } ) || !Vector_PushBack( out, operation.root ) ) {
+            return map_status_t::OUT_OF_MEMORY;
+        }
+        return map_status_t::OK;
+    }, &continuation );
+    geo::MeshSelection_Shutdown( &next );
+    if ( !applied && ws->lastEdit.outcome == map_edit_outcome_t::FAILED ) {
+        const auto reason = ws->lastEdit.status == map_status_t::OUT_OF_MEMORY ?
+            QStringLiteral( "not enough memory to prepare the geometry and Undo state" ) :
+            QStringLiteral( "the requested face operation could not produce valid geometry" );
+        MapNotice_Post( ws, map_notice_t::ERROR,
+            QStringLiteral( "%1: %2. The brush, selection and history are unchanged." ).arg( QString::fromUtf8( a.pLabel ), reason ) );
+    }
+    return Result( applied );
+}
 
 // The brushes the operation would work on once they are meshes.
 std::vector<u64> AdapterBrushes( const brush_adapter_t &a )
@@ -3728,6 +3811,10 @@ u32 AdaptedState( void *pContext ) noexcept
     const auto &a = *static_cast<const brush_adapter_t *>( pContext );
     const u32 state = OriginalState( a );
     if ( ( state & COMMAND_STATE_ENABLED ) != 0u ) { return state; }
+    if ( a.atomicFace != atomic_brush_face_t::NONE ) {
+        brush_face_operation_t operation{};
+        return PrepareBrushFaceOperation( a, operation ) ? state | COMMAND_STATE_ENABLED : state;
+    }
     try { return AdapterBrushes( a ).empty() ? state : ( state | COMMAND_STATE_ENABLED ); } catch ( ... ) { return state; }
 }
 
@@ -3735,6 +3822,7 @@ command_result_t AdaptedExecute( void *pContext, const command_args_t &args ) no
 {
     const auto &a = *static_cast<const brush_adapter_t *>( pContext );
     if ( ( OriginalState( a ) & COMMAND_STATE_ENABLED ) != 0u ) { return a.pfnExecute( a.pContext, args ); }
+    if ( a.atomicFace != atomic_brush_face_t::NONE ) { return AtomicBrushFaceExecute( a ); }
     map_workspace_t *ws = a.ws;
     std::vector<u64> brushes, kept;
     try {
@@ -3783,8 +3871,11 @@ void InstallBrushAdapters( map_workspace_t *ws, command_registry_t *pRegistry )
         command_desc_t &command = pRegistry->commands.pData[i];
         const bool faces = in( kBrushFaceOperations, command.pId ), objects = in( kBrushObjectOperations, command.pId );
         if ( !faces && !objects ) { continue; }
+        const auto atomicFace = std::strcmp( command.pId, "map.mesh.extrude" ) == 0 ? atomic_brush_face_t::EXTRUDE :
+            std::strcmp( command.pId, "map.mesh.inset" ) == 0 ? atomic_brush_face_t::INSET :
+            std::strcmp( command.pId, "map.mesh.quad_slice" ) == 0 ? atomic_brush_face_t::QUAD_SLICE : atomic_brush_face_t::NONE;
         list.push_back( { ws, command.pfnExecute, command.pfnState, command.pContext, command.pLabel, faces, objects,
-                          std::strcmp( command.pId, "map.mesh.merge" ) == 0 ? usize{ 2u } : usize{ 1u } } );
+                          std::strcmp( command.pId, "map.mesh.merge" ) == 0 ? usize{ 2u } : usize{ 1u }, atomicFace } );
         command.pfnExecute = AdaptedExecute; command.pfnState = AdaptedState; command.pContext = &list.back();
     }
 }

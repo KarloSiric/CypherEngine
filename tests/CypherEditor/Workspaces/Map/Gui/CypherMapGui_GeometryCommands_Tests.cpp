@@ -17,6 +17,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "CypherMapGui_Workspace.h"
+#include "CypherMapGui_Layers.h"
 #include "CypherMapGui_ToolPanels.h"
 #include "CypherMap_ObjectCreate.h"
 #include "CypherMap_EntityEdit.h"
@@ -46,6 +47,7 @@
 #include "CypherEditor/Geometry/Document/CypherGeometry_DocumentBrushAttributes.h"
 #include "CypherEditor/Geometry/Mesh/CypherGeometry_MeshBoundaryOps.h"
 #include "CypherEditor/Geometry/Mesh/CypherGeometry_MeshSource.h"
+#include "CypherEditor/Gui/Widgets/CypherEditorGui_Section.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -84,10 +86,10 @@ namespace
 struct session_t {
     gui::editor_gui_t gui{};
     map_workspace_t workspace{};
-    session_t()
+    explicit session_t( const allocator_t *allocator = Allocator_GetSystem() )
     {
         auto *app = qobject_cast<QApplication *>( QCoreApplication::instance() );
-        REQUIRE( gui::EditorGui_Init( &gui, app, Allocator_GetSystem() ) == gui::editor_gui_status_t::OK );
+        REQUIRE( gui::EditorGui_Init( &gui, app, allocator ) == gui::editor_gui_status_t::OK );
         REQUIRE( MapWorkspace_Init( &workspace, &gui ) );
         REQUIRE( MapWorkspace_RegisterCommands( &workspace, &gui.commands ) == command_registry_status_t::OK );
     }
@@ -1975,7 +1977,7 @@ TEST_CASE( "The game profile gives the entity tool its classes and defaults, Ent
     MapGame_Forget( &ws );
 }
 
-TEST_CASE( "Mesh operations on a picked brush face convert the brush first, and undo the conversion when they fail", "[map][gui][geometry-commands][brush-to-mesh]" )
+TEST_CASE( "Mesh operations on a picked brush face publish conversion and modeling together", "[map][gui][geometry-commands][brush-to-mesh]" )
 {
     session_t s;
     auto &ws = s.workspace;
@@ -1992,27 +1994,26 @@ TEST_CASE( "Mesh operations on a picked brush face convert the brush first, and 
     REQUIRE( s.Enabled( "map.mesh.extrude" ) );
     REQUIRE( s.Enabled( "map.mesh.inset" ) );
     CHECK_FALSE( s.Enabled( "map.mesh.bevel" ) ); // Not for one face, mesh or brush.
-    // Inset too deep fails: the conversion goes back too.
+    // Inset too deep fails without publishing a conversion.
     const auto *inset = EditorSettings_Find( &s.gui.settings, StringView_FromCString( "editor.map.mesh_inset_distance" ) );
     REQUIRE( inset != nullptr );
     setting_value_t deep{}; deep.type = setting_type_t::REAL; deep.flValue = 1000.0;
     REQUIRE( EditorSettings_Write( &s.gui.settings, settings_scope_t::USER, *inset, deep ) == settings_registry_status_t::OK );
     const usize steps = s.Steps();
     CHECK( s.Run( "map.mesh.inset" ) != command_result_t::OK );
-    // Undone, not erased: the next edit drops it from Redo.
     CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps );
+    CHECK( s.Steps() == steps ); CHECK_FALSE( EditorHistory_CanRedo( &ws.history ) );
     CHECK( MapWireframe_FindObject( ws.wire, brush )->kind == map_wire_kind_t::BRUSH );
     CHECK( MapWorkspace_HasBrushFace( &ws ) ); CHECK( ws.selectedBrushFaceSide == top );
     // Extrude works: the brush is a mesh with the same ID, the face (same ID) extruded and still picked.
     REQUIRE( s.Run( "map.mesh.extrude" ) == command_result_t::OK );
-    CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps + 2 ); CHECK( s.Steps() == steps + 2 );
+    CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps + 1 ); CHECK( s.Steps() == steps + 1 );
     REQUIRE( MapWireframe_FindObject( ws.wire, brush )->kind == map_wire_kind_t::MESH );
     description_t extruded( ws, brush );
     CHECK( extruded.value.faces.nCount == 10u );
     CHECK( MapWorkspace_HasMeshFace( &ws ) ); CHECK( ws.selectedMeshFaceId == top );
     CHECK( MapWireframe_FindObject( ws.wire, brush )->bounds.box.maximum.z == Catch::Approx( 144.0 ) );
     // Off: brush faces keep only the brush operations.
-    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
     REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
     const auto *convert = EditorSettings_Find( &s.gui.settings, StringView_FromCString( "editor.map.components_convert_brushes" ) );
     setting_value_t off{}; off.type = setting_type_t::BOOL; off.bValue = CY_FALSE;
@@ -2886,4 +2887,244 @@ TEST_CASE( "OBJ generated modifier identities are private and capacity failure p
     CHECK( report.skippedTerrain == 74 ); CHECK( report.skippedInstances == 75 );
     CHECK( ws.pDocument->nextId == next ); CHECK( ws.pDocument->geometry.sourceIds.allocator.next.value == sourceNext );
     CHECK( ExportMapSnapshot( ws.pDocument ) == before ); CHECK( s.Steps() == steps );
+}
+
+namespace
+{
+struct brush_face_settings_t {
+    settings_registry_t *registry;
+    settings_document_t store{};
+    explicit brush_face_settings_t( settings_registry_t *settings ) : registry( settings )
+    {
+        REQUIRE( SettingsDocument_Init( &store, Allocator_GetSystem(), EditorSettings_FileIdentity() ) == settings_document_status_t::OK );
+        EditorSettings_SetScope( registry, settings_scope_t::USER, &store );
+    }
+    ~brush_face_settings_t() { EditorSettings_SetScope( registry, settings_scope_t::USER, nullptr ); }
+    void Number( const char *path, f64 number )
+    {
+        const auto *descriptor = EditorSettings_Find( registry, StringView_FromCString( path ) ); REQUIRE( descriptor );
+        setting_value_t value{}; value.type = descriptor->type;
+        if ( value.type == setting_type_t::INTEGER ) { value.nValue = static_cast<i64>( number ); } else { value.flValue = number; }
+        REQUIRE( EditorSettings_Write( registry, settings_scope_t::USER, *descriptor, value ) == settings_registry_status_t::OK );
+    }
+};
+
+key_value_t *BrushFaceRecord( key_value_t *root, u64 face )
+{
+    auto *faces = KeyValue_Find( root, StringView_FromCString( "faces" ) );
+    for ( usize i = 0; i < KeyValue_ChildCount( faces ); ++i ) {
+        auto *entry = KeyValue_ChildAt( faces, i ); u64 id = 0;
+        if ( KeyValue_GetU64( KeyValue_Find( entry, StringView_FromCString( "id" ) ), &id ) && id == face ) { return entry; }
+    }
+    return nullptr;
+}
+
+struct brush_face_command_t {
+    session_t session;
+    brush_face_settings_t settings;
+    u64 root{}, face{}, owner{}, group{};
+    explicit brush_face_command_t( const allocator_t *allocator = Allocator_GetSystem() ) : session( allocator ), settings( &session.gui.settings )
+    {
+        auto &ws = session.workspace; auto *map = ws.pDocument;
+        REQUIRE( MapEdit_CreateBox( map, { { -64, -64, 0 }, { 64, 64, 128 } }, StringView_FromCString( "materials/test/face_adapter.cymat" ), {}, &root ) == map_status_t::OK );
+        REQUIRE( MapDocument_AddLayer( map, StringView_FromCString( "detail" ), StringView_FromCString( "Detail" ) ) == map_status_t::OK );
+        REQUIRE( MapDocument_SetGeometryLayer( map, root, StringView_FromCString( "detail" ) ) == map_status_t::OK );
+        REQUIRE( MapDocument_AddEntity( map, StringView_FromCString( "detail" ), StringView_FromCString( "func_structure" ), {}, &owner ) == map_status_t::OK );
+        REQUIRE( MapDocument_SetGeometryOwner( map, root, owner ) == map_status_t::OK );
+        REQUIRE( MapDocument_AddGroup( map, StringView_FromCString( "Authored panel" ), { &root, 1 }, &group ) == map_status_t::OK );
+        MapWorkspace_DocumentChanged( &ws );
+        for ( usize i = 0; i < ws.wire.faces.nCount; ++i ) {
+            const auto &side = ws.wire.faces.pData[i]; if ( side.id == root && side.normal.z > .99 ) { face = side.sideId; }
+        }
+        REQUIRE( face != 0 );
+        const map_surface_ref_t surface{ root, face };
+        REQUIRE( MapTextureEdit_Shift( map, { &surface, 1 }, { 11, -7 }, 128 ) == map_status_t::OK );
+        (void)ExportMapSnapshot( map ); // Materialize residual records before attaching future fields.
+        map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( map, root, &store ); REQUIRE( record ); REQUIRE( store );
+        // Authoritative brush planes are separate from retained records. An
+        // untouched face need not already have a residual entry after Save.
+        auto *residualFaces = KeyValue_Find( record, StringView_FromCString( "faces" ) );
+        if ( !residualFaces ) { residualFaces = KeyValue_ObjectInsert( store->store.pDocument, record, StringView_FromCString( "faces" ), key_value_type_t::ARRAY ); }
+        REQUIRE( residualFaces ); auto *side = BrushFaceRecord( record, face );
+        if ( !side ) {
+            side = KeyValue_ArrayAppend( store->store.pDocument, residualFaces, key_value_type_t::OBJECT ); REQUIRE( side );
+            auto *identity = KeyValue_ObjectInsert( store->store.pDocument, side, StringView_FromCString( "id" ), key_value_type_t::U64 ); REQUIRE( identity );
+            REQUIRE( KeyValue_SetU64( store->store.pDocument, identity, face ) );
+        }
+        for ( const auto target : { record, side } ) {
+            auto *marker = KeyValue_ObjectInsert( store->store.pDocument, target, StringView_FromCString( "future_adapter_data" ), key_value_type_t::U64 ); REQUIRE( marker );
+            REQUIRE( KeyValue_SetU64( store->store.pDocument, marker, target == record ? 701 : 702 ) );
+        }
+        MapWorkspace_DocumentChanged( &ws ); Pick();
+        settings.Number( "editor.map.mesh_extrude_distance", 16 ); settings.Number( "editor.map.mesh_inset_distance", 8 );
+        settings.Number( "editor.map.mesh_slice_u", 2 ); settings.Number( "editor.map.mesh_slice_v", 2 );
+    }
+    void Pick()
+    {
+        auto &ws = session.workspace;
+        MapWorkspace_SetTool( &ws, map_tool_t::SELECT ); MapWorkspace_SetElementMode( &ws, map_element_mode_t::FACES );
+        MapWorkspace_SelectBrushFace( &ws, root, face ); REQUIRE( MapWorkspace_HasBrushFace( &ws ) );
+    }
+    void CheckMetadata( map_document_t *map ) const
+    {
+        const map_geometry_record_t *placement = nullptr;
+        for ( usize i = 0; i < map->geometryRecords.nCount; ++i ) { if ( map->geometryRecords.pData[i].id == root ) { placement = &map->geometryRecords.pData[i]; } }
+        REQUIRE( placement ); CHECK( placement->owner == owner ); REQUIRE( placement->iLayer < map->layers.nCount );
+        CHECK( StringView_Equals( StringView_FromCString( map->layers.pData[placement->iLayer].id ), StringView_FromCString( "detail" ) ) );
+        CHECK( MapGroups_Parent( map, root ) == group ); CHECK( MapGroups_Name( map, group ) == "Authored panel" );
+        auto *record = MapDocument_FindObject( map, root, nullptr ); REQUIRE( record );
+        u64 rootMarker = 0, faceMarker = 0;
+        REQUIRE( KeyValue_GetU64( KeyValue_Find( record, StringView_FromCString( "future_adapter_data" ) ), &rootMarker ) ); CHECK( rootMarker == 701 );
+        auto *side = BrushFaceRecord( record, face ); REQUIRE( side );
+        REQUIRE( KeyValue_GetU64( KeyValue_Find( side, StringView_FromCString( "future_adapter_data" ) ), &faceMarker ) ); CHECK( faceMarker == 702 );
+        map_uv_face_t described{}; REQUIRE( MapTextureEdit_Describe( map, { root, face }, &described ) == map_status_t::OK );
+        CHECK( described.material == "materials/test/face_adapter.cymat" );
+    }
+    std::string PrepareRedo()
+    {
+        auto &ws = session.workspace; MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS ); Select( ws, { root } );
+        REQUIRE( MapWorkspace_TranslateSelection( &ws, { 32, 0, 0 } ) ); const auto translated = ExportMapSnapshot( ws.pDocument );
+        REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); Pick(); REQUIRE( EditorHistory_CanRedo( &ws.history ) ); return translated;
+    }
+    void CheckMeshSelection() const
+    {
+        const auto &ws = session.workspace; REQUIRE( EditorSelection_Count( &ws.selection ) == 1 ); CHECK( EditorSelection_At( &ws.selection, 0 ) == root );
+        CHECK( ws.elementMode == map_element_mode_t::FACES ); CHECK_FALSE( MapWorkspace_HasBrushFace( &ws ) ); REQUIRE( MapWorkspace_HasMeshFace( &ws ) );
+        CHECK( ws.selectedMeshFaceObject == root ); CHECK( ws.selectedMeshFaceId == face );
+        const auto faces = MapWorkspace_MeshFaces( &ws ); REQUIRE( faces.nCount == 1 ); CHECK( faces.pData[0] == face );
+    }
+};
+
+struct brush_face_unchanged_t {
+    std::string saved;
+    const map_document_t *document;
+    const cypher::math::vec3d_t *points;
+    const u64 *roots;
+    u64 revision, selectionRevision, nextId, nextSource, brush, side, mesh, face;
+    usize steps, applied;
+    bool redo;
+    undo_state_token_t token;
+    explicit brush_face_unchanged_t( map_workspace_t &ws ) : saved( ExportMapSnapshot( ws.pDocument ) ), document( ws.pDocument ), points( ws.wire.points.pData ),
+        roots( ws.selection.ids.pData ), revision( ws.pDocument->geometry.revision ), selectionRevision( ws.selection.revision ), nextId( ws.pDocument->nextId ),
+        nextSource( ws.pDocument->geometry.sourceIds.allocator.next.value ), brush( ws.selectedBrushFaceObject ), side( ws.selectedBrushFaceSide ),
+        mesh( ws.selectedMeshFaceObject ), face( ws.selectedMeshFaceId ), steps( EditorHistory_StepCount( &ws.history ) ), applied( EditorHistory_AppliedStepCount( &ws.history ) ),
+        redo( EditorHistory_CanRedo( &ws.history ) ), token( UndoRedo_StateToken( ws.history.pUndo ) ) {}
+    void Check( map_workspace_t &ws ) const
+    {
+        CHECK( ws.pDocument == document ); CHECK( ws.wire.points.pData == points ); CHECK( ws.selection.ids.pData == roots );
+        CHECK( ws.pDocument->geometry.revision == revision ); CHECK( ws.selection.revision == selectionRevision ); CHECK( ws.pDocument->nextId == nextId );
+        CHECK( ws.pDocument->geometry.sourceIds.allocator.next.value == nextSource );
+        CHECK( ws.selectedBrushFaceObject == brush ); CHECK( ws.selectedBrushFaceSide == side ); CHECK( ws.selectedMeshFaceObject == mesh ); CHECK( ws.selectedMeshFaceId == face );
+        CHECK( EditorHistory_StepCount( &ws.history ) == steps ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied );
+        CHECK( EditorHistory_CanRedo( &ws.history ) == redo ); CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+        CHECK( ExportMapSnapshot( ws.pDocument ) == saved );
+    }
+};
+}
+
+TEST_CASE( "Registered brush face modeling converts, edits and selects in one reversible publication", "[map][gui][geometry-commands][atomic-brush-face-adapter]" )
+{
+    const char *command = "map.mesh.extrude"; usize vertices = 12, faces = 10; f64 high = 144;
+    SECTION( "Extrude retains its cap" ) {}
+    SECTION( "Corner Inset retains its inset face" ) { command = "map.mesh.inset"; high = 128; }
+    SECTION( "Quad Slice retains its first cell" ) { command = "map.mesh.quad_slice"; vertices = 13; faces = 9; high = 128; }
+    brush_face_command_t f; auto &s = f.session; auto &ws = s.workspace;
+    const std::string original = ExportMapSnapshot( ws.pDocument ); const usize before = s.Steps();
+    REQUIRE( s.Enabled( command ) ); REQUIRE( s.Run( command ) == command_result_t::OK );
+    CHECK( s.Steps() == before + 1 ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == before + 1 );
+    CHECK( geo::GeometryDocument_FindBrush( &ws.pDocument->geometry, { f.root } ) == nullptr );
+    description_t result( ws, f.root ); CHECK( result.value.vertices.nCount == vertices ); CHECK( result.value.faces.nCount == faces );
+    CHECK( Box( ws, f.root ).maximum.z == Catch::Approx( high ) ); f.CheckMeshSelection(); f.CheckMetadata( ws.pDocument );
+    const std::string modeled = ExportMapSnapshot( ws.pDocument );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == original );
+    REQUIRE( MapWorkspace_HasBrushFace( &ws ) ); CHECK( ws.selectedBrushFaceObject == f.root ); CHECK( ws.selectedBrushFaceSide == f.face ); f.CheckMetadata( ws.pDocument );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == modeled ); f.CheckMeshSelection();
+    { description_t redone( ws, f.root ); CHECK( geo::MeshSourceDescription_Equal( &result.value, &redone.value ) ); }
+    QTemporaryDir directory; REQUIRE( directory.isValid() ); const auto path = directory.filePath( QStringLiteral( "atomic-face.cymap" ) );
+    REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK ); session_t reopened;
+    REQUIRE( MapWorkspace_Open( &reopened.workspace, path ).status == map_files_status_t::OK ); f.CheckMetadata( reopened.workspace.pDocument );
+    CHECK( ExportMapSnapshot( reopened.workspace.pDocument ) == modeled );
+}
+
+TEST_CASE( "Refused brush face commands preserve an existing Redo branch and original face", "[map][gui][geometry-commands][atomic-brush-face-adapter]" )
+{
+    brush_face_command_t f; auto &s = f.session; auto &ws = s.workspace;
+    const auto redo = f.PrepareRedo(); const char *command = "map.mesh.inset";
+    SECTION( "Corner Inset cannot consume the face" ) { f.settings.Number( "editor.map.mesh_inset_distance", 1000 ); }
+    SECTION( "A one by one Quad Slice makes no edit" ) { command = "map.mesh.quad_slice"; f.settings.Number( "editor.map.mesh_slice_u", 1 ); f.settings.Number( "editor.map.mesh_slice_v", 1 ); }
+    SECTION( "Measured-width Inset remains explicitly mesh-only" ) { command = "map.mesh.inset_width"; CHECK_FALSE( s.Enabled( command ) ); }
+    const brush_face_unchanged_t before( ws ); CHECK( s.Run( command ) != command_result_t::OK ); before.Check( ws );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == redo );
+    CHECK( MapWireframe_FindObject( ws.wire, f.root )->kind == map_wire_kind_t::BRUSH );
+}
+
+TEST_CASE( "Locked brush faces cannot enter implicit mesh modeling and work after unlocking", "[map][gui][geometry-commands][atomic-brush-face-adapter]" )
+{
+    brush_face_command_t f; auto &s = f.session; auto &ws = s.workspace;
+    REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "detail" ), true ) );
+    const brush_face_unchanged_t locked( ws );
+    for ( const char *command : { "map.mesh.extrude", "map.mesh.inset", "map.mesh.quad_slice" } ) {
+        CAPTURE( command ); MapWorkspace_SelectBrushFace( &ws, f.root, f.face ); CHECK_FALSE( s.Enabled( command ) );
+        CHECK( s.Run( command ) == command_result_t::DISABLED ); locked.Check( ws );
+    }
+    REQUIRE( MapLayers_SetLocked( &ws, QStringLiteral( "detail" ), false ) ); f.Pick();
+    const usize steps = s.Steps(); REQUIRE( s.Run( "map.mesh.quad_slice" ) == command_result_t::OK ); CHECK( s.Steps() == steps + 1 ); f.CheckMeshSelection();
+}
+
+TEST_CASE( "Brush face adapter allocation refusals retain Redo and retry without a conversion step", "[map][gui][geometry-commands][atomic-brush-face-adapter][allocation]" )
+{
+    // The allocator owns the whole session, including the document's nested
+    // geometry, and outlives every selection/history allocation transferred on
+    // success. No allocator pointer is replaced on a live document.
+    export_allocation_t audit{}; const allocator_t allocator{ &ExportAllocate, nullptr, &ExportFree, &audit };
+    usize successfulCalls = 0;
+    {
+        brush_face_command_t f( &allocator ); (void)f.PrepareRedo(); audit.calls = 0;
+        REQUIRE( f.session.Run( "map.mesh.extrude" ) == command_result_t::OK ); successfulCalls = audit.calls;
+    }
+    REQUIRE( successfulCalls > 10 ); CHECK( audit.live == 0 ); usize refused = 0;
+    for ( const usize failOn : { usize{ 1 }, successfulCalls / 2, successfulCalls - 1 } ) {
+        CAPTURE( failOn, successfulCalls );
+        {
+            brush_face_command_t f( &allocator ); auto &s = f.session; auto &ws = s.workspace;
+            const auto redo = f.PrepareRedo(); const brush_face_unchanged_t before( ws ); audit.calls = 0; audit.failOn = failOn;
+            const auto status = s.Run( "map.mesh.extrude" ); audit.failOn = 0;
+            if ( status != command_result_t::OK ) {
+                ++refused; before.Check( ws ); map_notice_t kind{}; (void)MapNotice_Last( &ws, &kind ); CHECK( kind == map_notice_t::ERROR );
+                REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == redo );
+                REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); f.Pick();
+                REQUIRE( s.Run( "map.mesh.extrude" ) == command_result_t::OK );
+            }
+            // A sampled final allocation may belong to optional notification
+            // work. Either way, no intermediate converted-only history survives.
+            CHECK( EditorHistory_AppliedStepCount( &ws.history ) == before.applied + 1 ); CHECK( s.Steps() == before.applied + 1 ); f.CheckMeshSelection();
+        }
+        CHECK( audit.live == 0 );
+    }
+    CHECK( refused >= 2 );
+}
+
+TEST_CASE( "Tool Properties mouse buttons publish brush conversion once and refuse inset without losing Redo", "[map][gui][toolpanels][atomic-brush-face-adapter][widget-events]" )
+{
+    brush_face_command_t f; auto &s = f.session; auto &ws = s.workspace;
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) ); REQUIRE( panel );
+    panel->resize( 520, 1200 ); panel->show(); QCoreApplication::processEvents();
+    const auto click = [&]( const char *command ) {
+        auto *body = panel->findChild<QWidget *>( QStringLiteral( "MapMeshFaceControls" ) ); REQUIRE( body );
+        gui::EditorSection_SetExpanded( body->parentWidget(), true ); QCoreApplication::processEvents();
+        QPointer<QPushButton> button = body->findChild<QPushButton *>( QString::fromLatin1( command ) ); REQUIRE( button );
+        REQUIRE( button->isEnabled() ); REQUIRE( button->isVisible() );
+        const QPointF centre = button->rect().center();
+        QMouseEvent press( QEvent::MouseButtonPress, centre, button->mapToGlobal( centre ), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+        QCoreApplication::sendEvent( button, &press ); REQUIRE( button );
+        QMouseEvent release( QEvent::MouseButtonRelease, centre, button->mapToGlobal( centre ), Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+        QCoreApplication::sendEvent( button, &release ); QCoreApplication::processEvents(); REQUIRE( button );
+    };
+    const auto original = ExportMapSnapshot( ws.pDocument ); const usize steps = s.Steps();
+    click( "map.mesh.extrude" ); CHECK( s.Steps() == steps + 1 ); f.CheckMeshSelection();
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK( ExportMapSnapshot( ws.pDocument ) == original );
+    REQUIRE( MapWorkspace_HasBrushFace( &ws ) ); CHECK( ws.selectedBrushFaceSide == f.face ); REQUIRE( EditorHistory_CanRedo( &ws.history ) );
+    f.settings.Number( "editor.map.mesh_inset_distance", 1000 ); QCoreApplication::processEvents();
+    const brush_face_unchanged_t before( ws ); click( "map.mesh.inset" ); before.Check( ws );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); f.CheckMeshSelection(); CHECK( s.Steps() == steps + 1 );
 }

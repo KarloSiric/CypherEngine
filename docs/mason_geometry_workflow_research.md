@@ -2418,3 +2418,50 @@ modules are included together. No availability of gameplay, physics, audio or
 runtime rendering follows from entity definitions. Remaining gates include
 region Inset/bevel, local/workplane axes, component per-axis Scale, linked
 clipboard and legacy combined brush-adapter transactions.
+
+
+## Atomic brush-face modelling commands — 2026-10-17
+
+The registered brush-face Extrude, Corner Inset and Quad Slice routes no longer
+publish Convert first and attempt a fallible Undo after a refused operation.
+They capture the admitted root/side and settings, convert and edit a private
+document, prepare the retained cap/first-cell face selection, and publish once.
+Undo restores the original brush and selected side; Redo restores the modelled
+mesh and selected face. Conversion alone is not a successful modelling edit.
+Invalid settings and a 1×1 Quad Slice refuse before conversion.
+
+The optional prepared-selection descriptor now also supports Faces. It requires
+a canonical face set belonging to the sole resulting root, an active face in
+that set, valid candidate face IDs and no mixed vertex/edge selection. All
+selection storage, wire construction and before/after history snapshots are
+prepared before publication. Invalid descriptors, lock admission failure and
+allocation refusal leave the live document and Redo branch intact. Existing
+vertex/edge callers retain their default descriptor contract. The command
+reports preparation failure instead of leaving a silent converted-only result.
+
+The new regression fixtures retain root and face future fields, material, UV
+source data, entity owner, layer and group through modelling, Undo/Redo and
+Save/Open. The actual Tool Properties button is driven with mouse press/release
+events for a successful Extrude and a refused deep Inset with Redo available.
+Sampled whole-session allocator failures cover clone, candidate and late history
+preparation, followed by successful retry and balanced ownership checks. An
+initial test setup incorrectly assumed saving populated an empty residual face
+array; it now creates the deliberately retained test side record by stable ID,
+matching the existing Core metadata fixture. No preservation assertion was
+removed. Final local validation passes 9 focused cases / 1,674 assertions, the full
+Map GUI suite at 844 cases / 186,567 assertions, 16 Cocoa adapter/camera
+cases / 2,827 assertions and 6 Mason routing cases / 410 assertions. The
+requested extra curved-corridor tag did not match a case in this invocation;
+its earlier separate acceptance evidence is not counted as a rerun here.
+Mason.app and the standalone binary were rebuilt and strict ad-hoc signatures
+verified (arm64 UUID 809726B5-3ACA-432C-AA13-C45054340756). The local app
+still includes the independently retained working-tree asset/compiler edits.
+The preceding CI passed platform/editor jobs but found a Patch Thicken
+use-after-free in the sanitizer job, being repaired separately. No all-green
+CI claim follows from these local adapter passes.
+
+This repairs only the three named adapters. Measured-width Inset remains
+explicitly mesh-only; other legacy brush-to-mesh command wrappers still need
+their own atomic operation routes. Connected-region width Inset, live width
+preview, local axes and per-axis component Scale remain separate geometry
+work. Renderer work remains deferred.

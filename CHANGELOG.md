@@ -323,6 +323,11 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Brush-face Extrude, Corner Inset and Quad Slice now convert and model in
+  one private candidate and one Undo step. Failed operations preserve the
+  original brush face, selection and existing Redo branch; validated face
+  continuation publishes with geometry. Other legacy conversion adapters
+  remain separate follow-ups.
 - Fixes the GCC Map Core build: TopologyEdit now includes <vector> for its
   public std::vector declaration instead of relying on incidental libc++
   includes. The header passes a standalone local syntax check and the Map
