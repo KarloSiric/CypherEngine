@@ -33,10 +33,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
 #include <utility>
+#include <vector>
 
 namespace cypher::editor::geometry {
 
@@ -1503,6 +1505,188 @@ TEST_CASE( "MeshOps: InsetFace allocation failures are atomic",
             CHECK( MeshMatchesSnapshot( f.mesh, before ) );
             CHECK( MeshValidation_Validate( &f.mesh ).status ==
                    geometry_status_t::OK );
+        }
+        CHECK( state.cSuccessfulAllocations == state.cFreeCalls );
+    }
+}
+
+namespace {
+struct MeasuredInsetFixture {
+    common::allocator_t allocator{ *common::Allocator_GetSystem() };
+    mesh_source_t source{};
+    mesh_source_description_t description{};
+    explicit MeasuredInsetFixture( const std::vector<math::vec3d_t> &points )
+    {
+        REQUIRE( MeshSourceDescription_Init( &description, &allocator, { 1 } ) == geometry_status_t::OK );
+        std::vector<common::u32> loop;
+        for ( common::u32 i = 0; i < points.size(); ++i ) {
+            REQUIRE( MeshSourceDescription_TryAddVertex( &description, points[i], { 10u + i }, nullptr ) == geometry_status_t::OK );
+            loop.push_back( i );
+        }
+        REQUIRE( MeshSourceDescription_TryAddFace( &description, { loop.data(), loop.size() }, { 100 }, {}, nullptr ) == geometry_status_t::OK );
+        REQUIRE( MeshSource_TryBuild( &description, &allocator, &source ) == geometry_status_t::OK );
+    }
+    ~MeasuredInsetFixture() { MeshSource_Shutdown( &source ); MeshSourceDescription_Shutdown( &description ); }
+    geometry_mesh_face_handle_t Face() const
+    {
+        geometry_mesh_face_handle_t face{}; REQUIRE( MeshSource_TryFindFace( &source, { 100 }, &face ) ); return face;
+    }
+};
+std::vector<math::vec3d_t> InsetFacePositions( const editable_mesh_t &mesh, geometry_mesh_face_handle_t handle )
+{
+    const auto *face = EditableMesh_GetFace( &mesh, handle ); REQUIRE( face != nullptr );
+    const auto *loop = EditableMesh_GetLoop( &mesh, face->hOuterLoop ); REQUIRE( loop != nullptr );
+    auto half = loop->hFirstHalfEdge; std::vector<math::vec3d_t> positions;
+    for ( common::u32 i = 0; i < loop->cHalfEdges; ++i ) {
+        const auto *record = EditableMesh_GetHalfEdge( &mesh, half ); REQUIRE( record != nullptr );
+        const auto *vertex = EditableMesh_GetVertex( &mesh, record->hOrigin ); REQUIRE( vertex != nullptr );
+        positions.push_back( vertex->position ); half = record->hNext;
+    }
+    return positions;
+}
+}
+
+TEST_CASE( "Measured inset gives a 224 by 96 cap for a 256 by 128 face at width 16 in any orientation",
+           "[geometry][TopologyOps][measured-inset]" )
+{
+    const math::vec3d_t basis[][2]{
+        { { 1, 0, 0 }, { 0, 1, 0 } }, { { 1, 0, 0 }, { 0, -1, 0 } },
+        { { 0, 1, 0 }, { 0, 0, 1 } }, { { 0, 1, 0 }, { 0, 0, -1 } },
+        { { 0, 0, 1 }, { 1, 0, 0 } }, { { 0, 0, 1 }, { -1, 0, 0 } }
+    };
+    const math::vec2d_t rectangle[]{ { 0, 0 }, { 256, 0 }, { 256, 128 }, { 0, 128 } };
+    const math::vec3d_t origin{ 127, -391, 47 };
+    for ( common::u32 axis = 0; axis < 6; ++axis ) {
+        for ( const double rotation : { 0.0, 0.371 } ) {
+            for ( const bool reverse : { false, true } ) {
+                CAPTURE( axis, rotation, reverse );
+                const auto u = math::Vec3d_Add( math::Vec3d_Scale( basis[axis][0], std::cos( rotation ) ),
+                    math::Vec3d_Scale( basis[axis][1], std::sin( rotation ) ) );
+                const auto v = math::Vec3d_Add( math::Vec3d_Scale( basis[axis][0], -std::sin( rotation ) ),
+                    math::Vec3d_Scale( basis[axis][1], std::cos( rotation ) ) );
+                std::vector<math::vec3d_t> points;
+                for ( common::u32 i = 0; i < 4; ++i ) {
+                    const auto p = rectangle[reverse ? 3u - i : i];
+                    points.push_back( math::Vec3d_Add( origin, math::Vec3d_Add( math::Vec3d_Scale( u, p.x ), math::Vec3d_Scale( v, p.y ) ) ) );
+                }
+                MeasuredInsetFixture f( points ); const auto before = CapturePoolSnapshot( f.source.mesh.vertices );
+                const auto normal = EditableMesh_GetFace( &f.source.mesh, f.Face() )->normal;
+                const auto result = MeshOps_InsetFaceByEdgeWidth( &f.source.mesh, f.Face(), 16.0, {} );
+                REQUIRE( result.status == geometry_status_t::OK ); CheckOpenInsetTopology( f.source.mesh, false );
+                const auto cap = InsetFacePositions( f.source.mesh, result.hInsetFace ); REQUIRE( cap.size() == 4 );
+                double minU = 1e9, maxU = -1e9, minV = 1e9, maxV = -1e9;
+                for ( const auto point : cap ) {
+                    const auto rel = math::Vec3d_Subtract( point, origin );
+                    const double x = math::Vec3d_Dot( rel, u ), y = math::Vec3d_Dot( rel, v );
+                    minU = std::min( minU, x ); maxU = std::max( maxU, x ); minV = std::min( minV, y ); maxV = std::max( maxV, y );
+                    CHECK( math::Vec3d_Dot( rel, normal ) == Approx( 0.0 ).margin( 1e-9 ) );
+                }
+                CHECK( minU == Approx( 16 ) ); CHECK( maxU == Approx( 240 ) );
+                CHECK( minV == Approx( 16 ) ); CHECK( maxV == Approx( 112 ) );
+                CHECK( maxU - minU == Approx( 224 ) ); CHECK( maxV - minV == Approx( 96 ) );
+                for ( common::usize i = 0; i < before.cRecords; ++i ) {
+                    const auto *vertex = EditableMesh_GetVertex( &f.source.mesh, before.handles[i] ); REQUIRE( vertex != nullptr );
+                    CHECK( VectorsMatch( vertex->position, before.records[i].position ) );
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE( "Measured inset keeps each irregular convex edge parallel at the requested perpendicular distance",
+           "[geometry][TopologyOps][measured-inset]" )
+{
+    const std::vector<math::vec3d_t> points{ { 0, 0, 0 }, { 96, 0, 0 }, { 128, 48, 0 }, { 64, 112, 0 }, { -16, 64, 0 } };
+    MeasuredInsetFixture f( points ); const auto result = MeshOps_InsetFaceByEdgeWidth( &f.source.mesh, f.Face(), 8.0, {} );
+    REQUIRE( result.status == geometry_status_t::OK );
+    const auto cap = InsetFacePositions( f.source.mesh, result.hInsetFace ); REQUIRE( cap.size() == points.size() );
+    for ( common::usize i = 0; i < points.size(); ++i ) {
+        const auto a = points[i], b = points[( i + 1 ) % points.size()];
+        const double length = std::hypot( b.x - a.x, b.y - a.y ); common::usize onLine = 0;
+        for ( const auto point : cap ) {
+            const double distance = ( ( b.x - a.x ) * ( point.y - a.y ) - ( b.y - a.y ) * ( point.x - a.x ) ) / length;
+            CHECK( distance >= 8.0 - 1e-9 ); if ( std::fabs( distance - 8.0 ) < 1e-9 ) { ++onLine; }
+        }
+        CHECK( onLine == 2 );
+    }
+    CHECK( EditableMesh_FaceCount( &f.source.mesh ) == 6 ); CHECK( MeshBoundary_CountBoundaryEdges( &f.source.mesh ) == 5 );
+}
+
+TEST_CASE( "Measured inset preserves its open neighbour and the legacy radial metric remains separate",
+           "[geometry][TopologyOps][measured-inset]" )
+{
+    OpenInsetFixture f( true ); const auto other = f.Face( 21 );
+    const auto before = *EditableMesh_GetFace( &f.source.mesh, other );
+    const auto loopBefore = *EditableMesh_GetLoop( &f.source.mesh, before.hOuterLoop );
+    const auto result = MeshOps_InsetFaceByEdgeWidth( &f.source.mesh, f.Face( 20 ), 0.2, {} );
+    REQUIRE( result.status == geometry_status_t::OK ); CheckOpenInsetTopology( f.source.mesh, true );
+    CHECK( RecordsMatch( *EditableMesh_GetFace( &f.source.mesh, other ), before ) );
+    CHECK( RecordsMatch( *EditableMesh_GetLoop( &f.source.mesh, before.hOuterLoop ), loopBefore ) );
+    for ( const auto p : InsetFacePositions( f.source.mesh, result.hInsetFace ) ) {
+        CHECK( ( p.x == Approx( 0.2 ) || p.x == Approx( 0.8 ) ) );
+        CHECK( ( p.y == Approx( 0.2 ) || p.y == Approx( 0.8 ) ) );
+    }
+    OpenInsetFixture legacy( false ); const auto radial = MeshOps_InsetFace( &legacy.source.mesh, legacy.Face( 20 ), 0.2 );
+    REQUIRE( radial.status == geometry_status_t::OK );
+    const auto radialCap = InsetFacePositions( legacy.source.mesh, radial.hInsetFace );
+    CHECK( radialCap.front().x == Approx( 0.2 / std::sqrt( 2.0 ) ) );
+    CHECK( radialCap.front().y == Approx( 0.2 / std::sqrt( 2.0 ) ) );
+}
+
+TEST_CASE( "Measured inset rejects collapse invalid widths warped faces concavity and limits without mutation",
+           "[geometry][TopologyOps][measured-inset][contract]" )
+{
+    const std::vector<math::vec3d_t> points{ { 0, 0, 0 }, { 256, 0, 0 }, { 256, 128, 0 }, { 0, 128, 0 } };
+    for ( const double width : { 64.0, 65.0, 0.0, -1.0, 1e-20,
+            std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN() } ) {
+        CAPTURE( width ); MeasuredInsetFixture f( points ); const auto before = CaptureMeshSnapshot( f.source.mesh );
+        const auto result = MeshOps_InsetFaceByEdgeWidth( &f.source.mesh, f.Face(), width, {} );
+        CHECK( result.status == ( width >= 64.0 && std::isfinite( width ) ? geometry_status_t::DEGENERATE : geometry_status_t::INVALID_ARGUMENT ) );
+        CHECK_FALSE( GeometryHandle_IsValid( result.hInsetFace ) ); CHECK( MeshMatchesSnapshot( f.source.mesh, before ) );
+    }
+    for ( common::u32 invalid = 0; invalid < 5; ++invalid ) {
+        CAPTURE( invalid ); MeasuredInsetFixture f( points ); geometry_numerical_policy_t policy{};
+        geometry_mesh_vertex_handle_t corner{}; REQUIRE( MeshSource_TryFindVertex( &f.source, { 12 }, &corner ) );
+        if ( invalid == 0 ) { common::GenerationPool_Get( &f.source.mesh.vertices, corner )->position.z = 1; }
+        if ( invalid == 1 ) { common::GenerationPool_Get( &f.source.mesh.vertices, corner )->position = { 64, 32, 0 }; }
+        if ( invalid == 2 ) { common::GenerationPool_Get( &f.source.mesh.vertices, corner )->position = { 128, 64, 0 }; }
+        if ( invalid == 3 ) { policy.fCoordinateMagnitudeLimit = 128; }
+        if ( invalid == 4 ) { f.source.mesh.vertices.cSlotLimit = f.source.mesh.vertices.cSlots; }
+        const auto before = CaptureMeshSnapshot( f.source.mesh ); REQUIRE( MeshSnapshotIsComplete( before ) );
+        const auto result = MeshOps_InsetFaceByEdgeWidth( &f.source.mesh, f.Face(), 16, policy );
+        CHECK( result.status != geometry_status_t::OK ); CHECK_FALSE( GeometryHandle_IsValid( result.hInsetFace ) );
+        CHECK( MeshMatchesSnapshot( f.source.mesh, before ) );
+    }
+    MeasuredInsetFixture f( points ); const auto before = CaptureMeshSnapshot( f.source.mesh );
+    CHECK( MeshOps_InsetFaceByEdgeWidth( &f.source.mesh, {}, 16, {} ).status == geometry_status_t::INVALID_HANDLE );
+    geometry_numerical_policy_t invalidPolicy{}; invalidPolicy.fMinimumEdgeLength = -1;
+    CHECK( MeshOps_InsetFaceByEdgeWidth( &f.source.mesh, f.Face(), 16, invalidPolicy ).status == geometry_status_t::INVALID_ARGUMENT );
+    CHECK( MeshMatchesSnapshot( f.source.mesh, before ) );
+}
+
+TEST_CASE( "Measured inset allocation failures retain the exact original mesh and release all scratch storage",
+           "[geometry][TopologyOps][measured-inset][allocation]" )
+{
+    common::usize calls = 0;
+    {
+        topology_ops_failure_allocator_state_t state{}; const auto allocator = MakeTopologyOpsFailureAllocator( &state );
+        {
+            OpenInsetFixture f( true, allocator ); const auto begin = state.cAllocationCalls;
+            REQUIRE( MeshOps_InsetFaceByEdgeWidth( &f.source.mesh, f.Face( 20 ), 0.2, {} ).status == geometry_status_t::OK );
+            calls = state.cAllocationCalls - begin;
+        }
+        REQUIRE( state.cSuccessfulAllocations == state.cFreeCalls );
+    }
+    REQUIRE( calls > 0 );
+    for ( common::usize failure = 0; failure < calls; ++failure ) {
+        CAPTURE( failure, calls ); topology_ops_failure_allocator_state_t state{};
+        const auto allocator = MakeTopologyOpsFailureAllocator( &state );
+        {
+            OpenInsetFixture f( true, allocator ); const auto before = CaptureMeshSnapshot( f.source.mesh );
+            REQUIRE( MeshSnapshotIsComplete( before ) ); state.iFailure = state.cAllocationCalls + failure;
+            const auto result = MeshOps_InsetFaceByEdgeWidth( &f.source.mesh, f.Face( 20 ), 0.2, {} );
+            CHECK( result.status == geometry_status_t::ALLOCATION_FAILED ); CHECK_FALSE( GeometryHandle_IsValid( result.hInsetFace ) );
+            CHECK( MeshMatchesSnapshot( f.source.mesh, before ) );
         }
         CHECK( state.cSuccessfulAllocations == state.cFreeCalls );
     }

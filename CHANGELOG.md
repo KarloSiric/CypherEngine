@@ -323,6 +323,16 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Geometry adds a separate measured-width face Inset: offset each edge
+  inward by a perpendicular distance on one planar, strictly convex face.
+  A 256 x 128 face inset by 16 produces a 224 x 96 cap. Existing radial
+  Corner Inset remains unchanged. Collapse, changed corner correspondence,
+  concavity, warped faces and numeric/domain failures refuse. Cap/perimeter
+  identity and source surfacing follow existing topology/attribute transfer;
+  source edits retain their disposable-candidate contract. Validation: eight
+  focused cases / 4,287 assertions, including every raw allocation refusal;
+  complete Geometry 1,298 cases / 387,701 assertions. This kernel increment
+  is separate from local Mason property/command integration and region Inset.
 - Geometry Loop Cut now transports its cut fraction across quad edges using
   each edge's direction; off-centre cuts no longer alternate between t and 1-t.
   The source API measures t from its first named endpoint, independent of stored

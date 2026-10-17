@@ -236,6 +236,28 @@ geometry_status_t MeshSourceEdit_TryInsetFace(
         pReportOut );
 }
 
+geometry_status_t MeshSourceEdit_TryInsetFaceByEdgeWidth(
+    mesh_source_t *pSource,
+    geometry_source_id_t faceId,
+    f64 width,
+    const geometry_numerical_policy_t &policy,
+    mesh_edit_report_t *pReportOut ) noexcept
+{
+    if ( !MeshSource_IsInitialized( pSource ) ) { return geometry_status_t::NOT_INITIALIZED; }
+    if ( !GeometryNumericalPolicy_IsValid( policy ) || !std::isfinite( width ) ||
+         !( width > policy.fMinimumEdgeLength ) ) { return geometry_status_t::INVALID_ARGUMENT; }
+    geometry_mesh_face_handle_t hFace{};
+    if ( !MeshSource_TryFindFace( pSource, faceId, &hFace ) ) { return geometry_status_t::INVALID_HANDLE; }
+    return MeshEdit_Bracket(
+        pSource,
+        [&]( vector_t<mesh_edit_face_parent_t> *pParents ) noexcept {
+            const auto result = MeshOps_InsetFaceByEdgeWidth( &pSource->mesh, hFace, width, policy );
+            if ( result.status != geometry_status_t::OK ) { return result.status; }
+            return Vector_PushBack( pParents, mesh_edit_face_parent_t{ result.hInsetFace, hFace, true } )
+                ? geometry_status_t::OK : geometry_status_t::ALLOCATION_FAILED;
+        }, pReportOut );
+}
+
 geometry_status_t MeshSourceEdit_TryBevelEdge(
     mesh_source_t *pSource,
     geometry_source_id_t vertexA,

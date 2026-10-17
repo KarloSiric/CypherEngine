@@ -38,6 +38,7 @@
 #endif
 
 #include "CypherGeometry_MeshSourceTopology.h"
+#include "CypherGeometry_Policy.h"
 
 namespace cypher::editor::geometry
 {
@@ -52,6 +53,20 @@ CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryInsetFace(
     mesh_source_t *pSource,
     geometry_source_id_t faceId,
     common::f64 margin,
+    mesh_edit_report_t *pReportOut ) noexcept;
+
+// Measured perpendicular width on one strictly convex planar face (3..256
+// corners). The cap retains faceId; perimeter identities/edge attributes stay.
+// Ring faces inherit their parent, with the existing affine UV0/UV1 and nearest
+// source-corner colour policy. Width must leave every edge/corner represented.
+// This is not radial Corner Inset or a connected-region inset. Like the other
+// source modeling adapters, use a private source transaction and discard it on
+// failure: attribute/provenance resolution can fail after the topology edit.
+CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryInsetFaceByEdgeWidth(
+    mesh_source_t *pSource,
+    geometry_source_id_t faceId,
+    common::f64 width,
+    const geometry_numerical_policy_t &policy,
     mesh_edit_report_t *pReportOut ) noexcept;
 
 // Bevels edge (a, b) into a strip of cSegments faces of the given width.

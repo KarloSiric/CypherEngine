@@ -23,9 +23,12 @@
 
 #include "CypherGeometry_MeshTopologyOps.h"
 #include "CypherGeometry_MeshRecordAccess.h"
+#include "CypherGeometry_Planar_Frame.h"
 #include "CypherCommon_Vector.h"
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <new>
 #include <type_traits>
 
@@ -2741,10 +2744,98 @@ mesh_extrude_face_result_t MeshOps_ExtrudeFace(
 // InsetFace
 // ---------------------------------------------------------------------------
 
+// Only the position plan differs from radial inset. Keep the existing perimeter
+// topology, neighbour pairing and source-attribute transfer for both operations.
+static geometry_status_t PlanEdgeWidthInset(
+    const math::vec3d_t *positions, u32 count, math::vec3d_t normal,
+    f64 width, const geometry_numerical_policy_t &policy,
+    math::vec3d_t *inset ) noexcept
+{
+    const auto inDomain = [&]( math::vec3d_t p ) noexcept {
+        return math::Vec3d_IsFinite( p ) &&
+            std::fabs( p.x ) <= policy.fCoordinateMagnitudeLimit &&
+            std::fabs( p.y ) <= policy.fCoordinateMagnitudeLimit &&
+            std::fabs( p.z ) <= policy.fCoordinateMagnitudeLimit;
+    };
+    for ( u32 i = 0; i < count; ++i ) {
+        if ( !inDomain( positions[i] ) ) { return geometry_status_t::NUMERIC_FAILURE; }
+    }
+    const auto fit = PlanarFrame_TryFromLoop( positions, count, policy.fPlanarityTolerance );
+    if ( fit.status != geometry_status_t::OK ) { return fit.status; }
+    if ( !math::Vec3d_IsFinite( normal ) ||
+         std::fabs( math::Vec3d_Dot( normal, fit.frame.normal ) - 1.0 ) > policy.fUnitNormalTolerance ) {
+        return geometry_status_t::CORRUPT_STATE;
+    }
+    math::vec2d_t points[256], directions[256], normals[256], planned[256];
+    f64 extent = 0.0;
+    for ( u32 i = 0; i < count; ++i ) {
+        points[i] = PlanarFrame_Project( fit.frame, positions[i] );
+        extent = std::max( extent, std::max( std::fabs( points[i].x ), std::fabs( points[i].y ) ) );
+    }
+    const f64 tolerance = policy.fAbsoluteDistanceTolerance + policy.fRelativeDistanceTolerance * extent;
+    const auto cross = []( math::vec2d_t a, math::vec2d_t b ) noexcept { return a.x * b.y - a.y * b.x; };
+    const auto dot = []( math::vec2d_t a, math::vec2d_t b ) noexcept { return a.x * b.x + a.y * b.y; };
+    const auto sub = []( math::vec2d_t a, math::vec2d_t b ) noexcept { return math::vec2d_t{ a.x - b.x, a.y - b.y }; };
+    for ( u32 i = 0; i < count; ++i ) {
+        const auto edge = sub( points[( i + 1 ) % count], points[i] );
+        const f64 length = std::hypot( edge.x, edge.y );
+        if ( !( length > policy.fMinimumEdgeLength ) ) { return geometry_status_t::DEGENERATE; }
+        directions[i] = { edge.x / length, edge.y / length };
+        normals[i] = { -directions[i].y, directions[i].x };
+    }
+    // A positive local turn alone also admits self-crossing star polygons.
+    // Every nonincident vertex must lie strictly inside every original edge.
+    for ( u32 i = 0; i < count; ++i ) {
+        if ( !( cross( directions[( i + count - 1 ) % count], directions[i] ) >
+                policy.fAngularToleranceRadians ) ) { return geometry_status_t::DEGENERATE; }
+        for ( u32 k = 0; k < count; ++k ) {
+            if ( k != i && k != ( i + 1 ) % count &&
+                 !( dot( normals[i], sub( points[k], points[i] ) ) > tolerance ) ) {
+                return geometry_status_t::INVALID_ARGUMENT;
+            }
+        }
+        const auto previous = normals[( i + count - 1 ) % count];
+        const f64 denominator = 1.0 + dot( previous, normals[i] );
+        if ( !( denominator > 64.0 * std::numeric_limits<f64>::epsilon() ) ) {
+            return geometry_status_t::DEGENERATE;
+        }
+        const f64 distance = width / denominator;
+        planned[i] = { points[i].x + distance * ( previous.x + normals[i].x ),
+                       points[i].y + distance * ( previous.y + normals[i].y ) };
+        inset[i] = PlanarFrame_Unproject( fit.frame, planned[i] );
+        if ( !math::Vec2d_IsFinite( planned[i] ) || !inDomain( inset[i] ) ) {
+            return geometry_status_t::NUMERIC_FAILURE;
+        }
+    }
+    f64 twiceArea = 0.0;
+    for ( u32 i = 0; i < count; ++i ) {
+        const u32 next = ( i + 1 ) % count;
+        // Reject offsets past an edge event rather than inverting that edge or
+        // silently changing the one-old-corner/one-new-corner correspondence.
+        if ( !( dot( directions[i], sub( planned[next], planned[i] ) ) > policy.fMinimumEdgeLength ) ) {
+            return geometry_status_t::DEGENERATE;
+        }
+        for ( u32 k = 0; k < count; ++k ) {
+            if ( dot( normals[k], sub( planned[i], points[k] ) ) < width - tolerance ) {
+                return geometry_status_t::DEGENERATE;
+            }
+        }
+        // The two triangles of each ring quad have the original orientation.
+        if ( !( cross( sub( points[next], points[i] ), sub( planned[next], points[i] ) ) > 2.0 * policy.fMinimumFaceArea ) ||
+             !( cross( sub( planned[next], points[i] ), sub( planned[i], points[i] ) ) > 2.0 * policy.fMinimumFaceArea ) ) {
+            return geometry_status_t::DEGENERATE;
+        }
+        twiceArea += cross( planned[i], planned[next] );
+    }
+    return std::isfinite( twiceArea ) && twiceArea > 2.0 * policy.fMinimumFaceArea
+        ? geometry_status_t::OK : geometry_status_t::DEGENERATE;
+}
+
 static mesh_inset_face_result_t MeshOps_InsetFaceInPlace(
     editable_mesh_t *pMesh,
     geometry_mesh_face_handle_t hFace,
-    f64 margin ) noexcept
+    f64 margin,
+    const geometry_numerical_policy_t *pWidthPolicy = nullptr ) noexcept
 {
     mesh_inset_face_result_t result{};
 
@@ -2815,50 +2906,56 @@ static mesh_inset_face_result_t MeshOps_InsetFaceInPlace(
         }
     }
 
-    // Compute the centroid of the face.
-    math::vec3d_t centroid = math::Vec3d_Make( 0.0, 0.0, 0.0 );
-    for ( u32 i = 0u; i < cEdges; ++i ) {
-        centroid = math::Vec3d_Add( centroid, origPositions[i] );
-    }
-    centroid = math::Vec3d_Scale( centroid, 1.0 / static_cast<f64>( cEdges ) );
-
-    // Compute inset positions: move each vertex toward the centroid by
-    // `margin` along the face plane. We project the direction from vertex
-    // to centroid onto the face plane to get the inset direction.
     math::vec3d_t insetPositions[256];
-    for ( u32 i = 0u; i < cEdges; ++i ) {
-        math::vec3d_t toCenter = math::Vec3d_Subtract(
-            centroid, origPositions[i] );
-
-        // Project onto face plane (remove normal component).
-        const f64 normalComp = math::Vec3d_Dot( toCenter, faceNormal );
-        toCenter = math::Vec3d_Subtract( toCenter,
-            math::Vec3d_Scale( faceNormal, normalComp ) );
-
-        const f64 distSq = math::Vec3d_LengthSquared( toCenter );
-        if ( distSq < 1.0e-20 ) {
-            result.status = geometry_status_t::DEGENERATE;
-            return result;
+    if ( pWidthPolicy != nullptr ) {
+        result.status = PlanEdgeWidthInset( origPositions, cEdges, faceNormal,
+            margin, *pWidthPolicy, insetPositions );
+        if ( result.status != geometry_status_t::OK ) { return result; }
+    } else {
+        // Compute the centroid of the face for the legacy radial metric.
+        math::vec3d_t centroid = math::Vec3d_Make( 0.0, 0.0, 0.0 );
+        for ( u32 i = 0u; i < cEdges; ++i ) {
+            centroid = math::Vec3d_Add( centroid, origPositions[i] );
         }
+        centroid = math::Vec3d_Scale( centroid, 1.0 / static_cast<f64>( cEdges ) );
 
-        const f64 dist = std::sqrt( distSq );
-        if ( margin >= dist ) {
-            result.status = geometry_status_t::DEGENERATE;
-            return result;
-        }
+        // Compute inset positions: move each vertex toward the centroid by
+        // `margin` along the face plane. We project the direction from vertex
+        // to centroid onto the face plane to get the inset direction.
+        for ( u32 i = 0u; i < cEdges; ++i ) {
+            math::vec3d_t toCenter = math::Vec3d_Subtract(
+                centroid, origPositions[i] );
 
-        // Move margin units toward centroid.
-        const math::vec3d_t dir = math::Vec3d_Scale( toCenter, 1.0 / dist );
-        insetPositions[i] = math::Vec3d_Add( origPositions[i],
-            math::Vec3d_Scale( dir, margin ) );
-        if ( !math::Vec3d_IsFinite( insetPositions[i] ) ) {
-            result.status = geometry_status_t::NUMERIC_FAILURE;
-            return result;
-        }
-        if ( math::Vec3d_EqualsExact(
-                 insetPositions[i], origPositions[i] ) ) {
-            result.status = geometry_status_t::DEGENERATE;
-            return result;
+            // Project onto face plane (remove normal component).
+            const f64 normalComp = math::Vec3d_Dot( toCenter, faceNormal );
+            toCenter = math::Vec3d_Subtract( toCenter,
+                math::Vec3d_Scale( faceNormal, normalComp ) );
+
+            const f64 distSq = math::Vec3d_LengthSquared( toCenter );
+            if ( distSq < 1.0e-20 ) {
+                result.status = geometry_status_t::DEGENERATE;
+                return result;
+            }
+
+            const f64 dist = std::sqrt( distSq );
+            if ( margin >= dist ) {
+                result.status = geometry_status_t::DEGENERATE;
+                return result;
+            }
+
+            // Move margin units toward centroid.
+            const math::vec3d_t dir = math::Vec3d_Scale( toCenter, 1.0 / dist );
+            insetPositions[i] = math::Vec3d_Add( origPositions[i],
+                math::Vec3d_Scale( dir, margin ) );
+            if ( !math::Vec3d_IsFinite( insetPositions[i] ) ) {
+                result.status = geometry_status_t::NUMERIC_FAILURE;
+                return result;
+            }
+            if ( math::Vec3d_EqualsExact(
+                     insetPositions[i], origPositions[i] ) ) {
+                result.status = geometry_status_t::DEGENERATE;
+                return result;
+            }
         }
     }
 
@@ -3215,6 +3312,35 @@ mesh_inset_face_result_t MeshOps_InsetFace(
     } else {
         result.hInsetFace = {};
     }
+    EditableMesh_Shutdown( &stagedMesh );
+    return result;
+}
+
+mesh_inset_face_result_t MeshOps_InsetFaceByEdgeWidth(
+    editable_mesh_t *pMesh,
+    geometry_mesh_face_handle_t hFace,
+    f64 width,
+    const geometry_numerical_policy_t &policy ) noexcept
+{
+    mesh_inset_face_result_t result{};
+    if ( pMesh == nullptr || !GeometryNumericalPolicy_IsValid( policy ) ||
+         !std::isfinite( width ) || !( width > policy.fMinimumEdgeLength ) ) {
+        return result;
+    }
+    if ( !EditableMesh_IsInitialized( pMesh ) ) {
+        result.status = geometry_status_t::NOT_INITIALIZED;
+        return result;
+    }
+    if ( GenerationPool_Get( &pMesh->faces, hFace ) == nullptr ) {
+        result.status = geometry_status_t::INVALID_HANDLE;
+        return result;
+    }
+    editable_mesh_t stagedMesh{};
+    result.status = CloneEditableMeshExact( pMesh, &stagedMesh );
+    if ( result.status != geometry_status_t::OK ) { return result; }
+    result = MeshOps_InsetFaceInPlace( &stagedMesh, hFace, width, &policy );
+    if ( result.status == geometry_status_t::OK ) { SwapEditableMeshStorage( pMesh, &stagedMesh ); }
+    else { result.hInsetFace = {}; }
     EditableMesh_Shutdown( &stagedMesh );
     return result;
 }

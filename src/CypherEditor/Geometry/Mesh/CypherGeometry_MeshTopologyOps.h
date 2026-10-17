@@ -36,6 +36,7 @@
 #endif
 
 #include "CypherGeometry_EditableMesh.h"
+#include "CypherGeometry_Policy.h"
 
 namespace cypher::editor::geometry
 {
@@ -146,7 +147,8 @@ struct mesh_inset_face_result_t {
     geometry_status_t status{ geometry_status_t::INVALID_ARGUMENT };
 };
 
-// Insets a face by shrinking it inward by `margin` (in world units).
+// Insets a face by moving each corner `margin` world units toward the
+// vertex centroid. This legacy radial distance is not a uniform edge width.
 // New vertices are created at the inset positions, and a ring of quads
 // connects the original boundary to the inset boundary. The original
 // face is removed and replaced by the smaller inset face.
@@ -157,6 +159,20 @@ CYPHER_NODISCARD mesh_inset_face_result_t MeshOps_InsetFace(
     editable_mesh_t *pMesh,
     geometry_mesh_face_handle_t hFace,
     common::f64 margin ) noexcept;
+
+// Insets one strictly convex planar face by perpendicular world-space width.
+// The original perimeter stays fixed; one cap and one quad per old edge replace
+// the face. Winding follows the input face. Width must exceed minimum edge
+// length and leave every original edge represented by a positive inset edge.
+// Collinear/concave/warped faces, unstable miters, collapse and changed corner
+// correspondence are refused; this is not a face-region or hole inset.
+// At most 256 corners; all positions remain inside the numerical policy domain.
+// Failure leaves the exact input mesh unchanged and returns an invalid cap.
+CYPHER_NODISCARD mesh_inset_face_result_t MeshOps_InsetFaceByEdgeWidth(
+    editable_mesh_t *pMesh,
+    geometry_mesh_face_handle_t hFace,
+    common::f64 width,
+    const geometry_numerical_policy_t &policy ) noexcept;
 
 // ---------------------------------------------------------------------------
 // Loop cut (Gate 12)

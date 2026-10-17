@@ -379,6 +379,114 @@ TEST_CASE( "Inset keeps the inner face's identity and the ring stays coplanar", 
     CHECK( e.CheckOracle() == 10u );
 }
 
+TEST_CASE( "Measured inset retains cap and perimeter identity UV channels colours materials and hard edges",
+           "[geometry][meshedit][measured-inset]" ) {
+    for ( common::u64 faceId = 20; faceId < 26; ++faceId ) {
+        CAPTURE( faceId ); Env e;
+        for ( common::usize f = 0; f < e.d.faces.nCount; ++f ) {
+            auto &face = e.d.faces.pData[f]; face.attributes.smoothingGroups = 1u << f;
+            for ( common::u32 k = 0; k < face.cCorners; ++k ) {
+                auto &corner = e.d.corners.pData[face.iFirstCorner + k];
+                corner.attributes.uv1 = { 0.25 + 0.5 * corner.attributes.uv0.x, 2.0 + 0.125 * corner.attributes.uv0.y };
+                corner.attributes.colorRgba = 0x120000FFu + static_cast<common::u32>( face.attributes.material.value ) * 256u;
+            }
+        }
+        const auto originalFace = e.d.faces.pData[faceId - 20];
+        const auto edgeA = e.d.vertices.pData[e.d.corners.pData[originalFace.iFirstCorner].iVertex].sourceId;
+        const auto edgeB = e.d.vertices.pData[e.d.corners.pData[originalFace.iFirstCorner + 1].iVertex].sourceId;
+        MeshSource_Shutdown( &e.mesh ); REQUIRE( MeshSource_TryBuild( &e.d, &e.allocator, &e.mesh ) == geometry_status_t::OK );
+        REQUIRE( MeshSourceEdit_TrySetEdgeAttributes( &e.mesh, edgeA, edgeB,
+            { MESH_EDGE_FLAG_HARD | MESH_EDGE_FLAG_SEAM }, 0.625 ) == geometry_status_t::OK );
+        mesh_edit_report_t report{};
+        REQUIRE( MeshSourceEdit_TryInsetFaceByEdgeWidth( &e.mesh, Id( faceId ), 0.2, {}, &report ) == geometry_status_t::OK );
+        CHECK( report.stats.cCornersDefaulted == 0 ); CHECK( e.CheckOracle() == 10u );
+        CHECK( MeshValidation_Validate( &e.mesh.mesh ).status == geometry_status_t::OK );
+        CHECK( EditableMesh_EulerCharacteristic( &e.mesh.mesh ) == 2 ); CHECK( MeshBoundary_CountBoundaryEdges( &e.mesh.mesh ) == 0 );
+        for ( common::u64 id = 20; id < 26; ++id ) {
+            geometry_mesh_face_handle_t retained{}; CHECK( MeshSource_TryFindFace( &e.mesh, Id( id ), &retained ) );
+        }
+        for ( common::u64 id = 10; id < 18; ++id ) {
+            geometry_mesh_vertex_handle_t retained{}; REQUIRE( MeshSource_TryFindVertex( &e.mesh, Id( id ), &retained ) );
+            const auto p = EditableMesh_GetVertex( &e.mesh.mesh, retained )->position; const auto index = id - 10;
+            CHECK( p.x == ( index & 1 ? 1.0 : 0.0 ) ); CHECK( p.y == ( index & 2 ? 1.0 : 0.0 ) ); CHECK( p.z == ( index & 4 ? 1.0 : 0.0 ) );
+        }
+        bool foundCap = false;
+        for ( common::usize f = 0; f < e.d.faces.nCount; ++f ) {
+            const auto &face = e.d.faces.pData[f]; const bool cap = face.sourceId.value == faceId;
+            foundCap = foundCap || cap;
+            const common::u64 inheritedId = face.sourceId.value < 26 ? face.sourceId.value : faceId;
+            CHECK( face.attributes.smoothingGroups == ( 1u << ( inheritedId - 20 ) ) );
+            if ( cap ) { CHECK( face.attributes.material.value == originalFace.attributes.material.value ); }
+            const int axis = DominantAxis( Newell( e.d, face ) );
+            for ( common::u32 k = 0; k < face.cCorners; ++k ) {
+                const auto &corner = e.d.corners.pData[face.iFirstCorner + k];
+                CHECK( corner.attributes.uv1.x == Catch::Approx( 0.25 + 0.5 * corner.attributes.uv0.x ) );
+                CHECK( corner.attributes.uv1.y == Catch::Approx( 2.0 + 0.125 * corner.attributes.uv0.y ) );
+                CHECK( corner.attributes.colorRgba == 0x120000FFu + static_cast<common::u32>( face.attributes.material.value ) * 256u );
+                if ( cap ) {
+                    const auto p = Project( axis, e.d.vertices.pData[corner.iVertex].position );
+                    CHECK( ( p.x == Catch::Approx( 0.2 ) || p.x == Catch::Approx( 0.8 ) ) );
+                    CHECK( ( p.y == Catch::Approx( 0.2 ) || p.y == Catch::Approx( 0.8 ) ) );
+                }
+            }
+        }
+        CHECK( foundCap ); geometry_mesh_edge_handle_t hard{};
+        REQUIRE( MeshSourceEdit_TryFindEdge( &e.mesh, edgeA, edgeB, &hard ) );
+        CHECK( MeshAttributeStore_GetEdge( &e.mesh.attributes, hard ).flags == ( MESH_EDGE_FLAG_HARD | MESH_EDGE_FLAG_SEAM ) );
+        CHECK( EditableMesh_GetEdge( &e.mesh.mesh, hard )->creaseWeight == 0.625 );
+    }
+}
+
+TEST_CASE( "Measured inset rejects invalid source requests before changing the source description",
+           "[geometry][meshedit][measured-inset][contract]" ) {
+    Env e; ScopedDescription before( &e.allocator ); before.Capture( &e.mesh );
+    for ( const auto width : { 0.5, 0.6, 0.0, -1.0, std::numeric_limits<double>::quiet_NaN() } ) {
+        CAPTURE( width );
+        CHECK( MeshSourceEdit_TryInsetFaceByEdgeWidth( &e.mesh, Id( 21 ), width, {}, nullptr ) != geometry_status_t::OK );
+        e.Describe(); CHECK( MeshSourceDescription_Equal( &e.d, &before.value ) );
+    }
+    CHECK( MeshSourceEdit_TryInsetFaceByEdgeWidth( &e.mesh, Id( 9999 ), 0.2, {}, nullptr ) == geometry_status_t::INVALID_HANDLE );
+    e.Describe(); CHECK( MeshSourceDescription_Equal( &e.d, &before.value ) );
+}
+
+TEST_CASE( "Measured inset source allocation failures discard a private candidate and leave its live source intact",
+           "[geometry][meshedit][measured-inset][allocation]" ) {
+    struct Candidate {
+        mesh_source_t source{};
+        ~Candidate() { MeshSource_Shutdown( &source ); }
+    };
+    common::usize calls = 0;
+    {
+        mesh_edit_failure_allocator_state_t state{}; const auto allocator = MakeMeshEditFailureAllocator( &state );
+        {
+            Env e( allocator ); Candidate candidate;
+            REQUIRE( MeshSource_TryClone( &e.mesh, &e.allocator, &candidate.source ) == geometry_status_t::OK );
+            const auto begin = state.cAllocationCalls;
+            REQUIRE( MeshSourceEdit_TryInsetFaceByEdgeWidth( &candidate.source, Id( 21 ), 0.2, {}, nullptr ) == geometry_status_t::OK );
+            calls = state.cAllocationCalls - begin;
+        }
+        REQUIRE( state.cSuccessfulAllocations == state.cFrees );
+    }
+    REQUIRE( calls > 0 );
+    for ( common::usize failure = 0; failure < calls; ++failure ) {
+        CAPTURE( failure, calls ); mesh_edit_failure_allocator_state_t state{};
+        const auto allocator = MakeMeshEditFailureAllocator( &state );
+        {
+            Env e( allocator ); ScopedDescription before( &e.allocator ); before.Capture( &e.mesh ); Candidate candidate;
+            REQUIRE( MeshSource_TryClone( &e.mesh, &e.allocator, &candidate.source ) == geometry_status_t::OK );
+            state.iFailOnCall = state.cAllocationCalls + failure;
+            const auto status = MeshSourceEdit_TryInsetFaceByEdgeWidth( &candidate.source, Id( 21 ), 0.2, {}, nullptr );
+            CHECK( status == geometry_status_t::ALLOCATION_FAILED ); CHECK( state.cRejectedAllocations == 1 );
+            // The attribute bracket edits a disposable source, not an authored
+            // document. A failure after topology creation must discard it.
+            state.iFailOnCall = common::CY_USIZE_MAX;
+            e.Describe(); CHECK( MeshSourceDescription_Equal( &e.d, &before.value ) );
+            CHECK( MeshSource_Validate( &e.mesh, &e.allocator ).fault == mesh_source_fault_t::NONE );
+        }
+        CHECK( state.cSuccessfulAllocations == state.cFrees );
+    }
+}
+
 TEST_CASE( "Triangulation, split face, and loop cut propagate exactly", "[geometry][meshedit]" ) {
     {
         Env e;
