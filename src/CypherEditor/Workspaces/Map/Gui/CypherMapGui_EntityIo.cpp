@@ -16,6 +16,8 @@
 
 #include "CypherMapGui_EntityIo.h"
 #include "CypherMapGui_Game.h"
+#include "CypherMapGui_Layers.h"
+#include "CypherMapGui_Notice.h"
 
 #include "CypherMap_EntityEdit.h"
 #include "CypherMap_EntityOutputs.h"
@@ -41,6 +43,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <new>
 #include <unordered_map>
 #include <vector>
 
@@ -145,7 +148,10 @@ public:
         const auto button = [&]( const char *name, const char *text, auto action ) {
             auto *b = new QPushButton( QString::fromLatin1( text ), outputsPage );
             b->setObjectName( QString::fromLatin1( name ) );
-            QObject::connect( b, &QPushButton::clicked, this, action );
+            QObject::connect( b, &QPushButton::clicked, this, [this, action]() {
+                try { action(); }
+                catch ( const std::bad_alloc & ) { MemoryRefusal(); }
+            } );
             buttons->addWidget( b );
             return b;
         };
@@ -174,9 +180,7 @@ public:
 
         // Committing rebuilds the table: never from inside the editor's own
         // write-back, so the edit lands on the next turn of the event loop.
-        QObject::connect( m_outputs, &QTableWidget::itemChanged, this, [this]( QTableWidgetItem * ) {
-            QTimer::singleShot( 0, this, [this]() { Commit( "Edit Output", Table() ); } );
-        } );
+        QObject::connect( m_outputs, &QTableWidget::itemChanged, this, [this]( QTableWidgetItem * ) { QueueCommit(); } );
         QObject::connect( m_outputs, &QTableWidget::itemSelectionChanged, this, [this]() { RefreshButtons(); } );
         m_subscribed = MapWorkspace_AddListener( m_ws, &entity_io_t::OnChanged, this ) != CY_FALSE;
         Refresh();
@@ -185,6 +189,10 @@ public:
 
     void Refresh()
     {
+        // Rebuilding cancels every pending table write, even when New/Open or
+        // Undo restores the same entity ID. No old callback may read a new table.
+        ++m_tableGeneration;
+        m_commitQueued = false;
         m_entity = MapEntityIo_Entity( m_ws );
         std::vector<map_output_t> outputs;
         const bool readable = m_entity != 0 && MapEntityOutputs_Read( m_ws->pDocument, m_entity, outputs ) == map_status_t::OK;
@@ -220,21 +228,88 @@ public:
 private:
     static void OnChanged( void *pContext, u32 changes ) noexcept
     {
-        if ( ( changes & ( MAP_CHANGE_DOCUMENT | MAP_CHANGE_SELECTION ) ) != 0u ) { static_cast<entity_io_t *>( pContext )->Refresh(); }
+        auto *self = static_cast<entity_io_t *>( pContext );
+        try {
+            if ( ( changes & ( MAP_CHANGE_DOCUMENT | MAP_CHANGE_SELECTION ) ) != 0u ) { self->Refresh(); }
+            else if ( ( changes & ( MAP_CHANGE_VIEW | MAP_CHANGE_HISTORY ) ) != 0u ) {
+                // Lock changes and edit/preview takeover can invalidate a queued
+                // write without replacing the document. Normal navigation should
+                // not rebuild a table that has no pending changes.
+                if ( self->m_commitQueued ) { self->Refresh(); }
+                else { self->RefreshButtons(); }
+            }
+        } catch ( const std::bad_alloc & ) { self->MemoryRefusal(); }
     }
 
-    bool Writable() const noexcept { return m_entity != 0 && m_ws->pDocument != nullptr && !m_ws->pDocument->bReadOnly; }
+    bool Writable() const noexcept
+    {
+        return m_entity != 0 && m_ws != nullptr && m_ws->pGui != nullptr && m_ws->pDocument != nullptr &&
+            !m_ws->pDocument->bReadOnly && !m_ws->editPreview.bActive && !EditorHistory_IsTransactionOpen( &m_ws->history ) &&
+            MapWireframe_FindEntity( m_ws->wire, m_entity ) != nullptr && !MapLayers_IsObjectLocked( m_ws, m_entity );
+    }
+
+    struct edit_context_t {
+        const map_document_t *document{};
+        u64 entity{}, geometryRevision{}, selectionRevision{}, generation{};
+    };
+
+    edit_context_t Context() const noexcept
+    {
+        return { m_ws->pDocument, m_entity, m_ws->pDocument != nullptr ? m_ws->pDocument->geometry.revision : 0,
+                 m_ws->selection.revision, m_tableGeneration };
+    }
+
+    bool Current( const edit_context_t &context ) const noexcept
+    {
+        return Writable() && context.document == m_ws->pDocument && context.entity == m_entity &&
+            context.geometryRevision == m_ws->pDocument->geometry.revision &&
+            context.selectionRevision == m_ws->selection.revision && context.generation == m_tableGeneration;
+    }
+
+    void MemoryRefusal( bool outputsUnchanged = false )
+    {
+        try {
+            MapNotice_Post( m_ws, map_notice_t::ERROR, outputsUnchanged ?
+                QStringLiteral( "Entity I/O: not enough memory; outputs were not changed." ) :
+                QStringLiteral( "Entity I/O: not enough memory to finish the action. Review the current outputs before retrying." ) );
+            Refresh();
+        } catch ( const std::bad_alloc & ) {
+            // A system allocation can also refuse the UI refresh itself. Keep
+            // old rows inspectable but disable every write until a fresh read.
+            ++m_tableGeneration; m_commitQueued = false; m_entity = 0;
+            RefreshButtons();
+        }
+    }
+
+    void QueueCommit()
+    {
+        if ( m_commitQueued ) { return; } // Coalesce cells edited in one event turn.
+        const edit_context_t context = Context();
+        m_commitQueued = true;
+        QTimer::singleShot( 0, this, [this, context]() {
+            // A refresh can have queued a newer request. An old timer must not
+            // clear that request or publish the new selection's table.
+            if ( context.generation != m_tableGeneration ) { return; }
+            m_commitQueued = false;
+            try {
+                if ( !Current( context ) ) { Refresh(); return; }
+                Commit( "Edit Output", Table() );
+            }
+            catch ( const std::bad_alloc & ) { MemoryRefusal(); }
+        } );
+    }
 
     void RefreshButtons()
     {
         const int row = m_outputs->currentRow(), rows = m_outputs->rowCount();
         const bool picked = row >= 0 && row < rows;
-        m_add->setEnabled( Writable() && rows < static_cast<int>( MAP_ENTITY_OUTPUTS_MAX ) );
-        m_duplicate->setEnabled( Writable() && picked && rows < static_cast<int>( MAP_ENTITY_OUTPUTS_MAX ) );
-        m_remove->setEnabled( Writable() && picked );
-        m_up->setEnabled( Writable() && picked && row > 0 );
-        m_down->setEnabled( Writable() && picked && row + 1 < rows );
-        m_outputs->setEditTriggers( Writable() ? QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed | QAbstractItemView::SelectedClicked
+        const bool writable = Writable();
+        m_add->setEnabled( writable && rows < static_cast<int>( MAP_ENTITY_OUTPUTS_MAX ) );
+        m_duplicate->setEnabled( writable && picked && rows < static_cast<int>( MAP_ENTITY_OUTPUTS_MAX ) );
+        m_remove->setEnabled( writable && picked );
+        m_up->setEnabled( writable && picked && row > 0 );
+        m_down->setEnabled( writable && picked && row + 1 < rows );
+        m_outputs->setEditTriggers( writable ? QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed | QAbstractItemView::SelectedClicked
                                                : QAbstractItemView::NoEditTriggers );
     }
 
@@ -332,13 +407,26 @@ private:
     void Commit( const char *label, std::vector<map_output_t> outputs, int select = -1 )
     {
         if ( !Writable() ) { Refresh(); return; }
-        struct job_t { u64 entity; std::vector<map_output_t> outputs; const map_workspace_t *ws; } job{ m_entity, std::move( outputs ), m_ws };
+        struct job_t { edit_context_t context; std::vector<map_output_t> outputs; const entity_io_t *page; } job{ Context(), std::move( outputs ), this };
         const bool done = MapWorkspace_ApplyMetadataEdit( m_ws, label, []( void *context, map_document_t *copy, vector_t<u64> *out, bool *changed ) noexcept {
             auto &j = *static_cast<job_t *>( context );
-            for ( usize i = 0; i < j.ws->selection.ids.nCount; ++i ) { if ( !Vector_PushBack( out, j.ws->selection.ids.pData[i] ) ) { return map_status_t::OUT_OF_MEMORY; } }
-            return MapEntityOutputs_Write( copy, j.entity, j.outputs, changed );
+            if ( !j.page->Current( j.context ) ) { return map_status_t::INVALID_ARGUMENT; }
+            const auto *ws = j.page->m_ws;
+            for ( usize i = 0; i < ws->selection.ids.nCount; ++i ) { if ( !Vector_PushBack( out, ws->selection.ids.pData[i] ) ) { return map_status_t::OUT_OF_MEMORY; } }
+            map_status_t status;
+            try { status = MapEntityOutputs_Write( copy, j.context.entity, j.outputs, changed ); }
+            catch ( const std::bad_alloc & ) { return map_status_t::OUT_OF_MEMORY; }
+            return status == map_status_t::OK && !j.page->Current( j.context ) ? map_status_t::INVALID_ARGUMENT : status;
         }, &job );
-        if ( !done ) { Refresh(); }
+        if ( !done ) {
+            if ( m_ws->lastEdit.status == map_status_t::OUT_OF_MEMORY ) { MemoryRefusal( true ); }
+            else {
+                if ( m_ws->lastEdit.outcome != map_edit_outcome_t::UNCHANGED ) {
+                    MapNotice_Post( m_ws, map_notice_t::WARNING, QStringLiteral( "Entity I/O: the outputs could not be applied; nothing changed." ) );
+                }
+                Refresh();
+            }
+        }
         if ( select >= 0 && select < m_outputs->rowCount() ) { m_outputs->selectRow( select ); }
         RefreshButtons();
     }
@@ -365,7 +453,8 @@ private:
         const int row = m_outputs->currentRow();
         if ( row < 0 || row >= static_cast<int>( outputs.size() ) ) { return; }
         outputs.erase( outputs.begin() + row );
-        Commit( "Remove Output", std::move( outputs ), std::min( row, static_cast<int>( outputs.size() ) - 1 ) );
+        const int nextRow = std::min( row, static_cast<int>( outputs.size() ) - 1 );
+        Commit( "Remove Output", std::move( outputs ), nextRow );
     }
     void Move( int step )
     {
@@ -379,6 +468,8 @@ private:
     map_workspace_t *m_ws{};
     u64 m_entity{ 0 };
     bool m_subscribed{ false };
+    bool m_commitQueued{ false };
+    u64 m_tableGeneration{ 0 };
     QLabel *m_identity{};
     QTableWidget *m_outputs{};
     QTableWidget *m_inputs{};
@@ -419,7 +510,7 @@ void MapEntityIo_AddTabs( map_workspace_t *ws, QTabWidget *pTabs ) noexcept
 
 u64 MapEntityIo_Entity( const map_workspace_t *ws ) noexcept
 {
-    if ( ws == nullptr || ws->pDocument == nullptr || ws->selection.ids.nCount == 0 ) { return 0; }
+    if ( ws == nullptr || ws->pGui == nullptr || ws->pDocument == nullptr || ws->selection.ids.nCount == 0 ) { return 0; }
     vector_t<u64> owners{};
     if ( !Vector_Init( &owners, ws->pGui->pAllocator ) ) { return 0; }
     const bool resolved = MapEntityEdit_ResolveOwners( ws->pDocument, { ws->selection.ids.pData, ws->selection.ids.nCount }, &owners ) == map_status_t::OK;

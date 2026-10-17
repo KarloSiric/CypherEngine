@@ -38,6 +38,9 @@ namespace cypher::editor::map
 
 // The workspace's Entity I/O window, created on first use (modeless; it
 // follows the selection). Owned by the workspace: MapEntityIo_Release.
+// Queued table writes are bound to their document/selection generation and
+// cancelled by refresh/takeover. Writes require an unlocked resolved entity,
+// a writable document and no active preview or history transaction.
 CYPHER_NODISCARD QDialog *MapEntityIo_Show( map_workspace_t *pWorkspace, QWidget *pParent ) noexcept;
 
 // The one entity the window edits: the selected entity, or the owner of the

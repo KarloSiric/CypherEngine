@@ -2632,3 +2632,50 @@ The preceding region-Inset commit bcdfb0ea passed all 15 CI jobs in run
 39007893169. This Join checkpoint requires its own published CI verification.
 D5 is still open for other replacement/root-metadata/group policies; renderer
 work remains deferred.
+
+
+## Entity I/O deferred writes and resolved-owner admission — 2026-10-17
+
+Both the modeless Entity I/O window and embedded Object Properties I/O tabs now
+bind queued table changes to their table generation, source document, geometry
+and selection revisions, and resolved entity. Refresh cancels pending writes,
+even when New/Open or history restores the same entity ID. Same-event cell edits
+coalesce; an old timer cannot clear a newer queued request. A successful second
+page publication refreshes all pages and cancels stale output vectors rather
+than replaying them on the new source. Concurrent pages use first valid
+publication, not an automatic merge of independently edited output lists.
+
+The actual output owner must exist and be unlocked, with a writable document,
+no active geometry preview and no open history transaction. Programmatic edits
+to disabled cells recheck the same admission. Context is revalidated before and
+after the Core write to a private candidate; refusal preserves live authored
+data, selected child face and Redo. View/history takeover cancels a pending table;
+ordinary navigation does not rebuild an unchanged table. Remove also computes
+its next row before moving its vector, avoiding argument-evaluation ambiguity.
+
+Standard allocation exceptions from Core output preparation are caught inside
+the noexcept edit callback. Event/action preparation catches restore the source
+presentation; if recovery itself fails, pending generations are invalidated and
+writes disabled until refresh. Confirmed failed Apply reports unchanged outputs;
+outer UI catches use neutral review wording because an edit may already have
+published. Tests inject the Common allocator, not arbitrary global Qt/system
+allocations; this is not a claim that all UI allocation paths are hardened.
+
+Five new entity-io-capture cases cover real dialog and embedded pages, coalesced
+cells, selected child-face Undo/Redo and save/open, selection away/back, New,
+same-ID Open, Undo/Redo before the timer, another page's synchronous Add, owner
+locks with low-level forced inspection, lock/unlock, read-only, preview and open
+transactions. First/middle/late owned allocator samples retain exact state and
+Redo on refusal, then retry with balanced ownership. A late post-publication
+presentation failure is distinguished from failed authoring; forced dialog
+refresh restores the committed source. Independent source review caught and
+closed the inner noexcept exception boundary before the coordinated build.
+
+The combined local checkpoint passes 11 focused Join/I-O/region-Inset GUI cases /
+2,643 assertions, 21 native Cocoa cases / 3,918 including camera selection,
+full Map GUI 868 / 190,954 and full Mason application 71 / 4,394. Logs/hashes
+remain in build-mason/artifacts/mason_join_io* and mason_entity_io*. The app
+validation precedes the separate AssetWindow activation follow-up. This repairs
+Entity I/O's explicit target; generic metadata callbacks still do not declare
+all write sets, so D2 and the complete editor are not universally closed.
+Renderer work remains deferred.

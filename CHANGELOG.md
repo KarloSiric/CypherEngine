@@ -323,6 +323,12 @@ All notable changes to CypherEngine and the REAP game/runtime direction are trac
 
 ### Fixed
 
+- Entity I/O binds queued output edits to the originating document,
+  selection, table generation and resolved owner. Owner locks, read-only maps,
+  previews and open transactions refuse writes, including disabled-control
+  bypass attempts. Same-turn cells coalesce in one history step; stale timers
+  cannot overwrite another page or a reopened map. Undo/Redo, child-face
+  retention, save/open and owned allocation refusal/retry checks pass.
 - Whole-object Merge/Join refuses nonempty or malformed retained modifier
   stacks before geometry or brush conversion can publish. Disabled, unknown
   and future stages remain authored instead of disappearing or changing scope.

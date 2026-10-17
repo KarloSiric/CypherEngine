@@ -4,10 +4,18 @@
 // selected geometry and its authored face identity.
 //////////////////////////////////////////////////////////////////////////
 #include "CypherMapGui_Workspace.h"
+#include "CypherMapGui_EntityIo.h"
+#include "CypherMapGui_Layers.h"
+#include "CypherMapGui_Notice.h"
+#include "CypherMap_EntityOutputs.h"
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <QApplication>
+#include <QDialog>
+#include <QPushButton>
+#include <QTabWidget>
+#include <QTableWidget>
 #include <QTemporaryDir>
 #include <filesystem>
 
@@ -277,4 +285,230 @@ TEST_CASE( "Entity edit allocation failures cannot publish partial keys selectio
         }
         CHECK( audit.live == 0 );
     }
+}
+
+namespace
+{
+QString IoFacilityPath()
+{
+    return QString::fromStdString( ( std::filesystem::path( CYPHER_MAP_EXAMPLE_DIR ) / "facility.cymap" ).string() );
+}
+void IoSelectChild( map_workspace_t &ws )
+{
+    MapWorkspace_SetTool( &ws, map_tool_t::SELECT );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::FACES );
+    MapWorkspace_SelectBrushFace( &ws, 111, 1350 );
+    REQUIRE( MapWorkspace_HasBrushFace( &ws ) ); REQUIRE( MapEntityIo_Entity( &ws ) == 110 );
+}
+std::vector<map_output_t> IoRead( map_document_t *document )
+{
+    std::vector<map_output_t> result;
+    REQUIRE( MapEntityOutputs_Read( document, 110, result ) == map_status_t::OK );
+    return result;
+}
+void IoEqual( const std::vector<map_output_t> &actual, const std::vector<map_output_t> &expected )
+{
+    REQUIRE( actual.size() == expected.size() );
+    for ( usize i = 0; i < actual.size(); ++i ) {
+        CHECK( actual[i].output == expected[i].output ); CHECK( actual[i].target == expected[i].target );
+        CHECK( actual[i].input == expected[i].input ); CHECK( actual[i].parameter == expected[i].parameter );
+        CHECK( actual[i].delay == expected[i].delay ); CHECK( actual[i].times == expected[i].times );
+    }
+}
+QTableWidget *IoTable( QWidget *parent )
+{
+    auto *table = parent->findChild<QTableWidget *>( QStringLiteral( "MapEntityOutputs" ) ); REQUIRE( table ); return table;
+}
+QPushButton *IoAdd( QWidget *parent )
+{
+    auto *button = parent->findChild<QPushButton *>( QStringLiteral( "MapEntityOutputAdd" ) ); REQUIRE( button ); return button;
+}
+QDialog *IoShow( map_workspace_t &ws )
+{
+    auto *dialog = MapEntityIo_Show( &ws, nullptr ); REQUIRE( dialog );
+    QCoreApplication::processEvents(); REQUIRE( IoTable( dialog )->rowCount() == 1 ); return dialog;
+}
+void IoTableMatches( QTableWidget *table, const std::vector<map_output_t> &outputs )
+{
+    REQUIRE( table->rowCount() == static_cast<int>( outputs.size() ) );
+    for ( usize i = 0; i < outputs.size(); ++i ) {
+        const int row = static_cast<int>( i ); const auto &o = outputs[i];
+        CHECK( table->item( row, 0 )->text() == QString::fromStdString( o.output ) );
+        CHECK( table->item( row, 1 )->text() == QString::fromStdString( o.target ) );
+        CHECK( table->item( row, 2 )->text() == QString::fromStdString( o.input ) );
+        CHECK( table->item( row, 3 )->text() == QString::fromStdString( o.parameter ) );
+        CHECK( table->item( row, 4 )->data( Qt::EditRole ).toDouble() == o.delay );
+        CHECK( table->item( row, 5 )->data( Qt::EditRole ).toLongLong() == o.times );
+    }
+}
+struct io_published_t {
+    const map_document_t *document;
+    const void *points, *selection;
+    u64 geometry, revision, next, sourceNext, faceObject, faceSide;
+    usize applied, steps;
+    undo_state_token_t token;
+    std::vector<u64> selected;
+    explicit io_published_t( const map_workspace_t &ws ) : document( ws.pDocument ), points( ws.wire.points.pData ), selection( ws.selection.ids.pData ),
+        geometry( ws.pDocument->geometry.revision ), revision( ws.selection.revision ), next( ws.pDocument->nextId ),
+        sourceNext( ws.pDocument->geometry.sourceIds.allocator.next.value ), faceObject( ws.selectedBrushFaceObject ), faceSide( ws.selectedBrushFaceSide ),
+        applied( EditorHistory_AppliedStepCount( &ws.history ) ), steps( EditorHistory_StepCount( &ws.history ) ), token( UndoRedo_StateToken( ws.history.pUndo ) )
+    { if ( ws.selection.ids.nCount != 0 ) { selected.assign( ws.selection.ids.pData, ws.selection.ids.pData + ws.selection.ids.nCount ); } }
+    void Check( const map_workspace_t &ws ) const
+    {
+        CHECK( ws.pDocument == document ); CHECK( ws.wire.points.pData == points ); CHECK( ws.selection.ids.pData == selection );
+        CHECK( ws.pDocument->geometry.revision == geometry ); CHECK( ws.selection.revision == revision );
+        CHECK( ws.pDocument->nextId == next ); CHECK( ws.pDocument->geometry.sourceIds.allocator.next.value == sourceNext );
+        CHECK( ws.selectedBrushFaceObject == faceObject ); CHECK( ws.selectedBrushFaceSide == faceSide );
+        CHECK( EditorHistory_AppliedStepCount( &ws.history ) == applied ); CHECK( EditorHistory_StepCount( &ws.history ) == steps );
+        CHECK( UndoRedo_StateTokenEquals( token, UndoRedo_StateToken( ws.history.pUndo ) ) );
+        CheckSelection( ws, { selected.data(), selected.size() } );
+    }
+};
+void IoPrepareRedo( map_workspace_t &ws )
+{
+    value_t value( key_value_type_t::STRING ); REQUIRE( KeyValue_SetString( value.document, value.Node(), Text( "redo survives" ) ) );
+    REQUIRE( MapWorkspace_SetEntityProperty( &ws, Text( "io_redo_probe" ), value.Node() ) );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); REQUIRE( EditorHistory_CanRedo( &ws.history ) );
+    REQUIRE( MapWorkspace_HasBrushFace( &ws ) );
+}
+}
+
+TEST_CASE( "Entity I/O coalesces table cells while retaining the child face through history and persistence", "[map][gui][entity-io][entity-io-capture][persistence]" )
+{
+    session_t session; auto &ws = session.workspace; IoSelectChild( ws );
+    auto *dialog = IoShow( ws ); auto *table = IoTable( dialog ); const auto original = IoRead( ws.pDocument );
+    const usize steps = EditorHistory_AppliedStepCount( &ws.history ); const u64 geometry = ws.pDocument->geometry.revision, next = ws.pDocument->nextId;
+    table->item( 0, 1 )->setText( QStringLiteral( "!self" ) );
+    table->item( 0, 3 )->setText( QStringLiteral( "coalesced parameter" ) );
+    table->item( 0, 4 )->setData( Qt::EditRole, 2.25 );
+    CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps ); QCoreApplication::processEvents();
+    auto expected = original; expected[0].target = "!self"; expected[0].parameter = "coalesced parameter"; expected[0].delay = 2.25;
+    IoEqual( IoRead( ws.pDocument ), expected ); IoTableMatches( table, expected );
+    CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps + 1 ); CHECK( ws.pDocument->geometry.revision == geometry ); CHECK( ws.pDocument->nextId == next );
+    CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1350 );
+    MapWorkspace_Select( &ws, 140, MAP_SELECT_REPLACE );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); IoEqual( IoRead( ws.pDocument ), original );
+    CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1350 );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); IoEqual( IoRead( ws.pDocument ), expected );
+    CHECK( ws.selectedBrushFaceObject == 111 ); CHECK( ws.selectedBrushFaceSide == 1350 );
+    QTemporaryDir directory; REQUIRE( directory.isValid() ); const auto path = directory.filePath( QStringLiteral( "entity_io.cymap" ) );
+    REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK ); session_t reopened;
+    REQUIRE( MapWorkspace_Open( &reopened.workspace, path ).status == map_files_status_t::OK ); IoEqual( IoRead( reopened.workspace.pDocument ), expected );
+    CHECK( MapWireframe_FindObject( reopened.workspace.wire, 111 )->owner == 110 );
+}
+
+TEST_CASE( "Entity I/O invalidates queued cells on selection or document replacement even with the same entity ID", "[map][gui][entity-io][entity-io-capture][stale]" )
+{
+    enum class change_t { SELECTION, NEW, OPEN, UNDO }; change_t change = change_t::SELECTION;
+    SECTION( "Selection goes away and returns before the timer" ) {}
+    SECTION( "New discards the pending old document write" ) { change = change_t::NEW; }
+    SECTION( "Open restores the same source entity ID" ) { change = change_t::OPEN; }
+    SECTION( "Undo and Redo restore the same entity before the timer" ) { change = change_t::UNDO; }
+    session_t session; auto &ws = session.workspace; IoSelectChild( ws );
+    if ( change == change_t::UNDO ) {
+        value_t value( key_value_type_t::BOOL ); REQUIRE( KeyValue_SetBool( value.document, value.Node(), CY_TRUE ) );
+        REQUIRE( MapWorkspace_SetEntityProperty( &ws, Text( "io_history_probe" ), value.Node() ) );
+    }
+    auto *table = IoTable( IoShow( ws ) ); const auto original = IoRead( ws.pDocument );
+    table->item( 0, 3 )->setText( QStringLiteral( "must never publish" ) );
+    if ( change == change_t::SELECTION ) { MapWorkspace_Select( &ws, 140, MAP_SELECT_REPLACE ); IoSelectChild( ws ); }
+    else if ( change == change_t::NEW ) { REQUIRE( MapWorkspace_New( &ws ) == map_status_t::OK ); }
+    else if ( change == change_t::OPEN ) { REQUIRE( MapWorkspace_Open( &ws, IoFacilityPath() ).status == map_files_status_t::OK ); IoSelectChild( ws ); }
+    else { REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); }
+    const io_published_t afterChange( ws ); QCoreApplication::processEvents(); afterChange.Check( ws );
+    if ( change == change_t::NEW ) { CHECK( table->rowCount() == 0 ); CHECK( MapEntityIo_Entity( &ws ) == 0 ); }
+    else {
+        IoEqual( IoRead( ws.pDocument ), original ); IoTableMatches( table, original );
+        // A cancelled generation must not prevent a fresh edit of the same row.
+        table->item( 0, 3 )->setText( QStringLiteral( "fresh generation" ) ); QCoreApplication::processEvents();
+        auto expected = original; expected[0].parameter = "fresh generation"; IoEqual( IoRead( ws.pDocument ), expected );
+        CHECK( EditorHistory_AppliedStepCount( &ws.history ) == afterChange.applied + 1 );
+    }
+}
+
+TEST_CASE( "A second Entity I/O page publication cancels the first page's queued table", "[map][gui][entity-io][entity-io-capture][multiple-pages]" )
+{
+    session_t session; auto &ws = session.workspace; IoSelectChild( ws );
+    auto *dialog = IoShow( ws ); auto *first = IoTable( dialog ); QTabWidget tabs; MapEntityIo_AddTabs( &ws, &tabs );
+    tabs.resize( 760, 360 ); tabs.show(); QCoreApplication::processEvents(); auto *second = IoTable( &tabs );
+    const auto original = IoRead( ws.pDocument ); const usize steps = EditorHistory_AppliedStepCount( &ws.history );
+    first->item( 0, 3 )->setText( QStringLiteral( "stale first page" ) );
+    REQUIRE( IoAdd( &tabs )->isEnabled() ); IoAdd( &tabs )->click();
+    REQUIRE( second->rowCount() == 2 ); const auto added = IoRead( ws.pDocument ); REQUIRE( added.size() == 2 );
+    CHECK( added[0].parameter == original[0].parameter ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps + 1 );
+    const io_published_t published( ws ); QCoreApplication::processEvents(); published.Check( ws );
+    IoEqual( IoRead( ws.pDocument ), added ); IoTableMatches( first, added ); IoTableMatches( second, added );
+    second->item( 1, 3 )->setText( QStringLiteral( "new second page" ) ); QCoreApplication::processEvents();
+    auto expected = added; expected[1].parameter = "new second page"; IoEqual( IoRead( ws.pDocument ), expected );
+    IoTableMatches( first, expected ); IoTableMatches( second, expected ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps + 2 );
+}
+
+TEST_CASE( "Entity I/O enforces resolved owner locks and readiness even for programmatic table writes", "[map][gui][entity-io][entity-io-capture][locks]" )
+{
+    enum class guard_t { READ_ONLY, PREVIEW, TRANSACTION, LOCKED_OWNER, LOCK_ROUNDTRIP }; guard_t guard = guard_t::READ_ONLY;
+    SECTION( "Read-only document" ) {}
+    SECTION( "Active geometry preview" ) { guard = guard_t::PREVIEW; }
+    SECTION( "Open history transaction" ) { guard = guard_t::TRANSACTION; }
+    SECTION( "Selected child resolves to a locked owner" ) { guard = guard_t::LOCKED_OWNER; }
+    SECTION( "Lock then unlock before the queued callback" ) { guard = guard_t::LOCK_ROUNDTRIP; }
+    session_t session; auto &ws = session.workspace; IoSelectChild( ws ); auto *dialog = IoShow( ws ); auto *table = IoTable( dialog );
+    const auto original = IoRead( ws.pDocument ); const auto *owner = MapWireframe_FindEntity( ws.wire, 110 ); REQUIRE( owner ); REQUIRE( owner->iLayer < ws.pDocument->layers.nCount );
+    const QString layer = QString::fromUtf8( ws.pDocument->layers.pData[owner->iLayer].id );
+    if ( guard == guard_t::LOCK_ROUNDTRIP ) {
+        table->item( 0, 3 )->setText( QStringLiteral( "stale unlocked callback" ) );
+        REQUIRE( MapLayers_SetLocked( &ws, layer, true ) ); REQUIRE( MapLayers_SetLocked( &ws, layer, false ) ); IoSelectChild( ws );
+    } else {
+        if ( guard == guard_t::READ_ONLY ) { ws.pDocument->bReadOnly = CY_TRUE; }
+        else if ( guard == guard_t::PREVIEW ) { ws.editPreview.bActive = CY_TRUE; }
+        else if ( guard == guard_t::TRANSACTION ) { REQUIRE( EditorHistory_Begin( &ws.history, Text( "Unrelated transaction" ) ) == editor_history_status_t::OK ); }
+        else {
+            REQUIRE( MapLayers_SetLocked( &ws, layer, true ) ); REQUIRE( MapLayers_IsObjectLocked( &ws, 110 ) );
+            // Force inspection through the low-level selection API; admission
+            // must check the resolved entity, not trust a disabled table.
+            MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS ); ( void )EditorSelection_Clear( &ws.selection );
+            const u64 child = 111; REQUIRE( EditorSelection_Set( &ws.selection, &child, 1 ) ); MapWorkspace_Notify( &ws, MAP_CHANGE_SELECTION );
+            REQUIRE( MapEntityIo_Entity( &ws ) == 110 ); REQUIRE( table->rowCount() == 1 ); CHECK_FALSE( IoAdd( dialog )->isEnabled() );
+        }
+        table->item( 0, 3 )->setText( QStringLiteral( "write bypasses disabled controls" ) );
+    }
+    const io_published_t before( ws ); QCoreApplication::processEvents(); before.Check( ws );
+    IoEqual( IoRead( ws.pDocument ), original ); IoTableMatches( table, original );
+    ws.pDocument->bReadOnly = CY_FALSE; ws.editPreview.bActive = CY_FALSE;
+    if ( guard == guard_t::TRANSACTION ) { EditorHistory_Cancel( &ws.history ); }
+    if ( guard == guard_t::LOCKED_OWNER ) { REQUIRE( MapLayers_SetLocked( &ws, layer, false ) ); }
+    IoSelectChild( ws ); table->item( 0, 3 )->setText( QStringLiteral( "retry after guard clears" ) ); QCoreApplication::processEvents();
+    auto expected = original; expected[0].parameter = "retry after guard clears"; IoEqual( IoRead( ws.pDocument ), expected );
+    CHECK( EditorHistory_AppliedStepCount( &ws.history ) == before.applied + 1 );
+}
+
+TEST_CASE( "Entity I/O Add allocation failures preserve Redo and restore the table before retry", "[map][gui][entity-io][entity-io-capture][allocation]" )
+{
+    allocation_failure_t audit{}; const allocator_t allocator{ &Allocate, nullptr, &Free, &audit }; usize calls = 0;
+    {
+        session_t session( &allocator ); auto &ws = session.workspace; IoSelectChild( ws ); IoPrepareRedo( ws );
+        auto *dialog = IoShow( ws ); audit.calls = 0; IoAdd( dialog )->click(); calls = audit.calls;
+        REQUIRE( IoRead( ws.pDocument ).size() == 2 ); REQUIRE_FALSE( EditorHistory_CanRedo( &ws.history ) );
+    }
+    REQUIRE( audit.live == 0 ); REQUIRE( calls > 10 ); usize refused = 0;
+    for ( const usize failOn : { usize{ 1 }, calls / 2, calls - 1 } ) {
+        CAPTURE( failOn, calls ); audit.failOn = 0;
+        {
+            session_t session( &allocator ); auto &ws = session.workspace; IoSelectChild( ws ); IoPrepareRedo( ws );
+            auto *dialog = IoShow( ws ); auto *table = IoTable( dialog ); const auto original = IoRead( ws.pDocument ); const io_published_t before( ws );
+            audit.calls = 0; audit.failOn = failOn; IoAdd( dialog )->click(); audit.failOn = 0; CHECK( audit.calls >= failOn );
+            if ( EditorHistory_AppliedStepCount( &ws.history ) == before.applied ) {
+                ++refused; before.Check( ws ); IoEqual( IoRead( ws.pDocument ), original ); IoTableMatches( table, original ); REQUIRE( EditorHistory_CanRedo( &ws.history ) );
+                map_notice_t kind{}; CHECK_FALSE( MapNotice_Last( &ws, &kind ).isEmpty() ); CHECK( kind == map_notice_t::ERROR );
+                REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CheckString( ws.pDocument, 110, "io_redo_probe", "redo survives" );
+                REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); IoAdd( dialog )->click();
+            }
+            auto added = IoRead( ws.pDocument ); REQUIRE( added.size() == 2 ); IoEqual( { added[0] }, original );
+            CHECK( EditorHistory_AppliedStepCount( &ws.history ) == before.applied + 1 ); CHECK_FALSE( EditorHistory_CanRedo( &ws.history ) );
+            // A late successful edit can still exhaust a presentation lookup.
+            // Reopening refreshes from source even when selection is unchanged.
+            REQUIRE( MapEntityIo_Show( &ws, nullptr ) == dialog ); IoTableMatches( table, added );
+        }
+        CHECK( audit.live == 0 );
+    }
+    CHECK( refused >= 2 );
 }
