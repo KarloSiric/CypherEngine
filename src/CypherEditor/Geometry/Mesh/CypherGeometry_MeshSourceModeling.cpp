@@ -267,11 +267,21 @@ geometry_status_t MeshSourceEdit_TryLoopCut(
     if ( !MeshSource_IsInitialized( pSource ) ) { return geometry_status_t::NOT_INITIALIZED; }
     geometry_mesh_edge_handle_t hEdge{};
     if ( !MeshSourceEdit_TryFindEdge( pSource, vertexA, vertexB, &hEdge ) ) { return geometry_status_t::INVALID_HANDLE; }
+    const auto *edge = GenerationPool_Get( &pSource->mesh.edges, hEdge );
+    const auto *halfEdge = edge != nullptr ? GenerationPool_Get( &pSource->mesh.halfEdges, edge->hHalfEdge ) : nullptr;
+    const auto *next = halfEdge != nullptr ? GenerationPool_Get( &pSource->mesh.halfEdges, halfEdge->hNext ) : nullptr;
+    if ( halfEdge == nullptr || next == nullptr ) { return geometry_status_t::CORRUPT_STATE; }
+    const auto from = MeshSource_VertexId( pSource, halfEdge->hOrigin );
+    const auto to = MeshSource_VertexId( pSource, next->hOrigin );
+    const bool forward = from.value == vertexA.value && to.value == vertexB.value;
+    const bool reversed = from.value == vertexB.value && to.value == vertexA.value;
+    if ( !forward && !reversed ) { return geometry_status_t::CORRUPT_STATE; }
+    const f64 edgeT = forward ? t : 1.0 - t;
     u32 cSplit = 0u;
     const geometry_status_t st = MeshEdit_Bracket(
         pSource,
         [&]( vector_t<mesh_edit_face_parent_t> * ) noexcept {
-            const mesh_loop_cut_result_t r = MeshOps_LoopCut( &pSource->mesh, hEdge, t );
+            const mesh_loop_cut_result_t r = MeshOps_LoopCut( &pSource->mesh, hEdge, edgeT );
             cSplit = r.cFacesSplit;
             return r.status;
         },

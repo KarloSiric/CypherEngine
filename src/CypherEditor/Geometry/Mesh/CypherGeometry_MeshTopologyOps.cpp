@@ -343,6 +343,102 @@ void SwapEditableMeshStorage(
     SwapGenerationPoolStorage( &pA->shells, &pB->shells );
 }
 
+
+// An open border edge has a single half-edge (no twin): only its face's
+// loop gains the midpoint. Same reserve-then-commit discipline as the
+// two-sided split below.
+mesh_split_edge_result_t SplitBorderEdge(
+    editable_mesh_t *pMesh,
+    geometry_mesh_edge_handle_t hEdge,
+    geometry_mesh_half_edge_handle_t hHE,
+    f64 t ) noexcept
+{
+    mesh_split_edge_result_t result{};
+    geometry_mesh_half_edge_handle_t hNext{};
+    geometry_mesh_loop_handle_t hLoop{};
+    geometry_mesh_face_handle_t hFace{};
+    math::vec3d_t newPos{};
+    {
+        const mesh_half_edge_record_t *pHE = GenerationPool_Get( &pMesh->halfEdges, hHE );
+        if ( pHE == nullptr || !HandlesEqual( pHE->hEdge, hEdge ) ) {
+            result.status = geometry_status_t::CORRUPT_STATE;
+            return result;
+        }
+        hNext = pHE->hNext;
+        hLoop = pHE->hLoop;
+        const mesh_half_edge_record_t *pNext = GenerationPool_Get( &pMesh->halfEdges, hNext );
+        const mesh_loop_record_t *pLoop = GenerationPool_Get( &pMesh->loops, hLoop );
+        const mesh_vertex_record_t *pVA = GenerationPool_Get( &pMesh->vertices, pHE->hOrigin );
+        const mesh_vertex_record_t *pVB = pNext != nullptr ? GenerationPool_Get( &pMesh->vertices, pNext->hOrigin ) : nullptr;
+        if ( pNext == nullptr || pLoop == nullptr || pVA == nullptr || pVB == nullptr || !HandlesEqual( pNext->hPrev, hHE ) ||
+             HandlesEqual( pHE->hOrigin, pNext->hOrigin ) || !math::Vec3d_IsFinite( pVA->position ) || !math::Vec3d_IsFinite( pVB->position ) ) {
+            result.status = geometry_status_t::CORRUPT_STATE;
+            return result;
+        }
+        hFace = pLoop->hFace;
+        if ( !ValidateLoopForSplit( pMesh, hLoop, hFace ) ) {
+            result.status = geometry_status_t::CORRUPT_STATE;
+            return result;
+        }
+        if ( pLoop->cHalfEdges == CY_U32_MAX ) {
+            result.status = geometry_status_t::LIMIT_EXCEEDED;
+            return result;
+        }
+        newPos = math::Vec3d_Add( math::Vec3d_Scale( pVA->position, 1.0 - t ), math::Vec3d_Scale( pVB->position, t ) );
+        if ( !math::Vec3d_IsFinite( newPos ) ) {
+            result.status = geometry_status_t::NUMERIC_FAILURE;
+            return result;
+        }
+        if ( math::Vec3d_EqualsExact( newPos, pVA->position ) || math::Vec3d_EqualsExact( newPos, pVB->position ) ) {
+            result.status = geometry_status_t::DEGENERATE;
+            return result;
+        }
+    }
+    geometry_status_t reserveStatus = ReserveAdditionalRecords( &pMesh->vertices, 1u );
+    if ( reserveStatus == geometry_status_t::OK ) { reserveStatus = ReserveAdditionalRecords( &pMesh->halfEdges, 1u ); }
+    if ( reserveStatus == geometry_status_t::OK ) { reserveStatus = ReserveAdditionalRecords( &pMesh->edges, 1u ); }
+    if ( reserveStatus != geometry_status_t::OK ) {
+        result.status = reserveStatus;
+        return result;
+    }
+    // Reserved slots cannot fail to insert; any failure below is corruption.
+    mesh_vertex_record_t vertex{};
+    vertex.position = newPos;
+    const auto vertexInsert = GenerationPool_Insert( &pMesh->vertices, vertex );
+    mesh_half_edge_record_t second{};
+    second.hOrigin = vertexInsert.handle;
+    second.hLoop = hLoop;
+    const auto halfInsert = GenerationPool_Insert( &pMesh->halfEdges, second );
+    mesh_edge_record_t edge{};
+    edge.hHalfEdge = halfInsert.handle;
+    const auto edgeInsert = GenerationPool_Insert( &pMesh->edges, edge );
+    mesh_half_edge_record_t *pHE = GenerationPool_Get( &pMesh->halfEdges, hHE );
+    mesh_half_edge_record_t *pNext = GenerationPool_Get( &pMesh->halfEdges, hNext );
+    mesh_half_edge_record_t *pSecond = GenerationPool_Get( &pMesh->halfEdges, halfInsert.handle );
+    mesh_vertex_record_t *pVertex = GenerationPool_Get( &pMesh->vertices, vertexInsert.handle );
+    mesh_loop_record_t *pLoop = GenerationPool_Get( &pMesh->loops, hLoop );
+    if ( vertexInsert.status != generation_pool_status_t::OK || halfInsert.status != generation_pool_status_t::OK ||
+         edgeInsert.status != generation_pool_status_t::OK || pHE == nullptr || pNext == nullptr || pSecond == nullptr ||
+         pVertex == nullptr || pLoop == nullptr ) {
+        result.status = geometry_status_t::CORRUPT_STATE;
+        return result;
+    }
+    // HE (A -> M) keeps the original edge; the new half (M -> B) has the new
+    // edge and, like HE, no twin.
+    pHE->hNext = halfInsert.handle;
+    pSecond->hPrev = hHE;
+    pSecond->hNext = hNext;
+    pSecond->hEdge = edgeInsert.handle;
+    pNext->hPrev = halfInsert.handle;
+    pVertex->hOutHalfEdge = halfInsert.handle;
+    pLoop->cHalfEdges += 1u;
+    RecomputeFaceNormal( pMesh, hFace );
+    result.hNewVertex = vertexInsert.handle;
+    result.hNewEdge = edgeInsert.handle;
+    result.status = geometry_status_t::OK;
+    return result;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -462,6 +558,10 @@ mesh_split_edge_result_t MeshOps_SplitEdge(
         }
 
         hHE_B = pHE_A->hTwin;
+        if ( !GeometryHandle_IsValid( hHE_B ) ) {
+            // An open border: one face, one half-edge.
+            return SplitBorderEdge( pMesh, hEdge, hHE_A, t );
+        }
         const mesh_half_edge_record_t *pHE_B =
             GenerationPool_Get( &pMesh->halfEdges, hHE_B );
         if ( pHE_B == nullptr || HandlesEqual( hHE_A, hHE_B ) ||
@@ -3160,12 +3260,14 @@ static mesh_loop_cut_result_t MeshOps_LoopCutInPlace(
     struct loop_entry_t {
         geometry_mesh_edge_handle_t hEdge;
         geometry_mesh_face_handle_t hFace;
+        f64 t; // Fraction from this edge's stored representative half-edge.
     };
 
     loop_entry_t loopEntries[256];
     u32 cLoopEntries = 0u;
 
     geometry_mesh_edge_handle_t hCurEdge = hStartEdge;
+    f64 currentT = t;
     u32 safety = 0u;
 
     do {
@@ -3184,7 +3286,7 @@ static mesh_loop_cut_result_t MeshOps_LoopCutInPlace(
         // Pick a half-edge and find its face.
         const mesh_half_edge_record_t *pHE =
             GenerationPool_Get( &pMesh->halfEdges, pCurEdge->hHalfEdge );
-        if ( pHE == nullptr ) {
+        if ( pHE == nullptr || !HandlesEqual( pHE->hEdge, hCurEdge ) ) {
             result.status = geometry_status_t::CORRUPT_STATE;
             return result;
         }
@@ -3210,7 +3312,9 @@ static mesh_loop_cut_result_t MeshOps_LoopCutInPlace(
 
         const mesh_half_edge_record_t *pCrossHE =
             GenerationPool_Get( &pMesh->halfEdges, hCrossHE );
-        if ( pCrossHE == nullptr ) {
+        if ( pCrossHE == nullptr || !HandlesEqual( pCrossHE->hEdge, hCurEdge ) ||
+             ( !HandlesEqual( hCrossHE, pCurEdge->hHalfEdge ) &&
+               !HandlesEqual( pCrossHE->hTwin, pCurEdge->hHalfEdge ) ) ) {
             result.status = geometry_status_t::CORRUPT_STATE;
             return result;
         }
@@ -3229,6 +3333,7 @@ static mesh_loop_cut_result_t MeshOps_LoopCutInPlace(
 
         loopEntries[cLoopEntries].hEdge = hCurEdge;
         loopEntries[cLoopEntries].hFace = pCrossLoop->hFace;
+        loopEntries[cLoopEntries].t = currentT;
         ++cLoopEntries;
 
         // Find the opposite edge: advance 2 half-edges in the loop from
@@ -3246,7 +3351,26 @@ static mesh_loop_cut_result_t MeshOps_LoopCutInPlace(
             return result;
         }
 
+        const auto hOpposite = pNext1->hNext;
+        const auto *pOppositeEdge =
+            GenerationPool_Get( &pMesh->edges, pNext2->hEdge );
+        if ( pOppositeEdge == nullptr ||
+             ( !HandlesEqual( pOppositeEdge->hHalfEdge, hOpposite ) &&
+               !HandlesEqual( pOppositeEdge->hHalfEdge, pNext2->hTwin ) ) ) {
+            result.status = geometry_status_t::CORRUPT_STATE;
+            return result;
+        }
+        // Opposite sides run in opposite directions around a quad. Carry
+        // the cut across the face, then express it in the next edge's own
+        // representative direction. Pool/half-edge ordering is not geometry.
+        const f64 crossT = HandlesEqual( hCrossHE, pCurEdge->hHalfEdge ) ? currentT : 1.0 - currentT;
+        const f64 oppositeT = 1.0 - crossT;
+        currentT = HandlesEqual( pOppositeEdge->hHalfEdge, hOpposite ) ? oppositeT : 1.0 - oppositeT;
         hCurEdge = pNext2->hEdge;
+        if ( HandlesEqual( hCurEdge, hStartEdge ) && std::fabs( currentT - t ) > 1e-12 ) {
+            result.status = geometry_status_t::INVALID_TOPOLOGY;
+            return result;
+        }
 
         if ( ++safety > 256u ) { break; }
     } while ( hCurEdge.nSlot != hStartEdge.nSlot ||
@@ -3263,7 +3387,7 @@ static mesh_loop_cut_result_t MeshOps_LoopCutInPlace(
 
     for ( u32 i = 0u; i < cLoopEntries; ++i ) {
         const auto splitResult = MeshOps_SplitEdge(
-            pMesh, loopEntries[i].hEdge, t );
+            pMesh, loopEntries[i].hEdge, loopEntries[i].t );
         if ( splitResult.status != geometry_status_t::OK ) {
             result.status = splitResult.status;
             return result;

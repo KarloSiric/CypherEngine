@@ -63,7 +63,9 @@ CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryBevelEdge(
     common::u32 cSegments,
     mesh_edit_report_t *pReportOut ) noexcept;
 
-// Cuts an edge loop across the quad ring through edge (a, b) at t.
+// Cuts an edge loop across the quad ring through edge (a, b) at t,
+// measured from vertexA toward vertexB. Reversing the endpoints and using
+// 1 - t describes the same cut, regardless of internal half-edge ordering.
 CYPHER_NODISCARD geometry_status_t MeshSourceEdit_TryLoopCut(
     mesh_source_t *pSource,
     geometry_source_id_t vertexA,

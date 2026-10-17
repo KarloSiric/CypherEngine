@@ -173,6 +173,9 @@ struct mesh_loop_cut_result_t {
 // edge ring is discovered by following the quad strip starting from
 // hStartEdge — the loop continues through each quad's opposite edge
 // until it returns to the start or hits a non-quad face.
+// t is measured from hStartEdge's stored half-edge origin toward its other
+// endpoint. The fraction is transported across each quad, independent of
+// the representative half-edge directions of the other ring edges.
 //
 // Each quad in the ring is split into two quads by inserting two new
 // vertices (one on each of the quad's "parallel" edges) and connecting

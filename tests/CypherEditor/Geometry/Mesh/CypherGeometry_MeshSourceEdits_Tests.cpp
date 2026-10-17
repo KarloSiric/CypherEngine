@@ -23,6 +23,8 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+#include "CypherGeometry_MeshBoundaryOps.h"
+#include "CypherGeometry_MeshValidation.h"
 #include "CypherGeometry_MeshSourceModeling.h"
 #include "CypherGeometry_MeshSourceTopology.h"
 #include "CypherGeometry_MeshTransaction.h"
@@ -261,6 +263,27 @@ TEST_CASE( "Split edge interpolates corner UVs and keeps edge flags on both halv
            geometry_status_t::INVALID_HANDLE ); // not an edge
 }
 
+TEST_CASE( "Split edge on an open border inserts the vertex into its one face", "[geometry][meshedit]" ) {
+    Env e;
+    // Without the top (vertices 14..17) its four edges are open borders.
+    const geometry_source_id_t top = Id( 21 );
+    mesh_edit_report_t removed{};
+    REQUIRE( MeshSourceEdit_TryDeleteFaces( &e.mesh, { &top, 1 }, &removed ) == geometry_status_t::OK );
+    REQUIRE( MeshBoundary_CountBoundaryEdges( &e.mesh.mesh ) == 4u );
+    geometry_mesh_vertex_handle_t hNew{};
+    mesh_edit_report_t report{};
+    REQUIRE( MeshSourceEdit_TrySplitEdge( &e.mesh, Id( 14 ), Id( 15 ), 0.25, &hNew, &report ) == geometry_status_t::OK );
+    CHECK( EditableMesh_GetVertex( &e.mesh.mesh, hNew )->position.x == Catch::Approx( 0.25 ) );
+    CHECK( report.stats.cCornersInterpolated == 1u ); // Only the side face has a corner there.
+    CHECK( MeshBoundary_CountBoundaryEdges( &e.mesh.mesh ) == 5u ); // Both halves stay open.
+    CHECK( e.CheckOracle() == 5u );
+    // And again on one of the halves: the border keeps splitting cleanly.
+    const geometry_source_id_t mid = MeshSource_VertexId( &e.mesh, hNew );
+    REQUIRE( MeshSourceEdit_TrySplitEdge( &e.mesh, mid, Id( 15 ), 0.5, nullptr, nullptr ) == geometry_status_t::OK );
+    CHECK( MeshBoundary_CountBoundaryEdges( &e.mesh.mesh ) == 6u );
+    CHECK( e.CheckOracle() == 5u );
+}
+
 TEST_CASE( "Source split rejects endpoint-rounded parameters independent of stored orientation",
            "[geometry][meshedit][numeric][contract]" ) {
     const double tiny = std::numeric_limits<double>::denorm_min();
@@ -384,6 +407,47 @@ TEST_CASE( "Triangulation, split face, and loop cut propagate exactly", "[geomet
         REQUIRE( MeshSourceEdit_TryLoopCut( &e.mesh, Id( 10 ), Id( 11 ), 0.5, &cSplit, nullptr ) == geometry_status_t::OK );
         CHECK( cSplit == 4u );
         CHECK( e.CheckOracle() == 10u );
+    }
+}
+
+TEST_CASE( "Off-centre source loop cuts preserve endpoint direction and interpolated corner attributes",
+           "[geometry][meshedit][loop-cut-orientation]" ) {
+    const auto coordinate = []( vec3d_t p, common::u32 axis ) {
+        return axis == 0u ? p.x : axis == 1u ? p.y : p.z;
+    };
+    for ( common::u32 axis = 0; axis < 3u; ++axis ) {
+        for ( const double plane : { 0.25, 0.75 } ) {
+            for ( const bool reverse : { false, true } ) {
+                DYNAMIC_SECTION( "axis = " << axis << ", cut plane = " << plane << ", reversed endpoints = " << reverse ) {
+                    Env e;
+                    const auto low = Id( 10 ), high = Id( 10u + ( 1u << axis ) );
+                    common::u32 split = 0;
+                    REQUIRE( MeshSourceEdit_TryLoopCut( &e.mesh, reverse ? high : low, reverse ? low : high,
+                        reverse ? 1.0 - plane : plane, &split, nullptr ) == geometry_status_t::OK );
+                    CHECK( split == 4u ); CHECK( e.CheckOracle() == 10u );
+                    REQUIRE( e.d.vertices.nCount == 12u );
+                    common::u32 originalCount = 0, newCount = 0, corners = 0;
+                    for ( common::usize i = 0; i < e.d.vertices.nCount; ++i ) {
+                        const auto &vertex = e.d.vertices.pData[i];
+                        if ( vertex.sourceId.value >= 10u && vertex.sourceId.value < 18u ) {
+                            ++originalCount;
+                            const auto index = vertex.sourceId.value - 10u;
+                            const auto expected = Vec3d_Make( ( index & 1u ) ? 1.0 : 0.0,
+                                ( index & 2u ) ? 1.0 : 0.0, ( index & 4u ) ? 1.0 : 0.0 );
+                            CHECK( math::Vec3d_EqualsExact( vertex.position, expected ) );
+                            continue;
+                        }
+                        ++newCount;
+                        CHECK( coordinate( vertex.position, axis ) == Catch::Approx( plane ).margin( 1e-12 ) );
+                        const double u = coordinate( vertex.position, ( axis + 1u ) % 3u );
+                        const double v = coordinate( vertex.position, ( axis + 2u ) % 3u );
+                        CHECK( ( u == 0.0 || u == 1.0 ) ); CHECK( ( v == 0.0 || v == 1.0 ) );
+                        corners |= 1u << ( ( u == 1.0 ? 1u : 0u ) | ( v == 1.0 ? 2u : 0u ) );
+                    }
+                    CHECK( originalCount == 8u ); CHECK( newCount == 4u ); CHECK( corners == 0xFu );
+                }
+            }
+        }
     }
 }
 
@@ -684,6 +748,37 @@ TEST_CASE( "Modeling gate: extrude through a document transaction with exact und
     MeshSourceDescription_Shutdown( &snapshotAfter );
     GeometryMeshDelta_Shutdown( &delta );
     GeometryDocument_Shutdown( &doc );
+}
+
+TEST_CASE( "Face splits sharing a vertex chain once each new face has identity", "[geometry][meshedit][split-face-twice]" ) {
+    Env e;
+    // Cut points on the three edges at corner 10 (the origin).
+    for ( const common::u64 n : { 11u, 12u, 14u } ) {
+        REQUIRE( MeshSourceEdit_TrySplitEdge( &e.mesh, Id( 10 ), Id( n ), 0.25, nullptr, nullptr ) == geometry_status_t::OK );
+    }
+    REQUIRE( MeshSource_TryAssignMissingIds( &e.mesh, &e.ids, nullptr ) == geometry_status_t::OK );
+    e.Describe();
+    // The faces around corner 10 and, in each, the cut points on both sides of it.
+    struct cut_t { geometry_source_id_t face, a, b; };
+    std::vector<cut_t> cuts;
+    for ( common::usize f = 0; f < e.d.faces.nCount; ++f ) {
+        const auto &face = e.d.faces.pData[f];
+        for ( common::u32 k = 0; k < face.cCorners; ++k ) {
+            const auto id = [&]( common::u32 i ) { return e.d.vertices.pData[e.d.corners.pData[face.iFirstCorner + ( i % face.cCorners )].iVertex].sourceId; };
+            if ( id( k ).value != 10u ) { continue; }
+            cuts.push_back( { face.sourceId, id( k + face.cCorners - 1 ), id( k + 1 ) } );
+        }
+    }
+    REQUIRE( cuts.size() == 3 );
+    for ( const cut_t &cut : cuts ) {
+        CAPTURE( cut.face.value, cut.a.value, cut.b.value );
+        const auto status = MeshSourceEdit_TrySplitFace( &e.mesh, cut.face, cut.a, cut.b, nullptr );
+        CHECK( status == geometry_status_t::OK );
+        CHECK( MeshValidation_Validate( &e.mesh.mesh ).status == geometry_status_t::OK );
+        // An edit captures every face by identity: the new one needs its ID
+        // before the next split (MeshEditCapture_TryCapture's contract).
+        REQUIRE( MeshSource_TryAssignMissingIds( &e.mesh, &e.ids, nullptr ) == geometry_status_t::OK );
+    }
 }
 
 } // namespace cypher::editor::geometry

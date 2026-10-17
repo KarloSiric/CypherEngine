@@ -1531,6 +1531,78 @@ TEST_CASE( "MeshOps: LoopCut splits faces along edge ring",
            geometry_status_t::OK );
 }
 
+TEST_CASE( "MeshOps: off-centre LoopCut follows the start edge direction around every box ring",
+           "[Gate12][TopologyOps][loop-cut-orientation]" )
+{
+    const auto coordinate = []( math::vec3d_t p, common::u32 axis ) {
+        return axis == 0u ? p.x : axis == 1u ? p.y : p.z;
+    };
+    for ( const double t : { 0.25, 0.75 } ) {
+        for ( common::usize start = 0; start < 12u; ++start ) {
+            DYNAMIC_SECTION( "start edge = " << start << ", fraction = " << t ) {
+                TopologyFixture f;
+                std::array<geometry_mesh_edge_handle_t, 12> edges{};
+                std::array<geometry_mesh_vertex_handle_t, 8> vertices{};
+                std::array<math::vec3d_t, 8> positions{};
+                common::usize edgeCount = 0, vertexCount = 0;
+                (void)common::GenerationPool_ForEach( &f.mesh.edges,
+                    [&]( geometry_mesh_edge_handle_t h, const mesh_edge_record_t & ) noexcept -> common::bool_t {
+                        if ( edgeCount < edges.size() ) { edges[edgeCount] = h; }
+                        ++edgeCount; return true;
+                    } );
+                (void)common::GenerationPool_ForEach( &f.mesh.vertices,
+                    [&]( geometry_mesh_vertex_handle_t h, const mesh_vertex_record_t &vertex ) noexcept -> common::bool_t {
+                        if ( vertexCount < vertices.size() ) { vertices[vertexCount] = h; positions[vertexCount] = vertex.position; }
+                        ++vertexCount; return true;
+                    } );
+                REQUIRE( edgeCount == edges.size() ); REQUIRE( vertexCount == vertices.size() );
+                const auto *edge = EditableMesh_GetEdge( &f.mesh, edges[start] ); REQUIRE( edge != nullptr );
+                const auto *half = EditableMesh_GetHalfEdge( &f.mesh, edge->hHalfEdge ); REQUIRE( half != nullptr );
+                const auto *twin = EditableMesh_GetHalfEdge( &f.mesh, half->hTwin ); REQUIRE( twin != nullptr );
+                const auto *a = EditableMesh_GetVertex( &f.mesh, half->hOrigin ); REQUIRE( a != nullptr );
+                const auto *b = EditableMesh_GetVertex( &f.mesh, twin->hOrigin ); REQUIRE( b != nullptr );
+                const common::u32 axis = a->position.x != b->position.x ? 0u : a->position.y != b->position.y ? 1u : 2u;
+                const double plane = coordinate( a->position, axis ) * ( 1.0 - t ) + coordinate( b->position, axis ) * t;
+
+                const auto result = MeshOps_LoopCut( &f.mesh, edges[start], t );
+                REQUIRE( result.status == geometry_status_t::OK ); CHECK( result.cFacesSplit == 4u );
+                CHECK( EditableMesh_VertexCount( &f.mesh ) == 12u ); CHECK( EditableMesh_FaceCount( &f.mesh ) == 10u );
+                CHECK( EditableMesh_EulerCharacteristic( &f.mesh ) == 2 );
+                CHECK( MeshValidation_Validate( &f.mesh ).status == geometry_status_t::OK );
+                for ( common::usize i = 0; i < vertices.size(); ++i ) {
+                    const auto *vertex = EditableMesh_GetVertex( &f.mesh, vertices[i] ); REQUIRE( vertex != nullptr );
+                    CHECK( math::Vec3d_EqualsExact( vertex->position, positions[i] ) );
+                }
+                std::array<math::vec3d_t, 4> newPositions{};
+                common::usize newCount = 0;
+                (void)common::GenerationPool_ForEach( &f.mesh.vertices,
+                    [&]( geometry_mesh_vertex_handle_t h, const mesh_vertex_record_t &vertex ) noexcept -> common::bool_t {
+                        for ( const auto original : vertices ) { if ( HandlesMatch( h, original ) ) { return true; } }
+                        if ( newCount < newPositions.size() ) { newPositions[newCount] = vertex.position; }
+                        ++newCount;
+                        return true;
+                    } );
+                REQUIRE( newCount == newPositions.size() );
+                const common::u32 axisU = ( axis + 1u ) % 3u, axisV = ( axis + 2u ) % 3u;
+                double minU = coordinate( positions[0], axisU ), maxU = minU;
+                double minV = coordinate( positions[0], axisV ), maxV = minV;
+                for ( const auto position : positions ) {
+                    minU = std::fmin( minU, coordinate( position, axisU ) ); maxU = std::fmax( maxU, coordinate( position, axisU ) );
+                    minV = std::fmin( minV, coordinate( position, axisV ) ); maxV = std::fmax( maxV, coordinate( position, axisV ) );
+                }
+                common::u32 corners = 0;
+                for ( const auto position : newPositions ) {
+                    CHECK( coordinate( position, axis ) == Approx( plane ).margin( 1e-12 ) );
+                    const double u = coordinate( position, axisU ), v = coordinate( position, axisV );
+                    CHECK( ( u == minU || u == maxU ) ); CHECK( ( v == minV || v == maxV ) );
+                    corners |= 1u << ( ( u == maxU ? 1u : 0u ) | ( v == maxV ? 2u : 0u ) );
+                }
+                CHECK( corners == 0xFu );
+            }
+        }
+    }
+}
+
 TEST_CASE( "MeshOps: LoopCut rejects t outside (0,1)",
            "[Gate12][TopologyOps]" )
 {

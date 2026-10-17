@@ -302,6 +302,14 @@ Added
   integration remain separate work.
 
 Fixed
+- Geometry Loop Cut now transports its cut fraction across quad edges using
+  each edge's direction; off-centre cuts no longer alternate between t and 1-t.
+  The source API measures t from its first named endpoint, independent of stored
+  half-edge ordering. Edge Split also supports open borders and retains their
+  single-face boundary topology and interpolated corner attributes. Validation:
+  three focused direction/chained-split cases / 2,815 assertions; complete
+  Geometry 1,290 cases / 383,414 assertions, including open-border split cases.
+  These kernel fixes do not publish the local Mason integration dependencies.
 - Geometry adds an open-path hollow circular sweep using shared rotation-
   minimizing frames for its inner and outer walls and annular end rims, leaving
   the passage open. Paired mesh/attribute outputs publish only after structural
