@@ -1451,7 +1451,9 @@ TEST_CASE( "Measured face inset makes a perpendicular border through its real pr
     REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); CHECK( saved() == before );
     REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CHECK( saved() == committed ); CHECK( ws.selectedMeshFaceId == top );
     REQUIRE( MapWorkspace_AddMeshFace( &ws, root, other ) );
-    CHECK_FALSE( apply->isEnabled() ); CHECK_FALSE( MapWorkspace_InsetMeshFaceByEdgeWidth( &ws, 4 ) ); CHECK( saved() == committed );
+    // A region can be selected, but these opposite faces are not one planar
+    // connected region. The operation must reject them without mutation.
+    CHECK( apply->isEnabled() ); CHECK_FALSE( MapWorkspace_InsetMeshFaceByEdgeWidth( &ws, 4 ) ); CHECK( saved() == committed );
     MapWorkspace_SelectMeshFace( &ws, root, top ); REQUIRE( MapWorkspace_HasMeshFace( &ws ) ); CHECK( ws.selectedMeshFaceId == top );
     ws.pDocument->bReadOnly = CY_TRUE; MapWorkspace_Notify( &ws, MAP_CHANGE_DOCUMENT ); CHECK_FALSE( apply->isEnabled() );
     ws.pDocument->bReadOnly = CY_FALSE; MapWorkspace_Notify( &ws, MAP_CHANGE_DOCUMENT );

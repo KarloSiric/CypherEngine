@@ -27,7 +27,7 @@ TrenchBroom provides useful complementary references for command repetition, cam
 | Block and primitives | Icon palette: Box, Quad, Wedge, Cylinder, Spike, Sphere, Arch, Stairs, Spiral, Pipe, Torus; staged construction and preview | Good foundation. Sphere detail is coarse/fixed; numeric control and shape-quality checks matter more than adding another icon. |
 | Vertex editing | Selection, transform, connect, merge/collapse/dissolve; drag-to-weld | Real operations, but Merge target semantics, projected depth columns and one-mesh selection are not obvious to the user. |
 | Edge editing | Boundary Move/Extend, transformed extension and semantic repeat; loop/ring selection, split/connect, bridge, bevel, dissolve | Native G2 reference now covers the curved profile, straight extension, floor Bridge, exit cap, Save/Open and entrance continuation. Local axes and broader supported topology remain. |
-| Face editing | Component transforms; connected coplanar dedicated/numeric Extrude, single-face Corner Inset, offset, extraction, thickening and deletion | Region extrusion adds perimeter walls once and preserves cap data. Transform-gizmo extrusion remains single-face; constant-width region Inset and general individual/noncoplanar semantics remain. |
+| Face editing | Component transforms; connected coplanar dedicated/numeric Extrude and measured-width Inset, single-face Corner Inset, offset, extraction, thickening and deletion | Region operations preserve cap partitions and add only perimeter walls/borders. Width Inset requires one convex perimeter without holes. Transform-gizmo extrusion remains single-face; live Inset preview and general individual/noncoplanar semantics remain. |
 | Translate/Rotate/Scale/Pivot | Root and component transformations, offset pivot and preview; recent rotated edge extension | World-axis basis only. The component Scale gizmo is uniform/radial, or uniform in the visible 2D plane. Numeric component scaling accepts independent X/Y/Z factors; per-axis interactive handles are missing. |
 | Clip | Brush and mesh slicing, keep front/back/both, matching preview/commit and closed-shell caps | Mixed open/closed-shell cap policy repaired locally, including cavity holes; broader room-blockout gate remains open. |
 | Knife / Edge Cut | Multi-point cuts across reachable faces; private brush candidate and one-step convert/cut | Atomic conversion/cut repaired locally; initial brush surface admission and failure diagnostics retain documented limits. |
@@ -487,7 +487,7 @@ The historical “Already at parity” section in `docs/mason_toolset_gap_analys
 | Vertex bevel | Interior-fan truncation and replacement cap | Boundary vertices are excluded; no rounded-segment control. Per-edge clamping can produce unequal actual cut distances and needs visible feedback. |
 | Face Move / Rotate / Scale | Real component transforms; numeric independent XYZ scaling | Repick faces while a transform tool stays active; per-axis interactive scaling. Numeric scaling is already independent, so it must not be described as uniformly limited. |
 | Face extrusion | Dedicated/numeric connected coplanar region operation with perimeter-only walls; single-face transform-gizmo route | Region cap IDs/attributes and unique inward motion verified. Noncoplanar/individual modes, broader preview and full G4 construction remain. |
-| Face inset | Active-face inner polygon plus surrounding faces | Multi-face/region semantics; constant-width border construction. Current corners move toward the centroid, which gives unequal border widths on a rectangle. |
+| Face inset | Separate Corner Inset and measured-width Inset; the latter supports a connected coplanar region with one simple convex perimeter | Region cap partition/selection and perimeter-only borders are verified. Concave outlines, holes, folded/collapsed cap cells and live width preview remain outside the supported route. Corner Inset retains its distinct radial meaning. |
 | Face bevel | Button listed in face properties | No face branch in the command: only vertices and edges are accepted. This is a visible capability mismatch. |
 | Bridge | Two-face, equal-length chain and equal-count boundary-loop bridges | Clear correspondence/twist and segment controls. Edge-chain GUI hardcodes one segment; face segments are command arguments. Mismatched-resolution bridging needs more algorithm work. Targets must belong to one mesh. |
 | Fill / construct faces | Fill-hole operation; source-aware `TryAddFace` can stitch existing/new corners | Interactive Poly Pen/face construction on an existing mesh is library-only. Drawing a separate Polygon mesh is a different operation. |
@@ -500,7 +500,7 @@ Evidence: `Gui/CypherMapGui_GeometryCommands.cpp:437,468,514,643–703,3215`; `G
 
 Library evidence: `src/CypherEditor/Geometry/Mesh/CypherGeometry_MeshSourceTopology.h:151`, `CypherGeometry_MeshSourceModeling.h:44`, `CypherGeometry_MeshBevel.h:18`, `CypherGeometry_MeshBridge.h:60`, `CypherGeometry_MeshBoundaryOps.h:238`, `CypherGeometry_MeshLoopSlide.h:86`, `CypherGeometry_MeshSolidify.h:67`, `CypherGeometry_SubdivisionSurface.h:72`.
 
-**Inset is a concrete example of reusable machinery versus a complete tool.** The current implementation normalizes the vector from each corner to the vertex-average centroid and moves the corner by `margin`. For a 256 × 128 rectangle and margin 16, the two border widths are about 14.31 and 7.16, rather than 16. This follows directly from the code and geometry; it is not a new native UI reproduction. `Planar_TryOffsetRegion` already supports constant-distance contour insets/outsets and holes. Reusing it still requires mapping the result back into the selected mesh, preserving face/corner attributes and identities, handling collapsed regions, and creating the surrounding faces. It is not a drop-in replacement call.
+**Inset follow-up, 17 October:** the original radial operation remains explicitly named Corner Inset. The separate Inset Face (Width) route now offsets geometric perimeter support lines by a perpendicular width, maps collinear subdivisions back onto their offset runs, retains the original cap partition and adds one border quad per perimeter segment. Native Tool Properties, Undo/Redo, Save/Open, region-Extrude continuation and allocation-refusal checks pass. This repairs the rectangular unequal-width limitation for the measured-width route; it does not add general concave/holed remeshing or a live width preview. See the connected-region checkpoint in the progress notes.
 
 Evidence: `src/CypherEditor/Geometry/Mesh/CypherGeometry_MeshTopologyOps.cpp:2817–2861`; `src/CypherEditor/Geometry/Core/CypherGeometry_Planar_Offset.h:85`. Existing inset tests mainly establish counts, Euler characteristic and failure atomicity, not rectangular border width (`tests/CypherEditor/Geometry/Mesh/CypherGeometry_MeshTopologyOps_Tests.cpp:1195`).
 
@@ -711,9 +711,12 @@ Reused the existing `build-mason` binaries. No dependency installation, addition
 The focused run is recorded in `build-mason/artifacts/mason_geometry_audit_core.log`. CTest details are in `build-mason/Testing/Temporary/LastTest.log` until another CTest run replaces them. Source-confirmed findings D1–D6 and the newly identified capability gaps still need dedicated regressions and native interaction verification. No assertion that all tools work perfectly follows from these passes.
 
 **Later completion-gate update — 2026-10-17:** G4 now has measured-width Inset
-for one planar convex authored face, with preserved surfacing, undo/persistence
-and refusal checks. It still lacks the proposed connected-region/live-preview
-workflow. D5 Hollow now also preserves individual group-member comments through
+for one planar convex authored face or a connected coplanar partition with one
+simple convex perimeter. The region route retains cap IDs/selection and strict
+interior vertices, adds perimeter-only borders, and continues into region
+Extrude after Save/Open. Full local Core 271, GUI 861 and Mason 71 suites pass,
+with 38 combined native Cocoa workflow cases. Live Inset preview and the
+proposed bevel-trim acceptance project remain open. D5 Hollow also preserves individual group-member comments through
 sorted saving; other replacement/Join policies remain independent. Native Select
 reliability and prefab-scale checks are included in the 28-case Cocoa run; the
 full local Map GUI 838 and Mason 71 suites pass. The inherited brush command

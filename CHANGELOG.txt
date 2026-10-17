@@ -302,6 +302,13 @@ Added
   integration remain separate work.
 
 Fixed
+- Inset Face (Width) supports a connected coplanar region with one convex
+  perimeter, retaining cap partitions and adding only outer border quads.
+  Tool Properties, complete cap selection, Undo/Redo, Save/Open and subsequent
+  region Extrude are verified. Folded/collapsed cells and unsupported outlines
+  refuse without losing Redo. Full local Core 271, GUI 861 and Mason 71 suites
+  pass; 38 native Cocoa cases cover workflows. Live width preview, concave/holed
+  regions and the complete bevel-trim workflow remain separate work.
 - Carve, map-wide Replace Materials and entity Find and Replace admit their
   actual write targets against layer locks, including unselected targets.
   Refusal preserves the entire map and Redo; unrelated/no-op locked matches
@@ -336,8 +343,8 @@ Fixed
 - Inset Face (Width) exposes a separate perpendicular width setting/command
   for one planar convex authored mesh face, with retained cap selection,
   Undo/Redo and save metadata. Radial Corner Inset remains available. The
-  new operation refuses brush auto-conversion, multiple faces and collapsing
-  widths; connected-region Inset and a live width drag remain open work.
+  initial one-face delivery was later extended by the connected-region
+  checkpoint above. Brush auto-conversion and a live width drag remain open.
 - Linked prefab Scale now updates its placed local scale and pivot-relative
   origin. Rotated-axis factor mapping is checked before every target changes;
   unrepresentable shear refuses with a specific warning. Exact quarter-turn

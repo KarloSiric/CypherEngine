@@ -180,7 +180,7 @@ constexpr setting_descriptor_t kMapSettings[]{
     MapReal( "editor.map.hollow_thickness", 16.0, 1.0, 1024.0, "Hollow thickness", "Wall thickness for Hollow (units)." ),
     MapReal( "editor.map.mesh_extrude_distance", 16.0, 0.001, 1000000.0, "Extrude distance", "Extend one mesh face or an edge-connected coplanar face region along its shared normal. Caps keep their IDs; only the region perimeter receives walls. Positive units." ),
     MapReal( "editor.map.mesh_inset_distance", 8.0, 0.001, 1000000.0, "Corner inset distance", "Select exactly one mesh face. Move every corner toward its center by this distance. This radial inset does not promise a uniform border width. The inner face keeps its identity." ),
-    MapReal( "editor.map.mesh_inset_width", 8.0, 0.001, 1000000.0, "Inset width", "Perpendicular border width on exactly one planar convex mesh face. Collapsed offsets, concave or warped faces refuse. The inner face keeps its identity." ),
+    MapReal( "editor.map.mesh_inset_width", 8.0, 0.001, 1000000.0, "Inset width", "Perpendicular outer border width for a connected coplanar face region with a convex perimeter. Caps retain their partition and IDs. Holes, folds and collapsed offsets refuse." ),
     MapInteger( "editor.map.mesh_slice_u", 2, 1, 64, "Quad Slice U cells", "Cells along the selected quad's corner 0 to corner 1 direction. Quad Slice inserts shared boundary vertices in neighboring faces." ),
     MapInteger( "editor.map.mesh_slice_v", 2, 1, 64, "Quad Slice V cells", "Cells along the selected quad's corner 0 to corner 3 direction. A 1 by 1 grid makes no change." ),
     MapReal( "editor.map.mesh_bevel_width", 8.0, 0.001, 1000000.0, "Bevel width", "Distance a bevel cuts into each face beside the selected edges. A width the faces cannot hold is rejected unchanged." ),
@@ -635,7 +635,12 @@ command_result_t InsetMeshFace( void *pContext, const command_args_t & ) noexcep
 command_result_t InsetMeshFaceByEdgeWidth( void *pContext, const command_args_t & ) noexcept
 {
     auto *ws = static_cast<map_workspace_t *>( pContext );
-    return MapWorkspace_InsetMeshFaceByEdgeWidth( ws, EditorSettings_Real( &ws->pGui->settings, "editor.map.mesh_inset_width", 8.0 ) ) ? command_result_t::OK : command_result_t::FAILED;
+    if ( MapWorkspace_InsetMeshFaceByEdgeWidth( ws, EditorSettings_Real( &ws->pGui->settings, "editor.map.mesh_inset_width", 8.0 ) ) ) { return command_result_t::OK; }
+    MapNotice_Post( ws, ws->lastEdit.status == map_status_t::OUT_OF_MEMORY ? map_notice_t::ERROR : map_notice_t::WARNING,
+        ws->lastEdit.status == map_status_t::OUT_OF_MEMORY ? QStringLiteral( "Inset Width: not enough memory to prepare the edit; nothing changed." ) :
+        ws->lastEdit.status == map_status_t::LIMIT_EXCEEDED ? QStringLiteral( "Inset Width: the selection exceeds this operation's geometry limits. Use a smaller region; nothing changed." ) :
+        QStringLiteral( "Inset Width needs a connected coplanar region with one convex perimeter and room for the border. Holes, folds and collapsed caps refuse; nothing changed." ) );
+    return command_result_t::FAILED;
 }
 u32 QuadSliceState( void *pContext ) noexcept
 {
@@ -1896,8 +1901,8 @@ command_registry_status_t MapWorkspace_RegisterCommands( map_workspace_t *pWorks
           COMMAND_FLAG_NONE, ExtrudeMeshFace, MeshFaceEditState, pWorkspace },
         { "map.mesh.inset", "Corner Inset Mesh Face", "Select exactly one authored mesh face. Move its corners toward the center; the inner face retains its ID. This radial inset does not support face regions.", "mesh-inset", nullptr,
           COMMAND_FLAG_NONE, InsetMeshFace, MeshFaceInsetState, pWorkspace },
-        { "map.mesh.inset_width", "Inset Face (Width)", "Inset exactly one planar convex mesh face by its perpendicular border width. The cap retains its ID. Concave/warped faces, collapsed offsets and face regions refuse.", "mesh-inset", nullptr,
-          COMMAND_FLAG_NONE, InsetMeshFaceByEdgeWidth, MeshFaceInsetState, pWorkspace },
+        { "map.mesh.inset_width", "Inset Face (Width)", "Inset a connected coplanar region by its perpendicular outer border width. Caps retain their partition and IDs. Concave perimeters, holes, folds and collapsed caps refuse.", "mesh-inset", nullptr,
+          COMMAND_FLAG_NONE, InsetMeshFaceByEdgeWidth, MeshFaceEditState, pWorkspace },
         { "map.mesh.quad_slice", "Quad Slice Mesh Face", "Slice one selected four-corner mesh face into a U/V grid of editable quads. Neighboring faces receive shared edge vertices; UVs, materials and face ancestry are retained.", "mesh-subdivide", nullptr,
           COMMAND_FLAG_NONE, QuadSlice, QuadSliceState, pWorkspace },
         { "map.brush.to_mesh", "Convert to Mesh", "Convert selected brushes to their actual polygon meshes, retaining materials, UVs, root and face identity. Undo restores the brushes.", "brush-to-mesh", nullptr,

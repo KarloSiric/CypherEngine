@@ -1035,7 +1035,7 @@ public:
         m_inset->setEnabled( ( EditorCommands_State( &m_ws->pGui->commands, StringView_FromCString( "map.mesh.inset" ) ) & COMMAND_STATE_ENABLED ) != 0 );
         m_insetWidth->setEnabled( ( EditorCommands_State( &m_ws->pGui->commands, StringView_FromCString( "map.mesh.inset_width" ) ) & COMMAND_STATE_ENABLED ) != 0 );
         m_slice->setEnabled( ( EditorCommands_State( &m_ws->pGui->commands, StringView_FromCString( "map.mesh.quad_slice" ) ) & COMMAND_STATE_ENABLED ) != 0 );
-        m_feedback->setText( QStringLiteral( "Extrude raises one face or an edge-connected coplanar region, adding walls only around its perimeter. Corner Inset moves corners radially. Inset Face (Width) makes a measured border on one planar convex face. Both require exactly one face. Quad Slice operates on the active four-corner face; U follows corners 0–1 and V follows 0–3. Shared boundary vertices connect neighboring faces." ) );
+        m_feedback->setText( QStringLiteral( "Extrude raises one face or an edge-connected coplanar region, adding walls only around its perimeter. Corner Inset requires one face and moves its corners radially. Inset Face (Width) makes one measured outer border around a connected planar region with a convex perimeter, keeping its internal face divisions. Quad Slice operates on the active four-corner face; U follows corners 0–1 and V follows 0–3. Shared boundary vertices connect neighboring faces." ) );
     }
 private:
     map_workspace_t *m_ws{};
@@ -2056,7 +2056,7 @@ private:
                       std::pair{ "map.mesh.triangulate", "Mesh objects: triangulate all polygons (Objects/Groups/Meshes)" },
                       std::pair{ "map.mesh.extrude", "Mesh faces: extrude a connected coplanar region (Faces)" },
                       std::pair{ "map.mesh.inset", "One mesh face: inset corners toward its center (Faces)" },
-                      std::pair{ "map.mesh.inset_width", "One planar convex face: measured border width (Faces)" },
+                      std::pair{ "map.mesh.inset_width", "Connected planar region: measured outer border width (Faces)" },
                       std::pair{ "map.mesh.quad_slice", "Mesh face: slice a quad into U/V cells (Faces)" } } ) {
                 addCommand( command, QString::fromLatin1( label ) );
             }

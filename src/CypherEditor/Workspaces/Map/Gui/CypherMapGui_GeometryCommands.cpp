@@ -3736,7 +3736,7 @@ const char *MapGeometryCommands_Requirement( const char *pCommand ) noexcept
         { "map.select.same_corners", "a selected mesh face" }, { "map.select.faces_material", "a selected mesh face" },
         { "map.select.face_path", "exactly two selected mesh faces" },
         { "map.select.touching", "objects selected" }, { "map.select.inside", "objects selected" }, { "map.select.tall", "objects selected" },
-        { "map.mesh.extrude", "one mesh face selected" }, { "map.mesh.inset", "one mesh face selected" }, { "map.mesh.inset_width", "one planar convex mesh face selected" }, { "map.mesh.quad_slice", "one quad mesh face selected" },
+        { "map.mesh.extrude", "one mesh face selected" }, { "map.mesh.inset", "one mesh face selected" }, { "map.mesh.inset_width", "a connected coplanar region with one convex perimeter" }, { "map.mesh.quad_slice", "one quad mesh face selected" },
         { "map.mesh.triangulate", "meshes selected" }, { "map.mesh.flip_normals", "meshes selected" },
         { "map.brush.hollow", "brushes selected" }, { "map.brush.carve", "brushes selected" }, { "map.brush.merge", "two brushes selected" },
         { "map.brush.to_mesh", "brushes selected" },

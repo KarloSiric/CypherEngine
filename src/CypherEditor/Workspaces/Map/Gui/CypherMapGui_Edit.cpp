@@ -1443,12 +1443,38 @@ bool MapWorkspace_InsetMeshFace( map_workspace_t *ws, f64 margin ) noexcept
 }
 bool MapWorkspace_InsetMeshFaceByEdgeWidth( map_workspace_t *ws, f64 width ) noexcept
 {
-    if ( !MapWorkspace_CanEditMeshFace( ws ) || MapWorkspace_MeshFaces( ws ).nCount != 1 || !std::isfinite( width ) || width <= 0 ) { return false; }
-    const u64 root = ws->selectedMeshFaceObject, face = ws->selectedMeshFaceId;
-    return Edit( ws, "Inset Face (Width)", [&]( map_document_t *copy, vector_t<u64> &out ) {
-        if ( !KeepSelection( *ws, out ) ) { return map_status_t::OUT_OF_MEMORY; }
-        return MapMeshEdit_InsetFaceByEdgeWidth( copy, root, face, width );
-    } );
+    if ( !MapWorkspace_CanEditMeshFace( ws ) || !std::isfinite( width ) || width <= 0 ) { return false; }
+    const u64 root = ws->selectedMeshFaceObject, active = ws->selectedMeshFaceId;
+    const auto *document = ws->pDocument;
+    const u64 geometryRevision = document->geometry.revision, selectionRevision = ws->selection.revision;
+    const auto tool = ws->tool;
+    vector_t<u64> faces{};
+    if ( !Vector_Init( &faces, ws->pGui->pAllocator ) || !Vector_Append( &faces, MapWorkspace_MeshFaces( ws ) ) ) {
+        edit_report_scope_t report( ws ); return false;
+    }
+    if ( faces.nCount == 0 ) { return false; }
+    const auto current = [&]() noexcept {
+        return MapWorkspace_CanEditMeshFace( ws ) && ws->pDocument == document &&
+            document->geometry.revision == geometryRevision && ws->selection.revision == selectionRevision && ws->tool == tool &&
+            ws->selectedMeshFaceObject == root && ws->selectedMeshFaceId == active;
+    };
+    geometry::mesh_selection_t next{};
+    const map_prepared_component_selection_t result{ &next, {}, -1, active };
+    // All caps retain their source identities. Validate the complete result
+    // before publication instead of silently pruning a lost cap from selection.
+    return Edit( ws, faces.nCount == 1 ? "Inset Face (Width)" : "Inset Face Region (Width)",
+        [&]( map_document_t *copy, vector_t<u64> &out ) {
+            if ( !current() ) { return map_status_t::INVALID_ARGUMENT; }
+            const auto status = MapTopologyEdit_InsetFaceRegionByEdgeWidth( copy, root, { faces.pData, faces.nCount }, width );
+            if ( status != map_status_t::OK ) { return status; }
+            if ( !current() ) { return map_status_t::INVALID_ARGUMENT; }
+            if ( geometry::MeshSelection_Init( &next, ws->pGui->pAllocator, { root } ) != geometry::geometry_status_t::OK ||
+                 !Vector_PushBack( &out, root ) ) { return map_status_t::OUT_OF_MEMORY; }
+            for ( usize i = 0; i < faces.nCount; ++i ) {
+                if ( !Vector_PushBack( &next.faces, geometry::geometry_source_id_t{ faces.pData[i] } ) ) { return map_status_t::OUT_OF_MEMORY; }
+            }
+            return map_status_t::OK;
+        }, nullptr, &result );
 }
 bool MapWorkspace_CanQuadSliceMeshFace( const map_workspace_t *ws, u32 cellsU, u32 cellsV ) noexcept
 {

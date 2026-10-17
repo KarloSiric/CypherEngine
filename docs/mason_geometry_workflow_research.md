@@ -2539,3 +2539,59 @@ building; they were corrected to ALLOCATION_FAILED. Source baselines, hashes
 and logs remain under build-mason/artifacts. Entity I/O and other independent
 explicit-target commands still need their own write-target review; this does
 not universally close D2 or the eight completion gates. Renderer work is deferred.
+
+
+## Connected-region measured-width Inset — 2026-10-17
+
+Inset Face (Width) now accepts a connected, consistently wound coplanar mesh
+partition with one simple convex perimeter. Perpendicular support-line offsets
+produce a measured border; collinear perimeter subdivisions retain their order
+and edge fractions. Original cap face IDs and partitions remain, strict
+interior vertices retain their handles/positions, and only perimeter vertices
+receive inset copies. One border quad per perimeter segment avoids strips on
+internal edges. Cap and outer edge flags/creases retain their source meaning.
+
+The planner shares region admission with Extrude, uses fallible scratch, and
+bounds the request to 1,024 perimeter segments and 16,384 selected corners.
+Every resulting cap/border loop is checked for collapse, folding, backtracking
+and crossings. An outer offset that fits can still refuse if it folds an
+interior cap cell. Concave outlines, holes, disconnected/noncoplanar regions
+and remeshing are unsupported. One-face input delegates the existing strict
+convex operation, including its collinear-corner restriction. Later Core
+failure retains the existing private-copy contract: discard the failed
+candidate rather than assuming the candidate itself is unchanged.
+
+The GUI snapshots the full face set and non-first active face, revalidates
+context around modelling, and publishes geometry plus strict Faces continuation
+in one history step. Refusal leaves the live map, selection and existing Redo
+intact. New UV0/UV1 values use existing per-parent affine charts; new colour/non-UV
+corner attributes use nearest parent corners. This is not a smooth colour
+interpolator, unwrap or packed lightmap generator. Root/face future fields,
+owner, layer, group, materials and edge data survive the covered Save/Open paths.
+The command remains authored-mesh-only.
+
+Five new Core cases cover rectangular/tilted regions, collinear runs, an
+interior vertex, an unselected neighbour, attribute/metadata persistence,
+unsupported shapes/folded cells and sampled allocator refusal/retry. Three
+new GUI cases exercise the real Tool Properties button, exact width and no
+internal border, complete cap selection through Undo/Redo and Save/Open,
+subsequent region Extrude, failed-width Redo preservation and owned allocator
+failure/retry with balanced ownership. The former opposite-face panel case
+now invokes the enabled region command and verifies exact unchanged refusal.
+
+Final targeted results: Core 10 cases / 2,915 assertions including existing
+region Extrude, GUI 8 / 1,185 and combined native Cocoa 38 / 5,791. Complete
+local suites pass: Map Core 271 / 218,280, Map GUI 861 / 189,196 and Mason
+application 71 / 4,394. These are Qt widget-event tests, not manual OS-pointer
+or performance measurements. The final build corrected two const-iterator
+type mismatches caught by compilation; independent source review found no
+remaining publication blocker. Commands, hashes and logs are retained under
+build-mason/artifacts/mason_region_inset*. The rebuilt app and standalone
+binary have verified strict ad-hoc signatures; app arm64 UUID is
+BC0658E0-2D43-4A20-9664-64C6A1D9AD2A. The local app still includes separately
+retained asset/compiler working-tree changes. The preceding published
+4de3bfe1 checkpoint passed all 15 CI jobs; this new commit needs its own CI.
+
+G4 remains open for live width preview and the complete bevel-trim workflow.
+This increment does not claim arbitrary region support, all-tool completion
+or renderer integration. Renderer work remains deferred.

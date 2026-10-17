@@ -52,11 +52,14 @@
 #include "CypherGeometry_Repair.h"
 #include "CypherGeometry_MeshSourceTopology.h"
 #include "CypherGeometry_Patch.h"
+#include "CypherGeometry_Planar_Frame.h"
+#include "CypherGeometry_Planar_Segment.h"
 #include "CypherGeometry_SubdivisionSurface.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <utility>
 #include <vector>
 #include <unordered_map>
@@ -863,6 +866,145 @@ map_status_t MapTopologyEdit_ExtrudeFaceBy( map_document_t *map, u64 meshId, u64
     return MapTopologyEdit_MoveVertices( map, meshId, { corners.data(), corners.size() }, rest );
 }
 
+namespace
+{
+// Shared read-only preparation for connected coplanar face-region operations.
+// Canonical description corner order is matched to actual half-edge origins;
+// source IDs and raw loop starts are deliberately not interchangeable.
+struct face_region_t {
+    struct face_t { u32 description{}, first{}, count{}; };
+    struct corner_t {
+        geo::geometry_mesh_vertex_handle_t vertex{};
+        geo::mesh_corner_attributes_t attributes{};
+        geo::mesh_edge_attributes_t edgeAttributes{};
+        f64 crease{};
+        u32 translated{ CY_INVALID_INDEX }, adjacent{ CY_INVALID_INDEX };
+    };
+    description_t before;
+    vector_t<face_t> faces{};
+    vector_t<corner_t> corners{};
+    vector_t<geo::geometry_mesh_face_handle_t> removed{};
+    vec3 normal{}, origin{};
+    usize boundaryCount{};
+};
+
+geo::geometry_status_t ReadFaceRegion( const geo::mesh_source_t *working, span_t<const u64> faceIds,
+    const geo::geometry_numerical_policy_t &policy, face_region_t &region, usize maximumCorners = CY_USIZE_MAX ) noexcept
+{
+    auto &before = region.before;
+    auto &faces = region.faces;
+    auto &corners = region.corners;
+    auto &removed = region.removed;
+    auto status = before.Read( working );
+    if ( status != OK ) { return status; }
+    if ( faceIds.nCount == 0u || faceIds.nCount > before.value.faces.nCount ) { return geo::geometry_status_t::INVALID_ARGUMENT; }
+    struct face_lookup_t { u64 id{}; geo::geometry_mesh_face_handle_t handle{}; };
+    vector_t<face_lookup_t> lookup{};
+    vector_t<u32> slots{}, queue{};
+    vector_t<u8> visited{};
+    const auto *allocator = working->mesh.pAllocator;
+    if ( !Vector_Init( &faces, allocator ) || !Vector_Resize( &faces, faceIds.nCount ) ||
+         !Vector_Init( &removed, allocator ) || !Vector_Resize( &removed, faceIds.nCount ) ||
+         !Vector_Init( &corners, allocator ) ||
+         !Vector_Init( &lookup, allocator ) || !Vector_Reserve( &lookup, before.value.faces.nCount ) ||
+         !Vector_Init( &slots, allocator ) || !Vector_Resize( &slots, working->mesh.faces.cSlots ) ||
+         !Vector_Init( &visited, allocator ) || !Vector_Resize( &visited, faceIds.nCount ) ||
+         !Vector_Init( &queue, allocator ) || !Vector_Reserve( &queue, faceIds.nCount ) ) { return geo::geometry_status_t::ALLOCATION_FAILED; }
+    std::fill_n( slots.pData, slots.nCount, CY_INVALID_INDEX );
+    ( void )GenerationPool_ForEach( &working->mesh.faces,
+        [&]( geo::geometry_mesh_face_handle_t handle, const geo::mesh_face_record_t & ) noexcept -> bool_t {
+            const u64 id = geo::MeshSource_FaceId( working, handle ).value;
+            if ( id == 0u ) { status = geo::geometry_status_t::CORRUPT_STATE; return false; }
+            if ( !Vector_PushBack( &lookup, face_lookup_t{ id, handle } ) ) { status = geo::geometry_status_t::ALLOCATION_FAILED; return false; }
+            return true;
+        } );
+    if ( status != OK ) { return status; }
+    if ( lookup.nCount != before.value.faces.nCount ) { return geo::geometry_status_t::CORRUPT_STATE; }
+    std::sort( lookup.pData, lookup.pData + lookup.nCount,
+        []( const face_lookup_t &a, const face_lookup_t &b ) noexcept { return a.id < b.id; } );
+    for ( usize i = 1u; i < lookup.nCount; ++i ) {
+        if ( lookup.pData[i - 1u].id == lookup.pData[i].id ) { return geo::geometry_status_t::CORRUPT_STATE; }
+    }
+    usize cornerCount = 0u;
+    for ( usize i = 0u; i < faceIds.nCount; ++i ) {
+        const u64 id = faceIds.pData[i];
+        const auto *begin = lookup.pData;
+        const auto *end = begin + lookup.nCount;
+        const auto *found = std::lower_bound( begin, end, id,
+            []( const face_lookup_t &face, u64 value ) noexcept { return face.id < value; } );
+        if ( id == 0u || found == end || found->id != id ) { return geo::geometry_status_t::INVALID_ARGUMENT; }
+        const auto handle = found->handle;
+        if ( handle.nSlot >= slots.nCount ) { return geo::geometry_status_t::CORRUPT_STATE; }
+        if ( slots.pData[handle.nSlot] != CY_INVALID_INDEX ) { return geo::geometry_status_t::INVALID_ARGUMENT; }
+        removed.pData[i] = handle; slots.pData[handle.nSlot] = static_cast<u32>( i );
+        const auto *descriptionBegin = before.value.faces.pData;
+        const auto *descriptionEnd = descriptionBegin + before.value.faces.nCount;
+        const auto *face = std::lower_bound( descriptionBegin, descriptionEnd, id,
+            []( const geo::mesh_source_face_t &f, u64 value ) noexcept { return f.sourceId.value < value; } );
+        if ( face == descriptionEnd || face->sourceId.value != id ) { return geo::geometry_status_t::CORRUPT_STATE; }
+        vec3 normal{}, center{};
+        before.Frame( *face, normal, center );
+        if ( !Unit( normal, normal ) ) { return geo::geometry_status_t::INVALID_ARGUMENT; }
+        if ( i == 0u ) { region.normal = normal; region.origin = before.Position( before.CornerVertex( *face, 0u ) ); }
+        if ( Dot( normal, region.normal ) <= 0.0 || Length( Cross( normal, region.normal ) ) > policy.fUnitNormalTolerance ) {
+            return geo::geometry_status_t::INVALID_ARGUMENT;
+        }
+        for ( u32 k = 0u; k < face->cCorners; ++k ) {
+            const vec3 p = before.Position( before.CornerVertex( *face, k ) );
+            const f64 scale = std::max( { 1.0, std::abs( p.x ), std::abs( p.y ), std::abs( p.z ), Length( region.origin ) } );
+            if ( std::abs( Dot( Sub( p, region.origin ), region.normal ) ) > policy.fCoplanarDistanceTolerance + policy.fRelativeDistanceTolerance * scale ) {
+                return geo::geometry_status_t::INVALID_ARGUMENT;
+            }
+        }
+        faces.pData[i] = { static_cast<u32>( face - before.value.faces.pData ), static_cast<u32>( cornerCount ), face->cCorners };
+        cornerCount += face->cCorners;
+        if ( cornerCount > maximumCorners ) { return geo::geometry_status_t::LIMIT_EXCEEDED; }
+    }
+    if ( !Vector_Resize( &corners, cornerCount ) ) { return geo::geometry_status_t::ALLOCATION_FAILED; }
+    for ( usize i = 0u; i < faces.nCount; ++i ) {
+        const auto &plan = faces.pData[i];
+        const auto &face = before.value.faces.pData[plan.description];
+        const auto *record = GenerationPool_Get( &working->mesh.faces, removed.pData[i] );
+        const auto *loop = record != nullptr ? GenerationPool_Get( &working->mesh.loops, record->hOuterLoop ) : nullptr;
+        if ( loop == nullptr || loop->cHalfEdges != plan.count ) { return geo::geometry_status_t::CORRUPT_STATE; }
+        for ( u32 k = 0u; k < plan.count; ++k ) {
+            auto &corner = corners.pData[plan.first + k];
+            corner.attributes = before.value.corners.pData[face.iFirstCorner + k].attributes;
+            const auto id = before.value.vertices.pData[before.CornerVertex( face, k )].sourceId;
+            auto h = loop->hFirstHalfEdge;
+            const geo::mesh_half_edge_record_t *edge = nullptr;
+            for ( u32 n = 0u; n < plan.count; ++n ) {
+                const auto *candidate = GenerationPool_Get( &working->mesh.halfEdges, h );
+                if ( candidate == nullptr ) { return geo::geometry_status_t::CORRUPT_STATE; }
+                if ( geo::MeshSource_VertexId( working, candidate->hOrigin ).value == id.value ) { corner.vertex = candidate->hOrigin; edge = candidate; break; }
+                h = candidate->hNext;
+            }
+            const auto *edgeRecord = edge != nullptr ? GenerationPool_Get( &working->mesh.edges, edge->hEdge ) : nullptr;
+            if ( edgeRecord == nullptr ) { return geo::geometry_status_t::CORRUPT_STATE; }
+            corner.edgeAttributes = geo::MeshAttributeStore_GetEdge( &working->attributes, edge->hEdge );
+            corner.crease = edgeRecord->creaseWeight;
+            if ( geo::GeometryHandle_IsValid( edge->hTwin ) ) {
+                const auto *twin = GenerationPool_Get( &working->mesh.halfEdges, edge->hTwin );
+                const auto *other = twin != nullptr ? GenerationPool_Get( &working->mesh.loops, twin->hLoop ) : nullptr;
+                if ( other == nullptr || other->hFace.nSlot >= slots.nCount ) { return geo::geometry_status_t::CORRUPT_STATE; }
+                corner.adjacent = slots.pData[other->hFace.nSlot];
+            }
+            if ( corner.adjacent == CY_INVALID_INDEX ) { ++region.boundaryCount; }
+        }
+    }
+    visited.pData[0] = 1u; ( void )Vector_PushBack( &queue, 0u );
+    for ( usize q = 0u; q < queue.nCount; ++q ) {
+        const auto &face = faces.pData[queue.pData[q]];
+        for ( u32 k = 0u; k < face.count; ++k ) {
+            const u32 adjacent = corners.pData[face.first + k].adjacent;
+            if ( adjacent == CY_INVALID_INDEX || visited.pData[adjacent] != 0u ) { continue; }
+            visited.pData[adjacent] = 1u; ( void )Vector_PushBack( &queue, adjacent );
+        }
+    }
+    return queue.nCount == faces.nCount && region.boundaryCount != 0u ? OK : geo::geometry_status_t::INVALID_ARGUMENT;
+}
+} // namespace
+
 map_status_t MapTopologyEdit_ExtrudeFaceRegionBy( map_document_t *map, u64 meshId, span_t<const u64> faceIds, f64 distance ) noexcept
 {
     if ( map == nullptr || meshId == 0u || !Span_IsValid( faceIds ) || faceIds.nCount < 2u ||
@@ -876,112 +1018,33 @@ map_status_t MapTopologyEdit_ExtrudeFaceRegionBy( map_document_t *map, u64 meshI
     bool invalidRegion = false;
     const auto result = ApplyMesh( map, meshId, [&]( geo::mesh_source_t *working, geo::mesh_edit_report_t *report ) noexcept {
         const auto reject = [&]() noexcept { invalidRegion = true; return geo::geometry_status_t::INVALID_ARGUMENT; };
-        description_t before;
-        auto status = before.Read( working );
+        face_region_t region;
+        const auto &policy = map->geometryPolicy.numerical;
+        auto status = ReadFaceRegion( working, faceIds, policy, region );
+        if ( status == geo::geometry_status_t::INVALID_ARGUMENT ) { return reject(); }
         if ( status != OK ) { return status; }
-        if ( faceIds.nCount > before.value.faces.nCount ) { return reject(); }
-        struct face_t { u32 description{}, first{}, count{}; };
-        struct face_lookup_t { u64 id{}; geo::geometry_mesh_face_handle_t handle{}; };
-        struct corner_t {
-            geo::geometry_mesh_vertex_handle_t vertex{};
-            geo::mesh_corner_attributes_t attributes{};
-            geo::mesh_edge_attributes_t edgeAttributes{};
-            f64 crease{};
-            u32 translated{}, adjacent{ CY_INVALID_INDEX };
-        };
+        auto &before = region.before;
+        auto &faces = region.faces;
+        auto &corners = region.corners;
+        auto &removed = region.removed;
+        const usize cornerCount = corners.nCount, boundaryCount = region.boundaryCount;
         struct wall_t { u32 parent{}; std::array<geo::mesh_corner_attributes_t, 4> attributes{}; };
-        vector_t<face_t> faces{};
-        vector_t<face_lookup_t> faceLookup{};
-        vector_t<geo::geometry_mesh_face_handle_t> removed{}, created{};
-        vector_t<u32> faceSlots{}, vertexCopies{}, queue{}, sizes{};
+        vector_t<u32> vertexCopies{}, sizes{};
+        vector_t<geo::geometry_mesh_face_handle_t> created{};
         vector_t<wall_t> walls{};
-        vector_t<u8> visited{};
-        vector_t<corner_t> corners{};
         vector_t<vec3> positions{};
         vector_t<geo::mesh_boundary_corner_t> rings{};
         const auto *allocator = working->mesh.pAllocator;
-        if ( !Vector_Init( &faces, allocator ) || !Vector_Resize( &faces, faceIds.nCount ) ||
-             !Vector_Init( &faceLookup, allocator ) || !Vector_Reserve( &faceLookup, before.value.faces.nCount ) ||
-             !Vector_Init( &removed, allocator ) || !Vector_Resize( &removed, faceIds.nCount ) ||
-             !Vector_Init( &created, allocator ) || !Vector_Init( &corners, allocator ) ||
-             !Vector_Init( &faceSlots, allocator ) || !Vector_Resize( &faceSlots, working->mesh.faces.cSlots ) ||
-             !Vector_Init( &vertexCopies, allocator ) || !Vector_Resize( &vertexCopies, before.value.vertices.nCount ) ||
-             !Vector_Init( &visited, allocator ) || !Vector_Resize( &visited, faceIds.nCount ) ||
-             !Vector_Init( &queue, allocator ) || !Vector_Reserve( &queue, faceIds.nCount ) ||
-             !Vector_Init( &positions, allocator ) || !Vector_Init( &sizes, allocator ) ||
-             !Vector_Init( &walls, allocator ) || !Vector_Init( &rings, allocator ) ) {
-            return geo::geometry_status_t::ALLOCATION_FAILED;
-        }
-        std::fill_n( faceSlots.pData, faceSlots.nCount, CY_INVALID_INDEX );
+        if ( !Vector_Init( &vertexCopies, allocator ) || !Vector_Resize( &vertexCopies, before.value.vertices.nCount ) ||
+             !Vector_Init( &sizes, allocator ) || !Vector_Init( &created, allocator ) || !Vector_Init( &walls, allocator ) ||
+             !Vector_Init( &positions, allocator ) || !Vector_Init( &rings, allocator ) ) { return geo::geometry_status_t::ALLOCATION_FAILED; }
         std::fill_n( vertexCopies.pData, vertexCopies.nCount, CY_INVALID_INDEX );
-        // Source-ID helpers scan the whole pool. Build one operation-local
-        // lookup so a large region does not repeat that scan for every face.
-        ( void )GenerationPool_ForEach( &working->mesh.faces,
-            [&]( geo::geometry_mesh_face_handle_t handle, const geo::mesh_face_record_t & ) noexcept -> bool_t {
-                const u64 id = geo::MeshSource_FaceId( working, handle ).value;
-                if ( id == 0u ) { status = geo::geometry_status_t::CORRUPT_STATE; return false; }
-                if ( !Vector_PushBack( &faceLookup, face_lookup_t{ id, handle } ) ) {
-                    status = geo::geometry_status_t::ALLOCATION_FAILED; return false;
-                }
-                return true;
-            } );
-        if ( status != OK ) { return status; }
-        if ( faceLookup.nCount != before.value.faces.nCount ) { return geo::geometry_status_t::CORRUPT_STATE; }
-        std::sort( faceLookup.pData, faceLookup.pData + faceLookup.nCount,
-            []( const face_lookup_t &a, const face_lookup_t &b ) noexcept { return a.id < b.id; } );
-        for ( usize i = 1u; i < faceLookup.nCount; ++i ) {
-            if ( faceLookup.pData[i - 1u].id == faceLookup.pData[i].id ) { return geo::geometry_status_t::CORRUPT_STATE; }
-        }
-        usize cornerCount = 0u;
-        vec3 normal{}, origin{};
-        const auto &policy = map->geometryPolicy.numerical;
-        for ( usize i = 0u; i < faceIds.nCount; ++i ) {
-            auto &handle = removed.pData[i];
-            const u64 id = faceIds.pData[i];
-            const auto *begin = faceLookup.pData;
-            const auto *end = begin + faceLookup.nCount;
-            const auto *found = std::lower_bound( begin, end, id,
-                []( const face_lookup_t &face, u64 value ) noexcept { return face.id < value; } );
-            if ( id == 0u || found == end || found->id != id ) { return reject(); }
-            handle = found->handle;
-            if ( handle.nSlot >= faceSlots.nCount ) { return geo::geometry_status_t::CORRUPT_STATE; }
-            if ( faceSlots.pData[handle.nSlot] != CY_INVALID_INDEX ) { return reject(); }
-            faceSlots.pData[handle.nSlot] = static_cast<u32>( i );
-            // TryDescribe guarantees source-ID ordering in its canonical form.
-            const auto *descriptionBegin = before.value.faces.pData;
-            const auto *descriptionEnd = descriptionBegin + before.value.faces.nCount;
-            const auto *described = std::lower_bound( descriptionBegin, descriptionEnd, id,
-                []( const geo::mesh_source_face_t &face, u64 value ) noexcept { return face.sourceId.value < value; } );
-            if ( described == descriptionEnd || described->sourceId.value != id ) { return geo::geometry_status_t::CORRUPT_STATE; }
-            const auto index = static_cast<u32>( described - before.value.faces.pData );
-            const auto &face = *described;
-            vec3 faceNormal{}, center{};
-            before.Frame( face, faceNormal, center );
-            if ( !Unit( faceNormal, faceNormal ) ) { return reject(); }
-            if ( i == 0u ) { normal = faceNormal; origin = before.Position( before.CornerVertex( face, 0u ) ); }
-            if ( Dot( faceNormal, normal ) <= 0.0 || Length( Cross( faceNormal, normal ) ) > policy.fUnitNormalTolerance ) { return reject(); }
-            for ( u32 k = 0u; k < face.cCorners; ++k ) {
-                const vec3 p = before.Position( before.CornerVertex( face, k ) );
-                const f64 scale = std::max( { 1.0, std::abs( p.x ), std::abs( p.y ), std::abs( p.z ), Length( origin ) } );
-                if ( std::abs( Dot( Sub( p, origin ), normal ) ) > policy.fCoplanarDistanceTolerance + policy.fRelativeDistanceTolerance * scale ) {
-                    return reject();
-                }
-            }
-            faces.pData[i] = { index, static_cast<u32>( cornerCount ), face.cCorners };
-            cornerCount += face.cCorners; // Selected faces are distinct: bounded by source corner count.
-        }
-        if ( !Vector_Resize( &corners, cornerCount ) ) { return geo::geometry_status_t::ALLOCATION_FAILED; }
-        const vec3 offset = Mul( normal, distance );
-        usize boundaryCount = 0u;
+        const vec3 offset = Mul( region.normal, distance );
         for ( usize i = 0u; i < faces.nCount; ++i ) {
             const auto &plan = faces.pData[i];
             const auto &face = before.value.faces.pData[plan.description];
-            const auto *record = GenerationPool_Get( &working->mesh.faces, removed.pData[i] );
-            const auto *loop = record != nullptr ? GenerationPool_Get( &working->mesh.loops, record->hOuterLoop ) : nullptr;
-            if ( loop == nullptr || loop->cHalfEdges != plan.count ) { return geo::geometry_status_t::CORRUPT_STATE; }
             for ( u32 k = 0u; k < plan.count; ++k ) {
                 const u32 vertex = before.CornerVertex( face, k );
-                auto &corner = corners.pData[plan.first + k];
                 if ( vertexCopies.pData[vertex] == CY_INVALID_INDEX ) {
                     const vec3 p = Add( before.Position( vertex ), offset );
                     const f64 limit = std::min( policy.fCoordinateMagnitudeLimit, geo::kMeshSourceCoordinateMax );
@@ -990,45 +1053,9 @@ map_status_t MapTopologyEdit_ExtrudeFaceRegionBy( map_document_t *map, u64 meshI
                     vertexCopies.pData[vertex] = static_cast<u32>( positions.nCount );
                     if ( !Vector_PushBack( &positions, p ) ) { return geo::geometry_status_t::ALLOCATION_FAILED; }
                 }
-                corner.translated = vertexCopies.pData[vertex];
-                corner.attributes = before.value.corners.pData[face.iFirstCorner + k].attributes;
-                // The canonical description rotates each ring; match the
-                // half-edge by its origin instead of assuming raw loop order.
-                auto h = loop->hFirstHalfEdge;
-                const geo::mesh_half_edge_record_t *edge = nullptr;
-                for ( u32 n = 0u; n < plan.count; ++n ) {
-                    const auto *candidate = GenerationPool_Get( &working->mesh.halfEdges, h );
-                    if ( candidate == nullptr ) { return geo::geometry_status_t::CORRUPT_STATE; }
-                    if ( geo::MeshSource_VertexId( working, candidate->hOrigin ).value == before.value.vertices.pData[vertex].sourceId.value ) {
-                        corner.vertex = candidate->hOrigin; edge = candidate; break;
-                    }
-                    h = candidate->hNext;
-                }
-                const auto *edgeRecord = edge != nullptr ? GenerationPool_Get( &working->mesh.edges, edge->hEdge ) : nullptr;
-                if ( edgeRecord == nullptr ) { return geo::geometry_status_t::CORRUPT_STATE; }
-                corner.edgeAttributes = geo::MeshAttributeStore_GetEdge( &working->attributes, edge->hEdge );
-                corner.crease = edgeRecord->creaseWeight;
-                if ( geo::GeometryHandle_IsValid( edge->hTwin ) ) {
-                    const auto *twin = GenerationPool_Get( &working->mesh.halfEdges, edge->hTwin );
-                    const auto *other = twin != nullptr ? GenerationPool_Get( &working->mesh.loops, twin->hLoop ) : nullptr;
-                    if ( other == nullptr || other->hFace.nSlot >= faceSlots.nCount ) { return geo::geometry_status_t::CORRUPT_STATE; }
-                    corner.adjacent = faceSlots.pData[other->hFace.nSlot];
-                }
-                if ( corner.adjacent == CY_INVALID_INDEX ) { ++boundaryCount; }
+                corners.pData[plan.first + k].translated = vertexCopies.pData[vertex];
             }
         }
-        visited.pData[0] = 1u;
-        ( void )Vector_PushBack( &queue, 0u ); // Capacity prepared above.
-        for ( usize q = 0u; q < queue.nCount; ++q ) {
-            const auto &face = faces.pData[queue.pData[q]];
-            for ( u32 k = 0u; k < face.count; ++k ) {
-                const u32 adjacent = corners.pData[face.first + k].adjacent;
-                if ( adjacent == CY_INVALID_INDEX || visited.pData[adjacent] != 0u ) { continue; }
-                visited.pData[adjacent] = 1u;
-                ( void )Vector_PushBack( &queue, adjacent );
-            }
-        }
-        if ( queue.nCount != faces.nCount || boundaryCount == 0u ) { return reject(); }
         // Every count derives from a validated source, so these sums fit usize;
         // reject canonical source limits before preparing replacement scratch.
         if ( before.value.faces.nCount + boundaryCount > geo::kMeshSourceFacesMax ||
@@ -1136,6 +1163,255 @@ map_status_t MapTopologyEdit_ExtrudeFaceRegionBy( map_document_t *map, u64 meshI
                 if ( corner == nullptr ) { return geo::geometry_status_t::CORRUPT_STATE; }
                 status = geo::MeshAttributeStore_TrySetCorner( &working->attributes, h, walls.pData[i].attributes[k], working->mesh.halfEdges.cSlots );
                 if ( status != OK ) { return status; }
+                h = corner->hNext;
+            }
+        }
+        return OK;
+    } );
+    return invalidRegion ? map_status_t::INVALID_ARGUMENT : result;
+}
+
+namespace
+{
+using inset_point_t = math::vec2d_t;
+inset_point_t InsetSub( inset_point_t a, inset_point_t b ) noexcept { return { a.x - b.x, a.y - b.y }; }
+f64 InsetDot( inset_point_t a, inset_point_t b ) noexcept { return a.x * b.x + a.y * b.y; }
+f64 InsetCross( inset_point_t a, inset_point_t b ) noexcept { return a.x * b.y - a.y * b.x; }
+
+// Exact segment classification refuses bow-ties and nonadjacent contacts;
+// area/length policy separately rejects a geometrically collapsed cap cell.
+bool InsetRingValid( span_t<const inset_point_t> points, const geo::geometry_numerical_policy_t &policy ) noexcept
+{
+    if ( points.nCount < 3u ) { return false; }
+    f64 area = 0.0;
+    for ( usize i = 0u; i < points.nCount; ++i ) {
+        const auto a = points.pData[i], b = points.pData[( i + 1u ) % points.nCount];
+        const auto c = points.pData[( i + 2u ) % points.nCount];
+        if ( !std::isfinite( a.x ) || !std::isfinite( a.y ) ||
+             std::hypot( b.x - a.x, b.y - a.y ) <= policy.fMinimumEdgeLength ) { return false; }
+        if ( geo::Planar_ClassifySegments( a, b, b, c ) != geo::planar_segment_relation_t::TOUCH_ENDPOINT ) { return false; }
+        area += InsetCross( InsetSub( a, points.pData[0] ), InsetSub( b, points.pData[0] ) );
+        for ( usize j = i + 2u; j < points.nCount; ++j ) {
+            if ( i == 0u && j + 1u == points.nCount ) { continue; }
+            if ( geo::Planar_ClassifySegments( a, b, points.pData[j], points.pData[( j + 1u ) % points.nCount] ) !=
+                 geo::planar_segment_relation_t::DISJOINT ) { return false; }
+        }
+    }
+    return std::isfinite( area ) && area > 2.0 * policy.fMinimumFaceArea;
+}
+} // namespace
+
+map_status_t MapTopologyEdit_InsetFaceRegionByEdgeWidth( map_document_t *map, u64 meshId, span_t<const u64> faceIds, f64 width ) noexcept
+{
+    if ( map == nullptr || meshId == 0u || !Span_IsValid( faceIds ) || faceIds.nCount == 0u ||
+         !std::isfinite( width ) || width <= map->geometryPolicy.numerical.fMinimumEdgeLength ) { return map_status_t::INVALID_ARGUMENT; }
+    if ( map->bReadOnly ) { return map_status_t::READ_ONLY; }
+    if ( faceIds.nCount == 1u ) { return MapMeshEdit_InsetFaceByEdgeWidth( map, meshId, faceIds.pData[0], width ); }
+    // Operation limits bound the quadratic geometric checks, not the file format.
+    constexpr usize maximumCorners = 16384u, maximumPerimeter = 1024u;
+    if ( faceIds.nCount > maximumCorners / 3u ) { return map_status_t::LIMIT_EXCEEDED; }
+    bool invalidRegion = false;
+    const auto result = ApplyMesh( map, meshId, [&]( geo::mesh_source_t *working, geo::mesh_edit_report_t *report ) noexcept {
+        const auto reject = [&]() noexcept { invalidRegion = true; return geo::geometry_status_t::INVALID_ARGUMENT; };
+        const auto &policy = map->geometryPolicy.numerical;
+        const auto *allocator = working->mesh.pAllocator;
+        face_region_t region;
+        auto status = ReadFaceRegion( working, faceIds, policy, region, maximumCorners );
+        if ( status == geo::geometry_status_t::INVALID_ARGUMENT ) { return reject(); }
+        if ( status != OK ) { return status; }
+        if ( region.boundaryCount > maximumPerimeter ) { return geo::geometry_status_t::LIMIT_EXCEEDED; }
+        auto &before = region.before;
+        struct boundary_t { u32 corner{}, parent{}; geo::geometry_mesh_vertex_handle_t a{}, b{}; };
+        vector_t<boundary_t> boundary{};
+        vector_t<u32> outgoing{}, incoming{}, ordered{}, turns{}, insetBySlot{}, sizes{};
+        vector_t<u8> visited{};
+        vector_t<inset_point_t> points{}, planned{}, directions{}, normals{}, polygon{};
+        vector_t<vec3> positions{};
+        vector_t<geo::mesh_boundary_corner_t> rings{};
+        vector_t<geo::geometry_mesh_face_handle_t> created{};
+        const usize count = region.boundaryCount;
+        if ( !Vector_Init( &boundary, allocator ) || !Vector_Reserve( &boundary, count ) ||
+             !Vector_Init( &outgoing, allocator ) || !Vector_Resize( &outgoing, working->mesh.vertices.cSlots ) ||
+             !Vector_Init( &incoming, allocator ) || !Vector_Resize( &incoming, working->mesh.vertices.cSlots ) ||
+             !Vector_Init( &insetBySlot, allocator ) || !Vector_Resize( &insetBySlot, working->mesh.vertices.cSlots ) ||
+             !Vector_Init( &ordered, allocator ) || !Vector_Reserve( &ordered, count ) ||
+             !Vector_Init( &turns, allocator ) || !Vector_Reserve( &turns, count ) ||
+             !Vector_Init( &visited, allocator ) || !Vector_Resize( &visited, count ) ||
+             !Vector_Init( &points, allocator ) || !Vector_Resize( &points, count ) ||
+             !Vector_Init( &planned, allocator ) || !Vector_Resize( &planned, count ) ||
+             !Vector_Init( &directions, allocator ) || !Vector_Resize( &directions, count ) ||
+             !Vector_Init( &normals, allocator ) || !Vector_Resize( &normals, count ) ||
+             !Vector_Init( &positions, allocator ) || !Vector_Resize( &positions, count ) ||
+             !Vector_Init( &polygon, allocator ) || !Vector_Init( &sizes, allocator ) ||
+             !Vector_Init( &rings, allocator ) || !Vector_Init( &created, allocator ) ) { return geo::geometry_status_t::ALLOCATION_FAILED; }
+        std::fill_n( outgoing.pData, outgoing.nCount, CY_INVALID_INDEX );
+        std::fill_n( incoming.pData, incoming.nCount, CY_INVALID_INDEX );
+        std::fill_n( insetBySlot.pData, insetBySlot.nCount, CY_INVALID_INDEX );
+        for ( usize f = 0u; f < region.faces.nCount; ++f ) {
+            const auto &face = region.faces.pData[f];
+            for ( u32 k = 0u; k < face.count; ++k ) {
+                const auto &a = region.corners.pData[face.first + k];
+                if ( a.adjacent != CY_INVALID_INDEX ) { continue; }
+                const auto b = region.corners.pData[face.first + ( k + 1u ) % face.count].vertex;
+                if ( a.vertex.nSlot >= outgoing.nCount || b.nSlot >= incoming.nCount ) { return geo::geometry_status_t::CORRUPT_STATE; }
+                // A simple region has precisely one incoming/outgoing boundary
+                // edge at each perimeter vertex. Pinched regions are refused.
+                if ( outgoing.pData[a.vertex.nSlot] != CY_INVALID_INDEX || incoming.pData[b.nSlot] != CY_INVALID_INDEX ) { return reject(); }
+                outgoing.pData[a.vertex.nSlot] = incoming.pData[b.nSlot] = static_cast<u32>( boundary.nCount );
+                ( void )Vector_PushBack( &boundary, boundary_t{ face.first + k, static_cast<u32>( f ), a.vertex, b } );
+            }
+        }
+        u32 next = 0u;
+        for ( usize i = 0u; i < count; ++i ) {
+            if ( next >= count || visited.pData[next] != 0u ) { return reject(); }
+            visited.pData[next] = 1u; ( void )Vector_PushBack( &ordered, next );
+            next = outgoing.pData[boundary.pData[next].b.nSlot];
+        }
+        if ( next != 0u ) { return reject(); } // More than one cycle (including holes) is unsupported.
+        geo::planar_frame_t frame{};
+        status = geo::PlanarFrame_TryFromPlane( { region.normal, -Dot( region.normal, region.origin ) }, &frame );
+        if ( status != OK ) { return status; }
+        frame.origin = region.origin; // Keep area and halfplane calculations local to the region.
+        f64 extent = 0.0;
+        for ( usize i = 0u; i < count; ++i ) {
+            const auto &edge = boundary.pData[ordered.pData[i]];
+            const auto *vertex = GenerationPool_Get( &working->mesh.vertices, edge.a );
+            if ( vertex == nullptr ) { return geo::geometry_status_t::CORRUPT_STATE; }
+            points.pData[i] = geo::PlanarFrame_Project( frame, vertex->position );
+            insetBySlot.pData[edge.a.nSlot] = static_cast<u32>( i );
+            extent = std::max( extent, std::max( std::abs( points.pData[i].x ), std::abs( points.pData[i].y ) ) );
+        }
+        if ( !InsetRingValid( { points.pData, count }, policy ) ) { return reject(); }
+        const f64 tolerance = policy.fAbsoluteDistanceTolerance + policy.fRelativeDistanceTolerance * extent;
+        for ( usize i = 0u; i < count; ++i ) {
+            const auto delta = InsetSub( points.pData[( i + 1u ) % count], points.pData[i] );
+            const f64 length = std::hypot( delta.x, delta.y );
+            directions.pData[i] = { delta.x / length, delta.y / length };
+        }
+        for ( usize i = 0u; i < count; ++i ) {
+            const auto previous = directions.pData[( i + count - 1u ) % count], current = directions.pData[i];
+            const f64 turn = InsetCross( previous, current );
+            if ( turn < -policy.fAngularToleranceRadians || InsetDot( previous, current ) <= -1.0 + policy.fAngularToleranceRadians ) { return reject(); }
+            if ( turn > policy.fAngularToleranceRadians ) { ( void )Vector_PushBack( &turns, static_cast<u32>( i ) ); }
+        }
+        if ( turns.nCount < 3u ) { return reject(); }
+        // One straight support line per geometric run; subdivisions remain in
+        // the topology and keep their original fractions along the run.
+        for ( usize r = 0u; r < turns.nCount; ++r ) {
+            const u32 a = turns.pData[r], b = turns.pData[( r + 1u ) % turns.nCount];
+            const auto edge = InsetSub( points.pData[b], points.pData[a] );
+            const f64 length = std::hypot( edge.x, edge.y );
+            if ( !std::isfinite( length ) || length <= policy.fMinimumEdgeLength ) { return reject(); }
+            directions.pData[r] = { edge.x / length, edge.y / length };
+            normals.pData[r] = { -directions.pData[r].y, directions.pData[r].x };
+            f64 previousDistance = 0.0;
+            for ( usize j = ( a + 1u ) % count; j != b; j = ( j + 1u ) % count ) {
+                const auto relative = InsetSub( points.pData[j], points.pData[a] );
+                const f64 along = InsetDot( relative, directions.pData[r] );
+                if ( std::abs( InsetDot( relative, normals.pData[r] ) ) > tolerance ||
+                     along <= previousDistance || along >= length ) { return reject(); }
+                previousDistance = along;
+            }
+            for ( usize j = 0u; j < count; ++j ) {
+                if ( InsetDot( normals.pData[r], InsetSub( points.pData[j], points.pData[a] ) ) < -tolerance ) { return reject(); }
+            }
+        }
+        for ( usize r = 0u; r < turns.nCount; ++r ) {
+            const u32 index = turns.pData[r];
+            const auto previous = normals.pData[( r + turns.nCount - 1u ) % turns.nCount], current = normals.pData[r];
+            const f64 denominator = 1.0 + InsetDot( previous, current );
+            if ( denominator <= 64.0 * std::numeric_limits<f64>::epsilon() ) { return reject(); }
+            const f64 distance = width / denominator;
+            planned.pData[index] = { points.pData[index].x + distance * ( previous.x + current.x ),
+                                      points.pData[index].y + distance * ( previous.y + current.y ) };
+        }
+        for ( usize r = 0u; r < turns.nCount; ++r ) {
+            const u32 a = turns.pData[r], b = turns.pData[( r + 1u ) % turns.nCount];
+            const f64 length = InsetDot( directions.pData[r], InsetSub( points.pData[b], points.pData[a] ) );
+            const auto delta = InsetSub( planned.pData[b], planned.pData[a] );
+            if ( InsetDot( directions.pData[r], delta ) <= policy.fMinimumEdgeLength ) { return reject(); }
+            for ( usize j = ( a + 1u ) % count; j != b; j = ( j + 1u ) % count ) {
+                const f64 t = InsetDot( directions.pData[r], InsetSub( points.pData[j], points.pData[a] ) ) / length;
+                planned.pData[j] = { planned.pData[a].x + t * delta.x, planned.pData[a].y + t * delta.y };
+            }
+        }
+        const auto inside = [&]( inset_point_t p ) noexcept {
+            for ( usize r = 0u; r < turns.nCount; ++r ) {
+                if ( InsetDot( normals.pData[r], InsetSub( p, points.pData[turns.pData[r]] ) ) < width - tolerance ) { return false; }
+            }
+            return true;
+        };
+        if ( !InsetRingValid( { planned.pData, count }, policy ) ) { return reject(); }
+        const f64 limit = std::min( policy.fCoordinateMagnitudeLimit, geo::kMeshSourceCoordinateMax );
+        for ( usize i = 0u; i < count; ++i ) {
+            const vec3 p = geo::PlanarFrame_Unproject( frame, planned.pData[i] );
+            if ( !inside( planned.pData[i] ) || !std::isfinite( p.x ) || !std::isfinite( p.y ) || !std::isfinite( p.z ) ||
+                 std::abs( p.x ) > limit || std::abs( p.y ) > limit || std::abs( p.z ) > limit ) { return reject(); }
+            positions.pData[i] = p;
+            const usize b = ( i + 1u ) % count;
+            const inset_point_t quad[]{ points.pData[i], points.pData[b], planned.pData[b], planned.pData[i] };
+            if ( !InsetRingValid( { quad, 4u }, policy ) ) { return reject(); }
+        }
+        if ( before.value.faces.nCount + count > geo::kMeshSourceFacesMax ||
+             before.value.vertices.nCount + count > geo::kMeshSourceVerticesMax ||
+             before.value.corners.nCount + 4u * count > geo::kMeshSourceCornersMax ) { return geo::geometry_status_t::LIMIT_EXCEEDED; }
+        if ( !Vector_Reserve( &sizes, region.faces.nCount + count ) ||
+             !Vector_Reserve( &rings, region.corners.nCount + 4u * count ) ) { return geo::geometry_status_t::ALLOCATION_FAILED; }
+        // Retain every cap cell and every strictly interior authored vertex.
+        // A globally valid outer offset may still invert a thin partition cell.
+        for ( usize f = 0u; f < region.faces.nCount; ++f ) {
+            const auto &face = region.faces.pData[f];
+            if ( !Vector_Resize( &polygon, face.count ) ) { return geo::geometry_status_t::ALLOCATION_FAILED; }
+            for ( u32 k = 0u; k < face.count; ++k ) {
+                const auto handle = region.corners.pData[face.first + k].vertex;
+                const u32 inset = insetBySlot.pData[handle.nSlot];
+                const auto *vertex = GenerationPool_Get( &working->mesh.vertices, handle );
+                if ( vertex == nullptr ) { return geo::geometry_status_t::CORRUPT_STATE; }
+                polygon.pData[k] = inset != CY_INVALID_INDEX ? planned.pData[inset] : geo::PlanarFrame_Project( frame, vertex->position );
+                if ( !inside( polygon.pData[k] ) ) { return reject(); }
+                ( void )Vector_PushBack( &rings, inset != CY_INVALID_INDEX ? geo::mesh_boundary_corner_t{ {}, inset } : geo::mesh_boundary_corner_t{ handle } );
+            }
+            if ( !InsetRingValid( { polygon.pData, polygon.nCount }, policy ) ) { return reject(); }
+            ( void )Vector_PushBack( &sizes, face.count );
+        }
+        for ( usize i = 0u; i < count; ++i ) {
+            const auto &edge = boundary.pData[ordered.pData[i]];
+            ( void )Vector_PushBack( &sizes, 4u );
+            ( void )Vector_PushBack( &rings, geo::mesh_boundary_corner_t{ edge.a } );
+            ( void )Vector_PushBack( &rings, geo::mesh_boundary_corner_t{ edge.b } );
+            ( void )Vector_PushBack( &rings, geo::mesh_boundary_corner_t{ {}, static_cast<u32>( ( i + 1u ) % count ) } );
+            ( void )Vector_PushBack( &rings, geo::mesh_boundary_corner_t{ {}, static_cast<u32>( i ) } );
+        }
+        status = geo::MeshEdit_Bracket( working, [&]( vector_t<geo::mesh_edit_face_parent_t> *parents ) noexcept {
+            if ( !Vector_Reserve( parents, sizes.nCount ) ) { return geo::geometry_status_t::ALLOCATION_FAILED; }
+            const auto replaced = geo::MeshBoundary_ReplaceFaces( &working->mesh, { region.removed.pData, region.removed.nCount },
+                { rings.pData, rings.nCount }, { sizes.pData, sizes.nCount }, { positions.pData, positions.nCount }, &created );
+            if ( replaced.status != OK ) { return replaced.status; }
+            for ( usize i = 0u; i < created.nCount; ++i ) {
+                const usize parent = i < region.faces.nCount ? i : boundary.pData[ordered.pData[i - region.faces.nCount]].parent;
+                ( void )Vector_PushBack( parents, geo::mesh_edit_face_parent_t{ created.pData[i], region.removed.pData[parent], i < region.faces.nCount } );
+            }
+            return OK;
+        }, report );
+        if ( status != OK ) { return status; }
+        // Transfer samples each new corner from its adjacent parent face's chart.
+        // New cap edges inherit the corresponding authored edge's flags/crease;
+        // the border's outer edge keeps that data too. Radial border links default.
+        for ( usize f = 0u; f < created.nCount; ++f ) {
+            const auto *face = GenerationPool_Get( &working->mesh.faces, created.pData[f] );
+            const auto *loop = face != nullptr ? GenerationPool_Get( &working->mesh.loops, face->hOuterLoop ) : nullptr;
+            const bool cap = f < region.faces.nCount;
+            const u32 expected = cap ? region.faces.pData[f].count : 4u;
+            if ( loop == nullptr || loop->cHalfEdges != expected ) { return geo::geometry_status_t::CORRUPT_STATE; }
+            auto h = loop->hFirstHalfEdge;
+            for ( u32 k = 0u; k < ( cap ? expected : 1u ); ++k ) {
+                const auto &old = region.corners.pData[cap ? region.faces.pData[f].first + k : boundary.pData[ordered.pData[f - region.faces.nCount]].corner];
+                const auto *corner = GenerationPool_Get( &working->mesh.halfEdges, h );
+                auto *edge = corner != nullptr ? GenerationPool_Get( &working->mesh.edges, corner->hEdge ) : nullptr;
+                if ( edge == nullptr ) { return geo::geometry_status_t::CORRUPT_STATE; }
+                status = geo::MeshAttributeStore_TrySetEdge( &working->attributes, corner->hEdge, old.edgeAttributes, working->mesh.edges.cSlots );
+                if ( status != OK ) { return status; }
+                edge->creaseWeight = old.crease;
                 h = corner->hNext;
             }
         }

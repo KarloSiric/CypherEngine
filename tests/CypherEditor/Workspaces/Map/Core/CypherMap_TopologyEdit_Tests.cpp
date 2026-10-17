@@ -19,6 +19,7 @@
 #include "CypherMap_TopologyEdit.h"
 #include "CypherMap_Edit.h"
 #include "CypherMap_MeshEdit.h"
+#include "CypherMap_Groups.h"
 #include "CypherGeometry_DocumentBrushAttributes.h"
 #include "CypherGeometry_DocumentMeshes.h"
 #include "CypherGeometry_MeshBoundaryOps.h"
@@ -2250,6 +2251,332 @@ TEST_CASE( "Region extrusion releases scratch and preserves the source across sa
             description_t after( original, mesh ); CHECK( geo::MeshSourceDescription_Equal( &before.value, &after.value ) );
             saved_t savedAfter; REQUIRE( savedAfter.Save( &original ) == map_status_t::OK ); CHECK( savedAfter.root == savedBefore.root );
         }
+    }
+    CHECK( audit.bytes == 0u );
+}
+
+namespace {
+using inset_edge_t = std::pair<u64, u64>;
+struct inset_edge_use_t { usize count{}; u64 parent{}; };
+std::map<inset_edge_t, inset_edge_use_t> InsetRegionEdges( const description_t &before, const std::vector<u64> &selected )
+{
+    std::map<inset_edge_t, inset_edge_use_t> edges;
+    for ( usize i = 0; i < before.Faces(); ++i ) {
+        const auto &face = before.value.faces.pData[i];
+        if ( std::find( selected.begin(), selected.end(), face.sourceId.value ) == selected.end() ) { continue; }
+        const auto ids = before.Corners( i );
+        for ( usize j = 0; j < ids.size(); ++j ) {
+            const auto a = ids[j].value, b = ids[( j + 1 ) % ids.size()].value;
+            auto &use = edges[{ std::min( a, b ), std::max( a, b ) }]; ++use.count; use.parent = face.sourceId.value;
+        }
+    }
+    return edges;
+}
+math::vec3d_t InsetDifference( math::vec3d_t a, math::vec3d_t b ) { return { a.x - b.x, a.y - b.y, a.z - b.z }; }
+math::vec3d_t InsetCross( math::vec3d_t a, math::vec3d_t b ) { return { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x }; }
+f64 InsetLength( math::vec3d_t p ) { return std::sqrt( p.x * p.x + p.y * p.y + p.z * p.z ); }
+f64 InsetDot( math::vec3d_t a, math::vec3d_t b ) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+void InsetCheckPoint( math::vec3d_t actual, math::vec3d_t expected )
+{
+    CHECK( actual.x == Catch::Approx( expected.x ).margin( 1e-9 ) );
+    CHECK( actual.y == Catch::Approx( expected.y ).margin( 1e-9 ) );
+    CHECK( actual.z == Catch::Approx( expected.z ).margin( 1e-9 ) );
+}
+void InsetReplaceSource( map_document_t &map, const description_t &description )
+{
+    geo::mesh_source_t replacement{};
+    REQUIRE( geo::MeshSource_TryBuild( &description.value, map.pAllocator, &replacement ) == geo::geometry_status_t::OK );
+    REQUIRE( geo::GeometryDocument_TryReplaceMesh( &map.geometry, &replacement ) == geo::geometry_status_t::OK );
+    geo::MeshSource_Shutdown( &replacement );
+}
+// Derive old->inset correspondence from actual border adjacency. The oracle
+// measures distance to original support lines, independently of offset math.
+std::map<u64, u64> InsetCheckBorder( const description_t &before, const description_t &after,
+    const std::vector<u64> &selected, f64 width )
+{
+    const auto edges = InsetRegionEdges( before, selected ); std::map<u64, u64> moved; std::set<inset_edge_t> seen;
+    for ( usize i = 0; i < after.Faces(); ++i ) {
+        const auto &face = after.value.faces.pData[i]; if ( RegionFindFace( before, face.sourceId.value ) ) { continue; }
+        REQUIRE( face.cCorners == 4u ); const auto ids = after.Corners( i ); std::vector<u64> old, inner;
+        for ( usize k = 0; k < ids.size(); ++k ) {
+            if ( !before.HasVertex( ids[k] ) ) { inner.push_back( ids[k].value ); continue; }
+            old.push_back( ids[k].value );
+            const auto previous = ids[( k + ids.size() - 1u ) % ids.size()], next = ids[( k + 1u ) % ids.size()];
+            REQUIRE( before.HasVertex( previous ) != before.HasVertex( next ) );
+            const u64 inset = before.HasVertex( previous ) ? next.value : previous.value;
+            const auto inserted = moved.emplace( ids[k].value, inset ); CHECK( inserted.first->second == inset );
+        }
+        REQUIRE( old.size() == 2u ); REQUIRE( inner.size() == 2u );
+        const inset_edge_t edge{ std::min( old[0], old[1] ), std::max( old[0], old[1] ) };
+        const auto use = edges.find( edge ); REQUIRE( use != edges.end() ); CHECK( use->second.count == 1u ); CHECK( seen.insert( edge ).second );
+        const auto a = before.Position( { old[0] } ), b = before.Position( { old[1] } ), tangent = InsetDifference( b, a );
+        const auto *parent = RegionFindFace( before, use->second.parent ); REQUIRE( parent ); math::vec3d_t center{};
+        for ( u32 k = 0; k < parent->cCorners; ++k ) {
+            const auto p = before.value.vertices.pData[before.value.corners.pData[parent->iFirstCorner + k].iVertex].position;
+            center.x += p.x / parent->cCorners; center.y += p.y / parent->cCorners; center.z += p.z / parent->cCorners;
+        }
+        const auto inside = InsetCross( tangent, InsetDifference( center, a ) );
+        for ( const u64 id : inner ) {
+            const auto distance = InsetCross( tangent, InsetDifference( after.Position( { id } ), a ) );
+            CHECK( InsetLength( distance ) / InsetLength( tangent ) == Catch::Approx( width ).margin( 1e-9 ) );
+            CHECK( InsetDot( distance, inside ) > 0.0 );
+        }
+        CHECK( InsetLength( InsetCross( tangent, InsetDifference( after.Position( { inner[1] } ), after.Position( { inner[0] } ) ) ) ) < 1e-7 );
+    }
+    usize perimeter = 0;
+    for ( const auto &[edge, use] : edges ) { if ( use.count == 1u ) { ++perimeter; CHECK( seen.count( edge ) == 1u ); } }
+    CHECK( seen.size() == perimeter ); CHECK( moved.size() == perimeter );
+    for ( usize v = 0; v < before.Vertices(); ++v ) { const auto &old = before.value.vertices.pData[v]; InsetCheckPoint( after.Position( old.sourceId ), old.position ); }
+    for ( const u64 id : selected ) {
+        const auto *old = RegionFindFace( before, id ), *cap = RegionFindFace( after, id ); REQUIRE( old ); REQUIRE( cap );
+        CHECK( cap->cCorners == old->cCorners );
+        std::set<u64> expected, actual;
+        for ( u32 k = 0; k < old->cCorners; ++k ) { const auto source = before.value.vertices.pData[before.value.corners.pData[old->iFirstCorner + k].iVertex].sourceId.value;
+            const auto found = moved.find( source ); expected.insert( found == moved.end() ? source : found->second ); }
+        for ( u32 k = 0; k < cap->cCorners; ++k ) { actual.insert( after.value.vertices.pData[after.value.corners.pData[cap->iFirstCorner + k].iVertex].sourceId.value ); }
+        CHECK( actual == expected );
+    }
+    return moved;
+}
+}
+
+TEST_CASE( "Region measured inset offsets only the perimeter and retains cap partitions", "[map][topology-edit][region-inset-width]" )
+{
+    fixture_t f; const u64 mesh = RegionGrid( f.map ); description_t authored( f.map, mesh ); bool oblique = false;
+    SECTION( "Two rectangular cells retain their collinear outer subdivisions" ) {}
+    SECTION( "An oblique region tilted in space measures perpendicular width" ) {
+        oblique = true;
+        for ( usize i = 0; i < authored.Vertices(); ++i ) {
+            auto &p = authored.value.vertices.pData[i].position; const f64 y = p.y;
+            p = { p.x + 0.5 * y, y * std::sqrt( 0.75 ), y * 0.5 };
+        }
+        InsetReplaceSource( f.map, authored );
+    }
+    description_t before( f.map, mesh ); const auto selected = RegionFaces( before ); const auto revision = f.map.geometry.revision;
+    REQUIRE( MapTopologyEdit_InsetFaceRegionByEdgeWidth( &f.map, mesh, { selected.data(), selected.size() }, 8.0 ) == map_status_t::OK );
+    description_t after( f.map, mesh ); CHECK( after.Vertices() == 12u ); CHECK( after.Faces() == 8u ); CHECK( BoundaryEdges( f.map, mesh ) == 6u );
+    CHECK( f.map.geometry.revision == revision + 1u );
+    const auto moved = InsetCheckBorder( before, after, selected, 8.0 );
+    for ( usize i = 0; i < before.Vertices(); ++i ) {
+        const auto &v = before.value.vertices.pData[i]; if ( v.position.x != 64.0 || v.position.y != 0.0 ) { continue; }
+        REQUIRE( moved.count( v.sourceId.value ) == 1u );
+        InsetCheckPoint( after.Position( { moved.at( v.sourceId.value ) } ), oblique ? math::vec3d_t{ 68, 8 * std::sqrt( 0.75 ), 4 } : math::vec3d_t{ 64, 8, 0 } );
+    }
+    CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &f.map.geometry.sourceIds ) );
+}
+
+TEST_CASE( "Region measured inset keeps interior vertices and an unselected neighbour fixed", "[map][topology-edit][region-inset-width]" )
+{
+    fixture_t f; u64 mesh = 0u; bool neighbour = false;
+    SECTION( "Four cells preserve their original central vertex" ) { mesh = RegionGrid( f.map, 2u, 2u ); }
+    SECTION( "Two of three cells leave the third cell and shared outer IDs untouched" ) { neighbour = true; mesh = RegionGrid( f.map, 3u, 1u ); }
+    description_t before( f.map, mesh ); std::vector<u64> selected; u64 untouched = 0u;
+    for ( usize i = 0; i < before.Faces(); ++i ) {
+        f64 minX = CY_F64_MAX; for ( const auto id : before.Corners( i ) ) { minX = std::min( minX, before.Position( id ).x ); }
+        if ( neighbour && minX > 64.0 ) { untouched = before.value.faces.pData[i].sourceId.value; }
+        else { selected.push_back( before.value.faces.pData[i].sourceId.value ); }
+    }
+    REQUIRE( selected.size() == ( neighbour ? 2u : 4u ) );
+    REQUIRE( MapTopologyEdit_InsetFaceRegionByEdgeWidth( &f.map, mesh, { selected.data(), selected.size() }, 8.0 ) == map_status_t::OK );
+    description_t after( f.map, mesh ); CHECK( after.Vertices() == ( neighbour ? 14u : 17u ) ); CHECK( after.Faces() == ( neighbour ? 9u : 12u ) );
+    CHECK( BoundaryEdges( f.map, mesh ) == 8u ); const auto moved = InsetCheckBorder( before, after, selected, 8.0 );
+    if ( neighbour ) {
+        const auto *old = RegionFindFace( before, untouched ), *now = RegionFindFace( after, untouched ); REQUIRE( old ); REQUIRE( now );
+        CHECK( now->cCorners == old->cCorners );
+        for ( u32 k = 0; k < old->cCorners; ++k ) {
+            const auto &a = before.value.corners.pData[old->iFirstCorner + k], &b = after.value.corners.pData[now->iFirstCorner + k];
+            CHECK( before.value.vertices.pData[a.iVertex].sourceId.value == after.value.vertices.pData[b.iVertex].sourceId.value );
+            CHECK( a.attributes.uv0.x == b.attributes.uv0.x ); CHECK( a.attributes.uv0.y == b.attributes.uv0.y );
+            CHECK( a.attributes.uv1.x == b.attributes.uv1.x ); CHECK( a.attributes.uv1.y == b.attributes.uv1.y ); CHECK( a.attributes.colorRgba == b.attributes.colorRgba );
+        }
+    } else {
+        usize centers = 0u;
+        for ( usize i = 0; i < before.Vertices(); ++i ) { const auto &v = before.value.vertices.pData[i];
+            if ( v.position.x == 64 && v.position.y == 32 ) { ++centers; CHECK( moved.count( v.sourceId.value ) == 0u ); InsetCheckPoint( after.Position( v.sourceId ), v.position ); } }
+        CHECK( centers == 1u );
+    }
+}
+
+TEST_CASE( "Region measured inset retains face-local surfacing and object lineage through save and open", "[map][topology-edit][region-inset-width][metadata]" )
+{
+    fixture_t f; const u64 mesh = RegionGrid( f.map ); u64 owner = 0u, group = 0u;
+    REQUIRE( MapDocument_AddLayer( &f.map, SV( "inset" ), SV( "Inset detail" ) ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryLayer( &f.map, mesh, SV( "inset" ) ) == map_status_t::OK );
+    REQUIRE( MapDocument_AddEntity( &f.map, SV( "inset" ), SV( "func_structure" ), {}, &owner ) == map_status_t::OK );
+    REQUIRE( MapDocument_SetGeometryOwner( &f.map, mesh, owner ) == map_status_t::OK );
+    REQUIRE( MapDocument_AddGroup( &f.map, SV( "Retained region" ), { &mesh, 1u }, &group ) == map_status_t::OK );
+    description_t authored( f.map, mesh ); const auto selected = RegionFaces( authored );
+    auto uv0 = []( usize face, math::vec3d_t p ) { return math::vec2d_t{ 10.0 * face + p.x / 32.0 + p.y / 64.0, 0.25 + p.y / 16.0 }; };
+    auto uv1 = []( usize face, math::vec3d_t p ) { return math::vec2d_t{ -3.0 * face + p.x / 64.0, 0.5 + p.x / 128.0 - p.y / 32.0 }; };
+    for ( usize i = 0; i < authored.Faces(); ++i ) {
+        auto &face = authored.value.faces.pData[i];
+        REQUIRE( MapDocument_MaterialRef( &f.map, i == 0u ? SV( "materials/inset_a.cymat" ) : SV( "materials/inset_b.cymat" ), &face.attributes.material.value ) == map_status_t::OK );
+        face.attributes.smoothingGroups = 1u << ( i + 3u );
+        for ( u32 k = 0; k < face.cCorners; ++k ) {
+            auto &corner = authored.value.corners.pData[face.iFirstCorner + k]; const auto p = authored.value.vertices.pData[corner.iVertex].position;
+            corner.attributes.uv0 = uv0( i, p ); corner.attributes.uv1 = uv1( i, p ); corner.attributes.colorRgba = i == 0u ? 0x3165AFFFu : 0xDCA035FFu;
+        }
+    }
+    std::set<std::pair<u32, u32>> edgeIndices;
+    for ( usize i = 0; i < authored.Faces(); ++i ) { const auto &face = authored.value.faces.pData[i];
+        for ( u32 k = 0; k < face.cCorners; ++k ) {
+            const u32 a = authored.value.corners.pData[face.iFirstCorner + k].iVertex, b = authored.value.corners.pData[face.iFirstCorner + ( k + 1u ) % face.cCorners].iVertex;
+            edgeIndices.emplace( std::min( a, b ), std::max( a, b ) );
+        }
+    }
+    Vector_Clear( &authored.value.edges );
+    for ( const auto &[a, b] : edgeIndices ) { REQUIRE( Vector_PushBack( &authored.value.edges, geo::mesh_source_edge_t{ a, b,
+        { static_cast<u8>( geo::MESH_EDGE_FLAG_HARD | geo::MESH_EDGE_FLAG_SEAM ) }, 0.625 } ) ); }
+    InsetReplaceSource( f.map, authored );
+    saved_t materialized; REQUIRE( materialized.Save( &f.map ) == map_status_t::OK );
+    map_layer_store_t *store = nullptr; auto *record = MapDocument_FindObject( &f.map, mesh, &store ); REQUIRE( record ); REQUIRE( store );
+    RegionSetU64( store->store.pDocument, record, "future_inset_root", 941u );
+    auto *faceRecords = KeyValue_ObjectInsert( store->store.pDocument, record, SV( "faces" ), key_value_type_t::ARRAY ); REQUIRE( faceRecords );
+    for ( usize i = 0; i < selected.size(); ++i ) { auto *face = KeyValue_ArrayAppend( store->store.pDocument, faceRecords, key_value_type_t::OBJECT ); REQUIRE( face );
+        RegionSetU64( store->store.pDocument, face, "id", selected[i] ); RegionSetU64( store->store.pDocument, face, "future_inset_face", i + 1u ); }
+    const auto oldEdges = InsetRegionEdges( authored, selected );
+    REQUIRE( MapTopologyEdit_InsetFaceRegionByEdgeWidth( &f.map, mesh, { selected.data(), selected.size() }, 8.0 ) == map_status_t::OK );
+    description_t after( f.map, mesh ); const auto moved = InsetCheckBorder( authored, after, selected, 8.0 );
+    for ( usize i = 0; i < after.Faces(); ++i ) {
+        const auto &face = after.value.faces.pData[i]; u64 parentId = face.sourceId.value;
+        if ( !RegionFindFace( authored, parentId ) ) {
+            std::vector<u64> old; for ( const auto id : after.Corners( i ) ) { if ( authored.HasVertex( id ) ) { old.push_back( id.value ); } }
+            REQUIRE( old.size() == 2u ); parentId = oldEdges.at( { std::min( old[0], old[1] ), std::max( old[0], old[1] ) } ).parent;
+        }
+        const auto found = std::find( selected.begin(), selected.end(), parentId ); REQUIRE( found != selected.end() ); const usize parentIndex = static_cast<usize>( found - selected.begin() );
+        const auto *parent = RegionFindFace( authored, parentId ); REQUIRE( parent );
+        CHECK( face.attributes.material.value == parent->attributes.material.value ); CHECK( face.attributes.smoothingGroups == parent->attributes.smoothingGroups );
+        for ( u32 k = 0; k < face.cCorners; ++k ) {
+            const auto &corner = after.value.corners.pData[face.iFirstCorner + k]; const auto p = after.value.vertices.pData[corner.iVertex].position;
+            const auto first = uv0( parentIndex, p ), second = uv1( parentIndex, p );
+            CHECK( corner.attributes.uv0.x == Catch::Approx( first.x ).margin( 1e-9 ) ); CHECK( corner.attributes.uv0.y == Catch::Approx( first.y ).margin( 1e-9 ) );
+            CHECK( corner.attributes.uv1.x == Catch::Approx( second.x ).margin( 1e-9 ) ); CHECK( corner.attributes.uv1.y == Catch::Approx( second.y ).margin( 1e-9 ) );
+            CHECK( corner.attributes.colorRgba == ( parentIndex == 0u ? 0x3165AFFFu : 0xDCA035FFu ) );
+        }
+        record = MapDocument_FindObject( &f.map, mesh, nullptr ); const auto *extra = RegionFaceRecord( record, face.sourceId.value ); REQUIRE( extra ); u64 tag = 0u;
+        REQUIRE( KeyValue_GetU64( KeyValue_Find( extra, SV( "future_inset_face" ) ), &tag ) ); CHECK( tag == parentIndex + 1u );
+    }
+    for ( const auto &[edge, use] : oldEdges ) {
+        const auto mapped = [&]( u64 id ) { const auto found = moved.find( id ); return found == moved.end() ? id : found->second; };
+        for ( const auto tested : { inset_edge_t{ mapped( edge.first ), mapped( edge.second ) }, edge } ) {
+            // An old interior seam is replaced by the cap seam; only original
+            // perimeter edges are retained in the outer border.
+            if ( tested == edge && use.count != 1u ) { continue; }
+            geo::geometry_mesh_edge_handle_t handle{}; const auto *source = Source( f.map, mesh );
+            REQUIRE( geo::MeshSourceEdit_TryFindEdge( source, { tested.first }, { tested.second }, &handle ) );
+            const auto attributes = geo::MeshAttributeStore_GetEdge( &source->attributes, handle );
+            CHECK( ( attributes.flags & ( geo::MESH_EDGE_FLAG_HARD | geo::MESH_EDGE_FLAG_SEAM ) ) == ( geo::MESH_EDGE_FLAG_HARD | geo::MESH_EDGE_FLAG_SEAM ) );
+            const auto crease = std::find_if( after.value.edges.pData, after.value.edges.pData + after.value.edges.nCount, [&]( const auto &candidate ) {
+                const u64 a = after.value.vertices.pData[candidate.iVertexA].sourceId.value, b = after.value.vertices.pData[candidate.iVertexB].sourceId.value;
+                return std::min( a, b ) == std::min( tested.first, tested.second ) && std::max( a, b ) == std::max( tested.first, tested.second ); } );
+            REQUIRE( crease != after.value.edges.pData + after.value.edges.nCount ); CHECK( crease->creaseWeight == 0.625 );
+        }
+    }
+    saved_t saved; REQUIRE( saved.Save( &f.map ) == map_status_t::OK ); map_document_t loaded; saved.Load( loaded ); description_t persisted( loaded, mesh );
+    REQUIRE( persisted.Faces() == after.Faces() );
+    for ( usize i = 0; i < persisted.Faces(); ++i ) { auto &face = persisted.value.faces.pData[i]; const auto *expected = RegionFindFace( after, face.sourceId.value ); REQUIRE( expected );
+        CHECK( StringView_Equals( MapMaterials_Path( &loaded.materials, face.attributes.material.value ), MapMaterials_Path( &f.map.materials, expected->attributes.material.value ) ) ); face.attributes.material = expected->attributes.material; }
+    CHECK( geo::MeshSourceDescription_Equal( &after.value, &persisted.value ) );
+    for ( auto *document : { &f.map, &loaded } ) {
+        CHECK( MapGroups_Parent( document, mesh ) == group ); record = MapDocument_FindObject( document, mesh, nullptr ); REQUIRE( record ); u64 tag = 0u;
+        REQUIRE( KeyValue_GetU64( KeyValue_Find( record, SV( "future_inset_root" ) ), &tag ) ); CHECK( tag == 941u );
+        usize roots = 0u;
+        for ( usize i = 0; i < document->geometryRecords.nCount; ++i ) { const auto &placement = document->geometryRecords.pData[i]; if ( placement.id != mesh ) { continue; } ++roots;
+            CHECK( placement.owner == owner ); REQUIRE( placement.iLayer < document->layers.nCount );
+            CHECK( StringView_Equals( StringView_FromCString( document->layers.pData[placement.iLayer].id ), SV( "inset" ) ) ); }
+        CHECK( roots == 1u ); CHECK( geo::GeometrySourceIdRegistry_ValidateDeep( &document->geometry.sourceIds ) );
+        for ( usize i = 0; i < after.Faces(); ++i ) { const auto *extra = RegionFaceRecord( record, after.value.faces.pData[i].sourceId.value ); REQUIRE( extra );
+            REQUIRE( KeyValue_GetU64( KeyValue_Find( extra, SV( "future_inset_face" ) ), &tag ) ); CHECK( ( tag == 1u || tag == 2u ) ); }
+    }
+}
+
+TEST_CASE( "Region measured inset refuses unsupported unions and folded caps without publishing the candidate", "[map][topology-edit][region-inset-width]" )
+{
+    fixture_t f; u64 mesh = 0u; f64 width = 8.0; std::vector<u64> selected;
+    SECTION( "Concave L shaped union" ) {
+        mesh = RegionGrid( f.map, 2u, 2u ); description_t d( f.map, mesh );
+        for ( usize i = 0; i < d.Faces(); ++i ) { f64 x = 0, y = 0; for ( const auto id : d.Corners( i ) ) { const auto p = d.Position( id ); x += p.x / 4; y += p.y / 4; }
+            if ( x < 64 || y < 32 ) { selected.push_back( d.value.faces.pData[i].sourceId.value ); } }
+        REQUIRE( selected.size() == 3u );
+    }
+    SECTION( "A selected ring enclosing an unselected center" ) {
+        mesh = RegionGrid( f.map, 3u, 3u ); description_t d( f.map, mesh );
+        for ( usize i = 0; i < d.Faces(); ++i ) { f64 x = 0, y = 0; for ( const auto id : d.Corners( i ) ) { const auto p = d.Position( id ); x += p.x / 4; y += p.y / 4; }
+            if ( x < 43 || x > 85 || y < 22 || y > 42 ) { selected.push_back( d.value.faces.pData[i].sourceId.value ); } }
+        REQUIRE( selected.size() == 8u );
+    }
+    SECTION( "Disconnected cells in one mesh" ) {
+        mesh = RegionGrid( f.map, 3u, 1u ); description_t d( f.map, mesh );
+        for ( usize i = 0; i < d.Faces(); ++i ) { f64 x = 0; for ( const auto id : d.Corners( i ) ) { x += d.Position( id ).x / 4; }
+            if ( x < 43 || x > 85 ) { selected.push_back( d.value.faces.pData[i].sourceId.value ); } }
+        REQUIRE( selected.size() == 2u );
+    }
+    SECTION( "Adjacent noncoplanar box faces" ) { mesh = f.BoxMesh(); description_t d( f.map, mesh ); selected = RegionFaces( d ); }
+    SECTION( "Opposite winding disconnected coplanar shells" ) {
+        mesh = f.Quad(); const u64 other = f.Primitive( map_primitive_kind_t::QUAD, { { 192, 0, 0 }, { 320, 64, 0 } } );
+        REQUIRE( MapMeshEdit_FlipNormals( &f.map, { &other, 1u } ) == map_status_t::OK );
+        const u64 roots[]{ mesh, other }; REQUIRE( MapTopologyEdit_JoinMeshes( &f.map, { roots, 2u }, &mesh ) == map_status_t::OK );
+        description_t d( f.map, mesh ); selected = RegionFaces( d );
+    }
+    SECTION( "A retained interior vertex would fold the cap despite a valid outer offset" ) {
+        mesh = RegionGrid( f.map, 2u, 2u ); description_t d( f.map, mesh ); usize changed = 0u;
+        for ( usize i = 0; i < d.Vertices(); ++i ) { auto &p = d.value.vertices.pData[i].position; if ( p.x == 64 && p.y == 32 ) { p.y = 4; ++changed; } }
+        REQUIRE( changed == 1u ); InsetReplaceSource( f.map, d ); selected = RegionFaces( d ); width = 16.0;
+    }
+    SECTION( "Width collapses the inner region" ) { mesh = RegionGrid( f.map ); description_t d( f.map, mesh ); selected = RegionFaces( d ); width = 32.0; }
+    SECTION( "Width exceeds the region" ) { mesh = RegionGrid( f.map ); description_t d( f.map, mesh ); selected = RegionFaces( d ); width = 40.0; }
+    SECTION( "Repeated face identity" ) { mesh = RegionGrid( f.map ); description_t d( f.map, mesh ); selected = RegionFaces( d ); selected[1] = selected[0]; }
+    SECTION( "Missing face identity" ) { mesh = RegionGrid( f.map ); description_t d( f.map, mesh ); selected = RegionFaces( d ); selected[1] = CY_U64_MAX; }
+    SECTION( "Nonfinite width" ) { mesh = RegionGrid( f.map ); description_t d( f.map, mesh ); selected = RegionFaces( d ); width = std::numeric_limits<f64>::quiet_NaN(); }
+    SECTION( "Nonpositive width" ) { mesh = RegionGrid( f.map ); description_t d( f.map, mesh ); selected = RegionFaces( d ); width = 0.0; }
+    REQUIRE( mesh != 0u ); description_t before( f.map, mesh ); saved_t savedBefore; REQUIRE( savedBefore.Save( &f.map ) == map_status_t::OK );
+    const auto revision = f.map.geometry.revision, next = f.map.nextId, sourceNext = f.map.geometry.sourceIds.allocator.next.value;
+    // Map topology adapters operate on a private working copy. Failed copies
+    // are discarded; no geometry or ID cursor from them reaches the live map.
+    {
+        map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &f.map, &raw ) == map_status_t::OK ); std::unique_ptr<map_document_t> candidate( raw );
+        CHECK( MapTopologyEdit_InsetFaceRegionByEdgeWidth( candidate.get(), mesh, { selected.data(), selected.size() }, width ) == map_status_t::INVALID_ARGUMENT );
+    }
+    CHECK( f.map.geometry.revision == revision ); CHECK( f.map.nextId == next ); CHECK( f.map.geometry.sourceIds.allocator.next.value == sourceNext );
+    description_t after( f.map, mesh ); CHECK( geo::MeshSourceDescription_Equal( &before.value, &after.value ) );
+    saved_t savedAfter; REQUIRE( savedAfter.Save( &f.map ) == map_status_t::OK ); CHECK( savedAfter.root == savedBefore.root );
+}
+
+TEST_CASE( "Region measured inset releases failed private candidates and permits a fresh retry", "[map][topology-edit][region-inset-width][oom]" )
+{
+    edge_pull_audit_t audit;
+    {
+        map_document_t original; REQUIRE( MapDocument_Create( &original, &audit.allocator, { SV( "Inset failures" ), SV( "reap" ), {} } ) == map_status_t::OK );
+        const u64 mesh = RegionGrid( original ); description_t before( original, mesh ); const auto selected = RegionFaces( before );
+        saved_t savedBefore; REQUIRE( savedBefore.Save( &original ) == map_status_t::OK );
+        const auto next = original.nextId, sourceNext = original.geometry.sourceIds.allocator.next.value, revision = original.geometry.revision;
+        const usize liveBytes = audit.bytes; usize allocations = 0u;
+        {
+            map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &original, &raw ) == map_status_t::OK ); std::unique_ptr<map_document_t> candidate( raw );
+            audit.calls = 0u;
+            REQUIRE( MapTopologyEdit_InsetFaceRegionByEdgeWidth( candidate.get(), mesh, { selected.data(), selected.size() }, 8.0 ) == map_status_t::OK );
+            allocations = audit.calls;
+        }
+        REQUIRE( allocations >= 8u ); CHECK( audit.bytes == liveBytes );
+        const std::set<usize> failures{ 0u, 1u, allocations / 4u, allocations / 2u, allocations * 3u / 4u, allocations - 2u, allocations - 1u };
+        for ( const auto failure : failures ) {
+            CAPTURE( failure, allocations );
+            {
+                map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &original, &raw ) == map_status_t::OK ); std::unique_ptr<map_document_t> candidate( raw );
+                audit.calls = 0u; audit.failAt = failure;
+                const auto status = MapTopologyEdit_InsetFaceRegionByEdgeWidth( candidate.get(), mesh, { selected.data(), selected.size() }, 8.0 );
+                audit.failAt = CY_USIZE_MAX; CHECK( status == map_status_t::OUT_OF_MEMORY );
+            }
+            CHECK( audit.bytes == liveBytes ); CHECK( original.nextId == next ); CHECK( original.geometry.revision == revision );
+            CHECK( original.geometry.sourceIds.allocator.next.value == sourceNext ); description_t after( original, mesh );
+            CHECK( geo::MeshSourceDescription_Equal( &before.value, &after.value ) ); saved_t savedAfter; REQUIRE( savedAfter.Save( &original ) == map_status_t::OK ); CHECK( savedAfter.root == savedBefore.root );
+        }
+        {
+            map_document_t *raw = nullptr; REQUIRE( MapEdit_Clone( &original, &raw ) == map_status_t::OK ); std::unique_ptr<map_document_t> retry( raw );
+            REQUIRE( MapTopologyEdit_InsetFaceRegionByEdgeWidth( retry.get(), mesh, { selected.data(), selected.size() }, 8.0 ) == map_status_t::OK );
+            description_t after( *retry, mesh ); CHECK( after.Vertices() == 12u ); CHECK( after.Faces() == 8u ); InsetCheckBorder( before, after, selected, 8.0 );
+        }
+        CHECK( audit.bytes == liveBytes );
     }
     CHECK( audit.bytes == 0u );
 }

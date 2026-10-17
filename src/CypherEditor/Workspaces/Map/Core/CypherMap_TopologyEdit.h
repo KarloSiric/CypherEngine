@@ -174,6 +174,23 @@ CYPHER_NODISCARD map_status_t MapTopologyEdit_ExtrudeFaceBy( map_document_t *pMa
 CYPHER_NODISCARD map_status_t MapTopologyEdit_ExtrudeFaceRegionBy( map_document_t *pMap, common::u64 meshId,
     common::span_t<const common::u64> faceIds, common::f64 distance ) noexcept;
 
+// Insets one connected coplanar, consistently wound face region by a measured
+// perpendicular edge width. Two or more faces require one simple convex outer
+// perimeter without holes; collinear subdivisions retain their order/fractions.
+// Caps retain their face IDs and partition; strictly interior vertices retain
+// their handles/IDs/positions. Only perimeter vertices get inset copies. One
+// border quad per perimeter segment inherits the adjacent selected face's
+// surfacing/lineage; new corner attributes use the existing parent-face transfer
+// (per-face UV charts, not a new unwrap). Cap and outer edge flags/creases follow
+// their authored edges. Offsets that fold/collapse any cap cell refuse.
+// At most 1024 perimeter segments and 16384 selected corners are supported;
+// larger operations return LIMIT_EXCEEDED without changing format limits.
+// One face delegates the existing strictly-convex measured-width inset, whose
+// collinear-corner restriction remains. No concave regions, holes or remeshing.
+// Root/owner/layer and private working-copy failure rules above are unchanged.
+CYPHER_NODISCARD map_status_t MapTopologyEdit_InsetFaceRegionByEdgeWidth( map_document_t *pMap, common::u64 meshId,
+    common::span_t<const common::u64> faceIds, common::f64 width ) noexcept;
+
 // Hammer's Shift-drag of open edges: extends them by `offset`.
 CYPHER_NODISCARD map_status_t MapTopologyEdit_ExtendEdgesBy( map_document_t *pMap, common::u64 meshId, map_edge_refs_t edges,
     math::vec3d_t offset, common::vector_t<geometry::mesh_edge_ref_t> *pOuterEdgesOut = nullptr ) noexcept;

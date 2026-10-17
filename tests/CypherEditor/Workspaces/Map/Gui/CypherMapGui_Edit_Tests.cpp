@@ -5,6 +5,7 @@
 #include "CypherMapGui_Workspace.h"
 #include "CypherMapGui_Layers.h"
 #include "CypherMapGui_ToolPanels.h"
+#include "CypherEditorGui_Section.h"
 #include "CypherMap_TopologyEdit.h"
 #include "CypherMap_MeshEdit.h"
 #include "CypherCommon/Tier1/CypherCommon_Allocator.h"
@@ -19,6 +20,7 @@
 #include <QFileInfo>
 #include <QTemporaryDir>
 #include <QPushButton>
+#include <QMouseEvent>
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -51,10 +53,10 @@ void Free( void *context, void *memory, usize bytes, usize alignment ) noexcept
 struct session_t {
     gui::editor_gui_t gui{};
     map_workspace_t workspace{};
-    session_t()
+    explicit session_t( const allocator_t *allocator = Allocator_GetSystem() )
     {
         auto *app = qobject_cast<QApplication *>( QCoreApplication::instance() );
-        REQUIRE( gui::EditorGui_Init( &gui, app, Allocator_GetSystem() ) == gui::editor_gui_status_t::OK );
+        REQUIRE( gui::EditorGui_Init( &gui, app, allocator ) == gui::editor_gui_status_t::OK );
         REQUIRE( MapWorkspace_Init( &workspace, &gui ) );
     }
     ~session_t() { MapWorkspace_Shutdown( &workspace ); gui::EditorGui_Shutdown( &gui ); }
@@ -2229,4 +2231,127 @@ TEST_CASE( "Prepared face selection is validated before history and publishes it
     CHECK( EditorHistory_AppliedStepCount( &ws.history ) == before.applied + 1 ); CHECK_FALSE( EditorHistory_CanRedo( &ws.history ) );
     REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); RegionCheckSelection( ws, mesh, faces );
     REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); RegionCheckSelection( ws, mesh, faces );
+}
+
+namespace
+{
+void CheckInsetRegion( const map_workspace_t &ws, u64 mesh, const std::vector<u64> &faces,
+    const history_geo::mesh_source_description_t &original )
+{
+    region_description_t result( ws, mesh );
+    REQUIRE( result.value.vertices.nCount == 12 ); REQUIRE( result.value.faces.nCount == 8 );
+    usize caps = 0, strips = 0;
+    for ( usize v = 0; v < original.vertices.nCount; ++v ) {
+        const auto &old = original.vertices.pData[v];
+        const auto *retained = std::find_if( result.value.vertices.pData, result.value.vertices.pData + result.value.vertices.nCount,
+            [&]( const auto &vertex ) { return vertex.sourceId.value == old.sourceId.value; } );
+        REQUIRE( retained != result.value.vertices.pData + result.value.vertices.nCount );
+        CHECK( retained->position.x == old.position.x ); CHECK( retained->position.y == old.position.y ); CHECK( retained->position.z == old.position.z );
+    }
+    for ( usize i = 0; i < result.value.faces.nCount; ++i ) {
+        const auto &face = result.value.faces.pData[i]; REQUIRE( face.cCorners == 4 );
+        const bool cap = std::find( faces.begin(), faces.end(), face.sourceId.value ) != faces.end();
+        cap ? ++caps : ++strips;
+        bool allOnInternalSeam = true;
+        for ( u32 c = 0; c < face.cCorners; ++c ) {
+            const auto &point = result.value.vertices.pData[result.value.corners.pData[face.iFirstCorner + c].iVertex].position;
+            CHECK( point.z == Catch::Approx( 0 ).margin( 1e-8 ) );
+            allOnInternalSeam = allOnInternalSeam && std::fabs( point.x - 64 ) < 1e-8;
+            if ( cap ) {
+                CHECK( ( std::fabs( point.x - 8 ) < 1e-8 || std::fabs( point.x - 64 ) < 1e-8 || std::fabs( point.x - 120 ) < 1e-8 ) );
+                CHECK( ( std::fabs( point.y - 8 ) < 1e-8 || std::fabs( point.y - 56 ) < 1e-8 ) );
+            }
+        }
+        if ( !cap ) { CHECK_FALSE( allOnInternalSeam ); }
+    }
+    CHECK( caps == 2 ); CHECK( strips == 6 ); RegionCheckSelection( ws, mesh, faces );
+}
+void RegionInsetRedo( map_workspace_t &ws, u64 mesh, const std::vector<u64> &faces )
+{
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::OBJECTS );
+    REQUIRE( MapWorkspace_TranslateSelection( &ws, { 0, 0, 32 } ) );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::FACES );
+    REQUIRE( MapWorkspace_SetMeshFaces( &ws, mesh, { faces.data(), faces.size() }, faces[1] ) );
+    REQUIRE( EditorHistory_CanRedo( &ws.history ) );
+}
+}
+
+TEST_CASE( "Region width Inset uses one outer border through Tool Properties and continues with region Extrude", "[map][gui][geometry-edit][region-inset-width][widget-events][component-history]" )
+{
+    session_t session; auto &ws = session.workspace;
+    settings_scope_tester_t settings( &session.gui.settings ); settings.Real( "editor.map.mesh_inset_width", 8 );
+    std::vector<u64> faces; const u64 mesh = RegionTwoQuads( ws, faces );
+    region_description_t original( ws, mesh ); const usize steps = EditorHistory_AppliedStepCount( &ws.history );
+    std::unique_ptr<QWidget> panel( MapToolProperties_Create( nullptr, &ws ) ); REQUIRE( panel );
+    panel->resize( 520, 1200 ); panel->show(); QCoreApplication::processEvents();
+    auto *body = panel->findChild<QWidget *>( QStringLiteral( "MapMeshFaceControls" ) ); REQUIRE( body );
+    gui::EditorSection_SetExpanded( body->parentWidget(), true ); QCoreApplication::processEvents();
+    auto *button = body->findChild<QPushButton *>( QStringLiteral( "map.mesh.inset_width" ) ); REQUIRE( button );
+    REQUIRE( button->isEnabled() ); REQUIRE( button->isVisible() );
+    const QPointF point = button->rect().center(), global = button->mapToGlobal( point );
+    QMouseEvent press( QEvent::MouseButtonPress, point, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+    QMouseEvent release( QEvent::MouseButtonRelease, point, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+    QCoreApplication::sendEvent( button, &press ); QCoreApplication::sendEvent( button, &release );
+    CHECK( EditorHistory_AppliedStepCount( &ws.history ) == steps + 1 ); CheckInsetRegion( ws, mesh, faces, original.value );
+    region_description_t inset( ws, mesh );
+    MapWorkspace_SelectMeshFace( &ws, mesh, faces[0] );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK ); RegionCheckSelection( ws, mesh, faces );
+    { region_description_t undone( ws, mesh ); CHECK( history_geo::MeshSourceDescription_Equal( &original.value, &undone.value ) ); }
+    MapWorkspace_SelectMeshFace( &ws, mesh, faces[0] );
+    REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK ); CheckInsetRegion( ws, mesh, faces, original.value );
+    QTemporaryDir directory; REQUIRE( directory.isValid() ); const auto path = directory.filePath( QStringLiteral( "region-inset.cymap" ) );
+    REQUIRE( MapWorkspace_SaveAs( &ws, path ).status == map_files_status_t::OK ); session_t reopened; auto &restored = reopened.workspace;
+    REQUIRE( MapWorkspace_Open( &restored, path ).status == map_files_status_t::OK );
+    { region_description_t loaded( restored, mesh ); CHECK( history_geo::MeshSourceDescription_Equal( &inset.value, &loaded.value ) ); }
+    MapWorkspace_SetTool( &restored, map_tool_t::SELECT ); MapWorkspace_SetElementMode( &restored, map_element_mode_t::FACES );
+    REQUIRE( MapWorkspace_SetMeshFaces( &restored, mesh, { faces.data(), faces.size() }, faces[1] ) );
+    REQUIRE( MapWorkspace_ExtrudeMeshFace( &restored, 16 ) ); RegionCheckSelection( restored, mesh, faces );
+    region_description_t extruded( restored, mesh ); CHECK( extruded.value.faces.nCount == 14 ); CHECK( extruded.value.vertices.nCount == 18 );
+}
+
+TEST_CASE( "Collapsed region width Inset preserves the full face set and Redo before retry", "[map][gui][geometry-edit][region-inset-width][atomic]" )
+{
+    session_t session; auto &ws = session.workspace;
+    settings_scope_tester_t settings( &session.gui.settings ); settings.Real( "editor.map.mesh_inset_width", 32 );
+    std::vector<u64> faces; const u64 mesh = RegionTwoQuads( ws, faces ); RegionInsetRedo( ws, mesh, faces );
+    const history_published_t before( ws ); region_description_t original( ws, mesh ); const auto *faceStorage = ws.meshFaceSet.pData;
+    CHECK( EditorCommands_Execute( &session.gui.commands, StringView_FromCString( "map.mesh.inset_width" ), {} ) == command_result_t::FAILED );
+    before.Check( ws ); CHECK( ws.meshFaceSet.pData == faceStorage ); RegionCheckSelection( ws, mesh, faces );
+    { region_description_t unchanged( ws, mesh ); CHECK( history_geo::MeshSourceDescription_Equal( &original.value, &unchanged.value ) ); }
+    REQUIRE( EditorHistory_CanRedo( &ws.history ) ); REQUIRE( MapWorkspace_Redo( &ws ) == editor_history_status_t::OK );
+    REQUIRE( MapWorkspace_Undo( &ws ) == editor_history_status_t::OK );
+    MapWorkspace_SetElementMode( &ws, map_element_mode_t::FACES ); REQUIRE( MapWorkspace_SetMeshFaces( &ws, mesh, { faces.data(), faces.size() }, faces[1] ) );
+    settings.Real( "editor.map.mesh_inset_width", 8 );
+    REQUIRE( EditorCommands_Execute( &session.gui.commands, StringView_FromCString( "map.mesh.inset_width" ), {} ) == command_result_t::OK );
+    CheckInsetRegion( ws, mesh, faces, original.value ); CHECK_FALSE( EditorHistory_CanRedo( &ws.history ) );
+    CHECK( EditorHistory_AppliedStepCount( &ws.history ) == before.applied + 1 );
+}
+
+TEST_CASE( "Region width Inset allocation refusal retains all caps and history and allows retry", "[map][gui][geometry-edit][region-inset-width][allocation]" )
+{
+    allocation_failure_t audit{}; const allocator_t allocator{ &Allocate, nullptr, &Free, &audit }; usize calls = 0;
+    {
+        session_t session( &allocator ); std::vector<u64> faces; const u64 mesh = RegionTwoQuads( session.workspace, faces );
+        RegionInsetRedo( session.workspace, mesh, faces ); audit.calls = 0;
+        REQUIRE( MapWorkspace_InsetMeshFaceByEdgeWidth( &session.workspace, 8 ) ); calls = audit.calls;
+    }
+    CHECK( audit.live == 0 ); REQUIRE( calls > 10 ); usize refused = 0;
+    for ( const usize failOn : { usize{ 1 }, calls / 2, calls - 1 } ) {
+        CAPTURE( failOn, calls );
+        {
+            session_t session( &allocator ); auto &ws = session.workspace; std::vector<u64> faces; const u64 mesh = RegionTwoQuads( ws, faces );
+            RegionInsetRedo( ws, mesh, faces ); const history_published_t before( ws ); region_description_t original( ws, mesh );
+            const auto *faceStorage = ws.meshFaceSet.pData; audit.calls = 0; audit.failOn = failOn;
+            const bool done = MapWorkspace_InsetMeshFaceByEdgeWidth( &ws, 8 ); audit.failOn = 0;
+            if ( !done ) {
+                ++refused; before.Check( ws ); CHECK( ws.meshFaceSet.pData == faceStorage ); RegionCheckSelection( ws, mesh, faces );
+                { region_description_t unchanged( ws, mesh ); CHECK( history_geo::MeshSourceDescription_Equal( &original.value, &unchanged.value ) ); }
+                REQUIRE( EditorHistory_CanRedo( &ws.history ) ); REQUIRE( MapWorkspace_InsetMeshFaceByEdgeWidth( &ws, 8 ) );
+            }
+            CheckInsetRegion( ws, mesh, faces, original.value ); CHECK( EditorHistory_AppliedStepCount( &ws.history ) == before.applied + 1 );
+        }
+        CHECK( audit.live == 0 );
+    }
+    CHECK( refused >= 2 );
 }
