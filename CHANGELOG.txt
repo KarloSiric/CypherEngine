@@ -302,6 +302,11 @@ Added
   integration remain separate work.
 
 Fixed
+- Patch Thicken and Cap snapshot source placement before adding records,
+  fixing a sanitizer-confirmed use-after-free on geometry-record growth.
+  Relocating-storage tests retain generated layer/owner/material and source
+  controls through saving. Targeted ASan reproduces the old fault and passes
+  with the fix; full sanitizer coverage remains part of CI.
 - Brush-face Extrude, Corner Inset and Quad Slice now convert and model in
   one private candidate and one Undo step. Failed operations preserve the
   original brush face, selection and existing Redo branch; validated face

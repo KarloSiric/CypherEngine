@@ -117,17 +117,18 @@ bool Same( vec3 a, vec3 b ) noexcept { const vec3 d = Sub( a, b ); return Dot( d
 // owner, so it saves into the same layer and entity.
 map_status_t AddBeside( map_document_t *map, const geo::patch_surface_t &patch, u64 source, vector_t<u64> *pRoots ) noexcept
 {
-    auto result = Status( geo::GeometryDocument_TryAddPatch( &map->geometry, &patch ) );
-    const map_geometry_record_t *placement = nullptr;
-    for ( usize i = 0; i < map->geometryRecords.nCount; ++i ) { if ( map->geometryRecords.pData[i].id == source ) { placement = &map->geometryRecords.pData[i]; } }
-    if ( result == map_status_t::OK && placement != nullptr && placement->iLayer < map->layers.nCount ) {
-        result = MapDocument_SetGeometryLayer( map, patch.sourceId.value, StringView_FromCString( map->layers.pData[placement->iLayer].id ) );
+    // Adding a placement can reallocate geometryRecords. Keep its values,
+    // rather than a borrowed record, across either placement mutator.
+    map_geometry_record_t placement{};
+    for ( usize i = 0; i < map->geometryRecords.nCount; ++i ) {
+        if ( map->geometryRecords.pData[i].id == source ) { placement = map->geometryRecords.pData[i]; break; }
     }
-    if ( result == map_status_t::OK && placement != nullptr && placement->owner != 0 ) {
-        // Re-find: the layer call can move the records.
-        u64 owner = 0;
-        for ( usize i = 0; i < map->geometryRecords.nCount; ++i ) { if ( map->geometryRecords.pData[i].id == source ) { owner = map->geometryRecords.pData[i].owner; } }
-        if ( owner != 0 ) { result = MapDocument_SetGeometryOwner( map, patch.sourceId.value, owner ); }
+    auto result = Status( geo::GeometryDocument_TryAddPatch( &map->geometry, &patch ) );
+    if ( result == map_status_t::OK && placement.id != 0 && placement.iLayer < map->layers.nCount ) {
+        result = MapDocument_SetGeometryLayer( map, patch.sourceId.value, StringView_FromCString( map->layers.pData[placement.iLayer].id ) );
+    }
+    if ( result == map_status_t::OK && placement.id != 0 && placement.owner != 0 ) {
+        result = MapDocument_SetGeometryOwner( map, patch.sourceId.value, placement.owner );
     }
     if ( result == map_status_t::OK && !Vector_PushBack( pRoots, patch.sourceId.value ) ) { result = map_status_t::OUT_OF_MEMORY; }
     return result;

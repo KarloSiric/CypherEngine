@@ -555,6 +555,110 @@ TEST_CASE( "Thicken adds a back patch behind each patch and seams along its open
     Vector_Shutdown( &roots );
 }
 
+namespace
+{
+// Keep retired placement storage readable but empty until the fixture ends.
+// A stale borrowed record then deterministically loses its owner instead of
+// depending on the system allocator's freed-memory contents.
+struct patch_record_relocation_t {
+    struct retired_t { void *memory{}; usize size{}, alignment{}; };
+    retired_t retired[8]{};
+    usize retiredCount{}, liveBytes{};
+    map_document_t *map{};
+    bool armed{};
+    allocator_t allocator{};
+    patch_record_relocation_t()
+    {
+        allocator.pUserData = this;
+        allocator.pfnAllocate = []( void *ctx, usize size, usize alignment ) noexcept -> void * {
+            auto &audit = *static_cast<patch_record_relocation_t *>( ctx );
+            void *memory = Allocator_Allocate( Allocator_GetSystem(), size, alignment );
+            if ( memory != nullptr ) { audit.liveBytes += size; }
+            return memory;
+        };
+        allocator.pfnFree = []( void *ctx, void *memory, usize size, usize alignment ) noexcept {
+            auto &audit = *static_cast<patch_record_relocation_t *>( ctx );
+            if ( memory != nullptr ) { audit.liveBytes -= size; }
+            if ( memory != nullptr && audit.armed && audit.map != nullptr && memory == audit.map->geometryRecords.pData && audit.retiredCount < 8 ) {
+                std::memset( memory, 0, size );
+                audit.retired[audit.retiredCount++] = { memory, size, alignment };
+                return;
+            }
+            Allocator_Free( Allocator_GetSystem(), memory, size, alignment );
+        };
+    }
+    ~patch_record_relocation_t()
+    {
+        for ( usize i = 0; i < retiredCount; ++i ) {
+            Allocator_Free( Allocator_GetSystem(), retired[i].memory, retired[i].size, retired[i].alignment );
+        }
+    }
+};
+} // namespace
+
+TEST_CASE( "Patch backs, seams and caps retain placement when record storage relocates", "[map][object-create][patch-edit][patch-placement-lifetime]" )
+{
+    for ( const bool cap : { false, true } ) {
+        DYNAMIC_SECTION( ( cap ? "Cylinder caps" : "Plane back and four seams" ) ) {
+            patch_record_relocation_t audit;
+            map_document_t map{};
+            REQUIRE( MapDocument_Create( &map, &audit.allocator, { SV( "Patch placement" ), SV( "reap" ), {} } ) == map_status_t::OK );
+            audit.map = &map;
+            REQUIRE( MapDocument_AddLayer( &map, SV( "patch_layer" ), SV( "Patches" ) ) == map_status_t::OK );
+            std::strcpy( map.creationLayer, "patch_layer" );
+            u64 owner = 0, source = 0;
+            REQUIRE( MapCreate_Entity( &map, SV( "func_detail" ), {}, {}, &owner ) == map_status_t::OK );
+            REQUIRE( MapCreate_Patch( &map, cap ? map_patch_shape_t::CYLINDER : map_patch_shape_t::PLANE,
+                { { 0, 0, 0 }, { 128, 64, cap ? 128.0 : 0.0 } }, 2, 8, SV( "materials/dev/patch.cymat" ), &source ) == map_status_t::OK );
+            REQUIRE( MapDocument_SetGeometryLayer( &map, source, SV( "patch_layer" ) ) == map_status_t::OK );
+            REQUIRE( MapDocument_SetGeometryOwner( &map, source, owner ) == map_status_t::OK );
+            const auto *front = geo::GeometryDocument_FindPatch( &map.geometry, { source } ); REQUIRE( front != nullptr );
+            const std::vector<geo::patch_control_t> original( front->controls.pData, front->controls.pData + front->controls.nCount );
+            REQUIRE( Vector_ShrinkToFit( &map.geometryRecords ) );
+            REQUIRE( map.geometryRecords.nCapacity == map.geometryRecords.nCount );
+            vector_t<u64> roots{}; REQUIRE( Vector_Init( &roots, Allocator_GetSystem() ) );
+            audit.armed = true;
+            usize caps = 0;
+            const auto status = cap ? MapPatchEdit_Cap( &map, { &source, 1 }, &roots, &caps ) :
+                                      MapPatchEdit_Thicken( &map, { &source, 1 }, 16, true, &roots );
+            audit.armed = false;
+            REQUIRE( status == map_status_t::OK );
+            CHECK( audit.retiredCount > 0 );
+            REQUIRE( roots.nCount == ( cap ? 3 : 6 ) );
+            if ( cap ) { CHECK( caps == 2 ); }
+            const auto checkPlacement = [&]( const map_document_t &document ) {
+                for ( usize root = 0; root < roots.nCount; ++root ) {
+                    const u64 id = roots.pData[root];
+                    const map_geometry_record_t *record = nullptr;
+                    for ( usize i = 0; i < document.geometryRecords.nCount; ++i ) {
+                        if ( document.geometryRecords.pData[i].id == id ) { record = &document.geometryRecords.pData[i]; break; }
+                    }
+                    REQUIRE( record != nullptr );
+                    REQUIRE( record->iLayer < document.layers.nCount );
+                    CHECK( StringView_Equals( SV( document.layers.pData[record->iLayer].id ), SV( "patch_layer" ) ) );
+                    CHECK( record->owner == owner );
+                    const auto *patch = geo::GeometryDocument_FindPatch( &document.geometry, { id } ); REQUIRE( patch != nullptr );
+                    CHECK( StringView_Equals( MapMaterials_Path( &document.materials, patch->materialId ), SV( "materials/dev/patch.cymat" ) ) );
+                }
+                const auto *unchanged = geo::GeometryDocument_FindPatch( &document.geometry, { source } ); REQUIRE( unchanged != nullptr );
+                REQUIRE( unchanged->controls.nCount == original.size() );
+                for ( usize i = 0; i < original.size(); ++i ) {
+                    const auto &before = original[i], &after = unchanged->controls.pData[i];
+                    CHECK( after.sourceId.value == before.sourceId.value );
+                    CHECK( after.position.x == before.position.x ); CHECK( after.position.y == before.position.y ); CHECK( after.position.z == before.position.z );
+                    CHECK( after.uv.x == before.uv.x ); CHECK( after.uv.y == before.uv.y );
+                }
+            };
+            checkPlacement( map );
+            saved_t saved; REQUIRE( saved.Save( &map ) == map_status_t::OK );
+            map_document_t loaded; saved.Load( loaded ); checkPlacement( loaded );
+            Vector_Shutdown( &roots );
+            MapDocument_Shutdown( &map );
+            CHECK( audit.liveBytes == 0 );
+        }
+    }
+}
+
 TEST_CASE( "Sweep and lathe build closed solids; displacements build grids on a face", "[map][object-create][sweep]" )
 {
     fixture_t f;

@@ -2465,3 +2465,30 @@ explicitly mesh-only; other legacy brush-to-mesh command wrappers still need
 their own atomic operation routes. Connected-region width Inset, live width
 preview, local axes and per-axis component Scale remain separate geometry
 work. Renderer work remains deferred.
+
+
+## Patch placement lifetime sanitizer repair — 2026-10-17
+
+The 693abdeb Linux sanitizer run exposed a heap-use-after-free in Patch
+Thicken's shared AddBeside helper. It borrowed a geometryRecords element,
+called SetGeometryLayer (which can reallocate that array), and read owner
+through the invalidated pointer before attempting its later re-find. The
+helper now snapshots placement values before mutation. Thicken backs/seams
+and Cap share the repaired path; this does not change the private-copy batch
+failure contract and adds no allocation.
+
+A deterministic regression shrinks record storage and quarantines/zeros retired
+allocations. It verifies every generated plane back/seam and cylinder cap keeps
+its non-default layer, owner and material; original source controls, IDs and UVs
+remain exact, with Save/Load and balanced allocator ownership. Both owning entity
+and patch originate in that layer so the test does not confuse canonical owner
+placement with a lifetime defect.
+
+Local targeted Core validation passes 11 cases / 1,406 assertions. A bounded
+before/after ASan relink, rebuilding only the PatchEdit translation unit and
+reusing build-mason's test objects/libraries, reproduces the old heap-use-after-
+free and passes the corrected [thicken] case (20 assertions). This is partial-TU
+instrumentation, not a claim of a complete local sanitized build. Commands,
+source hashes and logs are in build-mason/artifacts/mason_patch_thicken_asan.
+The full Linux sanitizer job is required for published verification. No new
+build tree, package download or dependency cache was created.
